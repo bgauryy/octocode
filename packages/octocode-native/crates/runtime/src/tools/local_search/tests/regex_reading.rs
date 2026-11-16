@@ -48,7 +48,7 @@ fn a_literal_miss_says_it_matches_as_a_regex_and_offers_the_call() {
 #[test]
 fn a_literal_hit_gets_no_regex_offer() {
     let row = search_fixture(&[("a.rs", "a|b\nab\n")], literal(&["a|b"]));
-    assert_eq!(row["matchedLineCount"], 1, "the literal line only: {row}");
+    assert_eq!(row["matchCount"], 1, "the literal line only: {row}");
     assert!(!offers_regex(&row), "{row}");
 }
 

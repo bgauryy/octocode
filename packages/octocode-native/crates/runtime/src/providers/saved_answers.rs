@@ -35,6 +35,8 @@ const UNUSED_RETENTION: CacheClass = CacheClass::Idle {
 };
 
 const NAMESPACE: &str = "provider-answers";
+/// Where each credential scope's revocation time is kept.
+const EPOCH_NAMESPACE: &str = "provider-answer-epochs";
 
 /// A stored answer: its body is left out and named by digest.
 #[derive(Deserialize, Serialize)]
@@ -97,6 +99,10 @@ pub(crate) struct KeptAnswers {
     /// processes' ([`Store::with_entry_lock`]).
     listing: Mutex<()>,
     held: Store<SavedAnswer>,
+    /// When each credential scope was last refused by its origin, in
+    /// milliseconds: answers are kept under the scope and that time, so a
+    /// revocation leaves the earlier ones unreachable ([`SavedAnswers::revoked`]).
+    epochs: Store<u64>,
     security: ContentSecurity,
 }
 
@@ -106,10 +112,30 @@ impl KeptAnswers {
         Self {
             sealed: Store::new(CacheConfig::derived(), disk.clone()),
             bodies: Store::new(CacheConfig::derived(), disk.clone()),
-            references: Store::new(CacheConfig::derived(), disk),
+            references: Store::new(CacheConfig::derived(), disk.clone()),
             listing: Mutex::new(()),
             held: Store::new(CacheConfig::derived(), None),
+            epochs: Store::new(CacheConfig::derived(), disk),
             security: ContentSecurity::new(),
+        }
+    }
+
+    /// `scope` as answers are kept under it now: after a revocation, the
+    /// scope joined to the time of the last one, so no earlier answer is
+    /// named by any request. Retention retires the unreachable ones.
+    fn current_scope(&self, scope: &str) -> String {
+        let epoch = self
+            .epochs
+            .get(&CacheKey {
+                namespace: EPOCH_NAMESPACE.into(),
+                scope: scope.into(),
+                resource: String::new(),
+            })
+            .map_or(0, |epoch| *epoch.value);
+        if epoch == 0 {
+            scope.to_owned()
+        } else {
+            format!("{scope}@{epoch}")
         }
     }
 
@@ -204,6 +230,7 @@ impl KeptAnswers {
 
 impl SavedAnswers for KeptAnswers {
     fn load(&self, scope: &str, request: &str) -> Option<SavedAnswer> {
+        let scope = &self.current_scope(scope);
         let key = Self::key(scope, request);
         if let Some(kept) = self.held.get(&key) {
             return Some((*kept.value).clone());
@@ -220,6 +247,7 @@ impl SavedAnswers for KeptAnswers {
     }
 
     fn save(&self, scope: &str, request: &str, mut saved: SavedAnswer) {
+        let scope = &self.current_scope(scope);
         let key = Self::key(scope, request);
         let reference = reference(scope, request);
         let previous = self.sealed.get(&key).map(|kept| kept.value.body.clone());
@@ -267,7 +295,30 @@ impl SavedAnswers for KeptAnswers {
         }
     }
 
+    fn revoked(&self, scope: &str) {
+        let now = u64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(1, |elapsed| elapsed.as_millis()),
+        )
+        .unwrap_or(1)
+        .max(1);
+        let key = CacheKey {
+            namespace: EPOCH_NAMESPACE.into(),
+            scope: scope.into(),
+            resource: String::new(),
+        };
+        // Strictly after the epoch in force, whatever the clock does.
+        let at = self
+            .epochs
+            .get(&key)
+            .map_or(now, |epoch| now.max(*epoch.value + 1));
+        self.epochs
+            .put_confirmed(key, at, size_of::<u64>(), UNUSED_RETENTION);
+    }
+
     fn forget(&self, scope: &str, request: &str) {
+        let scope = &self.current_scope(scope);
         let key = Self::key(scope, request);
         self.held.remove(&key);
         let previous = self.sealed.get(&key).map(|kept| kept.value.body.clone());
@@ -356,6 +407,13 @@ pub(crate) fn gate_keeps(security: &ContentSecurity, answer: &ProviderAnswer) ->
     verdict
 }
 
+/// The name of a file whose reads apply the widest value rules (a config
+/// file's, where a bare value after a label is a value): a stored leaf is
+/// judged under them too, because a later read of the answer may name any
+/// file, and a leaf of a listing (a `download_url` with a `?token=` value)
+/// is text of no file the walk can name.
+const WIDEST_READ_NAME: &str = "any.env";
+
 /// Whether nothing in `answer`'s request, headers, next link or body would be
 /// redacted, a JSON body as its values with any base64 file content decoded
 /// (GitHub's contents and blob payloads). Reads apply patterns by the file they
@@ -384,32 +442,45 @@ fn gate_verdict(security: &ContentSecurity, answer: &ProviderAnswer) -> bool {
     // The walk reports whether it changed anything, so the value is judged in
     // place: no second copy of the answer to build and compare.
     let changed = sanitize_json(&mut exposed, &mut |text, path| {
-        Ok::<_, std::convert::Infallible>(security.sanitize_stored_leaf(text, path))
+        Ok::<_, std::convert::Infallible>(
+            security
+                .sanitize_stored_leaf(text, path)
+                .or_else(|| security.sanitize_stored_leaf(text, Some(WIDEST_READ_NAME))),
+        )
     })
     .unwrap_or_else(|never| match never {});
     !changed
 }
 
 /// Whether `answer` holds a credential-named file's text, which may hold a
-/// secret in no format the gate recognizes: a contents read of that file, a blob
-/// read for it, a code-search page, whose index fragments are text of every file
-/// it lists, or a changed-file list (a commit, a comparison, a pull request's
-/// files) with a patch of one, by its name or a rename's old name. It stays in
-/// this process, as an answer holding a recognized secret does.
+/// secret in no format the gate recognizes: a contents read of that file, or of
+/// a symlink to one (its answer names the target), a blob read for it, a
+/// code-search page, whose index fragments are text of every file it lists, or
+/// a changed-file list (a commit, a comparison, a pull request's files) with a
+/// patch of one, by its name or a rename's old name. It stays in this process,
+/// as an answer holding a recognized secret does. Every name is judged by the
+/// one decision ([`crate::policy::path::withheld_text_by_default`]).
 fn holds_credential_file(request: &str, body: &Value) -> bool {
-    let is_withheld = crate::policy::discovery::is_sensitive_repository_file;
-    if octocode_github::requested_file(request).is_some_and(is_withheld) {
+    let withheld = |path: &str, previous: Option<&str>, target: Option<&str>| {
+        crate::policy::path::withheld_text_by_default(path, previous, target)
+    };
+    if octocode_github::requested_file(request).is_some_and(|file| withheld(file, None, None)) {
         return true;
     }
     let path = requested_path(request);
     if let Some((_, file)) = path.split_once("/contents/") {
-        return is_withheld(file);
+        let target = body["target"]
+            .as_str()
+            .filter(|_| body["type"] == "symlink");
+        return withheld(file, None, target);
     }
     if path.ends_with("/search/code") {
         return body["items"].as_array().is_some_and(|items| {
-            items
-                .iter()
-                .any(|item| item["path"].as_str().is_some_and(is_withheld))
+            items.iter().any(|item| {
+                item["path"]
+                    .as_str()
+                    .is_some_and(|path| withheld(path, None, None))
+            })
         });
     }
     body["files"]
@@ -418,9 +489,9 @@ fn holds_credential_file(request: &str, body: &Value) -> bool {
         .is_some_and(|files| {
             files.iter().any(|file| {
                 file["patch"].is_string()
-                    && ["filename", "previous_filename"]
-                        .iter()
-                        .any(|name| file[*name].as_str().is_some_and(is_withheld))
+                    && file["filename"].as_str().is_some_and(|name| {
+                        withheld(name, file["previous_filename"].as_str(), None)
+                    })
             })
         })
 }

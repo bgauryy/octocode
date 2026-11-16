@@ -1,4 +1,4 @@
-//! Page layout: how a scan is cut into pages (grid or streamed), what a
+//! Page layout: how a scan is cut into pages, what a
 //! page costs, preserving each selected value whole.
 use crate::tools::local_search::local_search_query::View;
 
@@ -6,9 +6,7 @@ mod costs;
 mod entries;
 mod stream;
 
-use super::local_search_query::{
-    self, default_matches_per_file, default_page_size, streamed_layout,
-};
+use super::local_search_query;
 use crate::policy::path::PathPolicy;
 use crate::response::result::ToolError;
 #[cfg(test)]
@@ -160,20 +158,18 @@ pub(super) struct Layout {
     pub(super) shown: PageRows,
     pub(super) total_pages: u32,
     /// What the pages walk: hit rows on default content pages (a file rides
-    /// several), files on list and grid pages.
+    /// several), files on list pages.
     pub(super) total_items: u32,
     /// Where this page starts among `total_items`, from 0, and how many of
     /// them it holds.
     pub(super) offset: usize,
     pub(super) length: usize,
-    pub(super) matches_per: u32,
     /// What one hit row is: a matched line on content pages, an occurrence
     /// on matchOnly pages. Hit-row pagination states it as its `unit`.
     pub(super) row_unit: &'static str,
     pub(super) out_of_range: bool,
     /// Resolved context around each row (empty for matchOnly).
     pub(super) context: SearchContext,
-    pub(super) streamed: bool,
     /// Context windows of nearby rows merge into one block.
     pub(super) merge_context: Option<SearchContext>,
     /// Every page of a streamed cut, when this call cut it (a fresh page
@@ -238,34 +234,24 @@ impl Layout {
                 }
                 fits_whole(&parsed.files, page_budget, &costs, false)
             };
-        // A streamed page shows rows as written, file after file; only the
-        // match-page grid cuts a file into fixed runs of rows.
-        let matches_per = if streamed_layout(query) {
-            u32::MAX
-        } else {
-            default_matches_per_file()
-        }
-        .max(1);
-        let streamed = streamed_layout(query);
+        // A page shows rows as written, file after file.
         let mut pages = None;
-        let (shown, total_pages, total_items, offset) = if streamed && list {
+        let (shown, total_pages, total_items, offset) = if list {
             Self::list_stream(query, &parsed.files, page_budget, &costs)
-        } else if streamed {
+        } else {
             let pricing = priced_names.then_some(pricing);
             Self::stream(
                 query,
                 &parsed.files,
-                (matches_per, show_all),
+                show_all,
                 page_budget,
                 &mut costs,
                 (pricing, cuts),
                 (walking.map_or(0, |walking| walking.start_row), &mut pages),
             )?
-        } else {
-            Self::grid(query, parsed.files.len(), matches_per)
         };
         let total_files = saturating_u32(parsed.files.len());
-        let length = if list || !streamed {
+        let length = if list {
             shown.len()
         } else {
             shown_rows(&shown, &parsed.files)
@@ -283,14 +269,12 @@ impl Layout {
             total_items,
             offset,
             length,
-            matches_per,
             row_unit: row_unit(match_only),
             context: if match_only {
                 SearchContext::default()
             } else {
                 context
             },
-            streamed,
             merge_context,
             pages,
             walk: None,
@@ -342,11 +326,9 @@ impl Layout {
             total_items: index.total_rows,
             offset,
             length,
-            matches_per: index.matches_per,
             row_unit: row_unit(match_only),
             merge_context: (!match_only && !context.is_empty()).then_some(context),
             context,
-            streamed: true,
             pages: None,
             walk: None,
         }
@@ -364,7 +346,7 @@ impl Layout {
     fn stream(
         query: &LocalSearchQuery,
         files: &[octocode_engine::types::TextSearchFile],
-        (matches_per, show_all): (u32, bool),
+        show_all: bool,
         page_budget: usize,
         costs: &mut PageCosts,
         (pricing, cuts): (Option<&mut NamePricing<'_>>, Option<&StreamCuts>),
@@ -375,7 +357,7 @@ impl Layout {
         let cut = |costs: &PageCosts, through: Option<usize>| {
             stream_pages(
                 files,
-                matches_per as usize,
+                usize::MAX,
                 show_all,
                 (page_budget, local_search_query::limit(query)),
                 StreamCosts {
@@ -465,37 +447,6 @@ impl Layout {
             saturating_u32(cut.pages),
             saturating_u32(files.len()),
             cut.range.start,
-        )
-    }
-
-    /// A caller layout keeps the file-page × match-page grid.
-    fn grid(
-        query: &LocalSearchQuery,
-        file_count: usize,
-        matches_per: u32,
-    ) -> (PageRows, u32, u32, usize) {
-        let page_size = default_page_size(local_search_query::view(query)).max(1);
-        let page = local_search_query::page(query).max(1);
-        let window = crate::response::page_windows::count_window(
-            page as usize,
-            page_size as usize,
-            file_count,
-        );
-        let skip =
-            (local_search_query::match_page(query).max(1) - 1).saturating_mul(matches_per) as usize;
-        let offset = window.start;
-        let shown = window
-            .map(|index| (index, skip..skip.saturating_add(matches_per as usize)))
-            .collect::<PageRows>();
-        let total_files = saturating_u32(file_count);
-        (
-            shown,
-            saturating_u32(crate::response::page_windows::count_pages(
-                file_count,
-                octocode_engine::num::saturating_usize(page_size),
-            )),
-            total_files,
-            offset,
         )
     }
 }

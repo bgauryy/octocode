@@ -462,7 +462,7 @@ mod tests {
         assert_eq!(query["questions"]["q"], row.questions[0]);
     }
 
-    /// Live check D4: a glob in `source` names no file; the row says globs go
+    /// A glob in `source` names no file; the row says globs go
     /// in `resources` and offers the same row with the glob there.
     #[test]
     fn a_glob_in_source_points_to_resources() {

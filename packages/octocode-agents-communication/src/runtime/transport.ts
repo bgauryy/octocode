@@ -6,7 +6,7 @@ import { dumps, encode, parseJsonBytes } from './json-text.js';
 import { type Channel, SOCKET_IO_MS, isOneOf, loopback, object, socketPath, unix, validate, validateSession } from './native-io.js';
 import { realpath } from './paths.js';
 import { codePointLength } from './text.js';
-import { monotonic } from './timing.js';
+import { monotonic, scaledMs } from './timing.js';
 import { Codex } from './transport-codex.js';
 import { isObject, isUuid, objectOrEmpty, type JsonObject } from './validation.js';
 import { VERSION } from './version.js';
@@ -26,8 +26,8 @@ export interface Receipt {
 export type UsageCounter = Exclude<keyof RecordUsageInput, 'key' | 'scope' | 'model'>;
 
 const HTTP_CONNECT_MS = 2000;
-const HTTP_EXCHANGE_MS = 5000;
-const GROK_REGISTRATION_MS = 10000;
+const HTTP_EXCHANGE_MS = scaledMs(5000);
+const GROK_REGISTRATION_MS = scaledMs(10000);
 const GROK_PROMPT_MS = 300000;
 const GROK_POLL_MS = 1;
 const GROK_REQUEST_POLL_MS = 5;

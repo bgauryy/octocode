@@ -13,7 +13,6 @@ use super::verify::{
     redact_scan, validate_matched, verify_shown,
 };
 use crate::execution::cancel::CancellationCheck;
-use crate::id::ToolId;
 use crate::policy::path::PathPolicy;
 use crate::response::result::ToolError;
 use crate::security::ContentSecurity;
@@ -26,7 +25,7 @@ pub(super) use scanned::scan;
 #[cfg(test)]
 pub(super) use scanned::scan_query;
 #[cfg(test)]
-pub(super) use scanned::{JUDGED_PATHS, test_held_limit};
+pub(super) use scanned::{JUDGED_PATHS, judge, test_held_limit};
 pub(super) use scanned::{Scanned, scan_resumed, search_options, streamed};
 use serde_json::json;
 pub(super) use settle::search_stats;
@@ -80,6 +79,7 @@ pub fn execute_local_search(
     )
     .map_err(written)?;
     alternates.offer_regex_reading(paths, &mut row, cancel);
+    alternates.offer_dead_terms(paths, &mut row, cancel);
     if let Some(next) = row.next.as_mut() {
         local_search_query::as_written(next, query, joined);
     }
@@ -170,14 +170,13 @@ pub(super) fn page_of(
         .selection
         .as_ref()
         .map(super::selection::Selected::token);
-    let (next, match_next, leftover_matches) = if scan.stream.is_some() {
+    let next = if scan.stream.is_some() {
         // A streamed page continues the walk, not a stored scan.
-        let next = super::cursor::walk_next(
+        super::cursor::walk_next(
             query,
             shaped.walk.as_ref(),
             view.layout.offset + view.layout.length,
-        )?;
-        (next, None, false)
+        )?
     } else {
         cursor(
             query,
@@ -210,26 +209,13 @@ pub(super) fn page_of(
         search_options: &scan.search_options,
         alternates,
         total_files: view.totals.files,
-        unverified: shaped.unverified,
-        leftover_matches,
         classified_hits: shaped
             .selection
             .as_ref()
             .is_some_and(|selected| selected.receipt().total_items > 0),
     };
-    let continuation_missing = next.is_none() && match_next.is_none();
+    let continuation_missing = next.is_none();
     let mut result = settle_row(&scope, &page, rows, next, continuation_missing)?;
-    if let Some(call) = match_next {
-        for file in &mut result.files {
-            if file.pagination.as_ref().is_some_and(|page| page.has_more) {
-                file.next = Some(crate::response::collection::walk_calls(
-                    ToolId::LocalSearch,
-                    Some("files"),
-                    call.clone(),
-                ));
-            }
-        }
-    }
     if let Some(selected) = &shaped.selection {
         let leads = selected.leads(query, &scan.identity)?;
         if !leads.is_empty() {
@@ -239,9 +225,7 @@ pub(super) fn page_of(
             }
         }
         // The pre-selection totals hold for every page: said on the first.
-        if local_search_query::page(query).max(1) == 1
-            && local_search_query::match_page(query).max(1) == 1
-        {
+        if local_search_query::page(query).max(1) == 1 {
             result.warnings.extend(selected.disclosure());
         }
         // Hits were judged and none kept: an empty row whose unfiltered
@@ -300,8 +284,6 @@ pub(super) struct Shaped {
     pub(super) redacted: Redacted,
     /// What redacting the scan changed, for a stored scan's later pages.
     pub(super) redaction: Redaction,
-    /// Some values were redacted because their source could not be re-read.
-    pub(super) unverified: bool,
     /// Outlines parsed from the verified reads (see [`verify_shown`]).
     pub(super) outlines: Outlines,
     pub(super) selection: Option<super::selection::Selected>,
@@ -316,8 +298,7 @@ pub(super) struct Shaped {
 /// Redact the scan, order it, cut the page, and verify what it shows.
 /// A fresh scan (`fresh`) is encoded for its cursor: by page once its cut
 /// is made, or whole when its page judges rows before cutting
-/// (classification), shows none (a list view) or cuts a match-page grid;
-/// see [`super::packed`].
+/// (classification) or shows none (a list view); see [`super::packed`].
 ///
 /// Every file the page reads or shows passes the read policy first: the
 /// key-block reads inside [`redact_scan`] and each shown file here. A file
@@ -347,10 +328,7 @@ pub(super) fn shape_page(
     let (mut redacted, withheld, redaction) = redact_scan(scope, parsed, stored_redaction)?;
     // What a keyPath scope cannot separate is said once, on the first page.
     let notes = local_search_query::key_path(query)
-        .filter(|_| {
-            local_search_query::page(query).max(1) == 1
-                && local_search_query::match_page(query).max(1) == 1
-        })
+        .filter(|_| local_search_query::page(query).max(1) == 1)
         .and_then(|key_path| {
             super::key_scope::shared_note(key_path, (paths, output_root), &parsed.files)
         })
@@ -362,8 +340,7 @@ pub(super) fn shape_page(
         return Ok(shaped);
     }
     let whole = local_search_query::has_classification(query)
-        || super::layout::list_view(local_search_query::view(query))
-        || !local_search_query::streamed_layout(query);
+        || super::layout::list_view(local_search_query::view(query));
     // A whole scan is encoded before the page reorders and fills it;
     // deflated only if the page's cursor keeps it (see
     // `manifest::put_checked`).
@@ -443,7 +420,7 @@ pub(super) fn shape_page(
         .filter_map(|(page, index)| Some((page, cut.remove(index)?)))
         .collect::<CutOutlines>();
     let mut outlines = Outlines::new();
-    let unverified = verify_shown(
+    verify_shown(
         scope,
         &mut view.parsed,
         &view.layout,
@@ -455,7 +432,6 @@ pub(super) fn shape_page(
         view,
         redacted,
         redaction,
-        unverified,
         outlines,
         selection,
         tally: None,
@@ -498,7 +474,7 @@ fn shape_stored_page(
         validate_matched(paths, &output_root.join(&view.parsed.files[*index].path))?;
     }
     let mut outlines = Outlines::new();
-    let unverified = verify_shown(
+    verify_shown(
         scope,
         &mut view.parsed,
         &view.layout,
@@ -510,7 +486,6 @@ fn shape_stored_page(
         view,
         redacted,
         redaction: Redaction::default(),
-        unverified,
         outlines,
         selection: None,
         tally: None,

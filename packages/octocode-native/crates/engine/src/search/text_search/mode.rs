@@ -33,14 +33,16 @@ pub(super) fn match_work(mode: Mode, only_matching: bool) -> MatchWork {
 }
 
 /// One matcher per searched term, built like the search's own: only a
-/// count view of two or more terms counts them (empty otherwise).
+/// search of two or more terms counts them for each file it keeps (empty
+/// otherwise): a count view's per-term counts, and for any other view which
+/// terms the files that matched hold.
 pub(super) fn term_matchers<M>(
     opts: &TextSearchOptions,
     mode: Mode,
     build: impl Fn(&str) -> crate::error::Result<M>,
 ) -> crate::error::Result<Vec<M>> {
     match opts.terms.as_deref() {
-        Some(terms) if terms.len() > 1 && matches!(mode, Mode::CountMatches | Mode::CountLines) => {
+        Some(terms) if terms.len() > 1 && mode != Mode::FilesWithoutMatch => {
             terms.iter().map(|term| build(term)).collect()
         }
         _ => Ok(Vec::new()),

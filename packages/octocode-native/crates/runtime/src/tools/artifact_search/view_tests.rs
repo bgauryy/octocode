@@ -115,16 +115,11 @@ fn a_resolve_summary_is_the_release_and_its_source() {
         }
         assert!(whole.get(*detail).is_some(), "{detail}: {details}");
     }
-    // The research leads stay, and one more asks for the whole row.
-    let lead = details_lead(&summary).expect("a details lead");
-    assert_eq!(
-        lead["input"]["queries"][0],
-        json!({"operation": "resolve", "ecosystem": "npm", "packageName": "vite",
-            "version": "5.4.1", "view": "details"})
-    );
+    // The research leads stay; no lead restates the query as `view:"details"`.
+    assert!(details_lead(&summary).is_none(), "{summary}");
     assert_eq!(
         summary["related"].as_array().map(Vec::len),
-        details["related"].as_array().map(|leads| leads.len() + 1),
+        details["related"].as_array().map(Vec::len),
         "{summary}"
     );
     assert!(details_lead(&details).is_none(), "{details}");
@@ -191,8 +186,8 @@ fn a_search_summary_is_the_name_the_version_and_the_description() {
             "{field} is in neither view's account"
         );
     }
-    assert!(details_lead(&summary).is_some(), "{summary}");
-    // A later page continues the view its walk began with: no second lead.
+    // The details view is named in the tool description, not on the row.
+    assert!(details_lead(&summary).is_none(), "{summary}");
     let mut later = search("summary");
     later["page"] = json!(2);
     assert!(details_lead(&rows(later)).is_none());

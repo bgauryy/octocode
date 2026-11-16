@@ -3,8 +3,8 @@
 //! The scan counts values per file as `unique: "count"` does; every file's
 //! values are then checked against their source and redacted as a shown
 //! row's are ([`verify_candidate`]), and only those values are tallied: a
-//! redacted value counts as its placeholder, an unverified one as the
-//! unverified placeholder (the row then says so). The tally is the page:
+//! redacted value counts as its placeholder, an unverified one as its
+//! value shown span-checked. The tally is the page:
 //! no per-file rows and no file pages; a long tally is split by response
 //! pagination, never cut.
 use super::executor::Shaped;
@@ -33,7 +33,7 @@ pub struct UniqueValue {
 /// A scan's tally and what checking its values found.
 pub(super) struct Tally {
     pub(super) values: Vec<UniqueValue>,
-    /// Tallied values redaction changed (`redactedMatches`).
+    /// Tallied values redaction changed (the row's `redacted` flag).
     pub(super) redacted: usize,
 }
 
@@ -91,9 +91,8 @@ pub(super) fn shape(
             "unique countAll tallies every hit; classification selects hits per file: use unique count with classification for the kept hits' values.",
         ));
     }
-    let mut unverified = false;
     for file in &mut parsed.files {
-        unverified |= !verify_candidate(scope, file, (&mut redacted, &withheld))?;
+        verify_candidate(scope, file, (&mut redacted, &withheld))?;
     }
     let tally = tally(&parsed.files, &redacted);
     let layout = layout(scope.query, parsed.files.len());
@@ -107,7 +106,6 @@ pub(super) fn shape(
         view,
         redacted,
         redaction,
-        unverified,
         outlines: Outlines::new(),
         selection: None,
         tally: Some(tally),
@@ -166,11 +164,9 @@ fn layout(query: &LocalSearchQuery, files: usize) -> Layout {
         total_items: saturating_u32(files),
         offset: 0,
         length: 0,
-        matches_per: 1,
         row_unit: "matches",
         out_of_range: files > 0 && local_search_query::page(query).max(1) > 1,
         context: SearchContext::default(),
-        streamed: true,
         merge_context: None,
         pages: None,
         walk: None,

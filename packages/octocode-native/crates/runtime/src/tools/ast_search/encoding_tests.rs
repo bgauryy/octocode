@@ -47,6 +47,39 @@ fn a_legacy_source_is_read_and_names_its_decoding_in_every_operation() {
     assert_eq!(error.code, ErrorCode::BinaryFileUnsupported);
 }
 
+/// The decoding diagnostic of a symbols outline names the file it decoded,
+/// as every other diagnostic of the answer names its file.
+#[test]
+fn the_decoded_diagnostic_of_an_outline_names_its_file() {
+    fn find<'a>(value: &'a Value, code: &str, out: &mut Vec<&'a Value>) {
+        match value {
+            Value::Object(fields) => {
+                if fields.get("code").and_then(Value::as_str) == Some(code) {
+                    out.push(value);
+                }
+                fields.values().for_each(|inner| find(inner, code, out));
+            }
+            Value::Array(items) => items.iter().for_each(|inner| find(inner, code, out)),
+            _ => {}
+        }
+    }
+    let root = Fixture::new();
+    let file = root.0.join("latin1.ts");
+    std::fs::write(
+        &file,
+        b"export const s = \"caf\xe9\";\nexport function f() {}\n",
+    )
+    .expect("source");
+    let out = run(&root.0, json!({"operation":"symbols","path":file})).expect("outline");
+    let mut found = Vec::new();
+    find(&out, "structural.source.decoded", &mut found);
+    assert!(!found.is_empty(), "{out}");
+    for diagnostic in found {
+        let path = diagnostic["path"].as_str().unwrap_or_default();
+        assert!(path.ends_with("latin1.ts"), "{diagnostic}");
+    }
+}
+
 /// The recovery of a file with no grammar names the input field that sets
 /// one (`parser`), not a field the contract does not have.
 #[test]

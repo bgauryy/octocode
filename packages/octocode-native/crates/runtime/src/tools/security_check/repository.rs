@@ -644,19 +644,15 @@ pub(super) async fn run(
         );
     }
     crate::response::result::finish_calls(&mut data);
-    Ok(in_view(view, repo, data))
+    Ok(in_view(view, data))
 }
 
 /// The finished row as `view` states it.
-fn in_view(view: SecurityCheckView, repo: &str, data: Value) -> Value {
-    let mut query = Map::new();
-    query.insert("operation".into(), json!("repository"));
-    query.insert("repo".into(), json!(repo));
+fn in_view(view: SecurityCheckView, data: Value) -> Value {
     super::summary::apply(
         view,
         data,
         super::summary::Target {
-            query,
             asked_name: None,
             asked_version: None,
             unfixed_in_major: 0,

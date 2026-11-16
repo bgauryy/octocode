@@ -104,7 +104,7 @@ fn topology_checks_required_tables_and_every_source_block_it_renders() {
         // `stats` reads no block; a row answer reads the damaged one.
         let selected = ask(&dir, "callers", "fn0000", 255, false);
         assert_eq!(
-            selected.value["errorCode"], "decode",
+            selected.value["errorCode"], "snapshotIncompatible",
             "{tag:?}/callers: {}",
             selected.value
         );
@@ -116,7 +116,7 @@ fn topology_checks_required_tables_and_every_source_block_it_renders() {
         std::fs::write(&graph, corrupted).unwrap();
         let selected = ask(&dir, "stats", "code.ts", 0, false);
         assert_eq!(
-            selected.value["errorCode"], "decode",
+            selected.value["errorCode"], "snapshotIncompatible",
             "{tag:?}: {}",
             selected.value
         );
@@ -234,7 +234,11 @@ fn a_crafted_entry_a_query_reads_is_still_refused() {
     });
     for op in ["callers", "find"] {
         let out = ask(&dir, op, "fn0000", 0, false);
-        assert_eq!(out.value["errorCode"], "decode", "{op}: {}", out.value);
+        assert_eq!(
+            out.value["errorCode"], "snapshotIncompatible",
+            "{op}: {}",
+            out.value
+        );
         assert!(
             out.value["error"]
                 .as_str()
@@ -253,7 +257,11 @@ fn a_crafted_entry_a_query_reads_is_still_refused() {
         }
     });
     let out = ask(&dir, "node", "code.ts#fn0257", 0, false);
-    assert_eq!(out.value["errorCode"], "decode", "{}", out.value);
+    assert_eq!(
+        out.value["errorCode"], "snapshotIncompatible",
+        "{}",
+        out.value
+    );
     assert!(
         out.value["error"]
             .as_str()
@@ -386,7 +394,11 @@ fn misstate_lookup_key(graph: &Path, original: &[u8], node: usize) {
 }
 
 fn assert_misstated(out: &GraphOutput) {
-    assert_eq!(out.value["errorCode"], "decode", "{}", out.value);
+    assert_eq!(
+        out.value["errorCode"], "snapshotIncompatible",
+        "{}",
+        out.value
+    );
     assert!(
         out.value["error"]
             .as_str()

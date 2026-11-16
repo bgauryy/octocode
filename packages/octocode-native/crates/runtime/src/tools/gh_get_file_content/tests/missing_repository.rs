@@ -1,4 +1,4 @@
-//! GH-G7: a read at a full SHA sends no ref resolution, so its bare 404
+//! A read at a full SHA sends no ref resolution, so its bare 404
 //! cannot tell a missing repository from a missing path. One repository
 //! read tells them apart; a read whose ref resolved never spends it.
 use super::*;

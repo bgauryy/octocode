@@ -1,4 +1,3 @@
-use crate::id::local_search_policy;
 use crate::num::u32_of_signed;
 use octocode_contract_types::{
     CaseMode, DefaultExcludes, LocalSearchQuery, LocalSearchQueryContent, LocalSearchQueryFiles,
@@ -79,9 +78,6 @@ pub(crate) fn limit(q: &LocalSearchQuery) -> Option<usize> {
         limit,
         limit.map(|limit| octocode_engine::num::saturating_usize(limit.get()))
     )
-}
-pub(crate) fn match_page(q: &LocalSearchQuery) -> u32 {
-    common!(q, match_page, saturating_u32(match_page.get()))
 }
 pub(crate) fn max_depth(q: &LocalSearchQuery) -> Option<u32> {
     common!(
@@ -361,22 +357,8 @@ pub(crate) fn as_written(
     each_fresh_row(calls, &restate);
 }
 
-/// The contract's default matches per file (`semanticPolicy`).
-pub(super) fn default_matches_per_file() -> u32 {
-    saturating_u32(local_search_policy::MATCHES_PER_FILE)
-}
-pub(super) fn default_page_size(view: View) -> u32 {
-    saturating_u32(if matches!(view, View::Content | View::MatchOnly) {
-        local_search_policy::SNIPPET_PAGE_SIZE
-    } else {
-        local_search_policy::LIST_PAGE_SIZE
-    })
-}
 pub(super) fn uses_context(view: View) -> bool {
     view == View::Content
-}
-pub(super) fn streamed_layout(q: &LocalSearchQuery) -> bool {
-    match_page(q) <= 1
 }
 pub(super) fn shows_span_columns(q: &LocalSearchQuery) -> bool {
     view(q) == View::MatchOnly

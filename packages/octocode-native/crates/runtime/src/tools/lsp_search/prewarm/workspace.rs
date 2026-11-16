@@ -75,7 +75,7 @@ pub(super) fn workspace_plans(
     // (directory, extension) → (first file, file count), in walk order.
     let mut groups: BTreeMap<(PathBuf, String), (PathBuf, usize)> = BTreeMap::new();
     let started = Instant::now();
-    let walk = crate::tools::pruned_walk(root, [])
+    let walk = crate::tools::pruned_walk(root, [], paths.global_ignore())
         .sort_by_file_name(std::ffi::OsStr::cmp)
         .build();
     for (entries, entry) in walk.enumerate() {

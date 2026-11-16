@@ -39,8 +39,9 @@ pub(super) fn label_release_source(artifact: &mut ArtifactItem, exact: bool) {
     } else {
         Some("registryRef")
     };
-    // The verified tag is stated only for the verification it proves.
-    if artifact.verification != Some("tag") {
+    // The verified tag is stated only for the verification it proves, and
+    // only when `ref` is not already that tag.
+    if artifact.verification != Some("tag") || artifact.release_tag == artifact.source_ref {
         artifact.release_tag = None;
     }
 }

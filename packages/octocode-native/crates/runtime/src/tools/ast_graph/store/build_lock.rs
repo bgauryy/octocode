@@ -9,8 +9,15 @@ pub(super) fn acquire(
     cancel: &dyn CancellationCheck,
     paths: &PathPolicy,
 ) -> Result<std::fs::File, GraphOutput> {
-    let io_error =
-        |e: std::io::Error| GraphOutput::error(ErrorCode::FileAccessFailed, e.to_string());
+    // The lock file lives in the home: failing to take it is a write failing.
+    let io_error = |e: std::io::Error| {
+        let mut out = GraphOutput::error(ErrorCode::FileAccessFailed, e.to_string());
+        crate::response::result::set_hints(
+            &mut out.value,
+            [crate::response::rows::WRITE_ACCESS_HINT],
+        );
+        out
+    };
     let target = home.join(".build.lock");
     let checked = paths
         .validate_output(&target)

@@ -1,5 +1,6 @@
 //! The byte tokenizer against the scan it replaced, and the mention memo.
 use super::*;
+use octocode_engine::search::walk::GlobalIgnore;
 use std::sync::Arc;
 
 /// The tokenizer the byte scan replaced, word for word: one line at a time,
@@ -270,13 +271,21 @@ fn the_mention_memo_covers_every_file_it_read() {
     let run = |scan: &MentionHits| references(scan, "run");
 
     settle();
-    let first = memoized_mentions(root, &stems, &names, &|| false).expect("scan");
+    let first =
+        memoized_mentions(root, GlobalIgnore::NONE, &stems, &names, &|| false).expect("scan");
     assert_eq!(run(&first), Some(vec!["a.ts:1".to_owned()]));
-    let again = memoized_mentions(root, &stems, &names, &|| false).expect("scan");
+    let again =
+        memoized_mentions(root, GlobalIgnore::NONE, &stems, &names, &|| false).expect("scan");
     assert!(Arc::ptr_eq(&first, &again), "an unchanged tree is one scan");
 
-    let other_keys =
-        memoized_mentions(root, &stems, &set(&["run", "nothing"]), &|| false).expect("scan");
+    let other_keys = memoized_mentions(
+        root,
+        GlobalIgnore::NONE,
+        &stems,
+        &set(&["run", "nothing"]),
+        &|| false,
+    )
+    .expect("scan");
     assert!(!Arc::ptr_eq(&first, &other_keys), "the keys are in the key");
 
     // Same size, modification time restored: only the status time moves.
@@ -293,13 +302,15 @@ fn the_mention_memo_covers_every_file_it_read() {
         .set_modified(modified)
         .expect("restore mtime");
     settle();
-    let edited = memoized_mentions(root, &stems, &names, &|| false).expect("scan");
+    let edited =
+        memoized_mentions(root, GlobalIgnore::NONE, &stems, &names, &|| false).expect("scan");
     assert!(!Arc::ptr_eq(&first, &edited));
     assert_eq!(edited.words.get("run"), Some(&vec!["b.md:1".to_owned()]));
 
     write("c.ts", "run();\n");
     settle();
-    let added = memoized_mentions(root, &stems, &names, &|| false).expect("scan");
+    let added =
+        memoized_mentions(root, GlobalIgnore::NONE, &stems, &names, &|| false).expect("scan");
     assert_eq!(
         run(&added),
         Some(vec!["a.ts:1".to_owned(), "c.ts:1".to_owned()])
@@ -308,12 +319,14 @@ fn the_mention_memo_covers_every_file_it_read() {
     write(".gitignore", "c.ts\n");
     std::fs::create_dir_all(root.join(".git")).expect("git marker");
     settle();
-    let ignored = memoized_mentions(root, &stems, &names, &|| false).expect("scan");
+    let ignored =
+        memoized_mentions(root, GlobalIgnore::NONE, &stems, &names, &|| false).expect("scan");
     assert_eq!(run(&ignored), Some(vec!["a.ts:1".to_owned()]));
 
     std::fs::remove_file(root.join("a.ts")).expect("remove");
     settle();
-    let removed = memoized_mentions(root, &stems, &names, &|| false).expect("scan");
+    let removed =
+        memoized_mentions(root, GlobalIgnore::NONE, &stems, &names, &|| false).expect("scan");
     assert_eq!(run(&removed), None);
 }
 
@@ -325,8 +338,10 @@ fn the_mention_memo_keeps_no_unsettled_scan() {
     std::fs::write(dir.path().join("a.ts"), "run();\n").expect("write");
     let names = set(&["run"]);
     let stems = BTreeSet::new();
-    let first = memoized_mentions(dir.path(), &stems, &names, &|| false).expect("scan");
-    let second = memoized_mentions(dir.path(), &stems, &names, &|| false).expect("scan");
+    let first =
+        memoized_mentions(dir.path(), GlobalIgnore::NONE, &stems, &names, &|| false).expect("scan");
+    let second =
+        memoized_mentions(dir.path(), GlobalIgnore::NONE, &stems, &names, &|| false).expect("scan");
     assert!(!Arc::ptr_eq(&first, &second));
     assert_eq!(references(&first, "run"), references(&second, "run"));
 }
@@ -424,7 +439,8 @@ fn a_stopped_mention_scan_keeps_nothing() {
     std::fs::write(dir.path().join("a.ts"), "run();\n").expect("write");
     octocode_engine::stamp::settle_written_so_far();
     let (stems, names) = (BTreeSet::new(), set(&["run"]));
-    assert!(memoized_mentions(dir.path(), &stems, &names, &|| true).is_none());
-    let scanned = memoized_mentions(dir.path(), &stems, &names, &|| false).expect("scan");
+    assert!(memoized_mentions(dir.path(), GlobalIgnore::NONE, &stems, &names, &|| true).is_none());
+    let scanned =
+        memoized_mentions(dir.path(), GlobalIgnore::NONE, &stems, &names, &|| false).expect("scan");
     assert_eq!(references(&scanned, "run"), Some(vec!["a.ts:1".to_owned()]));
 }

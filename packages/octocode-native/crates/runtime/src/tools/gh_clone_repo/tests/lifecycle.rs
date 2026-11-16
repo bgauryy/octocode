@@ -8,7 +8,7 @@ fn stale_lock_and_failed_publication_preserve_existing_output() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let first = clone_pinned(&fixture, &query(), &context).expect("first clone");
     let clone_path = PathBuf::from(&first.location.path);
@@ -31,7 +31,7 @@ fn stale_lock_and_failed_publication_preserve_existing_output() {
     fs::create_dir_all(&destination).expect("old destination");
     fs::write(destination.join("old"), "preserved").expect("old content");
     let missing_stage = root.0.join("missing-stage");
-    let failed_placement = || Err(CloneError::new(ErrorCode::GitFailed, "placement failed"));
+    let failed_placement = || Err(GitError::new(ErrorCode::GitFailed, "placement failed"));
     assert!(
         storage::promote(
             &missing_stage,
@@ -54,7 +54,7 @@ fn live_lock_and_failed_sparse_clone_preserve_other_outputs() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let main = clone_pinned(&fixture, &query(), &context).expect("main clone");
     let main_path = PathBuf::from(&main.location.path);
@@ -79,7 +79,7 @@ fn live_lock_and_failed_sparse_clone_preserve_other_outputs() {
         octocode_io::lock::TryLock::Busy(_) => panic!("the live lock is free"),
     };
     // A live holder is waited for until the caller's own deadline.
-    let short = CloneContext {
+    let short = GitContext {
         deadline: Instant::now() + Duration::from_millis(300),
         ..setup(&runner, &config, &endpoint, &policy, &NeverCancel, None)
     };
@@ -115,7 +115,7 @@ pub(super) fn first_row(
     let runner = fixture_runner(fixture);
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let first = clone_pinned(fixture, &query(), &context).expect("first clone");
     let path = PathBuf::from(first.location.path);
@@ -127,10 +127,10 @@ pub(super) fn again(
     root: &test_support::Fixture,
     home: &Path,
     runner: &RewriteRunner,
-) -> Result<CloneResult, CloneError> {
+) -> Result<CloneResult, GitError> {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
-    let config = CloneConfig::persistent(home);
+    let config = GitConfig::persistent(home);
     let context = setup(runner, &config, &endpoint, &policy, &NeverCancel, None);
     clone_pinned(fixture, &query(), &context)
 }
@@ -206,7 +206,7 @@ fn a_stage_left_by_a_crashed_process_is_removed() {
     };
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     clone_pinned(&fixture, &other, &context).expect("next row");
     assert!(!stage.exists(), "the dead process's stage is removed");

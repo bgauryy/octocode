@@ -30,7 +30,8 @@ pub(super) fn build_walk_builder(
         overrides: None,
         types: None,
         hidden: !opts.ignore.include_hidden,
-        ignored: (!opts.ignore.include_ignored).then(|| IgnoreRules::new(Path::new(&opts.path))),
+        ignored: (!opts.ignore.include_ignored)
+            .then(|| IgnoreRules::with_global(Path::new(&opts.path), opts.global_ignore)),
     };
     if let Some(lang) = opts.lang_type.as_deref().filter(|l| !l.is_empty()) {
         let mut tb = TypesBuilder::new();

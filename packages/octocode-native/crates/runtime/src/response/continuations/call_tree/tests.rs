@@ -262,9 +262,8 @@ impl<'a> Instances<'a> {
 /// finds, in the same order, on values that take every branch of its
 /// output schema. The values are strong enough to catch a wrong walk: one
 /// that misses any single declared call position disagrees on them.
-#[test]
-fn every_tool_finds_the_calls_the_schema_walk_finds() {
-    for tool in ToolId::ALL {
+fn assert_tools_find_the_calls_the_schema_walk_finds(every: usize) {
+    for tool in ToolId::ALL.into_iter().step_by(every) {
         let schema = &contracts::tool_contract(tool).expect("embedded contract")["outputSchema"];
         let mut tree = CallTree::compile(schema);
         let calls = (0..tree.nodes.len())
@@ -313,4 +312,18 @@ fn every_tool_finds_the_calls_the_schema_walk_finds() {
             tree.nodes[id].call = true;
         }
     }
+}
+
+/// One tool in three, from the first, in the order of [`ToolId::ALL`]: the
+/// output schemas share their call definitions, so a walk that misreads one
+/// declared position misreads it in several tools.
+#[test]
+fn every_tool_finds_the_calls_the_schema_walk_finds() {
+    assert_tools_find_the_calls_the_schema_walk_finds(3);
+}
+
+#[test]
+#[ignore = "every tool: cargo test -- --ignored every_tool"]
+fn every_tool_finds_the_calls_the_schema_walk_finds_for_every_tool() {
+    assert_tools_find_the_calls_the_schema_walk_finds(1);
 }

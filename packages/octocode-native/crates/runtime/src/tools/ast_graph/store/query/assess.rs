@@ -134,8 +134,15 @@ impl Query<'_> {
         }
         let entries = (!entries.is_empty()).then_some(entries.as_slice());
         let stopped = || self.cancel.check().is_err();
-        let report =
-            super::super::detect::kept_run(&g.id, &g.t, &detectors, scan_root, entries, &stopped);
+        let report = super::super::detect::kept_run(
+            &g.id,
+            &g.t,
+            &detectors,
+            scan_root,
+            entries,
+            paths.global_ignore(),
+            &stopped,
+        );
         self.cancel
             .check()
             .map_err(|message| GraphOutput::error(ErrorCode::Cancelled, message))?;
@@ -368,6 +375,7 @@ impl Query<'_> {
             detectors,
             base_root.is_dir().then_some(base_root.as_path()),
             entries,
+            paths.global_ignore(),
             &|| self.cancel.check().is_err(),
         );
         self.cancel

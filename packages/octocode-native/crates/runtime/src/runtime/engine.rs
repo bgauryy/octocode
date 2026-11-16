@@ -253,7 +253,15 @@ impl ToolRuntime {
 }
 
 fn runtime_execution_error(error: ExecutionError) -> RuntimeError {
-    RuntimeError::new(error.code(), error.to_string())
+    let mut served = RuntimeError::new(error.code(), error.to_string());
+    // The cause is the environment: its recovery replaces the generic
+    // "report a tool failure".
+    if matches!(error, ExecutionError::StorageUnavailable(_)) {
+        let mut envelope = contracts::tool_error(&served.message, Vec::new());
+        envelope["hints"] = serde_json::json!([crate::response::rows::WRITE_ACCESS_HINT]);
+        served.payload = Some(Box::new(envelope));
+    }
+    served
 }
 
 impl CancellationCheck for ExecutionContext {

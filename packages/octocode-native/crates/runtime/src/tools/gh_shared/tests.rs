@@ -127,7 +127,7 @@ mod provider_backed;
 
 /// A repository that did not resolve: every search tool's repair is the
 /// shared name search, the owner's listing when the owner is known, and the
-/// one hint those calls do not state (R2): confirm the owner. The message
+/// one hint those calls do not state: confirm the owner. The message
 /// names the repository when the owner is known.
 #[test]
 fn a_missing_repository_repair_labels_its_name_search() {

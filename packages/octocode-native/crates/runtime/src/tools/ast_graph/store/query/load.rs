@@ -164,9 +164,9 @@ pub(super) fn load_with(
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
         .ok_or_else(|| {
-            fail(
-                ErrorCode::Decode,
+            integrity_failure(
                 format!("{} has no readable manifest", dir.display()),
+                &Value::Null,
             )
         })?;
     let valid_registry = manifest["registryIdentity"]
@@ -187,9 +187,9 @@ pub(super) fn load_with(
                 })
             });
     if !valid_registry {
-        return Err(fail(
-            ErrorCode::Decode,
+        return Err(integrity_failure(
             "graph manifest has no valid captured registry inventory; rebuild it with graphBuild",
+            &manifest,
         ));
     }
     // Every later read, hash, mention scan and `git -C` runs under the
@@ -200,11 +200,11 @@ pub(super) fn load_with(
         .validate_location(root)
         .map_err(|error| fail(error.shared_code(), error.message))?;
     if allowed.canonical != Path::new(root) {
-        return Err(fail(
-            ErrorCode::Decode,
+        return Err(integrity_failure(
             format!(
                 "{MANIFEST_FILE} root {root:?} is not a canonical path; rebuild it with graphBuild"
             ),
+            &manifest,
         ));
     }
     if let Some(message) = super::super::foreign_analysis(&manifest) {
@@ -212,14 +212,14 @@ pub(super) fn load_with(
     }
     let expected = manifest["graph"]["sha256"]
         .as_str()
-        .ok_or_else(|| fail(ErrorCode::Decode, "graph manifest digest is missing"))?;
+        .ok_or_else(|| integrity_failure("graph manifest digest is missing", &manifest))?;
     let point = selective && matches!(options.op.as_str(), "node" | "find" | "candidates");
     let evidence = matches!(options.op.as_str(), "witnesses" | "unresolved");
     let (t, selective, validation) = match decode {
         Decode::Selective => {
             let mut reader =
                 super::super::format::SnapshotReader::open(&dir.join(GRAPH_FILE), expected, cancel)
-                    .map_err(|message| decode_failure(message, cancel))?;
+                    .map_err(|message| decode_failure(message, &manifest, cancel))?;
             let tables = if evidence {
                 reader.evidence_tables(options.op == "witnesses", cancel)
             } else if point {
@@ -227,7 +227,7 @@ pub(super) fn load_with(
             } else {
                 reader.topology_tables(cancel)
             }
-            .map_err(|message| decode_failure(message, cancel))?;
+            .map_err(|message| decode_failure(message, &manifest, cancel))?;
             (tables, Some(std::cell::RefCell::new(reader)), None)
         }
         #[cfg(test)]
@@ -276,7 +276,7 @@ fn full_decode(
     let bytes = super::super::read_graph_file(&dir.join(GRAPH_FILE))
         .map_err(|message| fail(ErrorCode::Decode, message))?;
     let (tables, digest) = super::super::format::decode_with_cancel(&bytes, cancel)
-        .map_err(|message| decode_failure(message, cancel))?;
+        .map_err(|message| decode_failure(message, &Value::Null, cancel))?;
     if digest != expected {
         return Err(fail(
             ErrorCode::Decode,
@@ -290,11 +290,34 @@ fn full_decode(
 
 pub(super) fn decode_failure(
     message: String,
+    manifest: &Value,
     cancel: &dyn crate::execution::cancel::CancellationCheck,
 ) -> Failure {
     if let Err(cancelled) = cancel.check() {
         fail(ErrorCode::Cancelled, cancelled)
     } else {
-        fail(ErrorCode::Decode, message)
+        integrity_failure(message, manifest)
     }
+}
+
+/// A snapshot that fails its integrity checks (a checksum that does not
+/// match, a truncated or empty `graph.bin`, a missing digest): reading it
+/// again cannot help, so it is refused like a snapshot of another analysis
+/// version (`snapshotIncompatible`), with the build that replaces it as the
+/// lead, `refresh` so the damaged files are not reused.
+pub(super) fn integrity_failure(message: impl Into<String>, manifest: &Value) -> Failure {
+    let mut message = message.into();
+    if !message.contains("graphBuild") {
+        message.push_str("; rebuild it with graphBuild (refresh:true)");
+    }
+    let mut out = GraphOutput::error(ErrorCode::SnapshotIncompatible, message);
+    if manifest["root"]
+        .as_str()
+        .is_some_and(|root| !root.is_empty())
+        && let Some(mut build) = reingest_call(manifest)
+    {
+        build["input"]["queries"][0]["refresh"] = json!(true);
+        out.value["related"] = json!([build]);
+    }
+    Box::new(out)
 }

@@ -49,8 +49,7 @@ fn evidence_source_scope_distinguishes_supported_empty_unsupported_and_unknown()
             let coverage = &out.value["coverage"];
             assert_eq!(coverage["language"], language);
             assert_eq!(coverage["callExtraction"], status);
-            assert_eq!(coverage["linkage"]["eligible"], 0);
-            assert!(coverage["linkage"]["ratio"].is_null());
+            assert!(coverage.get("linkage").is_none(), "{coverage}");
             if status == "unsupported" {
                 assert!(
                     coverage["warning"]
@@ -62,7 +61,7 @@ fn evidence_source_scope_distinguishes_supported_empty_unsupported_and_unknown()
         }
         let empty = evidence(&dir.0, operation, Some("empty.ts"), None);
         assert_eq!(empty.value["pagination"]["total"], 0);
-        assert_eq!(empty.value["coverage"]["linkage"]["linked"], 2);
+        assert!(empty.value["coverage"].get("linkage").is_none());
         assert!(
             empty.value["coverage"].get("warning").is_none(),
             "supported extraction needs no warning: {}",
@@ -84,8 +83,7 @@ fn evidence_source_scope_distinguishes_supported_empty_unsupported_and_unknown()
         let unknown = evidence(&dir.0, operation, Some("quiet.py"), None);
         assert_eq!(unknown.value["pagination"]["total"], 0);
         assert_eq!(unknown.value["coverage"]["callExtraction"], "notAssessed");
-        assert_eq!(unknown.value["coverage"]["linkage"]["eligible"], 0);
-        assert!(unknown.value["coverage"]["linkage"]["ratio"].is_null());
+        assert!(unknown.value["coverage"].get("linkage").is_none());
         assert!(
             unknown.value["coverage"]["warning"]
                 .as_str()
@@ -103,7 +101,7 @@ fn mixed_evidence_coverage_includes_sources_without_rows_and_ignores_destination
         let coverage = &out.value["coverage"];
         assert_eq!(coverage["language"], "");
         assert_eq!(coverage["callExtraction"], "notAssessed");
-        assert_eq!(coverage["linkage"], built.value["linkage"]);
+        assert!(coverage.get("linkage").is_none(), "{coverage}");
         let warning = coverage["warning"].as_str().unwrap();
         assert!(warning.contains("unsupported=[asm]"));
         assert!(warning.contains("supported=[python, typescript]"));
@@ -137,7 +135,7 @@ fn mixed_evidence_coverage_includes_sources_without_rows_and_ignores_destination
         let warning = out.value["coverage"]["warning"].as_str().unwrap();
         assert!(warning.contains("unsupported=[asm]"));
         assert!(warning.contains("notAssessed=[python]"));
-        assert_eq!(out.value["coverage"]["linkage"], built.value["linkage"]);
+        assert!(out.value["coverage"].get("linkage").is_none());
     }
 }
 
@@ -190,7 +188,7 @@ fn aggregate_evidence_capability_uses_snapshot_values_and_survives_paging() {
         for operation in ["witnesses", "unresolved"] {
             let out = evidence(&dir.0, operation, None, None);
             assert_eq!(out.value["coverage"]["callExtraction"], expected);
-            assert_eq!(out.value["coverage"]["linkage"], built.value["linkage"]);
+            assert!(out.value["coverage"].get("linkage").is_none());
             if operation == "witnesses" {
                 for offset in 0..2 {
                     let page = ask(&dir.0, operation, None, |options| {

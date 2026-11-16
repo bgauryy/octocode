@@ -51,3 +51,26 @@ fn a_held_job_blocks_a_second_build_until_released_and_the_wait_cancels() {
     assert!(open(&scan, &policy, &NeverCancel).unwrap().is_some());
     assert!(!artifact.exists(), "the next holder prunes unknown files");
 }
+
+/// A graph home that cannot be created under (here: its jobs folder is a
+/// file) fails the build as a write, so the recovery names a writable home,
+/// not read permissions.
+#[test]
+fn creating_the_job_folder_under_an_unusable_home_gives_the_write_recovery() {
+    let (_dir, scan) = fixture();
+    let policy = workspace_policy(&scan.root);
+    let base = scan.checkpoint.as_ref().unwrap();
+    std::fs::create_dir_all(base).unwrap();
+    std::fs::write(base.join("jobs"), b"not a folder").unwrap();
+    let error = open(&scan, &policy, &NeverCancel)
+        .err()
+        .expect("no job folder can be made");
+    assert_eq!(error.code, ErrorCode::FileAccessFailed);
+    assert!(
+        error
+            .hints
+            .iter()
+            .any(|hint| hint == crate::response::rows::WRITE_ACCESS_HINT),
+        "{error:?}"
+    );
+}

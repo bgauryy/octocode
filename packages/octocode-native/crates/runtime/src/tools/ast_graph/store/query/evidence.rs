@@ -66,8 +66,20 @@ impl Query<'_> {
         let mut reasons = std::collections::HashMap::new();
         let mut names = std::collections::HashMap::new();
         let mut window = Window::budgeted(self.window(), self.g.row_budget());
+        // Whether a row spells a target the build replaced: the stored name
+        // holds the placeholder the secret scan wrote.
+        let replaced = std::cell::Cell::new(false);
         let mut keep = |row: &dyn Fn() -> Result<Value, GraphOutput>| -> Result<(), GraphOutput> {
-            window.try_push(row)
+            window.try_push(|| {
+                let built = row()?;
+                if built["targetName"]
+                    .as_str()
+                    .is_some_and(|name| crate::security::placeholders(name) > 0)
+                {
+                    replaced.set(true);
+                }
+                Ok(built)
+            })
         };
         // Matching call witnesses the confidence filter leaves out.
         let mut filtered_by_confidence = 0usize;
@@ -109,6 +121,9 @@ impl Query<'_> {
         }
         let mut extra = Map::new();
         extra.insert("evidence".into(), json!("syntax"));
+        if replaced.get() {
+            extra.insert("warnings".into(), json!([crate::security::redacted_mark()]));
+        }
         if filtered_by_confidence > 0 {
             extra.insert("filteredByConfidence".into(), json!(filtered_by_confidence));
         }

@@ -10,11 +10,18 @@ use serde_json::Value;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+/// The row's decision on whether the text of a changed file is withheld, by
+/// its path and a rename's previous path.
+pub(super) type Withholds<'a> = &'a (dyn Fn(&str, Option<&str>) -> bool + Sync);
+
 /// The transport of a read (reached through `Deref`) and its body scanner.
 pub(crate) struct Source<'a> {
     transport: &'a GitHubTransport,
     scan: &'a (dyn ContentScan + Sync),
     redacted: AtomicUsize,
+    /// Whether the row's policy withholds the text of a file by its names
+    /// (`path`, a rename's `previous`); `None`: the default policy.
+    withholds: Option<Withholds<'a>>,
 }
 
 impl std::ops::Deref for Source<'_> {
@@ -30,6 +37,28 @@ impl<'a> Source<'a> {
             transport,
             scan,
             redacted: AtomicUsize::new(0),
+            withholds: None,
+        }
+    }
+
+    /// This source with the row's own decision on which files' patches it
+    /// shows: the path policy of the call, which a user's opt-in lifts.
+    pub(super) fn withholding(mut self, withholds: Withholds<'a>) -> Self {
+        self.withholds = Some(withholds);
+        self
+    }
+
+    /// Whether the patch of the changed file `file` (a REST file entry) is
+    /// withheld: its name or a rename's old name is a credential file.
+    fn withholds_patch(&self, file: &serde_json::Map<String, Value>) -> bool {
+        let name = |key: &str| file.get(key).and_then(Value::as_str);
+        let Some(path) = name("filename").or_else(|| name("path")) else {
+            return false;
+        };
+        let previous = name("previous_filename");
+        match self.withholds {
+            Some(withholds) => withholds(path, previous),
+            None => crate::policy::path::withheld_text_by_default(path, previous, None),
         }
     }
 
@@ -48,6 +77,14 @@ impl<'a> Source<'a> {
     pub(super) fn redact_bodies(&self, value: &mut Value) -> Result<(), ProviderError> {
         match value {
             Value::Object(fields) => {
+                // A credential file's patch is its text: it never enters, so
+                // no later view, window or match can show it. The row keeps
+                // its path, status and counts.
+                if fields.get("patch").is_some_and(Value::is_string) && self.withholds_patch(fields)
+                {
+                    fields.remove("patch");
+                    fields.insert("withheld".to_owned(), Value::Bool(true));
+                }
                 let filename = fields
                     .get("filename")
                     .and_then(Value::as_str)

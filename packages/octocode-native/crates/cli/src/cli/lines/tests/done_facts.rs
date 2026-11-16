@@ -353,6 +353,44 @@ fn no_hits_a_failure_and_a_first_page_differ_on_stdout() {
     );
 }
 
+/// Which commit and ref an answer reads is evidence: it prints on stdout
+/// beside the content, never only on stderr.
+#[test]
+fn identity_fields_print_on_stdout() {
+    let sha = "b05c0b75fd9778536152eead30814c9ca90c810a";
+    let tree = (
+        ToolId::GhStructure,
+        json!({"queries":[{"operation":"tree","owner":"facebook","repo":"react"}]}),
+        one(json!({"files":[{"dir":".","files":["README.md"]}],
+            "summary":{"fileCount":1,"dirCount":0,"bytes":9},
+            "ref":"main","commitSha":sha})),
+    );
+    let code = (
+        ToolId::GhSearchCode,
+        json!({"queries":[{"owner":"facebook","repo":"react","keywords":["fn"]}]}),
+        one(
+            json!({"files":[{"path":"a.js","matches":[{"line":1,"value":"fn"}]}],
+            "commitSha":sha}),
+        ),
+    );
+    for (case, keys) in [(tree, vec!["commitSha", "ref"]), (code, vec!["commitSha"])] {
+        let lines = text(&case);
+        for key in keys {
+            assert!(
+                lines.out.contains(&format!("{key}: ")),
+                "{:?} {key}: {}",
+                case.0,
+                lines.out
+            );
+            assert!(
+                !lines.notes.contains(&format!("{key}: ")),
+                "{key} only on stderr: {}",
+                lines.notes
+            );
+        }
+    }
+}
+
 /// The response page runs before the row's own: its command comes first.
 #[test]
 fn the_response_page_comes_before_the_rows_next_page() {

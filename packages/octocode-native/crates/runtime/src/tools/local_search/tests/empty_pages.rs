@@ -14,7 +14,11 @@ fn punctuation_is_literal_until_the_caller_selects_a_regex_engine() {
                 None,
             ),
         );
-        assert_eq!(result["matchedLineCount"], expected, "{result}");
+        // The line count is absent when it equals `matchCount`.
+        let lines = result
+            .get("matchedLineCount")
+            .unwrap_or(&result["matchCount"]);
+        assert_eq!(lines, &serde_json::json!(expected), "{result}");
     }
     let empty = search_fixture(
         &files,

@@ -30,7 +30,7 @@ fn missing_repository_names_the_repository_with_a_recovery_hint() {
         "{calls}"
     );
     // Errors without recovery serialize exactly as before.
-    let plain = CloneError::new(ErrorCode::GitFailed, "failed");
+    let plain = GitError::new(ErrorCode::GitFailed, "failed");
     assert_eq!(
         serde_json::to_value(plain).expect("serialize"),
         serde_json::json!({"code": "gitFailed", "message": "failed"})
@@ -46,7 +46,7 @@ fn clone_rows_continue_into_local_tools_and_name_the_checkout_time() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let row = |result: &CloneResult| {
         let data = serde_json::to_value(result).expect("serialize");
@@ -131,7 +131,7 @@ fn reuse_probes_git_and_reports_the_checked_out_size() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let fresh = clone_pinned(&fixture, &query(), &context).expect("fresh clone");
     runner
@@ -190,11 +190,11 @@ fn history_depth_fetches_that_many_commits() {
 #[test]
 fn clone_timeout_defaults_to_the_runtime_network_limit() {
     assert_eq!(
-        CloneConfig::persistent("/h").network_timeout,
+        GitConfig::persistent("/h").network_timeout,
         crate::execution::RuntimeLimits::DEFAULT.network_timeout
     );
     assert_eq!(
-        CloneConfig::persistent("/h")
+        GitConfig::persistent("/h")
             .with_network_timeout(Duration::from_secs(9))
             .network_timeout,
         Duration::from_secs(9)
@@ -211,7 +211,7 @@ fn reuse_reports_the_fresh_clones_completion_time() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let fresh = clone_pinned(&fixture, &query(), &context).expect("fresh clone");
     std::thread::sleep(std::time::Duration::from_millis(20));
@@ -251,7 +251,7 @@ fn depth_one_rows_of_different_commits_share_one_store() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let commits = [
         fixture.first_commit.clone(),
@@ -278,7 +278,7 @@ fn deeper_history_rows_of_different_commits_keep_their_depth() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     fixture.push_commit("two.txt");
     let third = fixture.push_commit("three.txt");
@@ -306,7 +306,7 @@ fn a_history_shorter_than_the_depth_is_not_fetched_again() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let deep = |paths: Vec<_>| GhCloneRepoQuery {
         history_depth: std::num::NonZeroU64::new(5).expect("depth"),

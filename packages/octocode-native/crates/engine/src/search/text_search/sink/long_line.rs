@@ -101,12 +101,16 @@ impl<M: Matcher> CollectSink<'_, M> {
         let mut count = 0u32;
         let mut columns = super::SpanColumns::new(bytes, text);
         let (om, charge, stop) = (&mut self.om_matches, &mut self.charge, self.stop);
+        let cancelled = self.cancelled;
         self.matcher
             .find_iter(bytes, |found| {
                 if super::past_block_end(bytes, found) {
                     return true;
                 }
                 count = count.saturating_add(1);
+                if !super::keep_going(cancelled, stop, count) {
+                    return false;
+                }
                 first_start.get_or_insert(found.start());
                 let start = columns.lossy(found.start()).min(text.len());
                 let end = columns.lossy(found.end()).min(text.len());

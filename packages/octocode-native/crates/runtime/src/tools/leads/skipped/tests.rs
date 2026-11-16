@@ -11,6 +11,7 @@ fn verdict(lifted: &[Cause], count: usize) -> Verdict {
             ignored: false,
             hidden: false,
             default_excludes: true,
+            global: Default::default(),
         },
         |walk| {
             let reached = lifted.iter().all(|cause| !walk.skipping().contains(cause));
@@ -167,7 +168,7 @@ fn withheld_entries_are_one_counted_entry_per_rule() {
     assert_eq!(credentials.len(), 1, "{grouped:?}");
     assert_eq!(credentials[0].path.as_str(), "/w/ext", "{grouped:?}");
     assert!(
-        !grouped.sampled,
+        grouped.sampled != Some(true),
         "count marks a collapse; a finished walk is no sample: {grouped:?}"
     );
     let every = skipped_paths(entries.clone(), true, false)
@@ -201,10 +202,10 @@ fn sampled_follows_the_walk_not_the_collapse() {
             .expect("valid")
             .expect("entries")
     };
-    assert!(collapsed(true).sampled);
-    assert!(!collapsed(false).sampled);
+    assert_eq!(collapsed(true).sampled, Some(true));
+    assert_ne!(collapsed(false).sampled, Some(true));
     let both = appended(Some(collapsed(false)), Some(collapsed(true))).expect("both");
-    assert!(both.sampled, "{both:?}");
+    assert_eq!(both.sampled, Some(true), "{both:?}");
     let finished = appended(Some(collapsed(false)), Some(collapsed(false))).expect("both");
-    assert!(!finished.sampled, "{finished:?}");
+    assert_ne!(finished.sampled, Some(true), "{finished:?}");
 }

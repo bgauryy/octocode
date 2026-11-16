@@ -27,6 +27,12 @@ pub(crate) const CANCELLED_HINT: &str = "Retry only if the result is still neede
 /// where localSearch and localFetch ranges still serve it.
 pub(crate) const LARGE_SOURCE_HINT: &str = "Locate a bounded region with localSearch, then read exact ranges with localFetch. Full-file structural analysis may remain unavailable.";
 
+/// The recovery of a `fileAccessFailed` whose failing operation was a write
+/// under the home (a graph snapshot, a clone, a materialized tree): the
+/// producer that writes attaches it, so a read's own hint (which names read
+/// permissions and text encoding) never answers a full or read-only home.
+pub(crate) const WRITE_ACCESS_HINT: &str = "Writing under the Octocode home failed. Point OCTOCODE_HOME (graphs: OCTOCODE_GRAPH_HOME) at a writable folder with free disk space, or free space there, then repeat the same call.";
+
 const TRANSIENT_HINT: &str = "Retry once only if retryable is true; if it persists, check provider availability and report the coverage gap.";
 
 /// The one finaliser of an error row's class: states `errorClass` from the
@@ -45,7 +51,10 @@ pub(crate) fn finish_error_row(data: &mut Value) {
     fields.insert("errorClass".into(), json!(class));
     if class == ErrorClass::Transient {
         if !fields.get("retryable").is_some_and(Value::is_boolean) {
-            fields.insert("retryable".into(), Value::from(code != ErrorCode::Cancelled));
+            fields.insert(
+                "retryable".into(),
+                Value::from(code != ErrorCode::Cancelled),
+            );
         }
     } else {
         fields.remove("retryable");

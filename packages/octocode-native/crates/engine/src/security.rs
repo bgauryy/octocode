@@ -10,7 +10,8 @@ pub mod sanitizer;
 pub mod types;
 
 pub use detector::{
-    LONG_LINE_BYTES, LONGEST_BOUNDED_MATCH, LongLine, MAX_CONTENT_SIZE, SecretSpan, secret_spans,
+    LONG_LINE_BYTES, LONGEST_BOUNDED_MATCH, LongLine, MAX_CONTENT_SIZE, SecretSpan, ValueForm,
+    secret_spans, secret_spans_in,
 };
 pub use edits::Edits;
 
@@ -38,7 +39,9 @@ pub fn patterns_identity() -> &'static str {
             .iter()
             .map(|pattern| (pattern.name, pattern.regex))
             .collect();
-        crate::digest::sha256(format!("{list:?}").as_bytes())
+        // A bare value after a label is judged by the source's file kind
+        // ([`detector::ValueForm`]): part of what a scrub depends on.
+        crate::digest::sha256(format!("{list:?}:bare-by-file-kind").as_bytes())
     });
     &IDENTITY
 }

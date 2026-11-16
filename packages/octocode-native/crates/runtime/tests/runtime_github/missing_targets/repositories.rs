@@ -202,7 +202,7 @@ async fn gh_search_repo_missing_owner_is_named() {
     runtime.close().await;
 }
 
-/// D6 and R2: a missing repository's row reads the same on every tool that
+/// A missing repository's row reads the same on every tool that
 /// takes a repository: `notFound` with `httpStatus: 404` (the clone row
 /// too), the one message naming the repository, and the one hint the
 /// related[] calls do not state (confirm the owner).

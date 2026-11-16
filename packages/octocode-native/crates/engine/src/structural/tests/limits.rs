@@ -292,6 +292,7 @@ fn only_an_explicit_max_files_caps_the_file_walk() {
         skip_files: None,
         max_file_bytes: None,
         judge: None,
+        global_ignore: Default::default(),
     };
     let capped = search_files_detailed(options(Some(4))).expect("search");
     assert!(capped.scan_truncated);
@@ -361,4 +362,43 @@ fn a_scan_window_digests_the_candidates_around_its_cut() {
     assert_eq!(second.listed_through, None, "nothing left to resume");
     std::fs::remove_file(root.join("a.ts")).expect("remove");
     assert_ne!(window(2).listed_before.as_deref(), Some(through.as_str()));
+}
+
+/// A source whose parse is estimated past the memory budget is skipped with
+/// the file-too-large diagnostic and marked partial, whatever its byte
+/// length, while the files beside it are parsed.
+#[test]
+fn a_source_whose_parse_passes_the_memory_budget_is_skipped_as_too_large() {
+    let root = crate::test_support::TmpDir::new();
+    root.write(
+        "dense.js",
+        format!("var a=[{}hit(1)];\n", "f(1),".repeat(20_000)),
+    );
+    root.write("small.js", "hit(2);\n");
+    // 100 KB of dense calls is estimated at ~60 MB; the budget is 8 MB.
+    crate::memory::test_limit::set(8 * 1024 * 1024);
+    let result =
+        search_files_detailed(scan_options(std::path::Path::new(&root.path()), 0)).expect("scan");
+    crate::memory::test_limit::set(0);
+    assert_eq!(result.skipped_large, 1);
+    let skipped = result
+        .files
+        .iter()
+        .find(|file| file.path.ends_with("dense.js"))
+        .expect("dense row");
+    assert_eq!(skipped.status, "truncated");
+    assert!(
+        skipped
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "structural.file.tooLarge")
+    );
+    assert!(skipped.matches.is_empty());
+    let parsed = result
+        .files
+        .iter()
+        .find(|file| file.path.ends_with("small.js"))
+        .expect("small row");
+    assert_eq!(parsed.status, "ok");
+    assert_eq!(parsed.matches.len(), 1);
 }

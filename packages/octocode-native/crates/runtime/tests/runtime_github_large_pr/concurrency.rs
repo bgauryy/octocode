@@ -101,8 +101,7 @@ async fn patch_rows_in_one_call_share_one_budget() {
     runtime.close().await;
 }
 
-/// `matchString` keeps the review comments whose body holds it (E2, design
-/// "matchString filter on issue and PR discussion"); here every body holds
+/// `matchString` keeps the review comments whose body holds it; here every body holds
 /// it, so none is dropped, and each continuation jumps straight to its own
 /// provider batch. Walking every page reads each provider batch exactly
 /// once (no call rescans an earlier batch to find its place) and recovers

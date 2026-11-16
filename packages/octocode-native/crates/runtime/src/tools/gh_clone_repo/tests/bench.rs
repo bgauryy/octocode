@@ -10,7 +10,7 @@ pub(super) struct Bench {
     pub(super) policy: PathPolicy,
     pub(super) endpoint: GitHubEndpoint,
     pub(super) runner: Arc<RewriteRunner>,
-    pub(super) config: CloneConfig,
+    pub(super) config: GitConfig,
 }
 
 impl Bench {
@@ -39,7 +39,7 @@ impl Bench {
         )
         .expect("clone URL");
         let runner = Arc::new(RewriteRunner::new(&url, &fixture.bare_url));
-        let config = CloneConfig::persistent(&home);
+        let config = GitConfig::persistent(&home);
         Self {
             fixture,
             _root: root,
@@ -50,7 +50,7 @@ impl Bench {
         }
     }
 
-    pub(super) fn context(&self) -> CloneContext<'_> {
+    pub(super) fn context(&self) -> GitContext<'_> {
         setup(
             self.runner.as_ref(),
             &self.config,
@@ -63,7 +63,7 @@ impl Bench {
 
     /// [`Self::context`] owned, as [`run`] takes it, for the caller holding
     /// `credential`.
-    pub(super) fn setup_as(&self, credential: Option<&ResolvedCredential>) -> Arc<CloneSetup> {
+    pub(super) fn setup_as(&self, credential: Option<&ResolvedCredential>) -> Arc<GitSetup> {
         owned_setup(
             self.runner.clone(),
             &self.config,

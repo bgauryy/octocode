@@ -50,15 +50,25 @@ pub(super) fn split_done(fields: Map<String, Value>) -> (Map<String, Value>, Map
 /// stdout trailer, for every tool and row shape.
 const ADVICE: [&str; 2] = ["warnings", "hints"];
 
+/// Fields that say which source an answer read: the ref it was asked at,
+/// the commit it resolved to and where a materialized or cloned copy
+/// lives. They print in the stdout trailer, as the identity of the content
+/// beside them.
+const IDENTITY: [&str; 3] = ["ref", "commitSha", "location"];
+
 /// When a saved answer was observed: present only on an answer replayed
 /// from the provider cache, it dates the whole answer, never one of its rows.
 const OBSERVED_AT: &str = "observedAt";
 
 /// `fields` split into those the stdout trailer states (the done facts, when
-/// a replayed answer was observed, and the [`ADVICE`]) and the rest.
+/// a replayed answer was observed, the [`IDENTITY`] and the [`ADVICE`]) and
+/// the rest.
 pub(super) fn split_stated(fields: Map<String, Value>) -> (Map<String, Value>, Map<String, Value>) {
     fields.into_iter().partition(|(key, value)| {
-        decides_done(key, value) || key == OBSERVED_AT || ADVICE.contains(&key.as_str())
+        decides_done(key, value)
+            || key == OBSERVED_AT
+            || ADVICE.contains(&key.as_str())
+            || IDENTITY.contains(&key.as_str())
     })
 }
 

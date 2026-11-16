@@ -113,3 +113,17 @@ fn a_source_no_local_tool_reads_offers_no_lead() {
         );
     }
 }
+
+/// A one-line file within the byte limit whose parse is estimated past the
+/// memory budget is read as too large, as a source past the limit is; a
+/// plain file of the same kind is read.
+#[test]
+fn a_dense_file_within_the_byte_limit_is_read_as_too_large_for_a_parse() {
+    let root = Fixture::new();
+    let budget = octocode_engine::structural::parse_budget();
+    let calls = budget / octocode_engine::structural::BYTES_PER_TOKEN / 5 + 1000;
+    let dense = root.write("min.js", format!("var a=[{}];\n", "f(1),".repeat(calls)));
+    assert!(super::read_parse_source(&dense).expect("read").is_none());
+    let plain = root.write("plain.js", "hit(1);\n");
+    assert!(super::read_parse_source(&plain).expect("read").is_some());
+}

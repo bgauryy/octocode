@@ -35,9 +35,9 @@ impl GitRunner for FailingLsTree {
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-    ) -> Result<GitOutput, CloneError> {
+    ) -> Result<GitOutput, GitError> {
         if request.args.iter().any(|argument| argument == "ls-tree") {
-            return Err(CloneError::new(ErrorCode::GitFailed, "ls-tree failed"));
+            return Err(GitError::new(ErrorCode::GitFailed, "ls-tree failed"));
         }
         self.0.run(request, control)
     }
@@ -45,8 +45,8 @@ impl GitRunner for FailingLsTree {
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-        record: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-    ) -> Result<GitOutput, CloneError> {
+        record: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+    ) -> Result<GitOutput, GitError> {
         self.0.run_nul_records(request, control, record)
     }
 
@@ -54,8 +54,8 @@ impl GitRunner for FailingLsTree {
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-        sink: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-    ) -> Result<GitOutput, CloneError> {
+        sink: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+    ) -> Result<GitOutput, GitError> {
         self.0.run_stream(request, control, sink)
     }
 }
@@ -70,7 +70,7 @@ fn an_unresolvable_sparse_path_type_fails_the_clone() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = FailingLsTree(fixture_runner(&fixture));
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let error = clone_pinned(
         &fixture,
@@ -92,7 +92,7 @@ fn sparse_file_path_checks_out_only_that_file() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     for branch in [Some("main".to_owned()), Some(fixture.first_commit.clone())] {
         for (file, absent) in [
@@ -324,7 +324,7 @@ fn sparse_sets_of_one_commit_are_separate_worktrees_of_one_store() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let rows = [
         GhCloneRepoQuery {
@@ -362,7 +362,7 @@ fn sparse_sets_of_one_commit_are_separate_worktrees_of_one_store() {
     }
 }
 
-/// The D3 gotcha: a bare store whose `core.bare` leaked into the shared
+/// The gotcha: a bare store whose `core.bare` leaked into the shared
 /// config would make every linked worktree read as bare. After a sparse
 /// checkout the worktree is a work tree and the store is bare.
 #[test]
@@ -372,7 +372,7 @@ fn a_linked_worktree_is_no_bare_repository_beside_its_bare_store() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let sparse = clone_pinned(
         &fixture,

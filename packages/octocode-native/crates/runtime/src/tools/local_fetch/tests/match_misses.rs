@@ -138,12 +138,7 @@ fn a_miss_in_a_redacted_file_keeps_its_leads() {
     let read = |query| {
         let row = fetch(&qj(&p, query), &paths);
         assert_eq!(row.status, ReadStatus::Empty, "{row:?}");
-        assert!(
-            row.hints
-                .iter()
-                .any(|hint| hint.starts_with(crate::tools::source_view::no_match::REDACTED_MISS)),
-            "{row:?}"
-        );
+        assert!(row.hints.is_empty(), "{row:?}");
         serde_json::to_value(row.next.as_ref().expect("next")).expect("json")
     };
     let next = read(serde_json::json!({"matchString": ["executor|nothing"]}));

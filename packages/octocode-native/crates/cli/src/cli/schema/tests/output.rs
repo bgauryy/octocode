@@ -24,3 +24,28 @@ fn output_views_expose_the_embedded_collection_routes_for_lossless_reassembly() 
         }
     }
 }
+
+/// A tool's output view lists the coverage reasons that tool can emit, not
+/// the one dictionary of every tool: a GitHub search reads no language
+/// server reason, a language server read no provider cap.
+#[test]
+fn each_output_view_lists_only_the_reasons_its_tool_emits() {
+    let m = machine(&[]);
+    let reasons = |name: &str| {
+        let view = tool_view(&m, name, Some("output"), None).expect("output view");
+        view["partialReasons"]
+            .as_object()
+            .unwrap_or_else(|| panic!("{name} lists reasons: {view}"))
+            .clone()
+    };
+    let (repo, lsp, search) = (
+        reasons("ghSearchRepo"),
+        reasons("lspSearch"),
+        reasons("localSearch"),
+    );
+    assert!(repo.contains_key("providerResultCap"));
+    assert!(!repo.contains_key("serverUnhealthy"));
+    assert!(lsp.contains_key("serverUnhealthy") && !lsp.contains_key("providerResultCap"));
+    assert!(search.contains_key("binaryQuit") && !search.contains_key("walkWindow"));
+    assert_ne!(repo, lsp);
+}

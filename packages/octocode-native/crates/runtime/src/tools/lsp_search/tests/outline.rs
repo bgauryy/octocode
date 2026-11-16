@@ -177,7 +177,8 @@ fn locations_are_compact_camel_case_and_one_based() {
         "{public}"
     );
     assert!(public.get("contentStartLine").is_none());
-    assert_eq!(public["content"], "6\tpub fn greet() {}", "{public}");
+    // One line at the row's own line carries no number prefix.
+    assert_eq!(public["content"], "pub fn greet() {}", "{public}");
 }
 
 #[test]

@@ -329,7 +329,7 @@ fn registry_identity_prevents_reuse_and_missing_inventory_is_an_explicit_error()
     let invalid = ask(&dir.0, "node", Some("plain.ts#stable"), |o| {
         o.graph = first.value["id"].as_str().map(str::to_owned);
     });
-    assert_eq!(invalid.value["errorCode"], "decode");
+    assert_eq!(invalid.value["errorCode"], "snapshotIncompatible");
     assert!(
         invalid.value["error"]
             .as_str()

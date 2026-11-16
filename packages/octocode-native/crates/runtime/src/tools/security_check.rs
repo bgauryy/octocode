@@ -354,13 +354,7 @@ async fn advisory(
             record::most_severe_first(&mut rows);
             data["advisories"] = Value::Array(rows);
         }
-        let mut query = Map::new();
-        query.insert("operation".into(), json!("advisory"));
-        query.insert("id".into(), json!(id));
-        if let Some(repo) = repo {
-            query.insert("repo".into(), json!(repo));
-        }
-        data = summary::advisory(data, query);
+        data = summary::advisory(data);
     } else if let Some(rows) = data.get_mut("advisories").and_then(Value::as_array_mut) {
         record::drop_restated_fixes(rows);
     }
@@ -438,17 +432,10 @@ async fn commit(
         );
     }
     crate::response::result::finish_calls(&mut data);
-    let mut query = Map::new();
-    query.insert("operation".into(), json!("commit"));
-    query.insert("commit".into(), json!(commit));
-    if let Some(repo) = repo {
-        query.insert("repo".into(), json!(repo));
-    }
     Ok(summary::apply(
         view,
         data,
         summary::Target {
-            query,
             asked_name: None,
             asked_version: None,
             unfixed_in_major: 0,

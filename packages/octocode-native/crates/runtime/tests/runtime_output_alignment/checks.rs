@@ -143,8 +143,20 @@ fn page_facts(
     for field in object.keys().filter(|key| !allowed.contains(&key.as_str())) {
         report.add("B2 pagination", format!("{owner}.{field}"));
     }
-    if allowed.contains(&"unit") && !object.contains_key("unit") {
-        report.add("B2 pagination", format!("{owner} without unit"));
+    // A row list states no unit or length (the operation names its rows and
+    // the rows listed are the page); a text window states both.
+    let unit = object.get("unit").and_then(Value::as_str);
+    if unit.is_some_and(|unit| !matches!(unit, "lines" | "bytes" | "chars")) {
+        report.add(
+            "B2 pagination",
+            format!("{owner} unit {unit:?} on a row list"),
+        );
+    }
+    if unit.is_none() && object.contains_key("length") {
+        report.add(
+            "B2 pagination",
+            format!("{owner} length without a text unit"),
+        );
     }
     if object.get("hasMore") == Some(&Value::Bool(true)) && !reachable {
         report.add("B2 pagination", format!("hasMore without next: {at}"));

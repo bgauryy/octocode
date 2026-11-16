@@ -53,7 +53,11 @@ impl Respond for Recording {
 /// required pagination, never another item.
 fn related_reads_only_this_pr(data: &Value) {
     support::checks::assert_leads_valid(data);
-    for call in data["related"].as_array().into_iter().flatten() {
+    let calls = data["related"]
+        .as_array()
+        .expect("an inventory states related reads");
+    assert!(!calls.is_empty(), "no related read to check: {data}");
+    for call in calls {
         assert_eq!(call["kind"], "related", "{call}");
         assert_eq!(call["tool"], "ghGetHistoryItem", "{call}");
         for query in call["input"]["queries"].as_array().into_iter().flatten() {

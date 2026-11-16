@@ -4,8 +4,9 @@
 //! to derive the detector's prescan gate. Each child module holds one
 //! contiguous slice of the order; [`PATTERNS`] joins them.
 //!
-//! A pattern names a format, never a guess: no rule reads a generic
-//! `…Key`/`…Token`/`…Secret` name or judges a value by its length or look.
+//! A pattern names a format, never a guess: no rule judges a value by its
+//! length, entropy or look. The one name-led slice is `labelled_values`: a
+//! key that says it holds a password, secret or token, assigned a literal.
 //! A match redacts its `secret` capture group (or `secret_…`, one per branch
 //! of an alternation) when it has one, else the whole match: an assignment
 //! keeps its name, quotes and operator. A match whose `template` group took
@@ -27,6 +28,53 @@
 macro_rules! armor_headers {
     () => {
         r"(?:[ \t]*[A-Za-z][A-Za-z0-9_-]*:(?:[^\r\n]*\\\r?\n)*[^\r\n]*\r?\n)*(?:[ \t]*\r?\n)?"
+    };
+}
+
+/// What ends a base64 run of a key written in source: a line end, or the
+/// quoting, comment marks, concatenation, line continuation and escaped
+/// newlines a key pasted into code carries.
+macro_rules! key_gap {
+    () => {
+        r###"(?:[ \t]*(?:\r?\n|["'`+,;*#>|]|\\{1,2}[nrt]|\\))+[ \t]*"###
+    };
+}
+
+/// Key lines: base64 runs, each followed by a gap, or by blanks alone when
+/// the run is longer than a few bytes (a key folded onto one line).
+macro_rules! key_lines {
+    () => {
+        concat!(
+            r###"(?:[A-Za-z0-9+/=]{16,}[ \t]+|[A-Za-z0-9+/=]+"###,
+            key_gap!(),
+            r###")*?(?:[A-Za-z0-9+/=]+)?"###
+        )
+    };
+}
+
+/// The body of a private-key armor, in the lines a key is written in: key
+/// lines ([`key_lines!`]), after a gap, or after lines of words of its own
+/// (a comment under the armor) that a line of key then follows. Code is none
+/// of it (`";\nconst FOOTER = "`), so a BEGIN literal and an END literal in
+/// two statements enclose no key, and the match ends where the shape does.
+/// Lazy: the armor's own line break stays outside the capture. The words
+/// hold no run of the armor's dashes, so a match never runs from one armor
+/// across another.
+macro_rules! key_body {
+    () => {
+        concat!(
+            r###"(?:(?:"###,
+            key_gap!(),
+            r###")?"###,
+            key_lines!(),
+            r###"|(?:"###,
+            key_gap!(),
+            r###")?(?:[ \t]*(?:-{0,3}[^-\r\n])*-{0,3}\r?\n)+[ \t]*[A-Za-z0-9+/=]{16,}(?:"###,
+            key_gap!(),
+            r###")?"###,
+            key_lines!(),
+            r###")"###
+        )
     };
 }
 
@@ -52,6 +100,7 @@ mod auth_and_cloud;
 mod dev_tooling;
 mod git_hosting;
 mod keys_and_databases;
+mod labelled_values;
 mod observability_and_payments;
 mod platforms;
 mod workspace_and_messaging;
@@ -69,7 +118,7 @@ pub static PATTERNS: &[SecretPattern] = &join::<PATTERN_COUNT>(&SLICES);
 pub(crate) const PATTERN_COUNT: usize = total(&SLICES);
 
 /// The slices of [`PATTERNS`], in evaluation order.
-const SLICES: [&[SecretPattern]; 8] = [
+const SLICES: [&[SecretPattern]; 9] = [
     ai_and_analytics::PATTERNS,
     auth_and_cloud::PATTERNS,
     platforms::PATTERNS,
@@ -78,6 +127,7 @@ const SLICES: [&[SecretPattern]; 8] = [
     observability_and_payments::PATTERNS,
     workspace_and_messaging::PATTERNS,
     git_hosting::PATTERNS,
+    labelled_values::PATTERNS,
 ];
 
 /// The number of patterns in `slices`.

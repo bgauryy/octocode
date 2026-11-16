@@ -120,12 +120,15 @@ pub(super) fn build_result(
 }
 
 /// The file a record is, as the view `mode` lists it.
-pub(super) fn file_of(opts: &TextSearchOptions, mode: Mode, r: FileRec) -> TextSearchFile {
+pub(super) fn file_of(opts: &TextSearchOptions, mode: Mode, mut r: FileRec) -> TextSearchFile {
     let spans = match opts.output {
         SearchOutput::Spans(spans) => Some(spans),
         _ => None,
     };
     let source = r.source;
+    // What each term held in the file, when the search counted terms: a
+    // count view lists it, and any other view's caller reads which terms hit.
+    let term_counts = std::mem::take(&mut r.term_counts);
     let mut file = match mode {
         Mode::Normal if let Some(spans) = spans => {
             let matches = match spans {
@@ -156,17 +159,18 @@ pub(super) fn file_of(opts: &TextSearchOptions, mode: Mode, r: FileRec) -> TextS
             match_count: r.matched_lines,
             matches: Vec::new(),
             source: None,
-            term_counts: r.term_counts,
+            term_counts: Vec::new(),
         },
         Mode::CountMatches => TextSearchFile {
             path: r.path,
             match_count: r.submatches,
             matches: Vec::new(),
             source: None,
-            term_counts: r.term_counts,
+            term_counts: Vec::new(),
         },
     };
     file.source = source;
+    file.term_counts = term_counts;
     file
 }
 

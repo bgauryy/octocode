@@ -385,3 +385,26 @@ fn a_directory_outline_accepts_parser_and_reads_each_file_by_its_extension() {
     .expect("parser on a directory");
     assert!(out.to_string().contains("item"), "{out}");
 }
+
+/// `symbols` over a directory skips a one-line source whose parse is
+/// estimated past the memory budget, with the same `fileTooLarge` skip the
+/// other operations name, and outlines the rest.
+#[test]
+fn directory_symbols_skip_a_source_too_dense_to_parse_within_the_budget() {
+    let root = Fixture::new();
+    let budget = octocode_engine::structural::parse_budget();
+    let calls = budget / octocode_engine::structural::BYTES_PER_TOKEN / 5 + 1000;
+    std::fs::write(
+        root.0.join("dense.js"),
+        format!("var a=[{}];\n", "f(1),".repeat(calls)),
+    )
+    .expect("dense");
+    std::fs::write(root.0.join("plain.js"), "function hello() { return 1 }\n").expect("plain");
+    let out = run(&root.0, json!({"operation":"symbols","path":root.0})).expect("row");
+    let served = out.to_string();
+    assert!(served.contains("hello"), "{out}");
+    assert!(
+        served.contains("dense.js") && served.contains("too") && out["isPartial"] == true,
+        "{out}"
+    );
+}

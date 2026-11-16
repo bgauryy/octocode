@@ -31,6 +31,12 @@ pub(crate) struct BlockLine {
     shape: LineShape,
     /// It holds a [`BODY_RUN`]: this is a key's text, not a line near a mention.
     long: bool,
+    /// The run is all the line holds of a key: code or a label stands before
+    /// it. Such a line is no key's own line; it never proves a block.
+    labelled: bool,
+    /// The line's base64 core holds a digit, `+`, `/` or `=`: a key's text,
+    /// where a plain word has none.
+    keyish: bool,
 }
 
 /// Incremental [`LineShape`] classifier: a line is leading decoration, a
@@ -55,6 +61,11 @@ pub(crate) struct LineShapeScan {
     /// Bytes fed so far, and where the line's first [`BODY_RUN`] starts.
     fed: usize,
     long_run_at: Option<usize>,
+    /// Where the line's first [`BODY_RUN`] ends, and whether it has ended.
+    long_run_end: usize,
+    long_run_closed: bool,
+    /// A digit, `+`, `/` or `=` stood in the core.
+    core_keyish: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,6 +91,9 @@ impl Default for LineShapeScan {
             long_run: false,
             fed: 0,
             long_run_at: None,
+            long_run_end: 0,
+            long_run_closed: false,
+            core_keyish: false,
         }
     }
 }
@@ -95,10 +109,14 @@ impl LineShapeScan {
                 self.long_run = true;
                 self.long_run_at = Some(self.fed - self.run);
             }
-            if self.stage == ShapeStage::Bad {
-                if self.long_run {
-                    return;
+            if self.long_run && !self.long_run_closed {
+                if base64 {
+                    self.long_run_end = self.fed;
+                } else {
+                    self.long_run_closed = true;
                 }
+            }
+            if self.stage == ShapeStage::Bad {
                 continue;
             }
             if self.escape {
@@ -121,6 +139,7 @@ impl LineShapeScan {
                 }
                 (ShapeStage::Lead, _) if base64 => {
                     self.core = true;
+                    self.core_keyish = byte.is_ascii_digit() || matches!(byte, b'+' | b'=');
                     self.core_len = 1;
                     self.core_slashes = byte == b'/';
                     self.core_plus = byte == b'+';
@@ -131,6 +150,7 @@ impl LineShapeScan {
                     ShapeStage::Lead
                 }
                 (ShapeStage::Core, _) if base64 => {
+                    self.core_keyish |= byte.is_ascii_digit() || matches!(byte, b'+' | b'/' | b'=');
                     self.core_len += 1;
                     self.core_slashes &= byte == b'/';
                     self.core_plus = false;
@@ -141,10 +161,12 @@ impl LineShapeScan {
                         || (self.core_plus && byte.is_ascii_whitespace()) =>
                 {
                     self.core = false;
+                    self.core_keyish = false;
                     ShapeStage::Lead
                 }
                 (ShapeStage::Core, _) if quote && !self.quoted && self.core_len <= 2 => {
                     self.core = false;
+                    self.core_keyish = false;
                     self.quoted = true;
                     ShapeStage::Lead
                 }
@@ -172,8 +194,30 @@ impl LineShapeScan {
     /// [`BODY_RUN`] alone: `logo: iVBOR…`, `k += b"MIIE…"`): what precedes
     /// the run is a label or code, no key text. `None` for a line that is a
     /// body line as a whole, whose key starts after its indentation.
-    fn labelled_run_at(&self) -> Option<usize> {
+    pub(crate) fn labelled_run_at(&self) -> Option<usize> {
         self.long_run_at.filter(|_| self.stage == ShapeStage::Bad)
+    }
+
+    /// Where that run ends: the closing quote and the rest of the line are
+    /// no key text.
+    pub(crate) fn labelled_run_end(&self) -> Option<usize> {
+        self.labelled_run_at().map(|_| self.long_run_end)
+    }
+
+    /// Whether the line holds a key's run beside code or a label that is no
+    /// part of a key: something stands before the run that is neither
+    /// indentation, quoting nor comment (a line cut off before its end starts
+    /// with its run), and the line is no armor header that carries the run
+    /// (`Comment: MIIE…`, the name and the run alone).
+    fn labelled_by_code(&self, head: &[u8]) -> bool {
+        let Some(at) = self.labelled_run_at() else {
+            return false;
+        };
+        let Some(before) = head.get(..at) else {
+            return true;
+        };
+        let carried_by_header = is_armor_header_name(head) && self.long_run_end == self.fed;
+        !after_line_lead(before).is_empty() && !carried_by_header
     }
 
     /// The fed line as a block reads it; `head` is its leading bytes.
@@ -181,6 +225,8 @@ impl LineShapeScan {
         BlockLine {
             shape: self.shape(head),
             long: self.long_run,
+            labelled: self.labelled_by_code(head),
+            keyish: self.core_keyish,
         }
     }
 }
@@ -202,6 +248,28 @@ pub(super) fn holds_body_run(line: &str) -> bool {
     let mut scan = LineShapeScan::default();
     scan.feed(line.as_bytes());
     scan.long_run
+}
+
+/// A header the armors name (PEM's, PGP's and RFC 4716's), judged from a
+/// line's leading bytes: the name, a colon, and the run it carries.
+fn is_armor_header_name(head: &[u8]) -> bool {
+    let head = after_line_lead(head);
+    let name = head
+        .iter()
+        .take_while(|byte| byte.is_ascii_alphanumeric() || **byte == b'-')
+        .count();
+    head.get(name) == Some(&b':')
+        && [
+            "Proc-Type",
+            "DEK-Info",
+            "Version",
+            "Comment",
+            "Hash",
+            "Charset",
+            "Subject",
+        ]
+        .iter()
+        .any(|known| head[..name].eq_ignore_ascii_case(known.as_bytes()))
 }
 
 /// `Name: value` armor header, judged from a line's leading bytes.
@@ -238,7 +306,22 @@ enum BlockPhase {
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct KeyBlockState {
     phase: BlockPhase,
+    /// Lines of no key text a block has read past: a literal marker string is
+    /// no block for long, and a key's body is one run of lines.
+    lapse: u8,
 }
+
+/// Lines of code an unproven block reads past before it closes: a comment or
+/// two stand between a marker and its body, a screenful of code does not.
+const UNPROVEN_LINES: u8 = 4;
+
+/// Lines past a proven block's body that still read as it (a gap line, a
+/// line quoting a run beside code): a key's body is one run of lines, so a
+/// longer gap ends the block.
+const KEYED_LAPSE: u8 = 2;
+
+/// Lines of no key text a proven block reads past before it closes.
+const KEYED_GAP: u8 = 2;
 
 impl KeyBlockState {
     /// Advance over one line with these `markers`; true when it is key
@@ -253,6 +336,7 @@ impl KeyBlockState {
             } else {
                 BlockPhase::Outside
             };
+            self.lapse = 0;
             return hidden;
         }
         if !self.is_open() {
@@ -260,13 +344,48 @@ impl KeyBlockState {
         }
         let line = inside();
         match (self.phase, line.shape) {
-            (_, LineShape::Body) if line.long => {
+            (_, LineShape::Body) if line.long && !line.labelled => {
                 self.phase = BlockPhase::Keyed;
+                self.lapse = 0;
                 true
             }
-            (BlockPhase::Opened | BlockPhase::Keyed, LineShape::Body) => true,
-            (BlockPhase::Opened, LineShape::Other) => {
+            // A line that only holds a key's run beside code still reads as
+            // key text one line past the body, no further.
+            (BlockPhase::Keyed, LineShape::Body) if line.long => {
+                let hides = self.lapse < KEYED_LAPSE;
+                self.lapse = 0;
+                hides
+            }
+            // A short body line is a key's last line straight after its
+            // others, or past a gap when it reads as key text and no word:
+            // else it is the text that follows the key.
+            (BlockPhase::Keyed, LineShape::Body) => {
+                if self.lapse == 0 || line.keyish {
+                    self.lapse = 0;
+                    true
+                } else {
+                    self.phase = BlockPhase::Outside;
+                    false
+                }
+            }
+            (BlockPhase::Keyed, _) => {
+                self.lapse += 1;
+                if self.lapse > KEYED_GAP {
+                    self.phase = BlockPhase::Outside;
+                }
+                false
+            }
+            (BlockPhase::Opened, LineShape::Body) if !line.labelled => true,
+            (BlockPhase::Opened, LineShape::Other | LineShape::Body) => {
                 self.phase = BlockPhase::Unproven;
+                self.lapse = 1;
+                false
+            }
+            (BlockPhase::Unproven, LineShape::Other | LineShape::Body) => {
+                self.lapse += 1;
+                if self.lapse >= UNPROVEN_LINES {
+                    self.phase = BlockPhase::Outside;
+                }
                 false
             }
             _ => false,
@@ -330,7 +449,10 @@ pub(crate) fn key_line_bytes(line: &str) -> Option<std::ops::Range<usize>> {
         shape.feed(bytes);
         let head = bytes.get(..KEY_LINE_HEAD_BYTES).unwrap_or(bytes);
         let lead = key_line_lead(head, &shape).len();
-        return (lead < line.len()).then_some(lead..line.len());
+        let end = shape.labelled_run_end().unwrap_or(line.len());
+        // A cut body's ellipsis (`...`, `…`) is no key byte.
+        let end = line[..end].trim_end_matches(['.', '…']).len();
+        return (lead < end).then_some(lead..end);
     }
     let named_at = bytes.len() - named.len();
     if let Some(mac) = named.strip_prefix(b"Private-MAC:".as_slice()) {

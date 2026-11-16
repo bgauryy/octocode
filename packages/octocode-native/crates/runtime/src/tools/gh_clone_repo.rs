@@ -19,14 +19,14 @@ use std::sync::Arc;
 use std::time::Instant;
 use validate::validate_query;
 
-use crate::tools::gh_git::{CloneContext, CloneError, CloneSetup, GitRunRequest, control};
+use crate::tools::gh_git::{GitContext, GitError, GitRunRequest, GitSetup, control};
 
 /// Clone storage is an execution prerequisite, before provider or Git work.
-pub(crate) fn require_persistent_storage(enabled: bool) -> Result<(), CloneError> {
+pub(crate) fn require_persistent_storage(enabled: bool) -> Result<(), GitError> {
     if enabled {
         Ok(())
     } else {
-        Err(CloneError::new(
+        Err(GitError::new(
             ErrorCode::PersistentStorageDisabled,
             "Clone requires persistent local storage. Set storage.mode=\"persistent\" or OCTOCODE_STORAGE_MODE=persistent to use ghCloneRepo.",
         ))
@@ -123,15 +123,15 @@ pub struct CloneResult {
 /// The repository metadata lookup returned 404: name the repository instead
 /// of the internal-sounding `clone.defaultBranchUnavailable` that cloning
 /// without metadata would report.
-pub fn repository_not_found(query: &GhCloneRepoQuery) -> CloneError {
+pub fn repository_not_found(query: &GhCloneRepoQuery) -> GitError {
     let (owner, repo) = (query.owner.as_str(), query.repo.as_str());
-    CloneError {
+    GitError {
         hints: vec![crate::tools::gh_shared::REPOSITORY_SEARCH_HINT.to_owned()],
         calls: Some(Box::new(crate::tools::gh_shared::repository_recovery(
             Some(owner),
             repo,
         ))),
-        ..CloneError::new(
+        ..GitError::new(
             ErrorCode::NotFound,
             crate::tools::gh_shared::repository_not_found_message(owner, repo),
         )
@@ -142,13 +142,13 @@ pub fn repository_not_found(query: &GhCloneRepoQuery) -> CloneError {
 /// credential the API rejected.
 #[derive(Debug)]
 pub enum CloneFailure {
-    Clone(CloneError),
+    Clone(GitError),
     Provider(ProviderError),
 }
 
-impl From<CloneError> for CloneFailure {
+impl From<GitError> for CloneFailure {
     /// A clone error a provider failure caused is that provider failure.
-    fn from(error: CloneError) -> Self {
+    fn from(error: GitError) -> Self {
         match error.upstream {
             Some(upstream) => Self::Provider(*upstream),
             None => Self::Clone(error),
@@ -166,7 +166,7 @@ pub async fn run(
     provider: &GitHubProvider,
     query: &GhCloneRepoQuery,
     request: Result<&RequestContext, ProviderError>,
-    setup: &Arc<CloneSetup>,
+    setup: &Arc<GitSetup>,
 ) -> Result<CloneResult, CloneFailure> {
     require_persistent_storage(setup.config.persistent)?;
     let provider = GitHubProvider {
@@ -187,7 +187,7 @@ pub async fn run(
     let pin = pin?;
     prepared.map_err(CloneFailure::from)?;
     let decode = |error: octocode_contract_types::error::ConversionError| {
-        CloneFailure::Clone(CloneError::new(ErrorCode::InvalidInput, error.to_string()))
+        CloneFailure::Clone(GitError::new(ErrorCode::InvalidInput, error.to_string()))
     };
     let pinned = GhCloneRepoQuery {
         owner: pin.owner.parse().map_err(decode)?,
@@ -216,13 +216,13 @@ pub async fn run(
 
 /// A path the policy denies, under the flat code the local tools share
 /// ([`PolicyError::shared_code`]), so it gets their recovery hints.
-fn policy_denied(error: PolicyError) -> CloneError {
-    CloneError::new(error.shared_code(), error.message)
+fn policy_denied(error: PolicyError) -> GitError {
+    GitError::new(error.shared_code(), error.message)
 }
 
-fn check_control(context: &CloneContext<'_>) -> Result<(), CloneError> {
+fn check_control(context: &GitContext<'_>) -> Result<(), GitError> {
     if Instant::now() >= context.deadline {
-        return Err(CloneError::new(
+        return Err(GitError::new(
             ErrorCode::Timeout,
             "Clone execution exceeded its deadline",
         ));
@@ -230,7 +230,7 @@ fn check_control(context: &CloneContext<'_>) -> Result<(), CloneError> {
     context
         .cancellation
         .check()
-        .map_err(|_| CloneError::new(ErrorCode::Cancelled, "Clone execution was cancelled"))
+        .map_err(|_| GitError::new(ErrorCode::Cancelled, "Clone execution was cancelled"))
 }
 
 fn hash(value: &str, characters: usize) -> String {

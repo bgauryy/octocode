@@ -131,7 +131,7 @@ fn a_batch_prints_each_row_under_its_heading_in_its_line_format() {
 /// A list of flat rows with at most one free-text field is a table: the
 /// columns named once, identity first and the free text last, a field no
 /// row lacks with one word on every row stated once, `-` where a row lacks
-/// a field in the middle; a row ends at its last present cell (defect E9).
+/// a field in the middle; a row ends at its last present cell.
 /// Every row of the list uses the one layout.
 #[test]
 fn flat_rows_print_as_one_table() {

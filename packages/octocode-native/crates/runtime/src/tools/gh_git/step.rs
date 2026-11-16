@@ -1,6 +1,6 @@
 //! One git step: hardened arguments, stall bounds and limiter admission around the runner.
 use super::admission::git_permit;
-use super::{CloneContext, CloneError, GitOutput, GitRunRequest, control};
+use super::{GitContext, GitError, GitOutput, GitRunRequest, control};
 use std::ffi::OsString;
 use std::path::Path;
 use std::time::Duration;
@@ -9,7 +9,7 @@ use std::time::Duration;
 /// a wall-clock cap of its own, so a transfer that keeps flowing is never
 /// cut; a stalled one is ended by git itself ([`stall_args`]), and
 /// cancellation ends any step at once.
-pub(crate) fn step_timeout(context: &CloneContext<'_>) -> Duration {
+pub(crate) fn step_timeout(context: &GitContext<'_>) -> Duration {
     context
         .deadline
         .saturating_duration_since(std::time::Instant::now())
@@ -47,12 +47,12 @@ fn stall_args(network_timeout: Duration) -> Vec<OsString> {
 }
 
 pub(crate) fn run(
-    context: &CloneContext<'_>,
+    context: &GitContext<'_>,
     args: Vec<OsString>,
     timeout: Duration,
     label: &str,
     authorization_url: Option<&str>,
-) -> Result<GitOutput, CloneError> {
+) -> Result<GitOutput, GitError> {
     run_with(
         context,
         Step {
@@ -67,7 +67,7 @@ pub(crate) fn run(
 }
 
 /// Where a step's stdout goes, as it arrives.
-pub(crate) type ChunkSink<'a> = &'a mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send);
+pub(crate) type ChunkSink<'a> = &'a mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send);
 
 /// One git invocation: its arguments, the step's name for errors, the remote
 /// whose credential it may use (a network step) and the bytes it reads.
@@ -82,10 +82,10 @@ pub(crate) struct Step<'a> {
 /// [`run`] for a step with stdin, whose stdout goes to `sink` when given
 /// instead of being collected.
 pub(crate) fn run_with(
-    context: &CloneContext<'_>,
+    context: &GitContext<'_>,
     step: Step<'_>,
     sink: Option<ChunkSink<'_>>,
-) -> Result<GitOutput, CloneError> {
+) -> Result<GitOutput, GitError> {
     let Step {
         args,
         timeout,

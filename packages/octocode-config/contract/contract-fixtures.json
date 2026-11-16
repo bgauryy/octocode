@@ -2053,7 +2053,6 @@
             "by": "traversal",
             "order": "asc"
           },
-          "matchPage": 1,
           "page": 1,
           "matchString": [
             "expire"
@@ -2095,7 +2094,6 @@
             "by": "traversal",
             "order": "asc"
           },
-          "matchPage": 1,
           "page": 1,
           "matchString": [
             "expire"
@@ -2142,7 +2140,6 @@
             "by": "path",
             "order": "desc"
           },
-          "matchPage": 1,
           "page": 1,
           "matchString": [
             "expire"
@@ -2383,7 +2380,6 @@
             "by": "traversal",
             "order": "asc"
           },
-          "matchPage": 1,
           "page": 1,
           "matchString": [
             "expire"
@@ -3810,7 +3806,7 @@
             "max": 1024
           },
           "sort": {
-            "by": "sizeBytes",
+            "by": "bytes",
             "order": "desc"
           }
         }
@@ -3831,7 +3827,7 @@
             "max": 1024
           },
           "sort": {
-            "by": "sizeBytes",
+            "by": "bytes",
             "order": "desc"
           }
         }

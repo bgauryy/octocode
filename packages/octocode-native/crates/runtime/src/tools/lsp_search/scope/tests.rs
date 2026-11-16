@@ -120,6 +120,7 @@ fn fingerprint_changes_on_edit_add_delete() {
         server_root: Some(&root),
         include: &include,
         cargo_caches_unloaded: false,
+        global_ignore: Default::default(),
     };
     let scope = |stopped: &(dyn Fn() -> bool + Sync)| {
         fingerprint::fingerprint(&walked, SystemTime::now(), stopped)
@@ -165,6 +166,7 @@ fn fingerprint_changes_after_same_size_edit_with_restored_old_mtime() {
         server_root: Some(&root),
         include: &include,
         cargo_caches_unloaded: false,
+        global_ignore: Default::default(),
     };
     let digest =
         || fingerprint::fingerprint(&walked, SystemTime::now(), &|| false).expect("fingerprint");
@@ -195,6 +197,7 @@ fn a_fingerprint_observed_at_one_instant_does_not_change_as_files_age() {
         server_root: Some(&root),
         include: &include,
         cargo_caches_unloaded: false,
+        global_ignore: Default::default(),
     };
     let digest =
         |observed| fingerprint::fingerprint(&walked, observed, &|| false).expect("fingerprint");
@@ -225,6 +228,7 @@ fn concurrent_requests_own_their_fingerprint_walks() {
         server_root: Some(&root),
         include: &include,
         cargo_caches_unloaded: false,
+        global_ignore: Default::default(),
     };
     let walked = (0..REQUESTS)
         .map(|_| AtomicUsize::new(0))
@@ -389,6 +393,7 @@ fn the_fingerprint_walks_ignored_files_only_under_the_server_root() {
         server_root: Some(&server),
         include: &include,
         cargo_caches_unloaded: false,
+        global_ignore: Default::default(),
     };
     let (first, entries) =
         fingerprint::fingerprint(&scope, SystemTime::now(), &|| false).expect("fingerprint");

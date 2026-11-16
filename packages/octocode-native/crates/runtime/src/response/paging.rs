@@ -1,4 +1,4 @@
-//! The one owner of numeric continuation cursors (`page`, `matchPage`,
+//! The one owner of numeric continuation cursors (`page`,
 //! `importerPage`, `scanOffset`, …) and of the partial marks a row ends
 //! with. A cursor is a private position with no schema ceiling: every
 //! continuation names the next one, however far the result runs. A real
@@ -7,7 +7,7 @@
 pub(crate) use octocode_contract_types::PartialReason;
 use serde_json::{Map, Value, json};
 
-use crate::contracts::envelope::{NOTICES, TIMED_NOTICES};
+use crate::contracts::envelope::NOTICES;
 use crate::id::ToolId;
 
 /// What a candidate page changes in its query: private progress dropped
@@ -150,22 +150,6 @@ pub(crate) fn push_notice(row: &mut impl RowFields, notice: impl Into<String>) {
     };
     let notice = notice.into();
     append_once(object, NOTICES, [notice.as_str()]);
-}
-
-/// Record a measured wait on `row`: `text` holds one `{}` where the stage
-/// writes the seconds, and a call that records the same `text` on several rows
-/// states it once, in the `warnings` of its own response and of no later
-/// page, with the longest wait (`response::notices::take_timed_notices`).
-pub(crate) fn push_timed_notice(row: &mut impl RowFields, text: &str, seconds: f64) {
-    let Some(object) = row.fields() else {
-        return;
-    };
-    let entry = object
-        .entry(TIMED_NOTICES)
-        .or_insert_with(|| serde_json::json!([]));
-    if let Value::Array(list) = entry {
-        list.push(serde_json::json!({"text": text, "seconds": seconds}));
-    }
 }
 
 /// Whether `query` continues an earlier page of its result: a page-number

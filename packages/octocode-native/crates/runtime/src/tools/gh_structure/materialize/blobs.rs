@@ -74,7 +74,7 @@ impl<'a> Blobs<'a> {
     /// off for the rest of the call, which reads over REST.
     fn refused(
         &mut self,
-        error: &crate::tools::gh_git::CloneError,
+        error: &crate::tools::gh_git::GitError,
     ) -> Result<HashMap<String, Fetched>, ProviderError> {
         let kind = match error.code {
             ErrorCode::Timeout => ProviderErrorKind::Timeout,

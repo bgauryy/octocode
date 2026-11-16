@@ -1,5 +1,5 @@
 use crate::policy::prune;
-use octocode_engine::search::walk::{IgnoreRules, Prune};
+use octocode_engine::search::walk::{GlobalIgnore, IgnoreRules, Prune};
 
 use std::path::{Path, PathBuf};
 
@@ -34,7 +34,13 @@ pub(super) fn skip_of(
 /// The causes among `causes` that keep `path` out of a walk of `dir` (a
 /// directory above it): what that walk lifts to reach `path`, as the walk of
 /// `path` itself, which starts there, never needed to.
-pub(crate) fn keeping_out(dir: &Path, path: &Path, is_dir: bool, causes: &[Cause]) -> Vec<Cause> {
+pub(crate) fn keeping_out(
+    dir: &Path,
+    path: &Path,
+    is_dir: bool,
+    causes: &[Cause],
+    global: GlobalIgnore,
+) -> Vec<Cause> {
     let prefixes = prefixes(dir, path);
     let names = || {
         prefixes
@@ -45,7 +51,9 @@ pub(crate) fn keeping_out(dir: &Path, path: &Path, is_dir: bool, causes: &[Cause
         .iter()
         .copied()
         .filter(|cause| match cause {
-            Cause::Ignored => IgnoreRules::new(dir).why(path, is_dir).is_some(),
+            Cause::Ignored => IgnoreRules::with_global(dir, global)
+                .why(path, is_dir)
+                .is_some(),
             Cause::Hidden => names().any(|(name, _)| name.to_string_lossy().starts_with('.')),
             Cause::DefaultExcluded => {
                 let prune = Prune::new(prune::directories(true));
@@ -134,10 +142,18 @@ fn excluded_entry(
 /// The ignore rule that keeps `path` out of a walk under `root`: the deciding
 /// ignore file, line and pattern, the file relative to `root` (through `../`
 /// for one above it). `None` when no rule applies.
-pub(crate) fn ignore_rule(root: &Path, path: &Path, is_dir: bool) -> Option<String> {
-    rule_shown(&IgnoreRules::new(root), path, is_dir, &|path| {
-        below(root, path)
-    })
+pub(crate) fn ignore_rule(
+    root: &Path,
+    path: &Path,
+    is_dir: bool,
+    global: GlobalIgnore,
+) -> Option<String> {
+    rule_shown(
+        &IgnoreRules::with_global(root, global),
+        path,
+        is_dir,
+        &|path| below(root, path),
+    )
 }
 
 /// [`ignore_rule`] under prepared rules, the ignore file named by `shown`.

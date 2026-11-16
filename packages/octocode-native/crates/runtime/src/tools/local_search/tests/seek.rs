@@ -117,7 +117,7 @@ fn query_of(call: &serde_json::Value) -> LocalSearchQuery {
 }
 
 /// Every call a page names to continue: its next page and each file's next
-/// match page.
+/// page.
 fn continuations_of(page: &LocalSearchResult) -> Vec<LocalSearchQuery> {
     let row_next = page.next.iter().filter_map(|next| next.get("nextPage"));
     let file_next = page
@@ -138,6 +138,19 @@ fn walk_against_fresh(
     fields: serde_json::Value,
     window: Option<usize>,
 ) -> Vec<serde_json::Value> {
+    walk_against_fresh_pages(root, fields, window, 1)
+}
+
+/// [`walk_against_fresh`] checking one page in `every` against its fresh
+/// page: the first two, the last, and each `every`th between. Every page is
+/// still served and walked, so the rows of the whole walk are the ones
+/// checked for repeats and gaps.
+fn walk_against_fresh_pages(
+    root: &std::path::Path,
+    fields: serde_json::Value,
+    window: Option<usize>,
+    every: usize,
+) -> Vec<serde_json::Value> {
     let (policy, security) = policy_for(root);
     let mut fields = fields;
     fields["path"] = root.to_string_lossy().into_owned().into();
@@ -152,7 +165,11 @@ fn walk_against_fresh(
         let page = search_in(&query, &policy, &security, window)
             .unwrap_or_else(|error| panic!("{query:?}: {error:?}"));
         let row = page.to_row().expect("row");
-        if let Some(snapshot) = super::super::local_search_query::snapshot(&query) {
+        let continued = continuations_of(&page);
+        let checked = pages.len() < 2 || pages.len() % every == 0 || continued.is_empty();
+        if let Some(snapshot) =
+            super::super::local_search_query::snapshot(&query).filter(|_| checked)
+        {
             super::super::manifest::evict(snapshot);
             let fresh = search_in(&query, &policy, &security, window)
                 .unwrap_or_else(|error| panic!("fresh {query:?}: {error:?}"));
@@ -170,7 +187,7 @@ fn walk_against_fresh(
                 .and_then(|paging| paging["total"].as_u64());
             total.map_or(1, |total| total as usize) + page.stats.files_matched as usize + 1
         });
-        queue.extend(continuations_of(&page));
+        queue.extend(continued);
         pages.push(row);
         assert!(pages.len() <= bound, "the walk passed {bound} calls");
     }
@@ -214,8 +231,8 @@ fn lines_once(pages: &[serde_json::Value], source: &[String]) -> std::collection
     seen
 }
 
-#[test]
-fn every_seek_page_equals_its_fresh_page_and_the_walk_joins_once() {
+/// One page in `every` is checked against its fresh page.
+fn assert_seek_pages_equal_fresh_pages(every: usize) {
     // One long line of spans, ASCII and multi-byte, at a page of a row or
     // two and at a fuller one.
     for (line, pattern, window) in [
@@ -226,10 +243,11 @@ fn every_seek_page_equals_its_fresh_page_and_the_walk_joins_once() {
         let root = tempfile::tempdir().expect("fixture");
         fs::write(root.path().join("one.txt"), format!("{line}\n")).expect("line");
         settle();
-        let pages = walk_against_fresh(
+        let pages = walk_against_fresh_pages(
             root.path(),
             serde_json::json!({"matchString":[pattern],"view":"matchOnly","sort":{"by":"path","order":"asc"}}),
             window,
+            every,
         );
         assert!(pages.len() > 2, "{pattern}: {} pages", pages.len());
         assert_eq!(
@@ -258,32 +276,83 @@ fn every_seek_page_equals_its_fresh_page_and_the_walk_joins_once() {
         serde_json::json!({"matchString":["needle"],"sort":{"by":"path","order":"asc"}}),
         serde_json::json!({"matchString":["needle"],"sort":{"by":"path","order":"desc"}}),
     ] {
-        let pages = walk_against_fresh(root.path(), fields.clone(), Some(2_500));
+        let pages = walk_against_fresh_pages(root.path(), fields.clone(), Some(2_500), every);
         assert!(pages.len() > 2, "{fields}");
         assert_eq!(rows_once(&pages).len(), 120 + 300 * 2, "{fields}");
     }
+}
 
-    // A later match page cuts the file × match-page grid (no public call
-    // reaches one; the runtime's own tests do): its scan is kept whole and
-    // each page cut from it again, and its next page (match page 1, the
-    // streamed cut) is a walk again.
-    let pages = walk_against_fresh(
-        root.path(),
-        serde_json::json!({"matchString":["needle"],"matchPage":2,"sort":{"by":"path","order":"asc"}}),
-        Some(2_500),
-    );
-    // Match page `p` of a file starts at `(p - 1) × rows per match page`:
-    // two distinct later starts mean the walk reached match page 3.
-    let starts = pages
-        .iter()
-        .flat_map(|page| page["files"].as_array().cloned().unwrap_or_default())
-        .filter_map(|file| file["pagination"]["offset"].as_u64())
-        .filter(|offset| *offset > 0)
-        .collect::<std::collections::BTreeSet<_>>();
-    assert!(
-        starts.len() >= 2,
-        "a grid walk reaches match page 3: {starts:?}"
-    );
+#[test]
+fn every_seek_page_equals_its_fresh_page_and_the_walk_joins_once() {
+    assert_seek_pages_equal_fresh_pages(6);
+}
+
+#[test]
+#[ignore = "every page against its fresh page: cargo test -- --ignored every_page"]
+fn every_seek_page_equals_its_fresh_page_for_every_page() {
+    assert_seek_pages_equal_fresh_pages(1);
+}
+
+/// Thousands of hits in a few files, walked by small pages through the
+/// cursors the pages emit alone: every hit is shown once, in walk order,
+/// across the file boundaries, with no gap.
+#[test]
+fn a_cursor_walk_over_thousands_of_hits_in_few_files_shows_each_once_in_order() {
+    let root = tempfile::tempdir().expect("fixture");
+    let files = ["a.txt", "b.txt", "c.txt"];
+    let lines = 1_500;
+    for name in files {
+        let text = (1..=lines)
+            .map(|line| format!("needle {line}\n"))
+            .collect::<String>();
+        fs::write(root.path().join(name), text).expect("source");
+    }
+    settle();
+    for window in [1_500, 4_000] {
+        let (policy, security) = policy_for(root.path());
+        let mut query = ls_query(
+            serde_json::json!({
+                "path": root.path().to_string_lossy(),
+                "matchString": ["needle"],
+                "sort": {"by": "traversal", "order": "asc"},
+            }),
+            None,
+        );
+        let mut pages = Vec::new();
+        loop {
+            let page = search_in(&query, &policy, &security, Some(window))
+                .unwrap_or_else(|error| panic!("{query:?}: {error:?}"));
+            pages.push(page.to_row().expect("row"));
+            // Only the cursor a page emits goes into the next call.
+            let mut next = continuations_of(&page);
+            assert!(next.len() <= 1, "one cursor per page: {}", next.len());
+            let Some(cursor) = next.pop() else { break };
+            query = cursor;
+            assert!(
+                pages.len() < 2_000,
+                "window {window}: the walk does not end"
+            );
+        }
+        assert!(pages.len() > 10, "window {window}: {} pages", pages.len());
+        let shown = pages
+            .iter()
+            .flat_map(|page| page["files"].as_array().into_iter().flatten())
+            .flat_map(|file| {
+                let path = file["path"].as_str().expect("path").to_owned();
+                file["matches"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(move |row| (path.clone(), row["line"].as_u64().expect("line")))
+            })
+            .collect::<Vec<_>>();
+        let wanted = files
+            .iter()
+            .flat_map(|name| (1..=lines as u64).map(move |line| ((*name).to_owned(), line)))
+            .collect::<Vec<_>>();
+        assert_eq!(shown.len(), wanted.len(), "window {window}");
+        assert_eq!(shown, wanted, "window {window}: order, gaps or repeats");
+    }
 }
 
 /// Context windows split between pages exactly as a fresh page splits

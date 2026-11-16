@@ -1,7 +1,7 @@
 //! Each shown value settled against what its source's read said: its key block, its
 //! whole-source scan, or the lines around it.
 
-use super::guard::{RowShape, UNPLACED_PLACEHOLDER, UNVERIFIED_PLACEHOLDER};
+use super::guard::RowShape;
 use super::lines::VerificationLines;
 use super::*;
 use crate::security::cut::{Cut, REDACTED, exposes, placed, rendered};
@@ -238,7 +238,7 @@ pub(super) fn settle_rows(
         let Some(RowLines { first, span }) = *placed else {
             // Its lines disagree with the window the search reports: nothing
             // places them in the source, so none is shown.
-            matched.value = UNPLACED_PLACEHOLDER.to_owned();
+            matched.value = crate::security::row_shown_unchecked(&matched.value);
             verified = Verification::Unverified;
             continue;
         };
@@ -278,7 +278,7 @@ pub(super) fn settle_rows(
         }
         if line > read.lines_read {
             // The source shrank or was replaced since the search.
-            matched.value = UNVERIFIED_PLACEHOLDER.to_owned();
+            matched.value = crate::security::row_shown_unchecked(&matched.value);
             verified = Verification::Unverified;
             continue;
         }
@@ -290,7 +290,12 @@ pub(super) fn settle_rows(
         );
         // Too long to keep for a second look, the search judged it, and only a
         // window of it or its own span is on the row.
+        // The replacements it holds are the search's own, so the row is
+        // flagged by them.
         if read.long_lines.contains(&line) {
+            if crate::security::placeholders(&matched.value) > 0 {
+                hidden.note(matched);
+            }
             continue;
         }
         // A private key's lines show as its placeholder wherever a window holds
@@ -319,7 +324,7 @@ pub(super) fn settle_rows(
             })
             .collect::<Option<Vec<_>>>()
         else {
-            matched.value = UNVERIFIED_PLACEHOLDER.to_owned();
+            matched.value = crate::security::row_shown_unchecked(&matched.value);
             verified = Verification::Unverified;
             continue;
         };
@@ -516,7 +521,7 @@ pub(super) fn settle_judged(
         let Some(RowLines { first, span }) = *placed else {
             // Its lines disagree with the window the search reports: nothing
             // places them in the source, so none is shown.
-            matched.value = UNPLACED_PLACEHOLDER.to_owned();
+            matched.value = crate::security::row_shown_unchecked(&matched.value);
             verified = Verification::Unverified;
             continue;
         };
@@ -526,7 +531,7 @@ pub(super) fn settle_judged(
         }
         if line > lines {
             // The source shrank or was replaced since the search.
-            matched.value = UNVERIFIED_PLACEHOLDER.to_owned();
+            matched.value = crate::security::row_shown_unchecked(&matched.value);
             verified = Verification::Unverified;
             continue;
         }

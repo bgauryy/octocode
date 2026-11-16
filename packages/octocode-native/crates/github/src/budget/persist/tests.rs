@@ -539,7 +539,7 @@ fn hold_the_blocking_pool() -> std::sync::mpsc::Sender<()> {
     release
 }
 
-/// RV-GH L3 (R2-L4): an awaited write whose request is dropped mid-write (an
+/// An awaited write whose request is dropped mid-write (an
 /// MCP cancel, Ctrl-C) keeps running and stays tracked, so the flush a
 /// process runs before it exits waits for it and the next process finds
 /// what it wrote. The check is of this test's own write (its key state),
@@ -573,7 +573,7 @@ fn an_awaited_write_of_a_cancelled_request_is_still_flushed() {
     });
 }
 
-/// RV-GH R2-L3: handing back a shared reservation writes through the one
+/// Handing back a shared reservation writes through the one
 /// tracked mechanism (`persist_awaited`): a release whose request is dropped
 /// is still flushed, and the next process sees the start handed back.
 #[test]

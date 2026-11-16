@@ -201,7 +201,7 @@ async fn a_headerless_rate_limit_body_is_a_primary_limit() {
     );
 }
 
-/// D1: a spent core quota is disclosed at once, however far the call's own
+/// A spent core quota is disclosed at once, however far the call's own
 /// deadline lies (no caller budget sets it 24 h out). GitHub meters core
 /// over an hour, so waiting for its reset would hold the call for up to an
 /// hour; the caller gets `rateLimited` with the reset instead and decides.

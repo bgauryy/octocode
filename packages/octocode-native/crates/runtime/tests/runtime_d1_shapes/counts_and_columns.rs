@@ -28,8 +28,9 @@ async fn local_search_counts_are_match_line_and_file_counts() {
     // file count is `pagination.total`).
     let totals = paged.data();
     assert_eq!(totals["matchCount"], 6, "{}", paged.structured_content);
-    assert_eq!(
-        totals["matchedLineCount"], 6,
+    // One hit per line: the line count is the stated matchCount.
+    assert!(
+        totals.get("matchedLineCount").is_none(),
         "{}",
         paged.structured_content
     );

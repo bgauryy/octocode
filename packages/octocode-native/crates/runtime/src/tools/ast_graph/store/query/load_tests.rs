@@ -45,7 +45,7 @@ fn options(dir: &Fixture, home: &Path, graph: Option<String>) -> QueryOptions {
     }
 }
 
-/// RV-GHOME F-C: a snapshot lives in an output root, and its manifest's
+/// A snapshot lives in an output root, and its manifest's
 /// `root` is data. A root that names that output root (or anything outside
 /// the read roots) is refused before any read runs under it, at `load`
 /// itself, whatever the tool in front of it checks.

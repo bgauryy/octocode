@@ -15,6 +15,9 @@ use std::path::Path;
 pub(super) struct Fetched {
     pub(super) window: Option<usize>,
     pub(super) renamed_warning: Option<String>,
+    /// The path a symlink at the read path resolved to: the file whose
+    /// bytes these are, so its name picks the scan rules.
+    pub(super) symlink_target: Option<String>,
 }
 
 /// One fetched body as the read's row: the shared extraction, a missed
@@ -30,7 +33,9 @@ pub(super) fn shape(
     let Fetched {
         window,
         renamed_warning,
+        symlink_target,
     } = fetched;
+    let scan_name = symlink_target.as_deref().unwrap_or(access::path(query));
     let local = local_query(query)?;
     // Selected and whole-file views use the configured response budget;
     // bare reads retain the shared source-head preview policy. The shared
@@ -49,7 +54,7 @@ pub(super) fn shape(
         process_fetched_content(
             &local,
             &acquired.bytes,
-            Path::new(access::path(query)),
+            Path::new(scan_name),
             &facts,
             security,
             cancel,
@@ -60,7 +65,7 @@ pub(super) fn shape(
             access::owner(query),
             access::repo(query),
             acquired.resolved_ref,
-            access::path(query)
+            scan_name
         );
         crate::tools::source_view::process_fetched_content_selected(
             &local,
@@ -93,7 +98,7 @@ pub(super) fn shape(
         file: GhGetFileContentFile {
             content,
             commit_sha: acquired.resolved_ref,
-            file_type: file_type(access::path(query)),
+            symlink_target,
             match_not_found: match_not_found.then_some(true),
             calls: next,
         },
@@ -107,7 +112,7 @@ const REWRITTEN_CONTINUATIONS: usize = 3;
 /// The quoted keys and separators of `"owner":"…","repo":"…","ref":"…"`,
 /// and the longer tool name on one rewritten continuation.
 const COORDINATE_KEYS_CHARS: usize = 64;
-/// `commitSha` and `fileType` beside the row's content.
+/// `commitSha` beside the row's content.
 const ROW_FIELDS_CHARS: usize = 48;
 
 /// Response chars a GitHub file row adds around the shared read's row: the
@@ -226,14 +231,4 @@ fn no_match(
     content.returned_lines = None;
     content.pagination = None;
     content.source_line_ranges.clear();
-}
-
-/// The kind of file a read returned (`fileType`).
-fn file_type(path: &str) -> Option<&'static str> {
-    match crate::content::classify_file_type(path)? {
-        crate::content::FileType::Config => Some("config"),
-        crate::content::FileType::Lock => Some("lock"),
-        crate::content::FileType::Doc => Some("doc"),
-        crate::content::FileType::Code => Some("code"),
-    }
 }

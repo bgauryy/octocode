@@ -401,7 +401,7 @@ fn page(session: &mut Session, last: bool) -> (Value, emit::Held) {
     (output, held)
 }
 
-/// C3e-2 hits view: a section every `noul` answered below 0.3 is held back
+/// Hits view: a section every `noul` answered below 0.3 is held back
 /// and counted; the page shows what answered (RFC 2026-11-08 S15).
 #[test]
 fn quiet_sections_are_held_back_and_counted() {
@@ -498,7 +498,7 @@ fn restore_shows_held_sections_and_drops_next_quiet() {
     );
 }
 
-/// Reachability walk (C3e-2 review): two resources, two batches, mixed
+/// Reachability walk over two resources, two batches, mixed
 /// answers. Every planned section reaches the caller exactly once, through a
 /// page or through the last batch's `next.quiet`; per resource, shown plus
 /// quiet is the total; nothing quiet holds a cell that is not answered.
@@ -604,7 +604,7 @@ fn every_section_is_reachable_exactly_once_across_pages_and_next_quiet() {
     }
 }
 
-/// C3e-2 review (RV-C3E note 2): batch 1 is kept and holds a quiet section;
+/// Batch 1 is kept and holds a quiet section;
 /// the terminal batch's plan cannot be kept, so no `next.quiet` can list
 /// anything. Every section of both batches still reaches the caller once.
 #[test]
@@ -657,7 +657,7 @@ fn a_terminal_batch_whose_plan_is_not_kept_shows_every_held_section() {
     assert_eq!(seen, ["s0", "s1", "s2", "s3"], "{terminal:#}");
 }
 
-/// RV-CLS F1: a continuation that finds the previous process stopped
+/// A continuation that finds the previous process stopped
 /// mid-batch ends the plan like every terminal batch. Batch 1 was kept and
 /// held `s0` back; the interrupted batch's in-flight cells become errors.
 /// With the plan kept, `next.quiet` lists `s0`; with no plan kept, the
@@ -788,4 +788,37 @@ fn classification_disclosures_captured_scope_survives_terminal_first_emission() 
         replayed(&restored.batches[0])["related"],
         disclosures["related"]
     );
+}
+
+/// The JSON-escaped bytes of `text` as a provider request carries them.
+fn escaped_bytes(text: &str) -> usize {
+    serde_json::to_string(text).expect("json").len() - 2
+}
+
+/// A section sized for a byte window stays within it whatever the density
+/// of the characters JSON escapes: a source light in quotes and control
+/// characters beside a dense stretch is sized by the dense stretch's
+/// measured bytes, not by the source's average.
+#[test]
+fn a_section_dense_in_escaped_characters_stays_within_the_window() {
+    let light = "plain words ".repeat(400);
+    let dense = "\"\t\u{1}\\\n".repeat(300);
+    let text = format!("{light}{dense}{light}");
+    let room = 2_000;
+    let chars = capture::chars_within(&[text.as_str()], room);
+    assert!(chars >= 1, "{chars}");
+    let all: Vec<char> = text.chars().collect();
+    let worst = all
+        .windows(chars)
+        .map(|window| escaped_bytes(&window.iter().collect::<String>()))
+        .max()
+        .expect("a window");
+    assert!(
+        worst <= room,
+        "{chars} chars overshoot the {room} byte window by {}",
+        worst - room
+    );
+    // Light text alone is not cut smaller than its bytes need.
+    let plain = capture::chars_within(&[light.as_str()], room);
+    assert_eq!(plain, room, "one byte per character");
 }

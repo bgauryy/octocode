@@ -122,6 +122,7 @@ pub fn execute_ast(
         .map(|(mut data, places)| {
             let sources = crate::tools::judged_rows::RowSources::as_shown(paths, security);
             judged_rows::judge_rows(&mut data, &sources, places);
+            judged_rows::drop_judging_positions(&mut data);
             data
         })
         .map_err(|mut error| {

@@ -30,10 +30,6 @@ pub(super) struct Page<'a> {
     pub(super) alternates: &'a super::super::probes::Alternates<'a>,
     /// Files the scan collected, on every page.
     pub(super) total_files: u32,
-    /// Some values were redacted because their source could not be re-read.
-    pub(super) unverified: bool,
-    /// Rows remain in the shown files.
-    pub(super) leftover_matches: bool,
     /// Classification judged hits of this scan: a page it kept none of is
     /// no absence (its counts describe the kept hits, so they say zero).
     pub(super) classified_hits: bool,
@@ -85,7 +81,7 @@ pub(super) fn settle_row(
             stats.partial_reasons.push(reason);
         }
     }
-    let mut warnings = coverage.warnings(layout, rows.shown_redacted, page.unverified);
+    let mut warnings = coverage.warnings(layout, rows.shown_redacted);
     warnings.extend(rows.notes);
     let capped = stats.capped.unwrap_or(false);
     let (status, settled_terminal) = settle(
@@ -93,7 +89,6 @@ pub(super) fn settle_row(
         layout,
         empty,
         capped,
-        page.leftover_matches,
         coverage.gap(),
         continuation_missing,
     );
@@ -226,7 +221,7 @@ pub(super) fn settle_row(
         stats,
         unique_values: None,
         files: rows.files,
-        pagination: file_paging(query, layout, total_files, page.leftover_matches),
+        pagination: file_paging(query, layout, total_files),
         hints,
         next,
         // The requested scope was searched whole. What a probe of the skipped
@@ -304,18 +299,13 @@ fn route_beyond_pages(
     }
 }
 
-/// File paging, reported only when it routes somewhere: more pages, rows
-/// left in the shown files (`leftover_matches`), or a requested page past
-/// the end. It counts files on list and grid pages and hit rows (lines, or
-/// matches on matchOnly pages) on streamed pages; the cursor that reads on lives in `next.*`.
-fn file_paging(
-    query: &LocalSearchQuery,
-    layout: &Layout,
-    total_files: u32,
-    leftover_matches: bool,
-) -> Option<Paging> {
+/// File paging, reported only when it routes somewhere: more pages, or a
+/// requested page past the end. It counts files on list pages and hit rows
+/// (lines, or matches on matchOnly pages) on the others; the cursor that
+/// reads on lives in `next.*`.
+fn file_paging(query: &LocalSearchQuery, layout: &Layout, total_files: u32) -> Option<Paging> {
     let page = local_search_query::page(query).max(1);
-    let has_more = page < layout.total_pages || leftover_matches;
+    let has_more = page < layout.total_pages;
     if let Some(walk) = layout.walk {
         let unit = if layout.list {
             "files"
@@ -332,7 +322,7 @@ fn file_paging(
             .floor(walk.more)
         });
     }
-    let unit = if layout.list || !layout.streamed {
+    let unit = if layout.list {
         "files"
     } else {
         layout.row_unit
@@ -353,19 +343,11 @@ fn settle(
     layout: &Layout,
     empty: bool,
     capped: bool,
-    leftover_matches: bool,
     coverage_gap: bool,
     next_missing: bool,
 ) -> (SearchStatus, bool) {
     let has_more = local_search_query::page(query).max(1) < layout.total_pages;
-    classify_search(
-        empty,
-        capped,
-        has_more,
-        leftover_matches,
-        coverage_gap,
-        next_missing,
-    )
+    classify_search(empty, capped, has_more, coverage_gap, next_missing)
 }
 
 /// The response's totals from the scan, in the units the view counted:
@@ -430,14 +412,13 @@ pub(crate) fn classify_search(
     empty: bool,
     capped: bool,
     has_more: bool,
-    leftover_matches: bool,
     coverage_gap: bool,
     next_missing: bool,
 ) -> (SearchStatus, bool) {
     if empty && !coverage_gap {
         return (SearchStatus::Empty, false);
     }
-    let partial = capped || has_more || leftover_matches || coverage_gap;
+    let partial = capped || has_more || coverage_gap;
     let status = if partial {
         SearchStatus::Partial
     } else {
@@ -445,6 +426,6 @@ pub(crate) fn classify_search(
     };
     // Later file pages may already be offered by the branch's first page.
     // Their absence here is not a cap.
-    let terminal = (capped || leftover_matches || coverage_gap) && next_missing;
+    let terminal = (capped || coverage_gap) && next_missing;
     (status, terminal)
 }

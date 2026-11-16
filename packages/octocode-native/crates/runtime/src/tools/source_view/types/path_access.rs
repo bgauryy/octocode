@@ -95,7 +95,12 @@ impl PathAccess for crate::policy::path::PathPolicy {
                 }
             })
             .map_err(|error| {
-                let missing = error.code == crate::policy::PolicyErrorCode::NotFound;
+                // A shown (redacted) name that several entries share is not a
+                // missing path: the policy's own answer says so, and no
+                // sibling listing or close-name lead applies.
+                let not_found = error.code == crate::policy::PolicyErrorCode::NotFound;
+                let ambiguous = not_found && self.names_several_entries(path);
+                let missing = not_found && !ambiguous;
                 let resolved = self.expand_and_resolve(path);
                 Box::new(PathFailure {
                     code: error.shared_code(),
@@ -112,7 +117,8 @@ impl PathAccess for crate::policy::path::PathPolicy {
                     search_root: missing
                         .then(|| missing_search_root(self, path, &resolved))
                         .flatten(),
-                    view_tree: missing
+                    // The parent listing shows the entries that share the name.
+                    view_tree: (missing || ambiguous)
                         .then(|| {
                             crate::response::result::missing_path_lead(
                                 self,

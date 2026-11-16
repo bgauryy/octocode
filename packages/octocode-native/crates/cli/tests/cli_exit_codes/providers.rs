@@ -172,11 +172,8 @@ async fn clasify_exits_by_worst_row_outcome() {
     let answered = json_output(&memory);
     let data = &answered["results"][0]["data"];
     assert_eq!(data["answers"]["q"]["noul"], 0.8, "{answered}");
-    assert_eq!(
-        data["usage"],
-        json!({"inputTokens":2,"outputTokens":1}),
-        "{answered}"
-    );
+    // A summary leaves the token counts to the details view.
+    assert!(data.get("usage").is_none(), "{answered}");
     assert!(data.get("related").is_none(), "{answered}");
     assert!(data.get("next").is_none(), "{answered}");
     assert!(!answered.to_string().contains("cursor"), "{answered}");

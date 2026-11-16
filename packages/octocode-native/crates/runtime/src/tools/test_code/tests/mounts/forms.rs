@@ -281,15 +281,11 @@ fn disagreement(content: &str) -> Option<String> {
     (parsed != scanned).then(|| format!("parsed {parsed:?}\nscanned {scanned:?}"))
 }
 
-/// The scan reads what the parse reads, on this repository's own source: every
-/// test span and every `mod`, with its scope and `#[path]`.
-#[test]
-fn every_file_of_real_source_scans_as_it_parses() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("the crates directory");
+/// The scan reads what the parse reads, on `files`: every test span and
+/// every `mod`, with its scope and `#[path]`.
+fn assert_scans_as_parses(files: Vec<PathBuf>) {
     let mut malformed = Vec::new();
-    let disagreements = rust_files(root)
+    let disagreements = files
         .into_iter()
         .filter_map(|file| {
             let content = std::fs::read_to_string(&file).ok()?;
@@ -309,6 +305,20 @@ fn every_file_of_real_source_scans_as_it_parses() {
         disagreements.len(),
         disagreements[..disagreements.len().min(12)].join("\n\n")
     );
+}
+
+/// The scan reads what the parse reads, on a sample of this repository's own
+/// source ([`real_source_sample`]).
+#[test]
+fn sampled_files_of_real_source_scan_as_they_parse() {
+    assert_scans_as_parses(real_source_sample());
+}
+
+/// The same on every file of this repository's own source.
+#[test]
+#[ignore = "full tree: cargo test -- --ignored full_tree"]
+fn every_file_of_real_source_scans_as_it_parses_full_tree() {
+    assert_scans_as_parses(rust_files(real_source_root()));
 }
 
 /// Forms a scan could misread, each as the parse reads them.

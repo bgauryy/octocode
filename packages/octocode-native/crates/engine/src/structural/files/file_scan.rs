@@ -126,6 +126,26 @@ impl FileScan<'_> {
                 )));
             }
         };
+        // A parse's memory follows its tokens, not its bytes: a source whose
+        // estimate passes the memory budget is skipped like one past the byte
+        // limit, and every other is admitted by that estimate, so the files
+        // parsed at once never hold more than the budget.
+        let cost = crate::structural::parse_cost(&bytes);
+        let budget = crate::structural::parse_budget();
+        if cost > budget {
+            return Ok(Some(source_skipped(
+                path_string,
+                &SourceSkip::Costly {
+                    len: bytes.len() as u64,
+                    cost,
+                    budget,
+                },
+                self.max_file_bytes,
+            )));
+        }
+        let Some(_admitted) = crate::memory::WHOLE_FILES.acquire(cost, &|| (self.stop)()) else {
+            return Err(Error::cancelled());
+        };
         // Admission is bounded by the map limits and the scan's cancellation,
         // not a clock of its own.
         let mut budget = MapBudget::new(
@@ -337,6 +357,19 @@ fn source_skipped(
                 ),
             ),
         ),
+        SourceSkip::Costly { len, cost, budget } => (
+            Tally::Large,
+            "truncated",
+            "maxFileBytes",
+            StructuralDiagnostic::new(
+                "structural.file.tooLarge",
+                "warning",
+                "scan",
+                format!(
+                    "File is {len} bytes; parsing it is estimated to need {cost} bytes of memory, above the budget of {budget} bytes."
+                ),
+            ),
+        ),
         SourceSkip::Unreadable(err) => (
             Tally::Unreadable,
             "unreadable",
@@ -389,6 +422,13 @@ pub(super) fn judged<'a>(
 pub(super) enum SourceSkip {
     Metadata(std::io::Error),
     Large(u64),
+    /// Within the byte limit, but its parse is estimated to need more
+    /// memory than the budget ([`crate::structural::parse_cost`]).
+    Costly {
+        len: u64,
+        cost: usize,
+        budget: usize,
+    },
     Unreadable(std::io::Error),
     /// The bytes are not admitted as text ([`admit`]).
     Refused(Refusal),

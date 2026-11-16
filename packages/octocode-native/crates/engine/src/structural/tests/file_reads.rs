@@ -16,6 +16,7 @@ fn files_options(root: &TmpDir) -> StructuralSearchFilesOptions {
         skip_files: None,
         max_file_bytes: None,
         judge: None,
+        global_ignore: Default::default(),
     }
 }
 
@@ -180,6 +181,7 @@ fn search_files_prefilter_read_feeds_the_parse_and_keeps_skip_reasons() {
         skip_files: None,
         max_file_bytes,
         judge: None,
+        global_ignore: Default::default(),
     };
     let result = search_files_detailed(options(Some(1_000))).expect("search files");
     assert_eq!(result.total_matches, 1);
@@ -257,6 +259,7 @@ fn search_files_separates_unsupported_from_prefilter_skips() {
         skip_files: None,
         max_file_bytes: None,
         judge: None,
+        global_ignore: Default::default(),
     })
     .expect("search files");
 

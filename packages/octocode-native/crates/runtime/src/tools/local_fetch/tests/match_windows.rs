@@ -113,7 +113,9 @@ fn omission_marker_survives_redaction() {
         ]
     );
     assert!(
-        r.warnings.iter().any(|w| w.contains("not verbatim")),
+        r.warnings
+            .iter()
+            .any(|w| w == crate::security::REDACTED_MARK),
         "{:?}",
         r.warnings
     );

@@ -33,7 +33,7 @@ fn clone_with(fixture: &Fixture, query: GhCloneRepoQuery) -> CloneResult {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let first = clone_pinned(fixture, &query, &context).expect("clone");
     // The second clone reuses the verified checkout and still withholds.
@@ -64,7 +64,7 @@ fn a_full_clone_leaves_out_credential_named_files() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let result = clone_pinned(&fixture, &query(), &context).expect("full clone");
     let local = Path::new(&result.location.path);
@@ -83,7 +83,7 @@ fn a_sparse_directory_clone_leaves_out_credential_named_files_in_scope() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let result = clone_pinned(
         &fixture,
@@ -133,7 +133,7 @@ fn credential_content_is_never_downloaded() {
         let policy = test_support::workspace_policy(&root.0);
         let endpoint = api_github_endpoint();
         let runner = fixture_runner(&fixture);
-        let config = CloneConfig::persistent(&home);
+        let config = GitConfig::persistent(&home);
         let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
         let result = clone_pinned(
             &fixture,
@@ -165,7 +165,7 @@ fn a_remote_that_ignores_the_blob_filter_is_refused() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let error = clone_pinned(&fixture, &query(), &context).expect_err("refused");
     assert_eq!(error.code, ErrorCode::GitFailed, "{error:?}");
@@ -182,7 +182,7 @@ fn a_store_holding_a_credential_blob_is_replaced_by_a_new_generation() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let old = clone_pinned(&fixture, &query(), &context).expect("first clone");
     let stores = store_dirs(&home);
@@ -225,7 +225,7 @@ fn a_poisoned_store_serves_a_new_commit_from_a_new_generation_on_the_first_try()
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     clone_pinned(&fixture, &query(), &context).expect("first clone");
     let stores = store_dirs(&home);
@@ -271,7 +271,7 @@ fn a_withheld_file_sharing_content_with_a_written_one_is_reused() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     for paths in [None, Some("config")] {
         let query = GhCloneRepoQuery {

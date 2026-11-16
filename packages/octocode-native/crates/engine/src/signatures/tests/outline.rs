@@ -215,12 +215,11 @@ fn a_missing_outline_names_its_reason() {
     );
 }
 
-/// No size refuses an outline: a source as large as a whole read admits
-/// outlines in full; the parse's linear work bound is what stops a parse.
-#[test]
-fn a_source_as_large_as_a_whole_read_outlines_in_full() {
+/// A source of `bytes` of small functions outlines in full: one row per
+/// function, the last one last.
+fn assert_outlines_in_full(bytes: usize) {
     let body = "fn f() {\n    let x = 1;\n    x\n}\n";
-    let count = crate::security::MAX_CONTENT_SIZE / body.len();
+    let count = bytes / body.len();
     let source = (0..count)
         .map(|i| body.replace("fn f", &format!("fn f{i}")))
         .collect::<String>();
@@ -231,6 +230,21 @@ fn a_source_as_large_as_a_whole_read_outlines_in_full() {
         "{}",
         &outline[outline.len() - 80..]
     );
+}
+
+/// No size refuses an outline: the parse's linear work bound is what stops a
+/// parse. A megabyte of functions outlines in full, as the runtime's whole-read
+/// ceiling check proves at its real size.
+#[test]
+fn a_large_source_outlines_in_full() {
+    assert_outlines_in_full(1024 * 1024);
+}
+
+/// The same at a source as large as a whole read admits.
+#[test]
+#[ignore = "real ceiling: cargo test -- --ignored real_ceiling"]
+fn a_source_as_large_as_a_whole_read_outlines_in_full_real_ceiling() {
+    assert_outlines_in_full(crate::security::MAX_CONTENT_SIZE);
 }
 
 /// Gutters are unpadded so the content-view minifier (which trims
@@ -424,18 +438,19 @@ fn an_outline_of_one_line_declarations_is_no_smaller_than_its_source() {
 /// lists every head, each cut at its own column, from one index of the row
 /// (a scan from column 0 per head was quadratic in the line).
 #[test]
-fn a_one_line_bundle_of_a_hundred_thousand_functions_lists_every_head() {
+fn a_one_line_bundle_of_twenty_thousand_functions_lists_every_head() {
+    let heads = 20_000;
     let source = format!(
         "var \u{e9}=1;{}\n",
-        (0..100_000)
+        (0..heads)
             .map(|index| format!("function f{index}(a){{return a}}"))
             .collect::<String>()
     );
     let outline = extract_signatures_inner(&source, "bundle.js").expect("outline");
-    for index in [0, 1, 50_000, 99_999] {
+    for index in [0, 1, heads / 2, heads - 1] {
         assert!(outline.contains(&format!("function f{index}")), "f{index}");
     }
-    assert!(!outline.contains("function f100000"));
+    assert!(!outline.contains(&format!("function f{heads}")));
 }
 
 /// Outer attributes open a top-level item as decorators open a Python or

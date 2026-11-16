@@ -51,6 +51,24 @@ fn replacement_for(idx: usize) -> &'static str {
 /// spells its non-secret context (an assignment's name, a URL's host).
 const SECRET_GROUP: &str = "secret";
 
+/// Capture group name of a label's bare (unquoted) value. In a source that
+/// is not a config file a bare word after a label is an identifier, never a
+/// value ([`ValueForm::Code`]).
+const BARE_GROUP: &str = "secret_bare";
+
+/// How a source writes values after a label: decides whether a bare value
+/// is one. A known file kind, never a judgement of the value.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ValueForm {
+    /// Code, or text of no known file: only quoted values after a label are
+    /// values (`password = userPass1` names a variable).
+    #[default]
+    Code,
+    /// A config file (`.env`, `.properties`, `.ini`, YAML, TOML, `.conf`,
+    /// `.cfg`): a bare value after a label is a value.
+    Config,
+}
+
 /// The capture groups of `regex` that name a match's secret: one per branch
 /// of an alternation (`secret`, `secret_…`).
 fn secret_groups(regex: &regex::Regex) -> Vec<usize> {
@@ -58,6 +76,16 @@ fn secret_groups(regex: &regex::Regex) -> Vec<usize> {
         .capture_names()
         .enumerate()
         .filter(|(_, name)| name.is_some_and(|name| name.starts_with(SECRET_GROUP)))
+        .map(|(index, _)| index)
+        .collect()
+}
+
+/// The capture groups of `regex` that take a label's bare value.
+fn bare_groups(regex: &regex::Regex) -> Vec<usize> {
+    regex
+        .capture_names()
+        .enumerate()
+        .filter(|(_, name)| *name == Some(BARE_GROUP))
         .map(|(index, _)| index)
         .collect()
 }
@@ -112,6 +140,12 @@ fn is_hidden(secret: &str) -> bool {
 /// secret starts first (the earlier pattern on a tie).
 #[must_use]
 pub fn secret_spans(text: &str) -> Vec<SecretSpan> {
+    secret_spans_in(text, ValueForm::Code)
+}
+
+/// [`secret_spans`] of a source whose values are written as `form` says.
+#[must_use]
+pub fn secret_spans_in(text: &str, form: ValueForm) -> Vec<SecretSpan> {
     let mut found: Vec<SecretSpan> = Vec::new();
     for idx in prescan_candidates(text).iter() {
         let regex = pattern_regex_for(idx, text);
@@ -127,7 +161,15 @@ pub fn secret_spans(text: &str) -> Vec<SecretSpan> {
         if groups.is_empty() {
             regex.find_iter(text).for_each(&mut keep);
         } else {
+            let bare = if form == ValueForm::Code {
+                bare_groups(regex)
+            } else {
+                Vec::new()
+            };
             for captures in regex.captures_iter(text) {
+                if bare.iter().any(|&group| captures.get(group).is_some()) {
+                    continue;
+                }
                 if let Some(secret) = secret_of(&captures, &groups) {
                     keep(secret);
                 }
@@ -189,8 +231,8 @@ pub(crate) struct DetectResult {
 /// `content` with every secret of [`secret_spans`] replaced by its pattern's
 /// placeholder (and the line breaks it spanned); `None` when it holds none,
 /// so clean content is never copied.
-pub(crate) fn redact(content: &str) -> Option<DetectResult> {
-    let spans = secret_spans(content);
+pub(crate) fn redact(content: &str, form: ValueForm) -> Option<DetectResult> {
+    let spans = secret_spans_in(content, form);
     if spans.is_empty() {
         return None;
     }

@@ -112,33 +112,33 @@ fn a_value_read_in_its_fields_shape_says_the_form_to_send() {
         (
             "localSearch",
             json!({"queries":[{"path":".","matchString":"runForwardingSignals"}]}),
-            r#"queries[0]: read `matchString: "runForwardingSignals"` as `matchString: ["runForwardingSignals"]`; send `matchString: ["runForwardingSignals"]` next time."#,
+            r#"queries[0]: read `matchString: "runForwardingSignals"` as `matchString: ["runForwardingSignals"]`; send `matchString` next time."#,
         ),
         (
             "localFetch",
             json!({"queries":[{"path":"a.ts","limit":"5"}]}),
-            r#"queries[0]: read `limit: "5"` as `limit: 5`; send `limit: 5` next time."#,
+            r#"queries[0]: read `limit: "5"` as `limit: 5`; send `limit` next time."#,
         ),
         (
             "graphBuild",
             json!({"queries":[{"path":".","exclude":"tests/**"}]}),
-            r#"queries[0]: read `exclude: "tests/**"` as `exclude: ["tests/**"]`; send `exclude: ["tests/**"]` next time."#,
+            r#"queries[0]: read `exclude: "tests/**"` as `exclude: ["tests/**"]`; send `exclude` next time."#,
         ),
         (
             "localSearch",
             json!({"queries":[{"path":".","matchString":"x"},{"path":".","matchString":"x"}]}),
-            r#"queries[0,1]: read `matchString: "x"` as `matchString: ["x"]`; send `matchString: ["x"]` next time."#,
+            r#"queries[0,1]: read `matchString: "x"` as `matchString: ["x"]`; send `matchString` next time."#,
         ),
         (
             "localSearch",
             json!({"queries":[{"path":".","matchString":["x"]}],"responseChars":"900"}),
-            r#"read `responseChars: "900"` as `responseChars: 900`; send `responseChars: 900` next time."#,
+            r#"read `responseChars: "900"` as `responseChars: 900`; send `responseChars` next time."#,
         ),
         (
             "astSearch",
             json!({"queries":[{"operation":"match","path":".","rule":
                 json!({"inside": json!({"pattern":"eval($X)"}).to_string()}).to_string()}]}),
-            r#"send `rule: {"inside":{"pattern":"eval($X)"}}` next time."#,
+            r#"send `rule` next time."#,
         ),
         (
             "localSearch",
@@ -173,7 +173,8 @@ fn a_long_value_keeps_its_form_and_notes_follow_row_order() {
     let notes = normalized_input("localSearch", sent).1;
     let form = format!("`matchString: [\"{}\"]`", ends(NOTE_TEXT_CHARS / 2));
     assert!(
-        matches!(notes.as_slice(), [one] if one.ends_with(&format!("send {form} next time."))),
+        matches!(notes.as_slice(), [one]
+            if one.contains(&format!("as {form}; send `matchString` next time."))),
         "{notes:?}"
     );
     let many = json!(["a", "b", "c", "d", "e"]).to_string();
@@ -183,9 +184,8 @@ fn a_long_value_keeps_its_form_and_notes_follow_row_order() {
     )
     .1;
     assert!(
-        notes
-            .iter()
-            .any(|note| note.contains(r#"send `matchString: ["a","b","c",…]`"#)),
+        notes.iter().any(|note| note
+            .contains(r#"as `matchString: ["a","b","c",…]`; send `matchString` next time"#)),
         "{notes:?}"
     );
     let batch = json!({"queries":[
@@ -335,12 +335,12 @@ fn a_sort_takes_its_natural_direction() {
     };
     assert_eq!(row(json!("path")), json!({"by":"path","order":"asc"}));
     assert_eq!(
-        row(json!({"by":"sizeBytes"})),
-        json!({"by":"sizeBytes","order":"desc"})
+        row(json!({"by":"bytes"})),
+        json!({"by":"bytes","order":"desc"})
     );
     assert_eq!(
-        row(json!({"by":"sizeBytes","order":"asc"})),
-        json!({"by":"sizeBytes","order":"asc"}),
+        row(json!({"by":"bytes","order":"asc"})),
+        json!({"by":"bytes","order":"asc"}),
         "a stated direction stays"
     );
 }

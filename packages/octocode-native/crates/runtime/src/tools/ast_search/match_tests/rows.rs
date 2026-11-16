@@ -95,10 +95,10 @@ fn match_rows_withhold_captures_by_default_and_state_every_end_with_captures() {
     let query = json!({"operation":"match","path":source,"rule":{"pattern":"oldCall($A)"}});
     let out = run(&root.0, query.clone()).expect("match");
     let matches = out["files"][0]["matches"].as_array().expect("matches");
-    // Lean rows (objects): the line and 1-based column (a span adds its
-    // end line) and exact source text; no captures, no provenance.
-    let first = json!({"line":1,"column":1,"value":"oldCall(one)"});
-    let second = json!({"line":2,"column":1,"endLine":4,"value":"oldCall(\n  two\n)"});
+    // Lean rows (objects): the line (a span adds its end line) and exact
+    // source text; no column, captures or provenance.
+    let first = json!({"line":1,"value":"oldCall(one)"});
+    let second = json!({"line":2,"endLine":4,"value":"oldCall(\n  two\n)"});
     assert_eq!(*matches, [first.clone(), second.clone()]);
     assert!(out.get("sourceEvidence").is_none(), "{out}");
     // `includeProvenance` adds each row's exact source correspondence.
@@ -284,7 +284,7 @@ fn block_matches_default_to_their_header_and_expand_on_request() {
     .expect("source");
     let query = json!({"operation":"match","path":source,"rule":{"kind":"function_item"}});
     let out = run(&root.0, query.clone()).expect("match");
-    let header = json!({"line":1,"column":1,"endLine":6,"value":"pub fn load(\n    path: &str,\n) -> Result<u8, String> …","clipped":true});
+    let header = json!({"line":1,"endLine":6,"value":"pub fn load(\n    path: &str,\n) -> Result<u8, String> …"});
     assert_eq!(out["files"][0]["matches"][0], header);
     assert!(has_capture_expansion(&out), "{out}");
     let mut proven = query.clone();
@@ -411,8 +411,14 @@ fn happy_path_rows_carry_the_next_hop_anchors() {
     let rows = matched["files"][0]["matches"].as_array().expect("rows");
     let multi = rows.iter().find(|row| row["line"] == 1).expect("alpha");
     assert_eq!(multi["endLine"], 3, "{matched}");
-    assert_eq!(multi["clipped"], true, "{matched}");
-    assert!(multi["value"].is_string(), "{matched}");
+    // The in-band marker states the clip; no flag repeats it.
+    assert!(multi.get("clipped").is_none(), "{matched}");
+    assert!(
+        multi["value"]
+            .as_str()
+            .is_some_and(|text| text.ends_with(" …")),
+        "{matched}"
+    );
     let single = rows.iter().find(|row| row["line"] == 5).expect("beta");
     assert!(single.get("endLine").is_none(), "{matched}");
     assert!(single.get("clipped").is_none(), "{matched}");
@@ -456,15 +462,17 @@ fn the_capture_lead_returns_each_clipped_row_of_its_page_once() {
     let query =
         json!({"operation":"match","path":root.0,"rule":{"kind":"function_declaration"},"limit":4});
     let first = run(&root.0, query).expect("page 1");
-    let key =
-        |path: &str, row: &serde_json::Value| format!("{path}:{}:{}", row["line"], row["column"]);
+    let key = |path: &str, row: &serde_json::Value| format!("{path}:{}", row["line"]);
     let mut clipped = std::collections::BTreeSet::new();
     let mut shown = std::collections::BTreeSet::new();
     for file in first["files"].as_array().expect("files") {
         let path = file["path"].as_str().expect("path");
         shown.insert(path.to_owned());
         for row in file["matches"].as_array().expect("matches") {
-            if row["clipped"] == true {
+            if row["value"]
+                .as_str()
+                .is_some_and(|text| text.ends_with(" …"))
+            {
                 clipped.insert(key(path, row));
             }
         }

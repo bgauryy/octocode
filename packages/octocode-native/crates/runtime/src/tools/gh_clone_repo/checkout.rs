@@ -1,6 +1,6 @@
 //! A fresh checkout: stage the commit, verify it, publish it as an output.
 use super::plan::{Checkout, Plan};
-use super::{CloneContext, CloneError, CloneResult, Sparse, git, policy_denied, recovery, storage};
+use super::{CloneResult, GitContext, GitError, Sparse, git, policy_denied, recovery, storage};
 use octocode_contract_types::ErrorCode;
 use std::path::{Path, PathBuf};
 
@@ -14,7 +14,7 @@ pub(super) fn reuse_checkout(
     plan: &Plan<'_>,
     reference: &str,
     clone_dir: &Path,
-) -> Result<Option<CloneResult>, CloneError> {
+) -> Result<Option<CloneResult>, GitError> {
     let context = plan.context;
     // Only a linked worktree of the shared store is reusable: any other
     // checkout is replaced when clean, as a differing one is.
@@ -78,7 +78,7 @@ pub(super) fn fresh_clone(
     plan: &Plan<'_>,
     reference: &str,
     clone_dir: &Path,
-) -> Result<CloneResult, CloneError> {
+) -> Result<CloneResult, GitError> {
     let context = plan.context;
     if clone_dir.exists() && !git::safe_to_replace(context, clone_dir, reference)? {
         return Err(dirty_checkout(clone_dir));
@@ -113,7 +113,7 @@ fn publish_stage(
     commit_sha: &str,
     staged: git::Staged,
     clone_dir: &Path,
-) -> Result<Checkout, CloneError> {
+) -> Result<Checkout, GitError> {
     let context = plan.context;
     let checkout = Checkout {
         commit_sha: commit_sha.to_owned(),
@@ -157,10 +157,10 @@ fn publish_stage(
 /// `.git` pointer names one of `key`'s stores by a path of an earlier home,
 /// with the store lock of `key` held.
 fn reconnect_moved(
-    context: &CloneContext<'_>,
+    context: &GitContext<'_>,
     key: &storage::StoreKey,
     clone_dir: &Path,
-) -> Result<(), CloneError> {
+) -> Result<(), GitError> {
     let Some(repository) = clone_dir.parent() else {
         return Ok(());
     };
@@ -193,7 +193,7 @@ fn checkout_stage(
     reference: &str,
     key: &storage::StoreKey,
     stage: &Path,
-) -> Result<(PathBuf, String, git::Staged), CloneError> {
+) -> Result<(PathBuf, String, git::Staged), GitError> {
     let context = plan.context;
     let sparse_paths = plan.sparse.as_ref().map(Sparse::paths);
     let materialize = |store: &Path| {
@@ -226,7 +226,7 @@ fn checkout_stage(
         None => {
             store = key.next_dir();
             materialize(&store)?.ok_or_else(|| {
-                CloneError::new(
+                GitError::new(
                     ErrorCode::GitFailed,
                     "A fresh store already holds credential-named files this checkout withholds; nothing was cloned.",
                 )
@@ -249,7 +249,7 @@ fn checkout_stage(
         None => git::read_head(context, stage)?,
     };
     if commit_sha != reference.to_ascii_lowercase() {
-        return Err(CloneError::new(
+        return Err(GitError::new(
             ErrorCode::CommitMismatch,
             format!("Checkout HEAD {commit_sha} does not match requested commit {reference}."),
         ));
@@ -261,7 +261,7 @@ fn checkout_stage(
 /// them (a crashed row's stage is removed first): after pruning the ones whose directories are gone, a store with no
 /// worktree left holds nothing a checkout needs. One that cannot be pruned
 /// stays.
-fn retire_old_stores(context: &CloneContext<'_>, key: &storage::StoreKey, current: &Path) {
+fn retire_old_stores(context: &GitContext<'_>, key: &storage::StoreKey, current: &Path) {
     // A crashed row's stage keeps its generation in use until it is gone.
     storage::remove_crashed_stages(&context.config.home);
     for generation in key.generations() {
@@ -308,12 +308,12 @@ fn checked_out(stage: &Path, path: &str) -> bool {
         })
 }
 
-pub(super) fn dirty_checkout(path: &Path) -> CloneError {
-    CloneError {
+pub(super) fn dirty_checkout(path: &Path) -> GitError {
+    GitError {
         hints: vec![
             "Move your edits out of this managed checkout, restore it to clean, then retry; cloning never discards local files. If its shared store was deleted, git cannot read it: delete the directory to have it cloned again.".into(),
         ],
-        ..CloneError::new(
+        ..GitError::new(
             ErrorCode::CheckoutDirty,
             format!("Clone checkout '{}' contains local files, changes, commits or Git refs; it was preserved without replacement.", path.display()),
         )
@@ -328,12 +328,7 @@ fn discard_stage(stage: &Path) {
 /// input, named per path. The checkout holds the commit's trees, so the
 /// recovery is a runnable lead ([`recovery::sparse_next`]); only when the
 /// tree cannot be read is it a hint.
-fn sparse_not_found(
-    plan: &Plan<'_>,
-    reference: &str,
-    missing: &[&str],
-    stage: &Path,
-) -> CloneError {
+fn sparse_not_found(plan: &Plan<'_>, reference: &str, missing: &[&str], stage: &Path) -> GitError {
     let query = plan.query;
     let next = recovery::sparse_next(plan.context, stage, query, missing);
     let hints = if next.is_some() {
@@ -346,10 +341,10 @@ fn sparse_not_found(
         .map(|path| format!("\"{path}\""))
         .collect::<Vec<_>>()
         .join(", ");
-    CloneError {
+    GitError {
         hints,
         calls: next.map(Box::new),
-        ..CloneError::new(
+        ..GitError::new(
             ErrorCode::NotFound,
             format!(
                 "Path does not exist: {paths} in {}/{}@{reference}; nothing was checked out for it.",

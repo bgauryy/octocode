@@ -124,13 +124,13 @@ fn no_cursor_field_declares_a_maximum() {
 /// carries the selection token and the scan's snapshot.
 #[test]
 fn next_candidate_page_call_restarts_progress_and_names_the_selection() {
-    let query = json!({"path": "src", "matchString": ["x"], "matchPage": 3, "snapshot": "old"});
+    let query = json!({"path": "src", "matchString": ["x"], "scanOffset": 3, "snapshot": "old"});
     let call = next_candidate_page_call(ToolId::LocalSearch, query, "token-1", Some("snap-2"))
         .expect("an object query");
     let row = &call["input"]["queries"][0];
     assert_eq!(row["selection"], "token-1", "{call}");
     assert_eq!(row["snapshot"], "snap-2", "{call}");
-    assert!(row.get("matchPage").is_none(), "{call}");
+    assert!(row.get("scanOffset").is_none(), "{call}");
     assert_eq!(row["path"], "src", "{call}");
 }
 
@@ -138,12 +138,12 @@ fn next_candidate_page_call_restarts_progress_and_names_the_selection() {
 /// passes a newer one; only private progress is dropped.
 #[test]
 fn candidate_page_keeps_the_query_snapshot_and_drops_progress() {
-    let query = json!({"path": "src", "matchString": ["x"], "matchPage": 3, "snapshot": "pinned"});
+    let query = json!({"path": "src", "matchString": ["x"], "scanOffset": 3, "snapshot": "pinned"});
     let call = next_candidate_page_call(ToolId::LocalSearch, query, "token-1", None)
         .expect("an object query");
     let row = &call["input"]["queries"][0];
     assert_eq!(row["snapshot"], "pinned", "{call}");
-    assert!(row.get("matchPage").is_none(), "{call}");
+    assert!(row.get("scanOffset").is_none(), "{call}");
     let local_fetch = json!({"path": "a.rs", "snapshot": "pinned", "readProgress": {"unit": "lines", "offset": 3}});
     let page = crate::response::result::with_changes(
         local_fetch,

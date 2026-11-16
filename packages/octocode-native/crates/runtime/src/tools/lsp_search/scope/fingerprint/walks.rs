@@ -9,6 +9,7 @@ fn visited(root: &Path, server: &Path) -> (usize, Vec<String>) {
         server_root: Some(server),
         include: &include,
         cargo_caches_unloaded: false,
+        global_ignore: Default::default(),
     };
     let visits = AtomicUsize::new(0);
     let stopped = || {
@@ -87,6 +88,7 @@ fn lexical_fingerprints_keep_search_exclusions() {
         server_root: None,
         include: &include,
         cargo_caches_unloaded: false,
+        global_ignore: Default::default(),
     };
     let (_, entries) = fingerprint(&scope, SystemTime::now(), &|| false).expect("fingerprint");
     assert!(entries.contains_key("src/lib.rs"), "{entries:?}");
@@ -107,6 +109,7 @@ fn large_fresh_sources_preserve_the_complete_fingerprint() {
         server_root: Some(root),
         include: &include,
         cargo_caches_unloaded: false,
+        global_ignore: Default::default(),
     };
     let (_, before) = fingerprint(&scope, SystemTime::now(), &|| false)
         .expect("a large source must not discard the other files' revision");
@@ -148,6 +151,7 @@ fn poisoned_fingerprint_state_abandons_the_walk() {
         server_root: None,
         include: &[],
         cargo_caches_unloaded: false,
+        global_ignore: Default::default(),
     };
     for poison_read in [false, true] {
         let lines = Mutex::new(Vec::new());
@@ -211,6 +215,7 @@ fn cargo_fingerprint(root: &Path, cargo_caches_unloaded: bool) -> Fingerprint {
             server_root: Some(root),
             include: &include,
             cargo_caches_unloaded,
+            global_ignore: Default::default(),
         },
         octocode_engine::stamp::settle_clock(),
         &|| false,

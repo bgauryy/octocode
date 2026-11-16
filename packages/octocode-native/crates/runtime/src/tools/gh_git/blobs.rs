@@ -12,7 +12,7 @@
 use super::endpoint::{repository_url, web_root};
 use super::process::process_alive;
 use super::step::{Step, run, run_with, scoped, step_timeout};
-use super::{CloneContext, CloneError, CloneSetup, control};
+use super::{GitContext, GitError, GitSetup, control};
 use octocode_contract_types::ErrorCode;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -77,12 +77,12 @@ fn oid_lines(oids: &[String]) -> Vec<u8> {
 }
 
 impl BlobStore {
-    fn create(context: &CloneContext<'_>, repository_url: String) -> Result<Self, CloneError> {
+    fn create(context: &GitContext<'_>, repository_url: String) -> Result<Self, GitError> {
         let parent = STORE_PARENT
             .iter()
             .fold(context.config.home.clone(), |path, part| path.join(part));
         std::fs::create_dir_all(&parent).map_err(|error| {
-            CloneError::new(
+            GitError::new(
                 ErrorCode::GitFailed,
                 format!("Failed to create the blob store directory: {error}"),
             )
@@ -90,7 +90,7 @@ impl BlobStore {
         sweep_stale(&parent);
         let mut nonce = [0_u8; 16];
         getrandom::fill(&mut nonce)
-            .map_err(|error| CloneError::new(ErrorCode::GitFailed, error.to_string()))?;
+            .map_err(|error| GitError::new(ErrorCode::GitFailed, error.to_string()))?;
         // Owned before `init` runs, so a store the init half-made is removed.
         let store = Self {
             dir: parent.join(format!("{}-{}", std::process::id(), hex::encode(nonce))),
@@ -114,7 +114,7 @@ impl BlobStore {
 
     /// Fetch `oids` (blob ids the remote's tree names) in one transfer. A
     /// remote that refuses an id refuses the whole fetch.
-    fn fetch(&self, context: &CloneContext<'_>, oids: &[String]) -> Result<(), CloneError> {
+    fn fetch(&self, context: &GitContext<'_>, oids: &[String]) -> Result<(), GitError> {
         let mut args = scoped(
             &self.dir,
             &[
@@ -153,11 +153,11 @@ impl BlobStore {
     /// arrive.
     fn read(
         &self,
-        context: &CloneContext<'_>,
+        context: &GitContext<'_>,
         oids: &[String],
         limit: usize,
         frame: &mut (dyn FnMut(Frame) + Send),
-    ) -> Result<(), CloneError> {
+    ) -> Result<(), GitError> {
         let input = oid_lines(oids);
         let mut parser = FrameParser::new(limit);
         run_with(
@@ -172,12 +172,12 @@ impl BlobStore {
             Some(&mut |chunk| {
                 parser
                     .push(chunk, frame)
-                    .map_err(|message| CloneError::new(ErrorCode::GitFailed, message))
+                    .map_err(|message| GitError::new(ErrorCode::GitFailed, message))
             }),
         )?;
         parser
             .finish()
-            .map_err(|message| CloneError::new(ErrorCode::GitFailed, message))
+            .map_err(|message| GitError::new(ErrorCode::GitFailed, message))
     }
 }
 
@@ -185,14 +185,14 @@ impl BlobStore {
 /// tool's git, limiter, credential and cancellation, and the web root of
 /// the API endpoint.
 pub(crate) struct BlobSource {
-    setup: Arc<CloneSetup>,
+    setup: Arc<GitSetup>,
     root: url::Url,
 }
 
 impl BlobSource {
     /// `None` where git cannot serve the call: no persistent storage, or an
     /// endpoint with no git URL (an API proxy).
-    pub(crate) fn new(setup: Arc<CloneSetup>) -> Option<Self> {
+    pub(crate) fn new(setup: Arc<GitSetup>) -> Option<Self> {
         if !setup.config.persistent {
             return None;
         }
@@ -202,7 +202,7 @@ impl BlobSource {
 
     /// A throwaway store for `owner/repo`; fails when git is missing or too
     /// old, which the caller answers by reading over REST.
-    pub(crate) async fn open(&self, owner: &str, repo: &str) -> Result<BlobSession, CloneError> {
+    pub(crate) async fn open(&self, owner: &str, repo: &str) -> Result<BlobSession, GitError> {
         let url = repository_url(&self.root, owner, repo)?;
         let store = self
             .setup
@@ -221,7 +221,7 @@ impl BlobSource {
 /// One call's store: waves of blobs fetched into it. The directory goes
 /// when the session and any wave still running on it are done.
 pub(crate) struct BlobSession {
-    setup: Arc<CloneSetup>,
+    setup: Arc<GitSetup>,
     store: Arc<BlobStore>,
 }
 
@@ -233,7 +233,7 @@ impl BlobSession {
         &self,
         oids: Vec<String>,
         limit: usize,
-    ) -> Result<Vec<Frame>, CloneError> {
+    ) -> Result<Vec<Frame>, GitError> {
         let store = Arc::clone(&self.store);
         self.setup
             .off_runtime(move |context| {

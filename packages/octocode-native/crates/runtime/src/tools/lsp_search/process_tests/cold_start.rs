@@ -54,11 +54,11 @@ fn a_slow_server_start_reports_progress_to_the_call() {
     runtime.block_on(pool.clear_all());
 }
 
-/// A call that waits on a cold server's start says what it waited on and
-/// that later calls reuse the running server; the next call, on the same
-/// pool, starts nothing (one spawn in all) and has nothing to disclose.
+/// A call that waits on a cold server's start carries no warning for it (the
+/// wait is progress, not evidence); the next call, on the same pool, starts
+/// nothing (one spawn in all).
 #[test]
-fn a_cold_start_is_disclosed_and_the_next_call_reuses_the_server() {
+fn a_cold_start_adds_no_warning_and_the_next_call_reuses_the_server() {
     if !require_node() {
         return;
     }
@@ -95,7 +95,7 @@ fn a_cold_start_is_disclosed_and_the_next_call_reuses_the_server() {
             ))
             .expect("row")
     };
-    // A wait is stated once for the call, in the envelope's `warnings`.
+    // The cold-call sentence the answer once carried in `warnings`.
     let waited = |row: &serde_json::Value| {
         crate::tools::test_support::staged_response(crate::id::ToolId::LspSearch, vec![row.clone()])
             ["warnings"]
@@ -117,13 +117,9 @@ fn a_cold_start_is_disclosed_and_the_next_call_reuses_the_server() {
     let first = call();
     let notes = waited(&first);
     assert!(
-        notes.iter().any(
-            |note| note.contains("language server started and loaded the project")
-                && note.contains("later calls reuse the loaded server")
-        ),
-        "the cold start is disclosed: {notes:?} / {first}"
+        notes.is_empty(),
+        "a slow start is not a warning of the answer: {notes:?} / {first}"
     );
-    assert_eq!(notes.len(), 1, "one note for the cold call: {notes:?}");
     assert_eq!(spawns(), 1);
     let second = call();
     assert_eq!(spawns(), 1, "the second call reuses the server");

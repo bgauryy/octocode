@@ -224,16 +224,17 @@ impl Held {
     }
 
     /// Close `line`, replacing it when it sits `inside` a private-key block, all
-    /// but `lead`, its bytes before the key.
-    fn finish(&mut self, line: usize, inside: bool, lead: &[u8]) {
+    /// but `lead`, its bytes before the key, and `trail`, its bytes after it.
+    fn finish(&mut self, line: usize, inside: bool, lead: &[u8], trail: &[u8]) {
         if (self.first..=self.last).contains(&line) {
             if inside {
                 // The view counts the placeholder, not the key's bytes; a raw
                 // line that overflowed the window may still fit as one.
                 let placeholder = format!(
-                    "{}{}\n",
+                    "{}{}{}\n",
                     String::from_utf8_lossy(lead),
-                    crate::security::key_fragment_placeholder()
+                    crate::security::key_fragment_placeholder(),
+                    String::from_utf8_lossy(trail)
                 );
                 self.view_pos = self.line_view_start + placeholder.len();
                 self.overflow = false;

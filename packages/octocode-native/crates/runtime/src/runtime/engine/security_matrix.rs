@@ -20,6 +20,8 @@ fn policy(tool: ToolId) -> InputPolicy {
         InputPolicy::ClasifyEvidence {
             content_limit: crate::id::clasify_policy::REQUEST_BYTES,
         }
+    } else if tool.is_local() {
+        InputPolicy::LocalQuery
     } else {
         InputPolicy::Query
     }
@@ -57,7 +59,13 @@ fn free_text_field(tool: ToolId, base: &Value, value: &str) -> Option<String> {
     base.as_object()
         .expect("example row")
         .iter()
-        .filter(|(_, sample)| sample.is_string())
+        .filter(|(name, sample)| {
+            // A local tool's path names a file on this machine: it may hold
+            // a credential and is no free text.
+            sample.is_string()
+                && !(tool.is_local()
+                    && matches!(name.as_str(), "path" | "paths" | "target" | "workspaceRoot"))
+        })
         .find_map(|(name, _)| {
             let mut row = base.clone();
             row[name] = json!(value);
@@ -81,10 +89,18 @@ fn a_credential_in_a_query_never_runs_and_is_never_echoed_for_any_tool() {
     let home = tempfile::tempdir().expect("home");
     let runtime = runtime(home.path(), &[]);
     for tool in ToolId::ALL {
-        let (base, field) = examples(tool)
+        let found = examples(tool)
             .into_iter()
-            .find_map(|base| free_text_field(tool, &base, TOKEN).map(|field| (base, field)))
-            .unwrap_or_else(|| panic!("{tool:?}: no query text field accepts a token"));
+            .find_map(|base| free_text_field(tool, &base, TOKEN).map(|field| (base, field)));
+        // A local tool whose only text is a path (graphBuild) holds no
+        // field a credential is refused in: its path names a file here.
+        let Some((base, field)) = found else {
+            assert!(
+                tool.is_local(),
+                "{tool:?}: no query text field accepts a token"
+            );
+            continue;
+        };
         let mut row = base.clone();
         row[&field] = json!(TOKEN);
         let admitted = runtime.admit_queries(tool, &input(&row), false, false);
@@ -167,7 +183,7 @@ fn oversized_or_too_deep_input_is_rejected_for_any_tool() {
     for tool in ToolId::ALL {
         let base = base_row(tool);
         let limit = match policy(tool) {
-            InputPolicy::Query => 10_000,
+            InputPolicy::Query | InputPolicy::LocalQuery => 10_000,
             InputPolicy::ClasifyEvidence { content_limit } => content_limit,
         };
         let field = free_text_field(tool, &base, TOKEN).unwrap_or_else(|| "ext".to_owned());
@@ -273,4 +289,23 @@ async fn a_credential_in_evidence_is_redacted_on_both_channels() {
             );
         }
     }
+}
+
+#[test]
+fn a_local_tool_path_holding_a_credential_is_admitted_and_other_fields_are_not() {
+    let security = ContentSecurity::new();
+    for tool in ToolId::ALL.into_iter().filter(|tool| tool.is_local()) {
+        let row = json!({"path": format!("deploy-{TOKEN}.txt")});
+        let checked = security
+            .check_input(row.clone(), policy(tool))
+            .unwrap_or_else(|issues| panic!("{tool:?}: {issues:?}"));
+        assert_eq!(checked["path"], row["path"], "{tool:?}");
+        let other = json!({"path": "src", "matchString": TOKEN});
+        assert!(
+            security.check_input(other, policy(tool)).is_err(),
+            "{tool:?}"
+        );
+    }
+    let github = json!({"path": format!("deploy-{TOKEN}.txt")});
+    assert!(security.check_input(github, InputPolicy::Query).is_err());
 }

@@ -192,7 +192,7 @@ fn a_directory_holding_withheld_files_is_not_disclosed_as_the_file() {
     )
     .expect("skipped paths")
     .expect("some skipped");
-    assert!(!detailed.sampled);
+    assert_ne!(detailed.sampled, Some(true));
     let mut shown = serde_json::to_value(detailed.entries).expect("holder paths");
     shown
         .as_array_mut()

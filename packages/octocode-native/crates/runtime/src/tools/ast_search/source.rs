@@ -13,10 +13,18 @@ use crate::tools::display_name;
 /// The source astSearch parses, read bounded at the whole-read limit
 /// ([`crate::security::SourceLimits::whole_source`]): every parse is
 /// bounded by its work and the request, not by size. `None` when the file
-/// is larger.
+/// is larger, or when its parse is estimated to need more memory than the
+/// budget ([`octocode_engine::structural::parse_cost`]): a dense one-line
+/// file within the byte limit holds as many nodes as a far longer file.
 pub(super) fn read_parse_source(path: &std::path::Path) -> Result<Option<Vec<u8>>, ToolError> {
     use crate::tools::source::read_bounded;
     match read_bounded(path, crate::security::SourceLimits::REAL.whole_source) {
+        Ok(bytes)
+            if octocode_engine::structural::parse_cost(&bytes)
+                > octocode_engine::structural::parse_budget() =>
+        {
+            Ok(None)
+        }
         Ok(bytes) => Ok(Some(bytes)),
         Err(ReadError::TooLarge(_)) => Ok(None),
         Err(ReadError::NotRegular) => Err(io_error(
@@ -157,7 +165,8 @@ pub(super) fn admitted_for_match<'a>(
     Ok((matched, Some(shown)))
 }
 
-const TOO_LARGE: &str = "Source exceeds the byte limit of a whole read.";
+const TOO_LARGE: &str =
+    "Source exceeds the byte limit of a whole read, or the memory its parse is estimated to need.";
 
 /// The terminal row of a source larger than a whole read admits, with its
 /// recovery ([`too_large_recovery`]).

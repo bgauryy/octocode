@@ -272,7 +272,7 @@ async fn a_capped_search_names_one_narrowing_lead() {
     }
 }
 
-/// D2: a keyword-less pullRequest search runs newest created first, as the
+/// A keyword-less pullRequest search runs newest created first, as the
 /// sort's documented default says ("Omit: relevance with keywords, else
 /// newest created"), the same as an issue search. So GitHub is asked with
 /// `sort=created&order=desc`, and a capped page's lead narrows the window

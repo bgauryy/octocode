@@ -115,7 +115,7 @@ fn ranked_as_rows(rows: &mut [(Row, Option<Lines>)], sort: &StructureSearchSort)
         Key::TotalLines => Lines::class(*a_lines)
             .cmp(&Lines::class(*b_lines))
             .then_with(|| directed(Lines::count(*a_lines).cmp(&Lines::count(*b_lines)))),
-        Key::SizeBytes => (a.kind != EntryKind::File)
+        Key::Bytes => (a.kind != EntryKind::File)
             .cmp(&(b.kind != EntryKind::File))
             .then_with(|| directed(a.size.cmp(&b.size))),
         Key::Name => directed(a.display_name.cmp(&b.display_name)),
@@ -131,7 +131,7 @@ fn sorts() -> Vec<StructureSearchSort> {
     })];
     for by in [
         Key::TotalLines,
-        Key::SizeBytes,
+        Key::Bytes,
         Key::Name,
         Key::Path,
         Key::ModifiedAt,

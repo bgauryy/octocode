@@ -30,7 +30,6 @@ pub(crate) fn text_search_query(path: &str, terms: &[&str]) -> Option<LocalSearc
         key_path: None,
         limit: None,
         main_goal: None,
-        match_page: std::num::NonZeroU64::MIN,
         match_string: TextMatchTerms(terms),
         max_depth: None,
         multiline: LocalSearchQueryContentMultiline::Off,

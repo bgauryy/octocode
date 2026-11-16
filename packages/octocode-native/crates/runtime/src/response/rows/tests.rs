@@ -96,6 +96,10 @@ fn the_row_finaliser_states_the_class_and_retryable_only_when_transient() {
         Some("error"),
     );
     assert_eq!(cancelled["data"]["retryable"], json!(false));
-    let timeout = result_row(0, json!({"errorCode": "timeout", "error": "x"}), Some("error"));
+    let timeout = result_row(
+        0,
+        json!({"errorCode": "timeout", "error": "x"}),
+        Some("error"),
+    );
     assert_eq!(timeout["data"]["retryable"], json!(true));
 }

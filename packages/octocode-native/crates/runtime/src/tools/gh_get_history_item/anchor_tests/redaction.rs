@@ -121,9 +121,9 @@ async fn offsets_count_the_redacted_body_and_windows_keep_markers_whole() {
     assert!(windows[1].ends_with(" end"), "{windows:?}");
 }
 
-/// The redaction the read made states itself on the call.
+/// The redaction the read made flags the row.
 #[tokio::test]
-async fn a_redacted_body_raises_the_redaction_warning() {
+async fn a_redacted_body_flags_the_row() {
     let server = MockServer::builder().start().await;
     mount_issue(&server, &format!("key {}", secret())).await;
     let out = read_secure(
@@ -131,10 +131,8 @@ async fn a_redacted_body_raises_the_redaction_warning() {
         json!({"operation":"issue","owner":"o","repo":"r","number":7}),
     )
     .await;
-    assert!(
-        out["warnings"].to_string().contains("redactedContent"),
-        "{out}"
-    );
+    assert_eq!(out["redacted"], json!(true), "{out}");
+    assert!(out["warnings"].is_null(), "{out}");
 }
 
 /// Comment bodies of one issue page share one `offset`. A marker that
@@ -488,20 +486,12 @@ async fn the_redaction_warning_counts_what_the_page_shows() {
     };
     let plain = read_secure(&server, read("src/lib.rs")).await;
     assert!(!plain.to_string().contains("[REDACTED"), "{plain}");
-    assert!(
-        !plain["warnings"].to_string().contains("redactedContent"),
-        "{plain}"
-    );
+    assert!(plain.get("redacted").is_none(), "{plain}");
     let shown = read_secure(&server, read("config/app.env")).await;
     assert!(!leaks(&shown.to_string()), "{shown}");
     let placeholders = crate::security::placeholders_in(&shown["files"]);
     assert!(placeholders > 0, "{shown}");
-    assert!(
-        shown["warnings"]
-            .to_string()
-            .contains(&format!("redactedContent: {placeholders} ")),
-        "{shown}"
-    );
+    assert_eq!(shown["redacted"], json!(true), "{shown}");
 }
 
 /// Round 14, B: a patch's hunks are judged as the text they change, so a

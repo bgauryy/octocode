@@ -103,8 +103,8 @@ pub(super) fn evaluation_usage(
 ) -> Value {
     let count = |value| saturating_i64(value);
     serde_json::to_value(octocode_contract_types::ClasifyEvaluationUsage {
-        input_tokens: count(input_tokens),
-        output_tokens: count(output_tokens),
+        input_tokens: Some(count(input_tokens)),
+        output_tokens: Some(count(output_tokens)),
         calls: Some(count(calls)),
         refused: std::num::NonZeroU64::new(refused),
     })

@@ -82,6 +82,7 @@ fn detailed_file_search_explains_prefilter_and_unsupported_files() {
         skip_files: None,
         max_file_bytes: None,
         judge: None,
+        global_ignore: Default::default(),
     })
     .expect("detailed file search");
 

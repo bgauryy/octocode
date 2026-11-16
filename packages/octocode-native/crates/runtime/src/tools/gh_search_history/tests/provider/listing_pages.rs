@@ -248,7 +248,7 @@ async fn a_rest_list_page_with_more_states_no_total_and_offers_a_count() {
     }
 }
 
-/// R7: a pull-request listing offers its count call once, on page 1. The
+/// A pull-request listing offers its count call once, on page 1. The
 /// call is the same on every page (the listing's filters searched, one row),
 /// so later pages that still have more do not repeat it.
 #[tokio::test]

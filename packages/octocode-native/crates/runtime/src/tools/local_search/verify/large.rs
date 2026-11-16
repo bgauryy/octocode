@@ -5,10 +5,7 @@
 //! span cut from them by position. A row whose lines the read cannot serve
 //! is withheld, never shown as the search matched it.
 
-use super::guard::{
-    HashingReader, OVERSIZED_PLACEHOLDER, UNPLACED_PLACEHOLDER, UNVERIFIED_PLACEHOLDER, ValueCheck,
-    Verification, drain_digest,
-};
+use super::guard::{HashingReader, ValueCheck, Verification, drain_digest};
 use super::lines::{VerificationLines, VerifyReadError, read_verification_lines};
 use super::settle::{self, RowLines};
 use super::*;
@@ -97,22 +94,22 @@ pub(super) fn guard_large(
     if placed.is_empty() {
         return Ok(Verification::Verified);
     }
-    let withhold = |file: &mut octocode_engine::types::TextSearchFile, reason: &str| {
+    let withhold = |file: &mut octocode_engine::types::TextSearchFile| {
         for matched in &mut file.matches[start..end] {
-            matched.value = reason.to_owned();
+            matched.value = crate::security::row_shown_unchecked(&matched.value);
         }
         Ok(Verification::Unverified)
     };
     let (read, digest) = match raw_lines(opened, &spans, cancel) {
         Ok((read, Some(digest))) => (read, digest),
-        Ok((_, None)) | Err(VerifyReadError::Io) => return withhold(file, UNVERIFIED_PLACEHOLDER),
+        Ok((_, None)) | Err(VerifyReadError::Io) => return withhold(file),
         Err(VerifyReadError::Cancelled(reason)) => return Err(reason),
     };
     if matches!(expected, Expected::Stored(stored) if stored != Some(digest)) {
         return Ok(Verification::Changed);
     }
     if read.unclassified {
-        return withhold(file, UNVERIFIED_PLACEHOLDER);
+        return withhold(file);
     }
     let room = security.limits().window / 2;
     let windows = windows_of(&spans, &read, room);
@@ -129,7 +126,7 @@ pub(super) fn guard_large(
         cancel,
     ) else {
         cancel.check()?;
-        return withhold(file, OVERSIZED_PLACEHOLDER);
+        return withhold(file);
     };
     // The lines served are of other bytes than the rows' raw lines: the file
     // changed between the two reads.
@@ -137,7 +134,7 @@ pub(super) fn guard_large(
         return if matches!(expected, Expected::Stored(_)) {
             Ok(Verification::Changed)
         } else {
-            withhold(file, UNVERIFIED_PLACEHOLDER)
+            withhold(file)
         };
     }
     let judged = placed
@@ -185,7 +182,7 @@ pub(super) fn guard_large(
         let Some(lines) = *row else {
             // Its lines disagree with the window the search reports: nothing
             // places them in the source, so none is shown.
-            matched.value = UNPLACED_PLACEHOLDER.to_owned();
+            matched.value = crate::security::row_shown_unchecked(&matched.value);
             verified = Verification::Unverified;
             continue;
         };
@@ -199,7 +196,7 @@ pub(super) fn guard_large(
             continue;
         }
         if matched.line as usize > served.total_lines {
-            matched.value = UNVERIFIED_PLACEHOLDER.to_owned();
+            matched.value = crate::security::row_shown_unchecked(&matched.value);
             verified = Verification::Unverified;
             continue;
         }

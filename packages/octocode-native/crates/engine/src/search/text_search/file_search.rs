@@ -26,6 +26,19 @@ use std::sync::atomic::AtomicBool;
 /// an error), never the whole search.
 pub(super) const SEARCH_HEAP_LIMIT_BYTES: usize = 64 * 1024 * 1024;
 
+/// A file of at most this many bytes holds no more than that in the line
+/// buffer, so its read is not admitted against the memory budget one by one.
+const LINE_BUFFER_UNIT_BYTES: u64 = 1024 * 1024;
+
+/// Whether the file's first [`LINE_BUFFER_UNIT_BYTES`] hold no line break and
+/// no NUL: text with a line past the buffer's growth (a binary file quits at
+/// its first NUL, which the line buffer finds without holding the file).
+fn opens_with_a_long_line(file: &std::fs::File) -> std::io::Result<bool> {
+    let head = read_prefix(file, LINE_BUFFER_UNIT_BYTES)?;
+    std::io::Seek::seek(&mut &*file, std::io::SeekFrom::Start(0))?;
+    Ok(!head.contains(&b'\n') && !head.contains(&0))
+}
+
 /// Largest pre-NUL prefix re-searched when a file is quit as binary. The
 /// searcher drops the whole buffer that holds the first NUL, so matches before
 /// it would otherwise be lost; beyond this offset the earlier buffers were
@@ -68,6 +81,10 @@ struct SourceTap<'f> {
     copy: Option<Vec<u8>>,
     /// A read returned no bytes: the file was read to its end.
     eof: bool,
+    /// Ends the read once the caller cancelled, so a large file is not read
+    /// to its end after the caller left. A search stopped by its own bound
+    /// reads on: the matches kept before it are the file's.
+    cancelled: Option<&'f (dyn Fn() -> bool + Sync)>,
 }
 
 /// The digest of a kept file, read whole from offset 0 after its search
@@ -120,17 +137,50 @@ pub(super) fn hashed_source(
 }
 
 impl<'f> SourceTap<'f> {
-    pub(super) fn new(file: &'f std::fs::File, copy: bool) -> Self {
+    fn new(
+        file: &'f std::fs::File,
+        copy: bool,
+        cancelled: Option<&'f (dyn Fn() -> bool + Sync)>,
+    ) -> Self {
         Self {
             file,
             copy: copy.then(Vec::new),
             eof: false,
+            cancelled,
         }
     }
 }
 
+/// Why a read of a file ended: the caller cancelled. It is no
+/// `Interrupted` error, which the searcher's decoder retries, so the read
+/// would never end.
+#[derive(Debug)]
+struct StoppedRead;
+
+impl std::fmt::Display for StoppedRead {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the search was stopped")
+    }
+}
+
+impl std::error::Error for StoppedRead {}
+
+pub(super) fn stopped_read() -> std::io::Error {
+    std::io::Error::other(StoppedRead)
+}
+
+/// Whether `error` is the end of a read the caller cancelled.
+pub(super) fn is_stopped_read(error: &std::io::Error) -> bool {
+    error
+        .get_ref()
+        .is_some_and(|inner| inner.downcast_ref::<StoppedRead>().is_some())
+}
+
 impl std::io::Read for SourceTap<'_> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.cancelled.is_some_and(|gone| gone()) {
+            return Err(stopped_read());
+        }
         let mut handle = self.file;
         let read = handle.read(buf)?;
         if read == 0 {
@@ -195,6 +245,27 @@ impl<M: Matcher> From<CollectSink<'_, M>> for FileOutcome {
     }
 }
 
+/// What stops work on a file: the search's stop flag, and the caller's
+/// cancellation where it stops files mid-way.
+#[derive(Clone, Copy)]
+struct Halt<'a> {
+    stop: &'a AtomicBool,
+    cancelled: Option<&'a (dyn Fn() -> bool + Sync)>,
+}
+
+impl Halt<'_> {
+    fn is_set(&self) -> bool {
+        self.stop.load(std::sync::atomic::Ordering::Relaxed)
+            || self.cancelled.is_some_and(|cancelled| cancelled())
+    }
+}
+
+/// The text a judge served, with the bytes it holds admitted until dropped.
+pub(super) struct JudgedText {
+    pub(super) text: Vec<u8>,
+    _held: crate::memory::Ticket<'static>,
+}
+
 mod held_whole;
 use held_whole::outgrew_the_line_buffer;
 
@@ -210,6 +281,9 @@ pub(super) struct FileSearcher<'a, M: Matcher> {
     pub(super) stop: &'a AtomicBool,
     /// The search's bound on what its kept evidence holds.
     pub(super) held: &'a std::sync::Arc<Held>,
+    /// Whether the caller cancelled the search, where a cancelled search
+    /// stops files mid-way (a stream's does not: its files finish).
+    pub(super) cancelled: Option<&'a (dyn Fn() -> bool + Sync)>,
     /// Keep the read bytes for the file-level terms check.
     pub(super) copy: bool,
     /// One matcher per searched term, counted per term by a count view
@@ -247,10 +321,10 @@ impl<M: Matcher> FileSearcher<'_, M> {
             None
         };
         let mut outcome = match self.judged(file, path)? {
-            Some(text) => {
+            Some(served) => {
                 drop(own);
                 let work = self.work_for(file)?;
-                self.search_bytes(&text, path, work)?
+                self.search_bytes(&served.text, path, work)?
             }
             None => match own {
                 Some(own) => own,
@@ -266,22 +340,57 @@ impl<M: Matcher> FileSearcher<'_, M> {
         Ok(outcome)
     }
 
+    /// Whether this search was stopped, so work on a file ends.
+    pub(super) fn halted(&self) -> bool {
+        self.halt().is_set()
+    }
+
+    fn halt(&self) -> Halt<'_> {
+        Halt {
+            stop: self.stop,
+            cancelled: self.cancelled,
+        }
+    }
+
     /// The text the search's judge serves of `file` in place of its bytes
-    /// (`None`: no judge, or it replaced nothing). The judge is handed the
-    /// file at its start, wherever an earlier read left it, and the file is
-    /// read from its start after.
+    /// (`None`: no judge, or it replaced nothing), with the bytes it holds
+    /// admitted ([`crate::memory::WHOLE_FILES`]) until it is dropped. The
+    /// judge is handed the file at its start, wherever an earlier read left
+    /// it, and the file is read from its start after.
     pub(super) fn judged(
         &self,
         file: &std::fs::File,
         path: &Path,
-    ) -> std::io::Result<Option<Vec<u8>>> {
+    ) -> std::io::Result<Option<JudgedText>> {
         let Some(judge) = &self.opts.judge else {
             return Ok(None);
         };
+        // The judge holds the file's raw line, its decoded copy and the text
+        // it serves at once (measured at about 2.4 times the file).
+        let len = usize::try_from(file.metadata()?.len()).unwrap_or(usize::MAX);
+        let mut ticket = self.admit(len.saturating_mul(3))?;
         std::io::Seek::seek(&mut &*file, std::io::SeekFrom::Start(0))?;
-        let judged = (judge.serve)(path, file)?;
+        let halt = self.halt();
+        let judged = (judge.serve)(path, file, &|| halt.is_set())?;
         std::io::Seek::seek(&mut &*file, std::io::SeekFrom::Start(0))?;
-        Ok(judged)
+        Ok(judged.map(|text| {
+            ticket.shrink_to(text.len());
+            JudgedText {
+                text,
+                _held: ticket,
+            }
+        }))
+    }
+
+    /// `bytes` admitted for work that holds them whole, once the others'
+    /// have been released; an interrupted error when the search is stopped
+    /// while it waits.
+    pub(super) fn admit(&self, bytes: usize) -> std::io::Result<crate::memory::Ticket<'static>> {
+        crate::memory::WHOLE_FILES
+            .acquire(bytes, &|| self.halted())
+            .ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::Interrupted, "the search was stopped")
+            })
     }
 
     /// The search's work for `file`: a UTF-16 file keeps its line values,
@@ -300,9 +409,28 @@ impl<M: Matcher> FileSearcher<'_, M> {
 
     /// [`Self::search`]'s read of the file.
     fn search_read(&mut self, file: &std::fs::File, path: &Path) -> std::io::Result<FileOutcome> {
+        // A file past one unit may grow the line buffer to its bound, so its
+        // bytes are admitted until the read ends (a longer line then holds
+        // the file whole, admitted separately once this one is released).
+        let len = file.metadata()?.len();
+        let mut buffered = if len > LINE_BUFFER_UNIT_BYTES {
+            let bound = len.min(SEARCH_HEAP_LIMIT_BYTES as u64);
+            Some(self.admit(usize::try_from(bound).unwrap_or(usize::MAX))?)
+        } else {
+            None
+        };
+        // A file whose first megabyte holds no line break has a line past the
+        // buffer's growth: it is held whole at once, not after a chain of
+        // doublings that leaves each freed block with the allocator.
+        if len > LINE_BUFFER_UNIT_BYTES && opens_with_a_long_line(file)? {
+            drop(buffered.take());
+            let work = self.work_for(file)?;
+            return self.search_read_whole(file, path, work);
+        }
         let work = self.work_for(file)?;
-        let mut tap = SourceTap::new(file, self.copy);
+        let mut tap = SourceTap::new(file, self.copy, self.cancelled);
         let mut sink = CollectSink::new(self.matcher, work, (self.stop, self.held), self.terms);
+        sink.cancelled = self.cancelled;
         sink.test_code = self.opts.test_code.as_ref().map(|scope| (scope, path));
         sink.line_scope = self.opts.line_scope.as_ref().map(|scope| (scope, path));
         sink.source = Some(path);
@@ -320,6 +448,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
             if !outgrew_the_line_buffer(&error) {
                 return Err(error);
             }
+            drop(buffered.take());
             return self.search_read_whole(file, path, work);
         }
         let offset = sink
@@ -333,6 +462,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
             });
             return Ok(outcome);
         };
+        drop(buffered);
         let prefix = read_prefix(file, offset)?;
         let (opts, context) = (self.opts, self.context);
         let prefix_searcher = self
@@ -340,6 +470,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
             .get_or_insert_with(|| build_searcher(opts, context, BinaryDetection::none()));
         let mut prefix_sink =
             CollectSink::new(self.matcher, self.work, (self.stop, self.held), self.terms);
+        prefix_sink.cancelled = self.cancelled;
         prefix_sink.test_code = self.opts.test_code.as_ref().map(|scope| (scope, path));
         prefix_sink.line_scope = self.opts.line_scope.as_ref().map(|scope| (scope, path));
         prefix_sink.source = Some(path);
@@ -365,6 +496,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
     pub(super) fn search_held(&mut self, bytes: &[u8]) -> std::io::Result<FileOutcome> {
         let mut sink =
             CollectSink::new(self.matcher, self.work, (self.stop, self.held), self.terms);
+        sink.cancelled = self.cancelled;
         self.searcher
             .search_reader(self.matcher, bytes, &mut sink)?;
         let offset = sink
@@ -381,6 +513,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
             .get_or_insert_with(|| build_searcher(opts, context, BinaryDetection::none()));
         let mut prefix_sink =
             CollectSink::new(self.matcher, self.work, (self.stop, self.held), self.terms);
+        prefix_sink.cancelled = self.cancelled;
         prefix_searcher.search_slice(self.matcher, prefix, &mut prefix_sink)?;
         let mut outcome = FileOutcome::from(prefix_sink);
         outcome.binary = true;

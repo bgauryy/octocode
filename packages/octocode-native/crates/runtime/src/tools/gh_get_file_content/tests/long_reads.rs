@@ -67,7 +67,7 @@ fn joined_by_offset(pages: &[(ReadProgressUnit, usize, String)]) -> String {
     joined
 }
 
-/// D1: `block` on a declaration longer than a page reads it from its first
+/// `block` on a declaration longer than a page reads it from its first
 /// line: page 1 is as full as a plain read's, and `next.nextPage` alone
 /// reaches its last line.
 #[tokio::test]
@@ -109,7 +109,7 @@ async fn a_long_block_fills_its_first_page_and_pages_to_its_end() {
     assert_eq!(text, declaration, "the declaration, every line once");
 }
 
-/// D3: a match inside a line too long for a page is on page 1 with the bytes
+/// A match inside a line too long for a page is on page 1 with the bytes
 /// around it, at the byte offset the page states; the required pages then
 /// hold the rest of the line, every byte once.
 #[tokio::test]
@@ -147,7 +147,7 @@ async fn a_match_in_a_long_line_is_on_page_one_and_the_line_is_walked_once() {
     assert_eq!(joined_by_offset(&pages), view);
 }
 
-/// D4: a plain read whose first line is short and whose second is too long
+/// A plain read whose first line is short and whose second is too long
 /// for a page fills page 1 with the long line's first bytes.
 #[tokio::test]
 async fn a_plain_read_fills_its_page_into_the_long_line() {
@@ -173,7 +173,7 @@ async fn a_plain_read_fills_its_page_into_the_long_line() {
     assert_eq!(joined, source, "in order, every byte once");
 }
 
-/// D1: a `ranges` read that ends on a long line which is not the file's
+/// A `ranges` read that ends on a long line which is not the file's
 /// last walks that line to its end and states `hasMore:false` there
 /// ([`walk`] checks every page's wire); the pages are the line exactly once.
 #[tokio::test]

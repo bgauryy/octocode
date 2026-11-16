@@ -249,7 +249,7 @@ fn run_with(
         Op::Cycles => {
             let filter = query.filter(&[EdgeKind::Imports]).production();
             let page = cycles(g, &filter, options)?;
-            let mut extra = edges_extra(&filter);
+            let mut extra = edges_extra(&filter, !query.flags.edge_kinds.is_empty());
             if options.list.as_deref() == Some("cycleNodes") {
                 extra.insert("list".into(), json!("cycleNodes"));
                 extra.insert("cycle".into(), json!(options.target));
@@ -300,7 +300,9 @@ fn run_with(
     {
         output.value["argumentCoverage"] = graph.manifest["argumentCoverage"].clone();
     }
-    if let Some(freshness) = freshness {
+    // A fresh, current snapshot is the expected state: only a stale or
+    // outdated one is stated.
+    if let Some(freshness) = freshness.filter(|state| state["fresh"] != json!(true)) {
         output.value["freshness"] = freshness;
     }
     graph.fit_page(&mut output, options, cancel)?;
@@ -315,13 +317,16 @@ fn run_with(
     Ok(output)
 }
 
-/// `extra.edges`: the edge kinds a page followed.
-fn edges_extra(filter: &EdgeFilter) -> Map<String, Value> {
+/// `extra.edges`: the edge kinds a page followed, stated only when the
+/// request chose them; the operation's default kinds are not echoed.
+fn edges_extra(filter: &EdgeFilter, requested: bool) -> Map<String, Value> {
     let mut extra = Map::new();
-    extra.insert(
-        "edges".into(),
-        json!(filter.kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>()),
-    );
+    if requested {
+        extra.insert(
+            "edges".into(),
+            json!(filter.kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>()),
+        );
+    }
     if filter.kinds.contains(&EdgeKind::Calls) {
         extra.insert("confidence".into(), json!(filter.weakest.as_str()));
     }

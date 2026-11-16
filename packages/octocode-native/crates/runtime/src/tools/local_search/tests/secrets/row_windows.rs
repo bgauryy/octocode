@@ -138,7 +138,7 @@ fn a_window_shows_of_its_bytes_what_the_whole_line_row_shows() {
             warnings.iter().any(|warning| {
                 warning
                     .as_str()
-                    .is_some_and(|text| text.starts_with("redactedMatches"))
+                    .is_some_and(|text| text == crate::security::REDACTED_MARK)
             })
         });
         assert_eq!(warned, hides, "{name}: {found}");

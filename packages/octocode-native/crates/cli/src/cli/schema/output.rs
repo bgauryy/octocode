@@ -3,7 +3,8 @@ use super::{SchemaError, presentation, tool_entry};
 use serde_json::{Value, json};
 
 /// What `tool`'s output fields and coverage reasons mean: the reference for
-/// a field an answer holds. A reason also says what it means when it fires.
+/// a field an answer holds. A reason also says what it means when it fires;
+/// only the reasons this tool can emit are listed.
 pub(super) fn output_view(tool: &Value) -> Result<Value, SchemaError> {
     let name = tool["name"].as_str().ok_or_else(|| SchemaError {
         message: "Embedded output reference has no tool name".to_owned(),
@@ -18,10 +19,12 @@ pub(super) fn output_view(tool: &Value) -> Result<Value, SchemaError> {
             message: format!("Embedded tool contract is invalid: {error}"),
             exit: 5,
         })?;
+    let reasons = octocode_native::id::ToolId::from_name(name)
+        .and_then(octocode_native::contracts::partial_reasons_of);
     let mut output = json!({
         "name": tool["name"],
         "fields": tool["output"],
-        "partialReasons": octocode_native::contracts::partial_reasons(),
+        "partialReasons": reasons,
     });
     // Clients need the same collection routes as the response pager: only
     // declared collections append across fragments; repeated context stays whole.

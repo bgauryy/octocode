@@ -92,7 +92,7 @@ fn scope_rejects_directories_out_of_bounds_and_mid_surrogate_positions() {
         let error = run(&root.0, json!({"path":path,"operation":"match","rule":{"pattern":"foo($X)"},"scope":{"start":start,"end":end}})).expect_err("invalid scope");
         assert_eq!(error.code, ErrorCode::InvalidInput);
     }
-    let found = run(&root.0, json!({"path":file,"operation":"match","rule":{"pattern":"foo($X)"},"scope":{"start":{"line":1,"column":7},"end":{"line":1,"column":13}}})).expect("UTF-16 region");
+    let found = run(&root.0, json!({"path":file,"operation":"match","rule":{"pattern":"foo($X)"},"includeCaptures":true,"scope":{"start":{"line":1,"column":7},"end":{"line":1,"column":13}}})).expect("UTF-16 region");
     assert_eq!(found["matchCount"], 1);
     assert_eq!(found["files"][0]["matches"][0]["column"], 7);
 }

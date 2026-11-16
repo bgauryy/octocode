@@ -432,3 +432,236 @@ async fn skipped_paths_of_a_nested_walk_are_spelled_from_the_workspace_root() {
     }
     runtime.close().await;
 }
+
+/// One process, two calls, two environments: each call's walk applies the
+/// global ignore file its own `GIT_CONFIG_GLOBAL` names, and neither reads
+/// the other's (nor the process's).
+#[tokio::test]
+async fn two_calls_in_one_process_walk_under_their_own_global_ignore() {
+    let workspace = Workspace::new();
+    std::fs::create_dir_all(workspace.workspace.join(".git")).expect("work tree");
+    for name in ["keep.txt", "a.secret", "b.scratch"] {
+        workspace.write(name, "needle\n");
+    }
+    let env_naming = |tag: &str, rule: &str| {
+        let ignore = workspace.write(&format!("../global-{tag}/ignore"), rule);
+        let config = workspace.write(
+            &format!("../global-{tag}/config"),
+            format!("[core]\n\texcludesFile = {}\n", ignore.display()),
+        );
+        let missing = workspace.workspace.join("../no-system-config");
+        [
+            ("GIT_CONFIG_GLOBAL", config.to_string_lossy().into_owned()),
+            ("GIT_CONFIG_SYSTEM", missing.to_string_lossy().into_owned()),
+        ]
+    };
+    let root = workspace.workspace.clone();
+    let found = |runtime: ToolRuntime| {
+        let root = root.clone();
+        async move {
+            let output = call(
+                &runtime,
+                "localSearch",
+                json!({"path":root,"matchString":["needle"]}),
+            )
+            .await
+            .expect("search");
+            let names = row_data(&output)["files"]
+                .as_array()
+                .unwrap_or_else(|| panic!("files: {}", output.structured_content))
+                .iter()
+                .map(|file| {
+                    file["path"]
+                        .as_str()
+                        .expect("path")
+                        .rsplit('/')
+                        .next()
+                        .unwrap()
+                        .to_owned()
+                })
+                .collect::<std::collections::BTreeSet<_>>();
+            runtime.close().await;
+            names
+        }
+    };
+    let secrets = workspace.runtime(&env_naming("one", "*.secret\n"));
+    let caches = workspace.runtime(&env_naming("two", "*.scratch\n"));
+    let names = |names: &[&str]| names.iter().map(|name| (*name).to_owned()).collect();
+    assert_eq!(found(secrets).await, names(&["b.scratch", "keep.txt"]));
+    assert_eq!(found(caches).await, names(&["a.secret", "keep.txt"]));
+}
+
+/// A search root that is no work tree, two repositories below it, and a
+/// global ignore file of an unanchored and an anchored pattern: git reads the
+/// anchored one relative to the work tree each file is in, so it hides the
+/// file at each repository's top and nowhere else, and both patterns reach
+/// only files inside a repository. localSearch and structureSearch serve the
+/// same files.
+#[tokio::test]
+async fn global_ignore_rules_apply_per_repository_below_a_plain_root() {
+    let workspace = Workspace::new();
+    for repo in ["one", "deep/two"] {
+        std::fs::create_dir_all(workspace.workspace.join(repo).join(".git")).expect("work tree");
+        for file in [
+            "keep.txt",
+            "a.secret",
+            "anchored.txt",
+            "sub/anchored.txt",
+            "sub/b.secret",
+        ] {
+            workspace.write(&format!("{repo}/{file}"), "needle\n");
+        }
+    }
+    for file in ["plain.secret", "anchored.txt", "loose/anchored.txt"] {
+        workspace.write(file, "needle\n");
+    }
+    let ignore = workspace.write("../global-plain/ignore", "*.secret\n/anchored.txt\n");
+    let config = workspace.write(
+        "../global-plain/config",
+        format!("[core]\n\texcludesFile = {}\n", ignore.display()),
+    );
+    let missing = workspace.workspace.join("../no-system-config");
+    let runtime = workspace.runtime(&[
+        ("GIT_CONFIG_GLOBAL", config.to_string_lossy().into_owned()),
+        ("GIT_CONFIG_SYSTEM", missing.to_string_lossy().into_owned()),
+    ]);
+    let root = workspace.workspace.clone();
+    let searched = call(
+        &runtime,
+        "localSearch",
+        json!({"path":root,"matchString":["needle"]}),
+    )
+    .await
+    .expect("search");
+    let mut found = row_data(&searched)["files"]
+        .as_array()
+        .expect("files")
+        .iter()
+        .map(|file| {
+            let path = file["path"].as_str().expect("path");
+            path.strip_prefix(root.to_string_lossy().as_ref())
+                .unwrap_or(path)
+                .trim_start_matches('/')
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    found.sort();
+    assert_eq!(
+        found,
+        [
+            "anchored.txt",
+            "deep/two/keep.txt",
+            "deep/two/sub/anchored.txt",
+            "loose/anchored.txt",
+            "one/keep.txt",
+            "one/sub/anchored.txt",
+            "plain.secret"
+        ]
+    );
+    let listed = call(
+        &runtime,
+        "structureSearch",
+        json!({"operation":"files","path":root,"entryType":"file"}),
+    )
+    .await
+    .expect("files");
+    let mut listed_files = row_data(&listed)["files"]
+        .as_array()
+        .expect("files")
+        .iter()
+        .flat_map(|row| {
+            let dir = row["dir"].as_str().expect("dir");
+            row["files"]
+                .as_array()
+                .expect("names")
+                .iter()
+                .map(move |name| format!("{dir}/{}", name.as_str().expect("name")))
+        })
+        .map(|path| path.trim_start_matches("./").to_owned())
+        .collect::<Vec<_>>();
+    listed_files.sort();
+    assert_eq!(listed_files, found);
+    runtime.close().await;
+}
+
+/// One process, two calls, two environments: localSearch, structureSearch,
+/// astSearch and graphBuild each walk under the global ignore file their own
+/// call's environment names, so the daemon's key holds no variable that
+/// names it.
+#[tokio::test]
+async fn every_walking_tool_applies_its_own_calls_global_ignore() {
+    let workspace = Workspace::new();
+    std::fs::create_dir_all(workspace.workspace.join(".git")).expect("work tree");
+    for name in ["keep.rs", "a_secret.rs", "b_scratch.rs"] {
+        workspace.write(name, "pub fn needle() {}\n");
+    }
+    let env_naming = |tag: &str, rule: &str| {
+        let ignore = workspace.write(&format!("../global-{tag}/ignore"), rule);
+        let config = workspace.write(
+            &format!("../global-{tag}/config"),
+            format!("[core]\n\texcludesFile = {}\n", ignore.display()),
+        );
+        let missing = workspace.workspace.join("../no-system-config");
+        [
+            ("GIT_CONFIG_GLOBAL", config.to_string_lossy().into_owned()),
+            ("GIT_CONFIG_SYSTEM", missing.to_string_lossy().into_owned()),
+        ]
+    };
+    let root = workspace.workspace.clone();
+    let seen = |runtime: ToolRuntime| {
+        let root = root.clone();
+        async move {
+            let names_of = |outcome: &octocode_native::response::outcome::ToolOutcome| {
+                let rendered = serde_json::to_string(&row_data(outcome)["files"]).expect("json");
+                ["keep", "a_secret", "b_scratch"]
+                    .into_iter()
+                    .filter(|name| rendered.contains(name))
+                    .collect::<Vec<_>>()
+            };
+            let searched = call(
+                &runtime,
+                "localSearch",
+                json!({"path":root,"matchString":["needle"]}),
+            )
+            .await
+            .expect("localSearch");
+            let listed = call(
+                &runtime,
+                "structureSearch",
+                json!({"operation":"files","path":root,"entryType":"file"}),
+            )
+            .await
+            .expect("structureSearch");
+            let matched = call(
+                &runtime,
+                "astSearch",
+                json!({"operation":"match","path":root,"parser":"rust","rule":{"pattern":"pub fn needle() {}"}}),
+            )
+            .await
+            .expect("astSearch");
+            let built = call(&runtime, "graphBuild", json!({"path":root}))
+                .await
+                .expect("graphBuild");
+            let scanned = row_data(&built)["scan"]["filesScanned"].clone();
+            let found = (
+                names_of(&searched),
+                names_of(&listed),
+                names_of(&matched),
+                scanned,
+            );
+            runtime.close().await;
+            found
+        }
+    };
+    let secrets = workspace.runtime(&env_naming("one", "*_secret.rs\n"));
+    let scratch = workspace.runtime(&env_naming("two", "*_scratch.rs\n"));
+    let (one, two) = (seen(secrets).await, seen(scratch).await);
+    assert_eq!(one.0, ["keep", "b_scratch"], "localSearch {one:?}");
+    assert_eq!(two.0, ["keep", "a_secret"], "localSearch {two:?}");
+    assert_eq!(one.1, ["keep", "b_scratch"], "structureSearch {one:?}");
+    assert_eq!(two.1, ["keep", "a_secret"], "structureSearch {two:?}");
+    assert_eq!(one.2, ["keep", "b_scratch"], "astSearch {one:?}");
+    assert_eq!(two.2, ["keep", "a_secret"], "astSearch {two:?}");
+    assert_eq!(one.3, 2, "graphBuild {one:?}");
+    assert_eq!(two.3, 2, "graphBuild {two:?}");
+}

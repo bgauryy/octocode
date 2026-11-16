@@ -95,6 +95,7 @@ pub(super) async fn scan_text(
         pattern: word_pattern(symbol),
         output: octocode_engine::types::SearchOutput::FilesWithMatch,
         include: crate::tools::variant_field::non_empty(include),
+        global_ignore: policy.global_ignore(),
         ..TextSearchOptions::default()
     };
     let (walk_policy, walk_include) = (policy.clone(), include.to_vec());

@@ -1,5 +1,5 @@
 //! Checkout destinations, process locks and atomic publication.
-use super::{CloneContext, CloneError, check_control, hash};
+use super::{GitContext, GitError, check_control, hash};
 use octocode_contract_types::ErrorCode;
 use octocode_io::lock::{LockedFile, TryLock};
 use std::{
@@ -115,7 +115,7 @@ impl StoreKey {
 }
 
 /// Create the directories above `store`, owner-only.
-pub(super) fn create_parent(store: &Path) -> Result<(), CloneError> {
+pub(super) fn create_parent(store: &Path) -> Result<(), GitError> {
     match store.parent() {
         Some(parent) => create_private_dir_all(parent).map_err(storage_io),
         None => Ok(()),
@@ -191,12 +191,12 @@ pub(super) fn is_ready(store: &Path) -> bool {
         reason = "the config `git init --bare` just wrote in a store octocode owns, from the user's own git templates: it is rewritten whole, so a bounded read would refuse a valid store"
     )
 )]
-pub(super) fn read_store_file(path: &Path) -> Result<String, CloneError> {
-    fs::read_to_string(path).map_err(storage_io)
+pub(super) fn read_store_file(path: &Path) -> Result<String, GitError> {
+    fs::read_to_string(path).map_err(storage_read_io)
 }
 
 /// Replace the config file `path` of a store with `text`.
-pub(super) fn write_store_file(path: &Path, text: &str) -> Result<(), CloneError> {
+pub(super) fn write_store_file(path: &Path, text: &str) -> Result<(), GitError> {
     octocode_io::atomic::write_atomic(path, text.as_bytes(), false).map_err(storage_io)
 }
 
@@ -219,7 +219,7 @@ pub(super) fn registered_worktrees(store: &Path) -> usize {
 }
 
 /// Record that `store` finished its init.
-pub(super) fn mark_ready(store: &Path) -> Result<(), CloneError> {
+pub(super) fn mark_ready(store: &Path) -> Result<(), GitError> {
     octocode_io::atomic::write_atomic(&store.join(STORE_READY), b"", true).map_err(storage_io)
 }
 
@@ -276,7 +276,7 @@ pub(super) struct CloneLock {
 }
 
 impl CloneLock {
-    pub fn acquire(clone_dir: &Path, context: &CloneContext<'_>) -> Result<Self, CloneError> {
+    pub fn acquire(clone_dir: &Path, context: &GitContext<'_>) -> Result<Self, GitError> {
         let path = lock_path(&context.config.home, clone_dir);
         let mut file = open_lock(&path).map_err(storage_io)?;
         loop {
@@ -312,7 +312,7 @@ fn open_lock(path: &Path) -> io::Result<fs::File> {
         .open(path)
 }
 
-pub(super) fn stage_dir(home: &Path, clone_dir: &Path) -> Result<PathBuf, CloneError> {
+pub(super) fn stage_dir(home: &Path, clone_dir: &Path) -> Result<PathBuf, GitError> {
     let base = crate::tools::gh_git::stage_root(home);
     create_private_dir_all(&base).map_err(storage_io)?;
     let id = STAGE_ID.fetch_add(1, Ordering::Relaxed);
@@ -328,7 +328,7 @@ pub(super) fn stage_dir(home: &Path, clone_dir: &Path) -> Result<PathBuf, CloneE
 
 /// Rename the directory `from` to `to`: how [`promote`] moves a checkout
 /// that no worktree administration tracks.
-pub(super) fn rename_dir(from: &Path, to: &Path) -> Result<(), CloneError> {
+pub(super) fn rename_dir(from: &Path, to: &Path) -> Result<(), GitError> {
     fs::rename(from, to).map_err(storage_io)
 }
 
@@ -340,11 +340,11 @@ pub(super) fn rename_dir(from: &Path, to: &Path) -> Result<(), CloneError> {
 pub(super) fn promote(
     stage: &Path,
     destination: &Path,
-    relocate: impl Fn(&Path, &Path) -> Result<(), CloneError>,
-    place: impl FnOnce() -> Result<(), CloneError>,
-) -> Result<(), CloneError> {
+    relocate: impl Fn(&Path, &Path) -> Result<(), GitError>,
+    place: impl FnOnce() -> Result<(), GitError>,
+) -> Result<(), GitError> {
     let parent = destination.parent().ok_or_else(|| {
-        CloneError::new(
+        GitError::new(
             ErrorCode::FileAccessFailed,
             "Clone destination has no parent",
         )
@@ -358,7 +358,7 @@ pub(super) fn promote(
     }
     if let Err(error) = place() {
         if had_previous && let Err(restore) = relocate(&previous, destination) {
-            return Err(CloneError::new(
+            return Err(write_denied(GitError::new(
                 ErrorCode::FileAccessFailed,
                 format!(
                     "Clone publication failed ({}); previous checkout remains at '{}' because rollback failed ({}).",
@@ -366,7 +366,7 @@ pub(super) fn promote(
                     previous.display(),
                     restore.message
                 ),
-            ));
+            )));
         }
         return Err(error);
     }
@@ -415,10 +415,10 @@ fn git_dir(checkout: &Path) -> Option<PathBuf> {
 }
 
 /// Record that the worktree `stage` was completed now; returns that time.
-pub(super) fn record_completion(stage: &Path) -> Result<String, CloneError> {
+pub(super) fn record_completion(stage: &Path) -> Result<String, GitError> {
     let at = crate::civil_date::iso8601_millis(crate::civil_date::unix_millis());
     let git_dir = git_dir(stage).ok_or_else(|| {
-        CloneError::new(
+        GitError::new(
             ErrorCode::FileAccessFailed,
             "Clone checkout has no git directory to record its completion in.",
         )
@@ -467,11 +467,27 @@ fn directory_size(path: &Path) -> u64 {
         .sum()
 }
 
-fn storage_io(error: io::Error) -> CloneError {
-    CloneError::new(
+/// A clone-storage read that failed.
+fn storage_read_io(error: io::Error) -> GitError {
+    GitError::new(
         ErrorCode::FileAccessFailed,
         format!("Clone storage operation failed: {error}"),
     )
+}
+
+/// A write, lock or move under the clones root that failed: its recovery is
+/// a writable home with free space, not read permissions.
+fn storage_io(error: io::Error) -> GitError {
+    write_denied(storage_read_io(error))
+}
+
+/// `error`, a write under the Octocode home that failed, with the recovery
+/// for a full or read-only home.
+pub(super) fn write_denied(mut error: GitError) -> GitError {
+    error
+        .hints
+        .push(crate::response::rows::WRITE_ACCESS_HINT.to_owned());
+    error
 }
 
 #[cfg(test)]

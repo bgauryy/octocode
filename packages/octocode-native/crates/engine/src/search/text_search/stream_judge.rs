@@ -10,7 +10,7 @@ use super::state::CollectState;
 use super::visit::{WalkScope, report_left_out};
 use super::walk_rule::Skipped;
 use crate::search::walk::{DirRules, Judge, ListedRules, Probe, Step};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -24,14 +24,51 @@ pub(super) enum Verdict {
     Open,
 }
 
+/// An entry the walk left out, held until the stream knows whether it lies
+/// before the page's cut.
+enum Left {
+    Rule(Skipped, bool),
+    Symlink,
+}
+
 pub(super) struct StreamJudge<'a> {
     scope: &'a WalkScope<'a>,
     filter: &'a Arc<dyn TextSearchPathFilter>,
+    /// The candidates handed out so far: an entry left out now lies before
+    /// the candidate with this index in walk order.
+    emitted: usize,
+    /// The entries left out, each with the index of the candidate it lies
+    /// before, in walk order. The walker runs ahead of the commit, so they
+    /// are reported by [`Self::release`] up to the cut, not as judged.
+    left: Vec<(usize, PathBuf, Left)>,
 }
 
 impl<'a> StreamJudge<'a> {
     pub(super) fn new(scope: &'a WalkScope<'a>, filter: &'a Arc<dyn TextSearchPathFilter>) -> Self {
-        Self { scope, filter }
+        Self {
+            scope,
+            filter,
+            emitted: 0,
+            left: Vec::new(),
+        }
+    }
+
+    /// Report to the path filter, in walk order, the entries left out before
+    /// candidate `cut`: those lying before the last committed candidate when
+    /// `cut` is the first one not committed. What the walker judged past it
+    /// depends on how far the read-ahead ran, and is the next page's.
+    pub(super) fn release(&mut self, cut: usize) {
+        for (before, path, left) in std::mem::take(&mut self.left) {
+            if before >= cut {
+                break;
+            }
+            match left {
+                Left::Rule(skipped, is_dir) => {
+                    report_left_out(&**self.filter, skipped, &path, is_dir);
+                }
+                Left::Symlink => self.filter.skipped_symlink(&path),
+            }
+        }
     }
 
     fn state(&self) -> &CollectState {
@@ -75,7 +112,11 @@ impl Judge for StreamJudge<'_> {
         match verdict {
             Verdict::Pruned => return Step::Skip,
             Verdict::Left(skipped) => {
-                report_left_out(&**self.filter, skipped, entry.path, is_dir);
+                self.left.push((
+                    self.emitted,
+                    entry.path.to_path_buf(),
+                    Left::Rule(skipped, is_dir),
+                ));
                 return Step::Skip;
             }
             Verdict::Open => {}
@@ -93,10 +134,12 @@ impl Judge for StreamJudge<'_> {
             return Step::Enter;
         }
         if entry.file_type.is_some_and(|kind| kind.is_file()) {
+            self.emitted += 1;
             return Step::Emit;
         }
         if entry.file_type.is_some_and(|kind| kind.is_symlink()) {
-            self.filter.skipped_symlink(entry.path);
+            self.left
+                .push((self.emitted, entry.path.to_path_buf(), Left::Symlink));
         }
         Step::Skip
     }

@@ -178,7 +178,11 @@ fn deferred_hit_before_a_large_binary_tail_remains_readable_and_binds_the_tail()
     )
     .expect("a fresh page withholds rather than fails");
     assert_eq!(withheld, vec![0]);
-    assert_eq!(fresh.matches[0].value, verify::UNVERIFIED_PLACEHOLDER);
+    assert!(
+        !fresh.matches[0].value.contains("REDACTED"),
+        "{:?}",
+        fresh.matches[0].value
+    );
     assert_eq!(fresh.matches[0].deferred, None);
     let stored = original.source.map(|source| source.digest);
     assert!(stored.is_some(), "the scan hashed the file");

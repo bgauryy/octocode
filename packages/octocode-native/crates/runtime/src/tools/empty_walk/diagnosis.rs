@@ -107,7 +107,7 @@ pub(crate) fn diagnose_shown<E>(
     for (mask, found) in &revealed {
         let causes = subset(*mask);
         for file in found.sample.iter().take(SAMPLE_FILES) {
-            let rules = rules.get_or_init(|| IgnoreRules::new(root));
+            let rules = rules.get_or_init(|| IgnoreRules::with_global(root, walk.global));
             if let Some(skip) = skip_of(root, rules, file, &causes, shown)
                 && !skips.iter().any(|known| known.reason == skip.reason)
             {

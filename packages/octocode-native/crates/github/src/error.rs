@@ -147,6 +147,10 @@ pub enum ProviderErrorReason {
     /// A file read named a submodule: [`crate::GitHubProvider::submodule`]
     /// reads where it points.
     Submodule,
+    /// The local filesystem refused a read or write of data that was
+    /// fetched (a read-only or full disk, a denied directory): the failure
+    /// is the machine's, not GitHub's and not a setting.
+    FileAccess,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -177,6 +181,7 @@ impl ProviderError {
     pub const fn code(&self) -> ErrorCode {
         match self.reason {
             Some(ProviderErrorReason::BinaryFile) => ErrorCode::BinaryFileUnsupported,
+            Some(ProviderErrorReason::FileAccess) => ErrorCode::FileAccessFailed,
             _ => self.kind.code(),
         }
     }
@@ -273,6 +278,18 @@ mod tests {
             );
         }
         assert!(serde_json::from_value::<ProviderErrorKind>("pathNotFound".into()).is_err());
+    }
+
+    /// A local filesystem failure reports the code the clone path reports
+    /// for the same cause, whatever kind carries it.
+    #[test]
+    fn a_file_access_reason_reports_file_access_failed() {
+        let error = ProviderError::new(ProviderErrorKind::Configuration, "failed to write")
+            .with_reason(ProviderErrorReason::FileAccess);
+        assert_eq!(error.code(), ErrorCode::FileAccessFailed);
+        assert!(!error.retryable);
+        let plain = ProviderError::new(ProviderErrorKind::Configuration, "bad setting");
+        assert_eq!(plain.code(), ErrorCode::Config);
     }
 
     #[test]

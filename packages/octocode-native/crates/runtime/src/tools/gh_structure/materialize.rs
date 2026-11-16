@@ -41,8 +41,12 @@ pub(super) async fn materialize_page(
     else {
         return Ok(None);
     };
+    // A read that failed leaves text unwritten: repeating the materialize
+    // from this call's own offset reads it again (what the snapshot already
+    // holds is not read twice).
     let resume = outcome
         .next_offset
+        .or_else(|| outcome.retryable.then_some(offset))
         .map(|offset| MaterializeResume { offset });
     let mut warnings = outcome.warnings;
     // Folders at the listing's depth are listed, not written: say so, so a
@@ -63,6 +67,9 @@ pub(super) async fn materialize_page(
     let finished = resume.is_none() && unwritten.is_empty() && !outcome.gap;
     location["coverage"] = json!({"state": if finished { "complete" } else { "partial" }});
     value["location"] = location;
+    if outcome.gap {
+        mark_materialize_partial(value);
+    }
     if !unwritten.is_empty() {
         crate::response::paging::mark_partial(
             value,
@@ -144,6 +151,8 @@ pub(super) struct MaterializeOutcome {
     pub(super) warnings: Vec<String>,
     /// A skip that leaves text unwritten (`location.skipped`): not a binary.
     pub(super) gap: bool,
+    /// A file failed to read (not oversized): reading it again can write it.
+    pub(super) retryable: bool,
     /// What a skip of only binaries says: complete, with their names.
     pub(super) hint: Option<String>,
 }
@@ -270,6 +279,7 @@ pub(super) async fn materialize_tree(
         next_offset: has_more.then_some(writer.cursor),
         warnings,
         gap: writer.skips.leaves_a_gap(),
+        retryable: !writer.skips.unreadable.is_empty(),
         hint: writer.skips.binary_hint(),
     }))
 }

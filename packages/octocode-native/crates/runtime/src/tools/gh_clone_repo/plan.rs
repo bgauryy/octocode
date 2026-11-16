@@ -2,7 +2,7 @@
 use super::checkout::{fresh_clone, reuse_checkout};
 use super::validate::validate_query;
 use super::{
-    CloneContext, CloneError, CloneLocation, CloneResult, GhCloneRepoQuery, Sparse, check_control,
+    CloneLocation, CloneResult, GhCloneRepoQuery, GitContext, GitError, Sparse, check_control,
     control, history_depth, policy_denied, storage,
 };
 use crate::policy::PolicyErrorCode;
@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 /// One clone request's resolved checkout identity and destination.
 pub(super) struct Plan<'a> {
     pub(super) query: &'a GhCloneRepoQuery,
-    pub(super) context: &'a CloneContext<'a>,
+    pub(super) context: &'a GitContext<'a>,
     pub(super) repository_url: String,
     /// The web root checkouts are cloned from ([`web_root`]): it keys the
     /// destination beside the commit, not the URL, whose owner/repo casing
@@ -26,7 +26,7 @@ pub(super) struct Plan<'a> {
 
 impl Plan<'_> {
     /// The destination of `commit`, once the path policy admits it.
-    fn target(&self, commit: &str) -> Result<PathBuf, CloneError> {
+    fn target(&self, commit: &str) -> Result<PathBuf, GitError> {
         let clone_dir = storage::clone_dir(
             &self.context.config.home,
             &self.query.owner,
@@ -83,8 +83,8 @@ impl Plan<'_> {
 #[cfg(test)]
 pub(super) fn execute_clone(
     query: &GhCloneRepoQuery,
-    context: &CloneContext<'_>,
-) -> Result<CloneResult, CloneError> {
+    context: &GitContext<'_>,
+) -> Result<CloneResult, GitError> {
     check_control(context)?;
     super::require_persistent_storage(context.config.persistent)?;
     validate_query(query)?;
@@ -95,7 +95,7 @@ pub(super) fn execute_clone(
 /// What a clone needs whatever commit it checks out: the clones root
 /// passes the path policy and exists, and git runs. None of it reads the
 /// pin, so `run` does it while the API still answers the pin.
-pub(super) fn prepare_clone(context: &CloneContext<'_>) -> Result<(), CloneError> {
+pub(super) fn prepare_clone(context: &GitContext<'_>) -> Result<(), GitError> {
     check_control(context)?;
     super::require_persistent_storage(context.config.persistent)?;
     authorize_home(context)?;
@@ -105,8 +105,8 @@ pub(super) fn prepare_clone(context: &CloneContext<'_>) -> Result<(), CloneError
 /// The clone of a pinned `query` once [`prepare_clone`] succeeded.
 pub(super) fn execute_prepared(
     query: &GhCloneRepoQuery,
-    context: &CloneContext<'_>,
-) -> Result<CloneResult, CloneError> {
+    context: &GitContext<'_>,
+) -> Result<CloneResult, GitError> {
     check_control(context)?;
     validate_query(query)?;
     let sparse = Sparse::of(query);
@@ -126,7 +126,7 @@ pub(super) fn execute_prepared(
         .as_deref()
         .filter(|reference| octocode_github::is_full_sha(reference))
     else {
-        return Err(CloneError::new(
+        return Err(GitError::new(
             ErrorCode::InvalidInput,
             "ref must name the full commit SHA to check out",
         ));
@@ -142,7 +142,7 @@ pub(super) fn execute_prepared(
 /// The clones root under the home passes the path policy, then exists.
 /// The runtime allows only the checkout trees under the Octocode home, never
 /// the home itself, so the clones root is what must be authorized.
-fn authorize_home(context: &CloneContext<'_>) -> Result<(), CloneError> {
+fn authorize_home(context: &GitContext<'_>) -> Result<(), GitError> {
     let clones_root = storage::clones_root(&context.config.home);
     // Existing roots and roots below an allowed workspace must pass the
     // ordinary policy check. The one exception is an explicitly configured
@@ -164,10 +164,10 @@ fn authorize_home(context: &CloneContext<'_>) -> Result<(), CloneError> {
     // otherwise a fresh root has only an existing parent outside the allowed
     // roots to canonicalize.
     storage::create_private_dir_all(&clones_root).map_err(|error| {
-        CloneError::new(
+        storage::write_denied(GitError::new(
             ErrorCode::FileAccessFailed,
             format!("Could not initialize the configured clone output directory: {error}"),
-        )
+        ))
     })?;
     Ok(())
 }

@@ -84,10 +84,13 @@ pub(crate) fn render_page(
     // exact entries left out is a fact of the whole result, so page 1
     // states it once with its lead.
     if page == 1
-        && let Some(shown) = set
-            .skipped_paths
-            .as_ref()
-            .and_then(|paths| skipped::grouped(paths.entries.iter().cloned(), true, paths.sampled))
+        && let Some(shown) = set.skipped_paths.as_ref().and_then(|paths| {
+            skipped::grouped(
+                paths.entries.iter().cloned(),
+                true,
+                paths.sampled == Some(true),
+            )
+        })
     {
         out["skippedPaths"] = serde_json::to_value(shown).unwrap_or_default();
     }

@@ -47,8 +47,6 @@ pub(super) struct EntryFacts {
 pub(super) struct Totals {
     /// Files matched.
     pub(super) files: u32,
-    /// Some file has more rows than one match page.
-    pub(super) over_matches_per: bool,
 }
 
 impl PageView {
@@ -58,9 +56,6 @@ impl PageView {
         let TextSearchResult { mut files, stats } = parsed;
         let totals = Totals {
             files: saturating_u32(files.len()),
-            over_matches_per: files
-                .iter()
-                .any(|file| saturating_u32(file.matches.len()) > layout.matches_per),
         };
         let shown = std::mem::take(&mut layout.shown);
         let mut page = Vec::with_capacity(shown.len());
@@ -259,7 +254,6 @@ impl PageView {
                 facts,
                 totals: Totals {
                     files: index.total_files,
-                    over_matches_per: index.over_matches_per,
                 },
             },
             redacted,
@@ -271,7 +265,7 @@ impl PageView {
 /// `parsed` (ordered and ranked as `layout` cut it) as a seekable scan: a
 /// frame per entry of every page of the cut, each with its facts, which
 /// rows redaction changed (`redacted`) and whether its file had a key-block
-/// scan (`key_scans`, by path). `None` for a list or grid layout (kept
+/// scan (`key_scans`, by path). `None` for a list layout (kept
 /// whole), past `max_raw` raw bytes, or once `cancelled`.
 pub(super) fn encode_pages(
     parsed: &TextSearchResult,
@@ -284,10 +278,7 @@ pub(super) fn encode_pages(
     let files = &parsed.files;
     // Every page's entries, in page order: only a streamed cut is stored
     // by page (see [`PageIndex`]).
-    let pages = layout
-        .pages
-        .as_deref()
-        .filter(|_| layout.streamed && !layout.list)?;
+    let pages = layout.pages.as_deref().filter(|_| !layout.list)?;
     // Windows (and their line order) of each file whose rows merge.
     let mut windows = vec![None; files.len()];
     let mut out = FrameWriter::new(files.len(), max_raw);
@@ -339,10 +330,6 @@ pub(super) fn encode_pages(
         starts,
         total_files: saturating_u32(files.len()),
         total_rows: saturating_u32(files.iter().map(|file| file.matches.len()).sum::<usize>()),
-        matches_per: layout.matches_per,
-        over_matches_per: files
-            .iter()
-            .any(|file| saturating_u32(file.matches.len()) > layout.matches_per),
     };
     Some(out.finish(index, parsed.stats.clone()))
 }

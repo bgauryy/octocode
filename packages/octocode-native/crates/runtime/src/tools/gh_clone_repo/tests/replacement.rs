@@ -10,7 +10,7 @@ fn fresh_replacements_preserve_sparse_refs_and_keep_tokens_out_of_argv() {
     let endpoint = api_github_endpoint();
     let derived = "https://github.com/fixture-owner/fixture-repo.git";
     let runner = RewriteRunner::new(derived, &fixture.bare_url);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let credential = ResolvedCredential::new("fixture-token", CredentialSource::Override);
     let context = setup(
         &runner,
@@ -138,7 +138,7 @@ fn dirty_checkout_preserves_tracked_untracked_ignored_and_user_metadata_names() 
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let fresh = clone_pinned(&fixture, &query(), &context).expect("fresh clone");
     let checkout = Path::new(&fresh.location.path);
@@ -189,7 +189,7 @@ fn uppercase_commit_refs_replace_the_same_destination() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let lower = clone_pinned(
         &fixture,
@@ -282,7 +282,7 @@ fn checkout_appearing_at_the_destination_while_fetching_is_preserved() {
             &self,
             request: &GitRunRequest<'_>,
             control: &GitRunControl<'_>,
-        ) -> Result<GitOutput, CloneError> {
+        ) -> Result<GitOutput, GitError> {
             let output = self.inner.run(request, control)?;
             if request.label == "check out requested commit"
                 && request
@@ -301,8 +301,8 @@ fn checkout_appearing_at_the_destination_while_fetching_is_preserved() {
             &self,
             request: &GitRunRequest<'_>,
             control: &GitRunControl<'_>,
-            record: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-        ) -> Result<GitOutput, CloneError> {
+            record: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+        ) -> Result<GitOutput, GitError> {
             self.inner.run_nul_records(request, control, record)
         }
 
@@ -310,8 +310,8 @@ fn checkout_appearing_at_the_destination_while_fetching_is_preserved() {
             &self,
             request: &GitRunRequest<'_>,
             control: &GitRunControl<'_>,
-            sink: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-        ) -> Result<GitOutput, CloneError> {
+            sink: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+        ) -> Result<GitOutput, GitError> {
             self.inner.run_stream(request, control, sink)
         }
     }
@@ -323,7 +323,7 @@ fn checkout_appearing_at_the_destination_while_fetching_is_preserved() {
         inner: fixture_runner(&fixture),
         parked: Mutex::new(None),
     };
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let first = clone_pinned(&fixture, &query(), &context).expect("first clone");
     let checkout = PathBuf::from(first.location.path);
@@ -360,7 +360,7 @@ fn a_standalone_checkout_is_replaced_when_clean_and_kept_when_dirty() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let made = clone_pinned(&fixture, &query(), &context).expect("clone");
     let path = PathBuf::from(&made.location.path);

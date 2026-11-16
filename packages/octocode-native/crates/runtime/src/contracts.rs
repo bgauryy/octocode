@@ -62,6 +62,15 @@ pub fn partial_reasons() -> Option<&'static serde_json::Value> {
     parsed_contract().ok()?.get("partialReasons")
 }
 
+/// [`partial_reasons`] less every reason `tool` never emits: what the
+/// output reference of `tool` serves.
+pub fn partial_reasons_of(tool: ToolId) -> Option<serde_json::Value> {
+    let all = partial_reasons()?.as_object()?;
+    Some(serde_json::Value::Object(
+        output_fields::partial_reasons::emitted_by(tool, all),
+    ))
+}
+
 /// One tool's contract entry (`tools[i]`), parsed on first use from its
 /// build-verified span of the embedded contract. A tool call touches one tool,
 /// so a fresh process parses that entry (~100 KB) instead of the whole

@@ -19,6 +19,8 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
+mod admission;
+mod chunk_cancel;
 mod coverage;
 mod declaration_rank;
 mod digests;

@@ -5,8 +5,7 @@ use super::promotion::promote_issue_continuations;
 use super::remaining::Remainder;
 use super::text::paginate_text;
 use super::util::{str_at, string};
-use super::{HistoryItemRequest, Sections, fetch, validation};
-use crate::id::ToolId;
+use super::{HistoryItemRequest, fetch, validation};
 use crate::response::result::ToolData;
 use crate::tools::gh_get_history_item::Source;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
@@ -145,7 +144,7 @@ pub(super) async fn issue(
     let mut remainder = Remainder::default();
     let mut dropped = None;
     // A summary previews the body, as a pull request's does; the body read
-    // (`sections:["body"]`, its `readBody` lead) holds it whole.
+    // (`sections:["body"]`) holds it whole.
     let summary = sections.is_empty();
     if summary {
         // An empty body previews nothing: the null is removed with the row's.
@@ -195,7 +194,6 @@ pub(super) async fn issue(
     if let Some(references) = closed_by.as_ref().filter(|refs| !refs.prs.is_empty()) {
         row["closedBy"] = Value::Array(references.prs.iter().map(|pr| pr.row.clone()).collect());
     }
-    let previewed = row["bodyPreview"].is_string();
     let mut out = json!({"issues":[row]});
     if let Some(warning) = dropped {
         // Lossless recovery: the same read without the literal.
@@ -204,12 +202,6 @@ pub(super) async fn issue(
         out["calls"]["withoutMatchString"] = without_match_lead(query);
     }
     promote_issue_continuations(&mut out, query, &remainder);
-    if previewed {
-        attach_body_read(&mut out, query);
-    }
-    if !want_comments && !later_page {
-        attach_comments_read(&mut out, query, &raw);
-    }
     let bounded = closed_by.as_ref().and_then(|references| {
         references
             .bounded_total
@@ -250,32 +242,6 @@ fn without_match_lead(query: &HistoryItemRequest) -> Value {
         super::pr_menu::remove_key(&mut same, key);
     }
     super::pr_menu::without_match_string(same)
-}
-
-/// A summary's body preview offers the whole body as related work (the
-/// same issue, `sections:["body"]`).
-fn attach_body_read(out: &mut Value, query: &HistoryItemRequest) {
-    let mut nq = super::pr_menu::base_public_query(query, super::ItemOperation::Issue);
-    Sections::of([Section::Body]).set_on(&mut nq);
-    ensure_calls(out);
-    out["calls"]["readBody"] =
-        crate::response::result::restart_query(ToolId::GhGetHistoryItem, &nq);
-}
-
-/// An issue read without its discussion offers it as related work
-/// when GitHub counts any comment (the same issue, `sections:["comments"]`).
-fn attach_comments_read(out: &mut Value, query: &HistoryItemRequest, raw: &Value) {
-    if super::util::nonzero(raw.get("comments")).is_none() {
-        return;
-    }
-    let mut nq = super::pr_menu::base_public_query(query, super::ItemOperation::Issue);
-    for key in ["offset", "page"] {
-        super::pr_menu::remove_key(&mut nq, key);
-    }
-    Sections::of([Section::Comments]).set_on(&mut nq);
-    ensure_calls(out);
-    out["calls"]["readDiscussion"] =
-        crate::response::result::restart_query(ToolId::GhGetHistoryItem, &nq);
 }
 
 /// The closing-reference set ends at a bound: no cursor continues it, and the

@@ -158,9 +158,8 @@ fn reader_failure(
         .filter_map(Value::as_str)
         .map(str::to_owned)
         .collect();
-    let final_failure = declared.is_some_and(|(_, class)| {
-        !matches!(class, ErrorClass::Transient | ErrorClass::Restart)
-    });
+    let final_failure = declared
+        .is_some_and(|(_, class)| !matches!(class, ErrorClass::Transient | ErrorClass::Restart));
     if !final_failure {
         hints.push(RERUN_HINT.into());
     } else if hints.is_empty() && leads.is_empty() {

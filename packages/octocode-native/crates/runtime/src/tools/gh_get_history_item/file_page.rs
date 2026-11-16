@@ -89,15 +89,11 @@ pub(super) fn shape_file_page(
             shown,
         )
     });
-    let listed = rows.as_array().is_some_and(|rows| !rows.is_empty());
     // Files it could not search may hold the literal: no empty answer then.
     let match_removed_all =
         super::text::needle(query).is_some() && in_scope > 0 && unsearched.is_empty() && kept == 0;
-    let cursors = DiffCursors::of_file_page(
-        &mut page,
-        patch_window.and_then(SpanFacts::next_offset),
-        listed,
-    );
+    let cursors =
+        DiffCursors::of_file_page(&mut page, patch_window.and_then(SpanFacts::next_offset));
     out["files"] = rows;
     if let Some(window) = patch_window {
         out["sectionPagination"][Axis::Patches.key()] = window.to_value();
@@ -121,7 +117,7 @@ pub(super) fn shape_file_page(
             if !gh_get_history_item_query::has_sections(query) {
                 same["sections"] = json!(["files"]);
             }
-            without_match = Some(("withoutMatchString", without_match_string(same)));
+            without_match = Some(("withoutMatchString".to_owned(), without_match_string(same)));
         } else if dropped > 0 {
             push_warnings(
                 out,
@@ -213,7 +209,7 @@ pub(super) fn lead_first(out: &mut Value, leads: Vec<(impl Into<String>, Value)>
 }
 
 /// A named lead: its `next` key and the call.
-pub(super) type Lead = (&'static str, Value);
+pub(super) type Lead = (String, Value);
 
 /// Whether the read is the comparison's first page (no later `page`, no
 /// patch window past the start): where its static notices are stated.

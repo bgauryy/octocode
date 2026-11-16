@@ -127,7 +127,7 @@ impl WindowLines {
             if let Some(range) = &mut held.range {
                 range.end = self.line_at + bytes;
             }
-            held.finish(line, false, &[]);
+            held.finish(line, false, &[], &[]);
         }
         self.head.clear();
         self.line.clear();
@@ -196,28 +196,31 @@ impl WindowLines {
         let (head, shape) = (&self.head, self.shape);
         let in_block = self.block.advance(markers, || shape.finish(head))
             && (!markers.any() || self.at - self.line_at <= super::super::KEY_LINE_BYTES);
-        // An armor line read whole shows its armor: only key text written
-        // beside it is hidden, from where that starts to the line's end (a
-        // window's line is its lead and a placeholder). One the pass entered
-        // midway is hidden from its lead.
-        let whole = (markers.any() && self.line_whole)
+        // A line read whole shows what a whole-file read shows of it: its
+        // armor, and only the key text beside it ([`crate::security::key_line_bytes`]),
+        // what stands before and after kept. One the pass entered midway, or
+        // too long to buffer, is hidden from its lead to its end.
+        let whole = (in_block && self.line_whole)
             .then(|| std::str::from_utf8(&self.line).ok())
             .flatten()
             .map(|line| line.trim_end_matches(['\n', '\r']));
         let key = whole.map(crate::security::key_line_bytes);
         let inside = in_block && key.as_ref().is_none_or(Option::is_some);
-        let lead = match (key.flatten(), whole) {
-            (Some(key), Some(line)) if inside => &line.as_bytes()[..key.start],
-            _ if inside => crate::security::key_line_lead(&self.head, &shape),
-            _ => &[],
+        let (lead, trail): (&[u8], &[u8]) = match (key.flatten(), whole) {
+            (Some(key), Some(line)) if inside => {
+                (&line.as_bytes()[..key.start], &line.as_bytes()[key.end..])
+            }
+            _ if inside => (crate::security::key_line_lead(&self.head, &shape), &[]),
+            _ => (&[], &[]),
         };
         self.replaced = inside.then(|| {
             String::from_utf8_lossy(lead).len()
                 + crate::security::key_fragment_placeholder().len()
+                + String::from_utf8_lossy(trail).len()
                 + 1
         });
         for held in &mut self.held {
-            held.finish(line, inside, lead);
+            held.finish(line, inside, lead, trail);
         }
         self.line_at = self.at;
         self.head.clear();

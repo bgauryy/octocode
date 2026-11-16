@@ -5,6 +5,7 @@ mod concurrency;
 mod errors;
 mod git_blobs;
 mod leads;
+mod materialize_failures;
 mod paging;
 mod stops;
 mod stored_once;

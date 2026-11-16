@@ -1,8 +1,6 @@
 //! The secret scan of one returned page and the warnings it raises.
 
 use super::pagination::{Edges, LongLines, SourceLines, page_within};
-use super::prepare::*;
-use crate::tools::source_view::local_fetch_query;
 use octocode_contract_types::LocalFetchQuery;
 
 /// One returned page after the secret scan.
@@ -57,12 +55,13 @@ pub(super) fn page_of(cut: &PageWindow<'_>) -> ScannedPage {
     }
 }
 
-/// Redacted text is not the source: say so, as localSearch does. Only the
-/// placeholders this read put on the page count (a byte page may show part
-/// of a redacted line, so never more than the page holds): literal
-/// `[REDACTED…]` text in the source is verbatim. A redaction spanning lines
-/// shows its placeholder on its first and blanks the others, so a page of them
-/// holds no placeholder: `blanked` says it shows such a line.
+/// Redacted text is not the source: the row says so with its `redacted` flag
+/// ([`crate::security::redacted_mark`]). Only the placeholders this read put
+/// on the page count (a byte page may show part of a redacted line, so never
+/// more than the page holds): literal `[REDACTED…]` text in the source is
+/// verbatim. A redaction spanning lines shows its placeholder on its first
+/// and blanks the others, so a page of them holds no placeholder: `blanked`
+/// says it shows such a line.
 pub(super) fn warn_redacted(
     text: &str,
     view_redacted: bool,
@@ -72,44 +71,6 @@ pub(super) fn warn_redacted(
 ) {
     let redactions = redactions.min(crate::security::placeholders(text));
     if redactions > 0 || view_redacted || blanked {
-        warnings.push(crate::security::redacted_content_warning(redactions));
-    }
-}
-
-/// matchString runs on redacted text, so a match inside a redacted value is
-/// not selected: name how many redacted lines the selection does not show
-/// (as a hit or as context), so they are not dropped silently. The count
-/// depends only on the file and the selection (a plain read shows the same
-/// placeholders), never on the guess. It is the same on every page, so the
-/// first page states it. A `ranges` read counts hits inside its ranges only,
-/// so it is left out.
-pub(super) fn warn_unmatchable(
-    q: &LocalFetchQuery,
-    source: &Source<'_>,
-    ext: &super::extraction::Extraction,
-    warnings: &mut Vec<String>,
-) {
-    if !source.match_redacted
-        || !local_fetch_query::has_matches(q)
-        || local_fetch_query::has_ranges(q)
-    {
-        return;
-    }
-    let mut shown = match (&ext.source_lines, ext.start, ext.end) {
-        (Some(lines), _, _) => lines.clone(),
-        (None, Some(start), Some(end)) => (start..=end).collect(),
-        _ => ext.matched_lines.clone(),
-    };
-    shown.sort_unstable();
-    let unseen = source
-        .redacted_lines
-        .iter()
-        .filter(|(line, _)| shown.binary_search(line).is_err())
-        .count();
-    if unseen > 0 {
-        let lines = if unseen == 1 { "line" } else { "lines" };
-        warnings.push(format!(
-            "{unseen} redacted {lines} outside this result: matchString cannot see text behind a [REDACTED…] placeholder; a plain read shows where they are."
-        ));
+        warnings.push(crate::security::redacted_mark());
     }
 }

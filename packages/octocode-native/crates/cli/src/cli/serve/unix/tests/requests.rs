@@ -306,7 +306,7 @@ async fn the_reply_wait_ends_on_silence_but_not_while_frames_arrive() {
         .await
         .expect("a silent server held the client");
     assert!(
-        matches!(&reply, Err(Failed::Fallback(reason)) if reason.contains("sent nothing")),
+        matches!(&reply, Err(Failed::Stalled(waited)) if *waited == silence),
         "{reply:?}"
     );
 

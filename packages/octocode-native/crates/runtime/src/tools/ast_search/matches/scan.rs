@@ -215,6 +215,7 @@ pub(super) fn scan_directory(
             skip_files: Some(through.map_or(q.scan_offset(), |_| 0)),
             max_file_bytes: u32::try_from(crate::security::SourceLimits::REAL.whole_source).ok(),
             judge: Some(super::super::source::judge()),
+            global_ignore: paths.global_ignore(),
         },
         demand(q, &price),
         &|path, file_type| {
@@ -260,7 +261,10 @@ pub(super) fn scan_directory(
     );
     let logged = log.finish();
     let mut rules = if ignore_rules {
-        octocode_engine::search::walk::external_ignore_inputs(&scope.canonical)
+        octocode_engine::search::walk::external_ignore_inputs_with(
+            &scope.canonical,
+            paths.global_ignore(),
+        )
     } else {
         Vec::new()
     };

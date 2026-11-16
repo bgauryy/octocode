@@ -175,33 +175,53 @@ fn every_way_to_nest_up_to_the_limit_is_read_by_oxc() {
     }
 }
 
+/// Past the limit, `construct` nested `reps` times is read by tree-sitter
+/// and the fallback says why.
+fn assert_past_the_limit_is_disclosed(construct: &Construct, reps: usize) {
+    let source = (construct.source)(reps);
+    let deep = too_deep(&source, construct.ext)
+        .unwrap_or_else(|| panic!("{} past the limit", construct.name));
+    assert!(
+        deep.depth.is_some_and(|depth| depth > MAX_NESTING),
+        "{}",
+        construct.name
+    );
+    let facts = crate::signatures::extract_graph_facts(&source, &path(construct))
+        .unwrap_or_else(|| panic!("{} facts", construct.name));
+    let fallback = facts
+        .diagnostics
+        .iter()
+        .find(|d| d.code == GraphFactCode::ParserFallback)
+        .unwrap_or_else(|| panic!("{} discloses the fallback", construct.name));
+    assert!(
+        fallback.message.contains(&deep.reason()),
+        "{}: {}",
+        construct.name,
+        fallback.message
+    );
+    assert_eq!(fallback.line, deep.line, "{}", construct.name);
+    assert!(declares_keep(&facts), "{}", construct.name);
+}
+
+/// Every way to nest, one repetition past the limit, and the first one at
+/// twice the limit.
 #[test]
 fn nesting_past_the_limit_is_read_by_tree_sitter_and_says_why() {
     for construct in CONSTRUCTS {
-        let reps = reps_at_limit(construct) * 2;
-        let source = (construct.source)(reps);
-        let deep = too_deep(&source, construct.ext)
-            .unwrap_or_else(|| panic!("{} past the limit", construct.name));
-        assert!(
-            deep.depth.is_some_and(|depth| depth > MAX_NESTING),
-            "{}",
-            construct.name
-        );
-        let facts = crate::signatures::extract_graph_facts(&source, &path(construct))
-            .unwrap_or_else(|| panic!("{} facts", construct.name));
-        let fallback = facts
-            .diagnostics
-            .iter()
-            .find(|d| d.code == GraphFactCode::ParserFallback)
-            .unwrap_or_else(|| panic!("{} discloses the fallback", construct.name));
-        assert!(
-            fallback.message.contains(&deep.reason()),
-            "{}: {}",
-            construct.name,
-            fallback.message
-        );
-        assert_eq!(fallback.line, deep.line, "{}", construct.name);
-        assert!(declares_keep(&facts), "{}", construct.name);
+        let at_limit = reps_at_limit(construct);
+        // Depth grows by at least one per repetition: one more is past.
+        assert_past_the_limit_is_disclosed(construct, at_limit + 1);
+    }
+    let first = &CONSTRUCTS[0];
+    assert_past_the_limit_is_disclosed(first, reps_at_limit(first) * 2);
+}
+
+/// Every way to nest, at twice the limit.
+#[test]
+#[ignore = "twice the limit for every construct: cargo test -- --ignored twice_the_limit"]
+fn nesting_at_twice_the_limit_is_read_by_tree_sitter_and_says_why_twice_the_limit() {
+    for construct in CONSTRUCTS {
+        assert_past_the_limit_is_disclosed(construct, reps_at_limit(construct) * 2);
     }
 }
 

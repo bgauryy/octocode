@@ -17,8 +17,11 @@ fn code_as_large_as_a_whole_read_still_outlines() {
             self.0.fetch_add(1, Ordering::SeqCst);
             Ok((text.to_owned(), vec![]))
         }
+        fn limits(&self) -> crate::security::SourceLimits {
+            crate::security::SourceLimits::SMALL
+        }
     }
-    let limit = crate::security::SourceLimits::REAL.whole_source;
+    let limit = crate::security::SourceLimits::SMALL.whole_source;
     let t = Fixture::new();
     let outline = |name: &str, text: &str| {
         assert!(text.len() <= limit, "{name} is read whole");
@@ -86,7 +89,7 @@ fn a_line_nested_past_the_parsers_stack_keeps_the_files_declarations() {
 /// shared declarations document lists: no parse size refuses it.
 #[test]
 fn a_source_as_large_as_a_whole_read_outlines_every_declaration() {
-    let limit = crate::security::SourceLimits::REAL.whole_source;
+    let limit = SmallSafe.limits().whole_source;
     let mut source = String::new();
     let mut count = 0;
     loop {
@@ -107,7 +110,7 @@ fn a_source_as_large_as_a_whole_read_outlines_every_declaration() {
     let (mut query, mut outlined, mut first) =
         (qj(&p, serde_json::json!({"view": "symbols"})), 0, None);
     loop {
-        let r = fetch(&query, &Paths(t.0.clone()));
+        let r = fetch_with(&query, &Paths(t.0.clone()), &SmallSafe);
         assert_eq!(r.view, Some(ReadView::Symbols), "{:?}", r.view_fallback);
         let page = r.pagination.as_ref().expect("pagination");
         assert_eq!(page.unit, ReadProgressUnit::Lines, "{page:?}");
@@ -126,4 +129,39 @@ fn a_source_as_large_as_a_whole_read_outlines_every_declaration() {
         "{:.200}",
         first
     );
+}
+
+/// A one-line source whose parse is estimated past the memory budget is not
+/// parsed for its outline; the read falls back to the plain page and says
+/// the outline was unavailable, and a plain file of the same kind is outlined.
+#[test]
+fn a_source_too_dense_to_parse_within_the_budget_is_not_parsed_for_an_outline() {
+    let t = Fixture::new();
+    let budget = octocode_engine::structural::parse_budget();
+    let calls = budget / octocode_engine::structural::BYTES_PER_TOKEN / 5 + 1000;
+    let dense = t.0.join("dense.js");
+    fs::write(&dense, format!("var a=[{}];\n", "f(1),".repeat(calls))).expect("dense");
+    let row = fetch_with(
+        &qj(&dense, serde_json::json!({"view":"symbols"})),
+        &Paths(t.0.clone()),
+        &crate::security::ContentSecurity::new(),
+    );
+    assert_ne!(row.view, Some(ReadView::Symbols), "{:?}", row.view_fallback);
+    assert_eq!(
+        crate::tools::declarations::parses::of("declarations", &dense.to_string_lossy()),
+        0,
+        "the dense file was parsed"
+    );
+    let plain = t.0.join("plain.js");
+    fs::write(
+        &plain,
+        format!("{}\n", "function run() {\n  return 1;\n}\n".repeat(40)),
+    )
+    .expect("plain");
+    let row = fetch_with(
+        &qj(&plain, serde_json::json!({"view":"symbols"})),
+        &Paths(t.0.clone()),
+        &crate::security::ContentSecurity::new(),
+    );
+    assert_eq!(row.view, Some(ReadView::Symbols), "{:?}", row.view_fallback);
 }

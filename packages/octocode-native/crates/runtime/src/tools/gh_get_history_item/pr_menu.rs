@@ -4,7 +4,7 @@ use super::patch::hunks::hit_hunks;
 use super::patch::locate::hunk_windows;
 use super::patch_hop::includable;
 use super::util::merge;
-use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, ItemOperation, Sections};
+use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, ItemOperation};
 use crate::id::ToolId;
 use crate::response::result::wire_query;
 use crate::response::result::{Continuation, remove_nulls, restart_query};
@@ -116,103 +116,37 @@ pub(super) fn is_small_pr(
     ) && changed_files.is_none_or(|files| files <= INVENTORY_ALL_PATCHES_FILES)
 }
 
-/// Leads one menu offers at most; other surfaces stay reachable through
-/// `include`.
-pub(super) const MENU_CAP: usize = 2;
-
-/// Per-row menu of first-page fetches for content the call did not request:
-/// at most [`MENU_CAP`] entries, in priority order (files or patches, then
-/// the body, then the discussion). A merged row already shows
-/// `mergeCommitSha`, so no merge-commit read is offered.
+/// Per-row menu of first-page fetches for content the call did not request.
+/// The static views (files, patches, body, discussion) are one `sections`
+/// value away and are named once in the tool description; the menu holds
+/// only the ranked pick, `readSelectedPatches`: which files to read is a
+/// guess the row's inventory made, not a spelling in the schema.
 ///
 /// `raw` is the provider PR object; `review` is the inventory's
-/// [`super::inventory::review_selection`] (empty before files were read). An
-/// entry is emitted only when it can return something the row does not
-/// already hold: a non-empty body (the summary row carries none) rides
-/// `readFiles`, else the patch read or `readBody`; a small diff reads every patch (`readPatches`)
-/// instead of a separate file list; `readDiscussion` reads comments and
-/// reviews together, without comments when the provider counts none.
+/// [`super::inventory::review_selection`] (empty before files were read).
+/// The entry is emitted only when the pick is a proper subset of the changed
+/// files and the call did not already read patches.
 pub(super) fn pr_next_menu(query: &HistoryItemRequest, review: &[String], raw: &Value) -> Value {
-    let read = query.sections();
-    let patches = read.has(Section::Patches);
-    let count = |key: &str| raw.get(key).and_then(Value::as_u64);
-    // A body the read did not fetch (a GraphQL section read) may hold
-    // text: only a fetched empty one rules its read out.
-    let has_body = raw
-        .get("body")
-        .is_none_or(|body| body.as_str().is_some_and(|body| !body.trim().is_empty()));
-    let want_body = !read.has(Section::Body) && has_body;
-    let changed_files = count("changed_files");
-    let has_files = changed_files != Some(0);
-    let small_pr = is_small_pr(count("additions"), count("deletions"), changed_files);
-    let no_comments = count("comments") == Some(0) && count("review_comments") == Some(0);
-    // Each menu entry is a fresh first-page fetch: the base public query
-    // without the current content selection or any per-surface cursor.
+    let changed_files = raw.get("changed_files").and_then(Value::as_u64);
+    if query.sections().has(Section::Patches) || changed_files == Some(0) {
+        return Value::Object(Map::new());
+    }
+    // Each entry is a fresh first-page fetch: the base public query without
+    // the current content selection or any per-surface cursor.
     let target = fresh_pr_query(query);
+    let review = includable(&target, review);
+    let covers_all = changed_files.is_some_and(|files| review.len() as u64 >= files);
     let mut next = Map::new();
-    let call = |sections: Sections| {
-        let mut query = target.clone();
-        sections.set_on(&mut query);
-        restart_query(ToolId::GhGetHistoryItem, &query)
-    };
-    let with_body = |sections: Sections| {
-        if want_body {
-            sections.with(Section::Body)
-        } else {
-            sections
-        }
-    };
-    let files_read = read.lists_files();
-    let mut body_offered = false;
-    if !files_read && has_files && !small_pr {
+    if !review.is_empty() && !covers_all {
         next.insert(
-            "readFiles".into(),
-            call(with_body(Sections::of([Section::Files]))),
-        );
-        body_offered = true;
-    }
-    if !patches && has_files {
-        let review = includable(&target, review);
-        let covers_all = changed_files.is_some_and(|files| review.len() as u64 >= files);
-        if !review.is_empty() && !covers_all {
-            // The query is exact; which files answer the question is a
-            // ranking guess (source files by churn, packed to one budget).
-            let selected = restart_query(
+            "readSelectedPatches".into(),
+            restart_query(
                 ToolId::GhGetHistoryItem,
-                &merge(
-                    target.clone(),
-                    json!({"include": review, "sections": ["patches"]}),
-                ),
-            );
-            next.insert("readSelectedPatches".into(), selected);
-            if changed_files.is_none_or(|files| files <= INVENTORY_ALL_PATCHES_FILES) {
-                next.insert("readPatches".into(), call(Sections::of([Section::Patches])));
-            }
-        } else if small_pr || covers_all {
-            let patches = Sections::of([Section::Patches]);
-            let patches = if body_offered {
-                patches
-            } else {
-                with_body(patches)
-            };
-            body_offered = true;
-            next.insert("readPatches".into(), call(patches));
-        }
+                &merge(target, json!({"include": review, "sections": ["patches"]})),
+            ),
+        );
     }
-    if want_body && !body_offered && !files_read {
-        next.insert("readBody".into(), call(Sections::of([Section::Body])));
-    }
-    let mut discussion = Sections::default();
-    if !read.has(Section::Comments) && !read.has(Section::ReviewComments) && !no_comments {
-        discussion = Sections::of([Section::Comments, Section::ReviewComments]);
-    }
-    if !read.has(Section::Reviews) {
-        discussion = discussion.with(Section::Reviews);
-    }
-    if !discussion.is_empty() {
-        next.insert("readDiscussion".into(), call(discussion));
-    }
-    Value::Object(next.into_iter().take(MENU_CAP).collect())
+    Value::Object(next)
 }
 
 /// Added plus removed lines of a provider file.
@@ -252,9 +186,11 @@ pub(super) fn first_unpatched(
     })
 }
 
-/// `readAtCommit` and `readParent` (one call reading both when the patch was
-/// delivered, named for its first side): the first file GitHub sent without a
-/// patch (its change is in no response, so both sides are read whole), else
+/// `readAtCommit` and `readParent` (related calls reading both sides when
+/// the patch was delivered, the first named for its first side): the first
+/// file GitHub sent without a patch (its change is in no response, so both
+/// sides are read whole), else with a `matchString` every file whose hunks
+/// hold it (most hits first, as many calls as the queries limit needs), else
 /// the change's most-changed code file (a test, doc or other file only when
 /// no code file has a patch), read over its hunks' windows at each side: the
 /// new-side windows at the new side, the old-side windows at the old side
@@ -270,7 +206,7 @@ pub(super) fn change_reads(
     files: &[Value],
     sides: &ChangeSides<'_>,
     selected: impl Fn(&Value) -> bool,
-) -> Vec<(&'static str, Value)> {
+) -> Vec<(String, Value)> {
     use crate::content::{FileType, classify_file_type};
     let hits = |file: &Value| {
         sides.needle.map_or(0, |needle| {
@@ -284,15 +220,82 @@ pub(super) fn change_reads(
         (hits(file), code, churn(file))
     };
     let missing_patch = first_unpatched(files, &selected);
-    let Some(file) = missing_patch.or_else(|| {
-        files
+    let patched =
+        |file: &&Value| selected(file) && file.get("patch").and_then(Value::as_str).is_some();
+    // Source recovery reads the one file with no patch. Optional source
+    // reads cover every file a `matchString` hit (its hunks at each side),
+    // most hits first; with no literal, the one most-changed code file.
+    let picks: Vec<&Value> = match missing_patch {
+        Some(file) => vec![file],
+        None if sides.needle.is_some() && files.iter().filter(patched).any(|f| hits(f) > 0) => {
+            let mut hit_files: Vec<&Value> = files
+                .iter()
+                .filter(patched)
+                .filter(|file| hits(file) > 0)
+                .collect();
+            hit_files.sort_by_key(|file| std::cmp::Reverse(rank(file)));
+            hit_files
+        }
+        None => files
             .iter()
-            .filter(|file| selected(file) && file.get("patch").and_then(Value::as_str).is_some())
+            .filter(patched)
             .rev()
             .max_by_key(|file| rank(file))
-    }) else {
+            .into_iter()
+            .collect(),
+    };
+    let mut rows = Vec::new();
+    for file in picks {
+        rows.extend(file_side_rows(
+            owner,
+            repo,
+            file,
+            sides,
+            missing_patch.is_some(),
+        ));
+    }
+    // Missing source is the rest of the evidence: each side its own
+    // continuation. Optional source is related calls reading both sides,
+    // so the one lead a complete row keeps names both commits; rows beyond
+    // one call's queries limit ride further calls.
+    if missing_patch.is_some() {
+        return rows
+            .into_iter()
+            .map(|(name, row)| {
+                (
+                    name.to_owned(),
+                    Continuation::continued(ToolId::GhGetFileContent, row).build(),
+                )
+            })
+            .collect();
+    }
+    let Some((name, _)) = rows.first() else {
         return Vec::new();
     };
+    let name = *name;
+    let per_call = crate::response::result::rows_per_call(ToolId::GhGetFileContent).max(1);
+    let rows = rows.into_iter().map(|(_, row)| row).collect::<Vec<_>>();
+    rows.chunks(per_call)
+        .enumerate()
+        .map(|(index, chunk)| {
+            (
+                crate::id::numbered(name, index),
+                Continuation::related_input(ToolId::GhGetFileContent, json!({"queries": chunk}))
+                    .build(),
+            )
+        })
+        .collect()
+}
+
+/// The `readAtCommit`/`readParent` rows of one file: its hunks' windows at
+/// each side (`whole`: a file with no patch, both sides read whole).
+fn file_side_rows(
+    owner: &str,
+    repo: &str,
+    file: &Value,
+    sides: &ChangeSides<'_>,
+    whole: bool,
+) -> Vec<(&'static str, Value)> {
     let path = file.get("filename").and_then(Value::as_str).unwrap_or("");
     let status = file.get("status").and_then(Value::as_str).unwrap_or("");
     let patch = file.get("patch").and_then(Value::as_str).unwrap_or("");
@@ -307,7 +310,7 @@ pub(super) fn change_reads(
     // A file with no patch has no hunks to bound a read: both sides read whole.
     let side_read = |path: &str, reference: &str, mark: char| {
         let mut row = json!({"owner": owner, "repo": repo, "path": path, "ref": reference});
-        if missing_patch.is_none() {
+        if !whole {
             let ranges = hunk_windows(patch, mark);
             if ranges.is_empty() {
                 return None;
@@ -336,29 +339,7 @@ pub(super) fn change_reads(
             rows.push(("readParent", read));
         }
     }
-    // Missing source is the rest of the evidence: each side its own
-    // continuation. Optional source is one related call reading both
-    // sides, so the one lead a complete row keeps names both commits.
-    if missing_patch.is_some() {
-        return rows
-            .into_iter()
-            .map(|(name, row)| {
-                (
-                    name,
-                    Continuation::continued(ToolId::GhGetFileContent, row).build(),
-                )
-            })
-            .collect();
-    }
-    let Some((name, _)) = rows.first() else {
-        return Vec::new();
-    };
-    let name = *name;
-    let rows = rows.into_iter().map(|(_, row)| row).collect::<Vec<_>>();
-    vec![(
-        name,
-        Continuation::related_input(ToolId::GhGetFileContent, json!({"queries": rows})).build(),
-    )]
+    rows
 }
 
 /// The note a `matchString` read states when its patches are cut to the
@@ -366,10 +347,7 @@ pub(super) fn change_reads(
 /// (`related`): it promises that call, so the response stage keeps it. `None`
 /// without a literal or a related read (a missing patch's reads are required
 /// continuations, never optional).
-pub(super) fn hunk_read_warning(
-    needle: bool,
-    side_reads: &[(&'static str, Value)],
-) -> Option<String> {
+pub(super) fn hunk_read_warning(needle: bool, side_reads: &[(String, Value)]) -> Option<String> {
     (needle && side_reads.iter().any(|(_, call)| call["kind"] == "related")).then(|| {
         "patches show only the hunks that hold matchString; related reads the source of those hunks at each side."
             .to_owned()

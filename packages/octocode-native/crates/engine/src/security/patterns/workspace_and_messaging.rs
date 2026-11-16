@@ -11,24 +11,28 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         name: "privateKeyPem",
         // The armor names the block and holds none of it: only the body
         // (`secret`, without the line breaks that end the armor lines) is
-        // hidden. The body holds no run of the armor's dashes, so a match
-        // never runs from one armor across another (a quoted BEGIN above).
+        // hidden. The body is key-shaped lines (`key_body!`): code between two
+        // armor literals ends a match, and no match runs across another armor.
         regex: concat!(
             r###"-----BEGIN\s+(?:(?:RSA|DSA|EC|OPENSSH|ENCRYPTED)\s+)?PRIVATE\s+KEY(?:\s+BLOCK)?-----[ \t]*(?:\r?\n)?"###,
             armor_headers!(),
-            r###"[ \t]*(?P<secret>(?:-{0,4}[^-])*?)(?:\r?\n)?[ \t]*-----END\s+(?:(?:RSA|DSA|EC|OPENSSH|ENCRYPTED)\s+)?PRIVATE\s+KEY(?:\s+BLOCK)?-----"###,
+            r###"[ \t]*(?P<secret>"###,
+            key_body!(),
+            r###")(?:\r?\n)?[ \t]*-----END\s+(?:(?:RSA|DSA|EC|OPENSSH|ENCRYPTED)\s+)?PRIVATE\s+KEY(?:\s+BLOCK)?-----"###,
         ),
     },
     SecretPattern {
         name: "pgpPrivateKeyBlock",
         // The armor names the block and holds none of it: only the body
         // (`secret`, without the line breaks that end the armor lines) is
-        // hidden. The body holds no run of the armor's dashes, so a match
-        // never runs from one armor across another (a quoted BEGIN above).
+        // hidden. The body is key-shaped lines (`key_body!`): code between two
+        // armor literals ends a match, and no match runs across another armor.
         regex: concat!(
             r###"-----BEGIN\s+PGP\s+PRIVATE\s+KEY\s+BLOCK-----[ \t]*(?:\r?\n)?"###,
             armor_headers!(),
-            r###"[ \t]*(?P<secret>(?:-{0,4}[^-])*?)(?:\r?\n)?[ \t]*-----END\s+PGP\s+PRIVATE\s+KEY\s+BLOCK-----"###,
+            r###"[ \t]*(?P<secret>"###,
+            key_body!(),
+            r###")(?:\r?\n)?[ \t]*-----END\s+PGP\s+PRIVATE\s+KEY\s+BLOCK-----"###,
         ),
     },
     SecretPattern {

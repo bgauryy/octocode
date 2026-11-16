@@ -202,7 +202,9 @@ fn an_unbufferable_line_mentioning_a_private_key_fails_closed() {
     )
     .expect("not cancelled");
     assert_eq!(verified, Verification::Unverified);
-    assert_eq!(file.matches[0].value, UNVERIFIED_PLACEHOLDER);
+    // The row is shown as the scan read it: a cut run of text is no known
+    // key shape, and nothing hides the whole row.
+    assert_eq!(file.matches[0].value, "…interiorKeyBo");
     // The same long line without a key mention is an ordinary line.
     std::fs::write(
         &source,
@@ -441,11 +443,9 @@ fn a_row_its_window_cannot_place_is_withheld_as_unplaced() {
         )
         .expect("not cancelled");
         assert_eq!(verified, Verification::Unverified, "{first}: {value:?}");
-        assert_eq!(
-            file.matches[0].value,
-            super::guard::UNPLACED_PLACEHOLDER,
-            "{first}: {value:?}"
-        );
+        // Its lines are placed nowhere in the source, so it is shown as it
+        // was scanned: only a known secret span would be replaced.
+        assert_eq!(file.matches[0].value, value, "{first}: {value:?}");
     }
     // The same row, placed where the search joined it, is shown.
     let mut file = file_with(vec![hit(4, "l3\nl4 marker\nl5")]);
@@ -563,10 +563,7 @@ fn a_clean_source_is_proved_by_its_digest_on_the_next_search() {
         "the first search judges the source"
     );
     assert_eq!(first.0, Verification::Unverified);
-    assert_eq!(
-        first.1,
-        ["export const b = 2;", super::guard::UNVERIFIED_PLACEHOLDER]
-    );
+    assert_eq!(first.1, ["export const b = 2;", "no such line"]);
     for expected in [Expected::Fresh, Expected::Stored(Some(digest))] {
         let (again, scanned, asked) = judged_while(|| settled(&source, expected, rows()));
         assert_eq!(again, first, "{expected:?}");
@@ -680,4 +677,114 @@ fn a_source_proved_by_its_digest_is_noted_as_judged_whole() {
         assert!(!first.contains(&token), "{name}: {first}");
         assert_eq!(search(), (first, 0), "{name}");
     }
+}
+
+/// A context row settled over a source rewritten after the search read it:
+/// whatever the row shows of a secret is hidden, and a row that shows text
+/// the redaction wrote is reported as one ([`HiddenRows`], or a value that
+/// is no longer the one the search made).
+#[test]
+fn a_context_row_over_a_rewritten_source_reports_what_it_hides() {
+    let token = "ghp_Ux7Kq2Lm9Zp4Vw8Rt1Yb6Nc3Hd5Jf0GsAeUoI";
+    let plain = "needle 5\nneedle 6\nneedle 7\nneedle 8\n";
+    let secret = format!("needle 5\nneedle 6\nneedle 7 {token}\nneedle 8\n");
+    let context = octocode_engine::types::SearchContext {
+        before: 1,
+        after: 2,
+    };
+    let row = |text: &str| {
+        let mut row = hit(6, text);
+        row.first_line = 5;
+        row
+    };
+    let dir = tempfile::tempdir().expect("fixture");
+    let source = dir.path().join("live.txt");
+    // The search read one version, the check reads the other.
+    for (read_by_search, on_disk) in [
+        (plain.trim_end(), secret.as_str()),
+        (secret.trim_end(), plain),
+    ] {
+        std::fs::write(&source, on_disk).expect("rewrite");
+        let mut file = file_with(vec![row(read_by_search)]);
+        let before = file.matches[0].value.clone();
+        let hidden = HiddenRows::default();
+        let outcome = guard_source_secrets(
+            &mut file,
+            &source,
+            Expected::Fresh,
+            0..1,
+            &ValueCheck {
+                security: &ContentSecurity::new(),
+                shape: RowShape::Lines(context),
+                cancel: &NeverCancel,
+                judged: None,
+                hidden: &hidden,
+            },
+        )
+        .expect("not cancelled");
+        let shown = file.matches[0].value.clone();
+        let noted = !hidden
+            .into_redacted("source.txt")
+            .collect::<Vec<_>>()
+            .is_empty();
+        assert!(!shown.contains(token), "{outcome:?} {shown:?}");
+        if crate::security::placeholders(&shown) > 0 {
+            assert!(
+                noted || shown != before,
+                "a row showing a replacement is reported: {outcome:?} {before:?} -> {shown:?}"
+            );
+        }
+    }
+}
+
+/// A row whose file changed after the search matched it is rebuilt from the
+/// bytes now on disk and withheld as unverified; the span the redaction
+/// replaced in it is still reported as redacted.
+#[test]
+fn a_withheld_row_that_shows_a_replaced_span_is_reported() {
+    let token = "ghp_Ux7Kq2Lm9Zp4Vw8Rt1Yb6Nc3Hd5Jf0GsAeUoI";
+    let dir = tempfile::tempdir().expect("fixture");
+    let (paths, security) = crate::tools::test_support::simple_policy(dir.path());
+    let path = dir.path().join("live.txt");
+    std::fs::write(&path, format!("needle 1\nneedle 2 {token}\nneedle 3\n")).expect("fixture");
+    let mut matched = hit(2, "");
+    matched.deferred = Some(1);
+    let mut file = octocode_engine::types::TextSearchFile {
+        term_counts: Vec::new(),
+        path: path.to_string_lossy().into_owned(),
+        match_count: 1,
+        matches: vec![matched],
+        // The bytes the search hashed are not the bytes now on disk.
+        source: Some(octocode_engine::types::SearchedSource {
+            size: 1,
+            modified: None,
+            digest: [7; 32],
+            lines: None,
+        }),
+    };
+    let query: LocalSearchQuery = serde_json::from_value(serde_json::json!({
+        "path": dir.path(), "matchString": ["needle"]
+    }))
+    .expect("query");
+    let expected = |_: &std::path::Path| Expected::Fresh;
+    let scope = PageScope {
+        query: &query,
+        paths: &paths,
+        output_root: dir.path(),
+        expected_digest: &expected,
+        security: &security,
+        cancel: &NeverCancel,
+        judged: &super::JudgedWindows::default(),
+    };
+    let mut redacted = Redacted::new();
+    let verified = verify_candidate(&scope, &mut file, (&mut redacted, &Withheld::new()))
+        .expect("a fresh page withholds rather than fails");
+    assert!(!verified, "a withheld row is unverified");
+    let shown = &file.matches[0].value;
+    assert!(!shown.contains(token), "{shown:?}");
+    assert!(shown.contains("[REDACTED-"), "{shown:?}");
+    assert!(
+        redacted.contains(&(file.path.clone(), 2, 0)),
+        "the replaced span is reported: {redacted:?}"
+    );
 }

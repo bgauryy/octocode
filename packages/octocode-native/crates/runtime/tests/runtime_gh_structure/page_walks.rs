@@ -374,7 +374,15 @@ async fn a_sort_over_a_partial_walk_says_what_it_ranked() {
     .await
     .expect("ranked");
     let data = row_data(&ranked);
-    assert_eq!(data["isPartial"], true, "{data}");
+    // A partial page states it once: partialReasons or a floor countScope, no isPartial.
+    assert!(data.get("isPartial").is_none(), "{data}");
+    assert!(
+        !data["partialReasons"].is_null()
+            || data["pagination"]["countScope"]
+                .as_str()
+                .is_some_and(|scope| scope != "complete"),
+        "{data}"
+    );
     let warned = |data: &serde_json::Value| {
         data["warnings"]
             .as_array()
@@ -397,7 +405,15 @@ async fn a_sort_over_a_partial_walk_says_what_it_ranked() {
     .await
     .expect("listed");
     let data = row_data(&listed);
-    assert_eq!(data["isPartial"], true, "{data}");
+    // A partial page states it once: partialReasons or a floor countScope, no isPartial.
+    assert!(data.get("isPartial").is_none(), "{data}");
+    assert!(
+        !data["partialReasons"].is_null()
+            || data["pagination"]["countScope"]
+                .as_str()
+                .is_some_and(|scope| scope != "complete"),
+        "{data}"
+    );
     assert!(!warned(data), "{data}");
     runtime.close().await;
 }

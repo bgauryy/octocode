@@ -133,7 +133,7 @@ async fn renamed_forever(server: &MockServer, sha: &str) {
         .await;
 }
 
-/// L2: past `RENAME_ROUTE_WINDOW` a repeat of a kept miss under the old name
+/// Past `RENAME_ROUTE_WINDOW` a repeat of a kept miss under the old name
 /// replays it (nothing sent, no redirect seen by the transport), while the
 /// repository read under that name asks again and names the rename.
 #[tokio::test]

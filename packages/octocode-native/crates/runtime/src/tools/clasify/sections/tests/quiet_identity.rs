@@ -1,4 +1,4 @@
-//! RV-CLS F2: `next.quiet` replays a saved plan only after the plan's GitHub
+//! `next.quiet` replays a saved plan only after the plan's GitHub
 //! identity is confirmed. An issued cursor is already refused by the engine
 //! when the identity changed; this pins the plan's own check, which holds for
 //! any assessment token that reaches [`run`].

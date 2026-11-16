@@ -3,6 +3,7 @@ use octocode_contract_types::ErrorCode;
 
 mod char_walks;
 mod context_spans;
+mod credential_named_file;
 mod failures;
 mod guard;
 mod hits;

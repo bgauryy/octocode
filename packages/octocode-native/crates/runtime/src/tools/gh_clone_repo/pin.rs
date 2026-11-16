@@ -1,5 +1,5 @@
 //! The commit one fresh clone checks out, resolved with the caller's credential.
-use super::{CloneError, CloneFailure, GhCloneRepoQuery, repository_not_found};
+use super::{CloneFailure, GhCloneRepoQuery, GitError, repository_not_found};
 use octocode_contract_types::ErrorCode;
 use octocode_github::{
     GitHubProvider, ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext,
@@ -113,14 +113,14 @@ pub(super) fn api_refusal(
     let status = api.status;
     match (api.kind, api.reason) {
         (_, Some(ProviderErrorReason::RefNotFound)) => {
-            Ok(CloneFailure::Clone(CloneError {
+            Ok(CloneFailure::Clone(GitError {
                 hints: vec![
                     "Verify the branch, tag, or SHA (ghStructure lists a ref), or omit ref for the default branch.".into(),
                 ],
                 calls: Some(Box::new(serde_json::json!({
                     "viewRefs": crate::tools::gh_shared::ref_recovery(&query.owner, &query.repo)
                 }))),
-                ..CloneError::new(
+                ..GitError::new(
                     ErrorCode::NotFound,
                     format!(
                         "Branch, tag, or SHA not found for {}/{}: \"{reference}\"",

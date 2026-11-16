@@ -4,6 +4,7 @@ mod allowed_credential_files;
 mod credential_directories;
 mod denials;
 mod read_filter;
+mod redacted_names;
 
 /// Callers own cleanup.
 fn fixture() -> PathBuf {

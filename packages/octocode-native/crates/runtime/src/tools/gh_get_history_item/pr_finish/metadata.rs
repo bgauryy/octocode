@@ -21,7 +21,7 @@ const SECTION_HEADER: &[&str] = &[
 const BODY_PREVIEW_CHARS: usize = 300;
 
 /// The opening of a pull request's or an issue's body, whitespace runs
-/// collapsed; a cut preview ends with `…` (`readBody` reads it whole).
+/// collapsed; a cut preview ends with `…` (`sections:["body"]` reads it whole).
 /// `None` for an empty body.
 pub(in crate::tools::gh_get_history_item) fn body_preview(body: &str) -> Option<String> {
     let flat = body.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -90,8 +90,7 @@ pub(in crate::tools::gh_get_history_item) fn pr_metadata(
         "additions": nonzero(raw.get("additions")),
         "deletions": nonzero(raw.get("deletions")),
     });
-    // A summary previews what the PR says; the menu's body read (`readFiles`,
-    // `readPatches` or `readBody`) holds the whole body.
+    // A summary previews what the PR says; `sections:["body"]` holds the whole body.
     if query.sections().is_empty()
         && let Some(preview) = str_at(raw, "/body").and_then(body_preview)
     {

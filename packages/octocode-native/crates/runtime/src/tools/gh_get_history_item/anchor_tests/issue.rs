@@ -23,18 +23,12 @@ async fn issue_row_carries_number_state_author_and_discussion_size() {
     assert_eq!(issue["state"], "open", "{out}");
     assert_eq!(issue["author"], "bob", "{out}");
     assert_eq!(issue["commentsCount"], 3, "{out}");
-    // A summary previews the body, as a pull request's does; the body read
-    // is one call away.
+    // A summary previews the body, as a pull request's does; the whole body
+    // and the discussion are `sections` values named in the tool description,
+    // so no lead restates the query for them.
     assert_eq!(issue["bodyPreview"], "It crashes.", "{out}");
     assert!(issue.get("body").is_none(), "{out}");
-    let body = checks::related_call(&out, "ghGetHistoryItem", |input| {
-        input["queries"][0]["sections"] == json!(["body"])
-    });
-    assert_eq!(body["input"]["queries"][0]["number"], 7);
-    let discussion = checks::related_call(&out, "ghGetHistoryItem", |input| {
-        input["queries"][0]["sections"] == json!(["comments"])
-    });
-    assert_eq!(discussion["input"]["queries"][0]["number"], 7);
+    assert!(out.get("related").is_none(), "{out}");
     assert!(out.get("next").is_none(), "{out}");
 }
 

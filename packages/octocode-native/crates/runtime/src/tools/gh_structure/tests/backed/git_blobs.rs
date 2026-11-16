@@ -6,8 +6,7 @@ use crate::execution::cancel::{CancellationCheck, NeverCancel};
 use crate::policy::path::{PathPolicy, PathPolicyConfig};
 use crate::tools::gh_git::blobs::BlobSource;
 use crate::tools::gh_git::{
-    CloneConfig, CloneError, CloneSetup, GitOutput, GitRunControl, GitRunRequest, GitRunner,
-    SystemGit,
+    GitConfig, GitError, GitOutput, GitRunControl, GitRunRequest, GitRunner, GitSetup, SystemGit,
 };
 use crate::tools::gh_shared::test_support::{mock_endpoint, one_shot_provider};
 use crate::tools::gh_structure::materialize::{MaterializeOutcome, Snapshot, materialize_tree};
@@ -312,7 +311,7 @@ impl GitRunner for FixtureGit {
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-    ) -> Result<GitOutput, CloneError> {
+    ) -> Result<GitOutput, GitError> {
         self.system.run(&self.prepared(request), control)
     }
 
@@ -320,8 +319,8 @@ impl GitRunner for FixtureGit {
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-        record: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-    ) -> Result<GitOutput, CloneError> {
+        record: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+    ) -> Result<GitOutput, GitError> {
         self.system
             .run_nul_records(&self.prepared(request), control, record)
     }
@@ -330,8 +329,8 @@ impl GitRunner for FixtureGit {
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-        sink: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-    ) -> Result<GitOutput, CloneError> {
+        sink: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+    ) -> Result<GitOutput, GitError> {
         self.system
             .run_stream(&self.prepared(request), control, sink)
     }
@@ -358,8 +357,8 @@ fn source(
     deadline: Duration,
     cancellation: Arc<dyn CancellationCheck + Send>,
 ) -> BlobSource {
-    BlobSource::new(Arc::new(CloneSetup {
-        config: CloneConfig::persistent(home),
+    BlobSource::new(Arc::new(GitSetup {
+        config: GitConfig::persistent(home),
         endpoint: mock_endpoint(server),
         git_limiter: octocode_github::GitLimiter::new(
             octocode_github::GitHubBudget::relaxed(),
@@ -651,27 +650,23 @@ async fn git_absent_falls_back_to_rest() {
     let home = Fixture::new();
     struct Absent;
     impl GitRunner for Absent {
-        fn run(
-            &self,
-            r: &GitRunRequest<'_>,
-            c: &GitRunControl<'_>,
-        ) -> Result<GitOutput, CloneError> {
+        fn run(&self, r: &GitRunRequest<'_>, c: &GitRunControl<'_>) -> Result<GitOutput, GitError> {
             SystemGit::new("octocode-no-such-git").run(r, c)
         }
         fn run_nul_records(
             &self,
             r: &GitRunRequest<'_>,
             c: &GitRunControl<'_>,
-            record: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-        ) -> Result<GitOutput, CloneError> {
+            record: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+        ) -> Result<GitOutput, GitError> {
             SystemGit::new("octocode-no-such-git").run_nul_records(r, c, record)
         }
         fn run_stream(
             &self,
             r: &GitRunRequest<'_>,
             c: &GitRunControl<'_>,
-            sink: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-        ) -> Result<GitOutput, CloneError> {
+            sink: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+        ) -> Result<GitOutput, GitError> {
             SystemGit::new("octocode-no-such-git").run_stream(r, c, sink)
         }
     }

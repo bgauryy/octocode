@@ -41,6 +41,20 @@ export function heartbeatMs(env: Record<string, string | undefined> = process.en
   return Number(raw);
 }
 
+export const TIMEOUT_SCALE_ENV = 'OCTOCODE_COMMUNICATION_TIMEOUT_SCALE';
+
+/**
+ * A native I/O or child-process deadline, shortened by the environment scale (a number above 0 and at most 1) so tests
+ * need not wait real seconds for a deadline to expire; unset means the full duration. A malformed scale is refused.
+ */
+export function scaledMs(baseMs: number, env: Record<string, string | undefined> = process.env): number {
+  const raw = (env[TIMEOUT_SCALE_ENV] ?? '').trim();
+  if (!raw) return baseMs;
+  const scale = Number(raw);
+  if (!Number.isFinite(scale) || scale <= 0 || scale > 1) throw new ValidationError(`${TIMEOUT_SCALE_ENV} must be a number above 0 and at most 1`);
+  return Math.max(1, Math.round(baseMs * scale));
+}
+
 /** Monotonic deadline for an optional duration, or null when unbounded. */
 export function deadlineAfter(durationMs: number | null | undefined): number | null {
   return durationMs == null ? null : monotonic() + durationMs;

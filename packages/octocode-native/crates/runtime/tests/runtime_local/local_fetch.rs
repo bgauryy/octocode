@@ -81,21 +81,13 @@ async fn local_fetch_redacted_content_is_marked_not_verbatim() {
                 .contains("[REDACTED"),
             "{extra}: {data}"
         );
-        let warning = data["warnings"]
-            .as_array()
-            .and_then(|warnings| {
-                warnings
-                    .iter()
-                    .filter_map(|w| w.as_str())
-                    .find(|w| w.starts_with("redactedContent"))
-            })
-            .unwrap_or_else(|| panic!("{extra}: missing redaction warning: {data}"));
-        assert!(warning.contains("not verbatim"), "{warning}");
+        assert_eq!(data["redacted"], json!(true), "{extra}: {data}");
+        assert!(data.get("warnings").is_none(), "{extra}: {data}");
     }
     let outcome = call(&runtime, "localFetch", query_path(&clean, json!({})))
         .await
         .expect("clean read");
-    support::checks::assert_absent(row_data(&outcome), "redactedContent");
+    support::checks::assert_absent(row_data(&outcome), "redacted");
     runtime.close().await;
 }
 

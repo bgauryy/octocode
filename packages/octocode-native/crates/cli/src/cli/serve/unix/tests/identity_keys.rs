@@ -82,7 +82,7 @@ fn the_server_key_covers_the_build_the_workspace_and_the_process_environment() {
         assert_eq!(key(&a, &env), base, "{what}");
     }
     // Every variable the engine reads from the server's own process (the
-    // walker's global ignore rules, `HOME`) and every proxy and trust-store
+    // home directory: `HOME`, `USERPROFILE`) and every proxy and trust-store
     // variable: a call cannot bring its own value, so another value is
     // another server.
     for name in octocode_engine::process_env::PROCESS_ENV

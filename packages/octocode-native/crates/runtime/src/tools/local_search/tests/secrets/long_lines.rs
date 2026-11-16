@@ -46,7 +46,7 @@ fn a_hit_on_a_long_line_shows_its_text() {
             "{size}: a row holds a window of the line"
         );
         assert!(!found.to_string().contains("REDACTED"), "{size}");
-        assert!(!found.to_string().contains("redactedMatches"), "{size}");
+        assert!(!found.to_string().contains("\\u0001redacted"), "{size}");
     }
 }
 

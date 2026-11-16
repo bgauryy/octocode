@@ -55,15 +55,16 @@ fn a_count_view_counts_each_term() {
     }
 }
 
-/// A view that lists lines, or a single term, counts no terms.
+/// A single term counts no terms; a multi-term search of any listing view
+/// counts them, so the caller knows which terms hit without a second search.
 #[test]
-fn only_a_multi_term_count_view_counts_terms() {
+fn only_a_multi_term_search_counts_terms() {
     let t = TmpDir::new();
     t.write("a.rs", "fn one() {}\n");
     let mut lines = opts(t.path(), "(?:fn )|(?:pub )");
     lines.terms = Some(vec!["(?:fn )".into(), "(?:pub )".into()]);
     let listed = search(lines).expect("lines");
-    assert!(listed.files.iter().all(|file| file.term_counts.is_empty()));
+    assert_eq!(listed.files[0].term_counts, vec![1, 0]);
     let mut single = opts(t.path(), "fn ");
     single.output = SearchOutput::CountMatches;
     single.terms = Some(vec!["fn ".into()]);

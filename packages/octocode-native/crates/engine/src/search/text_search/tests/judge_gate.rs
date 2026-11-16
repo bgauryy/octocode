@@ -14,15 +14,17 @@ const WRITTEN: &str = "[HID]";
 fn judge(judged: &Arc<AtomicUsize>) -> SourceJudge {
     let count = Arc::clone(judged);
     SourceJudge {
-        serve: Arc::new(move |_: &Path, file: &std::fs::File| {
-            use std::io::Read as _;
-            count.fetch_add(1, Ordering::Relaxed);
-            let mut text = String::new();
-            (&*file).read_to_string(&mut text)?;
-            Ok(text
-                .contains(HIDDEN)
-                .then(|| text.replace(HIDDEN, WRITTEN).into_bytes()))
-        }),
+        serve: Arc::new(
+            move |_: &Path, file: &std::fs::File, _: &(dyn Fn() -> bool + Sync)| {
+                use std::io::Read as _;
+                count.fetch_add(1, Ordering::Relaxed);
+                let mut text = String::new();
+                (&*file).read_to_string(&mut text)?;
+                Ok(text
+                    .contains(HIDDEN)
+                    .then(|| text.replace(HIDDEN, WRITTEN).into_bytes()))
+            },
+        ),
         writes: Arc::new(|literal: &str, fold: bool| {
             let (literal, written) = if fold {
                 (literal.to_ascii_uppercase(), WRITTEN.to_owned())

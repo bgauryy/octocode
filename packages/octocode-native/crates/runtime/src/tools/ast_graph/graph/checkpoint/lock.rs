@@ -92,7 +92,7 @@ impl Wait {
     pub(super) fn into_tool_error(self) -> ToolError {
         match self {
             Self::Cancelled(message) => ToolError::new(ErrorCode::Cancelled, message),
-            Self::Failed(error) => failure(format!("cannot lock graph checkpoint: {error}")),
+            Self::Failed(error) => write_failure(format!("cannot lock graph checkpoint: {error}")),
         }
     }
 }

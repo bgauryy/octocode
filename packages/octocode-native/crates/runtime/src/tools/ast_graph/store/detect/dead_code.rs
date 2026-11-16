@@ -110,6 +110,7 @@ pub(super) fn tier_dead_code(
     findings: &mut Vec<Finding>,
     notes: &mut Vec<Value>,
     root: &std::path::Path,
+    global: octocode_engine::search::walk::GlobalIgnore,
     stopped: &(dyn Fn() -> bool + Sync),
 ) -> Option<octocode_engine::stamp::Proof> {
     let root_name = root
@@ -139,7 +140,7 @@ pub(super) fn tier_dead_code(
         return Some(octocode_engine::stamp::Proof::default());
     }
     // A stopped scan decides nothing: the request ends with it.
-    let hits = memoized_mentions(root, &stems, &names, stopped)?;
+    let hits = memoized_mentions(root, global, &stems, &names, stopped)?;
     if !hits.unread.is_empty() {
         notes.push(json!({
             "detectors": ["unreachable-file", "test-only", "unused-export"],

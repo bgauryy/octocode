@@ -111,9 +111,7 @@ fn reshaped_notes(
                 .map_or_else(String::new, |sent| format!(": {}", sketch(sent)));
             Some((
                 row,
-                format!(
-                    "read `{label}{sent}` as `{label}: {runs}`; send `{label}: {runs}` next time."
-                ),
+                format!("read `{label}{sent}` as `{label}: {runs}`; send `{label}` next time."),
             ))
         })
         .collect()
@@ -486,9 +484,7 @@ fn repair_literal(input: &mut Value, issue: &ValidationIssue) -> Option<(usize, 
     let label = at.join(".");
     Some((
         index,
-        format!(
-            "read `{label}: {received}` as `{label}: {meant}`; send `{label}: {meant}` next time."
-        ),
+        format!("read `{label}: {received}` as `{label}: {meant}`; send `{label}` next time."),
     ))
 }
 

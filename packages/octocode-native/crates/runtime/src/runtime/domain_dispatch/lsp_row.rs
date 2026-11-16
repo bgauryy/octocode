@@ -29,7 +29,8 @@ impl DomainDispatcher {
             )
             .await?
             {
-                Ok(data) => {
+                Ok(mut data) => {
+                    crate::tools::lsp_search::wire::lean(&mut data, requested.as_deref());
                     let mut row = dispatch::value_result(data);
                     row.judged = judged.leaves();
                     Ok(row)

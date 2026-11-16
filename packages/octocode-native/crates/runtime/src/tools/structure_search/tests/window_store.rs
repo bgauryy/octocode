@@ -188,13 +188,29 @@ fn every_file_is_listed_once_in_listing_order_across_windows_at_any_page_size() 
     }
 }
 
+/// Windows the edge walk is cut to: one row a page, a window ending at a
+/// directory's stub (a directory of the fixture holds eight files), and a
+/// window at the whole listing (six directories, forty-eight files).
+const EDGE_WINDOWS: [usize; 7] = [1, 2, 8, 9, 53, 54, 55];
+
+/// The windows listing `index` of the sorts is walked at in the gate: the
+/// smallest (every row cut off alone) and two others, the second half of the
+/// list rotating so each window meets several sorts.
+fn gate_windows(index: usize) -> Vec<usize> {
+    let others = &EDGE_WINDOWS[1..];
+    vec![
+        EDGE_WINDOWS[0],
+        others[index % others.len()],
+        others[(index + others.len() / 2) % others.len()],
+    ]
+}
+
 /// Directories list too, and a window that ends right at a directory's stub
 /// leaves its entries to the next: the same rows at every window edge.
-#[test]
-fn a_window_edge_anywhere_loses_and_repeats_no_row() {
+fn assert_no_row_lost_or_repeated(windows_of: impl Fn(usize) -> Vec<usize>) {
     let mut all = ranked();
     all.push(traversal());
-    for (operation, extra) in all {
+    for (index, (operation, extra)) in all.into_iter().enumerate() {
         let root = fixture();
         let row = listing(&root, operation, &extra);
         let files = |pages: &[Value]| {
@@ -209,7 +225,7 @@ fn a_window_edge_anywhere_loses_and_repeats_no_row() {
         let whole = files(std::slice::from_ref(
             &run(&root.0, row.clone()).expect("whole"),
         ));
-        for window in [1, 2, 8, 9, 53, 54, 55] {
+        for window in windows_of(index) {
             for budget in [None, Some(40)] {
                 // `walk_pages` fails on a row listed twice.
                 let pages = with_window(window, || walk_pages_budget(&root.0, row.clone(), budget));
@@ -217,6 +233,17 @@ fn a_window_edge_anywhere_loses_and_repeats_no_row() {
             }
         }
     }
+}
+
+#[test]
+fn a_window_edge_anywhere_loses_and_repeats_no_row() {
+    assert_no_row_lost_or_repeated(gate_windows);
+}
+
+#[test]
+#[ignore = "every edge window for every sort: cargo test -- --ignored every_edge_window"]
+fn a_window_edge_anywhere_loses_and_repeats_no_row_at_every_edge_window() {
+    assert_no_row_lost_or_repeated(|_| EDGE_WINDOWS.to_vec());
 }
 
 fn assert_restarts(root: &Fixture, next: Value, label: &str) {

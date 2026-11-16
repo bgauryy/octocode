@@ -75,6 +75,7 @@ const GH_REFS: &[ToolId] = &[
     ToolId::GhStructure,
     ToolId::GhSearchCode,
     ToolId::GhSearchHistory,
+    ToolId::GhGetHistoryItem,
     ToolId::GhCloneRepo,
 ];
 
@@ -179,6 +180,18 @@ pub(super) const GUESSES: &[Guess] = &[
     ),
     row(SEARCH, "filesOnly", "view", Read::Switch("files")),
     row(SEARCH, "matchOnly", "view", Read::Switch("matchOnly")),
+    // `sort` is `{by, order}`: a bare key names no order, so only a
+    // `{by, order}` object is read; a key alone is refused naming `sort`.
+    row(
+        &[ToolId::StructureSearch],
+        "sortBy",
+        "sort",
+        Read::Shaped(|value, _| {
+            (value.get("by").is_some() && value.get("order").is_some())
+                .then(|| vec![("sort", value.clone())])
+        }),
+    ),
+    row(&[ToolId::ArtifactSearch], "name", "packageName", Read::Text),
     row(WALKS, "depth", "maxDepth", Read::Same),
     row(HOPS, "maxDepth", "depth", Read::Same),
     // `git clone --depth`: commits of history.
@@ -276,6 +289,36 @@ pub(super) const GUESSES: &[Guess] = &[
     // alone is never read as an `operation`: an issue or a pull request.
     row(&[ToolId::GhGetHistoryItem], "base", "baseRef", Read::Text),
     row(&[ToolId::GhGetHistoryItem], "head", "headRef", Read::Text),
+    // The symbol a row is about: `symbolName` of a language server query;
+    // of a graph query, the node `target`, or the exact name `symbolName` of
+    // the two operations that filter by one.
+    row(
+        &[ToolId::LspSearch],
+        "symbol",
+        "symbolName",
+        Read::Shaped(|value, row| {
+            let operation = row.get("operation").and_then(Value::as_str);
+            let takes_name = !matches!(
+                operation,
+                Some("documentSymbols" | "diagnostic" | "workspaceSymbol")
+            );
+            (takes_name && value.is_string()).then(|| vec![("symbolName", value.clone())])
+        }),
+    ),
+    row(
+        &[ToolId::GraphQuery],
+        "symbol",
+        "target",
+        Read::Shaped(|value, row| {
+            let field = match row.get("operation").and_then(Value::as_str)? {
+                "witnesses" | "unresolved" => "symbolName",
+                _ => "target",
+            };
+            value.is_string().then(|| vec![(field, value.clone())])
+        }),
+    ),
+    // ripgrep's `-c`: matches counted per file.
+    row(SEARCH, "count", "view", Read::Switch("countMatches")),
     // ast-grep's `--lang` / `language:`.
     row(&[ToolId::AstSearch], "language", "parser", Read::Text),
     // `startLine` and `endLine` beside `path` read as one range below.
@@ -354,13 +397,73 @@ pub(super) const SPELLINGS: &[Spelling] = &[
         sent: "crates.io",
         reads: ("ecosystem", "\"crates\""),
     },
-    // A size sort has one key: the file's size in bytes.
+    // The operation each tool's callers know under another name.
+    Spelling {
+        tools: &[ToolId::GhSearchHistory],
+        within: "",
+        field: "operation",
+        sent: "commits",
+        reads: ("operation", "\"commit\""),
+    },
+    Spelling {
+        tools: &[ToolId::GhSearchHistory],
+        within: "",
+        field: "operation",
+        sent: "pullRequests",
+        reads: ("operation", "\"pullRequest\""),
+    },
+    Spelling {
+        tools: &[ToolId::GhSearchHistory],
+        within: "",
+        field: "operation",
+        sent: "issues",
+        reads: ("operation", "\"issue\""),
+    },
+    Spelling {
+        tools: &[ToolId::LspSearch],
+        within: "",
+        field: "operation",
+        sent: "outline",
+        reads: ("operation", "\"documentSymbols\""),
+    },
+    Spelling {
+        tools: &[ToolId::StructureSearch],
+        within: "",
+        field: "operation",
+        sent: "find",
+        reads: ("operation", "\"files\""),
+    },
+    Spelling {
+        tools: &[ToolId::ArtifactSearch],
+        within: "",
+        field: "ecosystem",
+        sent: "cargo",
+        reads: ("ecosystem", "\"crates\""),
+    },
+    // A size sort has one key: the file's size in bytes, spelled `bytes` (as
+    // the `bytes` filter is) or, in a contract that still names it so,
+    // `sizeBytes`; a reading applies only where the contract declares its
+    // value ([`Spelling::declared`]).
     Spelling {
         tools: &[ToolId::GhStructure, ToolId::StructureSearch],
         within: "sort",
         field: "by",
         sent: "size",
         reads: ("by", "\"sizeBytes\""),
+    },
+    Spelling {
+        tools: &[ToolId::GhStructure, ToolId::StructureSearch],
+        within: "sort",
+        field: "by",
+        sent: "size",
+        reads: ("by", "\"bytes\""),
+    },
+    Spelling {
+        tools: &[ToolId::GhStructure, ToolId::StructureSearch],
+        within: "sort",
+        field: "by",
+        sent: "sizeBytes",
+        reads: ("by", "\"bytes\""),
     },
 ];
 
@@ -401,6 +504,46 @@ impl Spelling {
         let meant = serde_json::from_str(self.reads.1).ok()?;
         Some((self.reads.0, meant))
     }
+
+    /// Whether `tool`'s contract takes the value this spelling reads: a
+    /// reading of a value the field does not declare would trade one refused
+    /// value for another. A reading into another field always applies.
+    pub(super) fn declared(&self, id: ToolId) -> bool {
+        use super::super::schema_facts::{child_schemas, resolve_ref};
+        let (field, meant) = self.reads;
+        if field != self.field {
+            return true;
+        }
+        let Ok(tool) = super::super::tool_contract(id) else {
+            return false;
+        };
+        let (query, defs) = (&tool["querySchema"], &tool["querySchema"]["$defs"]);
+        let holders = match self.within {
+            "" => vec![query],
+            within => child_schemas(query, defs, within),
+        };
+        let Ok(meant) = serde_json::from_str::<Value>(meant) else {
+            return false;
+        };
+        holders
+            .iter()
+            .flat_map(|holder| child_schemas(holder, defs, field))
+            .any(|schema| lists(resolve_ref(schema, defs), defs, &meant))
+    }
+}
+
+/// Whether `schema`, or a branch of it, lists `value` among its literals.
+fn lists(schema: &Value, defs: &Value, value: &Value) -> bool {
+    let schema = super::super::schema_facts::resolve_ref(schema, defs);
+    schema["enum"]
+        .as_array()
+        .is_some_and(|values| values.contains(value))
+        || schema.get("const") == Some(value)
+        || ["anyOf", "oneOf"].iter().any(|keyword| {
+            schema[*keyword]
+                .as_array()
+                .is_some_and(|branches| branches.iter().any(|branch| lists(branch, defs, value)))
+        })
 }
 
 /// `field: value` sent in the object `within` of an `id` row, read as the
@@ -409,6 +552,7 @@ fn spelled(id: ToolId, within: &str, field: &str, value: Value) -> (String, Valu
     let read = SPELLINGS
         .iter()
         .filter(|spelling| spelling.within == within && spelling.tools.contains(&id))
+        .filter(|spelling| spelling.declared(id))
         .find_map(|spelling| spelling.reading(field, &value));
     match read {
         Some((field, meant)) => (field.to_owned(), meant),
@@ -514,6 +658,8 @@ pub(super) fn read(id: ToolId, input: &mut Value) -> Vec<(usize, Note)> {
         read_tool_queries(id, row)
             .into_iter()
             .chain(read_switches(id, row))
+            .chain(drop_retired_cursors(id, row))
+            .chain(read_source_query(id, row))
             .for_each(&mut said);
         for guess in GUESSES
             .iter()
@@ -658,7 +804,7 @@ fn read_spellings(id: ToolId, row: &mut Map<String, Value>) -> Vec<String> {
     let mut notes = Vec::new();
     for spelling in SPELLINGS
         .iter()
-        .filter(|spelling| spelling.tools.contains(&id))
+        .filter(|spelling| spelling.tools.contains(&id) && spelling.declared(id))
     {
         let holder = match spelling.within {
             "" => Some(&mut *row),
@@ -684,7 +830,7 @@ fn read_spellings(id: ToolId, row: &mut Map<String, Value>) -> Vec<String> {
         };
         let (from, to) = (at(spelling.field), at(field));
         notes.push(format!(
-            "read `{from}: {sent}` as `{to}: {meant}`; send `{to}: {meant}` next time."
+            "read `{from}: {sent}` as `{to}: {meant}`; send `{to}` next time."
         ));
     }
     notes
@@ -760,11 +906,62 @@ fn read_switches(id: ToolId, row: &mut Map<String, Value>) -> Vec<String> {
         if switched {
             *value = json!(if on { "on" } else { "off" });
             notes.push(format!(
-                "read `{key}: {on}` as `{key}: {value}`; send `{key}: {value}` next time."
+                "read `{key}: {on}` as `{key}: {value}`; send `{key}` next time."
             ));
         }
     }
     notes
+}
+
+/// Cursor fields a tool no longer takes: left out of the row, and the note
+/// names the cursor that pages the result. `localSearch` once paged the hits
+/// of its shown files by `matchPage`; its one cursor now pages them all.
+fn drop_retired_cursors(id: ToolId, row: &mut Map<String, Value>) -> Option<String> {
+    (id == ToolId::LocalSearch && row.remove("matchPage").is_some()).then(|| {
+        "left out `matchPage`: localSearch pages its hits with the cursor in `next.nextPage`, sent alone as {\"cursor\": ...}.".to_owned()
+    })
+}
+
+/// Fields of a clasify `source` beside its `tool`, which the tool's query
+/// holds: read as that `query`. `source` declares `tool`, `query` and `url`
+/// alone, so every other field names the tool's own query.
+fn read_source_query(id: ToolId, row: &mut Map<String, Value>) -> Option<String> {
+    if id != ToolId::Clasify {
+        return None;
+    }
+    let source = row.get_mut("source")?.as_object_mut()?;
+    if !source.get("tool").is_some_and(Value::is_string)
+        || source.contains_key("query")
+        || source.contains_key("url")
+    {
+        return None;
+    }
+    let sent: Vec<String> = source
+        .keys()
+        .filter(|key| !matches!(key.as_str(), "tool"))
+        .cloned()
+        .collect();
+    if sent.is_empty() {
+        return None;
+    }
+    let query: Map<String, Value> = sent
+        .iter()
+        .filter_map(|key| source.remove(key).map(|value| (key.clone(), value)))
+        .collect();
+    source.insert("query".to_owned(), Value::Object(query));
+    let fields = sent
+        .iter()
+        .map(|key| format!("`source.{key}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "read {fields} as {}; send {} next time.",
+        sent.iter()
+            .map(|key| format!("`source.query.{key}`"))
+            .collect::<Vec<_>>()
+            .join(", "),
+        "them under `source.query`",
+    ))
 }
 
 /// Each `{tool, query}` field of the row sent as its query alone

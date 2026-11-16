@@ -383,6 +383,20 @@ impl<T> EntryEvaluator<'_, T> {
                 "selected provider does not admit this analysis operation",
             );
         };
+        // A parse's memory follows its tokens, not its bytes: a one-line
+        // minified file within the byte limit can need gigabytes, so one whose
+        // estimate passes the memory budget is skipped like one past the limit.
+        let cost = crate::structural::parse_cost(bytes);
+        let budget = crate::structural::parse_budget();
+        if cost > budget {
+            return outcome(
+                "graph.scan.fileTooLarge",
+                &format!(
+                    "file of {} bytes is estimated to need {cost} bytes of memory to parse, above the budget of {budget} bytes",
+                    bytes.len()
+                ),
+            );
+        }
         if let RegistryEntry::Facts(provider) = selected_entry {
             let Some((entry, reused)) = extracted!(
                 relative_path,

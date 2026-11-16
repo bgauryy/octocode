@@ -76,6 +76,16 @@ pub(super) struct ChannelRun {
     pub(super) repairs: Vec<String>,
 }
 
+/// A saved response whose content is no longer the one the cursor's earlier
+/// pages were cut from (its stored bytes changed), or whose page is past
+/// its end: the page it named no longer exists, so the walk restarts.
+fn saved_page_changed() -> RuntimeError {
+    RuntimeError::new(
+        octocode_contract_types::ErrorCode::ResponseSnapshotExpired,
+        "The saved response no longer matches the page this cursor named. No source or provider was called. Rerun the original request without cursor.",
+    )
+}
+
 impl ChannelRun {
     pub(super) fn check_replay_access(
         &self,
@@ -117,7 +127,7 @@ impl ChannelRun {
             }
             let stage::Staged {
                 mut result, next, ..
-            } = stage::respond_saved(
+            } = match stage::respond_saved(
                 stage::StageInput {
                     failure: replay.failure,
                     ..stage
@@ -125,7 +135,11 @@ impl ChannelRun {
                 &replay.structured,
                 &replay.pages,
                 context,
-            )?;
+            ) {
+                Ok(staged) => staged,
+                Err(stage::SavedPageError::Changed) => return Ok(Err(saved_page_changed())),
+                Err(stage::SavedPageError::Failed(error)) => return Err(error),
+            };
             if let Ok(outcome) = &mut result {
                 // The next saved page is bound to the identity the opened
                 // one was issued under.

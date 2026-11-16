@@ -468,7 +468,7 @@ mod tests {
     /// so the tool's wording about secrets reads as written while a
     /// credential a message quotes (a provider's error, quoted where it was
     /// built, [`crate::security::quoted`], or not) is hidden, as is a value
-    /// the content's redaction hid. `redactedContent` is stated exactly where
+    /// the content's redaction hid. `redacted` is set exactly where
     /// the row's content holds a placeholder: a placeholder in a message
     /// alone says nothing about the content.
     #[test]
@@ -531,14 +531,8 @@ mod tests {
                 );
             }
         }
-        let redaction_stated = |row: usize| {
-            sealed["results"][row]["data"]["warnings"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .any(|warning| warning.starts_with("redactedContent"))
-        };
+        let redaction_stated =
+            |row: usize| sealed["results"][row]["data"]["redacted"] == json!(true);
         for row in 0..3 {
             let content = sealed["results"][row]["data"]["content"]
                 .as_str()

@@ -12,7 +12,7 @@
 //! Each tool builds the lead itself through its own continuation builder.
 
 use octocode_engine::error::Error;
-use octocode_engine::search::walk::{Prune, walk_builder};
+use octocode_engine::search::walk::{GlobalIgnore, Prune, walk_builder_under};
 use octocode_engine::types::IgnorePolicy;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -190,9 +190,16 @@ pub(crate) struct Walk {
     pub(crate) hidden: bool,
     /// `defaultExcludes`: the default directory prune applies.
     pub(crate) default_excludes: bool,
+    /// The global ignore rules of the call the walk serves.
+    pub(crate) global: GlobalIgnore,
 }
 
 impl Walk {
+    /// This walk under the global ignore rules of a call.
+    pub(crate) fn under(self, global: GlobalIgnore) -> Self {
+        Self { global, ..self }
+    }
+
     /// The causes this walk skips by.
     pub(crate) fn skipping(self) -> Vec<Cause> {
         [
@@ -224,14 +231,15 @@ impl Walk {
         prune: &[String],
         globs: Globs<'_>,
     ) -> Result<ignore::Walk, Error> {
-        let mut builder = walk_builder(root, self.policy(), None);
-        let prune = Prune::new(prune).at(root);
+        let (mut builder, global) = walk_builder_under(root, self.policy(), self.global, None);
+        let prune = Prune::new(prune).at_with(root, self.global);
         builder.filter_entry(move |entry| {
             entry.depth() == 0
-                || !prune.prunes(
-                    entry.path(),
-                    entry.file_type().is_some_and(|kind| kind.is_dir()),
-                )
+                || (!global.hides_entry(entry)
+                    && !prune.prunes(
+                        entry.path(),
+                        entry.file_type().is_some_and(|kind| kind.is_dir()),
+                    ))
         });
         builder.overrides(globs.overrides(root)?);
         Ok(builder.build())

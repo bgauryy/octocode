@@ -17,7 +17,7 @@ impl GitRunner for SlowRunner {
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-    ) -> Result<GitOutput, CloneError> {
+    ) -> Result<GitOutput, GitError> {
         if request.label == self.label {
             std::thread::sleep(self.delay);
         }
@@ -28,8 +28,8 @@ impl GitRunner for SlowRunner {
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-        record: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-    ) -> Result<GitOutput, CloneError> {
+        record: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+    ) -> Result<GitOutput, GitError> {
         self.inner.run_nul_records(request, control, record)
     }
 
@@ -37,8 +37,8 @@ impl GitRunner for SlowRunner {
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-        sink: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-    ) -> Result<GitOutput, CloneError> {
+        sink: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+    ) -> Result<GitOutput, GitError> {
         self.inner.run_stream(request, control, sink)
     }
 }
@@ -58,7 +58,7 @@ fn a_row_queued_behind_a_slow_fetch_waits_for_the_store() {
         label: "fetch requested commit",
         delay,
     };
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let barrier = Barrier::new(2);
     let rows = [one::<String>("src"), one::<String>("README.md")];
     let results = std::thread::scope(|threads| {
@@ -97,7 +97,7 @@ fn a_waiting_row_gives_up_at_its_own_deadline() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let first = clone_pinned(&fixture, &query(), &context).expect("first clone");
     let held = fs::OpenOptions::new()
@@ -112,7 +112,7 @@ fn a_waiting_row_gives_up_at_its_own_deadline() {
         panic!("the lock is free");
     };
     let started = Instant::now();
-    let short = CloneContext {
+    let short = GitContext {
         deadline: started + Duration::from_millis(300),
         ..setup(&runner, &config, &endpoint, &policy, &NeverCancel, None)
     };
@@ -157,7 +157,7 @@ fn a_store_that_fails_its_integrity_check_is_replaced_by_a_new_generation() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let old = clone_pinned(&fixture, &query(), &context).expect("first clone");
     let stores = store_dirs(&home);
@@ -186,7 +186,7 @@ fn a_failure_that_is_not_the_stores_makes_no_new_generation() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let absent = GhCloneRepoQuery {
         ref_: Some(reference(&"ab".repeat(20))),
@@ -235,7 +235,7 @@ fn another_row_after_a_move_keeps_the_other_checkouts_registered() {
     let path = relocated(&path.to_string_lossy(), &home, &moved);
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
-    let config = CloneConfig::persistent(&moved);
+    let config = GitConfig::persistent(&moved);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let other = GhCloneRepoQuery {
         paths: one("src"),
@@ -259,7 +259,7 @@ fn a_branch_made_in_another_worktree_does_not_dirty_this_one() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let old = clone_pinned(&fixture, &query(), &context).expect("first commit");
     fixture.push_second();
@@ -295,7 +295,7 @@ impl GitRunner for FailPublish {
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-    ) -> Result<GitOutput, CloneError> {
+    ) -> Result<GitOutput, GitError> {
         let aside = request
             .args
             .iter()
@@ -304,10 +304,7 @@ impl GitRunner for FailPublish {
             .any(|argument| argument.to_string_lossy().ends_with(".previous"));
         if request.label == "move worktree" && !aside && self.armed.load(Ordering::SeqCst) {
             self.failed.fetch_add(1, Ordering::SeqCst);
-            return Err(CloneError::new(
-                ErrorCode::GitFailed,
-                "injected move failure",
-            ));
+            return Err(GitError::new(ErrorCode::GitFailed, "injected move failure"));
         }
         self.inner.run(request, control)
     }
@@ -316,8 +313,8 @@ impl GitRunner for FailPublish {
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-        record: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-    ) -> Result<GitOutput, CloneError> {
+        record: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+    ) -> Result<GitOutput, GitError> {
         self.inner.run_nul_records(request, control, record)
     }
 
@@ -325,8 +322,8 @@ impl GitRunner for FailPublish {
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-        sink: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-    ) -> Result<GitOutput, CloneError> {
+        sink: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+    ) -> Result<GitOutput, GitError> {
         self.inner.run_stream(request, control, sink)
     }
 }
@@ -345,7 +342,7 @@ fn a_failed_publication_restores_the_replaced_worktree_registered() {
         armed: AtomicBool::new(false),
         failed: AtomicUsize::new(0),
     };
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let old = clone_pinned(&fixture, &query(), &context).expect("first clone");
     let old_path = PathBuf::from(&old.location.path);
@@ -398,18 +395,13 @@ fn a_failed_placement_restores_a_same_store_worktree_registered() {
     );
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let error = storage::promote(
         &stage,
         &path,
         |from, to| git::move_worktree(&context, &store, from, to),
-        || {
-            Err(CloneError::new(
-                ErrorCode::GitFailed,
-                "injected move failure",
-            ))
-        },
+        || Err(GitError::new(ErrorCode::GitFailed, "injected move failure")),
     )
     .expect_err("the placement fails");
     assert_eq!(error.code, ErrorCode::GitFailed);

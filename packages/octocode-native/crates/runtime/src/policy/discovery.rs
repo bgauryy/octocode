@@ -64,6 +64,10 @@ pub(crate) const CREDENTIAL_FILE_NAMES: &[&str] = &[
     ".credentials.json",
     "credentials.yaml",
     "credentials.yml",
+    // Cargo (1.46+) writes `~/.cargo/credentials.toml`; Terraform writes
+    // `credentials.tfrc.json` under `~/.terraform.d`.
+    "credentials.toml",
+    "credentials.tfrc.json",
     "auth.json",
     "auth.yaml",
     "auth.yml",

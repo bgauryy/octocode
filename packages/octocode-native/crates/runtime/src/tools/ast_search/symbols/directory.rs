@@ -15,6 +15,7 @@ use serde_json::json;
 fn directory_scan_options(
     q: &AstSearchQuerySymbols,
     canonical: &std::path::Path,
+    global_ignore: octocode_engine::search::walk::GlobalIgnore,
 ) -> GraphFactsScanOptions {
     GraphFactsScanOptions {
         path: canonical.to_string_lossy().into_owned(),
@@ -31,6 +32,7 @@ fn directory_scan_options(
         // The ignore rules `match` and the text tools walk by, off only with
         // `includeIgnored`.
         ignore: octocode_engine::types::IgnorePolicy::new(q.include_ignored, q.include_hidden),
+        global_ignore,
     }
 }
 
@@ -57,6 +59,8 @@ pub(super) struct DirectoryWalk {
     /// Entries the walk could not read, and how many for want of
     /// permission.
     pub(super) walk_errors: (u32, u32),
+    /// The global ignore rules of the call that walked.
+    global_ignore: octocode_engine::search::walk::GlobalIgnore,
 }
 
 /// Walk a directory outline's candidates once; the page scans that walk
@@ -80,7 +84,7 @@ pub(super) fn walk_directory(
         },
     );
     let files = octocode_engine::fact_scan::walk_graph_fact_files(
-        &directory_scan_options(q, canonical),
+        &directory_scan_options(q, canonical, paths.global_ignore()),
         &|path, file_type| {
             // The entry's extension is read once, however many checks ask.
             let verdict = std::cell::OnceCell::new();
@@ -103,6 +107,7 @@ pub(super) fn walk_directory(
     .map_err(|error| ToolError::graph_scan(&error, cancel))?;
     Ok(DirectoryWalk {
         walk_errors: (files.skipped, files.permission_denied),
+        global_ignore: paths.global_ignore(),
         files,
         withheld: admission.skipped().withheld,
         artifacts: admission.skipped().artifacts,
@@ -171,7 +176,7 @@ pub(super) fn outline_walked(
         }
     };
     let scan = octocode_engine::fact_scan::scan_walked_graph_facts_within(
-        directory_scan_options(q, canonical),
+        directory_scan_options(q, canonical, walk.global_ignore),
         walk.files,
         octocode_engine::fact_scan::FactsSource::Declarations(&|source, path, parser| {
             declarations(source, &path.to_string_lossy(), parser)

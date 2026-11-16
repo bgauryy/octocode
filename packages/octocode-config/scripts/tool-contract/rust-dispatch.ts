@@ -9,6 +9,7 @@ import { typeName } from './variant-names.ts';
 export type ChannelDefinition =
   | 'linear'
   | 'branch'
+  | 'single'
   | 'numbered'
   | { readonly kind: 'branch'; readonly owner: readonly string[] };
 
@@ -133,11 +134,12 @@ ${collections.map(key => `            Self::${variant(key)} => ${str(key)},`).jo
 }`;
 }
 
-const CHANNEL_KIND = `/// How a continuation moves: \`linear\` pages the row's one walk, \`branch\` leads into a sub-value, \`numbered\` is a zero-based branch family.
+const CHANNEL_KIND = `/// How a continuation moves: \`linear\` pages the row's one walk, \`branch\` leads into a sub-value, \`single\` is a branch with one name and no numbered repeats, \`numbered\` is a zero-based branch family.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ChannelKind {
     Linear,
     Branch,
+    Single,
     Numbered,
 }`;
 

@@ -73,7 +73,7 @@ fn builds_pages_and_freshness_are_workspace_scoped() {
         // The latest snapshot of the scope serves it; another scope's build
         // and the older snapshot do not take its place.
         assert_eq!(page["graph"]["id"], rebuilt["id"]);
-        assert_eq!(page["freshness"]["fresh"], true);
+        assert!(page.get("freshness").is_none(), "{page}");
         for item in page["rows"].as_array().expect("results") {
             assert!(keys.insert(item.to_string()), "duplicate row");
         }

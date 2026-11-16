@@ -66,6 +66,7 @@ mod runtime_security_check_repository;
 mod runtime_stream_page_walk;
 mod runtime_surface_arms;
 mod runtime_tool_flow_handoffs;
+mod runtime_unify;
 mod runtime_whole_walk_memory;
 mod tool_cache_contracts;
 

@@ -1,11 +1,11 @@
-//! Rows of the clasify audit (CLS-C21, CLS-C25) reproduced against a stub provider: no billed call.
+//! Rows of the clasify audit reproduced against a stub provider: no billed call.
 
 use super::{clasify, content_row, provider};
 use crate::support::{Workspace, clasify_runtime};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-/// CLS-C21: a row whose provider call failed is a failed row carrying the
+/// A row whose provider call failed is a failed row carrying the
 /// provider's error code, so a batch of only failures ends as a failure
 /// (`ToolOutcome::all_failed`) and is never an answer-shaped success.
 #[tokio::test]
@@ -32,8 +32,7 @@ async fn a_batch_whose_every_row_failed_is_failed_not_answered() {
     runtime.close().await;
 }
 
-/// CLS-C25 (the audit's claim, that usage repeats on identical rows, is
-/// wrong): identical rows share one provider exchange, the first row states
+/// Identical rows share one provider exchange, the first row states
 /// its usage and the others state none, so a sum over rows counts the one
 /// billed exchange once.
 #[tokio::test]

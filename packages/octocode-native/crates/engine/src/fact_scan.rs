@@ -248,6 +248,7 @@ pub fn walk_graph_fact_files_with_registry(
             path: options.path.clone(),
             recursive: Some(true),
             ignore: options.ignore,
+            global_ignore: options.global_ignore,
             entry_type: Some(crate::types::EntryType::File),
             extensions: overrides.is_empty().then_some(extensions),
             default_exclude_dir: options.default_exclude_dir.clone(),
@@ -277,6 +278,7 @@ pub fn walk_script_markup_files(
             path: options.path.clone(),
             recursive: Some(true),
             ignore: options.ignore,
+            global_ignore: options.global_ignore,
             entry_type: Some(crate::types::EntryType::File),
             extensions: Some(
                 crate::signatures::languages::SCRIPT_BEARING_MARKUP

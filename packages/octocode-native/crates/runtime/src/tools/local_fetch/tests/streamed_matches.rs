@@ -142,11 +142,11 @@ fn a_streamed_match_walk_from_kept_hits_is_the_fresh_walk() {
     assert_eq!(kept, walk(&fresh));
 }
 
-/// At the production whole-file ceiling: the read a search row hands off for a
-/// hit deep in a one-line file past it opens at the hit, and goes on.
+/// The read a search row hands off for a hit deep in a one-line file past the
+/// whole-file ceiling opens at the hit, and goes on.
 #[test]
 fn the_lead_of_a_hit_deep_in_a_one_line_file_past_the_ceiling_opens_at_the_hit() {
-    let ceiling = crate::security::SourceLimits::REAL.whole_source;
+    let ceiling = SmallSafe.limits().whole_source;
     let len = ceiling + ceiling / 16;
     let hit = len - len / 10;
     let line = positional_line(len, &[(hit, "NEEDLE")]);
@@ -157,7 +157,7 @@ fn the_lead_of_a_hit_deep_in_a_one_line_file_past_the_ceiling_opens_at_the_hit()
         &path,
         serde_json::json!({"matchString":["NEEDLE"],"ranges":[{"startLine":1,"endLine":1}]}),
     );
-    let read = fetch(&query, &paths);
+    let read = fetch_with(&query, &paths, &SmallSafe);
     assert_eq!(read.status, ReadStatus::Success, "{read:?}");
     let text = read.content.as_deref().expect("content");
     assert!(text.contains("NEEDLE"), "page one shows the hit");
@@ -167,7 +167,7 @@ fn the_lead_of_a_hit_deep_in_a_one_line_file_past_the_ceiling_opens_at_the_hit()
         .next
         .and_then(|next| next.continue_window)
         .expect("the rest of the line");
-    let rest = fetch(&next.query, &paths);
+    let rest = fetch_with(&next.query, &paths, &SmallSafe);
     assert_eq!(rest.status, ReadStatus::Success, "{rest:?}");
     let rest_page = rest.pagination.expect("a byte page");
     assert_eq!(

@@ -18,6 +18,31 @@ const RETIRED_EXTENSION: &str = "json";
 /// ([`Disk::link`]): its header is that store's, so its age is this store's.
 pub(super) const LINK_EXTENSION: &str = "link";
 
+/// Why a write was not kept.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum NotStored {
+    /// The entry is over the store's byte budget, or its class is already
+    /// expired: nothing was attempted.
+    Refused,
+    /// The store's lock was not taken: busy to the deadline (`None`), or the
+    /// filesystem refused with this kind.
+    Unlocked(Option<std::io::ErrorKind>),
+    /// The request was cancelled.
+    Cancelled,
+    /// The filesystem failed the write with this kind (a full disk, a quota,
+    /// a read-only directory).
+    Failed(std::io::ErrorKind),
+}
+
+/// Whether `kind` is the filesystem refusing access, not contention: the
+/// store cannot be written until the home is changed.
+pub(super) fn refused_for_access(kind: std::io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::ReadOnlyFilesystem
+    )
+}
+
 /// The name before an entry's stem in the name of its lock file ([`Disk::entry_lock`]).
 pub(super) const ENTRY_LOCK_PREFIX: &str = "assessment-";
 
@@ -33,14 +58,33 @@ pub(super) struct DiskHeader {
 impl DiskHeader {
     /// How old the entry in `file` is at `now` (unix seconds): since it was
     /// stored, or for an idle class since its last use, which every read
-    /// records as the file's modification time .
+    /// records as the file's modification time. A date ahead of the clock
+    /// is skew while it stays within the class's own lifetime; past it the
+    /// date cannot be true, so the entry is as old as that lifetime and
+    /// expires like any other ([`Self::skewed`]).
     pub(super) fn age(&self, file: &fs::File, now: u64) -> Duration {
         if self.class.idle().is_some()
             && let Ok(used) = file.metadata().and_then(|meta| meta.modified())
         {
-            return SystemTime::now().duration_since(used).unwrap_or_default();
+            return match SystemTime::now().duration_since(used) {
+                Ok(age) => age,
+                Err(ahead) => self.skewed(ahead.duration()),
+            };
         }
-        Duration::from_secs(now.saturating_sub(self.stored_at_unix))
+        if self.stored_at_unix > now {
+            return self.skewed(Duration::from_secs(self.stored_at_unix - now));
+        }
+        Duration::from_secs(now - self.stored_at_unix)
+    }
+
+    /// The age of an entry dated `ahead` of the clock: new while within its
+    /// class's lifetime, expired past it. An entry that never expires has no
+    /// lifetime to outrun.
+    fn skewed(&self, ahead: Duration) -> Duration {
+        match self.class.ttl() {
+            Some(ttl) if ahead > ttl => ttl,
+            _ => Duration::ZERO,
+        }
     }
 
     /// The header line and the value bytes of an entry file.
@@ -234,9 +278,9 @@ impl Disk {
         class: CacheClass,
         config: &CacheConfig,
         deadline: Instant,
-    ) -> bool {
+    ) -> Result<(), NotStored> {
         let Some(value) = C::encode(value) else {
-            return false;
+            return Err(NotStored::Refused);
         };
         self.write_encoded(key, &value, class, config, deadline)
     }
@@ -248,14 +292,14 @@ impl Disk {
         class: CacheClass,
         config: &CacheConfig,
         deadline: Instant,
-    ) -> bool {
+    ) -> Result<(), NotStored> {
         let path = self.file(key);
         let header = DiskHeader {
             class,
             stored_at_unix: now_unix(),
         };
         let Ok(mut bytes) = serde_json::to_vec(&header) else {
-            return false;
+            return Err(NotStored::Refused);
         };
         bytes.push(b'\n');
         self.publish(&path, [&bytes, value], config, deadline)

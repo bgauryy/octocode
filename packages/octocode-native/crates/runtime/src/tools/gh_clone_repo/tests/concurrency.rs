@@ -8,7 +8,7 @@ fn concurrent_requests_replace_serially_and_validation_fails_closed() {
     let policy = Arc::new(test_support::workspace_policy(&root.0));
     let endpoint = Arc::new(api_github_endpoint());
     let runner = Arc::new(fixture_runner(&fixture));
-    let config = Arc::new(CloneConfig::persistent(&home));
+    let config = Arc::new(GitConfig::persistent(&home));
     let barrier = Arc::new(Barrier::new(2));
     let pinned = Arc::new(fixture.pin(&query()));
     let mut workers = vec![];
@@ -23,7 +23,7 @@ fn concurrent_requests_replace_serially_and_validation_fails_closed() {
             barrier.wait();
             execute_clone(
                 &pinned,
-                &CloneContext {
+                &GitContext {
                     config: &config,
                     endpoint: &endpoint,
                     git_limiter: super::test_git_limiter(&config),
@@ -76,7 +76,7 @@ fn distinct_outputs_report_sizes_and_preserve_neighboring_files() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let repo_dir = storage::clones_root(&home)
         .join("fixture-owner")
         .join("fixture-repo");
@@ -180,7 +180,7 @@ fn large_indexes_clone_whole_repositories_and_sparse_trees_without_exposing_syml
         &fixture.bare_url,
         SystemGit::default().with_max_output(cap),
     );
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let mut context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     context.deadline = Instant::now() + Duration::from_secs(120);
     for scope in [None, Some("README.md"), Some("src")] {
@@ -231,7 +231,7 @@ fn concurrent_sparse_rows_of_one_repository_share_one_store() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let barrier = Barrier::new(2);
     let rows = std::thread::scope(|scope| {
         let workers = ["README.md", "src/lib.rs"].map(|path| {

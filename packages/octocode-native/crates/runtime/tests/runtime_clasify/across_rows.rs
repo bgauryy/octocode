@@ -81,7 +81,7 @@ fn sections_leads(out: &Value) -> Vec<(usize, Value)> {
         .collect()
 }
 
-/// R1: a choice answer is no yes, so it offers no sections lead.
+/// A choice answer is no yes, so it offers no sections lead.
 #[tokio::test]
 async fn choice_rows_offer_no_sections_lead() {
     let server = stated_provider().await;
@@ -162,7 +162,7 @@ async fn source_rows_keep_independent_reads_without_optional_sections_advice() {
     runtime.close().await;
 }
 
-/// R6: three judgments of one question, every one unsure, carry one warning
+/// Three judgments of one question, every one unsure, carry one warning
 /// that names the question and the range; one sure answer clears it.
 #[tokio::test]
 async fn a_question_every_answer_of_which_is_unsure_says_so_once() {

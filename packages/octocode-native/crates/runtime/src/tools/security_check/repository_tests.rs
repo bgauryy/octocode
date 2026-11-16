@@ -443,12 +443,7 @@ async fn a_repository_summary_counts_and_links_and_details_lists() {
         assert!(details.get(detail).is_some(), "{detail}: {details}");
         assert!(summary.get(detail).is_none(), "{detail}: {summary}");
     }
-    assert_eq!(
-        summary["related"],
-        json!([{"kind": "related", "tool": "securityCheck",
-            "input": {"queries": [{"operation": "repository", "repo": "o/r", "view": "details"}]}}]),
-        "{summary}"
-    );
+    assert!(summary.get("related").is_none(), "{summary}");
     crate::tools::test_support::assert_row_contract(ToolId::SecurityCheck, &summary);
     // Cautions and a source that did not answer stay in the summary.
     let archived = Double::repo(RepoRead::Found(RepoFacts {

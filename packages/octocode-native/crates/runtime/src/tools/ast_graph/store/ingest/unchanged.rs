@@ -112,10 +112,33 @@ pub(super) fn reuse(
             };
         }
     };
-    let Ok(_lock) = publication::lock(home, paths, cancel) else {
-        return Reuse::Build { judged };
+    let _lock = match publication::lock(home, paths, cancel) {
+        Ok(lock) => Some(lock),
+        // A home this process cannot write takes no lock, and nothing can
+        // replace or prune a snapshot through it either: the snapshot
+        // answers an unchanged scope as it is, without the `latest` marker
+        // and lease a writable home renews. Any other failure builds.
+        Err(refused)
+            if crate::id::error_code_of(&refused.value) == Some(ErrorCode::FileAccessFailed)
+                && !writable(home) =>
+        {
+            None
+        }
+        Err(_) => return Reuse::Build { judged },
     };
     current(options, home, paths, identity, cancel, started)
+}
+
+/// Whether this process can create files in `home`.
+fn writable(home: &Path) -> bool {
+    let probe = home.join(format!(".write-probe-{}", std::process::id()));
+    let created = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)
+        .is_ok();
+    let _ = std::fs::remove_file(&probe);
+    created
 }
 
 /// [`reuse`] for a build that has reached publication and holds the build
@@ -215,7 +238,11 @@ fn unchanged_receipt(
     {
         return None;
     }
-    write_atomic(&home.join(LATEST_FILE), id.as_bytes(), true).ok()?;
+    // On a home that cannot be written, the marker and lease stay as they
+    // are: the receipt names its snapshot by id.
+    if write_atomic(&home.join(LATEST_FILE), id.as_bytes(), true).is_err() && writable(home) {
+        return None;
+    }
     // A lease that cannot be renewed only shortens how long retention keeps
     // the snapshot; the answer still holds.
     let _ = renew_lease(&dir);

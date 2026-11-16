@@ -171,7 +171,15 @@ async fn match_string_lists_the_patchless_files_it_could_not_search() {
         json!({"sections":["patches"], "matchString": ["import"]}),
     )
     .await;
-    assert_eq!(data["isPartial"], true, "{data}");
+    // A partial page states it once: partialReasons or a floor countScope, no isPartial.
+    assert!(data.get("isPartial").is_none(), "{data}");
+    assert!(
+        !data["partialReasons"].is_null()
+            || data["pagination"]["countScope"]
+                .as_str()
+                .is_some_and(|scope| scope != "complete"),
+        "{data}"
+    );
     let reasons = data["partialReasons"].to_string();
     assert!(reasons.contains("patchUnavailable"), "{data}");
     let unsearched = data["pullRequests"][0]["unsearchedFiles"].to_string();

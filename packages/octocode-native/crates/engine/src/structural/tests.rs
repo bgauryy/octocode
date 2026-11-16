@@ -41,6 +41,7 @@ fn review_file_options(
         skip_files: None,
         max_file_bytes: None,
         judge: None,
+        global_ignore: Default::default(),
     }
 }
 
@@ -58,6 +59,7 @@ fn scan_options(root: &std::path::Path, skip: u32) -> StructuralSearchFilesOptio
         skip_files: Some(skip),
         max_file_bytes: None,
         judge: None,
+        global_ignore: Default::default(),
     }
 }
 

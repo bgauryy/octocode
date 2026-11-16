@@ -53,8 +53,9 @@ pub(super) fn note_skipped(
     // applies the ignore rules found from its own root (`at`), which a probe
     // rooted there does not read for files below the root.
     let probe_at = |at: &std::path::Path, exclude: &[String], walk: Walk| {
-        let rules = (!walk.ignored && at.is_dir())
-            .then(|| octocode_engine::search::walk::IgnoreRules::new(at));
+        let rules = (!walk.ignored && at.is_dir()).then(|| {
+            octocode_engine::search::walk::IgnoreRules::with_global(at, paths.global_ignore())
+        });
         let permitted = |path: &std::path::Path, kind: Option<std::fs::FileType>| {
             let is_dir = kind.map_or_else(|| path.is_dir(), |kind| kind.is_dir());
             permits(path, kind)
@@ -64,6 +65,7 @@ pub(super) fn note_skipped(
                         .is_none_or(|rules| !rules.is_ignored(path, false)))
         };
         FileProbe::new(at, &permitted, &keep)
+            .under(paths.global_ignore())
             .stopping(&stop)
             .within(Globs {
                 include: &[],
@@ -76,8 +78,10 @@ pub(super) fn note_skipped(
         ignored: q.include_ignored.unwrap_or(false),
         hidden: q.include_hidden.unwrap_or(false),
         default_excludes: q.default_excludes.defaults(),
+        global: paths.global_ignore(),
     };
     let scanned = FileProbe::new(root, &permits, &keep)
+        .under(paths.global_ignore())
         .stopping(&stop)
         .within(Globs {
             include: &[],

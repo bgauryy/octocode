@@ -384,38 +384,11 @@ pub(super) async fn judge(
             _ => unjudged += 1,
         }
     }
-    let had_notice = states_redaction(row);
     let done = scrub(row, &judged, unjudged > 0);
-    if done.replaced > 0 && !had_notice {
-        crate::response::paging::push_warnings(
-            row,
-            [crate::security::redacted_content_warning(done.replaced)],
-        );
-    }
-    if done.withheld > 0 {
-        crate::response::paging::push_warnings(row, [withheld_warning(done.withheld, unjudged)]);
+    if done.replaced > 0 || done.withheld > 0 {
+        crate::security::mark_redacted(row);
     }
     Ok(())
-}
-
-/// Whether `row` already says its text is not verbatim source.
-fn states_redaction(row: &Value) -> bool {
-    row.get("warnings")
-        .and_then(Value::as_array)
-        .is_some_and(|warnings| {
-            warnings
-                .iter()
-                .filter_map(Value::as_str)
-                .any(|warning| warning.starts_with("redactedContent:"))
-        })
-}
-
-/// The warning of a row whose server text had `withheld` string literals no
-/// judged file holds, `unjudged` of its files not judged whole.
-fn withheld_warning(withheld: usize, unjudged: usize) -> String {
-    format!(
-        "serverTextWithheld: {withheld} quoted value(s) in the language server's text show as {REDACTED}: no file this response judged whole holds them ({unjudged} file(s) it is about could not be judged), so a key that names one a secret was never read. Read the declaring file with localFetch to see the value as that file is judged."
-    )
 }
 
 #[cfg(test)]

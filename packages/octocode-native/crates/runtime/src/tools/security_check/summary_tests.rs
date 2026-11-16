@@ -1,12 +1,8 @@
 //! The summary as a projection of a finished row.
 use super::*;
 
-fn target(query: Value) -> Target<'static> {
-    let Value::Object(query) = query else {
-        panic!("a query row");
-    };
+fn target(_query: Value) -> Target<'static> {
     Target {
-        query,
         asked_name: Some("lodash"),
         asked_version: Some("4.17.20"),
         unfixed_in_major: 0,
@@ -147,9 +143,9 @@ fn the_answer_and_the_coordinates_stay_only_when_they_say_something_new() {
     assert!(lean.get("answer").is_none(), "{lean}");
 }
 
-/// One lead reads the same target whole; the checks of pinned dependencies
-/// stay, as no field of the row counts their advisories; every other lead is
-/// listed by the whole row.
+/// The checks of pinned dependencies stay, as no field of the row counts
+/// their advisories; no lead restates the query as `view:"details"`, and every
+/// other lead is left to the details view.
 #[test]
 fn the_leads_are_the_whole_row_and_the_pinned_dependency_checks() {
     let call = |rows: Value| json!({"kind": "related", "tool": "securityCheck", "input": {"queries": rows}});
@@ -162,13 +158,7 @@ fn the_leads_are_the_whole_row_and_the_pinned_dependency_checks() {
         call(json!([{"operation": "repository", "repo": "lodash/lodash"}])),
     ]});
     let lean = apply(SecurityCheckView::Summary, row, target(package()));
-    let mut whole = package();
-    whole["view"] = json!("details");
-    assert_eq!(
-        lean["related"],
-        json!([call(json!([whole])), pinned]),
-        "{lean}"
-    );
+    assert_eq!(lean["related"], json!([pinned]), "{lean}");
 }
 
 /// A version the registry does not publish fails the same in details, so the
@@ -196,7 +186,7 @@ fn a_missing_version_leads_to_the_nearest_versions_alone() {
 #[test]
 fn a_field_the_summary_does_not_know_stays() {
     let row = json!({"affected": false, "advisories": [], "retryable": true,
-        "cautions": [{"rule": "archived"}], "warnings": ["w"], "outdated": true,
+        "cautions": [{"rule": "archived"}], "warnings": ["w"], "outdated": false,
         "versionEvaluated": false, "registryConfirmed": false, "someLaterDisclosure": 1,
         "next": {"nextPage": {"kind": "continue", "tool": "securityCheck", "input": {"cursor": "c"}}}});
     let lean = apply(SecurityCheckView::Summary, row.clone(), target(package()));
@@ -278,4 +268,24 @@ fn withdrawn_warnings_collapse_to_one_count_in_the_summary() {
     assert!(count.contains("related"), "{count}");
     assert!(!count.contains("GHSA-"), "{count}");
     assert_eq!(lean[1], "OSV lists a range GitHub does not.");
+}
+
+/// A newer release is named once: `latestVersion` stays only when it is not
+/// the `upgradeTo` already stated, and `outdated:true` is derived from either.
+#[test]
+fn the_newer_release_is_named_once() {
+    let outdated = |upgrade_to: Option<&str>, latest: &str| {
+        let mut row = json!({"affected": true, "advisories": [], "outdated": true,
+            "latestVersion": latest});
+        if let Some(upgrade) = upgrade_to {
+            row["upgradeTo"] = json!(upgrade);
+        }
+        apply(SecurityCheckView::Summary, row, target(package()))
+    };
+    let same = outdated(Some("4.18.1"), "4.18.1");
+    assert!(same.get("latestVersion").is_none(), "{same}");
+    assert!(same.get("outdated").is_none(), "{same}");
+    let apart = outdated(Some("4.17.21"), "4.18.1");
+    assert_eq!(apart["latestVersion"], "4.18.1", "{apart}");
+    assert!(apart.get("outdated").is_none(), "{apart}");
 }

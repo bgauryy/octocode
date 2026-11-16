@@ -110,7 +110,7 @@ impl CompiledQuery {
         let defaults = options
             .default_exclude_dir
             .as_ref()
-            .map(|names| Prune::new(names).at(&root));
+            .map(|names| Prune::new(names).at_with(&root, options.global_ignore));
         let name_filter = NameFilter::new(
             &root,
             options.names.as_deref().unwrap_or_default(),
@@ -156,7 +156,8 @@ impl CompiledQuery {
             stats_entries: !options.names_only || metadata_filtered,
             metadata_filtered,
             replayed: options.replayed,
-            ignore_rules: (!include_ignored).then(|| IgnoreRules::new(&root)),
+            ignore_rules: (!include_ignored)
+                .then(|| IgnoreRules::with_global(&root, options.global_ignore)),
             root,
             include_root: options.include_root.unwrap_or(false),
             recursive: options.recursive.unwrap_or(true),

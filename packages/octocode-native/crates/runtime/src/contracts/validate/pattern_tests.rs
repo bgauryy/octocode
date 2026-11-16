@@ -87,13 +87,17 @@ fn pattern_properties_validate_every_match_and_exclude_only_unmatched_additional
     accepts_in_both_directions(&schema, &json!({"other":1}), false);
 }
 
-#[test]
-fn every_continuation_channel_keeps_its_own_owners_on_native_output() {
+/// Every channel of every tool accepts a call to each of its owners and
+/// refuses one to any other tool. `refused_per_key` is how many tools that
+/// are not its owners each key is tried against, starting after its own tool
+/// in channel order (so the same neighbours are tried at every run).
+fn assert_channels_keep_their_owners(refused_per_key: usize) {
     let contract = crate::contracts::parsed_contract().expect("contract");
     let channels = contract["continuationChannels"]
         .as_object()
         .expect("channels");
-    for (tool, registry) in channels {
+    let names = channels.keys().collect::<Vec<_>>();
+    for (position, (tool, registry)) in channels.iter().enumerate() {
         let mut row = registry["row"].as_object().expect("row channels").clone();
         for error in ["retry", "restart"] {
             row.insert(error.into(), json!("branch"));
@@ -108,15 +112,33 @@ fn every_continuation_channel_keeps_its_own_owners_on_native_output() {
                 "numbered" => vec![format!("{name}0"), format!("{name}22")],
                 _ => vec![name],
             };
+            let owns = |owner: &String| {
+                definition["owner"]
+                    .as_array()
+                    .map_or(owner == tool, |owners| {
+                        owners
+                            .iter()
+                            .any(|candidate| candidate.as_str() == Some(owner.as_str()))
+                    })
+            };
+            let mut tried = names
+                .iter()
+                .copied()
+                .filter(|owner| owns(owner))
+                .collect::<Vec<_>>();
+            tried.extend(
+                names
+                    .iter()
+                    .cycle()
+                    .skip(position + 1)
+                    .take(names.len())
+                    .copied()
+                    .filter(|owner| !owns(owner))
+                    .take(refused_per_key),
+            );
             for key in keys {
-                for owner in channels.keys() {
-                    let expected = definition["owner"]
-                        .as_array()
-                        .map_or(owner == tool, |owners| {
-                            owners
-                                .iter()
-                                .any(|candidate| candidate.as_str() == Some(owner.as_str()))
-                        });
+                for owner in &tried {
+                    let expected = owns(owner);
                     let mut output = json!({"results":[{"index":0,"data":{
                         "error":"failed", "errorCode":"executionFailed", "next":{
                             key.clone(): {"kind":"continue","tool":owner,"input":{"cursor":"issued"}}
@@ -134,6 +156,18 @@ fn every_continuation_channel_keeps_its_own_owners_on_native_output() {
             }
         }
     }
+}
+
+/// Each channel is tried against all its owners and two tools that are not.
+#[test]
+fn every_continuation_channel_keeps_its_own_owners_on_native_output() {
+    assert_channels_keep_their_owners(2);
+}
+
+#[test]
+#[ignore = "every tool as owner: cargo test -- --ignored every_tool"]
+fn every_continuation_channel_keeps_its_own_owners_against_every_tool() {
+    assert_channels_keep_their_owners(usize::MAX);
 }
 
 #[test]

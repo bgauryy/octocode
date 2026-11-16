@@ -418,3 +418,80 @@ fn the_oldest_reuse_is_the_one_disclosed() {
 }
 
 mod credential_files;
+
+/// A symlink answer names its target: a link to a credential file is held in
+/// memory under the target's name, whatever the link is called, while a link
+/// to an ordinary file is kept.
+#[test]
+fn a_symlink_to_a_credential_file_is_not_stored() {
+    let link = |name: &str, target: &str| {
+        exposing(
+            &format!("GET https://x/contents/{name}?ref=main"),
+            "plain",
+            None,
+            &serde_json::json!({"type":"symlink","target":target,"path":name}).to_string(),
+        )
+    };
+    let security = ContentSecurity::new();
+    for target in [".env", "../.ssh/id_rsa", "deploy/.pgpass"] {
+        let answer = link("env", target);
+        assert!(!gate_verdict(&security, &answer), "{target}");
+        assert!(!gate_keeps(&security, &answer), "{target}");
+    }
+    assert!(gate_verdict(
+        &security,
+        &link("RelNotes", "Documentation/RelNotes.txt")
+    ));
+}
+
+/// A listing entry's `download_url` carries a `?token=` value that no code
+/// pattern names: the gate judges every leaf as any read could, so the
+/// listing is not stored.
+#[test]
+fn a_listing_url_with_a_token_query_is_not_stored() {
+    let listing = |url: &str| {
+        exposing(
+            "GET https://x/contents/docs?ref=main",
+            "plain",
+            None,
+            &serde_json::json!([{"name":"README.md","path":"docs/README.md","type":"file",
+                "download_url": url}])
+            .to_string(),
+        )
+    };
+    let security = ContentSecurity::new();
+    let held = listing(
+        "https://raw.example.com/o/r/main/docs/README.md?token=ABTH2BQWERTYUIOPASDFGHJKLZX",
+    );
+    assert!(!gate_verdict(&security, &held));
+    assert!(!gate_keeps(&security, &held));
+    assert!(gate_verdict(
+        &security,
+        &listing("https://raw.example.com/o/r/main/docs/README.md")
+    ));
+}
+
+/// A credential the origin refused (a 401) keeps no saved answer, pinned ones
+/// included, in the memory store or after a restart from disk; another
+/// credential's answers stay, and answers saved after the refusal are served.
+#[test]
+fn a_revoked_credential_keeps_no_saved_answer() {
+    for disk in [false, true] {
+        let dir = tempfile::tempdir().expect("dir");
+        let open = || KeptAnswers::new(disk.then(|| dir.path().to_owned()));
+        let store = open();
+        store.save("revoked", "r1", saved("{\"a\":1}"));
+        store.save("revoked", "r2", saved("{\"a\":2}"));
+        store.save("other", "r1", saved("{\"a\":1}"));
+        assert!(store.load("revoked", "r1").is_some());
+        store.revoked("revoked");
+        let restarted = disk.then(open);
+        for store in std::iter::once(&store).chain(restarted.as_ref()) {
+            assert!(store.load("revoked", "r1").is_none(), "disk {disk}");
+            assert!(store.load("revoked", "r2").is_none(), "disk {disk}");
+            assert!(store.load("other", "r1").is_some(), "disk {disk}");
+        }
+        store.save("revoked", "r1", saved("{\"a\":3}"));
+        assert!(store.load("revoked", "r1").is_some(), "disk {disk}");
+    }
+}

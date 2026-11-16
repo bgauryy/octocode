@@ -190,6 +190,15 @@ async fn keys_of(config: &LspLanguageServerConfig) -> Result<(String, String)> {
 /// environment that make up the full [`canonical_lsp_key`]. Starting a server
 /// retires the idle entries that share its family, so an option change leaves
 /// one server per workspace instead of two until the idle timeout.
+///
+/// The environment is outside the family on purpose, so a call that selects
+/// another toolchain for the same workspace (another `RUSTUP_TOOLCHAIN`,
+/// `VIRTUAL_ENV`, `GOROOT`) has another key but the same family: its start
+/// retires the idle server of the first toolchain, and a client that
+/// alternates two toolchains on one workspace restarts a server on every
+/// switch. Keeping both would hold two resident servers per workspace for a
+/// rare case; the pool's entry and memory budgets (`evict_overflow`) are
+/// the bound that keying the family by toolchain would spend.
 pub fn canonical_lsp_family(config: &LspLanguageServerConfig) -> Result<String> {
     serde_json::to_string(&serde_json::json!({
         "workspaceRoot": normalize_workspace_root(&config.workspace_root)?,

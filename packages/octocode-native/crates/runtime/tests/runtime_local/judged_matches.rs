@@ -77,7 +77,7 @@ async fn a_search_never_matches_what_a_read_withholds() {
     }
     // What surrounds a hidden value does not see it either: a lookahead
     // into it, or a file-level term spelling it.
-    let ahead = json!({"matchString": ["db_password = \"(?=ghp_Hx8vQ)"], "regexEngine": "pcre2", "view": "countMatches"});
+    let ahead = json!({"matchString": ["\\w+ = \"(?=ghp_Hx8vQ)"], "regexEngine": "pcre2", "view": "countMatches"});
     assert_eq!(hits(&run("localSearch", ahead).await), 0);
     let term = json!({"matchString": ["hello"], "fileHas": ["Hx8vQ2m"], "view": "files"});
     assert_eq!(hits(&run("localSearch", term).await), 0);
@@ -153,7 +153,11 @@ async fn an_ast_match_never_reads_what_a_read_withholds() {
     // What a read shows still matches, where it is.
     for target in [path.as_path(), dir.as_path()] {
         let rule = json!({"kind":"string_fragment","regex":"^hel"});
-        let data = run(target, json!({"operation":"match","rule":rule})).await;
+        let data = run(
+            target,
+            json!({"operation":"match","rule":rule,"includeCaptures":true}),
+        )
+        .await;
         assert_eq!(hits(&data), 1, "{data}");
         let row = &data["files"][0]["matches"][0];
         assert_eq!(

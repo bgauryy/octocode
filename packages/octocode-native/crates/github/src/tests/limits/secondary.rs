@@ -198,10 +198,10 @@ fn httpdate_after(seconds: u64) -> String {
     )
 }
 
-/// RV-GH L2: a 403 whose message names a secondary limit but whose headers
+/// A 403 whose message names a secondary limit but whose headers
 /// say the core quota is spent (`remaining: 0`, a reset, no `retry-after`)
 /// is that quota's limit: GitHub's own rule is to wait until the reset, an
-/// hour window here, so D1 applies and it is disclosed at once with the
+/// hour window here, so the spent quota is disclosed at once with the
 /// reset. A secondary limit with `retry-after` or quota left stays a
 /// cooldown (the tests above).
 #[tokio::test]
@@ -269,10 +269,10 @@ async fn search_after(
     (sent, searched)
 }
 
-/// RV-GH R2-L2 (coordinator's decision): a message naming a secondary limit
+/// A message naming a secondary limit
 /// still starts the documented key-wide cooldown beside the spent bucket,
 /// because requests sent during a secondary limit can get the integration
-/// banned. The spent core quota is still disclosed at once (D1); a search
+/// banned. The spent core quota is still disclosed at once; a search
 /// on the same key is then refused unsent while the key cools down.
 #[tokio::test]
 async fn a_secondary_message_on_a_spent_bucket_still_cools_the_key() {
@@ -332,7 +332,7 @@ async fn a_secondary_message_on_a_spent_bucket_still_cools_the_key() {
     );
 }
 
-/// R2-L2 for GraphQL: a secondary message on a spent GraphQL quota is
+/// For GraphQL, a secondary message on a spent GraphQL quota is
 /// disclosed at once with its reset and cools the key as on REST.
 #[tokio::test]
 async fn a_graphql_secondary_message_on_a_spent_bucket_still_cools_the_key() {

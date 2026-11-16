@@ -13,7 +13,8 @@ fn source(bytes: usize) -> Vec<u8> {
     text
 }
 
-/// A source of exactly the whole-file ceiling is read whole, so a `block` read parses it; one
+/// A source of exactly the whole-file ceiling is read whole, so a `block` read parses it and an
+/// outline lists its declarations at that real size; one
 /// byte more streams, and the same read is refused for needing the whole file.
 #[tokio::test]
 async fn the_whole_file_ceiling_is_the_real_one() {
@@ -29,6 +30,17 @@ async fn the_whole_file_ceiling_is_the_real_one() {
             json!({"path":path,"matchString":["needle"],"block":true}),
         )
     };
+    let outline = call(&runtime, "localFetch", json!({"path":at,"view":"symbols"}))
+        .await
+        .expect("outline at the ceiling");
+    let outline = row_data(&outline);
+    assert!(outline["errorCode"].is_null(), "{outline:?}");
+    assert!(
+        outline["content"]
+            .as_str()
+            .is_some_and(|content| content.contains("fn needle")),
+        "a source of the whole-file ceiling outlines its declaration: {outline:?}"
+    );
     let at = read(at).await.expect("read at the ceiling");
     assert!(row_data(&at)["errorCode"].is_null(), "{at:?}");
     let past = read(past).await.expect("read past the ceiling");

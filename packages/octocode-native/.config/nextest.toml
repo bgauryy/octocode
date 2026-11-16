@@ -10,3 +10,34 @@ slow-timeout = { period = "60s", terminate-after = 3 }
 [profile.ci]
 fail-fast = false
 failure-output = "immediate-final"
+
+# Slowest tests first. Nextest starts tests in binary and name order, so a 20 s test
+# late in the alphabet would run alone at the end while the other cores idle. Priority
+# only orders the start; no test changes. The names are tails of the tests that took
+# 10 s or more in a debug build; a renamed test falls back to plain order.
+[[profile.default.overrides]]
+filter = '''
+test(/(every_seek_page_equals_its_fresh_page|a_source_whose_sections_are_refused_too_keeps_the_refusal|every_file_of_real_source_is_decided_as_when_every_parent_is_parsed|deferred_hit_before_a_large_binary_tail_remains_readable|admitted_minified_evidence_is_preserved|every_file_of_real_source_scans_as_it_parses|every_text_scans_to_the_mounts_its_parse_reports|every_tool_finds_the_calls_the_schema_walk_finds|a_source_as_large_as_a_whole_read_outlines|nesting_past_the_limit_is_read_by_tree_sitter|fast_union_acceptance_matches_the_reference|a_walk_that_names_nothing_leaves_nothing_for_a_relaxed_walk|a_hit_on_a_long_line_shows_its_text|bounded_cuts_agree_with_the_unbounded_cut|dense_sources_are_graphed_whole_by_graph_build|split_pages_read_through_their_row_parts_reach_every_row_once|local_searches_walk_exactly_once_on_both_transports|key_paths_are_reachable_exactly_once_at_every_window|a_one_line_bundle_of_a_hundred_thousand_functions_lists_every_head|every_continuation_channel_keeps_its_own_owners_on_native_output|a_decoded_source_read_preserves_the_hit_and_hides_only_its_secret|a_scope_past_one_deadline_completes_across_builds|pre_reject_keeps_the_match_set_over_the_crates|a_streamed_multi_range_read_serves_what_fits_and_continues_the_rest|a_source_past_the_ceiling_matches_what_its_read_serves|next_page_alone_reads_every_location_of_a_window)/)
+'''
+priority = 100
+
+# Tests that start real child processes (node fake language servers, git, the daemon, the
+# MCP server) share one group, so a burst of them cannot push every other test into a timing
+# failure on a loaded machine. Each takes two threads: they start multi-thread runtimes.
+[test-groups.process-heavy]
+max-threads = 6
+
+[[profile.default.overrides]]
+filter = 'test(/lsp_search::process_tests|loading_server|gh_clone/) | test(/^warm_server::/) | test(/^mcp_server::/)'
+test-group = "process-heavy"
+threads-required = 2
+
+# End-to-end profile: the CLI tests that start the real daemon, the MCP server or the
+# provider fixtures. `yarn test:rust` runs the other tests in one invocation and these in
+# another (`--profile e2e`), so both are required. scripts/rust-tests.cjs keeps its
+# `not (...)` selection equal to this default-filter (tests/build-publication.test.cjs
+# checks it).
+[profile.e2e]
+default-filter = 'binary(integration) & (test(/^warm_server::/) | test(/^mcp_server::/) | test(/^cli_exit_codes::providers::/))'
+fail-fast = false
+failure-output = "immediate-final"

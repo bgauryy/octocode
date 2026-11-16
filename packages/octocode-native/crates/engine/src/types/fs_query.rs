@@ -45,6 +45,9 @@ pub struct FileSystemQueryOptions {
     pub min_depth: Option<u32>,
     /// Which ignore rules and dot entries the walk leaves out.
     pub ignore: crate::types::IgnorePolicy,
+    /// The global ignore rules the walk applies, resolved from the call's
+    /// environment (the default reads the engine's own process).
+    pub global_ignore: crate::process_env::GlobalIgnore,
     /// List entries one of these globs matches (`search::glob`: a glob
     /// without `/` matches a name at any depth, one with `/` the path below
     /// the root).

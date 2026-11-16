@@ -134,12 +134,6 @@ pub(super) fn fetch_matches<S: ContentScan>(
             total_lines: Some(found.total_lines),
             returned_bytes: Some(0),
             returned_lines: Some(0),
-            // As an in-memory read's miss says: the scan ran on what a read
-            // shows, so text behind a placeholder cannot match.
-            hints: (found.count == 0 && found.redacted.0 > 0)
-                .then(|| no_match::redacted_miss(found.redacted.0, found.redacted.1))
-                .into_iter()
-                .collect(),
             ..LocalFetchResult::blank(ReadStatus::Empty)
         }
     } else {

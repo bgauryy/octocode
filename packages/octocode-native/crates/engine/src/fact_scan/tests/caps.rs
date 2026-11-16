@@ -226,3 +226,36 @@ fn a_file_past_the_read_ceiling_names_its_size_and_the_ceiling() {
         "{message}"
     );
 }
+
+/// A one-line source whose parse is estimated past the memory budget is
+/// skipped like one past the byte limit, in every scan that shares the fact
+/// path; a long plain file of a normal density is still parsed.
+#[test]
+fn a_source_whose_parse_passes_the_memory_budget_is_skipped_as_too_large() {
+    let budget = crate::structural::parse_budget();
+    let fixture = tempfile::tempdir().expect("fixture");
+    let root = fixture.path().to_path_buf();
+    // Two tokens per two bytes: the estimate passes the budget.
+    let pairs = budget / crate::structural::BYTES_PER_TOKEN / 2 + 8;
+    let mut dense = String::from("export const a=[");
+    dense.push_str(&"a,".repeat(pairs));
+    dense.push_str("];\n");
+    fs::write(root.join("dense.ts"), dense).expect("dense");
+    let line = "export function compute(argument) { return argument + 1; }\n";
+    let plain = line.repeat(budget / crate::structural::BYTES_PER_TOKEN / 2 / line.len() * 4);
+    assert!(crate::structural::parse_cost(plain.as_bytes()) < budget);
+    fs::write(root.join("plain.ts"), plain).expect("plain");
+
+    let result = scan_graph_facts(GraphFactsScanOptions {
+        path: path_string(&root),
+        max_files: Some(10),
+        ..Default::default()
+    })
+    .expect("scan");
+
+    assert_eq!(result.skipped.len(), 1, "{:?}", result.skipped);
+    assert_eq!(result.skipped[0].relative_path, "dense.ts");
+    assert_eq!(result.skipped[0].code, "graph.scan.fileTooLarge");
+    assert_eq!(result.entries.len(), 1);
+    assert_eq!(result.entries[0].relative_path, "plain.ts");
+}

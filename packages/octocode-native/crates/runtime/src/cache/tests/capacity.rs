@@ -369,3 +369,164 @@ fn pruning_clears_every_expired_entry_in_one_scan() {
         assert!(store.get(&key(&format!("old{index}"), "x")).is_none());
     }
 }
+
+/// Date every entry under `dir` `seconds` ahead of the wall clock: a store
+/// time written by a clock that was far ahead.
+fn date_entries_ahead(dir: &Path, seconds: u64) {
+    for file in entry_files(dir) {
+        let bytes = fs::read(&file).unwrap();
+        let (header, value) = DiskHeader::split(&bytes).unwrap();
+        let header = DiskHeader {
+            stored_at_unix: crate::cache::disk::now_unix() + seconds,
+            ..header
+        };
+        let mut rewritten = serde_json::to_vec(&header).unwrap();
+        rewritten.push(b'\n');
+        rewritten.extend_from_slice(value);
+        fs::write(&file, rewritten).unwrap();
+    }
+}
+
+const TEN_YEARS: u64 = 10 * 365 * 86_400;
+
+#[test]
+fn an_entry_stored_by_a_clock_far_ahead_expires_on_read_and_in_a_sweep() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
+    store.put_confirmed(key("ahead", "x"), "v".into(), 1, volatile(60));
+    store.put_confirmed(key("kept", "x"), "v".into(), 1, CacheClass::Immutable);
+    date_entries_ahead(dir.path(), TEN_YEARS);
+    Disk::new(dir.path().into()).prune_expired();
+    let reader = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
+    assert!(reader.get(&key("ahead", "x")).is_none());
+    assert!(
+        reader.get(&key("kept", "x")).is_some(),
+        "an entry with no lifetime has none to outrun"
+    );
+    assert_eq!(entry_files(dir.path()).len(), 1, "the sweep removed it");
+}
+
+#[test]
+fn a_small_clock_step_ahead_does_not_expire_a_live_entry() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
+    store.put_confirmed(key("near", "x"), "v".into(), 1, volatile(600));
+    date_entries_ahead(dir.path(), 30);
+    Disk::new(dir.path().into()).prune_expired();
+    assert!(store.get(&key("near", "x")).is_some());
+}
+
+#[cfg(unix)]
+#[test]
+fn an_idle_entry_used_by_a_clock_far_ahead_expires_in_a_sweep_and_on_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
+    let idle = CacheClass::Idle {
+        ttl: Duration::from_secs(600),
+    };
+    store.put_confirmed(key("idle", "x"), "v".into(), 1, idle);
+    store.put_confirmed(key("idle2", "x"), "v".into(), 1, idle);
+    let future = std::time::SystemTime::now() + Duration::from_secs(TEN_YEARS);
+    for file in entry_files(dir.path()) {
+        fs::File::options()
+            .write(true)
+            .open(file)
+            .unwrap()
+            .set_modified(future)
+            .unwrap();
+    }
+    assert!(store.get(&key("idle2", "x")).is_none(), "a read refuses it");
+    Disk::new(dir.path().into()).prune_expired();
+    assert_eq!(
+        entry_files(dir.path()).len(),
+        0,
+        "the sweep removed the rest"
+    );
+}
+
+/// Whether this process can still create a file in the read-only `dir`
+/// (a superuser can: such a test says nothing).
+#[cfg(unix)]
+fn read_only(dir: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o555)).unwrap();
+    let writable = fs::File::create(dir.join(".probe")).is_ok();
+    if writable {
+        let _ = fs::remove_file(dir.join(".probe"));
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    !writable
+}
+
+#[cfg(unix)]
+fn writable(dir: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+/// A store the filesystem refuses access to says so, instead of "busy": a
+/// busy store clears by itself, a read-only one does not.
+#[cfg(unix)]
+#[test]
+fn a_read_only_store_says_it_is_not_writable_rather_than_busy() {
+    let dir = tempfile::tempdir().unwrap();
+    if !read_only(dir.path()) {
+        return;
+    }
+    let store = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
+    let notes = octocode_io::notice::ResultNotes::default();
+    let entered = notes.enter();
+    let (_, saved) = store.put_confirmed(key("x", "x"), "v".into(), 1, volatile(60));
+    drop(entered);
+    writable(dir.path());
+    assert!(!saved);
+    let said = notes.take();
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].contains("not writable"), "{said:?}");
+    assert!(!said[0].contains("busy"), "{said:?}");
+}
+
+/// The failure of a write is told apart: a full or read-only filesystem is a
+/// cause the caller names, a refusal of the entry itself is not.
+#[cfg(unix)]
+#[test]
+fn a_write_the_filesystem_refuses_reports_its_kind() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
+    // The first write makes the store's files, so a later refusal is the write's own.
+    assert!(
+        store
+            .put_confirmed(key("a", "x"), "v".into(), 1, volatile(60))
+            .1
+    );
+    if !read_only(dir.path()) {
+        return;
+    }
+    let (_, refused) = store.put_checked(
+        Instant::now() + Duration::from_secs(1),
+        key("b", "x"),
+        "v".into(),
+        1,
+        volatile(60),
+    );
+    writable(dir.path());
+    assert!(
+        matches!(
+            refused,
+            Err(
+                crate::cache::NotStored::Failed(std::io::ErrorKind::PermissionDenied)
+                    | crate::cache::NotStored::Unlocked(Some(std::io::ErrorKind::PermissionDenied))
+            )
+        ),
+        "{refused:?}"
+    );
+    let (_, too_big) = Store::<String>::new(CacheConfig { disk_bytes: 1 }, Some(dir.path().into()))
+        .put_checked(
+            Instant::now() + Duration::from_secs(1),
+            key("c", "x"),
+            "v".into(),
+            1,
+            volatile(60),
+        );
+    assert_eq!(too_big, Err(crate::cache::NotStored::Refused));
+}

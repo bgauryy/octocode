@@ -2,6 +2,7 @@
 //! the `include!`s rust-analyzer may not load and the module declarations of
 //! the file, scanned once per state of the package.
 use super::{CARGO_MANIFEST, cargo, cargo_package_dir, lexical, modules};
+use crate::search::walk::GlobalIgnore;
 use crate::stamp::Proof;
 use octocode_io::memo::Memo;
 use std::path::{Path, PathBuf};
@@ -69,6 +70,9 @@ static SCANS: Memo<PathBuf, KeptScan> = Memo::new(&crate::memory::MEMORY);
 fn scan_package(package: &Path, stopped: &dyn Fn() -> bool) -> Option<(PackageScan, Proof)> {
     let root = package.to_path_buf();
     let walker = ignore::WalkBuilder::new(package)
+        // A package's sources are what its build compiles: the repository's
+        // own ignore files apply, a user's global ignore file does not.
+        .git_global(false)
         .filter_entry(move |entry| {
             entry.path() == root
                 || !entry.file_type().is_some_and(|kind| kind.is_dir())
@@ -121,7 +125,7 @@ fn scan_package(package: &Path, stopped: &dyn Fn() -> bool) -> Option<(PackageSc
         }
         scan.modules.push(path, &text);
     }
-    for rule in crate::search::walk::external_ignore_inputs(package) {
+    for rule in crate::search::walk::external_ignore_inputs_with(package, GlobalIgnore::NONE) {
         inputs.follow(rule);
     }
     for dir in package.ancestors() {

@@ -315,7 +315,7 @@ impl Graph {
         reader
             .borrow_mut()
             .load_degrees(&self.t, cancel)
-            .map_err(|message| *decode_failure(message, cancel))
+            .map_err(|message| *decode_failure(message, &self.manifest, cancel))
     }
 
     /// `ln(1 + incoming calls and imports)`, damped for a generic name

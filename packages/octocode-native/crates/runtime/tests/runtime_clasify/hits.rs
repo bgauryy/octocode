@@ -331,7 +331,7 @@ async fn a_classified_read_warns_what_it_kept_and_that_empty_is_not_absence() {
 }
 
 /// A whole-file read whose chunks all fail the classifiers is empty, and
-/// says that an empty classified result is no absence (CLS-C19).
+/// says that an empty classified result is no absence.
 #[tokio::test]
 async fn a_classified_read_keeping_no_chunk_is_empty_and_not_absence() {
     let server = provider().await;

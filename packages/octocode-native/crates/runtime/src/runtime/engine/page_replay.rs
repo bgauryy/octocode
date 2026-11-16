@@ -81,9 +81,19 @@ impl PageReplayMemo {
         &self,
         tool: &str,
         cursor: &Cursor,
-        replay: PageReplay,
+        mut replay: PageReplay,
         deadline: std::time::Instant,
     ) -> (Arc<PageReplay>, bool) {
+        // The saved request names files by their shown (redacted) names, as
+        // the saved response does: a file named after a credential never
+        // reaches the store by its true name.
+        let security = crate::security::ContentSecurity::new();
+        let _ = crate::security::sanitize_json(&mut replay.response_query, &mut |text: &str,
+                                                                                 _: Option<
+            &str,
+        >| {
+            Ok::<_, std::convert::Infallible>(security.sanitize_leaf(text))
+        });
         // The page memo a first read builds holds about one more copy of
         // the envelope (its row plan, bytes or text).
         let weight = octocode_engine::json_size::bytes(&replay)

@@ -91,7 +91,7 @@ fn patterns_without_metavariables_offer_no_capture_expansion() {
     .expect("match");
     assert_eq!(
         out["files"][0]["matches"][0],
-        json!({"line":1,"column":1,"value":"oldCall(one)"})
+        json!({"line":1,"value":"oldCall(one)"})
     );
     assert!(
         out.get("next")

@@ -67,6 +67,7 @@ mod syntax;
 mod test_scope;
 mod unanswered;
 mod walk;
+pub(crate) mod wire;
 mod words;
 mod worker_clock;
 

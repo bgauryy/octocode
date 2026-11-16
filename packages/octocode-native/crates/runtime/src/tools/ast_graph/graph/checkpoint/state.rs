@@ -94,7 +94,7 @@ impl<'a> Job<'a> {
         checked_path(paths, &lock_path)?;
         if let Some(jobs) = dir.parent() {
             octocode_io::atomic::create_private_dir_all(jobs)
-                .map_err(|error| failure(error.to_string()))?;
+                .map_err(|error| write_failure(error.to_string()))?;
         }
         let job_lock =
             super::lock::job(&lock_path, cancel).map_err(super::lock::Wait::into_tool_error)?;
@@ -150,11 +150,12 @@ impl<'a> Job<'a> {
                     && old.config_digest == manifest.config_digest
             });
         if dir.exists() && (scan.refresh || !compatible) {
-            std::fs::remove_dir_all(&dir)
-                .map_err(|error| failure(format!("cannot reset graph checkpoint: {error}")))?;
+            std::fs::remove_dir_all(&dir).map_err(|error| {
+                write_failure(format!("cannot reset graph checkpoint: {error}"))
+            })?;
         }
         octocode_io::atomic::create_private_dir_all(&dir)
-            .map_err(|error| failure(error.to_string()))?;
+            .map_err(|error| write_failure(error.to_string()))?;
         for parent in dir.ancestors().skip(1).take(3) {
             sync_dir(parent)?;
         }
@@ -224,10 +225,10 @@ impl<'a> Job<'a> {
 /// their unsynced contents are verified on every read.
 pub(super) fn durable_write(path: &Path, bytes: &[u8]) -> Result<(), ToolError> {
     octocode_io::atomic::write_atomic(path, bytes, true)
-        .map_err(|error| failure(format!("cannot commit graph checkpoint: {error}")))
+        .map_err(|error| write_failure(format!("cannot commit graph checkpoint: {error}")))
 }
 
 pub(super) fn sync_dir(path: &Path) -> Result<(), ToolError> {
     octocode_io::atomic::sync_dir(path)
-        .map_err(|error| failure(format!("cannot sync graph checkpoint directory: {error}")))
+        .map_err(|error| write_failure(format!("cannot sync graph checkpoint directory: {error}")))
 }

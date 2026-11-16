@@ -13,7 +13,7 @@
 //! written within the settle window is not kept ([`Watch::capture`]).
 use super::*;
 use crate::tools::page_memo::{
-    PageMemo, Proven, Watch, directory_ignore_inputs, repository_markers,
+    PageMemo, Proven, Watch, directory_ignore_inputs_with, repository_markers,
 };
 use octocode_engine::stamp::Link;
 
@@ -71,6 +71,7 @@ impl Scope {
         if let Some(known) = self.dependents.get() {
             return Ok(known);
         }
+        let global = self.global_ignore;
         let (root, server_root, anchor, extension, discovery) = (
             PathBuf::from(&self.root),
             super::paths::canonical_root(server_root),
@@ -85,6 +86,7 @@ impl Scope {
                 &anchor,
                 &extension,
                 &discovery,
+                global,
                 stopped,
             )
         })
@@ -118,6 +120,7 @@ fn kept_or_read(
     anchor: &Path,
     extension: &str,
     discovery: &octocode_engine::lsp::config::LspDiscoveryOptions,
+    global: octocode_engine::search::walk::GlobalIgnore,
     stopped: &(dyn Fn() -> bool + Sync),
 ) -> Option<Dependents> {
     let key = [
@@ -127,6 +130,10 @@ fn kept_or_read(
         Path::new(extension),
     ]
     .map(|part| part.to_string_lossy().into_owned())
+    .into_iter()
+    // The call's own global ignore file shapes what the walk lists.
+    .chain([format!("{:?}", global.file())])
+    .collect::<Vec<_>>()
     .join("\u{0}");
     if let Some(kept) = KEPT.current(&key, ANY_POLICY) {
         return Some(Dependents::clone(&kept));
@@ -135,8 +142,15 @@ fn kept_or_read(
     WALKS.note(root);
     // Before the walk's first read, on the request's own clock.
     let started = octocode_engine::stamp::settle_clock();
-    let (found, read) = read_dependents(root, server_root, anchor, extension, discovery, stopped)?;
-    if let Some(proof) = read.and_then(|read| read.proof(root, started)) {
+    let (found, read) = read_dependents(
+        root,
+        server_root,
+        anchor,
+        extension,
+        (discovery, global),
+        stopped,
+    )?;
+    if let Some(proof) = read.and_then(|read| read.proof(root, global, started)) {
         let bytes = std::mem::size_of::<Dependents>()
             + found
                 .roots
@@ -169,9 +183,14 @@ struct Read {
 }
 
 impl Read {
-    fn enter(&mut self, dir: &Path, root: &Path) {
+    fn enter(
+        &mut self,
+        dir: &Path,
+        root: &Path,
+        global: octocode_engine::search::walk::GlobalIgnore,
+    ) {
         // The walk reads every ignore file it finds; none is withheld here.
-        let inputs = directory_ignore_inputs(dir, root, |_| true);
+        let inputs = directory_ignore_inputs_with(dir, root, global, |_| true);
         self.watched.push(dir.to_path_buf());
         self.watched.extend(inputs.files);
         self.rules.extend(inputs.external);
@@ -186,6 +205,7 @@ impl Read {
     fn proof(
         mut self,
         root: &Path,
+        global: octocode_engine::search::walk::GlobalIgnore,
         started: std::time::SystemTime,
     ) -> Option<octocode_engine::stamp::Proof> {
         if self.untracked {
@@ -198,7 +218,7 @@ impl Read {
             self.watched.push(above.to_path_buf());
             below = above;
         }
-        let mut rules = octocode_engine::search::walk::external_ignore_inputs(root);
+        let mut rules = octocode_engine::search::walk::external_ignore_inputs_with(root, global);
         rules.extend(self.rules);
         Watch {
             root,
@@ -219,7 +239,10 @@ fn read_dependents(
     server_root: &Path,
     anchor: &Path,
     extension: &str,
-    discovery: &octocode_engine::lsp::config::LspDiscoveryOptions,
+    (discovery, global): (
+        &octocode_engine::lsp::config::LspDiscoveryOptions,
+        octocode_engine::search::walk::GlobalIgnore,
+    ),
     stopped: &(dyn Fn() -> bool + Sync),
 ) -> Option<(Dependents, Option<Read>)> {
     let Some((identity, own)) = Identity::of(anchor, extension) else {
@@ -231,7 +254,7 @@ fn read_dependents(
     let mut by_root = BTreeMap::<PathBuf, Vec<PathBuf>>::new();
     // The one walk policy of every local tool: dependency and build output
     // and credential stores are never entered.
-    for entry in crate::tools::pruned_walk(root, std::iter::empty())
+    for entry in crate::tools::pruned_walk(root, std::iter::empty(), global)
         .build()
         .flatten()
     {
@@ -239,7 +262,7 @@ fn read_dependents(
             return None;
         }
         if entry.file_type().is_some_and(|kind| kind.is_dir()) {
-            read.enter(entry.path(), root);
+            read.enter(entry.path(), root, global);
             continue;
         }
         let name = entry.file_name().to_string_lossy();

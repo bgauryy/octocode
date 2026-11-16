@@ -72,8 +72,7 @@ impl Found<'_> {
         cancel: &impl CancellationCheck,
     ) -> Result<Disclosed, ToolError> {
         let query = self.query;
-        let first_disclosure =
-            self.first_page() && local_search_query::match_page(query).max(1) == 1;
+        let first_disclosure = self.first_page();
         let mut add = |name: String, lead: Value| {
             if let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut() {
                 map.insert(name, lead);

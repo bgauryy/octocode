@@ -82,7 +82,7 @@ async fn sensitive_boundary_structured_content_and_questions_keep_their_context(
     }
 }
 
-/// D2: a source a clasify row captures reaches the provider as its reader
+/// A source a clasify row captures reaches the provider as its reader
 /// showed it. A known-format token is hidden in each source representation;
 /// the reader's placeholders and the surrounding text reach the provider
 /// unchanged, including text whose credential-shaped names are not secrets.
@@ -224,7 +224,7 @@ async fn a_captured_source_names_its_workspace_path_to_the_provider() {
     runtime.close().await;
 }
 
-/// Retest R5: one placeholder per hidden line, the same in every view of a
+/// One placeholder per hidden line, the same in every view of a
 /// key file. A localFetch read, a localSearch row in content and in
 /// matchOnly, and clasify's inline content each show a key's line as the
 /// read does; the lines that hold no private key (a PuTTY file's headers and

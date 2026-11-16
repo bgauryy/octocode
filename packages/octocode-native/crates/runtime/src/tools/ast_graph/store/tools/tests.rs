@@ -307,3 +307,26 @@ fn impact_runs_at_a_depth_past_any_former_ceiling() {
     );
     assert!(out.get("error").is_none(), "{out}");
 }
+
+/// A graph query of a file path leads to the same query of the directory a
+/// snapshot holds, with its operation: a lead without one is no valid row.
+#[test]
+fn a_file_path_query_leads_to_the_same_operation_on_the_snapshot_directory() {
+    let dir = Fixture::new();
+    dir.write("app/src/app.ts", "export function main() { return 1; }\n");
+    call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
+    let row = json!({"operation":"symbols","path":"app/src/app.ts"});
+    let row = crate::contracts::validate_built_query(ToolId::GraphQuery.as_str(), row)
+        .expect("input contract");
+    let result = execute(ToolId::GraphQuery, &row, &dir.0, &context()).expect("execute");
+    crate::tools::test_support::assert_row_contract(ToolId::GraphQuery, &result.data);
+    let leads = result.data["related"].as_array().expect("a related lead");
+    let lead = leads
+        .iter()
+        .find(|call| call["tool"] == "graphQuery")
+        .expect("a graphQuery lead");
+    assert_eq!(
+        lead["input"]["queries"][0]["operation"], "symbols",
+        "{lead}"
+    );
+}

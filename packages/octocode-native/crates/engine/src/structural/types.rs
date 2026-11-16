@@ -160,6 +160,9 @@ pub struct StructuralSearchFilesOptions {
     /// The text each source is matched as, in place of its admitted text
     /// ([`TextJudge`]); `None` matches every source as admitted.
     pub judge: Option<TextJudge>,
+    /// The global ignore rules of the call, which the walk applies per
+    /// repository.
+    pub global_ignore: crate::search::walk::GlobalIgnore,
 }
 
 /// What a structural search hides of a source whose admitted text is

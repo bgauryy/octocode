@@ -156,7 +156,7 @@ pub(super) fn clone_lead(query: &GhStructureQueryTree, scope: &Scope, commit_sha
 /// Whether the listing ranks its files by size. Ranking still determines
 /// traversal depth even when the result offers no optional read advice.
 pub(super) fn ranks_by_size(query: &GhStructureQueryTree) -> bool {
-    query.sort.by == octocode_contract_types::GhStructureTreeSortBy::SizeBytes
+    query.sort.by == octocode_contract_types::GhStructureTreeSortBy::Bytes
 }
 
 /// Listing rows grouped by directory, built in one pass. `dir` is
@@ -213,7 +213,7 @@ pub(super) fn rank(
     match (sort.by, sort.order) {
         (By::Path, SortOrder::Asc) => return false,
         (By::Path, SortOrder::Desc) => entries.reverse(),
-        (By::SizeBytes, order) => entries.sort_by(|left, right| {
+        (By::Bytes, order) => entries.sort_by(|left, right| {
             let (left_size, right_size) = (size(left), size(right));
             let sized = match order {
                 SortOrder::Asc => left_size.cmp(&right_size),

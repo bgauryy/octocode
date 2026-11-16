@@ -77,7 +77,11 @@ fn another_analysis_version_is_refused_by_every_operation_and_rebuilt() {
     assert_fresh_build(&ingest_fixture(root, None));
     let current = ask(root, "stats", None, |o| o.check_freshness = true);
     assert_eq!(current.class, ExitClass::Success, "{}", current.value);
-    assert_eq!(current.value["freshness"]["analysisCurrent"], true);
+    assert!(
+        current.value.get("freshness").is_none(),
+        "{}",
+        current.value
+    );
 
     // The old snapshot is kept, and as a baseline it is refused alike.
     assert!(graph_dir.is_dir(), "the older snapshot is retained");
@@ -630,4 +634,218 @@ fn the_temp_sweep_removes_only_its_own_abandoned_claims() {
     assert!(!claim.exists(), "an abandoned claim is swept");
     assert!(user_dir.join("file").exists(), "a user's .tmp-* dir stays");
     assert!(user_file.exists(), "a user's .tmp-* file stays");
+}
+
+/// A snapshot of a root that no longer exists answers no query of its
+/// scope: the next build of any root reaps it, unless a reader used it
+/// within the lease. Snapshots of roots that still exist stay.
+#[test]
+fn a_build_reaps_snapshots_of_roots_that_no_longer_exist() {
+    let dir = fixture();
+    let home = dir.0.as_path().join(".octocode").join("graph");
+    dir.write("gone/x.ts", "export const x = 1;\n");
+    dir.write("leased/y.ts", "export const y = 1;\n");
+    let id_of = |root: &str| {
+        let built = ingest_root(dir.0.as_path(), &dir.0.as_path().join(root), None, false);
+        assert_eq!(built.class, ExitClass::Success, "{}", built.value);
+        built.value["id"].as_str().expect("id").to_owned()
+    };
+    let (gone, leased) = (id_of("gone"), id_of("leased"));
+    renew_lease(&home.join(&leased)).expect("lease");
+    std::fs::remove_dir_all(dir.0.as_path().join("gone")).expect("root removed");
+    std::fs::remove_dir_all(dir.0.as_path().join("leased")).expect("root removed");
+
+    let app = ingest_fixture(dir.0.as_path(), None);
+    assert_eq!(app.class, ExitClass::Success, "{}", app.value);
+    let left = list_snapshots(&home);
+    assert!(!left.contains(&gone), "reaped with its root: {left:?}");
+    assert!(
+        left.contains(&leased),
+        "a reader's lease holds it: {left:?}"
+    );
+    assert!(
+        left.contains(&app.value["id"].as_str().expect("id").to_owned()),
+        "{left:?}"
+    );
+    // The lease runs out; the next build reaps it too.
+    let expired = std::time::SystemTime::now()
+        - crate::cache::CONTINUATION_IDLE
+        - std::time::Duration::from_secs(1);
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(home.join(&leased).join(READ_LEASE_FILE))
+        .expect("lease marker")
+        .set_modified(expired)
+        .expect("backdate lease");
+    dir.write("app/src/late.ts", "export const late = 1;\n");
+    ingest_fixture(dir.0.as_path(), None);
+    assert!(!list_snapshots(&home).contains(&leased));
+}
+
+/// A directory the walk cannot read leaves a trace: the scan counts it as
+/// skipped, so the snapshot's answers are marked partial instead of looking
+/// complete over a graph that lacks everything below it.
+#[cfg(unix)]
+#[test]
+fn an_unreadable_directory_leaves_the_snapshot_partial() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = fixture();
+    let locked = dir.0.as_path().join("app/src/locked");
+    dir.write("app/src/locked/hidden.ts", "export const hidden = 1;\n");
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).expect("lock");
+    let unreadable = std::fs::read_dir(&locked).is_err();
+    let built = ingest_fixture(dir.0.as_path(), None);
+    let stats = ask(dir.0.as_path(), "stats", None, |_| {});
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).expect("unlock");
+    if !unreadable {
+        return; // a superuser reads any directory
+    }
+    assert_eq!(built.class, ExitClass::Success, "{}", built.value);
+    assert!(
+        built.value["scan"]["filesSkipped"].as_u64().unwrap_or(0) >= 1,
+        "{}",
+        built.value
+    );
+    let warnings = built.value["warnings"].to_string();
+    assert!(
+        warnings.contains("src/locked"),
+        "the receipt names the directory it could not read: {}",
+        built.value
+    );
+    assert_eq!(stats.value["graph"]["isPartial"], true, "{}", stats.value);
+    assert!(
+        stats.value["graph"]["partialReasons"]
+            .as_array()
+            .is_some_and(|reasons| reasons.iter().any(|reason| reason == "filesSkipped")),
+        "{}",
+        stats.value
+    );
+}
+
+/// A snapshot whose graph.bin fails its integrity check (a flipped byte, a
+/// truncation, an empty file) is refused as one to rebuild: not a retryable
+/// decode failure, and with the graphBuild that replaces it as the lead.
+#[test]
+fn a_corrupt_graph_file_leads_to_a_refreshing_rebuild() {
+    for damage in ["flip", "truncate", "empty"] {
+        let dir = fixture();
+        let built = ingest_fixture(dir.0.as_path(), None);
+        let graph = PathBuf::from(built.value["dir"].as_str().expect("dir")).join(GRAPH_FILE);
+        let mut bytes = std::fs::read(&graph).expect("graph.bin");
+        match damage {
+            "flip" => {
+                // The last byte of the NODE section, which every query reads.
+                let count = u32::from_le_bytes(bytes[12..16].try_into().expect("count")) as usize;
+                let entry = (0..count)
+                    .map(|index| 48 + index * 52)
+                    .find(|start| &bytes[*start..*start + 4] == b"NODE")
+                    .expect("NODE section");
+                let offset =
+                    u64::from_le_bytes(bytes[entry + 4..entry + 12].try_into().expect("offset"));
+                let len =
+                    u64::from_le_bytes(bytes[entry + 12..entry + 20].try_into().expect("len"));
+                bytes[(offset + len - 1) as usize] ^= 0xff;
+            }
+            "truncate" => bytes.truncate(bytes.len() / 2),
+            _ => bytes.clear(),
+        }
+        std::fs::write(&graph, bytes).expect("damage");
+        let refused = ask(dir.0.as_path(), "stats", None, |o| {
+            o.check_freshness = false;
+        });
+        assert_ne!(
+            refused.value["errorCode"], "decode",
+            "{damage}: {}",
+            refused.value
+        );
+        assert_eq!(
+            refused.class,
+            ExitClass::of(ErrorCode::SnapshotIncompatible),
+            "{damage}: {}",
+            refused.value
+        );
+        let lead = &refused.value["related"][0];
+        assert_eq!(lead["tool"], "graphBuild", "{damage}: {}", refused.value);
+        assert_eq!(
+            lead["input"]["queries"][0]["refresh"], true,
+            "{damage}: {lead}"
+        );
+        assert!(
+            refused.value["error"]
+                .as_str()
+                .is_some_and(|text| text.contains("graphBuild")),
+            "{damage}: {}",
+            refused.value
+        );
+    }
+}
+
+/// Mark every directory under `root` read-only and every file in it read-only,
+/// or writable again; returns whether this process is still stopped by it
+/// (a superuser is not).
+#[cfg(unix)]
+fn set_tree_read_only(root: &std::path::Path, read_only: bool) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    fn walk(path: &std::path::Path, read_only: bool) {
+        let Ok(meta) = std::fs::symlink_metadata(path) else {
+            return;
+        };
+        if meta.file_type().is_symlink() {
+            return;
+        }
+        let dir = meta.is_dir();
+        let mode = match (dir, read_only) {
+            (true, true) => 0o555,
+            (true, false) => 0o755,
+            (false, true) => 0o444,
+            (false, false) => 0o644,
+        };
+        if !dir || !read_only {
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode));
+        }
+        if dir {
+            for entry in std::fs::read_dir(path).into_iter().flatten().flatten() {
+                walk(&entry.path(), read_only);
+            }
+            if read_only {
+                let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode));
+            }
+        }
+    }
+    walk(root, read_only);
+    std::fs::File::create(root.join(".probe")).is_err()
+}
+
+/// A graph home the process cannot write answers a scope that has not
+/// changed from the snapshot it holds, and a scope that has changed with the
+/// recovery of a write (a writable home, free disk space), not a read's.
+#[cfg(unix)]
+#[test]
+fn a_read_only_graph_home_answers_an_unchanged_scope_and_names_a_write_failure_otherwise() {
+    let dir = fixture();
+    let home = dir.0.as_path().join(".octocode").join("graph");
+    let built = ingest_fixture(dir.0.as_path(), None);
+    assert_eq!(built.class, ExitClass::Success, "{}", built.value);
+    let id = built.value["id"].as_str().expect("id").to_owned();
+    if !set_tree_read_only(&home, true) {
+        set_tree_read_only(&home, false);
+        return; // a superuser writes anywhere
+    }
+    let unchanged = ingest_fixture(dir.0.as_path(), None);
+    dir.write("app/src/changed.ts", "export const changed = 1;\n");
+    let changed = ingest_fixture(dir.0.as_path(), None);
+    set_tree_read_only(&home, false);
+    assert_eq!(unchanged.class, ExitClass::Success, "{}", unchanged.value);
+    assert_eq!(unchanged.value["id"], id, "{}", unchanged.value);
+    assert_eq!(
+        changed.value["errorCode"], "fileAccessFailed",
+        "{}",
+        changed.value
+    );
+    let hints = changed.value["hints"].to_string();
+    assert!(
+        hints.contains("OCTOCODE_HOME") && !hints.contains("text encoding"),
+        "{}",
+        changed.value
+    );
 }

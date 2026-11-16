@@ -354,7 +354,7 @@ async fn a_saved_body_past_the_calls_limit_answers_nothing() {
     assert_eq!(refused.kind, ProviderErrorKind::ResponseTooLarge);
 }
 
-/// RV-GH R2-L1 (M1's `record_page` arm): a file read the ordinary way is
+/// A file read the ordinary way is
 /// saved; the same commit-pinned read kept by its caller is then answered
 /// from that saved answer, unasked, and that reused body is not the
 /// request's evidence either: the caller's copy is its only store.

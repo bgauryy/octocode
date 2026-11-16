@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, PoisonError, RwLock};
 
 use ignore::Match;
-use ignore::gitignore::Gitignore;
 
 mod git_dir;
 mod level;
@@ -15,6 +14,8 @@ pub use git_dir::{checkout_git_dir, common_git_dir};
 #[cfg(test)]
 pub(crate) use level::LEVELS_STATED;
 use level::{Level, git_exclude_file};
+
+use super::global_ignore::{GlobalIgnore, PerRepository};
 pub use level::{ListedRules, UnreadableRule};
 
 /// The ignore rule that keeps a path out of a walk.
@@ -62,29 +63,18 @@ impl DirRules {
 /// nested below it keeps its exclude file in its own `.git`, which a walk
 /// meets; a caller stamps those from its walk.
 pub fn external_ignore_inputs(root: &Path) -> Vec<PathBuf> {
+    external_ignore_inputs_with(root, GlobalIgnore::NONE)
+}
+
+/// [`external_ignore_inputs`] under the global ignore rules of a call.
+pub fn external_ignore_inputs_with(root: &Path, global: GlobalIgnore) -> Vec<PathBuf> {
     let real = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
     let mut inputs = Vec::new();
     for dir in real.ancestors().skip(1) {
         inputs.extend(IGNORE_FILES.map(|name| dir.join(name)));
     }
     inputs.extend(real.ancestors().filter_map(git_exclude_file));
-    inputs.extend(ignore::gitignore::gitconfig_excludes_path());
-    let config_home = crate::process_env::var_os("XDG_CONFIG_HOME")
-        .filter(|dir| !dir.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::home_dir().map(|home| home.join(".config")));
-    let system = crate::process_env::var_os("GIT_CONFIG_SYSTEM")
-        .filter(|path| !path.is_empty())
-        .map_or_else(|| PathBuf::from("/etc/gitconfig"), PathBuf::from);
-    inputs.extend(
-        crate::process_env::var_os("GIT_CONFIG_GLOBAL")
-            .filter(|path| !path.is_empty())
-            .map(PathBuf::from)
-            .into_iter()
-            .chain(std::env::home_dir().map(|home| home.join(".gitconfig")))
-            .chain(config_home.map(|dir| dir.join("git/config")))
-            .chain(Some(system)),
-    );
+    inputs.extend(global.inputs());
     let mut seen = HashSet::new();
     inputs.retain(|path| seen.insert(path.clone()));
     inputs
@@ -102,7 +92,7 @@ pub struct IgnoreRules {
     outer: Vec<Level>,
     /// Some directory above the root holds `.git`.
     outer_git: bool,
-    global: Gitignore,
+    global: PerRepository,
     /// The rules in force in each directory at or below the root, by path.
     inner: RwLock<HashMap<PathBuf, Arc<Chain>>>,
 }
@@ -118,13 +108,18 @@ struct Chain {
 
 impl IgnoreRules {
     pub fn new(root: &Path) -> Self {
+        Self::with_global(root, GlobalIgnore::NONE)
+    }
+
+    /// The rules of a walk of `root` under the global ignore rules of a call.
+    pub fn with_global(root: &Path, global: GlobalIgnore) -> Self {
         let real_root = std::fs::canonicalize(root).ok();
         let outer: Vec<Level> = real_root
             .iter()
             .flat_map(|real| real.ancestors().skip(1))
             .map(Level::load)
             .collect();
-        let (global, _) = Gitignore::global();
+        let global = PerRepository::new(global);
         Self {
             root: root.to_path_buf(),
             real_root,
@@ -348,12 +343,18 @@ impl IgnoreRules {
             gitignore,
             exclude,
         } = verdicts;
+        // The global rules are matched per repository, and only where git
+        // rules apply.
         let global = if any_git {
-            self.global.matched(path, is_dir)
+            self.global.matched(path, is_dir, &rule)
         } else {
             Match::None
         };
-        dot_ignore.or(gitignore).or(exclude).or(global).map(rule)
+        dot_ignore
+            .map(&rule)
+            .or(gitignore.map(&rule))
+            .or(exclude.map(&rule))
+            .or(global)
     }
 }
 

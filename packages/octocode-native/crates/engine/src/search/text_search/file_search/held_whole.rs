@@ -2,7 +2,7 @@
 //! whole once, so that line is searched like any other.
 use super::{
     BinaryDetection, CollectSink, CopiedRead, FILE_TERMS_MAX_BYTES, FileOutcome, FileSearcher,
-    MAX_BINARY_PREFIX_BYTES, MatchWork, build_searcher, is_leading_binary, read_prefix,
+    MAX_BINARY_PREFIX_BYTES, MatchWork, build_searcher, is_leading_binary,
 };
 use grep_matcher::Matcher;
 use std::path::Path;
@@ -22,8 +22,44 @@ impl<M: Matcher> FileSearcher<'_, M> {
         path: &Path,
         work: MatchWork,
     ) -> std::io::Result<FileOutcome> {
-        let bytes = read_prefix(file, file.metadata()?.len())?;
-        self.search_bytes(&bytes, path, work)
+        // The line buffer grew to its bound before it failed: its bytes are
+        // let go, not kept by this worker's searcher for every later file.
+        self.searcher = build_searcher(self.opts, self.context, BinaryDetection::quit(b'\x00'));
+        let len = file.metadata()?.len();
+        let _held = self.admit(usize::try_from(len).unwrap_or(usize::MAX))?;
+        let (bytes, filled) = self.read_whole(file, len)?;
+        self.search_bytes(&bytes.as_slice()[..filled], path, work)
+    }
+
+    /// The first `len` bytes of the file in one region sized from them (no
+    /// growth chain, returned to the system when dropped), read in chunks so a
+    /// cancelled search ends the read; how many bytes it holds is the
+    /// returned count.
+    fn read_whole(
+        &self,
+        file: &std::fs::File,
+        len: u64,
+    ) -> std::io::Result<(crate::memory::Region, usize)> {
+        use std::io::{Read, Seek, SeekFrom};
+        const CHUNK: usize = 8 * 1024 * 1024;
+        let mut handle = file;
+        handle.seek(SeekFrom::Start(0))?;
+        let mut region = crate::memory::Region::new(usize::try_from(len).unwrap_or(0))?;
+        let mut filled = 0;
+        let room = region.as_mut_slice();
+        while filled < room.len() {
+            if self.cancelled.is_some_and(|gone| gone()) {
+                return Err(super::stopped_read());
+            }
+            let end = room.len().min(filled + CHUNK);
+            match handle.read(&mut room[filled..end]) {
+                Ok(0) => break,
+                Ok(read) => filled += read,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok((region, filled))
     }
 
     /// [`Self::search`] of a file's text held whole: its bytes, or the text
@@ -35,6 +71,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
         work: MatchWork,
     ) -> std::io::Result<FileOutcome> {
         let mut sink = CollectSink::new(self.matcher, work, (self.stop, self.held), self.terms);
+        sink.cancelled = self.cancelled;
         sink.test_code = self.opts.test_code.as_ref().map(|scope| (scope, path));
         sink.line_scope = self.opts.line_scope.as_ref().map(|scope| (scope, path));
         sink.source = Some(path);
@@ -58,6 +95,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
                     .get_or_insert_with(|| build_searcher(opts, context, BinaryDetection::none()));
                 let mut prefix_sink =
                     CollectSink::new(self.matcher, work, (self.stop, self.held), self.terms);
+                prefix_sink.cancelled = self.cancelled;
                 prefix_sink.source = Some(path);
                 prefix_sink.line_scope = self.opts.line_scope.as_ref().map(|scope| (scope, path));
                 prefix_searcher.search_slice(self.matcher, prefix, &mut prefix_sink)?;

@@ -115,6 +115,7 @@ pub(in crate::tools::gh_structure) fn write_error(
         ProviderErrorKind::Configuration,
         format!("failed to {action}: {error}"),
     )
+    .with_reason(ProviderErrorReason::FileAccess)
 }
 
 /// Files a materialize call did not write. `location.skipped` names each

@@ -41,7 +41,10 @@ pub(super) fn capped_file_leads(
             history["filters"]["committedAt"] = json!({"from":date});
         }
         if let Some(history) = wire_query::<GhSearchHistoryQuery>(history) {
-            leads.push(("narrowScope", Continuation::related_query(history).build()));
+            leads.push((
+                "narrowScope".to_owned(),
+                Continuation::related_query(history).build(),
+            ));
         }
     }
     if !file_limit {
@@ -79,7 +82,7 @@ fn capped_files_reach(
     query: &HistoryItemRequest,
     out: &Value,
     commits: Option<&ListedCommits>,
-) -> Option<(&'static str, Value)> {
+) -> Option<Lead> {
     let batch = crate::response::result::rows_per_call(ToolId::GhGetHistoryItem);
     let Some(listed) = commits else {
         return commit_list_lead(query, out, batch, 1);
@@ -93,7 +96,7 @@ fn capped_files_reach(
             })
             .collect::<Vec<_>>();
         return Some((
-            "readCommitFiles",
+            "readCommitFiles".to_owned(),
             Continuation::continued_input(ToolId::GhGetHistoryItem, json!({"queries": rows}))
                 .build(),
         ));
@@ -107,11 +110,14 @@ fn commit_list_lead(
     out: &Value,
     size: usize,
     page: usize,
-) -> Option<(&'static str, Value)> {
+) -> Option<Lead> {
     let mut list = json!({"operation":"compare","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),"baseRef":out["baseCommitSha"],"headRef":out["headCommitSha"],"sections":["commits"],"pageSize":size});
     if page > 1 {
         list["page"] = json!(page);
     }
     let list = wire_query::<GhGetHistoryItemQuery>(list)?;
-    Some(("listCommits", Continuation::continued_query(list).build()))
+    Some((
+        "listCommits".to_owned(),
+        Continuation::continued_query(list).build(),
+    ))
 }

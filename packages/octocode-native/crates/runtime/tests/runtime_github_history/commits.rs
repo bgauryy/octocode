@@ -253,11 +253,10 @@ async fn commit_patch_view_numbers_both_sides_and_reads_each_side() {
     runtime.close().await;
 }
 
-/// A patch the output gate redacts says so: the row carries the shared
-/// `redactedContent` warning once (as a file read does), and a clean patch
-/// carries none.
+/// A patch the output gate redacts says so: the row carries `redacted: true`
+/// (as a file read does), no warning, and a clean patch carries neither.
 #[tokio::test]
-async fn a_redacted_patch_says_it_is_not_verbatim() {
+async fn a_redacted_patch_flags_the_row() {
     let server = MockServer::builder().start().await;
     let sha = "abc123def456abc123def456abc123def456abc1";
     let clean = "def456abc123def456abc123def456abc123def4";
@@ -288,16 +287,8 @@ async fn a_redacted_patch_says_it_is_not_verbatim() {
         .expect("commit patches");
     let data = row_data(&outcome);
     checks::assert_absent(data, &token);
-    let warnings = data["warnings"].as_array().cloned().unwrap_or_default();
-    let redacted = warnings
-        .iter()
-        .filter(|warning| {
-            warning
-                .as_str()
-                .is_some_and(|text| text.starts_with("redactedContent"))
-        })
-        .count();
-    assert_eq!(redacted, 1, "{data}");
+    assert_eq!(data["redacted"], json!(true), "{data}");
+    assert!(data.get("warnings").is_none(), "{data}");
     let outcome = call(&runtime, "ghGetHistoryItem", read(clean))
         .await
         .expect("clean patches");

@@ -57,7 +57,7 @@ impl Graph {
                 let witnesses = reader
                     .borrow_mut()
                     .witnesses(&self.t, cancel)
-                    .map_err(|message| *decode_failure(message, cancel))?;
+                    .map_err(|message| *decode_failure(message, &self.manifest, cancel))?;
                 Sites::of(&witnesses)
             }
             _ => Sites::of(&self.t.witnesses),

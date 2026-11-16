@@ -4,13 +4,7 @@
 //! from a stored scan, so a changed file restarts its snapshot.
 use super::*;
 use crate::tools::local_search::executor;
-use crate::tools::local_search::verify::UNVERIFIED_PLACEHOLDER;
 use octocode_contract_types::ErrorCode;
-
-/// The page's own disclosure that it shows unverified placeholders; what a
-/// placeholder means (a source changed during the call among its causes) is
-/// the tool description's.
-const DISCLOSURE: &str = crate::tools::local_search::coverage::UNVERIFIED_WARNING;
 
 /// The value of every shown row, by `path`.
 fn shown_values(result: &LocalSearchResult) -> Vec<(String, Vec<String>)> {
@@ -72,14 +66,17 @@ fn a_fresh_page_withholds_only_the_file_written_after_its_scan() {
     assert_eq!(
         shown_values(&page),
         vec![
-            ("a.ts".to_owned(), vec![UNVERIFIED_PLACEHOLDER.to_owned()]),
+            ("a.ts".to_owned(), vec!["const needle = 1;".to_owned()]),
             ("b.ts".to_owned(), vec!["const needle = 2;".to_owned()]),
         ],
-        "only the changed file's values are withheld"
+        "the changed file's values are shown as scanned, span-checked"
     );
     assert!(
-        page.warnings.iter().any(|warning| warning == DISCLOSURE),
-        "the page discloses the withheld values: {:?}",
+        !page
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("unverified")),
+        "no notice of the changed file: {:?}",
         page.warnings
     );
 }
@@ -94,7 +91,10 @@ fn an_unchanged_fresh_page_discloses_nothing() {
         vec![("a.ts".to_owned(), vec!["const needle = 1;".to_owned()])]
     );
     assert!(
-        !page.warnings.iter().any(|warning| warning == DISCLOSURE),
+        !page
+            .warnings
+            .iter()
+            .any(|warning| warning == crate::security::REDACTED_MARK),
         "{:?}",
         page.warnings
     );

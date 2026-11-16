@@ -18,14 +18,14 @@ mod settle;
 #[cfg(test)]
 mod verification_tests;
 
-#[cfg(test)]
-pub(super) use guard::UNVERIFIED_PLACEHOLDER;
 pub(super) use guard::{
     MAX_PROBE_LINE_BYTES, RowShape, VERIFY_CANCEL_EVERY, VERIFY_CHUNK_BYTES, ValueCheck,
     Verification, guard_read, guard_source_secrets,
 };
+#[cfg(test)]
+pub(super) use lines::materialize;
 use lines::visit_values;
-pub(super) use lines::{VerifyReadError, materialize, read_verification_lines};
+pub(super) use lines::{VerifyReadError, materialize_noting, read_verification_lines};
 pub(super) use settle::JudgedWindows;
 #[cfg(test)]
 pub(super) use settle::judged_on_this_thread;
@@ -167,8 +167,14 @@ pub(super) fn verify_candidate(
     scope.cancel.check().map_err(ToolError::cancelled)?;
     let source = scope.output_root.join(&file.path);
     validate_matched(scope.paths, &source)?;
-    let held = !materialize(scope, file, 0..file.matches.len())?.is_empty()
-        || shows_withheld(withheld, file, &file.matches);
+    let materialized = materialize_noting(scope, file, 0..file.matches.len())?;
+    // A row withheld while its text was rebuilt shows what the redaction
+    // made of it: a replaced span is reported.
+    for &index in &materialized.replaced {
+        let matched = &file.matches[index];
+        redacted.insert((file.path.clone(), matched.line, matched.column));
+    }
+    let held = !materialized.is_empty() || shows_withheld(withheld, file, &file.matches);
     let before = file
         .matches
         .iter()
@@ -257,7 +263,11 @@ pub(super) fn verify_shown(
             judged: Some(scope.judged),
             hidden: &hidden,
         };
-        let held = materialize(scope, file, rows.clone())?;
+        let held = materialize_noting(scope, file, rows.clone())?;
+        for &index in &held.replaced {
+            let matched = &file.matches[index];
+            redacted.insert((file.path.clone(), matched.line, matched.column));
+        }
         cancel.check().map_err(ToolError::cancelled)?;
         // The check rewrites only the shown rows, so only they are compared.
         let end = rows.end.min(file.matches.len());

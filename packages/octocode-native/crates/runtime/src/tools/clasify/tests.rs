@@ -57,7 +57,7 @@ fn models_mark_the_default_model_only_when_listed() {
     assert_eq!(unknown, listing);
 }
 
-/// R3: an `evaluate` row with `resources` judges each resource whole, one
+/// An `evaluate` row with `resources` judges each resource whole, one
 /// request per resource with every question; a resource that failed keeps
 /// its own error beside the others' answers.
 #[test]
@@ -189,7 +189,7 @@ fn resource(key: &str, source: Value, outcome: RowOutcome) -> evaluate::Resource
     }
 }
 
-/// RV-C3eF F2: a failed resource keeps what the same failure keeps on a
+/// A failed resource keeps what the same failure keeps on a
 /// `source` row: the requests it spent, its leads, and its recovery (a
 /// too-large source offers the sections call).
 #[test]
@@ -230,7 +230,7 @@ fn a_failed_resource_keeps_its_spend_leads_and_recovery() {
     );
 }
 
-/// RV-C3eF F3: a resources row whose every resource failed alike fails as
+/// A resources row whose every resource failed alike fails as
 /// they did; one answered resource keeps the row a success.
 #[test]
 fn a_resources_row_whose_every_resource_failed_fails_like_them() {
@@ -265,7 +265,7 @@ fn a_resources_row_whose_every_resource_failed_fails_like_them() {
     assert!(mixed.get("errorCode").is_none(), "{mixed:#}");
 }
 
-/// RV-C3eF F6: a resource answered by another model than the row's says so.
+/// A resource answered by another model than the row's says so.
 #[test]
 fn a_resource_answered_by_another_model_names_it() {
     let row = resources_row(json!({"a":local("a.md"),"b":local("b.md")}));
@@ -283,8 +283,8 @@ fn a_resource_answered_by_another_model_names_it() {
     assert_eq!(out["resources"]["b"]["model"], "jev-1.14.0", "{out:#}");
 }
 
-/// RV-C3eF F8: the sections lead over a resources row names its resources by
-/// the keys the row shows, a glob's `<key>/<path>` included (C3eF-1b).
+/// The sections lead over a resources row names its resources by
+/// the keys the row shows, a glob's `<key>/<path>` included.
 #[test]
 fn the_sections_lead_keeps_the_rows_resource_keys() {
     let lead_over = |keyed: [(&str, &str); 2]| {
@@ -308,7 +308,7 @@ fn the_sections_lead_keeps_the_rows_resource_keys() {
     );
 }
 
-/// RV-C3eF R2-3: a glob the call stopped before it expanded offers no read
+/// A glob the call stopped before it expanded offers no read
 /// of the glob path, which localFetch would read literally and miss; its way
 /// back is the same row over that glob.
 #[test]
@@ -353,7 +353,7 @@ fn an_unexpanded_glob_offers_no_read_of_its_pattern() {
     assert_eq!(query["questions"]["q"], row.questions[0], "{rerun:#}");
 }
 
-/// C3eI-1: evaluate spells its token fields as sections and every other
+/// Evaluate spells its token fields as sections and every other
 /// tool's usage does.
 #[test]
 fn evaluate_usage_spells_tokens_like_selection_usage() {
@@ -371,7 +371,7 @@ fn evaluate_usage_spells_tokens_like_selection_usage() {
 }
 
 /// An evaluate answer names its type once, by its value key, as a sections
-/// answer does (ALL-TOOLS-C R1).
+/// answer does.
 #[test]
 fn evaluate_answers_name_their_type_by_key_only() {
     let row = resources_row(json!({"a":local("a.rs")}));

@@ -140,6 +140,7 @@ pub(crate) fn search_files_with_budget(
         skip_files,
         max_file_bytes,
         judge,
+        global_ignore,
     } = options;
     let pattern_ref = pattern.as_deref();
     let rule_ref = rule.as_ref();
@@ -178,7 +179,9 @@ pub(crate) fn search_files_with_budget(
         &root,
         &Walked {
             globs: &globs,
-            defaults: default_exclude_dir.map(|names| Prune::new(names).at(&root)),
+            defaults: default_exclude_dir
+                .map(|names| Prune::new(names).at_with(&root, global_ignore)),
+            global_ignore,
             ignore,
             max_depth,
             max_files: max_files.saturating_add(1),

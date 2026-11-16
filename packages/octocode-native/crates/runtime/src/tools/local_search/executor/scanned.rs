@@ -89,7 +89,9 @@ pub(crate) fn scan_resumed(
     }
     let validated = search_root(query, paths)?;
     let keep = crate::tools::test_code::Keep::of(local_search_query::test_code(query));
-    let base = search_options(query, &validated.canonical);
+    let mut base = search_options(query, &validated.canonical);
+    // The walk applies the call's own global ignore rules.
+    base.global_ignore = paths.global_ignore();
     let verdicts = keep.map(|_| Arc::new(crate::tools::test_code::TestCodeIndex::new(paths)));
     let options = TextSearchOptions {
         terms,
@@ -427,17 +429,12 @@ pub(crate) fn engine_error(
 
 /// Whether a stored scan can serve `query`'s page. A whole scan is cut
 /// again for any page. A seekable one holds only the pages of its own
-/// streamed cut: a classification page judges every row before it cuts,
-/// and a match-page grid (no public call reaches one, see
-/// [`super::super::packed::PageIndex`]) cuts other pages, so either walks
-/// again (the same snapshot then comes from the fresh scan).
+/// streamed cut: a classification page judges every row before it cuts, so
+/// it walks again (the same snapshot then comes from the fresh scan).
 fn serves(value: &StoredValue, query: &LocalSearchQuery) -> bool {
     match value {
         StoredValue::Whole(_) => true,
-        StoredValue::Seek(_) => {
-            !local_search_query::has_classification(query)
-                && local_search_query::streamed_layout(query)
-        }
+        StoredValue::Seek(_) => !local_search_query::has_classification(query),
     }
 }
 

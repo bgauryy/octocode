@@ -92,7 +92,7 @@ impl Graph {
             reader
                 .borrow_mut()
                 .node(id, &self.t, cancel)
-                .map_err(|message| *decode_failure(message, cancel))
+                .map_err(|message| *decode_failure(message, &self.manifest, cancel))
         } else {
             Ok(self.t.nodes[id as usize])
         }
@@ -107,7 +107,7 @@ impl Graph {
             reader
                 .borrow_mut()
                 .declaration(id, &self.t, cancel)
-                .map_err(|message| *decode_failure(message, cancel))
+                .map_err(|message| *decode_failure(message, &self.manifest, cancel))
         } else {
             Ok(self
                 .t
@@ -336,7 +336,7 @@ impl Graph {
     /// names the cut. A snapshot bound is no cut: a build past one is
     /// refused, never published.
     pub(super) fn summary(&self) -> Value {
-        let mut out = json!({"id": self.id, "root": self.shown_root(), "createdAt": self.manifest["createdAt"]});
+        let mut out = json!({"id": self.id});
         if self.manifest["scan"]["filesSkipped"].as_u64().unwrap_or(0) > 0 {
             crate::response::paging::mark_partial(
                 &mut out,

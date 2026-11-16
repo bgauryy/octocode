@@ -97,3 +97,54 @@ async fn a_draining_server_keeps_telling_its_waiter_it_is_alive() {
         "{heard}"
     );
 }
+
+/// A server that accepts a request and never answers is left behind by the
+/// call that waited on it: the next call finds no socket there and starts a
+/// new server, instead of waiting out the same silence again. The wedged
+/// process is not touched.
+#[tokio::test]
+async fn a_server_that_went_silent_is_not_reconnected_to() {
+    let fixture = Fixture::new();
+    let socket = fixture.home.path().join("serve-wedged.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&socket).expect("bind");
+    // Accepts, reads nothing, writes nothing, stays open.
+    let wedged = std::thread::spawn(move || {
+        let mut held = Vec::new();
+        while let Ok((stream, _)) = listener.accept() {
+            held.push(stream);
+        }
+    });
+    let silence = Duration::from_millis(100);
+    let input = json!({});
+    let bound = socket_identity(&socket);
+    let mut stream = connect(&socket).await.expect("first call connects");
+    let first = exchange(
+        &mut stream,
+        &request(&input, Path::new("/w")),
+        None,
+        silence,
+        std::future::pending(),
+        std::future::pending::<()>(),
+        || {},
+        |_| {},
+    )
+    .await;
+    assert_eq!(first, Err(Failed::Stalled(silence)));
+    super::client::discard_stalled(&socket, bound);
+    assert!(
+        connect(&socket).await.is_none(),
+        "the second call does not reconnect to the wedged server"
+    );
+    // A successor that took the path keeps it.
+    let successor = std::os::unix::net::UnixListener::bind(&socket).expect("rebind");
+    // (A filesystem may reuse the inode: then the two are not told apart.)
+    if socket_identity(&socket) != bound {
+        super::client::discard_stalled(&socket, bound);
+        assert!(connect(&socket).await.is_some(), "a live successor stays");
+    }
+    drop(successor);
+    drop(stream);
+    // The wedged thread ends when its listener drops with the process; it holds
+    // nothing this test must stop.
+    drop(wedged);
+}

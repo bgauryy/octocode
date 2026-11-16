@@ -23,7 +23,7 @@ fn commit_continue_patch_copies_the_page_stream_cursor() {
             "patchPagination":{"unit":"chars","offset":0,"length":7,"total":20,"hasMore":true,"nextOffset":7}}],
         "sectionPagination":{"files":{"page":1,"hasMore":false}}
     });
-    let cursors = DiffCursors::of_file_page(&mut out["sectionPagination"]["files"], Some(10), true);
+    let cursors = DiffCursors::of_file_page(&mut out["sectionPagination"]["files"], Some(10));
     attach_diff_continuations(
         &mut out,
         &query,
@@ -78,7 +78,7 @@ fn history_b_patch_walk_hops_carry_no_response_page_knobs() {
     .expect("commit query");
     commit.auto_page_chars = Some(20_000);
     let mut out = json!({"sectionPagination":{"files":{"page":1,"hasMore":false}}});
-    let cursors = DiffCursors::of_file_page(&mut out["sectionPagination"]["files"], Some(10), true);
+    let cursors = DiffCursors::of_file_page(&mut out["sectionPagination"]["files"], Some(10));
     attach_diff_continuations(
         &mut out,
         &commit,

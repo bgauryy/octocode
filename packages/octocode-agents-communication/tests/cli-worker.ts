@@ -20,6 +20,8 @@ parentPort?.on('message', async ({ args, env, input }: Request) => {
   process.stdout.write = (text: string | Uint8Array): boolean => { stdout += Buffer.from(text).toString('utf8'); return true; };
   process.stderr.write = (text: string | Uint8Array): boolean => { stderr += Buffer.from(text).toString('utf8'); return true; };
   let status = 1;
+  // A pending timer keeps this thread's event loop waking: an asynchronous SQLite backup otherwise completes only after the loop sleeps out.
+  const wake = setInterval(() => {}, 5);
   try {
     status = await cli.main(args, {
       write: (text: string) => { stdout += text; },
@@ -29,6 +31,7 @@ parentPort?.on('message', async ({ args, env, input }: Request) => {
   } catch (error) {
     stderr += `${error instanceof Error ? error.stack ?? error.message : String(error)}\n`;
   } finally {
+    clearInterval(wake);
     process.stdout.write = out;
     process.stderr.write = err;
   }

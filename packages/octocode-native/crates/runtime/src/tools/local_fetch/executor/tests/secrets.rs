@@ -2,7 +2,6 @@
 //! base64 passes through.
 
 use super::*;
-use crate::tools::source_view::no_match::REDACTED_MISS;
 
 // A bounded read of an interior body line of a private key must not
 // leak the key, even when the file is NOT key-named and the selected window
@@ -77,13 +76,7 @@ fn match_string_cannot_probe_line_level_secrets() {
             .replace("AKIAIOSFODNN7EXAMPL", "AKIAIOSFODNN7EXAMPQ"),
         serde_json::to_string(&wrong.next).expect("json")
     );
-    assert!(
-        right
-            .hints
-            .iter()
-            .any(|hint| hint.starts_with(REDACTED_MISS)),
-        "{right:?}"
-    );
+    assert!(right.hints.is_empty(), "{right:?}");
     let clean = dir.join("clean.txt");
     fs::write(&clean, "nothing secret\n").expect("write clean");
     let miss = execute_local_fetch(
@@ -94,13 +87,7 @@ fn match_string_cannot_probe_line_level_secrets() {
         None,
         None,
     );
-    assert!(
-        !miss
-            .hints
-            .iter()
-            .any(|hint| hint.starts_with(REDACTED_MISS)),
-        "{miss:?}"
-    );
+    assert!(miss.hints.is_empty(), "{miss:?}");
     let after = probe("needle");
     assert_eq!(after.match_ranges, vec![LineRange { start: 3, end: 3 }]);
     assert_eq!(after.total_lines, Some(3));

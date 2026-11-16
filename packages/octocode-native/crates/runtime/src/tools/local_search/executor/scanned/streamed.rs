@@ -60,7 +60,6 @@ pub(crate) fn streams(query: &LocalSearchQuery) -> bool {
         && local_search_query::selection(query).is_none()
         && !tally::counts_all(query)
         && local_search_query::page(query) <= 1
-        && local_search_query::match_page(query) <= 1
 }
 
 /// The query's continuation: where its walk resumes.

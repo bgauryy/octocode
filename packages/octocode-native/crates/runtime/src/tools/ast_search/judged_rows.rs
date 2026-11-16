@@ -56,6 +56,27 @@ pub(super) fn judge_rows(data: &mut Value, sources: &RowSources<'_>, mut places:
     sources.warn(data);
 }
 
+/// Drop what only the judging above reads from a lean match row: its start
+/// `column` (no input takes it, and an expanded row keeps its range) and the
+/// `clipped` flag, which the header's own ` …` marker already states.
+pub(super) fn drop_judging_positions(value: &mut Value) {
+    match value {
+        Value::Array(items) => items.iter_mut().for_each(drop_judging_positions),
+        Value::Object(fields) => {
+            for row in rows(fields.get_mut("matches")) {
+                if let Some(row) = row.as_object_mut()
+                    && !row.contains_key("endColumn")
+                {
+                    row.remove("column");
+                    row.remove("clipped");
+                }
+            }
+            fields.values_mut().for_each(drop_judging_positions);
+        }
+        _ => {}
+    }
+}
+
 fn visit(value: &mut Value, sources: &RowSources<'_>, places: &mut NamePlaces) {
     match value {
         Value::Array(items) => items

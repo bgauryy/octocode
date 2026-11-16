@@ -111,11 +111,10 @@ fn graph_header_names_the_scope_relative_root_and_pages_lose_no_rows() {
         let page = query(&options, &workspace_policy(root));
         assert_eq!(page.class, ExitClass::Success, "{}", page.value);
         let graph = &page.value["graph"];
-        // Every page states the same scope-relative root graphBuild states.
-        // (Header once on later pages needs the core schema to make `root`
-        // and `createdAt` optional: patches/W8-graph-header-once.patch.)
+        // Every page names the graph by its id; the root and creation time
+        // are graphBuild's, and the id carries the scope's slug.
         assert_eq!(graph["id"], built.value["id"], "{}", page.value);
-        assert_eq!(graph["root"], scope, "{}", page.value);
+        assert_eq!(graph.as_object().map(|graph| graph.len()), Some(1));
         walked.extend(ids(&page));
         pages += 1;
         let Some(offset) = next_offset(&page) else {

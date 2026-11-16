@@ -351,3 +351,119 @@ fn extending_saved_response_pages_retains_earlier_source_work() {
 mod evidence_bodies;
 mod handles;
 mod turns;
+
+/// A write the store's filesystem refuses (a full or read-only disk) is a
+/// storage failure the caller can act on, never "the tool worker failed",
+/// and no handle is published.
+#[cfg(unix)]
+#[test]
+fn a_cursor_write_the_filesystem_refuses_is_a_storage_failure() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir().unwrap();
+    let registry = Registry::new(
+        CacheConfig::derived(),
+        Some(directory.path().into()),
+        "policy".into(),
+    );
+    // One write makes the store's files, so the refusal below is the write's own.
+    let mut first = registry.pending([9; 32], None);
+    insert_page(&mut first, 1);
+    registry.retain(first, &context()).expect("writable store");
+    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+    let writable = std::fs::File::create(directory.path().join(".probe")).is_ok();
+    let mut pending = registry.pending([9; 32], None);
+    let token = insert_page(&mut pending, 2);
+    let outcome = registry.retain(pending, &context());
+    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    if writable {
+        return; // a superuser writes anywhere
+    }
+    let error = outcome.expect_err("the write was refused");
+    assert_eq!(
+        error,
+        ExecutionError::StorageUnavailable(crate::execution::StorageFault::NotWritable)
+    );
+    let served = crate::runtime::engine::runtime_execution_error(error);
+    assert_eq!(
+        served.code,
+        octocode_contract_types::ErrorCode::ExecutionFailed
+    );
+    assert!(
+        served.message.contains("Persistent continuation storage")
+            && !served.message.contains("tool worker failed"),
+        "{}",
+        served.message
+    );
+    assert!(
+        served.message.contains("not writable"),
+        "the cause is named: {}",
+        served.message
+    );
+    // The served call tells the caller to fix the environment, not to report
+    // a tool failure.
+    let rejected = crate::runtime::error::tool_error_result("localSearch", &served);
+    let hints = rejected.envelope["hints"].to_string();
+    assert!(
+        hints.contains("OCTOCODE_HOME") && !hints.contains("tool failure"),
+        "{}",
+        rejected.envelope
+    );
+    assert!(registry.open(ToolId::LocalSearch, &token, [9; 32]).is_err());
+}
+
+/// A full disk and a quota are one fault and a refused permission another, so
+/// the message names the one the filesystem reported.
+#[test]
+fn a_storage_failure_keeps_the_kind_the_filesystem_gave() {
+    use crate::execution::StorageFault;
+    use std::io::ErrorKind;
+    for (kind, fault, said) in [
+        (ErrorKind::StorageFull, StorageFault::Full, "full"),
+        (ErrorKind::QuotaExceeded, StorageFault::Full, "full"),
+        (
+            ErrorKind::PermissionDenied,
+            StorageFault::NotWritable,
+            "not writable",
+        ),
+        (
+            ErrorKind::ReadOnlyFilesystem,
+            StorageFault::NotWritable,
+            "not writable",
+        ),
+    ] {
+        assert_eq!(StorageFault::from(kind), fault);
+        let served = crate::runtime::engine::runtime_execution_error(
+            ExecutionError::StorageUnavailable(fault),
+        );
+        assert!(
+            served.message.contains(said),
+            "{kind:?}: {}",
+            served.message
+        );
+    }
+}
+
+/// A saved continuation names a file by its shown name: a file named after a
+/// credential is never stored with the credential in it.
+#[test]
+fn a_saved_continuation_stores_no_raw_credential_from_a_path() {
+    let name = format!(
+        "deploy-ghp_{}.txt",
+        "a1B2c3D4e5".repeat(4).get(..36).unwrap()
+    );
+    let registry = registry("policy");
+    let mut pending = registry.pending([5; 32], None);
+    let token = pending.insert(
+        ToolId::LocalSearch,
+        json!({"queries":[{"path":format!("src/{name}"),"paths":[name.clone()],"page":2}]}),
+        SavedWork::ToolResume { index: Some(0) },
+    );
+    registry.retain(pending, &context()).unwrap();
+    let opened = registry.open(ToolId::LocalSearch, &token, [5; 32]).unwrap();
+    let stored = opened.member().input.to_string();
+    assert!(!stored.contains("ghp_a1B2"), "{stored}");
+    assert!(
+        stored.contains("REDACTED") && stored.contains("deploy-"),
+        "{stored}"
+    );
+}

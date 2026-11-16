@@ -25,8 +25,9 @@ const CANCEL_SLICE: Duration = Duration::from_millis(100);
 
 /// Why the store's lock was not taken.
 enum NotLocked {
-    /// Busy to the deadline, or the lock file failed.
-    Unavailable,
+    /// Busy to the deadline (`None`), or the lock file or lock operation
+    /// failed with this kind.
+    Unavailable(Option<io::ErrorKind>),
     /// The request this thread works for was cancelled: nobody reads its
     /// answer, so nothing is said.
     Cancelled,
@@ -65,7 +66,7 @@ impl Disk {
     /// ([`octocode_engine::deep_stack::current_stop`]): a cancelled request
     /// must not stay joined to a wait only the holder ends.
     fn lock(&self, deadline: Instant) -> Result<StoreLock, NotLocked> {
-        let unavailable = |_| NotLocked::Unavailable;
+        let unavailable = |error: io::Error| NotLocked::Unavailable(Some(error.kind()));
         octocode_io::atomic::create_private_dir_all(&self.dir).map_err(unavailable)?;
         let file =
             crate::private_file::open_no_follow(&self.dir.join(LOCK), true).map_err(unavailable)?;
@@ -92,7 +93,8 @@ impl Disk {
                     });
                 }
                 Err(LockError::Busy) if Instant::now() < deadline => {}
-                Err(_) => return Err(NotLocked::Unavailable),
+                Err(LockError::Busy) => return Err(NotLocked::Unavailable(None)),
+                Err(LockError::Io(error)) => return Err(unavailable(error)),
             }
         }
     }
@@ -103,17 +105,28 @@ impl Disk {
     /// nothing the agent acts on.
     fn lock_to_write(&self, deadline: Instant) -> Option<StoreLock> {
         let lock = self.lock(deadline);
-        if matches!(lock, Err(NotLocked::Unavailable)) {
-            let store = self.dir.file_name().unwrap_or(self.dir.as_os_str());
-            octocode_io::notice::raise_in_result(
-                STORE_BUSY,
-                format!(
-                    "The cache store {} was busy or could not be locked, so something this call found was not saved; a later call reads it again.",
-                    store.to_string_lossy()
-                ),
-            );
+        if let Err(NotLocked::Unavailable(cause)) = &lock {
+            self.say_not_locked(*cause);
         }
         lock.ok()
+    }
+
+    /// The call's note that a write was not kept because the store's lock
+    /// could not be taken: the cause is access when the filesystem refused
+    /// the lock file, busy otherwise.
+    fn say_not_locked(&self, cause: Option<io::ErrorKind>) {
+        let store = self.dir.file_name().unwrap_or(self.dir.as_os_str());
+        let cause = match cause {
+            Some(kind) if refused_for_access(kind) => "is not writable",
+            _ => "was busy or could not be locked",
+        };
+        octocode_io::notice::raise_in_result(
+            STORE_BUSY,
+            format!(
+                "The cache store {} {cause}, so something this call found was not saved; a later call reads it again.",
+                store.to_string_lossy()
+            ),
+        );
     }
 
     fn capacity(&self) -> Option<Capacity> {
@@ -122,9 +135,9 @@ impl Disk {
         serde_json::from_slice(&bytes).ok()
     }
 
-    fn save_capacity(&self, capacity: &Capacity) -> Option<()> {
-        let bytes = serde_json::to_vec(capacity).ok()?;
-        octocode_io::atomic::write_atomic(&self.dir.join(CAPACITY), &bytes, false).ok()
+    fn save_capacity(&self, capacity: &Capacity) -> io::Result<()> {
+        let bytes = serde_json::to_vec(capacity).map_err(io::Error::other)?;
+        octocode_io::atomic::write_atomic(&self.dir.join(CAPACITY), &bytes, false)
     }
 
     pub(super) fn publish(
@@ -133,21 +146,33 @@ impl Disk {
         parts: [&[u8]; 2],
         config: &CacheConfig,
         deadline: Instant,
-    ) -> bool {
+    ) -> Result<(), NotStored> {
         let Some(size) = parts[0].len().checked_add(parts[1].len()) else {
-            return false;
+            return Err(NotStored::Refused);
         };
         if size as u64 > config.disk_bytes {
-            return false;
+            return Err(NotStored::Refused);
         }
-        let Some(_lock) = self.lock_to_write(deadline) else {
-            return false;
+        let lock = match self.lock(deadline) {
+            Ok(lock) => lock,
+            Err(NotLocked::Cancelled) => return Err(NotStored::Cancelled),
+            Err(NotLocked::Unavailable(cause)) => {
+                self.say_not_locked(cause);
+                return Err(NotStored::Unlocked(cause));
+            }
         };
-        self.publish_locked(path, parts, size as u64, config.disk_bytes)
-            .is_some()
+        let stored = self.publish_locked(path, parts, size as u64, config.disk_bytes);
+        drop(lock);
+        stored
     }
 
-    fn publish_locked(&self, path: &Path, parts: [&[u8]; 2], size: u64, budget: u64) -> Option<()> {
+    fn publish_locked(
+        &self,
+        path: &Path,
+        parts: [&[u8]; 2],
+        size: u64,
+        budget: u64,
+    ) -> Result<(), NotStored> {
         self.reserve(path, size, budget)?;
         octocode_io::atomic::write_atomic_with(path, 0o600, false, |file| {
             for part in parts {
@@ -155,7 +180,7 @@ impl Disk {
             }
             Ok(())
         })
-        .ok()
+        .map_err(|error| NotStored::Failed(error.kind()))
     }
 
     /// Link `from` as `to`, counted at its whole size: the budget does not
@@ -176,7 +201,7 @@ impl Disk {
         let Some(_lock) = self.lock_to_write(Instant::now() + REUSE_LOCK_WAIT) else {
             return false;
         };
-        if self.reserve(to, source.len(), config.disk_bytes).is_none() {
+        if self.reserve(to, source.len(), config.disk_bytes).is_err() {
             return false;
         }
         match fs::hard_link(from, to) {
@@ -200,13 +225,14 @@ impl Disk {
     }
 
     /// Make room for an entry of `size` at `path`.
-    fn reserve(&self, path: &Path, size: u64, budget: u64) -> Option<()> {
+    fn reserve(&self, path: &Path, size: u64, budget: u64) -> Result<(), NotStored> {
+        let failed = |error: io::Error| NotStored::Failed(error.kind());
         let now = now_unix();
         let mut capacity = match self.capacity() {
             Some(capacity) if now.saturating_sub(capacity.scanned_at) < SCAN_INTERVAL => capacity,
-            _ => self.trim(budget, Some(path), now).ok()?,
+            _ => self.trim(budget, Some(path), now).map_err(failed)?,
         };
-        let old_size = entry_size(path).ok()?;
+        let old_size = entry_size(path).map_err(failed)?;
         // Reserve max(old,new) through the rename: a process crash must not leave the
         // old, larger entry paired with a smaller reservation.
         let growth = size.saturating_sub(old_size);
@@ -218,14 +244,17 @@ impl Disk {
             // Reconcile reader deletions and make headroom in one scan. Batch
             // eviction keeps a full cache from scanning on every insertion.
             let target = budget.saturating_sub(growth).saturating_sub(budget / 8);
-            capacity = self.trim(target, Some(path), now).ok()?;
+            capacity = self.trim(target, Some(path), now).map_err(failed)?;
         }
-        let growth = size.saturating_sub(entry_size(path).ok()?);
-        capacity.used = capacity.used.checked_add(growth)?;
+        let growth = size.saturating_sub(entry_size(path).map_err(failed)?);
+        capacity.used = capacity
+            .used
+            .checked_add(growth)
+            .ok_or(NotStored::Refused)?;
         if capacity.used > budget {
-            return None;
+            return Err(NotStored::Refused);
         }
-        self.save_capacity(&capacity)
+        self.save_capacity(&capacity).map_err(failed)
     }
 
     /// Reconcile the whole directory once, removing expired entries before
@@ -276,8 +305,13 @@ impl Disk {
             if extension == Some(ENTRY_EXTENSION) || link {
                 let aged = || {
                     if link {
+                        // A date ahead of the clock by more than the link's own
+                        // lifetime cannot be true: it is as old as that.
                         now.duration_since(meta.modified().unwrap_or(now))
-                            .is_ok_and(|age| age >= crate::cache::CONTINUATION_IDLE)
+                            .map_or_else(
+                                |ahead| ahead.duration() > crate::cache::CONTINUATION_IDLE,
+                                |age| age >= crate::cache::CONTINUATION_IDLE,
+                            )
                     } else {
                         expired(&path, unix_now)
                     }

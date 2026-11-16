@@ -209,6 +209,7 @@ pub(crate) fn kept_run(
     only: &[String],
     root: Option<&std::path::Path>,
     entries: Option<&[String]>,
+    global: octocode_engine::search::walk::GlobalIgnore,
     stopped: &(dyn Fn() -> bool + Sync),
 ) -> Result<std::sync::Arc<Report>, String> {
     static REPORTS: crate::tools::page_memo::PageMemo<crate::tools::page_memo::Proven<Report>> =
@@ -218,11 +219,13 @@ pub(crate) fn kept_run(
         root.map(std::path::Path::to_string_lossy),
         only,
         entries,
+        // The call's own global ignore file shapes the mention scan.
+        format!("{:?}", global.file()),
     ]));
     if let Some(kept) = REPORTS.current(&key, "") {
         return Ok(kept);
     }
-    let report = std::sync::Arc::new(run(t, only, root, entries, stopped)?);
+    let report = std::sync::Arc::new(run(t, only, root, entries, global, stopped)?);
     if !stopped()
         && let Some(proof) = &report.proof
     {
@@ -245,6 +248,7 @@ pub(crate) fn run(
     only: &[String],
     root: Option<&std::path::Path>,
     entries: Option<&[String]>,
+    global: octocode_engine::search::walk::GlobalIgnore,
     stopped: &(dyn Fn() -> bool + Sync),
 ) -> Result<Report, String> {
     for name in only {
@@ -277,7 +281,7 @@ pub(crate) fn run(
         .retain(|f| wants(f.detector) || (spread && f.detector == "unreachable-file"));
     let mut proof = Some(octocode_engine::stamp::Proof::default());
     if let Some(root) = root {
-        proof = tier_dead_code(&c.v, &mut c.findings, &mut c.notes, root, stopped);
+        proof = tier_dead_code(&c.v, &mut c.findings, &mut c.notes, root, global, stopped);
         spread_mentioned_liveness(&c.v, &mut c.findings);
         c.findings.retain(|f| wants(f.detector));
     } else if c

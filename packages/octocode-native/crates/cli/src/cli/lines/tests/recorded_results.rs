@@ -90,12 +90,12 @@ fn assert_aligned(rule: &str, (new, fixed): (Vec<String>, Vec<String>)) {
 
 /// Removed by Wave 1 (non-breaking, text renderer): these rows print as
 /// indented `key: value` text, which repeats each key on every item of a
-/// list. The roast (F8) also named the history commit, the pull request and
+/// list. The roast also named the history commit, the pull request and
 /// issue comments: the recorded commit and pull request now fit, and no
 /// recording holds issue comments.
 const LARGER_THAN_JSON: &[&str] = &["securityCheck advisory hit"];
 
-/// C1: text stdout is no larger than the JSON of the same result.
+/// Text stdout is no larger than the JSON of the same result.
 #[test]
 fn recorded_text_is_no_larger_than_its_json() {
     let larger = |call: &Recorded| text(call).out.len() > call.result.to_string().len();
@@ -127,7 +127,7 @@ fn stdout_misses_a_fact(call: &Recorded) -> bool {
 /// Removed by Wave 1 (non-breaking, text renderer).
 const STDOUT_MISSES_A_FACT: &[&str] = &[];
 
-/// C2: with stderr dropped, stdout states status, `hasMore` and a runnable
+/// With stderr dropped, stdout states status, `hasMore` and a runnable
 /// continuation.
 #[test]
 fn recorded_stdout_alone_says_whether_the_answer_is_whole() {
@@ -190,7 +190,7 @@ fn a_number_after_a_path_is_no_line(call: &Recorded) -> bool {
 /// Removed by Wave 1 (non-breaking, text renderer).
 const PATH_NUMBER_IS_NO_LINE: &[&str] = &[];
 
-/// C4: `path:N` names a line and nothing else.
+/// `path:N` names a line and nothing else.
 #[test]
 fn recorded_path_numbers_are_lines() {
     assert_aligned(
@@ -214,7 +214,7 @@ fn batch_differs(call: &Recorded) -> bool {
 /// Removed by Wave 1 (non-breaking, text renderer).
 const BATCH_DIFFERS: &[&str] = &[];
 
-/// C5: a row prints alike alone and in a batch.
+/// A row prints alike alone and in a batch.
 #[test]
 fn recorded_rows_print_alike_alone_and_in_a_batch() {
     assert_aligned(

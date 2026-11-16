@@ -84,6 +84,10 @@ const marker=${JSON.stringify(join(directory,'stalled'))};
 if(result.status===0&&!existsSync(marker)){writeFileSync(marker,'');await new Promise(resolve=>setTimeout(resolve,30000));}
 process.exit(result.status);
 `);
+ // The tool's ten-second child deadline runs at a fifth of its length, so the stalled exit is cut off after two seconds.
+ const previousScale=process.env.OCTOCODE_COMMUNICATION_TIMEOUT_SCALE;
+ process.env.OCTOCODE_COMMUNICATION_TIMEOUT_SCALE='0.2';
+ t.after(()=>{if(previousScale===undefined)delete process.env.OCTOCODE_COMMUNICATION_TIMEOUT_SCALE;else process.env.OCTOCODE_COMMUNICATION_TIMEOUT_SCALE=previousScale;});
  const f=senderTool(t,shim),input={type:'send',input:{to:f.recipient,parts:[{text:'Review the API'}],reasoning:'Verify ambiguous send recovery'}};
  const key=`pi:${createHash('sha256').update('ambiguous-send').digest('hex')}`;
  await assert.rejects(f.tool.execute('ambiguous-send',input),(error: unknown)=>{assert.ok(error instanceof Error);

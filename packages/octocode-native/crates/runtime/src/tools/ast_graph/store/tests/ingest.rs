@@ -106,7 +106,7 @@ fn ingest_classifies_roles_entries_and_declared_dependencies() {
     assert_eq!(ids(&uses), vec!["app/src/main.ts"], "{}", uses.value);
 }
 
-/// Minified sources are graphed like any other (B135: no size cut of the
+/// Minified sources are graphed like any other (no size cut of the
 /// scan's own). A 1.28 MB one-line bundle of 160,000 `var a` declarations
 /// is either graphed whole or declined by a named budget, explicit either
 /// way; a small bundle keeps its declarations and call sites.

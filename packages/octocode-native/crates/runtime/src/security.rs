@@ -15,7 +15,7 @@ pub(crate) use content::{
     KEY_LINE_HEAD_BYTES, KeyBlockState, KeyBlockTracker, LineShapeScan, MarkerScan, hide_key_line,
     key_fragment_placeholder, key_line_bytes, key_line_lead, match_window_intersects_key_block,
     private_key_block_line_ranges, private_key_blocks_hidden, redact_private_key_blocks,
-    snippet_may_hold_key_material,
+    row_shown_unchecked, snippet_may_hold_key_material,
 };
 pub(crate) use input::{Admitted, CheckedQuery, InputPolicy};
 #[cfg(test)]
@@ -43,37 +43,23 @@ pub(crate) fn quoted(text: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
-/// The one warning that returned text is not verbatim source: `values`
-/// secret-shaped values were replaced by placeholders (`0`: an unknown number,
-/// as when a page shows only a blanked line of one redaction). Every tool
-/// states a redaction with it, whichever stage redacted.
-pub(crate) fn redacted_content_warning(values: usize) -> String {
-    if values > 0 {
-        format!(
-            "redactedContent: {values} secret-shaped value(s) in the returned text were replaced by [REDACTED…] placeholders; this content is not verbatim source."
-        )
-    } else {
-        "redactedContent: secret-shaped text in the requested view was redacted; this content is not verbatim source.".into()
+/// What a tool puts in its warnings plumbing when text it returns was
+/// replaced by placeholders: never shown. The output gate turns it into the
+/// row's `redacted` flag ([`crate::response::rows::warn_redacted_rows`]), the
+/// one statement of a redaction.
+pub(crate) const REDACTED_MARK: &str = "\u{1}redacted";
+
+/// [`REDACTED_MARK`] as a warning.
+pub(crate) fn redacted_mark() -> String {
+    REDACTED_MARK.to_owned()
+}
+
+/// Sets the row's `redacted` flag: secret-shaped text in `data` was replaced
+/// by placeholders and the rest is verbatim.
+pub(crate) fn mark_redacted(data: &mut serde_json::Value) {
+    if let Some(fields) = data.as_object_mut() {
+        fields.insert("redacted".into(), serde_json::Value::Bool(true));
     }
-}
-
-/// The values a [`redacted_content_warning`] counts; `None` for any other
-/// warning, or one that counts none: parts of one row joined state their sum.
-pub(crate) fn redacted_values(warning: &str) -> Option<usize> {
-    let values = warning
-        .strip_prefix("redactedContent: ")?
-        .split_once(' ')?
-        .0
-        .parse()
-        .ok()?;
-    (values > 0 && redacted_content_warning(values) == warning).then_some(values)
-}
-
-/// Whether `warning` states that a row's own text was redacted
-/// ([`redacted_content_warning`], localSearch's `redactedMatches`): a fact of
-/// that row, with that row's count, never of the call.
-pub(crate) fn states_a_redaction(warning: &str) -> bool {
-    warning.starts_with("redacted")
 }
 
 /// Redaction placeholders in `text` (literal ones in a source count too).

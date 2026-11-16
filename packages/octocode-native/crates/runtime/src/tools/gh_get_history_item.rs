@@ -128,6 +128,14 @@ impl HistoryItemRequest {
             None => crate::policy::discovery::is_sensitive_repository_file(path),
         }
     }
+    /// Whether the policy withholds the text of a changed file, by its path
+    /// or a rename's previous path ([`crate::policy::path::PathPolicy::withheld_text`]).
+    pub(crate) fn withheld_text(&self, path: &str, previous: Option<&str>) -> bool {
+        match &self.paths {
+            Some(paths) => paths.withheld_text(path, previous, None),
+            None => crate::policy::path::withheld_text_by_default(path, previous, None),
+        }
+    }
     /// The sections the row reads.
     pub(crate) fn sections(&self) -> Sections {
         self.sections
@@ -176,7 +184,8 @@ pub async fn execute(
     context: &RequestContext,
     security: &(impl ContentScan + Sync),
 ) -> Result<ToolData, ProviderError> {
-    let source = Source::new(&provider.transport, security);
+    let withholds = |path: &str, previous: Option<&str>| query.withheld_text(path, previous);
+    let source = Source::new(&provider.transport, security).withholding(&withholds);
     let result = execute_inner(provider, &source, query, context).await;
     let mut output = match result {
         Ok(output) => output,
@@ -277,21 +286,11 @@ pub async fn execute(
     } else {
         identify(&mut output.data);
     }
-    // The row is redacted here, before the output gate sees it: say so with
-    // the shared warning, as the gate does for what it redacts. The count is
-    // what this page shows: the source redacted every body and patch it
-    // fetched, files a filter left out and other pages' included.
+    // The row is redacted here, before the output gate sees it: mark it,
+    // as the gate marks what it redacts.
     let added = sanitize_provider_json(security, &mut output.data, Path::new(SCAN_PATH))?;
-    let redacted = if added + source.redacted() > 0 {
-        crate::security::placeholders_in(&output.data)
-    } else {
-        0
-    };
-    if redacted > 0 {
-        crate::response::paging::push_warnings(
-            &mut output.data,
-            [crate::security::redacted_content_warning(redacted)],
-        );
+    if added + source.redacted() > 0 && crate::security::placeholders_in(&output.data) > 0 {
+        crate::security::mark_redacted(&mut output.data);
     }
     publish_section_pages(&mut output.data);
     remove_nulls(&mut output.data);

@@ -7,7 +7,7 @@
 //! outlines, parsed declarations, name mentions) are the other results a
 //! fresh request may reuse.
 mod disk;
-pub(crate) use disk::Disk;
+pub(crate) use disk::{Disk, NotStored};
 
 use octocode_io::memo::Memo;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -240,23 +240,45 @@ impl<V: Send + Sync + 'static, C: DiskCodec<V>> Store<V, C> {
         bytes: usize,
         class: CacheClass,
     ) -> (Arc<V>, bool) {
+        let (value, stored) = self.put_checked(deadline, key, value, bytes, class);
+        (value, stored.is_ok())
+    }
+
+    /// [`Self::put_until`] saying why a write was not kept: a caller whose
+    /// answer depends on the write reports the cause it can act on.
+    pub(crate) fn put_checked(
+        &self,
+        deadline: Instant,
+        key: CacheKey,
+        value: V,
+        bytes: usize,
+        class: CacheClass,
+    ) -> (Arc<V>, Result<(), disk::NotStored>) {
         if !class.is_live(Duration::ZERO) {
-            return (Arc::new(value), false);
+            return (Arc::new(value), Err(disk::NotStored::Refused));
         }
         if let Some(disk) = &self.disk {
             let saved = disk.write::<V, C>(&key, &value, class, &self.config, deadline);
             return (Arc::new(value), saved);
         }
         let Some(memory) = &self.memory else {
-            return (Arc::new(value), false);
+            return (Arc::new(value), Err(disk::NotStored::Refused));
         };
-        memory.insert_full(
+        let (value, kept) = memory.insert_full(
             Arc::new(key),
             value,
             class,
             bytes,
             class.ttl(),
             Instant::now(),
+        );
+        (
+            value,
+            if kept {
+                Ok(())
+            } else {
+                Err(disk::NotStored::Refused)
+            },
         )
     }
 

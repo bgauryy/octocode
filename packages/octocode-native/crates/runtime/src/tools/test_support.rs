@@ -214,8 +214,6 @@ pub(crate) fn published(tool: ToolId, row: &Value) -> Value {
     let shaped = crate::response::rows::result_row(0, row.clone(), row["status"].as_str());
     let mut output = serde_json::json!({"results":[shaped]});
     crate::response::notices::place(&mut output, "results");
-    let call_notes = crate::response::notices::take_timed_notices(&mut output, "results");
-    crate::response::notices::state_call_notes(&mut output, &call_notes);
     publish_for_assertion(tool.as_str(), &output)
 }
 

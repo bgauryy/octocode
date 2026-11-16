@@ -62,12 +62,14 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         name: "rsaPrivateKey",
         // The armor names the block and holds none of it: only the body
         // (`secret`, without the line breaks that end the armor lines) is
-        // hidden. The body holds no run of the armor's dashes, so a match
-        // never runs from one armor across another (a quoted BEGIN above).
+        // hidden. The body is key-shaped lines (`key_body!`): code between two
+        // armor literals ends a match, and no match runs across another armor.
         regex: concat!(
             r###"-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----[ \t]*(?:\r?\n)?"###,
             armor_headers!(),
-            r###"[ \t]*(?P<secret>(?:-{0,4}[^-])*?)(?:\r?\n)?[ \t]*-----END\s+(?:RSA\s+)?PRIVATE\s+KEY-----"###,
+            r###"[ \t]*(?P<secret>"###,
+            key_body!(),
+            r###")(?:\r?\n)?[ \t]*-----END\s+(?:RSA\s+)?PRIVATE\s+KEY-----"###,
         ),
     },
     SecretPattern {
@@ -80,7 +82,9 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         regex: concat!(
             r###"-----BEGIN\s+OPENSSH\s+PRIVATE\s+KEY-----[ \t]*(?:\r?\n)?"###,
             armor_headers!(),
-            r###"[ \t]*(?P<secret>(?:-{0,4}[^-])*?)(?:\r?\n)?[ \t]*-----END\s+OPENSSH\s+PRIVATE\s+KEY-----|b3BlbnNzaC1rZXktdjEA[A-Za-z0-9+/]{40,}={0,2}(?:\r?\n[ \t]*[A-Za-z0-9+/]{16,}={0,2}[ \t]*(?m:$))*"###,
+            r###"[ \t]*(?P<secret>"###,
+            key_body!(),
+            r###")(?:\r?\n)?[ \t]*-----END\s+OPENSSH\s+PRIVATE\s+KEY-----|b3BlbnNzaC1rZXktdjEA[A-Za-z0-9+/]{40,}={0,2}(?:\r?\n[ \t]*[A-Za-z0-9+/]{16,}={0,2}[ \t]*(?m:$))*"###,
         ),
     },
     SecretPattern {
@@ -91,7 +95,9 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         regex: concat!(
             r###"-----?[ \t]?BEGIN[ \t]+SSH2(?:[ \t]+ENCRYPTED)?[ \t]+PRIVATE[ \t]+KEY[ \t]*-----?[ \t]*(?:\r?\n)?"###,
             armor_headers!(),
-            r###"[ \t]*(?P<secret>(?:-{0,3}[^-])*?)(?:\r?\n)?[ \t]*-----?[ \t]?END[ \t]+SSH2(?:[ \t]+ENCRYPTED)?[ \t]+PRIVATE[ \t]+KEY[ \t]*-----?"###,
+            r###"[ \t]*(?P<secret>"###,
+            key_body!(),
+            r###")(?:\r?\n)?[ \t]*-----?[ \t]?END[ \t]+SSH2(?:[ \t]+ENCRYPTED)?[ \t]+PRIVATE[ \t]+KEY[ \t]*-----?"###,
         ),
     },
     SecretPattern {
@@ -123,9 +129,13 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         regex: concat!(
             r###"-----BEGIN\s+(?:PGP\s+)?SECRET\s+KEY(?:\s+BLOCK)?-----[ \t]*(?:\r?\n)?"###,
             armor_headers!(),
-            r###"[ \t]*(?P<secret>(?:-{0,4}[^-])*?)(?:\r?\n)?[ \t]*-----END\s+(?:PGP\s+)?SECRET\s+KEY(?:\s+BLOCK)?-----|-----BEGIN\s+OpenVPN\s+Static\s+key\s+V\d+-----[ \t]*(?:\r?\n)?"###,
+            r###"[ \t]*(?P<secret>"###,
+            key_body!(),
+            r###")(?:\r?\n)?[ \t]*-----END\s+(?:PGP\s+)?SECRET\s+KEY(?:\s+BLOCK)?-----|-----BEGIN\s+OpenVPN\s+Static\s+key\s+V\d+-----[ \t]*(?:\r?\n)?"###,
             armor_headers!(),
-            r###"[ \t]*(?P<secret_vpn>(?:-{0,4}[^-])*?)(?:\r?\n)?[ \t]*-----END\s+OpenVPN\s+Static\s+key\s+V\d+-----"###,
+            r###"[ \t]*(?P<secret_vpn>"###,
+            key_body!(),
+            r###")(?:\r?\n)?[ \t]*-----END\s+OpenVPN\s+Static\s+key\s+V\d+-----"###,
         ),
     },
     SecretPattern {

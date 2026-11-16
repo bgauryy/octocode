@@ -40,6 +40,36 @@ impl Default for RequestLimits {
     }
 }
 
+/// Why the filesystem refused the continuation store, as far as its error
+/// kind says: the caller fixes the environment, and which fix depends on it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StorageFault {
+    /// No space or quota is left.
+    Full,
+    /// Permission denied, or a read-only filesystem.
+    NotWritable,
+    /// Any other failure, or none stated (a lock held to the deadline).
+    Other,
+}
+
+impl From<std::io::ErrorKind> for StorageFault {
+    fn from(kind: std::io::ErrorKind) -> Self {
+        use std::io::ErrorKind;
+        match kind {
+            ErrorKind::StorageFull | ErrorKind::QuotaExceeded => Self::Full,
+            ErrorKind::PermissionDenied | ErrorKind::ReadOnlyFilesystem => Self::NotWritable,
+            _ => Self::Other,
+        }
+    }
+}
+
+impl From<&std::io::Error> for StorageFault {
+    fn from(error: &std::io::Error) -> Self {
+        error.kind().into()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ExecutionError {
@@ -51,8 +81,9 @@ pub enum ExecutionError {
     Timeout,
     /// A tool reached a dispatcher that has no route for it.
     UnroutedTool,
-    /// Continuations cannot be retained in the configured persistent store.
-    StorageUnavailable,
+    /// Continuations cannot be retained in the configured persistent store,
+    /// for the reason the filesystem gave.
+    StorageUnavailable(StorageFault),
     /// This host exits after the call, but the answer needs memory-only saved work.
     ContinuationLifetime,
     WorkerFailed,
@@ -70,7 +101,7 @@ impl ExecutionError {
             Self::Timeout => ErrorCode::Timeout,
             Self::UnroutedTool => ErrorCode::UnroutedTool,
             Self::InvalidLimits
-            | Self::StorageUnavailable
+            | Self::StorageUnavailable(_)
             | Self::ContinuationLifetime
             | Self::WorkerFailed => ErrorCode::ExecutionFailed,
         }
@@ -87,7 +118,9 @@ impl std::fmt::Display for ExecutionError {
             Self::Cancelled => "The request was cancelled.",
             Self::Timeout => "Tool call timed out.",
             Self::UnroutedTool => "No route executes this tool.",
-            Self::StorageUnavailable => "Persistent continuation storage is unavailable. Check filesystem permissions or select a writable OCTOCODE_HOME; the continuation was not published.",
+            Self::StorageUnavailable(StorageFault::Full) => "Persistent continuation storage is full: the disk or quota holding OCTOCODE_HOME has no space left; the continuation was not published.",
+            Self::StorageUnavailable(StorageFault::NotWritable) => "Persistent continuation storage is not writable: the filesystem refused access under OCTOCODE_HOME; the continuation was not published.",
+            Self::StorageUnavailable(StorageFault::Other) => "Persistent continuation storage is unavailable under OCTOCODE_HOME; the continuation was not published.",
             Self::ContinuationLifetime => "This answer requires continuations, but this command exits after one call and its saved work is memory-only. The requested evidence has not been delivered completely; no continuation was published. Use a live MCP session, or enable persistent storage with security settings that permit saving results, then repeat the original request.",
             Self::WorkerFailed => "The tool worker failed.",
         })

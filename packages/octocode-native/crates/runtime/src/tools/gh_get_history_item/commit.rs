@@ -243,7 +243,8 @@ fn commit_file_page(
 fn commit_leads(query: &HistoryItemRequest, commit: &CommitFacts<'_>, page: FilePage) -> Vec<Lead> {
     let mut leads = Vec::from_iter(page.without_match);
     leads.extend(
-        commit_pull_request_lead(commit.message, query).map(|lead| ("readPullRequest", lead)),
+        commit_pull_request_lead(commit.message, query)
+            .map(|lead| ("readPullRequest".to_owned(), lead)),
     );
     leads.extend(page.side_reads);
     leads

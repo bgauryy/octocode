@@ -53,7 +53,7 @@ async fn squash_merge_commit_reads_its_pull_request_directly() {
         "{data}"
     );
     // The message names the PR by number only: the row offers the one
-    // read of it as a related call (R3: a numeric identity the row does not
+    // read of it as a related call (a numeric identity the row does not
     // state keeps its lead) and never reads it itself.
     assert_eq!(
         data["related"],

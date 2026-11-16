@@ -21,12 +21,12 @@ async function listen(server: HttpServer | SocketServer): Promise<number> {
   assert.ok(address && typeof address === 'object', 'the server listens on a TCP port');
   return address.port;
 }
-function fixture(t: TestContext) {
+function fixture(t: TestContext, env: NodeJS.ProcessEnv = {}) {
   const workspace = tempDir('communication-boundaries-');
   const database = join(workspace, 'audit.sqlite');
   const args = commandArgs(workspace, database);
   const call = jsonCall(binary, workspace, database);
-  const asyncCall = (command: string, input: Record<string, unknown>, session: string) => exec(binary, args(command, input, session), { timeout: 7500, killSignal: 'SIGKILL' });
+  const asyncCall = (command: string, input: Record<string, unknown>, session: string) => exec(binary, args(command, input, session), { timeout: 7500, killSignal: 'SIGKILL', env: { ...process.env, ...env } });
   const sender = call('join', { name: 'sender', vendor: 'generic' });
   const receiver = call('join', { name: 'receiver', vendor: 'generic' });
   call('send_message', {parts: [{ text: 'Recipient-bound fact' }],  to: receiver.id, reasoning: 'Exercise preflight boundaries', wake: 'passive' }, sender.id);
@@ -35,7 +35,8 @@ function fixture(t: TestContext) {
   return { workspace, call, asyncCall, receiver, db };
 }
 test('Codex requests have an absolute deadline even while a frame arrives slowly', async t => {
-  const f = fixture(t), sockets = new Set<Socket>(), timers = new Set<NodeJS.Timeout>();
+  // A tenth of the five-second socket deadline: the child fails after half a second instead of five.
+  const f = fixture(t, { OCTOCODE_COMMUNICATION_TIMEOUT_SCALE: '0.1' }), sockets = new Set<Socket>(), timers = new Set<NodeJS.Timeout>();
   const server = socketServer(socket => {
     sockets.add(socket); socket.on('error', () => {});
     let timer: NodeJS.Timeout | undefined;
@@ -61,7 +62,7 @@ test('Codex requests have an absolute deadline even while a frame arrives slowly
     assert.equal(error.killed, false, 'adapter must terminate itself, not rely on the test timeout');
     return true;
   });
-  assert.ok(performance.now() - started < 6500, 'the five-second deadline bounds partial frame input');
+  assert.ok(performance.now() - started < 4000, 'the scaled deadline bounds partial frame input');
   assert.equal(only(f.db.prepare('SELECT count(*) AS n FROM dispatches').get()).n, 0);
 });
 test('Changing the attachment during preflight prevents staging to the old recipient', async t => {

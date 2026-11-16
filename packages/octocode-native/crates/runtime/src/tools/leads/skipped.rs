@@ -259,7 +259,7 @@ pub(crate) fn grouped(
     }
     (!groups.is_empty()).then_some(SkippedPaths {
         entries: groups,
-        sampled: incomplete,
+        sampled: incomplete.then_some(true),
     })
 }
 
@@ -273,7 +273,8 @@ pub(crate) fn appended(
     match (first, then) {
         (Some(mut first), Some(then)) => {
             first.entries.extend(then.entries);
-            first.sampled |= then.sampled;
+            first.sampled =
+                (first.sampled == Some(true) || then.sampled == Some(true)).then_some(true);
             Some(first)
         }
         (first, then) => first.or(then),

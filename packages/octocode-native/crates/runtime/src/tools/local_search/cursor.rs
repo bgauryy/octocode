@@ -12,9 +12,8 @@ use octocode_engine::digest::{Nulls, canonical_json};
 use octocode_engine::num::saturating_u32;
 use serde_json::{Value, json};
 
-/// The page's continuations, and whether rows remain in its own files.
-/// Storing the scan for later pages happens here, once a page names the
-/// snapshot.
+/// The page's continuation: the next file page of a kept scan. Storing the
+/// scan for later pages happens here, once a page names the snapshot.
 pub(super) fn cursor(
     query: &LocalSearchQuery,
     view: &super::page_view::PageView,
@@ -23,46 +22,26 @@ pub(super) fn cursor(
     policy_key: String,
     selection: Option<&str>,
     cancelled: &dyn Fn() -> bool,
-) -> Result<(Option<Value>, Option<Continuation>, bool), ToolError> {
+) -> Result<Option<Value>, ToolError> {
     let page = local_search_query::page(query).max(1);
-    let match_page = local_search_query::match_page(query).max(1);
     let layout = &view.layout;
-    let streamed = layout.streamed;
     let empty = view.totals.files == 0;
-    // A streamed page names its continuation; a grid page also needs the
-    // snapshot while a shown file has rows beyond one match page.
     let snapshot = (selection.is_some()
         || (!empty
-            && (local_search_query::snapshot(query).is_some()
-                || page < layout.total_pages
-                || (!streamed && view.totals.over_matches_per))))
+            && (local_search_query::snapshot(query).is_some() || page < layout.total_pages)))
         .then(|| result_identity.to_owned());
     if snapshot.is_some()
         && let Some(scan) = reusable
     {
         super::manifest::put_checked(result_identity.to_owned(), policy_key, scan, cancelled);
     }
-    // Leftover rows only count on the files this page shows: another page's
-    // files are reached by `nextPage` (which restarts at matchPage 1). List
-    // views emit no match rows, so they have none left to page, and a
-    // streamed page's later rows are on its later pages.
-    let leftover_matches = !layout.list
-        && !streamed
-        && layout.shown.iter().any(|(index, _)| {
-            view.facts
-                .get(*index)
-                .is_some_and(|facts| facts.total > match_page.saturating_mul(layout.matches_per))
-        });
-    let (next, match_next) = build_next(
+    build_next(
         query,
         page,
         layout.total_pages,
-        leftover_matches,
-        match_page,
         snapshot.as_deref(),
         selection,
-    )?;
-    Ok((next, match_next, leftover_matches))
+    )
 }
 
 /// The call that continues a streamed page where its walk goes on
@@ -114,11 +93,9 @@ pub(super) fn build_next(
     q: &LocalSearchQuery,
     page: u32,
     total_pages: u32,
-    leftover_matches: bool,
-    match_page: u32,
     snapshot: Option<&str>,
     selection: Option<&str>,
-) -> Result<(Option<Value>, Option<Continuation>), ToolError> {
+) -> Result<Option<Value>, ToolError> {
     let mut map = json!({});
     let mut base = query_value(q);
     if let Some(token) = selection {
@@ -127,52 +104,25 @@ pub(super) fn build_next(
     if let Some(snapshot) = snapshot {
         base["snapshot"] = json!(snapshot);
     }
-    let next_match_page = leftover_matches.then(|| match_page as usize + 1);
-    // Rows left in the shown files (`pagination.next.nextPage`) and later
-    // files (row `next.nextPage`) are both offered on the opening file-group page
-    // (matchPage 1), so the caller goes depth-first or breadth-first. A
-    // middle match page of the same group does not offer `nextPage` again;
-    // the page that ends the group does, so a page with later files always
-    // names a continuation and the depth-first route reaches them. That
-    // repeats one idempotent call (the same snapshot), at most once per
-    // group. A chain's first call (no snapshot yet) offers it at any match
-    // page, since no earlier page did.
-    let opens_file_group = match_page <= 1 || local_search_query::snapshot(q).is_none();
     if page < total_pages
-        && (opens_file_group || next_match_page.is_none())
         && let Some(call) = crate::response::collection::continued_page(
             ToolId::LocalSearch,
-            base.clone(),
+            base,
             "page",
             page as usize + 1,
-            &[("matchPage", json!(1))],
+            &[],
         )
     {
         crate::response::collection::insert_walk(&mut map, ToolId::LocalSearch, None, call);
     }
-    let match_next = next_match_page
-        .map(|next_match_page| {
-            let mut changes = json!({"matchPage": next_match_page});
-            if let Some(token) = selection {
-                changes["selection"] = json!(token);
-            }
-            if let Some(snapshot) = snapshot {
-                changes["snapshot"] = json!(snapshot);
-            }
-            local_search_query::edited(q, &changes).map(Continuation::continued_query)
-        })
-        .transpose()?;
-    Ok((
-        (map.as_object().is_some_and(|calls| !calls.is_empty())).then_some(map),
-        match_next,
-    ))
+    Ok((map.as_object().is_some_and(|calls| !calls.is_empty())).then_some(map))
 }
 
 /// Snapshot identity: the [`query_key`] (the validated root plus every
 /// field that changes which matches are collected or how their values read,
 /// with defaults applied), then the collected result and source digests.
 /// Source outside matched lines can change enclosing names and page cuts.
-/// Pagination fields (`page`, `matchPage`, `pageSize`, `matchPageSize`) only select
+/// Pagination fields (`page`, `pageSize`) only select
 /// from that result and stay out, so a continuation may change them while
 /// keeping its snapshot.
 ///
@@ -253,9 +203,8 @@ pub(super) fn malformed_snapshot(query: &LocalSearchQuery) -> Option<ToolError> 
 /// carry the caller's intent: they stay out of [`query_key`], so a
 /// continuation may change them and keep its snapshot. Every other field
 /// is search semantics, including any field the contract adds later.
-const NON_SEMANTIC_FIELDS: [&str; 8] = [
+const NON_SEMANTIC_FIELDS: [&str; 7] = [
     "page",
-    "matchPage",
     "scanOffset",
     "walkOffset",
     "rowOffset",

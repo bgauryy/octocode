@@ -149,7 +149,7 @@ async fn an_empty_owner_search_states_unproven_absence_and_lists_repositories() 
 
 /// An empty repository row's leads are only those it has: a search that
 /// offers `broadenSearch` has no root listing. Neither row restates the tool
-/// description in a hint (R3).
+/// description in a hint.
 #[tokio::test]
 async fn an_empty_row_offers_only_its_own_leads_and_no_restated_hint() {
     for (row, listed) in [

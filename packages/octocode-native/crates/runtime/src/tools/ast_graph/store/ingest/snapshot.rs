@@ -64,10 +64,7 @@ pub(super) fn publish_snapshot(
     let staged = match publication::Staged::new(job.home) {
         Ok(staged) => staged,
         Err(error) => {
-            return GraphOutput::error(
-                ErrorCode::FileAccessFailed,
-                format!("cannot stage graph: {error}"),
-            );
+            return publication::write_failed(format!("cannot stage graph: {error}"));
         }
     };
     progress::emit(|| "encoding snapshot".to_owned());
@@ -93,7 +90,12 @@ pub(super) fn publish_snapshot(
     let root_tag = root_tag(&job.built.root);
     let id = match next_snapshot_id(job.home, &format!("{stamp}-{slug}-{root_tag}")) {
         Ok(id) => id,
-        Err(error) => return GraphOutput::error(ErrorCode::FileAccessFailed, error),
+        Err(error) => return publication::write_failed(error),
+    };
+    let unreadable_dirs = if job.built.files_skipped > 0 {
+        unreadable_directories(&job.built.root, job.files)
+    } else {
+        Vec::new()
     };
     let manifest = manifest(&ManifestInput {
         id: &id,
@@ -116,6 +118,7 @@ pub(super) fn publish_snapshot(
         registry: job.registry,
         registry_identity: job.registry_identity,
         build_identity: job.build_identity,
+        unreadable_dirs: &unreadable_dirs,
     });
     if let Err(error) = cancel.check() {
         return GraphOutput::error(ErrorCode::Cancelled, error);
@@ -123,13 +126,10 @@ pub(super) fn publish_snapshot(
     let dir = match staged.publish(job.home, &id, &manifest) {
         Ok(dir) => dir,
         Err(error) => {
-            return GraphOutput::error(
-                ErrorCode::FileAccessFailed,
-                format!(
-                    "cannot finish publishing graph {id} at {}: {error}",
-                    job.home.join(&id).display()
-                ),
-            );
+            return publication::write_failed(format!(
+                "cannot finish publishing graph {id} at {}: {error}",
+                job.home.join(&id).display()
+            ));
         }
     };
     if let Err(error) = finish_checkpoint(
@@ -243,7 +243,61 @@ pub(super) fn receipt(id: &str, dir: &Path, manifest: &Value, started: Instant) 
     if manifest["diagnostics"]["total"].as_u64().unwrap_or(0) > 0 {
         receipt["diagnostics"] = manifest["diagnostics"]["byCode"].clone();
     }
+    let unreadable = manifest["unreadableDirs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>();
+    if !unreadable.is_empty() {
+        crate::response::paging::push_warnings(
+            &mut receipt,
+            [format!(
+                "The walk could not read {} director{}, so the graph lacks everything below {}: {}.",
+                unreadable.len(),
+                if unreadable.len() == 1 { "y" } else { "ies" },
+                if unreadable.len() == 1 { "it" } else { "them" },
+                unreadable.join(", ")
+            )],
+        );
+    }
     receipt
+}
+
+/// The directories beside the scanned files that the process may not read:
+/// the walk counts them skipped (`scan.filesSkipped`) but names none. Each
+/// directory a scanned file sits in is listed once, and a subdirectory no
+/// scanned file sits in that cannot be opened is named, root-relative.
+fn unreadable_directories(root: &Path, scanned: &[String]) -> Vec<String> {
+    let mut known = std::collections::BTreeSet::<PathBuf>::new();
+    known.insert(PathBuf::new());
+    for file in scanned {
+        let mut directory = Path::new(file).parent();
+        while let Some(parent) = directory {
+            if !known.insert(parent.to_path_buf()) {
+                break;
+            }
+            directory = parent.parent();
+        }
+    }
+    let mut unreadable = std::collections::BTreeSet::new();
+    for relative in &known {
+        let Ok(entries) = std::fs::read_dir(root.join(relative)) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = relative.join(entry.file_name());
+            if known.contains(&path) || !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                continue;
+            }
+            if std::fs::read_dir(entry.path())
+                .is_err_and(|error| error.kind() == std::io::ErrorKind::PermissionDenied)
+            {
+                unreadable.insert(path.to_string_lossy().into_owned());
+            }
+        }
+    }
+    unreadable.into_iter().collect()
 }
 
 #[cfg(test)]

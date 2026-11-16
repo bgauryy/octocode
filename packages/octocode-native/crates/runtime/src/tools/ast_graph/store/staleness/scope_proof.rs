@@ -6,7 +6,8 @@
 //! listing can miss was stamped before the walk that checked it, so a later
 //! write moves a stamp past what was listed.
 use super::super::format;
-use crate::tools::page_memo::{directory_ignore_inputs, repository_markers};
+use crate::tools::page_memo::{directory_ignore_inputs_with, repository_markers};
+use octocode_engine::search::walk::GlobalIgnore;
 use octocode_engine::stamp::{SourceStamp, exists};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -17,6 +18,7 @@ use std::path::{Path, PathBuf};
 /// `stamp_of` refuses a stamp.
 fn stamps<'a>(
     root: &Path,
+    global: GlobalIgnore,
     dirs: impl Iterator<Item = &'a str>,
     rules: impl Iterator<Item = &'a str>,
     stamp_of: impl Fn(&std::fs::Metadata) -> Option<SourceStamp>,
@@ -34,7 +36,7 @@ fn stamps<'a>(
     for dir in dirs {
         stamped(&root.join(dir), dir.as_bytes())?;
     }
-    let outside = octocode_engine::search::walk::external_ignore_inputs(root);
+    let outside = octocode_engine::search::walk::external_ignore_inputs_with(root, global);
     for rule in rules {
         let path = root.join(rule);
         if exists(&path) {
@@ -87,6 +89,7 @@ fn relative(root: &Path, path: &Path) -> String {
 /// [`settled_input_stamps`](super::settled_input_stamps).
 pub(in super::super) fn settled_scope_proof(
     root: &Path,
+    global: GlobalIgnore,
     tables: &format::GraphTables,
     walk: impl Fn(&mut dyn FnMut(&Path)) -> BTreeSet<String>,
 ) -> Option<Value> {
@@ -112,7 +115,7 @@ pub(in super::super) fn settled_scope_proof(
     }
     let mut rules = BTreeSet::new();
     for dir in &dirs {
-        let inputs = directory_ignore_inputs(dir, root, |_| true);
+        let inputs = directory_ignore_inputs_with(dir, root, global, |_| true);
         if inputs.untracked {
             return None;
         }
@@ -131,6 +134,7 @@ pub(in super::super) fn settled_scope_proof(
     let now = octocode_engine::stamp::settle_clock();
     let digest = stamps(
         root,
+        global,
         names.iter().map(String::as_str),
         rules.iter().map(String::as_str),
         |meta| SourceStamp::settled(meta, now),
@@ -147,7 +151,12 @@ pub(in super::super) fn settled_scope_proof(
 }
 
 /// Whether the snapshot's recorded listing proof still holds.
-pub(super) fn scope_proven(root: &Path, tables: &format::GraphTables, manifest: &Value) -> bool {
+pub(super) fn scope_proven(
+    root: &Path,
+    global: GlobalIgnore,
+    tables: &format::GraphTables,
+    manifest: &Value,
+) -> bool {
     let proof = &manifest["scopeProof"];
     let Some(recorded) = proof["stamps"].as_str() else {
         return false;
@@ -162,5 +171,13 @@ pub(super) fn scope_proven(root: &Path, tables: &format::GraphTables, manifest: 
     let mut dirs = file_dirs(tables);
     dirs.insert("");
     dirs.extend(strings("dirs"));
-    stamps(root, dirs.into_iter(), strings("rules"), SourceStamp::of).as_deref() == Some(recorded)
+    stamps(
+        root,
+        global,
+        dirs.into_iter(),
+        strings("rules"),
+        SourceStamp::of,
+    )
+    .as_deref()
+        == Some(recorded)
 }

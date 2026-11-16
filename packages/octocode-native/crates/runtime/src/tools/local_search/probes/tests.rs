@@ -251,6 +251,60 @@ fn the_skipped_path_count_is_the_same_under_load() {
     assert_eq!(under_load, idle);
 }
 
+/// The warnings of a row as serialized, which success rows keep (a hint is
+/// stripped from them).
+fn served_warnings(row: &LocalSearchResult) -> String {
+    let served = row.to_row().expect("serialize");
+    served["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|warning| warning.as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A term with no literal hit that reads as a regex matching files is named
+/// in the served warnings, beside a term that hits: the row is a success,
+/// and the dead term is not silent. A term that hits, or one with no regex
+/// reading, says nothing.
+#[test]
+fn a_dead_term_beside_a_live_one_is_offered_as_a_regex() {
+    let (_dir, root) = tree();
+    write(&root, "a.txt", "streams\n");
+    write(&root, "b.txt", "fooXbar\n");
+    write(&root, "c.txt", "fooYbar\n");
+    for view in ["content", "files"] {
+        let (row, _, _) = searched(
+            &root,
+            json!({"matchString": ["foo.bar", "streams"], "view": view}),
+        );
+        assert_eq!(row.files.len(), 1, "{row:?}");
+        let shown = served_warnings(&row);
+        assert!(
+            shown.contains("foo.bar") && shown.contains("but 2 file(s) match it read as a regex"),
+            "{view}: {shown}"
+        );
+    }
+
+    write(&root, "d.txt", "foo.bar\n");
+    let (row, walks, passes) = searched(&root, json!({"matchString": ["foo.bar", "streams"]}));
+    assert!(
+        !served_warnings(&row).contains("foo.bar"),
+        "a term that hits is silent: {row:?}"
+    );
+    assert_eq!(
+        (walks, passes),
+        (0, 0),
+        "terms the scan found are not probed again"
+    );
+    let (row, _, _) = searched(&root, json!({"matchString": ["streams", "absent"]}));
+    assert!(
+        !served_warnings(&row).contains("regex"),
+        "no regex reading: {row:?}"
+    );
+}
+
 /// A cut probe's count is a floor and says so, by the pass and by the walk.
 #[test]
 fn a_cut_probe_says_at_least() {
@@ -345,8 +399,45 @@ fn the_skipped_check_reads_only_what_the_walk_did_not() {
             ignored: true,
             hidden: true,
             default_excludes: false,
+            global: Default::default(),
         },
         None,
     );
     assert_eq!(found.count, 1, "gen/hidden.txt alone");
+}
+
+/// A count view that scanned its whole scope names a dead term even when its
+/// page is one of several, and the dead terms cost one more scan: the main
+/// scan already counted each at zero, so only the regex reading is probed,
+/// once for every dead term.
+#[test]
+fn a_dead_term_is_named_on_a_paged_count_view_for_one_more_scan() {
+    let (_dir, root) = tree();
+    for name in ["a", "b", "c"] {
+        write(&root, &format!("{name}.txt"), "streams\n");
+    }
+    write(&root, "d.txt", "fooXbar\nbaaz\n");
+    let (row, walks, passes) = searched(
+        &root,
+        json!({
+            "matchString": ["foo.bar", "streams", "ba+z\\b", "absent"],
+            "view": "countMatches",
+            "limit": 1,
+        }),
+    );
+    let served = row.to_row().expect("serialize");
+    assert!(
+        served["next"].get("nextPage").is_some(),
+        "the page must be one of several: {served}"
+    );
+    let shown = served_warnings(&row);
+    assert!(
+        shown.contains("foo.bar") && shown.contains("ba+z") && !shown.contains("absent"),
+        "{shown} / {served}"
+    );
+    assert_eq!(
+        walks + passes,
+        1,
+        "one batched regex probe, no literal re-probe"
+    );
 }

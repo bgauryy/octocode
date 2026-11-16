@@ -473,7 +473,7 @@ impl Job<'_> {
 pub(in crate::tools::ast_graph) fn settle(path: &Path, generation: &str) -> Result<(), ToolError> {
     let lock_path = lock::job_lock_path(path);
     let Some(held) = lock::try_job(&lock_path)
-        .map_err(|error| failure(format!("cannot lock graph checkpoint: {error}")))?
+        .map_err(|error| write_failure(format!("cannot lock graph checkpoint: {error}")))?
     else {
         return Ok(());
     };
@@ -609,4 +609,14 @@ fn decoded(
 
 fn failure(message: impl Into<String>) -> ToolError {
     ToolError::new(ErrorCode::FileAccessFailed, message)
+}
+
+/// [`failure`] for a write under the graph home (a lock file, a checkpoint
+/// commit): its recovery is a writable home, not read permissions.
+fn write_failure(message: impl Into<String>) -> ToolError {
+    let mut error = failure(message);
+    error
+        .hints
+        .push(crate::response::rows::WRITE_ACCESS_HINT.into());
+    error
 }

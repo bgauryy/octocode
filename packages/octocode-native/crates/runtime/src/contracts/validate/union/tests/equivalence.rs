@@ -172,8 +172,7 @@ fn output_with_call(call: Value, related: bool) -> Value {
 /// continuations. Error rows carry either kind for every output tool without
 /// inventing another tool's successful data. Every case has an independent
 /// expected verdict, so two validators rejecting everything cannot pass.
-#[test]
-fn fast_union_acceptance_matches_the_reference_on_current_output_envelopes() {
+fn fast_union_acceptance_matches_the_reference_on_envelopes_sampled_at(stride: usize) {
     let contract = crate::contracts::parsed_contract().expect("contract");
     let tools: Vec<&str> = contract["tools"]
         .as_array()
@@ -183,12 +182,18 @@ fn fast_union_acceptance_matches_the_reference_on_current_output_envelopes() {
         .collect();
     let mut cases: Vec<(String, Value, bool)> = Vec::new();
     let mut seen = Vec::new();
-    for fixture in fixtures()
+    for (ordinal, fixture) in fixtures()
         .iter()
-        .filter(|fixture| fixture["accepted"] == true)
+        .enumerate()
+        .filter(|(_, fixture)| fixture["accepted"] == true)
     {
         let tool = fixture["tool"].as_str().expect("tool").to_owned();
         let related = fixture["input"].get("cursor").is_none();
+        // The first fixture of each tool and call kind brings every malformed
+        // shape of its call; later ones add their own input, in the sample.
+        if seen.contains(&(tool.clone(), related)) && !sampled(ordinal, 1, stride) {
+            continue;
+        }
         let kind = if related { "related" } else { "continue" };
         let call_path = if related {
             "/results/0/data/related/0"
@@ -291,6 +296,19 @@ fn fast_union_acceptance_matches_the_reference_on_current_output_envelopes() {
         cases.len(),
         cases.len() - rejected
     );
+}
+
+/// Every tool and call kind is covered whole; of the later fixtures of each,
+/// one in [`SAMPLE`] is compared.
+#[test]
+fn fast_union_acceptance_matches_the_reference_on_current_output_envelopes() {
+    fast_union_acceptance_matches_the_reference_on_envelopes_sampled_at(SAMPLE);
+}
+
+#[test]
+#[ignore = "full matrix: cargo test -- --ignored full_matrix"]
+fn fast_union_acceptance_matches_the_reference_on_every_output_envelope_full_matrix() {
+    fast_union_acceptance_matches_the_reference_on_envelopes_sampled_at(1);
 }
 
 /// Recorded responses (`OCTOCODE_RECORDED_OUTPUTS`: a directory

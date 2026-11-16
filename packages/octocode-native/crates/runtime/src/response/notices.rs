@@ -15,7 +15,7 @@
 
 use serde_json::{Map, Value, json};
 
-use crate::contracts::envelope::{NOTICES, TIMED_NOTICES};
+use crate::contracts::envelope::NOTICES;
 
 /// Moves every row's notices to where the row states guidance, keeping
 /// each notice on the first row of the response that carries it.
@@ -53,9 +53,7 @@ pub(crate) fn place(structured: &mut Value, rows_key: &str) {
 
 /// A warning every row of a response states word for word is a fact of the
 /// call, not of one row: it is said once, in the envelope's `warnings`, and
-/// each row keeps the warnings that are its own. A row's redaction count
-/// ([`crate::security::states_a_redaction`]) is the row's own however many
-/// rows state the same number. Nothing is dropped: a
+/// each row keeps the warnings that are its own. Nothing is dropped: a
 /// warning some rows lack stays on the rows that state it, and a one-row
 /// response repeats nothing.
 pub(crate) fn state_shared_warnings(structured: &mut Value, rows_key: &str) {
@@ -71,14 +69,7 @@ pub(crate) fn state_shared_warnings(structured: &mut Value, rows_key: &str) {
     let Some((first, rest)) = rows.split_first().filter(|(_, rest)| !rest.is_empty()) else {
         return;
     };
-    // A redaction warning states its row's count: every row saying "3"
-    // is 3 each, so it stays on each row.
     let mut shared = warnings(first);
-    shared.retain(|warning| {
-        !warning
-            .as_str()
-            .is_some_and(crate::security::states_a_redaction)
-    });
     for row in rest {
         let stated = warnings(row);
         shared.retain(|warning| stated.contains(warning));
@@ -102,47 +93,8 @@ pub(crate) fn state_shared_warnings(structured: &mut Value, rows_key: &str) {
     }
 }
 
-/// A measured wait ([`crate::response::paging::push_timed_notice`]) is a fact
-/// of the call, not of the row that measured it nor of the result: rows of
-/// one call wait on the same server for different spans, and a later page of
-/// the result is another call, which waited for none of them. So the stage
-/// takes them out of the rows (no row keeps the key) and returns each
-/// distinct text once, with the longest span any row measured; the call that
-/// measured them states them on its own response ([`state_call_notes`]).
-pub(crate) fn take_timed_notices(structured: &mut Value, rows_key: &str) -> Vec<String> {
-    let mut longest: Vec<(String, f64)> = Vec::new();
-    for row in structured
-        .get_mut(rows_key)
-        .and_then(Value::as_array_mut)
-        .into_iter()
-        .flatten()
-    {
-        let Some(Value::Array(timed)) = row
-            .get_mut("data")
-            .and_then(Value::as_object_mut)
-            .and_then(|data| data.remove(TIMED_NOTICES))
-        else {
-            continue;
-        };
-        for notice in timed {
-            let (Some(text), Some(seconds)) = (notice["text"].as_str(), notice["seconds"].as_f64())
-            else {
-                continue;
-            };
-            match longest.iter_mut().find(|(seen, _)| seen == text) {
-                Some((_, kept)) => *kept = kept.max(seconds),
-                None => longest.push((text.to_owned(), seconds)),
-            }
-        }
-    }
-    longest
-        .into_iter()
-        .map(|(text, seconds)| text.replacen("{}", &format!("{seconds:.1} s"), 1))
-        .collect()
-}
-
-/// States `notes`, facts of the call that answers with `envelope`
-/// ([`take_timed_notices`]), in its `warnings`.
+/// States `notes`, facts of the call that answers with `envelope`, in its
+/// `warnings`.
 pub(crate) fn state_call_notes(envelope: &mut Value, notes: &[String]) {
     if notes.is_empty() {
         return;
@@ -167,29 +119,6 @@ fn append(object: &mut Map<String, Value>, key: &str, items: Vec<Value>) {
             if !list.contains(&item) {
                 list.push(item);
             }
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    /// Two rows that each redacted 3 values say so each: one call-level "3"
-    /// would understate the 6 placeholders the response holds. A warning
-    /// that is a fact of the call is still said once.
-    #[test]
-    fn a_rows_redaction_count_is_never_shared() {
-        let redacted = crate::security::redacted_content_warning(3);
-        let row = || json!({"data": {"warnings": [redacted, "the walk paused"]}});
-        let mut envelope = json!({"results": [row(), row()]});
-        super::state_shared_warnings(&mut envelope, "results");
-        assert_eq!(envelope["warnings"], json!(["the walk paused"]));
-        for row in 0..2 {
-            assert_eq!(
-                envelope["results"][row]["data"]["warnings"],
-                json!([redacted])
-            );
         }
     }
 }

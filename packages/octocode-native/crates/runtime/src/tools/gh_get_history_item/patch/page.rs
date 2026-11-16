@@ -168,7 +168,8 @@ impl PatchViews {
                 (Some(patch), Some(view)) => {
                     out.narrowed
                         .push(view.narrowed.then(|| patch.chars().count()));
-                    out.hits.push(view.narrowed.then_some(view.hits));
+                    out.hits
+                        .push((view.narrowed || !view.hits.is_empty()).then_some(view.hits));
                     out.clipped.push(view.clipped);
                     out.views.push(Some(view.text));
                 }

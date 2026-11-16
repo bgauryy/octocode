@@ -580,8 +580,9 @@ fn bound_fixtures() -> Vec<BoundFixture> {
             "my password was Pl4net-Orb1t9\nthe password is: hunter2-Sup3rS3cret\nthen password = hunter2-Sup3rS3cret\nthe password is: s3cretPassw0rd\nthe password is required\nSIGNING_KEY=x-9f8.6d0.818 84c.7d6.59a\nAUTH_TOKEN=q7.x2.k9 m4.p8.z1\ntoken: T | null\n  token: this.token,\n  password: undefined,\n  apiKey: null,\n"
                 .to_owned(),
             "assword",
+            // A bare value after a label in a text file is no config value.
             vec![],
-            // Prose and values in no known format read as written.
+            // Prose, values under no label and bare values read as written.
             vec![
                 "my password was Pl4net-Orb1t9",
                 "the password is: hunter2-Sup3rS3cret",
@@ -841,9 +842,7 @@ async fn a_views_own_warnings_read_as_written() {
             assert!(!warning.contains("[REDACTED-"), "{view}: {warning}");
         }
         let content = data["content"].as_str().unwrap_or_default();
-        let redacted = warnings
-            .iter()
-            .any(|warning| warning.starts_with("redactedContent"));
+        let redacted = data["redacted"] == json!(true);
         assert_eq!(
             redacted,
             content.contains("[REDACTED-"),
@@ -1117,5 +1116,117 @@ async fn a_comment_that_quotes_an_armor_reads_whole() {
     let path = workspace.write("armor.rs", format!("{line}\nfn is_armor_line() {{}}\n"));
     let text = content(&runtime, &path, (1, 2)).await;
     assert!(text.contains(line), "{text}");
+    runtime.close().await;
+}
+
+/// One redaction statement for every tool: a row whose text had a known secret
+/// replaced carries `redacted: true` and no redaction warning or hint; a
+/// source that only holds literal placeholder text carries neither.
+#[tokio::test]
+async fn a_redacted_row_is_flagged_once_and_a_literal_placeholder_is_not() {
+    use crate::support::{call, query_path};
+    let token = "ghp_Zq7xKp2mVw9tLb4nRc8dYf3hJs6gZq7xKp2m";
+    let workspace = Workspace::new();
+    let secret = workspace.write(
+        "app.ts",
+        format!("export const needle = 1;\nexport const t = \"{token}\";\n"),
+    );
+    let literal = workspace.write(
+        "lit.ts",
+        "export const needle = 1;\nexport const t = \"[REDACTED-FOO]\";\n",
+    );
+    let runtime = workspace.runtime(&[]);
+    let queries = [
+        ("localFetch", json!({})),
+        ("localFetch", json!({"view": "compact"})),
+        (
+            "localSearch",
+            json!({"matchString": "export const", "view": "content"}),
+        ),
+        (
+            "astSearch",
+            json!({"operation": "match", "rule": {"kind": "string"}, "includeCaptures": true}),
+        ),
+    ];
+    for (tool, extra) in queries {
+        for (path, flagged) in [(&secret, true), (&literal, false)] {
+            let outcome = call(&runtime, tool, query_path(path, extra.clone()))
+                .await
+                .unwrap_or_else(|error| panic!("{tool} {extra}: {error:?}"));
+            let output = outcome.structured_content.into_value();
+            let data = &output["results"][0]["data"];
+            assert_eq!(
+                data["redacted"] == json!(true),
+                flagged,
+                "{tool} {extra} {path:?}: {output}"
+            );
+            assert!(!output.to_string().contains(token), "{tool}: {output}");
+            let notes = [
+                &data["warnings"],
+                &data["hints"],
+                &output["warnings"],
+                &output["hints"],
+            ]
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect::<String>()
+            .to_lowercase();
+            assert!(
+                !notes.contains("redact"),
+                "{tool} {extra}: a redaction notice: {notes}"
+            );
+        }
+    }
+    runtime.close().await;
+}
+
+/// A source rewritten while a search reads it shows its rows span-redacted,
+/// never as a whole-row placeholder.
+#[tokio::test]
+async fn a_search_of_an_unreadable_or_rewritten_source_never_hides_a_whole_row() {
+    use crate::support::{call, query_path};
+    let token = "ghp_Zq7xKp2mVw9tLb4nRc8dYf3hJs6gZq7xKp2m";
+    let workspace = Workspace::new();
+    let path = workspace.write(
+        "churn.ts",
+        format!("const a = 1; // needle one\nconst t = \"{token}\"; // needle two\nconst c = 3; // needle three\n"),
+    );
+    let runtime = workspace.runtime(&[]);
+    let writer = {
+        let path = path.clone();
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = stop.clone();
+        let handle = std::thread::spawn(move || {
+            let mut turn = 0_u32;
+            while !flag.load(std::sync::atomic::Ordering::Relaxed) {
+                turn += 1;
+                let _ = std::fs::write(
+                    &path,
+                    format!(
+                        "const a = 1; // needle one\nconst t = \"{}\"; // needle two\nconst c = {turn}; // needle three\n",
+                        "ghp_Zq7xKp2mVw9tLb4nRc8dYf3hJs6gZq7xKp2m"
+                    ),
+                );
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+        });
+        (stop, handle)
+    };
+    for _ in 0..20 {
+        let outcome = call(
+            &runtime,
+            "localSearch",
+            query_path(&path, json!({"matchString": "needle", "view": "content"})),
+        )
+        .await;
+        let Ok(outcome) = outcome else { continue };
+        let output = outcome.structured_content.into_value();
+        let text = output.to_string();
+        assert!(!text.contains(token), "{output}");
+        assert!(!text.contains("source unreadable"), "{output}");
+        assert!(!text.contains("row window disagrees"), "{output}");
+    }
+    writer.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    writer.1.join().expect("writer");
     runtime.close().await;
 }

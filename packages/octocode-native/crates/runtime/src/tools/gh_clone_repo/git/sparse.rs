@@ -1,5 +1,5 @@
 //! `sparse-checkout set` arguments: cone mode for directories, exact anchored patterns once any path is a file.
-use crate::tools::gh_clone_repo::{CloneContext, CloneError};
+use crate::tools::gh_clone_repo::{GitContext, GitError};
 use crate::tools::gh_git::step::{run, scoped, step_timeout};
 use std::ffi::OsString;
 use std::path::Path;
@@ -14,11 +14,11 @@ use std::path::Path;
 /// Cone mode cannot exclude a file, so any `withheld` file also forces the
 /// exact patterns, each followed by a negation for every withheld file.
 pub(super) fn sparse_set_args(
-    context: &CloneContext<'_>,
+    context: &GitContext<'_>,
     target: &Path,
     sparse_paths: &[String],
     withheld: &[String],
-) -> Result<Vec<OsString>, CloneError> {
+) -> Result<Vec<OsString>, GitError> {
     let paths = sparse_paths
         .iter()
         .map(|path| path.trim_end_matches('/'))

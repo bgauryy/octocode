@@ -200,7 +200,7 @@ fn sources_under_excluded_directories_are_not_added() {
     assert_eq!(built.value["scan"]["filesScanned"], 4, "{}", built.value);
     assert_eq!(stale_rows(root), json!([]));
     let stats = ask(root, "stats", None, |o| o.check_freshness = true);
-    assert_eq!(stats.value["freshness"]["fresh"], true, "{}", stats.value);
+    assert!(stats.value.get("freshness").is_none(), "{}", stats.value);
     assert_eq!(
         build().value["id"],
         built.value["id"],

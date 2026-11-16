@@ -69,7 +69,7 @@ async fn requests_to(server: &MockServer, route: &str) -> usize {
         .count()
 }
 
-/// GST-5 (RV-GH M1): a body its caller stores itself is kept nowhere else,
+/// A body its caller stores itself is kept nowhere else,
 /// so a continuation that request issues owns no copy of it either. The
 /// same read through `get_file_bytes` is recorded as evidence, as before.
 #[tokio::test]

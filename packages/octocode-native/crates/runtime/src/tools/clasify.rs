@@ -256,8 +256,8 @@ fn shaped(
                     outcome.output["errorCode"] = json!(code);
                     outcome.output["error"] = json!("No resource was read; nothing was judged.");
                 }
-                let failure = crate::id::error_code_of(&outcome.output)
-                    .map(crate::id::error_codes::class);
+                let failure =
+                    crate::id::error_code_of(&outcome.output).map(crate::id::error_codes::class);
                 (outcome.output, failure)
             }
             Err(error) => (

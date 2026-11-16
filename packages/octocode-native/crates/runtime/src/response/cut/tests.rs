@@ -13,7 +13,7 @@ fn samples() -> Vec<String> {
         format!("token = {MARKER}; other = {MARKER}\n").repeat(50),
         format!("{}{MARKER}{}", "y".repeat(97), "z".repeat(300)),
         "[REDACTED-literal never closed on its line\nnext".repeat(20),
-        "a[b]c[REDACTED: source unreadable for secret check]d".repeat(25),
+        "a[b]c[REDACTED: a literal placeholder]d".repeat(25),
     ]
 }
 
@@ -171,16 +171,26 @@ fn escaped_units_match_serialized_json() {
 
 /// A cut bounded by an earlier clean cut is the unbounded one, and the cut
 /// past a byte is the first clean cut at or after it, on every sample and
-/// from every floor.
-#[test]
-fn bounded_cuts_agree_with_the_unbounded_cut() {
+/// from every floor. `every` is the stride over the plain positions: a
+/// byte that is no clean cut (inside a character or a `\r\n` pair) and each
+/// position beside one is always compared.
+fn assert_bounded_cuts_agree(every: usize) {
     for text in samples() {
         let clean: Vec<usize> = (0..=text.len())
             .filter(|at| is_clean_cut(&text, *at))
             .collect();
         // Floors spread over the text, the nearest one included.
         let step = (clean.len() / 7).max(1);
-        for at in 0..=text.len() {
+        let interesting = |at: usize| {
+            at % every == 0
+                || at == text.len()
+                || !is_clean_cut(&text, at)
+                || at
+                    .checked_sub(1)
+                    .is_none_or(|before| !is_clean_cut(&text, before))
+                || (at < text.len() && !is_clean_cut(&text, at + 1))
+        };
+        for at in (0..=text.len()).filter(|at| interesting(*at)) {
             let nearest = clean.partition_point(|cut| *cut <= at) - 1;
             let after = clean[clean.partition_point(|cut| *cut < at)];
             for floor in clean[..=nearest]
@@ -201,4 +211,15 @@ fn bounded_cuts_agree_with_the_unbounded_cut() {
             }
         }
     }
+}
+
+#[test]
+fn bounded_cuts_agree_with_the_unbounded_cut() {
+    assert_bounded_cuts_agree(5);
+}
+
+#[test]
+#[ignore = "every position: cargo test -- --ignored every_position"]
+fn bounded_cuts_agree_with_the_unbounded_cut_at_every_position() {
+    assert_bounded_cuts_agree(1);
 }

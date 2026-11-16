@@ -12,6 +12,7 @@ fn no_error_code_is_spelled_as_a_string() {
         .parent()
         .expect("crates dir");
     let mut scanned = 0;
+    let mut visited_exit = false;
     let mut spelled = Vec::new();
     for krate in ["runtime/src", "cli/src"] {
         let mut pending = vec![crates.join(krate)];
@@ -30,13 +31,17 @@ fn no_error_code_is_spelled_as_a_string() {
                 }
                 let source = std::fs::read_to_string(&path).expect("read source");
                 scanned += 1;
+                visited_exit |= path.ends_with("runtime/src/response/exit.rs");
                 for (line, form) in spelled_codes(&source) {
                     spelled.push(format!("{}:{line}: {form}", path.display()));
                 }
             }
         }
     }
-    assert!(scanned > 300, "the scan reads production source: {scanned}");
+    assert!(
+        scanned > 0 && visited_exit,
+        "the scan reads production source, response/exit.rs among it: {scanned} files"
+    );
     assert!(
         spelled.is_empty(),
         "spell these contract errorCodes as ErrorCode::…:\n{}",

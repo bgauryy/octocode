@@ -295,3 +295,47 @@ fn a_file_beside_the_configured_home_names_it() {
     );
     assert!(refused.get("related").is_none(), "{refused}");
 }
+
+/// A graph id used with another path is refused by naming the scope the
+/// snapshot was built for, so the caller can repeat the call there.
+#[test]
+fn a_snapshot_asked_at_another_path_names_its_own_scope() {
+    let dir = Fixture::new();
+    dir.write("app/a.ts", "export const a = 1;\n");
+    dir.write("other/b.ts", "export const b = 1;\n");
+    let built = call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
+    let id = built["id"].as_str().expect("graph id");
+    call(&dir.0, ToolId::GraphBuild, json!({"path":"other"}));
+    let refused = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json!({"operation":"stats","path":"other","graph":id}),
+    );
+    let error = refused["error"].as_str().expect("refused");
+    assert!(error.contains("\"app\""), "{refused}");
+    assert!(!error.contains("original scope"), "{refused}");
+}
+
+/// A graph query that names a file inside a snapshot's scope is refused with
+/// the same query at the scope, carrying the file as its scope-relative
+/// `target`, so the lead answers the question that was asked.
+#[test]
+fn a_query_on_a_file_leads_to_the_scope_with_the_file_as_target() {
+    let dir = Fixture::new();
+    dir.write("app/src/a.ts", "export const a = 1;\n");
+    call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
+    let refused = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json!({"operation":"symbols","path":"app/src/a.ts"}),
+    );
+    let lead = &refused["related"][0]["input"]["queries"][0];
+    assert!(
+        lead["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("app")),
+        "{refused}"
+    );
+    assert_eq!(lead["target"], "src/a.ts", "{refused}");
+    assert_eq!(lead["operation"], "symbols", "{refused}");
+}

@@ -298,10 +298,7 @@ async fn location_page(
     };
     let mut row = location_payload(kind, provider, key, rows, locations, pagination);
     if redacted > 0 {
-        crate::response::paging::push_warnings(
-            &mut row,
-            [crate::security::redacted_content_warning(redacted)],
-        );
+        crate::security::mark_redacted(&mut row);
     }
     offer_next_page(query, &mut row, next_page);
     // A clipped body is a partial row with its reason; the reads reach the

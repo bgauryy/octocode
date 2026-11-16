@@ -51,12 +51,15 @@ fn a_matching_line_holding_a_secret_is_counted_and_shown_redacted() {
                 .iter()
                 .any(|warning| warning
                     .as_str()
-                    .is_some_and(|text| text.starts_with("redactedMatches"))),
+                    .is_some_and(|text| text == crate::security::REDACTED_MARK)),
             "{rows}"
         );
         for lens in ["countMatches", "countLines"] {
             let count = run(lens);
-            assert_eq!(count["matchedLineCount"], expected, "{lens}: {count}");
+            let lines = count
+                .get("matchedLineCount")
+                .unwrap_or(&count["matchCount"]);
+            assert_eq!(lines, &serde_json::json!(expected), "{lens}: {count}");
         }
         assert_eq!(run("files")["files"].as_array().expect("files").len(), 1);
     }

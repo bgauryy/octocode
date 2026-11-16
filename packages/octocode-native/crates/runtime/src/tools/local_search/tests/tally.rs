@@ -147,7 +147,7 @@ fn a_tally_counts_redacted_values_as_a_read_shows_them() {
         tally
             .warnings
             .iter()
-            .any(|warning| warning.starts_with(&format!("redactedMatches: {} ", values.len()))),
+            .any(|warning| warning == crate::security::REDACTED_MARK),
         "{:?}",
         tally.warnings
     );

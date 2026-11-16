@@ -3,11 +3,11 @@ import { lstatSync } from 'node:fs';
 import { connect as connectSocket, isIP, type Socket } from 'node:net';
 import { isAbsolute } from 'node:path';
 import { ValidationError } from './errors.js';
-import { monotonic } from './timing.js';
+import { monotonic, scaledMs } from './timing.js';
 import { isObject, type JsonObject } from './validation.js';
 
 export const UNIX_PREFIX = 'unix://';
-export const SOCKET_IO_MS = 5000;
+export const SOCKET_IO_MS = scaledMs(5000);
 export const TCP_CONNECT_MS = 3000;
 const HIGH_WATER = 256 * 1024;
 

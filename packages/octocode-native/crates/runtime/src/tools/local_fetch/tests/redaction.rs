@@ -28,7 +28,9 @@ fn redacted_chunk_and_range_reads_keep_their_source_anchor() {
             }]
         );
         assert!(
-            r.warnings.iter().any(|w| w.contains("not verbatim")),
+            r.warnings
+                .iter()
+                .any(|w| w == crate::security::REDACTED_MARK),
             "{:?}",
             r.warnings
         );
@@ -36,10 +38,9 @@ fn redacted_chunk_and_range_reads_keep_their_source_anchor() {
 }
 
 /// matchString runs on redacted text, so a match inside a redacted value is
-/// not selected. When other lines do match, the row says how many redacted
-/// lines lie outside the result instead of dropping them silently.
+/// not selected; the row states no count of the lines it could not see.
 #[test]
-fn a_partial_match_names_the_redacted_lines_it_could_not_see() {
+fn a_partial_match_states_no_count_of_redacted_lines() {
     let t = Fixture::new();
     let p = t.0.join("a.txt");
     fs::write(&p, "CRE one\nvalue SECRET\nlast\n").expect("fixture");
@@ -53,10 +54,8 @@ fn a_partial_match_names_the_redacted_lines_it_could_not_see() {
     let r = fetch(&req, &paths);
     assert_eq!(r.content.as_deref(), Some("CRE one\n"));
     assert!(
-        r.warnings
-            .iter()
-            .any(|w| w.contains("1 redacted line") && w.contains("matchString")),
-        "{:?}",
+        r.warnings.is_empty(),
+        "no notice of the lines matchString cannot see: {:?}",
         r.warnings
     );
 }
@@ -64,7 +63,7 @@ fn a_partial_match_names_the_redacted_lines_it_could_not_see() {
 /// A redacted line the result shows as context is not "outside" it, and
 /// the count, the same on every page, is stated by the first page only.
 #[test]
-fn redacted_context_lines_are_not_counted_outside_the_result() {
+fn redacted_lines_outside_the_result_are_never_counted() {
     let t = Fixture::new();
     let p = t.0.join("a.txt");
     let mut source = String::from("CRE one\nvalue SECRET\n");
@@ -92,7 +91,7 @@ fn redacted_context_lines_are_not_counted_outside_the_result() {
     let first = fetch(&req, &paths);
     assert_eq!(
         outside(&first),
-        vec!["1 redacted line outside this result: matchString cannot see text behind a [REDACTED…] placeholder; a plain read shows where they are.".to_owned()],
+        Vec::<String>::new(),
         "{:?}",
         first.warnings
     );
@@ -108,7 +107,7 @@ fn redacted_context_lines_are_not_counted_outside_the_result() {
         serde_json::json!({"contextLines":{"before":1,"after":1}}),
     );
     let page = execute_local_fetch(&req, &paths, &Safe, &NeverCancel, Some(26), None);
-    assert_eq!(outside(&page).len(), 1, "{:?}", page.warnings);
+    assert_eq!(outside(&page).len(), 0, "{:?}", page.warnings);
     let next = page
         .next
         .and_then(|next| next.continue_window)
@@ -146,7 +145,9 @@ fn ranges_matches_redaction_and_binary() {
         "line-preserving redaction keeps the source anchor"
     );
     assert!(
-        r.warnings.iter().any(|w| w.contains("not verbatim")),
+        r.warnings
+            .iter()
+            .any(|w| w == crate::security::REDACTED_MARK),
         "{:?}",
         r.warnings
     );
@@ -172,7 +173,7 @@ fn literal_placeholder_text_is_not_counted_as_a_redaction() {
     let redacted = |warnings: &[String]| {
         warnings
             .iter()
-            .find(|warning| warning.starts_with("redactedContent"))
+            .find(|warning| warning.as_str() == crate::security::REDACTED_MARK)
             .cloned()
     };
     let head = fetch(
@@ -191,7 +192,7 @@ fn literal_placeholder_text_is_not_counted_as_a_redaction() {
         &paths,
     );
     let warning = redacted(&both.warnings).expect("the real redaction is named");
-    assert!(warning.contains("redactedContent: 1 "), "{warning}");
+    assert_eq!(warning, crate::security::REDACTED_MARK);
     // A match read redacts the whole source first: its literal line is no
     // unmatchable redacted line, the real one is.
     let matched = fetch(
@@ -203,10 +204,10 @@ fn literal_placeholder_text_is_not_counted_as_a_redaction() {
     );
     assert_eq!(redacted(&matched.warnings), None, "{:?}", matched.warnings);
     assert!(
-        matched
+        !matched
             .warnings
             .iter()
-            .any(|warning| warning.starts_with("1 redacted line outside")),
+            .any(|warning| warning.contains("redacted line")),
         "{:?}",
         matched.warnings
     );
@@ -264,7 +265,7 @@ fn a_blank_source_line_beside_a_redaction_is_no_blanked_line() {
         !read
             .warnings
             .iter()
-            .any(|w| w.starts_with("redactedContent")),
+            .any(|w| w == crate::security::REDACTED_MARK),
         "{:?}",
         read.warnings
     );

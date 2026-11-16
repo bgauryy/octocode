@@ -2,10 +2,6 @@
 use super::*;
 use std::collections::BTreeSet;
 
-fn empty_linkage() -> Value {
-    json!({"linked":0,"eligible":0,"excluded":0,"sites":0,"ratio":null,"population":"syntax-call-sites"})
-}
-
 fn with_scope(mut coverage: Value, scope: &str) -> Value {
     let Some(warning) = coverage["warning"].as_str() else {
         return coverage;
@@ -42,16 +38,13 @@ impl Graph {
     }
 
     fn language_coverage(&self, language: &str) -> Value {
-        let linkage = self.manifest["linkageByLanguage"]
-            .get(language)
-            .cloned()
-            .unwrap_or_else(empty_linkage);
         let extraction = match self.manifest["callExtractionByLanguage"][language].as_bool() {
             Some(true) => "supported",
             Some(false) => "unsupported",
             None => "notAssessed",
         };
-        let mut coverage = json!({"language": language, "linkage": linkage, "basis": "syntax", "callExtraction":extraction});
+        let mut coverage =
+            json!({"language": language, "basis": "syntax", "callExtraction":extraction});
         if extraction != "supported" {
             coverage["warning"] = json!(format!(
                 "Call extraction is {extraction} for this language in the selected snapshot. Empty call results do not establish absence; another language's linkage is not applicable."
@@ -100,16 +93,8 @@ impl Graph {
         } else {
             "notAssessed"
         };
-        let linkage = if languages.is_empty() {
-            empty_linkage()
-        } else {
-            self.manifest
-                .get("linkage")
-                .cloned()
-                .unwrap_or_else(empty_linkage)
-        };
         let mut coverage = json!({
-            "language":"", "linkage":linkage, "basis":"syntax", "callExtraction":extraction,
+            "language":"", "basis":"syntax", "callExtraction":extraction,
         });
         if extraction != "supported" {
             coverage["warning"] = json!(format!(

@@ -72,14 +72,12 @@ async fn repeat_is_revalidated(etag: &'static str) {
     );
 }
 
+/// A gzip answer is revalidated by a 304 whatever kind of validator it carries.
 #[tokio::test]
-async fn a_gzip_answer_with_a_strong_etag_is_revalidated_by_304() {
-    repeat_is_revalidated("\"abc\"").await;
-}
-
-#[tokio::test]
-async fn a_gzip_answer_with_a_weak_etag_is_revalidated_by_304() {
-    repeat_is_revalidated("W/\"abc\"").await;
+async fn a_gzip_answer_with_a_strong_or_weak_etag_is_revalidated_by_304() {
+    for etag in ["\"abc\"", "W/\"abc\""] {
+        repeat_is_revalidated(etag).await;
+    }
 }
 
 #[tokio::test]

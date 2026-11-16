@@ -419,6 +419,7 @@ fn options(
         skip_files: None,
         max_file_bytes: None,
         judge: None,
+        global_ignore: Default::default(),
     }
 }
 

@@ -126,9 +126,12 @@ fn topology_skips_occurrence_bodies_and_point_freshness_keeps_inventory_checks()
         assert!(selected.validation["decodedEdges"].as_u64().unwrap() > 0);
         assert_eq!(evidence(selected), evidence(full), "{op}");
     }
-    assert_eq!(
-        ask(&dir, "node", "fn0000", 0, false).value["freshness"]["fresh"],
-        true
+    // A fresh, current snapshot states no freshness.
+    assert!(
+        ask(&dir, "node", "fn0000", 0, false)
+            .value
+            .get("freshness")
+            .is_none()
     );
     dir.write("app/added.ts", "export const added = 1;");
     let selected = ask(&dir, "node", "fn0000", 0, false);

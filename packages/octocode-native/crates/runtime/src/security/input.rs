@@ -204,6 +204,10 @@ pub(super) fn restore_within(
     (restored != text).then_some(restored)
 }
 
+/// The fields of a local tool's row that name a path on this machine
+/// ([`InputPolicy::LocalQuery`]).
+const PATH_FIELDS: [&str; 4] = ["path", "paths", "target", "workspaceRoot"];
+
 /// What a row may contain beyond the standard bounds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum InputPolicy {
@@ -211,6 +215,12 @@ pub(crate) enum InputPolicy {
     /// redacting it would silently change what the tool reads, and leak the
     /// placeholder into continuations.
     Query,
+    /// A local tool's row: a path field names a file or directory on this
+    /// machine, where a name may hold a credential (`deploy-ghp_….txt`). It
+    /// never leaves the machine, and the display of the path stays redacted,
+    /// so a credential-shaped path is no refusal. Every other string is
+    /// bounded and refused as in [`InputPolicy::Query`].
+    LocalQuery,
     /// A clasify row: its `content` may be as long as `content_limit` serialized
     /// characters, and a credential inside `content` is redacted in place: it
     /// is the evidence under judgment, which holds what its source holds.
@@ -294,10 +304,11 @@ impl ContentSecurity {
         policy: InputPolicy,
     ) -> Result<CheckedQuery, Vec<ValidationIssue>> {
         let content_limit = match policy {
-            InputPolicy::Query => None,
+            InputPolicy::Query | InputPolicy::LocalQuery => None,
             InputPolicy::ClasifyEvidence { content_limit } => Some(content_limit),
         };
-        let checked = self.walk(query, content_limit);
+        let paths = policy == InputPolicy::LocalQuery;
+        let checked = self.walk(query, content_limit, paths);
         let issues = input_issues(&checked, content_limit.is_some());
         if issues.is_empty() {
             Ok(CheckedQuery(
@@ -312,7 +323,7 @@ impl ContentSecurity {
     /// The walk over a borrowed query, for inspecting a verdict.
     #[cfg(test)]
     pub(crate) fn validate_input_parameters(&self, params: &Value) -> ValidationResult {
-        self.walk(params.clone(), None)
+        self.walk(params.clone(), None, false)
     }
 
     /// The walk with a clasify `content` allowance, for inspecting a verdict.
@@ -322,10 +333,10 @@ impl ContentSecurity {
         params: &Value,
         content_limit: usize,
     ) -> ValidationResult {
-        self.walk(params.clone(), Some(content_limit))
+        self.walk(params.clone(), Some(content_limit), false)
     }
 
-    fn walk(&self, params: Value, content_limit: Option<usize>) -> ValidationResult {
+    fn walk(&self, params: Value, content_limit: Option<usize>, paths: bool) -> ValidationResult {
         let Value::Object(mut object) = params else {
             return ValidationResult {
                 sanitized_params: Map::new(),
@@ -342,7 +353,7 @@ impl ContentSecurity {
                 )),
             };
         }
-        let mut verdict = self.walk_object(&mut object, 0, MAX_STRING_LENGTH, content_limit);
+        let mut verdict = self.walk_object(&mut object, 0, MAX_STRING_LENGTH, content_limit, paths);
         // The evidence is judged as text of no known file, in place. Text
         // only some other file's rules would hide (a manifest quoted in a
         // question) is no credential the caller is known to have written:
@@ -364,6 +375,7 @@ impl ContentSecurity {
         depth: usize,
         limit: usize,
         content_limit: Option<usize>,
+        paths: bool,
     ) -> Verdict {
         if depth > MAX_DEPTH {
             object.clear();
@@ -406,7 +418,10 @@ impl ContentSecurity {
                     // judged as text of no known file is, in place
                     // ([`ContentSecurity::hide_provider_text`]).
                     let evidence = key == EVIDENCE && content_limit.is_some();
-                    if !evidence && holds_credential(text) {
+                    if !evidence
+                        && !(paths && PATH_FIELDS.contains(&key.as_str()))
+                        && holds_credential(text)
+                    {
                         let result = self.sanitize_text(text, None);
                         out.has_secrets = true;
                         out.secret_fields.push(key.clone());
@@ -423,10 +438,10 @@ impl ContentSecurity {
                     // serialized length (checked before this walk): its
                     // items are data, however many, never a parameter list.
                     let evidence = key == EVIDENCE && content_limit.is_some();
-                    self.walk_array(key, values, depth, limit, !evidence, &mut out)
+                    self.walk_array(key, values, depth, limit, !evidence, paths, &mut out)
                 }
                 Value::Object(nested) => {
-                    let result = self.walk_object(nested, depth + 1, limit, None);
+                    let result = self.walk_object(nested, depth + 1, limit, None, paths);
                     out.absorb(
                         result,
                         |field| format!("{key}.{field}"),
@@ -453,6 +468,7 @@ impl ContentSecurity {
         depth: usize,
         limit: usize,
         counted: bool,
+        paths: bool,
         out: &mut Verdict,
     ) -> bool {
         if depth > MAX_DEPTH {
@@ -466,6 +482,7 @@ impl ContentSecurity {
             return false;
         }
         let mut item_secrets = false;
+        let judged = counted && !(paths && PATH_FIELDS.contains(&key));
         values.retain_mut(|item| match item {
             Value::String(text) if text.encode_utf16().count() > limit => {
                 out.refused(format!(
@@ -475,14 +492,14 @@ impl ContentSecurity {
             }
             // An item of the evidence (`counted` false) is judged with it.
             Value::String(text) => {
-                if counted && holds_credential(text) {
+                if judged && holds_credential(text) {
                     item_secrets = true;
                     *text = hidden(self.sanitize_text(text, None).content);
                 }
                 true
             }
             Value::Object(nested) => {
-                let result = self.walk_object(nested, depth + 1, limit, None);
+                let result = self.walk_object(nested, depth + 1, limit, None, paths);
                 out.absorb(
                     result,
                     |field| format!("{key}[].{field}"),
@@ -492,7 +509,9 @@ impl ContentSecurity {
             }
             // Nested arrays recurse, so string leaves at any array depth are
             // sanitized.
-            Value::Array(inner) => self.walk_array(key, inner, depth + 1, limit, counted, out),
+            Value::Array(inner) => {
+                self.walk_array(key, inner, depth + 1, limit, counted, paths, out)
+            }
             _ => true,
         });
         if item_secrets {

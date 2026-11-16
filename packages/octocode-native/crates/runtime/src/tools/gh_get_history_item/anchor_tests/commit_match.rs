@@ -97,6 +97,38 @@ async fn commit_match_string_that_removes_every_file_says_so() {
     assert!(out["next"].get("withoutMatchString").is_none(), "{out}");
 }
 
+/// A file kept only for a hit in a hunk header's function context shows its
+/// whole patch and counts that header as its hit, like any other match.
+#[tokio::test]
+async fn commit_match_string_header_only_hit_counts_as_a_match() {
+    let server = MockServer::builder().start().await;
+    let mut raw = commit_raw(HEAD, "Fix parser");
+    raw["files"] = json!([{
+        "filename":"src/b.rs","status":"modified","additions":1,"deletions":1,
+        "patch":"@@ -40,2 +40,2 @@ def url_for(\n keep\n-x\n+y"}]);
+    mount_json(
+        &server,
+        format!("/api/v3/repos/o/r/commits/{HEAD}"),
+        200,
+        raw,
+    )
+    .await;
+    let out = read(
+        &server,
+        json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,"matchString":["url_for"]}),
+    )
+    .await;
+    let files = out["files"].as_array().expect("files");
+    assert_eq!(files.len(), 1, "{out}");
+    assert_eq!(files[0]["matchCount"], 1, "{out}");
+    assert!(
+        files[0]["patch"].as_str().is_some_and(|patch| patch
+            .contains("@@ -40,2 +40,2 @@ def url_for(")
+            && patch.contains("+y")),
+        "{out}"
+    );
+}
+
 /// A commit's `matchString` keeps the files whose patch holds it (not a
 /// path-only hit) and counts the files it dropped.
 #[tokio::test]

@@ -255,14 +255,6 @@ pub(super) fn annotate(
             [super::session::disclose_pool_overflow(resident, budget)],
         );
     }
-    super::session::record_waits(
-        result,
-        disclose_waits(
-            &session.config,
-            session.client.waits_since(session.began),
-            session.began.elapsed(),
-        ),
-    );
     let language_id = target.config.language_id.as_deref();
     inferred_project::annotate(result, query, language_id, &target.path, scope);
     inferred_project::compile_database::annotate_compile_database(

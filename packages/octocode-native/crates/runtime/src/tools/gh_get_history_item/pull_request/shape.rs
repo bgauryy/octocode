@@ -9,7 +9,7 @@ use crate::tools::gh_get_history_item::axis::Axis;
 use crate::tools::gh_get_history_item::body_match::keep_loaded;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::pr_finish::pr_metadata;
-use crate::tools::gh_get_history_item::pr_menu::{INVENTORY_ALL_PATCHES_FILES, pr_next_menu};
+use crate::tools::gh_get_history_item::pr_menu::pr_next_menu;
 use crate::tools::gh_get_history_item::pr_sections::{
     CommentSection, shape_pr_comments, shape_pr_commits, shape_pr_reviews,
 };
@@ -43,16 +43,7 @@ fn read_menu(
     if !first_inventory {
         return None;
     }
-    let all_patches = raw
-        .get("changed_files")
-        .and_then(Value::as_u64)
-        .is_some_and(|files| files <= INVENTORY_ALL_PATCHES_FILES);
-    let mut next = pr_next_menu(query, review, raw);
-    if let Some(menu) = next.as_object_mut() {
-        menu.retain(|name, _| {
-            name == "readSelectedPatches" || (all_patches && name == "readPatches")
-        });
-    }
+    let next = pr_next_menu(query, review, raw);
     Some(next).filter(|next| next.as_object().is_some_and(|next| !next.is_empty()))
 }
 

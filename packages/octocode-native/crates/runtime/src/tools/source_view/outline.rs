@@ -25,9 +25,20 @@ pub(super) fn render_symbols_view(source: &str, path: &str) -> SymbolsView {
     // The one outline every reader shows: astSearch symbols lists this
     // declarations document's rows, this view renders them as source rows.
     // Both projections borrow the document of this request's own parse.
-    let declarations = crate::tools::declarations::file_document(source, path);
+    // A parse's memory follows the source's tokens, not its bytes: a source
+    // whose estimate passes the memory budget (a one-line minified file) is
+    // not parsed, like one the parser gave no tree for.
+    let parsable = octocode_engine::structural::parse_cost(source.as_bytes())
+        <= octocode_engine::structural::parse_budget();
+    let declarations = parsable
+        .then(|| crate::tools::declarations::file_document(source, path))
+        .flatten();
     let declarations = declarations.as_deref();
-    let signatures = octocode_engine::signatures::declarations_outline(source, path, declarations);
+    let signatures = if parsable {
+        octocode_engine::signatures::declarations_outline(source, path, declarations)
+    } else {
+        Err(OutlineUnavailable::ParseFailed)
+    };
     let code = |outline: String| {
         let outline = declaration_ranges(
             crate::response::numbered::tab_gutter(&outline),

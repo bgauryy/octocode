@@ -73,7 +73,8 @@ process.stdin.on('data', chunk => {
             .expect("MCP references");
         let payload = crate::support::mcp_payload(&output);
         let row = &payload["results"][0]["data"];
-        assert_eq!(row["path"], "src/lib.ts", "{output}");
+        // The row's path is the request's own: stated by the request, not the row.
+        assert!(row.get("path").is_none(), "{output}");
         let items = row["files"].as_array().expect("locations");
         assert!(
             items.iter().all(|item| item["path"] == "src/lib.ts"),
@@ -103,7 +104,7 @@ process.stdin.on('data', chunk => {
     let hover = call(&runtime, "lspSearch", query("hover"))
         .await
         .expect("hover");
-    assert_eq!(row_data(&hover)["path"], "src/lib.ts");
+    assert!(row_data(&hover).get("path").is_none());
     assert_eq!(
         row_data(&hover)["hover"]["contents"]["value"],
         path.to_string_lossy().as_ref(),

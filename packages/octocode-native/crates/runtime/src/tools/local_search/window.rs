@@ -77,9 +77,8 @@ pub(super) fn window(
     (query_key, policy): (&str, &str),
     cancel: &dyn CancellationCheck,
 ) -> SearchWindow {
-    let first_page = local_search_query::page(query) <= 1
-        && local_search_query::match_page(query) <= 1
-        && local_search_query::snapshot(query).is_none();
+    let first_page =
+        local_search_query::page(query) <= 1 && local_search_query::snapshot(query).is_none();
     if local_search_query::regex_mode(query) != RegexEngine::Pcre2 || !first_page {
         return SearchWindow::default();
     }
@@ -125,7 +124,7 @@ pub(super) fn paused_row(
     );
     let resume = local_search_query::edited(
         query,
-        &json!({"scanOffset": position, "snapshot": snapshot, "page": null, "matchPage": null}),
+        &json!({"scanOffset": position, "snapshot": snapshot, "page": null}),
     )?;
     let saturating = octocode_engine::num::saturating_u32;
     // Counted in the view's units, as a page with no file states them.

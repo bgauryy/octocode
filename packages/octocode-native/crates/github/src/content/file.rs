@@ -2,7 +2,10 @@
 use bytes::Bytes;
 use reqwest::header::{ACCEPT, CONTENT_TYPE, ETAG, HeaderValue};
 
-use super::payload::{ContentPayload, DirectoryEntry, decode_content, parse_content_payload};
+use super::payload::{
+    ContentPayload, DirectoryEntry, decode_content, parse_content_payload, resolve_link_target,
+    symlink_refused,
+};
 use super::{ContentRequest, ContentResponse, GitHubProvider, is_full_sha};
 use crate::{ProviderError, ProviderErrorKind, RequestContext, RequestSpec, ResponsePage};
 
@@ -13,12 +16,30 @@ impl GitHubProvider {
     /// A file's own bytes at a commit: the one GitHub file read (auth,
     /// commit identity and the blob fallback past 1 MB).
     /// Whether the bytes are text is the caller's rule, not the provider's.
+    /// A repository symlink is refused, naming its target: the bytes under a
+    /// link's name are the target's, which the caller's rules judge by the
+    /// target's name ([`Self::get_file_bytes_following_links`]).
     pub async fn get_file_bytes(
         &self,
         request: &ContentRequest,
         context: &RequestContext,
     ) -> Result<ContentResponse, ProviderError> {
-        self.file_bytes(request, context, BodyOwner::Transport)
+        self.file_bytes(request, context, BodyOwner::Transport, Links::Refuse)
+            .await
+            .map(|(read, _)| read)
+    }
+
+    /// [`Self::get_file_bytes`] for a caller that judges the name a read
+    /// resolved to: a symlink is followed to its file (a few links deep),
+    /// and the repository path it resolved to comes back beside the bytes.
+    /// The link's own path is never read as a file, so no answer holds the
+    /// target's bytes under the link's name.
+    pub async fn get_file_bytes_following_links(
+        &self,
+        request: &ContentRequest,
+        context: &RequestContext,
+    ) -> Result<(ContentResponse, Option<String>), ProviderError> {
+        self.file_bytes(request, context, BodyOwner::Transport, Links::Follow)
             .await
     }
 
@@ -31,7 +52,9 @@ impl GitHubProvider {
         request: &ContentRequest,
         context: &RequestContext,
     ) -> Result<ContentResponse, ProviderError> {
-        self.file_bytes(request, context, BodyOwner::Caller).await
+        self.file_bytes(request, context, BodyOwner::Caller, Links::Refuse)
+            .await
+            .map(|(read, _)| read)
     }
 
     async fn file_bytes(
@@ -39,7 +62,8 @@ impl GitHubProvider {
         request: &ContentRequest,
         context: &RequestContext,
         owner: BodyOwner,
-    ) -> Result<ContentResponse, ProviderError> {
+        links: Links,
+    ) -> Result<(ContentResponse, Option<String>), ProviderError> {
         validate_name(&request.owner)?;
         validate_name(&request.repo)?;
         if request.path.is_empty() {
@@ -49,6 +73,10 @@ impl GitHubProvider {
             ));
         }
         let resolved_ref = self.resolve_commit(request, context).await?;
+        let (followed, target) = self
+            .resolve_links(request, &resolved_ref, context, links)
+            .await?;
+        let request = &followed;
         let spec = owner.of(self.contents_spec(request, &resolved_ref)?);
         let page = match self.transport.execute(spec.clone(), context).await {
             Ok(page) => page,
@@ -56,12 +84,15 @@ impl GitHubProvider {
                 let (bytes, raw_response_bytes, blob) = self
                     .fetch_via_directory_and_blob(request, &resolved_ref, context, owner)
                     .await?;
-                return Ok(ContentResponse {
-                    bytes,
-                    resolved_ref,
-                    raw_response_bytes,
-                    blob,
-                });
+                return Ok((
+                    ContentResponse {
+                        bytes,
+                        resolved_ref,
+                        raw_response_bytes,
+                        blob,
+                    },
+                    target,
+                ));
             }
             Err(error) => return Err(error),
         };
@@ -69,12 +100,94 @@ impl GitHubProvider {
             .page_bytes(request, &page, context, owner)
             .await
             .inspect_err(|error| self.discard_undecodable(&spec, error, context))?;
-        Ok(ContentResponse {
-            bytes,
-            resolved_ref,
-            raw_response_bytes,
-            blob,
-        })
+        Ok((
+            ContentResponse {
+                bytes,
+                resolved_ref,
+                raw_response_bytes,
+                blob,
+            },
+            target,
+        ))
+    }
+
+    /// `request` with its path replaced by the file a symlink chain ends at,
+    /// and that path when a link was followed. A path that is no link (or
+    /// whose parent listing GitHub does not answer: the read itself then
+    /// fails the same way) comes back as it is. The parent listing is a
+    /// commit-pinned read, so a directory's files share one answer.
+    async fn resolve_links(
+        &self,
+        request: &ContentRequest,
+        resolved_ref: &str,
+        context: &RequestContext,
+        links: Links,
+    ) -> Result<(ContentRequest, Option<String>), ProviderError> {
+        let mut at = request.clone();
+        let mut followed = None;
+        for _ in 0..=MAX_LINK_HOPS {
+            let Some(target) = self.link_target(&at, resolved_ref, context).await? else {
+                return Ok((at, followed));
+            };
+            if links == Links::Refuse {
+                return Err(symlink_refused(&at.path, Some(&target)));
+            }
+            at.path = target.clone();
+            followed = Some(target);
+        }
+        Err(symlink_refused(&request.path, None))
+    }
+
+    /// The path the symlink at `request.path` points to, in repository form;
+    /// `None` when the path is not a link in its parent's listing.
+    async fn link_target(
+        &self,
+        request: &ContentRequest,
+        resolved_ref: &str,
+        context: &RequestContext,
+    ) -> Result<Option<String>, ProviderError> {
+        let (parent, name) = request.path.rsplit_once('/').unwrap_or(("", &request.path));
+        let mut segments = vec!["repos", &request.owner, &request.repo, "contents"];
+        if !parent.is_empty() {
+            segments.push(parent);
+        }
+        let mut url = self.transport.endpoint().rest(&segments)?;
+        url.query_pairs_mut().append_pair("ref", resolved_ref);
+        let listing = match self.transport.execute(RequestSpec::get(url), context).await {
+            Ok(page) => page,
+            // The read of the path itself reports a path GitHub lacks.
+            Err(error) if error.status == Some(404) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let Ok(entries) = serde_json::from_slice::<Vec<DirectoryEntry>>(&listing.body) else {
+            return Ok(None);
+        };
+        if !entries
+            .iter()
+            .any(|entry| entry.kind == "symlink" && entry.name == name)
+        {
+            return Ok(None);
+        }
+        let mut url = self.transport.endpoint().rest(&[
+            "repos",
+            &request.owner,
+            &request.repo,
+            "contents",
+            &request.path,
+        ])?;
+        url.query_pairs_mut().append_pair("ref", resolved_ref);
+        let entry = self
+            .transport
+            .execute(RequestSpec::get(url), context)
+            .await?;
+        let payload: ContentPayload = serde_json::from_slice(&entry.body).map_err(|_| {
+            ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub content response")
+        })?;
+        let raw = payload.target.as_deref();
+        match raw.and_then(|target| resolve_link_target(&request.path, target)) {
+            Some(target) => Ok(Some(target)),
+            None => Err(symlink_refused(&request.path, raw)),
+        }
     }
 
     /// The contents request for `request` at `resolved_ref`, in the raw
@@ -271,6 +384,17 @@ fn raw_response(page: &ResponsePage) -> bool {
         .get(..RAW_MEDIA_TYPE.len())
         .is_some_and(|prefix| prefix.eq_ignore_ascii_case(RAW_MEDIA_TYPE))
 }
+
+/// How a file read treats a repository symlink.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum Links {
+    Refuse,
+    Follow,
+}
+
+/// Symlinks a read follows before it gives up (a loop, or a chain no one
+/// means to read).
+const MAX_LINK_HOPS: usize = 8;
 
 /// Who stores a file read's body: the transport's saved answers, or the
 /// caller alone. The directory listing a large file's fallback reads holds no

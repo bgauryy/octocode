@@ -2,12 +2,10 @@
 //! row keeps the package, its version, where its source lives and how the
 //! release ref was tied to the version; a search row keeps the name, the
 //! version and the registry's description. Everything else the registry
-//! said is the `details` view, one call away (`view:"details"`).
-use crate::id::ToolId;
+//! said is the `details` view (`view:"details"`), named in the tool description.
 use crate::providers::artifact::query::artifact_search_query;
-use crate::response::result::Continuation;
-use octocode_contract_types::{ArtifactSearchQuery, ArtifactSearchView};
-use serde_json::{Value, json};
+use octocode_contract_types::ArtifactSearchQuery;
+use serde_json::Value;
 
 /// Row fields only `details` states, on a resolve and a search row alike.
 /// The advisories a registry lists (PyPI, NuGet) are `securityCheck`'s
@@ -61,18 +59,4 @@ pub(super) fn row(row: &mut Value, query: &ArtifactSearchQuery) {
             }
         }
     }
-}
-
-/// The same query with `view:"details"`, as the row's lead to everything the
-/// summary left out. A later discovery page has none: its cursor continues
-/// the view the walk began with.
-pub(super) fn details_lead(data: &mut Value, query: &ArtifactSearchQuery) {
-    if artifact_search_query::page(query) > 1 {
-        return;
-    }
-    let Ok(mut whole) = serde_json::to_value(query) else {
-        return;
-    };
-    whole["view"] = json!(ArtifactSearchView::Details);
-    data["calls"]["details"] = Continuation::related(ToolId::ArtifactSearch, whole).build();
 }

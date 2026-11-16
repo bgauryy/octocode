@@ -1,5 +1,5 @@
 //! Admission of network git transfers through the shared GitHub limiter.
-use super::{CloneContext, CloneError};
+use super::{GitContext, GitError};
 use octocode_contract_types::ErrorCode;
 use std::time::Duration;
 
@@ -7,13 +7,13 @@ use std::time::Duration;
 const GIT_COOLDOWN_CAP: Duration = Duration::from_secs(10);
 
 pub(crate) fn git_permit(
-    context: &CloneContext<'_>,
+    context: &GitContext<'_>,
     repository_url: &str,
     token: Option<&str>,
-) -> Result<tokio::sync::OwnedSemaphorePermit, CloneError> {
+) -> Result<tokio::sync::OwnedSemaphorePermit, GitError> {
     use octocode_github::LimiterKey;
     let Ok(url) = url::Url::parse(repository_url) else {
-        return Err(CloneError::new(
+        return Err(GitError::new(
             ErrorCode::InvalidInput,
             "Repository URL could not be parsed",
         ));
@@ -33,15 +33,13 @@ pub(crate) fn git_permit(
 /// cancellation or deadline, else a secondary-limit cooldown or an open
 /// circuit, which the row states as the limiter's own provider failure
 /// (rate-limit facts, retryable, `next.retry`).
-pub(crate) fn admission_error(error: octocode_github::ProviderError) -> CloneError {
+pub(crate) fn admission_error(error: octocode_github::ProviderError) -> GitError {
     use octocode_github::ProviderErrorKind;
     match error.kind {
         ProviderErrorKind::Cancelled => {
-            CloneError::new(ErrorCode::Cancelled, error.message.to_string())
+            GitError::new(ErrorCode::Cancelled, error.message.to_string())
         }
-        ProviderErrorKind::Timeout => {
-            CloneError::new(ErrorCode::Timeout, error.message.to_string())
-        }
-        _ => CloneError::provider(error),
+        ProviderErrorKind::Timeout => GitError::new(ErrorCode::Timeout, error.message.to_string()),
+        _ => GitError::provider(error),
     }
 }

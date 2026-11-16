@@ -10,6 +10,7 @@ mod files;
 pub(crate) mod kinds;
 mod language;
 mod octo;
+mod parse_cost;
 mod query;
 mod syntax_errors;
 mod syntax_tree;
@@ -22,6 +23,7 @@ pub use octo::{
     COMPILE_FAILED, EXAMPLE_RULE, LiteralSigil, MATCH_DEADLINE, PARSE_INTERRUPTED,
     PatternDeclaration, QualifiedPattern, RULE_INVALID, SigilForm, SigilRepair, WrittenPattern,
 };
+pub use parse_cost::{BYTES_PER_TOKEN, parse_budget, parse_cost};
 pub use query::QUERY_INVALID;
 pub use syntax_errors::count_syntax_errors;
 pub use syntax_tree::{

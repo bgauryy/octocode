@@ -203,14 +203,15 @@ pub(crate) struct DirectoryInputs {
 /// rules read (the root's own are [`external_ignore_inputs`] of the root).
 ///
 /// [`external_ignore_inputs`]: octocode_engine::search::walk::external_ignore_inputs
-pub(crate) fn directory_ignore_inputs(
+pub(crate) fn directory_ignore_inputs_with(
     dir: &Path,
     root: &Path,
+    global: octocode_engine::search::walk::GlobalIgnore,
     permits: impl Fn(&Path) -> bool,
 ) -> DirectoryInputs {
     let mut inputs = DirectoryInputs::default();
     if dir != root && dir.join(".git").exists() {
-        inputs.external = octocode_engine::search::walk::external_ignore_inputs(dir);
+        inputs.external = octocode_engine::search::walk::external_ignore_inputs_with(dir, global);
     }
     for name in octocode_engine::search::walk::IGNORE_FILES {
         let ignore = dir.join(name);
@@ -289,7 +290,12 @@ mod tests {
         std::fs::create_dir(root.join(".git")).expect("root repository");
         std::fs::write(root.join(".gitignore"), "*.log\n").expect("fixture");
         let all = |_: &Path| true;
-        let inputs = directory_ignore_inputs(root, root, all);
+        let inputs = directory_ignore_inputs_with(
+            root,
+            root,
+            octocode_engine::search::walk::GlobalIgnore::NONE,
+            all,
+        );
         assert_eq!(
             inputs,
             DirectoryInputs {
@@ -300,7 +306,12 @@ mod tests {
         let nested = root.join("nested");
         std::fs::create_dir_all(nested.join(".git")).expect("nested repository");
         std::fs::write(nested.join(".ignore"), "tmp\n").expect("fixture");
-        let inputs = directory_ignore_inputs(&nested, root, all);
+        let inputs = directory_ignore_inputs_with(
+            &nested,
+            root,
+            octocode_engine::search::walk::GlobalIgnore::NONE,
+            all,
+        );
         assert_eq!(inputs.files, vec![nested.join(".ignore")]);
         let real = std::fs::canonicalize(&nested).expect("real path");
         assert!(
@@ -311,13 +322,37 @@ mod tests {
             inputs.external
         );
         assert!(!inputs.untracked);
-        assert!(directory_ignore_inputs(&nested, root, |_| false).untracked);
+        assert!(
+            directory_ignore_inputs_with(
+                &nested,
+                root,
+                octocode_engine::search::walk::GlobalIgnore::NONE,
+                |_| false
+            )
+            .untracked
+        );
         std::os::unix::fs::symlink(nested.join(".ignore"), nested.join(".gitignore"))
             .expect("link");
-        assert!(directory_ignore_inputs(&nested, root, all).untracked);
+        assert!(
+            directory_ignore_inputs_with(
+                &nested,
+                root,
+                octocode_engine::search::walk::GlobalIgnore::NONE,
+                all
+            )
+            .untracked
+        );
         std::fs::create_dir(root.join("dir")).expect("fixture");
         std::fs::create_dir(root.join("dir").join(".ignore")).expect("a directory");
-        assert!(directory_ignore_inputs(&root.join("dir"), root, all).untracked);
+        assert!(
+            directory_ignore_inputs_with(
+                &root.join("dir"),
+                root,
+                octocode_engine::search::walk::GlobalIgnore::NONE,
+                all
+            )
+            .untracked
+        );
     }
 
     /// A charge grows the stored value's weight; one past the whole budget

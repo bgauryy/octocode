@@ -169,7 +169,7 @@ impl Query<'_> {
             TraversalTarget::Directory { path, .. } => json!({"id": path, "kind": "directory"}),
         };
         extra.insert("target".into(), target_json);
-        extra.extend(edges_extra(&filter));
+        extra.extend(edges_extra(&filter, !self.flags.edge_kinds.is_empty()));
         if op == "dependents" && filter.kinds.contains(&EdgeKind::Imports) {
             let unlinked = roots
                 .iter()

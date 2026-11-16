@@ -89,6 +89,7 @@ pub(super) fn skipped_walk(
         ignored: q.include_ignored().unwrap_or(false),
         hidden: q.include_hidden().unwrap_or(false),
         default_excludes: q.default_excludes(),
+        global: paths.global_ignore(),
     };
     let (include, exclude) = (
         q.include().unwrap_or_default(),
@@ -103,6 +104,7 @@ pub(super) fn skipped_walk(
         has_extension_in(path, extensions) || scope.parsers.extension(path).is_some()
     };
     let probe = FileProbe::new(&scope.canonical, &permits, &keep)
+        .under(paths.global_ignore())
         .within(Globs {
             include: &include,
             exclude: &exclude,
@@ -166,6 +168,7 @@ pub(super) fn directory_choice(
                     ignored: q.include_ignored().unwrap_or(false),
                     hidden: q.include_hidden().unwrap_or(false),
                     default_excludes: q.default_excludes(),
+                    global: paths.global_ignore(),
                 },
                 usize::MAX,
                 Globs {

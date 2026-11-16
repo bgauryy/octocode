@@ -12,6 +12,7 @@ fn of(root: &Path, observed: SystemTime) -> Fingerprint {
             server_root: Some(root),
             include: &include,
             cargo_caches_unloaded: false,
+            global_ignore: Default::default(),
         },
         observed,
         &|| false,

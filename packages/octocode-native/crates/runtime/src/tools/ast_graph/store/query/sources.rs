@@ -89,11 +89,15 @@ impl Graph {
             .and_then(|reader| reader.borrow_mut().evidence_string(id, cancel));
         match read {
             Some(Ok(text)) => Ok(std::borrow::Cow::Owned(text)),
-            Some(Err(message)) => Err(*super::load::decode_failure(message, cancel)),
+            Some(Err(message)) => Err(*super::load::decode_failure(
+                message,
+                &self.manifest,
+                cancel,
+            )),
             None if id == NONE => Ok(std::borrow::Cow::Borrowed("")),
-            None => Err(GraphOutput::error(
-                ErrorCode::Decode,
+            None => Err(*super::load::integrity_failure(
                 "graph string reference is outside the decoded dictionary",
+                &self.manifest,
             )),
         }
     }
@@ -163,11 +167,11 @@ impl Graph {
             if reference != NONE {
                 reader
                     .load_origin(reference, cancel)
-                    .map_err(|message| *decode_failure(message, cancel))?;
+                    .map_err(|message| *decode_failure(message, &self.manifest, cancel))?;
             }
             let sources = reader
                 .sources(cancel)
-                .map_err(|message| *decode_failure(message, cancel))?;
+                .map_err(|message| *decode_failure(message, &self.manifest, cancel))?;
             return f(sources);
         }
         f(&self.t.sources)

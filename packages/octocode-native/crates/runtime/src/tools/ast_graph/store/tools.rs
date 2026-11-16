@@ -1,6 +1,7 @@
 //! Public graph tools: workspace ownership, exact snapshot selection and typed pages.
 use super::*;
 use crate::execution::{ExecutionContext, ExecutionError};
+use crate::id::ToolId;
 use crate::response::{outcome::DomainResult, result::Continuation};
 use octocode_contract_types::{GraphQueryQuery, GraphQueryStats, GraphQueryStatsOperation};
 
@@ -123,8 +124,24 @@ fn query_repair(row: &Value) -> impl Fn(&Path, &Path) -> Option<(PathBuf, Value)
             fields.remove("graph");
             fields.remove("baseline");
         }
-        let query = super::query::typed_row::<GraphQueryQuery>(row)?;
-        Some((dir, Continuation::related_query(query).build()))
+        // The file the call named is what it asked about: the lead carries
+        // it as the scope-relative `target`, unless the call has one or the
+        // operation takes none.
+        if row.get("target").is_none()
+            && let Some(relative) = file.strip_prefix(&dir).ok().and_then(Path::to_str)
+        {
+            let mut targeted = row.clone();
+            targeted["target"] = json!(relative);
+            let built = json!({"queries": [targeted.clone()]});
+            if crate::contracts::validate("graphQuery", built).is_ok() {
+                row = targeted;
+            }
+        }
+        // The typed query proves the row is one graphQuery accepts; the lead
+        // is built from the row itself, whose `operation` a typed variant of
+        // the generated query does not carry back.
+        super::query::typed_row::<GraphQueryQuery>(row.clone())?;
+        Some((dir, Continuation::related(ToolId::GraphQuery, row).build()))
     }
 }
 
@@ -343,12 +360,17 @@ fn options(
         path: row["path"].as_str().unwrap_or("."),
     };
     let graph = snapshots.exact(&id)?;
-    if read_snapshot_metadata(Path::new(&graph))
-        .is_none_or(|m| m.root.as_deref() != Some(root.to_string_lossy().as_ref()))
-    {
-        return Err(failure(
-            "snapshot belongs to a different path; use its original scope",
-        ));
+    let built_for = read_snapshot_metadata(Path::new(&graph)).and_then(|m| m.root);
+    if built_for.as_deref() != Some(root.to_string_lossy().as_ref()) {
+        return Err(failure(match built_for {
+            Some(original) => {
+                let original = shown(paths, Path::new(&original));
+                format!(
+                    "snapshot {id} was built for {original}, not for this path; query it with path {original:?}"
+                )
+            }
+            None => format!("snapshot {id} has no readable scope; rebuild it with graphBuild"),
+        }));
     }
     let baseline = row["baseline"]
         .as_str()

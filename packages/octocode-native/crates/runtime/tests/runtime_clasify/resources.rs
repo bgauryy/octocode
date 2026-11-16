@@ -1,4 +1,4 @@
-//! `evaluate` with `resources` end to end (C3e-5.2, C3eF R3): each resource
+//! `evaluate` with `resources` end to end: each resource
 //! judged whole with every question, one provider request per resource, a
 //! failure kept with its resource, and a glob expanded to one resource per
 //! file whose keys never take another key.
@@ -154,7 +154,7 @@ async fn a_row_none_of_whose_resources_was_read_fails_like_them() {
     runtime.close().await;
 }
 
-/// RV-SEC round 12 (F12-1): a glob over credential stores sends none of the
+/// A glob over credential stores sends none of the
 /// known stores (a Docker client config under `.docker/`, a kubeconfig under
 /// `.kube/`) and, of a file outside the list (a GCP service-account key under
 /// any name), only its known secrets are hidden: no private key is in any

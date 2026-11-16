@@ -197,6 +197,12 @@ impl ToolRuntime {
             allow_credential_files: config.resolved.security.credential_files
                 == crate::config::CredentialFilesPolicy::Allow,
             octocode_home: Some(octocode_home.clone()),
+            // The call's own environment names its global ignore file, so
+            // one server walks each caller's tree under that caller's rules.
+            global_ignore: octocode_engine::search::walk::GlobalIgnore::resolve(
+                &config.effective_env,
+                Some(&input.os_home),
+            ),
         })
         .map_err(|error| RuntimeError::new(ErrorCode::Policy, error.message))?
         // The shared clone store holds git objects, not checkouts: local

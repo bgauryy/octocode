@@ -220,7 +220,10 @@ fn matching(
         None,
     );
     walk.sort_by_file_name(std::cmp::Ord::cmp);
-    let rules = Arc::new(octocode_engine::search::walk::IgnoreRules::new(&root));
+    let rules = Arc::new(octocode_engine::search::walk::IgnoreRules::with_global(
+        &root,
+        reader.paths().global_ignore(),
+    ));
     {
         let (admission, matcher, root) = (admission.clone(), matcher.clone(), root.clone());
         let scope = IncludeScope::new(&root, &include);

@@ -573,18 +573,14 @@ fn a_malformed_scan_places_its_parent_as_the_parse_does() {
     }
 }
 
-/// Every head text and every Rust file of this repository scans to the mounts
-/// its parse reports, as a parent of each crate shape.
-#[test]
-fn every_text_scans_to_the_mounts_its_parse_reports() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("the crates directory");
+/// Every head text and each of `files` scans to the mounts its parse reports,
+/// as a parent of each crate shape.
+fn assert_texts_scan_to_their_parse(files: Vec<PathBuf>) {
     let mut texts = module_heads::TEXTS
         .iter()
         .map(|text| ((*text).to_owned(), Path::new("src/parent.rs").to_path_buf()))
         .collect::<Vec<_>>();
-    for file in mounts::rust_files(root) {
+    for file in files {
         if let Ok(content) = std::fs::read_to_string(&file) {
             texts.push((content, file));
         }
@@ -607,6 +603,20 @@ fn every_text_scans_to_the_mounts_its_parse_reports() {
         }
     }
     assert!(differ.is_empty(), "{}", differ.join("\n\n"));
+}
+
+/// Every head text and a sample of this repository's Rust files
+/// ([`mounts::real_source_sample`]) scan to the mounts their parse reports.
+#[test]
+fn every_text_and_sampled_file_scans_to_the_mounts_its_parse_reports() {
+    assert_texts_scan_to_their_parse(mounts::real_source_sample());
+}
+
+/// The same on every Rust file of this repository.
+#[test]
+#[ignore = "full tree: cargo test -- --ignored full_tree"]
+fn every_text_scans_to_the_mounts_its_parse_reports_full_tree() {
+    assert_texts_scan_to_their_parse(mounts::rust_files(mounts::real_source_root()));
 }
 
 /// A raw `r#mod` is an identifier, not the `mod` keyword: it is no head, and a

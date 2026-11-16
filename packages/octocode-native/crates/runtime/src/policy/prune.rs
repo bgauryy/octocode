@@ -83,7 +83,7 @@ pub fn directories(defaults: bool) -> Vec<String> {
 ///
 /// The one list every local walk prunes by: an engine walk that roots it
 /// itself takes these names (`default_exclude_dir`), a runtime callback
-/// takes [`rooted`].
+/// takes [`rooted_under`].
 pub(crate) fn walk_names(defaults: bool, include: &[String]) -> Vec<String> {
     let segments = include
         .iter()
@@ -99,18 +99,22 @@ pub(crate) fn walk_names(defaults: bool, include: &[String]) -> Vec<String> {
 }
 
 /// The default prune of a walk of `root` ([`walk_names`] bound to it,
-/// `Prune::at`: inside a git work tree a listed name is pruned only where
-/// git ignores it); `None` with `defaultExcludes:false`.
-pub(crate) fn rooted(
+/// `Prune::at_with`: inside a git work tree a listed name is pruned only where
+/// git ignores it, under the call's own global ignore rules); `None` with
+/// `defaultExcludes:false`.
+pub(crate) fn rooted_under(
     root: &std::path::Path,
     defaults: bool,
     include: &[String],
+    global: octocode_engine::search::walk::GlobalIgnore,
 ) -> Option<octocode_engine::search::walk::RootedPrune> {
-    defaults.then(|| octocode_engine::search::walk::Prune::new(walk_names(true, include)).at(root))
+    defaults.then(|| {
+        octocode_engine::search::walk::Prune::new(walk_names(true, include)).at_with(root, global)
+    })
 }
 
 /// The prune of a tool's own walk of one root, one with no path-policy
-/// callback: the default prune ([`rooted`]: a listed name is pruned outside a
+/// callback: the default prune ([`rooted_under`]: a listed name is pruned outside a
 /// git work tree, and inside one only where git ignores it, as every local
 /// tool walks, so a git-tracked `build/` is walked), plus the names it prunes
 /// wherever they sit: the credential stores (no read policy meets them in
@@ -123,16 +127,19 @@ pub(crate) struct OwnWalk {
 }
 
 impl OwnWalk {
-    /// The walk of `root`: the default prune lifted when `defaults` is false
-    /// (`defaultExcludes:false`); the credential stores stay pruned.
+    /// The walk of `root` under the global ignore rules of a call (the
+    /// default prune reads whether git ignores a directory from them): the
+    /// default prune lifted when `defaults` is false (`defaultExcludes:false`);
+    /// the credential stores stay pruned.
     pub(crate) fn with_defaults(
         root: &std::path::Path,
         defaults: bool,
         extra: impl IntoIterator<Item = String>,
+        global: octocode_engine::search::walk::GlobalIgnore,
     ) -> Self {
         Self {
             root: root.to_path_buf(),
-            defaults: rooted(root, defaults, &[]),
+            defaults: rooted_under(root, defaults, &[], global),
             names: octocode_engine::search::walk::Prune::new(
                 CREDENTIAL_DIRECTORY_NAMES
                     .iter()

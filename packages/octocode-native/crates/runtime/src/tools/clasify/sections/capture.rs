@@ -349,19 +349,62 @@ fn request_chars(
     }
     // Selected ranges start and end at line or section boundaries, which are
     // character boundaries; `get` keeps a misplaced one from panicking.
-    let (chars, escaped) = selected
+    let parts: Vec<&str> = selected
         .iter()
         .filter_map(|range| text.get(range.clone()))
-        .fold((0usize, 0usize), |(chars, escaped), part| {
-            let quoted = serde_json::to_string(part).map_or(part.len(), |quoted| quoted.len() - 2);
-            (chars + part.chars().count(), escaped + quoted)
-        });
-    if escaped == 0 {
-        return Ok(room);
+        .collect();
+    Ok(chars_within(&parts, room))
+}
+
+/// How many characters one section may hold so that its JSON-escaped bytes
+/// stay within `room`: the largest `n` for which no stretch of `n`
+/// consecutive characters of any part costs more, measured on the text
+/// itself. An average over the source would let a stretch dense in quotes,
+/// newlines or control characters overshoot the provider's window.
+pub(super) fn chars_within(parts: &[&str], room: usize) -> usize {
+    // The JSON-escaped bytes of each character, as `serde_json` writes it.
+    let cost = |c: char| -> u8 {
+        match c {
+            '"' | '\\' | '\n' | '\r' | '\t' | '\u{8}' | '\u{c}' => 2,
+            c if u32::from(c) < 0x20 => 6,
+            c => u8::try_from(c.len_utf8()).unwrap_or(4),
+        }
+    };
+    let costs: Vec<Vec<u8>> = parts
+        .iter()
+        .map(|part| part.chars().map(cost).collect())
+        .collect();
+    // The costliest stretch of `n` characters in any part.
+    let worst = |n: usize| -> usize {
+        costs
+            .iter()
+            .map(|part| {
+                let mut sum: usize = part.iter().take(n).map(|c| usize::from(*c)).sum();
+                let mut widest = sum;
+                for at in n..part.len() {
+                    sum = sum + usize::from(part[at]) - usize::from(part[at - n]);
+                    widest = widest.max(sum);
+                }
+                widest
+            })
+            .max()
+            .unwrap_or(0)
+    };
+    // A stretch of `n` characters costs at least `n` bytes, so `room` bounds
+    // the answer; the cost grows with `n`, so the fit is found by halving.
+    let (mut low, mut high) = (1, room.max(1));
+    if worst(high) <= room {
+        return high;
     }
-    let per_char = |count: usize| u128::try_from(count).unwrap_or(u128::MAX);
-    let fitted = per_char(room) * per_char(chars) / per_char(escaped);
-    Ok(usize::try_from(fitted).unwrap_or(room).max(1))
+    while low < high {
+        let mid = low + (high - low).div_ceil(2);
+        if worst(mid) <= room {
+            low = mid;
+        } else {
+            high = mid - 1;
+        }
+    }
+    low
 }
 
 fn unit_weight(unit: &Unit) -> usize {

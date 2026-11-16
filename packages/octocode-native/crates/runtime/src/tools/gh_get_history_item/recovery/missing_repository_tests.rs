@@ -1,4 +1,4 @@
-//! GH-G7: an item read whose repository does not resolve answers the
+//! An item read whose repository does not resolve answers the
 //! shared repository-not-found failure with its ghSearchRepo leads, after
 //! one repository read; an existing repository keeps the item's failure.
 use super::*;

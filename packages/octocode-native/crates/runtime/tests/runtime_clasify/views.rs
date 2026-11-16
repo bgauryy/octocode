@@ -70,7 +70,6 @@ async fn a_text_answer_is_its_values_and_tokens_by_default() {
         short,
         &json!({
             "answers":{"restart":{"noul":0.9},"kind":{"choice":"ops"},"risk":{"score":1.5}},
-            "usage":{"inputTokens":40,"outputTokens":7},
         }),
         "{summary}"
     );
@@ -183,7 +182,7 @@ async fn a_section_summary_is_its_lines_and_answers() {
     let usage = &summary["results"][0]["data"]["usage"];
     assert_eq!(
         usage.as_object().unwrap().keys().collect::<Vec<_>>(),
-        ["calls", "inputTokens", "outputTokens"],
+        ["calls"],
         "{summary}"
     );
     assert!(

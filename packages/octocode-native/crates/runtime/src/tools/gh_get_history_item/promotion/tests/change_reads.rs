@@ -40,7 +40,10 @@ fn change_reads_number_each_side_from_its_own_hunk_side() {
         needle: None,
     };
     let reads = change_reads("o", "r", std::slice::from_ref(&modified), &sides, |_| true);
-    let names = reads.iter().map(|(name, _)| *name).collect::<Vec<_>>();
+    let names = reads
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .collect::<Vec<_>>();
     assert_eq!(names, ["readAtCommit"], "one call reads both sides");
     assert_eq!(
         reads[0].1["input"],
@@ -64,7 +67,10 @@ fn change_reads_number_each_side_from_its_own_hunk_side() {
     let added = file("src/new.rs", "added", "@@ -0,0 +1,2 @@\n+x\n+y");
     let reads = change_reads("o", "r", &[added], &sides, |_| true);
     assert_eq!(
-        reads.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+        reads
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
         ["readAtCommit"]
     );
     assert_eq!(
@@ -76,19 +82,28 @@ fn change_reads_number_each_side_from_its_own_hunk_side() {
     let adds = file("src/adds.rs", "modified", "@@ -5,0 +6,2 @@\n+x\n+y");
     let reads = change_reads("o", "r", &[adds], &sides, |_| true);
     assert_eq!(
-        reads.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+        reads
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
         ["readAtCommit"]
     );
     let drops = file("src/drops.rs", "modified", "@@ -5,2 +4,0 @@\n-x\n-y");
     let reads = change_reads("o", "r", &[drops], &sides, |_| true);
     assert_eq!(
-        reads.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+        reads
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
         ["readParent"]
     );
     let removed = file("src/gone.rs", "removed", "@@ -1,2 +0,0 @@\n-x\n-y");
     let reads = change_reads("o", "r", &[removed], &sides, |_| true);
     assert_eq!(
-        reads.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+        reads
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
         ["readParent"]
     );
     assert_eq!(
@@ -102,7 +117,10 @@ fn change_reads_number_each_side_from_its_own_hunk_side() {
     };
     let reads = change_reads("o", "r", &[modified], &no_parent, |_| true);
     assert_eq!(
-        reads.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+        reads
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
         ["readAtCommit"]
     );
 }

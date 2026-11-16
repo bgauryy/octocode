@@ -18,15 +18,17 @@ use std::sync::{Arc, PoisonError};
 
 use ignore::WalkBuilder;
 
+mod global_ignore;
 mod ignore_rules;
 pub(crate) mod ordered;
 pub(crate) mod read_ahead;
 
+pub use global_ignore::{GlobalIgnore, PerRepository};
 #[cfg(test)]
 pub(crate) use ignore_rules::LEVELS_STATED;
 pub use ignore_rules::{
     DirRules, IGNORE_FILES, IgnoreReason, IgnoreRules, ListedRules, UnreadableRule,
-    checkout_git_dir, common_git_dir, external_ignore_inputs,
+    checkout_git_dir, common_git_dir, external_ignore_inputs, external_ignore_inputs_with,
 };
 pub(crate) use ordered::{Judge, OrderedWalk, Probe, Step, listed, listed_rules};
 
@@ -37,13 +39,19 @@ pub type Stop<'a> = dyn Fn() -> bool + Sync + 'a;
 /// `max_depth` is in `ignore` terms: the root is depth 0, its entries depth 1.
 /// Callers add overrides, file types, ordering, and pruning.
 pub fn walk_builder(root: &Path, policy: IgnorePolicy, max_depth: Option<usize>) -> WalkBuilder {
+    builder(root, policy, max_depth)
+}
+
+fn builder(root: &Path, policy: IgnorePolicy, max_depth: Option<usize>) -> WalkBuilder {
     let rules = !policy.include_ignored;
     let mut builder = WalkBuilder::new(root);
     builder
         .hidden(!policy.include_hidden)
         .ignore(rules)
         .git_ignore(rules)
-        .git_global(rules)
+        // The walker would read the process's global ignore file, relative
+        // to one directory: a call's own rules are [`GlobalFilter`]'s.
+        .git_global(false)
         .git_exclude(rules)
         .parents(rules)
         .require_git(true)
@@ -56,6 +64,69 @@ pub fn walk_builder(root: &Path, policy: IgnorePolicy, max_depth: Option<usize>)
         builder.threads(share);
     }
     builder
+}
+
+/// [`walk_builder`] for a call that carries global ignore rules. The
+/// builder applies none of them (the walker would read the process's, and
+/// relative to one directory): the walk's entry filter asks the returned
+/// [`GlobalFilter`] about each entry, whatever else it filters on.
+pub fn walk_builder_under(
+    root: &Path,
+    policy: IgnorePolicy,
+    global: GlobalIgnore,
+    max_depth: Option<usize>,
+) -> (WalkBuilder, GlobalFilter) {
+    (
+        builder(root, policy, max_depth),
+        GlobalFilter::new(root, policy, global),
+    )
+}
+
+/// The global ignore rules of one walk as an entry filter. Git's rules for
+/// the entry apply per repository (patterns relative to its work tree, as
+/// git reads `core.excludesFile`), below any rule of the repository itself:
+/// an entry its own ignore files re-include stays.
+pub struct GlobalFilter {
+    global: PerRepository,
+    /// The walk's own rules, which a global rule never overrides.
+    local: std::sync::OnceLock<IgnoreRules>,
+    root: PathBuf,
+}
+
+impl GlobalFilter {
+    /// The filter of a walk of `root` under `policy`: it hides nothing when
+    /// the policy lifts ignore rules.
+    pub fn new(root: &Path, policy: IgnorePolicy, global: GlobalIgnore) -> Self {
+        Self {
+            global: PerRepository::new(if policy.include_ignored {
+                GlobalIgnore::NONE
+            } else {
+                global
+            }),
+            local: std::sync::OnceLock::new(),
+            root: root.to_path_buf(),
+        }
+    }
+
+    /// Whether the walk leaves out the entry `path` (below the root) on the
+    /// global rules alone.
+    pub fn hides(&self, path: &Path, is_dir: bool) -> bool {
+        self.global.matched(path, is_dir, |_| ()).is_ignore()
+            && self
+                .local
+                .get_or_init(|| IgnoreRules::with_global(&self.root, GlobalIgnore::NONE))
+                .decide_entry(path, is_dir)
+                .is_none()
+    }
+
+    /// [`Self::hides`] for a walker's entry.
+    pub fn hides_entry(&self, entry: &ignore::DirEntry) -> bool {
+        entry.depth() > 0
+            && self.hides(
+                entry.path(),
+                entry.file_type().is_some_and(|kind| kind.is_dir()),
+            )
+    }
 }
 
 /// Directory names a walk never descends into, at any depth below its root.
@@ -86,7 +157,13 @@ impl Prune {
     /// does not ignore is source the repository keeps (a crate's `build/`
     /// scripts, rustc's `coverage/` pass), so the walk enters it.
     pub fn at(self, root: &Path) -> RootedPrune {
+        self.at_with(root, GlobalIgnore::default())
+    }
+
+    /// [`Self::at`] under the global ignore rules of a call.
+    pub fn at_with(self, root: &Path, global: GlobalIgnore) -> RootedPrune {
         RootedPrune {
+            global,
             names: self,
             root: Arc::from(root),
             repository: Arc::default(),
@@ -98,6 +175,7 @@ impl Prune {
 /// repository's ignore rules load when the walk first meets a listed name.
 #[derive(Clone)]
 pub struct RootedPrune {
+    global: GlobalIgnore,
     names: Prune,
     root: Arc<Path>,
     /// `None` outside a git work tree.
@@ -128,7 +206,7 @@ impl RootedPrune {
             || self
                 .repository
                 .get_or_init(|| {
-                    let rules = IgnoreRules::new(&self.root);
+                    let rules = IgnoreRules::with_global(&self.root, self.global);
                     rules.in_repository().then_some(rules)
                 })
                 .as_ref()

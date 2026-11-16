@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { bindingArgs, readBinding, runtimeCommand, type HostBinding, type PiHost, type PiToolHost } from './shared/command.js';
+import { scaledMs } from '../runtime/timing.js';
 import { isObject, type Json } from '../runtime/validation.js';
 import { keyedInput, retryKeyPayload, validateToolEnvelope } from '../runtime/tool-groups.js';
 
@@ -99,7 +100,7 @@ export function registerBoundTools(pi: PiToolHost, options: BoundToolsOptions): 
           const child = execFile(invocation.command, invocation.args,
           // JSON goes through stdin so large documents do not exceed OS argv limits.
           // CLI pages are bounded to 256 KiB; keep output headroom for metadata.
-          { signal, timeout: 10_000, maxBuffer: 1024 * 1024 }, (error, output, stderr) => {
+          { signal, timeout: scaledMs(10_000), maxBuffer: 1024 * 1024 }, (error, output, stderr) => {
             const failure: (Error & { code?: string | number | null; signal?: string | null }) | undefined = error || inputError;
             if (!failure) { resolve(output); return; }
             const detail = stderr?.trim() || `Communication ${tool.name} failed (${failure.code ?? failure.name}${failure.signal ? `, ${failure.signal}` : ''})`;

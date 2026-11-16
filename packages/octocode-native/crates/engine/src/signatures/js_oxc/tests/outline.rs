@@ -139,12 +139,26 @@ fn tsx_and_jsx_parse() {
     assert!(names(&v).contains(&"App".to_string()));
 }
 
+/// What a failed or empty parse gives: no outline, or a best-effort one of
+/// numbered rows, never a panic or free text.
+fn assert_none_or_numbered_rows(outline: Option<String>, source: &str) {
+    for row in outline.iter().flat_map(|outline| outline.lines()) {
+        assert!(
+            row.split_once('\t').is_some_and(|(number, _)| {
+                number.split('-').all(|part| part.parse::<usize>().is_ok())
+            }),
+            "{source:?} gave the row {row:?}"
+        );
+    }
+}
+
 #[test]
 fn empty_or_dataless_returns_none() {
     assert!(extract_js_symbols("", "empty.ts").is_none());
     // A hard parse failure must not abort; it returns None or a best-effort
-    // outline — either is acceptable, just never a panic.
-    let _ = extract_js_symbols("const x = 1 +;", "broken.ts");
+    // outline of numbered rows.
+    let broken = "const x = 1 +;";
+    assert_none_or_numbered_rows(extract_js_symbols(broken, "broken.ts"), broken);
 }
 
 #[test]
@@ -155,7 +169,7 @@ fn never_aborts_on_adversarial_input() {
         "\u{0}\u{0}\u{0}",
         "import type type from from",
     ] {
-        let _ = extract_js_symbols(src, "x.ts");
+        assert_none_or_numbered_rows(extract_js_symbols(src, "x.ts"), src);
     }
 }
 

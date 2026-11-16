@@ -55,7 +55,7 @@ fn compare_pages_are_offered_once_with_their_own_cursor_only() {
     });
     let cursors = DiffCursors {
         commit_page: Some(2),
-        ..DiffCursors::of_file_page(&mut first["sectionPagination"]["files"], Some(5000), true)
+        ..DiffCursors::of_file_page(&mut first["sectionPagination"]["files"], Some(5000))
     };
     attach_diff_continuations(
         &mut first,
@@ -80,7 +80,7 @@ fn compare_pages_are_offered_once_with_their_own_cursor_only() {
         "files":[{"path":"b.rs","patch":"y"}],
         "sectionPagination":{"files":{"page":1,"hasMore":true,"nextPage":2}}
     });
-    let cursors = DiffCursors::of_file_page(&mut last["sectionPagination"]["files"], None, true);
+    let cursors = DiffCursors::of_file_page(&mut last["sectionPagination"]["files"], None);
     attach_diff_continuations(
         &mut last,
         &compare(json!({"offset":5000})),
@@ -162,8 +162,7 @@ fn issue_pages_use_the_published_include_spelling() {
 /// A budget-sized file page (no `pageSize`, no patches) carries the page
 /// size its grid was cut on in the file page continuation, so the continuation reads
 /// the same grid under any batch share; a caller's `pageSize` and a patch
-/// page (fixed batch) carry nothing new. `readPatches` from an inventory
-/// page opens the patch page that holds the page's first file.
+/// page (fixed batch) carry nothing new.
 #[test]
 fn budget_sized_file_pages_pin_their_grid_on_the_continuation() {
     let request = |row: Value, share: usize| {
@@ -210,7 +209,7 @@ fn budget_sized_file_pages_pin_their_grid_on_the_continuation() {
         );
         let mut out = json!({"files":["M +1 -1 a.rs"],
             "sectionPagination":{"files":{"page":page,"hasMore":true,"nextPage":page + 1}}});
-        let cursors = DiffCursors::of_file_page(&mut out["sectionPagination"]["files"], None, true);
+        let cursors = DiffCursors::of_file_page(&mut out["sectionPagination"]["files"], None);
         attach_diff_continuations(&mut out, &query, ItemOperation::Compare, None, cursors);
         out
     };
@@ -221,14 +220,8 @@ fn budget_sized_file_pages_pin_their_grid_on_the_continuation() {
         (&json!(3), &json!(166)),
         "{out}"
     );
-    // Optional patches start a fresh request; the inventory page grid is private.
-    let patches = &out["calls"]["readPatches"]["input"]["queries"][0];
-    assert!(patches.get("page").is_none(), "{out}");
-    assert_eq!(out["calls"]["readPatches"]["kind"], "related");
-    assert!(patches.get("pageSize").is_none(), "{out}");
-    let first = compare(1, 10_000);
-    let patches = &first["calls"]["readPatches"]["input"]["queries"][0];
-    assert!(patches.get("page").is_none(), "{first}");
+    // Patches are a `sections` value away: no static lead restates the query.
+    assert!(out["calls"].get("readPatches").is_none(), "{out}");
 }
 
 /// A page block's cursor rides the `next` continuation it was read into,

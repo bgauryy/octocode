@@ -334,6 +334,15 @@ impl WalkScope<'_> {
     ) -> Option<FileOutcome> {
         match files.search(file, path) {
             Ok(outcome) => Some(outcome),
+            // A stopped search ends the file it waited or worked on: no
+            // error of the file's own.
+            Err(error)
+                if (error.kind() == std::io::ErrorKind::Interrupted
+                    || super::file_search::is_stopped_read(&error))
+                    && files.halted() =>
+            {
+                None
+            }
             Err(error) => {
                 // The file opened; std never reports a read failure as
                 // `Other`, which carries the matcher's own errors (the

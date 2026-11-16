@@ -9,13 +9,6 @@ use octocode_contract_types::LocalSearchQuery;
 use octocode_engine::num::{saturating_u32, saturating_usize};
 use octocode_engine::types::CapReason;
 
-/// The page's warning when some shown values are placeholders the secret
-/// check put in their place: this page's fact only. What a placeholder means
-/// and the localFetch read that shows its line are the tool description's;
-/// each placeholder names its own cause.
-pub(super) const UNVERIFIED_WARNING: &str =
-    "unverifiedMatches: some returned match values are [REDACTED: …] placeholders.";
-
 /// What the scan could not cover, and how the row says so.
 pub(super) struct Coverage {
     pub(super) error_count: u32,
@@ -157,22 +150,12 @@ impl Coverage {
         .collect()
     }
 
-    pub(super) fn warnings(
-        &self,
-        layout: &Layout,
-        shown_redacted: usize,
-        unverified: bool,
-    ) -> Vec<String> {
+    pub(super) fn warnings(&self, layout: &Layout, shown_redacted: usize) -> Vec<String> {
         let mut warnings = vec![];
         warnings.extend(self.parent_glob.clone());
         warnings.extend(self.inert.iter().cloned());
         if shown_redacted > 0 && !layout.list {
-            warnings.push(format!(
-                "redactedMatches: {shown_redacted} returned match value(s) had secret-shaped text replaced by [REDACTED…] placeholders; those values are not verbatim source."
-            ));
-        }
-        if unverified {
-            warnings.push(UNVERIFIED_WARNING.into());
+            warnings.push(crate::security::redacted_mark());
         }
         // Values are decoded as localFetch decodes the file; say so once.
         if let Some(files) = &self.not_utf8_files

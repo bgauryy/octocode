@@ -245,6 +245,9 @@ pub struct TextSearchOptions {
     pub exclude: Option<Vec<String>>,
     /// Which ignore rules and dot entries the walk leaves out.
     pub ignore: crate::types::IgnorePolicy,
+    /// The global ignore rules the walk applies, resolved from the call's
+    /// environment (the default reads the engine's own process).
+    pub global_ignore: crate::process_env::GlobalIgnore,
     /// Maximum directory descent below the search root. `0` searches files
     /// directly in the root, `1` includes one nested directory level, and so on.
     pub max_depth: Option<u32>,
@@ -286,9 +289,16 @@ pub struct TextSearchOptions {
 /// withholds, and every count, listing and file-level term sees the same
 /// text. An error leaves the file unsearched, recorded as a failed path. The
 /// judge is handed the file at its start, and the search reads it again from
-/// its start after.
-pub type JudgeSource =
-    dyn Fn(&std::path::Path, &std::fs::File) -> std::io::Result<Option<Vec<u8>>> + Send + Sync;
+/// its start after. It is also handed whether the search was stopped
+/// (cancelled, or past its bound): a judge that works for long checks it and
+/// ends its work with an error.
+pub type JudgeSource = dyn Fn(
+        &std::path::Path,
+        &std::fs::File,
+        &(dyn Fn() -> bool + Sync),
+    ) -> std::io::Result<Option<Vec<u8>>>
+    + Send
+    + Sync;
 
 /// Whether a match of `literal` could take text a [`JudgeSource`] writes or
 /// moves in place of a source's own bytes (compared ignoring case when

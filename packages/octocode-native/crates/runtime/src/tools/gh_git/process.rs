@@ -2,7 +2,7 @@ mod askpass;
 pub(crate) use askpass::process_alive;
 mod redaction;
 
-use super::CloneError;
+use super::GitError;
 use crate::execution::cancel::CancellationCheck;
 use crate::tools::bounded_process::{
     BoundedError, run_bounded_chunks, run_bounded_input, run_bounded_records,
@@ -94,21 +94,21 @@ pub struct GitOutput {
     pub stderr: String,
 }
 
-type RecordConsumer<'a> = dyn FnMut(&[u8]) -> Result<(), CloneError> + Send + 'a;
+type RecordConsumer<'a> = dyn FnMut(&[u8]) -> Result<(), GitError> + Send + 'a;
 
 pub trait GitRunner: Send + Sync {
     fn run(
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-    ) -> Result<GitOutput, CloneError>;
+    ) -> Result<GitOutput, GitError>;
 
     fn run_nul_records(
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-        record: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-    ) -> Result<GitOutput, CloneError>;
+        record: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+    ) -> Result<GitOutput, GitError>;
 
     /// Run git and hand its stdout, bytes as written, to `sink` as they
     /// arrive: none of it is kept, so its size is bounded by the sink alone.
@@ -117,10 +117,10 @@ pub trait GitRunner: Send + Sync {
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-        sink: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-    ) -> Result<GitOutput, CloneError>;
+        sink: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+    ) -> Result<GitOutput, GitError>;
 
-    fn assert_available(&self, control: &GitRunControl<'_>) -> Result<(), CloneError> {
+    fn assert_available(&self, control: &GitRunControl<'_>) -> Result<(), GitError> {
         match self.run(
             &GitRunRequest {
                 args: vec![OsString::from("--version")],
@@ -134,7 +134,7 @@ pub trait GitRunner: Send + Sync {
         ) {
             Ok(output) => match git_version(&output.stdout) {
                 Some(version) if version >= GIT_FLOOR => Ok(()),
-                _ => Err(CloneError::new(
+                _ => Err(GitError::new(
                     ErrorCode::GitUnavailable,
                     format!(
                         "git {}.{} or newer is required: ghCloneRepo keeps one sparse checkout per linked worktree. Found: {}",
@@ -147,7 +147,7 @@ pub trait GitRunner: Send + Sync {
             Err(error) if matches!(error.code, ErrorCode::Cancelled | ErrorCode::Timeout) => {
                 Err(error)
             }
-            Err(_) => Err(CloneError::new(
+            Err(_) => Err(GitError::new(
                 ErrorCode::GitUnavailable,
                 "git is not installed or not on PATH. The ghCloneRepo tool requires git to be available.",
             )),
@@ -325,13 +325,13 @@ impl SystemGit {
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
         sink: Sink<'_, '_>,
-    ) -> Result<GitOutput, CloneError> {
+    ) -> Result<GitOutput, GitError> {
         control
             .cancellation
             .check()
-            .map_err(|message| CloneError::new(ErrorCode::Cancelled, message))?;
+            .map_err(|message| GitError::new(ErrorCode::Cancelled, message))?;
         if Instant::now() >= control.deadline {
-            return Err(CloneError::new(
+            return Err(GitError::new(
                 ErrorCode::Timeout,
                 "Clone request deadline elapsed before Git execution.",
             ));
@@ -339,7 +339,7 @@ impl SystemGit {
         let git_tmp = control.home.join("tmp");
         let git_home = git_tmp.join("git-home");
         std::fs::create_dir_all(&git_home).map_err(|error| {
-            CloneError::new(
+            GitError::new(
                 ErrorCode::GitFailed,
                 format!("Failed to create isolated Git home: {error}"),
             )
@@ -380,8 +380,8 @@ impl SystemGit {
             ),
         }
         .map_err(|error| match error {
-            BoundedError::Cancelled(message) => CloneError::new(ErrorCode::Cancelled, message),
-            BoundedError::TimedOut(_) => CloneError::new(
+            BoundedError::Cancelled(message) => GitError::new(ErrorCode::Cancelled, message),
+            BoundedError::TimedOut(_) => GitError::new(
                 ErrorCode::Timeout,
                 format!("git {} exceeded its execution deadline", request.label),
             ),
@@ -414,7 +414,7 @@ impl GitRunner for SystemGit {
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-    ) -> Result<GitOutput, CloneError> {
+    ) -> Result<GitOutput, GitError> {
         self.execute(request, control, Sink::Collect)
     }
 
@@ -422,8 +422,8 @@ impl GitRunner for SystemGit {
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-        record: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-    ) -> Result<GitOutput, CloneError> {
+        record: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+    ) -> Result<GitOutput, GitError> {
         self.execute(request, control, Sink::Records(record))
     }
 
@@ -431,8 +431,8 @@ impl GitRunner for SystemGit {
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-        sink: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-    ) -> Result<GitOutput, CloneError> {
+        sink: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+    ) -> Result<GitOutput, GitError> {
         self.execute(request, control, Sink::Chunks(sink))
     }
 }
@@ -444,13 +444,13 @@ enum Sink<'a, 'b> {
     /// NUL-delimited records, one call each.
     Records(&'a mut RecordConsumer<'b>),
     /// Raw pieces as they arrive.
-    Chunks(&'a mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send + 'b)),
+    Chunks(&'a mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send + 'b)),
 }
 
-fn process_failure(message: String) -> CloneError {
-    CloneError {
+fn process_failure(message: String) -> GitError {
+    GitError {
         hints: vec!["Resolve the reported Git process or resource failure before retrying.".into()],
-        ..CloneError::new(ErrorCode::GitFailed, message)
+        ..GitError::new(ErrorCode::GitFailed, message)
     }
 }
 

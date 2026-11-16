@@ -82,7 +82,7 @@ fn first_page(term: &str) -> LspSearchQuery {
 }
 
 /// A later page of a workspace-symbol answer repeats none of the leads its
-/// first page carried (R4, R7), and no page carries a note; a server cap
+/// first page carried, and no page carries a note; a server cap
 /// stays, a fact of every page.
 #[test]
 fn a_later_workspace_symbol_page_repeats_no_note_or_lead() {

@@ -154,7 +154,7 @@ pub(super) async fn compare(
     // A head behind its base (refs given in reverse) changes nothing this
     // way round: the swapped comparison reads the `behindBy` commits.
     if nothing_ahead && behind > 0 {
-        leads.extend(swapped_refs(query).map(|swap| ("swapRefs", swap)));
+        leads.extend(swapped_refs(query).map(|swap| ("swapRefs".to_owned(), swap)));
     }
     leads.extend(capped_file_leads(
         query,
@@ -173,7 +173,7 @@ pub(super) async fn compare(
         leads.extend(
             commits
                 .and_then(|commits| commits.read)
-                .map(|read| ("readCommit", read)),
+                .map(|read| ("readCommit".to_owned(), read)),
         );
     }
     // The tree source is a static fact of the comparison: stated once, on

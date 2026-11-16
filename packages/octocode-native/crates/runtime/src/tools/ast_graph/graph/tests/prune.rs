@@ -71,7 +71,7 @@ fn tree(git: bool) -> crate::tools::test_support::Fixture {
 
 /// The `.ts` files a tool's own pruned walk of `root` reaches.
 fn own_walk(root: &std::path::Path) -> BTreeSet<String> {
-    crate::tools::pruned_walk(root, [])
+    crate::tools::pruned_walk(root, [], Default::default())
         .build()
         .flatten()
         .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "ts"))

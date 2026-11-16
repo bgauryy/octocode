@@ -208,6 +208,8 @@ impl ToolRuntime {
                 InputPolicy::ClasifyEvidence {
                     content_limit: crate::id::clasify_policy::REQUEST_BYTES,
                 }
+            } else if id.is_local() {
+                InputPolicy::LocalQuery
             } else {
                 InputPolicy::Query
             };

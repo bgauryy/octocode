@@ -23,7 +23,10 @@ fn plan_1_call_answers_report_coverage() {
         |_| {},
     );
     let coverage = &out.value["coverage"];
-    let recall = coverage["linkage"]["ratio"].as_f64().expect("recall");
+    assert!(coverage.get("linkage").is_none(), "{}", out.value);
+    // The graph-wide linking quality is the stats operation's.
+    let stats = ask(dir.0.as_path(), "stats", None, |_| {});
+    let recall = stats.value["linkage"]["ratio"].as_f64().expect("recall");
     assert!(recall < 1.0, "{}", out.value);
     assert_eq!(coverage["callExtraction"], "supported", "{}", out.value);
     assert!(coverage.get("warning").is_none(), "{}", out.value);
@@ -34,7 +37,7 @@ fn plan_1_call_answers_report_coverage() {
         |_| {},
     );
     assert!(
-        impact.value["coverage"]["linkage"]["ratio"].is_number(),
+        impact.value["coverage"].get("linkage").is_none(),
         "{}",
         impact.value
     );
@@ -335,11 +338,9 @@ fn a_full_ratio_caveat_lives_in_the_description_not_in_every_answer() {
         Some("src/values.ts#target"),
         |_| {},
     );
-    assert_eq!(
-        callers.value["coverage"]["linkage"]["ratio"], 1.0,
-        "{}",
-        callers.value
-    );
+    assert!(callers.value["coverage"].get("linkage").is_none());
+    let stats = ask(dir.0.as_path(), "stats", None, |_| {});
+    assert_eq!(stats.value["linkage"]["ratio"], 1.0, "{}", stats.value);
     let stats = ask(dir.0.as_path(), "stats", None, |_| {});
     for answer in [&built.value, &callers.value, &stats.value] {
         assert!(!answer.to_string().contains("taken as a value"), "{answer}");
@@ -359,4 +360,27 @@ fn the_linked_call_count_is_stated_once() {
         assert!(answer["calls"]["sites"].is_u64(), "{answer}");
         assert!(answer["calls"].get("linked").is_none(), "{answer}");
     }
+}
+
+#[test]
+fn a_traversal_states_its_edges_only_when_the_request_chose_them() {
+    let dir = issues_fixture();
+    assert_eq!(
+        ingest_fixture(dir.0.as_path(), None).class,
+        ExitClass::Success
+    );
+    let default = ask(
+        dir.0.as_path(),
+        "callers",
+        Some("src/lib.ts#Box.open"),
+        |_| {},
+    );
+    assert!(default.value.get("edges").is_none(), "{}", default.value);
+    let chosen = ask(
+        dir.0.as_path(),
+        "callers",
+        Some("src/lib.ts#Box.open"),
+        |o| o.edges = vec!["calls".to_owned()],
+    );
+    assert_eq!(chosen.value["edges"], json!(["calls"]), "{}", chosen.value);
 }

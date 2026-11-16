@@ -42,7 +42,9 @@ fn didopen_read_is_capped_to_avoid_oversized_document_sync() {
     std::fs::write(&at_cap, vec![b'a'; cap]).expect("write at cap");
     std::fs::write(&over_cap, vec![b'a'; cap + 1]).expect("write over cap");
     assert_eq!(
-        read_bounded_source(&at_cap).map(|read| read.text.len()).ok(),
+        read_bounded_source(&at_cap)
+            .map(|read| read.text.len())
+            .ok(),
         Some(cap)
     );
     assert!(matches!(

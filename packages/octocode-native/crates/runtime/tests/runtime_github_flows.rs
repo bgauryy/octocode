@@ -249,7 +249,15 @@ async fn a_directory_at_the_contents_limit_keeps_the_identity_for_a_clone() {
         "{data}"
     );
     assert_eq!(data["commitSha"], sha, "{data}");
-    assert_eq!(data["isPartial"], true, "{data}");
+    // A partial page states it once: partialReasons or a floor countScope, no isPartial.
+    assert!(data.get("isPartial").is_none(), "{data}");
+    assert!(
+        !data["partialReasons"].is_null()
+            || data["pagination"]["countScope"]
+                .as_str()
+                .is_some_and(|scope| scope != "complete"),
+        "{data}"
+    );
     assert_eq!(data["terminalLimit"], true, "{data}");
     let query = json!({"owner":"a","repo":"b","ref":data["commitSha"]});
     octocode_native::contracts::validate("ghCloneRepo", json!({"queries":[query]}))

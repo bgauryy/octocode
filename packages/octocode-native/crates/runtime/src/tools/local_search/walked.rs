@@ -211,9 +211,12 @@ impl Recorder {
         max_weight: usize,
     ) -> Self {
         let rules = if ignore_rules {
-            octocode_engine::search::walk::external_ignore_inputs(&root)
-                .into_iter()
-                .collect()
+            octocode_engine::search::walk::external_ignore_inputs_with(
+                &root,
+                policy.global_ignore(),
+            )
+            .into_iter()
+            .collect()
         } else {
             BTreeSet::new()
         };
@@ -343,9 +346,12 @@ impl Recorder {
     fn directory_inputs(&self, dir: &Path) -> DirectoryInputs {
         #[cfg(test)]
         self.input_reads.fetch_add(1, Ordering::Relaxed);
-        crate::tools::page_memo::directory_ignore_inputs(dir, &self.root, |ignore| {
-            self.policy.validate_read(ignore).is_ok()
-        })
+        crate::tools::page_memo::directory_ignore_inputs_with(
+            dir,
+            &self.root,
+            self.policy.global_ignore(),
+            |ignore| self.policy.validate_read(ignore).is_ok(),
+        )
     }
 
     /// Record `path` when the walk admitted it, as a file it goes on to

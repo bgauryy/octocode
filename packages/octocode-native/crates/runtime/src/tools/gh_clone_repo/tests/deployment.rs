@@ -3,7 +3,7 @@
 //! Enterprise Server from the host and prefix before `/api/v3`.
 use super::*;
 
-fn clone_url(base: &str) -> Result<String, CloneError> {
+fn clone_url(base: &str) -> Result<String, GitError> {
     let endpoint = GitHubEndpoint::new(url::Url::parse(base).expect("URL")).expect("endpoint");
     repository_url(&web_root(&endpoint)?, "owner", "repo")
 }

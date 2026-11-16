@@ -20,6 +20,8 @@ pub(super) struct FingerprintScope<'a> {
     /// The server is rust-analyzer with build scripts off: the Cargo cache
     /// directories it leaves out are not walked.
     pub(super) cargo_caches_unloaded: bool,
+    /// The global ignore rules of the call, which the honored walks apply.
+    pub(super) global_ignore: octocode_engine::search::walk::GlobalIgnore,
 }
 
 /// The digest of every file `scope` covers ([`FingerprintScope`]), with
@@ -130,8 +132,14 @@ struct Read {
 }
 
 impl Read {
-    fn enter(&mut self, dir: &Path, walk_root: &Path) {
-        let inputs = crate::tools::page_memo::directory_ignore_inputs(dir, walk_root, |_| true);
+    fn enter(
+        &mut self,
+        dir: &Path,
+        walk_root: &Path,
+        global: octocode_engine::search::walk::GlobalIgnore,
+    ) {
+        let inputs =
+            crate::tools::page_memo::directory_ignore_inputs_with(dir, walk_root, global, |_| true);
         self.watched.push(dir.to_path_buf());
         self.watched.extend(inputs.files);
         self.rules.extend(inputs.external);
@@ -182,7 +190,10 @@ fn walked_fingerprint(
         }
         if let Ok(mut read) = read.lock() {
             read.rules
-                .extend(octocode_engine::search::walk::external_ignore_inputs(dir));
+                .extend(octocode_engine::search::walk::external_ignore_inputs_with(
+                    dir,
+                    scope.global_ignore,
+                ));
         }
     }
     let mut entries = lines.into_inner().ok()?;
@@ -342,7 +353,7 @@ fn walk_lines(
     let line = |entry: &ignore::DirEntry| -> Option<String> {
         if entry.file_type().is_some_and(|kind| kind.is_dir()) {
             match read.lock() {
-                Ok(mut read) => read.enter(entry.path(), dir),
+                Ok(mut read) => read.enter(entry.path(), dir, scope.global_ignore),
                 Err(_) => abandoned.store(true, Ordering::Relaxed),
             }
             return None;
@@ -401,7 +412,7 @@ fn walk_lines(
     // server's source inventory includes build directories; lexical scope
     // keeps its usual pruning. Both walks retain credential exclusions.
     let defaults = scope.server_root != Some(dir);
-    crate::tools::pruned_walk_under(dir, defaults, [], policy)
+    crate::tools::pruned_walk_under(dir, defaults, [], (policy, scope.global_ignore))
         .build_parallel()
         .run(|| {
             Box::new(|entry| {

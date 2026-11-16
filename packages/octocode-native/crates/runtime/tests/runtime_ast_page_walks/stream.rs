@@ -22,7 +22,9 @@ const FUNCTIONS_PER_FILE: usize = 3;
 struct Read {
     values: BTreeMap<String, String>,
     query_pages: u64,
-    /// `offset + length` of the last query page read.
+    /// Where the last query page read starts.
+    page_offset: u64,
+    /// Matches read when the walk ended.
     end: u64,
     total_items: Option<u64>,
     continued: usize,
@@ -63,18 +65,22 @@ async fn walk(runtime: &ToolRuntime, mcp: bool, first: Value, chars: u64) -> Rea
         let row = &envelope["results"][0];
         if let Some(pagination) = row["data"].get("pagination") {
             let offset = pagination["offset"].as_u64().expect("query offset");
-            let length = pagination["length"].as_u64().expect("query length");
-            // A row part of the page already read repeats its facts; a new
-            // query page starts where the last ended.
-            if read.query_pages == 0 || offset + length != read.end {
-                assert_eq!(offset, read.end, "mcp={mcp}: query pages advance");
+            // Each query page starts where the matches read so far end; the
+            // rows listed are its length, which no field states.
+            if read.query_pages == 0 || offset != read.page_offset {
+                assert_eq!(
+                    offset,
+                    read.values.len() as u64,
+                    "mcp={mcp}: query pages advance"
+                );
                 read.query_pages += 1;
-                read.end = offset + length;
+                read.page_offset = offset;
             }
             let items = pagination["total"].as_u64().expect("total");
             assert_eq!(*read.total_items.get_or_insert(items), items, "mcp={mcp}");
         }
         join(&mut read, row, mcp);
+        read.end = read.values.len() as u64;
         let next = envelope
             .pointer("/responsePagination/next")
             .or_else(|| row["data"]["next"].get("nextPage"));

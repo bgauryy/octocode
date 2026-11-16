@@ -2,6 +2,8 @@
 //! finds a sample of its own syntax, hides only its secret part, and leaves
 //! every other byte as written.
 
+mod key_armor;
+mod labelled;
 mod sampling;
 
 use super::prescan::{prescan_candidates, shipped_and_reference};
@@ -61,7 +63,7 @@ fn every_pattern_redacts_only_its_sample() {
             continue;
         }
         for text in samples {
-            let spans = secret_spans(&text);
+            let spans = secret_spans_in(&text, ValueForm::Config);
             let inner = BEFORE.len()..text.len() - AFTER.len();
             assert!(
                 spans
@@ -95,7 +97,7 @@ fn every_pattern_redacts_only_its_sample() {
                 pattern.name,
                 own.as_str()
             );
-            let result = redact(&text).expect("a secret");
+            let result = redact(&text, ValueForm::Config).expect("a secret");
             assert_eq!(
                 result.sanitized,
                 replaced(&text, &spans),
@@ -110,7 +112,7 @@ fn every_pattern_redacts_only_its_sample() {
                 pattern.name
             );
             assert!(
-                redact(&result.sanitized).is_none(),
+                redact(&result.sanitized, ValueForm::Config).is_none(),
                 "{}: a redacted text is redacted again: {:?}",
                 pattern.name,
                 result.sanitized
@@ -198,8 +200,8 @@ fn both_forms_find_the_same_matches_on_ascii_text() {
 }
 
 /// Ordinary code and config that names credentials, reads them from the
-/// environment or holds a short password stays byte for byte: only a known
-/// format is a secret.
+/// environment or holds a word of letters stays byte for byte: only a known
+/// format or a labelled literal is a secret.
 #[test]
 fn ordinary_code_and_config_stay_as_written() {
     let corpus = [
@@ -207,14 +209,10 @@ fn ordinary_code_and_config_stay_as_written() {
         "webhookSecret: process.env.X, // set in the deploy environment",
         "getToken: async () => {",
         "storageKey = 'app.settings.theme-preference'",
-        r#"{"username":"admin","password":"letmein"}"#,
-        "password = hunter2hunter2hunter2",
         "API_TOKEN=abcdefghijklmnopqrstuvwx",
-        "  secretKey: 'my-very-long-development-secret-value'",
         "private static final String KEY = \"0123456789abcdef0123456789abcdef\";",
         "db.password=changeit",
         "<password>p4ssw0rd-from-the-docs</password>",
-        "kind: Secret\ndata:\n  token: c2VjcmV0LXZhbHVlLWluLWJhc2U2NA==",
         r#"{"kty":"RSA","n":"0vx7agoebGcQSuu","d":"X4cTteJY_gn4FYPsXB8rdXix5vwsg1FLN45"}"#,
         "commit 4f1c9e2b7d3a8e6f0c5b1a9d2e7f3c8b6a4d0e1f",
         "id: 123e4567-e89b-12d3-a456-426614174000",
@@ -273,7 +271,7 @@ fn a_private_key_body_keeps_its_lines_and_armor() {
     let text = format!(
         "before\n-----BEGIN RSA PRIVATE KEY-----\n{body}-----END RSA PRIVATE KEY-----\nafter\n"
     );
-    let result = redact(&text).expect("a key");
+    let result = redact(&text, ValueForm::Config).expect("a key");
     assert_eq!(result.sanitized.lines().count(), text.lines().count());
     assert!(result.sanitized.contains("-----BEGIN RSA PRIVATE KEY-----"));
     assert!(result.sanitized.contains("-----END RSA PRIVATE KEY-----"));
@@ -288,7 +286,7 @@ fn a_secret_anywhere_in_a_long_text_is_redacted() {
     let token = format!("ghp_{}", "a".repeat(36));
     let filler = "x ".repeat(MAX_CONTENT_SIZE / 2 + 1);
     let text = format!("{filler}{token} {filler}");
-    let spans = secret_spans(&text);
+    let spans = secret_spans_in(&text, ValueForm::Config);
     assert_eq!(spans.len(), 1);
     assert_eq!(&text[spans[0].range.clone()], token);
 }
@@ -298,7 +296,7 @@ fn a_secret_anywhere_in_a_long_text_is_redacted() {
 fn overlapping_secrets_join_into_one_span() {
     let token = format!("ghp_{}", "b".repeat(36));
     let text = format!("Authorization: Bearer {token}\n");
-    let spans = secret_spans(&text);
+    let spans = secret_spans_in(&text, ValueForm::Config);
     assert_eq!(spans.len(), 1, "{spans:?}");
     assert_eq!(&text[spans[0].range.clone()], token);
 }
@@ -307,14 +305,14 @@ fn overlapping_secrets_join_into_one_span() {
 #[test]
 fn a_request_spelling_a_token_as_a_regex_holds_it() {
     let spelled = format!(r"ghp_{}\_{}", "a".repeat(18), "a".repeat(18));
-    assert!(secret_spans(&spelled).is_empty());
+    assert!(secret_spans_in(&spelled, ValueForm::Config).is_empty());
     assert!(holds_credential_as_request(&spelled));
     assert!(!holds_credential_as_request(r"ghp_[A-Za-z0-9]{36}"));
 }
 
 /// The secret bytes `text` holds, one string per span.
 fn hidden_parts(text: &str) -> Vec<&str> {
-    secret_spans(text)
+    secret_spans_in(text, ValueForm::Config)
         .into_iter()
         .map(|span| &text[span.range])
         .collect()

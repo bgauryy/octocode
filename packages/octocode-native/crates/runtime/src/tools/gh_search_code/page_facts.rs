@@ -13,15 +13,30 @@ use serde_json::json;
 /// decision once it is final (the `isPartial` the page marked and the
 /// reasons its diagnostics carry, which the row stage marks the same way),
 /// so the two never disagree; `indexLimit` states the index's file-size
-/// boundary, since a larger file is absent from every search without a trace.
+/// boundary only where the host's differs from github.com's (the tool
+/// description states that one), since a larger file is absent from every
+/// search without a trace.
 pub(super) fn disclose_coverage(output: &mut ToolData, endpoint: &octocode_github::GitHubEndpoint) {
     let partial =
         output.data["isPartial"] == true || !output.diagnostics.partial_reasons.is_empty();
-    output.data["coverage"] = json!({
-        "state": if partial { "partial" } else { "complete" },
-        "indexLimit": {"maxFileBytes": index_max_file_bytes(endpoint)},
-    });
+    output.data["coverage"] = coverage(partial, endpoint);
 }
+
+pub(super) fn coverage(
+    partial: bool,
+    endpoint: &octocode_github::GitHubEndpoint,
+) -> serde_json::Value {
+    let mut coverage = json!({"state": if partial { "partial" } else { "complete" }});
+    let limit = index_max_file_bytes(endpoint);
+    if limit != GITHUB_COM_INDEX_MAX_FILE_BYTES {
+        coverage["indexLimit"] = json!({"maxFileBytes": limit});
+    }
+    coverage
+}
+
+/// github.com's (and GHE.com's) index limit, the value the tool description
+/// states and a page omits.
+const GITHUB_COM_INDEX_MAX_FILE_BYTES: u64 = 384 * 1024;
 
 /// The largest file GitHub's code index holds on `endpoint`'s deployment,
 /// in bytes: a larger file is absent from every code search, a file-name
@@ -33,7 +48,7 @@ pub(super) fn disclose_coverage(output: &mut ToolData, endpoint: &octocode_githu
 /// the deployment, not of a page, so the tool description states it once.
 pub(super) fn index_max_file_bytes(endpoint: &octocode_github::GitHubEndpoint) -> u64 {
     match endpoint.deployment() {
-        octocode_github::Deployment::Cloud => 384 * 1024,
+        octocode_github::Deployment::Cloud => GITHUB_COM_INDEX_MAX_FILE_BYTES,
         octocode_github::Deployment::Server => 5 * 1024 * 1024,
     }
 }
@@ -217,10 +232,7 @@ pub(super) fn disclose_reads(
     context: &octocode_github::RequestContext,
 ) {
     if reads.redacted > 0 {
-        crate::response::paging::push_warnings(
-            value,
-            [crate::security::redacted_content_warning(reads.redacted)],
-        );
+        crate::security::mark_redacted(value);
     }
     if reads.withheld > 0 {
         crate::response::paging::push_warnings(

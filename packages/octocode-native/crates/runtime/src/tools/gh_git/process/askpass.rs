@@ -1,5 +1,5 @@
 //! The per-run GIT_ASKPASS credential helper: answers only the authorized origin's prompts.
-use super::CloneError;
+use super::GitError;
 use octocode_contract_types::ErrorCode;
 use std::path::{Path, PathBuf};
 
@@ -99,9 +99,9 @@ pub(super) struct AskPass {
 }
 
 impl AskPass {
-    pub(super) fn create(parent: &Path, token: &str, url: &str) -> Result<Self, CloneError> {
+    pub(super) fn create(parent: &Path, token: &str, url: &str) -> Result<Self, GitError> {
         let failed = |reason: String| {
-            CloneError::new(
+            GitError::new(
                 ErrorCode::GitFailed,
                 format!("Failed to create the Git credential helper: {reason}"),
             )

@@ -143,7 +143,7 @@ impl GitRunner for Held {
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-    ) -> Result<GitOutput, CloneError> {
+    ) -> Result<GitOutput, GitError> {
         self.sync.before(&request.label);
         self.inner.run(request, control)
     }
@@ -152,8 +152,8 @@ impl GitRunner for Held {
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-        record: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-    ) -> Result<GitOutput, CloneError> {
+        record: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+    ) -> Result<GitOutput, GitError> {
         self.sync.before(&request.label);
         self.inner.run_nul_records(request, control, record)
     }
@@ -162,8 +162,8 @@ impl GitRunner for Held {
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-        sink: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-    ) -> Result<GitOutput, CloneError> {
+        sink: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+    ) -> Result<GitOutput, GitError> {
         self.sync.before(&request.label);
         self.inner.run_stream(request, control, sink)
     }
@@ -198,7 +198,7 @@ fn the_warm_checks_run_together() {
         inner: Arc::new(fixture_runner(&fixture)),
         sync: Arc::clone(&sync),
     };
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&held, &config, &endpoint, &policy, &NeverCancel, None);
     clone_pinned(&fixture, &query(), &context).expect("first clone");
 
@@ -222,7 +222,7 @@ fn a_fresh_checkout_spends_no_separate_config_calls() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let result = clone_pinned(&fixture, &query(), &context).expect("clone");
     let seen = runner
@@ -266,7 +266,7 @@ fn a_fresh_stores_blob_check_overlaps_the_worktree_setup() {
         inner: Arc::new(fixture_runner(&fixture)),
         sync: Arc::clone(&sync),
     };
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&held, &config, &endpoint, &policy, &NeverCancel, None);
     let result = clone_pinned(&fixture, &query(), &context).expect("clone");
     assert!(result.location.skipped.iter().flatten().count() > 0);
@@ -293,7 +293,7 @@ fn a_cold_clone_spawns_few_git_processes() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     clone_pinned(&fixture, &query(), &context).expect("clone");
     let seen = runner

@@ -124,12 +124,21 @@ fn answer(answer: &mut Value, sectioned: bool) {
     }
 }
 
-/// One request is the common case: its count says nothing.
+/// A summary states the billing facts that change a decision: `calls` when
+/// more than one request billed, and `refused`. The token counts are the
+/// `details` view's, and one request is the common case: its count says
+/// nothing.
 fn usage(fields: &mut Map<String, Value>) {
-    if let Some(usage) = fields.get_mut("usage").and_then(Value::as_object_mut)
-        && usage.get("calls") == Some(&json!(1))
-    {
+    let Some(usage) = fields.get_mut("usage").and_then(Value::as_object_mut) else {
+        return;
+    };
+    usage.shift_remove("inputTokens");
+    usage.shift_remove("outputTokens");
+    if usage.get("calls") == Some(&json!(1)) {
         usage.shift_remove("calls");
+    }
+    if usage.is_empty() {
+        fields.shift_remove("usage");
     }
 }
 
@@ -219,7 +228,7 @@ fn resource_sections(resource: &mut Map<String, Value>) {
 }
 
 /// A plan's spend as an evaluation states it, when every request reported
-/// its usage and nothing else is said: tokens and requests.
+/// its usage and nothing else is said: the requests; tokens are `details`.
 fn plan_usage(fields: &mut Map<String, Value>) {
     let Some(usage) = fields.get_mut("usage").and_then(Value::as_object_mut) else {
         return;
@@ -229,12 +238,10 @@ fn plan_usage(fields: &mut Map<String, Value>) {
             .keys()
             .all(|field| PLAN_USAGE.contains(&field.as_str()));
     if complete {
-        usage.retain(|field, _| PLAN_SPEND.contains(&field.as_str()));
+        usage.retain(|field, _| field == "calls");
     }
 }
 
-/// The spend fields both usage forms share.
-const PLAN_SPEND: [&str; 3] = ["calls", "inputTokens", "outputTokens"];
 /// What a plan's usage holds when it says no more than its spend.
 const PLAN_USAGE: [&str; 6] = [
     "calls",
@@ -317,7 +324,7 @@ mod tests {
     }
 
     #[test]
-    fn an_evaluation_keeps_each_answers_value_and_its_tokens() {
+    fn an_evaluation_keeps_each_answers_value_and_leaves_its_tokens_to_details() {
         let details = json!({
             "model":"jev-1",
             "answers":{
@@ -332,7 +339,6 @@ mod tests {
             summary_of(&details),
             json!({
                 "answers":{"restart":{"noul":0.96},"kind":{"choice":"ops"},"risk":{"score":1.5}},
-                "usage":{"inputTokens":572,"outputTokens":30},
             })
         );
     }
@@ -423,10 +429,7 @@ mod tests {
             details["resources"]["mid"]["sections"][0].to_string().len(),
         );
         assert!(short * 100 <= long * 40, "{short} of {long}");
-        assert_eq!(
-            summary["usage"],
-            json!({"calls":1,"inputTokens":5,"outputTokens":3})
-        );
+        assert_eq!(summary["usage"], json!({"calls":1}));
         assert_eq!(
             summary["resources"]["mid"]["coverage"],
             details["resources"]["mid"]["coverage"]

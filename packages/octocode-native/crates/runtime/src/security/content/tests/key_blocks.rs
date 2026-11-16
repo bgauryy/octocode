@@ -215,7 +215,7 @@ fn a_line_that_only_holds_a_key_run_keeps_its_label() {
     assert_eq!(
         hidden,
         format!(
-            "logo: {RUN}\n-----BEGIN OPENSSH PRIVATE KEY-----\n{placeholder}\n  {placeholder}\nordinary tail text\nlogo2: {placeholder}\n  k += b\"{placeholder}\nshort: abc123\nlast plain line\n"
+            "logo: {RUN}\n-----BEGIN OPENSSH PRIVATE KEY-----\n{placeholder}\n  {placeholder}\nordinary tail text\nlogo2: {placeholder}\n  k += b\"{placeholder}\"\nshort: abc123\nlast plain line\n"
         )
     );
     // One rule for every reader of a line: the row a search shows of it.
@@ -226,6 +226,11 @@ fn a_line_that_only_holds_a_key_run_keeps_its_label() {
     assert_eq!(
         hide_key_line(&format!("\t{BODY}")),
         format!("\t{placeholder}")
+    );
+    // Only the run goes: what follows it on the line reads as written.
+    assert_eq!(
+        hide_key_line(&format!("logo2: {RUN}\"); next();")),
+        format!("logo2: {placeholder}\"); next();")
     );
     // A label longer than the head a streamed read keeps leaves the line a
     // body line, in every reader alike.

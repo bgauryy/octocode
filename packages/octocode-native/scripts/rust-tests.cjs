@@ -27,7 +27,7 @@
  *   runs under scripts/test-watchdog.cjs, so a hung test fails there too.
  */
 
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const nodePath = require('node:path');
 const { finishCargoRun, parseCargoLine } = require('./target-hygiene.cjs');
 
@@ -35,6 +35,20 @@ const SELECTIONS = [
   // Dev builds share these compiled crates with `build:dev` (crates/runtime `dev-unify`).
   ['--locked', '-p', 'octocode-native', '-p', 'octocode-github', '-p', 'octocode-io', '-p', 'octocode-cli', '--features', 'octocode-native/dev-unify'],
   ['--locked', '-p', 'octocode-engine', '--all-features'],
+];
+
+// The CLI tests that start the real daemon, the MCP server or the provider fixtures run
+// under `--profile e2e` (`.config/nextest.toml`, whose default-filter is this set); the
+// first selection's unit run skips them. Both runs are required.
+const E2E_FILTER = 'binary(integration) & (test(/^warm_server::/) | test(/^mcp_server::/) | test(/^cli_exit_codes::providers::/))';
+
+// What `main` runs under nextest: the unit run of each selection and the e2e run of the
+// first (same packages and features, so one compiled copy). Engine and e2e take fewer
+// threads: they finish well inside the first run and overlap its slow tail.
+const RUNS = [
+  { name: 'native', keep: 'octocode-native', selection: SELECTIONS[0], extra: ['-E', `not (${E2E_FILTER})`] },
+  { name: 'engine', keep: 'octocode-engine', selection: SELECTIONS[1], extra: ['--test-threads', '4'] },
+  { name: 'e2e', keep: 'octocode-native', selection: SELECTIONS[0], extra: ['--profile', 'e2e', '--test-threads', '4'] },
 ];
 
 const NATIVE = nodePath.join(__dirname, '..');
@@ -46,29 +60,46 @@ function runCargo(args) {
   return status ?? 1;
 }
 
-/**
- * One selection under nextest. Cargo's JSON messages (stdout) name every unit the
- * selection uses, so target-hygiene.cjs records them and sweeps what the run left stale.
- */
-function runSelection(selection) {
-  const args = ['nextest', 'run', '--cargo-message-format', 'json-render-diagnostics', ...selection];
-  console.log(`$ cargo ${args.join(' ')}`);
-  const startedMs = Date.now();
-  const { status, error, stdout } = spawnSync('cargo', args, {
-    cwd: NATIVE,
-    stdio: ['inherit', 'pipe', 'inherit'],
-    encoding: 'utf8',
-    maxBuffer: 2 ** 31,
-  });
-  if (error) throw error;
-  const messages = [];
-  for (const line of (stdout ?? '').split('\n')) {
-    const rest = line && parseCargoLine(line, messages);
-    if (rest) console.log(rest);
+/** Compile every selection once, one after the other, so the concurrent runs find a finished build. */
+function buildAll() {
+  for (const selection of SELECTIONS) {
+    const status = runCargo(['nextest', 'run', '--no-run', ...selection]);
+    if (status !== 0) process.exit(status);
   }
-  const packageName = selection[selection.indexOf('-p') + 1];
-  finishCargoRun({ selection: `test-${packageName}`, messages, success: status === 0, startedMs });
-  return status ?? 1;
+}
+
+/**
+ * One run under nextest. Cargo's JSON messages (stdout) name every unit the selection
+ * uses, so target-hygiene.cjs records them and sweeps what the run left stale. Output is
+ * collected and printed whole when the run ends, so concurrent runs do not interleave.
+ */
+function runOne({ name, keep, selection, extra }) {
+  const args = ['nextest', 'run', '--cargo-message-format', 'json-render-diagnostics', ...selection, ...extra];
+  const startedMs = Date.now();
+  return new Promise(resolve => {
+    const child = spawn('cargo', args, { cwd: NATIVE, stdio: ['ignore', 'pipe', 'pipe'] });
+    const out = [];
+    const err = [];
+    child.stdout.on('data', chunk => out.push(chunk));
+    child.stderr.on('data', chunk => err.push(chunk));
+    child.on('error', error => {
+      console.error(error);
+      resolve(1);
+    });
+    child.on('close', code => {
+      const messages = [];
+      const lines = [`$ cargo ${args.join(' ')}`];
+      for (const line of Buffer.concat(out).toString('utf8').split('\n')) {
+        const rest = line && parseCargoLine(line, messages);
+        if (rest) lines.push(rest);
+      }
+      console.log(`=== ${name} ===\n${lines.join('\n')}`);
+      process.stderr.write(Buffer.concat(err));
+      const status = code ?? 1;
+      finishCargoRun({ selection: `test-${keep}`, messages, success: status === 0, startedMs });
+      resolve(status);
+    });
+  });
 }
 
 function cargo(args) {
@@ -76,15 +107,16 @@ function cargo(args) {
   if (status !== 0) process.exit(status);
 }
 
-function main() {
+async function main() {
   const args = process.argv.slice(2);
   if (args[0] === '--coverage') {
     cargo(['llvm-cov', 'clean', '--workspace']);
     for (const selection of SELECTIONS) cargo(['llvm-cov', 'nextest', '--no-report', ...selection]);
     cargo(['llvm-cov', 'report', ...args.slice(1)]);
   } else if (args.length === 0) {
-    // Every selection reports: a failure in the first must not hide the second's.
-    const failed = SELECTIONS.map(runSelection).find(status => status !== 0);
+    // Every run reports: a failure in one must not hide another's.
+    buildAll();
+    const failed = (await Promise.all(RUNS.map(runOne))).find(status => status !== 0);
     if (failed !== undefined) process.exit(failed);
   } else {
     // A filter matches nothing in one selection and nextest fails it: narrow with `bacon test -- <filter>` or `cargo dev-test -- <filter>`.
@@ -94,12 +126,10 @@ function main() {
 }
 
 if (require.main === module) {
-  try {
-    main();
-  } catch (error) {
+  main().catch(error => {
     console.error(error);
     process.exit(1);
-  }
+  });
 }
 
-module.exports = { SELECTIONS };
+module.exports = { SELECTIONS, E2E_FILTER, RUNS };

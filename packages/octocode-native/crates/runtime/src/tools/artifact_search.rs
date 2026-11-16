@@ -197,11 +197,6 @@ fn respond(
         data["status"] = json!("empty");
         leads::broaden_empty(&mut data, query);
     }
-    // After the leads that continue the research: the whole row is the
-    // optional one.
-    if view == ArtifactSearchView::Summary && !artifacts.is_empty() {
-        summary::details_lead(&mut data, query);
-    }
     crate::response::result::finish_calls(&mut data);
     Ok(data)
 }

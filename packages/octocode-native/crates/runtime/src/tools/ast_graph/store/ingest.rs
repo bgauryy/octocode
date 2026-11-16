@@ -136,15 +136,20 @@ pub(super) fn ingest_with_registry(
     };
     let extensions =
         registry.extensions(octocode_engine::text::analysis::AnalysisOperation::GraphFacts);
-    let scope_proof = settled_scope_proof(&built.root, &projection.tables, |dir| {
-        scope_files(
-            paths,
-            &built.root,
-            &crate::tools::ast_graph::build_scope::BuildScope::of_options(options),
-            &extensions,
-            dir,
-        )
-    });
+    let scope_proof = settled_scope_proof(
+        &built.root,
+        paths.global_ignore(),
+        &projection.tables,
+        |dir| {
+            scope_files(
+                paths,
+                &built.root,
+                &crate::tools::ast_graph::build_scope::BuildScope::of_options(options),
+                &extensions,
+                dir,
+            )
+        },
+    );
     let argument_coverage = argument_coverage::coverage(&built, &projection.tables);
     // The tables hold everything publication reads of the linked facts, the
     // largest part of a build: they are freed before encoding, keeping only

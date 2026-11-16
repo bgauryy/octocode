@@ -122,7 +122,15 @@ async fn a_redirect_to_the_repository_id_is_a_moved_repository() {
 
 fn assert_source_failed(data: &Value) {
     assert_eq!(data["sources"][0]["status"], "failed", "{data}");
-    assert_eq!(data["isPartial"], true, "{data}");
+    // A partial page states it once: partialReasons or a floor countScope, no isPartial.
+    assert!(data.get("isPartial").is_none(), "{data}");
+    assert!(
+        !data["partialReasons"].is_null()
+            || data["pagination"]["countScope"]
+                .as_str()
+                .is_some_and(|scope| scope != "complete"),
+        "{data}"
+    );
     assert!(
         data["partialReasons"].to_string().contains("sourceFailed"),
         "{data}"

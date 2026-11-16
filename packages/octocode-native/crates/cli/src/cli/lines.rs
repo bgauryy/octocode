@@ -19,9 +19,10 @@
 //!
 //! The trailer follows the content, one `# ` line each, the same for every
 //! tool: a `status` that is not ok, each page state (an object holding
-//! `hasMore`) and incomplete mark, the row's `warnings` and `hints`, then the
-//! commands that continue the answer: `responsePagination.next` first, then
-//! `next.nextPage`, then any other. A call rejected before it ran prints as
+//! `hasMore`) and incomplete mark, the row's `warnings` and `hints`, the
+//! identity of what was read (`ref`, `commitSha`, `location`),
+//! then the commands that continue the answer: `responsePagination.next`
+//! first, then `next.nextPage`, then any other. A call rejected before it ran prints as
 //! a failed row does ([`rejected`]). A batch prints each row under
 //! `## results[N]`, `N` the place of its query, and names the row on every
 //! `# ` line of its own, stdout and stderr alike (`# results[N] key: value`);

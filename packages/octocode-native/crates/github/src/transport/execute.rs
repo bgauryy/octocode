@@ -453,6 +453,15 @@ impl GitHubTransport {
         let result = self
             .run_attempts(sent, context, &mut failed, attempt, followed)
             .await;
+        // The origin refused the credential itself (a 401): nothing kept for
+        // it may answer again, pinned answers included.
+        if let (Err(error), Some(store), Some(_)) =
+            (&result, &self.answers, context.resolved_credential())
+            && error.kind == ProviderErrorKind::Authentication
+            && let Some(scope) = self.answer_scope(context)
+        {
+            store.revoked(&scope);
+        }
         let result = self.settle(result, saved, context);
         let page = result
             .as_ref()

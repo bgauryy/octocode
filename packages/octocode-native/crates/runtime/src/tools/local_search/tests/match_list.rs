@@ -126,7 +126,9 @@ fn a_list_matches_a_line_holding_any_of_its_entries() {
         serde_json::json!({"matchString": ["alpha", "gamma"]}),
     );
     assert_eq!(sorted(lines(&body)), ["alpha", "gamma"], "{body}");
-    assert_eq!(body["matchedLineCount"], 2, "{body}");
+    // Two lines, one hit each: the line count is the stated matchCount.
+    assert_eq!(body["matchCount"], 2, "{body}");
+    assert!(body.get("matchedLineCount").is_none(), "{body}");
 }
 
 /// Without `regexEngine` every entry is literal text, `|` and `.` included; the

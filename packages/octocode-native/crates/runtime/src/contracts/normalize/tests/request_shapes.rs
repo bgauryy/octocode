@@ -52,7 +52,7 @@ fn repaired_request_shapes_disclose_the_canonical_form() {
 
 #[test]
 fn a_supplied_incomplete_sort_is_a_disclosed_repair() {
-    for sort in [json!("path"), json!({"by":"sizeBytes"})] {
+    for sort in [json!("path"), json!({"by":"bytes"})] {
         let sent = json!({"queries":[{"path":".","operation":"files","sort":sort}]});
         let ran = accepted("structureSearch", sent.clone());
         let notes = normalized_input("structureSearch", sent).1;
@@ -69,7 +69,7 @@ fn valid_defaults_and_explicit_values_are_not_repairs() {
     for sent in [
         json!({"queries":[{"path":".","operation":"files"}]}),
         json!({"queries":[{"path":".","operation":"files","sort":{"by":"path","order":"asc"}}]}),
-        json!({"queries":[{"path":".","operation":"files","sort":{"by":"sizeBytes","order":"asc"}}]}),
+        json!({"queries":[{"path":".","operation":"files","sort":{"by":"bytes","order":"asc"}}]}),
     ] {
         let (ran, notes) = normalized_input("structureSearch", sent.clone());
         assert_eq!(ran, sent);

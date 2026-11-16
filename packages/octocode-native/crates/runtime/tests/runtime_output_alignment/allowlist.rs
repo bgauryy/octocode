@@ -14,7 +14,6 @@ const WAVE_2: &[&str] = &[
     "B4 echo | ghSearchRepo | repositories[].owner <- request owner",
     "B4 echo | ghSearchRepo | repositories[].repo <- request repo",
     "B4 echo | graphBuild | root <- request path",
-    "B4 echo | graphQuery | graph.root <- request path",
     "B4 echo | graphQuery | rows[].kind <- request kind",
     "B4 echo | securityCheck | advisories[].id <- request id",
 ];

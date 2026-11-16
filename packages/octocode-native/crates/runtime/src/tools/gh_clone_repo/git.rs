@@ -1,7 +1,7 @@
 mod sparse;
 mod store_config;
 
-use super::{CloneContext, CloneError, GitRunRequest, control, storage};
+use super::{GitContext, GitError, GitRunRequest, control, storage};
 use crate::policy::discovery::is_sensitive_repository_file;
 use crate::tools::gh_git::step::{hardened, run, scoped, step_timeout};
 use octocode_contract_types::ErrorCode;
@@ -9,10 +9,7 @@ use sparse::{sparse_set_args, withhold_args};
 use std::ffi::OsString;
 use std::path::Path;
 
-pub(super) fn read_head(
-    context: &CloneContext<'_>,
-    directory: &Path,
-) -> Result<String, CloneError> {
+pub(super) fn read_head(context: &GitContext<'_>, directory: &Path) -> Result<String, GitError> {
     let output = run(
         context,
         vec![
@@ -28,7 +25,7 @@ pub(super) fn read_head(
     )?;
     let sha = output.stdout.trim().to_ascii_lowercase();
     if !octocode_github::is_full_sha(&sha) {
-        return Err(CloneError::new(
+        return Err(GitError::new(
             ErrorCode::GitFailed,
             "Git returned an invalid checkout HEAD commit SHA.",
         ));
@@ -42,10 +39,10 @@ pub(super) fn read_head(
 /// tree objects only, so a sparse checkout lists the whole commit without
 /// fetching a blob.
 pub(super) fn tree_names(
-    context: &CloneContext<'_>,
+    context: &GitContext<'_>,
     directory: &Path,
     dir: &str,
-) -> Result<Vec<String>, CloneError> {
+) -> Result<Vec<String>, GitError> {
     let mut args = vec![
         OsString::from("-C"),
         directory.as_os_str().to_owned(),
@@ -89,11 +86,11 @@ pub(super) struct Inspection {
 /// whatever the reads after the check say. A checkout git cannot read at
 /// all (its store is gone) differs too: it is not reusable.
 pub(super) fn inspect_checkout(
-    context: &CloneContext<'_>,
+    context: &GitContext<'_>,
     directory: &Path,
     expected_commit: &str,
     scope: Option<&[String]>,
-) -> Result<Option<Inspection>, CloneError> {
+) -> Result<Option<Inspection>, GitError> {
     let (clean, head, refs, listed, symlinks) = std::thread::scope(|threads| {
         let clean = threads.spawn(|| status_is_clean(context, directory));
         let head = threads.spawn(|| read_head(context, directory));
@@ -123,7 +120,7 @@ pub(super) fn inspect_checkout(
 /// `value`, or `otherwise` when git could not read the checkout at all
 /// (`gitFailed`: a worktree whose store is gone, a broken repository). Any
 /// other failure, a timeout or a cancellation, stays an error.
-fn unreadable_is<T>(value: Result<T, CloneError>, otherwise: T) -> Result<T, CloneError> {
+fn unreadable_is<T>(value: Result<T, GitError>, otherwise: T) -> Result<T, GitError> {
     match value {
         Err(error) if error.code == ErrorCode::GitFailed => Ok(otherwise),
         other => other,
@@ -140,10 +137,10 @@ fn joined<T>(result: std::thread::Result<T>) -> T {
 /// cannot read (a worktree whose store is gone) may hold the user's files:
 /// it is not safe either.
 pub(super) fn safe_to_replace(
-    context: &CloneContext<'_>,
+    context: &GitContext<'_>,
     directory: &Path,
     expected_commit: &str,
-) -> Result<bool, CloneError> {
+) -> Result<bool, GitError> {
     unreadable_is(
         (|| {
             if !status_is_clean(context, directory)?
@@ -158,7 +155,7 @@ pub(super) fn safe_to_replace(
 }
 
 /// No modified, untracked or ignored file in the work tree.
-fn status_is_clean(context: &CloneContext<'_>, directory: &Path) -> Result<bool, CloneError> {
+fn status_is_clean(context: &GitContext<'_>, directory: &Path) -> Result<bool, GitError> {
     let output = run(
         context,
         vec![
@@ -181,7 +178,7 @@ fn status_is_clean(context: &CloneContext<'_>, directory: &Path) -> Result<bool,
 /// user's work on this checkout (a branch, tag or stash made here). Refs are
 /// shared by every worktree of a store, so a ref that does not contain this
 /// `HEAD` (a branch made in another worktree) is not this checkout's.
-fn no_local_refs(context: &CloneContext<'_>, directory: &Path) -> Result<bool, CloneError> {
+fn no_local_refs(context: &GitContext<'_>, directory: &Path) -> Result<bool, GitError> {
     let refs = run(
         context,
         scoped(
@@ -199,9 +196,9 @@ fn no_local_refs(context: &CloneContext<'_>, directory: &Path) -> Result<bool, C
 /// working tree holds: [`HARDENING_ARGS`] checks each out as a plain file
 /// holding the link target, and a sparse checkout holds only its scope.
 pub(super) fn symlinks(
-    context: &CloneContext<'_>,
+    context: &GitContext<'_>,
     directory: &Path,
-) -> Result<Vec<String>, CloneError> {
+) -> Result<Vec<String>, GitError> {
     let mut links = Vec::new();
     let request = GitRunRequest {
         args: hardened(scoped(directory, &["ls-files", "--stage", "-z"])),
@@ -231,11 +228,11 @@ pub(super) fn symlinks(
 /// requested sparse paths; everything when `None`), each with its blob id.
 /// Checkouts never write them. Tree objects only: no blob is fetched.
 pub(super) fn withheld_files(
-    context: &CloneContext<'_>,
+    context: &GitContext<'_>,
     directory: &Path,
     rev: &str,
     scope: Option<&[String]>,
-) -> Result<Vec<WithheldFile>, CloneError> {
+) -> Result<Vec<WithheldFile>, GitError> {
     Ok(list_tree(context, directory, rev, scope)?.withheld)
 }
 
@@ -249,11 +246,11 @@ struct TreeListing {
 }
 
 fn list_tree(
-    context: &CloneContext<'_>,
+    context: &GitContext<'_>,
     directory: &Path,
     rev: &str,
     scope: Option<&[String]>,
-) -> Result<TreeListing, CloneError> {
+) -> Result<TreeListing, GitError> {
     let mut withheld = Vec::new();
     let mut links = Vec::new();
     // Blobs of the files a checkout of `rev` may write (not credential-named,
@@ -338,10 +335,10 @@ pub(super) fn withheld_paths(files: Vec<WithheldFile>) -> Vec<String> {
 /// file shares arrives with that file's checkout). The walk reads the store
 /// without fetching: a missing blob of a partial clone is listed as `?<id>`.
 pub(super) fn blobs_absent(
-    context: &CloneContext<'_>,
+    context: &GitContext<'_>,
     directory: &Path,
     files: &[WithheldFile],
-) -> Result<bool, CloneError> {
+) -> Result<bool, GitError> {
     let files = files.iter().filter(|file| !file.shared).collect::<Vec<_>>();
     if files.is_empty() {
         return Ok(true);
@@ -376,14 +373,14 @@ pub(super) fn blobs_absent(
 /// withheld less, or an earlier remote that ignored the filter): the caller
 /// makes a clean store instead.
 pub(super) fn checkout(
-    context: &CloneContext<'_>,
+    context: &GitContext<'_>,
     repository_url: &str,
     store: &Path,
     commit: &str,
     sparse_paths: Option<&[String]>,
     depth: u64,
     stage: &Path,
-) -> Result<Option<Staged>, CloneError> {
+) -> Result<Option<Staged>, GitError> {
     let created = ensure_store(context, store, repository_url)?;
     let Some(staged) = ensure_commit(
         context,
@@ -446,10 +443,10 @@ pub(super) struct Staged {
 /// and refs stay empty: a fetch names a commit, a worktree's `HEAD` keeps it
 /// reachable, and every ref is somebody's local work.
 fn ensure_store(
-    context: &CloneContext<'_>,
+    context: &GitContext<'_>,
     store: &Path,
     repository_url: &str,
-) -> Result<bool, CloneError> {
+) -> Result<bool, GitError> {
     let created = !storage::is_ready(store);
     if created {
         // The origin is written with the rest of the config, and a store
@@ -475,10 +472,10 @@ fn ensure_store(
 /// one, and the ready marker is written last. The store's config is written
 /// in one step ([`store_config::render`]), not key by key.
 fn init_store(
-    context: &CloneContext<'_>,
+    context: &GitContext<'_>,
     store: &Path,
     repository_url: &str,
-) -> Result<(), CloneError> {
+) -> Result<(), GitError> {
     storage::create_parent(store)?;
     run(
         context,
@@ -529,11 +526,11 @@ struct Fetch<'a> {
 /// blob in scope (the caller makes a clean one); a store `created` by this
 /// call can only have it from a remote that ignored the filter.
 fn ensure_commit(
-    context: &CloneContext<'_>,
+    context: &GitContext<'_>,
     store: &Path,
     request: &Fetch<'_>,
-    prepare_stage: impl FnOnce(&Staged) -> Result<(), CloneError>,
-) -> Result<Option<Staged>, CloneError> {
+    prepare_stage: impl FnOnce(&Staged) -> Result<(), GitError>,
+) -> Result<Option<Staged>, GitError> {
     let Fetch {
         repository_url,
         commit,
@@ -578,7 +575,7 @@ fn ensure_commit(
             (joined(absent.join()), prepared)
         });
         if !absent? {
-            return Err(CloneError::new(
+            return Err(GitError::new(
                 ErrorCode::GitFailed,
                 "The remote ignored the partial-clone blob filter, so credential-named files this checkout withholds were downloaded; nothing was cloned. Use a remote that supports partial clone.",
             ));
@@ -595,11 +592,11 @@ fn ensure_commit(
 
 /// Whether `store` already holds `commit` with the history `depth` asks for.
 fn holds_history(
-    context: &CloneContext<'_>,
+    context: &GitContext<'_>,
     store: &Path,
     commit: &str,
     depth: u64,
-) -> Result<bool, CloneError> {
+) -> Result<bool, GitError> {
     // `--missing` keeps a walk from fetching what the store lacks.
     if depth == 1 {
         let listed = run(
@@ -637,11 +634,11 @@ fn holds_history(
 /// A new linked worktree of `store` at `stage`, detached at `commit` and
 /// empty (local: no blob is read).
 fn add_worktree(
-    context: &CloneContext<'_>,
+    context: &GitContext<'_>,
     store: &Path,
     commit: &str,
     stage: &Path,
-) -> Result<(), CloneError> {
+) -> Result<(), GitError> {
     let mut args = scoped(
         store,
         &["worktree", "add", "--no-checkout", "--detach", "--"],
@@ -654,11 +651,11 @@ fn add_worktree(
 /// Move the worktree `from` of `store` to `to`; its administration, sparse
 /// scope and index follow.
 pub(super) fn move_worktree(
-    context: &CloneContext<'_>,
+    context: &GitContext<'_>,
     store: &Path,
     from: &Path,
     to: &Path,
-) -> Result<(), CloneError> {
+) -> Result<(), GitError> {
     let mut args = scoped(store, &["worktree", "move"]);
     args.extend([from.as_os_str().to_owned(), to.as_os_str().to_owned()]);
     run(context, args, step_timeout(context), "move worktree", None)?;
@@ -668,7 +665,7 @@ pub(super) fn move_worktree(
 /// Whether git finds `store` intact: its connectivity check exits zero. A
 /// store that is not on disk has nothing damaged. The verdict is git's exit
 /// status, never its message.
-pub(super) fn store_intact(context: &CloneContext<'_>, store: &Path) -> Result<bool, CloneError> {
+pub(super) fn store_intact(context: &GitContext<'_>, store: &Path) -> Result<bool, GitError> {
     if !store.is_dir() {
         return Ok(true);
     }
@@ -689,10 +686,10 @@ pub(super) fn store_intact(context: &CloneContext<'_>, store: &Path) -> Result<b
 /// again after both moved with the home: git rewrites the checkout's `.git`
 /// file and the store's record of its path.
 pub(super) fn reconnect_worktrees(
-    context: &CloneContext<'_>,
+    context: &GitContext<'_>,
     store: &Path,
     checkouts: &[std::path::PathBuf],
-) -> Result<(), CloneError> {
+) -> Result<(), GitError> {
     let mut args = scoped(store, &["worktree", "repair"]);
     args.extend(checkouts.iter().map(|path| path.as_os_str().to_owned()));
     run(
@@ -706,7 +703,7 @@ pub(super) fn reconnect_worktrees(
 }
 
 /// Forget the worktrees of `store` whose directories are gone.
-pub(super) fn prune_worktrees(context: &CloneContext<'_>, store: &Path) -> Result<(), CloneError> {
+pub(super) fn prune_worktrees(context: &GitContext<'_>, store: &Path) -> Result<(), GitError> {
     run(
         context,
         scoped(store, &["worktree", "prune"]),

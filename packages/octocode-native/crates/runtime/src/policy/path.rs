@@ -11,6 +11,7 @@ mod output;
 mod tests;
 mod walk;
 
+pub(crate) use credentials::withheld_text_by_default;
 pub(crate) use walk::DiscoveryWalk;
 
 #[derive(Clone, Debug, Default)]
@@ -34,6 +35,9 @@ pub struct PathPolicyConfig {
     pub(crate) allow_credential_files: bool,
     /// Holds Octocode's own credentials, whatever the setting.
     pub(crate) octocode_home: Option<PathBuf>,
+    /// The global ignore rules the call's walks apply, resolved from the
+    /// call's own environment (the default reads the process's).
+    pub(crate) global_ignore: octocode_engine::search::walk::GlobalIgnore,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -62,6 +66,7 @@ pub struct PathPolicy {
     octocode_home: Vec<PathBuf>,
     /// The user's home, lexical and resolved.
     home_forms: Vec<PathBuf>,
+    global_ignore: octocode_engine::search::walk::GlobalIgnore,
 }
 
 impl PathPolicy {
@@ -113,7 +118,13 @@ impl PathPolicy {
             allow_credential_files: config.allow_credential_files,
             octocode_home,
             home_forms,
+            global_ignore: config.global_ignore,
         })
+    }
+
+    /// The global ignore rules every walk of this call applies.
+    pub(crate) fn global_ignore(&self) -> octocode_engine::search::walk::GlobalIgnore {
+        self.global_ignore
     }
 
     /// This policy with `root` closed: nothing under it is read, even inside
@@ -161,9 +172,27 @@ impl PathPolicy {
                     )
                     .with_path(self.display_requested(input, &absolute)));
                 }
+                if ambiguous_redacted_name(&absolute) {
+                    return Err(PolicyError::new(
+                        PolicyErrorCode::NotFound,
+                        format!(
+                            "Path {} names a file by its redacted name, and several entries show that name: no one of them can be chosen from it.",
+                            self.display_requested(input, &absolute)
+                        ),
+                    )
+                    .with_path(self.display_requested(input, &absolute)));
+                }
                 Err(self.io_error(error, input))
             }
         }
+    }
+
+    /// Whether `input` names a file by a redacted (shown) name that several
+    /// entries share: the one fact behind the policy's "several entries show
+    /// that name" answer, asked of the policy itself so no caller reads the
+    /// answer's wording.
+    pub(crate) fn names_several_entries(&self, input: &Path) -> bool {
+        ambiguous_redacted_name(&self.expand_and_resolve(input))
     }
 
     pub(crate) fn allowed_roots(&self) -> Vec<PathBuf> {
@@ -271,10 +300,11 @@ impl PathPolicy {
         // Relative tool paths belong to the workspace, not to whatever
         // directory the host process happened to start in (WORKSPACE_ROOT
         // exists so a CLI run from /tmp still reads the configured project).
-        match &self.workspace_root {
+        let resolved = match &self.workspace_root {
             Some(root) if path.is_relative() => lexical(&root.join(path)),
             _ => absolutize(path),
-        }
+        };
+        resolve_redacted_names(resolved)
     }
 
     /// The top of the tree `path` lies in, where a search widened from it
@@ -415,6 +445,80 @@ enum Access {
     /// An entry Octocode writes, or reads back where it wrote it: under the
     /// allowed roots or an output root.
     Output,
+}
+
+/// Whether a component of `path` that holds a redaction placeholder, and names
+/// no entry as sent, is the shown name of several entries.
+fn ambiguous_redacted_name(path: &Path) -> bool {
+    let placeholders = octocode_engine::security::placeholder_regex();
+    let mut at = PathBuf::new();
+    for part in path.components() {
+        let name = part.as_os_str().to_string_lossy();
+        let shown = at.join(part.as_os_str());
+        if placeholders.is_match(&name) && shown.symlink_metadata().is_err() {
+            return redacted_name_matches(&at, &name) > 1;
+        }
+        at = shown;
+    }
+    false
+}
+
+/// The entries of `dir` whose redacted name is `shown`.
+fn redacted_name_matches(dir: &Path, shown: &str) -> usize {
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| {
+            let entry = entry.file_name().to_string_lossy().into_owned();
+            octocode_engine::security::sanitizer::sanitize_leaf(&entry)
+                .ok()
+                .flatten()
+                .is_some_and(|redacted| redacted == shown)
+        })
+        .count()
+}
+
+/// `path` with each component that holds a redaction placeholder resolved to
+/// the entry it stands for: a listing shows a file named after a credential
+/// with the placeholder in its place (`deploy-[REDACTED-GITHUBTOKENS].txt`),
+/// and that shown name is what a caller sends back. The entry is the one
+/// sibling whose redacted name equals the component; with none, or several,
+/// the component stays as sent and the path is an ordinary missing one.
+fn resolve_redacted_names(path: PathBuf) -> PathBuf {
+    let placeholders = octocode_engine::security::placeholder_regex();
+    if !path
+        .components()
+        .any(|part| placeholders.is_match(&part.as_os_str().to_string_lossy()))
+    {
+        return path;
+    }
+    let mut resolved = PathBuf::new();
+    for part in path.components() {
+        let name = part.as_os_str().to_string_lossy();
+        let shown = resolved.join(part.as_os_str());
+        if !placeholders.is_match(&name) || shown.symlink_metadata().is_ok() {
+            resolved = shown;
+            continue;
+        }
+        let mut named = std::fs::read_dir(&resolved)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.file_name())
+            .filter(|entry| {
+                let entry = entry.to_string_lossy();
+                octocode_engine::security::sanitizer::sanitize_leaf(&entry)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|redacted| redacted == name)
+            });
+        resolved = match (named.next(), named.next()) {
+            (Some(only), None) => resolved.join(only),
+            _ => shown,
+        };
+    }
+    resolved
 }
 
 fn within(roots: &[PathBuf], path: &Path) -> bool {

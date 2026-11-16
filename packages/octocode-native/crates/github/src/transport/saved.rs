@@ -34,6 +34,11 @@ pub trait SavedAnswers: Send + Sync {
     fn load(&self, scope: &str, request: &str) -> Option<SavedAnswer>;
     fn save(&self, scope: &str, request: &str, saved: SavedAnswer);
     fn forget(&self, scope: &str, request: &str);
+    /// The origin refused `scope`'s credential (a 401): none of the answers
+    /// kept for it may serve again, pinned ones included, since a credential
+    /// that no longer opens the resource gives no right to its answers.
+    /// A store with nothing to retire declines.
+    fn revoked(&self, _scope: &str) {}
 }
 
 /// What a saved answer can do for a request.

@@ -37,8 +37,9 @@ fn a_search_for_a_credential_named_declaration_runs() {
     }
 }
 
-/// A known secret format is refused whatever names it; a value in no known
-/// format under a credential's name is the caller's own text and runs.
+/// A known secret format is refused whatever names it, and so is a literal
+/// assigned to a key labelled as a credential; a declaration, a template or a
+/// word naming one is the caller's own text and runs.
 #[test]
 fn a_known_secret_is_refused_whatever_names_it() {
     let github = format!("ghp_{}", "a1B2".repeat(9));
@@ -57,9 +58,31 @@ fn a_known_secret_is_refused_whatever_names_it() {
         }
         assert!(refused("matchString", serde_json::json!(term)), "{term:?}");
     }
+    // A quoted value after a label is a value; a bare one is an identifier in
+    // text of no known file.
+    for term in [
+        "password: \"Tr0ub4dor&3xK9!zQ\"",
+        "token = '9f8Kq2LmZx7Wv3Tn5Rb1Yc6H'",
+    ] {
+        assert!(
+            refused("matchString", serde_json::json!([term])),
+            "{term:?} was run"
+        );
+    }
     for term in [
         "password: Tr0ub4dor&3xK9!zQ",
         "token: 9f8Kq2LmZx7Wv3Tn5Rb1Yc6H",
+    ] {
+        assert!(
+            !refused("matchString", serde_json::json!([term])),
+            "{term:?} was refused"
+        );
+    }
+    for term in [
+        "password: str",
+        "token: Token",
+        "password = ${DB_PASSWORD}",
+        "max_tokens: 100",
     ] {
         assert!(
             !refused("matchString", serde_json::json!([term])),

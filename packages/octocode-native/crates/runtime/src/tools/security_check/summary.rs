@@ -2,8 +2,6 @@
 //! row. Every operation builds its whole row first (the `details` view), so
 //! nothing here is computed twice and nothing the summary leaves out is lost:
 //! the row's one `related` call asks the same target with `view:"details"`.
-use crate::id::ToolId;
-use crate::response::result::Continuation;
 use octocode_contract_types::SecurityCheckView;
 use serde_json::{Map, Value, json};
 
@@ -24,8 +22,6 @@ pub(super) const DETAIL_FIELDS: [&str; 9] = [
 
 /// What a summary needs besides the row itself.
 pub(super) struct Target<'a> {
-    /// The same target as a fresh query row, without its view.
-    pub query: Map<String, Value>,
     /// The package name and version the request stated: a row field equal to
     /// one is an echo. `None`: the request stated none (a URL, a range the
     /// registry resolved), so the row's own is kept.
@@ -89,13 +85,21 @@ fn summary(row: Value, target: Target<'_>) -> Value {
     if echoes("version", target.asked_version, &fields) {
         fields.shift_remove("version");
     }
-    // `outdated:true` names its newer release: the version to move to is
-    // the decision, not one call away.
+    // An outdated version names its newer release: the version to move to
+    // is the decision, not one call away. The release is stated unless it is
+    // the `upgradeTo` already stated, and `outdated:true` is then derived
+    // from either naming it; `outdated:false` stays, since an absent field
+    // also means the versions could not be compared.
     let outdated = fields.get("outdated") == Some(&Value::Bool(true));
+    let same_as_upgrade = fields.get("latestVersion").is_some()
+        && fields.get("latestVersion") == lean.get("upgradeTo");
     for detail in DETAIL_FIELDS {
-        if !(outdated && detail == "latestVersion") {
+        if !(outdated && detail == "latestVersion" && !same_as_upgrade) {
             fields.shift_remove(detail);
         }
+    }
+    if outdated {
+        fields.shift_remove("outdated");
     }
     if let Some(Value::Array(warnings)) = fields.get_mut("warnings") {
         super::global::collapse_withdrawn(warnings);
@@ -106,17 +110,20 @@ fn summary(row: Value, target: Target<'_>) -> Value {
     if let Some(failed) = sources.as_ref().and_then(failed_sources) {
         lean.insert("sources".to_owned(), failed);
     }
-    // A row that failed (a version the registry does not publish) answers
-    // the same in details: its leads are the repairs alone.
-    let failed = lean.contains_key("errorCode");
-    lean.insert("related".to_owned(), leads(related, target.query, !failed));
+    // The details view is one `view` value away and named in the tool
+    // description: the leads are the repairs and pinned-dependency checks the
+    // row itself names.
+    let leads = leads(related);
+    if !leads.as_array().is_some_and(Vec::is_empty) {
+        lean.insert("related".to_owned(), leads);
+    }
     Value::Object(lean)
 }
 
 /// The advisory read's summary. Its rows are already one per advisory
 /// ([`super::record::group_summary`]) and its `answer` states every range
 /// and fix, so only the sources and leads are narrowed here.
-pub(super) fn advisory(row: Value, query: Map<String, Value>) -> Value {
+pub(super) fn advisory(row: Value) -> Value {
     let Value::Object(mut fields) = row else {
         return row;
     };
@@ -125,7 +132,6 @@ pub(super) fn advisory(row: Value, query: Map<String, Value>) -> Value {
     if let Some(failed) = sources.as_ref().and_then(failed_sources) {
         fields.insert("sources".to_owned(), failed);
     }
-    fields.insert("related".to_owned(), leads(None, query, true));
     Value::Object(fields)
 }
 
@@ -180,15 +186,11 @@ fn failed_sources(sources: &Value) -> Option<Value> {
     (!failed.is_empty()).then_some(Value::Array(failed))
 }
 
-/// The summary's leads: the same target with `view:"details"` (`details`),
-/// which lists every other lead of the whole row, then the package checks
-/// the row names: exactly pinned dependencies, whose advisories no field of
-/// this row counts, or a missing version's nearest published ones.
-fn leads(related: Option<Value>, query: Map<String, Value>, details: bool) -> Value {
-    let details = details.then(|| {
-        Continuation::related(ToolId::SecurityCheck, Value::Object(with_details(query))).build()
-    });
-    let pinned = related
+/// The summary's leads: the package checks the row names, exactly pinned
+/// dependencies whose advisories no field of this row counts, or a missing
+/// version's nearest published ones.
+fn leads(related: Option<Value>) -> Value {
+    related
         .and_then(|related| match related {
             Value::Array(calls) => Some(calls),
             _ => None,
@@ -201,8 +203,8 @@ fn leads(related: Option<Value>, query: Map<String, Value>, details: bool) -> Va
                 .is_some_and(|rows| {
                     !rows.is_empty() && rows.iter().all(|row| row["operation"] == "package")
                 })
-        });
-    details.into_iter().chain(pinned).collect()
+        })
+        .collect()
 }
 
 #[cfg(test)]

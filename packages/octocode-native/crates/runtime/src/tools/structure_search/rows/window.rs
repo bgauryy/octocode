@@ -157,7 +157,7 @@ fn rank(
         Key::TotalLines => Lines::class(line(a))
             .cmp(&Lines::class(line(b)))
             .then_with(|| directed(Lines::count(line(a)).cmp(&Lines::count(line(b))))),
-        Key::SizeBytes => not_file(a).cmp(&not_file(b)).then_with(|| {
+        Key::Bytes => not_file(a).cmp(&not_file(b)).then_with(|| {
             directed(
                 content_size(&entries[a])
                     .unwrap_or(0)

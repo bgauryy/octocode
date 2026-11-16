@@ -129,7 +129,7 @@ impl Row {
         let ranked = entry_text(
             name,
             kind,
-            size.filter(|_| key == Some(Key::SizeBytes)),
+            size.filter(|_| key == Some(Key::Bytes)),
             lines.filter(|_| key == Some(Key::TotalLines)),
             modified_ms
                 .filter(|_| key == Some(Key::ModifiedAt))

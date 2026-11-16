@@ -111,6 +111,8 @@ pub(crate) fn search_options(
             local_search_query::include_ignored(query),
             local_search_query::include_hidden(query),
         ),
+        // The call's own rules, set where the search is planned.
+        global_ignore: octocode_engine::search::walk::GlobalIgnore::default(),
         max_depth: local_search_query::max_depth(query),
         // The engine owns the order, so its cap keeps the same survivors.
         sort: if local_search_query::sort(query) == SearchSort::MatchCount && path_list {
@@ -153,47 +155,63 @@ pub(crate) fn search_options(
 /// A file whose own bytes prove that text holds no match is not judged
 /// ([`crate::security::meets_written`]).
 pub(crate) fn judge(limits: crate::security::SourceLimits) -> octocode_engine::types::SourceJudge {
-    let serve = std::sync::Arc::new(move |path: &std::path::Path, file: &std::fs::File| {
-        use std::io::{Read, Seek, SeekFrom};
-        #[cfg(test)]
-        JUDGED_PATHS
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(path.to_path_buf());
-        let security = crate::security::ContentSecurity::with_limits(limits);
-        let limit = security.limits().whole_source_bytes();
-        let meta = file.metadata()?;
-        let mut handle = file;
-        if meta.len() > limit {
-            // The walk stops between files: one file's judgment runs whole.
-            struct Whole;
-            impl crate::execution::cancel::CancellationCheck for Whole {
-                fn check(&self) -> Result<(), String> {
-                    Ok(())
+    let serve = std::sync::Arc::new(
+        move |path: &std::path::Path, file: &std::fs::File, halted: &(dyn Fn() -> bool + Sync)| {
+            use std::io::{Read, Seek, SeekFrom};
+            #[cfg(test)]
+            JUDGED_PATHS
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(path.to_path_buf());
+            let security = crate::security::ContentSecurity::with_limits(limits);
+            let limit = security.limits().whole_source_bytes();
+            let meta = file.metadata()?;
+            let mut handle = file;
+            if meta.len() > limit {
+                // The search's stop (cancelled, or past its bound) ends this
+                // file's judgment between its lines, as it ends the walk.
+                struct Stopped<'a>(&'a (dyn Fn() -> bool + Sync));
+                impl crate::execution::cancel::CancellationCheck for Stopped<'_> {
+                    fn check(&self) -> Result<(), String> {
+                        if (self.0)() {
+                            Err(String::from("the search was stopped"))
+                        } else {
+                            Ok(())
+                        }
+                    }
                 }
+                let cancel = Stopped(halted);
+                let changed = crate::tools::large_source::changed_lines(
+                    path, file, &meta, &security, &cancel,
+                )
+                .map_err(|message| {
+                    // A stopped search is no failure of the file.
+                    let kind = if halted() {
+                        std::io::ErrorKind::Interrupted
+                    } else {
+                        std::io::ErrorKind::Other
+                    };
+                    std::io::Error::new(kind, message)
+                })?;
+                let Some((changed, _)) = changed.filter(|(changed, _)| !changed.is_empty()) else {
+                    return Ok(None);
+                };
+                handle.seek(SeekFrom::Start(0))?;
+                let mut text = Vec::new();
+                crate::tools::large_source::Patched::new(std::io::BufReader::new(handle), &changed)
+                    .read_to_end(&mut text)?;
+                return Ok(Some(text));
             }
-            let cancel = Whole;
-            let changed =
-                crate::tools::large_source::changed_lines(path, file, &meta, &security, &cancel)
-                    .map_err(std::io::Error::other)?;
-            let Some((changed, _)) = changed.filter(|(changed, _)| !changed.is_empty()) else {
-                return Ok(None);
-            };
-            handle.seek(SeekFrom::Start(0))?;
-            let mut text = Vec::new();
-            crate::tools::large_source::Patched::new(std::io::BufReader::new(handle), &changed)
-                .read_to_end(&mut text)?;
-            return Ok(Some(text));
-        }
-        // The search hands the file at its start ([`octocode_engine::types::JudgeSource`]).
-        let mut bytes = Vec::new();
-        handle.take(limit).read_to_end(&mut bytes)?;
-        // Judged by the pass kept of this text, which a row's whole-source
-        // check of the same file takes again rather than scanning twice.
-        Ok(crate::security::searched_text(&bytes, |text| {
-            crate::tools::judged_rows::judged_text(text, path, &security)
-        }))
-    });
+            // The search hands the file at its start ([`octocode_engine::types::JudgeSource`]).
+            let mut bytes = Vec::new();
+            handle.take(limit).read_to_end(&mut bytes)?;
+            // Judged by the pass kept of this text, which a row's whole-source
+            // check of the same file takes again rather than scanning twice.
+            Ok(crate::security::searched_text(&bytes, |text| {
+                crate::tools::judged_rows::judged_text(text, path, &security)
+            }))
+        },
+    );
     octocode_engine::types::SourceJudge {
         serve,
         writes: std::sync::Arc::new(crate::security::meets_written),

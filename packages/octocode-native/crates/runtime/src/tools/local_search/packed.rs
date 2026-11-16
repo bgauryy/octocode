@@ -10,9 +10,8 @@
 //! - **Whole** ([`Encoded::encode_checked`]): every file in scan order, one
 //!   deflate stream, encoded before the page reorders it. A continuation
 //!   inflates and decodes all of it and cuts its page again. Classification,
-//!   list and match-page grid pages keep this shape: a classification
-//!   filters rows before its cut, a list page shows no rows, and a grid is
-//!   reached by no public call.
+//!   and list pages keep this shape: a classification filters rows before
+//!   its cut, and a list page shows no rows.
 //! - **Seekable** ([`FrameWriter`]): one frame per page entry of the
 //!   page's streamed cut, in page order, each its own deflate stream, with an index of
 //!   where each frame sits and which entries make each page ([`PageIndex`]).
@@ -49,9 +48,7 @@ use write::Writer;
 
 /// Which page entries a seekable scan's pages are made of, and the totals
 /// a page reports, so a continuation cuts nothing again. Only the default
-/// (streamed) layout is seekable: a match-page grid is reached by no
-/// public call (`matchPage` is private progress, and only a grid page
-/// issues a next match page), so a grid scan is kept whole.
+/// (streamed) layout is seekable; a list view is kept whole.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct PageIndex {
     /// Page `p` is the frames `pages[p - 1]`.
@@ -62,10 +59,6 @@ pub(super) struct PageIndex {
     pub(super) total_files: u32,
     /// Rows of every file.
     pub(super) total_rows: u32,
-    /// Rows one match page holds (see `Layout::matches_per`).
-    pub(super) matches_per: u32,
-    /// Some file has more rows than one match page.
-    pub(super) over_matches_per: bool,
 }
 
 impl PageIndex {

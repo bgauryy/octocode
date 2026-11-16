@@ -169,6 +169,9 @@ pub(super) fn file_searcher<'a, M: Matcher>(
         },
         stop,
         held,
+        // A stream's files finish when it is cancelled: what it read before
+        // the cut is the same on every run.
+        cancelled: (!scope.drains).then_some(scope.control.cancelled),
         copy: scope.file_terms.is_some(),
         terms,
         gate: &scope.judge_gate,

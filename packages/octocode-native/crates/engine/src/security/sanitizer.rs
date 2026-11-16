@@ -1,11 +1,19 @@
-use super::detector;
+use super::detector::{self, ValueForm};
 use super::types::SanitizationResult;
 
 /// `content` with every known-format secret replaced by its placeholder
 /// ([`detector::secret_spans`]), borrowed unchanged when it holds none.
 pub fn sanitize_content(content: &str) -> crate::error::Result<SanitizationResult<'_>> {
+    sanitize_content_in(content, ValueForm::Code)
+}
+
+/// [`sanitize_content`] of a source whose values are written as `form` says.
+pub fn sanitize_content_in(
+    content: &str,
+    form: ValueForm,
+) -> crate::error::Result<SanitizationResult<'_>> {
     guarded(|| {
-        let Some(result) = detector::redact(content) else {
+        let Some(result) = detector::redact(content, form) else {
             return SanitizationResult {
                 content: content.into(),
                 has_secrets: false,
@@ -30,13 +38,15 @@ pub fn sanitize_content(content: &str) -> crate::error::Result<SanitizationResul
 /// One string leaf of a tool result: its redacted text, or `None` when it
 /// holds nothing to redact, so clean text is never copied.
 pub fn sanitize_leaf(content: &str) -> crate::error::Result<Option<String>> {
-    guarded(|| detector::redact(content).map(|result| result.sanitized))
+    guarded(|| detector::redact(content, ValueForm::Code).map(|result| result.sanitized))
 }
 
 /// [`sanitize_leaf`] with what it replaced of `content`, by byte position,
 /// for a reader that decides by place which replacements stand.
 pub fn sanitize_leaf_edits(content: &str) -> crate::error::Result<Option<(String, super::Edits)>> {
-    guarded(|| detector::redact(content).map(|result| (result.sanitized, result.edits)))
+    guarded(|| {
+        detector::redact(content, ValueForm::Code).map(|result| (result.sanitized, result.edits))
+    })
 }
 
 /// Whether a string of a request holds a credential: whatever a read would

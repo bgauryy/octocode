@@ -131,6 +131,8 @@ pub(super) struct EngineWalk<'a> {
     pub(super) limit: Option<u32>,
     pub(super) names_only: bool,
     pub(super) budget: Option<std::time::Duration>,
+    /// The global ignore rules of the call.
+    pub(super) global_ignore: octocode_engine::search::walk::GlobalIgnore,
 }
 
 /// The engine walk of `q` over `root` under the listing's admission.
@@ -148,6 +150,7 @@ pub(super) fn run_engine<Q: Listing>(
         limit,
         names_only,
         budget,
+        global_ignore,
     } = walk;
     let native = octocode_engine::search::fs_query::query_file_system(
         FileSystemQueryOptions {
@@ -162,6 +165,7 @@ pub(super) fn run_engine<Q: Listing>(
             limit,
             lists: test_code.map(|left| left.rule(continuing.walk_offset)),
             names_only,
+            global_ignore,
             ..q.engine_options(root)
         },
         &|path, file_type, visit| left.admit(policy, path, file_type, visit),

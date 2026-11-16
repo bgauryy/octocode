@@ -18,6 +18,8 @@ pub struct GraphFactsScanOptions {
     pub language_globs: Option<Vec<GraphLanguageGlob>>,
     /// Which ignore rules and dot entries the walk leaves out.
     pub ignore: crate::types::IgnorePolicy,
+    /// The global ignore rules of the call, applied per repository.
+    pub global_ignore: crate::process_env::GlobalIgnore,
 }
 
 #[derive(Debug, Clone)]

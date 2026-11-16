@@ -191,14 +191,43 @@ pub(in crate::tools::local_search) fn read_bounded_line(
 /// Match indexes (in line order) whose values a fresh page withheld: their
 /// file changed, or could no longer be read, after the scan matched it, so
 /// the values cannot be rebuilt from the bytes the scan read. Each row now
-/// holds [`UNVERIFIED_PLACEHOLDER`] and is no longer deferred.
+/// shows its text as [`crate::security::row_shown_unchecked`] and is no longer deferred.
 pub(in crate::tools::local_search) type WithheldRows = Vec<usize>;
 
+/// What a re-read withheld: the rows ([`WithheldRows`]), and those among them
+/// whose text the redaction changed, which show a replaced span.
+#[derive(Debug, Default)]
+pub(in crate::tools::local_search) struct Withholding {
+    pub(in crate::tools::local_search) rows: WithheldRows,
+    pub(in crate::tools::local_search) replaced: Vec<usize>,
+}
+
+impl Withholding {
+    pub(in crate::tools::local_search) fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+
+    pub(in crate::tools::local_search) fn extend(&mut self, other: Self) {
+        self.rows.extend(other.rows);
+        self.replaced.extend(other.replaced);
+    }
+}
+
+#[cfg(test)]
 pub(in crate::tools::local_search) fn materialize(
     scope: &PageScope<'_, impl CancellationCheck>,
     file: &mut octocode_engine::types::TextSearchFile,
     rows: std::ops::Range<usize>,
 ) -> Result<WithheldRows, ToolError> {
+    Ok(materialize_noting(scope, file, rows)?.rows)
+}
+
+/// [`materialize`] stating which withheld rows show a replaced span.
+pub(in crate::tools::local_search) fn materialize_noting(
+    scope: &PageScope<'_, impl CancellationCheck>,
+    file: &mut octocode_engine::types::TextSearchFile,
+    rows: std::ops::Range<usize>,
+) -> Result<Withholding, ToolError> {
     visit_values(scope, file, rows, |_, _| Ok(()))
 }
 
@@ -220,7 +249,7 @@ pub(super) fn visit_values(
     file: &mut octocode_engine::types::TextSearchFile,
     rows: std::ops::Range<usize>,
     mut visit: impl FnMut(usize, &mut octocode_engine::types::TextSearchMatch) -> Result<(), ToolError>,
-) -> Result<WithheldRows, ToolError> {
+) -> Result<Withholding, ToolError> {
     // One check per file: a row's visit is bounded work, and every worker
     // polling the shared cancel per row contended on its lock.
     scope.cancel.check().map_err(ToolError::cancelled)?;
@@ -236,7 +265,7 @@ pub(super) fn visit_values(
         }
     }
     if wanted.is_empty() {
-        return Ok(Vec::new());
+        return Ok(Withholding::default());
     }
     wanted.sort_unstable_by_key(|&i| file.matches[i].line);
     let path = scope.output_root.join(&file.path);
@@ -247,7 +276,7 @@ pub(super) fn visit_values(
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .push(path.clone());
     match reread(scope, file, &path, &wanted, &mut visit)? {
-        Reread::Same => Ok(Vec::new()),
+        Reread::Same => Ok(Withholding::default()),
         Reread::Changed => withhold(scope, file, &path, wanted),
     }
 }
@@ -266,16 +295,24 @@ fn withhold(
     file: &mut octocode_engine::types::TextSearchFile,
     path: &std::path::Path,
     wanted: Vec<usize>,
-) -> Result<WithheldRows, ToolError> {
+) -> Result<Withholding, ToolError> {
     if let Expected::Stored(_) = (scope.expected_digest)(path) {
         return Err(changed_since_scan(scope.query));
     }
+    let mut replaced = Vec::new();
     for &index in &wanted {
         let hit = &mut file.matches[index];
-        hit.value = super::guard::UNVERIFIED_PLACEHOLDER.to_owned();
+        let shown = crate::security::row_shown_unchecked(&hit.value);
+        if shown != hit.value {
+            replaced.push(index);
+        }
+        hit.value = shown;
         hit.deferred = None;
     }
-    Ok(wanted)
+    Ok(Withholding {
+        rows: wanted,
+        replaced,
+    })
 }
 
 /// A failed read: the cancel's reason when it stopped the read, else a

@@ -8,23 +8,22 @@
 //!   servers are found and started under the caller's `PATH` and toolchain
 //!   variables.
 //! - [`PROCESS_ENV`]: variables read from the engine's own process, which no
-//!   call can bring: the third-party walker reads the global ignore rules
-//!   (`XDG_CONFIG_HOME`, the git config files) and `HOME` itself. A host that
-//!   keeps one process for many calls keys on them. Every read goes through
-//!   [`var_os`], whose name must be in [`PROCESS_ENV`]; the tests below hold
-//!   the engine's sources to both accessors, so a new read cannot bypass them.
+//!   call can bring: `HOME` (`std::env::home_dir`). The global ignore rules of
+//!   a walk are the call's own ([`GlobalIgnore`]), never the process's. A host that
+//!   keeps one process for many calls keys on them. The tests below hold the engine's
+//!   sources to both lists: a direct read of the process environment is
+//!   refused, and `home_dir` needs `HOME` and `USERPROFILE` declared.
 
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsString;
 
+mod global_ignore;
+
+pub use global_ignore::GlobalIgnore;
+
 /// Every variable the engine reads from its process environment.
 pub const PROCESS_ENV: &[&str] = &[
-    // The global ignore rules a walk applies (`search::walk`).
-    "XDG_CONFIG_HOME",
-    "GIT_CONFIG_GLOBAL",
-    "GIT_CONFIG_SYSTEM",
-    // What `std::env::home_dir` reads (discovery's per-user locations, the
-    // walker's global rules).
+    // What `std::env::home_dir` reads (discovery's per-user locations).
     "HOME",
     "USERPROFILE",
 ];
@@ -45,6 +44,11 @@ pub const CALL_ENV: &[&str] = &[
     "HOMEPATH",
     "SYSTEMROOT",
     "SystemRoot",
+    // The git config files that name the global ignore file a call's walks
+    // apply (`search::walk::GlobalIgnore`), beside `XDG_CONFIG_HOME` and
+    // `HOME` above.
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
     // Toolchain and scratch variables forwarded to Python, Go, JVM and .NET
     // language servers (`lsp::client`).
     "VIRTUAL_ENV",
@@ -135,12 +139,6 @@ pub const fn declares(name: &str) -> bool {
     listed(PROCESS_ENV, name)
 }
 
-/// Reads `name`, a variable in [`PROCESS_ENV`], from the process.
-pub(crate) fn var_os(name: &'static str) -> Option<OsString> {
-    debug_assert!(declares(name), "{name} is not in PROCESS_ENV");
-    std::env::var_os(name)
-}
-
 #[cfg(test)]
 mod tests {
     use super::{PROCESS_ENV, declares};
@@ -182,7 +180,7 @@ mod tests {
     const DIRECT_READS: [&str; 4] = ["var", "var_os", "vars", "vars_os"];
     const HOME_DIR_READS: [&str; 2] = ["HOME", "USERPROFILE"];
 
-    /// What `source` reads from the environment outside [`super::var_os`]:
+    /// What `source` reads from the environment through `std::env` (`home_dir` aside, the engine reads none):
     /// `(line, read)` for each direct call (`env::var_os(`), each `use` of a
     /// read function, a glob or a renamed `std::env`, after which a bare call
     /// reads, and each `home_dir`.
@@ -263,18 +261,10 @@ mod tests {
                     }
                 }
             }
-            for (index, line) in text.lines().enumerate() {
-                for read in line.split("process_env::var_os(\"").skip(1) {
-                    let name = read.split('"').next().unwrap_or_default();
-                    if !declares(name) {
-                        undeclared.push(format!("{}:{}: {name}", path.display(), index + 1));
-                    }
-                }
-            }
         }
         assert!(
             direct.is_empty(),
-            "read through process_env::var_os: {direct:?}"
+            "read the process environment directly: {direct:?}"
         );
         assert!(undeclared.is_empty(), "add to PROCESS_ENV: {undeclared:?}");
     }
@@ -305,7 +295,6 @@ mod tests {
             assert!(!env_reads(source).is_empty(), "{source}");
         }
         for source in [
-            "let x = crate::process_env::var_os(\"PATH\");",
             "use std::env;\nlet dir = env::current_dir();",
             "use std::env::consts::OS;",
             "use std::{env, collections::*};",
@@ -322,10 +311,19 @@ mod tests {
 
     /// A name a call carries is not also read from the process, except the
     /// ones a spawned server is handed from the call (`HOME` and friends are
-    /// both: the walker reads the process's, a server is given the call's).
+    /// both: discovery reads the process's, a server is given the call's).
     #[test]
     fn a_name_read_from_the_process_is_never_the_only_source_of_a_call_variable() {
-        for name in ["PATH", "LANG", "TMPDIR", "RUSTUP_HOME", "GOPATH"] {
+        for name in [
+            "PATH",
+            "LANG",
+            "TMPDIR",
+            "RUSTUP_HOME",
+            "GOPATH",
+            "XDG_CONFIG_HOME",
+            "GIT_CONFIG_GLOBAL",
+            "GIT_CONFIG_SYSTEM",
+        ] {
             assert!(super::call_declares(name), "{name}");
             assert!(!declares(name), "{name} must not key a server");
         }

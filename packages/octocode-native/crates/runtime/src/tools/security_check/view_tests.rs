@@ -13,7 +13,14 @@ const SUMMARY_ONLY: [&str; 4] = [
     "link",
 ];
 /// Fields a summary narrows or states only when they say something new.
-const NARROWED: [&str; 5] = ["answer", "packageName", "version", "sources", "related"];
+const NARROWED: [&str; 6] = [
+    "answer",
+    "packageName",
+    "version",
+    "sources",
+    "related",
+    "outdated",
+];
 
 fn keys(row: &Value) -> Vec<&str> {
     row.as_object()
@@ -36,7 +43,7 @@ fn assert_details_holds_the_summary(summary: &Value, details: &Value) {
     for field in keys(summary) {
         // The lead to the whole row is the summary's own.
         assert!(
-            details.get(field).is_some() || SUMMARY_ONLY.contains(&field) || field == "related",
+            details.get(field).is_some() || SUMMARY_ONLY.contains(&field),
             "{field} is only in the summary: {details}"
         );
         if !SUMMARY_ONLY.contains(&field) && !NARROWED.contains(&field) {
@@ -48,14 +55,15 @@ fn assert_details_holds_the_summary(summary: &Value, details: &Value) {
     }
 }
 
-/// The one `related` call of a summary: its first query row.
-fn details_call(summary: &Value) -> Value {
-    let call = &summary["related"][0];
-    assert_eq!(call["kind"], "related", "{summary}");
-    assert_eq!(call["tool"], "securityCheck", "{summary}");
-    let row = call["input"]["queries"][0].clone();
-    assert_eq!(row["view"], "details", "{summary}");
-    row
+/// A summary offers no lead that restates its query as `view:"details"`:
+/// the view is named in the tool description.
+fn assert_no_details_lead(summary: &Value) {
+    assert!(
+        summary["related"].as_array().is_none_or(|calls| calls
+            .iter()
+            .all(|call| call["input"]["queries"][0]["view"] != "details")),
+        "{summary}"
+    );
 }
 
 fn fixed(id: &str, severity: &str, versions: &[&str]) -> Value {
@@ -118,10 +126,11 @@ async fn a_package_summary_is_the_verdict_the_counts_and_one_lead() {
         summary["link"], "https://osv.dev/vulnerability/GHSA-HIGHER",
         "{summary}"
     );
-    assert_eq!(summary["outdated"], true, "{summary}");
-    // Outdated names the release to move to; the rest of the release facts
-    // stay in details.
-    assert_eq!(summary["latestVersion"], "4.18.1", "{summary}");
+    // `outdated:true` is derived from the release the row names: the
+    // `latestVersion` stays only when it is not the `upgradeTo` already stated.
+    assert!(summary.get("outdated").is_none(), "{summary}");
+    assert_eq!(details["outdated"], true, "{details}");
+    assert_ne!(summary["latestVersion"], summary["upgradeTo"], "{summary}");
     for detail in DETAIL_FIELDS
         .iter()
         .filter(|detail| **detail != "latestVersion")
@@ -140,12 +149,7 @@ async fn a_package_summary_is_the_verdict_the_counts_and_one_lead() {
     );
     assert_eq!(details["latestVersion"], "4.18.1", "{details}");
     assert_details_holds_the_summary(&summary, &details);
-    // The lead is the call that returns the whole row.
-    let replayed = answer(&affected_package(), details_call(&summary))
-        .await
-        .expect("replayed");
-    assert_eq!(replayed, details);
-    assert_eq!(summary["related"].as_array().map(Vec::len), Some(1));
+    assert_no_details_lead(&summary);
     assert_row_contract(ToolId::SecurityCheck, &summary);
     assert_row_contract(ToolId::SecurityCheck, &details);
 }
@@ -259,10 +263,7 @@ async fn a_url_summary_is_the_package_summary() {
     );
     assert_eq!(details["advisories"], json!([]), "{details}");
     assert_details_holds_the_summary(&summary, &details);
-    // The lead names the package the URL resolved to.
-    let lead = details_call(&summary);
-    assert_eq!(lead["operation"], "package", "{lead}");
-    assert_eq!(lead["packageName"], "lodash", "{lead}");
+    assert_no_details_lead(&summary);
     assert_row_contract(ToolId::SecurityCheck, &summary);
 }
 
@@ -284,8 +285,6 @@ async fn a_commit_summary_counts_and_links_and_details_lists() {
             "advisoryCount": 2,
             "highestSeverity": "high",
             "link": "https://osv.dev/vulnerability/CVE-2023-1",
-            "related": [{"kind": "related", "tool": "securityCheck",
-                "input": {"queries": [{"operation": "commit", "commit": COMMIT, "view": "details"}]}}],
         })
     );
     assert_eq!(
@@ -389,11 +388,7 @@ async fn an_advisory_summary_is_one_row_per_advisory() {
         "{summary}"
     );
     assert!(summary.get("sources").is_none(), "{summary}");
-    assert_eq!(
-        summary["related"],
-        json!([{"kind": "related", "tool": "securityCheck",
-            "input": {"queries": [{"operation": "advisory", "id": id, "view": "details"}]}}])
-    );
+    assert_no_details_lead(&summary);
     assert_row_contract(ToolId::SecurityCheck, &summary);
     assert_row_contract(ToolId::SecurityCheck, &details);
 }

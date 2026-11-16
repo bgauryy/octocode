@@ -221,7 +221,8 @@ fn counts_and_inversion_keep_occurrence_and_line_meanings_distinct() {
             None,
         ),
     );
-    assert_eq!(inverted["matchedLineCount"], 2, "{inverted}");
+    assert_eq!(inverted["matchCount"], 2, "{inverted}");
+    assert!(inverted.get("matchedLineCount").is_none(), "{inverted}");
     assert!(
         inverted["files"]
             .as_array()

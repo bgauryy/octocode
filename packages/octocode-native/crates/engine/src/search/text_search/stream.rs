@@ -289,7 +289,15 @@ pub(super) fn run<M: Matcher + Sync>(
     let commit = commit
         .into_inner()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut feeder = feeder;
     let ended = feeder.walk.ended() && commit.next == feeder.next && !state.stopped();
+    // A walk that ran to its end reports every entry it left out. Otherwise
+    // only those before the last committed candidate: whether the walker had
+    // judged the entries between it and the next candidate when the page
+    // filled depends on the read-ahead.
+    feeder
+        .judge
+        .release(if ended { usize::MAX } else { commit.next });
     finish(&scope, &state, &held, opts, mode, Some((commit, ended)))
 }
 

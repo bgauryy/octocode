@@ -43,3 +43,32 @@ fn a_null_submodule_url_does_not_reclassify_a_regular_file() {
     let body = br#"{"type":"file","submodule_git_url":null,"encoding":"base64","content":""}"#;
     assert!(parse_content_payload(body, "empty.rs").is_ok());
 }
+
+#[test]
+fn a_link_target_is_read_from_the_links_directory() {
+    let cases = [
+        ("env", ".env", Some(".env")),
+        ("a/env", ".env", Some("a/.env")),
+        ("a/b/link", "../c/./file", Some("a/c/file")),
+        ("a/link", "../../x", None),
+        ("link", "/etc/passwd", None),
+        ("a/link", "..", None),
+        ("a/link", "b//c", Some("a/b/c")),
+    ];
+    for (link, target, resolved) in cases {
+        assert_eq!(
+            resolve_link_target(link, target).as_deref(),
+            resolved,
+            "{link} -> {target}"
+        );
+    }
+}
+
+#[test]
+fn a_symlink_answer_names_its_target() {
+    let body = br#"{"type":"symlink","target":"../real.txt","sha":"0123456789abcdef0123456789abcdef01234567"}"#;
+    let error = parse_content_payload(body, "a/link")
+        .err()
+        .expect("a link is no file");
+    assert!(error.message.contains("../real.txt"), "{}", error.message);
+}

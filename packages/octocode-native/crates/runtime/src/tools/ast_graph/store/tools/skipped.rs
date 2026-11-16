@@ -151,6 +151,7 @@ pub(super) fn note_skipped(
         ignored: options.walk.ignore.include_ignored,
         hidden: options.walk.ignore.include_hidden,
         default_excludes: options.walk.default_excludes,
+        global: paths.global_ignore(),
     };
     if let Some(found) = unparsed(root, walk, &options.exclude, paths, &permits, &keep, &stop) {
         let read = read_by(parsed_any);
@@ -166,6 +167,7 @@ pub(super) fn note_skipped(
         return Ok(());
     }
     let probe = FileProbe::new(root, &permits, &keep)
+        .under(paths.global_ignore())
         .stopping(&stop)
         .within(Globs {
             include: &[],

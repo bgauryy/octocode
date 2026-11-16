@@ -347,3 +347,58 @@ fn a_replayed_prefix_stamped_in_parallel_folds_in_walk_order() {
         "one thread stamped"
     );
 }
+
+/// Records the dot entries the walk reports as left out.
+#[derive(Default)]
+struct HiddenSkips(std::sync::Mutex<Vec<String>>);
+
+impl TextSearchPathFilter for HiddenSkips {
+    fn allows(&self, _: &Path, _: bool) -> bool {
+        true
+    }
+    fn skipped_hidden(&self, path: &Path, _: bool) {
+        let dir = path.parent().and_then(Path::file_name).unwrap_or_default();
+        let name = Path::new(dir).join(path.file_name().unwrap_or_default());
+        self.0
+            .lock()
+            .expect("skips")
+            .push(name.to_string_lossy().into_owned());
+    }
+}
+
+/// The entries a page reports as left out are those before its cut in walk
+/// order, whatever the read-ahead ran: never one past it, the same set on
+/// every run and for every share of cores.
+#[test]
+fn skips_are_reported_only_up_to_the_commit_cut_whatever_the_workers_do() {
+    let t = TmpDir::new();
+    for dir in 0..120 {
+        t.write(&format!("d{dir:03}/f.txt"), "needle\n");
+        t.write(&format!("d{dir:03}/.h"), "needle\n");
+    }
+    let o = traversal(&t, "needle");
+    let run = |share: usize| {
+        let skips = Arc::new(HiddenSkips::default());
+        let Streaming::Streamed(streamed) =
+            super::stream::tests::with_share(share, || page_with(&o, skips.clone(), 0, None, 2))
+        else {
+            panic!("stale");
+        };
+        let mut seen = skips.0.lock().expect("skips").clone();
+        seen.sort();
+        (streamed.through, seen)
+    };
+    let (through, expected) = run(1);
+    // Three files committed; the dot entry of a directory sorts before its
+    // file, so the entries before the last committed file are the three
+    // directories' own. The one before the next, uncommitted file is the
+    // next page's.
+    assert_eq!(through, 3);
+    let wanted = (0..3).map(|d| format!("d{d:03}/.h")).collect::<Vec<_>>();
+    assert_eq!(expected, wanted);
+    for share in [1, 2, 8, 32] {
+        for _ in 0..10 {
+            assert_eq!(run(share), (through, expected.clone()), "share {share}");
+        }
+    }
+}

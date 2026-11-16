@@ -8,10 +8,6 @@ use crate::tools::source_view::*;
 use octocode_contract_types::{LocalFetchQuery, ReadProgressUnit};
 use octocode_engine::num::saturating_usize;
 
-/// A warning that states a count: reads the count from its text, and writes
-/// the text for a count.
-type CountedWarning = (fn(&str) -> Option<usize>, fn(usize) -> String);
-
 /// An offset past the end of the read's `read_total` `unit`s (lines, or the
 /// bytes of its lines): nothing returned, in the shape an in-memory read
 /// gives the same offset ([`past_end`]), with the file's
@@ -76,51 +72,12 @@ pub(super) fn map_to_file(result: &mut LocalFetchResult, streamed: &Streamed) {
             .count()
     });
     if streamed.key_lines > 0 && shown > 0 {
-        result.warnings.push(key_lines_warning(shown));
+        result.warnings.push(crate::security::redacted_mark());
     }
 }
 
-/// The note of a page that shows `lines` private-key lines' placeholders.
-fn key_lines_warning(lines: usize) -> String {
-    format!(
-        "redactedContent: {lines} line(s) inside private-key blocks were replaced; this content is not verbatim source."
-    )
-}
-
-/// The key lines a [`key_lines_warning`] counts; `None` for any other warning.
-fn key_lines_of(warning: &str) -> Option<usize> {
-    let lines = warning
-        .strip_prefix("redactedContent: ")?
-        .split_once(' ')?
-        .0
-        .parse()
-        .ok()?;
-    (key_lines_warning(lines) == warning).then_some(lines)
-}
-
-/// Add a joined part's `warning` to the row's `warnings`: a count of what the
-/// part replaced adds to the row's count of the same, so the joined row states
-/// every placeholder it shows; any other warning is stated once.
+/// Add a joined part's `warning` to the row's `warnings`, once.
 pub(super) fn join_warning(warnings: &mut Vec<String>, warning: String) {
-    let counts: [CountedWarning; 2] = [
-        (
-            crate::security::redacted_values,
-            crate::security::redacted_content_warning,
-        ),
-        (key_lines_of, key_lines_warning),
-    ];
-    for (count, state) in counts {
-        if let Some(more) = count(&warning) {
-            match warnings
-                .iter_mut()
-                .find_map(|held| count(held).map(|had| (held, had)))
-            {
-                Some((held, had)) => *held = state(had + more),
-                None => warnings.push(warning),
-            }
-            return;
-        }
-    }
     if !warnings.contains(&warning) {
         warnings.push(warning);
     }

@@ -325,3 +325,64 @@ async fn a_changed_source_or_a_lost_handle_never_answers_a_saved_page() {
     assert!(error.message.contains("No source or provider was called"));
     runtime.close().await;
 }
+
+/// A saved page edited in place (still valid JSON, so the store keeps it)
+/// no longer matches the snapshot its cursor names: the cursor answers as an
+/// expired snapshot with a restart, never as a worker failure.
+#[tokio::test]
+async fn a_saved_page_edited_in_place_answers_a_restart() {
+    let workspace = Workspace::new();
+    let file = workspace.write("saved.txt", source());
+    let runtime = workspace.runtime(&env());
+    let first = runtime
+        .run(
+            "first".into(),
+            "localSearch".into(),
+            json!({"queries":[{"path":file,"matchString":["needle"]}],"responseChars":900}),
+        )
+        .await
+        .expect("first page")
+        .structured_content
+        .into_value();
+    let next = first
+        .pointer("/responsePagination/next/input")
+        .cloned()
+        .expect("a later page");
+    runtime.close().await;
+    let mut edited = 0;
+    for entry in std::fs::read_dir(workspace.home.join("tmp/response-pages"))
+        .expect("store")
+        .flatten()
+    {
+        let text = std::fs::read_to_string(entry.path()).expect("entry");
+        if let Some(at) = text.find("\"line\":") {
+            let end = at + "\"line\":".len();
+            let mut changed = text.clone();
+            changed.insert(end, '9');
+            std::fs::write(entry.path(), changed).expect("edit entry");
+            edited += 1;
+        }
+    }
+    assert!(edited > 0, "a saved page held a line to edit");
+    let runtime = workspace.runtime(&env());
+    let outcome = runtime
+        .run("later".into(), "localSearch".into(), next)
+        .await;
+    runtime.close().await;
+    match outcome {
+        Err(error) => {
+            assert_eq!(error.code, ErrorCode::ResponseSnapshotExpired, "{error:?}");
+        }
+        Ok(output) => {
+            let output = output.structured_content.into_value();
+            assert_eq!(
+                output["results"][0]["data"]["errorCode"], "responseSnapshotExpired",
+                "{output}"
+            );
+            assert_eq!(
+                output["results"][0]["data"]["errorClass"], "restart",
+                "{output}"
+            );
+        }
+    }
+}

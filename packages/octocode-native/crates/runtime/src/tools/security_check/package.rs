@@ -304,7 +304,6 @@ fn in_view(package: &Package<'_>, data: Value, upgrade: &Upgrade) -> Value {
         package.view,
         data,
         summary::Target {
-            query: package_row(package, package.name, package.version),
             asked_name: Some(package.name),
             asked_version: package.version,
             unfixed_in_major: upgrade.unfixed_in_major,

@@ -2,7 +2,7 @@
 //! holds the commit's trees, so the lead is computed locally: the same clone
 //! with a near-miss name corrected, else the listing of the deepest
 //! directory that exists.
-use super::{CloneContext, GhCloneRepoQuery, git};
+use super::{GhCloneRepoQuery, GitContext, git};
 use crate::id::ToolId;
 use crate::response::result::Continuation;
 use crate::tools::leads::find_file::closest_name;
@@ -24,7 +24,7 @@ struct Ancestor {
 /// uncorrectable path's deepest existing directory, at the commit). `None`
 /// when the commit's tree cannot be read.
 pub(super) fn sparse_next(
-    context: &CloneContext<'_>,
+    context: &GitContext<'_>,
     stage: &Path,
     query: &GhCloneRepoQuery,
     missing: &[&str],
@@ -77,7 +77,7 @@ pub(super) fn sparse_next(
 
 /// The path with its first missing segment replaced by the one near-miss
 /// entry of the deepest existing directory, when the result exists.
-fn corrected_path(context: &CloneContext<'_>, stage: &Path, ancestor: &Ancestor) -> Option<String> {
+fn corrected_path(context: &GitContext<'_>, stage: &Path, ancestor: &Ancestor) -> Option<String> {
     let (segment, rest) = match ancestor.below.split_once('/') {
         Some((segment, rest)) => (segment, Some(rest)),
         None => (ancestor.below.as_str(), None),
@@ -98,7 +98,7 @@ fn corrected_path(context: &CloneContext<'_>, stage: &Path, ancestor: &Ancestor)
 
 /// The deepest directory above `path` that exists at HEAD (the root when
 /// none does), with its entries.
-fn deepest_ancestor(context: &CloneContext<'_>, stage: &Path, path: &str) -> Option<Ancestor> {
+fn deepest_ancestor(context: &GitContext<'_>, stage: &Path, path: &str) -> Option<Ancestor> {
     let mut dir = path.rsplit_once('/').map_or("", |(parent, _)| parent);
     loop {
         let entries = git::tree_names(context, stage, dir).ok()?;

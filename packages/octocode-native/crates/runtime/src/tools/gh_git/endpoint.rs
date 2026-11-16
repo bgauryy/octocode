@@ -1,5 +1,5 @@
 //! The git URLs of a GitHub endpoint: where repositories are fetched from.
-use super::CloneError;
+use super::GitError;
 use octocode_contract_types::ErrorCode;
 use octocode_github::{Deployment, GitHubEndpoint};
 
@@ -8,10 +8,10 @@ use octocode_github::{Deployment, GitHubEndpoint};
 /// and git at the web host (`https://github.com`, `https://<sub>.ghe.com`);
 /// an Enterprise Server serves git at its host and any path prefix before
 /// `/api/v3`.
-pub(crate) fn web_root(endpoint: &GitHubEndpoint) -> Result<url::Url, CloneError> {
+pub(crate) fn web_root(endpoint: &GitHubEndpoint) -> Result<url::Url, GitError> {
     let base = endpoint
         .rest(&[])
-        .map_err(|error| CloneError::new(ErrorCode::Config, error.message))?;
+        .map_err(|error| GitError::new(ErrorCode::Config, error.message))?;
     let secure = base.scheme() == "https"
         || (base.scheme() == "http" && octocode_github::is_loopback(&base));
     if !secure
@@ -42,11 +42,7 @@ pub(crate) fn web_root(endpoint: &GitHubEndpoint) -> Result<url::Url, CloneError
 }
 
 /// The git URL of `owner/repo` under `root` ([`web_root`]).
-pub(crate) fn repository_url(
-    root: &url::Url,
-    owner: &str,
-    repo: &str,
-) -> Result<String, CloneError> {
+pub(crate) fn repository_url(root: &url::Url, owner: &str, repo: &str) -> Result<String, GitError> {
     let mut url = root.clone();
     url.path_segments_mut()
         .map_err(|_| unsupported_endpoint())?
@@ -56,8 +52,8 @@ pub(crate) fn repository_url(
     Ok(url.into())
 }
 
-fn unsupported_endpoint() -> CloneError {
-    CloneError::new(
+fn unsupported_endpoint() -> GitError {
+    GitError::new(
         ErrorCode::Config,
         "ghCloneRepo requires an HTTPS GitHub API endpoint (plain http only on loopback): https://api.github.com, https://api.<subdomain>.ghe.com or a GitHub Enterprise Server endpoint ending in /api/v3, without credentials or query parameters. Use ghGetFileContent for other API proxies.",
     )

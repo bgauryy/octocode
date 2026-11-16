@@ -23,7 +23,7 @@
     "lint:own": "node src/emit-catalog.ts --check && node src/emit-types.ts --check",
     "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
     "lint": "yarn lint:own && yarn lint:oxlint",
-    "test": "node src/emit-catalog.ts --check && yarn build && node --test --test-concurrency=4 tests/*.test.ts",
+    "test": "node --test --test-concurrency=8 tests/*.test.ts",
     "verify:own": "yarn lint:own && yarn typecheck && yarn test",
     "verify": "yarn verify:own && yarn lint:oxlint",
     "prepack": "yarn build"

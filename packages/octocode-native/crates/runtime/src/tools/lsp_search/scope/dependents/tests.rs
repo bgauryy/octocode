@@ -32,6 +32,7 @@ fn read(root: &Path) -> Option<Dependents> {
         &root.join("a/x.go"),
         "go",
         &octocode_engine::lsp::config::LspDiscoveryOptions::default(),
+        Default::default(),
         &|| false,
     )
 }
@@ -152,6 +153,7 @@ fn a_cargo_snapshot_depending_on_its_own_copy_is_no_dependent() {
         &root.join("a/src/lib.rs"),
         "rs",
         &octocode_engine::lsp::config::LspDiscoveryOptions::default(),
+        Default::default(),
         &|| false,
     )
     .expect("read");

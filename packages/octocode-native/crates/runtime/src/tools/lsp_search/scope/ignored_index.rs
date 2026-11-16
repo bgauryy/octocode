@@ -64,7 +64,10 @@ fn keep(
     let Some((sources, mut rules)) = watched.inputs(root, policy) else {
         return index;
     };
-    rules.extend(octocode_engine::search::walk::external_ignore_inputs(root));
+    rules.extend(octocode_engine::search::walk::external_ignore_inputs_with(
+        root,
+        policy.global_ignore(),
+    ));
     let proof = Watch {
         root,
         sources: &sources,

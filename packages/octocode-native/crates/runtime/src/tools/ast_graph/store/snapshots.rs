@@ -262,11 +262,21 @@ pub(crate) fn list_snapshots(home: &Path) -> Vec<String> {
     ids
 }
 
+/// Whether the directory a snapshot scanned is gone (not merely unreadable
+/// or on an unmounted volume that answers another way).
+fn root_is_gone(root: &str) -> bool {
+    matches!(
+        std::fs::metadata(root),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound
+    )
+}
+
 /// Removes, among snapshots no reader used within
 /// [`crate::cache::CONTINUATION_IDLE`] (a rebuild never ends a walk in
 /// progress, whichever build reads it), older snapshots of `root` beyond
-/// `keep` and snapshots of any root in an older format (no query of this
-/// build can read them; a newer format belongs to a newer build and stays),
+/// `keep`, snapshots of any root in an older format (no query of this
+/// build can read them; a newer format belongs to a newer build and stays)
+/// and snapshots of any root that no longer exists,
 /// plus the claims of removals a dead process abandoned ([`CLAIM_PREFIX`];
 /// no other entry, whatever its name or age).
 /// Snapshots are grouped by the root they scanned, never by their scope
@@ -298,6 +308,7 @@ pub(super) fn prune_with(
     let root = root.to_string_lossy();
     let mut same_scope = Vec::new();
     let mut outdated = Vec::new();
+    let mut orphaned = Vec::new();
     for id in list_snapshots(home) {
         let Some(manifest) = read_snapshot_metadata(&home.join(&id)) else {
             continue;
@@ -309,7 +320,15 @@ pub(super) fn prune_with(
             outdated.push(id);
         } else if manifest.root.as_deref() == Some(root.as_ref()) {
             same_scope.push(id);
+        } else if manifest.root.as_deref().is_some_and(root_is_gone) {
+            orphaned.push(id);
         }
+    }
+    // A snapshot of a root that no longer exists answers no query of any
+    // scope; it is reaped like any other idle snapshot, and is not among the
+    // removals a build reports for its own root.
+    for id in orphaned {
+        remove_unless_leased(home, &id, between);
     }
     let excess = same_scope.len().saturating_sub(keep.max(1));
     let expired = outdated

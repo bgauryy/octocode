@@ -161,7 +161,15 @@ async fn a_list_github_did_not_answer_is_not_read_never_empty() {
             "the answer names what was not read: {data}"
         );
         assert!(rules(&data).is_empty(), "{data}");
-        assert_eq!(data["isPartial"], true, "{data}");
+        // A partial page states it once: partialReasons or a floor countScope, no isPartial.
+        assert!(data.get("isPartial").is_none(), "{data}");
+        assert!(
+            !data["partialReasons"].is_null()
+                || data["pagination"]["countScope"]
+                    .as_str()
+                    .is_some_and(|scope| scope != "complete"),
+            "{data}"
+        );
     }
 }
 
@@ -253,7 +261,15 @@ async fn a_failed_comparison_beside_a_holder_is_named_with_its_reason() {
         why.contains("not read"),
         "the failed comparison is named: {data}"
     );
-    assert_eq!(data["isPartial"], true, "{data}");
+    // A partial page states it once: partialReasons or a floor countScope, no isPartial.
+    assert!(data.get("isPartial").is_none(), "{data}");
+    assert!(
+        !data["partialReasons"].is_null()
+            || data["pagination"]["countScope"]
+                .as_str()
+                .is_some_and(|scope| scope != "complete"),
+        "{data}"
+    );
 }
 
 /// Two reads that failed for different reasons each keep their own reason.

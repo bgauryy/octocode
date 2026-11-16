@@ -22,7 +22,7 @@ impl ReadError {
 }
 
 /// Why a read whose values the memory budget cannot place is not served.
-const REFUSED: &str = "redactedContent: the memory budget has no room to hold the redactions the secret scan found in this source, so none of it is served. Split the source to read it.";
+const REFUSED: &str = "The memory budget has no room to hold the redactions the secret scan found in this source, so none of it is served. Split the source to read it.";
 
 impl std::fmt::Display for ReadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

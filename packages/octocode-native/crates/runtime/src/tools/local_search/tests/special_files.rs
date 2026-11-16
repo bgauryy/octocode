@@ -28,7 +28,7 @@ fn a_fifo_in_place_of_a_source_is_refused_without_blocking() {
     assert!(digest, "a FIFO has no digest");
     let source = fifo.clone();
     let verified = within_deadline(move || {
-        let value = "…token = ghp_abcdefghijklmnop";
+        let value = "…token = ghp_abcdefghijklmnopqrstuvwxyz0123456789";
         let mut file = octocode_engine::types::TextSearchFile {
             term_counts: Vec::new(),
             path: "swapped.txt".into(),

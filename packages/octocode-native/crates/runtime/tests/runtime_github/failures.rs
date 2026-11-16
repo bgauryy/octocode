@@ -63,7 +63,7 @@ async fn gh_primary_rate_limit_is_contract_valid_and_persisted_for_other_process
         .mount(&server)
         .await;
     let workspace = Workspace::new();
-    // No caller budget (D1): a spent core quota is disclosed at once, not
+    // No caller budget: a spent core quota is disclosed at once, not
     // waited out for up to an hour.
     let runtime = workspace.runtime(&[
         ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),

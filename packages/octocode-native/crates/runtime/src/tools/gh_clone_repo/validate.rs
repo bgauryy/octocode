@@ -1,8 +1,8 @@
 //! Query and endpoint validation: repository segments, sparse paths, and the git web root clones come from.
-use super::{CloneError, GhCloneRepoQuery, Sparse};
+use super::{GhCloneRepoQuery, GitError, Sparse};
 use octocode_contract_types::ErrorCode;
 
-pub(super) fn validate_query(query: &GhCloneRepoQuery) -> Result<(), CloneError> {
+pub(super) fn validate_query(query: &GhCloneRepoQuery) -> Result<(), GitError> {
     for (name, value) in [
         ("owner", query.owner.as_str()),
         ("repo", query.repo.as_str()),
@@ -13,7 +13,7 @@ pub(super) fn validate_query(query: &GhCloneRepoQuery) -> Result<(), CloneError>
             || value == "."
             || value == ".."
         {
-            return Err(CloneError::new(
+            return Err(GitError::new(
                 ErrorCode::InvalidInput,
                 format!("{name} must be a non-empty GitHub path segment"),
             ));
@@ -24,7 +24,7 @@ pub(super) fn validate_query(query: &GhCloneRepoQuery) -> Result<(), CloneError>
         .as_deref()
         .is_some_and(|branch| branch.trim().is_empty())
     {
-        return Err(CloneError::new(
+        return Err(GitError::new(
             ErrorCode::InvalidInput,
             "ref must not be empty",
         ));
@@ -32,7 +32,7 @@ pub(super) fn validate_query(query: &GhCloneRepoQuery) -> Result<(), CloneError>
     let sparse = Sparse::of(query);
     for path in sparse.as_ref().map_or(&[][..], Sparse::paths) {
         if !is_sparse_path(path) {
-            return Err(CloneError::new(
+            return Err(GitError::new(
                 ErrorCode::InvalidInput,
                 "paths must contain a non-empty repo-relative path without traversal",
             ));

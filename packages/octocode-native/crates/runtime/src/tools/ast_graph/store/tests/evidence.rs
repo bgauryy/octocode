@@ -198,7 +198,10 @@ fn mixed_languages_keep_call_capability_and_empty_populations_separate() {
     assert_eq!(built.value["linkage"]["ratio"], 1.0);
     let supported = ask(&dir.0, "callees", Some("linked.ts"), |_| {});
     assert_eq!(supported.value["coverage"]["callExtraction"], "supported");
-    assert_eq!(supported.value["coverage"]["linkage"]["ratio"], 1.0);
+    // Graph-wide linkage is stats'; coverage carries none.
+    assert!(supported.value["coverage"].get("linkage").is_none());
+    let stats = ask(&dir.0, "stats", None, |_| {});
+    assert_eq!(stats.value["linkage"]["ratio"], 1.0);
     for operation in ["callers", "callees"] {
         let unsupported = ask(&dir.0, operation, Some("labels.asm"), |_| {});
         let coverage = &unsupported.value["coverage"];
@@ -207,8 +210,7 @@ fn mixed_languages_keep_call_capability_and_empty_populations_separate() {
             "{}",
             unsupported.value
         );
-        assert!(coverage["linkage"]["ratio"].is_null());
-        assert_eq!(coverage["linkage"]["eligible"], 0);
+        assert!(coverage.get("linkage").is_none(), "{coverage}");
         assert!(
             coverage["warning"]
                 .as_str()

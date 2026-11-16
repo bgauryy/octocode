@@ -113,12 +113,30 @@ pub(super) fn history_patch_view(value: &str, path: &str, query: &HistoryItemReq
             };
         }
     }
+    // No changed line holds the literal: the file was kept for a hunk
+    // header's function context, which the whole patch shows, so each such
+    // header is a hit the row counts.
+    let text = number_patch(value);
+    let hits = needle(query).map_or_else(Vec::new, |needle| header_hits(&text, &needle));
     PatchView {
-        text: number_patch(value),
+        text,
         narrowed: false,
         clipped: Vec::new(),
-        hits: Vec::new(),
+        hits,
     }
+}
+
+/// Char offsets of the hunk-header lines of a numbered patch holding `needle`.
+fn header_hits(text: &str, needle: &super::super::matcher::Matcher) -> Vec<usize> {
+    let mut at = 0usize;
+    let mut starts = Vec::new();
+    for line in text.split_inclusive('\n') {
+        if line.starts_with("@@ -") && needle.matches(line) {
+            starts.push(at);
+        }
+        at += line.chars().count();
+    }
+    starts
 }
 
 /// Char offsets of the given (sorted) line indices in `text`.

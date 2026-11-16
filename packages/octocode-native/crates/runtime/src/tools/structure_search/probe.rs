@@ -160,7 +160,7 @@ pub(super) fn probe_listing<Q: Listing>(
     seen: &Uncovered,
     walk: impl Fn(&Q, usize, Walking<'_>) -> Result<Walked, ToolError>,
 ) -> Result<(), ToolError> {
-    let shown = query.walk();
+    let shown = query.walk().under(at.1.global_ignore());
     let mut tagged = None::<Tagged>;
     note_empty(out, query, at, seen, shown, |relaxed| {
         if tagged.is_none() {
@@ -173,6 +173,7 @@ pub(super) fn probe_listing<Q: Listing>(
             let cut = lifted.meta.was_capped || bound.cut();
             tagged = Some(Tagged::listed(
                 at.0,
+                at.1.global_ignore(),
                 lifted
                     .rows
                     .iter()

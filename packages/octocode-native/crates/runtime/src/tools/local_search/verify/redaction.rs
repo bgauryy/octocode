@@ -73,8 +73,14 @@ pub(in crate::tools::local_search) fn redact_scan(
             key_scan,
             changes,
             held,
+            replaced,
             path,
         } = outcome?;
+        redacted.extend(
+            replaced
+                .into_iter()
+                .map(|(line, column)| (path.clone(), line, column)),
+        );
         withheld.extend(
             held.into_iter()
                 .map(|(line, column)| (path.clone(), line, column)),
@@ -146,6 +152,7 @@ fn inspected_file(
             .map(|(index, hit)| (index, hit.line, hit.column, hit.value.clone()))
             .collect(),
         held: Vec::new(),
+        replaced: Vec::new(),
         path: file.path.clone(),
     })
 }
@@ -159,6 +166,8 @@ struct FileRedaction {
     /// The rows withheld because the file changed during the call: line,
     /// column.
     held: Vec<(u32, u32)>,
+    /// The withheld rows whose shown text holds a replaced span.
+    replaced: Vec<(u32, u32)>,
     /// The file's row path.
     path: String,
 }
@@ -266,14 +275,18 @@ fn redact_file(
     )?);
     // A withheld row's value came from bytes the scan did not read: none of
     // it is kept.
-    changes.retain(|(index, ..)| !held.contains(index));
+    changes.retain(|(index, ..)| !held.rows.contains(index));
+    let at = |indexes: &[usize]| {
+        indexes
+            .iter()
+            .map(|&index| (file.matches[index].line, file.matches[index].column))
+            .collect::<Vec<_>>()
+    };
     Ok(FileRedaction {
         key_scan,
         changes,
-        held: held
-            .iter()
-            .map(|&index| (file.matches[index].line, file.matches[index].column))
-            .collect(),
+        held: at(&held.rows),
+        replaced: at(&held.replaced),
         path: file.path.clone(),
     })
 }

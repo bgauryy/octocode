@@ -10,7 +10,7 @@ use crate::{
     tools::{
         gh_clone_repo::{self, CloneFailure},
         gh_get_file_content, gh_get_history_item,
-        gh_git::{self, CloneConfig, CloneSetup},
+        gh_git::{self, GitConfig, GitSetup},
         gh_search_code, gh_search_history, gh_search_repo, gh_structure,
     },
 };
@@ -90,6 +90,7 @@ impl GitHubServices {
                 {
                     return Ok(withheld_file(path));
                 }
+                let asked_path = query["path"].as_str().unwrap_or_default().to_owned();
                 let query = typed!(GhGetFileContentQuery);
                 let shaping = gh_get_file_content::Shaping {
                     security: security.clone(),
@@ -105,7 +106,14 @@ impl GitHubServices {
                 )
                 .await
                 {
-                    Ok(read) => tool_row(Ok(read)),
+                    // The bytes of a symlink are its target's: a target the
+                    // policy withholds is refused as a read of it is.
+                    Ok(read) => match read.data["symlinkTarget"].as_str() {
+                        Some(target) if paths.withheld_text(&asked_path, None, Some(target)) => {
+                            return Ok(withheld_file(target));
+                        }
+                        _ => tool_row(Ok(read)),
+                    },
                     Err(failure) => tool_row(Err(failure)),
                 }
             }
@@ -155,9 +163,9 @@ impl GitHubServices {
         request: &RequestContext,
         context: &ExecutionContext,
         paths: &PathPolicy,
-    ) -> std::sync::Arc<CloneSetup> {
-        let config = CloneConfig::persistent(self.home.clone()).with_network_timeout(self.timeout);
-        std::sync::Arc::new(CloneSetup {
+    ) -> std::sync::Arc<GitSetup> {
+        let config = GitConfig::persistent(self.home.clone()).with_network_timeout(self.timeout);
+        std::sync::Arc::new(GitSetup {
             config,
             endpoint: self.provider.transport.endpoint().clone(),
             git_limiter: self.provider.transport.git_limiter().for_row(request),

@@ -10,6 +10,7 @@ use key_markers::{line_markers, may_hold_key_marker};
 use std::path::Path;
 
 use crate::policy::{PolicyError, PolicyErrorCode};
+use octocode_engine::security::ValueForm;
 use octocode_engine::security::types::SanitizationResult;
 
 /// Secret label recorded when the split-private-key window guard fires.
@@ -125,6 +126,33 @@ fn leaf_key_blocks_hidden(
         Some((text, edits)) => (text.into(), edits),
         None => (content.into(), octocode_engine::security::Edits::default()),
     }
+}
+
+/// A row's text shown when its source could not vouch for it (unreadable,
+/// rewritten, or too large to hold): the text itself, each line shaped as a
+/// private key's (an armor edge, a base64 body line or a line holding a
+/// body's run) with only its key bytes replaced ([`key_line_bytes`]), then
+/// every known secret in it replaced as any text is. Never a whole-row
+/// placeholder: only the sensitive span goes.
+pub(crate) fn row_shown_unchecked(value: &str) -> String {
+    let keyed = value
+        .split('\n')
+        .map(|line| {
+            if is_private_key_boundary(line)
+                || is_key_body_line(line)
+                || opens_with_body_run(line)
+                || holds_body_run(line)
+            {
+                hide_key_line(line)
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    ContentSecurity::new()
+        .sanitize_leaf(&keyed)
+        .unwrap_or(keyed)
 }
 
 /// The key's bytes of a line of a key block, and what replaces them; `None`
@@ -301,6 +329,32 @@ pub struct ContentSecurity {
     /// The sources one request judged whole and the texts it showed of them
     /// ([`Self::for_request`]); `None` for the policy every request shares.
     judged: Option<std::sync::Arc<super::JudgedFiles>>,
+}
+
+/// File extensions whose lines are `name = value` with no quotes needed: a
+/// bare value after a label there is a value, not an identifier.
+const CONFIG_EXTENSIONS: [&str; 7] = ["properties", "ini", "yaml", "yml", "toml", "conf", "cfg"];
+
+/// How the file at `path` writes values ([`ValueForm`]): a known config file
+/// (a dotenv name, or one of [`CONFIG_EXTENSIONS`]) reads a bare value after
+/// a label as a value; any other file, and text of no file, as code.
+pub(crate) fn value_form(path: Option<&Path>) -> ValueForm {
+    let Some(name) = path
+        .and_then(Path::file_name)
+        .and_then(std::ffi::OsStr::to_str)
+        .map(str::to_ascii_lowercase)
+    else {
+        return ValueForm::Code;
+    };
+    let config = crate::policy::discovery::is_dotenv_name(&name)
+        || name.rsplit_once('.').is_some_and(|(stem, extension)| {
+            !stem.is_empty() && CONFIG_EXTENSIONS.contains(&extension)
+        });
+    if config {
+        ValueForm::Config
+    } else {
+        ValueForm::Code
+    }
 }
 
 /// Placeholder kind of a value of a dotenv file ([`dotenv_values_hidden`]).
@@ -527,10 +581,11 @@ impl ContentSecurity {
         // Key blocks first, line by line, as every view hides them: the
         // detector then reads their bodies as hidden already.
         let (keyed, keys) = private_key_blocks_hidden(content);
+        let form = value_form(file_path);
         let native = if keys.is_empty() {
-            octocode_engine::security::sanitizer::sanitize_content(content)
+            octocode_engine::security::sanitizer::sanitize_content_in(content, form)
         } else {
-            octocode_engine::security::sanitizer::sanitize_content(&keyed).map(|scanned| {
+            octocode_engine::security::sanitizer::sanitize_content_in(&keyed, form).map(|scanned| {
                 let mut secrets_detected = vec![SPLIT_KEY_SECRET.to_owned()];
                 secrets_detected.extend(
                     scanned
@@ -604,7 +659,12 @@ impl ContentSecurity {
         source_path: Option<&str>,
     ) -> Option<String> {
         let (keyed, keys) = leaf_key_blocks_hidden(content);
-        let redacted = octocode_engine::security::sanitizer::sanitize_leaf(&keyed)
+        let form = value_form(source_path.map(Path::new));
+        let redacted = octocode_engine::security::sanitizer::sanitize_content_in(&keyed, form)
+            .map(|scanned| match scanned.content {
+                std::borrow::Cow::Owned(clean) => Some(clean),
+                std::borrow::Cow::Borrowed(_) => None,
+            })
             .unwrap_or_else(|_| {
                 Some(octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.to_owned())
             })

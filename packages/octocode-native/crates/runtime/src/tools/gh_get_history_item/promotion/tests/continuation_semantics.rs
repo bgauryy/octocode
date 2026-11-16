@@ -10,7 +10,7 @@ fn request(sections: &[&str]) -> HistoryItemRequest {
 }
 
 #[test]
-fn section_expansion_is_optional_but_unread_pages_are_required() {
+fn unread_pages_are_required_and_no_static_section_view_is_offered() {
     let query = request(&[]);
     let mut output = json!({});
     attach_diff_continuations(
@@ -19,43 +19,15 @@ fn section_expansion_is_optional_but_unread_pages_are_required() {
         ItemOperation::Commit,
         Some("head"),
         DiffCursors {
-            files_listed: true,
             file_page: Some(2),
             ..Default::default()
         },
     );
     assert_eq!(output["next"]["files"]["kind"], "continue", "{output}");
-    assert_eq!(
-        output["calls"]["readPatches"]["kind"], "related",
-        "{output}"
-    );
+    assert!(output["calls"].get("readPatches").is_none(), "{output}");
     let summary = read_commit_lead(&request(&["patches"]), "head").expect("lead");
     assert_eq!(summary["kind"], "related", "{summary}");
     assert_eq!(summary["input"]["queries"][0]["ref"], "head");
-}
-
-#[test]
-fn pull_request_menus_expand_only_unrequested_sections() {
-    for sections in [vec![], vec!["files"], vec!["patches"], vec!["body"]] {
-        let query = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest", "owner":"o", "repo":"r", "number":1,
-            "sections":sections
-        }))
-        .expect("pull request");
-        let menu = pr_next_menu(
-            &query,
-            &["src/a.rs".into()],
-            &json!({
-                "body":"description", "changed_files":30, "additions":900,
-                "deletions":10, "comments":3
-            }),
-        );
-        let calls = menu.as_object().expect("menu");
-        assert!(!calls.is_empty(), "{menu}");
-        for call in calls.values() {
-            assert_eq!(call["kind"], "related", "{menu}");
-        }
-    }
 }
 
 #[test]

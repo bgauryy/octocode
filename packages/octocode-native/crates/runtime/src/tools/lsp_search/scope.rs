@@ -135,6 +135,8 @@ pub(super) struct Scope {
     /// The read policy that authorizes the lookup of `siblings`; set only for
     /// an unbounded scope.
     policy: Option<PathPolicy>,
+    /// The global ignore rules of the call, read by the scope's walks.
+    pub(super) global_ignore: octocode_engine::search::walk::GlobalIgnore,
     /// This request has no finished index behind it: text chose which files the
     /// server could read, so its answer is partial.
     opened_by_text: std::sync::atomic::AtomicBool,
@@ -189,6 +191,7 @@ impl Scope {
             unbounded: false,
             siblings: std::sync::OnceLock::new(),
             policy: None,
+            global_ignore: Default::default(),
             opened_by_text: std::sync::atomic::AtomicBool::new(false),
             include,
             markup: Vec::new(),
@@ -314,6 +317,7 @@ impl Scope {
             server_root: self.server_root.clone(),
             include: self.include.clone(),
             cargo_caches_unloaded: self.cargo_caches_unloaded,
+            global_ignore: self.global_ignore,
         }
     }
 }
@@ -332,6 +336,7 @@ pub(super) struct WalkInputs {
     server_root: Option<PathBuf>,
     include: Vec<String>,
     cargo_caches_unloaded: bool,
+    global_ignore: octocode_engine::search::walk::GlobalIgnore,
 }
 
 impl WalkInputs {
@@ -350,6 +355,7 @@ impl WalkInputs {
                 server_root: self.server_root.as_deref(),
                 include: &self.include,
                 cargo_caches_unloaded: self.cargo_caches_unloaded,
+                global_ignore: self.global_ignore,
             },
             observed,
             stopped,

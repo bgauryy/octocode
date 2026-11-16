@@ -1053,13 +1053,9 @@ async fn lsp_server_text_shows_a_value_as_a_read_of_its_file_does() {
         "```typescript\nconst pw: \"[REDACTED]\"\n```",
         "{unnamed}"
     );
-    assert!(
-        unnamed["results"][0]["data"]["warnings"]
-            .as_array()
-            .is_some_and(|warnings| warnings
-                .iter()
-                .filter_map(Value::as_str)
-                .any(|warning| warning.starts_with("serverTextWithheld:"))),
+    assert_eq!(
+        unnamed["results"][0]["data"]["redacted"],
+        json!(true),
         "{unnamed}"
     );
 
@@ -1257,7 +1253,7 @@ async fn ast_search_states_every_digest_and_coordinate_over_the_shown_text() {
     let quote = shown_line.rfind('"').expect("closing quote");
     let mut responses = Vec::new();
     for query in [
-        json!({"operation": "match", "rule": {"kind": "string"}, "includeProvenance": true}),
+        json!({"operation": "match", "rule": {"kind": "string"}, "includeProvenance": true, "includeCaptures": true}),
         json!({"operation": "symbols", "includeProvenance": true}),
         json!({"operation": "syntaxTree", "includeProvenance": true}),
         json!({"operation": "syntaxTree"}),

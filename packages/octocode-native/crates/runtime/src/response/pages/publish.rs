@@ -6,6 +6,9 @@ use serde_json::{Map, Value};
 
 /// Keys a list or window block states about a complete page and nothing else.
 const COMPLETE_KEYS: [&str; 6] = ["unit", "offset", "length", "total", "countScope", "hasMore"];
+/// Units a page counts in text, not in rows: the reader cannot derive their
+/// `length` from the rows listed, so such a block keeps `unit` and `length`.
+const TEXT_UNITS: [&str; 4] = ["bytes", "chars", "characters", "lines"];
 /// A block on a row or nested row: `pagination`, or one file's patch window.
 const BLOCKS: [&str; 2] = ["pagination", "patchPagination"];
 /// A map of named blocks: one collection's page each.
@@ -45,6 +48,17 @@ fn publish_fields(fields: &mut Map<String, Value>) {
         {
             fields.remove(key);
         }
+    }
+    // A page that remains counts rows: the rows listed are its length, and
+    // the operation names the unit.
+    if let Some(Value::Object(block)) = fields.get_mut("pagination")
+        && block
+            .get("unit")
+            .and_then(Value::as_str)
+            .is_some_and(|unit| !TEXT_UNITS.contains(&unit))
+    {
+        block.remove("unit");
+        block.remove("length");
     }
     if let Some(Value::Object(blocks)) = fields.get_mut(BLOCK_MAP) {
         blocks.retain(|_, block| {
@@ -122,6 +136,8 @@ pub(crate) fn state_out_of_range(structured: &mut Value) {
 
 /// A fact that says nothing happened is absent; the row states it when it did.
 fn drop_zero_disclosures(data: &mut Map<String, Value>) {
+    drop_complete_listing_summary(data);
+    state_partial_once(data);
     data.retain(|key, value| match key.as_str() {
         "isPartial" => value != &Value::Bool(false),
         "filesSkipped" => value != 0,
@@ -130,6 +146,58 @@ fn drop_zero_disclosures(data: &mut Map<String, Value>) {
         }
         _ => true,
     });
+}
+
+/// A listing's `summary` (`fileCount`, `dirCount`, `bytes`) of a complete
+/// page is its own entries counted: a page with no `pagination` and no
+/// partial mark holds the whole listing. A paged or partial page keeps it,
+/// the only source of the whole listing's split and size.
+fn drop_complete_listing_summary(data: &mut Map<String, Value>) {
+    let partial = data.get("isPartial") == Some(&Value::Bool(true))
+        || data
+            .get("partialReasons")
+            .and_then(Value::as_array)
+            .is_some_and(|reasons| !reasons.is_empty());
+    let counts = data
+        .get("summary")
+        .and_then(Value::as_object)
+        .is_some_and(|summary| {
+            summary
+                .keys()
+                .all(|key| matches!(key.as_str(), "fileCount" | "dirCount" | "bytes"))
+        });
+    if counts && !partial && !data.contains_key("pagination") {
+        data.remove("summary");
+    }
+}
+
+/// A partial page states it once. `partialReasons` or a `pagination`
+/// whose `countScope` is a floor already say so, and then `isPartial` is
+/// absent; `coverage.state:"partial"` never stands beside another statement.
+fn state_partial_once(data: &mut Map<String, Value>) {
+    if data.get("isPartial") != Some(&Value::Bool(true)) {
+        return;
+    }
+    let reasons = data
+        .get("partialReasons")
+        .and_then(Value::as_array)
+        .is_some_and(|reasons| !reasons.is_empty());
+    let floor = data
+        .get("pagination")
+        .and_then(|page| page.get("countScope"))
+        .and_then(Value::as_str)
+        .is_some_and(|scope| scope != "complete");
+    if reasons || floor {
+        data.remove("isPartial");
+    }
+    if let Some(Value::Object(coverage)) = data.get_mut("coverage")
+        && coverage.get("state").and_then(Value::as_str) == Some("partial")
+    {
+        coverage.remove("state");
+        if coverage.is_empty() {
+            data.remove("coverage");
+        }
+    }
 }
 
 /// Removes from each row the fields that repeat its query unchanged: `index`
@@ -202,10 +270,54 @@ mod tests {
         assert_eq!(rows[0]["data"], json!({"files":[{"path":"a"}]}));
         assert_eq!(
             rows[1]["data"]["pagination"],
-            json!({"unit":"items","offset":9,"length":3,"total":12,"hasMore":false})
+            json!({"offset":9,"total":12,"hasMore":false})
         );
         assert_eq!(rows[2]["data"]["pagination"]["hasMore"], true);
-        assert_eq!(rows[3]["data"]["pagination"]["offset"], 4);
+        assert!(rows[2]["data"]["pagination"].get("unit").is_none());
+        // A text window keeps its unit and length: they are not the rows listed.
+        assert_eq!(
+            rows[3]["data"]["pagination"],
+            json!({"unit":"lines","offset":4,"length":2,"hasMore":false})
+        );
+    }
+
+    #[test]
+    fn a_partial_page_states_it_once() {
+        let mut output = json!({"results":[
+            {"index":0,"data":{"isPartial":true,"partialReasons":["providerResultCap"],
+                "coverage":{"state":"partial"}}},
+            {"index":1,"data":{"isPartial":true,
+                "pagination":{"offset":0,"total":1000,"countScope":"capped","hasMore":true}}},
+            {"index":2,"data":{"isPartial":true,"coverage":{"state":"partial","reason":"x"}}},
+        ]});
+        publish_rows(&mut output);
+        let rows = output["results"].as_array().expect("rows");
+        assert_eq!(
+            rows[0]["data"],
+            json!({"partialReasons":["providerResultCap"]})
+        );
+        assert!(rows[1]["data"].get("isPartial").is_none(), "{}", rows[1]);
+        // No other statement: isPartial stays, the state beside it goes.
+        assert_eq!(
+            rows[2]["data"],
+            json!({"isPartial":true,"coverage":{"reason":"x"}})
+        );
+    }
+
+    #[test]
+    fn a_listing_summary_is_stated_only_on_a_paged_or_partial_page() {
+        let counts = json!({"fileCount":2,"dirCount":1});
+        let mut output = json!({"results":[
+            {"index":0,"data":{"files":[],"summary":counts}},
+            {"index":1,"data":{"files":[],"summary":counts,
+                "pagination":{"offset":0,"total":9,"hasMore":true}}},
+            {"index":2,"data":{"files":[],"summary":counts,"partialReasons":["filesUnevaluated"]}},
+        ]});
+        publish_rows(&mut output);
+        let rows = output["results"].as_array().expect("rows");
+        assert!(rows[0]["data"].get("summary").is_none(), "{}", rows[0]);
+        assert!(rows[1]["data"].get("summary").is_some(), "{}", rows[1]);
+        assert!(rows[2]["data"].get("summary").is_some(), "{}", rows[2]);
     }
 
     #[test]

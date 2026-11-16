@@ -8,17 +8,21 @@ pub(super) struct Staged {
 const STAGE_MARKER: &str = ".octocode-graph-stage";
 const STAGE_IDENTITY: &[u8] = b"octocode.graph.stage.v1\n";
 
+/// A graph home that cannot be written: `fileAccessFailed` with the recovery
+/// of a write, not a read's.
+pub(super) fn write_failed(message: impl Into<String>) -> GraphOutput {
+    let mut out = GraphOutput::error(ErrorCode::FileAccessFailed, message);
+    crate::response::result::set_hints(&mut out.value, [crate::response::rows::WRITE_ACCESS_HINT]);
+    out
+}
+
 pub(super) fn cleanup(
     home: &Path,
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
 ) -> Result<(), GraphOutput> {
-    let failed = |error: std::io::Error| {
-        GraphOutput::error(
-            ErrorCode::FileAccessFailed,
-            format!("cannot recover graph staging: {error}"),
-        )
-    };
+    let failed =
+        |error: std::io::Error| write_failed(format!("cannot recover graph staging: {error}"));
     for entry in std::fs::read_dir(home).map_err(failed)? {
         cancel
             .check()

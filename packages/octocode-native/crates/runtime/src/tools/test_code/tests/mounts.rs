@@ -142,29 +142,100 @@ pub(super) fn rust_files(root: &Path) -> Vec<PathBuf> {
 }
 
 fn assert_same_mounts(root: &Path) {
+    assert_same_mounts_of(root, &rust_files(root));
+}
+
+/// [`assert_same_mounts`] over `files` of `root`.
+fn assert_same_mounts_of(root: &Path, files: &[PathBuf]) {
     let policy = workspace_policy(root);
     let (reference, index) = (TestCodeIndex::new(&policy), TestCodeIndex::new(&policy));
     let parsed = EveryParentParsed::new(&reference);
     let unread = TestCodeIndex::new(&policy);
-    for file in rust_files(root) {
-        let verdict = index.test_path(&file);
+    for file in files {
+        let verdict = index.test_path(file);
         assert_eq!(
             verdict,
-            parsed.test_path(&file),
+            parsed.test_path(file),
             "{} under:\n{}",
             file.display(),
             std::fs::read_to_string(root.join("src/lib.rs")).unwrap_or_default()
         );
         // Left unread as test code only when the by-name verdict and the full
         // one both say test.
-        let by_name = unread.placed_as_test(&file, unread.placement_by_name(&file));
+        let by_name = unread.placed_as_test(file, unread.placement_by_name(file));
         assert_eq!(
-            unread.test_path_unread(&file),
+            unread.test_path_unread(file),
             by_name && verdict,
             "by name {by_name}, in full {verdict}: {}",
             file.display()
         );
     }
+}
+
+/// This repository's crates directory: the tree the real-source checks read.
+pub(super) fn real_source_root() -> &'static Path {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the crates directory")
+}
+
+/// Files per mount form in [`real_source_sample`].
+const FILES_PER_FORM: usize = 20;
+
+/// A fixed sample of this repository's own Rust source: this module whole,
+/// and for each form a mount or a test item takes (a `#[path]`, a gate on a
+/// module, an inner gate, a `cfg_attr`, an inline module, an out-of-line
+/// module, a raw `mod` identifier, and each file name a crate or module
+/// root takes) [`FILES_PER_FORM`] files spread evenly over the sorted files
+/// that hold it. The sample is the same at every run of one tree, and every
+/// form stays covered however the tree grows; the full tree is read by the
+/// ignored `*_full_tree` tests.
+pub(super) fn real_source_sample() -> Vec<PathBuf> {
+    let files = rust_files(real_source_root());
+    let module = real_source_root().join("runtime/src/tools/test_code");
+    let texts = files
+        .iter()
+        .map(|file| std::fs::read_to_string(file).unwrap_or_default())
+        .collect::<Vec<_>>();
+    let name = |file: &Path| {
+        file.file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    };
+    let forms: [(&str, &dyn Fn(usize) -> bool); 10] = [
+        ("path", &|at| texts[at].contains("#[path")),
+        ("gated mod", &|at| texts[at].contains("#[cfg(test)]\nmod ")),
+        ("inner gate", &|at| texts[at].contains("#![cfg")),
+        ("cfg_attr", &|at| texts[at].contains("cfg_attr")),
+        ("inline mod", &|at| {
+            texts[at]
+                .lines()
+                .any(|line| line.trim_start().starts_with("mod ") && line.ends_with('{'))
+        }),
+        ("out-of-line mod", &|at| {
+            texts[at]
+                .lines()
+                .any(|line| line.contains("mod ") && line.ends_with(';'))
+        }),
+        ("raw mod", &|at| texts[at].contains("r#mod")),
+        ("lib or main", &|at| {
+            matches!(name(&files[at]).as_str(), "lib.rs" | "main.rs")
+        }),
+        ("mod.rs", &|at| name(&files[at]) == "mod.rs"),
+        ("tests file", &|at| {
+            files[at]
+                .components()
+                .any(|part| part.as_os_str() == "tests" || part.as_os_str() == "tests.rs")
+        }),
+    ];
+    let mut chosen = std::collections::BTreeSet::new();
+    chosen.extend((0..files.len()).filter(|&at| files[at].starts_with(&module)));
+    for (_, holds) in forms {
+        let held = (0..files.len()).filter(|&at| holds(at)).collect::<Vec<_>>();
+        let step = held.len().div_ceil(FILES_PER_FORM).max(1);
+        chosen.extend(held.into_iter().step_by(step));
+    }
+    chosen.into_iter().map(|at| files[at].clone()).collect()
 }
 
 /// Whether a file is test code whole, decided as when it is always parsed.
@@ -186,14 +257,19 @@ fn assert_same_whole_file(root: &Path, path: &Path) {
     );
 }
 
+/// A sample of this repository's own source ([`real_source_sample`]).
+#[test]
+fn sampled_files_of_real_source_are_decided_as_when_every_parent_is_parsed() {
+    let sample = real_source_sample();
+    assert!(sample.len() > FILES_PER_FORM, "{} files", sample.len());
+    assert_same_mounts_of(real_source_root(), &sample);
+}
+
 /// This repository's own source, every file.
 #[test]
-fn every_file_of_real_source_is_decided_as_when_every_parent_is_parsed() {
-    assert_same_mounts(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .expect("the crates directory"),
-    );
+#[ignore = "full tree: cargo test -- --ignored full_tree"]
+fn every_file_of_real_source_is_decided_as_when_every_parent_is_parsed_full_tree() {
+    assert_same_mounts(real_source_root());
 }
 
 /// `src/<module>.rs` beside a `src/lib.rs` of `parent`, each module named by

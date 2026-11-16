@@ -47,7 +47,7 @@ async fn a_local_source_judges_exactly_its_ranges_and_leads_to_the_same_read() {
     runtime.close().await;
 }
 
-/// R02: disjoint ranges stay intersected through every content page the
+/// Disjoint ranges stay intersected through every content page the
 /// capture follows; no line outside them reaches the provider.
 #[tokio::test]
 async fn a_multi_page_capture_keeps_disjoint_ranges_on_every_page() {
@@ -287,7 +287,7 @@ impl wiremock::Respond for Locator {
     }
 }
 
-/// K1: a fact inside part N is attributed to part N, whichever side of the
+/// A fact inside part N is attributed to part N, whichever side of the
 /// fact the judge reads its part's marker from, at both edges of a part (its
 /// last line, the next part's first line).
 #[tokio::test]
@@ -349,7 +349,7 @@ async fn a_fact_at_a_part_edge_is_attributed_to_its_own_part() {
     }
 }
 
-/// B210: an identical row recaptures its local source on every call, so an
+/// An identical row recaptures its local source on every call, so an
 /// edit that keeps the size and restores the modification time is judged on
 /// its new bytes; no call replays a saved judgment.
 #[tokio::test]

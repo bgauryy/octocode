@@ -40,9 +40,8 @@ pub(crate) struct Staged {
 /// numbers, one key order per list, output validation (row violations isolated, marking `failure`)
 /// and continuation shaping.
 /// A settled envelope is what a page replay stores, so its later pages are
-/// neither validated nor shaped again. It holds the result alone: what the
-/// rows measured of this call (its timed notices) is returned instead, for
-/// the response of the call that measured it ([`state_call_notes`]).
+/// neither validated nor shaped again. The notes it returns are facts of this
+/// call alone, for its own response ([`state_call_notes`]).
 pub(crate) fn settle(
     tool: ToolId,
     structured: &mut Sanitized,
@@ -74,7 +73,6 @@ fn settle_value(
     super::workflow_lead::retain_guidance(tool, structured, response_query);
     super::notices::place(structured, "results");
     super::notices::state_shared_warnings(structured, "results");
-    let call_notes = super::notices::take_timed_notices(structured, "results");
     // Hosts show agents this JSON: source reads carry their line numbers in
     // `content` itself. Numbering precedes validation so an unpaged
     // response is exactly what was checked.
@@ -88,7 +86,7 @@ fn settle_value(
     if isolate_output_rows(tool.as_str(), structured)? && failure.is_none() {
         *failure = Some(ErrorClass::Unservable);
     }
-    Ok(call_notes)
+    Ok(Vec::new())
 }
 
 /// The page-dependent half of the stage over a [`settle`]d envelope: paging
@@ -153,7 +151,7 @@ pub(crate) fn respond_saved(
     envelope: &Sanitized,
     pages: &SavedPages,
     context: &ExecutionContext,
-) -> Result<Staged, ExecutionError> {
+) -> Result<Staged, SavedPageError> {
     let StageInput {
         tool,
         options,
@@ -179,13 +177,31 @@ pub(crate) fn respond_saved(
             next = prepared.next;
             Ok(prepared.value)
         })
-        .map_err(response_failure)?;
+        .map_err(|error| match error {
+            ResponseError::InvalidPage => SavedPageError::Changed,
+            other => SavedPageError::Failed(response_failure(other)),
+        })?;
     context.check()?;
     Ok(Staged {
         result: finish(tool, structured_content, reshaped, failure, all_failed),
         next,
         paging: reshaped,
     })
+}
+
+/// Why a page could not be cut from a saved response.
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) enum SavedPageError {
+    /// The cursor's snapshot is not the saved response's (it changed under
+    /// the cursor), or the page is past its end: the walk restarts.
+    Changed,
+    Failed(ExecutionError),
+}
+
+impl From<ExecutionError> for SavedPageError {
+    fn from(error: ExecutionError) -> Self {
+        Self::Failed(error)
+    }
 }
 
 /// The paged shape's contract check, then the outcome. Page shaping crosses

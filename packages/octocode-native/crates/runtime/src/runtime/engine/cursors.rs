@@ -3,7 +3,7 @@
 //! never contains caller-editable progress.
 use super::page_replay::Refusal;
 use crate::cache::{CacheConfig, CacheKey, Disk, Store};
-use crate::execution::{ExecutionContext, ExecutionError};
+use crate::execution::{ExecutionContext, ExecutionError, StorageFault};
 use crate::id::ToolId;
 use crate::response::cursor::{Cursor, issued};
 use crate::runtime::row_indices::RowOrigin;
@@ -227,18 +227,26 @@ impl Registry {
                 member,
             };
             let bytes = octocode_engine::json_size::bytes(&issued).unwrap_or(usize::MAX);
-            if !self
-                .store
-                .put_until(
-                    crate::execution::cancel::deadline_of(context),
-                    key,
-                    issued,
-                    bytes,
-                    retention,
-                )
-                .1
-            {
-                return Err(ExecutionError::WorkerFailed);
+            let (_, stored) = self.store.put_checked(
+                crate::execution::cancel::deadline_of(context),
+                key,
+                issued,
+                bytes,
+                retention,
+            );
+            if let Err(cause) = stored {
+                // An entry the store refuses outright is no storage failure; a lock
+                // or a write the filesystem refuses is (full, over quota, read-only).
+                return Err(match cause {
+                    crate::cache::NotStored::Cancelled => ExecutionError::Cancelled,
+                    crate::cache::NotStored::Refused => ExecutionError::WorkerFailed,
+                    crate::cache::NotStored::Unlocked(kind) => ExecutionError::StorageUnavailable(
+                        kind.map_or(StorageFault::Other, Into::into),
+                    ),
+                    crate::cache::NotStored::Failed(kind) => {
+                        ExecutionError::StorageUnavailable(kind.into())
+                    }
+                });
             }
         }
         Ok(())
@@ -263,9 +271,9 @@ impl Registry {
             return Ok(None);
         };
         octocode_io::atomic::create_private_dir_all(disk)
-            .map_err(|_| ExecutionError::StorageUnavailable)?;
+            .map_err(|error| ExecutionError::StorageUnavailable((&error).into()))?;
         let file = octocode_io::lock::open_lock_file(&disk.join("continuations.lock"))
-            .map_err(|_| ExecutionError::StorageUnavailable)?;
+            .map_err(|error| ExecutionError::StorageUnavailable((&error).into()))?;
         // One stable sidecar bounds lock files and serializes short merges.
         loop {
             context.check()?;
@@ -274,14 +282,14 @@ impl Registry {
                 .min(Duration::from_millis(100));
             match octocode_io::lock::lock_within(
                 file.try_clone()
-                    .map_err(|_| ExecutionError::StorageUnavailable)?,
+                    .map_err(|error| ExecutionError::StorageUnavailable((&error).into()))?,
                 wait,
                 octocode_io::lock::LOCK_POLL,
             ) {
                 Ok(lock) => return Ok(Some(lock)),
                 Err(octocode_io::lock::LockError::Busy) => {}
-                Err(octocode_io::lock::LockError::Io(_)) => {
-                    return Err(ExecutionError::StorageUnavailable);
+                Err(octocode_io::lock::LockError::Io(error)) => {
+                    return Err(ExecutionError::StorageUnavailable((&error).into()));
                 }
             }
         }
@@ -351,7 +359,8 @@ impl Pending {
     /// The handle of `work` resuming `tool` with `input`, issued once per
     /// output; the same continuation always has the same handle
     /// ([`handle`]).
-    pub fn insert(&mut self, tool: ToolId, input: Value, work: SavedWork) -> String {
+    pub fn insert(&mut self, tool: ToolId, mut input: Value, work: SavedWork) -> String {
+        shown_paths(&mut input);
         let token = handle(&self.policy, &self.access, tool, &input, &work);
         let evidence = match (&self.evidence, &work) {
             (Some((owner, owned)), SavedWork::ToolResume { .. } | SavedWork::Rows { .. })
@@ -368,6 +377,34 @@ impl Pending {
             evidence,
         });
         token
+    }
+}
+
+/// The paths a saved continuation names, as the shown (redacted) names: a
+/// file named after a credential is stored with the placeholder in its place,
+/// and resuming resolves the shown name back to the entry
+/// ([`crate::policy::path`]), as a localFetch continuation does.
+fn shown_paths(input: &mut Value) {
+    let security = crate::security::ContentSecurity::new();
+    let show = |text: &mut Value| {
+        if let Some(shown) = text.as_str().and_then(|text| security.sanitize_leaf(text)) {
+            *text = Value::String(shown);
+        }
+    };
+    let row = |row: &mut Value| {
+        let Some(fields) = row.as_object_mut() else {
+            return;
+        };
+        if let Some(path) = fields.get_mut("path") {
+            show(path);
+        }
+        if let Some(paths) = fields.get_mut("paths").and_then(Value::as_array_mut) {
+            paths.iter_mut().for_each(show);
+        }
+    };
+    row(input);
+    if let Some(queries) = input.get_mut("queries").and_then(Value::as_array_mut) {
+        queries.iter_mut().for_each(row);
     }
 }
 

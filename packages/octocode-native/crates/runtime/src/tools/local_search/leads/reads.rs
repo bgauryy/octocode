@@ -74,10 +74,16 @@ impl Found<'_> {
         });
         let (file, first) = windows.next()?;
         let count = 1 + windows.count();
+        // Named as the row names the file: workspace-relative.
+        let absolute = self.output_root.join(&file.path);
+        let shown = self
+            .paths
+            .workspace_relative(&absolute)
+            .unwrap_or_else(|| absolute.to_string_lossy().into_owned());
         Some(format!(
             "windowedHits: {count} {} a window of a line too long for a row (first {}:{}); localFetch with the same matchString reads the whole line.",
             if count == 1 { "hit shows" } else { "hits show" },
-            joined_path(self.query, self.root, file),
+            shown,
             first.line
         ))
     }

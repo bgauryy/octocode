@@ -74,8 +74,10 @@ pub struct GhGetFileContentFile {
     /// Commit the read was pinned to (a branch or default-branch ref resolves
     /// to its current SHA; continuations reuse it).
     pub commit_sha: String,
+    /// The file a repository symlink at the read path points to: the bytes
+    /// are that file's, judged by its name.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_type: Option<&'static str>,
+    pub symlink_target: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub match_not_found: Option<bool>,
     #[serde(flatten, serialize_with = "crate::response::result::serialize_calls")]
@@ -255,9 +257,8 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
         path: access::path(query).to_owned(),
         reference: Some(sha.clone()),
     };
-    let first_page = access::progress(query).is_none_or(|progress| progress.offset == 0);
-    let acquired = provider
-        .get_file_bytes(&content_request, request_context)
+    let (acquired, symlink_target) = provider
+        .get_file_bytes_following_links(&content_request, request_context)
         .await?;
     // The one text rule localFetch reads by: binary is refused here, once.
     crate::tools::gh_shared::text::admit_read(&acquired)?;
@@ -276,11 +277,12 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
     let fetched = Fetched {
         window,
         renamed_warning,
+        symlink_target,
     };
     // Plain and ranked reads both decode, scan and shape source text. Keep
     // that synchronous work off the async worker that serves other requests.
     let worker_query = query.clone();
-    let mut result = tokio::task::spawn_blocking(octocode_io::notice::carried(move || {
+    let result = tokio::task::spawn_blocking(octocode_io::notice::carried(move || {
         shape(
             &worker_query,
             acquired,
@@ -297,13 +299,9 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
             "content worker failed",
         )
     })??;
-    // What describes the file, not the page, is said once: a later page
-    // continues a read whose first page stated the file's kind. When the
-    // file last changed is its history, one documented call away
-    // (ghSearchHistory), never a lead of every read.
-    if !first_page {
-        result.file.file_type = None;
-    }
+    // When the file last changed is its history, one documented call away
+    // (ghSearchHistory), never a lead of every read. Its kind follows from
+    // its path, which the request states.
     Ok(result)
 }
 

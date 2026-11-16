@@ -15,6 +15,9 @@ use std::io::{Read as _, Seek as _, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+/// The largest read buffer a worker keeps for its next file.
+const REUSED_BUFFER_BYTES: usize = 1024 * 1024;
+
 #[cfg(test)]
 thread_local! {
     static READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -103,6 +106,7 @@ pub fn count_listed(
                 work: match_work(Mode::CountLines, false),
                 stop: &stop,
                 held: &held,
+                cancelled: Some(cancelled),
                 copy: false,
                 terms: &[],
                 gate,
@@ -118,6 +122,11 @@ pub fn count_listed(
                 return;
             }
             count_in(path, &mut searchers, &mut held, &found);
+            // The read buffer is reused by the files after it only while it
+            // is no larger than one read of the search's streaming unit.
+            if held.capacity() > REUSED_BUFFER_BYTES {
+                held = Vec::new();
+            }
         }
     };
     let workers = crate::cpu::host().share().min(files.len());
@@ -145,6 +154,25 @@ fn count_in(
     };
     let heap = SEARCH_HEAP_LIMIT_BYTES as u64;
     let shared = searchers.len() > 1 && meta.len() <= heap;
+    // What the file holds in memory is admitted until it is counted: its
+    // bytes, and the text its judge serves of them.
+    let _admitted = if shared {
+        let copies = if searchers.iter().any(|s| s.opts.judge.is_some()) {
+            2
+        } else {
+            1
+        };
+        let bytes = usize::try_from(meta.len()).unwrap_or(usize::MAX);
+        match searchers
+            .first()
+            .map(|searcher| searcher.admit(bytes.saturating_mul(copies)))
+        {
+            Some(Ok(ticket)) => Some(ticket),
+            _ => return,
+        }
+    } else {
+        None
+    };
     if shared {
         held.clear();
         note_read();
@@ -189,7 +217,7 @@ enum Judged {
     /// Judged, and the judge replaced nothing: the held bytes are its text.
     Unchanged,
     /// Judged: the text the judge serves in place of the held bytes.
-    Replaced(Vec<u8>),
+    Replaced(super::file_search::JudgedText),
 }
 
 /// `searcher`'s outcome over `held`, the bytes of `file` read once: the
@@ -212,12 +240,12 @@ fn held_outcome(
             }
         }
         *judged = match searcher.judged(file, path)? {
-            Some(text) => Judged::Replaced(text),
+            Some(served) => Judged::Replaced(served),
             None => Judged::Unchanged,
         };
     }
     match judged {
-        Judged::Replaced(text) => searcher.search_held(text),
+        Judged::Replaced(served) => searcher.search_held(&served.text),
         Judged::Pending | Judged::Unchanged => searcher.search_held(held),
     }
 }

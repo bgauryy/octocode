@@ -62,7 +62,7 @@ fn a_symbols_view_never_holds_a_secret_of_the_source() {
     assert!(
         row.warnings
             .iter()
-            .any(|warning| warning.starts_with("redactedContent: 1 ")),
+            .any(|warning| warning == crate::security::REDACTED_MARK),
         "{:?}",
         row.warnings
     );
@@ -87,7 +87,7 @@ fn a_symbols_page_counts_the_secrets_its_outline_redacted() {
     assert!(
         row.warnings
             .iter()
-            .any(|warning| warning.starts_with("redactedContent: 1 ")),
+            .any(|warning| warning == crate::security::REDACTED_MARK),
         "{:?}",
         row.warnings
     );

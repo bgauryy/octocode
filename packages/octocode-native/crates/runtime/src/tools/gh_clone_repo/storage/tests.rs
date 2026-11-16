@@ -131,3 +131,31 @@ fn the_completion_stamp_lives_in_the_checkouts_git_directory() {
     assert!(standalone.join(".git").join(COMPLETED_AT_FILE).is_file());
     assert_eq!(completed_at(&standalone), Some(at));
 }
+
+/// A write under the clones root that the filesystem refuses carries the
+/// write recovery (a writable home with free space); a read's failure keeps
+/// the read-side wording alone.
+#[test]
+fn a_clone_write_the_filesystem_refuses_carries_the_write_recovery() {
+    let directory = tempfile::tempdir().expect("scratch");
+    let blocker = directory.path().join("clones");
+    fs::write(&blocker, b"a file where the clones root should be").expect("blocker");
+    let destination = blocker.join("o").join("r").join("checkout");
+    let error = promote(
+        &directory.path().join("stage"),
+        &destination,
+        |_, _| Ok(()),
+        || Ok(()),
+    )
+    .expect_err("no folder can be made under a file");
+    assert_eq!(error.code, ErrorCode::FileAccessFailed);
+    assert!(
+        error
+            .hints
+            .iter()
+            .any(|hint| hint == crate::response::rows::WRITE_ACCESS_HINT),
+        "{error:?}"
+    );
+    let read = storage_read_io(io::Error::from(io::ErrorKind::NotFound));
+    assert!(read.hints.is_empty(), "{read:?}");
+}

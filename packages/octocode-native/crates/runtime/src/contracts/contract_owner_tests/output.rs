@@ -74,8 +74,7 @@ fn next_rejects_keys_the_tool_registry_does_not_declare() {
             "next":{name:continued}
         }}]})
     };
-    validate_output("localFetch", &output("unfilteredUnknown2"))
-        .expect("a numbered instance of a declared branch");
+    validate_output("localFetch", &output("unfilteredUnknown")).expect("a declared branch");
     for name in ["nextMatchPage", "undeclared"] {
         validate_output("localFetch", &output(name))
             .expect_err("an undeclared continuation key must fail output validation");
@@ -101,4 +100,21 @@ fn heritage_scan_rows_keep_their_label_under_the_lsp_contract() {
     });
     validate_output("lspSearch", &json!({"results":[{"index":0,"data":data}]}))
         .expect("a scan-labelled implementation row is valid output");
+}
+
+/// Only the declared recovery channels are leads: no emitter numbers them,
+/// so a numbered name is none.
+#[test]
+fn recovery_leads_are_the_declared_channels_only() {
+    use crate::tools::selection::{RecoveryLead, recovery_lead};
+    assert_eq!(recovery_lead("unfiltered"), Some(RecoveryLead::Whole));
+    assert_eq!(
+        recovery_lead("unfilteredUnknown"),
+        Some(RecoveryLead::Saved)
+    );
+    assert_eq!(
+        recovery_lead("nextCandidatePage"),
+        Some(RecoveryLead::Saved)
+    );
+    assert_eq!(recovery_lead("unfilteredUnknown2"), None);
 }

@@ -142,7 +142,7 @@ fn what_rows_state_is_fixed_at_build_and_an_edit_is_stale() {
     let dir = built();
     let (secret, clean) = sources();
     let out = ask(&dir, "unresolved", None, true);
-    assert_eq!(out["freshness"]["fresh"], true, "{out}");
+    assert!(out.get("freshness").is_none(), "{out}");
     dir.write(
         "app/secret.ts",
         secret.replace(TOKEN, "ghp_Fake9876543210abcdefFAKE9876543210zz"),

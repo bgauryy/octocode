@@ -263,7 +263,9 @@ fn path_failure(q: &LocalFetchQuery, failure: PathFailure) -> LocalFetchResult {
     let mut result =
         LocalFetchResult::error(local_fetch_query::path(q).to_owned(), failure.code, message);
     result.resource_missing = failure.resource_missing;
-    if failure.resource_missing {
+    // A name several entries share has no missing path, but the parent's
+    // listing still shows those entries, so a failure that carries one gets it.
+    if failure.resource_missing || failure.view_tree.is_some() {
         // The parent's tree shows a mistyped name's siblings; the listing
         // finds a file moved elsewhere or under another extension; the read
         // of the one close sibling fixes a mistyped name in one call.

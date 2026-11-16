@@ -36,6 +36,17 @@ test('test:rust and coverage:rust run the selections, and bacon test jobs repeat
   }
 });
 
+test('the unit run skips exactly the e2e profile selection, and every run reuses one selection', () => {
+  const { SELECTIONS, E2E_FILTER, RUNS } = require('../scripts/rust-tests.cjs');
+  const nextest = readFileSync(join(__dirname, '..', '.config', 'nextest.toml'), 'utf8');
+  const e2e = /^\[profile\.e2e\]\s*\ndefault-filter = '(.+)'$/m.exec(nextest);
+  assert.ok(e2e, 'nextest.toml defines profile e2e with a default-filter');
+  assert.equal(e2e[1], E2E_FILTER);
+  assert.deepEqual(RUNS.find(run => run.name === 'native').extra, ['-E', `not (${E2E_FILTER})`]);
+  assert.deepEqual(RUNS.find(run => run.name === 'e2e').extra.slice(0, 2), ['--profile', 'e2e']);
+  for (const run of RUNS) assert.ok(SELECTIONS.includes(run.selection), run.name);
+});
+
 test('cargo dev-test is the first Rust test selection under libtest', () => {
   const { SELECTIONS } = require('../scripts/rust-tests.cjs');
   const config = readFileSync(join(__dirname, '..', '.cargo', 'config.toml'), 'utf8');

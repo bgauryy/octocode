@@ -53,7 +53,7 @@ fn a_large_source_is_proven_by_its_digest() {
     assert_eq!(staleness::source_matches(&path, &digest, None), Some(false));
 }
 
-/// RV-GRAPH2 F4 (B135): dense code is graphed whole through graphBuild's
+/// Dense code is graphed whole through graphBuild's
 /// own path. Each declaration costs its source correspondence, which the
 /// build's memory budget charges; no fixed per-file pool skips 40,000 Rust
 /// functions or 14,000 TypeScript ones.

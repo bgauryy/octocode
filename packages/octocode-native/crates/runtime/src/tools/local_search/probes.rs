@@ -45,7 +45,7 @@ pub(super) fn probe_unsearched(
     searched: Option<&[std::path::PathBuf]>,
     cancel: &impl CancellationCheck,
 ) -> Result<Lifted, ()> {
-    let walk = query_walk(query);
+    let walk = query_walk(query, paths.global_ignore());
     probe_lifted(
         search_options,
         walk.lifting(&walk.skipping()),
@@ -93,8 +93,12 @@ pub(super) fn names_nothing(skipped: &crate::policy::discovery::WalkSkips) -> bo
 }
 
 /// The walk the query ran: the causes it skipped paths by.
-fn query_walk(query: &LocalSearchQuery) -> Walk {
+fn query_walk(
+    query: &LocalSearchQuery,
+    global: octocode_engine::search::walk::GlobalIgnore,
+) -> Walk {
     Walk {
+        global,
         ignored: local_search_query::include_ignored(query) == Some(true),
         hidden: local_search_query::include_hidden(query) == Some(true),
         default_excludes: local_search_query::default_excludes(query).defaults(),
@@ -115,7 +119,7 @@ pub(super) fn disclose_unsearched(
     next: &mut Option<Value>,
     hints: &mut Vec<String>,
 ) -> Result<Unsearched, ToolError> {
-    let walk = query_walk(query);
+    let walk = query_walk(query, search_options.global_ignore);
     let root = std::path::PathBuf::from(&search_options.path);
     let verdict = diagnose(&root, walk, |relaxed| {
         Ok::<_, std::convert::Infallible>(lifted.as_ref().map_or_else(
@@ -381,15 +385,20 @@ pub(super) fn matching_ancestor(
     let Some(top) = paths.tree_root(root).filter(|top| top.as_path() != root) else {
         return Ancestor::Unknown;
     };
-    let asked = query_walk(query);
+    let asked = query_walk(query, paths.global_ignore());
     let work = Arc::new(ProbeWork::new());
     let mut searched = root.to_path_buf();
     while let Some(dir) = searched.parent().map(std::path::Path::to_path_buf) {
         if !dir.starts_with(&top) {
             return Ancestor::Unknown;
         }
-        let lifted =
-            crate::tools::empty_walk::keeping_out(&dir, root, root.is_dir(), &asked.skipping());
+        let lifted = crate::tools::empty_walk::keeping_out(
+            &dir,
+            root,
+            root.is_dir(),
+            &asked.skipping(),
+            asked.global,
+        );
         let reach = asked.lifting(&lifted);
         let mut level = options.probe(output);
         level.path = dir.to_string_lossy().into_owned();
@@ -569,6 +578,7 @@ fn probe_lifted(
     let binary_skipped = searched.stats.skipped_binary_count.unwrap_or(0);
     let tagged = Tagged::found(
         &root,
+        paths.global_ignore(),
         globs,
         searched.files.iter().map(|file| root.join(&file.path)),
         cut,

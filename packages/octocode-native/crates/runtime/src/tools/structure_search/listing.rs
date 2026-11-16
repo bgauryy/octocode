@@ -126,6 +126,7 @@ macro_rules! listing_fields {
                     default_excludes: crate::policy::prune::DefaultsFlag::defaults(
                         &self.default_excludes,
                     ),
+                    global: Default::default(),
                 }
             }
             fn relaxed(&self, relaxed: crate::tools::empty_walk::Walk) -> Self {

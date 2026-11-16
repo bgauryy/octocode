@@ -63,7 +63,7 @@ async fn graphql_top_level_rate_limited_type_is_a_primary_limit() {
     assert!(transport.graphql_available(&with_token("other", Duration::from_secs(5), 1024)));
 }
 
-/// D1 for GraphQL (RV-GH L1): a spent GraphQL quota (an hourly window, like
+/// A spent GraphQL quota (an hourly window, like
 /// core) is disclosed at once however far the call's deadline lies: one
 /// request, no wait announced, the reset carried.
 #[tokio::test]

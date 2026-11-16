@@ -41,7 +41,7 @@ impl Attempts<'_> {
                     // for its documented wait beside the spent bucket, since
                     // requests sent during a secondary limit can get the
                     // integration banned. The spent bucket still answers
-                    // this request at once when it is not paced (D1).
+                    // this request at once when it is not paced.
                     *self.failed = Some(CircuitCause::Secondary);
                     secondary_cooldown(
                         &self.state,

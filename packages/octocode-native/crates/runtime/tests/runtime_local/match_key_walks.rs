@@ -4,7 +4,6 @@
 
 use crate::support::{self, Workspace};
 use serde_json::{Value, json};
-use std::collections::BTreeSet;
 
 /// Hits per fixture file: enough that a tiny window cuts the file many times.
 const HITS: usize = 150;
@@ -55,28 +54,49 @@ fn page_rows(output: &Value) -> Vec<String> {
     rows
 }
 
-#[tokio::test]
-async fn key_paths_are_reachable_exactly_once_at_every_window() {
+/// Windows a walk is cut to, from one smaller than a key path of the
+/// fixture to one larger than a page of it.
+const WINDOWS: [usize; 4] = [300, 900, 2500, 9000];
+
+/// Windows of [`WINDOWS`] the gate walks: the smallest, where a key path
+/// outgrows its page, and the middle one.
+const GATE_WINDOWS: [usize; 2] = [300, 2500];
+
+async fn assert_key_paths_reachable_exactly_once(windows: &[usize]) {
     let workspace = Workspace::new();
-    let mut expected = BTreeSet::new();
+    let mut expected = Vec::new();
     for (name, section) in [("a.json", "первый"), ("b.json", "second")] {
         let (text, keys) = json_document(section);
         workspace.write(name, text);
         for (line, key_path) in keys {
-            expected.insert(format!("{name}:{line}"));
-            expected.insert(format!("{name}:{line}={key_path}"));
+            expected.push(format!("{name}:{line}"));
+            expected.push(format!("{name}:{line}={key_path}"));
         }
     }
+    expected.sort();
     let runtime = workspace.runtime(&[]);
-    for window in [300, 900, 2500, 9000] {
+    for window in windows {
         let seed = json!({"queries":[{"path":".","matchString":["needle"],"include":["*.json"],
             "sort":{"by":"path","order":"asc"}}],"responseChars":window});
         let walk = support::walk(&runtime, "localSearch", support::envelope(seed), page_rows).await;
         assert!(walk.queries.len() > 1, "window {window} must page");
-        let walked = walk.rows.into_iter().collect::<BTreeSet<_>>();
+        // Sorted rows, not a set: a row served twice differs from the fixture.
+        let mut walked = walk.rows;
+        walked.sort();
         assert_eq!(walked, expected, "window {window}");
     }
     runtime.close().await;
+}
+
+#[tokio::test]
+async fn key_paths_are_reachable_exactly_once_at_every_window() {
+    assert_key_paths_reachable_exactly_once(&GATE_WINDOWS).await;
+}
+
+#[tokio::test]
+#[ignore = "every window: cargo test -- --ignored every_window"]
+async fn key_paths_are_reachable_exactly_once_at_every_window_of_the_full_set() {
+    assert_key_paths_reachable_exactly_once(&WINDOWS).await;
 }
 
 /// A manifest's key paths read as they are (B152): `serde` and `serde_json`

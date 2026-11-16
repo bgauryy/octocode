@@ -1,6 +1,6 @@
 use crate::policy::prune;
 use octocode_engine::error::Error;
-use octocode_engine::search::walk::{IgnoreRules, Prune};
+use octocode_engine::search::walk::{GlobalIgnore, IgnoreRules, Prune};
 use octocode_engine::types::IgnorePolicy;
 use std::path::{Path, PathBuf};
 
@@ -23,13 +23,14 @@ impl Tagged {
     /// skip.
     pub(crate) fn found(
         root: &Path,
+        global: GlobalIgnore,
         globs: Globs<'_>,
         files: impl IntoIterator<Item = PathBuf>,
         cut: bool,
     ) -> Result<Self, String> {
         let overrides = globs.overrides(root).map_err(|error| error.reason)?;
         let files = files.into_iter().map(|file| (file, false));
-        Ok(Self::tag(root, Some(&overrides), files, true, cut))
+        Ok(Self::tag(root, global, Some(&overrides), files, true, cut))
     }
 
     /// The entries (each a path and whether it is a directory) a listing
@@ -38,10 +39,11 @@ impl Tagged {
     /// listing walk applies no include override and skips no generated file.
     pub(crate) fn listed(
         root: &Path,
+        global: GlobalIgnore,
         entries: impl IntoIterator<Item = (PathBuf, bool)>,
         cut: bool,
     ) -> Self {
-        Self::tag(root, None, entries, false, cut)
+        Self::tag(root, global, None, entries, false, cut)
     }
 
     /// Tag each entry with the causes on its way below `root`; `overrides`
@@ -49,13 +51,14 @@ impl Tagged {
     /// default-excluded.
     fn tag(
         root: &Path,
+        global: GlobalIgnore,
         overrides: Option<&ignore::overrides::Override>,
         entries: impl IntoIterator<Item = (PathBuf, bool)>,
         generated: bool,
         cut: bool,
     ) -> Self {
-        let rules = IgnoreRules::new(root);
-        let prune = Prune::new(prune::directories(true)).at(root);
+        let rules = IgnoreRules::with_global(root, global);
+        let prune = Prune::new(prune::directories(true)).at_with(root, global);
         let files = entries
             .into_iter()
             .map(|(entry, entry_is_dir)| {
@@ -133,6 +136,8 @@ pub(crate) struct FileProbe<'a> {
     keep: &'a dyn Fn(&Path) -> bool,
     /// The request's own walk: the files it reached are not behind anything.
     requested: Option<Walk>,
+    /// The global ignore rules of the call.
+    global: GlobalIgnore,
     /// The caller's cancellation: a stopped walk is cut.
     stop: Option<&'a (dyn Fn() -> bool + 'a)>,
     tagged: std::cell::OnceCell<Result<Tagged, String>>,
@@ -151,6 +156,7 @@ impl<'a> FileProbe<'a> {
             permits,
             keep,
             requested: None,
+            global: GlobalIgnore::NONE,
             stop: None,
             tagged: std::cell::OnceCell::new(),
         }
@@ -159,6 +165,12 @@ impl<'a> FileProbe<'a> {
     /// Scopes the probe to the request's `include`/`exclude` globs.
     pub(crate) fn within(mut self, globs: Globs<'a>) -> Self {
         self.globs = globs;
+        self
+    }
+
+    /// Probes under the global ignore rules of a call.
+    pub(crate) fn under(mut self, global: GlobalIgnore) -> Self {
+        self.global = global;
         self
     }
 
@@ -181,15 +193,20 @@ impl<'a> FileProbe<'a> {
     /// dot entry, a default-pruned directory, or a generated file.
     fn tag(&self) -> Result<Tagged, Error> {
         let overrides = self.globs.overrides(&self.root)?;
-        let mut builder =
-            octocode_engine::search::walk::walk_builder(&self.root, IgnorePolicy::ALL, None);
+        let (mut builder, _) = octocode_engine::search::walk::walk_builder_under(
+            &self.root,
+            IgnorePolicy::ALL,
+            self.global,
+            None,
+        );
         builder
             .overrides(overrides.clone())
             .sort_by_file_name(std::ffi::OsStr::cmp);
-        let rules = IgnoreRules::new(&self.root);
+        let rules = IgnoreRules::with_global(&self.root, self.global);
         // The default excludes as the tool's own walk applies them: rooted,
         // less what the include globs name, generated files included.
-        let prune = Prune::new(prune::walk_names(true, self.globs.include)).at(&self.root);
+        let prune = Prune::new(prune::walk_names(true, self.globs.include))
+            .at_with(&self.root, self.global);
         // Tag bits of each directory on the way to the current entry, by depth.
         let mut inherited: Vec<u8> = vec![0];
         let mut files = Vec::new();

@@ -72,7 +72,7 @@ fn only_the_secret_s_own_values_are_hidden() {
         !read
             .warnings
             .iter()
-            .any(|warning| warning.starts_with("redactedContent")),
+            .any(|warning| warning == crate::security::REDACTED_MARK),
         "nothing on this page was hidden: {read:?}"
     );
 }
@@ -98,7 +98,6 @@ fn a_reference_to_a_secret_hides_nothing() {
 /// headers read as written.
 #[test]
 fn a_key_blocks_note_and_placeholders_stand_on_the_page_that_shows_them() {
-    const NOTE: &str = "inside private-key blocks were replaced";
     let body: Vec<String> = (0..19)
         .map(|at| {
             format!(
@@ -133,11 +132,14 @@ fn a_key_blocks_note_and_placeholders_stand_on_the_page_that_shows_them() {
         let page = fetch(&file, &next, None);
         assert_eq!(page.status, ReadStatus::Success, "{page:?}");
         let content = page.content.clone().expect("a page");
-        let noted = page.warnings.iter().any(|warning| warning.contains(NOTE));
+        let noted = page
+            .warnings
+            .iter()
+            .any(|warning| warning == crate::security::REDACTED_MARK);
         assert_eq!(
             noted,
             content.contains(&placeholder),
-            "the note stands where the placeholders do: {:?} {:?}",
+            "the mark stands where the placeholders do: {:?} {:?}",
             page.warnings,
             content.get(..content.len().min(200))
         );

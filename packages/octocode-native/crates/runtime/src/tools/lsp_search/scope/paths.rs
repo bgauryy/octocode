@@ -125,7 +125,7 @@ pub(super) fn sibling_projects(
             octocode_engine::lsp::workspace::project_root_of_dir(path).as_deref() == Some(path)
         })
         .filter_map(|path| authorized(&path))
-        .filter(|path| !stopped() && holds_file_of(path, include, stopped))
+        .filter(|path| !stopped() && holds_file_of(path, include, policy.global_ignore(), stopped))
         .map(|path| path.to_string_lossy().into_owned())
         .collect::<Vec<_>>();
     found.sort();
@@ -135,7 +135,12 @@ pub(super) fn sibling_projects(
 /// Whether `dir` holds, under the ignore rules the text scans honor, a file
 /// matching one of the `include` globs; the walk stops at the first. No glob
 /// means no language to ask: every project qualifies.
-fn holds_file_of(dir: &Path, include: &[String], stopped: &dyn Fn() -> bool) -> bool {
+fn holds_file_of(
+    dir: &Path,
+    include: &[String],
+    global: octocode_engine::search::walk::GlobalIgnore,
+    stopped: &dyn Fn() -> bool,
+) -> bool {
     if include.is_empty() {
         return true;
     }
@@ -151,7 +156,7 @@ fn holds_file_of(dir: &Path, include: &[String], stopped: &dyn Fn() -> bool) -> 
     let Ok(globs) = globs.build() else {
         return true;
     };
-    crate::tools::pruned_walk(dir, [])
+    crate::tools::pruned_walk(dir, [], global)
         .build()
         .take_while(|_| !stopped())
         .filter_map(Result::ok)
@@ -298,6 +303,7 @@ impl super::Scope {
         }
         scope.narrowed =
             explicit.is_some_and(|root| root != wide && Path::new(&root).starts_with(&wide));
+        scope.global_ignore = policy.global_ignore();
         scope.markup = markup_include(language_id);
         scope.server_root = std::fs::canonicalize(server_root).ok();
         scope.discovery = discovery.clone();

@@ -269,7 +269,7 @@ async fn a_refused_credential_under_clasify_context_fails_the_row_with_its_error
     runtime.close().await;
 }
 
-/// B232: no models list exists locally to refuse an unknown model before
+/// No models list exists locally to refuse an unknown model before
 /// the call, so the provider's refusal (HTTP 400) names the model the row
 /// asked for. An evaluate row is not a selection: its error row offers no
 /// `next.unfiltered` read.

@@ -1,4 +1,4 @@
-//! GH-G5/G6: what a repeat need not ask again besides a success. A
+//! What a repeat need not ask again besides a success. A
 //! renamed repository's route, and a path missing at a commit SHA in a
 //! repository that answered. A mutable ref's miss and a missing
 //! repository are asked again: either can appear.

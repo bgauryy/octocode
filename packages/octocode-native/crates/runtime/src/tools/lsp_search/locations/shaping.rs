@@ -356,7 +356,18 @@ pub(in super::super) fn public_location(internal: Value) -> Value {
             (Some(text), Some(start))
                 if !text.is_empty() && !text.starts_with("[content unavailable") =>
             {
-                public.insert("content".into(), json!(number_content(text, start)));
+                // One line at the row's own `line` is that line's text: its
+                // number is the row's `line`, so it carries no prefix.
+                let single = text.strip_suffix('\n').unwrap_or(text);
+                let shown = if !single.contains('\n')
+                    && !is_omission_marker(single)
+                    && Some(start) == symbol_start
+                {
+                    single.to_owned()
+                } else {
+                    number_content(text, start)
+                };
+                public.insert("content".into(), json!(shown));
             }
             _ => {
                 public.insert("content".into(), content);

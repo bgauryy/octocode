@@ -9,6 +9,7 @@ const DEFAULTS: Walk = Walk {
     ignored: false,
     hidden: false,
     default_excludes: true,
+    global: octocode_engine::search::walk::GlobalIgnore::NONE,
 };
 
 /// `root` with a git marker, the `.gitignore` text, and one `needle.ts` under
@@ -209,6 +210,7 @@ fn a_walk_that_skips_nothing_is_not_probed() {
         ignored: true,
         hidden: true,
         default_excludes: false,
+        global: octocode_engine::search::walk::GlobalIgnore::NONE,
     };
     let verdict = diagnose(Path::new("/nowhere"), walk, |_| {
         calls.set(calls.get() + 1);
@@ -254,6 +256,7 @@ fn probes_are_few() {
                 ignored: true,
                 hidden: false,
                 default_excludes: false,
+                global: octocode_engine::search::walk::GlobalIgnore::NONE,
             },
             1,
         ),
@@ -296,9 +299,12 @@ fn ignore_rules_read_root_relative_and_honor_reincludes() {
     std::fs::create_dir_all(root.0.join("sub")).expect("sub");
     let sub = root.0.join("sub");
     assert_eq!(
-        ignore_rule(&sub, &sub.join("x.log"), false).as_deref(),
+        ignore_rule(&sub, &sub.join("x.log"), false, Default::default()).as_deref(),
         Some("../.gitignore:1 '*.log'")
     );
     std::fs::write(sub.join(".gitignore"), "!x.log\n").expect("nested");
-    assert_eq!(ignore_rule(&sub, &sub.join("x.log"), false), None);
+    assert_eq!(
+        ignore_rule(&sub, &sub.join("x.log"), false, Default::default()),
+        None
+    );
 }

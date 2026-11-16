@@ -19,7 +19,7 @@ fn same_commit_reuses_the_verified_checkout_and_other_states_fetch_fresh() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
 
     let first = clone_pinned(&fixture, &query(), &context).expect("first clone");
@@ -85,7 +85,7 @@ fn sparse_checkout_reuse_requires_its_own_destination_and_clean_scope() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let sparse = GhCloneRepoQuery {
         paths: one("src"),
@@ -123,7 +123,7 @@ fn a_checkout_reads_the_symlink_policy_of_its_store() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
 
     let first = clone_pinned(&fixture, &query(), &context).expect("first clone");
@@ -156,7 +156,7 @@ fn commits_of_one_repository_share_one_store_of_linked_worktrees() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
 
     let first = clone_pinned(&fixture, &query(), &context).expect("first clone");
@@ -186,7 +186,7 @@ fn a_repeat_row_reuses_its_worktree_without_touching_the_store() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
 
     let first = clone_pinned(&fixture, &query(), &context).expect("first clone");

@@ -2,7 +2,8 @@
 //! question) hold a credential.
 //!
 //! A request is judged by the one judgement every text gets ([`secret_spans`]),
-//! so a request refuses whatever a read would hide. A request may also spell
+//! so a request refuses whatever a read of text of no known file would hide
+//! (a quoted value after a label, not a bare one: that is code). A request may also spell
 //! its value as a regex does (`eyJ…\.eyJ…`), which a file never does: its
 //! literal form is judged the same way. Nothing is redacted here: the caller
 //! refuses the request.

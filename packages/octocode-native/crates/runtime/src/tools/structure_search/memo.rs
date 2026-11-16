@@ -13,7 +13,7 @@
 //! entered, the rule files outside the walk and the repository markers above
 //! it, so an edited rule drops the walk even when no listed entry changed.
 use super::super::page_memo::{
-    PageMemo, Proven, Watch, directory_ignore_inputs, repository_markers,
+    PageMemo, Proven, Watch, directory_ignore_inputs_with, repository_markers,
 };
 use octocode_engine::stamp::{Link, Proof};
 use std::{sync::Arc, time::SystemTime};
@@ -58,7 +58,7 @@ pub(super) fn row_stamps<'a>(
 
 /// The proof of `listed` entries, every directory holding one, the walked
 /// `root` and the ignore rules that shaped the walk (each directory's
-/// [`directory_ignore_inputs`] under `paths`, and the rule files outside
+/// [`directory_ignore_inputs_with`] under `paths`, and the rule files outside
 /// the walk); `None` when a listed entry no longer has the size and time
 /// its walk read (it changed before it could be stamped), or an ignore file
 /// is one no stamp can watch. `inside` are directories the walk holds open
@@ -83,10 +83,12 @@ pub(super) fn proof(
             .map(std::path::Path::to_path_buf),
     );
     dirs.extend(inside.iter().map(|dir| dir.to_path_buf()));
-    let mut rules = octocode_engine::search::walk::external_ignore_inputs(root);
+    let mut rules =
+        octocode_engine::search::walk::external_ignore_inputs_with(root, paths.global_ignore());
     for dir in &dirs {
-        let inputs =
-            directory_ignore_inputs(dir, root, |ignore| paths.validate_read(ignore).is_ok());
+        let inputs = directory_ignore_inputs_with(dir, root, paths.global_ignore(), |ignore| {
+            paths.validate_read(ignore).is_ok()
+        });
         if inputs.untracked {
             return None;
         }
@@ -118,7 +120,8 @@ pub(super) fn walk_proof(
     walked: &[octocode_engine::types::WalkedDir],
     listed: Vec<(std::path::PathBuf, octocode_engine::stamp::SourceStamp)>,
 ) -> Option<Proof> {
-    let mut rules = octocode_engine::search::walk::external_ignore_inputs(root);
+    let mut rules =
+        octocode_engine::search::walk::external_ignore_inputs_with(root, paths.global_ignore());
     let mut unstamped = Vec::new();
     let mut taken = listed;
     if !walked.iter().any(|dir| dir.path == root) {
@@ -136,8 +139,9 @@ pub(super) fn walk_proof(
             rules.push(file.clone());
         }
         if dir.holds_git && dir.path != root {
-            rules.extend(octocode_engine::search::walk::external_ignore_inputs(
+            rules.extend(octocode_engine::search::walk::external_ignore_inputs_with(
                 &dir.path,
+                paths.global_ignore(),
             ));
         }
     }

@@ -15,7 +15,7 @@ The home defaults to `~/.octocode` on macOS and Linux or `%USERPROFILE%\.octocod
 | Home `cache/provider-answers-v3/` | Reusable GitHub and package registry responses, separated by origin and credential |
 | Home `tmp/` | Saved response pages, continuation handles, section assessments, LSP answers, graph query rows, GitHub rate-limit state, and clone staging |
 | Home `tmp/materialize-git/` | Throwaway git stores for one `ghStructure` materialize call. [Lifecycle](#materialize-git-store) |
-| Home `tmp/materialize/v3/` and `tmp/capture/url/` | Commit-pinned GitHub files and captured URL or image evidence, respectively. Use the inspection path the tool returns. |
+| Home `tmp/materialize/` (one folder per storage format) and `tmp/capture/url/` | Commit-pinned GitHub files and captured URL or image evidence, respectively. Use the inspection path the tool returns. |
 | Workspace `.octocode/graph/` | Published graph snapshots and `.facts`, each scope's per-file extraction (deflate-compressed, about a tenth of the facts' JSON), kept after a build so the next build of the scope extracts only the files that changed and links all of them again; it lives with the scope's snapshots. Set `local.graphHome` to use `octocode-graph/` under a different directory. |
 
 ## Cache storage and lifecycle

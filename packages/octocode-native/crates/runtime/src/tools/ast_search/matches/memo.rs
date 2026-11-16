@@ -162,10 +162,12 @@ pub(super) fn remember_scan(
     if scan.watches_ignore_files {
         let discovery = paths.discovery_walk();
         for dir in &scan.discovery_sources {
-            let inputs =
-                crate::tools::page_memo::directory_ignore_inputs(dir, &scope.canonical, |ignore| {
-                    discovery.permits_entry(ignore, None)
-                });
+            let inputs = crate::tools::page_memo::directory_ignore_inputs_with(
+                dir,
+                &scope.canonical,
+                paths.global_ignore(),
+                |ignore| discovery.permits_entry(ignore, None),
+            );
             if inputs.untracked {
                 return;
             }

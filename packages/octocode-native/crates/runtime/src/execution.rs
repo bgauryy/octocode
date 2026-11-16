@@ -9,5 +9,7 @@ mod lifecycle;
 mod limits;
 
 pub(crate) use lifecycle::ExecutionContext;
-pub use lifecycle::{ExecutionError, MAX_TIMEOUT, RequestAdmission, RequestLimits, RequestRuntime};
+pub use lifecycle::{
+    ExecutionError, MAX_TIMEOUT, RequestAdmission, RequestLimits, RequestRuntime, StorageFault,
+};
 pub use limits::{RuntimeLimits, SelectionLimits};

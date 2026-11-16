@@ -89,7 +89,7 @@ async fn a_quota_wait_reports_progress_and_still_returns_the_page() {
 /// Row 0 searches repositories against a spent search quota (reset in 2 s,
 /// a quota a request waits out); row 1 reads a repository, a core read
 /// that quota does not touch. (A spent core quota is not waited out at
-/// all: D1, `runtime_github::failures`.)
+/// all: see `runtime_github::failures`.)
 #[tokio::test]
 async fn each_row_discloses_its_own_client_waits() {
     let server = MockServer::builder().start().await;
@@ -337,7 +337,7 @@ async fn a_continuation_page_carries_none_of_the_first_pages_waits() {
 /// B91 r2: rows of a ghGetFileContent batch wait on the batch warm-up, which
 /// resolves their ref under a secondary-limit cooldown: the batch discloses
 /// the warm-up's wait once, as `secondaryLimit` on one row, not on every row. (A spent core quota is
-/// not waited out at all: D1.)
+/// not waited out at all.)
 #[tokio::test]
 async fn file_rows_disclose_the_batch_warm_ups_cooldown_wait() {
     const SHA: &str = "0123456789abcdef0123456789abcdef01234567";

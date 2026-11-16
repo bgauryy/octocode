@@ -8,11 +8,6 @@ use crate::security::scan::ContentScan;
 use crate::tools::source_view::local_fetch_query;
 use octocode_contract_types::{ErrorCode, LocalFetchQuery};
 
-/// A returned window shows a private-key block redacted over the whole
-/// source before the window was cut.
-pub(super) const KEY_BLOCK_NOTE: &str =
-    "Redacted private-key block(s) found in the source before selecting the window.";
-
 /// The decoded source, redacted before any window is cut from it.
 pub(super) struct Source<'a> {
     pub(super) sha256: String,

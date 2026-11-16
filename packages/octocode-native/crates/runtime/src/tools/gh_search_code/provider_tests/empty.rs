@@ -348,7 +348,7 @@ async fn a_missing_repository_labels_its_name_search_and_lists_the_owner() {
     );
 }
 
-/// R3: a scoped empty search does not restate the tool description ("Empty
+/// A scoped empty search does not restate the tool description ("Empty
 /// never rules out an unindexed file: broaden, browse ghStructure, or
 /// matchString"): neither its hints nor the diagnostics the response stage
 /// appends say "unproven absence"; its related[] listing is the next step.

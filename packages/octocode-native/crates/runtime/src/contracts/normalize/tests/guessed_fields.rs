@@ -280,7 +280,7 @@ fn a_value_read_by_its_shape_runs_and_is_named_or_refused() {
             "localSearch",
             json!({"path":".","matchString":"x","multiline":true}),
             json!({"multiline":"on"}),
-            "send `multiline: \"on\"`",
+            "send `multiline` next time",
         ),
         // A name regex lists files by name.
         (
@@ -320,13 +320,13 @@ fn a_value_read_by_its_shape_runs_and_is_named_or_refused() {
             "securityCheck",
             json!({"operation":"package","ecosystem":"pypi","packageName":"requests"}),
             json!({"ecosystem":"PyPI"}),
-            "send `ecosystem: \"PyPI\"`",
+            "as `ecosystem: \"PyPI\"`; send `ecosystem` next time",
         ),
         (
             "artifactSearch",
             json!({"operation":"resolve","ecosystem":"PyPI","packageName":"requests"}),
             json!({"ecosystem":"pypi"}),
-            "send `ecosystem: \"pypi\"`",
+            "as `ecosystem: \"pypi\"`; send `ecosystem` next time",
         ),
     ] {
         let (row, notes, shown) = run(tool, sent.clone());
@@ -510,7 +510,6 @@ fn a_tool_query_sent_alone_runs_as_its_one_tool_and_is_named() {
     for source in [
         json!({"path":"x.ts","bogus":1}),
         json!({"ranges":[{"startLine":1,"endLine":2}]}),
-        json!({"tool":"localFetch","path":"x.ts"}),
     ] {
         let sent = json!({"operation":"evaluate","source":source,"questions":questions});
         let (row, notes, _) = run("clasify", sent.clone());
@@ -571,6 +570,10 @@ fn every_spelling_reads_as_the_table_says_and_names_its_field() {
         let (field, meant) = spelling.reads;
         let meant: Value = serde_json::from_str(meant).expect("the reading is JSON");
         for id in spelling.tools {
+            // A reading of a value this contract does not declare is not made.
+            if !spelling.declared(*id) {
+                continue;
+            }
             let tool = id.as_str();
             for sent in [spelling.sent.to_owned(), spelling.sent.to_uppercase()] {
                 let at = (spelling.within, spelling.field, spelling.field);
@@ -580,18 +583,30 @@ fn every_spelling_reads_as_the_table_says_and_names_its_field() {
                 assert!(refused, "{tool}: {sent} is a value the field refuses");
                 let (ran, notes, shown) = run(tool, row);
                 let holder = held(&ran, spelling.within);
-                assert_eq!(
-                    (&holder[field], shown),
-                    (&meant, None),
-                    "{tool} {sent}: {ran}"
-                );
+                // The example row of a call that anchors on a symbol still
+                // sends `symbolName` and `line`, which the repaired
+                // `documentSymbols` does not take: validation names them.
+                let anchored = meant == json!("documentSymbols");
+                if anchored {
+                    assert_eq!(&holder[field], &meant, "{tool} {sent}: {ran}");
+                    assert!(
+                        shown.is_some_and(|shown| shown.contains("'symbolName' is not allowed")),
+                        "{tool} {sent}"
+                    );
+                } else {
+                    assert_eq!(
+                        (&holder[field], shown),
+                        (&meant, None),
+                        "{tool} {sent}: {ran}"
+                    );
+                }
                 if field != spelling.field {
                     assert!(holder.get(spelling.field).is_none(), "{tool}: {ran}");
                 }
-                let named = format!(
-                    "send `{}: {meant}` next time",
-                    label(spelling.within, field)
-                );
+                // The meant value is stated once, in the reading; the advice names
+                // the field alone.
+                let at = label(spelling.within, field);
+                let named = format!("as `{at}: {meant}`; send `{at}` next time");
                 assert!(
                     notes.iter().any(|note| note.contains(&named)),
                     "{tool} {sent}: {notes:?}"
@@ -668,6 +683,180 @@ fn every_returned_value_is_left_out_and_names_its_field() {
                     "{tool} {sent}: {notes:?}"
                 );
             }
+        }
+    }
+}
+
+/// An old `matchPage` runs as no field, and the note names the cursor that
+/// pages the hits now.
+#[test]
+fn a_retired_match_page_is_left_out_and_names_the_cursor() {
+    let (input, notes) = normalized_input(
+        "localSearch",
+        json!({"queries": [{"path": ".", "matchString": ["x"], "matchPage": 2}]}),
+    );
+    assert!(input["queries"][0].get("matchPage").is_none(), "{input}");
+    assert!(
+        notes
+            .iter()
+            .any(|note| note.contains("matchPage") && note.contains("next.nextPage")),
+        "{notes:?}"
+    );
+}
+
+/// Names agents carry over from other tools' output and flags, each with one
+/// reading, run as the declared field or value, and the call says the field
+/// to send: a commit pinned by `commitSha`, plural operations, a symbol, an
+/// `outline`, a `find`, `cargo`, a counting flag and a clasify source whose
+/// query fields sit beside its tool.
+#[test]
+fn near_miss_names_run_as_the_declared_field_and_say_it() {
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    let questions = json!({"q":{"type":"noul","instructions":"Is it ok?"}});
+    for (tool, sent, ran, note) in [
+        (
+            "ghGetHistoryItem",
+            json!({"operation":"commit","owner":"o","repo":"r","commitSha":sha}),
+            json!({"ref":sha}),
+            "send `ref` next time",
+        ),
+        (
+            "ghSearchHistory",
+            json!({"operation":"commits","owner":"o","repo":"r"}),
+            json!({"operation":"commit"}),
+            "send `operation` next time",
+        ),
+        (
+            "ghSearchHistory",
+            json!({"operation":"pullRequests","owner":"o","repo":"r","keywords":["x"]}),
+            json!({"operation":"pullRequest"}),
+            "send `operation` next time",
+        ),
+        (
+            "lspSearch",
+            json!({"operation":"callers","path":"a.ts","symbol":"run","line":1}),
+            json!({"symbolName":"run"}),
+            "send `symbolName` next time",
+        ),
+        (
+            "lspSearch",
+            json!({"operation":"outline","path":"a.ts"}),
+            json!({"operation":"documentSymbols"}),
+            "send `operation` next time",
+        ),
+        (
+            "graphQuery",
+            json!({"operation":"deps","path":".","symbol":"a.ts"}),
+            json!({"target":"a.ts"}),
+            "send `target` next time",
+        ),
+        (
+            "graphQuery",
+            json!({"operation":"witnesses","path":".","symbol":"run"}),
+            json!({"symbolName":"run"}),
+            "send `symbolName` next time",
+        ),
+        (
+            "structureSearch",
+            json!({"operation":"find","path":".","nameRegex":"x"}),
+            json!({"operation":"files"}),
+            "send `operation` next time",
+        ),
+        (
+            "structureSearch",
+            json!({"operation":"files","path":".","sortBy":{"by":"bytes","order":"desc"}}),
+            json!({"sort":{"by":"bytes","order":"desc"}}),
+            "send `sort` next time",
+        ),
+        (
+            "artifactSearch",
+            json!({"operation":"resolve","ecosystem":"cargo","packageName":"serde"}),
+            json!({"ecosystem":"crates"}),
+            "send `ecosystem` next time",
+        ),
+        (
+            "artifactSearch",
+            json!({"operation":"resolve","ecosystem":"crates","name":"serde"}),
+            json!({"packageName":"serde"}),
+            "send `packageName` next time",
+        ),
+        (
+            "localSearch",
+            json!({"path":".","matchString":["x"],"count":true}),
+            json!({"view":"countMatches"}),
+            "send `view",
+        ),
+        (
+            "clasify",
+            json!({"operation":"evaluate","source":{"tool":"localFetch","path":"x.ts"},"questions":questions}),
+            json!({"source":{"tool":"localFetch","query":{"path":"x.ts"}}}),
+            "`source.query.path`",
+        ),
+    ] {
+        let (row, notes, shown) = run(tool, sent.clone());
+        for (field, value) in ran.as_object().expect("fields") {
+            assert_eq!(
+                row.get(field).unwrap_or(&Value::Null),
+                value,
+                "{tool} {sent}: {row}"
+            );
+        }
+        assert!(
+            shown.is_none() && notes.len() == 1 && notes[0].contains(note),
+            "{tool} {sent}: {notes:?} {shown:?}"
+        );
+    }
+    // A bare sort key names no order: refused, naming `sort`.
+    let (_, _, shown) = run(
+        "structureSearch",
+        json!({"operation":"files","path":".","sortBy":"sizeBytes"}),
+    );
+    assert!(shown.is_some_and(|shown| shown.contains("sort")));
+}
+
+/// A size sort has one key, the file's size in bytes: `size` and the other
+/// name of it run as the one the contract declares (`bytes`, or `sizeBytes`
+/// in a contract that still names it so), and the call says it once.
+#[test]
+fn a_size_sort_key_runs_as_the_one_the_contract_declares() {
+    for (tool, row) in [
+        ("structureSearch", json!({"operation":"files","path":"."})),
+        (
+            "ghStructure",
+            json!({"operation":"tree","owner":"o","repo":"r","ref":"main","materialize":false}),
+        ),
+    ] {
+        let declared = ["bytes", "sizeBytes"]
+            .into_iter()
+            .filter(|value| {
+                let mut sent = row.clone();
+                sent["sort"] = json!({"by": value, "order": "desc"});
+                let (_, notes, shown) = run(tool, sent);
+                notes.is_empty() && shown.is_none()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            declared.len(),
+            1,
+            "{tool}: exactly one spelling is declared"
+        );
+        for sent_by in ["size", "bytes", "sizeBytes"] {
+            if sent_by == declared[0] {
+                continue;
+            }
+            let mut sent = row.clone();
+            sent["sort"] = json!({"by": sent_by, "order": "desc"});
+            let (ran, notes, shown) = run(tool, sent);
+            assert_eq!(
+                ran["sort"]["by"],
+                json!(declared[0]),
+                "{tool} {sent_by}: {ran}"
+            );
+            assert!(shown.is_none(), "{tool} {sent_by}: {shown:?}");
+            assert!(
+                matches!(notes.as_slice(), [one] if one.contains("send `sort.by` next time")),
+                "{tool} {sent_by}: {notes:?}"
+            );
         }
     }
 }

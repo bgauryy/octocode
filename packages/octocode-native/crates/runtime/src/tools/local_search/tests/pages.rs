@@ -450,31 +450,6 @@ fn a_one_file_scan_past_its_held_bound_leads_to_a_read_of_that_file() {
     drop(bounded);
 }
 
-#[test]
-fn match_pages_continue_from_their_file_pagination() {
-    let root = tempfile::tempdir().expect("fixture");
-    fs::write(
-        root.path().join("a.txt"),
-        (1..=400)
-            .map(|line| format!("needle {line}\n"))
-            .collect::<String>(),
-    )
-    .expect("source");
-    let (walk, pages) = walk_search(
-        root.path(),
-        serde_json::json!({"path":root.path(),"matchString":["needle"],"matchPage":2}),
-        Some(500),
-    );
-    assert!(!walk.rows.is_empty());
-    assert!(pages.len() > 1);
-    assert!(
-        pages
-            .iter()
-            .any(|page| { page["files"][0]["next"]["nextPage"].is_object() })
-    );
-    assert!(pages.iter().all(|page| page["next"]["nextPage"].is_null()));
-}
-
 /// A file whose rows continue on later pages reports how many rows it has
 /// in all, never a preview of their line numbers: the cursor reaches them.
 #[test]
@@ -592,12 +567,14 @@ fn the_read_handoff_ends_at_the_last_line_of_a_file_the_page_read() {
 #[test]
 fn the_read_handoff_ends_at_the_last_line_of_a_file_past_the_whole_read_limit() {
     let line = "2026-11-14T00:00:00Z info a log line that holds no hit\n";
-    let lines = crate::security::SourceLimits::REAL.whole_source / line.len() + 2;
+    let limits = crate::security::SourceLimits::SMALL;
+    let lines = limits.whole_source / line.len() + 2;
     let source = format!("{}needle\n", line.repeat(lines - 1));
-    assert!(source.len() > crate::security::SourceLimits::REAL.whole_source);
-    let body = search_fixture(
+    assert!(source.len() > limits.whole_source);
+    let body = search_fixture_at(
         &[("big.log", source.as_str())],
         ls_query(serde_json::json!({"matchString":["needle"]}), None),
+        limits,
     );
     let read = body["related"]
         .as_array()

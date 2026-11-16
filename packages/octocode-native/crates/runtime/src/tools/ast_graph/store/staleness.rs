@@ -202,11 +202,11 @@ pub(super) fn scope_files(
     // The walk is depth first: a withheld directory's entries follow it.
     let mut withheld: Option<PathBuf> = None;
     let mut current = BTreeSet::new();
-    for entry in crate::tools::pruned_walk_keeping(
+    for entry in crate::tools::pruned_walk_in(
         root,
         scope.walk.default_excludes,
         [],
-        scope.walk.ignore,
+        (scope.walk.ignore, paths.global_ignore()),
         move |entry| {
             let is_dir = entry.file_type().is_some_and(|kind| kind.is_dir());
             !excluded
@@ -396,7 +396,7 @@ fn scope_changes(
     changes: &[Change],
     readable: &mut Readable<'_>,
 ) -> Vec<(String, &'static str)> {
-    if scope_proven(root, tables, manifest) {
+    if scope_proven(root, paths.global_ignore(), tables, manifest) {
         return Vec::new();
     }
     let recorded = tables

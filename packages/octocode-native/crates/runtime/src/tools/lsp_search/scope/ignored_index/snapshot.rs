@@ -2,7 +2,7 @@
 use super::IgnoredIndex;
 use crate::policy::path::PathPolicy;
 use crate::tools::lsp_search::scope::canonical;
-use crate::tools::page_memo::directory_ignore_inputs;
+use crate::tools::page_memo::directory_ignore_inputs_with;
 use octocode_engine::search::text_search::TextSearchPathFilter;
 use octocode_engine::search::walk::NestedRepositories;
 use octocode_engine::types::IgnorePolicy;
@@ -45,7 +45,9 @@ impl Watched {
         let mut rules = Vec::new();
         for dir in &self.ruled {
             let inputs =
-                directory_ignore_inputs(dir, root, |ignore| policy.validate_read(ignore).is_ok());
+                directory_ignore_inputs_with(dir, root, policy.global_ignore(), |ignore| {
+                    policy.validate_read(ignore).is_ok()
+                });
             if inputs.untracked {
                 return None;
             }
@@ -73,14 +75,20 @@ fn walk_family(
 ) -> Walk {
     let filter = Arc::new(crate::policy::path::DiscoveryWalk::owned(policy.clone()));
     let dirs_policy = Arc::clone(&filter);
-    let builder = crate::tools::pruned_walk_keeping(root, true, [], ignores, move |entry| {
-        let path = entry.path();
-        !entry.file_type().is_some_and(|kind| kind.is_dir())
-            || (!nested
-                .as_ref()
-                .is_some_and(|nested| nested.skips(path, true))
-                && dirs_policy.allows_entry(path, entry.file_type()))
-    });
+    let builder = crate::tools::pruned_walk_in(
+        root,
+        true,
+        [],
+        (ignores, policy.global_ignore()),
+        move |entry| {
+            let path = entry.path();
+            !entry.file_type().is_some_and(|kind| kind.is_dir())
+                || (!nested
+                    .as_ref()
+                    .is_some_and(|nested| nested.skips(path, true))
+                    && dirs_policy.allows_entry(path, entry.file_type()))
+        },
+    );
     let seen = Mutex::new((BTreeSet::new(), Vec::new()));
     let complete = AtomicBool::new(true);
     builder.build_parallel().run(|| {

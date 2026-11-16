@@ -92,10 +92,6 @@ impl Paging {
         self.loaded = floor;
         self
     }
-
-    pub(crate) fn out_of_range(&self) -> bool {
-        self.facts.is_past_end()
-    }
 }
 
 impl Serialize for Paging {
@@ -263,6 +259,27 @@ impl LocalSearchResult {
                 }
             }
             data.shift_insert(0, "files".to_owned(), serde_json::Value::Array(Vec::new()));
+        }
+        // Every matched line holds one hit when the two counts agree: the
+        // line count then is the `matchCount` already stated.
+        let level = |fields: &mut serde_json::Map<String, serde_json::Value>| {
+            if fields.get("matchedLineCount").is_some()
+                && fields.get("matchedLineCount") == fields.get("matchCount")
+            {
+                fields.remove("matchedLineCount");
+            }
+        };
+        if let Some(data) = row.as_object_mut() {
+            level(data);
+            for file in data
+                .get_mut("files")
+                .and_then(serde_json::Value::as_array_mut)
+                .into_iter()
+                .flatten()
+                .filter_map(serde_json::Value::as_object_mut)
+            {
+                level(file);
+            }
         }
         for reason in &self.stats.partial_reasons {
             crate::response::paging::mark_partial(&mut row, *reason, &[]);

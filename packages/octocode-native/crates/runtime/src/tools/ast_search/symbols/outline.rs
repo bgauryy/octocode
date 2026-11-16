@@ -294,7 +294,8 @@ pub(super) fn outline_file(
     let mut diagnostics = vec![];
     if let Some(warning) = decoded {
         diagnostics.push(json!({
-            "code": "structural.source.decoded", "severity": "warning", "message": warning
+            "code": "structural.source.decoded", "severity": "warning", "message": warning,
+            "path": display_path
         }));
     }
     if let Some(note) = crate::tools::ast_search::language::cpp_header_note(

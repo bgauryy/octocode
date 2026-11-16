@@ -9,7 +9,7 @@ use crate::tools::gh_get_history_item::sections::Section;
 use crate::tools::gh_shared::commit::commit_pull_request;
 use crate::tools::gh_shared::ensure_calls;
 use octocode_contract_types::GhGetHistoryItemQuery;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 /// The paths of `paths` a selected-patch read of `target` can name: the
 /// ones its query contract admits in `include` (a file GitHub reported
@@ -141,8 +141,6 @@ pub(super) struct DiffCursors {
     pub(super) file_page: Option<u64>,
     /// The page-stream cursor of an unfinished patch window.
     pub(super) patch_offset: Option<usize>,
-    /// The page listed changed files.
-    pub(super) files_listed: bool,
 }
 
 impl DiffCursors {
@@ -150,11 +148,7 @@ impl DiffCursors {
     /// (a cursor rides the `next` continuation, never the block), and the
     /// patch-stream cursor of its unfinished patch window. The cursor is
     /// internal state for `next.patches`, never an output field.
-    pub(super) fn of_file_page(
-        files_page: &mut Value,
-        patch_offset: Option<usize>,
-        files_listed: bool,
-    ) -> Self {
+    pub(super) fn of_file_page(files_page: &mut Value, patch_offset: Option<usize>) -> Self {
         Self {
             commit_page: None,
             file_page: files_page
@@ -162,7 +156,6 @@ impl DiffCursors {
                 .and_then(|page| page.remove("nextPage"))
                 .and_then(|page| page.as_u64()),
             patch_offset,
-            files_listed,
         }
     }
 }
@@ -187,8 +180,7 @@ pub(super) fn commit_query(q: &HistoryItemRequest, reference: &str) -> Value {
     row
 }
 
-/// Required pages from computed cursors, plus optional patch expansion for
-/// a commit or comparison inventory.
+/// Required pages from computed cursors of a commit or comparison read.
 pub(super) fn attach_diff_continuations(
     out: &mut Value,
     q: &HistoryItemRequest,
@@ -196,7 +188,6 @@ pub(super) fn attach_diff_continuations(
     resolved_ref: Option<&str>,
     cursors: DiffCursors,
 ) {
-    let mut next = Map::new();
     let base = match (
         operation,
         resolved_ref.or(gh_get_history_item_query::reference(q)),
@@ -251,16 +242,6 @@ pub(super) fn attach_diff_continuations(
             );
         }
     }
-    // Patches expand a file inventory into a fresh section read.
-    if !q.include_diff() && base.get("sections").is_none() && cursors.files_listed {
-        let mut nq = base.clone();
-        nq["sections"] = json!(["patches"]);
-        remove_key(&mut nq, "offset");
-        next.insert(
-            "readPatches".into(),
-            crate::response::result::restart_query(ToolId::GhGetHistoryItem, &nq),
-        );
-    }
     // The page-stream cursor, not a file's own `patchPagination` offset.
     if let Some(offset) = cursors.patch_offset {
         let mut nq = base;
@@ -274,14 +255,6 @@ pub(super) fn attach_diff_continuations(
                 Some("patches"),
                 call,
             );
-        }
-    }
-    // The page's own continuations join the reads the page already offers
-    // (an unpatched file's search), never replace them.
-    if !next.is_empty() {
-        crate::tools::gh_shared::ensure_calls(out);
-        if let Some(pages) = out["calls"].as_object_mut() {
-            pages.extend(next);
         }
     }
 }

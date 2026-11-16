@@ -36,6 +36,43 @@ async fn fields_project_listed_commits_end_to_end() {
     );
 }
 
+/// A default commit row names its author (the login, else the git name,
+/// never an email) from the listing that already carries it: who wrote a
+/// commit needs no second request.
+#[tokio::test]
+async fn a_default_commit_row_names_its_author() {
+    use wiremock::MockServer;
+
+    let server = MockServer::builder().start().await;
+    mount_json(
+        &server,
+        "/api/v3/repos/o/r/commits",
+        200,
+        json!([
+            {"sha": "aaa", "commit": {"message": "Fix cache",
+                "author": {"name": "Dev One", "email": "dev@example.test"},
+                "committer": {"date": "2026-01-01T00:00:00Z"}}, "author": {"login": "dev"}},
+            {"sha": "bbb", "commit": {"message": "Tidy",
+                "author": {"name": "Git Name", "email": "git@example.test"},
+                "committer": {"date": "2026-01-02T00:00:00Z"}}}
+        ]),
+    )
+    .await;
+    let query = serde_json::from_value(json!({"operation":"commit","owner":"o","repo":"r"}))
+        .expect("query");
+    let data = execute(
+        &one_shot_provider(&server),
+        &query,
+        &default_context(),
+        &Passthrough,
+    )
+    .await
+    .expect("commit listing");
+    assert_eq!(data["commits"][0]["author"], "dev", "{data}");
+    assert_eq!(data["commits"][1]["author"], "Git Name", "{data}");
+    assert!(!data.to_string().contains("example.test"), "{data}");
+}
+
 /// A picked key no row carries (here `committer`, omitted when it repeats
 /// the author) still answers, with one
 /// per-call warning instead of rows that silently lack the key; the

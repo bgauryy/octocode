@@ -93,6 +93,12 @@ pub(super) struct CollectSink<'a, M: Matcher> {
     pub(super) om_matches: Vec<TextSearchMatch>,
     /// Search-wide stop flag, polled between matched lines.
     pub(super) stop: &'a AtomicBool,
+    /// The caller's cancellation, where it stops files mid-way: polled while
+    /// a line's matches are walked and every few matched lines, so a file
+    /// is not searched to its end after the caller left.
+    pub(super) cancelled: Option<&'a (dyn Fn() -> bool + Sync)>,
+    /// Matched lines seen, to poll `cancelled` every few of them.
+    ticks: u32,
     /// What this file's kept rows hold of the search's bound; past it the
     /// sink raises `stop` and keeps nothing more.
     pub(super) charge: Charge,
@@ -150,6 +156,8 @@ impl<'a, M: Matcher> CollectSink<'a, M> {
             work,
             om_matches: Vec::new(),
             stop,
+            cancelled: None,
+            ticks: 0,
             binary_offset: None,
             not_utf8: false,
         }
@@ -169,7 +177,7 @@ impl<M: Matcher> CollectSink<'_, M> {
         let (line_text, not_utf8) = block_text(bytes);
         self.not_utf8 |= not_utf8;
         // find_iter yields non-overlapping matches L→R.
-        let (matcher, stop) = (self.matcher, self.stop);
+        let (matcher, stop, cancelled) = (self.matcher, self.stop, self.cancelled);
         let (om, charge) = (&mut self.om_matches, &mut self.charge);
         let mut columns = SpanColumns::new(bytes, &line_text);
         matcher
@@ -178,6 +186,9 @@ impl<M: Matcher> CollectSink<'_, M> {
                     return true;
                 }
                 count = count.saturating_add(1);
+                if !keep_going(cancelled, stop, count) {
+                    return false;
+                }
                 first_start.get_or_insert(m.start());
                 let (start, end) = (columns.lossy(m.start()), columns.lossy(m.end()));
                 let value = span_value(&line_text, start, end);
@@ -357,12 +368,34 @@ impl<M: Matcher> CollectSink<'_, M> {
     }
 }
 
+/// Matches walked between two looks at the caller's cancellation.
+const MATCHES_PER_POLL: u32 = 1024;
+/// Matched lines between two looks at it.
+const MATCHED_LINES_PER_POLL: u32 = 64;
+
+/// Whether the walk of a line's matches goes on: it ends once the search was
+/// stopped, or the caller cancelled (which stops the search).
+pub(super) fn keep_going(
+    cancelled: Option<&(dyn Fn() -> bool + Sync)>,
+    stop: &AtomicBool,
+    matches: u32,
+) -> bool {
+    if matches.is_multiple_of(MATCHES_PER_POLL) && cancelled.is_some_and(|gone| gone()) {
+        stop.store(true, Ordering::Relaxed);
+    }
+    !stop.load(Ordering::Relaxed)
+}
+
 impl<M: Matcher> Sink for CollectSink<'_, M> {
     type Error = std::io::Error;
 
     fn matched(&mut self, _searcher: &Searcher, mat: &SinkMatch<'_>) -> std::io::Result<bool> {
         // Stop searching this file *before* doing more per-line work. Returning
         // Ok(false) ends the search cleanly and keeps the matches collected so far.
+        self.ticks = self.ticks.wrapping_add(1);
+        if self.ticks % MATCHED_LINES_PER_POLL == 1 && self.cancelled.is_some_and(|gone| gone()) {
+            self.stop.store(true, Ordering::Relaxed);
+        }
         if self.stop.load(Ordering::Relaxed) {
             return Ok(false);
         }
@@ -383,12 +416,16 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
             count = self.collect_spans(bytes, line_number, &mut first_start)?;
         } else if self.work.enumerate_submatches {
             let keeps_spans = !self.terms.is_empty() || self.work.materialize_line;
+            let (stop, cancelled) = (self.stop, self.cancelled);
             self.matcher
                 .find_iter(bytes, |matched| {
                     if past_block_end(bytes, matched) {
                         return true;
                     }
                     count = count.saturating_add(1);
+                    if !keep_going(cancelled, stop, count) {
+                        return false;
+                    }
                     first_start.get_or_insert(matched.start());
                     if keeps_spans {
                         spans.push((matched.start(), matched.end()));

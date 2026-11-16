@@ -63,7 +63,7 @@ fn grouped_pages_join_small_declarations_and_keep_exact_coverage() {
 
 /// Declaration names repeat (the same items in two places, or members with
 /// no name): a merged page's name states how many sections it joins, named
-/// or not (R10-5). Its id and target lines tell pages apart, so the name
+/// or not. Its id and target lines tell pages apart, so the name
 /// carries no line span of its own.
 #[test]
 fn grouped_page_names_are_distinct_and_count_every_member() {

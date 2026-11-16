@@ -44,6 +44,22 @@ impl PathPolicy {
         is_sensitive_repository_file(path)
     }
 
+    /// Whether this policy withholds the text of a repository file by any of
+    /// the names that identify it: its own `path`, the `previous` path of a
+    /// rename, and the `link_target` a symlink resolves to. This is the one
+    /// decision for every place file text enters a response or the disk (a
+    /// read, a search row, a patch, a link target, a saved answer).
+    pub(crate) fn withheld_text(
+        &self,
+        path: &str,
+        previous: Option<&str>,
+        link_target: Option<&str>,
+    ) -> bool {
+        withheld_names(path, previous, link_target, |name| {
+            self.withholds_repository_file(name)
+        })
+    }
+
     /// What `allow` never opens: Octocode's home; files directly in the user's
     /// home; and the user's home dot directories (`~/.claude`, `~/.codex`), which
     /// hold tool logins, not project sources. Compared as the filesystem compares
@@ -65,3 +81,29 @@ impl PathPolicy {
             })
     }
 }
+
+/// [`PathPolicy::withheld_text`] under the default policy (credential file
+/// names withheld whatever the setting): for text that stays on disk or
+/// outlives one request, and for a caller the runtime gave no policy.
+pub(crate) fn withheld_text_by_default(
+    path: &str,
+    previous: Option<&str>,
+    link_target: Option<&str>,
+) -> bool {
+    withheld_names(path, previous, link_target, is_sensitive_repository_file)
+}
+
+fn withheld_names(
+    path: &str,
+    previous: Option<&str>,
+    link_target: Option<&str>,
+    withholds: impl Fn(&str) -> bool,
+) -> bool {
+    std::iter::once(path)
+        .chain(previous)
+        .chain(link_target)
+        .any(withholds)
+}
+
+#[cfg(test)]
+mod tests;

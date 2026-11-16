@@ -12,7 +12,7 @@ fn only_network_git_steps_carry_the_credential() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     clone_pinned(
         &fixture,
@@ -65,7 +65,7 @@ fn network_steps_end_on_a_stall_or_the_callers_deadline() {
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
     let stall = Duration::from_secs(2);
-    let config = CloneConfig::persistent(&home).with_network_timeout(stall);
+    let config = GitConfig::persistent(&home).with_network_timeout(stall);
     let mut context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     context.deadline = Instant::now() + Duration::from_secs(600);
     clone_pinned(
@@ -350,7 +350,7 @@ fn repository_symlinks_are_checked_out_as_plain_files() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     // The same commit by branch then by SHA: both calls fetch fresh and
     // reports the symlinks its meta recorded. A directory scope also holds
@@ -372,7 +372,7 @@ fn repository_symlinks_are_checked_out_as_plain_files() {
         )
         .expect("clone");
         let link = Path::new(&clone.location.path).join("escape");
-        // D7: git run in the checkout as any local step runs it (no
+        // Git run in the checkout as any local step runs it (no
         // `-c core.symlinks=false`) sees nothing changed: the checkout's
         // own config records that its symlinks are plain files.
         let status = git_output(Path::new(&clone.location.path), &["status", "--porcelain"]);

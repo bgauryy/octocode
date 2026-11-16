@@ -217,3 +217,24 @@ fn a_source_past_the_ceiling_matches_what_its_read_serves() {
         }
     }
 }
+
+/// A stopped search ends the judgment of a source past the whole-file size
+/// between its lines, and reports it as interrupted rather than a failure of
+/// the file.
+#[test]
+fn a_stopped_search_ends_the_judgment_of_a_large_source() {
+    let root = tempfile::tempdir().expect("fixture directory");
+    let path = root.path().join("big.ts");
+    std::fs::write(
+        &path,
+        source(LIMITS.whole_source + LIMITS.whole_source / 10),
+    )
+    .expect("fixture");
+    let file = std::fs::File::open(&path).expect("open");
+    let judge = super::executor::judge(LIMITS);
+    let stopped: &(dyn Fn() -> bool + Sync) = &|| true;
+    let error = (judge.serve)(&path, &file, stopped).expect_err("a stopped judgment ends");
+    assert_eq!(error.kind(), std::io::ErrorKind::Interrupted);
+    let running: &(dyn Fn() -> bool + Sync) = &|| false;
+    assert!((judge.serve)(&path, &file, running).is_ok());
+}

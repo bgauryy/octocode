@@ -105,6 +105,9 @@ pub(super) struct ManifestInput<'a> {
     /// The build's options, parsers and versions as one digest: equal over
     /// an unchanged tree means the same snapshot.
     pub(super) build_identity: &'a str,
+    /// Root-relative directories the walk could not read, so the graph lacks
+    /// everything below them.
+    pub(super) unreadable_dirs: &'a [String],
 }
 
 pub(super) fn manifest(input: &ManifestInput) -> Value {
@@ -207,6 +210,9 @@ pub(super) fn manifest(input: &ManifestInput) -> Value {
     }
     if let Some(proof) = input.scope_proof {
         manifest["scopeProof"] = proof.clone();
+    }
+    if !input.unreadable_dirs.is_empty() {
+        manifest["unreadableDirs"] = json!(input.unreadable_dirs);
     }
     if !input.language_globs.is_empty() {
         manifest["scan"]["languageGlobs"] = json!(input.language_globs);

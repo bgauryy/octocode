@@ -165,3 +165,44 @@ fn a_window_row_is_disclosed_and_keeps_its_whole_line_read() {
         "the whole-line read stays: {data}"
     );
 }
+
+/// The windowedHits warning names the file as its row does, whether the
+/// query's path is absolute or a nested relative one.
+#[test]
+fn the_windowed_hits_warning_names_the_path_its_row_shows() {
+    let root = tempfile::tempdir().expect("fixture");
+    fs::create_dir_all(root.path().join("pkg/sub")).expect("dir");
+    let line = format!(
+        "{} NEEDLE {}",
+        "z".repeat(LONG_LINE_BYTES / 2),
+        "z".repeat(LONG_LINE_BYTES / 2 + 2)
+    );
+    fs::write(root.path().join("pkg/sub/long.txt"), &line).expect("fixture");
+    let (policy, security) = policy_for(root.path());
+    for path in [
+        root.path().join("pkg").to_string_lossy().into_owned(),
+        "pkg".to_owned(),
+        "pkg/sub".to_owned(),
+    ] {
+        let request = ls_query(
+            serde_json::json!({"path": path, "matchString": ["NEEDLE"]}),
+            None,
+        );
+        let row = search_in(&request, &policy, &security, None)
+            .expect("search")
+            .to_row()
+            .expect("row");
+        let shown = row["files"][0]["path"].as_str().expect("row path");
+        let warning = row["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|warning| warning.as_str())
+            .find(|warning| warning.starts_with("windowedHits"))
+            .unwrap_or_else(|| panic!("a windowedHits warning for {path}: {row}"));
+        assert!(
+            warning.contains(&format!("(first {shown}:")),
+            "{path}: row {shown}, warning {warning}"
+        );
+    }
+}

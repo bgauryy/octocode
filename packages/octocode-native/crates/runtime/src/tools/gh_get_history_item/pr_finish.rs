@@ -177,15 +177,12 @@ pub(super) fn finish_pr(
 /// lead under the lead cap. The side reads of the numbered diff come first,
 /// then the section menu; a page continuation
 /// already under a name keeps it.
-fn attach_leads(out: &mut Value, side_reads: Vec<(&'static str, Value)>, menu: Option<Value>) {
+fn attach_leads(out: &mut Value, side_reads: Vec<(String, Value)>, menu: Option<Value>) {
     let menu = match menu {
         Some(Value::Object(menu)) => menu,
         _ => Map::new(),
     };
-    let leads = side_reads
-        .into_iter()
-        .map(|(name, read)| (name.to_owned(), read))
-        .chain(menu);
+    let leads = side_reads.into_iter().chain(menu);
     for (name, lead) in leads {
         ensure_calls(out);
         if let Some(next) = out["calls"].as_object_mut() {

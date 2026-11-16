@@ -8,6 +8,7 @@
 //! (`responsePagination.next`), where `next.nextPage` sits.
 
 mod deep;
+mod sample;
 mod stream;
 
 use crate::support::{Run as _, Workspace};
@@ -124,7 +125,7 @@ async fn walk_input(
     let mut page_start = 0;
     loop {
         let (mut rows, mut has_more, mut next_page) = (Vec::new(), None, None);
-        let mut page_end = page_start;
+        let mut stated = None;
         loop {
             calls += 1;
             assert!(
@@ -136,7 +137,6 @@ async fn walk_input(
             let data = &row["data"];
             if let Some(pagination) = data.get("pagination") {
                 let offset = pagination["offset"].as_u64().expect("query offset");
-                let length = pagination["length"].as_u64().expect("query length");
                 let total = pagination["total"].as_u64().expect("query total");
                 assert_eq!(offset, page_start, "query pages advance");
                 assert_eq!(
@@ -144,14 +144,9 @@ async fn walk_input(
                     total,
                     "query total is stable"
                 );
-                assert!(
-                    offset + length <= total,
-                    "query page is within the declared walk"
-                );
-                assert_eq!(pagination["hasMore"] == true, offset + length < total);
                 walk.totals.insert(total);
-                page_end = offset + length;
                 has_more = Some(pagination["hasMore"] == true);
+                stated = Some((offset, total));
             }
             rows.extend(page_rows(data));
             if let Some(next) = data["next"].get("nextPage") {
@@ -176,6 +171,11 @@ async fn walk_input(
             next_page = response.get("next").cloned().or(next_page);
             break;
         }
+        // The rows listed are the page: it ends where its rows end.
+        let (offset, total) = stated.expect("every page states pagination");
+        let page_end = offset + rows.len() as u64;
+        assert!(page_end <= total, "query page is within the declared walk");
+        assert_eq!(has_more == Some(true), page_end < total);
         walk.pages.push(rows);
         page_start = page_end;
         if has_more.expect("every page states pagination") {

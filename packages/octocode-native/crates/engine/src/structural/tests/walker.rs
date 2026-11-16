@@ -26,6 +26,7 @@ fn search_files_supports_recursive_glob_includes() {
         skip_files: None,
         max_file_bytes: None,
         judge: None,
+        global_ignore: Default::default(),
     })
     .expect("glob search");
 
@@ -62,6 +63,7 @@ fn search_files_honors_dot_ignore_files() {
         skip_files: None,
         max_file_bytes: None,
         judge: None,
+        global_ignore: Default::default(),
     })
     .expect("ignore search");
 
@@ -92,6 +94,7 @@ fn search_files_prefilters_rule_by_inner_pattern() {
         skip_files: None,
         max_file_bytes: None,
         judge: None,
+        global_ignore: Default::default(),
     })
     .expect("rule search");
 
@@ -120,6 +123,7 @@ fn search_files_operator_only_pattern_parses_every_candidate() {
         skip_files: None,
         max_file_bytes: None,
         judge: None,
+        global_ignore: Default::default(),
     })
     .expect("operator anchor search");
 
@@ -148,6 +152,7 @@ fn operator_spacing_does_not_split_directory_and_file_results() {
             skip_files: None,
             max_file_bytes: None,
             judge: None,
+            global_ignore: Default::default(),
         })
         .expect("directory search");
         assert_eq!(result.skipped_by_pre_filter, 0, "{pattern}");
@@ -243,6 +248,7 @@ fn structural_files_honor_scope_options() {
             skip_files: None,
             max_file_bytes: None,
             judge: None,
+            global_ignore: Default::default(),
         };
         scope(&mut options);
         let paths = scope_result_paths(options);
@@ -282,6 +288,7 @@ fn structural_anchor_prefilter_prunes_beyond_max_depth_before_search() {
         skip_files: None,
         max_file_bytes: None,
         judge: None,
+        global_ignore: Default::default(),
     })
     .expect("structural search");
 
@@ -333,6 +340,7 @@ fn admit_sees_listing_types_and_a_candidate_swapped_for_a_link_is_not_read() {
             skip_files: None,
             max_file_bytes: None,
             judge: None,
+            global_ignore: Default::default(),
         },
         StructuralDemand::Matches,
         &|path, kind| {

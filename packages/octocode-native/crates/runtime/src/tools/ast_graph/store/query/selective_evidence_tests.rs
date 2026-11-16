@@ -88,7 +88,11 @@ fn evidence_pages_reject_corrupt_blocks_they_read_and_disclose_unread_ones() {
     assert!(super::super::format::decode(&untouched).is_err());
     std::fs::write(&graph, corrupt_blocks(&original, b"STRE")).unwrap();
     let page = ask(&dir, "witnesses", "fn0000", 0, false);
-    assert_eq!(page.value["errorCode"], "decode", "{}", page.value);
+    assert_eq!(
+        page.value["errorCode"], "snapshotIncompatible",
+        "{}",
+        page.value
+    );
 }
 
 #[test]
@@ -224,7 +228,11 @@ fn origin_pages_reject_corrupt_origin_blocks_they_read() {
     assert!(super::super::format::decode(&untouched).is_err());
     std::fs::write(&graph, corrupt_blocks(&original, b"SRCO")).unwrap();
     let page = ask(&dir, "unresolved", "code.ts", 0, false);
-    assert_eq!(page.value["errorCode"], "decode", "{}", page.value);
+    assert_eq!(
+        page.value["errorCode"], "snapshotIncompatible",
+        "{}",
+        page.value
+    );
 }
 
 /// An unknown evidence scope is `notFound` with ranked suggestions on both

@@ -6,6 +6,7 @@
 //! `responseChars` pages do split, and reading each through its row parts
 //! still reaches every row once.
 
+use super::sample::starts;
 use super::{Walk, assert_each_once, rows, walk};
 use crate::support::Workspace;
 use octocode_native::runtime::ToolRuntime;
@@ -96,29 +97,28 @@ async fn walks_alike(
     paths: &(String, String),
     page_rows: fn(&Value) -> Vec<String>,
     expected: usize,
+    full: bool,
 ) -> Walk {
     let mut cuts = None;
     let mut last = None;
-    for mcp in [false, true] {
-        for path in [&paths.0, &paths.1] {
-            let label = format!("{operation} mcp={mcp} {path}");
-            let walked = walk(runtime, mcp, first_row(operation, path), page_rows).await;
-            assert_each_once(&walked.rows(), expected, &label);
-            let cut = walked.cuts();
-            assert_eq!(*cuts.get_or_insert_with(|| cut.clone()), cut, "{label}");
-            last = Some(walked);
-        }
+    for (mcp, spelling) in starts(full) {
+        let path = if spelling == 0 { &paths.0 } else { &paths.1 };
+        let label = format!("{operation} mcp={mcp} {path}");
+        let walked = walk(runtime, mcp, first_row(operation, path), page_rows).await;
+        assert_each_once(&walked.rows(), expected, &label);
+        let cut = walked.cuts();
+        assert_eq!(*cuts.get_or_insert_with(|| cut.clone()), cut, "{label}");
+        last = Some(walked);
     }
     last.expect("a walk")
 }
 
-#[tokio::test]
-async fn deep_symbol_and_match_walks_fit_every_page_and_reach_every_row_once() {
+async fn deep_symbol_and_match_walks(full: bool) {
     let workspace = Workspace::new();
     let deep = deep(&workspace);
     let runtime = workspace.runtime(&[]);
-    walks_alike(&runtime, "symbols", &deep.dir, symbol_rows, FILES).await;
-    let matches = walks_alike(&runtime, "match", &deep.dir, match_rows, FILES).await;
+    walks_alike(&runtime, "symbols", &deep.dir, symbol_rows, FILES, full).await;
+    let matches = walks_alike(&runtime, "match", &deep.dir, match_rows, FILES, full).await;
     // Match pages count files.
     assert_eq!(
         matches.totals,
@@ -128,7 +128,17 @@ async fn deep_symbol_and_match_walks_fit_every_page_and_reach_every_row_once() {
 }
 
 #[tokio::test]
-async fn a_deep_syntax_tree_walk_reaches_every_node_once_from_either_spelling() {
+async fn deep_symbol_and_match_walks_fit_every_page_and_reach_every_row_once() {
+    deep_symbol_and_match_walks(false).await;
+}
+
+#[tokio::test]
+#[ignore = "every transport and spelling: cargo test -- --ignored full_matrix"]
+async fn deep_symbol_and_match_walks_fit_every_page_in_every_start_full_matrix() {
+    deep_symbol_and_match_walks(true).await;
+}
+
+async fn a_deep_syntax_tree_walk(full: bool) {
     let workspace = Workspace::new();
     let deep = deep(&workspace);
     let runtime = workspace.runtime(&[]);
@@ -146,12 +156,23 @@ async fn a_deep_syntax_tree_walk_reaches_every_node_once_from_either_spelling() 
         .max()
         .expect("pagination.total");
     let total = usize::try_from(total).expect("node count");
-    let walked = walks_alike(&runtime, "syntaxTree", &deep.big, node_ids, total).await;
+    let walked = walks_alike(&runtime, "syntaxTree", &deep.big, node_ids, total, full).await;
     // Node ids number the whole tree from 0, in order across pages.
     let ids = walked.rows();
     let expected = (0..total).map(|id| id.to_string()).collect::<Vec<_>>();
     assert_eq!(ids, expected);
     runtime.close().await;
+}
+
+#[tokio::test]
+async fn a_deep_syntax_tree_walk_reaches_every_node_once_from_either_spelling() {
+    a_deep_syntax_tree_walk(false).await;
+}
+
+#[tokio::test]
+#[ignore = "every transport and spelling: cargo test -- --ignored full_matrix"]
+async fn a_deep_syntax_tree_walk_reaches_every_node_once_from_every_start_full_matrix() {
+    a_deep_syntax_tree_walk(true).await;
 }
 
 /// A `responseChars` below a page splits it into row parts; a walk that
@@ -160,8 +181,7 @@ async fn a_deep_syntax_tree_walk_reaches_every_node_once_from_either_spelling() 
 /// The row ids of one page of a walk.
 type RowIds = fn(&Value) -> Vec<String>;
 
-#[tokio::test]
-async fn split_pages_read_through_their_row_parts_reach_every_row_once() {
+async fn split_pages_read_through_their_row_parts(full: bool) {
     let workspace = Workspace::new();
     let deep = deep(&workspace);
     let runtime = workspace.runtime(&[]);
@@ -172,25 +192,35 @@ async fn split_pages_read_through_their_row_parts_reach_every_row_once() {
     ];
     for (operation, paths, page_rows) in cases {
         let mut seen = None;
-        for mcp in [false, true] {
-            for path in [&paths.0, &paths.1] {
-                let label = format!("{operation} mcp={mcp} {path}");
-                let mut first = json!({"queries": [first_row(operation, path)]});
-                first["responseChars"] = 3_000.into();
-                let walked = super::walk_input(&runtime, mcp, first, page_rows).await;
-                assert!(walked.splits > 0, "{label}: pages split into row parts");
-                let rows = walked.rows();
-                let total = walked
-                    .totals
-                    .iter()
-                    .copied()
-                    .max()
-                    .expect("pagination.total");
-                assert_eq!(walked.totals.len(), 1, "{label}: one total on every page");
-                assert_each_once(&rows, usize::try_from(total).expect("count"), &label);
-                assert_eq!(*seen.get_or_insert_with(|| rows.clone()), rows, "{label}");
-            }
+        for (mcp, spelling) in starts(full) {
+            let path = if spelling == 0 { &paths.0 } else { &paths.1 };
+            let label = format!("{operation} mcp={mcp} {path}");
+            let mut first = json!({"queries": [first_row(operation, path)]});
+            first["responseChars"] = 3_000.into();
+            let walked = super::walk_input(&runtime, mcp, first, page_rows).await;
+            assert!(walked.splits > 0, "{label}: pages split into row parts");
+            let rows = walked.rows();
+            let total = walked
+                .totals
+                .iter()
+                .copied()
+                .max()
+                .expect("pagination.total");
+            assert_eq!(walked.totals.len(), 1, "{label}: one total on every page");
+            assert_each_once(&rows, usize::try_from(total).expect("count"), &label);
+            assert_eq!(*seen.get_or_insert_with(|| rows.clone()), rows, "{label}");
         }
     }
     runtime.close().await;
+}
+
+#[tokio::test]
+async fn split_pages_read_through_their_row_parts_reach_every_row_once() {
+    split_pages_read_through_their_row_parts(false).await;
+}
+
+#[tokio::test]
+#[ignore = "every transport and spelling: cargo test -- --ignored full_matrix"]
+async fn split_pages_read_through_their_row_parts_in_every_start_full_matrix() {
+    split_pages_read_through_their_row_parts(true).await;
 }

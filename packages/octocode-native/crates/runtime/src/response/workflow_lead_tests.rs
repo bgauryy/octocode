@@ -696,7 +696,6 @@ fn every_numeric_query_property_is_classified() {
         "keep",
         "limit",
         "line",
-        "matchPage",
         "matched",
         "materializeOffset",
         "max",

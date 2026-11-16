@@ -165,6 +165,11 @@ fn already_resolved(path: &Path) -> bool {
 }
 
 impl DiscoveryWalk<'_> {
+    /// The global ignore rules of the call this walk serves.
+    pub(crate) fn global_ignore(&self) -> octocode_engine::search::walk::GlobalIgnore {
+        self.policy.global_ignore()
+    }
+
     /// Whether the walk may enter or read `path`. A listing type the walk
     /// already has, not a symlink, skips the `lstat`.
     pub(crate) fn permits_entry(&self, path: &Path, file_type: Option<std::fs::FileType>) -> bool {

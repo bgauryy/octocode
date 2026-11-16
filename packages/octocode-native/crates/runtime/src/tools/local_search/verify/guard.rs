@@ -149,7 +149,7 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
             Ok(_) => Ok(Verification::Changed),
             Err(VerifyReadError::Io) => {
                 for matched in shown.iter_mut() {
-                    matched.value = UNVERIFIED_PLACEHOLDER.to_owned();
+                    matched.value = crate::security::row_shown_unchecked(&matched.value);
                 }
                 Ok(Verification::Unverified)
             }
@@ -189,7 +189,7 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
         Ok((read, proven)) if !read.unclassified => (read, proven),
         Ok(_) | Err(VerifyReadError::Io) => {
             for matched in shown.iter_mut() {
-                matched.value = UNVERIFIED_PLACEHOLDER.to_owned();
+                matched.value = crate::security::row_shown_unchecked(&matched.value);
             }
             return Ok(Verification::Unverified);
         }
@@ -382,23 +382,6 @@ pub(in crate::tools::local_search) fn drain_digest<R: std::io::Read>(
         .hasher
         .map(octocode_engine::digest::HashWriter::finalize))
 }
-
-/// Value shown in place of a match whose source could not be re-read for the
-/// source-secret check.
-pub(in crate::tools::local_search) const UNVERIFIED_PLACEHOLDER: &str =
-    "[REDACTED: source unreadable for secret check]";
-
-/// Value shown in place of a row whose lines disagree with the window the
-/// search reports for it (where its value starts, and the context it
-/// joined): nothing places its lines in the source, so none is shown.
-pub(in crate::tools::local_search) const UNPLACED_PLACEHOLDER: &str =
-    "[REDACTED: row window disagrees with its source]";
-
-/// Value shown in place of a match of a source too large to hold whole whose
-/// streamed read could not serve its lines (the memory budget refused the
-/// redactions it must hold).
-pub(in crate::tools::local_search) const OVERSIZED_PLACEHOLDER: &str =
-    "[REDACTED: source lines too large for secret check]";
 
 /// Bytes of a line outside every neighborhood buffered to classify it; a
 /// longer line is consumed in chunks without being stored.

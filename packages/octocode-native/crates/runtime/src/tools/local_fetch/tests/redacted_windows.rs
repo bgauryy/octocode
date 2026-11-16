@@ -118,7 +118,7 @@ fn only_the_page_showing_a_redaction_warns() {
     let warned = |page: &LocalFetchResult| {
         page.warnings
             .iter()
-            .any(|warning| warning.starts_with("redactedContent"))
+            .any(|warning| warning == crate::security::REDACTED_MARK)
     };
     for (index, (_, page)) in pages.iter().enumerate() {
         let shows = page

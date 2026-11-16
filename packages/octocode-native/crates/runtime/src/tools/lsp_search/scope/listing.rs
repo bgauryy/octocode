@@ -13,7 +13,7 @@ use super::spelling_index::WordSearch;
 use super::*;
 use crate::policy::path::DiscoveryWalk;
 use crate::tools::page_memo::{
-    PageMemo, Proven, Watch, directory_ignore_inputs, repository_markers,
+    PageMemo, Proven, Watch, directory_ignore_inputs_with, repository_markers,
 };
 use octocode_engine::search::text_search::TextSearchPathFilter;
 use octocode_engine::stamp::Link;
@@ -52,7 +52,7 @@ struct Seen {
 pub(super) struct Recorder {
     walk: DiscoveryWalk<'static>,
     /// The rooted default prune, with the directories `include` names
-    /// lifted ([`crate::policy::prune::rooted`]): the callback's form of
+    /// lifted ([`crate::policy::prune::rooted_under`]): the callback's form of
     /// the one prune every local walk applies. It depends only on directory
     /// names and the ignore rules the kept listing's proof already watches.
     prune: Option<octocode_engine::search::walk::RootedPrune>,
@@ -66,7 +66,7 @@ impl Recorder {
         let root = PathBuf::from(root);
         let recorder = Self {
             walk: DiscoveryWalk::owned(policy.clone()),
-            prune: crate::policy::prune::rooted(&root, true, include),
+            prune: crate::policy::prune::rooted_under(&root, true, include, policy.global_ignore()),
             policy: policy.clone(),
             root,
             seen: Mutex::default(),
@@ -82,9 +82,10 @@ impl Recorder {
     }
 
     fn record_dir(&self, dir: &Path) {
-        let inputs = directory_ignore_inputs(dir, &self.root, |ignore| {
-            self.policy.validate_read(ignore).is_ok()
-        });
+        let inputs =
+            directory_ignore_inputs_with(dir, &self.root, self.policy.global_ignore(), |ignore| {
+                self.policy.validate_read(ignore).is_ok()
+            });
         let mut seen = self.seen();
         seen.watched.push(dir.to_path_buf());
         seen.watched.extend(inputs.files);
@@ -103,7 +104,10 @@ impl Recorder {
         if seen.untracked {
             return files;
         }
-        let mut rules = octocode_engine::search::walk::external_ignore_inputs(root);
+        let mut rules = octocode_engine::search::walk::external_ignore_inputs_with(
+            root,
+            policy.global_ignore(),
+        );
         rules.extend(seen.rules);
         let Some(proof) = (Watch {
             root,

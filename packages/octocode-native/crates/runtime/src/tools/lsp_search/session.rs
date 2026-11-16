@@ -179,9 +179,6 @@ pub(super) struct Session {
     /// The post-didOpen readiness (timeout when the project load was
     /// still running).
     pub(super) open_readiness: Option<Readiness>,
-    /// When this call began waiting on the server: what it waited on since
-    /// is what it reports.
-    pub(super) began: tokio::time::Instant,
     /// The pool's resident bytes and budget when it held more than the budget
     /// as this call acquired its client.
     pub(super) pool_over_budget: Option<(u64, u64)>,
@@ -202,9 +199,7 @@ pub(super) async fn open_session(
 ) -> Result<Session, Exit> {
     let began = tokio::time::Instant::now();
     let leased = acquire_leased_client(query, target, pool, cancel).await?;
-    let (client, config) = (leased.client.clone(), leased.config.clone());
     let pool_over_budget = pool.over_budget().await;
-    // Whatever ends the session, the call says what it waited on.
     open_leased(
         query,
         target,
@@ -216,7 +211,6 @@ pub(super) async fn open_session(
         pool_over_budget,
     )
     .await
-    .map_err(|exit| waits::disclose_exit(exit, &config, client.waits_since(began), began.elapsed()))
 }
 
 /// [`open_session`] once the client is leased: the readiness and capability
@@ -275,7 +269,6 @@ async fn open_leased(
         config,
         fell_back_from,
         open_readiness,
-        began,
         pool_over_budget,
     })
 }
@@ -396,6 +389,4 @@ pub(super) fn start_failure(
 mod sync;
 mod waits;
 pub(in crate::tools::lsp_search) use sync::sync_document;
-pub(in crate::tools::lsp_search) use waits::{
-    disclose_pool_overflow, disclose_waits, record_waits, session_failed,
-};
+pub(in crate::tools::lsp_search) use waits::{disclose_pool_overflow, session_failed};

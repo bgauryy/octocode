@@ -47,7 +47,9 @@ impl Found<'_> {
         Ok(match (disclosure, observed) {
             (Some(mut disclosure), Some(observed)) => {
                 disclosure.entries.extend(observed.entries);
-                disclosure.sampled |= observed.sampled;
+                disclosure.sampled = (disclosure.sampled == Some(true)
+                    || observed.sampled == Some(true))
+                .then_some(true);
                 Some(disclosure)
             }
             (disclosure, observed) => disclosure.or(observed),

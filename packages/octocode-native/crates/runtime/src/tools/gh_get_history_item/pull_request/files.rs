@@ -27,7 +27,7 @@ pub(in crate::tools::gh_get_history_item) struct FileOutcome {
     /// matched nothing.
     pub(in crate::tools::gh_get_history_item) in_scope: usize,
     /// `readAtCommit`/`readParent`: the top shown file at the head and base.
-    pub(in crate::tools::gh_get_history_item) side_reads: Vec<(&'static str, Value)>,
+    pub(in crate::tools::gh_get_history_item) side_reads: Vec<(String, Value)>,
     /// Files whose `matchString` context the hunks cut short.
     pub(in crate::tools::gh_get_history_item) clipped: Vec<(String, Vec<(usize, usize)>)>,
 }

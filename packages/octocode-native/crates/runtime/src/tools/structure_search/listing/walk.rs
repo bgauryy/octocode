@@ -83,6 +83,7 @@ pub(super) fn walk_listing<Q: Listing>(
             limit: walk_limit(q, bound.is_some(), requested, window_end),
             names_only,
             budget,
+            global_ignore: paths.global_ignore(),
         },
         (&left, &policy),
         cancel,

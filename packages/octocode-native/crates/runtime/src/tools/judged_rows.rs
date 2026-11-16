@@ -287,15 +287,11 @@ impl<'a> RowSources<'a> {
         }
     }
 
-    /// States on `data` that its text is not verbatim, when a cut of this
-    /// request replaced any of it ([`crate::security::redacted_content_warning`]).
+    /// Marks `data` redacted, when a cut of this request replaced any of its
+    /// text ([`crate::security::mark_redacted`]).
     pub(crate) fn warn(&self, data: &mut Value) {
-        let redacted = self.redacted.take();
-        if redacted > 0 {
-            crate::response::paging::push_warnings(
-                data,
-                [crate::security::redacted_content_warning(redacted)],
-            );
+        if self.redacted.take() > 0 {
+            crate::security::mark_redacted(data);
         }
     }
 }

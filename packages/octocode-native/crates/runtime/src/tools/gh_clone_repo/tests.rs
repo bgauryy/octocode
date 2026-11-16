@@ -4,7 +4,7 @@ use super::*;
 use crate::execution::cancel::{CancellationCheck, NeverCancel};
 use crate::policy::path::{PathPolicy, PathPolicyConfig};
 use crate::tools::gh_git::endpoint::{repository_url, web_root};
-use crate::tools::gh_git::{CloneConfig, GitOutput, GitRunControl, GitRunner, SystemGit};
+use crate::tools::gh_git::{GitConfig, GitOutput, GitRunControl, GitRunner, SystemGit};
 use crate::tools::gh_shared::test_support::{
     mock_endpoint, one_shot_provider, one_shot_provider_at,
 };
@@ -151,7 +151,7 @@ impl GitRunner for RewriteRunner {
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-    ) -> Result<GitOutput, CloneError> {
+    ) -> Result<GitOutput, GitError> {
         self.point_store_at_fixture(request);
         self.system.run(&self.rewrite(request), control)
     }
@@ -160,8 +160,8 @@ impl GitRunner for RewriteRunner {
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-        record: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-    ) -> Result<GitOutput, CloneError> {
+        record: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+    ) -> Result<GitOutput, GitError> {
         self.system
             .run_nul_records(&self.rewrite(request), control, record)
     }
@@ -170,8 +170,8 @@ impl GitRunner for RewriteRunner {
         &self,
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
-        sink: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-    ) -> Result<GitOutput, CloneError> {
+        sink: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+    ) -> Result<GitOutput, GitError> {
         self.system
             .run_stream(&self.rewrite(request), control, sink)
     }
@@ -385,7 +385,7 @@ fn fixture_git_command(directory: &Path, args: &[&str]) -> Command {
 }
 
 /// Clone admission as the runtime builds it for a home of `config`.
-pub(super) fn test_git_limiter(config: &CloneConfig) -> octocode_github::GitLimiter {
+pub(super) fn test_git_limiter(config: &GitConfig) -> octocode_github::GitLimiter {
     octocode_github::GitLimiter::new(
         octocode_github::GitHubBudget::global(),
         config
@@ -396,13 +396,13 @@ pub(super) fn test_git_limiter(config: &CloneConfig) -> octocode_github::GitLimi
 
 fn setup<'a>(
     runner: &'a dyn GitRunner,
-    config: &'a CloneConfig,
+    config: &'a GitConfig,
     endpoint: &'a GitHubEndpoint,
     policy: &'a PathPolicy,
     cancellation: &'a dyn CancellationCheck,
     credential: Option<&'a ResolvedCredential>,
-) -> CloneContext<'a> {
-    CloneContext {
+) -> GitContext<'a> {
+    GitContext {
         config,
         endpoint,
         git_limiter: test_git_limiter(config),
@@ -417,12 +417,12 @@ fn setup<'a>(
 /// [`setup`] owned, as [`run`] takes it: git and cancellation shared.
 fn owned_setup(
     runner: Arc<dyn GitRunner>,
-    config: &CloneConfig,
+    config: &GitConfig,
     endpoint: &GitHubEndpoint,
     policy: &PathPolicy,
     credential: Option<&ResolvedCredential>,
-) -> Arc<CloneSetup> {
-    Arc::new(CloneSetup {
+) -> Arc<GitSetup> {
+    Arc::new(GitSetup {
         config: config.clone(),
         endpoint: endpoint.clone(),
         git_limiter: test_git_limiter(config),
@@ -491,8 +491,8 @@ fn rejects_sparse_path(path: &str) -> bool {
 fn clone_pinned(
     fixture: &Fixture,
     query: &GhCloneRepoQuery,
-    context: &CloneContext<'_>,
-) -> Result<CloneResult, CloneError> {
+    context: &GitContext<'_>,
+) -> Result<CloneResult, GitError> {
     execute_clone(&fixture.pin(query), context)
 }
 

@@ -153,8 +153,12 @@ impl Scope {
         let root = Path::new(&self.root);
         let mut rules = Vec::new();
         for file in files.iter().take(crate::tools::empty_walk::SAMPLE_FILES) {
-            if let Some(rule) = crate::tools::empty_walk::ignore_rule(root, Path::new(file), false)
-                && !rules.contains(&rule)
+            if let Some(rule) = crate::tools::empty_walk::ignore_rule(
+                root,
+                Path::new(file),
+                false,
+                policy.global_ignore(),
+            ) && !rules.contains(&rule)
             {
                 rules.push(rule);
             }

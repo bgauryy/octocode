@@ -125,3 +125,20 @@ fn the_index_limit_follows_the_host() {
         5 * 1024 * 1024
     );
 }
+
+/// A github.com page omits the limit (the tool description states it); an
+/// Enterprise Server page states its own.
+#[test]
+fn coverage_states_the_index_limit_only_where_the_host_differs() {
+    let endpoint = |base: &str| {
+        octocode_github::GitHubEndpoint::new(url::Url::parse(base).expect("url")).expect("endpoint")
+    };
+    assert_eq!(
+        super::super::page_facts::coverage(false, &endpoint("https://api.github.com")),
+        json!({"state":"complete"})
+    );
+    assert_eq!(
+        super::super::page_facts::coverage(true, &endpoint("https://ghe.example.com/api/v3")),
+        json!({"state":"partial","indexLimit":{"maxFileBytes":5*1024*1024}})
+    );
+}

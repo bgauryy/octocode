@@ -10,7 +10,7 @@ impl GitRunner for UnreachableGit {
         &self,
         request: &GitRunRequest<'_>,
         _control: &GitRunControl<'_>,
-    ) -> Result<GitOutput, CloneError> {
+    ) -> Result<GitOutput, GitError> {
         panic!("git must not run here: {request:?}")
     }
 
@@ -18,8 +18,8 @@ impl GitRunner for UnreachableGit {
         &self,
         request: &GitRunRequest<'_>,
         _control: &GitRunControl<'_>,
-        _record: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-    ) -> Result<GitOutput, CloneError> {
+        _record: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+    ) -> Result<GitOutput, GitError> {
         panic!("git must not run here: {request:?}")
     }
 
@@ -27,8 +27,8 @@ impl GitRunner for UnreachableGit {
         &self,
         request: &GitRunRequest<'_>,
         _control: &GitRunControl<'_>,
-        _sink: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-    ) -> Result<GitOutput, CloneError> {
+        _sink: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+    ) -> Result<GitOutput, GitError> {
         panic!("git must not run here: {request:?}")
     }
 }
@@ -42,7 +42,7 @@ impl GitRunner for VersionGit {
         &self,
         request: &GitRunRequest<'_>,
         _control: &GitRunControl<'_>,
-    ) -> Result<GitOutput, CloneError> {
+    ) -> Result<GitOutput, GitError> {
         assert!(
             request.args.iter().any(|argument| argument == "--version"),
             "only the version check may run: {request:?}"
@@ -57,8 +57,8 @@ impl GitRunner for VersionGit {
         &self,
         request: &GitRunRequest<'_>,
         _control: &GitRunControl<'_>,
-        _record: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-    ) -> Result<GitOutput, CloneError> {
+        _record: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+    ) -> Result<GitOutput, GitError> {
         panic!("git must not run here: {request:?}")
     }
 
@@ -66,8 +66,8 @@ impl GitRunner for VersionGit {
         &self,
         request: &GitRunRequest<'_>,
         _control: &GitRunControl<'_>,
-        _sink: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
-    ) -> Result<GitOutput, CloneError> {
+        _sink: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+    ) -> Result<GitOutput, GitError> {
         panic!("git must not run here: {request:?}")
     }
 }
@@ -79,7 +79,7 @@ fn git_below_the_worktree_floor_is_unavailable() {
     let (root, home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let pinned = GhCloneRepoQuery {
         ref_: Some(reference(&"a".repeat(40))),
         ..query()
@@ -107,7 +107,7 @@ fn git_at_or_above_the_worktree_floor_is_available() {
     let (root, home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     for banner in [
         "git version 2.36.0\n",
         "git version 2.55.0 (Apple Git-155)\n",
@@ -134,7 +134,7 @@ fn creates_a_new_configured_home_before_authorizing_the_clone_target() {
     .expect("policy");
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
 
     assert!(!home.exists());
@@ -159,7 +159,7 @@ fn clones_with_only_the_clones_root_allowed_under_an_existing_home() {
     .expect("policy");
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
 
     let result = clone_pinned(&fixture, &query(), &context).expect("clone under the clones root");
@@ -179,7 +179,7 @@ fn denied_home_is_not_created() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = UnreachableGit;
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
 
     let error = execute_clone(&query(), &context).expect_err("deny home");
@@ -217,7 +217,7 @@ fn withheld_home_is_denied_as_path_policy() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = UnreachableGit;
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
 
     let error = execute_clone(&query(), &context).expect_err("withheld home");
@@ -230,7 +230,7 @@ fn missing_branch_endpoint_git_and_portable_paths_fail_closed() {
     let (root, home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let missing_git = SystemGit::new(root.0.join("does-not-exist/git"));
     let context = setup(
         &missing_git,
@@ -292,7 +292,7 @@ fn directories_a_clone_creates_are_owner_only() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let config = CloneConfig::persistent(&home);
+    let config = GitConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let clone = clone_pinned(&fixture, &query(), &context).expect("clone");
     let mut directory = Path::new(&clone.location.path).parent().expect("parent");

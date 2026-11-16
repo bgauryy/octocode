@@ -8,8 +8,7 @@ use super::Layout;
 use super::costs::{PageCosts, RowName};
 use octocode_engine::json_size::string_body_units;
 
-/// Per-file paging, reported only while it routes somewhere: more rows
-/// remain, or the requested match page is past the end. It counts the
+/// Per-file paging, reported only while more rows remain. It counts the
 /// file's hit rows (`matches`, in the layout's row unit): the shown ones from `start`, of every row
 /// the file has, so the rows on later pages are counted, not listed: the
 /// page cursor reaches them.
@@ -17,7 +16,6 @@ pub(crate) fn file_pagination(
     layout: &Layout,
     total: u32,
     (start, end): (usize, usize),
-    match_page: u32,
 ) -> Option<Paging> {
     if layout.list {
         return None;
@@ -25,14 +23,7 @@ pub(crate) fn file_pagination(
     let total = total as usize;
     let (start, end) = (start.min(total), end.min(total));
     let shown = (start, end - start, total);
-    if layout.streamed {
-        return (end < total).then(|| Paging::of(layout.row_unit, shown, true, false));
-    }
-    let total_pages =
-        crate::response::page_windows::count_pages(total, layout.matches_per as usize);
-    let has_more = (match_page as usize) < total_pages;
-    let out_of_range = start >= total && total > 0;
-    (has_more || out_of_range).then(|| Paging::of(layout.row_unit, shown, has_more, out_of_range))
+    (end < total).then(|| Paging::of(layout.row_unit, shown, true, false))
 }
 
 /// Serialized chars of one file entry around its rows and path.

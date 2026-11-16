@@ -57,25 +57,16 @@ async fn summary_and_patch_walks_terminate_without_requiring_each_other() {
         "{}",
         summary.structured_content
     );
-    // The summary needs no continuation: any related[] call is an optional
-    // fresh read of this same commit (its patches), runnable as written.
+    // The summary offers no lead that restates the query for its patches:
+    // the patches read is a `sections` value the tool description names.
     let summary_data = row_data(&summary);
     crate::support::checks::assert_leads_valid(summary_data);
-    for call in summary_data["related"].as_array().into_iter().flatten() {
-        assert_eq!(call["kind"], "related", "{call}");
-        assert_eq!(call["tool"], "ghGetHistoryItem", "{call}");
-        for query in call["input"]["queries"].as_array().into_iter().flatten() {
-            assert_eq!(
-                (&query["operation"], &query["owner"], &query["repo"]),
-                (&json!("commit"), &json!("a"), &json!("b")),
-                "{call}"
-            );
-            assert!(
-                query["ref"] == SHA || query["ref"] == summary_data["commitSha"],
-                "the same commit: {call}"
-            );
-        }
-    }
+    assert!(
+        summary_data["related"].as_array().is_none_or(|calls| calls
+            .iter()
+            .all(|call| { call["input"]["queries"][0]["sections"] != json!(["patches"]) })),
+        "{summary_data}"
+    );
     let input = json!({"queries":[{"operation":"commit","owner":"a","repo":"b","ref":row_data(&summary)["commitSha"],"sections":["patches"]}],"responseChars":4000});
     let walked = walk(&runtime, "ghGetHistoryItem", input, patch_tokens).await;
     assert!(walked.queries.len() > 1, "patch must exercise continuation");

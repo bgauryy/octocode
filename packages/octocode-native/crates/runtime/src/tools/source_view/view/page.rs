@@ -206,15 +206,6 @@ pub(super) fn page_result(
     } else {
         source.redactions_on(page_lines(&pg, ext.source_lines.as_deref(), view.mode))
     };
-    // The page shows a key block the source-wide pass redacted.
-    if source.key_blocks_redacted
-        && source_redactions > 0
-        && pg
-            .text
-            .contains(&crate::security::key_fragment_placeholder())
-    {
-        warnings.push(KEY_BLOCK_NOTE.into());
-    }
     let blanked = source_redactions > 0
         && pg
             .text
@@ -239,7 +230,6 @@ pub(super) fn page_result(
             asked,
             &ext.unmatched,
         ));
-        warn_unmatchable(q, source, ext, &mut warnings);
         warnings.extend(selection_outcome.into_iter().flat_map(|chosen| {
             chosen.disclosure(
                 next.as_ref()

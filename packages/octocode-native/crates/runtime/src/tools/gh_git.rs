@@ -34,14 +34,14 @@ pub(crate) fn stage_root(home: &Path) -> PathBuf {
 }
 
 #[derive(Clone, Debug)]
-pub struct CloneConfig {
+pub struct GitConfig {
     pub home: PathBuf,
     pub persistent: bool,
     /// The runtime's network timeout: git's network steps are sized from it.
     pub network_timeout: Duration,
 }
 
-impl CloneConfig {
+impl GitConfig {
     /// Checkout output and working directories under the configured home.
     pub fn persistent(home: impl Into<PathBuf>) -> Self {
         let defaults = crate::execution::RuntimeLimits::DEFAULT;
@@ -65,8 +65,8 @@ impl CloneConfig {
 /// blocking setup and git work on the blocking pool: the runtime thread
 /// meanwhile sends requests and serves others. [`Self::context`] is the
 /// borrowed view that setup and git work take.
-pub struct CloneSetup {
-    pub config: CloneConfig,
+pub struct GitSetup {
+    pub config: GitConfig,
     pub endpoint: GitHubEndpoint,
     /// Network git admission: the API transport's budget, waits on the row.
     pub git_limiter: octocode_github::GitLimiter,
@@ -77,9 +77,9 @@ pub struct CloneSetup {
     pub git: Arc<dyn GitRunner>,
 }
 
-impl CloneSetup {
-    pub fn context(&self) -> CloneContext<'_> {
-        CloneContext {
+impl GitSetup {
+    pub fn context(&self) -> GitContext<'_> {
+        GitContext {
             config: &self.config,
             endpoint: &self.endpoint,
             git_limiter: self.git_limiter.clone(),
@@ -94,13 +94,13 @@ impl CloneSetup {
     /// `work` on the context, on the blocking pool, keeping the call's notices.
     pub(crate) async fn off_runtime<T: Send + 'static>(
         self: &Arc<Self>,
-        work: impl FnOnce(&CloneContext<'_>) -> Result<T, CloneError> + Send + 'static,
-    ) -> Result<T, CloneError> {
+        work: impl FnOnce(&GitContext<'_>) -> Result<T, GitError> + Send + 'static,
+    ) -> Result<T, GitError> {
         let setup = Arc::clone(self);
         tokio::task::spawn_blocking(octocode_io::notice::carried(move || work(&setup.context())))
             .await
             .map_err(|error| {
-                CloneError::new(
+                GitError::new(
                     ErrorCode::ExecutionFailed,
                     format!("Clone worker failed: {error}"),
                 )
@@ -108,8 +108,8 @@ impl CloneSetup {
     }
 }
 
-pub struct CloneContext<'a> {
-    pub config: &'a CloneConfig,
+pub struct GitContext<'a> {
+    pub config: &'a GitConfig,
     pub endpoint: &'a GitHubEndpoint,
     /// Network git admission: the API transport's budget, waits on the row.
     pub git_limiter: octocode_github::GitLimiter,
@@ -122,7 +122,7 @@ pub struct CloneContext<'a> {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CloneError {
+pub struct GitError {
     pub code: ErrorCode,
     pub message: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -142,7 +142,7 @@ pub struct CloneError {
     pub(crate) http_status: Option<u16>,
 }
 
-impl CloneError {
+impl GitError {
     pub(crate) fn new(code: ErrorCode, message: impl Into<String>) -> Self {
         Self {
             code,
@@ -169,7 +169,7 @@ impl CloneError {
     }
 }
 
-pub(crate) fn control<'a>(context: &'a CloneContext<'a>) -> GitRunControl<'a> {
+pub(crate) fn control<'a>(context: &'a GitContext<'a>) -> GitRunControl<'a> {
     GitRunControl {
         cancellation: context.cancellation,
         deadline: context.deadline,

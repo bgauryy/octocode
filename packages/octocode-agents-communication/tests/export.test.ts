@@ -74,7 +74,7 @@ test('export never overwrites existing destinations, the source, or symlinks', t
  assert.equal(readdirSync(f.workspace).some(name => name.startsWith('.communication-export-')), false);
 });
 
-test('invalid schema and corrupted foreign keys fail without publishing a completed artifact', t => {
+test('corrupted foreign keys fail export without publishing a completed artifact', t => {
  const f = fixture(t), db = new DatabaseSync(f.database), destination = join(f.workspace, 'invalid.sqlite');
  try {
   db.exec('PRAGMA foreign_keys=OFF');
@@ -82,6 +82,12 @@ test('invalid schema and corrupted foreign keys fail without publishing a comple
   assert.throws(() => f.export(destination), /foreign key check failed/);
   assert.equal(existsSync(destination), false);
   assert.equal(readdirSync(f.workspace).some(name => name.startsWith('.communication-export-')), false);
+ } finally { db.close(); }
+});
+
+test('an invalid schema fails export without publishing a completed artifact', t => {
+ const f = fixture(t), db = new DatabaseSync(f.database), destination = join(f.workspace, 'invalid.sqlite');
+ try {
   db.exec('CREATE TABLE unexpected(value TEXT)');
   assert.throws(() => f.export(destination), /Incompatible/);
   assert.equal(existsSync(destination), false);

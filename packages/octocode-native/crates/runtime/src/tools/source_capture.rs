@@ -303,9 +303,14 @@ pub(super) fn prepare_source(
         )
     })?;
     // The reader's own row passes the gate every direct call passes.
+    let policy = if id.is_local() {
+        InputPolicy::LocalQuery
+    } else {
+        InputPolicy::Query
+    };
     dispatcher
         .security()
-        .check_input(prepared, InputPolicy::Query)
+        .check_input(prepared, policy)
         .map_err(|_| {
             ClassificationError::new(
                 ErrorCode::SecurityValidationFailed,

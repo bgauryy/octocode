@@ -1,6 +1,7 @@
 //! The client side of a warm call: resolve the server for this call, start
 //! it when none answers, send the request and print the reply.
 
+use super::daemon::{remove_if_ours, socket_identity};
 use super::frames::{ALIVE, MCP, MCP_ERROR, PREWARM, PROGRESS};
 use super::identity::{
     call_identity, exe_identity, process_identity, served_env, server_key, workspace_of,
@@ -52,6 +53,10 @@ pub(super) enum Failed {
     /// The server closed, refused, or sent no reply line: the call has not
     /// run here, so it runs in process.
     Fallback(String),
+    /// The server accepted the request and then sent nothing, not even a
+    /// heartbeat, for this long: it is stopped or hung. The call runs in
+    /// process, and the server is left behind ([`discard_stalled`]).
+    Stalled(std::time::Duration),
     /// No reply within the deadline.
     Deadline,
     /// Ctrl-C: the server was told to cancel, then drained or abandoned.
@@ -86,6 +91,7 @@ pub(in crate::cli) async fn call(
             return None;
         }
     };
+    let bound = socket_identity(&target.socket);
     let request = Request {
         tool,
         input,
@@ -137,6 +143,14 @@ pub(in crate::cli) async fn call(
             eprintln!("# octocode: warm server failed ({reason}); running {tool} in process.");
             return None;
         }
+        Err(Failed::Stalled(silence)) => {
+            discard_stalled(&target.socket, bound);
+            eprintln!(
+                "# octocode: warm server failed ({}); running {tool} in process.",
+                stalled_reason(silence)
+            );
+            return None;
+        }
         Err(Failed::Interrupted(_)) => return Some(130),
         Err(Failed::Deadline) => (
             Printed::finish(
@@ -163,6 +177,24 @@ pub(in crate::cli) async fn call(
         eprintln!("{}", octocode_io::notice::as_note(&notice));
     }
     Some(printed.print(mode))
+}
+
+/// Leave a server that went silent behind: its socket is unlinked, so the
+/// next call finds nothing there and starts a fresh server instead of
+/// waiting out the same silence again. The process is not touched (it may
+/// be stopped, not dead, and is not this client's to kill); a successor that
+/// already rebound the path keeps it ([`remove_if_ours`]). `bound` is the
+/// socket's identity taken when this client connected.
+pub(super) fn discard_stalled(socket: &Path, bound: Option<(u64, u64)>) {
+    remove_if_ours(socket, bound);
+}
+
+/// The reason a stalled server's call runs in process.
+fn stalled_reason(silence: std::time::Duration) -> String {
+    format!(
+        "it sent nothing for {} s; its socket was dropped, so the next call starts a new server",
+        silence.as_secs()
+    )
 }
 
 /// A resolved way to reach the warm server of one process: where it is,
@@ -244,6 +276,7 @@ impl Remote {
             Err(Unstarted::Cancelled) => return Warm::InProcess(None),
         };
         let target = &self.target;
+        let bound = socket_identity(&target.socket);
         let request = Request {
             tool,
             input,
@@ -285,6 +318,13 @@ impl Remote {
             Err(Failed::Fallback(reason)) => Warm::InProcess(Some(format!(
                 "warm server failed ({reason}); running {tool} in process"
             ))),
+            Err(Failed::Stalled(silence)) => {
+                discard_stalled(&target.socket, bound);
+                Warm::InProcess(Some(format!(
+                    "warm server failed ({}); running {tool} in process",
+                    stalled_reason(silence)
+                )))
+            }
             // No budget is set, so no deadline passes; the reply wait is
             // bounded by the server's liveness alone.
             Err(Failed::Deadline) => Warm::InProcess(Some(format!(
@@ -310,6 +350,7 @@ impl Remote {
             Err(Unstarted::Cancelled) => return Err("cancelled".into()),
         };
         let target = &self.target;
+        let bound = socket_identity(&target.socket);
         let line = request_line(&json!({
             PREWARM: true,
             "surface": Surface::Mcp.as_str(),
@@ -330,7 +371,13 @@ impl Remote {
         )
         .await
         .map(|_| ())
-        .map_err(|failed| format!("{failed:?}"))
+        .map_err(|failed| {
+            if let Failed::Stalled(silence) = failed {
+                discard_stalled(&target.socket, bound);
+                return stalled_reason(silence);
+            }
+            format!("{failed:?}")
+        })
     }
 }
 
@@ -550,9 +597,7 @@ pub(super) async fn exchange_value(
             let next = read_line_bounded(&mut reader, MAX_RESPONSE_BYTES);
             let line = tokio::time::timeout_at(tokio::time::Instant::now() + silence, next)
                 .await
-                .map_err(|_| {
-                    Failed::Fallback(format!("it sent nothing for {} s", silence.as_secs()))
-                })?
+                .map_err(|_| Failed::Stalled(silence))?
                 .ok_or_else(|| {
                     fallback("it closed without a reply, or the reply was over the size limit")
                 })?;

@@ -10,9 +10,9 @@ pub(crate) mod declarations;
 pub(crate) mod editor_lock;
 pub(crate) mod empty_walk;
 pub(crate) mod gh_clone_repo;
-pub(crate) mod gh_git;
 pub(crate) mod gh_get_file_content;
 pub(crate) mod gh_get_history_item;
+pub(crate) mod gh_git;
 pub(crate) mod gh_search_code;
 pub(crate) mod gh_search_history;
 pub(crate) mod gh_search_repo;
@@ -64,64 +64,76 @@ pub(crate) fn display_name(path: &std::path::Path) -> String {
 pub(crate) fn pruned_walk(
     root: &std::path::Path,
     extra: impl IntoIterator<Item = String>,
+    global: octocode_engine::search::walk::GlobalIgnore,
 ) -> ignore::WalkBuilder {
-    pruned_walk_with(root, extra, octocode_engine::types::IgnorePolicy::default())
+    pruned_walk_under(
+        root,
+        true,
+        extra,
+        (octocode_engine::types::IgnorePolicy::default(), global),
+    )
 }
 
-/// [`pruned_walk`] under an explicit ignore `policy`; the default prunes
-/// still apply, so `node_modules`, build output and credential stores stay
-/// out whatever the policy admits.
-pub(crate) fn pruned_walk_with(
-    root: &std::path::Path,
-    extra: impl IntoIterator<Item = String>,
-    policy: octocode_engine::types::IgnorePolicy,
-) -> ignore::WalkBuilder {
-    pruned_walk_under(root, true, extra, policy)
-}
-
-/// [`pruned_walk_with`] with the default prune lifted when `defaults` is
-/// false; the credential stores stay out.
+/// [`pruned_walk`] with the default prune lifted when `defaults` is false
+/// (the credential stores stay out) and under an explicit ignore policy; the
+/// default prunes still apply, so `node_modules`, build output and credential
+/// stores stay out whatever the policy admits.
 pub(crate) fn pruned_walk_under(
     root: &std::path::Path,
     defaults: bool,
     extra: impl IntoIterator<Item = String>,
-    policy: octocode_engine::types::IgnorePolicy,
+    rules: (
+        octocode_engine::types::IgnorePolicy,
+        octocode_engine::search::walk::GlobalIgnore,
+    ),
 ) -> ignore::WalkBuilder {
-    pruned_walk_keeping(root, defaults, extra, policy, |_| true)
+    pruned_walk_in(root, defaults, extra, rules, |_| true)
 }
 
 /// [`pruned_walk_under`] that also enters only the entries `keep` admits (a
-/// walk has one entry filter, so the prune and a tool's own rule compose
-/// here): a tool's rule such as "nested packages are their own" never walks
-/// around the prune.
-pub(crate) fn pruned_walk_keeping(
+/// walk has one entry filter, so the prune, the call's global ignore rules
+/// (carried by its [`PathPolicy`], asked per repository) and a tool's own
+/// rule compose here): a tool's rule such as "nested packages are their own"
+/// never walks around the prune.
+///
+/// [`PathPolicy`]: crate::policy::path::PathPolicy
+pub(crate) fn pruned_walk_in(
     root: &std::path::Path,
     defaults: bool,
     extra: impl IntoIterator<Item = String>,
-    policy: octocode_engine::types::IgnorePolicy,
+    (policy, global): (
+        octocode_engine::types::IgnorePolicy,
+        octocode_engine::search::walk::GlobalIgnore,
+    ),
     keep: impl Fn(&ignore::DirEntry) -> bool + Send + Sync + 'static,
 ) -> ignore::WalkBuilder {
-    let prune = crate::policy::prune::OwnWalk::with_defaults(root, defaults, extra);
-    let mut walk = octocode_engine::search::walk::walk_builder(root, policy, None);
+    let prune = crate::policy::prune::OwnWalk::with_defaults(root, defaults, extra, global);
+    let (mut walk, global) =
+        octocode_engine::search::walk::walk_builder_under(root, policy, global, None);
     walk.filter_entry(move |entry| {
         !prune.prunes(
             entry.path(),
             entry.file_type().is_some_and(|kind| kind.is_dir()),
-        ) && keep(entry)
+        ) && !global.hides_entry(entry)
+            && keep(entry)
     });
     walk
 }
 
-/// The walk of one Cargo package's own files: [`pruned_walk`] that does not
-/// enter a nested package (a directory under `package` holding its own
+/// The walk of one Cargo package's own files: [`pruned_walk`] under no
+/// global ignore rules (what a package compiles is no user's choice) that
+/// does not enter a nested package (a directory under `package` holding its own
 /// `Cargo.toml` is a package of its own).
 pub(crate) fn package_walk(package: &std::path::Path) -> ignore::WalkBuilder {
     let root = package.to_path_buf();
-    pruned_walk_keeping(
+    pruned_walk_in(
         package,
         true,
         [],
-        octocode_engine::types::IgnorePolicy::default(),
+        (
+            octocode_engine::types::IgnorePolicy::default(),
+            octocode_engine::search::walk::GlobalIgnore::NONE,
+        ),
         move |entry| {
             entry.path() == root
                 || !entry.file_type().is_some_and(|kind| kind.is_dir())

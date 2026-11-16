@@ -480,10 +480,9 @@ pub(crate) enum RecoveryLead {
     Saved,
 }
 
-/// The recovery lead a `next` channel name is, with or without its
-/// numbered suffix (`unfilteredUnknown2`); `None` for any other channel.
+/// The recovery lead a `next` channel name is; `None` for any other channel.
 pub(crate) fn recovery_lead(channel: &str) -> Option<RecoveryLead> {
-    match channel.trim_end_matches(|c: char| c.is_ascii_digit()) {
+    match channel {
         "unfiltered" => Some(RecoveryLead::Whole),
         "unfilteredUnknown" | "nextCandidatePage" => Some(RecoveryLead::Saved),
         _ => None,

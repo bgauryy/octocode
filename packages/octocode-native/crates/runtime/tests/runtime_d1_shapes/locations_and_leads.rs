@@ -159,7 +159,7 @@ async fn location_rows_are_objects_named_like_tool_inputs() {
     assert_eq!(
         matched.data()["files"][0]["matches"][0],
         json!({
-            "line":2,"column":5,"value":"let a = 1;","sourceDigest":SOURCE_DIGEST,
+            "line":2,"value":"let a = 1;","sourceDigest":SOURCE_DIGEST,
             "sourceRange":{"startByte":19,"endByte":29},
             "sourceOrigin":copied_origin(match_unit,match_snapshot,19,29)
         }),

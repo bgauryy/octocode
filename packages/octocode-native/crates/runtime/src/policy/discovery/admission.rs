@@ -73,7 +73,7 @@ pub(crate) struct WalkRules<'r> {
 /// The one admission of a local walk (`localSearch`, `structureSearch`,
 /// `astSearch` symbols and match): the cached path-policy decision
 /// ([`DiscoveryWalk`]), links never followed, the rooted default prune with
-/// include lifting ([`crate::policy::prune::rooted`]), the generated-file excludes,
+/// include lifting ([`crate::policy::prune::rooted_under`]), the generated-file excludes,
 /// and one skip ledger ([`WalkSkips`]) of what it left out. A tool supplies
 /// only its own relevance: which denied entries are worth disclosing.
 ///
@@ -111,7 +111,12 @@ impl<'a> WalkAdmission<'a> {
         rules: WalkRules<'_>,
     ) -> Self {
         Self {
-            prune: crate::policy::prune::rooted(root, rules.defaults, rules.include),
+            prune: crate::policy::prune::rooted_under(
+                root,
+                rules.defaults,
+                rules.include,
+                discovery.global_ignore(),
+            ),
             generated: rules.defaults && rules.generated,
             include: rules.include.to_vec(),
             engine_prunes: rules.engine_prunes,

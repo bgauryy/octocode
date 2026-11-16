@@ -5,8 +5,9 @@ use super::mention_tokens::{BARE_CODE, Found, QUALIFIED, STEMS, WORDS};
 use super::*;
 use crate::tools::ast_graph::classify::VENDORED_DIRS;
 use crate::tools::page_memo::{
-    PageMemo, Proven, Watch, directory_ignore_inputs, repository_markers,
+    PageMemo, Proven, Watch, directory_ignore_inputs_with, repository_markers,
 };
+use octocode_engine::search::walk::GlobalIgnore;
 use octocode_engine::stamp::{Link, Proof};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -78,11 +79,20 @@ struct Listed {
 
 /// The text the scan may read under `root`, in path order, and the directories
 /// the walk entered.
-fn listed_files(root: &std::path::Path) -> (Vec<Listed>, Vec<std::path::PathBuf>) {
+fn listed_files(
+    root: &std::path::Path,
+    global: GlobalIgnore,
+) -> (Vec<Listed>, Vec<std::path::PathBuf>) {
     let (mut files, mut dirs) = (Vec::new(), Vec::new());
-    for entry in crate::tools::pruned_walk(root, skipped_dirs())
-        .build()
-        .flatten()
+    for entry in crate::tools::pruned_walk_in(
+        root,
+        true,
+        skipped_dirs(),
+        (octocode_engine::types::IgnorePolicy::default(), global),
+        |_| true,
+    )
+    .build()
+    .flatten()
     {
         if entry.file_type().is_some_and(|kind| kind.is_dir()) {
             dirs.push(entry.into_path());
@@ -108,6 +118,7 @@ fn listed_files(root: &std::path::Path) -> (Vec<Listed>, Vec<std::path::PathBuf>
 /// ignore file no stamp can watch.
 fn listing_proof(
     root: &std::path::Path,
+    global: GlobalIgnore,
     files: &[Listed],
     dirs: &[std::path::PathBuf],
     started: std::time::SystemTime,
@@ -117,9 +128,9 @@ fn listing_proof(
         .map(|file| file.path.clone())
         .chain(dirs.iter().cloned())
         .collect::<Vec<_>>();
-    let mut rules = octocode_engine::search::walk::external_ignore_inputs(root);
+    let mut rules = octocode_engine::search::walk::external_ignore_inputs_with(root, global);
     for dir in dirs {
-        let inputs = directory_ignore_inputs(dir, root, |_| true);
+        let inputs = directory_ignore_inputs_with(dir, root, global, |_| true);
         if inputs.untracked {
             return None;
         }
@@ -142,7 +153,12 @@ pub(super) fn scan_mentions(
     names: &BTreeSet<String>,
     stopped: &(dyn Fn() -> bool + Sync),
 ) -> Option<MentionHits> {
-    scan_listed(&listed_files(root).0, stems, names, stopped)
+    scan_listed(
+        &listed_files(root, GlobalIgnore::NONE).0,
+        stems,
+        names,
+        stopped,
+    )
 }
 
 /// [`scan_listed`] of `root`, kept across calls while what it read stands
@@ -151,6 +167,7 @@ pub(super) fn scan_mentions(
 /// `None` when `stopped` ended the scan, which keeps nothing.
 pub(super) fn memoized_mentions(
     root: &std::path::Path,
+    global: GlobalIgnore,
     stems: &BTreeSet<String>,
     names: &BTreeSet<String>,
     stopped: &(dyn Fn() -> bool + Sync),
@@ -158,6 +175,8 @@ pub(super) fn memoized_mentions(
     static MENTIONS: PageMemo<Proven<MentionHits>> = PageMemo::new();
     let mut key = octocode_engine::digest::HashWriter::default();
     key.update(root.as_os_str().as_encoded_bytes());
+    // The call's own global file shapes the listing.
+    key.update(format!("{:?}", global.file()).as_bytes());
     for set in [stems, names] {
         key.update([0]);
         for item in set {
@@ -170,9 +189,9 @@ pub(super) fn memoized_mentions(
         return Some(kept);
     }
     let started = octocode_engine::stamp::settle_clock();
-    let (files, dirs) = listed_files(root);
+    let (files, dirs) = listed_files(root, global);
     let mut scanned = scan_listed(&files, stems, names, stopped)?;
-    scanned.proof = listing_proof(root, &files, &dirs, started);
+    scanned.proof = listing_proof(root, global, &files, &dirs, started);
     let scanned = Arc::new(scanned);
     if let Some(proof) = &scanned.proof {
         let bytes = scanned.weight() + proof.weight();

@@ -169,7 +169,15 @@ async fn issue_closing_references_past_the_read_limit_are_disclosed() {
         Some(25),
         "{data}"
     );
-    assert_eq!(data["isPartial"], true, "{data}");
+    // A partial page states it once: partialReasons or a floor countScope, no isPartial.
+    assert!(data.get("isPartial").is_none(), "{data}");
+    assert!(
+        !data["partialReasons"].is_null()
+            || data["pagination"]["countScope"]
+                .as_str()
+                .is_some_and(|scope| scope != "complete"),
+        "{data}"
+    );
     assert_eq!(data["terminalLimit"], true, "{data}");
     assert_eq!(
         data["partialReasons"],
@@ -267,7 +275,15 @@ async fn incomplete_code_search_page_discloses_partial_coverage() {
     .await
     .expect("code search");
     let data = row_data(&outcome);
-    assert_eq!(data["isPartial"], true, "{data}");
+    // A partial page states it once: partialReasons or a floor countScope, no isPartial.
+    assert!(data.get("isPartial").is_none(), "{data}");
+    assert!(
+        !data["partialReasons"].is_null()
+            || data["pagination"]["countScope"]
+                .as_str()
+                .is_some_and(|scope| scope != "complete"),
+        "{data}"
+    );
     assert_eq!(
         data["partialReasons"],
         json!(["providerIncompleteResults"]),

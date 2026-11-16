@@ -129,7 +129,7 @@ pub(super) struct Extracted<'a> {
 /// git-tracked `build/` is scanned, as every local tool walks it) unless
 /// `defaultExcludes:false`, the ignore policy `includeIgnored` and
 /// `includeHidden` name; the credential stores are the path policy's.
-fn scan_options(scan: &GraphScan, root: &Path) -> GraphFactsScanOptions {
+fn scan_options(scan: &GraphScan, root: &Path, paths: &PathPolicy) -> GraphFactsScanOptions {
     GraphFactsScanOptions {
         path: root.to_string_lossy().into_owned(),
         default_exclude_dir: Some(crate::policy::prune::walk_names(
@@ -149,6 +149,7 @@ fn scan_options(scan: &GraphScan, root: &Path) -> GraphFactsScanOptions {
         language_globs: (!scan.language_globs.is_empty())
             .then(|| crate::tools::ast_rule::language_globs(&scan.language_globs)),
         ignore: scan.walk.ignore,
+        global_ignore: paths.global_ignore(),
     }
 }
 
@@ -181,12 +182,18 @@ fn declined(
 
 /// Name the files the map left out (past the per-file budget, or failing
 /// their secret scan) among the scan's gaps, sorted with them, and count
-/// every gap as a skipped file.
+/// every gap as a skipped file. `unreadable` entries the walk could not
+/// read (a directory it may not enter: it counts them without naming them)
+/// count as skipped too, by their number (the larger of the walk's two
+/// counts, which can tally one entry twice), so the snapshot's answers are
+/// partial.
 fn name_gaps(
     facts: &mut GraphFactsMappedScan<Kept>,
     gaps: Vec<octocode_engine::types::GraphFactsScanDiagnostic>,
+    unreadable: u32,
 ) {
     facts.skipped.extend(gaps);
+
     facts
         .skipped
         .sort_unstable_by(|left, right| left.relative_path.cmp(&right.relative_path));
@@ -198,7 +205,8 @@ fn name_gaps(
         .map(|skip| skip.relative_path.as_str())
         .collect::<Vec<_>>();
     files.dedup();
-    facts.files_skipped = octocode_engine::num::saturating_u32(files.len());
+    facts.files_skipped =
+        octocode_engine::num::saturating_u32(files.len()).saturating_add(unreadable);
 }
 
 /// One scanned file's turn: capture its source, keep its facts (in memory or
@@ -323,7 +331,7 @@ pub(super) fn extract<'a>(
     // turn, which may end extraction before the request does.
     let request = turn.request();
     let cancel: &dyn CancellationCheck = turn;
-    let options = scan_options(scan, root);
+    let options = scan_options(scan, root, paths);
     let admission_of_walk = || super::super::walk_scope::build_admission(paths, root);
     let discovery = admission_of_walk();
     let admit = |path: &Path, file_type| discovery.admit(path, file_type, |_| true);
@@ -363,6 +371,7 @@ pub(super) fn extract<'a>(
     )
     .map_err(walk_error)?
     .entries;
+    let unreadable = walk.permission_denied.max(walk.skipped);
     turn.record_walk(walk.entries.len());
     let job = checkpoint::Job::open(scan, root, &walk.entries, paths, registry, request)?;
     let parsing = crate::tools::ast_graph::progress::Parsing::new(walk.entries.len());
@@ -426,6 +435,7 @@ pub(super) fn extract<'a>(
     name_gaps(
         &mut facts,
         gaps.0.into_inner().unwrap_or_else(PoisonError::into_inner),
+        unreadable,
     );
     let reused_files = reused_files.load(std::sync::atomic::Ordering::Relaxed);
     Ok(Extracted {

@@ -151,8 +151,11 @@ fn builtin_sanitization_result_is_lossless_through_policy_wrapper() {
         ),
     ];
     for (content, path) in corpus {
-        let expected = octocode_engine::security::sanitizer::sanitize_content(&content)
-            .expect("portable sanitizer");
+        let expected = octocode_engine::security::sanitizer::sanitize_content_in(
+            &content,
+            crate::security::content::value_form(path),
+        )
+        .expect("portable sanitizer");
         let actual = policy.sanitize_text(&content, path);
         assert_eq!(actual.content, expected.content);
         assert_eq!(actual.has_secrets, expected.has_secrets);
