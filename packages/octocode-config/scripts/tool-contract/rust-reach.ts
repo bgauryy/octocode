@@ -132,20 +132,60 @@ export function classify(blankedItem: string): Item {
 
 const identifiers = (text: string): Set<string> => new Set(text.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []);
 
+/** Each Rust source under `cratesDir` (`crates/<crate>/**\/*.rs`), with literals and comments blanked. */
+function* rustSources(cratesDir: string): Generator<{ path: string; text: string }> {
+  for (const entry of readdirSync(cratesDir, { withFileTypes: true })) {
+    const path = join(cratesDir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name !== 'target' && entry.name !== 'node_modules') yield* rustSources(path);
+    } else if (entry.name.endsWith('.rs')) {
+      yield { path, text: blankLiterals(readFileSync(path, 'utf8')) };
+    }
+  }
+}
+
 /** Every identifier in the native crates' Rust sources (`crates/<crate>/**\/*.rs`). */
 export function nativeIdentifiers(cratesDir: string): Set<string> {
   const names = new Set<string>();
-  const walk = (dir: string): void => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const path = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name !== 'target' && entry.name !== 'node_modules') walk(path);
-      } else if (entry.name.endsWith('.rs')) {
-        for (const name of identifiers(blankLiterals(readFileSync(path, 'utf8')))) names.add(name);
+  for (const { text } of rustSources(cratesDir)) for (const name of identifiers(text)) names.add(name);
+  return names;
+}
+
+/**
+ * The generated type names native source reaches through the `krate` path
+ * (`krate::Name`, `krate::{A, B::C}`): the first segment of each path.
+ */
+export function namesThrough(cratesDir: string, krate: string): Set<string> {
+  const names = new Set<string>();
+  const prefix = new RegExp(`\\b${krate}\\s*::\\s*`, 'g');
+  const glob = (path: string): Error => new Error(`${path}: name the types of ${krate} instead of importing *`);
+  for (const { path, text } of rustSources(cratesDir)) {
+    for (const match of text.matchAll(prefix)) {
+      const rest = text.slice(match.index + match[0].length);
+      if (rest.startsWith('*')) throw glob(path);
+      if (!rest.startsWith('{')) {
+        const name = /^\w+/.exec(rest)?.[0];
+        if (name !== undefined) names.add(name);
+        continue;
+      }
+      // A use tree: the first segment of each top-level path in the braces.
+      let depth = 0;
+      let segment = true;
+      for (let i = 0; i < rest.length; i += 1) {
+        const c = rest[i] ?? '';
+        if (c === '{') depth += 1;
+        else if (c === '}' && --depth === 0) break;
+        else if (c === ',' && depth === 1) segment = true;
+        else if (segment && depth === 1 && c === '*') throw glob(path);
+        else if (segment && depth === 1 && /\w/.test(c)) {
+          const name = /^\w+/.exec(rest.slice(i))?.[0] ?? '';
+          names.add(name);
+          i += name.length - 1;
+          segment = false;
+        }
       }
     }
-  };
-  walk(cratesDir);
+  }
   return names;
 }
 
@@ -201,6 +241,51 @@ export function keepReachable(generated: string, roots: Set<string>): string {
       if (!keeps(identifiers(inner.slice(from, to)))) dropped.push([open + from, open + to]);
     }
   });
+  let out = '';
+  let at = 0;
+  for (const [start, end] of dropped.sort((a, b) => a[0] - b[0])) {
+    out += generated.slice(at, start);
+    at = end;
+  }
+  return out + generated.slice(at);
+}
+
+/**
+ * `generated` without what `other` (a `keepReachable` slice of it) declares:
+ * its types, the impls only they own, the `defaults` functions only they use,
+ * and the `error` module, which the crate takes from `other`'s crate.
+ */
+export function withoutTypesOf(generated: string, other: string): string {
+  const declared = (text: string): Set<string> => {
+    const blank = blankLiterals(text);
+    return new Set(itemRanges(blank).flatMap(([start, end]) => {
+      const item = classify(blank.slice(start, end));
+      return item.kind === 'type' ? [item.name] : [];
+    }));
+  };
+  const moved = declared(other);
+  const blanked = blankLiterals(generated);
+  const types = declared(generated);
+  const movedAll = (names: Iterable<string>): boolean => {
+    const named = [...names].filter((name) => types.has(name));
+    return named.length > 0 && named.every((name) => moved.has(name));
+  };
+  const dropped: Array<[number, number]> = [];
+  for (const [start, end] of itemRanges(blanked)) {
+    const item = classify(blanked.slice(start, end));
+    if (item.kind === 'type') {
+      if (moved.has(item.name)) dropped.push([start, end]);
+    } else if (item.kind === 'impl') {
+      if (movedAll(identifiers(item.header))) dropped.push([start, end]);
+    } else if (item.name === 'error') {
+      dropped.push([start, end]);
+    } else {
+      const open = blanked.indexOf('{', start) + 1;
+      const inner = blanked.slice(open, end - 1);
+      for (const [from, to] of itemRanges(inner))
+        if (movedAll(identifiers(inner.slice(from, to)))) dropped.push([open + from, open + to]);
+    }
+  }
   let out = '';
   let at = 0;
   for (const [start, end] of dropped.sort((a, b) => a[0] - b[0])) {

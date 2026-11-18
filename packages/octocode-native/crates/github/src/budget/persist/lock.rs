@@ -57,7 +57,7 @@ pub(super) async fn lock_file(
                 file = busy;
                 waits
                     .timed(
-                        octocode_contract_types::ClientWaitKind::Spacing,
+                        octocode_contract_base::ClientWaitKind::Spacing,
                         pause(octocode_io::lock::LOCK_POLL, deadline, cancellation),
                     )
                     .await?;

@@ -4,7 +4,9 @@
 //! One literal prescan ([`prescan`]) picks the patterns a text can match, so a
 //! text that holds none of their literals runs no regex. Each candidate then
 //! runs over the whole text once, in linear time, however long the text is:
-//! no window edge can cut a value. The matched secrets of every pattern are
+//! no window edge can cut a value. It runs in the cheapest compiled form that
+//! answers exactly for the text, through the searching thread's own handle
+//! ([`regex_forms`]). The matched secrets of every pattern are
 //! joined into one ordered set of byte ranges ([`secret_spans`]), and each
 //! range becomes its pattern's placeholder; the text around it stays byte for
 //! byte.
@@ -30,7 +32,7 @@ pub use long_line::{LONG_LINE_BYTES, LongLine};
 pub(crate) use request::{holds_credential_as_request, literal_form};
 
 use prescan::prescan_candidates;
-use regex_forms::pattern_regex_for;
+use regex_forms::{Classes, with_handles};
 
 /// The largest source a read holds whole.
 pub const MAX_CONTENT_SIZE: usize = 10 * 1024 * 1024;
@@ -90,16 +92,57 @@ fn bare_groups(regex: &regex::Regex) -> Vec<usize> {
         .collect()
 }
 
-/// Capture group name marking a branch whose value only stands for a secret
-/// (an interpolation, a template placeholder): a match through it hides
-/// nothing.
+/// Capture group name (or its prefix, one per branch of an alternation)
+/// marking a branch whose value only stands for a secret (an interpolation,
+/// a template placeholder): a match through it hides nothing.
 const TEMPLATE_GROUP: &str = "template";
+
+/// The capture groups of `regex` that mark a template branch.
+fn template_groups(regex: &regex::Regex) -> Vec<usize> {
+    regex
+        .capture_names()
+        .enumerate()
+        .filter(|(_, name)| name.is_some_and(|name| name.starts_with(TEMPLATE_GROUP)))
+        .map(|(index, _)| index)
+        .collect()
+}
+
+/// The capture groups a pattern's matches are read by.
+struct Groups {
+    /// [`secret_groups`].
+    secret: Vec<usize>,
+    /// [`bare_groups`].
+    bare: Vec<usize>,
+    /// [`template_groups`].
+    template: Vec<usize>,
+}
+
+/// Each pattern's [`Groups`], read once: both compiled forms of a pattern
+/// differ only in their classes, so they number their groups alike.
+static GROUPS: LazyLock<Vec<std::sync::OnceLock<Groups>>> = LazyLock::new(|| {
+    (0..PATTERNS.len())
+        .map(|_| std::sync::OnceLock::new())
+        .collect()
+});
+
+/// The [`Groups`] of pattern `idx`, compiled as `regex`.
+fn groups_of(idx: usize, regex: &regex::Regex) -> &'static Groups {
+    GROUPS[idx].get_or_init(|| Groups {
+        secret: secret_groups(regex),
+        bare: bare_groups(regex),
+        template: template_groups(regex),
+    })
+}
 
 /// The secret of one match of a pattern whose secret groups are `groups`:
 /// the first of them that took part, else the whole match; none when the
 /// match went through its `template` branch.
-fn secret_of<'h>(captures: &regex::Captures<'h>, groups: &[usize]) -> Option<regex::Match<'h>> {
-    if captures.name(TEMPLATE_GROUP).is_some() {
+fn secret_of<'h>(
+    captures: &regex::Captures<'h>,
+    groups: &[usize],
+    templates: &[usize],
+) -> Option<regex::Match<'h>> {
+    if templates.iter().any(|&group| captures.get(group).is_some()) {
         return None;
     }
     groups
@@ -147,35 +190,39 @@ pub fn secret_spans(text: &str) -> Vec<SecretSpan> {
 #[must_use]
 pub fn secret_spans_in(text: &str, form: ValueForm) -> Vec<SecretSpan> {
     let mut found: Vec<SecretSpan> = Vec::new();
-    for idx in prescan_candidates(text).iter() {
-        let regex = pattern_regex_for(idx, text);
-        let groups = secret_groups(regex);
-        let mut keep = |secret: regex::Match<'_>| {
-            if !secret.is_empty() && !is_hidden(secret.as_str()) {
-                found.push(SecretSpan {
-                    range: secret.range(),
-                    pattern: idx,
-                });
-            }
-        };
-        if groups.is_empty() {
-            regex.find_iter(text).for_each(&mut keep);
-        } else {
-            let bare = if form == ValueForm::Code {
-                bare_groups(regex)
-            } else {
-                Vec::new()
-            };
-            for captures in regex.captures_iter(text) {
-                if bare.iter().any(|&group| captures.get(group).is_some()) {
-                    continue;
+    let classes = Classes::of(text);
+    with_handles(|handles| {
+        for idx in prescan_candidates(text).iter() {
+            let regex = handles.regex(classes, idx);
+            let Groups {
+                secret: groups,
+                bare,
+                template: templates,
+            } = groups_of(idx, regex);
+            let mut keep = |secret: regex::Match<'_>| {
+                if !secret.is_empty() && !is_hidden(secret.as_str()) {
+                    found.push(SecretSpan {
+                        range: secret.range(),
+                        pattern: idx,
+                    });
                 }
-                if let Some(secret) = secret_of(&captures, &groups) {
-                    keep(secret);
+            };
+            if groups.is_empty() {
+                regex.find_iter(text).for_each(&mut keep);
+            } else {
+                // A bare value is a value only in a config file.
+                let bare: &[usize] = if form == ValueForm::Code { bare } else { &[] };
+                for captures in regex.captures_iter(text) {
+                    if bare.iter().any(|&group| captures.get(group).is_some()) {
+                        continue;
+                    }
+                    if let Some(secret) = secret_of(&captures, groups, templates) {
+                        keep(secret);
+                    }
                 }
             }
         }
-    }
+    });
     found.sort_by_key(|span| (span.range.start, span.pattern));
     let mut joined: Vec<SecretSpan> = Vec::with_capacity(found.len());
     for span in found {

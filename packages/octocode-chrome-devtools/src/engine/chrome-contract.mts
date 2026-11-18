@@ -3,6 +3,7 @@ export {
   chromeGuideTopics,
   chromeOutputLimits,
   chromePlanOperations,
+  chromeHistoryDirections,
   chromeExtractionFields,
   chromePlanExamples,
   chromeInputExamples,

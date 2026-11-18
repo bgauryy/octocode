@@ -3,6 +3,7 @@
 //! no fallback: the row stays an error.
 
 use crate::support::{Workspace, call, checks, row_data};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -95,7 +96,9 @@ async fn history_listing_and_clone_lead_to_the_default_branch() {
     let server = repository("master", "main").await;
     Mock::given(method("GET"))
         .and(path_regex("^/api/v3/repos/a/b/commits$"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
+        .respond_with(
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
+        )
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -106,11 +109,18 @@ async fn history_listing_and_clone_lead_to_the_default_branch() {
     for (tool, query) in [
         (
             "ghSearchHistory",
-            json!({"operation":"commit","owner":"a","repo":"b","ref":"main"}),
+            json_fixture(
+                r#"{
+                    "operation": "commit",
+                    "owner": "a",
+                    "repo": "b",
+                    "ref": "main"
+                }"#,
+            ),
         ),
         (
             "ghCloneRepo",
-            json!({"owner":"a","repo":"b","ref":"main","paths":["src"]}),
+            json_fixture(r#"{"owner": "a", "repo": "b", "ref": "main", "paths": ["src"]}"#),
         ),
     ] {
         let outcome = call(&runtime, tool, query.clone())
@@ -148,10 +158,9 @@ async fn without_a_different_default_branch_the_error_is_unchanged() {
     let unreadable = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/main"))
-        .respond_with(
-            ResponseTemplate::new(422)
-                .set_body_json(json!({"message":"No commit found for SHA: main"})),
-        )
+        .respond_with(ResponseTemplate::new(422).set_body_json(json_fixture(
+            r#"{"message": "No commit found for SHA: main"}"#,
+        )))
         .mount(&unreadable)
         .await;
     for server in [same, unreadable] {
@@ -194,7 +203,9 @@ async fn a_comparison_names_its_missing_side_and_leads_to_the_default_branch() {
     let server = repository("master", "main").await;
     Mock::given(method("GET"))
         .and(path_regex("^/api/v3/repos/a/b/compare/"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
+        .respond_with(
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
+        )
         .mount(&server)
         .await;
     for resolved in ["next", "master"] {
@@ -206,8 +217,15 @@ async fn a_comparison_names_its_missing_side_and_leads_to_the_default_branch() {
     }
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let query =
-        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"main","headRef":"next"});
+    let query = json_fixture(
+        r#"{
+            "operation": "compare",
+            "owner": "a",
+            "repo": "b",
+            "baseRef": "main",
+            "headRef": "next"
+        }"#,
+    );
     let outcome = call(&runtime, "ghGetHistoryItem", query)
         .await
         .expect("error row");
@@ -232,8 +250,15 @@ async fn a_comparison_names_its_missing_side_and_leads_to_the_default_branch() {
     );
 
     // The other side already is the default branch: no retry to offer.
-    let query =
-        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"main","headRef":"master"});
+    let query = json_fixture(
+        r#"{
+            "operation": "compare",
+            "owner": "a",
+            "repo": "b",
+            "baseRef": "main",
+            "headRef": "master"
+        }"#,
+    );
     let outcome = call(&runtime, "ghGetHistoryItem", query)
         .await
         .expect("error row");

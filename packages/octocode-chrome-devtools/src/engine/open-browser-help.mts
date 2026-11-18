@@ -13,7 +13,7 @@ Options:
                           Google Chrome 136+ refuses, Chromium/Chrome for Testing work)
   --chromePath <path>     Explicit Chrome executable
   --windowSize <WxH>      Browser window size
-  --enableFeatures <csv>  Chrome feature flags
+  --enableFeatures <csv>  More Chrome feature flags (a fresh launch always enables WebMCP)
   --userAgent <ua>        User-Agent override
   --proxyServer <url>     Proxy (also --proxyBypassList, --proxyPacUrl)
   --config <path>         Proxy configuration file

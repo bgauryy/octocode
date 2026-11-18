@@ -35,18 +35,36 @@ pub(super) fn parse_content_payload(
     match payload.kind.as_deref() {
         Some("file") => Ok(payload),
         Some("dir") => Err(is_a_directory(path)),
-        Some("symlink") => Err(symlink_refused(path, payload.target.as_deref())),
+        Some("symlink") => Err(match payload.target.as_deref() {
+            Some(text) => symlink_refused(path, text, resolve_link_target(path, text).as_deref()),
+            None => not_a_file(format!("Path \"{path}\" is a symlink.")),
+        }),
         _ => Err(not_a_file(format!("GitHub path \"{path}\" is not a file"))),
     }
 }
-/// The refusal of a symlink read: the link names its target, and the file it
-/// reaches is read by that path.
-pub(super) fn symlink_refused(path: &str, target: Option<&str>) -> ProviderError {
-    not_a_file(match target {
+
+/// The refusal of a symlink read, naming its target: `text` is what the link
+/// holds, `resolved` the repository path it reaches (`None` when it points
+/// outside the repository), which a read names instead.
+pub(super) fn symlink_refused(path: &str, text: &str, resolved: Option<&str>) -> ProviderError {
+    not_a_file(match resolved {
         Some(target) => {
             format!("Path \"{path}\" is a symlink to \"{target}\"; read the target path instead.")
         }
-        None => format!("Path \"{path}\" is a symlink; read its target path instead."),
+        None => format!(
+            "Path \"{path}\" is a symlink to \"{text}\", outside this repository: no file of it holds that text."
+        ),
+    })
+}
+
+/// The refusal of a symlink chain longer than `hops` links (or a loop),
+/// naming the last target it reached.
+pub(super) fn symlink_chain_refused(path: &str, hops: usize, last: Option<&str>) -> ProviderError {
+    not_a_file(match last {
+        Some(target) => format!(
+            "Path \"{path}\" passes more than {hops} symlinks (a loop or a chain no read follows); the last one points to \"{target}\"."
+        ),
+        None => format!("Path \"{path}\" passes more than {hops} symlinks."),
     })
 }
 

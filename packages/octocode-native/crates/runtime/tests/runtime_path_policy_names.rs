@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use support::{Workspace, call, row_data};
 
 use octocode_native::runtime::ToolRuntime;
+use octocode_test_support::json_fixture;
 
 #[cfg(unix)]
 mod symlinks;
@@ -106,23 +107,22 @@ fn fixture() -> Workspace {
 /// command: the path policy decides before discovery, and no installed
 /// server (tsserver's type acquisition runs `npm install`) is ever started.
 fn runtime(workspace: &Workspace) -> ToolRuntime {
-    let servers: serde_json::Map<String, Value> = [
-        ".ts",
-        ".md",
-        ".env",
-        ".pem",
-        ".local",
-        ".json",
-        ".keystore",
-    ]
-    .into_iter()
-    .map(|extension| {
-        (
-            extension.to_owned(),
-            json!({"command": "octocode-test-missing-lsp", "args": [], "languageId": "plaintext"}),
-        )
-    })
-    .collect();
+    let servers: serde_json::Map<String, Value> =
+        [".ts", ".md", ".env", ".pem", ".local", ".json", ".keystore"]
+            .into_iter()
+            .map(|extension| {
+                (
+                    extension.to_owned(),
+                    json_fixture(
+                        r#"{
+                            "command": "octocode-test-missing-lsp",
+                            "args": [],
+                            "languageId": "plaintext"
+                        }"#,
+                    ),
+                )
+            })
+            .collect();
     // Outside the workspace, so the walks never list it.
     let config = workspace.home.join("lsp-servers.json");
     std::fs::write(&config, json!({"languageServers": servers}).to_string()).expect("lsp config");
@@ -212,7 +212,7 @@ async fn walks_keep_source_folders_and_disclose_only_credential_files() {
     // Disclosed as the directories that hold credential files (one entry per
     // directory, its count the files it holds), never as policy directories
     // and never by the withheld names; the counts sum to the total.
-    let disclosed = |outcome: &octocode_native::response::outcome::ToolOutcome| {
+    let disclosed = |outcome: &octocode_runtime_base::response::outcome::ToolOutcome| {
         let data = row_data(outcome);
         let held = data["skippedPaths"]["entries"]
             .as_array()

@@ -2,7 +2,7 @@
 use super::{SourceStamp, epoch_nanos};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::SystemTime;
 
 /// Metadata identity for cache reuse. On Unix the change time and inode are
@@ -70,9 +70,13 @@ enum Seen {
 }
 
 impl Seen {
-    fn holds(self, path: &Path) -> bool {
+    /// Whether `path` is still as seen; a stamp read is counted in `read`.
+    fn holds(self, path: &Path, read: &AtomicUsize) -> bool {
         match self {
-            Self::Stamp(link, stamp) => stamp_of(path, link, None) == stamp,
+            Self::Stamp(link, stamp) => {
+                read.fetch_add(1, Ordering::Relaxed);
+                stamp_of(path, link, None) == stamp
+            }
             Self::Presence(was) => exists(path) == was,
         }
     }
@@ -82,23 +86,46 @@ impl Seen {
 /// with their state when they were added, taken before the reads they prove.
 /// Shared, so a page checks it without copying the paths.
 #[derive(Clone, Debug, Default)]
-pub struct Proof(Arc<Vec<(PathBuf, Seen)>>);
+pub struct Proof {
+    seen: Arc<Vec<(PathBuf, Seen)>>,
+    /// Stamps read from the file system to build it.
+    stamps_read: usize,
+}
+
+/// What [`Proof::check`] found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Checked {
+    /// Every path is still as it was added.
+    pub holds: bool,
+    /// Stamps the check read from the file system: it stops at the first
+    /// change it finds.
+    pub stamps_read: usize,
+}
 
 impl Proof {
     fn add(&mut self, path: PathBuf, seen: Seen) {
-        Arc::make_mut(&mut self.0).push((path, seen));
+        Arc::make_mut(&mut self.seen).push((path, seen));
     }
 
     /// Stamp what `path` points at (absent counts).
     pub fn follow(&mut self, path: PathBuf) {
         let stamp = stamp_of(&path, Link::Follow, None);
+        self.stamps_read += 1;
         self.add(path, Seen::Stamp(Link::Follow, stamp));
     }
 
     /// Stamp the link at `path` itself (absent counts).
     pub fn link(&mut self, path: PathBuf) {
         let stamp = stamp_of(&path, Link::Itself, None);
+        self.stamps_read += 1;
         self.add(path, Seen::Stamp(Link::Itself, stamp));
+    }
+
+    /// Stamps read from the file system to build this proof: none for
+    /// stamps a walk took itself ([`Self::with_taken`]) or presences.
+    #[must_use]
+    pub fn stamps_read(&self) -> usize {
+        self.stamps_read
     }
 
     /// Record only whether `path` exists.
@@ -118,6 +145,7 @@ impl Proof {
     ) -> Option<Self> {
         let paths = paths.into_iter().collect::<Vec<_>>();
         let gone = AtomicBool::new(false);
+        let read = AtomicUsize::new(0);
         let stamps = in_chunks(&paths, |chunk| {
             chunk
                 .iter()
@@ -125,6 +153,7 @@ impl Proof {
                     if gone.load(Ordering::Relaxed) {
                         return None;
                     }
+                    read.fetch_add(1, Ordering::Relaxed);
                     let stamp = stamp_of(path, link, settled_before);
                     if stamp.is_none() {
                         gone.store(true, Ordering::Relaxed);
@@ -135,20 +164,23 @@ impl Proof {
         })
         .into_iter()
         .collect::<Option<Vec<_>>>()?;
-        Some(Self(Arc::new(
-            paths
-                .into_iter()
-                .zip(stamps.into_iter().flatten())
-                .map(|(path, stamp)| (path, Seen::Stamp(link, Some(stamp))))
-                .collect(),
-        )))
+        Some(Self {
+            seen: Arc::new(
+                paths
+                    .into_iter()
+                    .zip(stamps.into_iter().flatten())
+                    .map(|(path, stamp)| (path, Seen::Stamp(link, Some(stamp))))
+                    .collect(),
+            ),
+            stamps_read: read.into_inner(),
+        })
     }
 
     /// This proof with `taken` too: stamps a walk read itself (`link` says
     /// how), which need no stat of their own.
     #[must_use]
     pub fn with_taken(mut self, link: Link, taken: Vec<(PathBuf, SourceStamp)>) -> Self {
-        Arc::make_mut(&mut self.0).extend(
+        Arc::make_mut(&mut self.seen).extend(
             taken
                 .into_iter()
                 .filter(|(_, stamp)| provable(*stamp).is_some())
@@ -160,17 +192,19 @@ impl Proof {
     /// This proof with each path's presence, as already observed.
     #[must_use]
     pub fn with_presence(mut self, seen: Vec<(PathBuf, bool)>) -> Self {
-        Arc::make_mut(&mut self.0).extend(
+        Arc::make_mut(&mut self.seen).extend(
             seen.into_iter()
                 .map(|(path, present)| (path, Seen::Presence(present))),
         );
         self
     }
 
-    /// This proof with everything `other` proves too.
+    /// This proof with everything `other` proves too (and the stamps read
+    /// to build it).
     #[must_use]
     pub fn with(mut self, other: &Self) -> Self {
-        Arc::make_mut(&mut self.0).extend(other.0.iter().cloned());
+        Arc::make_mut(&mut self.seen).extend(other.seen.iter().cloned());
+        self.stamps_read += other.stamps_read;
         self
     }
 
@@ -180,7 +214,7 @@ impl Proof {
         let Some(started_ns) = epoch_nanos(started) else {
             return false;
         };
-        self.0.iter().all(|(_, seen)| match seen {
+        self.seen.iter().all(|(_, seen)| match seen {
             Seen::Stamp(_, Some(stamp)) => stamp.settled_by(started_ns),
             Seen::Stamp(_, None) | Seen::Presence(_) => true,
         })
@@ -189,10 +223,18 @@ impl Proof {
     /// Every path is still as it was added.
     #[must_use]
     pub fn holds(&self) -> bool {
+        self.check().holds
+    }
+
+    /// Whether every path is still as it was added, and the stamps that
+    /// took reading.
+    #[must_use]
+    pub fn check(&self) -> Checked {
         let changed = AtomicBool::new(false);
-        in_chunks(&self.0[..], |chunk| {
+        let read = AtomicUsize::new(0);
+        let holds = in_chunks(&self.seen[..], |chunk| {
             chunk.iter().all(|(path, seen)| {
-                let same = !changed.load(Ordering::Relaxed) && seen.holds(path);
+                let same = !changed.load(Ordering::Relaxed) && seen.holds(path, &read);
                 if !same {
                     changed.store(true, Ordering::Relaxed);
                 }
@@ -200,13 +242,17 @@ impl Proof {
             })
         })
         .into_iter()
-        .all(|same| same)
+        .all(|same| same);
+        Checked {
+            holds,
+            stamps_read: read.into_inner(),
+        }
     }
 
     /// About how many bytes this proof holds.
     #[must_use]
     pub fn weight(&self) -> usize {
-        self.0
+        self.seen
             .iter()
             .map(|(path, _)| path.as_os_str().len() + std::mem::size_of::<(PathBuf, Seen)>())
             .sum()

@@ -29,7 +29,10 @@ pub(in crate::signatures::graph_facts) fn rust_return_types(
         if ty != "Self" {
             return Some(ty);
         }
-        let implementation = ancestors.iter().rev().find(|n| kind_of(*n) == "impl_item")?;
+        let implementation = ancestors
+            .iter()
+            .rev()
+            .find(|n| kind_of(*n) == "impl_item")?;
         clean_type_text(
             node_text(implementation.child_by_field_name("type")?, content)?,
             Lang::Rust,

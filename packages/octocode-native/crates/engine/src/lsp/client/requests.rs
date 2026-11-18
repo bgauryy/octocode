@@ -336,7 +336,7 @@ impl NativeLspClient {
             return Ok(value);
         }
         if let Some(settle) = settle {
-            tokio::time::sleep(settle).await;
+            self.inner.clock.sleep(settle).await;
         }
         let value = Arc::new(self.send_request(method, params).await?);
         if let Some(answers) = answers {
@@ -365,7 +365,8 @@ impl NativeLspClient {
         let connection = self.connection_handle().await?;
         // One budget for the request and its content-modified retries: the
         // starvation extension (see `transport::patience`) is granted once.
-        let budget = WaitBudget::new(REQUEST_TIMEOUT_MS);
+        let clock = &self.inner.clock;
+        let budget = WaitBudget::new(REQUEST_TIMEOUT_MS, clock.now());
         let mut attempts = 0;
         loop {
             let response = if supports_partial_results(method) {
@@ -380,13 +381,14 @@ impl NativeLspClient {
                 Err(error)
                     if is_retryable_error(&error)
                         && attempts < CONTENT_MODIFIED_RETRIES
-                        && !budget.is_spent() =>
+                        && !budget.is_spent(clock.now()) =>
                 {
                     attempts += 1;
-                    tokio::time::sleep(std::time::Duration::from_millis(
-                        CONTENT_MODIFIED_RETRY_DELAY_MS,
-                    ))
-                    .await;
+                    clock
+                        .sleep(std::time::Duration::from_millis(
+                            CONTENT_MODIFIED_RETRY_DELAY_MS,
+                        ))
+                        .await;
                 }
                 Err(error) => return Err(error),
             }

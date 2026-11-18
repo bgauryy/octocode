@@ -1,4 +1,5 @@
 use super::*;
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use std::collections::BTreeSet;
 
@@ -171,10 +172,10 @@ fn entry_shapes_name_their_env_keys() {
 #[test]
 fn only_opencode_documents_with_a_servers_map_are_nested() {
     let opencode = spec("opencode");
-    assert!(opencode.nested_servers(&json!({"mcp": {"servers": {}}})));
-    assert!(!opencode.nested_servers(&json!({"mcp": {"octocode": {}}})));
+    assert!(opencode.nested_servers(&json_fixture(r#"{"mcp": {"servers": {}}}"#)));
+    assert!(!opencode.nested_servers(&json_fixture(r#"{"mcp": {"octocode": {}}}"#)));
     assert!(!opencode.nested_servers(&json!({})));
-    assert!(!spec("cursor").nested_servers(&json!({"mcp": {"servers": {}}})));
+    assert!(!spec("cursor").nested_servers(&json_fixture(r#"{"mcp": {"servers": {}}}"#)));
 }
 
 #[test]

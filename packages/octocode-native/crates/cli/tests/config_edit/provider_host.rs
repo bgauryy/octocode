@@ -2,7 +2,8 @@
 //! cannot redirect a key, and the settings page offers everything the contract does.
 use super::settings::*;
 use super::*;
-use octocode_native::config::{CONFIG_FIELDS, KNOWN_ENV};
+use octocode_runtime_base::config::{CONFIG_FIELDS, KNOWN_ENV};
+use octocode_test_support::json_fixture;
 use std::process::Output;
 
 // ─── The host reaches the provider ─────────────────────────────────────
@@ -155,7 +156,7 @@ fn a_process_host_overrides_every_file() {
 fn the_view_edits_the_host_as_a_home_only_setting() {
     let workspace = Workspace::new();
     let (code, inspected) =
-        management::manage(&workspace, serde_json::json!({"operation": "inspect"}));
+        management::manage(&workspace, json_fixture(r#"{"operation": "inspect"}"#));
     assert_eq!(code, Some(0), "{inspected}");
     let inspected = &inspected["data"];
     let settings = inspected["settings"].as_array().expect("settings");
@@ -203,7 +204,7 @@ fn the_view_edits_the_host_as_a_home_only_setting() {
 fn the_view_gets_each_settings_description_and_section_and_every_known_key() {
     let workspace = Workspace::new();
     let (code, inspected) =
-        management::manage(&workspace, serde_json::json!({"operation": "inspect"}));
+        management::manage(&workspace, json_fixture(r#"{"operation": "inspect"}"#));
     assert_eq!(code, Some(0), "{inspected}");
     let inspected = &inspected["data"];
     let settings = inspected["settings"].as_array().expect("settings");

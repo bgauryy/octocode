@@ -34,7 +34,8 @@ impl RustupView {
     /// toolchain selection.
     pub(in crate::lsp::config) fn of(env: &impl EnvMap) -> Self {
         #[cfg(test)]
-        if let Some(view) = TEST_VIEW.with(|view| view.borrow().clone()) {
+        if let Some(view) = crate::lsp::config::tests::TEST_VIEW.with(|view| view.borrow().clone())
+        {
             return view;
         }
         Self {
@@ -45,37 +46,6 @@ impl RustupView {
             toolchain: crate::process_env::call_var(env, "RUSTUP_TOOLCHAIN"),
         }
     }
-}
-
-#[cfg(test)]
-thread_local! {
-    /// A test's `PATH` in place of the process's.
-    static TEST_VIEW: std::cell::RefCell<Option<RustupView>> = const { std::cell::RefCell::new(None) };
-}
-
-/// The call environment that gives discovery `view`: its `PATH`, rustup home
-/// and toolchain selection.
-#[cfg(test)]
-pub(in crate::lsp::config) fn view_env(
-    view: &RustupView,
-) -> std::collections::BTreeMap<String, String> {
-    [
-        ("PATH", view.path_var.clone()),
-        ("RUSTUP_HOME", view.home.clone().map(OsString::from)),
-        ("RUSTUP_TOOLCHAIN", view.toolchain.clone()),
-    ]
-    .into_iter()
-    .filter_map(|(name, value)| Some((name.to_owned(), value?.to_string_lossy().into_owned())))
-    .collect()
-}
-
-/// Run `body` with `view` as this thread's rustup environment.
-#[cfg(test)]
-pub(in crate::lsp::config) fn with_view<T>(view: RustupView, body: impl FnOnce() -> T) -> T {
-    TEST_VIEW.with(|slot| *slot.borrow_mut() = Some(view));
-    let result = body();
-    TEST_VIEW.with(|slot| *slot.borrow_mut() = None);
-    result
 }
 
 /// True when a link's target names rustup (`~/.cargo/bin/x -> rustup`).

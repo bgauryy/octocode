@@ -7,6 +7,8 @@ Load for an initial overview or an ownership/correctness misconception. Use the 
 | Who owns the value? | A move transfers ownership; a `Copy` value is copied. Borrow for access, own when retaining or producing data. | [Idioms](references/idioms.md) |
 | Does this need shared ownership? | `Rc` shares on one thread; `Arc` shares across threads only with the necessary `Send`/`Sync` bounds. Neither prevents cycles or synchronizes inner mutation. | [Types](references/types-and-patterns.md) |
 | Can the operation fail normally? | Use `Result`; distinguish absence with `Option`. Panics represent bugs/invariant failures, subject to project policy. | [Idioms](references/idioms.md) |
+| Who cleans up? | The owner's `Drop`: a guard releases locks, files, directories and processes on every exit path, including `?`, panics and failed test assertions. | [Idioms](references/idioms.md#clean-code) |
+| Where does the code belong? | In the module and crate that own its data and invariants. Dependencies point toward core types; serialization and generated code sit at the edges; tests live in their own files, and only tests that cross a crate seam move up. | [Crate structure](references/crate-structure.md) |
 | Is there shared mutable state? | Prefer independent ownership where practical. Choose locks/channels by the access pattern, with explicit shutdown. | [Concurrency](references/concurrency-and-async.md) |
 | Is the boundary untrusted or unsafe? | Validate its contract and prove each unsafe precondition. Compilation alone does not establish soundness. | [Safety](references/safety-and-ffi.md) |
 | Is the code slow? | Reproduce with representative input and the deployed configuration, then profile and compare. | [Performance](references/performance-and-memory.md) |

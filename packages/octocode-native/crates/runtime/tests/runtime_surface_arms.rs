@@ -18,7 +18,7 @@ async fn catalog_availability_matches_execution_gates() {
         ("TOOLS_TO_RUN", "localSearch,ghSearchCode".into()),
         ("DISABLE_TOOLS", "ghSearchCode".into()),
     ]);
-    restricted_config.runtime_surface = octocode_native::config::RuntimeSurface::Mcp;
+    restricted_config.runtime_surface = octocode_runtime_base::config::RuntimeSurface::Mcp;
     let restricted =
         octocode_native::runtime::ToolRuntime::new(restricted_config).expect("MCP runtime");
     for name in [

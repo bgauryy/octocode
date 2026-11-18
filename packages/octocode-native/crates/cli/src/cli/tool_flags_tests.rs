@@ -6,7 +6,7 @@
 //! reads its row's `content` from stdin and takes no other value. Its
 //! help names exactly the fields core requires per form.
 use clap::CommandFactory;
-use octocode_native::id::ToolId;
+use octocode_runtime_base::id::ToolId;
 use serde_json::Value;
 use std::collections::BTreeSet;
 
@@ -23,7 +23,7 @@ fn stdin_fields(tool: ToolId) -> &'static [&'static str] {
 }
 
 fn published_keys(tool: &str) -> BTreeSet<String> {
-    let presentation = octocode_native::contracts::cli_presentation().expect("presentation");
+    let presentation = octocode_runtime_base::contracts::cli_presentation().expect("presentation");
     let entry = presentation["tools"]
         .as_array()
         .expect("tools")
@@ -101,11 +101,11 @@ fn tool_commands_take_the_envelope_and_no_flag_names_a_field() {
 
 #[test]
 fn tool_help_names_exactly_the_required_fields_of_each_form() {
-    let presentation = octocode_native::contracts::cli_presentation().expect("presentation");
+    let presentation = octocode_runtime_base::contracts::cli_presentation().expect("presentation");
     let mut failures = Vec::new();
     for tool in ToolId::ALL {
         let name = tool.as_str();
-        let help = octocode_native::contracts::cli_tool_help(name).unwrap_or_default();
+        let help = octocode_runtime_base::contracts::cli_tool_help(name).unwrap_or_default();
         let entry = presentation["tools"]
             .as_array()
             .expect("tools")

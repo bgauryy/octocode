@@ -104,6 +104,9 @@ struct Chain {
     /// A directory on the chain or above the root holds `.git`: git rules
     /// apply.
     any_git: bool,
+    /// The global rules for its entries (those of the repository it is in),
+    /// when git rules apply and the global file holds any.
+    global: Option<Arc<ignore::gitignore::Gitignore>>,
 }
 
 impl IgnoreRules {
@@ -155,12 +158,19 @@ impl IgnoreRules {
             levels.extend(self.chain(parent).levels.iter().cloned());
         }
         let any_git = self.outer_git || levels.iter().any(|level| level.has_git);
+        let global = any_git.then(|| self.global.for_entries_of(dir)).flatten();
         Arc::clone(
             self.inner
                 .write()
                 .unwrap_or_else(PoisonError::into_inner)
                 .entry(dir.to_path_buf())
-                .or_insert_with(|| Arc::new(Chain { levels, any_git })),
+                .or_insert_with(|| {
+                    Arc::new(Chain {
+                        levels,
+                        any_git,
+                        global,
+                    })
+                }),
         )
     }
 
@@ -343,18 +353,18 @@ impl IgnoreRules {
             gitignore,
             exclude,
         } = verdicts;
-        // The global rules are matched per repository, and only where git
-        // rules apply.
-        let global = if any_git {
-            self.global.matched(path, is_dir, &rule)
-        } else {
-            Match::None
-        };
-        dot_ignore
+        let decided = dot_ignore
             .map(&rule)
             .or(gitignore.map(&rule))
-            .or(exclude.map(&rule))
-            .or(global)
+            .or(exclude.map(&rule));
+        if !decided.is_none() {
+            return decided;
+        }
+        // The global rules are matched per repository, and only where git
+        // rules apply: the chain holds them for its directory.
+        chain.global.as_ref().map_or(Match::None, |global| {
+            global.matched(path, is_dir).map(&rule)
+        })
     }
 }
 

@@ -3,6 +3,7 @@
 use super::{provider, provider_calls, sections};
 use crate::support::{Run as _, Workspace, clasify_runtime};
 use octocode_native::runtime::ToolRuntime;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 
 async fn assert_same_resources(
@@ -23,7 +24,7 @@ async fn assert_same_resources(
         let mut captured = None;
         for (runtime, resource) in [(first_runtime, original), (replay_runtime, &replay[name])] {
             let read = &resource["read"];
-            assert_eq!(read["kind"], "continue");
+            assert_eq!(read.get("kind"), None);
             crate::support::assert_cursor_only(&read["input"]);
             let result = runtime
                 .run(
@@ -54,7 +55,11 @@ async fn section_cursor_replays_frozen_work_without_repeating_inference() {
     let runtime = clasify_runtime(&workspace, &provider, &[]);
     let first = sections(
         &runtime,
-        json!({"file":{"tool":"localFetch","query":{"path":"sections.rs"}}}),
+        json_fixture(
+            r#"{
+                "file": {"tool": "localFetch", "query": {"path": "sections.rs"}}
+            }"#,
+        ),
     )
     .await;
     let resume = first["next"]["nextPage"]["input"].clone();
@@ -95,7 +100,22 @@ async fn sibling_section_rows_keep_continuations_until_every_section_is_answered
         &provider,
         &[("OCTOCODE_STORAGE_MODE", "persistent".into())],
     );
-    let rows = [0, 1].map(|_| json!({"operation":"sections","resources":{"file":{"tool":"localFetch","query":{"path":"many.rs"}}},"questions":{"q":{"type":"noul","instructions":"Does this section say to restart?"}}}));
+    let rows = [0, 1].map(|_| {
+        json_fixture(
+            r#"{
+                "operation": "sections",
+                "resources": {
+                    "file": {"tool": "localFetch", "query": {"path": "many.rs"}}
+                },
+                "questions": {
+                    "q": {
+                        "type": "noul",
+                        "instructions": "Does this section say to restart?"
+                    }
+                }
+            }"#,
+        )
+    });
     let first = runtime
         .run(
             "shared-sections".into(),
@@ -111,9 +131,13 @@ async fn sibling_section_rows_keep_continuations_until_every_section_is_answered
         std::collections::HashSet::new(),
     ];
     let (mut page, mut pages) = (first, 0);
+    let mut queue = std::collections::VecDeque::new();
     loop {
         pages += 1;
-        assert!(pages <= 70, "continuation made no bounded progress: {page}");
+        assert!(
+            pages <= 140,
+            "continuation made no bounded progress: {page}"
+        );
         for result in page["results"].as_array().expect("rows") {
             let index = result["index"].as_u64().expect("index") as usize;
             for section in result["data"]["resources"]["file"]["sections"]
@@ -128,14 +152,17 @@ async fn sibling_section_rows_keep_continuations_until_every_section_is_answered
                 );
             }
         }
-        let Some(next) = crate::support::next_input(&page) else {
-            for result in page["results"].as_array().expect("rows") {
+        for result in page["results"].as_array().expect("rows") {
+            if crate::support::next_inputs(&json!({"results":[result]})).is_empty() {
                 assert!(
                     result["data"]["resources"]["file"]["coverage"]
                         .get("unassessed")
                         .is_none()
                 );
             }
+        }
+        queue.extend(crate::support::next_inputs(&page));
+        let Some(next) = queue.pop_front() else {
             break;
         };
         page = runtime
@@ -159,7 +186,11 @@ async fn simultaneous_section_resume_in_independent_runtimes_replays_one_transac
     let second_runtime = clasify_runtime(&workspace, &provider, &env);
     let first = sections(
         &first_runtime,
-        json!({"file":{"tool":"localFetch","query":{"path":"many.rs"}}}),
+        json_fixture(
+            r#"{
+                "file": {"tool": "localFetch", "query": {"path": "many.rs"}}
+            }"#,
+        ),
     )
     .await;
     let next = first["next"]["nextPage"]["input"].clone();
@@ -218,6 +249,7 @@ async fn a_split_batch_is_first_delivered_unreplayed_and_a_repeat_is_replayed() 
     let mut cursors: Vec<(Value, bool)> = Vec::new();
     let mut seen = std::collections::HashSet::new();
     let mut billed = true;
+    let mut queue = std::collections::VecDeque::new();
     loop {
         assert!(cursors.len() <= 400, "the walk makes bounded progress");
         // `responsePagination.replayed` states that the page was read from
@@ -249,7 +281,8 @@ async fn a_split_batch_is_first_delivered_unreplayed_and_a_repeat_is_replayed() 
                 assert!(seen.insert((index, id)), "a section is delivered once");
             }
         }
-        let Some(next) = crate::support::next_input(&page) else {
+        queue.extend(crate::support::next_inputs(&page));
+        let Some(next) = queue.pop_front() else {
             break;
         };
         cursors.push((next.clone(), false));
@@ -341,9 +374,21 @@ async fn a_replay_over_a_changed_source_is_stale_and_restarts_the_plan() {
     workspace.write("small.rs", super::separate_functions(2));
     let runtime = clasify_runtime(&workspace, &provider, &[]);
     // The summary view, which offers `next.details`.
-    let row = json!({"operation":"sections","view":"summary",
-        "resources":{"file":{"tool":"localFetch","query":{"path":"small.rs"}}},
-        "questions":{"q":{"type":"noul","instructions":"Does this section say to restart?"}}});
+    let row = json_fixture(
+        r#"{
+            "operation": "sections",
+            "view": "summary",
+            "resources": {
+                "file": {"tool": "localFetch", "query": {"path": "small.rs"}}
+            },
+            "questions": {
+                "q": {
+                    "type": "noul",
+                    "instructions": "Does this section say to restart?"
+                }
+            }
+        }"#,
+    );
     let first = runtime
         .run("first".into(), "clasify".into(), json!({"queries":[row]}))
         .await
@@ -392,7 +437,7 @@ async fn a_replay_over_a_changed_source_is_stale_and_restarts_the_plan() {
         );
         let call = &data["next"]["restart"];
         assert_eq!(call["tool"], "clasify", "{stale:#}");
-        assert_eq!(call["kind"], "continue", "{stale:#}");
+        assert_eq!(call.get("kind"), None, "{stale:#}");
         restart = Some(call["input"].clone());
     }
     assert_eq!(

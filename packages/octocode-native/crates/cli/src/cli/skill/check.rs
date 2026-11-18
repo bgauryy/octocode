@@ -26,7 +26,7 @@ pub(super) struct Location {
 }
 
 impl Location {
-    pub fn needs_repair(&self) -> bool {
+    pub(super) fn needs_repair(&self) -> bool {
         self.managed && (self.status == "broken" || self.content == Some("stale"))
     }
 }
@@ -38,12 +38,12 @@ pub(super) struct Checked {
 }
 
 impl Checked {
-    pub fn locations(&self) -> impl Iterator<Item = &Location> {
+    pub(super) fn locations(&self) -> impl Iterator<Item = &Location> {
         std::iter::once(&self.home)
             .chain(self.platforms.iter())
             .chain(std::iter::once(&self.workspace))
     }
-    pub fn status(&self) -> &'static str {
+    pub(super) fn status(&self) -> &'static str {
         if self.locations().any(|loc| loc.status == "broken") {
             "broken"
         } else if self.locations().any(|loc| loc.content == Some("stale")) {

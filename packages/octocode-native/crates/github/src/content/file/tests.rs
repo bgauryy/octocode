@@ -1,6 +1,7 @@
 use super::*;
 use crate::{GitHubBudget, GitHubEndpoint, GitHubTransport, RetryPolicy};
 use octocode_io::budget::RequestBudget;
+use octocode_test_support::json_fixture;
 use std::time::Duration;
 
 fn json_page(body: serde_json::Value) -> ResponsePage {
@@ -37,9 +38,9 @@ fn a_json_blob_response_yields_its_decoded_file_bytes() {
 
 #[test]
 fn raw_blob_bytes_are_never_interpreted_as_a_json_envelope() {
-    let mut page = json_page(serde_json::json!({
-        "encoding": "base64", "content": "c291cmNl"
-    }));
+    let mut page = json_page(json_fixture(
+        r#"{"encoding": "base64", "content": "c291cmNl"}"#,
+    ));
     page.headers.insert(
         CONTENT_TYPE,
         HeaderValue::from_static("application/vnd.github.raw+json; charset=utf-8"),
@@ -52,9 +53,9 @@ fn raw_blob_bytes_are_never_interpreted_as_a_json_envelope() {
 #[test]
 fn malformed_json_blob_content_is_refused() {
     for body in [
-        serde_json::json!({"encoding": "base64"}),
-        serde_json::json!({"encoding": "base64", "content": "%%%"}),
-        serde_json::json!({"encoding": "none", "content": ""}),
+        json_fixture(r#"{"encoding": "base64"}"#),
+        json_fixture(r#"{"encoding": "base64", "content": "%%%"}"#),
+        json_fixture(r#"{"encoding": "none", "content": ""}"#),
     ] {
         let page = json_page(body);
         assert!(matches!(

@@ -1,4 +1,5 @@
 use super::*;
+use octocode_test_support::json_fixture;
 
 /// Confirming a yes costs the lines it names: `next.read` reads exactly the
 /// yes-sections' lines, pinned to the judged snapshot, not the whole source
@@ -39,7 +40,7 @@ async fn next_read_reads_only_the_lines_of_the_yes_sections() {
     let runtime = clasify_runtime(&workspace, &provider, &[]);
     let out = sections(
         &runtime,
-        json!({"a": {"tool":"localFetch","query":{"path":"fns.rs"}}}),
+        json_fixture(r#"{"a": {"tool": "localFetch", "query": {"path": "fns.rs"}}}"#),
     )
     .await;
     let resource = &out["resources"]["a"];
@@ -120,7 +121,7 @@ async fn next_read_is_not_offered_when_every_section_is_a_yes() {
                 .as_object()
                 .expect("questions")
                 .keys()
-                .map(|id| (id.clone(), json!({"type":"noul","noul":0.9})))
+                .map(|id| (id.clone(), json_fixture(r#"{"type": "noul", "noul": 0.9}"#)))
                 .collect::<serde_json::Map<_, _>>();
             ResponseTemplate::new(200).set_body_json(json!({
                 "model":"jev-1.13.0","answers":answers,
@@ -137,7 +138,7 @@ async fn next_read_is_not_offered_when_every_section_is_a_yes() {
     let runtime = clasify_runtime(&workspace, &provider, &[]);
     let out = sections(
         &runtime,
-        json!({"a": {"tool":"localFetch","query":{"path":"fns.rs"}}}),
+        json_fixture(r#"{"a": {"tool": "localFetch", "query": {"path": "fns.rs"}}}"#),
     )
     .await;
     let resource = &out["resources"]["a"];

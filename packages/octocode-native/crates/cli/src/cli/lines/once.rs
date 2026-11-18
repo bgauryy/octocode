@@ -1,16 +1,21 @@
 //! What text states once instead of on every row it holds for: the
-//! directory a row's files share, a row's counters, what a walk skipped
-//! beside the content, the fields every row of a batch shares, and the
-//! fields every item of a list shares. Each stays a fact of the result, said
-//! once; `--json` keeps every row whole.
+//! directory a row's paths share, the scope a graph row's paths lie in, a
+//! row's counters, what a walk skipped, the fields every row of a batch
+//! shares, and the fields every item of a list shares. Each stays a fact of
+//! the result, said once; `--json` keeps every row whole.
 use super::follow::split_stated;
 use super::table::is_word;
-use octocode_native::id::ToolId;
+use super::words;
+use octocode_runtime_base::id::ToolId;
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 
 /// The fields of `data` whose items name the files a row prints.
 const ROW_FILES: [&str; 2] = ["files", "matches"];
+
+/// The field of `data` naming the paths a row's walk skipped: each entry's
+/// `path` is a file or the directory holding what was left out.
+const SKIPPED: &str = "skippedPaths";
 
 /// Every `path` string under `value`, and every listing group's `dir`
 /// (a directory: `true`).
@@ -34,9 +39,9 @@ fn row_paths<'a>(value: &'a Value, out: &mut BTreeSet<(&'a str, bool)>) {
     }
 }
 
-/// `value` with each `path` under `root/` spelled relative to `root`, and
-/// each listing group's `dir` too (the root itself as `""`, which a listing
-/// prints `./`).
+/// `value` with each `path` under `root/` spelled relative to `root` (the
+/// root itself as `.`), and each listing group's `dir` too (the root itself
+/// as `""`, which a listing prints `./`).
 fn strip_root(value: &mut Value, root: &str) {
     match value {
         Value::Object(fields) => {
@@ -46,6 +51,9 @@ fn strip_root(value: &mut Value, root: &str) {
                     Value::String(path) if key == "path" || (key == "dir" && group) => {
                         if key == "dir" && path == root {
                             path.clear();
+                        } else if path == root {
+                            // A skipped entry naming the root directory itself.
+                            *path = ".".to_owned();
                         } else if let Some(rest) = path
                             .strip_prefix(root)
                             .and_then(|rest| rest.strip_prefix('/'))
@@ -62,18 +70,51 @@ fn strip_root(value: &mut Value, root: &str) {
     }
 }
 
-/// The directory every file of a row (its `files` and `matches`) lies
-/// under, when stating it once is shorter than repeating it on each file:
+/// The directory every path of a row (its `files`, `matches` and the
+/// `skippedPaths` entries, the directory such an entry names included) lies
+/// under, when stating it once is shorter than repeating it on each path:
 /// each of their paths is rewritten relative to it, so `root/path` is the
-/// path the result names and `path:N` stays a line. `None` (nothing
-/// rewritten) when the files share no directory or the note would cost
-/// more than it saves.
+/// path the result names and `path:N` stays a line. A row that states the
+/// `root` its paths are named from (evidence outside the workspace) has it
+/// taken into that one root. `None` (nothing rewritten) when the files
+/// share no directory or the note would cost more than it saves.
 pub(super) fn relative_paths(data: &mut Map<String, Value>) -> Option<String> {
+    let stated = match data.shift_remove("root") {
+        Some(Value::String(root)) => Some(root),
+        Some(other) => {
+            data.insert("root".to_owned(), other);
+            None
+        }
+        None => None,
+    };
+    let shared = shared_dir(data);
+    match (stated, shared) {
+        (Some(stated), Some(shared)) => Some(format!("{stated}/{shared}")),
+        (Some(stated), None) => Some(stated),
+        (None, shared) => shared,
+    }
+}
+
+/// [`relative_paths`] of the paths as the row names them.
+fn shared_dir(data: &mut Map<String, Value>) -> Option<String> {
     let mut paths = BTreeSet::new();
     for key in ROW_FILES {
         if let Some(files) = data.get(key) {
             row_paths(files, &mut paths);
         }
+    }
+    // A skipped entry may name the directory holding what was left out,
+    // which the root may be.
+    if let Some(entries) = data
+        .get(SKIPPED)
+        .and_then(|skipped| skipped["entries"].as_array())
+    {
+        paths.extend(
+            entries
+                .iter()
+                .filter_map(|entry| entry["path"].as_str())
+                .map(|path| (path, true)),
+        );
     }
     if paths.len() < 2 {
         return None;
@@ -100,7 +141,7 @@ pub(super) fn relative_paths(data: &mut Map<String, Value>) -> Option<String> {
     if root.is_empty() || root == "." || paths.len() * (root.len() + 1) <= note {
         return None;
     }
-    for key in ROW_FILES {
+    for key in ROW_FILES.into_iter().chain([SKIPPED]) {
         if let Some(files) = data.get_mut(key) {
             strip_root(files, &root);
         }
@@ -131,37 +172,144 @@ pub(super) fn counters(fields: Map<String, Value>) -> (Option<String>, Map<Strin
     ((!note.is_empty()).then_some(note), rest)
 }
 
-/// `skippedPaths` beside content as how many paths each cause skipped, in
-/// the order the entries name the causes: `25 hidden, 4 withheld`, then
-/// `(sampled)` when the entries are a sample. The entries themselves print
-/// on a row without content and stay whole in `--json`.
-pub(super) fn skipped_counts(fields: &mut Map<String, Value>) {
-    let Some(Value::Object(skipped)) = fields.get("skippedPaths") else {
+/// `skippedPaths` as one note, the same beside content and on a row without
+/// it: each entry by its path, then any other field it carries (`count`,
+/// `reason`) as words in `[ … ]`; a run of entries of one cause after that
+/// cause, said once (`hidden: .agents [count 25], .github`); runs joined by
+/// `; `, then the object's own fields as words (`sampled true`). Left as it
+/// is when it is not entries of fields, which the outline then prints.
+pub(super) fn skipped_line(fields: &mut Map<String, Value>) {
+    let Some(line) = fields.get("skippedPaths").and_then(skipped_text) else {
         return;
     };
-    let Some(Value::Array(entries)) = skipped.get("entries") else {
-        return;
-    };
-    let mut causes: Vec<(String, u64)> = Vec::new();
+    fields.insert("skippedPaths".into(), Value::String(line));
+}
+
+/// [`skipped_line`]'s text of a `skippedPaths` value.
+fn skipped_text(skipped: &Value) -> Option<String> {
+    let skipped = skipped.as_object()?;
+    let entries = skipped.get("entries")?.as_array()?;
+    // Each run: its cause, and its entries as text.
+    let mut runs: Vec<(Option<String>, Vec<String>)> = Vec::new();
     for entry in entries {
-        let Some(cause) = entry.get("cause").and_then(Value::as_str) else {
-            return;
-        };
-        let count = entry.get("count").and_then(Value::as_u64).unwrap_or(1);
-        match causes.iter_mut().find(|(known, _)| known == cause) {
-            Some((_, total)) => *total += count,
-            None => causes.push((cause.to_owned(), count)),
+        let mut rest = entry.as_object()?.clone();
+        let cause = take_text(&mut rest, "cause");
+        let mut text = take_text(&mut rest, "path").unwrap_or_default();
+        if !rest.is_empty() {
+            if !text.is_empty() {
+                text.push(' ');
+            }
+            text.push_str(&format!("[{}]", words(&rest)));
+        }
+        match runs.last_mut() {
+            Some((last, items)) if *last == cause => items.push(text),
+            _ => runs.push((cause, vec![text])),
         }
     }
-    let mut note = causes
-        .iter()
-        .map(|(cause, count)| format!("{count} {cause}"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    if skipped.get("sampled") == Some(&Value::Bool(true)) {
-        note.push_str(" (sampled)");
+    let mut parts: Vec<String> = runs
+        .into_iter()
+        .map(|(cause, items)| match cause {
+            Some(cause) => format!("{cause}: {}", items.join(", ")),
+            None => items.join(", "),
+        })
+        .collect();
+    let mut own = skipped.clone();
+    own.shift_remove("entries");
+    if !own.is_empty() {
+        parts.push(words(&own));
     }
-    fields.insert("skippedPaths".into(), Value::String(note));
+    Some(parts.join("; "))
+}
+
+/// The string `fields` states under `key`, taken out of them; any other
+/// value stays, to print as words.
+fn take_text(fields: &mut Map<String, Value>, key: &str) -> Option<String> {
+    let text = fields.get(key)?.as_str()?.to_owned();
+    fields.shift_remove(key);
+    Some(text)
+}
+
+/// The fields a graph answer names nodes, files and directories in: one
+/// that names the query's scope itself reads `.` under it.
+const NODE_FIELDS: [&str; 15] = [
+    "id",
+    "path",
+    "changed",
+    "subject",
+    "from",
+    "to",
+    "target",
+    "members",
+    "dirs",
+    "nodes",
+    "rows",
+    "files",
+    "reachedFrom",
+    "affectedEntrypoints",
+    "testsToRun",
+];
+
+/// A graph row's references to the snapshot it read, named by id: no path
+/// of the scope.
+const SNAPSHOT_FIELDS: [&str; 2] = ["graph", "baseline"];
+
+/// A graph row's paths relative to the scope its query names (`path`): the
+/// answer names each file from the workspace root, the scope included, so
+/// the row states the scope once as its root instead. Rewritten are the
+/// strings of the row's `data` (its snapshot references aside) that spell a
+/// path under the scope, a `path:line` mention alike, and a node field
+/// naming the scope itself (`.`). A value with a space (text) or a `#` (a
+/// symbol id, named from the snapshot) stays as the result spells it. `None`
+/// (nothing rewritten) when the query names no scope below the workspace or
+/// no value lies under it; calls are separate and keep their paths.
+pub(super) fn under_scope(row: &mut Map<String, Value>, query: &Value) -> Option<String> {
+    let scope = query["queries"][0]["path"].as_str()?;
+    let scope = scope
+        .strip_prefix("./")
+        .unwrap_or(scope)
+        .trim_end_matches('/');
+    if scope.is_empty() || scope == "." {
+        return None;
+    }
+    let data = row.get_mut("data")?.as_object_mut()?;
+    let mut rewritten = false;
+    for (key, value) in data.iter_mut() {
+        if !SNAPSHOT_FIELDS.contains(&key.as_str()) {
+            relative_to(value, key, scope, &mut rewritten);
+        }
+    }
+    rewritten.then(|| scope.to_owned())
+}
+
+/// [`under_scope`] of one value under `key`.
+fn relative_to(value: &mut Value, key: &str, scope: &str, rewritten: &mut bool) {
+    match value {
+        Value::String(text) if !text.contains(char::is_whitespace) && !text.contains('#') => {
+            let relative = text
+                .strip_prefix(scope)
+                .and_then(|rest| rest.strip_prefix('/'))
+                .filter(|rest| !rest.is_empty())
+                .map(str::to_owned);
+            if let Some(relative) = relative {
+                *text = relative;
+                *rewritten = true;
+            } else if *text == scope && NODE_FIELDS.contains(&key) {
+                *text = ".".to_owned();
+                *rewritten = true;
+            }
+        }
+        Value::Array(items) => items
+            .iter_mut()
+            .for_each(|item| relative_to(item, key, scope, rewritten)),
+        Value::Object(fields) => {
+            for (key, value) in fields.iter_mut() {
+                if !SNAPSHOT_FIELDS.contains(&key.as_str()) {
+                    relative_to(value, key, scope, rewritten);
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 /// The `data` objects and lists every row of a batch holds with one value,
@@ -208,7 +356,7 @@ pub(super) fn shared_fields(
 /// it because its operation reports none.
 pub(super) fn with_batch_facts(tool: ToolId, rows: &[Value]) -> Vec<Value> {
     let mut whole = rows.to_vec();
-    let groups = octocode_native::contracts::tool_contract_named(tool.as_str())
+    let groups = octocode_runtime_base::contracts::tool_contract_named(tool.as_str())
         .and_then(Result::ok)
         .and_then(|contract| contract["pageContextFields"]["batchStatedOnce"].as_array());
     for group in groups.into_iter().flatten() {

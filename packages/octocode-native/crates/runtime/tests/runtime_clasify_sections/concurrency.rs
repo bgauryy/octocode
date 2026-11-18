@@ -2,6 +2,7 @@
 
 use super::sections;
 use crate::support::{PROVIDER_LIMITS, Workspace};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::sync::{Arc, Condvar, Mutex};
@@ -80,7 +81,7 @@ impl Rendezvous {
             .as_object()
             .expect("questions")
             .keys()
-            .map(|id| (id.clone(), json!({"type":"noul","noul":0.9})))
+            .map(|id| (id.clone(), json_fixture(r#"{"type": "noul", "noul": 0.9}"#)))
             .collect::<serde_json::Map<_, _>>();
         let response = json!({"model":"jev-1.13.0","answers":answers,
             "usage":{"input_tokens":10,"output_tokens":2}})
@@ -114,7 +115,11 @@ async fn admitted_sections_are_judged_concurrently_and_all_answer() {
     );
     let out = sections(
         &runtime,
-        json!({"file":{"tool":"localFetch","query":{"path":"four.rs"}}}),
+        json_fixture(
+            r#"{
+                "file": {"tool": "localFetch", "query": {"path": "four.rs"}}
+            }"#,
+        ),
     )
     .await;
     let file = &out["resources"]["file"];

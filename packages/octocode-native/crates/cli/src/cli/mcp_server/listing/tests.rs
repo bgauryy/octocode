@@ -1,8 +1,9 @@
 use super::build;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 
 fn presentation() -> &'static Value {
-    octocode_native::contracts::cli_presentation().expect("embedded presentation")
+    octocode_runtime_base::contracts::cli_presentation().expect("embedded presentation")
 }
 
 /// A catalog with the named tools available.
@@ -34,7 +35,7 @@ fn names(tools: &[Value]) -> Vec<&str> {
 fn lists_available_tools_in_catalog_order_with_published_inputs() {
     let catalog = catalog(
         &["localSearch", "localFetch"],
-        json!({"selection": false}),
+        json_fixture(r#"{"selection": false}"#),
         json!([]),
     );
     let listing = build(presentation(), &catalog).expect("listing");
@@ -79,14 +80,18 @@ fn instructions_are_core_s_composition_for_the_listed_tools() {
     }));
     for set in sets {
         let available: Vec<&str> = set.iter().map(String::as_str).collect();
-        let catalog = catalog(&available, json!({"selection": true}), json!([]));
+        let catalog = catalog(
+            &available,
+            json_fixture(r#"{"selection": true}"#),
+            json!([]),
+        );
         let text = build(presentation(), &catalog)
             .expect("listing")
             .instructions;
         assert_eq!(
             text,
             // Selection is on: the Clasify block explains the option.
-            octocode_native::contracts::compose_instructions(presentation(), |name| {
+            octocode_runtime_base::contracts::compose_instructions(presentation(), |name| {
                 available.contains(&name) || name == "clasify"
             }),
             "{available:?}"
@@ -105,8 +110,8 @@ fn instructions_are_core_s_composition_for_the_listed_tools() {
 fn lsp_search_names_the_resolved_language_servers() {
     let catalog = catalog(
         &["lspSearch"],
-        json!({"selection": false}),
-        json!(["rust", "ts/js"]),
+        json_fixture(r#"{"selection": false}"#),
+        json_fixture(r#"["rust", "ts/js"]"#),
     );
     let listing = build(presentation(), &catalog).expect("listing");
     let description = listing.tools[0]["description"].as_str().expect("text");
@@ -118,8 +123,16 @@ fn lsp_search_names_the_resolved_language_servers() {
 
 #[test]
 fn selection_lists_the_context_selection_variant() {
-    let plain = catalog(&["localSearch"], json!({"selection": false}), json!([]));
-    let ranked = catalog(&["localSearch"], json!({"selection": true}), json!([]));
+    let plain = catalog(
+        &["localSearch"],
+        json_fixture(r#"{"selection": false}"#),
+        json!([]),
+    );
+    let ranked = catalog(
+        &["localSearch"],
+        json_fixture(r#"{"selection": true}"#),
+        json!([]),
+    );
     let plain = build(presentation(), &plain).expect("plain").tools;
     let ranked = build(presentation(), &ranked).expect("ranked").tools;
     assert_ne!(plain[0]["inputSchema"], ranked[0]["inputSchema"]);
@@ -129,7 +142,7 @@ fn selection_lists_the_context_selection_variant() {
 fn every_enabled_tool_is_listed_with_its_exact_schema() {
     let available = presentation_tools();
     let names = available.iter().map(String::as_str).collect::<Vec<_>>();
-    let catalog = catalog(&names, json!({"selection":false}), json!([]));
+    let catalog = catalog(&names, json_fixture(r#"{"selection": false}"#), json!([]));
     let listing = build(presentation(), &catalog).unwrap();
     assert_eq!(listing.tools.len(), available.len());
     for listed in listing.tools {
@@ -145,17 +158,19 @@ fn every_enabled_tool_is_listed_with_its_exact_schema() {
 
 #[test]
 fn a_catalog_without_available_tools_is_an_error() {
-    let catalog = catalog(&[], json!({"selection": false}), json!([]));
+    let catalog = catalog(&[], json_fixture(r#"{"selection": false}"#), json!([]));
     assert!(build(presentation(), &catalog).is_err());
 }
 
 #[test]
 fn a_catalog_tool_without_a_presentation_is_an_error() {
-    let catalog = json!({
-        "tools": [{"name": "unknownTool", "available": true}],
-        "presentation": {"selection": false},
-        "lspServers": [],
-    });
+    let catalog = json_fixture(
+        r#"{
+            "tools": [{"name": "unknownTool", "available": true}],
+            "presentation": {"selection": false},
+            "lspServers": []
+        }"#,
+    );
     let Err(message) = build(presentation(), &catalog) else {
         panic!("an unknown tool has no contract");
     };
@@ -256,14 +271,14 @@ fn the_clasify_block_follows_selection_not_the_clasify_listing() {
     let read = ["localSearch", "localFetch"];
     let on = build(
         presentation(),
-        &catalog(&read, json!({"selection": true}), json!([])),
+        &catalog(&read, json_fixture(r#"{"selection": true}"#), json!([])),
     )
     .expect("listing");
     assert!(!names(&on.tools).contains(&"clasify"));
     assert!(on.instructions.contains(&block), "selection on");
     let off = build(
         presentation(),
-        &catalog(&read, json!({"selection": false}), json!([])),
+        &catalog(&read, json_fixture(r#"{"selection": false}"#), json!([])),
     )
     .expect("listing");
     assert!(!off.instructions.contains(&block), "no selection");

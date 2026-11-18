@@ -23,9 +23,9 @@ const CPU_SAMPLE: Duration = Duration::from_millis(500);
 /// in Metals and jdtls), and a starved one mid-load well over it.
 const WORKING_CPU_DIVISOR: u32 = 20;
 
-/// Whether `deadline` (none: never) has come.
-fn past(deadline: Option<Instant>) -> bool {
-    deadline.is_some_and(|at| Instant::now() >= at)
+/// Whether `deadline` (none: never) has come by `now`.
+fn past(deadline: Option<Instant>, now: Instant) -> bool {
+    deadline.is_some_and(|at| now >= at)
 }
 
 /// What an empty answer means, as far as the server shows.
@@ -61,7 +61,7 @@ impl NativeLspClient {
     /// the language's readiness budget, twice. Within it a load is waited for
     /// as long as the server shows work, never a fixed span.
     pub fn load_deadline(&self) -> Option<Instant> {
-        WaitBudget::new(self.load_quiet_ms()).ceiling()
+        WaitBudget::new(self.load_quiet_ms(), self.inner.clock.now()).ceiling()
     }
 
     /// How long a load may show no sign of work (no CPU, no new work-done
@@ -86,7 +86,8 @@ impl NativeLspClient {
         deadline: Option<Instant>,
     ) -> EmptyAnswer {
         let progress = &self.inner.progress;
-        let began = Instant::now();
+        let clock = &self.inner.clock;
+        let began = clock.now();
         let _activity = self.lease();
         // Shown idle when asked, with nothing open now: whatever began since
         // has ended, and a server may wrap a request in its own progress
@@ -114,7 +115,7 @@ impl NativeLspClient {
             }
             let begins = progress.begins();
             let before = connection.server_cpu_time();
-            tokio::time::sleep(sample).await;
+            clock.sleep(sample).await;
             // No window (a harness's fake server), no evidence of work.
             let working = !sample.is_zero()
                 && before
@@ -129,7 +130,7 @@ impl NativeLspClient {
                 break;
             }
             worked = true;
-            if past(deadline) {
+            if past(deadline, clock.now()) {
                 return self.still_loading(began);
             }
         }
@@ -137,7 +138,7 @@ impl NativeLspClient {
         if !worked {
             return EmptyAnswer::Stands;
         }
-        if past(deadline) {
+        if past(deadline, clock.now()) {
             return self.still_loading(began);
         }
         let _ = RESPONSE_SCOPE.try_with(|scope| {
@@ -161,7 +162,7 @@ impl NativeLspClient {
         if self.readiness() != Some(Readiness::Timeout) {
             return self.readiness();
         }
-        let began = Instant::now();
+        let began = self.inner.clock.now();
         let _activity = self.lease();
         let Ok(connection) = self.connection_handle().await else {
             return self.readiness();
@@ -187,12 +188,13 @@ impl NativeLspClient {
         deadline: Option<Instant>,
     ) -> bool {
         let progress = &self.inner.progress;
+        let clock = &self.inner.clock;
         let quiet = Duration::from_millis(u64::from(self.load_quiet_ms()));
         while progress.has_active() {
             let mark = connection.activity_mark();
-            let window = Instant::now() + quiet;
+            let window = clock.deadline_after(quiet);
             let window = deadline.map_or(window, |at| window.min(at));
-            let left = window.saturating_duration_since(Instant::now());
+            let left = window.saturating_duration_since(clock.now());
             let left = u64::try_from(left.as_millis()).unwrap_or(u64::MAX);
             let drained = progress
                 .wait_until_idle_after(progress.subscribe(), 0, left)
@@ -200,7 +202,7 @@ impl NativeLspClient {
             if drained != Readiness::Timeout {
                 return true;
             }
-            if past(deadline) || !connection.worked_since(&mark) {
+            if past(deadline, clock.now()) || !connection.worked_since(&mark) {
                 return false;
             }
         }

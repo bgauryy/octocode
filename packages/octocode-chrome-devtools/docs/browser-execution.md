@@ -26,6 +26,8 @@ Use the page's observed labels and selectors; this example is a plan shape, not 
 | Operation | Fields and behavior |
 |---|---|
 | `goto` | Root `url`; waits for navigation commit and document readiness, including redirects. `after` adds task readiness. |
+| `history` | `direction` `back` or `forward`: moves one session-history entry of the root page and waits for the commit (or same-document navigation) and document readiness; fails without navigating when no such entry exists. `after` adds task readiness. Element refs from before a full-document move recover by role and name or fail as stale. |
+| `reload` | Reloads the root page (`ignoreCache: true` bypasses the HTTP cache) and waits like `goto`. `after` adds task readiness. |
 | `act` | `action` and explicit `ref`, `selector`, or exact `role` + `name`; trusted input and actionability checks; foregrounds the owning page, including isolated frames. Optional `value`, `key`, `toRef`, `toSelector`. |
 | `wait` | Visible target or text `value`; no action. |
 | `extract` | CSS `selector`; all matches saved. `fields`: `text`, `href`, `value`, `role`, `name`; default text + href. `name` reads aria-label/name attributes, not computed accessible name. Zero matches return an empty result with a `note` and the plan continues; `allowEmpty: false` makes zero matches fail the plan. |

@@ -1,4 +1,5 @@
 use super::*;
+use octocode_test_support::json_fixture;
 
 /// A row's own text names no file and leaves for the provider. Its
 /// evidence (`content`) is judged as a read judges text of no known file, so
@@ -10,7 +11,7 @@ use super::*;
 fn clasify_text_is_judged_as_if_it_could_be_any_file() {
     const VALUE: &str = "ghp_QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIz";
     let manifest = format!("apiVersion: v1\nkind: Config\ndata:\n  token: {VALUE}\n");
-    let security = crate::security::ContentSecurity::new();
+    let security = octocode_runtime_base::security::ContentSecurity::new();
     let policy = InputPolicy::ClasifyEvidence {
         content_limit: 32_000,
     };
@@ -83,7 +84,7 @@ fn clasify_text_is_judged_as_if_it_could_be_any_file() {
 fn a_credential_in_the_callers_words_is_refused_in_every_clasify_field() {
     let token = format!("ghp_{}", "a1B2".repeat(9));
     let password = "aws_secret_access_key = Tr0ub4dorXK9zQwTr0ub4dorXK9zQwTr0ub4dorX";
-    let security = crate::security::ContentSecurity::new();
+    let security = octocode_runtime_base::security::ContentSecurity::new();
     let policy = InputPolicy::ClasifyEvidence {
         content_limit: 32_000,
     };
@@ -145,7 +146,7 @@ fn a_credential_in_the_callers_words_is_refused_in_every_clasify_field() {
 /// sends them, not a placeholder nobody asked about.
 #[test]
 fn what_the_gate_clears_in_a_clasify_question_is_sent_as_asked() {
-    let security = crate::security::ContentSecurity::new();
+    let security = octocode_runtime_base::security::ContentSecurity::new();
     let policy = InputPolicy::ClasifyEvidence {
         content_limit: 32_000,
     };
@@ -169,7 +170,7 @@ fn what_the_gate_clears_in_a_clasify_question_is_sent_as_asked() {
 #[test]
 fn a_secret_in_a_clasify_source_is_rejected_and_in_state_redacted() {
     let token = format!("ghp_{}", "a".repeat(36));
-    let security = crate::security::ContentSecurity::new();
+    let security = octocode_runtime_base::security::ContentSecurity::new();
     let policy = InputPolicy::ClasifyEvidence {
         content_limit: 32_000,
     };
@@ -213,7 +214,7 @@ fn a_secret_in_a_clasify_source_is_rejected_and_in_state_redacted() {
 /// file's is.
 #[test]
 fn clasify_words_the_gate_cleared_stay_as_written() {
-    let security = crate::security::ContentSecurity::new();
+    let security = octocode_runtime_base::security::ContentSecurity::new();
     let policy = InputPolicy::ClasifyEvidence {
         content_limit: 32_000,
     };
@@ -235,7 +236,7 @@ fn clasify_words_the_gate_cleared_stay_as_written() {
     // it reaches the provider as written. A body beside it never does.
     let checked = security
         .check_input(
-            json!({"content": "-----BEGIN RSA PRIVATE KEY-----"}),
+            json_fixture(r#"{"content": "-----BEGIN RSA PRIVATE KEY-----"}"#),
             policy,
         )
         .expect("admitted");

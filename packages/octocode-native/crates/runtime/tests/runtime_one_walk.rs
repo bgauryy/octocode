@@ -2,6 +2,7 @@
 //! else the `next.nextPage` a whole response carries, until neither remains.
 //! Rows, split or not, batched or not, never need a second handle.
 use crate::support::{Run as _, Workspace};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -34,38 +35,28 @@ fn row_walks(value: &Value, found: &mut Vec<Value>) {
     }
 }
 
-/// The one call a reader runs next, and the assertion that there is only one
-/// way on: a page with a response-level call states no row walk beside it.
-fn the_next_call(output: &Value) -> Option<Value> {
+/// Every call a reader runs next: the response-level call when the response
+/// pager cut the page (it carries the walks of the rows it split), and each
+/// whole row's own `next.nextPage`. A saved page that ends a walk states no
+/// call; a fresh response never states a page 1 of 1.
+fn the_next_calls(output: &Value) -> Vec<Value> {
     let mut walks = Vec::new();
     row_walks(&output["results"], &mut walks);
-    match output.pointer("/responsePagination/next").cloned() {
-        Some(call) => {
-            assert_eq!(output["responsePagination"]["hasMore"], true, "{output}");
-            assert!(walks.is_empty(), "two ways on: {output}");
-            Some(call["input"].clone())
-        }
-        None => {
-            assert_ne!(
-                output.pointer("/responsePagination/hasMore"),
-                Some(&json!(true)),
-                "hasMore with no call: {output}"
-            );
-            // A block with nothing left ends a walk a cursor began; a fresh
-            // response never states a page 1 of 1.
-            assert!(
-                output.get("responsePagination").is_none()
-                    || output["responsePagination"]["replayed"] == true,
-                "a fresh page states an end: {output}"
-            );
-            assert!(walks.len() <= 1, "several row walks: {output}");
-            assert!(
-                walks.is_empty() || output.get("responsePagination").is_none(),
-                "a page counter beside a row walk: {output}"
-            );
-            walks.pop().map(|call| call["input"].clone())
-        }
+    let mut calls = Vec::new();
+    match output.pointer("/responsePagination/next") {
+        Some(call) => calls.push(call["input"].clone()),
+        None => assert!(
+            output.get("responsePagination").is_none()
+                || output["responsePagination"]["replayed"] == true,
+            "a fresh page states an end: {output}"
+        ),
     }
+    assert!(
+        output.pointer("/responsePagination/hasMore").is_none(),
+        "a page states no hasMore; the absent call ends the walk: {output}"
+    );
+    calls.extend(walks.iter().map(|call| call["input"].clone()));
+    calls
 }
 
 /// `(index, line)` of every hit on one page, each read once.
@@ -92,8 +83,8 @@ async fn walk(
     start: Value,
 ) -> Vec<Value> {
     let mut pages = Vec::new();
-    let mut input = start;
-    loop {
+    let mut queue = std::collections::VecDeque::from([start]);
+    while let Some(input) = queue.pop_front() {
         assert!(pages.len() < 200, "the walk terminates");
         let output: Value = (*runtime
             .run(format!("walk-{}", pages.len()), tool.into(), input)
@@ -101,14 +92,11 @@ async fn walk(
             .unwrap_or_else(|error| panic!("page {}: {error:?}", pages.len()))
             .structured_content)
             .clone();
-        octocode_native::contracts::validate_output(tool, &output).expect("output contract");
-        let next = the_next_call(&output);
+        octocode_runtime_base::contracts::validate_output(tool, &output).expect("output contract");
+        queue.extend(the_next_calls(&output));
         pages.push(output);
-        match next {
-            Some(call) => input = call,
-            None => return pages,
-        }
     }
+    pages
 }
 
 fn numbered(file: usize, lines: usize) -> String {
@@ -127,7 +115,19 @@ async fn the_final_part_of_a_split_row_carries_the_rows_next_page() {
     let pages = walk(
         &runtime,
         "localSearch",
-        json!({"queries":[{"path":"docs","matchString":["needle"],"view":"content","limit":40}],"responseChars":1500}),
+        json_fixture(
+            r#"{
+                "queries": [
+                    {
+                        "path": "docs",
+                        "matchString": ["needle"],
+                        "view": "content",
+                        "limit": 40
+                    }
+                ],
+                "responseChars": 1500
+            }"#,
+        ),
     )
     .await;
     let mut seen = BTreeSet::new();
@@ -157,19 +157,19 @@ async fn a_whole_read_over_the_automatic_page_says_it_reads_on() {
     let pages = walk(
         &runtime,
         "localFetch",
-        json!({"queries":[{"path":"long.md"}],"responseChars":20000}),
+        json_fixture(r#"{"queries": [{"path": "long.md"}], "responseChars": 20000}"#),
     )
     .await;
     assert!(pages.len() > 1, "more than one page");
     // The first page says it reads on: its row fits the window (X3), so the
     // row's own walk continues it, or a response page when one is cut.
     assert!(
-        pages[0]["responsePagination"]["hasMore"] == true
+        pages[0]["responsePagination"]["next"].is_object()
             || pages[0]["results"][0]["data"]["pagination"]["hasMore"] == true,
         "{}",
         pages[0]
     );
-    assert!(the_next_call(&pages[0]).is_some(), "a way on");
+    assert!(!the_next_calls(&pages[0]).is_empty(), "a way on");
     let read = pages
         .iter()
         .flat_map(|page| page["results"].as_array().into_iter().flatten())
@@ -232,15 +232,13 @@ async fn a_batch_that_fits_states_one_call_and_no_page_counters() {
         .await
         .expect("batch")
         .structured_content;
-    let block = first["responsePagination"].as_object().expect("the block");
-    assert_eq!(block["hasMore"], true);
     assert!(
-        block.get("expiresAt").is_none(),
-        "no saved response: {first}"
+        first.get("responsePagination").is_none(),
+        "no response page, no saved response: {first}"
     );
     let mut walks = Vec::new();
     row_walks(&first["results"], &mut walks);
-    assert!(walks.is_empty(), "{first}");
+    assert_eq!(walks.len(), 2, "each whole row keeps its own walk: {first}");
     for row in first["results"].as_array().expect("rows") {
         assert_eq!(row["data"]["pagination"]["hasMore"], true, "{row}");
     }
@@ -283,10 +281,18 @@ async fn one_handle_is_the_same_handle_on_both_reads_of_one_answer() {
             .await
             .expect("batch")
             .structured_content;
-        handles.push(output["responsePagination"]["next"]["input"].clone());
+        let mut walks = Vec::new();
+        row_walks(&output["results"], &mut walks);
+        handles.push(
+            walks
+                .iter()
+                .map(|call| call["input"].clone())
+                .collect::<Vec<_>>(),
+        );
     }
     assert_eq!(handles[0], handles[1]);
-    assert!(handles[0]["cursor"].is_string());
+    assert_eq!(handles[0].len(), 2, "one walk per row");
+    assert!(handles[0].iter().all(|input| input["cursor"].is_string()));
     runtime.close().await;
 }
 
@@ -299,11 +305,12 @@ async fn an_evicted_page_of_a_batch_hop_keeps_its_rows_indices() {
     workspace.write("b/two.txt", numbered(2, 30));
     let row = |path: &str| json!({"path":path,"matchString":["needle"],"limit":12});
     let pages_dir = workspace.home.join("tmp/response-pages");
-    let mut input =
-        json!({"queries":[{"path":"a","bogus":true},row("a"),row("b")],"responseChars":900});
+    let mut queue = std::collections::VecDeque::from([
+        json!({"queries":[{"path":"a","bogus":true},row("a"),row("b")],"responseChars":900}),
+    ]);
     let mut seen = BTreeSet::new();
     let mut calls = 0;
-    loop {
+    while let Some(input) = queue.pop_front() {
         calls += 1;
         assert!(calls < 200, "the walk terminates");
         let runtime = workspace.runtime(&persistent());
@@ -315,10 +322,7 @@ async fn an_evicted_page_of_a_batch_hop_keeps_its_rows_indices() {
         runtime.close().await;
         collect_hits(&output, &mut seen);
         evict(&pages_dir);
-        match the_next_call(&output) {
-            Some(call) => input = call,
-            None => break,
-        }
+        queue.extend(the_next_calls(&output));
     }
     let of = |index: u64| seen.iter().filter(|(at, _, _)| *at == index).count();
     assert_eq!(

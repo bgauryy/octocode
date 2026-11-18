@@ -1,11 +1,13 @@
 //! Materialized trees: the layout Octocode owns, the snapshot as the only
 //! store of each body, and no dating request.
 use super::*;
+use octocode_test_support::json_fixture;
 
 /// octocode-mcp 19.x rewrites `tmp/tree/<owner>/<repo>/<sha>/`; a
 /// materialize never shares it or an earlier snapshot layout (the size-only
-/// v2, the skip-less v3 manifest). No old cache is treated as a
-/// content-verified snapshot or modified.
+/// v2, the skip-less v3 manifest, the v4 one whose walk could write a link's
+/// target bytes). No old cache is treated as a content-verified snapshot or
+/// modified.
 #[tokio::test]
 async fn materialize_never_trusts_a_foreign_directory() {
     let server = tree_server(1).await;
@@ -14,7 +16,7 @@ async fn materialize_never_trusts_a_foreign_directory() {
     std::fs::create_dir_all(&legacy).expect("legacy dir");
     std::fs::write(legacy.join("one.rs"), "prod 19.x content").expect("legacy file");
     let layouts = workspace.home.join("tmp/materialize");
-    let foreign = ["v2", "v3"].map(|layout| layouts.join(layout).join("a/b").join(SHA));
+    let foreign = ["v2", "v3", "v4"].map(|layout| layouts.join(layout).join("a/b").join(SHA));
     for old in &foreign {
         std::fs::create_dir_all(old.join("stale")).expect("foreign dir");
         std::fs::write(old.join("one.rs"), "// foreign").expect("foreign file");
@@ -25,7 +27,14 @@ async fn materialize_never_trusts_a_foreign_directory() {
     let outcome = call(
         &runtime,
         "ghStructure",
-        json!({"operation":"tree","owner": "a", "repo": "b", "materialize": true}),
+        json_fixture(
+            r#"{
+                "operation": "tree",
+                "owner": "a",
+                "repo": "b",
+                "materialize": true
+            }"#,
+        ),
     )
     .await
     .expect("materialize");
@@ -104,13 +113,15 @@ async fn materialize_never_trusts_a_foreign_directory() {
 async fn a_second_materialize_restores_every_file_reading_only_the_changed_one() {
     let server = MockServer::builder().start().await;
     mount_head_at_sha(&server).await;
+    let entries = json!([
+        {"name":"one.rs","path":"one.rs","type":"file","size":10,"sha":"1".repeat(40)},
+        {"name":"two.rs","path":"two.rs","type":"file","size":10,"sha":"2".repeat(40)}
+    ]);
+    mount_folder_tree(&server, "/api/v3/repos/a/b", SHA, "", &entries).await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents"))
         .and(query_param("ref", SHA))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-            {"name":"one.rs","path":"one.rs","type":"file","size":10,"sha":"1".repeat(40)},
-            {"name":"two.rs","path":"two.rs","type":"file","size":10,"sha":"2".repeat(40)}
-        ])))
+        .respond_with(ResponseTemplate::new(200).set_body_json(entries))
         .mount(&server)
         .await;
     // one.rs stays intact on disk, so only the first materialize reads it;
@@ -194,7 +205,14 @@ async fn materialize_sends_no_date_request() {
     let outcome = call(
         &runtime,
         "ghStructure",
-        json!({"operation":"tree","owner": "a", "repo": "b", "materialize": true}),
+        json_fixture(
+            r#"{
+                "operation": "tree",
+                "owner": "a",
+                "repo": "b",
+                "materialize": true
+            }"#,
+        ),
     )
     .await
     .expect("materialize");
@@ -210,13 +228,15 @@ async fn materialize_sends_no_date_request() {
 async fn materialize_skips_credential_named_files_without_reading_them() {
     let server = MockServer::builder().start().await;
     mount_head_at_sha(&server).await;
+    let entries = json!([
+        {"name":"one.rs","path":"one.rs","type":"file","size":10,"sha":"1".repeat(40)},
+        {"name":".env","path":".env","type":"file","size":12,"sha":"2".repeat(40)}
+    ]);
+    mount_folder_tree(&server, "/api/v3/repos/a/b", SHA, "", &entries).await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents"))
         .and(query_param("ref", SHA))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-            {"name":"one.rs","path":"one.rs","type":"file","size":10,"sha":"1".repeat(40)},
-            {"name":".env","path":".env","type":"file","size":12,"sha":"2".repeat(40)}
-        ])))
+        .respond_with(ResponseTemplate::new(200).set_body_json(entries))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
@@ -259,7 +279,11 @@ async fn materialize_skips_credential_named_files_without_reading_them() {
         !local.join(".env").exists(),
         "a credential file was written"
     );
-    assert_eq!(data["location"]["skipped"], json!([".env"]), "{data}");
+    assert_eq!(
+        data["location"]["skipped"],
+        json_fixture(r#"[".env"]"#),
+        "{data}"
+    );
     assert_eq!(data["location"]["coverage"]["state"], "complete", "{data}");
     let text = data.to_string();
     assert!(text.contains("credential"), "the row says why: {data}");

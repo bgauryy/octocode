@@ -1,14 +1,14 @@
 use super::{Args, OutputMode, stdout_is_terminal, write_json};
 use clap::{CommandFactory, FromArgMatches};
 use octocode_contract_types::ErrorCode;
-use octocode_native::config::RuntimeSurface;
-use octocode_native::execution::availability::ToolAvailability;
-use octocode_native::id::ToolId;
+use octocode_runtime_base::config::RuntimeSurface;
+use octocode_runtime_base::execution::availability::ToolAvailability;
+use octocode_runtime_base::id::ToolId;
 use serde_json::{Value, json};
 use std::io::{self, Write};
 
-/// A command's own failure (not a tool call's): the `{error, errorCode}`
-/// envelope tool errors use, on stdout in JSON mode, else the message on
+/// A command's own failure (not a tool call's): the `{error, errorCode,
+/// errorClass}` envelope tool errors use, on stdout in JSON mode, else the message on
 /// stderr. Every code is a declared `errorCodes` entry.
 pub(super) fn emit_error(code: ErrorCode, message: &str, mode: impl Into<OutputMode>) {
     let mode = mode.into();
@@ -24,10 +24,12 @@ pub(super) fn emit_error(code: ErrorCode, message: &str, mode: impl Into<OutputM
 /// The `{error, errorCode[, details]}` envelope of a command's own failure,
 /// with secrets scrubbed from every line.
 pub(super) fn error_envelope(code: ErrorCode, message: &str, details: &[&str]) -> Value {
-    use octocode_native::security::scrub_error_text;
+    use octocode_runtime_base::security::scrub_error_text;
     let details = details.iter().map(|line| scrub_error_text(line)).collect();
-    let mut envelope = octocode_native::contracts::tool_error(&scrub_error_text(message), details);
+    let mut envelope =
+        octocode_runtime_base::contracts::tool_error(&scrub_error_text(message), details);
     envelope["errorCode"] = json!(code);
+    envelope["errorClass"] = json!(octocode_runtime_base::id::error_codes::class(code));
     envelope
 }
 
@@ -63,7 +65,8 @@ pub(super) fn without_dash_dash_tip(rendered: &str) -> String {
 /// with secrets scrubbed.
 pub(super) fn print_clap_error(error: &clap::Error) {
     let original = error.render().to_string();
-    let sanitized = octocode_native::security::scrub_error_text(&without_dash_dash_tip(&original));
+    let sanitized =
+        octocode_runtime_base::security::scrub_error_text(&without_dash_dash_tip(&original));
     if sanitized == original {
         let _ = error.print();
     } else {
@@ -90,7 +93,7 @@ pub(super) fn clap_error_envelope(error: &clap::Error) -> Value {
     error_envelope(ErrorCode::InvalidInput, &message, &details)
 }
 
-pub fn parse_args() -> Result<Args, u8> {
+pub(crate) fn parse_args() -> Result<Args, u8> {
     parse_args_from(std::env::args_os())
 }
 
@@ -125,12 +128,12 @@ where
                 is_help(&error) || error.kind() == clap::error::ErrorKind::DisplayVersion;
             if displays_text {
                 let _ = error.print();
-                return Err(error.exit_code() as u8);
+                return Err(clap_exit_code(&error));
             }
             let mode = parse_error_mode(&argv);
             if !mode.json {
                 print_clap_error(&error);
-                return Err(error.exit_code() as u8);
+                return Err(clap_exit_code(&error));
             }
             write_json(&clap_error_envelope(&error));
             if mode.tells_stderr() {
@@ -139,6 +142,12 @@ where
             Err(2)
         }
     }
+}
+
+/// The exit code clap gives `error`: 0 for help and version, 2 for a usage
+/// error. Clap gives no other; one would read as a usage error.
+fn clap_exit_code(error: &clap::Error) -> u8 {
+    u8::try_from(error.exit_code()).unwrap_or(2)
 }
 
 pub(super) fn is_help(error: &clap::Error) -> bool {
@@ -153,7 +162,7 @@ pub(super) fn is_help(error: &clap::Error) -> bool {
 /// check provider readiness. A hidden tool keeps its own help. Help starts
 /// no runtime, cache maintenance, provider request, or config warnings.
 pub(super) fn hide_unavailable_tools(mut command: clap::Command) -> clap::Command {
-    use octocode_native::config::{acquire_config_input, resolve_config};
+    use octocode_runtime_base::config::{acquire_config_input, resolve_config};
     let (Ok(cwd), Some(home)) = (std::env::current_dir(), std::env::home_dir()) else {
         return command;
     };
@@ -180,7 +189,7 @@ pub(super) fn help_command() -> clap::Command {
             .into_iter()
             .fold(hide_unavailable_tools(Args::command()), |command, tool| {
                 let name = tool.as_str();
-                match octocode_native::contracts::cli_tool_help(name) {
+                match octocode_runtime_base::contracts::cli_tool_help(name) {
                     Some(help) => command.mut_subcommand(name, |sub| {
                         sub.after_help(format!(
                             "{help}\nOutput fields: {}",

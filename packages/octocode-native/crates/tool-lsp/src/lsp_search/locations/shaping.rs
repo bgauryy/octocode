@@ -1,0 +1,401 @@
+//! Shaping one location: payload sizes, reference totals, context lines,
+//! declaration caps and public coordinates.
+use super::*;
+
+pub(super) fn location_payload(
+    kind: &str,
+    provider: &str,
+    key: &str,
+    rows: Value,
+    locations: &[Value],
+    pagination: Value,
+) -> Value {
+    let mut row = json!({"operation":kind});
+    row[key] = rows;
+    if kind == "references" {
+        reference_totals(&mut row, locations);
+    }
+    row["lsp"] = json!({"serverAvailable":true,"provider":provider});
+    row["pagination"] = pagination;
+    row
+}
+
+/// Characters each location costs a page in the form it prints: a compact
+/// `line:col text` row (its file's path once per run of rows), a file
+/// summary, or the full row, plus the lines `contextLines` adds around it.
+pub(super) fn location_sizes(
+    entries: &[Value],
+    grouped: bool,
+    context_lines: Option<octocode_engine::types::SearchContext>,
+) -> Vec<usize> {
+    use octocode_engine::json_size::string_body_units;
+    entries
+        .iter()
+        .map(|entry| {
+            if grouped {
+                return octocode_engine::json_size::utf16_units(entry).unwrap_or(0) + 1;
+            }
+            let line = entry
+                .get("content")
+                .and_then(Value::as_str)
+                .map_or(0, string_body_units);
+            let context = context_lines.map_or(0, |lines| {
+                (lines.before.saturating_add(lines.after)) as usize * line
+            });
+            octocode_engine::json_size::utf16_units(&public_location(entry.clone())).unwrap_or(0)
+                + context
+                + 1
+        })
+        .collect()
+}
+
+pub(super) fn reference_totals(row: &mut Value, locations: &[Value]) {
+    let total_files = locations
+        .iter()
+        .filter_map(|location| location.get("uri").and_then(Value::as_str))
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    // The reference total, whatever the page unit (files when grouped).
+    row["matchCount"] = json!(locations.len());
+    let recovered = locations
+        .iter()
+        .filter(|location| location.get("source").and_then(Value::as_str) == Some(RECOVERED_ALIAS))
+        .count();
+    if recovered > 0 {
+        row["recoveredAliasReferences"] = json!(recovered);
+    }
+    row["matchedFiles"] = json!(total_files);
+}
+
+/// Widen a location's `content` to `context_lines` around its range, from
+/// the request's source cache (one policy check, read, and line index per
+/// file per request).
+pub(in super::super) async fn apply_context_lines(
+    location: &mut Value,
+    context_lines: octocode_engine::types::SearchContext,
+    sources: &mut SourceCache<'_>,
+) {
+    let Some(path) = location.get("uri").and_then(Value::as_str).map(uri_to_path) else {
+        return;
+    };
+    let Some(source) = sources.get(&path).await else {
+        return;
+    };
+    let start_line = location
+        .pointer("/range/start/line")
+        .and_then(Value::as_u64)
+        .map_or(0, octocode_engine::num::saturating_usize);
+    let range_end = location
+        .pointer("/range/end/line")
+        .and_then(Value::as_u64)
+        .map_or(start_line, octocode_engine::num::saturating_usize);
+    let end_character = location
+        .pointer("/range/end/character")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let selected_end = if end_character == 0 && range_end > start_line {
+        range_end - 1
+    } else {
+        range_end
+    };
+    if start_line >= source.line_count() {
+        return;
+    }
+    let start = start_line.saturating_sub(context_lines.before as usize);
+    let end = selected_end
+        .saturating_add(context_lines.after as usize)
+        .saturating_add(1)
+        .min(source.line_count());
+    location["content"] = json!(source.lines(start, end));
+    location["displayRange"] = json!({
+        "startLine": start + 1,
+        "endLine": end,
+    });
+}
+
+/// Show what `page`'s rows quote of their files as each file is judged whole
+/// ([`octocode_runtime_base::security::JudgedText`]). A row quotes the file at a server's
+/// location, and its lines alone say nothing of the key that names a value a
+/// secret (a declaration continued over lines) or of a private-key block
+/// around them; each line is therefore the judged source's line, as a read
+/// of it shows. Returns each row's judged source and the placeholders the
+/// cuts added.
+pub(in super::super) async fn judge_content(
+    page: &mut [Value],
+    sources: &mut SourceCache<'_>,
+    security: &octocode_runtime_base::security::ContentSecurity,
+) -> (
+    Vec<Option<std::sync::Arc<octocode_runtime_base::security::JudgedText>>>,
+    usize,
+) {
+    let files = super::super::scope::judged_files();
+    let mut judged = Vec::with_capacity(page.len());
+    let mut added = 0;
+    for location in page {
+        let (Some(path), Some(first), Some(content)) = (
+            location.get("uri").and_then(Value::as_str).map(uri_to_path),
+            location
+                .pointer("/displayRange/startLine")
+                .and_then(Value::as_u64)
+                .and_then(|line| usize::try_from(line).ok()),
+            location.get("content").and_then(Value::as_str),
+        ) else {
+            judged.push(None);
+            continue;
+        };
+        let Some(source) = sources.get(&path).await else {
+            judged.push(None);
+            continue;
+        };
+        let text = files.judge(&source.content, std::path::Path::new(&path), |digest| {
+            octocode_tools_shared::judged_rows::judged(
+                &source.content,
+                digest,
+                std::path::Path::new(&path),
+                security,
+            )
+        });
+        let mut line = first;
+        let mut out = String::with_capacity(content.len());
+        for record in content.split_inclusive('\n') {
+            if is_omission_marker(record) {
+                out.push_str(record);
+                continue;
+            }
+            let body = record.trim_end_matches(['\n', '\r']);
+            // A window cut from the view a read serves is judged already.
+            if body.contains(octocode_engine::security::REDACTION_PREFIX) {
+                out.push_str(record);
+            } else {
+                out.push_str(&text.fragment(line, None, body).0);
+                out.push_str(record.get(body.len()..).unwrap_or_default());
+            }
+            line += 1;
+        }
+        added += octocode_runtime_base::security::placeholders(&out)
+            .saturating_sub(octocode_runtime_base::security::placeholders(content));
+        if out != content {
+            location["content"] = json!(out);
+        }
+        judged.push(Some(text));
+    }
+    (judged, added)
+}
+
+/// Whether a `content` record is an unnumbered omission marker: the bytes a
+/// byte window (`byte_window`) left out before or after it.
+fn is_omission_marker(record: &str) -> bool {
+    record.starts_with("… ") && record.contains(" bytes omitted ")
+}
+
+/// Partial reason of a row whose declaration body was clipped to the page
+/// or to its byte window.
+pub(super) const DECLARATION_CLIPPED: octocode_runtime_base::response::paging::PartialReason =
+    octocode_runtime_base::response::paging::PartialReason::DeclarationClipped;
+
+/// Keep the whole lines of a location's default declaration body that its
+/// row can hold within `budget` (the page the request allows), so a class
+/// definition does not outgrow a page. The cut is stated by the row's
+/// partial reason and the returned localFetch continuation, which reads
+/// exactly the lines left out; the content itself carries no marker. A body
+/// whose rest cannot be named (no source line numbers) is kept whole.
+pub(in super::super) fn cap_declaration_content(
+    location: &mut Value,
+    budget: usize,
+) -> Option<octocode_runtime_base::response::result::Continuation> {
+    let content = location.get("content").and_then(Value::as_str)?;
+    if content.starts_with("[content unavailable") {
+        return None;
+    }
+    // A trailing line ending is no further line.
+    let lines = content
+        .strip_suffix('\n')
+        .unwrap_or(content)
+        .split('\n')
+        .collect::<Vec<_>>();
+    let start = location
+        .pointer("/displayRange/startLine")
+        .and_then(Value::as_u64)
+        .map(octocode_engine::num::saturating_usize)?;
+    let path = location
+        .get("uri")
+        .and_then(Value::as_str)
+        .map(uri_to_path)?;
+    let fits =
+        |count: usize| super::byte_window::row_units(location, lines[..count].join("\n")) <= budget;
+    if fits(lines.len()) {
+        return None;
+    }
+    // The most lines that fit; the first always stays (a line too long for
+    // the page was windowed by bytes before this).
+    let (mut kept, mut over) = (1, lines.len());
+    while over - kept > 1 {
+        let middle = kept + (over - kept) / 2;
+        if fits(middle) {
+            kept = middle;
+        } else {
+            over = middle;
+        }
+    }
+    let (from, to) = (start + kept, start + lines.len() - 1);
+    let read = u64::try_from(from)
+        .ok()
+        .zip(u64::try_from(to).ok())
+        .and_then(|window| {
+            octocode_tools_shared::source_view::local_fetch_query::ranges_lead(&path, &[window])
+        })
+        .map(octocode_runtime_base::response::result::Continuation::continued_query)?;
+    location["content"] = json!(lines[..kept].join("\n"));
+    location["displayRange"]["endLine"] = json!(start + kept - 1);
+    Some(read)
+}
+
+pub(in super::super) fn compact_location(value: Value) -> Value {
+    let mut compact = serde_json::Map::new();
+    if let Some(uri) = value.get("uri").and_then(Value::as_str) {
+        compact.insert("uri".into(), json!(uri));
+    }
+    if let Some(range) = value.get("range") {
+        compact.insert("range".into(), range.clone());
+    }
+    if let Some(content) = value.get("content") {
+        compact.insert("content".into(), content.clone());
+    }
+    let display_range = value
+        .get("displayRange")
+        .or_else(|| value.get("display_range"))
+        .and_then(normalize_display_range)
+        .or_else(|| {
+            let start = value.pointer("/range/start/line")?.as_u64()?;
+            let end = value.pointer("/range/end/line")?.as_u64()?;
+            Some(json!({ "startLine": start + 1, "endLine": end + 1 }))
+        });
+    if let Some(display_range) = display_range {
+        compact.insert("displayRange".into(), display_range);
+    }
+    let is_definition = value
+        .get("isDefinition")
+        .or_else(|| value.get("is_definition"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if is_definition {
+        compact.insert("isDefinition".into(), json!(true));
+    }
+    for key in ["source", "role"] {
+        if let Some(label) = value.get(key).and_then(Value::as_str) {
+            compact.insert(key.into(), json!(label));
+        }
+    }
+    Value::Object(compact)
+}
+
+/// `source` of a reference found through an aliasing import rather than
+/// reported by the language server.
+pub(in super::super) const RECOVERED_ALIAS: &str = "recoveredAlias";
+
+/// `content` with each source line prefixed by its one-based number and a
+/// tab (`<line>\t<text>`, as localFetch reads are numbered), from `start`.
+/// Byte-window markers ([`is_omission_marker`]) stay unnumbered.
+pub(super) fn number_content(content: &str, start: u64) -> String {
+    let mut out = String::with_capacity(content.len() + content.len() / 8);
+    let mut line = start;
+    // A row's content has no final line ending, whichever page carries it.
+    let content = content.strip_suffix('\n').unwrap_or(content);
+    for record in content.split_inclusive('\n') {
+        if is_omission_marker(record) {
+            out.push_str(record);
+        } else {
+            octocode_runtime_base::response::numbered::push_numbered(&mut out, line, record);
+            line += 1;
+        }
+    }
+    out
+}
+
+/// Public location: the one-based place (`line`, `column`, `endLine`) of
+/// the symbol itself instead of the raw zero-based LSP `range` plus a
+/// line-only copy. `content` carries its own line numbers, from the widened
+/// window's first line when `contextLines` widened it.
+pub(in super::super) fn public_location(internal: Value) -> Value {
+    let Value::Object(mut internal) = internal else {
+        return internal;
+    };
+    let range = internal.shift_remove("range");
+    let window = internal.shift_remove("displayRange");
+    let mut public = serde_json::Map::new();
+    if let Some(uri) = internal
+        .shift_remove("uri")
+        .as_ref()
+        .and_then(Value::as_str)
+    {
+        public.insert("path".into(), json!(uri_to_path(uri)));
+    }
+    let place = range.as_ref().and_then(public_range).or_else(|| {
+        let window = window.as_ref()?;
+        let mut place = json!({ "line": window.get("startLine")?.as_u64()? });
+        if let Some(column) = window.get("startCharacter").and_then(Value::as_u64) {
+            place["column"] = json!(column);
+        }
+        place_end(&mut place, window.get("endLine")?.as_u64()?);
+        Some(place)
+    });
+    let symbol_start = place
+        .as_ref()
+        .and_then(|place| place.get("line"))
+        .and_then(Value::as_u64);
+    if let Some(place) = place {
+        insert_place(&mut public, place);
+    }
+    if let Some(content) = internal.shift_remove("content") {
+        let start = window
+            .as_ref()
+            .and_then(|window| window.get("startLine"))
+            .and_then(Value::as_u64)
+            .or(symbol_start);
+        match (content.as_str(), start) {
+            // An unreadable file's location carries the reason, not source.
+            (Some(text), Some(start))
+                if !text.is_empty() && !text.starts_with("[content unavailable") =>
+            {
+                // One line at the row's own `line` is that line's text: its
+                // number is the row's `line`, so it carries no prefix.
+                let single = text.strip_suffix('\n').unwrap_or(text);
+                let shown = if !single.contains('\n')
+                    && !is_omission_marker(single)
+                    && Some(start) == symbol_start
+                {
+                    single.to_owned()
+                } else {
+                    number_content(text, start)
+                };
+                public.insert("content".into(), json!(shown));
+            }
+            _ => {
+                public.insert("content".into(), content);
+            }
+        }
+    }
+    public.append(&mut internal);
+    Value::Object(public)
+}
+
+pub(super) fn normalize_display_range(value: &Value) -> Option<Value> {
+    let start = value
+        .get("startLine")
+        .or_else(|| value.get("start_line"))
+        .and_then(Value::as_u64)?;
+    let end = value
+        .get("endLine")
+        .or_else(|| value.get("end_line"))
+        .and_then(Value::as_u64)?;
+    let mut window = json!({ "startLine": start, "endLine": end });
+    // A link's one-based declaration start column, where a byte window of a
+    // long declaration line starts (`byte_window`).
+    if let Some(character) = value.get("startCharacter").and_then(Value::as_u64) {
+        window["startCharacter"] = json!(character);
+    }
+    Some(window)
+}
+
+#[cfg(test)]
+mod numbered_content_tests;

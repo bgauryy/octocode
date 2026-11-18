@@ -2,6 +2,10 @@
 
 use super::*;
 
+/// The name relational rules (`has`/`inside`) once bound their related node
+/// under. They bind nothing now; tests check it never reaches output.
+const SECONDARY_CAPTURE: &str = "secondary";
+
 #[test]
 fn ast_audit_rule_rejects_unknown_kinds_at_every_level() {
     for rule in [

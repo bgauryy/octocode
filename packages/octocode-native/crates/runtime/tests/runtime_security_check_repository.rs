@@ -2,6 +2,7 @@
 //! a fake GitHub at the HTTP boundary: what each answer GitHub gives reads as.
 
 use crate::support::{Workspace, call, row_data};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -86,7 +87,7 @@ async fn a_404_is_a_missing_repository() {
     mount(
         &server,
         "/api/v3/repos/o/r",
-        ResponseTemplate::new(404).set_body_json(json!({"message": "Not Found"})),
+        ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
     )
     .await;
     let data = read(&server, "o/r").await;
@@ -145,7 +146,7 @@ async fn a_server_error_is_a_failed_source_never_clean() {
     mount(
         &server,
         "/api/v3/repos/o/r",
-        ResponseTemplate::new(500).set_body_json(json!({"message": "Server Error"})),
+        ResponseTemplate::new(500).set_body_json(json_fixture(r#"{"message": "Server Error"}"#)),
     )
     .await;
     let data = read(&server, "o/r").await;
@@ -166,7 +167,7 @@ async fn a_spent_rate_limit_is_a_failed_source_never_clean() {
         ResponseTemplate::new(403)
             .insert_header("x-ratelimit-remaining", "0")
             .insert_header("x-ratelimit-reset", reset.to_string().as_str())
-            .set_body_json(json!({"message": "API rate limit exceeded"})),
+            .set_body_json(json_fixture(r#"{"message": "API rate limit exceeded"}"#)),
     )
     .await;
     let data = read(&server, "o/r").await;
@@ -186,7 +187,7 @@ async fn text_that_is_no_repository_never_reaches_github() {
     let outcome = call(
         &runtime,
         "securityCheck",
-        json!({"operation": "repository", "repo": "../user"}),
+        json_fixture(r#"{"operation": "repository", "repo": "../user"}"#),
     )
     .await
     .expect("securityCheck row");
@@ -273,17 +274,23 @@ async fn a_rate_limited_advisory_page_fails_with_its_reset_time() {
         ResponseTemplate::new(403)
             .insert_header("x-ratelimit-remaining", "0")
             .insert_header("x-ratelimit-reset", "32503680000")
-            .set_body_json(json!({"message": "API rate limit exceeded"})),
+            .set_body_json(json_fixture(r#"{"message": "API rate limit exceeded"}"#)),
     )
     .await;
     let data = read(&server, "o/r").await;
     let source = &data["sources"][0];
     assert_eq!(source["status"], "partial", "{data}");
     assert_eq!(source["errorCode"], "rateLimited", "{data}");
+    // The entry names what was left unread; the reset time is the rate
+    // limit's, said once for the response, in warnings, never in `why`.
+    assert_eq!(source["why"], "Advisories not read.", "{data}");
+    assert_eq!(
+        data.to_string().matches("3000-01-01").count(),
+        1,
+        "the reset time is said once: {data}"
+    );
     assert!(
-        source["why"]
-            .as_str()
-            .is_some_and(|why| why.contains("3000-01-01")),
+        data["warnings"].to_string().contains("3000-01-01"),
         "{data}"
     );
     assert!(data.get("advisories").is_none(), "{data}");
@@ -315,11 +322,21 @@ async fn a_github_url_reads_as_the_repository_operation_in_a_mixed_batch() {
     let outcome = call(
         &runtime,
         "securityCheck",
-        json!({"queries": [
-            {"operation": "repository", "repo": "o/r"},
-            {"operation": "url", "url": "https://github.com/o/r/tree/main"},
-            {"operation": "url", "url": "https://github.com/o/r/commit/4f0b76e"},
-        ]}),
+        json_fixture(
+            r#"{
+                "queries": [
+                    {"operation": "repository", "repo": "o/r"},
+                    {
+                        "operation": "url",
+                        "url": "https://github.com/o/r/tree/main"
+                    },
+                    {
+                        "operation": "url",
+                        "url": "https://github.com/o/r/commit/4f0b76e"
+                    }
+                ]
+            }"#,
+        ),
     )
     .await
     .expect("securityCheck rows");

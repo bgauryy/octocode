@@ -2,12 +2,13 @@
 //! user's own settings say so. The server here is a script that records every
 //! start: a marker file is the proof a call started one (and so could have run
 //! the repository's build scripts), whatever the call's row says.
-use crate::config::{ConfigInput, FileInput, RuntimeSurface};
-use crate::execution::RuntimeLimits;
 use crate::runtime::{Channel, ToolRuntime};
-use crate::tools::gh_clone_repo::storage::clones_root;
-use crate::tools::gh_git::store_root;
-use crate::tools::gh_structure::materialize::materialize_root;
+use octocode_runtime_base::config::{ConfigInput, FileInput, RuntimeSurface};
+use octocode_runtime_base::execution::RuntimeLimits;
+use octocode_test_support::json_fixture;
+use octocode_tool_github::gh_clone_repo::storage::clones_root;
+use octocode_tool_github::gh_structure::materialize::materialize_root;
+use octocode_tools_shared::gh_git::store_root;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::os::unix::fs::symlink;
@@ -45,7 +46,8 @@ impl World {
             "#!/bin/sh\necho started >> '{}'\nexit 1\n",
             marker.display()
         );
-        crate::tools::lsp_search::tests::write_executable(&server, script.as_bytes());
+        octocode_io::atomic::write_atomic_mode(&server, script.as_bytes(), 0o700, false)
+            .expect("write an executable fixture");
         std::fs::write(
             home.join("lsp-servers.json"),
             json!({"languageServers":{".rs":{"command":server,"args":[],"languageId":"rust"}}})
@@ -76,7 +78,7 @@ impl World {
         workspace_rc: Option<&Value>,
     ) -> ToolRuntime {
         let mut vars = BTreeMap::from([(
-            crate::config::environment::OCTOCODE_HOME.to_owned(),
+            octocode_runtime_base::config::environment::OCTOCODE_HOME.to_owned(),
             self.home.to_string_lossy().into_owned(),
         )]);
         vars.extend(env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
@@ -146,7 +148,7 @@ fn assert_refused(row: &Value, world: &World) {
     assert_eq!(row["errorCode"], "policy", "{row}");
     assert_eq!(row["lsp"]["serverAvailable"], false, "{row}");
     let error = row["error"].as_str().expect("error");
-    let trust = crate::config::field::LSP_TRUST_FETCHED_CODE;
+    let trust = octocode_runtime_base::config::field::LSP_TRUST_FETCHED_CODE;
     for named in [
         "run code from the repository",
         "localSearch",
@@ -275,7 +277,7 @@ async fn a_symlink_into_a_clone_starts_no_server() {
 async fn a_workspace_setting_cannot_opt_in() {
     let mut world = World::new();
     let clone = world.clone_dir();
-    let widen = json!({"lsp":{"trustFetchedCode":true}});
+    let widen = json_fixture(r#"{"lsp": {"trustFetchedCode": true}}"#);
     let from_checkout = world.runtime(&[], &json!({}), Some(&widen));
     let row = call(&from_checkout, symbols(&clone.join("src/lib.rs"))).await;
     assert_refused(&row, &world);
@@ -299,7 +301,11 @@ async fn a_checkout_keeps_its_server() {
 async fn the_home_setting_opts_in() {
     let world = World::new();
     let clone = world.clone_dir();
-    let runtime = world.runtime(&[], &json!({"lsp":{"trustFetchedCode":true}}), None);
+    let runtime = world.runtime(
+        &[],
+        &json_fixture(r#"{"lsp": {"trustFetchedCode": true}}"#),
+        None,
+    );
     let row = call(&runtime, symbols(&clone.join("src/lib.rs"))).await;
     assert_ne!(row["errorCode"], "policy", "{row}");
     assert!(world.started(), "{row}");
@@ -309,7 +315,7 @@ async fn the_home_setting_opts_in() {
 async fn the_process_environment_opts_in() {
     let world = World::new();
     let clone = world.clone_dir();
-    let env = crate::config::field::LSP_TRUST_FETCHED_CODE
+    let env = octocode_runtime_base::config::field::LSP_TRUST_FETCHED_CODE
         .env_name()
         .expect("bound");
     let runtime = world.runtime(&[(env, "true")], &json!({}), None);
@@ -388,7 +394,7 @@ async fn the_opt_in_covers_a_root_holding_fetched_code() {
     let world = World::in_user_home();
     world.clone_dir();
     project(&world.cwd.join("proj"));
-    let opted = json!({"lsp":{"trustFetchedCode":true}});
+    let opted = json_fixture(r#"{"lsp": {"trustFetchedCode": true}}"#);
     let runtime = world.runtime(&[], &opted, None);
     let row = call(
         &runtime,

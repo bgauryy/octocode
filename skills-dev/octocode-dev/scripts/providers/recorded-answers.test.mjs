@@ -1,6 +1,6 @@
 // The store is checked in: nothing but public provider data, the way the recorder
 // keeps it. The secret detector's scan of the same files is a Rust test
-// (crates/runtime/src/providers/artifact/test_http/recorded.rs).
+// (crates/tool-packages/src/artifact/test_http/recorded.rs).
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { hasCase, readCase, replayer, requestKey } from './recorded-answers.mjs';

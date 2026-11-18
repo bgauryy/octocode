@@ -376,10 +376,10 @@ fn a_source_whose_parse_passes_the_memory_budget_is_skipped_as_too_large() {
     );
     root.write("small.js", "hit(2);\n");
     // 100 KB of dense calls is estimated at ~60 MB; the budget is 8 MB.
-    crate::memory::test_limit::set(8 * 1024 * 1024);
+    let budget = crate::structural::parse_cost::test_budget::hold(8 * 1024 * 1024);
     let result =
         search_files_detailed(scan_options(std::path::Path::new(&root.path()), 0)).expect("scan");
-    crate::memory::test_limit::set(0);
+    drop(budget);
     assert_eq!(result.skipped_large, 1);
     let skipped = result
         .files

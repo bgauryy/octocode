@@ -9,8 +9,8 @@ pub(super) mod resources;
 mod warm;
 
 use handler::Handler;
-use octocode_native::config::RuntimeSurface;
 use octocode_native::runtime::{HostOptions, ToolRuntime};
+use octocode_runtime_base::config::RuntimeSurface;
 use rmcp::ServiceExt;
 use serde_json::{Value, json};
 use std::io::Write;
@@ -88,7 +88,7 @@ pub(super) async fn run() -> ! {
         }
     };
     let warm = Arc::new(Warm::resolve());
-    let handler = octocode_native::contracts::cli_presentation()
+    let handler = octocode_runtime_base::contracts::cli_presentation()
         .map_err(str::to_owned)
         .and_then(|presentation| listing::build(presentation, &runtime.catalog()))
         .and_then(|listing| Handler::new(Arc::clone(&runtime), Arc::clone(&warm), listing));

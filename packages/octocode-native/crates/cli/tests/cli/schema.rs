@@ -48,7 +48,7 @@ fn schema_lists_clasify_and_classification_only_with_a_key() {
         assert!(output.status.success(), "{args:?}: {}", stdout(&output));
         serde_json::from_slice::<serde_json::Value>(&output.stdout).expect("JSON")
     };
-    let presentation = octocode_native::contracts::cli_presentation().expect("presentation");
+    let presentation = octocode_runtime_base::contracts::cli_presentation().expect("presentation");
     let scout = presentation["instructions"]["blocks"]
         .as_array()
         .expect("blocks")
@@ -56,7 +56,7 @@ fn schema_lists_clasify_and_classification_only_with_a_key() {
         .find(|block| block["tool"] == "clasify")
         .and_then(|block| block["text"].as_str())
         .expect("clasify block");
-    let contract_tools = octocode_native::id::ToolId::ALL.len();
+    let contract_tools = octocode_runtime_base::id::ToolId::ALL.len();
     for (key, listed) in [
         (None, false),
         (Some("  "), false),

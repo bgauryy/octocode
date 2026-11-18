@@ -3,11 +3,11 @@ use octocode_native::runtime::ToolRuntime;
 use serde_json::json;
 
 /// Structured local management endpoint; input and errors never echo secret values.
-pub fn manage(
+pub(crate) fn manage(
     runtime: &ToolRuntime,
     request: &serde_json::Value,
 ) -> Result<serde_json::Value, ManageError> {
-    use octocode_native::config::{edit_scoped_env, edit_setting, inspect_management};
+    use octocode_runtime_base::config::{edit_scoped_env, edit_setting, inspect_management};
     let operation = request
         .get("operation")
         .and_then(serde_json::Value::as_str)
@@ -85,9 +85,9 @@ pub fn manage(
 /// editor.  This replaces the former Node-side join with `CONFIG_FIELDS`.
 pub(super) fn enrich_settings(
     mut view: serde_json::Value,
-    config: &octocode_native::config::ConfigOutput,
+    config: &octocode_runtime_base::config::ConfigOutput,
 ) -> serde_json::Value {
-    use octocode_native::config::{
+    use octocode_runtime_base::config::{
         CONFIG_FIELDS, ConfigFieldKind, HOME_TRUSTED_ENV_KEYS, KNOWN_ENV, PROTECTED_KEYS,
         known_env_report, setting_report,
     };

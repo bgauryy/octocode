@@ -26,14 +26,17 @@
 //! caller's own deadline (less [`DEADLINE_RESERVE`]) when the request runs
 //! inside [`with_caller_deadline`], so a starved server may use all the time
 //! its caller still grants; none for a caller with no deadline, whose
-//! cancel ends the wait; otherwise (a background start or prewarm, which no
-//! caller waits on) `CEILING_FACTOR` times the base. The attempts that
-//! share one [`WaitBudget`] (a request and its retries) share that one
-//! ceiling.
+//! cancel ends the wait; otherwise (a background prewarm, which no caller
+//! waits on) `CEILING_FACTOR` times the base. A server's start runs outside
+//! every caller's scope too, but its callers wait on it and bound their own
+//! waits, so it takes no such ceiling ([`WaitBudget::while_progressing`]).
+//! The attempts that share one [`WaitBudget`] (a request and its retries)
+//! share that one ceiling.
 
 use super::progress::ProgressTracker;
+use crate::lsp::clock::LspClock;
 use std::sync::Arc;
-use tokio::time::{Duration, Instant, timeout_at};
+use tokio::time::{Duration, Instant};
 
 /// Cumulative CPU time of the server's process tree; `None` when unreadable.
 pub(crate) type CpuClock = Arc<dyn Fn() -> Option<Duration> + Send + Sync>;
@@ -79,13 +82,30 @@ pub(crate) struct WaitBudget {
 }
 
 impl WaitBudget {
-    /// A budget that starts now: `base_ms` per attempt, ending at the
-    /// caller's deadline less [`DEADLINE_RESERVE`], never for a caller with
-    /// no deadline, or without a caller at `CEILING_FACTOR * base_ms` from
-    /// now.
-    pub(crate) fn new(base_ms: u32) -> Self {
+    /// A budget that starts at `created` (now on the caller's clock):
+    /// `base_ms` per attempt, ending at the caller's deadline less
+    /// [`DEADLINE_RESERVE`], never for a caller with no deadline, or without
+    /// a caller at `CEILING_FACTOR * base_ms` from `created`.
+    pub(crate) fn new(base_ms: u32, created: Instant) -> Self {
+        Self::under_caller(base_ms, created, true)
+    }
+
+    /// A budget for work its callers wait on but no caller's scope reaches:
+    /// a server's start, which runs in a supervisor task so that a caller's
+    /// cancel cannot strand the process. `base_ms` per attempt, ending at the
+    /// caller's deadline when the work does run under one; otherwise only
+    /// progress decides, as for a caller with no deadline. The callers bound
+    /// their own waits for the work, and abandoning it ends it.
+    pub(crate) fn while_progressing(base_ms: u32, created: Instant) -> Self {
+        Self::under_caller(base_ms, created, false)
+    }
+
+    /// `base_ms` from `created`, ending at the caller's deadline less
+    /// [`DEADLINE_RESERVE`], never for a caller with no deadline, and,
+    /// outside every caller's scope, at `CEILING_FACTOR` times the base when
+    /// `capped_without_caller`, else never.
+    fn under_caller(base_ms: u32, created: Instant, capped_without_caller: bool) -> Self {
         let base = Duration::from_millis(u64::from(base_ms));
-        let created = Instant::now();
         let ceiling = match CALLER_DEADLINE.try_with(|deadline| *deadline) {
             Ok(Some(deadline)) => Some(
                 deadline
@@ -94,7 +114,7 @@ impl WaitBudget {
                     .max(created),
             ),
             Ok(None) => None,
-            Err(_) => Some(created + base * CEILING_FACTOR),
+            Err(_) => capped_without_caller.then(|| created + base * CEILING_FACTOR),
         };
         Self {
             base,
@@ -105,10 +125,10 @@ impl WaitBudget {
 
     /// A budget that never extends: `base_ms` once, whatever the caller's
     /// deadline or the server's activity, for a request not worth outwaiting
-    /// (a `shutdown` sent to a server being replaced).
-    pub(crate) fn fixed(base_ms: u32) -> Self {
+    /// (a `shutdown` sent to a server being replaced). It starts at
+    /// `created`.
+    pub(crate) fn fixed(base_ms: u32, created: Instant) -> Self {
         let base = Duration::from_millis(u64::from(base_ms));
-        let created = Instant::now();
         Self {
             base,
             created,
@@ -128,16 +148,40 @@ impl WaitBudget {
         self.ceiling
     }
 
-    /// `true` once no further attempt can be granted any time.
-    pub(crate) fn is_spent(&self) -> bool {
-        self.ceiling
-            .is_some_and(|ceiling| Instant::now() >= ceiling)
+    /// `true` once, at `now`, no further attempt can be granted any time.
+    pub(crate) fn is_spent(&self, now: Instant) -> bool {
+        self.ceiling.is_some_and(|ceiling| now >= ceiling)
     }
 }
 
-impl From<u32> for WaitBudget {
+/// What one request waits by: a base timeout in milliseconds, whose
+/// [`WaitBudget`] starts when the request is sent, or a budget the attempts
+/// of one request share.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum RequestWait {
+    Base(u32),
+    Budget(WaitBudget),
+}
+
+impl RequestWait {
+    /// The budget of a request sent at `sent`.
+    pub(super) fn budget(self, sent: Instant) -> WaitBudget {
+        match self {
+            Self::Base(base_ms) => WaitBudget::new(base_ms, sent),
+            Self::Budget(budget) => budget,
+        }
+    }
+}
+
+impl From<u32> for RequestWait {
     fn from(base_ms: u32) -> Self {
-        Self::new(base_ms)
+        Self::Base(base_ms)
+    }
+}
+
+impl From<WaitBudget> for RequestWait {
+    fn from(budget: WaitBudget) -> Self {
+        Self::Budget(budget)
     }
 }
 
@@ -152,17 +196,24 @@ pub(super) struct Unanswered {
     pub(super) idle: Option<Duration>,
 }
 
-/// The progress signals of one language server.
+/// The progress signals of one language server, and the clock its waits
+/// run on.
 pub(super) struct ServerActivity {
     cpu_clock: Option<CpuClock>,
     progress: Arc<ProgressTracker>,
+    clock: LspClock,
 }
 
 impl ServerActivity {
-    pub(super) fn new(cpu_clock: Option<CpuClock>, progress: Arc<ProgressTracker>) -> Self {
+    pub(super) fn new(
+        cpu_clock: Option<CpuClock>,
+        progress: Arc<ProgressTracker>,
+        clock: LspClock,
+    ) -> Self {
         Self {
             cpu_clock,
             progress,
+            clock,
         }
     }
 
@@ -187,11 +238,14 @@ impl ServerActivity {
         // the first decision needs no extra wait: a hung server is still cut
         // at exactly the base, and a request that ends sooner is never
         // sampled.
-        let mut last_cpu =
-            match timeout_at(deadline.checked_sub(step).unwrap_or(started), &mut response).await {
-                Ok(output) => return Ok(output),
-                Err(_) => self.cpu_time(),
-            };
+        let mut last_cpu = match self
+            .clock
+            .timeout_at(deadline.checked_sub(step).unwrap_or(started), &mut response)
+            .await
+        {
+            Ok(output) => return Ok(output),
+            Err(_) => self.cpu_time(),
+        };
         // Progress is what changed over the step: new CPU time, a new
         // work-done notice or any other message. A token left open with
         // nothing new said (leaked) is not progress, so it cannot hold a
@@ -199,7 +253,7 @@ impl ServerActivity {
         let mut last_signals = self.signals();
         let mut sampled = deadline.checked_sub(step).unwrap_or(started);
         loop {
-            if let Ok(output) = timeout_at(deadline, &mut response).await {
+            if let Ok(output) = self.clock.timeout_at(deadline, &mut response).await {
                 return Ok(output);
             }
             if budget.ceiling.is_some_and(|ceiling| deadline >= ceiling) {
@@ -239,7 +293,7 @@ impl ServerActivity {
         ActivityMark {
             cpu: self.cpu_time(),
             signals: self.signals(),
-            at: Instant::now(),
+            at: self.clock.now(),
         }
     }
 
@@ -247,7 +301,7 @@ impl ServerActivity {
     /// extends on (CPU time, a new work-done notice, any message). A token
     /// left open with nothing new said is none.
     pub(super) fn worked_since(&self, mark: &ActivityMark) -> bool {
-        cpu_progressed(mark.cpu, self.cpu_time(), mark.at.elapsed())
+        cpu_progressed(mark.cpu, self.cpu_time(), self.clock.elapsed(mark.at))
             || self.signals() != mark.signals
     }
 }

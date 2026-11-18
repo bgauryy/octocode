@@ -208,16 +208,5 @@ pub(crate) fn run_borrowing_on_deep_stack<T: Send>(f: impl FnOnce() -> T + Send)
     })
 }
 
-/// Run `f` as if it were a pool job whose caller already stopped.
 #[cfg(test)]
-pub(crate) fn run_as_cancelled_job<T: Default>(f: impl FnOnce() -> T) -> T {
-    let cancel = Arc::new(AtomicBool::new(false));
-    let previous = CURRENT_CANCEL.with(|slot| slot.replace(Some(Arc::clone(&cancel))));
-    cancel.store(true, Ordering::Relaxed);
-    let result = catch_unwind(AssertUnwindSafe(f)).unwrap_or_default();
-    CURRENT_CANCEL.with(|slot| *slot.borrow_mut() = previous);
-    result
-}
-
-#[cfg(test)]
-mod tests;
+pub(crate) mod tests;

@@ -1,6 +1,6 @@
 //! Original batch row positions and placement of rejected rows on page one.
 
-use crate::response::outcome::ToolOutcome;
+use octocode_runtime_base::response::outcome::ToolOutcome;
 use serde_json::{Value, json};
 
 /// Original indices of the admitted rows: every input position not rejected.

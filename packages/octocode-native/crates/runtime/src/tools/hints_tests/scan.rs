@@ -14,7 +14,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use crate::tools::test_support::production_text;
+use octocode_runtime_base::test_support::production_text;
 
 /// One emitted template: where it is written and its text.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]

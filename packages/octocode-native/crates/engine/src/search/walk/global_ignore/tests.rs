@@ -208,6 +208,47 @@ fn global_rules_apply_per_repository_below_a_root_that_is_no_work_tree() {
     }
     assert!(!rules.is_ignored(&root.join("plain.secret"), false));
     assert!(!rules.is_ignored(&root.join("anchored.txt"), false));
+    // A walk keeps each directory's rules, the global ones of its
+    // repository among them, and decides its entries with no lookup.
+    for (dir, file, ignored) in [
+        ("one", "a.secret", true),
+        ("one", "anchored.txt", true),
+        ("one/sub", "anchored.txt", false),
+        ("deep/two/sub", "b.secret", true),
+        ("", "plain.secret", false),
+        ("loose", "anchored.txt", false),
+    ] {
+        let dir = if dir.is_empty() {
+            root.clone()
+        } else {
+            root.join(dir)
+        };
+        let kept = rules.enter(&dir, None);
+        assert_eq!(
+            rules.is_ignored_in(&kept, &dir.join(file), false),
+            ignored,
+            "{}",
+            dir.join(file).display()
+        );
+    }
+}
+
+/// A global file of blank lines and comments holds no rule: no entry asks
+/// it, and a walk under it yields what a walk under none yields.
+#[test]
+fn a_global_file_without_rules_is_never_asked() {
+    let dir = tempfile::tempdir().expect("fixture");
+    let home = home_naming(dir.path(), "ignore", "# nothing yet\n\n   \n");
+    let repo = repository(dir.path());
+    let global = GlobalIgnore::resolve(&env(&[("HOME", &home)]), None);
+    assert!(global.file().is_some_and(|file| file.is_file()));
+    assert!(PerRepository::new(global).is_inert());
+    assert_eq!(walked(&repo, global), walked(&repo, GlobalIgnore::NONE));
+    let other = tempfile::tempdir().expect("fixture");
+    let ruled = home_naming(other.path(), "ignore", "# one rule\n*.secret\n");
+    let ruled = GlobalIgnore::resolve(&env(&[("HOME", &ruled)]), None);
+    assert!(!PerRepository::new(ruled).is_inert());
+    assert!(!walked(&repo, ruled).contains("a.secret"));
 }
 
 /// A rule of the repository's own ignore files outranks the global file: an

@@ -42,7 +42,7 @@ fn sorting_an_unordered_record_set_is_deterministic() {
             rec("b.txt"),
             rec("c.txt"),
         ];
-        sort_recs(&o, Mode::Normal, &mut recs);
+        sort_recs(&o, &mut recs);
         recs.iter().map(|r| r.path.clone()).collect::<Vec<_>>()
     };
     let first = run();
@@ -170,4 +170,56 @@ fn traversal_is_path_component_order_whatever_the_worker_count() {
         run(SearchSort::Path),
         "path keeps the string order"
     );
+}
+
+/// A matchCount order ranks files by their occurrences in every output: one
+/// line with ten hits outranks three lines with one hit each, whether the
+/// view lists lines, counts lines, counts matches, lists files or lists
+/// spans. A count-lines view still counts each term by the lines it is on.
+#[test]
+fn match_count_ranks_by_occurrences_in_every_output() {
+    let t = TmpDir::new();
+    t.write("y.txt", "zeta\nzeta\nzeta\n");
+    t.write(
+        "z.txt",
+        "zeta zeta zeta zeta zeta zeta zeta zeta zeta zeta\n",
+    );
+    let names = |files: &[TextSearchFile]| {
+        files
+            .iter()
+            .map(|file| {
+                Path::new(&file.path)
+                    .file_name()
+                    .expect("name")
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect::<Vec<_>>()
+    };
+    for output in [
+        SearchOutput::Lines,
+        SearchOutput::CountLines,
+        SearchOutput::CountMatches,
+        SearchOutput::FilesWithMatch,
+        SearchOutput::Spans(SpanValues::Every),
+        SearchOutput::Spans(SpanValues::Unique),
+    ] {
+        let mut o = opts(t.path(), "zeta");
+        o.sort = SearchSort::MatchCount;
+        o.output = output;
+        let r = search(o).expect("ok");
+        assert_eq!(names(&r.files), ["z.txt", "y.txt"], "{output:?}");
+    }
+    let mut o = opts(t.path(), "zeta|absent");
+    o.syntax = PatternSyntax::Regex;
+    o.sort = SearchSort::MatchCount;
+    o.output = SearchOutput::CountLines;
+    o.terms = Some(vec!["zeta".into(), "absent".into()]);
+    let r = search(o).expect("ok");
+    let lines = r
+        .files
+        .iter()
+        .map(|file| (file.match_count, file.term_counts.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(lines, [(1, vec![1, 0]), (3, vec![3, 0])]);
 }

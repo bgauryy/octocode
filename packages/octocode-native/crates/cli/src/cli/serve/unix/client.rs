@@ -35,7 +35,7 @@ const REPLY_MARGIN: std::time::Duration = std::time::Duration::from_secs(15);
 /// each [`HEARTBEAT`](super::frames::HEARTBEAT) while a call runs, and one
 /// that sends nothing for [`READ_STALL`] is gone ([`exchange`]).
 pub(super) fn reply_deadline() -> Option<std::time::Duration> {
-    reply_deadline_for(octocode_native::execution::RequestLimits::default().timeout)
+    reply_deadline_for(octocode_runtime_base::execution::RequestLimits::default().timeout)
 }
 
 /// The reply wait for a server whose request budget is `budget`: past it by
@@ -71,7 +71,7 @@ pub(in crate::cli) async fn call(
     tool: &str,
     input: &Value,
     mode: crate::cli::OutputMode,
-    loaded: &mut Option<octocode_native::config::ConfigInput>,
+    loaded: &mut Option<octocode_runtime_base::config::ConfigInput>,
 ) -> Option<u8> {
     let json_out = mode.json;
     let remote = Remote::resolve(Surface::Cli, loaded)?;
@@ -227,7 +227,7 @@ impl Remote {
     /// when it must not be used ([`target`]).
     pub(in crate::cli) fn resolve(
         surface: Surface,
-        loaded: &mut Option<octocode_native::config::ConfigInput>,
+        loaded: &mut Option<octocode_runtime_base::config::ConfigInput>,
     ) -> Option<Self> {
         Some(Self {
             target: target(surface, loaded)?,
@@ -462,7 +462,7 @@ pub(super) struct Target {
     pub(super) identity: String,
     pub(super) process: String,
     /// The configuration this call resolved, for its warnings.
-    pub(super) config: octocode_native::config::ConfigOutput,
+    pub(super) config: octocode_runtime_base::config::ConfigOutput,
 }
 
 /// The server for this call, or `None` when it must not be used: memory
@@ -472,9 +472,9 @@ pub(super) struct Target {
 /// a symbolic link: the in-process runtime keys files by the directory as given.
 pub(super) fn target(
     surface: Surface,
-    loaded: &mut Option<octocode_native::config::ConfigInput>,
+    loaded: &mut Option<octocode_runtime_base::config::ConfigInput>,
 ) -> Option<Target> {
-    use octocode_native::config::{
+    use octocode_runtime_base::config::{
         acquire_config_input, is_persistent_storage_enabled, resolve_config,
     };
     let given = std::env::current_dir().ok()?;

@@ -1,11 +1,11 @@
 mod manage;
 mod read;
 use super::{emit_error, write_json};
-pub use manage::manage;
+pub(super) use manage::manage;
 use octocode_contract_types::ErrorCode;
-use octocode_native::response::exit::ExitClass;
 use octocode_native::runtime::{ErrorClass, ToolRuntime};
-pub use read::{check, get, list};
+use octocode_runtime_base::response::exit::ExitClass;
+pub(super) use read::{check, get, list};
 use serde_json::json;
 use std::io;
 
@@ -13,7 +13,7 @@ use std::io;
 /// recover: `CONFLICT` refreshes the inspected files before retrying, and
 /// `UNAVAILABLE` means this build cannot serve the view's contract.
 #[derive(Debug, PartialEq, Eq)]
-pub enum ManageError {
+pub(super) enum ManageError {
     /// A malformed request or a rejected value.
     InvalidInput(String),
     /// The file changed or is locked since it was inspected.
@@ -23,7 +23,7 @@ pub enum ManageError {
 }
 
 impl ManageError {
-    pub fn code(&self) -> &'static str {
+    pub(super) fn code(&self) -> &'static str {
         match self {
             Self::InvalidInput(_) => "INVALID_INPUT",
             Self::Conflict(_) => "CONFLICT",
@@ -34,7 +34,7 @@ impl ManageError {
     /// The CLI exit class: bad input is correctInput (2), a conflict is a
     /// restart (6: refresh, then edit again), and contract drift is
     /// unservable (5).
-    pub fn exit_code(&self) -> u8 {
+    pub(super) fn exit_code(&self) -> u8 {
         let class = match self {
             Self::InvalidInput(_) => ErrorClass::CorrectInput,
             Self::Conflict(_) => ErrorClass::Restart,
@@ -46,7 +46,7 @@ impl ManageError {
     /// Map a locked-file edit error: `WouldBlock` is a revision conflict,
     /// `InvalidInput` keeps its message, and anything else is reported as
     /// `fallback` without echoing OS details.
-    pub fn from_edit(error: &io::Error, fallback: &str) -> Self {
+    pub(super) fn from_edit(error: &io::Error, fallback: &str) -> Self {
         match error.kind() {
             io::ErrorKind::WouldBlock => {
                 Self::Conflict("Configuration changed or is busy; refresh and retry.".into())
@@ -81,7 +81,7 @@ impl From<&str> for ManageError {
 
 /// `octocode config`: where configuration lives and which keys are loaded,
 /// never their values (`config get KEY` prints one value on request).
-pub fn show(runtime: &ToolRuntime, json_out: bool) -> u8 {
+pub(super) fn show(runtime: &ToolRuntime, json_out: bool) -> u8 {
     let view = runtime.inspect_config();
     let config_file = view
         .config_path
@@ -170,7 +170,7 @@ pub fn show(runtime: &ToolRuntime, json_out: bool) -> u8 {
 }
 
 /// `config home`: the Octocode home directory, one line, for scripts and skills.
-pub fn home(runtime: &ToolRuntime, json_out: bool) -> u8 {
+pub(super) fn home(runtime: &ToolRuntime, json_out: bool) -> u8 {
     let home = &runtime.config().home;
     if json_out {
         return write_json(&json!({"home": home}));
@@ -181,16 +181,16 @@ pub fn home(runtime: &ToolRuntime, json_out: bool) -> u8 {
 
 /// The environment variable `key` names: a setting path (`classification.api`)
 /// resolves to the variable that sets it; any other key is used as written.
-pub fn env_key(key: &str) -> &str {
-    octocode_native::config::CONFIG_FIELDS
+pub(super) fn env_key(key: &str) -> &str {
+    octocode_runtime_base::config::CONFIG_FIELDS
         .iter()
         .find(|field| field.path == key)
-        .and_then(octocode_native::config::ConfigFieldSpec::env_name)
+        .and_then(octocode_runtime_base::config::ConfigFieldSpec::env_name)
         .unwrap_or(key)
 }
 
 /// `config set KEY VALUE` / `config set KEY --stdin`.
-pub fn set(
+pub(super) fn set(
     runtime: &ToolRuntime,
     key: &str,
     value: Option<String>,
@@ -212,7 +212,7 @@ pub fn set(
 }
 
 /// `config unset KEY`.
-pub fn unset(runtime: &ToolRuntime, key: &str, json_out: bool) -> u8 {
+pub(super) fn unset(runtime: &ToolRuntime, key: &str, json_out: bool) -> u8 {
     edit(runtime, key, None, json_out)
 }
 
@@ -236,7 +236,7 @@ fn read_stdin_value() -> Result<String, &'static str> {
 
 fn edit(runtime: &ToolRuntime, key: &str, value: Option<&str>, json_out: bool) -> u8 {
     let path = runtime.inspect_config().global_env_path;
-    match octocode_native::config::edit_scoped_env(&path, key, value, false, None) {
+    match octocode_runtime_base::config::edit_scoped_env(&path, key, value, false, None) {
         Ok(changed) => {
             let action = if value.is_some() { "set" } else { "unset" };
             if json_out {
@@ -261,7 +261,7 @@ fn edit(runtime: &ToolRuntime, key: &str, value: Option<&str>, json_out: bool) -
                 &format!("Cannot edit global config: {error}"),
                 json_out,
             );
-            super::exit_code(octocode_native::response::exit::ExitClass::of(code))
+            super::exit_code(octocode_runtime_base::response::exit::ExitClass::of(code))
         }
     }
 }

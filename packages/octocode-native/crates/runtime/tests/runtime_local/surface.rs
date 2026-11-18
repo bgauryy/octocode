@@ -1,8 +1,9 @@
 //! Runtime surface: briefs, bulk rows, tool availability, the catalog and replay.
 
 use crate::support::{self, Run as _, Workspace, call};
-use octocode_native::config::RuntimeSurface;
 use octocode_native::runtime::{HostOptions, ToolRuntime};
+use octocode_runtime_base::config::RuntimeSurface;
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use std::collections::BTreeMap;
 
@@ -66,11 +67,11 @@ async fn cli_ignores_discovery_filters_but_mcp_on_cli_host_enforces_them() {
         vec![("TOOLS_TO_RUN", "ghSearchCode".into())],
     ] {
         let runtime = workspace.runtime(&env);
-        for tool in octocode_native::id::ToolId::ALL {
+        for tool in octocode_runtime_base::id::ToolId::ALL {
             // Only a required setting decides; no MCP filter touches the CLI.
             assert_eq!(
                 runtime.is_available(tool.as_str()),
-                tool != octocode_native::id::ToolId::Clasify,
+                tool != octocode_runtime_base::id::ToolId::Clasify,
                 "CLI {}",
                 tool.as_str()
             );
@@ -133,7 +134,7 @@ async fn host_options_environment_controls_embedded_tool_availability() {
         .run_mcp(
             "mcp-clone".into(),
             "ghCloneRepo".into(),
-            json!({"queries":[{"owner":"octocat","repo":"Hello-World"}]}),
+            json_fixture(r#"{"queries": [{"owner": "octocat", "repo": "Hello-World"}]}"#),
         )
         .await
         .expect("MCP answers a refused call as a tool error");
@@ -149,7 +150,7 @@ async fn host_options_environment_controls_embedded_tool_availability() {
 async fn runtime_catalog_lists_available_tools() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[]);
-    let internal = octocode_native::contracts::parsed_contract().expect("embedded contract");
+    let internal = octocode_runtime_base::contracts::parsed_contract().expect("embedded contract");
     assert!(
         internal["tools"]
             .as_array()

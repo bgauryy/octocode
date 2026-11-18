@@ -4,7 +4,8 @@
 //! exactly once with the union equal to the unpaged rows.
 
 use crate::support::{self, Workspace};
-use serde_json::{Value, json};
+use octocode_test_support::json_fixture;
+use serde_json::Value;
 
 fn fixture(workspace: &Workspace) {
     for index in 0..60 {
@@ -73,12 +74,22 @@ async fn local_page_channels_walk_exactly_once() {
     let cases: [(&str, Value, Rows); 2] = [
         (
             "localSearch",
-            json!({"queries":[{"path":"src","matchString":["helper"]}],"responseChars":1000}),
+            json_fixture(
+                r#"{
+                    "queries": [{"path": "src", "matchString": ["helper"]}],
+                    "responseChars": 1000
+                }"#,
+            ),
             search_rows,
         ),
         (
             "structureSearch",
-            json!({"queries":[{"operation":"files","path":"src"}],"responseChars":600}),
+            json_fixture(
+                r#"{
+                    "queries": [{"operation": "files", "path": "src"}],
+                    "responseChars": 600
+                }"#,
+            ),
             listed_rows,
         ),
     ];

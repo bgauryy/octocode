@@ -10,7 +10,8 @@ use super::*;
 use crate::budget::ExecutorConfig;
 use octocode_io::{budget::RequestBudget, civil::civil_from_days};
 
-use crate::mock_http::{Arrivals, Delayed, Sequence, mount_json};
+use octocode_test_support::json_fixture;
+use octocode_test_support::mock_http::{Arrivals, Delayed, Sequence, mount_json};
 
 fn api_github_com() -> GitHubEndpoint {
     GitHubEndpoint::new(url::Url::parse("https://api.github.com/").expect("URL")).expect("endpoint")
@@ -49,9 +50,9 @@ fn with_token(token: &str, timeout: Duration, max_body_bytes: usize) -> RequestC
 fn secondary_limit(retry_after: Option<&str>) -> ResponseTemplate {
     let response = ResponseTemplate::new(403)
         .insert_header("x-ratelimit-remaining", "21")
-        .set_body_json(serde_json::json!({
+        .set_body_json(json_fixture(r#"{
             "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."
-        }));
+        }"#));
     match retry_after {
         Some(retry_after) => response.insert_header("retry-after", retry_after),
         None => response,
@@ -59,7 +60,7 @@ fn secondary_limit(retry_after: Option<&str>) -> ResponseTemplate {
 }
 
 fn ok_json() -> ResponseTemplate {
-    ResponseTemplate::new(200).set_body_json(serde_json::json!({"ok": true}))
+    ResponseTemplate::new(200).set_body_json(json_fixture(r#"{"ok": true}"#))
 }
 
 /// The GitHub endpoint `server` serves.

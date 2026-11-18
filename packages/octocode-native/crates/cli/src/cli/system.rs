@@ -5,14 +5,14 @@
 //! the parent module.
 use super::write_json;
 use octocode_contract_types::ErrorCode;
-use octocode_native::providers::github::StoredCredentials;
-use octocode_native::response::exit::ExitClass;
 use octocode_native::runtime::{
     AuthStatus, ErrorClass, LoginPlan, LoginTarget, ToolRuntime, Verification,
 };
+use octocode_runtime_base::providers::github::StoredCredentials;
+use octocode_runtime_base::response::exit::ExitClass;
 use serde_json::json;
 
-/// A failed auth command: the one `{error, errorCode}` envelope (JSON) or
+/// A failed auth command: the one `{error, errorCode, errorClass}` envelope (JSON) or
 /// the message and its next step (text), exiting by the code's class.
 fn auth_failure(code: ErrorCode, message: &str, next_step: Option<&str>, json_out: bool) -> u8 {
     super::emit_error(code, message, json_out);
@@ -24,7 +24,7 @@ fn auth_failure(code: ErrorCode, message: &str, next_step: Option<&str>, json_ou
 
 /// The token environment variables, in the order the runtime reads them.
 fn token_vars() -> String {
-    octocode_native::config::ENV_TOKEN_VARS.join(" / ")
+    octocode_runtime_base::config::ENV_TOKEN_VARS.join(" / ")
 }
 
 /// The next step of a missing or unusable login.
@@ -32,7 +32,7 @@ fn login_next_step() -> String {
     format!("Run `octocode auth login`, or set {}.", token_vars())
 }
 
-pub async fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {
+pub(super) async fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {
     let status = runtime.auth_status().await;
     let AuthStatus {
         host,
@@ -92,7 +92,7 @@ pub async fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {
     }
 }
 
-pub async fn login(
+pub(super) async fn login(
     runtime: &ToolRuntime,
     hostname: Option<&str>,
     force: bool,
@@ -206,7 +206,7 @@ async fn device_login(runtime: &ToolRuntime, target: &LoginTarget, json_out: boo
     }
 }
 
-pub fn logout(runtime: &ToolRuntime, json_out: bool) -> u8 {
+pub(super) fn logout(runtime: &ToolRuntime, json_out: bool) -> u8 {
     logout_with(
         runtime,
         &|host| runtime.delete_github_credential(host),

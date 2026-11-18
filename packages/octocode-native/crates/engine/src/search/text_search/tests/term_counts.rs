@@ -31,8 +31,7 @@ fn counted(output: SearchOutput, syntax: PatternSyntax) -> Vec<(String, Vec<u32>
 }
 
 /// Each term's matches (count-matches) or the lines holding it
-/// (count-lines), in term order, on both regex engines; they sum to the
-/// file's match count, each match attributed once.
+/// (count-lines), in term order, on both regex engines.
 #[test]
 fn a_count_view_counts_each_term() {
     for syntax in [PatternSyntax::Regex, PatternSyntax::Pcre2] {
@@ -70,4 +69,31 @@ fn only_a_multi_term_search_counts_terms() {
     single.terms = Some(vec!["fn ".into()]);
     let counted = search(single).expect("single");
     assert!(counted.files.iter().all(|file| file.term_counts.is_empty()));
+}
+
+/// A term found only inside another term's match counts as a search of it
+/// alone counts it (`rg -o -F` per term): the combined search reports the
+/// leftmost of two overlapping matches, and each term still counts its own.
+#[test]
+fn overlapping_terms_each_count_their_own_matches() {
+    let t = TmpDir::new();
+    t.write(
+        "a.rs",
+        "m.insert(\"snapshot\".into(), v);\nlet k = \"snapshot\".into();\nm.insert(\"snapshot\", w);\n",
+    );
+    let terms = [r#""snapshot"\.into\(\)"#, r#"insert\("snapshot""#];
+    for output in [SearchOutput::CountMatches, SearchOutput::Lines] {
+        let mut options = opts(t.path(), &terms.join("|"));
+        options.output = output;
+        options.terms = Some(terms.iter().map(|term| (*term).to_owned()).collect());
+        let found = search(options).expect("search ok");
+        assert_eq!(found.files[0].term_counts, vec![2, 2], "{output:?}");
+    }
+    let mut lines = opts(t.path(), &terms.join("|"));
+    lines.output = SearchOutput::CountLines;
+    lines.terms = Some(terms.iter().map(|term| (*term).to_owned()).collect());
+    assert_eq!(
+        search(lines).expect("lines").files[0].term_counts,
+        vec![2, 2]
+    );
 }

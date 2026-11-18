@@ -58,7 +58,7 @@ fn related_reads_only_this_pr(data: &Value) {
         .expect("an inventory states related reads");
     assert!(!calls.is_empty(), "no related read to check: {data}");
     for call in calls {
-        assert_eq!(call["kind"], "related", "{call}");
+        assert_eq!(call.get("kind"), None, "{call}");
         assert_eq!(call["tool"], "ghGetHistoryItem", "{call}");
         for query in call["input"]["queries"].as_array().into_iter().flatten() {
             assert_eq!(

@@ -5,6 +5,7 @@
 //! and secrets are fabricated.
 
 use crate::support::{Workspace, call, query_path};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 
 /// A private-key body (its first line opens with `aMD5auQ`), and a fake
@@ -77,9 +78,21 @@ async fn a_search_never_matches_what_a_read_withholds() {
     }
     // What surrounds a hidden value does not see it either: a lookahead
     // into it, or a file-level term spelling it.
-    let ahead = json!({"matchString": ["\\w+ = \"(?=ghp_Hx8vQ)"], "regexEngine": "pcre2", "view": "countMatches"});
+    let ahead = json_fixture(
+        r#"{
+            "matchString": ["\\w+ = \"(?=ghp_Hx8vQ)"],
+            "regexEngine": "pcre2",
+            "view": "countMatches"
+        }"#,
+    );
     assert_eq!(hits(&run("localSearch", ahead).await), 0);
-    let term = json!({"matchString": ["hello"], "fileHas": ["Hx8vQ2m"], "view": "files"});
+    let term = json_fixture(
+        r#"{
+            "matchString": ["hello"],
+            "fileHas": ["Hx8vQ2m"],
+            "view": "files"
+        }"#,
+    );
     assert_eq!(hits(&run("localSearch", term).await), 0);
 
     // Ordinary text on the same lines, and the placeholders a read shows,
@@ -137,8 +150,8 @@ async fn an_ast_match_never_reads_what_a_read_withholds() {
     };
     let follows = |regex: &str| json!({"kind":"lexical_declaration","follows":{"kind":"lexical_declaration","has":{"kind":"string_fragment","regex":regex,"stopBy":"end"}}});
     for rule in [
-        json!({"kind":"string_fragment","regex":"^ghp_Hx8v[A-M]"}),
-        json!({"kind":"string_fragment","regex":"^ghp_Hx8v[N-Z]"}),
+        json_fixture(r#"{"kind": "string_fragment", "regex": "^ghp_Hx8v[A-M]"}"#),
+        json_fixture(r#"{"kind": "string_fragment", "regex": "^ghp_Hx8v[N-Z]"}"#),
         follows("^ghp_Hx8v[A-M]"),
         follows("^ghp_Hx8v[N-Z]"),
     ] {
@@ -152,7 +165,7 @@ async fn an_ast_match_never_reads_what_a_read_withholds() {
     }
     // What a read shows still matches, where it is.
     for target in [path.as_path(), dir.as_path()] {
-        let rule = json!({"kind":"string_fragment","regex":"^hel"});
+        let rule = json_fixture(r#"{"kind": "string_fragment", "regex": "^hel"}"#);
         let data = run(
             target,
             json!({"operation":"match","rule":rule,"includeCaptures":true}),
@@ -189,7 +202,13 @@ async fn a_numbered_armor_line_keeps_its_number() {
     let runtime = workspace.runtime(&[]);
     let query = query_path(
         &path,
-        json!({"matchString": ["BEGIN|END"], "regexEngine": "rust", "contextLines": {"before": 0, "after": 2}}),
+        json_fixture(
+            r#"{
+                "matchString": ["BEGIN|END"],
+                "regexEngine": "rust",
+                "contextLines": {"before": 0, "after": 2}
+            }"#,
+        ),
     );
     let output = call(&runtime, "localSearch", query)
         .await

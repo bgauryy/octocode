@@ -84,7 +84,7 @@ fn install_download(
     asset: &ManifestAsset,
     download: &[u8],
     limit: u64,
-) -> (Result<Vec<u8>, String>, tempfile::TempDir) {
+) -> (Result<Vec<u8>, Failure>, tempfile::TempDir) {
     let dir = tempfile::tempdir().expect("tempdir");
     let spool = dir.path().join("asset.download");
     std::fs::write(&spool, download).expect("spool");
@@ -197,11 +197,11 @@ impl Upstream for Fake {
         _url: &str,
         mut file: tokio::fs::File,
         _limit: u64,
-    ) -> Result<tokio::fs::File, String> {
+    ) -> Result<tokio::fs::File, Failure> {
         let bytes = self.bytes.as_ref().expect("must not fetch");
         tokio::io::AsyncWriteExt::write_all(&mut file, bytes)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| Failure::new(ErrorCode::FileAccessFailed, e.to_string()))?;
         Ok(file)
     }
     async fn attest(&self, _repo: &str, _tag: &str, _sha256: &str) -> Attestation {

@@ -1,5 +1,6 @@
 //! Failed responses: typed statuses, bounded error bodies, retries and dropped connections.
 use super::*;
+use octocode_test_support::json_fixture;
 
 #[tokio::test]
 async fn distinguishes_permission_from_rate_limit_and_bounds_body() {
@@ -9,7 +10,7 @@ async fn distinguishes_permission_from_rate_limit_and_bounds_body() {
             ResponseTemplate::new(403)
                 .insert_header("x-github-request-id", "R1")
                 .insert_header("x-ratelimit-remaining", "1")
-                .set_body_json(serde_json::json!({"message":"forbidden"})),
+                .set_body_json(json_fixture(r#"{"message": "forbidden"}"#)),
         )
         .mount(&server)
         .await;
@@ -98,7 +99,7 @@ async fn do_not_retry_statuses_are_sent_once() {
             .respond_with(
                 ResponseTemplate::new(status)
                     .insert_header("x-ratelimit-remaining", "10")
-                    .set_body_json(serde_json::json!({"message": "nope"})),
+                    .set_body_json(json_fixture(r#"{"message": "nope"}"#)),
             )
             .expect(1)
             .mount(&server)
@@ -128,7 +129,7 @@ async fn legal_block_and_unmapped_statuses_are_not_network_failures() {
         Mock::given(method("GET"))
             .respond_with(
                 ResponseTemplate::new(status)
-                    .set_body_json(serde_json::json!({"message": "blocked"})),
+                    .set_body_json(json_fixture(r#"{"message": "blocked"}"#)),
             )
             .expect(1)
             .mount(&server)
@@ -254,9 +255,11 @@ async fn a_saml_sso_403_carries_the_authorization_url() {
                     "x-github-sso",
                     "required; url=https://github.com/orgs/acme/sso?authorization_request=ABC",
                 )
-                .set_body_json(serde_json::json!({
-                    "message": "Resource protected by organization SAML enforcement."
-                })),
+                .set_body_json(json_fixture(
+                    r#"{
+                        "message": "Resource protected by organization SAML enforcement."
+                    }"#,
+                )),
         )
         .mount(&server)
         .await;

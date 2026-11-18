@@ -6,6 +6,7 @@
 use super::{Typed, clasify};
 use crate::support::Run as _;
 use crate::support::{Workspace, clasify_runtime};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer};
@@ -21,11 +22,20 @@ async fn provider() -> MockServer {
 }
 
 fn questions() -> Value {
-    json!({
-        "restart":{"type":"noul","instructions":"Does it restart?"},
-        "kind":{"type":"choice","criteria":{"ops":"operations text","code":"source code","unknown":"cannot tell"}},
-        "risk":{"type":"score","criteria":["low","medium","high"]},
-    })
+    json_fixture(
+        r#"{
+            "restart": {"type": "noul", "instructions": "Does it restart?"},
+            "kind": {
+                "type": "choice",
+                "criteria": {
+                    "ops": "operations text",
+                    "code": "source code",
+                    "unknown": "cannot tell"
+                }
+            },
+            "risk": {"type": "score", "criteria": ["low", "medium", "high"]}
+        }"#,
+    )
 }
 
 /// Whether every fact `summary` states is in `details`: the same leaf at the
@@ -68,9 +78,15 @@ async fn a_text_answer_is_its_values_and_tokens_by_default() {
     );
     assert_eq!(
         short,
-        &json!({
-            "answers":{"restart":{"noul":0.9},"kind":{"choice":"ops"},"risk":{"score":1.5}},
-        }),
+        &json_fixture(
+            r#"{
+                "answers": {
+                    "restart": {"noul": 0.9},
+                    "kind": {"choice": "ops"},
+                    "risk": {"score": 1.5}
+                }
+            }"#
+        ),
         "{summary}"
     );
     assert!(
@@ -85,12 +101,12 @@ async fn a_text_answer_is_its_values_and_tokens_by_default() {
     assert_eq!(whole["answers"]["kind"]["confidence"], 1, "{details}");
     assert_eq!(
         whole["answers"]["kind"]["probabilities"],
-        json!({"ops":1.0,"code":0.0,"unknown":0.0}),
+        json_fixture(r#"{"ops": 1.0, "code": 0.0, "unknown": 0.0}"#),
         "{details}"
     );
     assert_eq!(
         whole["answers"]["risk"]["legend"],
-        json!({"0":"low","1":"medium","2":"high"}),
+        json_fixture(r#"{"0": "low", "1": "medium", "2": "high"}"#),
         "{details}"
     );
     runtime.close().await;
@@ -114,7 +130,11 @@ async fn source_views_keep_required_reads_without_optional_sections_advice() {
         &summary["results"][0]["data"],
         &details["results"][0]["data"],
     );
-    assert_eq!(short["answers"], json!({"p":{"noul":0.9}}), "{summary}");
+    assert_eq!(
+        short["answers"],
+        json_fixture(r#"{"p": {"noul": 0.9}}"#),
+        "{summary}"
+    );
     assert_eq!(short["readChars"], whole["readChars"], "{summary}");
     assert!(short["next"]["read"].is_object(), "{summary}");
     assert!(short.get("related").is_none(), "{summary}");
@@ -167,10 +187,14 @@ async fn a_section_summary_is_its_lines_and_answers() {
             json!({"lines":full["target"]["lines"]}),
             "{summary}"
         );
-        assert_eq!(section["answers"]["p"], json!({"noul":0.9}), "{summary}");
+        assert_eq!(
+            section["answers"]["p"],
+            json_fixture(r#"{"noul": 0.9}"#),
+            "{summary}"
+        );
         assert_eq!(
             section["answers"]["kind"],
-            json!({"choice":"ops"}),
+            json_fixture(r#"{"choice": "ops"}"#),
             "{summary}"
         );
         assert!(within(section, full), "{section}\n{full}");
@@ -206,9 +230,19 @@ async fn a_section_summary_replays_its_details_unbilled() {
     let runtime = clasify_runtime(&workspace, &server, &[]);
     let summary = clasify(
         &runtime,
-        vec![json!({"operation":"sections","view":"summary",
-            "resources":{"mid":{"tool":"localFetch","query":{"path":"mid.rs"}}},
-            "questions":{"kind":{"type":"choice","criteria":{"ops":"operations text","code":"source code"}}}})],
+        vec![json_fixture(
+            r#"{
+                "operation": "sections",
+                "view": "summary",
+                "resources": {"mid": {"tool": "localFetch", "query": {"path": "mid.rs"}}},
+                "questions": {
+                    "kind": {
+                        "type": "choice",
+                        "criteria": {"ops": "operations text", "code": "source code"}
+                    }
+                }
+            }"#,
+        )],
     )
     .await;
     let data = &summary["results"][0]["data"];
@@ -232,6 +266,13 @@ async fn a_section_summary_replays_its_details_unbilled() {
         "no provider request"
     );
     assert_eq!(replay["replayed"], true, "{details}");
+    // The replay billed nothing, yet reports what the page cost, marked.
+    assert_eq!(replay["usage"]["replayed"], true, "{details}");
+    assert!(
+        replay["usage"]["inputTokens"].as_u64() > Some(0),
+        "{details}"
+    );
+    assert!(replay["usage"]["calls"].as_u64() > Some(0), "{details}");
     let sections = replay["resources"]["mid"]["sections"]
         .as_array()
         .expect("sections");
@@ -264,9 +305,18 @@ async fn an_absent_view_is_a_summary_on_cli_and_mcp() {
         .collect();
     workspace.write("mid.rs", &source);
     let runtime = clasify_runtime(&workspace, &server, &[]);
-    let sections = json!({"operation":"sections",
-        "resources":{"mid":{"tool":"localFetch","query":{"path":"mid.rs"}}},
-        "questions":{"kind":{"type":"choice","criteria":{"ops":"operations text","code":"source code"}}}});
+    let sections = json_fixture(
+        r#"{
+            "operation": "sections",
+            "resources": {"mid": {"tool": "localFetch", "query": {"path": "mid.rs"}}},
+            "questions": {
+                "kind": {
+                    "type": "choice",
+                    "criteria": {"ops": "operations text", "code": "source code"}
+                }
+            }
+        }"#,
+    );
     let evaluate =
         json!({"operation":"evaluate","content":"Rotate and restart.","questions":questions()});
     for channel in [Channel::Cli, Channel::Mcp] {
@@ -313,5 +363,48 @@ async fn an_absent_view_is_a_summary_on_cli_and_mcp() {
             "{answered}"
         );
     }
+    runtime.close().await;
+}
+
+/// Two identical rows share one request: the first row paid, the second
+/// shows `calls: 0`, and the summary states `calls` on both so a reader sees
+/// who paid. A single row states no usage.
+#[tokio::test]
+async fn a_summary_states_calls_on_every_row_when_a_sibling_shows_zero() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let row = json_fixture(
+        r#"{
+            "operation": "evaluate",
+            "view": "summary",
+            "content": "The service rotates credentials nightly.",
+            "questions": {
+                "restart": {"type": "noul", "instructions": "Does it restart?"}
+            }
+        }"#,
+    );
+    let out = clasify(&runtime, vec![row.clone(), row.clone()]).await;
+    assert_eq!(out["results"][0]["data"]["usage"]["calls"], 1, "{out}");
+    assert_eq!(out["results"][1]["data"]["usage"]["calls"], 0, "{out}");
+    assert_eq!(server.received_requests().await.unwrap().len(), 1, "{out}");
+    let single = clasify(
+        &runtime,
+        vec![json_fixture(
+            r#"{
+                "operation": "evaluate",
+                "view": "summary",
+                "content": "A different text, billed alone.",
+                "questions": {
+                    "restart": {"type": "noul", "instructions": "Does it restart?"}
+                }
+            }"#,
+        )],
+    )
+    .await;
+    assert!(
+        single["results"][0]["data"].get("usage").is_none(),
+        "{single}"
+    );
     runtime.close().await;
 }

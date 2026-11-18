@@ -16,12 +16,8 @@ use super::position::{ExactRange, Ordinal, RawOrdinal};
 mod decode;
 mod relation;
 
-#[cfg(test)]
-pub(super) use decode::RULE_DECODE_COUNT;
 use decode::check_kinds;
 pub(in crate::structural) use decode::decode_rule;
-#[cfg(test)]
-pub(super) use relation::ANCESTOR_STEPS;
 use relation::Relation;
 
 #[derive(Default, Deserialize)]
@@ -243,7 +239,7 @@ impl CompiledRule {
         captures: &mut CaptureEnv,
     ) -> Result<bool, ExecutionError> {
         #[cfg(test)]
-        EVALUATIONS.with(|count| count.set(count.get() + 1));
+        super::tests::EVALUATIONS.with(|count| count.set(count.get() + 1));
         ExecutionError::check(document.deadline)?;
         if !self.matches_candidate(candidate) {
             return Ok(false);
@@ -348,13 +344,6 @@ impl RelationMemo {
             .borrow_mut()
             .insert((relation, node.id()), holds);
     }
-}
-
-#[cfg(test)]
-thread_local! {
-    /// Rule evaluations ([`CompiledRule::matches`]) this thread ran, for
-    /// tests that measure the work of a walk.
-    pub(super) static EVALUATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 pub(super) struct Document<'a, 't> {

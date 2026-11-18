@@ -117,8 +117,8 @@ test('prune refuses, and deletes nothing, while a cargo process is alive', async
   finishCargoRun({ selection: 'build-dev-host', messages, success: true, startedMs: Date.now(), targetRoot: target, log: () => {} });
   const fake = path.join(root, 'bin', 'cargo');
   fs.mkdirSync(path.dirname(fake));
-  fs.copyFileSync('/bin/sleep', fake);
-  fs.chmodSync(fake, 0o755);
+  // A link, not a copy: macOS kills a copied system binary at launch (exit 137).
+  fs.symlinkSync('/bin/sleep', fake);
   const child = spawn(fake, ['30'], { stdio: 'ignore' });
   t.after(() => child.kill('SIGKILL'));
   await new Promise(resolve => child.once('spawn', resolve));

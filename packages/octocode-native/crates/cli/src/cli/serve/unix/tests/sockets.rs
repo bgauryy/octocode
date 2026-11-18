@@ -1,4 +1,5 @@
 use super::*;
+use octocode_test_support::json_fixture;
 
 #[test]
 fn the_least_recently_used_runtime_leaves_at_the_cap() {
@@ -160,7 +161,7 @@ fn stopping_and_waiting_needs_each_servers_drain_confirmation() {
     );
     let request: serde_json::Value =
         serde_json::from_str(&confirmed.join().expect("server")).expect("JSON request");
-    assert_eq!(request, json!({"stop": true, "drain": true}));
+    assert_eq!(request, json_fixture(r#"{"stop": true, "drain": true}"#));
     std::fs::remove_file(dir.join("serve-a.sock")).expect("unbind");
 
     // B75 F4: a server with calls in flight says how many before it drains;

@@ -69,7 +69,5 @@ pub use transport::{
 };
 pub use tree::{ContentsEntry, ContentsListing};
 
-#[cfg(any(test, feature = "test-support"))]
-pub mod mock_http;
 #[cfg(test)]
 mod tests;

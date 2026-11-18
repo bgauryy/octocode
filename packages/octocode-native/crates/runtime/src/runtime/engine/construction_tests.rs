@@ -1,6 +1,6 @@
 use super::*;
-use crate::config::FileInput;
-use crate::tools::source_capture::SourceReader;
+use octocode_runtime_base::config::FileInput;
+use octocode_tools_shared::source_capture::SourceReader;
 use secrecy::SecretString;
 mod construct;
 mod runtime_state;
@@ -12,7 +12,7 @@ pub(super) fn runtime(home: &std::path::Path, env: &[(&str, &str)]) -> ToolRunti
         .map(|(key, value)| ((*key).into(), (*value).into()))
         .collect();
     vars.insert("OCTOCODE_HOME".into(), home.to_string_lossy().into_owned());
-    ToolRuntime::new(crate::config::ConfigInput {
+    ToolRuntime::new(octocode_runtime_base::config::ConfigInput {
         env: vars,
         cwd: home.to_path_buf(),
         os_home: home.to_path_buf(),

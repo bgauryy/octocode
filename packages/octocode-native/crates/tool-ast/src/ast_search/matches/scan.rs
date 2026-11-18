@@ -1,0 +1,389 @@
+//! The scan of one file or a directory, and the order of its files.
+use super::super::scan_window::window_files;
+use super::continuations::tree_repair;
+use super::query::MatchQuery;
+use super::rows::{diagnostic_error, error_diagnostic};
+use super::snapshot::directory_source_digest;
+use super::types::{Scan, ScannedFile, Scope};
+use super::{demand, match_price};
+use octocode_engine::structural::{
+    FileMatches, StructuralDetailedMatch, StructuralDiagnostic, StructuralSearchFilesOptions,
+};
+use octocode_runtime_base::execution::cancel::CancellationCheck;
+use octocode_runtime_base::policy::path::PathPolicy;
+use octocode_runtime_base::policy::prune;
+use octocode_runtime_base::response::result::ToolError;
+use octocode_tools_shared::ast_rule::has_extension_in;
+use octocode_tools_shared::test_code::Scoped;
+
+mod walk_log;
+
+use walk_log::WalkLog;
+
+pub(super) fn scan_file(
+    q: MatchQuery<'_>,
+    scope: &Scope,
+    paths: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+) -> Result<Scan, ToolError> {
+    let canonical = &scope.canonical;
+    super::super::language::validate_file_language(
+        canonical,
+        scope.language.as_deref(),
+        octocode_engine::text::analysis::AnalysisOperation::StructuralSearch,
+    )?;
+    let Some(bytes) = super::super::source::read_parse_source(canonical)? else {
+        let pattern = q.pattern_text();
+        return Err(super::super::source::too_large_error(
+            canonical,
+            &canonical.to_string_lossy(),
+            pattern
+                .as_deref()
+                .and_then(super::super::source::pattern_literal),
+        ));
+    };
+    // Parse the file as the directory scan does: admitted by the one text
+    // rule, as a read shows it ([`super::super::source::admitted_for_match`]).
+    let stop = || cancel.check().is_err();
+    let mut maps = super::super::source::mapping_budget(cancel, &stop);
+    let (admitted, shown) = super::super::source::admitted_for_match(canonical, &bytes, &mut maps)?;
+    let source = admitted.text();
+    let source_path = canonical.to_string_lossy();
+    let mut r = octocode_engine::structural::search_detailed(
+        source,
+        &source_path,
+        super::super::language::parser_override(canonical, scope.language.as_deref()).as_deref(),
+        None,
+        q.rule().as_ref(),
+    );
+    if let Some(diagnostic) = error_diagnostic(&r.diagnostics) {
+        let error = diagnostic_error(diagnostic);
+        // A rule that does not parse as a rule names its bad key; no syntax
+        // tree shows a rule's keys.
+        return Err(
+            if diagnostic.code == octocode_engine::structural::RULE_INVALID {
+                error
+            } else {
+                tree_repair(error, q, scope)
+            },
+        );
+    }
+    // Only the matches of the scope are mapped to their source: a narrower
+    // scope is what a file past its mapping limits needs.
+    if let Some(region) = q.scope() {
+        super::super::region::select(region, source, &mut r.matches)?;
+    }
+    let mut binder = octocode_engine::structural::SourceBinder::with_budget(&admitted, maps);
+    for matched in &mut r.matches {
+        binder.bind_match(matched).map_err(|error| match error {
+            octocode_engine::text::analysis::SourceError::LimitExceeded(limit) => {
+                source_limit_error(q, canonical, limit)
+            }
+            error => ToolError::source(error),
+        })?;
+    }
+    if let Some(shown) = &shown {
+        octocode_engine::structural::restore_texts(&mut r.matches, source, shown);
+    }
+    // A test-code scope keeps one side of a single file's matches too.
+    let mut test_code_excluded = octocode_engine::types::TestCodeExcluded::default();
+    let mut test_code_unread = Vec::new();
+    let mut verdict_inputs = Vec::new();
+    if let Some(scoped) = octocode_tools_shared::test_code::Scoped::of(q.test_code(), paths) {
+        r.matches
+            .retain(|matched| scoped.keeps(canonical, matched.start_line));
+        test_code_excluded = scoped.excluded();
+        test_code_unread = scoped.unread();
+        verdict_inputs = scoped.watched();
+    }
+    if let Some(warning) = admitted.warning() {
+        r.diagnostics
+            .push(StructuralDiagnostic::decoded(&source_path, warning));
+    }
+    if let Some(note) =
+        super::super::language::cpp_header_note(canonical, q.language().as_deref(), source)
+    {
+        r.diagnostics.push(StructuralDiagnostic {
+            code: super::super::language::CPP_HEADER_NOTE.to_owned(),
+            severity: "warning".to_owned(),
+            stage: "parse".to_owned(),
+            message: note,
+            path: Some(source_path.into_owned()),
+            recovery: None,
+        });
+    }
+    Ok(Scan {
+        files: vec![ScannedFile {
+            path: canonical.to_string_lossy().into_owned(),
+            parser: String::new(),
+            matches: FileMatches::Held(r.matches),
+            diagnostics: r.diagnostics,
+            status: r.status,
+            recovered: r.recovered,
+            recovered_bodies: r.recovered_bodies,
+            source: None,
+        }],
+        sources: vec![canonical.clone()],
+        source_digest: octocode_engine::digest::sha256(&bytes),
+        ignore_rules: verdict_inputs,
+        test_code_excluded,
+        test_code_unread,
+        ..Scan::default()
+    })
+}
+
+/// The refusal of a requested file that passes the source-map limit `limit`:
+/// it names the file and the limit, and leads to the query over part of it.
+fn source_limit_error(q: MatchQuery<'_>, file: &std::path::Path, limit: &str) -> ToolError {
+    let path = file.to_string_lossy();
+    let mut error = ToolError::new(
+        octocode_contract_types::ErrorCode::ScopeTooBroad,
+        format!(
+            "{path} {}: narrow the search of this file with a smaller scope.",
+            octocode_engine::text::analysis::MapLimits::default().passed(limit)
+        ),
+    );
+    error.calls = super::continuations::narrow_leads(q, file, &path).map(|[first, rest]| {
+        Box::new(serde_json::json!({ "narrowSearch": first, "narrowRest": rest }))
+    });
+    error
+}
+
+/// The scan of a directory's window: from `q`'s `scanOffset` until the time
+/// budget cuts it, or with `through` the candidates before that position,
+/// from the first, as an explicit file window the engine never cuts by time
+/// (what a ranked scan lost, [`super::standing`]).
+pub(super) fn scan_directory(
+    q: MatchQuery<'_>,
+    scope: &Scope,
+    paths: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+    through: Option<u32>,
+) -> Result<Scan, ToolError> {
+    #[cfg(test)]
+    DIRECTORY_SCANS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(scope.canonical.clone());
+    let include = q.include().unwrap_or_default();
+    let admission = octocode_runtime_base::policy::discovery::WalkAdmission::new(
+        paths.discovery_walk(),
+        &scope.canonical,
+        octocode_runtime_base::policy::discovery::WalkRules {
+            defaults: q.default_excludes(),
+            include: &include,
+            generated: true,
+            engine_prunes: true,
+        },
+    );
+    let ignore_rules = q.include_ignored() != Some(true);
+    let log = WalkLog::new(scope, paths, &admission, q.include_hidden() == Some(true));
+    let projection_failure = std::sync::Mutex::new(None);
+    let price = |m: &StructuralDetailedMatch| match match_price(q, m, cancel) {
+        Ok(price) => price,
+        Err(error) => {
+            projection_failure
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .get_or_insert(error);
+            0
+        }
+    };
+    // A test-code scope leaves out, unparsed, every file whose path puts it
+    // on the other side, and every match on the other side of a file that
+    // may mix both (its spans read once, on its first match).
+    let scoped = octocode_tools_shared::test_code::Scoped::of(q.test_code(), paths);
+    let keep_line = |path: &std::path::Path, line: u32| {
+        scoped
+            .as_ref()
+            .is_none_or(|scoped| scoped.keeps(path, line))
+    };
+    let r = octocode_engine::structural::search_files(
+        StructuralSearchFilesOptions {
+            path: scope.canonical.to_string_lossy().into_owned(),
+            pattern: None,
+            rule: q.rule(),
+            include: q.include(),
+            exclude: q.exclude(),
+            default_exclude_dir: Some(prune::walk_names(q.default_excludes(), &include)),
+            ignore: octocode_engine::types::IgnorePolicy::new(
+                q.include_ignored(),
+                q.include_hidden(),
+            ),
+            max_depth: q.max_depth(),
+            max_files: through.or_else(|| window_files(q.scan_offset())),
+            skip_files: Some(through.map_or(q.scan_offset(), |_| 0)),
+            max_file_bytes: u32::try_from(
+                octocode_runtime_base::security::SourceLimits::REAL.whole_source,
+            )
+            .ok(),
+            judge: Some(super::super::source::judge()),
+            global_ignore: paths.global_ignore(),
+        },
+        demand(q, &price),
+        &|path, file_type| {
+            // Only a file the scan parses is one the scope leaves unread.
+            log.admit(path, file_type)
+                && scoped.as_ref().is_none_or(|scoped| {
+                    let is_dir = file_type.map_or_else(|| path.is_dir(), |kind| kind.is_dir());
+                    (!is_dir && !parses(scope, path)) || scoped.reads(path, is_dir)
+                })
+        },
+        &|path| parser_extension(scope, path),
+        &|| {
+            cancel.check().is_err()
+                || projection_failure
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .is_some()
+        },
+        scoped
+            .as_ref()
+            .map(|_| &keep_line as &octocode_engine::structural::KeepLine),
+    );
+    if let Some(error) = projection_failure
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    {
+        return Err(error);
+    }
+    let r = r.map_err(super::super::errors::native_error)?;
+    if let Some(diagnostic) = error_diagnostic(&r.diagnostics) {
+        return Err(diagnostic_error(diagnostic));
+    }
+    let sources = r
+        .files
+        .iter()
+        .map(|f| std::path::PathBuf::from(&f.path))
+        .collect();
+    // Preserve source identity before the row projection drops internal metadata.
+    let source_digest = directory_source_digest(
+        r.files
+            .iter()
+            .map(|file| (file.path.as_str(), file.source_sha256.as_deref())),
+    );
+    let logged = log.finish();
+    let mut rules = if ignore_rules {
+        octocode_engine::search::walk::external_ignore_inputs_with(
+            &scope.canonical,
+            paths.global_ignore(),
+        )
+    } else {
+        Vec::new()
+    };
+    // What a `testCode` scope's verdicts read, a parent module outside this
+    // scope too, proves a kept scan as the ignore rules do.
+    if let Some(scoped) = &scoped {
+        rules.extend(scoped.watched());
+    }
+    // Preserve the scan-level coverage signals the group projection drops.
+    Ok(Scan {
+        sources,
+        source_digest,
+        ignore_rules: rules,
+        watches_ignore_files: ignore_rules,
+        repository_markers: if ignore_rules {
+            octocode_tools_shared::page_memo::repository_markers(&scope.canonical)
+        } else {
+            Vec::new()
+        },
+        discovery_sources: logged.discovery_sources,
+        files: r
+            .files
+            .into_iter()
+            .map(|f| ScannedFile {
+                path: super::super::rooted_display(&scope.canonical, std::path::Path::new(&f.path)),
+                parser: parser_extension(scope, std::path::Path::new(&f.path)),
+                source: f
+                    .source_sha256
+                    .map(|digest| (std::path::PathBuf::from(&f.path), digest)),
+                matches: f.matches,
+                diagnostics: f.diagnostics,
+                status: f.status,
+                recovered: f.recovered,
+                recovered_bodies: f.recovered_bodies,
+            })
+            .collect(),
+        truncated: r.scan_truncated,
+        scan_resume: r.scan_resume,
+        listed_before: r.listed_before,
+        listed_through: r.listed_through,
+        earlier_files: r.earlier_files,
+        diagnostics: r.diagnostics,
+        skips: (r.skipped_unsupported, r.skipped_unreadable, r.skipped_large),
+        walk_errors: r.walk_errors,
+        skipped_by_prefilter: r.skipped_by_pre_filter,
+        withheld: admission.skipped().withheld,
+        artifacts: admission.skipped().artifacts,
+        unparsed: logged.unparsed,
+        census: logged.census,
+        present: logged.present,
+        test_code_excluded: scoped.as_ref().map(Scoped::excluded).unwrap_or_default(),
+        test_code_walked: scoped.as_ref().map_or(0, Scoped::left_unread),
+        test_code_unread: scoped.as_ref().map(Scoped::unread).unwrap_or_default(),
+    })
+}
+
+/// Whether a directory scan parses `path`: by its own extension, or by the
+/// rule that names its parser.
+fn parses(scope: &Scope, path: &std::path::Path) -> bool {
+    scope
+        .extensions
+        .as_ref()
+        .is_none_or(|extensions| has_extension_in(path, extensions))
+        || scope.parsers.extension(path).is_some()
+}
+
+/// The parser a directory scan reads `path` with: the grammar a
+/// `parserGlobs` entry names, else the one its shared extension resolves
+/// to under `parser`, else its own extension.
+pub(super) fn parser_extension(scope: &Scope, path: &std::path::Path) -> String {
+    if let Some(extension) = scope.parsers.extension(path) {
+        extension.to_owned()
+    } else if let Some(parser) =
+        super::super::language::shared_extension_parser(path, scope.language.as_deref())
+    {
+        parser
+    } else {
+        octocode_engine::text::extension_of(&path.to_string_lossy(), true, "")
+    }
+}
+
+/// Every directory scan's root, for the tests that count scans.
+#[cfg(test)]
+pub(super) static DIRECTORY_SCANS: std::sync::Mutex<Vec<std::path::PathBuf>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Files in the walk's own order: by path component, so a directory's files
+/// precede its siblings that share its name as a prefix (`a/x.rs` before
+/// `a-b.rs`, as text order would not). A scan cut into windows lists each
+/// window in walk order; only this order makes their concatenation the
+/// order of the whole scan.
+fn walk_order(a: &ScannedFile, b: &ScannedFile) -> std::cmp::Ordering {
+    std::path::Path::new(&a.path).cmp(std::path::Path::new(&b.path))
+}
+
+/// Whether `q`'s order ranks the scope's whole file set: every order but walk
+/// order, the only one in which a cut scan's windows, each listed in turn,
+/// list the files in the order of the whole scan.
+pub(super) fn ranks_whole_scope(q: MatchQuery<'_>) -> bool {
+    q.sort() == Some("matchCount") || q.reverse().unwrap_or(false)
+}
+
+pub(super) fn sort_files(q: MatchQuery<'_>, files: &mut [ScannedFile]) {
+    let by_count = q.sort() == Some("matchCount");
+    let descending = q.reverse().unwrap_or(false);
+    files.sort_by(|a, b| {
+        let ordering = if by_count {
+            a.matches.len().cmp(&b.matches.len())
+        } else {
+            walk_order(a, b)
+        };
+        let ordering = if descending {
+            ordering.reverse()
+        } else {
+            ordering
+        };
+        ordering.then_with(|| walk_order(a, b))
+    });
+}

@@ -9,11 +9,12 @@ use super::state::{
     InFlight, Retirement, SharedError, SharedResult, State, evict_overflow, inflight_is_current,
     remove_lru, shared_error, touch_entry,
 };
+use crate::lsp::clock::LspClock;
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::Mutex;
-use tokio::time::{Duration, Instant};
+use tokio::time::Duration;
 
 /// Acquire attempts [`GenericPool::acquire_leased`] makes when the entry it
 /// was handed is replaced before it can be leased.
@@ -23,10 +24,17 @@ pub(super) struct GenericPool<C> {
     pub(super) options: LspPoolOptions,
     pub(super) state: Arc<Mutex<State<C>>>,
     pub(super) count: Arc<AtomicUsize>,
+    /// The time idle expiry and start backoff run on; the pool's clients
+    /// get it too.
+    pub(super) clock: LspClock,
 }
 
 impl<C: PoolClient> GenericPool<C> {
-    pub(super) fn new(mut options: LspPoolOptions) -> Self {
+    pub(super) fn new(options: LspPoolOptions) -> Self {
+        Self::with_clock(options, LspClock::default())
+    }
+
+    pub(super) fn with_clock(mut options: LspPoolOptions, clock: LspClock) -> Self {
         options.idle_timeout_ms = options.idle_timeout_ms.max(1);
         options.max_entries = options.max_entries.max(1);
         Self {
@@ -36,6 +44,7 @@ impl<C: PoolClient> GenericPool<C> {
                     .unwrap_or(std::num::NonZeroUsize::MIN),
             ))),
             count: Arc::new(AtomicUsize::new(0)),
+            clock,
         }
     }
 
@@ -66,6 +75,7 @@ impl<C: PoolClient> GenericPool<C> {
 
         let action = {
             let mut state = self.state.lock().await;
+            let now = self.clock.now();
             let current = state.inflight.get(&key).cloned();
             let backing_off = if state.entries.contains_key(&key) {
                 None
@@ -73,7 +83,7 @@ impl<C: PoolClient> GenericPool<C> {
                 state
                     .backoff
                     .get(&key)
-                    .filter(|backoff| Instant::now() < backoff.retry_at)
+                    .filter(|backoff| now < backoff.retry_at)
                     .map(|backoff| Arc::clone(&backoff.last_error))
             };
             if let Some(inflight) = current.filter(|inflight| !inflight.is_cancelled()) {
@@ -148,7 +158,7 @@ impl<C: PoolClient> GenericPool<C> {
                         } else if state.entries.get(&key).map(|entry| entry.id) != Some(entry_id) {
                             Revalidated::Removed
                         } else {
-                            touch_entry(&mut state, &key);
+                            touch_entry(&mut state, &key, self.clock.now());
                             // A previously deferred (busy) eviction may be
                             // possible now.
                             let evicted = evict_overflow(&mut state, &self.options, &key);

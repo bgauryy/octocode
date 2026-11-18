@@ -3,6 +3,7 @@ import {
   chromePlanOperations,
   chromeExtractionFields,
 } from '../chrome-contract.mjs';
+import { validateHistory } from './plan-history-validate.mjs';
 import { DOM_ACTIONS, readDomConfig, readSteps } from './dom-config.mjs';
 import type { RawStep } from './dom-types.mjs';
 import type { Plan } from './plan-types.mjs';
@@ -26,38 +27,24 @@ const PLAN_FIELDS = [
   'observe',
   'commandMs',
 ];
-const STEP_FIELDS = [
+// Every field any operation accepts; opFields narrows it per operation.
+const STEP_FIELDS: readonly string[] = [
   'op',
-  'url',
-  'action',
-  'ref',
-  'selector',
-  'role',
-  'name',
-  'value',
-  'key',
-  'toRef',
-  'toSelector',
   'after',
   'timeoutMs',
   'frame',
   'session',
-  'fields',
-  'allowEmpty',
-  'method',
-  'params',
-  'domain',
-  'member',
-  'id',
-  'event',
-  'where',
-  'listener',
-  'count',
-  'handle',
-  'size',
-  'close',
+  ...Object.values(chromePlanOperations).flat(),
 ];
-const AFTER_OPS = ['goto', 'act', 'wait', 'extract', 'cdp'];
+const AFTER_OPS = [
+  'goto',
+  'history',
+  'reload',
+  'act',
+  'wait',
+  'extract',
+  'cdp',
+];
 const FRAME_OPS = ['act', 'wait', 'extract', 'cdp', 'listen'];
 const SESSION_OPS = [...AFTER_OPS, 'listen', 'readStream'];
 const TEXT_FIELDS = [
@@ -326,6 +313,7 @@ function validateStepOps(plan: Json, step: StepRecord, scope: ReferenceScope) {
   validateReferences(step.params, scope);
   if (step.op === 'goto' && !nonemptyText(step.url))
     throw new Error('goto needs url');
+  if (step.op === 'history' || step.op === 'reload') validateHistory(step);
   if (['act', 'wait'].includes(step.op)) {
     validateDomTarget(step);
     validateDomValue(plan, step);

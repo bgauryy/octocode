@@ -38,9 +38,11 @@ Calling an `async fn` creates a future; its body runs when polled. Await it, com
 - Racing an owned `JoinHandle` can detach the losing task. Borrow a retained handle when appropriate, then explicitly cancel/join its owner.
 - Shutdown must reject new work, signal existing work, drain or cancel according to policy, and wait for owned resources. If a policy deadline expires, report incomplete cleanup rather than claiming termination.
 - `Drop` is synchronous and may not run on abort or process exit. Keep critical async shutdown explicit; avoid panicking during cleanup.
+- A cancelled operation reports that it was cancelled wherever the cancel was first seen, between work items or inside one. Record the cancel at every check, not only in the outer loop: a result cut short without that reason reads as complete. A search that recorded it only between files returned partial results with no cancelled reason in 6–8 of 40 runs ([testing](testing-and-tooling.md#write-trustworthy-tests)).
+- Take clocks and timers as values the owner passes in (a small trait or `Arc<dyn …>`; production passes the runtime's real time). Tests then advance a manual clock. A runtime's test-only paused time (tokio's `test-util`) either compiles into every dev binary or forks the dev and test graphs: 20 units here.
 
 ## Verify the lifetime
 
-Cover success, error, cancellation before start and while running, queue saturation, receiver closure and shutdown with work outstanding. Use barriers, injected clocks or runtime time controls rather than arbitrary sleeps. Check returned results and resource release; a timely response alone does not prove background work stopped.
+Cover success, error, cancellation before start and while running, queue saturation, receiver closure and shutdown with work outstanding. Use barriers, injected clocks and injected cancel points rather than sleeps or a runtime's test-only paused clock ([testing](testing-and-tooling.md#write-trustworthy-tests)). Check returned results and resource release; a timely response alone does not prove background work stopped.
 
 Sources: [Tokio task cancellation](https://docs.rs/tokio/latest/tokio/task/#cancellation), [spawn_blocking](https://docs.rs/tokio/latest/tokio/task/fn.spawn_blocking.html), [select cancellation safety](https://docs.rs/tokio/latest/tokio/macro.select.html#cancellation-safety), [std atomics](https://doc.rust-lang.org/std/sync/atomic/).

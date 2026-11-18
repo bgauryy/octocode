@@ -59,6 +59,9 @@ impl TextSearchMatch {
 pub struct TextSearchFile {
     pub path: String,
     pub match_count: u32,
+    /// What the search counted in the file, whatever its view lists of it:
+    /// what the file adds to the search's totals.
+    pub counted: FileCounts,
     pub matches: Vec<TextSearchMatch>,
     /// The bytes this file's values came from, when the search was asked to
     /// prove them ([`SourceValues::Hashed`]).
@@ -68,6 +71,17 @@ pub struct TextSearchFile {
     /// or the matched lines holding it (count-lines). Empty unless a count
     /// view searched two or more terms.
     pub term_counts: Vec<u32>,
+}
+
+/// What a search counted in one file ([`TextSearchFile::counted`]): its
+/// share of [`TextSearchStats::match_count`] and
+/// [`TextSearchStats::matched_lines`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FileCounts {
+    /// Occurrences (submatches).
+    pub occurrences: u32,
+    /// Matched lines; a match spanning several lines counts each.
+    pub lines: u32,
 }
 
 /// A searched file's identity, taken from the one read the search made.
@@ -102,6 +116,13 @@ pub struct TextSearchStats {
     /// The share of `error_count` where a readable file failed in the regex
     /// matcher (a PCRE2 match or JIT-stack limit), not in reading it.
     pub pattern_error_count: Option<u32>,
+    /// The share of `error_count` where a file kept changing while it was
+    /// searched: no search of it read one version ([`crate::text::Settling`]).
+    pub changed_error_count: Option<u32>,
+    /// Kept files that grew while they were searched, in path order: their
+    /// hits are of the start of one version, as of the bytes the search read
+    /// ([`crate::text::Proved::Prefix`]); what was written after is unsearched.
+    pub grown_files: Option<Vec<GrownFile>>,
     /// What a [`TestCodeScope`](super::test_code::TestCodeScope) left out; `None` without one.
     pub test_code_excluded: Option<super::test_code::TestCodeExcluded>,
     /// Files searched only up to their first NUL byte (`binaryQuit`) after
@@ -129,6 +150,17 @@ pub struct TextSearchStats {
     /// Non-empty directories at `max_depth` the walk did not enter: the
     /// files below them were not searched.
     pub depth_cut_dirs: Option<u32>,
+    /// Files the [`TextSearchOptions::line_scope`] left out unread, since
+    /// none can hold a kept line: why a scoped search can search nothing.
+    pub scope_left_out: Option<u32>,
+}
+
+/// A kept file that grew while it was searched ([`TextSearchStats::grown_files`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GrownFile {
+    pub path: String,
+    /// The bytes searched, from its start: one version's, as of this length.
+    pub bytes: u64,
 }
 
 /// A limit that ended a text search before it covered its scope.
@@ -304,13 +336,29 @@ pub type JudgeSource = dyn Fn(
 /// moves in place of a source's own bytes (compared ignoring case when
 /// `fold`): a match that cannot is the source's own bytes at their place, so
 /// a file whose bytes hold no match is searched without its judge.
-pub type JudgeWrites = dyn Fn(&str, bool) -> bool + Send + Sync;
+pub(super) type JudgeWrites = dyn Fn(&str, bool) -> bool + Send + Sync;
 
-/// A shared [`JudgeSource`], with what it writes ([`JudgeWrites`]).
+/// [`JudgeSource`] of bytes already held: the start of one version of a file
+/// that grew while it was searched ([`crate::text::Proved::Prefix`]), served
+/// as the judge serves the file when it holds that file whole. `Some(text)`
+/// when it replaced some of them; `None` when they are searched as they are.
+pub type JudgeHeldSource = dyn Fn(&std::path::Path, &[u8]) -> Option<Vec<u8>> + Send + Sync;
+
+/// A [`JudgeHeldSource`], for bytes of at most `limit`.
+#[derive(Clone)]
+pub struct JudgeHeld {
+    pub limit: u64,
+    pub serve: std::sync::Arc<JudgeHeldSource>,
+}
+
+/// A shared [`JudgeSource`], with what it writes ([`JudgeWrites`]), and its
+/// judgment of held bytes, when it has one: without it, a file that grew
+/// while it was searched is searched again until a search of it settles.
 #[derive(Clone)]
 pub struct SourceJudge {
     pub serve: std::sync::Arc<JudgeSource>,
     pub writes: std::sync::Arc<JudgeWrites>,
+    pub held: Option<JudgeHeld>,
 }
 
 impl std::fmt::Debug for SourceJudge {

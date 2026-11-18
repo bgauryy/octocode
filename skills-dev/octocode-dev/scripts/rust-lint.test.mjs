@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { RATCHET, adopt, clippyArgs, collect, compare, ratchetConfig, ratchetKey, serialize, shrink } from './rust-lint.mjs';
 
 const record = (code, message, file, line = 1, kind = ['lib']) => ({
@@ -78,4 +83,29 @@ test('ratchet cfg and lint flags reach rustc for production and all-target passe
     assert.deepEqual(args.slice(separator + 1, separator + 3), ['--cfg', 'octocode_clippy_ratchet']);
     assert.deepEqual(args.slice(separator + 3), RATCHET.flatMap(lint => ['-W', lint]));
   }
+});
+
+test('lint:rust runs clippy in a build slot and releases it', { skip: process.platform === 'win32' }, t => {
+  // A fake cargo first on PATH logs the slot holders it sees and fails, which ends the run after one pass.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rust-lint-slot-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const slots = path.join(root, 'octocode-build-slots');
+  const log = path.join(root, 'cargo.log');
+  fs.mkdirSync(path.join(root, 'bin'));
+  fs.writeFileSync(path.join(root, 'bin', 'cargo'), `#!${process.execPath}
+const fs = require('node:fs');
+const labels = fs.readdirSync(${JSON.stringify(slots)}).filter(name => name.endsWith('.json'))
+  .map(name => JSON.parse(fs.readFileSync(${JSON.stringify(slots)} + '/' + name, 'utf8')).label);
+fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(labels) + '\\n');
+process.exit(1);
+`, { mode: 0o755 });
+  const run = spawnSync(process.execPath, [fileURLToPath(new URL('./rust-lint.mjs', import.meta.url))], {
+    encoding: 'utf8',
+    // os.tmpdir() of the run is `root`, so it takes a private slot, never one of the machine's.
+    env: { ...process.env, PATH: `${path.join(root, 'bin')}${path.delimiter}${process.env.PATH}`, TMPDIR: root, OCTOCODE_BUILD_SLOT_HELD: '' },
+  });
+  assert.equal(run.status, 1, run.stderr);
+  assert.match(run.stderr, /rust-lint: clippy failed/);
+  assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n').map(line => JSON.parse(line)), [['lint:rust']]);
+  assert.deepEqual(fs.readdirSync(slots).filter(name => name.endsWith('.json')), []);
 });

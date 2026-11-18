@@ -86,7 +86,7 @@ pub(in crate::structural) fn decode_rule(
     value: &serde_json::Value,
 ) -> Result<RawRule, CompileError> {
     #[cfg(test)]
-    RULE_DECODE_COUNT.with(|count| count.set(count.get() + 1));
+    crate::structural::octo::tests::RULE_DECODE_COUNT.with(|count| count.set(count.get() + 1));
     let mut raw = RawRule::deserialize(value).map_err(|err| rule_error(&err))?;
     normalize_selectors(&mut raw, 0)?;
     validate_rule_position(&raw, 0, false)?;
@@ -174,11 +174,6 @@ fn rule_error(err: &impl std::fmt::Display) -> CompileError {
     } else {
         CompileError::rule(message)
     }
-}
-
-#[cfg(test)]
-thread_local! {
-    pub(in crate::structural::octo) static RULE_DECODE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 fn validate_rule_position(

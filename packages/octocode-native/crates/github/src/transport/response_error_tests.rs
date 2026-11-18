@@ -123,13 +123,24 @@ fn no_commit_found_is_a_missing_ref() {
 
 #[tokio::test]
 async fn a_body_that_stalls_after_the_headers_hits_the_request_deadline() {
-    use tokio::io::AsyncWriteExt;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind");
     let addr = listener.local_addr().expect("addr");
     tokio::spawn(async move {
         if let Ok((mut socket, _)) = listener.accept().await {
+            // Answer only after the whole request head arrived: a response
+            // sent before the client finished writing its request is an
+            // unexpected message to hyper, not a stalled body.
+            let mut head = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            while !head.windows(4).any(|end| end == b"\r\n\r\n") {
+                match socket.read(&mut buffer).await {
+                    Ok(0) | Err(_) => return,
+                    Ok(read) => head.extend_from_slice(&buffer[..read]),
+                }
+            }
             // Promise 1000 bytes, send 5, then go silent.
             let _ = socket
                 .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 1000\r\n\r\nhello")

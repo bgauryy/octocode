@@ -12,17 +12,14 @@ use crate::text::LineIndex;
 
 use super::{ExecutionError, Found, PARSE_INTERRUPTED};
 
-#[cfg(test)]
-thread_local! {
-    pub(in crate::structural) static INTERRUPT_NEXT_COMPILE_PARSE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
 pub(in crate::structural::octo) fn parse_tree(
     language: &Language,
     content: &str,
 ) -> Result<Tree, ExecutionError> {
     #[cfg(test)]
-    if INTERRUPT_NEXT_COMPILE_PARSE.with(|interrupt| interrupt.replace(false)) {
+    if crate::structural::octo::tests::INTERRUPT_NEXT_COMPILE_PARSE
+        .with(|interrupt| interrupt.replace(false))
+    {
         return Err(ExecutionError::limit(
             PARSE_INTERRUPTED,
             "parse",

@@ -10,7 +10,7 @@ pub(super) fn output_view(tool: &Value) -> Result<Value, SchemaError> {
         message: "Embedded output reference has no tool name".to_owned(),
         exit: 5,
     })?;
-    let contract = octocode_native::contracts::tool_contract_named(name)
+    let contract = octocode_runtime_base::contracts::tool_contract_named(name)
         .ok_or_else(|| SchemaError {
             message: format!("Embedded contract has no tool {name}"),
             exit: 5,
@@ -19,8 +19,8 @@ pub(super) fn output_view(tool: &Value) -> Result<Value, SchemaError> {
             message: format!("Embedded tool contract is invalid: {error}"),
             exit: 5,
         })?;
-    let reasons = octocode_native::id::ToolId::from_name(name)
-        .and_then(octocode_native::contracts::partial_reasons_of);
+    let reasons = octocode_runtime_base::id::ToolId::from_name(name)
+        .and_then(octocode_runtime_base::contracts::partial_reasons_of);
     let mut output = json!({
         "name": tool["name"],
         "fields": tool["output"],

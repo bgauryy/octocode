@@ -20,33 +20,33 @@ const ENVELOPE_KEYS: [&str; 6] = [
 const ROW_KEYS: [&str; 4] = ["index", "data", "status", "rowPart"];
 const ROW_STATUSES: [&str; 3] = ["empty", "error", "outOfRange"];
 const PAGINATION_KEYS: [&str; 6] = ["unit", "offset", "length", "total", "countScope", "hasMore"];
-const RESPONSE_PAGINATION_KEYS: [&str; 4] = ["hasMore", "next", "expiresAt", "replayed"];
+const RESPONSE_PAGINATION_KEYS: [&str; 3] = ["next", "expiresAt", "replayed"];
 /// Fraction digits a ratio or score may carry.
 const FRACTION_DIGITS: usize = 3;
 /// Elements a collection needs before a shared value reads as stated once.
 const UNIFORM_ROWS: usize = 3;
 
-pub type Findings = BTreeSet<String>;
+pub(super) type Findings = BTreeSet<String>;
 
-pub struct Report<'a> {
+pub(super) struct Report<'a> {
     pub tool: &'a str,
     pub findings: &'a mut Findings,
 }
 
 impl Report<'_> {
-    pub fn add(&mut self, check: &str, detail: impl AsRef<str>) {
+    pub(super) fn add(&mut self, check: &str, detail: impl AsRef<str>) {
         self.findings
             .insert(format!("{check} | {} | {}", self.tool, detail.as_ref()));
     }
 }
 
 /// A continuation or a lead: `{tool, input}`.
-pub fn is_call(value: &Value) -> bool {
+pub(super) fn is_call(value: &Value) -> bool {
     value["tool"].is_string() && value["input"].is_object()
 }
 
 /// Where a node reads, array positions as `[]`, a row's `data` as the root.
-pub fn place(path: &[String]) -> String {
+pub(super) fn place(path: &[String]) -> String {
     let mut text = String::new();
     for segment in path {
         if segment != "[]" && !text.is_empty() {
@@ -59,7 +59,11 @@ pub fn place(path: &[String]) -> String {
 }
 
 /// Every node of `value` with its path; a call is visited, its input is not.
-pub fn each_node(value: &Value, path: &mut Vec<String>, visit: &mut dyn FnMut(&[String], &Value)) {
+pub(super) fn each_node(
+    value: &Value,
+    path: &mut Vec<String>,
+    visit: &mut dyn FnMut(&[String], &Value),
+) {
     visit(path, value);
     if is_call(value) {
         return;
@@ -88,7 +92,7 @@ fn rows(output: &Value) -> &[Value] {
 }
 
 /// B1: the envelope and row key sets, and the closed row status.
-pub fn envelope(report: &mut Report, output: &Value) {
+pub(super) fn envelope(report: &mut Report, output: &Value) {
     for key in output.as_object().into_iter().flat_map(Map::keys) {
         if !ENVELOPE_KEYS.contains(&key.as_str()) {
             report.add("B1 envelope", format!("envelope key {key}"));
@@ -165,7 +169,7 @@ fn page_facts(
 
 /// B2: one pagination vocabulary, and a continuation behind every `hasMore`:
 /// the row's own `next`, or the response's one walk handle.
-pub fn pagination(report: &mut Report, output: &Value) {
+pub(super) fn pagination(report: &mut Report, output: &Value) {
     let walk = output.get("responsePagination").and_then(Value::as_object);
     let walk_handle = walk.is_some_and(|walk| walk.contains_key("next"));
     if let Some(walk) = walk {
@@ -201,7 +205,7 @@ pub fn pagination(report: &mut Report, output: &Value) {
 }
 
 /// B2: every continuation is `{cursor}` under `next`; every lead is under `related`.
-pub fn call_places(report: &mut Report, output: &Value) {
+pub(super) fn call_places(report: &mut Report, output: &Value) {
     static NEXT: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"^(next\.[^.\[]+|responsePagination\.next)$").expect("regex"));
     static RELATED: LazyLock<Regex> =
@@ -230,7 +234,7 @@ pub fn call_places(report: &mut Report, output: &Value) {
 }
 
 /// B3: every `path` a local tool emits resolves from the workspace root.
-pub fn paths(report: &mut Report, output: &Value, root: &Path) {
+pub(super) fn paths(report: &mut Report, output: &Value, root: &Path) {
     for row in rows(output).iter().filter(|row| row["status"] != "error") {
         let mut path = vec!["results".to_owned(), "[]".to_owned()];
         each_node(row, &mut path, &mut |path, node| {
@@ -273,7 +277,7 @@ fn restates(request: &(Vec<String>, Value), response: &(Vec<String>, Value)) -> 
 }
 
 /// B4, Rule E: no response field restates a request value.
-pub fn echoes(report: &mut Report, request: &Value, data: &Value) {
+pub(super) fn echoes(report: &mut Report, request: &Value, data: &Value) {
     let Some(request) = request.as_object() else {
         return;
     };
@@ -312,8 +316,8 @@ pub fn echoes(report: &mut Report, request: &Value, data: &Value) {
 
 /// B5, Rule H: uniform published presentation fields are hoisting
 /// candidates. Opaque source records are evidence, not shared context.
-pub fn uniform(report: &mut Report, data: &Value) {
-    let contract = octocode_native::contracts::parsed_contract().expect("embedded contract");
+pub(super) fn uniform(report: &mut Report, data: &Value) {
+    let contract = octocode_runtime_base::contracts::parsed_contract().expect("embedded contract");
     let schema = &super::tool_facts(report.tool)["outputSchema"];
     uniform_with_schema(report, data, schema, contract);
 }
@@ -567,7 +571,7 @@ fn timestamp_fault(text: &str) -> Option<&'static str> {
 }
 
 /// B6: one timestamp format, and at most three fraction digits.
-pub fn formats(report: &mut Report, output: &Value) {
+pub(super) fn formats(report: &mut Report, output: &Value) {
     let mut path = Vec::new();
     each_node(output, &mut path, &mut |path, node| match node {
         Value::String(text) => {
@@ -596,7 +600,7 @@ pub fn formats(report: &mut Report, output: &Value) {
 
 /// B7: an empty row keeps one of its tool's collections, as `[]`, and
 /// states no zero counter. `collections` are the tool's row-level lists.
-pub fn empty_rows(report: &mut Report, output: &Value, collections: &[String]) {
+pub(super) fn empty_rows(report: &mut Report, output: &Value, collections: &[String]) {
     for row in rows(output).iter().filter(|row| row["status"] == "empty") {
         let data = &row["data"];
         if !collections.is_empty()
@@ -617,7 +621,7 @@ pub fn empty_rows(report: &mut Report, output: &Value, collections: &[String]) {
 /// The fields `tool` publishes for one query, in the order `schema <tool>`
 /// and `tools/list` state them.
 fn published_fields(tool: &str) -> Vec<String> {
-    let Ok(presentation) = octocode_native::contracts::cli_presentation() else {
+    let Ok(presentation) = octocode_runtime_base::contracts::cli_presentation() else {
         return Vec::new();
     };
     let entry = presentation["tools"]
@@ -644,7 +648,7 @@ fn published_fields(tool: &str) -> Vec<String> {
 
 /// B8: the objects of one list state the keys they share in one order, and
 /// a call states each query in the order its target publishes the fields.
-pub fn key_order(report: &mut Report, output: &Value) {
+pub(super) fn key_order(report: &mut Report, output: &Value) {
     let mut path = Vec::new();
     each_node(output, &mut path, &mut |path, node| {
         if is_call(node) {

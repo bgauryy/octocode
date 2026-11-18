@@ -1,0 +1,316 @@
+//! Filesystem layout: `tree` outlines directories, `files` finds paths by name
+//! or metadata. Walk-only by construction — this module never loads a grammar.
+mod cut;
+mod files;
+mod listing;
+mod memo;
+mod probe;
+pub mod selected;
+use cut::Move;
+use listing::Listing;
+use octocode_contract_types::{
+    ErrorCode, LocalFetchQuery, LocalFetchQuerySymbols, LocalFetchQuerySymbolsView,
+    StructureSearchQuery, StructureSearchQueryTree, StructureSearchQueryTreeOperation,
+    StructureSearchView,
+};
+use octocode_runtime_base::response::result::Continuation;
+pub use selected::Output;
+mod resume;
+mod rows;
+mod standing;
+#[cfg(test)]
+mod tests;
+mod tree;
+mod walk_policy;
+mod walked;
+mod windows;
+use cut::TimeWindow;
+use resume::Resumes;
+use walked::Walked;
+
+/// The most rows one listing window walks, sorts and pages: the core walk
+/// window, internal. Windows continue past it (`next.nextPage`), so it
+/// bounds no listing.
+fn max_entries() -> usize {
+    #[cfg(test)]
+    if let Some(window) = tests::WINDOW.get() {
+        return window;
+    }
+    octocode_runtime_base::id::structure_search_policy::WALK_WINDOW
+}
+
+/// Wall time one listing walk may spend: the budget every unbounded local
+/// scan shares. A filter that matches little makes the walk visit the whole
+/// tree, which no entry count bounds; past this budget the walk stops at its
+/// next entry and the page says where ([`Cut::time_cut`]).
+const WALK_BUDGET: std::time::Duration = octocode_engine::scan_budget::SCAN_TIME_BUDGET;
+
+use octocode_runtime_base::response::result::ToolError;
+use octocode_tools_shared::display_name;
+use serde_json::{Value, json};
+
+/// The policy error for `requested`; a missing path also leads to a tree of
+/// its nearest existing parent, so the agent sees what is there instead.
+/// The listed root once the call is live and the policy admits `requested`;
+/// a missing root leads to its nearest admitted parent.
+fn validated_root(
+    requested: &str,
+    paths: &octocode_runtime_base::policy::path::PathPolicy,
+    cancel: &dyn octocode_runtime_base::execution::cancel::CancellationCheck,
+) -> Result<octocode_runtime_base::policy::path::ValidatedPath, ToolError> {
+    cancel.check().map_err(ToolError::cancelled)?;
+    paths
+        .validate(requested)
+        .map_err(|error| ToolError::root_policy(error, requested, paths))
+}
+
+/// A file named as a tree root (`files` lists a file root as itself): say
+/// so with its workspace-relative name and lead to its outline, the read an
+/// agent wanted from it.
+fn file_root(
+    file: &std::path::Path,
+    paths: &octocode_runtime_base::policy::path::PathPolicy,
+) -> ToolError {
+    let name = paths
+        .workspace_relative(file)
+        .unwrap_or_else(|| file.to_string_lossy().into_owned());
+    let mut out = ToolError::new(
+        ErrorCode::NotADirectory,
+        format!("{name} is a file, not a directory; read it with localFetch or list its parent."),
+    );
+    if let Ok(path) = name.parse() {
+        let lead = Continuation::related_query(LocalFetchQuery::Symbols(LocalFetchQuerySymbols {
+            limit: None,
+            main_goal: None,
+            path,
+            read_progress: None,
+            reasoning: None,
+            snapshot: None,
+            view: LocalFetchQuerySymbolsView::Symbols,
+        }))
+        .build();
+        out.calls = Some(Box::new(json!({ "read": lead })));
+    }
+    out
+}
+
+/// A failed walk of `requested`, coded by the engine's typed kind: a
+/// vanished root reads like any other missing path, and a walk the policy
+/// callback stopped because the call was cancelled says so.
+fn walk_error(
+    error: octocode_engine::error::Error,
+    requested: &str,
+    cancel: &dyn octocode_runtime_base::execution::cancel::CancellationCheck,
+) -> ToolError {
+    use octocode_engine::error::ErrorKind;
+    if let Err(message) = cancel.check() {
+        return ToolError::cancelled(message);
+    }
+    let code = match error.kind() {
+        ErrorKind::NotFound => {
+            return ToolError::new(
+                ErrorCode::NotFound,
+                format!("Path does not exist: {requested}"),
+            );
+        }
+        ErrorKind::PermissionDenied => ErrorCode::PermissionDenied,
+        ErrorKind::InvalidPattern => ErrorCode::InvalidPattern,
+        ErrorKind::InvalidGlob => ErrorCode::InvalidGlob,
+        // A malformed filter value (`size`, ...) is rejected before the
+        // walk: caller input, like the typed time-filter checks.
+        ErrorKind::InvalidInput => ErrorCode::InvalidInput,
+        _ => ErrorCode::ExecutionFailed,
+    };
+    ToolError::new(code, error.to_string())
+}
+
+/// The row kind a listing shows for an entry: anything that is neither a
+/// directory nor a link lists as a file.
+/// Whether a withheld entry is worth a warning: the repository's own `.git`
+/// is withheld from every walk of a repository, so naming it says nothing
+/// about this call.
+fn reports_withheld(path: &std::path::Path) -> bool {
+    display_name(path) != ".git"
+}
+
+/// A continuation whose walk no longer hashes to what it pinned (`pinned`):
+/// the stale stored walk is dropped and the listing restarts from its first
+/// page and window. A query that pins nothing pages the current walk.
+fn restart_if_stale(
+    query: &impl serde::Serialize,
+    pinned: Option<&str>,
+    current: &str,
+) -> Option<Value> {
+    let stale = pinned.filter(|pinned| *pinned != current)?;
+    memo::evict(stale);
+    let row = serde_json::to_value(query).unwrap_or_else(|_| json!({}));
+    Some(octocode_runtime_base::response::result::stale_snapshot(
+        octocode_runtime_base::response::result::restart_query(
+            octocode_runtime_base::id::ToolId::StructureSearch,
+            &row,
+        ),
+    ))
+}
+
+/// The listing `query` moved by `to`, as a continuation of its saved walk.
+fn continuation<Q: Listing>(query: &Q, to: Move) -> Continuation {
+    let moved: StructureSearchQuery = query.moved(to).into();
+    Continuation::continued_query(moved)
+}
+
+/// One level of the listed directory's tree: the subdirectories a listing
+/// cut at a terminal limit can be re-listed under, each within the limits.
+/// `None` when the listed path is no valid tree path (it always is: both
+/// operations share the path contract).
+fn narrow_scope(query: &impl Listing) -> Option<Value> {
+    let path = query.path().parse().ok()?;
+    Some(
+        Continuation::related_query(StructureSearchQuery::Tree(StructureSearchQueryTree {
+            classification: None,
+            default_excludes: None,
+            selection: None,
+            entry_type: None,
+            exclude: Vec::new(),
+            extensions: Vec::new(),
+            include: Vec::new(),
+            include_hidden: None,
+            include_ignored: None,
+            limit: None,
+            main_goal: None,
+            max_depth: std::num::NonZeroU64::MIN,
+            operation: StructureSearchQueryTreeOperation::Tree,
+            page: std::num::NonZeroU64::MIN,
+            path,
+            reasoning: None,
+            scan_offset: None,
+            snapshot: None,
+            view: StructureSearchView::Details,
+            walk_offset: None,
+        }))
+        .build(),
+    )
+}
+
+/// The directory of a listed row as the response names it: relative to the
+/// workspace root, `prefix` being the listed path's own spelling.
+pub(super) fn group_dir(prefix: &str, dir: &str) -> String {
+    match (prefix, dir) {
+        (_, "") => prefix.to_owned(),
+        (".", _) => dir.to_owned(),
+        _ => format!("{prefix}/{dir}"),
+    }
+}
+
+/// The listed directory (a file root: its directory) spelled like a row path: workspace-relative inside
+/// the workspace, absolute outside it.
+pub(super) fn listing_prefix(
+    paths: &octocode_runtime_base::policy::path::PathPolicy,
+    root: &std::path::Path,
+) -> String {
+    // A file root lists itself under its directory.
+    let dir = if root.is_file() {
+        root.parent().unwrap_or(root)
+    } else {
+        root
+    };
+    paths
+        .workspace_relative(dir)
+        .unwrap_or_else(|| dir.to_string_lossy().into_owned())
+}
+
+/// The walk for this page: a continuation reuses the walk its first page
+/// stored when the listed entries are unchanged; otherwise walk now.
+fn walked(
+    page: usize,
+    snapshot: Option<&str>,
+    policy: &str,
+    walk: impl FnOnce() -> Result<Walked, ToolError>,
+) -> Result<(std::sync::Arc<Walked>, bool), ToolError> {
+    if page > 1
+        && let Some(snapshot) = snapshot
+        && let Some(stored) = memo::get(snapshot, policy)
+    {
+        return Ok((stored, true));
+    }
+    walk().map(|walk| (std::sync::Arc::new(walk), false))
+}
+
+/// A walk-order walk cut by time lists at most `window_end` rows (the
+/// earlier windows' and this one's), the first ones in walk order: the window
+/// ends at the last of them (`walk_position`), and the walk resumed there
+/// reaches the rows after it. Entries are in walk order; the root entry
+/// (position 0) is no row. A sorted walk is never cut here: its paused windows
+/// keep what they ranked ([`standing`]).
+fn end_window(
+    native: &mut octocode_engine::types::FileSystemQueryResult,
+    window_end: usize,
+) -> TimeWindow {
+    if native.time_cut.is_none() {
+        return TimeWindow::Whole;
+    }
+    let mut rows = native
+        .entries
+        .iter()
+        .map(|entry| entry.walk_position)
+        .filter(|position| *position > 0);
+    // Fewer rows than `window_end`, or exactly that many: nothing to end early.
+    let Some(last) = rows.nth(window_end.saturating_sub(1)) else {
+        return TimeWindow::Whole;
+    };
+    if rows.next().is_none() {
+        return TimeWindow::Whole;
+    }
+    // The window ends at `last`: the entries and the counts through it, the
+    // rest is the resume's.
+    native.end_at(last);
+    TimeWindow::EndedAtRows
+}
+
+/// Execute one typed row. The runtime parses the validated row with its
+/// shared `parse_query`, so a shape mismatch has one code across tools.
+pub fn execute_structure(
+    query: &StructureSearchQuery,
+    paths: &octocode_runtime_base::policy::path::PathPolicy,
+    security: &octocode_runtime_base::security::ContentSecurity,
+    cancellation: &dyn octocode_runtime_base::execution::cancel::CancellationCheck,
+    response_window: Option<usize>,
+) -> Result<Value, ToolError> {
+    execute_structure_within(
+        query,
+        paths,
+        security,
+        cancellation,
+        response_window,
+        WALK_BUDGET,
+    )
+}
+
+/// [`execute_structure`] with the listing walk's time budget named.
+fn execute_structure_within(
+    query: &StructureSearchQuery,
+    paths: &octocode_runtime_base::policy::path::PathPolicy,
+    security: &octocode_runtime_base::security::ContentSecurity,
+    cancellation: &dyn octocode_runtime_base::execution::cancel::CancellationCheck,
+    response_window: Option<usize>,
+    budget: std::time::Duration,
+) -> Result<Value, ToolError> {
+    match query {
+        StructureSearchQuery::Tree(query) => listing::execute_listing(
+            query,
+            paths,
+            security,
+            cancellation,
+            response_window,
+            budget,
+        ),
+        StructureSearchQuery::Files(query) => listing::execute_listing(
+            query,
+            paths,
+            security,
+            cancellation,
+            response_window,
+            budget,
+        ),
+    }
+    .map(octocode_runtime_base::response::result::finished)
+}

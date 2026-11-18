@@ -1,5 +1,6 @@
 //! Complete source evidence survives response paging and intentional selection.
 use crate::support::{self, Run as _, Workspace};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -142,7 +143,7 @@ async fn workspace_config_cannot_change_the_response_window() {
     )
     .expect("home rc");
     let base = workspace.config(&[]);
-    let input = octocode_native::config::acquire_config_input(
+    let input = octocode_runtime_base::config::acquire_config_input(
         base.env,
         base.cwd,
         base.os_home,
@@ -205,14 +206,25 @@ async fn match_context_is_explicit_and_block_selects_the_whole_declaration() {
     let path = workspace.write("src/lib.rs", SOURCE);
     let runtime = workspace.runtime(&[]);
     for (fields, expected) in [
-        (json!({"matchString":["needle here"]}), vec![12]),
         (
-            json!({"matchString":["needle here"],"contextLines":{"before":2,"after":1}}),
+            json_fixture(r#"{"matchString": ["needle here"]}"#),
+            vec![12],
+        ),
+        (
+            json_fixture(
+                r#"{
+                    "matchString": ["needle here"],
+                    "contextLines": {"before": 2, "after": 1}
+                }"#,
+            ),
             (10..=13).collect(),
         ),
-        (json!({"matchString":["other needle"]}), vec![24]),
         (
-            json!({"matchString":["needle here"],"block":true}),
+            json_fixture(r#"{"matchString": ["other needle"]}"#),
+            vec![24],
+        ),
+        (
+            json_fixture(r#"{"matchString": ["needle here"], "block": true}"#),
             (1..=21).collect(),
         ),
     ] {

@@ -2,6 +2,7 @@
 //! continuation that owns it share it, and each keeps it alive for itself.
 
 use crate::support::{self, Run as _, Workspace};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -23,7 +24,7 @@ async fn search_server() -> MockServer {
         .collect();
     Mock::given(method("GET"))
         .and(path("/api/v3/search/repositories"))
-        .respond_with(octocode_github::mock_http::SearchIndex(items))
+        .respond_with(octocode_test_support::mock_http::SearchIndex(items))
         .mount(&server)
         .await;
     server
@@ -50,7 +51,12 @@ fn files_holding(root: &Path, text: &str) -> BTreeSet<u64> {
 }
 
 fn query() -> Value {
-    json!({"queries":[{"operation":"search","keywords":["once"],"limit":3}],"responseChars":50000})
+    json_fixture(
+        r#"{
+            "queries": [{"operation": "search", "keywords": ["once"], "limit": 3}],
+            "responseChars": 50000
+        }"#,
+    )
 }
 
 fn next_call(page: &Value) -> Option<Value> {

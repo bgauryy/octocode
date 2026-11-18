@@ -1,5 +1,12 @@
+use super::platform::platform_id_for;
 use super::*;
 use crate::test_support::TmpDir;
+
+thread_local! {
+    /// Binary hashes computed on this thread, so a test sees what the hash
+    /// memo saved.
+    pub(super) static HASH_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 fn install(root: &Path, name: &str, platform: &str, bytes: &[u8]) -> PathBuf {
     let identity = AssetIdentity::locked(name, platform).expect("locked asset");
@@ -95,7 +102,7 @@ fn the_lock_covers_every_manifest_asset() {
 /// nothing, so an install is refused rather than verified against it.
 #[test]
 fn a_lock_for_another_release_locks_nothing() {
-    let text = lock::embedded_text().replace(
+    let text = lock::EMBEDDED.replace(
         &format!("\"tag\": \"{}\"", manifest()["clangd"].release_tag),
         "\"tag\": \"0.0.0\"",
     );
@@ -164,8 +171,8 @@ fn every_platform_maps_to_an_asset_built_for_its_os_and_cpu() {
     }
 }
 
-/// Review M7: an unchanged binary is hashed once per process, not on
-/// every resolve; a changed binary is hashed again and rejected.
+/// An unchanged binary is hashed once per process, not on every resolve; a
+/// changed binary is hashed again and rejected.
 #[test]
 fn resolve_hashes_an_unchanged_binary_once() {
     let root = TmpDir::new();
@@ -306,14 +313,7 @@ fn sha256_matches_known_vector() {
 
 #[test]
 fn resolve_trusts_only_a_matching_marker() {
-    let root = std::env::temp_dir().join(format!(
-        "octocode-managed-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
+    let root = TmpDir::new();
     let bin = install(&root, "rust-analyzer", "linux-x64", b"ra");
     assert_eq!(
         resolve_cached_server(&root, "/usr/bin/rust-analyzer", "linux-x64"),

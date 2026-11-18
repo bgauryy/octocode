@@ -1,7 +1,47 @@
+use super::files::{search_files_detailed, search_files_unfiltered};
+use super::types::StructuralMatch;
 use super::*;
 use crate::test_support::TmpDir;
 use serde_json::json;
 use std::fs;
+
+/// A structural search over `content`, parsed with the grammar
+/// resolved from `ext`, returning bare matches. Exactly one of `pattern` /
+/// `rule` must be `Some`. Production runs [`search_detailed`].
+///
+/// Returns `Err` for: an unsupported extension, an invalid pattern, invalid
+/// rule object, or both/neither query supplied.
+pub(crate) fn search(
+    content: &str,
+    ext: &str,
+    pattern: Option<&str>,
+    rule: Option<&Value>,
+) -> Result<Vec<StructuralMatch>, String> {
+    if content.len() > MAX_CONTENT_SIZE {
+        return Err(format!(
+            "[structural.content.tooLarge] structural search content exceeds {MAX_CONTENT_SIZE} byte limit"
+        ));
+    }
+    let query = StructuralQuery::new(pattern, rule)
+        .map_err(|message| format!("[structural.query.invalid] {message}"))?;
+    let entry = languages::find_entry(ext)
+        .filter(|entry| entry.admits(crate::text::analysis::AnalysisOperation::StructuralSearch))
+        .ok_or_else(|| {
+            format!(
+                "[structural.language.unsupported] structural search does not support .{ext} files"
+            )
+        })?;
+    let lang = AgLanguage::new(entry);
+    let run = compile_matcher(&lang, &query).map_err(|error| error.to_string())?;
+    // The non-detailed API returns bare StructuralMatch; node_kind is only
+    // surfaced by the detailed shape.
+    Ok(matches_with_recovery(&run, content)
+        .map_err(|err| err.to_string())?
+        .0
+        .into_iter()
+        .map(|m| m.matched)
+        .collect())
+}
 
 /// Diagnostic codes of a directory search, its own and each file's.
 fn diagnostic_codes(result: &StructuralSearchFilesDetailedResult) -> Vec<&str> {

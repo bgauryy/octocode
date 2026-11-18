@@ -10,7 +10,7 @@ Load for structs, enums, smart pointers, generics or API patterns. Start from th
 | An identifier, unit or validated value | Newtype with private fields and a validating constructor | Do not imply validation that the constructor does not perform. |
 | Absence | `Option<T>` | Model distinct absence reasons explicitly when callers need them. |
 | Tri-state or an ambiguous positional flag | Purpose-named enum | A clearly named boolean field/setter may already be sufficient. |
-| Fixed behavior chosen at compile time | Concrete type, generic or `impl Trait` | Monomorphization can increase compile time and code size. |
+| Fixed behavior chosen at compile time | Concrete type, generic or `impl Trait` | Monomorphization can increase compile time and code size ([compile cost](code-size.md#shrink-monomorphized-code)). |
 | Runtime heterogeneity or open extension | Dyn-compatible trait object | Dispatch/ownership costs versus extension needs. |
 | Closed set of behaviors | Enum dispatch | Adding variants can break exhaustive downstream code. |
 | Complex construction with optional inputs | Config struct or builder | Use typestate only when compile-time transitions justify complexity. |
@@ -42,6 +42,6 @@ Keep fields private when methods enforce invariants. Plain data may have public 
 | Initialization once | `OnceLock`/`LazyLock` if available at the MSRV |
 | Non-owning back-edge | `Weak`, or an index/handle with invalidation rules |
 
-Prefer composition. `Deref` is for pointer-like behavior, not simulated inheritance. Avoid adding traits, generic parameters or wrappers with no demonstrated caller need. Tie cleanup to an owned guard where possible; async cleanup still needs explicit completion.
+Prefer composition. `Deref` is for pointer-like behavior, not simulated inheritance. Avoid adding traits, generic parameters or wrappers with no demonstrated caller need. Cleanup belongs to an owned guard ([clean code](idioms.md#clean-code)).
 
 Sources: [API Guidelines: type safety](https://rust-lang.github.io/api-guidelines/type-safety.html), [future proofing](https://rust-lang.github.io/api-guidelines/future-proofing.html), [Reference: dyn compatibility](https://doc.rust-lang.org/reference/items/traits.html#dyn-compatibility), [Arc](https://doc.rust-lang.org/std/sync/struct.Arc.html).

@@ -1,4 +1,5 @@
 use crate::support;
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use support::Workspace;
 
@@ -15,8 +16,7 @@ async fn cli_exit_is_two_when_any_batch_row_is_rejected() {
     let workspace = Workspace::new();
     let file = workspace.write("src/a.txt", "needle\n");
     let root = file.parent().unwrap().to_string_lossy().into_owned();
-    let input =
-        json!({"queries":[search(&root, json!({})), search(&root, json!({"serchText":"x"}))]});
+    let input = json!({"queries":[search(&root, json!({})), search(&root, json_fixture(r#"{"serchText": "x"}"#))]});
     let output = workspace
         .cli()
         .args(["localSearch", &input.to_string(), "--json"])
@@ -54,12 +54,14 @@ fn cli_pages_follow_only_the_cursor_across_processes() {
     let mut input = json!({"queries":[query],"responseChars":4000});
     let mut files = Vec::new();
     let mut pages = 0;
+    // Persistent storage starts a warm server: the fixture owns its socket
+    // namespace and stops it when the test ends.
+    let persistent = workspace.persistent_cli();
     loop {
         pages += 1;
         assert!(pages < 100, "the walk terminates");
-        let output = workspace
+        let output = persistent
             .cli()
-            .env("OCTOCODE_STORAGE_MODE", "persistent")
             .args(["localSearch", &input.to_string(), "--json"])
             .output()
             .unwrap();
@@ -75,7 +77,7 @@ fn cli_pages_follow_only_the_cursor_across_processes() {
                 files.push(file["path"].as_str().unwrap().to_owned());
             }
         }
-        let call = if value["responsePagination"]["hasMore"] == true {
+        let call = if value["responsePagination"]["next"].is_object() {
             &value["responsePagination"]["next"]
         } else {
             &value["results"][0]["data"]["next"]["nextPage"]
@@ -83,7 +85,7 @@ fn cli_pages_follow_only_the_cursor_across_processes() {
         if call.is_null() {
             break;
         }
-        assert_eq!(call["kind"], "continue");
+        assert_eq!(call.get("kind"), None);
         assert_eq!(call["tool"], "localSearch");
         let next = &call["input"];
         assert_eq!(next.as_object().unwrap().len(), 1, "{next}");

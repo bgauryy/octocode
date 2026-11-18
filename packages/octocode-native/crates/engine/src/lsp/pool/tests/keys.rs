@@ -137,14 +137,7 @@ fn canonical_key_separates_custom_document_language_ids() {
 #[cfg(unix)]
 #[test]
 fn canonical_key_follows_workspace_symlinks() {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_nanos())
-        .unwrap_or_default();
-    let base = std::env::temp_dir().join(format!(
-        "octocode-pool-symlink-{}-{nanos}",
-        std::process::id()
-    ));
+    let base = crate::test_support::TmpDir::new();
     let real = base.join("real");
     let link = base.join("link");
     std::fs::create_dir_all(&real).expect("create real root");
@@ -162,7 +155,6 @@ fn canonical_key_follows_workspace_symlinks() {
     };
     let direct = canonical_lsp_key(&config(&real)).expect("direct key");
     let via_link = canonical_lsp_key(&config(&link)).expect("symlink key");
-    let _ = std::fs::remove_dir_all(&base);
     assert_eq!(
         direct, via_link,
         "a symlinked root must share the pool entry"

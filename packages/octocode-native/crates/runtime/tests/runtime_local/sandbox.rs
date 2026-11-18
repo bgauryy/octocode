@@ -1,6 +1,7 @@
 //! Path sandbox and security policy: denials outside allowed roots and withheld credential files.
 
 use crate::support::{Workspace, call, row_data, row_status};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 
 #[tokio::test]
@@ -10,7 +11,7 @@ async fn local_fetch_denial_echoes_the_relative_request_not_an_expanded_prefix()
     let outcome = call(
         &runtime,
         "localFetch",
-        json!({"path": "../../octocode-outside-probe.txt"}),
+        json_fixture(r#"{"path": "../../octocode-outside-probe.txt"}"#),
     )
     .await
     .expect("typed denial row");
@@ -108,7 +109,7 @@ async fn policy_withheld_files_are_disclosed_never_advised_as_retry_or_spelling(
         .strip_prefix(&workspace.workspace)
         .expect("workspace scope");
     let notice = json!({"cause":"withheld","path":scope,"reason":"credential file"});
-    let disclosed = |outcome: &octocode_native::response::outcome::ToolOutcome| {
+    let disclosed = |outcome: &octocode_runtime_base::response::outcome::ToolOutcome| {
         row_data(outcome)["skippedPaths"]["entries"]
             .as_array()
             .is_some_and(|entries| entries.contains(&notice))
@@ -185,7 +186,7 @@ async fn a_path_outside_the_workspace_names_the_relative_path_that_works() {
     let outcome = call(
         &runtime,
         "localFetch",
-        json!({"path": "/somewhere/else/checkout/docs/guide.md"}),
+        json_fixture(r#"{"path": "/somewhere/else/checkout/docs/guide.md"}"#),
     )
     .await
     .expect("typed denial row");
@@ -199,7 +200,7 @@ async fn a_path_outside_the_workspace_names_the_relative_path_that_works() {
     let unknown = call(
         &runtime,
         "localFetch",
-        json!({"path": "/somewhere/nothing.md"}),
+        json_fixture(r#"{"path": "/somewhere/nothing.md"}"#),
     )
     .await
     .expect("typed denial row");

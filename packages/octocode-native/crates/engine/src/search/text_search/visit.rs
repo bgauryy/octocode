@@ -1,8 +1,8 @@
 //! One walk entry: admission, the ceiling, the search, and the record kept.
 
 use super::TextSearchPathFilter;
-use super::collect::{WalkControl, WorkerRecs};
-use super::file_search::{FileOutcome, FileSearcher, hashed_source};
+use super::collect::WorkerRecs;
+use super::file_search::{FileOutcome, FileSearcher};
 use super::file_terms::FileTerms;
 use super::state::{CollectState, FileRec};
 use super::walk_rule::{EntryRule, Selection, Skipped, capture_sort_time};
@@ -33,7 +33,11 @@ pub(super) struct WalkScope<'a> {
     /// What the walker drops inside itself (globs, `language`).
     pub(super) selection: Selection,
     pub(super) state: &'a CollectState,
-    pub(super) control: WalkControl<'a>,
+    /// The caller's cancellation, recorded in `state` whenever it is seen:
+    /// a cancel first seen inside a file (its read, its matched lines) cuts
+    /// the result as surely as one seen between walk entries, so the result
+    /// says it was cancelled wherever it was seen.
+    pub(super) cancelled: Box<dyn Fn() -> bool + Sync + 'a>,
     pub(super) max_file_bytes: u64,
     /// Files-without-match: keep unmatched files instead of matched ones.
     pub(super) keep_unmatched: bool,
@@ -113,15 +117,13 @@ impl WalkScope<'_> {
             .as_ref()
             .is_some_and(|scope| !(scope.holds)(path))
         {
+            state.scope_left_out.fetch_add(1, Ordering::Relaxed);
             return;
         }
-        let Some((file, meta)) = self.open_within_ceiling(state, path) else {
+        let Some((file, meta, outcome)) = self.search_settled(state, files, path) else {
             return;
         };
         let file_len = meta.len();
-        let Some(outcome) = self.search_file(state, files, &file, path) else {
-            return;
-        };
         if self.left_out_whole(path, &outcome) {
             state.test_files_excluded.fetch_add(1, Ordering::Relaxed);
             return;
@@ -162,9 +164,12 @@ impl WalkScope<'_> {
             state.file_terms_dropped.fetch_add(1, Ordering::Relaxed);
             return;
         }
-        // A stopped walk keeps what it found without reading further.
-        let source = (opts.values.hashed() && !files.stop.load(Ordering::Relaxed))
-            .then(|| hashed_source(&file, &meta))
+        // Every kept file, a stopped walk's too, carries the digest of the
+        // bytes its values were made from.
+        let source = opts
+            .values
+            .hashed()
+            .then(|| files.searched_source(&file, &meta, outcome.served))
             .flatten();
         drop(file);
         let sort_time = capture_sort_time(opts, path);
@@ -220,8 +225,7 @@ impl WalkScope<'_> {
         if self.state.stopped() {
             return true;
         }
-        if (self.control.cancelled)() {
-            self.state.cancelled.store(true, Ordering::Relaxed);
+        if (self.cancelled)() {
             if !self.drains {
                 self.state.stop.store(true, Ordering::Relaxed);
             }
@@ -323,46 +327,176 @@ impl WalkScope<'_> {
         Some((file, meta))
     }
 
-    /// The file's search outcome, or `None` when the search failed (recorded
-    /// as an error, and as a pattern error when the matcher raised it).
-    fn search_file<M: Matcher>(
+    /// The file at `path`, opened and searched, with hits from one read of
+    /// it proved one version's ([`crate::text::Settling`]): a search a
+    /// rewrite in place tore may have joined the old version's start to the
+    /// new one's rest, so a matched file whose stamp moved while it was
+    /// searched is opened and searched again, until one search of it settles
+    /// or the walk halts. A file that only grew while it was searched (a live
+    /// log) keeps the hits of a search whose bytes are the start of one
+    /// version of it ([`Self::proved_prefix`]), as of their length. A search
+    /// that failed while a write moved its file is made again the same way:
+    /// the failure may be the write's. One that never settles is counted as
+    /// a file that kept changing while it was read, and none of its hits is
+    /// kept. `None` when it is not searched.
+    fn search_settled<M: Matcher>(
         &self,
         state: &CollectState,
         files: &mut FileSearcher<'_, M>,
-        file: &std::fs::File,
         path: &Path,
-    ) -> Option<FileOutcome> {
-        match files.search(file, path) {
-            Ok(outcome) => Some(outcome),
-            // A stopped search ends the file it waited or worked on: no
-            // error of the file's own.
-            Err(error)
-                if (error.kind() == std::io::ErrorKind::Interrupted
-                    || super::file_search::is_stopped_read(&error))
-                    && files.halted() =>
-            {
-                None
-            }
-            Err(error) => {
-                // The file opened; std never reports a read failure as
-                // `Other`, which carries the matcher's own errors (the
-                // searcher's and this sink's `io::Error::other`).
-                if error.kind() == std::io::ErrorKind::Other {
-                    state.pattern_error_count.fetch_add(1, Ordering::Relaxed);
+    ) -> Option<(std::fs::File, std::fs::Metadata, FileOutcome)> {
+        use crate::text::{Proved, Settled};
+        let mut settling = crate::text::Settling::default();
+        let (stop, cancelled) = (files.stop, files.cancelled);
+        let live = || {
+            !self.halted() && !stop.load(Ordering::Relaxed) && !cancelled.is_some_and(|gone| gone())
+        };
+        loop {
+            let (file, meta) = self.open_within_ceiling(state, path)?;
+            let outcome = match files.search(&file, path) {
+                Ok(outcome) => outcome,
+                // A stopped search ends the file it waited or worked on: no
+                // error of the file's own.
+                Err(error)
+                    if (error.kind() == std::io::ErrorKind::Interrupted
+                        || super::file_search::is_stopped_read(&error))
+                        && files.halted() =>
+                {
+                    return None;
                 }
-                // Root-relative, or the file's name when it is the root.
-                let shown = path
-                    .strip_prefix(&self.opts.path)
-                    .ok()
-                    .filter(|relative| !relative.as_os_str().is_empty())
-                    .or_else(|| path.file_name().map(Path::new))
-                    .unwrap_or(path);
-                state.record_error(format!("{}: {error}", shown.display()));
-                None
+                Err(error) => {
+                    match settling.settled(&file, &meta) {
+                        Settled::Stable(_) => self.record_failure(state, path, &error),
+                        Settled::Again if live() => continue,
+                        Settled::Again | Settled::Unsettled => self.record_changed(state, path),
+                    }
+                    return None;
+                }
+            };
+            // A file no hit matched shows no text of it.
+            if outcome.matched_lines == 0 {
+                return Some((file, meta, outcome));
+            }
+            // A judged search keeps the hits of a proved prefix only by the
+            // judge's verdict on those bytes, held ([`Self::proved_prefix`]),
+            // which are admitted until it is made. Without that judgment,
+            // the file is searched again.
+            let judged = self.opts.judge.is_some();
+            let held_judge = self
+                .opts
+                .judge
+                .as_ref()
+                .and_then(|judge| judge.held.as_ref());
+            let mut admitted = None;
+            let taken = || {
+                if outcome.binary || (judged && held_judge.is_none()) {
+                    return None;
+                }
+                let (len, digest) = files.taken(&file)?;
+                if let Some(held_judge) = held_judge {
+                    let bytes = usize::try_from(len)
+                        .ok()
+                        .filter(|_| len <= held_judge.limit)?;
+                    admitted = Some(files.admit(bytes.saturating_mul(3)).ok()?);
+                }
+                Some(crate::text::Taken::Hashed {
+                    len,
+                    digest,
+                    keep: held_judge.is_some(),
+                })
+            };
+            match settling.settled_read(&file, &meta, taken, &live) {
+                Proved::Whole(_) => return Some((file, meta, outcome)),
+                Proved::Prefix(prefix) => {
+                    let kept =
+                        Self::proved_prefix(files, path, outcome, (held_judge, &prefix.bytes));
+                    drop(admitted);
+                    return match kept {
+                        Ok(outcome) => {
+                            state.record_grown(path, prefix.len);
+                            Some((file, meta, outcome))
+                        }
+                        Err(error) => {
+                            self.record_failure(state, path, &error);
+                            None
+                        }
+                    };
+                }
+                Proved::Again if live() => {}
+                Proved::Again | Proved::Unsettled => {
+                    self.record_changed(state, path);
+                    return None;
+                }
             }
         }
     }
+
+    /// The outcome kept of a file whose search read `prefix` of its own
+    /// bytes, proved the start of one version of it
+    /// ([`crate::text::Proved::Prefix`]): by its judge's verdict on those
+    /// bytes held (`held`; none for a search without a judge, whose `prefix`
+    /// is not kept), the search of the text it serves of them, else of the
+    /// bytes themselves. The search's own outcome stands when it is of those
+    /// same bytes, as they are.
+    fn proved_prefix<M: Matcher>(
+        files: &mut FileSearcher<'_, M>,
+        path: &Path,
+        outcome: FileOutcome,
+        (held, prefix): (Option<&crate::types::JudgeHeld>, &[u8]),
+    ) -> std::io::Result<FileOutcome> {
+        let served = held.and_then(|held| (held.serve)(path, prefix));
+        if served.is_none() && !outcome.served {
+            return Ok(outcome);
+        }
+        drop(outcome);
+        let utf16 = crate::text::has_utf16_bom(prefix);
+        let mut kept = match &served {
+            Some(text) => files.search_proved(text, path, (utf16, true))?,
+            None => files.search_proved(prefix, path, (utf16, false))?,
+        };
+        kept.utf8_bom = kept.matched_lines > 0 && !utf16 && crate::text::bom_len(prefix) > 0;
+        Ok(kept)
+    }
+
+    /// Count the failed search of `path` as an error of the search, and as
+    /// a pattern error when the matcher raised it.
+    fn record_failure(&self, state: &CollectState, path: &Path, error: &std::io::Error) {
+        // The file opened; std never reports a read failure as `Other`,
+        // which carries the matcher's own errors (the searcher's and this
+        // sink's `io::Error::other`), unless it is a read of a file that kept
+        // changing.
+        if crate::text::is_changed_while_read(error) {
+            state.changed_error_count.fetch_add(1, Ordering::Relaxed);
+        } else if error.kind() == std::io::ErrorKind::Other {
+            state.pattern_error_count.fetch_add(1, Ordering::Relaxed);
+        }
+        state.record_error(format!("{}: {error}", self.shown(path).display()));
+    }
+
+    /// Count `path` as a file the search could not read because it kept
+    /// changing while it was read.
+    fn record_changed(&self, state: &CollectState, path: &Path) {
+        state.changed_error_count.fetch_add(1, Ordering::Relaxed);
+        state.record_error(format!(
+            "{}: {}",
+            self.shown(path).display(),
+            crate::text::changed_while_read()
+        ));
+    }
+
+    /// `path` as a file's error names it: relative to the search's root, or
+    /// the file's name when it is the root.
+    fn shown<'p>(&self, path: &'p Path) -> &'p Path {
+        path.strip_prefix(&self.opts.path)
+            .ok()
+            .filter(|relative| !relative.as_os_str().is_empty())
+            .or_else(|| path.file_name().map(Path::new))
+            .unwrap_or(path)
+    }
 }
+
+#[cfg(test)]
+mod tests;
 
 /// Whether the walk leaves `entry` out on its own: an ignore or dot rule
 /// ([`EntryRule`]) or the path filter. The entry is reported to the filter

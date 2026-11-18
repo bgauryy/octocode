@@ -77,7 +77,8 @@ fn a_literal_regex_anchor_keeps_every_match() {
         let Prefilter::Single(anchor) = derive_rule_prefilter(&rule) else {
             panic!("a literal regex anchors: {rule}");
         };
-        let found = crate::structural::search(source, "rs", None, Some(&rule)).expect("search");
+        let found =
+            crate::structural::tests::search(source, "rs", None, Some(&rule)).expect("search");
         assert_eq!(found.len(), expected, "{rule} over {source:?}");
         assert!(
             found.is_empty() || source.contains(anchor.as_str()),
@@ -96,7 +97,7 @@ fn a_literal_regex_anchor_keeps_every_match() {
             "{grouped}"
         );
         let unanchored =
-            crate::structural::search(source, "rs", None, Some(&grouped)).expect("search");
+            crate::structural::tests::search(source, "rs", None, Some(&grouped)).expect("search");
         assert_eq!(
             unanchored.len(),
             found.len(),

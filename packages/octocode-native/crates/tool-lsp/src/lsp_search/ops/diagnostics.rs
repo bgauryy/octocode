@@ -1,0 +1,221 @@
+//! Diagnostic items: anchor diagnostics, disabled-macro notes, publish
+//! ranges and de-duplication.
+use super::*;
+
+/// The published diagnostics the server holds for `path`. An empty answer
+/// (`empty`) waits for them while the server works, then
+/// [`ANCHOR_DIAGNOSTICS_WAIT_MS`] quiet: its absence needs the report. A
+/// listed answer whose document this request opened (`opened`) waits at most
+/// [`ANCHOR_DIAGNOSTICS_WAIT_MS`] in all, since its rows stand without the
+/// report; any other answer reads what the server already sent. A server
+/// that pulls is asked whenever no current push report exists. `None` when
+/// none arrive in time or the request fails; only cancellation is an error.
+pub(super) async fn anchor_diagnostics(
+    client: &NativeLspClient,
+    path: &str,
+    cancel: &dyn CancellationCheck,
+    (empty, opened): (bool, bool),
+) -> Result<Option<Value>, LspFailure> {
+    let wait = empty || opened;
+    let pulls = client.has_capability("diagnosticProvider".to_owned());
+    let pull = async {
+        Ok::<_, LspFailure>(
+            within_window(cancel, client.get_diagnostics(path.to_owned()))
+                .await?
+                .and_then(Result::ok),
+        )
+    };
+    let report = if wait && pulls {
+        pull.await?
+    } else {
+        let pushed = if wait && !empty {
+            // A server still working (a project load) extends a quiet wait
+            // for as long as it works: this one ends at its window, with
+            // whatever report arrived by then.
+            let waited = within_window(
+                cancel,
+                client.get_push_diagnostics(path.to_owned(), Some(ANCHOR_DIAGNOSTICS_WAIT_MS)),
+            )
+            .await?;
+            match waited {
+                Some(pushed) => pushed,
+                None => {
+                    cancellable(
+                        cancel,
+                        client.get_push_diagnostics(path.to_owned(), Some(0)),
+                    )
+                    .await?
+                }
+            }
+        } else {
+            cancellable(
+                cancel,
+                client.get_push_diagnostics(
+                    path.to_owned(),
+                    Some(if wait { ANCHOR_DIAGNOSTICS_WAIT_MS } else { 0 }),
+                ),
+            )
+            .await?
+        }
+        .ok()
+        .flatten();
+        // A listed answer cannot rest on a report that predates the last
+        // change: it would mark a correct answer partial. Ask again, or claim
+        // nothing until the server publishes. A server that pulls answers for
+        // the document as it is now, so no report yet is a reason to ask.
+        match pushed {
+            Some(report) if !empty && report_is_superseded(&report) => {
+                if pulls {
+                    pull.await?
+                } else {
+                    None
+                }
+            }
+            None if pulls => pull.await?,
+            other => other,
+        }
+    };
+    Ok(report
+        .filter(|report| report.get("kind").and_then(Value::as_str) != Some("unchanged"))
+        .map(|report| diagnostic_items(Some(report))))
+}
+
+/// `wait` bounded by [`ANCHOR_DIAGNOSTICS_WAIT_MS`]: `None` when that window
+/// ends first. Only cancellation is an error.
+async fn within_window<T>(
+    cancel: &dyn CancellationCheck,
+    wait: impl std::future::Future<Output = T>,
+) -> Result<Option<T>, LspFailure> {
+    let window = std::time::Duration::from_millis(ANCHOR_DIAGNOSTICS_WAIT_MS.into());
+    Ok(cancellable(cancel, tokio::time::timeout(window, wait))
+        .await?
+        .ok())
+}
+
+/// Whether a cached push report predates the last document or file change.
+fn report_is_superseded(report: &Value) -> bool {
+    report.get("superseded").and_then(Value::as_bool) == Some(true)
+}
+
+/// Replace the zero-based LSP `range` on a diagnostic (and on each related
+/// location) with the one-based place (`line`, `column`, `endLine`) every
+/// other result states.
+pub(in super::super) fn publish_diagnostic_ranges(mut item: Value) -> Value {
+    fn swap(object: &mut Value) {
+        if let Some(place) = object.get("range").and_then(public_range)
+            && let Some(map) = object.as_object_mut()
+        {
+            map.remove("range");
+            super::super::locations::insert_place(map, place);
+        }
+    }
+    swap(&mut item);
+    // LSP `DiagnosticSeverity` 1–4, by name like every other Octocode
+    // diagnostic; an unknown number passes through unchanged.
+    let label = match item.get("severity").and_then(Value::as_u64) {
+        Some(1) => Some("error"),
+        Some(2) => Some("warning"),
+        Some(3) => Some("information"),
+        Some(4) => Some("hint"),
+        _ => None,
+    };
+    if let Some(label) = label {
+        item["severity"] = json!(label);
+    }
+    if let Some(related) = item
+        .get_mut("relatedInformation")
+        .and_then(Value::as_array_mut)
+    {
+        for info in related {
+            if let Some(location) = info.get_mut("location") {
+                swap(location);
+            }
+        }
+    }
+    item
+}
+
+/// The diagnostics with each identical one (every field but its place
+/// equal) listed once, where it first appears: one seen at several places
+/// carries `count` and every place, in report order, as `sites` instead of
+/// its own `line`, `column` and `endLine`.
+pub(in super::super) fn dedupe_diagnostics(items: Value) -> Value {
+    use std::hash::BuildHasher;
+
+    let mut listed: Vec<(Value, Vec<Value>)> = Vec::new();
+    let hashes = std::collections::hash_map::RandomState::new();
+    let mut indices = std::collections::HashMap::<u64, Vec<usize>>::new();
+    for mut item in into_items(items) {
+        let range = item
+            .as_object_mut()
+            .map(|object| {
+                let place = ["line", "column", "endLine"]
+                    .into_iter()
+                    .filter_map(|key| {
+                        object
+                            .shift_remove(key)
+                            .map(|value| (key.to_owned(), value))
+                    })
+                    .collect::<serde_json::Map<_, _>>();
+                if place.is_empty() {
+                    Value::Null
+                } else {
+                    Value::Object(place)
+                }
+            })
+            .unwrap_or(Value::Null);
+        // Keep payloads only in `listed`: the hash narrows comparisons, and
+        // exact equality within its bucket prevents collisions merging evidence.
+        let bucket = indices.entry(hashes.hash_one(&item)).or_default();
+        match bucket
+            .iter()
+            .copied()
+            .find(|index| listed[*index].0 == item)
+        {
+            Some(index) => listed[index].1.push(range),
+            None => {
+                bucket.push(listed.len());
+                listed.push((item, vec![range]));
+            }
+        }
+    }
+    Value::Array(
+        listed
+            .into_iter()
+            .map(|(mut item, mut ranges)| {
+                if let Some(object) = item.as_object_mut() {
+                    match ranges.len() {
+                        1 => {
+                            if let Value::Object(place) = ranges.remove(0) {
+                                object.extend(place);
+                            }
+                        }
+                        count => {
+                            object.insert("count".into(), json!(count));
+                            object.insert("sites".into(), Value::Array(ranges));
+                        }
+                    }
+                }
+                item
+            })
+            .collect(),
+    )
+}
+
+/// Flatten a pull (`DocumentDiagnosticReport`) or cached push report into the
+/// complete list of diagnostics it carries.
+/// `unchanged` pull reports and absent reports carry no items.
+pub(in super::super) fn diagnostic_items(report: Option<Value>) -> Value {
+    let Some(report) = report else {
+        return json!([]);
+    };
+    let items = match report {
+        Value::Array(items) => items,
+        Value::Object(mut object) => match object.remove("items") {
+            Some(Value::Array(items)) => items,
+            _ => Vec::new(),
+        },
+        _ => Vec::new(),
+    };
+    Value::Array(items.into_iter().map(publish_diagnostic_ranges).collect())
+}

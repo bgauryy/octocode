@@ -1,4 +1,5 @@
 use super::*;
+use octocode_test_support::json_fixture;
 use serde_json::json;
 
 fn context() -> ExecutionContext {
@@ -48,13 +49,13 @@ fn page_planning_reserves_the_issued_handle_width() {
         52,
         "two 128-bit IDs use compact opaque encoding"
     );
-    let response = crate::response::pager::prepare(
-        crate::response::pager::ResponseInput {
-            tool: crate::id::ToolId::LocalSearch,
+    let response = octocode_runtime_base::response::pager::prepare(
+        octocode_runtime_base::response::pager::ResponseInput {
+            tool: octocode_runtime_base::id::ToolId::LocalSearch,
             structured: json!({"results":[{"index":0,"data":{"files":(0..30)
                 .map(|line|json!({"path":format!("file-{line}.rs"),"matches":[{"line":line+1,"value":"evidence"}]}))
                 .collect::<Vec<_>>()}}]}),
-            options: crate::response::page_model::ResponsePageOptions {
+            options: octocode_runtime_base::response::page_model::ResponsePageOptions {
                 response_chars: Some(700),
                 paging: true,
                 ..Default::default()
@@ -197,8 +198,12 @@ fn registry(policy: &str) -> Registry {
 #[test]
 fn issued_work_retains_the_complete_request_and_rejects_other_access_or_tool() {
     let registry = registry("contract-and-policy");
-    let input =
-        json!({"queries":[{"path":"src","matchString":["exact"],"page":2}],"responseChars":1024});
+    let input = json_fixture(
+        r#"{
+            "queries": [{"path": "src", "matchString": ["exact"], "page": 2}],
+            "responseChars": 1024
+        }"#,
+    );
     let mut pending = registry.pending([7; 32], Some("github-user".into()));
     let token = pending.insert(
         ToolId::LocalSearch,
@@ -239,7 +244,11 @@ fn issued_work_retains_the_complete_request_and_rejects_other_access_or_tool() {
 /// many never evicts one of its own.
 #[test]
 fn an_output_retains_many_handles_without_evicting_its_own() {
-    let registry = Registry::new(crate::cache::CacheConfig::derived(), None, "policy".into());
+    let registry = Registry::new(
+        octocode_runtime_base::cache::CacheConfig::derived(),
+        None,
+        "policy".into(),
+    );
     let mut pending = registry.pending([0; 32], None);
     let tokens = (0..30)
         .map(|page| {
@@ -266,7 +275,19 @@ fn disk_reopen_preserves_work_but_different_contract_or_policy_cannot_open_it() 
         Some(disk.path().into()),
         "contract-a;policy-a".into(),
     );
-    let input = json!({"queries":[{"path":"a.ts","ranges":[{"startLine":2,"endLine":7}],"readProgress":{"unit":"lines","offset":4},"snapshot":"source-pin"}],"responseChars":3000});
+    let input = json_fixture(
+        r#"{
+            "queries": [
+                {
+                    "path": "a.ts",
+                    "ranges": [{"startLine": 2, "endLine": 7}],
+                    "readProgress": {"unit": "lines", "offset": 4},
+                    "snapshot": "source-pin"
+                }
+            ],
+            "responseChars": 3000
+        }"#,
+    );
     let mut pending = first.pending([3; 32], Some("account-a".into()));
     let token = pending.insert(
         ToolId::LocalFetch,
@@ -316,7 +337,7 @@ fn unavailable_storage_never_claims_an_issued_handle() {
     let mut pending = registry.pending([0; 32], None);
     let token = pending.insert(
         ToolId::LocalSearch,
-        json!({"queries":[{"path":"src","matchString":["run"]}]}),
+        json_fixture(r#"{"queries": [{"path": "src", "matchString": ["run"]}]}"#),
         SavedWork::ToolResume { index: Some(0) },
     );
     assert!(!registry.retain(pending, &context()).is_ok());
@@ -329,7 +350,11 @@ fn extending_saved_response_pages_retains_earlier_source_work() {
     let mut pending = registry.pending([1; 32], None);
     let first = pending.insert(
         ToolId::LocalSearch,
-        json!({"queries":[{"path":"src","matchString":["run"],"page":2}]}),
+        json_fixture(
+            r#"{
+                "queries": [{"path": "src", "matchString": ["run"], "page": 2}]
+            }"#,
+        ),
         SavedWork::ToolResume { index: Some(0) },
     );
     assert!(registry.retain(pending, &context()).is_ok());
@@ -339,7 +364,7 @@ fn extending_saved_response_pages_retains_earlier_source_work() {
     let mut pending = registry.pending([1; 32], None);
     let next = pending.insert(
         ToolId::LocalFetch,
-        json!({"queries":[{"path":"src/a.ts"}]}),
+        json_fixture(r#"{"queries": [{"path": "src/a.ts"}]}"#),
         SavedWork::ToolResume { index: Some(0) },
     );
     assert!(registry.retain(pending, &context()).is_ok());
@@ -381,7 +406,9 @@ fn a_cursor_write_the_filesystem_refuses_is_a_storage_failure() {
     let error = outcome.expect_err("the write was refused");
     assert_eq!(
         error,
-        ExecutionError::StorageUnavailable(crate::execution::StorageFault::NotWritable)
+        ExecutionError::StorageUnavailable(
+            octocode_runtime_base::execution::StorageFault::NotWritable
+        )
     );
     let served = crate::runtime::engine::runtime_execution_error(error);
     assert_eq!(
@@ -415,7 +442,7 @@ fn a_cursor_write_the_filesystem_refuses_is_a_storage_failure() {
 /// the message names the one the filesystem reported.
 #[test]
 fn a_storage_failure_keeps_the_kind_the_filesystem_gave() {
-    use crate::execution::StorageFault;
+    use octocode_runtime_base::execution::StorageFault;
     use std::io::ErrorKind;
     for (kind, fault, said) in [
         (ErrorKind::StorageFull, StorageFault::Full, "full"),

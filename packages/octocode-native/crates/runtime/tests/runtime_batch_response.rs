@@ -1,5 +1,6 @@
 use crate::support::{self, Run as _, Workspace};
 use octocode_contract_types::ErrorCode;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 
 fn search(root: &str, extra: Value) -> Value {
@@ -16,7 +17,7 @@ async fn invalid_rows_are_isolated_without_guessing_a_repair() {
     let workspace = Workspace::new();
     workspace.write("src/a.txt", "needle\n");
     let runtime = workspace.runtime(&[]);
-    let input = json!({"queries":[search("src",json!({})),search("src",json!({"serchText":"typo"})),search("src",json!({"view":"files"}))]});
+    let input = json!({"queries":[search("src",json!({})),search("src",json_fixture(r#"{"serchText": "typo"}"#)),search("src",json_fixture(r#"{"view": "files"}"#))]});
     let outcome = runtime
         .run("isolate".into(), "localSearch".into(), input)
         .await
@@ -50,7 +51,7 @@ async fn all_invalid_rows_and_invalid_envelopes_fail_before_execution() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[]);
     for input in [
-        json!({"queries":[search(".",json!({"bogus":1})),search(".",json!({"alsoBogus":2}))]}),
+        json!({"queries":[search(".",json_fixture(r#"{"bogus": 1}"#)),search(".",json_fixture(r#"{"alsoBogus": 2}"#))]}),
         json!({"queries":(0..6).map(|_|search(".",json!({}))).collect::<Vec<_>>()}),
         json!({"queries":[search(".",json!({}))],"responseScope":"rows"}),
     ] {
@@ -97,7 +98,7 @@ async fn automatic_pages_reach_all_matches_once_on_both_transports() {
         }
         let runtime = workspace.runtime_with(
             &[],
-            octocode_native::execution::RuntimeLimits {
+            octocode_runtime_base::execution::RuntimeLimits {
                 auto_page_chars: 4000,
                 ..support::FIXTURE_LIMITS
             },
@@ -118,7 +119,10 @@ async fn automatic_pages_reach_all_matches_once_on_both_transports() {
                     .is_empty()
             );
             if let Some(pagination) = output.get("responsePagination") {
-                assert!(pagination["hasMore"].is_boolean(), "{pagination}");
+                assert!(
+                    pagination.get("hasMore").is_none(),
+                    "a response block states no hasMore: {pagination}"
+                );
                 if let Some(next) = pagination.get("next") {
                     support::assert_cursor_only(&next["input"]);
                 }
@@ -180,15 +184,15 @@ async fn a_paged_partial_batch_discloses_oversized_pages_and_returns_rejections_
             rows.retain(|row| row["index"] != 1);
         }
         planned.as_object_mut().unwrap().remove("oversized");
-        let chars = octocode_native::response::pager::budgeted_chars(&planned).expect("page");
+        let chars = octocode_runtime_base::response::pager::budgeted_chars(&planned).expect("page");
         assert!(pagination.get("returnedChars").is_none());
         assert!(pagination.get("totalChars").is_none());
         assert!(pagination.get("oversized").is_none(), "{output}");
         assert_eq!(
             output.get("oversized") == Some(&json!(true)),
-            octocode_native::response::pager::holds_value_over(
+            octocode_runtime_base::response::pager::holds_value_over(
                 planned.as_object().expect("envelope"),
-                octocode_native::id::ToolId::LocalSearch,
+                octocode_runtime_base::id::ToolId::LocalSearch,
                 800
             ),
             "{chars}: {output}"
@@ -241,12 +245,12 @@ async fn a_list_page_fits_beside_repair_notes_and_rejected_rows() {
         // A repaired `limit` is read as 7, and the read is a warning.
         (
             1_200,
-            json!({"queries":[symbols(json!({"limit":"7"}))],"responseChars":1_200}),
+            json!({"queries":[symbols(json_fixture(r#"{"limit": "7"}"#))],"responseChars":1_200}),
         ),
         // `offset` is private progress: the second row is rejected.
         (
             3_000,
-            json!({"queries":[symbols(json!({})),symbols(json!({"offset":10}))],"responseChars":3_000}),
+            json!({"queries":[symbols(json!({})),symbols(json_fixture(r#"{"offset": 10}"#))],"responseChars":3_000}),
         ),
     ] {
         let outcome = runtime

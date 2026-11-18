@@ -33,6 +33,10 @@ async fn server(owner: &str, repo: &str) -> MockServer {
 }
 
 async fn read_batch(server: &MockServer, owner: &str, repo: &str, files: &[&str]) -> Value {
+    // GitHub's tree of the commit lists each file: the symlink check a read asks first.
+    for file in files {
+        octocode_test_support::mock_http::list_in_trees(server, owner, repo, file).await;
+    }
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&github_api(server));
     let queries = files
@@ -74,7 +78,12 @@ async fn three_rows_resolve_their_ref_once_and_read_only_the_files() {
         3,
         "{paths:?}"
     );
-    assert_eq!(paths.len(), 4, "no last-commit request: {paths:?}");
+    // The tree read that says a path is no link is no last-commit request.
+    let asked = paths
+        .iter()
+        .filter(|path| !path.contains("/git/trees/"))
+        .count();
+    assert_eq!(asked, 4, "no last-commit request: {paths:?}");
     for (index, file) in files.iter().enumerate() {
         let data = &out["results"][index]["data"];
         assert!(data.get("modifiedAt").is_none(), "{out}");

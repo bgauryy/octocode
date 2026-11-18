@@ -96,7 +96,7 @@ const MACRO_FIXTURES: [(&str, &str); 8] = [
         "#define CALL(x) foo(x)\n#define F(a) do { first(a); check(a); } while (0)\nvoid g(void) { foo(1); }\n",
     ),
     // `json!` objects: no Rust, so each macro call they spell is re-parsed on
-    // its own (B214; the RV-C3eH round 3 probe's lines).
+    // its own (B214).
     (
         "rs",
         "pub fn build(name: &str) -> V {\n    json!({\n        \"greeting\": format!(\"hello {}\", name),\n        \"nested\": { \"inner\": format!(\"deep {}\", name) },\n        \"list\": vec![check(name)],\n    })\n}\n",

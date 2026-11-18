@@ -60,7 +60,7 @@ async fn a_classified_search_that_left_hits_out_is_delivered_in_memory_mode() {
         .as_array()
         .and_then(|related| related.iter().find(|call| call["tool"] == "localSearch"))
         .unwrap_or_else(|| panic!("a related whole read: {data}"));
-    assert_eq!(read["kind"], "related", "{data}");
+    assert_eq!(read.get("kind"), None, "{data}");
     assert!(data["warnings"].to_string().contains("related[]"), "{data}");
     assert!(
         read["input"]["queries"][0].get("classification").is_none(),
@@ -85,7 +85,7 @@ async fn the_same_search_in_a_live_runtime_keeps_a_saved_unfiltered_lead() {
     )
     .await;
     let unfiltered = &row.data()["next"]["unfiltered"];
-    assert_eq!(unfiltered["kind"], "continue", "{}", row.data());
+    assert_eq!(unfiltered.get("kind"), None, "{}", row.data());
     assert!(unfiltered["input"]["cursor"].is_string(), "{unfiltered}");
     runtime.close().await;
 }

@@ -14,7 +14,6 @@ const WAVE_2: &[&str] = &[
     "B4 echo | ghSearchRepo | repositories[].owner <- request owner",
     "B4 echo | ghSearchRepo | repositories[].repo <- request repo",
     "B4 echo | graphBuild | root <- request path",
-    "B4 echo | graphQuery | rows[].kind <- request kind",
     "B4 echo | securityCheck | advisories[].id <- request id",
 ];
 
@@ -27,11 +26,16 @@ const WAVE_4: &[&str] = &[
     "B6 format | artifactSearch | timestamp artifacts[].publishedAt: date only",
     "B6 format | ghGetHistoryItem | timestamp responsePagination.expiresAt: fraction of a second",
     "B6 format | ghSearchHistory | timestamp responsePagination.expiresAt: fraction of a second",
-    "B6 format | ghSearchRepo | timestamp repositories[].pushedAt: date only",
     "B6 format | localFetch | timestamp responsePagination.expiresAt: fraction of a second",
     "B6 format | securityCheck | number advisories[].epss.percentage: more than 3 fraction digits",
     "B6 format | securityCheck | number advisories[].epss.percentile: more than 3 fraction digits",
     "B6 format | securityCheck | timestamp advisories[].modifiedAt: fraction of a second",
+    // Source record shown whole as published (RFC D4, data is quality): the
+    // provider's own timestamp precision.
+    "B6 format | securityCheck | timestamp advisories[].publishedAt: fraction of a second",
+    // Source record shown whole as published (RFC D4, data is quality): the
+    // provider's own event key order.
+    "B8 key order | securityCheck | advisories[].affected[].ranges[].database_specific.extracted_events[]: range and source",
     "B6 format | securityCheck | timestamp responsePagination.expiresAt: fraction of a second",
 ];
 
@@ -59,7 +63,7 @@ const KEPT: &[&str] = &[
     "B4 echo | lspSearch | files[].matches[].line <- request line",
 ];
 
-pub fn all() -> impl Iterator<Item = &'static str> {
+pub(super) fn all() -> impl Iterator<Item = &'static str> {
     [WAVE_2, WAVE_4, UNRANKED, KEPT]
         .into_iter()
         .flatten()

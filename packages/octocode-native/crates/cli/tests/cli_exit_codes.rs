@@ -4,10 +4,13 @@
 //! interrupted.
 
 use crate::support;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use std::process::{Command, Output};
 use support::Workspace;
+mod install;
 mod providers;
+mod serve_signal;
 
 fn run(mut command: Command, tool: &str, input: &Value) -> Output {
     command.args([tool, &input.to_string()]).output().unwrap()
@@ -196,14 +199,15 @@ fn root_help_states_the_batch_exit_rule_the_cli_applies() {
 #[test]
 fn invalid_provider_configuration_uses_the_one_config_code() {
     let workspace = Workspace::new();
-    let mut command = workspace.cli();
-    command
-        .env("OCTOCODE_STORAGE_MODE", "persistent")
-        .env("GITHUB_API_URL", "https://user:pass@example.com/api/v3");
+    // Persistent storage (ghCloneRepo needs it) starts a warm server: the
+    // fixture owns its socket namespace and stops it when the test ends.
+    let persistent = workspace.persistent_cli();
+    let mut command = persistent.cli();
+    command.env("GITHUB_API_URL", "https://user:pass@example.com/api/v3");
     let output = run_json(
         command,
         "ghCloneRepo",
-        &json!({"queries":[{"owner":"a","repo":"b"}]}),
+        &json_fixture(r#"{"queries": [{"owner": "a", "repo": "b"}]}"#),
     );
     assert_exit(&output, 4);
     assert_eq!(first_data(&output)["errorCode"], "config");
@@ -232,7 +236,11 @@ fn source_size_gaps_share_the_file_too_large_reason() {
     assert_exit(&fetched, 5);
     let data = first_data(&fetched);
     assert_eq!(data["errorCode"], "fileTooLarge", "{data}");
-    assert_eq!(data["partialReasons"], json!(["fileTooLarge"]), "{data}");
+    assert_eq!(
+        data["partialReasons"],
+        json_fixture(r#"["fileTooLarge"]"#),
+        "{data}"
+    );
 
     let searched = workspace.workspace.join("oversize-search.txt");
     std::fs::File::create(&searched)
@@ -246,7 +254,11 @@ fn source_size_gaps_share_the_file_too_large_reason() {
     );
     assert_exit(&output, 1);
     let data = first_data(&output);
-    assert_eq!(data["partialReasons"], json!(["fileTooLarge"]), "{data}");
+    assert_eq!(
+        data["partialReasons"],
+        json_fixture(r#"["fileTooLarge"]"#),
+        "{data}"
+    );
 }
 
 #[test]

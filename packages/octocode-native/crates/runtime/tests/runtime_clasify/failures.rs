@@ -4,6 +4,7 @@ use super::{Typed, clasify, content_row, noul};
 use crate::support::{Run as _, Workspace, clasify_runtime};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
@@ -156,6 +157,7 @@ async fn a_provider_that_is_down_under_clasify_context_shows_reads_and_code_page
             .mount(&github)
             .await;
     }
+    octocode_test_support::mock_http::list_in_trees(&github, "a", "b", "src/a.rs").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/src%2Fa.rs"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -166,13 +168,31 @@ async fn a_provider_that_is_down_under_clasify_context_shows_reads_and_code_page
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count":1,"incomplete_results":false,"items":[
-                {"name":"a.rs","path":"src/a.rs","sha":"2","html_url":"https://x",
-                 "repository":{"full_name":"a/b","html_url":"https://x","url":"https://x"},
-                 "text_matches":[{"fragment":"fn recovery() {}","matches":[{"text":"recovery","indices":[3,11]}]}]}
-            ]
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "total_count": 1,
+                "incomplete_results": false,
+                "items": [
+                    {
+                        "name": "a.rs",
+                        "path": "src/a.rs",
+                        "sha": "2",
+                        "html_url": "https://x",
+                        "repository": {
+                            "full_name": "a/b",
+                            "html_url": "https://x",
+                            "url": "https://x"
+                        },
+                        "text_matches": [
+                            {
+                                "fragment": "fn recovery() {}",
+                                "matches": [{"text": "recovery", "indices": [3, 11]}]
+                            }
+                        ]
+                    }
+                ]
+            }"#,
+        )))
         .mount(&github)
         .await;
     let workspace = Workspace::new();
@@ -182,7 +202,7 @@ async fn a_provider_that_is_down_under_clasify_context_shows_reads_and_code_page
         &server,
         &[("GITHUB_API_URL", format!("{}/api/v3", github.uri()))],
     );
-    let context = json!({"predicates": ["Does it add hints?"]});
+    let context = json_fixture(r#"{"predicates": ["Does it add hints?"]}"#);
     for (tool, query, shown) in [
         (
             "localFetch",
@@ -263,7 +283,7 @@ async fn a_refused_credential_under_clasify_context_fails_the_row_with_its_error
     assert!(data["next"]["unfiltered"].is_object(), "{data}");
     assert_ne!(
         row.outcome.exit_class(),
-        octocode_native::response::exit::ExitClass::Success,
+        octocode_runtime_base::response::exit::ExitClass::Success,
         "{data}"
     );
     runtime.close().await;

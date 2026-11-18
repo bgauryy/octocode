@@ -1,5 +1,6 @@
 //! Independent reads always consult GitHub, including commit-pinned resources.
 use super::*;
+use octocode_test_support::json_fixture;
 
 #[tokio::test]
 async fn pinned_content_and_listings_are_read_fresh() {
@@ -11,14 +12,22 @@ async fn pinned_content_and_listings_are_read_fresh() {
         Duration::ZERO,
     )
     .await;
+    mount_trees(&server, "a", "b", sha, &["pinned.rs", "src/a.rs"]).await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/src"))
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("etag", "tree")
-                .set_body_json(serde_json::json!([
-                    {"name":"a.rs","path":"src/a.rs","type":"file","size":1}
-                ])),
+                .set_body_json(json_fixture(
+                    r#"[
+                        {
+                            "name": "a.rs",
+                            "path": "src/a.rs",
+                            "type": "file",
+                            "size": 1
+                        }
+                    ]"#,
+                )),
         )
         .expect(2)
         .mount(&server)

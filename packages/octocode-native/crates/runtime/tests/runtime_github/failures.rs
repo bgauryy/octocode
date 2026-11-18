@@ -3,6 +3,7 @@
 use crate::support::{self};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use support::{Workspace, call, checks, row_data, row_status};
 use wiremock::matchers::{method, path, query_param};
@@ -12,6 +13,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 async fn malformed_remote_regex_keeps_the_original_error() {
     let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "README.md").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/README.md"))
         .and(query_param("ref", sha))
@@ -21,7 +23,10 @@ async fn malformed_remote_regex_keeps_the_original_error() {
         .mount(&server).await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    for patterns in [json!(["("]), json!(["^example", "source("])] {
+    for patterns in [
+        json_fixture(r#"["("]"#),
+        json_fixture(r#"["^example", "source("]"#),
+    ] {
         let out = call(&runtime, "ghGetFileContent", json!({"owner":"a","repo":"b","path":"README.md","ref":sha,"matchString":patterns,"regexEngine":"rust"})).await.expect("error row");
         assert_eq!(row_status(&out), "error");
         let data = row_data(&out);
@@ -58,7 +63,7 @@ async fn gh_primary_rate_limit_is_contract_valid_and_persisted_for_other_process
                 .insert_header("x-ratelimit-remaining", "0")
                 .insert_header("x-ratelimit-reset", reset.to_string().as_str())
                 .insert_header("x-ratelimit-resource", "core")
-                .set_body_json(json!({"message": "API rate limit exceeded"})),
+                .set_body_json(json_fixture(r#"{"message": "API rate limit exceeded"}"#)),
         )
         .mount(&server)
         .await;
@@ -131,7 +136,7 @@ async fn anonymous_rate_limit_advises_authentication() {
             ResponseTemplate::new(403)
                 .insert_header("x-ratelimit-remaining", "0")
                 .insert_header("x-ratelimit-reset", "4102444800")
-                .set_body_json(json!({"message": "API rate limit exceeded"})),
+                .set_body_json(json_fixture(r#"{"message": "API rate limit exceeded"}"#)),
         )
         .mount(&server)
         .await;
@@ -171,10 +176,12 @@ async fn github_errors_without_continuations_preserve_reason_and_recovery() {
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/locked"))
         .respond_with(
-            ResponseTemplate::new(401).set_body_json(json!({"message":"Bad credentials"})),
+            ResponseTemplate::new(401)
+                .set_body_json(json_fixture(r#"{"message": "Bad credentials"}"#)),
         )
         .mount(&server)
         .await;
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "img.png").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/img.png"))
         .and(query_param("ref", sha))
@@ -187,7 +194,14 @@ async fn github_errors_without_continuations_preserve_reason_and_recovery() {
         .await;
     for (query, code, guidance) in [
         (
-            json!({"owner":"a","repo":"b","path":"README.md","ref":"locked"}),
+            json_fixture(
+                r#"{
+                    "owner": "a",
+                    "repo": "b",
+                    "path": "README.md",
+                    "ref": "locked"
+                }"#,
+            ),
             "authentication",
             "auth login",
         ),
@@ -240,10 +254,10 @@ async fn gh_file_error_omits_provider_support_diagnostics() {
         .respond_with(
             ResponseTemplate::new(404)
                 .insert_header("x-github-request-id", "R1")
-                .set_body_json(json!({
-                    "message":"Not Found",
-                    "documentation_url":"https://docs.github.com/rest/repos/contents#get-repository-content"
-                })),
+                .set_body_json(json_fixture(r#"{
+                    "message": "Not Found",
+                    "documentation_url": "https://docs.github.com/rest/repos/contents#get-repository-content"
+                }"#)),
         )
         .mount(&server)
         .await;
@@ -258,7 +272,10 @@ async fn gh_file_error_omits_provider_support_diagnostics() {
     .expect("error row");
     let data = row_data(&outcome);
     assert_eq!(data["errorCode"], "notFound", "{data}");
-    assert_eq!(data["httpStatus"], 404, "{data}");
+    assert!(
+        data.get("httpStatus").is_none(),
+        "notFound already names the 404: {data}"
+    );
     assert!(
         data.get("retryable").is_none(),
         "404 is not retryable: {data}"

@@ -126,6 +126,7 @@ pub fn query_file_system(
             .map(|path| path.to_string_lossy().into_owned()),
         skipped: totals.skipped,
         permission_denied: totals.permission_denied,
+        denied_dirs: totals.denied_dirs,
         ignored: totals.ignored,
         pruned_dirs: totals.pruned_dirs,
         time_cut: state.time_cut,

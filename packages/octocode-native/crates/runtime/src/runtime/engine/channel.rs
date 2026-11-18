@@ -11,16 +11,16 @@ use super::page_replay::{
     source_changed,
 };
 use super::{RuntimeError, runtime_execution_error};
-use crate::contracts;
-use crate::execution::{ExecutionContext, ExecutionError};
-use crate::id::ToolId;
-use crate::response::cursor::Cursor;
-use crate::response::outcome::ToolOutcome;
-use crate::response::page_model::ResponsePageOptions;
-use crate::response::result::ErrorClass;
-use crate::response::{continuations, stage};
-use crate::security::{CheckedQuery, Sanitized};
 use batch::execute_ordinary_queries;
+use octocode_runtime_base::contracts;
+use octocode_runtime_base::execution::{ExecutionContext, ExecutionError};
+use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::response::cursor::Cursor;
+use octocode_runtime_base::response::outcome::ToolOutcome;
+use octocode_runtime_base::response::page_model::ResponsePageOptions;
+use octocode_runtime_base::response::result::ErrorClass;
+use octocode_runtime_base::response::{continuations, stage};
+use octocode_runtime_base::security::{CheckedQuery, Sanitized};
 use shaping::ShapedRows;
 
 use serde_json::{Value, json};
@@ -67,11 +67,11 @@ pub(super) struct ChannelRun {
     pub(super) pinned: Option<Cursor>,
     pub(super) page_shape: super::cursors::PageShape,
     pub(super) replays: (Arc<PageReplayMemo>, [u8; 32]),
-    pub(super) section_sessions: Arc<crate::tools::clasify::sections::Sessions>,
+    pub(super) section_sessions: Arc<octocode_tool_clasify::clasify::sections::Sessions>,
     pub(super) access: [u8; 32],
     pub(super) cursors: Arc<Registry>,
     pub(super) resume_identity: Option<String>,
-    /// Sent fields read as declared ones ([`crate::contracts::normalized_input`]):
+    /// Sent fields read as declared ones ([`octocode_runtime_base::contracts::normalized_input`]):
     /// the response states each, so the caller learns the field.
     pub(super) repairs: Vec<String>,
 }
@@ -112,9 +112,19 @@ impl ChannelRun {
 
     pub(super) fn run(mut self, context: &ExecutionContext) -> RunResult {
         let id = self.id;
+        // Both branches answer through here, once the response is final:
+        // its calls were routed, published and validated with their `kind`,
+        // which a served call no longer states.
         let contract = |result: StageResult| {
             result.map(|result| {
-                result.map_err(|error| super::admission::output_contract_error(id.as_str(), error))
+                result
+                    .and_then(|mut outcome| {
+                        outcome
+                            .structured_content
+                            .edit(|output| continuations::drop_call_kinds(id, output))?;
+                        Ok(outcome)
+                    })
+                    .map_err(|error| super::admission::output_contract_error(id.as_str(), error))
             })
         };
         if let Some(replay) = self.replayed.take() {
@@ -158,8 +168,11 @@ impl ChannelRun {
             self.dispatcher.availability.is_available(target)
                 && (!mcp
                     || ToolId::from_name(target).is_none_or(|id| {
-                        crate::execution::availability::mcp_restriction(&self.dispatcher.config, id)
-                            .is_none()
+                        octocode_runtime_base::execution::availability::mcp_restriction(
+                            &self.dispatcher.config,
+                            id,
+                        )
+                        .is_none()
                     }))
         };
         let scope = continuations::Scope {
@@ -182,7 +195,7 @@ impl ChannelRun {
                 // page states the expiry its own read set. A later page is a
                 // replay whether it is cut from the retained response or
                 // from a re-execution that reproduced it.
-                saved: Some(crate::response::page_model::SavedResponse {
+                saved: Some(octocode_runtime_base::response::page_model::SavedResponse {
                     key: self.replays.1,
                     expires_at: page_expiry(self.id.as_str()),
                     replayed: self.pinned.is_some(),
@@ -238,23 +251,24 @@ impl ChannelRun {
         {
             return Ok(Rows::Answered(Err(error)));
         }
-        let mut call_notes =
-            match stage::settle(self.id, &mut structured, &response_query, &mut failure) {
-                Ok(notes) => notes,
-                Err(error) => return Ok(Rows::Answered(Err(error))),
-            };
+        if let Err(error) = stage::settle(self.id, &mut structured, &response_query, &mut failure) {
+            return Ok(Rows::Answered(Err(error)));
+        }
         drop(noting);
         if self.pinned.is_none() {
             self.dispatcher.warm_served_leads(self.id, &structured);
         }
-        call_notes.extend(said.take());
+        let call_notes = said.take();
         structured.edit(|output| crate::runtime::row_indices::inherit(output, &self.origin));
         if let Err(error) = self.hoist_walks(&mut structured, &mut pending, continues_page) {
             return Ok(Rows::Answered(Err(error)));
         }
         if let Some(cursor) = &self.pinned
-            && crate::response::pager::content_snapshot(&structured, cursor.length)
-                != Some(cursor.content_snapshot())
+            && octocode_runtime_base::response::pager::content_snapshot(
+                &structured,
+                cursor.length,
+                self.options.build_identity,
+            ) != Some(cursor.content_snapshot(self.options.build_identity))
         {
             return Ok(Rows::Changed);
         }
@@ -278,7 +292,7 @@ impl ChannelRun {
         ) = self.respond_settled(&settled, structured, context)?;
         if let Ok(outcome) = &mut finished {
             if let Some(seed) = seed {
-                self.remember_page(outcome, &mut next, seed, context)?;
+                self.remember_page(outcome, &mut next, seed, !pending.is_empty(), context)?;
             }
             self.register_page(outcome, next, &mut pending)?;
             self.retain_pending(pending, context)?;
@@ -287,7 +301,8 @@ impl ChannelRun {
             // them, because its request names none of them.
             if self.fresh {
                 outcome.structured_content.edit(|output| {
-                    crate::response::pages::drop_echoes(
+                    octocode_runtime_base::response::pages::drop_echoes(
+                        self.id == octocode_runtime_base::id::ToolId::GhGetFileContent,
                         output,
                         response_query["queries"]
                             .as_array()
@@ -296,7 +311,7 @@ impl ChannelRun {
                     );
                     // The cut measured the echoes just dropped: the flag
                     // states the page delivered (before rejected rows join).
-                    crate::response::pager::unflag_fitting(
+                    octocode_runtime_base::response::pager::unflag_fitting(
                         output,
                         self.id,
                         self.options
@@ -348,7 +363,7 @@ impl ChannelRun {
         structured: Sanitized,
         context: &ExecutionContext,
     ) -> Result<(stage::Staged, Option<PageReplay>), ExecutionError> {
-        let pages = crate::response::pager::SavedPages::default();
+        let pages = octocode_runtime_base::response::pager::SavedPages::default();
         let mut kept = None;
         let stage = stage::StageInput {
             failure: settled.failure,
@@ -372,11 +387,15 @@ impl ChannelRun {
         outcome: &mut ToolOutcome,
         next: &mut Option<Cursor>,
         mut seed: PageReplay,
+        tool_cursors: bool,
         context: &ExecutionContext,
     ) -> Result<(), ExecutionError> {
         let Some(cursor) = next.as_ref() else {
             return Ok(());
         };
+        // A host that keeps no saved work cannot serve a display cursor;
+        // only a tool continuation makes the call unservable there.
+        let keeps_pages = self.can_resume || tool_cursors;
         let auth_retained = match self.dispatcher.github_access.identity() {
             Ok(Some(observed)) => {
                 let current = self.dispatcher.github_response_identity(context);
@@ -391,36 +410,125 @@ impl ChannelRun {
             Ok(None) => true,
             Err(()) => false,
         };
-        let (saved, retained) = if auth_retained {
+        let (saved, retained) = if auth_retained && keeps_pages {
             self.replays.0.insert(
                 self.id.as_str(),
                 cursor,
                 seed,
-                crate::execution::cancel::deadline_of(context),
+                octocode_runtime_base::execution::cancel::deadline_of(context),
             )
         } else {
             (Arc::new(seed), false)
         };
         if !retained {
-            let mut stage = self.stage(saved.structured.clone(), false);
-            stage.options = ResponsePageOptions::default();
-            stage.failure = saved.failure;
-            stage.structured.edit(|structured| {
-                let warnings = structured.as_object_mut().and_then(|map| {
-                    map.entry("warnings")
-                        .or_insert_with(|| json!([]))
-                        .as_array_mut()
-                });
-                if let Some(warnings) = warnings {
-                    warnings.push(json!("The response could not be retained with a stable access identity or within snapshot storage limits; the complete result is returned without display pagination."));
+            let cause = if keeps_pages {
+                "The response could not be retained with a stable access identity or within snapshot storage limits"
+            } else {
+                "This command exits after one call and keeps no saved pages"
+            };
+            let warning =
+                format!("{cause}; the complete result is returned without display pagination.");
+            *outcome = match &self.pinned {
+                Some(opened) if opened.offset > 0 => {
+                    self.unpaged_tail(&saved, opened, warning, context)?
                 }
-            });
-            *outcome = stage::respond(stage, None, context)?
-                .result
-                .map_err(|_| ExecutionError::WorkerFailed)?;
+                _ => {
+                    let mut stage = self.stage(saved.structured.clone(), false);
+                    stage.options = ResponsePageOptions::default();
+                    stage.failure = saved.failure;
+                    stage
+                        .structured
+                        .edit(|structured| push_warning(structured, &warning));
+                    stage::respond(stage, None, context)?
+                        .result
+                        .map_err(|_| ExecutionError::WorkerFailed)?
+                }
+            };
             *next = None;
         }
         Ok(())
+    }
+
+    /// The rest of a saved response from the page `opened` named to its
+    /// end, in one result: a reader that asked for a later page already
+    /// holds the pages before it, and no cursor is left to walk on.
+    fn unpaged_tail(
+        &self,
+        saved: &PageReplay,
+        opened: &Cursor,
+        warning: String,
+        context: &ExecutionContext,
+    ) -> Result<ToolOutcome, ExecutionError> {
+        let mut tail: Option<ToolOutcome> = None;
+        let mut offset = opened.offset;
+        let onward = loop {
+            let mut stage = self.stage(Sanitized::scrubbed(Value::Null), true);
+            stage.options.response_offset = Some(offset);
+            let staged = stage::respond_saved(
+                stage::StageInput {
+                    failure: saved.failure,
+                    ..stage
+                },
+                &saved.structured,
+                &saved.pages,
+                context,
+            )
+            .map_err(|error| match error {
+                stage::SavedPageError::Changed => ExecutionError::WorkerFailed,
+                stage::SavedPageError::Failed(error) => error,
+            })?;
+            let page = staged.result.map_err(|_| ExecutionError::WorkerFailed)?;
+            let more = staged.next.is_some();
+            // The last page's own walk (rows' tool continuations) is the
+            // only continuation left; a display cursor never is.
+            let onward = (!more)
+                .then(|| {
+                    page.structured_content
+                        .pointer("/responsePagination/next")
+                        .cloned()
+                })
+                .flatten();
+            tail = Some(match tail.take() {
+                None => page,
+                Some(mut whole) => {
+                    let rows = page.structured_content["results"].clone();
+                    whole.structured_content.edit(|output| {
+                        if let Some(Value::Array(held)) = output.get_mut("results")
+                            && let Value::Array(more_rows) = rows
+                        {
+                            held.extend(more_rows);
+                        }
+                    });
+                    whole
+                }
+            });
+            if !more {
+                break onward;
+            }
+            offset += 1;
+        };
+        let mut whole = tail.ok_or(ExecutionError::WorkerFailed)?;
+        whole.structured_content.edit(|output| {
+            if let Some(map) = output.as_object_mut() {
+                map.shift_remove("responsePagination");
+            }
+            if let Some(next) = onward {
+                output["responsePagination"] = json!({ "next": next });
+            }
+            push_warning(output, &warning);
+        });
+        Ok(whole)
+    }
+}
+
+fn push_warning(structured: &mut Value, warning: &str) {
+    let warnings = structured.as_object_mut().and_then(|map| {
+        map.entry("warnings")
+            .or_insert_with(|| json!([]))
+            .as_array_mut()
+    });
+    if let Some(warnings) = warnings {
+        warnings.push(json!(warning));
     }
 }
 

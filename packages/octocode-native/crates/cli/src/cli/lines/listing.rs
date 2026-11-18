@@ -11,8 +11,10 @@ pub(super) fn is_working_directory(root: &str, cwd: Option<&std::path::Path>) ->
 
 /// A listing: each `dir/` once, its entries indented under it exactly as
 /// the result spells them, so a name is parsed for nothing; a group of one
-/// entry and no other field is one line, `dir/entry` (a listing sorted by
-/// size or date is such groups). A group's other fields follow its `dir/`
+/// file and no other field is one line, `dir/entry` (a listing sorted by
+/// size or date is such groups). A group of one directory keeps its
+/// heading: `dir/sub/` on one line would read as the heading of `sub`, which
+/// a deeper listing prints next. A group's other fields follow its `dir/`
 /// in `[ … ]`. `None` unless `files` is such groups (`{dir, files: [entry,
 /// …]}`), whichever tool lists them.
 pub(super) fn listing(data: &Map<String, Value>, out: &mut Vec<String>) -> Option<()> {
@@ -32,8 +34,10 @@ pub(super) fn listing(data: &Map<String, Value>, out: &mut Vec<String>) -> Optio
         };
         if let Some(note) = annotation(&rest) {
             head.push_str(&format!("  {note}"));
-        } else if let [entry] = entries.as_slice() {
-            lines.push(format!("{head}{}", one_line(entry.as_str()?)));
+        } else if let [entry] = entries.as_slice()
+            && let Some(entry) = entry.as_str().filter(|entry| !is_directory(entry))
+        {
+            lines.push(format!("{head}{}", one_line(entry)));
             continue;
         }
         lines.push(head);
@@ -46,6 +50,17 @@ pub(super) fn listing(data: &Map<String, Value>, out: &mut Vec<String>) -> Optio
     }
     out.append(&mut lines);
     Some(())
+}
+
+/// Whether a listing entry (`<name>[/][ (<fields>)]`) names a directory:
+/// its name ends in `/`. A name holds no `/`, and the fields never contain
+/// ` (`, so the last ` (` of an entry ending in `)` opens them.
+fn is_directory(entry: &str) -> bool {
+    entry
+        .strip_suffix(')')
+        .and_then(|fields| fields.rsplit_once(" ("))
+        .map_or(entry, |(name, _)| name)
+        .ends_with('/')
 }
 
 /// The declarations of one file, as hits print: several, nested ones or a
@@ -171,10 +186,15 @@ pub(super) fn site(value: &Value) -> Option<String> {
     }
 }
 
+/// How a location's `content` starts when its file could not be read: the
+/// reason, not source.
+const UNREAD_CONTENT: &str = "[content unavailable";
+
 /// `lspSearch` results in `data.matches`. A location (`definition`,
-/// `references` with context, …) prints its numbered `content` as hits:
-/// `path:N:text`, or `rg --heading` blocks when any spans lines (context or
-/// a declaration body). A body's omission marker is a mark for the trailer.
+/// `references`, …) prints its `content` as hits: `path:N:text`, or
+/// `rg --heading` blocks when any spans lines (context or a declaration
+/// body). Content spanning lines is numbered; one line at the row's own
+/// `line` is served unnumbered. A body's omission marker is a mark for the trailer.
 /// A symbol without content (`workspaceSymbol`) prints as a declaration.
 /// Consecutive rows of one file share its heading; hits on one line print
 /// it once with each `column` ([`one_line_each`]), and a lone hit's column
@@ -252,7 +272,17 @@ pub(super) fn locations(
         let mut group = one_line_each(group);
         for hit in &mut group {
             let line = hit["line"].as_u64()?;
-            let text = value_lines(hit["value"].as_str()?, line, true)?
+            let value = hit["value"].as_str()?;
+            // One line at the row's own `line` is served as that line's text,
+            // with no number; any other content is numbered. A location whose
+            // file could not be read carries the reason instead: no line.
+            let numbered_value = value_lines(value, line, true).is_some();
+            if !numbered_value
+                && (value.is_empty() || value.contains('\n') || value.starts_with(UNREAD_CONTENT))
+            {
+                return None;
+            }
+            let text = value_lines(value, line, numbered_value)?
                 .into_iter()
                 .find(|(n, _)| *n == line)?
                 .1
@@ -264,9 +294,12 @@ pub(super) fn locations(
             {
                 hit.shift_remove("column");
             }
-            // One source line each: `N\ttext` becomes the hit's text.
+            // One source line each: `N\ttext` becomes the hit's text. Beside
+            // numbered bodies, an unnumbered line takes its number.
             if !numbered {
                 hit["value"] = text.into();
+            } else if !numbered_value {
+                hit["value"] = format!("{line}\t{text}").into();
             }
         }
         hits(&path, &group, numbered, None, out)?;
@@ -315,39 +348,51 @@ fn spelled_only_at(text: &str, symbol: &str, column: u64) -> bool {
     }
 }
 
-/// A page block (`unit`, `offset`, `length`, `hasMore`, any `total`) as
-/// its count: `10 of 37 lines`, `after 20` when it does not start the list,
-/// any other field as words, then `hasMore` (or `hasMore false`) last.
-/// `None` for any other object.
+/// A page state (an object holding `hasMore`) in the one form every page
+/// prints in, whichever fields it states: its count first (`10 of 37 lines`,
+/// `10 lines` without a total, `total 37 lines` without a length), `after
+/// 20` when it does not start the list, any other field as words
+/// (`countScope loaded`), then `hasMore` (or `hasMore false`) last. A unit
+/// names the count, so without one it prints as words. `None` for any other
+/// object.
 fn page(fields: &Map<String, Value>) -> Option<String> {
-    let unit = fields.get("unit")?.as_str()?;
-    let offset = fields.get("offset")?.as_u64()?;
-    let length = fields.get("length")?.as_u64()?;
     let more = fields.get("hasMore")?.as_bool()?;
-    let total = fields.get("total");
-    let mut text = match total {
-        Some(total) => format!("{length} of {} {}", total.as_u64()?, one_line(unit)),
-        None => format!("{length} {}", one_line(unit)),
+    let mut rest = fields.clone();
+    rest.shift_remove("hasMore");
+    let length = take_count(&mut rest, "length");
+    let total = take_count(&mut rest, "total");
+    let offset = take_count(&mut rest, "offset");
+    let mut parts = Vec::new();
+    let count = match (length, total) {
+        (Some(length), Some(total)) => Some(format!("{length} of {total}")),
+        (Some(length), None) => Some(length.to_string()),
+        (None, Some(total)) => Some(format!("total {total}")),
+        (None, None) => None,
     };
-    if offset > 0 {
-        text.push_str(&format!(" after {offset}"));
+    if let Some(mut count) = count {
+        if let Some(Value::String(unit)) = rest.get("unit") {
+            count.push_str(&format!(" {}", one_line(unit)));
+            rest.shift_remove("unit");
+        }
+        parts.push(count);
     }
-    let rest: Map<String, Value> = fields
-        .iter()
-        .filter(|(key, _)| {
-            !matches!(
-                key.as_str(),
-                "unit" | "offset" | "length" | "total" | "hasMore"
-            )
-        })
-        .map(|(key, value)| (key.clone(), value.clone()))
-        .collect();
+    // Offset 0 is the reading without `after`.
+    if let Some(offset) = offset.filter(|offset| *offset > 0) {
+        parts.push(format!("after {offset}"));
+    }
     if !rest.is_empty() {
-        text.push(' ');
-        text.push_str(&words(&rest));
+        parts.push(words(&rest));
     }
-    text.push_str(if more { " hasMore" } else { " hasMore false" });
-    Some(text)
+    parts.push(if more { "hasMore" } else { "hasMore false" }.to_owned());
+    Some(parts.join(" "))
+}
+
+/// The whole number `fields` states under `key`, taken out of them; any
+/// other value stays, to print as words.
+fn take_count(fields: &mut Map<String, Value>, key: &str) -> Option<u64> {
+    let count = fields.get(key)?.as_u64()?;
+    fields.shift_remove(key);
+    Some(count)
 }
 
 /// Fields as words: `key value` for a scalar (`key true`, `key false`) or a list of

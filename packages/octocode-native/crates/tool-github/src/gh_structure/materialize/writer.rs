@@ -1,0 +1,262 @@
+//! The ordered write side of a materialize call: what each entry acquired and the files it skipped.
+use super::*;
+
+/// What a materialize page has for one listed entry.
+pub(in crate::gh_structure) enum Acquired {
+    NotAFile,
+    /// Named like a credential file ([`octocode_runtime_base::policy::discovery`]): never
+    /// read from the provider and never written.
+    Withheld,
+    /// Larger than this call may read, by its listed size.
+    Oversized,
+    Read(Result<octocode_github::ContentResponse, ProviderError>),
+    /// Already in the snapshot with these bytes ([`super::snapshot::Store::kept`]).
+    Kept(FileIdentity),
+}
+
+/// The ordered write side of a materialize call.
+pub(in crate::gh_structure) struct MaterializeWriter<'a> {
+    pub(in crate::gh_structure) root: &'a Path,
+    pub(in crate::gh_structure) home: &'a Path,
+    pub(in crate::gh_structure) written: usize,
+    pub(in crate::gh_structure) cursor: usize,
+    /// Why the walk stopped early, when a provider limit stopped it.
+    pub(in crate::gh_structure) stopped: Option<String>,
+    pub(in crate::gh_structure) skips: MaterializeSkips,
+    /// Files this page wrote completely, for the manifest.
+    pub(in crate::gh_structure) recorded: Vec<(String, FileIdentity)>,
+}
+
+impl MaterializeWriter<'_> {
+    /// Write one listed entry (its read, when it is a file); `false` stops
+    /// the walk at this entry, which the continuation resumes.
+    pub(in crate::gh_structure) async fn write(
+        &mut self,
+        entry: &TreeEntry,
+        read: Acquired,
+    ) -> Result<bool, ProviderError> {
+        let acquired = match read {
+            Acquired::NotAFile => {
+                self.cursor += 1;
+                return Ok(true);
+            }
+            Acquired::Withheld => {
+                self.cursor += 1;
+                self.skips.withheld.push(entry.path.clone());
+                return Ok(true);
+            }
+            Acquired::Oversized => {
+                self.cursor += 1;
+                self.skips
+                    .oversized
+                    .push((entry.path.clone(), self.skips.read_limit));
+                return Ok(true);
+            }
+            Acquired::Kept(identity) => {
+                self.cursor += 1;
+                self.written += 1;
+                self.recorded.push((entry.path.clone(), identity));
+                return Ok(true);
+            }
+            Acquired::Read(Ok(acquired)) => acquired,
+            // A read refused by the call's limits ends the walk, not the
+            // files already written: the continuation resumes at this entry.
+            Acquired::Read(Err(error))
+                if self.written > 0
+                    && matches!(
+                        error.kind,
+                        ProviderErrorKind::RateLimited | ProviderErrorKind::Timeout
+                    ) =>
+            {
+                self.stopped = Some(format!(
+                    "Stopped at {} after {} file(s): {}.",
+                    entry.path,
+                    self.written,
+                    error.message.trim_end_matches('.')
+                ));
+                return Ok(false);
+            }
+            // One unreadable file (binary, unsupported entry) must not abort
+            // the batch; only auth/rate/timeout/cancel failures propagate.
+            Acquired::Read(Err(error)) if !terminal_failure(&error) => {
+                self.cursor += 1;
+                if error.reason == Some(ProviderErrorReason::BinaryFile) {
+                    self.skips.binary.push(entry.path.clone());
+                } else {
+                    self.skips
+                        .unreadable
+                        .push((entry.path.clone(), error.message.to_string()));
+                }
+                return Ok(true);
+            }
+            Acquired::Read(Err(error)) => return Err(error),
+        };
+        self.cursor += 1;
+        if !octocode_tools_shared::gh_shared::is_repo_relative(&entry.path) {
+            self.skips.unreadable.push((
+                entry.path.clone(),
+                "the provider path leaves the materialize root or names a git directory".to_owned(),
+            ));
+            return Ok(true);
+        }
+        snapshot::write_file(self.home, self.root, &entry.path, &acquired.bytes).await?;
+        self.written += 1;
+        self.recorded
+            .push((entry.path.clone(), FileIdentity::of(&acquired.bytes)));
+        Ok(true)
+    }
+}
+
+pub(in crate::gh_structure) fn write_error(action: &str, error: &std::io::Error) -> ProviderError {
+    ProviderError::new(
+        ProviderErrorKind::Configuration,
+        format!("failed to {action}: {error}"),
+    )
+    .with_reason(ProviderErrorReason::FileAccess)
+}
+
+/// Files a materialize call did not write. `location.skipped` names each
+/// path once; the warnings carry counts and each distinct read error once.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub(super) enum SkippedFile {
+    Oversized { read_limit: usize },
+    Unreadable { message: String },
+    Binary,
+    Withheld,
+}
+
+#[derive(Default)]
+pub(in crate::gh_structure) struct MaterializeSkips {
+    /// The body limit an oversized file passed.
+    pub(in crate::gh_structure) read_limit: usize,
+    pub(in crate::gh_structure) oversized: Vec<(String, usize)>,
+    pub(in crate::gh_structure) unreadable: Vec<(String, String)>,
+    /// Not text: nothing a local text tool could read is missing.
+    pub(in crate::gh_structure) binary: Vec<String>,
+    /// Credential-named files, withheld by policy: the local tools would not
+    /// read them either.
+    pub(in crate::gh_structure) withheld: Vec<String>,
+}
+
+impl MaterializeSkips {
+    pub(in crate::gh_structure) fn new(read_limit: usize) -> Self {
+        Self {
+            read_limit,
+            ..Self::default()
+        }
+    }
+
+    pub(super) fn restore(&mut self, path: &str, skipped: &SkippedFile) {
+        match skipped {
+            SkippedFile::Oversized { read_limit } => {
+                self.oversized.push((path.to_owned(), *read_limit));
+            }
+            SkippedFile::Unreadable { message } => {
+                self.unreadable.push((path.to_owned(), message.clone()));
+            }
+            SkippedFile::Binary => self.binary.push(path.to_owned()),
+            SkippedFile::Withheld => self.withheld.push(path.to_owned()),
+        }
+    }
+
+    pub(super) fn recorded(&self) -> std::collections::BTreeMap<String, SkippedFile> {
+        self.oversized
+            .iter()
+            .map(|(path, read_limit)| {
+                (
+                    path.clone(),
+                    SkippedFile::Oversized {
+                        read_limit: *read_limit,
+                    },
+                )
+            })
+            .chain(self.unreadable.iter().map(|(path, message)| {
+                (
+                    path.clone(),
+                    SkippedFile::Unreadable {
+                        message: message.clone(),
+                    },
+                )
+            }))
+            .chain(
+                self.binary
+                    .iter()
+                    .map(|path| (path.clone(), SkippedFile::Binary)),
+            )
+            .chain(
+                self.withheld
+                    .iter()
+                    .map(|path| (path.clone(), SkippedFile::Withheld)),
+            )
+            .collect()
+    }
+
+    pub(in crate::gh_structure) fn is_empty(&self) -> bool {
+        self.binary.is_empty() && self.withheld.is_empty() && !self.leaves_a_gap()
+    }
+
+    /// Whether a skipped file holds text the checkout now lacks.
+    pub(in crate::gh_structure) fn leaves_a_gap(&self) -> bool {
+        !self.oversized.is_empty() || !self.unreadable.is_empty()
+    }
+
+    pub(in crate::gh_structure) fn paths(&self) -> Vec<&str> {
+        self.oversized
+            .iter()
+            .map(|(path, _)| path.as_str())
+            .chain(self.unreadable.iter().map(|(path, _)| path.as_str()))
+            .chain(self.binary.iter().map(String::as_str))
+            .chain(self.withheld.iter().map(String::as_str))
+            .collect()
+    }
+
+    /// Why `location.skipped` names files on a checkout that is complete:
+    /// binaries are not text, credential-named files are withheld.
+    pub(in crate::gh_structure) fn binary_hint(&self) -> Option<String> {
+        let mut parts = Vec::new();
+        if !self.binary.is_empty() {
+            parts.push(format!(
+                "{} binary file(s) are in location.skipped: not text, so not written.",
+                self.binary.len()
+            ));
+        }
+        if !self.withheld.is_empty() {
+            parts.push(format!(
+                "{} credential-named file(s) are in location.skipped: withheld, so neither read nor written.",
+                self.withheld.len()
+            ));
+        }
+        (!parts.is_empty()).then(|| parts.join(" "))
+    }
+
+    pub(in crate::gh_structure) fn warnings(&self) -> Vec<String> {
+        let mut warnings = Vec::new();
+        let mut oversized_counts = std::collections::BTreeMap::<usize, usize>::new();
+        for (_, limit) in &self.oversized {
+            *oversized_counts.entry(*limit).or_default() += 1;
+        }
+        for (limit, count) in oversized_counts {
+            warnings.push(format!(
+                "Skipped {} file(s) larger than their {} byte materialize read limit (location.skipped).",
+                count,
+                limit
+            ));
+        }
+        if !self.unreadable.is_empty() {
+            let mut errors: Vec<&str> = Vec::new();
+            for (_, message) in &self.unreadable {
+                let message = message.trim_end_matches('.');
+                if !errors.contains(&message) {
+                    errors.push(message);
+                }
+            }
+            warnings.push(format!(
+                "Skipped {} unreadable file(s) (location.skipped): {}.",
+                self.unreadable.len(),
+                errors.join("; ")
+            ));
+        }
+        warnings
+    }
+}

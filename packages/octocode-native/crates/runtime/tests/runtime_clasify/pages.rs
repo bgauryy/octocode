@@ -53,7 +53,7 @@ async fn clasify_pages_complete_answers_once_and_replays_without_inference() {
         }
         pages += 1;
         let pagination = &page["responsePagination"];
-        if pagination["hasMore"] != true {
+        if pagination["next"].is_null() {
             break;
         }
         let next = pagination["next"]["input"].clone();
@@ -66,7 +66,7 @@ async fn clasify_pages_complete_answers_once_and_replays_without_inference() {
             .run(format!("repeat{pages}"), "clasify".into(), next)
             .await
             .expect("repeat");
-        let evidence = |outcome: &octocode_native::response::outcome::ToolOutcome| {
+        let evidence = |outcome: &octocode_runtime_base::response::outcome::ToolOutcome| {
             let mut value = outcome.structured_content.clone().into_value();
             if let Some(pagination) = value["responsePagination"].as_object_mut()
                 && let Some(next) = pagination.remove("next")
@@ -81,7 +81,7 @@ async fn clasify_pages_complete_answers_once_and_replays_without_inference() {
             value
         };
         assert_eq!(evidence(&next_page), evidence(&repeated));
-        let expiry = |outcome: &octocode_native::response::outcome::ToolOutcome| {
+        let expiry = |outcome: &octocode_runtime_base::response::outcome::ToolOutcome| {
             outcome.structured_content["responsePagination"]["expiresAt"]
                 .as_str()
                 .map(str::to_owned)
@@ -149,7 +149,7 @@ async fn a_selection_past_its_deadline_withholds_bodies_and_recovers() {
         "UNKNOWN_SELECTION_SENTINEL cancellation removes a queued request.\n",
     );
     let read = |timeout: Option<std::time::Duration>| {
-        let limits = octocode_native::execution::RuntimeLimits {
+        let limits = octocode_runtime_base::execution::RuntimeLimits {
             classification_timeout: timeout,
             ..crate::support::PROVIDER_LIMITS
         };
@@ -178,7 +178,7 @@ async fn a_selection_past_its_deadline_withholds_bodies_and_recovers() {
     recovery.close().await;
     // The same read under the runtime's own request time is judged and selected.
     let (runtime, judged) =
-        read(octocode_native::execution::RuntimeLimits::DEFAULT.classification_timeout).await;
+        read(octocode_runtime_base::execution::RuntimeLimits::DEFAULT.classification_timeout).await;
     assert_eq!(judged["selection"]["status"], "complete", "{judged}");
     assert_eq!(judged["selection"]["selectedItems"], 1, "{judged}");
     assert!(

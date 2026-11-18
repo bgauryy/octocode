@@ -3,10 +3,11 @@
 //! rule or directory, and its related request lifts exactly the
 //! causes that held matches and runs to the match. When nothing sits behind
 //! the skipped paths there is no lead.
-use super::Cause;
-use crate::execution::cancel::NeverCancel;
-use crate::tools::test_support::{Fixture, simple_policy};
 use octocode_contract_types::{AstSearchQuery, LocalSearchQuery, StructureSearchQuery};
+use octocode_runtime_base::execution::cancel::NeverCancel;
+use octocode_runtime_base::test_support::{Fixture, simple_policy};
+use octocode_test_support::json_fixture;
+use octocode_tools_shared::empty_walk::Cause;
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -73,6 +74,10 @@ struct Tool {
     found: fn(&Value) -> bool,
     /// How the tool's lead lifts `cause` for `scenario`, if it does.
     lifts: fn(&Value, Cause, &Path, &Scenario) -> bool,
+    /// The tool probes the skipped paths of an empty result to lift only the
+    /// causes that hold a match (astSearch). One that does not reads nothing
+    /// behind them: its lead lifts every cause its walk skipped by.
+    probes: bool,
 }
 
 /// A lead that spells walk flags as fields lifts `cause` by setting its flag.
@@ -94,21 +99,30 @@ fn non_empty(out: &Value, field: &str) -> bool {
 }
 
 fn local_search() -> Tool {
-    use crate::tools::local_search::execute_local_search;
+    use octocode_tool_local::local_search::execute_local_search;
     Tool {
         name: "localSearch",
         skips: &FLAGGED,
-        query: |root| row(root, json!({"matchString": ["needle"]})),
+        query: |root| row(root, json_fixture(r#"{"matchString": ["needle"]}"#)),
         run: |root, query| {
             let (paths, security) = simple_policy(root);
             let query: LocalSearchQuery = serde_json::from_value(query.clone()).expect("query");
-            let result = execute_local_search(&query, &paths, &security, &NeverCancel, None, None)
-                .expect("search");
+            let result = execute_local_search(
+                octocode_runtime_base::test_support::BUILD_IDENTITY,
+                &query,
+                &paths,
+                &security,
+                &NeverCancel,
+                None,
+                None,
+            )
+            .expect("search");
             // The row as published: its partial reasons are written by `to_row`.
             result.to_row().expect("result")
         },
         found: |out| non_empty(out, "files"),
         lifts: by_flag,
+        probes: false,
     }
 }
 
@@ -119,20 +133,35 @@ fn ast_match() -> Tool {
         query: |root| {
             row(
                 root,
-                json!({"operation": "match", "parser": "typescript", "rule": {"pattern": "function needle() {}"}}),
+                json_fixture(
+                    r#"{
+                        "operation": "match",
+                        "parser": "typescript",
+                        "rule": {"pattern": "function needle() {}"}
+                    }"#,
+                ),
             )
         },
         run: |root, query| run_ast(root, query),
         found: |out| out["matchCount"].as_u64().is_some_and(|count| count > 0),
         lifts: by_flag,
+        probes: true,
     }
 }
 
 fn run_ast(root: &Path, query: &Value) -> Value {
-    use crate::tools::ast_search::execute_ast;
+    use octocode_tool_ast::ast_search::execute_ast;
     let (paths, security) = simple_policy(root);
     let query: AstSearchQuery = serde_json::from_value(query.clone()).expect("query");
-    execute_ast(&query, &paths, &security, &NeverCancel, None).expect("astSearch")
+    execute_ast(
+        octocode_runtime_base::test_support::BUILD_IDENTITY,
+        &query,
+        &paths,
+        &security,
+        &NeverCancel,
+        None,
+    )
+    .expect("astSearch")
 }
 
 /// `symbols` honors `.gitignore` and hides dot entries like `match`;
@@ -144,12 +173,18 @@ fn ast_symbols() -> Tool {
         query: |root| {
             row(
                 root,
-                json!({"operation": "symbols", "symbolFilter": {"terms":["needle"],"mode":"exact"}}),
+                json_fixture(
+                    r#"{
+                        "operation": "symbols",
+                        "symbolFilter": {"terms": ["needle"], "mode": "exact"}
+                    }"#,
+                ),
             )
         },
         run: |root, query| run_ast(root, query),
         found: |out| non_empty(out, "files"),
         lifts: by_flag,
+        probes: true,
     }
 }
 
@@ -165,20 +200,26 @@ fn structure(operation: &'static str, skips: &'static [Cause]) -> Tool {
             |root| {
                 row(
                     root,
-                    json!({"operation": "tree", "maxDepth": 10, "extensions": ["ts"]}),
+                    json_fixture(r#"{"operation": "tree", "maxDepth": 10, "extensions": ["ts"]}"#),
                 )
             }
         } else {
-            |root| row(root, json!({"operation": "files", "extensions": ["ts"]}))
+            |root| {
+                row(
+                    root,
+                    json_fixture(r#"{"operation": "files", "extensions": ["ts"]}"#),
+                )
+            }
         },
         run: |root, query| {
-            use crate::tools::structure_search::execute_structure;
+            use octocode_tool_local::structure_search::execute_structure;
             let (paths, security) = simple_policy(root);
             let query: StructureSearchQuery = serde_json::from_value(query.clone()).expect("query");
             execute_structure(&query, &paths, &security, &NeverCancel, None).expect("structure")
         },
         found: |out| non_empty(out, "files"),
         lifts: by_flag,
+        probes: false,
     }
 }
 
@@ -220,8 +261,11 @@ fn skipped_query(out: &Value) -> Option<Value> {
                 row.get(field) == Some(&value)
             })
     })?;
-    crate::contracts::validate(call["tool"].as_str().expect("tool"), call["input"].clone())
-        .unwrap_or_else(|error| panic!("Invalid public related call {call}: {:?}", error.issues));
+    octocode_runtime_base::contracts::validate(
+        call["tool"].as_str().expect("tool"),
+        call["input"].clone(),
+    )
+    .unwrap_or_else(|error| panic!("Invalid public related call {call}: {:?}", error.issues));
     Some(call["input"]["queries"][0].clone())
 }
 

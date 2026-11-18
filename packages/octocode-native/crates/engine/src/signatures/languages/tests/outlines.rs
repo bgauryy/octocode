@@ -44,7 +44,7 @@ fn signature_outline_descends_into_top_level_iifes() {
             "function helper(n) {\n  return n + SECRET_BODY_LINE;\n}\nvar FBL = {};",
         );
         let outline =
-            crate::signatures::extract_signatures_inner(&source, "umd.js").expect("outline");
+            crate::signatures::tests::extract_signatures_inner(&source, "umd.js").expect("outline");
         assert!(
             outline.contains("function helper(n)"),
             "{wrapper}: {outline}"
@@ -70,7 +70,7 @@ fn deeply_nested_iife_outline_stays_inside_the_deadline() {
     }
     source.push_str(&"})();\n".repeat(depth));
     let (outline, elapsed) = crate::test_cpu::cpu_time_of(|| {
-        crate::signatures::extract_signatures_inner(&source, "nested.js").expect("outline")
+        crate::signatures::tests::extract_signatures_inner(&source, "nested.js").expect("outline")
     });
     assert!(outline.contains("function helper0(n)"), "{outline}");
     assert!(outline.contains("function helper399(n)"), "{outline}");

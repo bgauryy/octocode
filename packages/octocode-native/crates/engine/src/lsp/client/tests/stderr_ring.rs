@@ -326,9 +326,14 @@ async fn a_failed_start_reports_the_servers_stderr() {
     );
 }
 
-/// A server that dies at launch leaves a detached process (its own session,
-/// so the group sweep misses it) holding the stderr pipe open: the start
-/// still returns, with the line the server wrote, while that process lives.
+/// A server that dies at launch leaves a detached process holding the stderr
+/// pipe open: the start still returns, with the line the server wrote, while
+/// that process lives. The holder is a daemon that already left the server's
+/// tree (its own session, re-parented away when the process that started it
+/// exited), as jdtls's Gradle daemon does. A holder still parented to the
+/// server when the start fails is the server's descendant, and the failed
+/// start's sweep rightly ends it: the server here ends its output and
+/// lingers before it exits, so that window is open on every run.
 #[tokio::test]
 #[cfg(unix)]
 async fn a_failed_start_returns_while_a_detached_process_holds_stderr() {
@@ -343,11 +348,16 @@ async fn a_failed_start_returns_while_a_detached_process_holds_stderr() {
         r#"#!/usr/bin/env node
 const { spawn } = require('child_process');
 const fs = require('fs');
-const holder = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: ['ignore', 'ignore', 'inherit'], detached: true });
-holder.unref();
-fs.writeFileSync(process.env.FAKE_HOLDER_PID_FILE, String(holder.pid));
-fs.writeSync(2, 'error: the server could not start\n');
-process.exit(1);
+const starter = spawn(process.execPath, ['-e', `
+  const holder = require('child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: ['ignore', 'ignore', 'inherit'], detached: true });
+  holder.unref();
+  require('fs').writeFileSync(process.env.FAKE_HOLDER_PID_FILE, String(holder.pid));
+`], { stdio: ['ignore', 'ignore', 'inherit'] });
+starter.on('exit', () => {
+  fs.writeSync(2, 'error: the server could not start\n');
+  fs.closeSync(1);
+  setTimeout(() => process.exit(1), 500);
+});
 "#,
     );
     let mut config = ts_config();

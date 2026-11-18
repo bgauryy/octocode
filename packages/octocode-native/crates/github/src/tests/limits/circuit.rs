@@ -1,10 +1,11 @@
 //! The circuit breaker: what opens it, what it reports, and what resets it.
 use super::*;
+use octocode_test_support::json_fixture;
 
 /// Answers every GET with 502; the returned log counts the requests.
 async fn mount_bad_gateway(server: &MockServer) -> Arrivals {
     let bad_gateway = Sequence::new(vec![
-        ResponseTemplate::new(502).set_body_json(serde_json::json!({"message": "Server Error"})),
+        ResponseTemplate::new(502).set_body_json(json_fixture(r#"{"message": "Server Error"}"#)),
     ]);
     let hits = bad_gateway.arrivals.clone();
     Mock::given(method("GET"))

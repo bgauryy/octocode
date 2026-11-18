@@ -6,6 +6,7 @@
 use super::{clasify, noul, sent};
 use crate::support::{self, Run as _, Workspace, clasify_runtime, github_api};
 use octocode_native::runtime::ToolRuntime;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use std::path::Path;
 use wiremock::matchers::{method, path, path_regex};
@@ -43,6 +44,21 @@ const WITHHELD: &[&str] = &[
 /// succeeds and is seen: a withheld name holds [`MARKER`], any other [`NORMAL`].
 pub(crate) async fn github() -> MockServer {
     let server = MockServer::builder().start().await;
+    // GitHub's tree of the commit lists every file these tests read: the
+    // symlink check each read asks first.
+    for file in WITHHELD.iter().chain(&[
+        "docs/guide.md",
+        "docs/notes.txt",
+        "docs/big.txt",
+        "docs/big.pem",
+        "notes.txt",
+        "src/app.rs",
+        "sub/.env",
+        "photo.png",
+    ]) {
+        let file = file.trim_start_matches("./").replace("a/../", "");
+        octocode_test_support::mock_http::list_in_trees(&server, "octo", "demo", &file).await;
+    }
     Mock::given(method("GET"))
         .and(path_regex("^/api/v3/repos/octo/demo/commits/.+"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": SHA})))
@@ -80,7 +96,7 @@ async fn provider() -> MockServer {
                 .iter()
                 .map(|(id, question)| {
                     let answer = question["criteria"].as_array().map_or_else(
-                        || json!({"type":"noul","noul":0.9}),
+                        || json_fixture(r#"{"type": "noul", "noul": 0.9}"#),
                         |criteria| {
                             let legend = criteria
                                 .iter()
@@ -362,7 +378,7 @@ async fn a_classified_github_read_is_refused_by_name_and_a_plain_read_follows_th
         let plain = support::run(
             &runtime,
             "ghGetFileContent",
-            json!({"owner":"octo","repo":"demo","path":".env"}),
+            json_fixture(r#"{"owner": "octo", "repo": "demo", "path": ".env"}"#),
         )
         .await;
         if allow {

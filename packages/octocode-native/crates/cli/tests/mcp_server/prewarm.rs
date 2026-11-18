@@ -2,12 +2,15 @@
 
 use super::server::Server;
 use crate::support::Workspace;
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use std::time::Duration;
 
 /// A workspace with one TypeScript file whose language server is a script
-/// that writes a marker file when it starts, and a `targeted` server over it.
-fn marker_server() -> (Server, std::path::PathBuf, std::path::PathBuf, Workspace) {
+/// that writes a marker file `start_delay` seconds after it starts, and a
+/// `targeted` server over it. The delay stands in for a host too loaded to
+/// start the server at once.
+fn marker_server(start_delay: u32) -> (Server, std::path::PathBuf, std::path::PathBuf, Workspace) {
     use std::os::unix::fs::PermissionsExt;
     let workspace = Workspace::new();
     let root = workspace.workspace.clone();
@@ -18,7 +21,7 @@ fn marker_server() -> (Server, std::path::PathBuf, std::path::PathBuf, Workspace
     std::fs::write(
         &script,
         format!(
-            "#!/bin/sh\necho started > '{}'\nexec cat > /dev/null\n",
+            "#!/bin/sh\nsleep {start_delay}\necho started > '{}'\nexec cat > /dev/null\n",
             marker.display()
         ),
     )
@@ -36,10 +39,17 @@ fn marker_server() -> (Server, std::path::PathBuf, std::path::PathBuf, Workspace
     let mut server = Server::start_with(&workspace, &[("OCTOCODE_LSP_PREWARM", "targeted")]);
     server.request(
         "initialize",
-        json!({"protocolVersion": "2025-11-25", "capabilities": {},
-               "clientInfo": {"name": "test", "version": "1"}}),
+        json_fixture(
+            r#"{
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": {"name": "test", "version": "1"}
+            }"#,
+        ),
     );
-    server.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+    server.send(&json_fixture(
+        r#"{"jsonrpc": "2.0", "method": "notifications/initialized"}"#,
+    ));
     (server, marker, root, workspace)
 }
 
@@ -63,6 +73,17 @@ fn search(
     .expect("tool JSON")
 }
 
+/// Waits for the server's start marker, however long a loaded host takes to
+/// start it: the test runner's per-test deadline bounds a start that never
+/// comes.
+fn started(marker: &std::path::Path) {
+    while !marker.exists() {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Whether the marker appears within `wait`: a negative check, where any
+/// window can only miss a late start, never fail on a slow one.
 fn started_within(marker: &std::path::Path, wait: Duration) -> bool {
     let deadline = std::time::Instant::now() + wait;
     while !marker.exists() && std::time::Instant::now() < deadline {
@@ -84,8 +105,12 @@ fn serves_lsp_lead(evidence: &serde_json::Value) -> bool {
 /// request) has no visible cause, so it starts no language server.
 #[test]
 fn a_stripped_lead_starts_no_language_server() {
-    let (mut server, marker, root, _workspace) = marker_server();
-    let evidence = search(&mut server, &root, json!({"matchString": ["target"]}));
+    let (mut server, marker, root, _workspace) = marker_server(0);
+    let evidence = search(
+        &mut server,
+        &root,
+        json_fixture(r#"{"matchString": ["target"]}"#),
+    );
     let data = &evidence["results"][0]["data"];
     assert_eq!(data["files"][0]["path"], "a.ts", "{evidence}");
     assert!(!serves_lsp_lead(&evidence), "{evidence}");
@@ -98,20 +123,17 @@ fn a_stripped_lead_starts_no_language_server() {
 
 /// Positive control: a served lspSearch lead (the symbol it names is not
 /// stated by the request, which names it after a declaration keyword) starts its server before any
-/// lspSearch call.
+/// lspSearch call, however slowly a loaded host starts it.
 #[test]
 fn a_served_lead_starts_its_language_server_before_a_following_lookup() {
-    let (mut server, marker, root, _workspace) = marker_server();
+    let (mut server, marker, root, _workspace) = marker_server(4);
     let evidence = search(
         &mut server,
         &root,
-        json!({"matchString": ["function target"]}),
+        json_fixture(r#"{"matchString": ["function target"]}"#),
     );
     assert!(serves_lsp_lead(&evidence), "{evidence}");
-    assert!(
-        started_within(&marker, Duration::from_secs(3)),
-        "the served lead's server starts"
-    );
+    started(&marker);
     assert!(server.finish().success());
 }
 
@@ -150,11 +172,18 @@ fn only_prewarm_all_starts_the_workspace_language_server_at_initialize() {
         let mut server = Server::start_with(&workspace, &[("OCTOCODE_LSP_PREWARM", prewarm)]);
         let init = server.request(
             "initialize",
-            json!({"protocolVersion": "2025-11-25", "capabilities": {},
-                   "clientInfo": {"name": "test", "version": "1"}}),
+            json_fixture(
+                r#"{
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1"}
+                }"#,
+            ),
         );
         assert_eq!(init["result"]["serverInfo"]["name"], "octocode-mcp");
-        server.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+        server.send(&json_fixture(
+            r#"{"jsonrpc": "2.0", "method": "notifications/initialized"}"#,
+        ));
         let deadline = std::time::Instant::now() + Duration::from_secs(if starts { 30 } else { 3 });
         while !marker.exists() && std::time::Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(50));

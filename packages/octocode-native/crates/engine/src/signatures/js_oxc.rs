@@ -12,8 +12,6 @@
 
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
-#[cfg(test)]
-use oxc_span::SourceType;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -30,6 +28,7 @@ use crate::graph::{GraphFactEdge, GraphFactExport, GraphFactsDocument, GraphRang
 pub(super) mod call_sites;
 mod callers;
 mod dialect;
+mod local_binding;
 mod module_facts;
 pub(crate) mod nesting;
 mod outline;
@@ -38,6 +37,7 @@ mod validity;
 mod walk;
 
 use dialect::{is_oxc_dialect, on_oxc_worker, source_type_for, with_js_program};
+pub(crate) use local_binding::local_binding_scope;
 use outline::{declared_types_of, mark_member_exports, module_outline, push_heritage_edges};
 use validity::assess_recovery;
 use walk::{collect_member_functions, collect_program, push_defined_exports};

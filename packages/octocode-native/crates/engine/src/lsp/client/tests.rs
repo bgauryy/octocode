@@ -1,5 +1,6 @@
 use super::*;
 use crate::test_support::TmpDir;
+use crate::test_support::clock::{TestClock, paused};
 #[cfg(any(unix, windows))]
 use std::path::PathBuf;
 
@@ -20,6 +21,7 @@ mod provider_answers;
 mod readiness;
 mod request_outcomes;
 mod snippet_reads;
+mod start_budget;
 mod stderr_ring;
 mod waits;
 
@@ -37,8 +39,23 @@ fn ts_config() -> LspLanguageServerConfig {
     }
 }
 
+/// `config`'s client on the test clock.
+fn client_on(clock: &TestClock, config: LspLanguageServerConfig) -> NativeLspClient {
+    client_on_with(clock, config, LspClientOptions::default())
+}
+
+/// [`client_on`] with `options`.
+fn client_on_with(
+    clock: &TestClock,
+    config: LspLanguageServerConfig,
+    options: LspClientOptions,
+) -> NativeLspClient {
+    NativeLspClient::with_clock(config, options, clock.lsp())
+}
+
 /// Minimal stdio LSP server (node). `FAKE_INIT_DELAY_MS` delays the
-/// `initialize` reply; `FAKE_ALLOC_MB` allocates (and touches) that much
+/// `initialize` reply, logging a line each `FAKE_INIT_CHATTER_MS` meanwhile
+/// when that is set (a server working inside `initialize`); `FAKE_ALLOC_MB` allocates (and touches) that much
 /// memory after `initialized`; `FAKE_INDEX_MS` reports one `$/progress`
 /// indexing wave of that length after `initialized`; `FAKE_PID_FILE` records
 /// the server pid; `FAKE_CHILD_PID_FILE` starts a child after `initialized`
@@ -57,7 +74,11 @@ function send(m) {
 function handle(msg) {
   if (msg.method === 'initialize') {
     const reply = () => send({ jsonrpc: '2.0', id: msg.id, result: { capabilities: { hoverProvider: true, textDocumentSync: 1 } } });
-    setTimeout(reply, Number(process.env.FAKE_INIT_DELAY_MS || 0));
+    const chatterMs = Number(process.env.FAKE_INIT_CHATTER_MS || 0);
+    const chatter = chatterMs > 0
+      ? setInterval(() => send({ jsonrpc: '2.0', method: 'window/logMessage', params: { type: 4, message: 'loading' } }), chatterMs)
+      : null;
+    setTimeout(() => { if (chatter) clearInterval(chatter); reply(); }, Number(process.env.FAKE_INIT_DELAY_MS || 0));
   } else if (msg.method === 'initialized') {
     if (process.env.FAKE_CHILD_PID_FILE) {
       const child = require('child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });

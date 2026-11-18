@@ -3,7 +3,8 @@
 use crate::support::{self, Run as _};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use octocode_github::mock_http::{Arrivals, Delayed};
+use octocode_test_support::json_fixture;
+use octocode_test_support::mock_http::{Arrivals, Delayed};
 use serde_json::json;
 use std::time::Duration;
 use support::{Workspace, call, row_data, row_status};
@@ -19,6 +20,7 @@ async fn three_github_bulk_queries_are_concurrent_and_preserve_order() {
     let arrivals = Arrivals::default();
 
     for name in ["alpha.rs", "beta.rs", "gamma.rs"] {
+        octocode_test_support::mock_http::list_in_trees(&server, "a", "b", name).await;
         Mock::given(method("GET"))
             .and(path(format!("/api/v3/repos/a/b/contents/{name}")))
             .and(query_param("ref", sha))
@@ -102,6 +104,7 @@ async fn three_sequential_queries_each_hit_the_server() {
 
     // Three distinct content endpoints — each MUST be hit exactly once.
     for name in ["p.rs", "q.rs", "r.rs"] {
+        octocode_test_support::mock_http::list_in_trees(&server, "a", "b", name).await;
         Mock::given(method("GET"))
             .and(path(format!("/api/v3/repos/a/b/contents/{name}")))
             .and(query_param("ref", sha))
@@ -147,11 +150,20 @@ async fn gh_search_picked_repositories_are_contract_valid() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/repositories"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count": 1,
-            "incomplete_results": false,
-            "items": [{"full_name":"o/r","name":"r","html_url":"https://x","default_branch":"main"}]
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "total_count": 1,
+                "incomplete_results": false,
+                "items": [
+                    {
+                        "full_name": "o/r",
+                        "name": "r",
+                        "html_url": "https://x",
+                        "default_branch": "main"
+                    }
+                ]
+            }"#,
+        )))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -161,13 +173,19 @@ async fn gh_search_picked_repositories_are_contract_valid() {
     let outcome = call(
         &runtime,
         "ghSearchRepo",
-        json!({"operation":"search","keywords":["x"],"fields":["stars"]}),
+        json_fixture(
+            r#"{
+                "operation": "search",
+                "keywords": ["x"],
+                "fields": ["stars"]
+            }"#,
+        ),
     )
     .await
     .expect("picked repositories");
     assert_eq!(
         row_data(&outcome)["repositories"],
-        json!([{"owner":"o","repo":"r","stars":0}])
+        json_fixture(r#"[{"owner": "o", "repo": "r", "stars": 0}]"#)
     );
     // A picked row keeps the identity a caller needs to form the tree request.
     assert!(row_data(&outcome).get("related").is_none());

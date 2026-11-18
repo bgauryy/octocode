@@ -12,13 +12,13 @@ mod fixtures;
 use crate::support::Run as _;
 use checks::{Findings, Report};
 use fixtures::{Case, World};
-use octocode_native::response::exit::ExitClass;
+use octocode_runtime_base::response::exit::ExitClass;
 use serde_json::Value;
 use std::collections::BTreeSet;
 
 fn tool_facts(tool: &str) -> &'static Value {
     static NULL: Value = Value::Null;
-    octocode_native::contracts::parsed_contract().expect("embedded contract")["tools"]
+    octocode_runtime_base::contracts::parsed_contract().expect("embedded contract")["tools"]
         .as_array()
         .and_then(|tools| tools.iter().find(|entry| entry["name"] == tool))
         .unwrap_or(&NULL)
@@ -85,7 +85,7 @@ async fn run_leads(
         if !ran.insert(format!("{target} {input}")) {
             continue;
         }
-        if octocode_native::contracts::validate(&target, input.clone()).is_err() {
+        if octocode_runtime_base::contracts::validate(&target, input.clone()).is_err() {
             report.add("B3 lead", format!("invalid input: {at} -> {target}"));
             continue;
         }
@@ -205,7 +205,7 @@ async fn every_tool_output_follows_the_protocol_or_is_allowlisted() {
         }
         world.runtime.close().await;
     }
-    let tools: BTreeSet<String> = octocode_native::contracts::parsed_contract()
+    let tools: BTreeSet<String> = octocode_runtime_base::contracts::parsed_contract()
         .expect("embedded contract")["tools"]
         .as_array()
         .into_iter()

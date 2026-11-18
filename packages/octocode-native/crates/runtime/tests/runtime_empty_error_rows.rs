@@ -1,8 +1,9 @@
 //! Empty and failed tool executions retain stable rows, typed errors and exit status.
 
 use crate::support::{self, PROVIDER_LIMITS, Run as _, Workspace};
-use octocode_native::response::exit::ExitClass;
-use octocode_native::response::outcome::ToolOutcome;
+use octocode_runtime_base::response::exit::ExitClass;
+use octocode_runtime_base::response::outcome::ToolOutcome;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -24,7 +25,7 @@ fn check(probe: &Probe, outcome: &ToolOutcome) -> Vec<String> {
     let label = format!("{} {}", probe.tool, probe.status);
     let out = &outcome.structured_content;
     let mut failures = Vec::new();
-    if let Err(error) = octocode_native::contracts::validate_output(probe.tool, out) {
+    if let Err(error) = octocode_runtime_base::contracts::validate_output(probe.tool, out) {
         failures.push(format!("{label}: output contract: {error:?}"));
     }
     if out.to_string().contains("\"retryable\":false") {
@@ -64,7 +65,8 @@ fn check(probe: &Probe, outcome: &ToolOutcome) -> Vec<String> {
 /// GitHub and a registry that know one repository, `a/b`, and find nothing in it.
 pub(crate) async fn github_and_registry() -> MockServer {
     let server = MockServer::builder().start().await;
-    let empty_search = json!({"total_count":0,"incomplete_results":false,"items":[]});
+    let empty_search =
+        json_fixture(r#"{"total_count": 0, "incomplete_results": false, "items": []}"#);
     for search in ["code", "repositories", "issues", "commits"] {
         Mock::given(method("GET"))
             .and(path(format!("/api/v3/search/{search}")))
@@ -76,14 +78,21 @@ pub(crate) async fn github_and_registry() -> MockServer {
     // first confirms the repo); error probes name `a/missing`.
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "name":"b","full_name":"a/b","default_branch":"main","private":false,
-            "owner":{"login":"a"}
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "name": "b",
+                "full_name": "a/b",
+                "default_branch": "main",
+                "private": false,
+                "owner": {"login": "a"}
+            }"#,
+        )))
         .mount(&server)
         .await;
     Mock::given(path_regex(".*"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
+        .respond_with(
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
+        )
         .mount(&server)
         .await;
     server
@@ -104,8 +113,8 @@ async fn every_tool_empty_and_error_row_meets_the_row_contract() {
         ],
         PROVIDER_LIMITS,
     );
-    let gh = json!({"owner":"a","repo":"b"});
-    let missing = json!({"owner":"a","repo":"missing"});
+    let gh = json_fixture(r#"{"owner": "a", "repo": "b"}"#);
+    let missing = json_fixture(r#"{"owner": "a", "repo": "missing"}"#);
     let with = |base: &Value, extra: Value| {
         let mut row = base.clone();
         for (key, value) in extra.as_object().unwrap() {
@@ -122,15 +131,23 @@ async fn every_tool_empty_and_error_row_meets_the_row_contract() {
         probe(
             "localSearch",
             "error",
-            json!({"path":"missing","matchString":["x"]}),
+            json_fixture(r#"{"path": "missing", "matchString": ["x"]}"#),
         ),
-        probe("localFetch", "error", json!({"path":"missing.rs"})),
+        probe(
+            "localFetch",
+            "error",
+            json_fixture(r#"{"path": "missing.rs"}"#),
+        ),
         probe(
             "structureSearch",
             "empty",
             json!({"path":"src","operation":"files","include":[NEVER]}),
         ),
-        probe("structureSearch", "error", json!({"path":"missing"})),
+        probe(
+            "structureSearch",
+            "error",
+            json_fixture(r#"{"path": "missing"}"#),
+        ),
         probe(
             "astSearch",
             "empty",
@@ -139,12 +156,19 @@ async fn every_tool_empty_and_error_row_meets_the_row_contract() {
         probe(
             "astSearch",
             "error",
-            json!({"operation":"symbols","path":"missing"}),
+            json_fixture(r#"{"operation": "symbols", "path": "missing"}"#),
         ),
         probe(
             "lspSearch",
             "error",
-            json!({"path":"missing.rs","symbolName":"x","line":1,"operation":"definition"}),
+            json_fixture(
+                r#"{
+                    "path": "missing.rs",
+                    "symbolName": "x",
+                    "line": 1,
+                    "operation": "definition"
+                }"#,
+            ),
         ),
         probe(
             "ghSearchRepo",
@@ -159,12 +183,12 @@ async fn every_tool_empty_and_error_row_meets_the_row_contract() {
         probe(
             "ghStructure",
             "error",
-            with(&missing, json!({"operation":"tree"})),
+            with(&missing, json_fixture(r#"{"operation": "tree"}"#)),
         ),
         probe(
             "ghGetFileContent",
             "error",
-            with(&missing, json!({"path":"missing.md"})),
+            with(&missing, json_fixture(r#"{"path": "missing.md"}"#)),
         ),
         probe(
             "ghSearchHistory",
@@ -176,7 +200,7 @@ async fn every_tool_empty_and_error_row_meets_the_row_contract() {
             "error",
             with(
                 &missing,
-                json!({"operation":"pullRequest","number":999_999}),
+                json_fixture(r#"{"operation": "pullRequest", "number": 999999}"#),
             ),
         ),
         probe(
@@ -187,8 +211,13 @@ async fn every_tool_empty_and_error_row_meets_the_row_contract() {
         probe(
             "clasify",
             "error",
-            json!({"operation":"evaluate","source":{"tool":"localFetch","query":{"path":"missing.rs"}},
-                "questions":{"q":{"type":"noul","instructions":"Is it there?"}}}),
+            json_fixture(
+                r#"{
+                    "operation": "evaluate",
+                    "source": {"tool": "localFetch", "query": {"path": "missing.rs"}},
+                    "questions": {"q": {"type": "noul", "instructions": "Is it there?"}}
+                }"#,
+            ),
         ),
     ];
     let mut failures = Vec::new();
@@ -209,13 +238,23 @@ async fn a_missing_path_gets_one_recovery_form_on_every_local_tool() {
     for (tool, row) in [
         (
             "localSearch",
-            json!({"path":"src/missing","matchString":["x"]}),
+            json_fixture(r#"{"path": "src/missing", "matchString": ["x"]}"#),
         ),
-        ("localFetch", json!({"path":"src/missing.rs"})),
-        ("structureSearch", json!({"path":"src/missing"})),
+        ("localFetch", json_fixture(r#"{"path": "src/missing.rs"}"#)),
+        (
+            "structureSearch",
+            json_fixture(r#"{"path": "src/missing"}"#),
+        ),
         (
             "lspSearch",
-            json!({"path":"src/missing.rs","symbolName":"x","line":1,"operation":"definition"}),
+            json_fixture(
+                r#"{
+                    "path": "src/missing.rs",
+                    "symbolName": "x",
+                    "line": 1,
+                    "operation": "definition"
+                }"#,
+            ),
         ),
     ] {
         let outcome = support::run(&runtime, tool, row).await;
@@ -230,7 +269,7 @@ async fn a_missing_path_gets_one_recovery_form_on_every_local_tool() {
             .iter()
             .find(|call| call["tool"] == "structureSearch")
             .expect("parent listing");
-        assert_eq!(lead["kind"], "related");
+        assert_eq!(lead.get("kind"), None);
         let listing = runtime
             .run(
                 format!("recover-{tool}"),

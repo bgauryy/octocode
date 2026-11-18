@@ -1,11 +1,12 @@
 use super::*;
+use octocode_test_support::json_fixture;
 
 #[test]
 fn panic_in_one_row_does_not_abort_following_rows() {
     let rows = [true, false].map(|panics| {
         execute_row(|| {
             assert!(!panics, "injected row failure with private input");
-            Ok(DomainResult::payload(serde_json::json!({"value": 7}), None))
+            Ok(DomainResult::payload(json_fixture(r#"{"value": 7}"#), None))
         })
         .expect("each row returns its own result")
     });

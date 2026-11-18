@@ -90,11 +90,19 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     },
     SecretPattern {
         name: "awsSecretAccessKey",
-        regex: r###"\b['"]?(?:AWS|aws|Aws)?_?(?:SECRET|secret|Secret)_?(?:ACCESS|access|Access)_?(?:KEY|key|Key)['"]?\s*(?::|=>|=)\s*['"]?(?P<secret>[A-Za-z0-9/+=]{40})['"]?\b"###,
+        // The value is the 40 base64 bytes after the operator, behind any
+        // punctuation or symbol that touches it (a quote of any kind, a
+        // backtick, emphasis, a bracket, an ellipsis), and it ends at the
+        // next byte that is neither base64 nor a word character, so a value
+        // that ends in `+` or `/` is matched whole. A placeholder's opener
+        // (`$`, `{`, `<`, `%`, `[`) is no such touch: a template names the
+        // value and holds none of it.
+        regex: r###"\b['"]?(?:AWS|aws|Aws)?_?(?:SECRET|secret|Secret)_?(?:ACCESS|access|Access)_?(?:KEY|key|Key)['"]?\s*(?::|=>|=)\s*[^\s\w$%<\[{+/=]*(?P<secret>[A-Za-z0-9/+=]{40})(?:[^A-Za-z0-9_+/=]|\z)"###,
     },
     SecretPattern {
         name: "awsSessionToken",
-        regex: r###"\b['"]?(?:AWS|aws|Aws)?_?(?:SESSION|session|Session)_?(?:TOKEN|token|Token)['"]?\s*(?::|=>|=)\s*['"]?(?P<secret>[A-Za-z0-9/+=]{200,})['"]?\b"###,
+        // Its value is touched and ended as `awsSecretAccessKey`'s is.
+        regex: r###"\b['"]?(?:AWS|aws|Aws)?_?(?:SESSION|session|Session)_?(?:TOKEN|token|Token)['"]?\s*(?::|=>|=)\s*[^\s\w$%<\[{+/=]*(?P<secret>[A-Za-z0-9/+=]{200,})(?:[^A-Za-z0-9_+/=]|\z)"###,
     },
     SecretPattern {
         name: "googleApiKey",

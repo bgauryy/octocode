@@ -88,8 +88,28 @@ function versionOutput(bin) {
 }
 
 /**
- * Throws unless `bin --version` (through `run`) reports `octocode <version>`:
- * the binary runs on this machine and is the pinned release.
+ * True when `reported` is `version` or `version+<hex>`: the build metadata is
+ * the tool contract fingerprint the binary was built against. Any other
+ * suffix, or another version, is not a match. Every reader of a binary's
+ * `--version` or an MCP `serverInfo.version` uses this one rule.
+ *
+ * @param {string} reported
+ * @param {string} version
+ */
+function sameVersion(reported, version) {
+  return reported === version || (reported.startsWith(`${version}+`) && /^[0-9a-f]+$/.test(reported.slice(version.length + 1)));
+}
+
+/** True when `--version` output is `octocode <version>`, optionally `+<hex>`. */
+function reportsVersion(output, version) {
+  const text = output.trim();
+  return text.startsWith('octocode ') && sameVersion(text.slice('octocode '.length), version);
+}
+
+/**
+ * Throws unless `bin --version` (through `run`) reports `octocode <version>`
+ * (optionally `+<hex>`): the binary runs on this machine and is the pinned
+ * release.
  *
  * @param {string} bin
  * @param {string} version
@@ -97,7 +117,7 @@ function versionOutput(bin) {
  */
 function verifyBinaryVersion(bin, version, run = versionOutput) {
   const reported = run(bin).trim();
-  if (reported !== `octocode ${version}`) {
+  if (!reportsVersion(reported, version)) {
     throw new Error(`${bin} reports '${reported}', expected 'octocode ${version}'`);
   }
 }
@@ -155,4 +175,4 @@ async function fetchNativeBinary({
   return destination;
 }
 
-module.exports = { extractTarFile, fetchNativeBinary, registryFor, verifyBinaryVersion };
+module.exports = { extractTarFile, fetchNativeBinary, registryFor, reportsVersion, sameVersion, verifyBinaryVersion };

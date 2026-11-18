@@ -39,7 +39,7 @@ impl Warm {
     ) -> Option<Result<McpResult, RuntimeError>> {
         use crate::cli::serve::Warm as Answer;
         let remote = self.remote.as_ref()?;
-        if !octocode_native::id::ToolId::from_name(tool)
+        if !octocode_runtime_base::id::ToolId::from_name(tool)
             .is_some_and(crate::cli::serve::runs_on_server)
         {
             return None;
@@ -62,8 +62,8 @@ impl Warm {
     pub(super) async fn prewarm(&self, runtime: &ToolRuntime) {
         let handle = tokio::runtime::Handle::current();
         let wanted = runtime.config().resolved.lsp.prewarm
-            == octocode_native::config::LspPrewarm::All
-            && runtime.is_available(octocode_native::id::ToolId::LspSearch.as_str());
+            == octocode_runtime_base::config::LspPrewarm::All
+            && runtime.is_available(octocode_runtime_base::id::ToolId::LspSearch.as_str());
         if wanted && let Some(remote) = &self.remote {
             match remote.prewarm().await {
                 Ok(()) => return,
@@ -94,16 +94,5 @@ impl Warm {
     }
 }
 
-/// Windows has no warm server, so no call is routed to one: MCP runs every
-/// tool in process there.
 #[cfg(all(test, windows))]
-#[tokio::test]
-async fn an_mcp_session_on_windows_runs_every_tool_in_process() {
-    let warm = Warm::resolve();
-    let cancelled = tokio_util::sync::CancellationToken::new();
-    assert!(
-        warm.call("localSearch", &Value::Null, &cancelled)
-            .await
-            .is_none()
-    );
-}
+mod tests;

@@ -21,7 +21,7 @@ fn counted(root: String, pattern: &str, cancel_after: u32) -> (u32, u32) {
 fn a_cancel_ends_the_matched_lines_of_one_file() {
     let t = TmpDir::new();
     let lines = 400_000;
-    t.write("big.txt", &"needle\n".repeat(lines));
+    t.write("big.txt", "needle\n".repeat(lines));
     let (found, _) = counted(t.path(), "needle", 3);
     assert!(
         found < lines as u32 / 2,
@@ -39,7 +39,7 @@ fn a_cancel_ends_the_matched_lines_of_one_file() {
 fn a_cancel_ends_the_matches_of_one_long_line() {
     let t = TmpDir::new();
     let hits = 300_000;
-    t.write("line.txt", &format!("{}\n", "needle ".repeat(hits)));
+    t.write("line.txt", format!("{}\n", "needle ".repeat(hits)));
     let (found, _) = counted(t.path(), "needle", 3);
     assert!(
         found < hits as u32 / 2,
@@ -55,7 +55,7 @@ fn a_cancel_ends_the_matches_of_one_long_line() {
 fn a_cancel_ends_the_read_of_a_file_held_whole() {
     let t = TmpDir::new();
     let hits = 12_000_000;
-    t.write("huge.txt", &format!("{}\n", "needle ".repeat(hits)));
+    t.write("huge.txt", format!("{}\n", "needle ".repeat(hits)));
     let (found, _) = counted(t.path(), "needle", 3);
     assert!(
         found < hits as u32 / 2,

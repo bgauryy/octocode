@@ -13,6 +13,10 @@
     clippy::panic,
     reason = "integration-test assertions"
 )]
+#![expect(
+    unreachable_pub,
+    reason = "a test crate has no API: its `pub` items and the runtime fixture it mounts serve its own modules"
+)]
 
 mod support;
 

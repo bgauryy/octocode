@@ -35,7 +35,7 @@ function render(stderrBytes: number, status: number) {
   try {
     fakeCargo(dir, stderrBytes, status);
     const code = `import { renderRust } from ${JSON.stringify(rustModule)};
-process.stdout.write(renderRust('// header', '{"$defs":{}}', new Set(['Id'])));`;
+process.stdout.write(renderRust('// header', '{"$defs":{}}', new Set(['Id'])).types);`;
     return spawnSync(
       process.execPath,
       ['--input-type=module', '-e', code],

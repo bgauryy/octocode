@@ -2,7 +2,7 @@
 //! rustup proxy would then run that directory's `rust-analyzer`: the repository's
 //! own program. Such a build is not taken as the server.
 use super::rustup_fixture::{FakeRustup, toolchain_binary};
-use crate::lsp::config::invocation::rustup::{RustupView, view_env, with_view};
+use super::{RustupView, view_env, with_view};
 use crate::lsp::config::{
     LspDiscoveryOptions, default_server_for_file, repository_toolchain_refusal,
     server_command_resolves,

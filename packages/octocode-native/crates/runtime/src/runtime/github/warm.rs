@@ -3,11 +3,10 @@
 //! Rows read the answers through their request context, which falls back to
 //! its own request for any ref the warm-up did not answer.
 use super::{ExecutionContext, GitHubServices, ResponseAccess};
-use crate::{
-    id::ToolId, policy::path::PathPolicy, security::CheckedQuery, tools::gh_get_file_content,
-};
 use futures_util::future::join_all;
 use octocode_github::{RefMemo, SettleOnDrop};
+use octocode_runtime_base::{id::ToolId, policy::path::PathPolicy, security::CheckedQuery};
+use octocode_tool_github::gh_get_file_content;
 use std::sync::Arc;
 
 /// One batch's warm-up: the refs its rows name and the memo they share.

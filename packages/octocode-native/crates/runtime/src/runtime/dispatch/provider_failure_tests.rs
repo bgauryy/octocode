@@ -1,4 +1,5 @@
 use super::*;
+use octocode_test_support::json_fixture;
 use serde_json::json;
 
 /// A tool's typed remaining notes survive dispatch; a bare value has none.
@@ -10,45 +11,67 @@ fn payload_and_tool_errors_share_failure_classification() {
         ErrorCode::NotFound,
     ] {
         let payload = DomainResult::payload(json!({"errorCode":code}), Some("error"));
-        let typed = DomainResult::from(crate::response::result::ToolError::new(code, "failure"));
+        let typed = DomainResult::from(octocode_runtime_base::response::result::ToolError::new(
+            code, "failure",
+        ));
         assert_eq!(payload.failure, typed.failure, "{code}");
     }
     assert_eq!(
-        DomainResult::payload(json!({"error":"failed"}), Some("error")).failure,
-        Some(crate::id::error_codes::ErrorClass::Unservable)
+        DomainResult::payload(json_fixture(r#"{"error": "failed"}"#), Some("error")).failure,
+        Some(octocode_runtime_base::id::error_codes::ErrorClass::Unservable)
     );
     assert!(
-        DomainResult::payload(json!({"errorCode":"classificationRateLimited"}), None)
-            .failure
-            .is_none()
+        DomainResult::payload(
+            json_fixture(r#"{"errorCode": "classificationRateLimited"}"#),
+            None
+        )
+        .failure
+        .is_none()
     );
 }
 
 #[test]
 fn tool_error_rows_take_their_failure_kind_from_the_error_code() {
-    let unresolved = value_result(json!({"status":"error","errorCode":"notFound"}));
-    assert_eq!(unresolved.failure, Some(crate::id::error_codes::ErrorClass::CorrectInput));
-    let missing = value_result(json!({"status":"error","errorCode":"notFound"}));
-    assert_eq!(missing.failure, Some(crate::id::error_codes::ErrorClass::CorrectInput));
-    let other = value_result(json!({"status":"error","errorCode":"serverUnavailable"}));
-    assert_eq!(other.failure, Some(crate::id::error_codes::ErrorClass::Unservable));
+    let unresolved = value_result(json_fixture(
+        r#"{"status": "error", "errorCode": "notFound"}"#,
+    ));
     assert_eq!(
-        value_result(json!({"status":"error"})).failure,
-        Some(crate::id::error_codes::ErrorClass::Unservable)
+        unresolved.failure,
+        Some(octocode_runtime_base::id::error_codes::ErrorClass::CorrectInput)
+    );
+    let missing = value_result(json_fixture(
+        r#"{"status": "error", "errorCode": "notFound"}"#,
+    ));
+    assert_eq!(
+        missing.failure,
+        Some(octocode_runtime_base::id::error_codes::ErrorClass::CorrectInput)
+    );
+    let other = value_result(json_fixture(
+        r#"{"status": "error", "errorCode": "serverUnavailable"}"#,
+    ));
+    assert_eq!(
+        other.failure,
+        Some(octocode_runtime_base::id::error_codes::ErrorClass::Unservable)
+    );
+    assert_eq!(
+        value_result(json_fixture(r#"{"status": "error"}"#)).failure,
+        Some(octocode_runtime_base::id::error_codes::ErrorClass::Unservable)
     );
 }
 
 #[test]
 fn typed_parse_failure_is_a_row_error_not_a_worker_failure() {
-    let row = parse_query::<std::collections::BTreeMap<String, usize>>(json!({"offset": 1.5}))
-        .expect_err("fraction");
+    let row = parse_query::<std::collections::BTreeMap<String, usize>>(json_fixture(
+        r#"{"offset": 1.5}"#,
+    ))
+    .expect_err("fraction");
     assert_eq!(row.status, Some("error"));
     assert_eq!(row.data["errorCode"], "invalidInput");
 }
 
 #[test]
 fn every_error_row_has_one_shape() {
-    let next = json!({"retry": {"tool": "localSearch", "query": {"path": "/r"}}});
+    let next = json_fixture(r#"{"retry": {"tool": "localSearch", "query": {"path": "/r"}}}"#);
     let row = DomainResult::failure(
         ErrorCode::NotFound,
         "Path does not exist: /r",
@@ -56,7 +79,10 @@ fn every_error_row_has_one_shape() {
         Some(next.clone()),
     );
     assert_eq!(row.status, Some("error"));
-    assert_eq!(row.failure, Some(crate::id::error_codes::ErrorClass::CorrectInput));
+    assert_eq!(
+        row.failure,
+        Some(octocode_runtime_base::id::error_codes::ErrorClass::CorrectInput)
+    );
     let keys: Vec<&str> = row
         .data
         .as_object()
@@ -70,21 +96,29 @@ fn every_error_row_has_one_shape() {
     let bare = DomainResult::failure(ErrorCode::ExecutionFailed, "failed", vec![], None);
     assert_eq!(
         bare.data,
-        json!({"error": "failed", "errorCode": "executionFailed"})
+        json_fixture(r#"{"error": "failed", "errorCode": "executionFailed"}"#)
     );
-    assert_eq!(bare.failure, Some(crate::id::error_codes::ErrorClass::Unservable));
+    assert_eq!(
+        bare.failure,
+        Some(octocode_runtime_base::id::error_codes::ErrorClass::Unservable)
+    );
 }
 
 /// A tool payload that reports `status: "error"` is an execution failure
 /// on every path, including the GitHub history arms.
 #[test]
 fn error_status_payload_is_an_execution_failure() {
-    let failed = value_result(json!({"status": "error", "error": "compare failed"}));
+    let failed = value_result(json_fixture(
+        r#"{"status": "error", "error": "compare failed"}"#,
+    ));
     assert_eq!(failed.status, Some("error"));
-    assert_eq!(failed.failure, Some(crate::id::error_codes::ErrorClass::Unservable));
-    let empty = value_result(json!({"status": "empty"}));
+    assert_eq!(
+        failed.failure,
+        Some(octocode_runtime_base::id::error_codes::ErrorClass::Unservable)
+    );
+    let empty = value_result(json_fixture(r#"{"status": "empty"}"#));
     assert_eq!((empty.status, empty.failure), (Some("empty"), None));
-    let ok = value_result(json!({"items": []}));
+    let ok = value_result(json_fixture(r#"{"items": []}"#));
     assert_eq!((ok.status, ok.failure), (None, None));
 }
 
@@ -94,7 +128,7 @@ fn error_status_payload_is_an_execution_failure() {
 fn typed_shape_mismatch_is_invalid_input_for_every_local_tool() {
     let root = tempfile::tempdir().expect("fixture directory");
     let path = root.path().to_string_lossy().into_owned();
-    let paths = PathPolicy::new(crate::policy::path::PathPolicyConfig {
+    let paths = PathPolicy::new(octocode_runtime_base::policy::path::PathPolicyConfig {
         workspace_root: Some(root.path().to_path_buf()),
         ..Default::default()
     })
@@ -107,7 +141,7 @@ fn typed_shape_mismatch_is_invalid_input_for_every_local_tool() {
         github_credential: None,
     };
     for (tool, query) in [
-        (ToolId::LocalFetch, json!({"path": 5})),
+        (ToolId::LocalFetch, json_fixture(r#"{"path": 5}"#)),
         (ToolId::LocalSearch, json!({"path": path, "matchString": 5})),
         (
             ToolId::StructureSearch,
@@ -136,14 +170,18 @@ fn typed_shape_mismatch_is_invalid_input_for_every_local_tool() {
             "{tool}: {}",
             row.data
         );
-        assert_eq!(row.failure, Some(crate::id::error_codes::ErrorClass::CorrectInput), "{tool}");
+        assert_eq!(
+            row.failure,
+            Some(octocode_runtime_base::id::error_codes::ErrorClass::CorrectInput),
+            "{tool}"
+        );
     }
 }
 
 #[test]
 fn a_non_local_tool_is_a_routing_error() {
     let root = tempfile::tempdir().expect("fixture directory");
-    let paths = PathPolicy::new(crate::policy::path::PathPolicyConfig {
+    let paths = PathPolicy::new(octocode_runtime_base::policy::path::PathPolicyConfig {
         workspace_root: Some(root.path().to_path_buf()),
         ..Default::default()
     })
@@ -177,10 +215,15 @@ fn a_non_local_tool_is_a_routing_error() {
 }
 
 /// Every provider/transport row states each fact once, in one order, with
-/// `retryable` always present and absent facts omitted.
+/// absent facts omitted; a status the code already names (`rateLimited` is
+/// 429) is not repeated as `httpStatus`.
 #[test]
 fn provider_rows_have_one_shape() {
-    let next = json!({"retry": {"tool": "artifactSearch", "query": {"queries": []}}});
+    let next = json_fixture(
+        r#"{
+            "retry": {"tool": "artifactSearch", "query": {"queries": []}}
+        }"#,
+    );
     let row = DomainResult::provider(
         ErrorCode::RateLimited,
         "slow down",
@@ -189,11 +232,16 @@ fn provider_rows_have_one_shape() {
         Upstream {
             retryable: true,
             http_status: Some(429),
-            rate_limit: Some(json!({"resource": "core", "retryAfterSeconds": 60})),
+            rate_limit: Some(json_fixture(
+                r#"{"resource": "core", "retryAfterSeconds": 60}"#,
+            )),
         },
     );
     assert_eq!(row.status, Some("error"));
-    assert_eq!(row.failure, Some(crate::id::error_codes::ErrorClass::Transient));
+    assert_eq!(
+        row.failure,
+        Some(octocode_runtime_base::id::error_codes::ErrorClass::Transient)
+    );
     let keys: Vec<&str> = row
         .data
         .as_object()
@@ -207,7 +255,6 @@ fn provider_rows_have_one_shape() {
             "error",
             "errorCode",
             "retryable",
-            "httpStatus",
             "rateLimit",
             "hints",
             "next"
@@ -222,7 +269,13 @@ fn provider_rows_have_one_shape() {
     );
     assert_eq!(
         bare.data,
-        json!({"error": "Network connection failed", "errorCode": "transport", "retryable": false}),
+        json_fixture(
+            r#"{
+                "error": "Network connection failed",
+                "errorCode": "transport",
+                "retryable": false
+            }"#
+        ),
         "retryable is stated only when true"
     );
     // Registry and language-server rows use the same builder; an
@@ -237,14 +290,21 @@ fn provider_rows_have_one_shape() {
     );
     assert_eq!(
         lsp.data,
-        json!({"error": "crashed", "errorCode": "serverCrashed", "retryable": true, "hints": ["h"]})
+        json_fixture(
+            r#"{
+                "error": "crashed",
+                "errorCode": "serverCrashed",
+                "retryable": true,
+                "hints": ["h"]
+            }"#
+        )
     );
 }
 
 /// B233: the calling tool's own recovery decides a shared code. A
 /// ghGetFileContent bad pattern names its repair in the message, so it
-/// carries no hint; a `notFound` follows the one rule, the same shared hint
-/// on securityCheck and artifactSearch.
+/// carries no hint; a `notFound` on securityCheck or artifactSearch gets that
+/// tool's own package or advisory recovery, never the shared path advice.
 #[test]
 fn the_calling_tools_own_recovery_decides_the_hint() {
     let failure =
@@ -253,8 +313,12 @@ fn the_calling_tools_own_recovery_decides_the_hint() {
     assert!(pattern.get("hints").is_none(), "{pattern}");
     let security = failure(ToolId::SecurityCheck, ErrorCode::NotFound);
     let artifact = failure(ToolId::ArtifactSearch, ErrorCode::NotFound);
-    assert!(artifact["hints"][0].is_string(), "{artifact}");
-    assert_eq!(security["hints"], artifact["hints"], "{security}");
+    let shared = octocode_runtime_base::response::output::NOT_FOUND_HINT;
+    for (row, names) in [(&security, "GHSA"), (&artifact, "packageName")] {
+        let hint = row["hints"][0].as_str().unwrap_or_default();
+        assert!(hint.contains(names), "{row}");
+        assert_ne!(hint, shared, "{row}");
+    }
 }
 
 #[test]
@@ -308,8 +372,8 @@ fn http_status_is_carried_when_present_and_absent_when_not() {
         );
         assert_eq!(
             failure.data.get("retryable"),
-            (crate::id::error_class(failure.data["errorCode"].as_str().unwrap())
-                == crate::id::error_codes::ErrorClass::Transient)
+            (octocode_runtime_base::id::error_class(failure.data["errorCode"].as_str().unwrap())
+                == octocode_runtime_base::id::error_codes::ErrorClass::Transient)
                 .then_some(&serde_json::json!(retryable)),
             "{code}"
         );

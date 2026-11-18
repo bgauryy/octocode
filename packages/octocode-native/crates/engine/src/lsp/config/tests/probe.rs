@@ -1,7 +1,15 @@
 use super::*;
-use crate::lsp::config::probe::{ProbeError, probe_command_succeeds};
+use crate::lsp::config::probe::{ProbeError, probe_command};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Run `command args..` with null stdio; `Ok` when it exited successfully.
+/// See [`probe_command`]. Blocking: call from a blocking thread.
+fn probe_command_succeeds(command: &str, args: &[&str]) -> Result<(), ProbeError> {
+    let mut probe = std::process::Command::new(command);
+    probe.args(args);
+    probe_command(&mut probe, false).map(drop)
+}
 
 /// `probe` run by a caller that stops (its deadline passes) `after` from now.
 fn caller_stopping_after<T>(after: std::time::Duration, probe: impl FnOnce() -> T) -> T {

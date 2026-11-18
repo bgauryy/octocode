@@ -2,6 +2,7 @@
 
 use crate::support::{self, Run as _, Workspace};
 use octocode_native::runtime::ToolRuntime;
+use octocode_test_support::json_fixture;
 use serde_json::json;
 
 fn beta_runtime(workspace: &Workspace) -> ToolRuntime {
@@ -21,7 +22,7 @@ async fn local_search_counts_are_match_line_and_file_counts() {
         &runtime,
         "localSearch",
         // The page counters are a stats extra.
-        json!({"path":".","matchString":["needle"]}),
+        json_fixture(r#"{"path": ".", "matchString": ["needle"]}"#),
     )
     .await;
     // The totals are flat on the row (no `stats` object, no `fileCount`: the
@@ -44,13 +45,19 @@ async fn local_search_counts_are_match_line_and_file_counts() {
     let merged = support::run(
         &runtime,
         "localSearch",
-        json!({"path":"a.txt","matchString":["needle"],"contextLines":{"before":2,"after":2}}),
+        json_fixture(
+            r#"{
+                "path": "a.txt",
+                "matchString": ["needle"],
+                "contextLines": {"before": 2, "after": 2}
+            }"#,
+        ),
     )
     .await;
     let row = &merged.data()["files"][0]["matches"][0];
     assert_eq!(
         row["matchedLines"],
-        json!([1, 3]),
+        json_fixture(r#"[1, 3]"#),
         "{}",
         merged.structured_content
     );
@@ -66,7 +73,15 @@ async fn ast_tools_count_matches_as_match_count() {
         &runtime,
         "astSearch",
         // A complete page drops its stats; the stats extra keeps them.
-        json!({"operation":"match","path":"src","parser":"typescript","rule":{"pattern":"old($A)"}}))
+        json_fixture(
+            r#"{
+                "operation": "match",
+                "path": "src",
+                "parser": "typescript",
+                "rule": {"pattern": "old($A)"}
+            }"#,
+        ),
+    )
     .await;
     assert_eq!(
         search.data()["matchCount"],
@@ -90,7 +105,13 @@ async fn every_column_is_one_based() {
     let spans = support::run(
         &runtime,
         "localSearch",
-        json!({"path":"x.rs","matchString":["a()"],"view":"matchOnly"}),
+        json_fixture(
+            r#"{
+                "path": "x.rs",
+                "matchString": ["a()"],
+                "view": "matchOnly"
+            }"#,
+        ),
     )
     .await;
     let rows = &spans.data()["files"][0]["matches"];
@@ -99,7 +120,14 @@ async fn every_column_is_one_based() {
     let matched = support::run(
         &runtime,
         "astSearch",
-        json!({"operation":"match","path":"x.rs","rule":{"pattern":"a()"},"includeCaptures":true}),
+        json_fixture(
+            r#"{
+                "operation": "match",
+                "path": "x.rs",
+                "rule": {"pattern": "a()"},
+                "includeCaptures": true
+            }"#,
+        ),
     )
     .await;
     let row = &matched.data()["files"][0]["matches"][0];
@@ -108,7 +136,7 @@ async fn every_column_is_one_based() {
     let tree = support::run(
         &runtime,
         "astSearch",
-        json!({"operation":"syntaxTree","path":"x.rs"}),
+        json_fixture(r#"{"operation": "syntaxTree", "path": "x.rs"}"#),
     )
     .await;
     // `function_item` spans line 1 from character 1 to the end (exclusive 10).
@@ -128,11 +156,24 @@ async fn lsp_position_and_call_hierarchy_inputs_fail_closed() {
     let runtime = workspace.runtime(&[]);
     for (row, names) in [
         (
-            json!({"operation":"definition","path":"a.ts","position":{"line":0,"character":16}}),
+            json_fixture(
+                r#"{
+                    "operation": "definition",
+                    "path": "a.ts",
+                    "position": {"line": 0, "character": 16}
+                }"#,
+            ),
             ["position", "symbolName"],
         ),
         (
-            json!({"operation":"callHierarchy","path":"a.ts","symbolName":"f","line":1}),
+            json_fixture(
+                r#"{
+                    "operation": "callHierarchy",
+                    "path": "a.ts",
+                    "symbolName": "f",
+                    "line": 1
+                }"#,
+            ),
             ["callHierarchy", "callers"],
         ),
     ] {

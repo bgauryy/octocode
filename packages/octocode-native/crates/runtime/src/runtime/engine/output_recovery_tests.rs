@@ -1,8 +1,9 @@
-use crate::response::outcome::ToolOutcome;
+use octocode_runtime_base::response::outcome::ToolOutcome;
 
 use super::*;
-use crate::response::result::ErrorClass;
-use crate::response::stage::{isolate_output_rows, response_all_failed};
+use octocode_runtime_base::response::result::ErrorClass;
+use octocode_runtime_base::response::stage::{isolate_output_rows, response_all_failed};
+use octocode_test_support::json_fixture;
 
 fn mcp_from_rows(mut structured: Value) -> Value {
     assert!(isolate_output_rows("ghCloneRepo", &mut structured).expect("row isolation"));
@@ -10,7 +11,7 @@ fn mcp_from_rows(mut structured: Value) -> Value {
     let result = super::super::error::mcp_result(
         "ghCloneRepo",
         Ok(ToolOutcome {
-            structured_content: crate::security::Sanitized::sealed(structured),
+            structured_content: octocode_runtime_base::security::Sanitized::sealed(structured),
             failure: Some(ErrorClass::Unservable),
             all_failed,
             continued: None,
@@ -26,9 +27,9 @@ fn payload(result: &Value) -> Value {
 
 #[test]
 fn malformed_single_row_is_an_error_in_both_mcp_channels() {
-    let result = mcp_from_rows(json!({"results":[
-        {"index":0,"data":{"owner":"a"}}
-    ]}));
+    let result = mcp_from_rows(json_fixture(
+        r#"{"results": [{"index": 0, "data": {"owner": "a"}}]}"#,
+    ));
     assert_eq!(result["isError"], true);
     assert_eq!(
         payload(&result)["results"][0]["data"]["errorCode"],
@@ -44,17 +45,22 @@ fn malformed_single_row_is_an_error_in_both_mcp_channels() {
 
 #[test]
 fn malformed_row_in_mixed_batch_keeps_healthy_row_and_mcp_success_flag() {
-    let result = mcp_from_rows(json!({"results":[
-        {"index":0,"data":{"owner":"a"}},
-        {"index":1,"data":{
-            "owner":"a","repo":"b","bytes":0,
-            "location":{
-                "kind":"repo","path":"/tmp/repo",
-                "commitSha":"abc",
-                "ref":"main"
-            }
-        }}
-    ]}));
+    let result = mcp_from_rows(json_fixture(
+        r#"{
+            "results": [
+                {"index": 0, "data": {"owner": "a"}},
+                {
+                    "index": 1,
+                    "data": {
+                        "owner": "a",
+                        "repo": "b",
+                        "bytes": 0,
+                        "location": {"path": "/tmp/repo", "commitSha": "abc", "ref": "main"}
+                    }
+                }
+            ]
+        }"#,
+    ));
     assert_eq!(result["isError"], false);
     let payload = payload(&result);
     assert_eq!(

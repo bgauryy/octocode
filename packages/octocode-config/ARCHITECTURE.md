@@ -64,7 +64,8 @@ core Zod schemas ── buildEnforcementContractIr ──▶ contract/tool-contr
       ├── buildNativeParityFixtures ─────────────▶ contract/contract-fixtures.json├─ embedded by
       ├── provenance (core version, fingerprint, sha) ▶ contract/provenance.json ─┤  octocode-native
       └── tool-contract/bundle.ts ──▶ contract/tool-types.schema.json             │  build.rs, in place
-            └── tool-contract/rust.ts (typify) ▶ contract/tool_types.rs ──────────┘
+            └── tool-contract/rust.ts (typify) ▶ contract/tool_types.rs ──────────┤
+                                               contract/tool_types_base.rs ─────┘
 ```
 
 Native keeps no copy, pin, or regeneration script: cargo reruns `build.rs`
@@ -92,7 +93,17 @@ When branches share a discriminator value, variants are named from it
 (`AstSearchQueryMatchPattern` / `…MatchRule`). Maps are `BTreeMap`
 (deterministic). Boolean `const`s remain a contract-validator check.
 
-The Rust header carries the core contract fingerprint and pins the bundle's SHA-256,
+**Derives by role.** Every generated type derives `Serialize`. `Deserialize` is
+derived only where something decodes: what a tool's `*Query` or `*Input`
+reaches, what native source names (saved pages and plans, rows checked against
+their type), and what no tool schema reaches; a type only a `*Output` reaches is
+encode-only (`rust-serde.ts`). The types native names through
+`octocode_contract_base::` go to `contract/tool_types_base.rs` (crate
+`contract-base`, which the GitHub crate depends on), with what they reach and the
+shared conversion error; `tool_types.rs` re-exports them, so each has one
+definition.
+
+Both Rust headers carry the core contract fingerprint; `tool_types.rs` also pins the bundle's SHA-256,
 and `--check` regenerates and compares the complete body as well as the header.
 Both config and tool generation write only changed files through `scripts/generated-files.ts`,
 preserving Cargo's freshness checks when their contracts are unchanged.

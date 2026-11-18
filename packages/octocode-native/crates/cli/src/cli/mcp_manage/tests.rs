@@ -1,6 +1,7 @@
 use super::continue_main::inspect_continue_main;
 use super::document::{has_inline_comment, render_toml};
 use super::*;
+use octocode_test_support::json_fixture;
 
 fn spec(id: &str) -> &'static ClientSpec {
     mcp_clients::client(id).expect("supported client")
@@ -57,7 +58,7 @@ fn every_agent_updates_redacts_preserves_and_rejects_stale_edits() {
             "{id}: {result}"
         );
         assert_eq!(result["entry"]["method"], "bunx");
-        assert_eq!(result["entry"]["envKeys"], json!(["API_KEY"]));
+        assert_eq!(result["entry"]["envKeys"], json_fixture(r#"["API_KEY"]"#));
         let sanitized = result.to_string();
         assert!(!sanitized.contains("octocode-secret") && !sanitized.contains("unrelated-secret"));
         let contents = std::fs::read_to_string(&target.path).expect("read");
@@ -143,9 +144,16 @@ fn untrusted_command_args_and_env_values_never_reach_projection() {
     for client in &CLIENTS {
         let projected = projection(
             client,
-            Some(
-                &json!({"command":["secret-executable","--token=secret-arg"],"cmd":"secret-command","args":["secret-arg"],"env":{"API":"secret-env"},"environment":{"API":"secret-env"},"envs":{"API":"secret-env"}}),
-            ),
+            Some(&json_fixture(
+                r#"{
+                    "command": ["secret-executable", "--token=secret-arg"],
+                    "cmd": "secret-command",
+                    "args": ["secret-arg"],
+                    "env": {"API": "secret-env"},
+                    "environment": {"API": "secret-env"},
+                    "envs": {"API": "secret-env"}
+                }"#,
+            )),
         );
         assert!(!projected.to_string().contains("secret"));
     }
@@ -245,7 +253,7 @@ fn opencode_v2_updates_the_servers_mapping_and_disabled_flag() {
     assert!(root["mcp"].get("octocode").is_none());
     assert_eq!(
         root["mcp"]["servers"]["other"]["command"],
-        json!(["keep-secret"])
+        json_fixture(r#"["keep-secret"]"#)
     );
 }
 
@@ -292,7 +300,10 @@ fn continue_main_json_is_a_sanitized_read_only_source() {
     let result = inspect_continue_main(spec("vscode-continue"), &path);
     assert_eq!(result["configured"], true);
     assert_eq!(result["writable"], false);
-    assert_eq!(result["entries"][0]["envKeys"], json!(["TOKEN"]));
+    assert_eq!(
+        result["entries"][0]["envKeys"],
+        json_fixture(r#"["TOKEN"]"#)
+    );
     assert!(!result.to_string().contains("secret"));
     std::fs::write(&path,r#"{"experimental":{"modelContextProtocolServers":[{"transport":{"command":"npx","args":["octocode-mcp@latest"],"env":{"TOKEN":"secret-token"}}}]}}"#).expect("fixture");
     let result = inspect_continue_main(spec("vscode-continue"), &path);
@@ -349,11 +360,23 @@ fn manage_requests_name_their_operation_client_and_scope() {
     let cwd = dir.path().canonicalize().expect("canonical");
     for request in [
         json!({}),
-        json!({"operation":"rename"}),
-        json!({"operation":"setAgent"}),
-        json!({"operation":"setAgent","client":"cursor"}),
-        json!({"operation":"setAgent","client":"no-such-client","scope":"workspace"}),
-        json!({"operation":"setAgent","client":"cursor","scope":"local"}),
+        json_fixture(r#"{"operation": "rename"}"#),
+        json_fixture(r#"{"operation": "setAgent"}"#),
+        json_fixture(r#"{"operation": "setAgent", "client": "cursor"}"#),
+        json_fixture(
+            r#"{
+                "operation": "setAgent",
+                "client": "no-such-client",
+                "scope": "workspace"
+            }"#,
+        ),
+        json_fixture(
+            r#"{
+                "operation": "setAgent",
+                "client": "cursor",
+                "scope": "local"
+            }"#,
+        ),
     ] {
         assert!(manage(&request, &cwd).is_err(), "{request}");
     }

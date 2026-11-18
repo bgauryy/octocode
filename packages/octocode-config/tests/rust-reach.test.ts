@@ -1,15 +1,18 @@
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { NATIVE_CRATES, withDispatchRoots } from '../scripts/tool-contract/rust.ts';
+import { BASE_CRATE, NATIVE_CRATES, withDispatchRoots } from '../scripts/tool-contract/rust.ts';
 import { toolNames } from '../scripts/tool-contract/rust-dispatch.ts';
 import {
   blankLiterals,
   classify,
   itemRanges,
   keepReachable,
+  namesThrough,
   nativeIdentifiers,
+  withoutTypesOf,
 } from '../scripts/tool-contract/rust-reach.ts';
 import { contractIr } from './contract-ir.ts';
 
@@ -113,7 +116,7 @@ describe('generated Rust reachability', () => {
     const rust = file
       .slice(0, file.indexOf('/// How a continuation moves'))
       .split('\n')
-      .filter(line => !line.startsWith('//') && !line.startsWith('pub const '))
+      .filter(line => !line.startsWith('//') && !line.startsWith('pub const ') && !line.startsWith('pub use '))
       .join('\n');
     const roots = withDispatchRoots(
       nativeIdentifiers(NATIVE_CRATES),
@@ -122,5 +125,49 @@ describe('generated Rust reachability', () => {
     expect(roots.has('LocalFetchQuery')).toBe(true);
     // Nothing is left to drop: every emitted type is reachable from native.
     expect(declared(keepReachable(rust, roots))).toEqual(declared(rust));
+    // The base file holds exactly what native names through the base crate,
+    // and the types file declares none of it again.
+    const base = readFileSync(resolve(packageRoot, 'contract/tool_types_base.rs'), 'utf8')
+      .split('\n')
+      .filter(line => !line.startsWith('//'))
+      .join('\n');
+    const baseRoots = namesThrough(NATIVE_CRATES, BASE_CRATE);
+    expect(baseRoots.has('ErrorCode')).toBe(true);
+    expect(declared(keepReachable(base, baseRoots))).toEqual(declared(base));
+    expect(declared(rust).filter(name => declared(base).includes(name))).toEqual([]);
+    expect(file).toContain(`pub use ::${BASE_CRATE}::{error, ${declared(base).join(', ')}};`);
+  });
+});
+
+describe('the base crate split', () => {
+  it('reads the names native reaches through a crate path, use trees included', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'names-through-'));
+    try {
+      mkdirSync(join(dir, 'github', 'src'), { recursive: true });
+      mkdirSync(join(dir, 'target'));
+      writeFileSync(join(dir, 'github', 'src', 'lib.rs'), `use base::{Wait, Kind::Spacing, nested::{Deep}};
+// base::InComment
+fn f() -> base :: Code { let _ = "base::InString"; base::Other::new() }`);
+      writeFileSync(join(dir, 'target', 'skipped.rs'), 'use base::Built;');
+      expect([...namesThrough(dir, 'base')].sort()).toEqual(['Code', 'Kind', 'Other', 'Wait', 'nested']);
+      writeFileSync(join(dir, 'github', 'src', 'glob.rs'), 'use base::{Wait, *};');
+      expect(() => namesThrough(dir, 'base')).toThrow(/instead of importing \*/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves out the types the other crate declares, the impls and defaults only they use, and the error module', () => {
+    const base = keepReachable(generated, new Set(['RootPath']));
+    expect(declared(base)).toEqual(['RootPath']);
+    const rest = withoutTypesOf(generated, base);
+    expect(declared(rest)).toEqual(['Root', 'RootMode', 'Unused', 'Deeper']);
+    expect(rest).not.toContain('impl ::std::str::FromStr for RootPath');
+    expect(rest).not.toContain('From<RootPath> for ::std::string::String');
+    // A type still here keeps naming the moved one.
+    expect(rest).toContain('pub path: RootPath,');
+    expect(rest).toContain('fn root_mode');
+    expect(rest).not.toContain('pub mod error');
+    expect(base).toContain('pub mod error');
   });
 });

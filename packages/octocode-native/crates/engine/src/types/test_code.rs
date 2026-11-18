@@ -6,7 +6,7 @@ pub const WHOLE_FILE: [u32; 2] = [1, u32::MAX];
 /// Whether a file is test code by where it lies, or may hold any.
 pub type PathTest = dyn Fn(&std::path::Path) -> bool + Send + Sync;
 /// A file's 1-based test-only line spans.
-pub type LineSpans = dyn Fn(&std::path::Path) -> std::sync::Arc<Vec<[u32; 2]>> + Send + Sync;
+pub(super) type LineSpans = dyn Fn(&std::path::Path) -> std::sync::Arc<Vec<[u32; 2]>> + Send + Sync;
 
 /// Which side of the test-code line a search keeps, and how it tells: a
 /// file is test code whole by where it lies or by its spans; only a file

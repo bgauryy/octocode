@@ -4,6 +4,7 @@
 
 use super::history_a::{history_a_file, history_a_mount_pr};
 use crate::support::{self};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use support::{Workspace, call, inventory_len, row_data, row_status};
 use wiremock::matchers::{method, path};
@@ -150,18 +151,48 @@ async fn history_a_compare_commits_are_headlines_with_login_authors() {
     let head = "1111111111111111111111111111111111111111";
     Mock::given(method("GET"))
         .and(path(format!("/api/v3/repos/a/b/compare/v1...{head}")))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "status": "ahead", "ahead_by": 3, "behind_by": 0, "total_commits": 3,
-            "commits": [
-                {"sha": "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1", "author": {"login": "rickhanlonii"},
-                 "commit": {"message": "Fix A (#1)", "author": {"name": "Ricky", "date": "2024-01-01T00:00:00Z"}}},
-                {"sha": "c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2", "author": null,
-                 "commit": {"message": "Fix B (#2)\n\nLong body explaining B.", "author": {"name": "Unlinked", "date": "2024-01-02T00:00:00Z"}}},
-                {"sha": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3", "author": {"login": "acdlite"},
-                 "commit": {"message": "Fix C\n\nmore", "author": {"name": "Andrew", "date": "2024-01-03T00:00:00Z"}}}
-            ],
-            "files": [{"filename": "src/a.js", "status": "modified", "additions": 1, "deletions": 0}]
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "status": "ahead",
+                "ahead_by": 3,
+                "behind_by": 0,
+                "total_commits": 3,
+                "commits": [
+                    {
+                        "sha": "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1",
+                        "author": {"login": "rickhanlonii"},
+                        "commit": {
+                            "message": "Fix A (#1)",
+                            "author": {"name": "Ricky", "date": "2024-01-01T00:00:00Z"}
+                        }
+                    },
+                    {
+                        "sha": "c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2",
+                        "author": null,
+                        "commit": {
+                            "message": "Fix B (#2)\n\nLong body explaining B.",
+                            "author": {"name": "Unlinked", "date": "2024-01-02T00:00:00Z"}
+                        }
+                    },
+                    {
+                        "sha": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+                        "author": {"login": "acdlite"},
+                        "commit": {
+                            "message": "Fix C\n\nmore",
+                            "author": {"name": "Andrew", "date": "2024-01-03T00:00:00Z"}
+                        }
+                    }
+                ],
+                "files": [
+                    {
+                        "filename": "src/a.js",
+                        "status": "modified",
+                        "additions": 1,
+                        "deletions": 0
+                    }
+                ]
+            }"#,
+        )))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -190,9 +221,23 @@ async fn history_a_compare_commits_are_headlines_with_login_authors() {
         "{data}"
     );
     assert!(commits.iter().all(|c| c.get("message").is_none()), "{data}");
-    Mock::given(method("GET")).and(path("/api/v3/repos/a/b/commits/c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha":"c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2","commit":{"message":"Fix B (#2)\n\nLong body explaining B.","author":{"name":"Unlinked","date":"2024-01-02T00:00:00Z"}},"files":[]})))
-        .expect(1).mount(&server).await;
+    Mock::given(method("GET"))
+        .and(path(
+            "/api/v3/repos/a/b/commits/c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "sha": "c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2",
+                "commit": {
+                    "message": "Fix B (#2)\n\nLong body explaining B.",
+                    "author": {"name": "Unlinked", "date": "2024-01-02T00:00:00Z"}
+                },
+                "files": []
+            }"#,
+        )))
+        .expect(1)
+        .mount(&server)
+        .await;
     let full = call(
         &runtime,
         "ghGetHistoryItem",

@@ -1,5 +1,6 @@
 mod messages;
 mod patience;
+mod slow_servers;
 mod stream_failures;
 mod timeouts;
 
@@ -7,6 +8,7 @@ use super::*;
 use crate::error::{ErrorCode, ErrorKind};
 use crate::lsp::transport::codec::{Frame, encode_frame, read_frame};
 use crate::lsp::transport::patience::{DEADLINE_RESERVE, with_caller_deadline};
+use crate::test_support::clock::{TestClock, paused};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream, ReadBuf, duplex};
@@ -44,11 +46,17 @@ fn context() -> ClientRequestContext {
     }
 }
 
-fn connect_with_buffer(client_to_server: usize) -> (JsonRpcConnection, Server) {
+fn connect_with_buffer(client_to_server: usize, clock: &TestClock) -> (JsonRpcConnection, Server) {
     let (client_w, server_r) = duplex(client_to_server);
     let (server_w, client_r) = duplex(64 * 1024);
-    let connection =
-        JsonRpcConnection::new(client_r, client_w, context(), ProgressTracker::new(), None);
+    let connection = JsonRpcConnection::new(
+        client_r,
+        client_w,
+        context(),
+        ProgressTracker::new(clock.lsp()),
+        None,
+        clock.lsp(),
+    );
     (
         connection,
         Server {
@@ -58,8 +66,8 @@ fn connect_with_buffer(client_to_server: usize) -> (JsonRpcConnection, Server) {
     )
 }
 
-fn connect() -> (JsonRpcConnection, Server) {
-    connect_with_buffer(64 * 1024)
+fn connect(clock: &TestClock) -> (JsonRpcConnection, Server) {
+    connect_with_buffer(64 * 1024, clock)
 }
 
 fn pending_len(connection: &JsonRpcConnection) -> Option<usize> {
@@ -69,12 +77,12 @@ fn pending_len(connection: &JsonRpcConnection) -> Option<usize> {
     }
 }
 
-async fn wait_until_dead(connection: &JsonRpcConnection) {
+async fn wait_until_dead(connection: &JsonRpcConnection, clock: &TestClock) {
     for _ in 0..100 {
         if !connection.is_alive() {
             return;
         }
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        clock.sleep(Duration::from_millis(10)).await;
     }
     panic!("connection should be marked dead");
 }

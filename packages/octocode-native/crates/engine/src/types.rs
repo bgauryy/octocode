@@ -93,12 +93,10 @@ pub use fs_resume::{WalkCursor, WalkTally};
 pub use graph_scan::{GraphFactsScanDiagnostic, GraphFactsScanOptions, GraphLanguageGlob};
 pub use ignore::IgnorePolicy;
 pub use line_scope::LineScope;
-pub use test_code::{
-    PathTest, TestCodeExcluded, TestCodeScope, WHOLE_FILE, wholly_left_out,
-};
+pub use test_code::{PathTest, TestCodeExcluded, TestCodeScope, WHOLE_FILE, wholly_left_out};
 pub use text_search::{
-    BinaryExtensionCount, CapReason, CaseRule, DECLARATION_RANK, DeferredInspector, InspectDeferred, JudgeSource,
-    PatternSyntax, RowWindow, SearchContext, SearchOutput, SearchSort, SearchedSource, SourceJudge,
-    SourceValues, SpanValues, TextSearchFile, TextSearchMatch, TextSearchOptions, TextSearchResult,
-    TextSearchStats,
+    BinaryExtensionCount, CapReason, CaseRule, DECLARATION_RANK, DeferredInspector, FileCounts,
+    GrownFile, InspectDeferred, JudgeHeld, JudgeHeldSource, JudgeSource, PatternSyntax, RowWindow,
+    SearchContext, SearchOutput, SearchSort, SearchedSource, SourceJudge, SourceValues, SpanValues,
+    TextSearchFile, TextSearchMatch, TextSearchOptions, TextSearchResult, TextSearchStats,
 };

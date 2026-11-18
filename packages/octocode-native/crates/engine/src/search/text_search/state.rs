@@ -7,7 +7,7 @@ pub(super) use held::{Charge, Held, context_weight, match_weight, raw_weight, re
 use crate::num::saturating_u32;
 use crate::search::text_parser::FileEntry;
 use crate::text::extension_of;
-use crate::types::{BinaryExtensionCount, SearchedSource, TextSearchMatch};
+use crate::types::{BinaryExtensionCount, GrownFile, SearchedSource, TextSearchMatch};
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 use std::sync::Mutex;
@@ -56,6 +56,8 @@ pub(super) struct CollectResult {
     pub(super) skipped_binary_count: u32,
     pub(super) file_terms_dropped: u32,
     pub(super) depth_cut_dirs: u32,
+    /// Files the line scope left out unread.
+    pub(super) scope_left_out: u32,
     /// Skipped binary files per lowercased extension, most files first.
     pub(super) skipped_binary_extensions: Vec<BinaryExtensionCount>,
     /// The caller cancelled the search before the walk finished (`cancelled`).
@@ -63,6 +65,9 @@ pub(super) struct CollectResult {
     pub(super) error_count: u32,
     pub(super) first_error: Option<String>,
     pub(super) pattern_error_count: u32,
+    pub(super) changed_error_count: u32,
+    /// Kept files that grew while they were searched, in path order.
+    pub(super) grown_files: Vec<GrownFile>,
     pub(super) test_code_excluded: crate::types::TestCodeExcluded,
 }
 
@@ -82,6 +87,7 @@ pub(super) struct CollectState {
     pub(super) skipped_binary_count: AtomicU32,
     pub(super) file_terms_dropped: AtomicU32,
     pub(super) depth_cut_dirs: AtomicU32,
+    pub(super) scope_left_out: AtomicU32,
     pub(super) skipped_binary_extensions: Mutex<HashMap<String, (u32, BTreeSet<String>)>>,
     pub(super) cancelled: AtomicBool,
     /// Set when the walk must end now (cancellation, or a PCRE2 window's end).
@@ -91,6 +97,11 @@ pub(super) struct CollectState {
     /// Errors raised by the matcher on a readable file (see
     /// [`TextSearchStats::pattern_error_count`](crate::types::TextSearchStats::pattern_error_count)).
     pub(super) pattern_error_count: AtomicU64,
+    /// Errors of files that kept changing while they were searched (see
+    /// [`TextSearchStats::changed_error_count`](crate::types::TextSearchStats::changed_error_count)).
+    pub(super) changed_error_count: AtomicU64,
+    /// Kept files that grew while they were searched ([`Self::record_grown`]).
+    grown_files: Mutex<Vec<GrownFile>>,
     /// Files a test-code scope left out by path, and matched lines it left
     /// out inside searched files.
     pub(super) test_files_excluded: AtomicU32,
@@ -113,12 +124,15 @@ impl CollectState {
             skipped_binary_count: AtomicU32::new(0),
             file_terms_dropped: AtomicU32::new(0),
             depth_cut_dirs: AtomicU32::new(0),
+            scope_left_out: AtomicU32::new(0),
             skipped_binary_extensions: Mutex::new(HashMap::new()),
             cancelled: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             error_count: AtomicU64::new(0),
             first_error: Mutex::new(None),
             pattern_error_count: AtomicU64::new(0),
+            changed_error_count: AtomicU64::new(0),
+            grown_files: Mutex::new(Vec::new()),
             test_files_excluded: AtomicU32::new(0),
             test_lines_excluded: AtomicU64::new(0),
         }
@@ -161,6 +175,18 @@ impl CollectState {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             files.push(path.to_string_lossy().into_owned());
         }
+    }
+
+    /// Remember a kept file that grew while it was searched, its hits of
+    /// its first `bytes` (one version's start). The snapshot sorts them.
+    pub(super) fn record_grown(&self, path: &Path, bytes: u64) {
+        self.grown_files
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(GrownFile {
+                path: path.to_string_lossy().into_owned(),
+                bytes,
+            });
     }
 
     pub(super) fn record_error(&self, message: String) {
@@ -226,6 +252,7 @@ impl CollectState {
             skipped_binary_count: self.skipped_binary_count.load(Ordering::Relaxed),
             file_terms_dropped: self.file_terms_dropped.load(Ordering::Relaxed),
             depth_cut_dirs: self.depth_cut_dirs.load(Ordering::Relaxed),
+            scope_left_out: self.scope_left_out.load(Ordering::Relaxed),
             skipped_binary_extensions: {
                 let groups = self
                     .skipped_binary_extensions
@@ -246,6 +273,16 @@ impl CollectState {
             error_count: saturating_u32(self.error_count.load(Ordering::Relaxed)),
             first_error,
             pattern_error_count: saturating_u32(self.pattern_error_count.load(Ordering::Relaxed)),
+            changed_error_count: saturating_u32(self.changed_error_count.load(Ordering::Relaxed)),
+            grown_files: {
+                let mut files = self
+                    .grown_files
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone();
+                files.sort_by(|a, b| a.path.cmp(&b.path));
+                files
+            },
             test_code_excluded: crate::types::TestCodeExcluded {
                 files: self.test_files_excluded.load(Ordering::Relaxed),
                 lines: saturating_u32(self.test_lines_excluded.load(Ordering::Relaxed)),
@@ -279,6 +316,7 @@ impl CollectResult {
             .file_terms_dropped
             .saturating_add(later.file_terms_dropped);
         self.depth_cut_dirs = self.depth_cut_dirs.saturating_add(later.depth_cut_dirs);
+        self.scope_left_out = self.scope_left_out.saturating_add(later.scope_left_out);
         for group in later.skipped_binary_extensions {
             match self
                 .skipped_binary_extensions
@@ -303,6 +341,10 @@ impl CollectResult {
         self.pattern_error_count = self
             .pattern_error_count
             .saturating_add(later.pattern_error_count);
+        self.changed_error_count = self
+            .changed_error_count
+            .saturating_add(later.changed_error_count);
+        self.grown_files.extend(later.grown_files);
         self.test_code_excluded.files = self
             .test_code_excluded
             .files
@@ -314,9 +356,11 @@ impl CollectResult {
         self
     }
 
-    /// The merged result as one snapshot reads it: binary-quit paths sorted.
+    /// The merged result as one snapshot reads it: binary-quit and grown
+    /// paths sorted.
     pub(super) fn settled(mut self) -> Self {
         self.binary_files.sort();
+        self.grown_files.sort_by(|a, b| a.path.cmp(&b.path));
         self
     }
 

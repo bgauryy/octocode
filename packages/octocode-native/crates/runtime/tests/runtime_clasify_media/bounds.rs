@@ -3,6 +3,7 @@
 use super::{Answer, png, provider, requests, row, runtime};
 use crate::runtime_clasify::clasify;
 use crate::support::{Run as _, Workspace};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::method;
 use wiremock::{Mock, Request, Respond, ResponseTemplate};
@@ -21,16 +22,27 @@ impl Respond for DelayedAnswer {
 async fn cancellation_ends_a_call_with_completed_siblings() {
     let server = provider().await;
     Mock::given(method("POST"))
-        .and(wiremock::matchers::body_partial_json(
-            json!({"state":"slow"}),
-        ))
+        .and(wiremock::matchers::body_partial_json(json_fixture(
+            r#"{"state": "slow"}"#,
+        )))
         .respond_with(DelayedAnswer)
         .with_priority(1)
         .mount(&server)
         .await;
     let workspace = Workspace::new();
     let runtime = std::sync::Arc::new(runtime(&workspace, &server, &[]));
-    let fast = json!({"operation":"evaluate","content":"fast","questions":{"fact":{"type":"noul","instructions":"Is this supplied evidence?"}}});
+    let fast = json_fixture(
+        r#"{
+            "operation": "evaluate",
+            "content": "fast",
+            "questions": {
+                "fact": {
+                    "type": "noul",
+                    "instructions": "Is this supplied evidence?"
+                }
+            }
+        }"#,
+    );
     let mut slow = fast.clone();
     slow["content"] = json!("slow");
     let running = runtime.clone();
@@ -134,7 +146,7 @@ async fn aggregate_bytes_refuse_the_whole_image_row() {
     std::fs::write(workspace.workspace.join("one.png"), bytes).unwrap();
     let runtime = runtime(&workspace, &server, &[]);
     let mut query = row("one.png");
-    query["content"] = json!(["image_a", "image_b", "image_c"]);
+    query["content"] = json_fixture(r#"["image_a", "image_b", "image_c"]"#);
     query["assets"]["image_b"] = query["assets"]["image_a"].clone();
     query["assets"]["image_c"] = query["assets"]["image_a"].clone();
     let out = clasify(&runtime, vec![query]).await;
@@ -156,7 +168,7 @@ async fn text_source_and_image_share_one_judgment_without_host_body() {
     let runtime = runtime(&workspace, &server, &[]);
     let mut query = row("one.png");
     query.as_object_mut().unwrap().remove("content");
-    query["source"] = json!({"tool":"localFetch","query":{"path":"guide.md"}});
+    query["source"] = json_fixture(r#"{"tool": "localFetch", "query": {"path": "guide.md"}}"#);
     let out = clasify(&runtime, vec![query]).await;
     assert_eq!(
         out["results"][0]["data"]["answers"]["visible"]["noul"], 0.9,

@@ -62,21 +62,21 @@ flowchart TD
 | `responsePagination.next` | Finish the response pages first. A single continuation can carry several rows or sections forward. |
 | `next.nextPage` | Read the next tool page if the response has no continuation of its own. |
 | Other `next` entries | Continue the indicated branch when your claim depends on it, such as a patch, unfiltered results or an exact source read. |
-| `related[]` | Start optional fresh work with the supplied queries. The scope may differ. Empty and failed rows retain recovery calls. A nonempty success retains a call only when it carries an otherwise unstated identity or a warning names it; routine next-step advice is omitted. Required pagination uses `next`, never `related`. |
+| `related[]` | Start optional fresh work with the supplied queries. The scope may differ. Empty and failed rows retain recovery calls. A nonempty success retains a call only when it carries an otherwise unstated identity, a warning names it, or the output reference states it as the recovery of a diagnostic code on the row; routine next-step advice is omitted. Required pagination uses `next`, never `related`. |
 | `hints[]` | Guidance for an empty result or an error. |
 | `warnings[]` | Evidence and coverage disclosures, including on successful rows. Resource-specific warnings remain with that resource. |
 
 A continuation has this shape. Pass **only its complete `input`** to its `tool`. Use the cursor the tool issued.
 
 ```json
-{"kind":"continue","tool":"localFetch","input":{"cursor":"<issued cursor>"}}
+{"tool":"localFetch","input":{"cursor":"<issued cursor>"}}
 ```
 
 Cursors are bound to the tool, configuration, access context and saved state. Replaying a retained page can return historical usage. Follow a returned restart call on `staleSnapshot` and start the evidence walk again. A memory-only CLI invocation needing a saved continuation reports a failure. Use persistent storage that permits saving the result or keep an MCP session open. [Storage and limits](STORAGE_AND_LIMITS.md)
 
 ## Paging
 
-`responseChars` is an optional per-call page-size target. Large responses split at row boundaries where possible, then inside long strings (`rowPart`). A long line is read in byte windows of at least 4,096 escaped JSON characters (the unit of `responseChars`) whatever the target, each served whole on its own page, so a narrow target never takes thousands of calls per line. A page can exceed the target by its fixed parts: the envelope, the `responsePagination` block and the context each row part repeats. Provider metadata and rejected input rows can also add to the first page. A page states `oversized: true` only when it holds one value longer than the target that no page can split: an identity such as a path, a bounded value or a ready call. Other free text longer than a page is split into parts instead. An unpaged operation serves strings whole, so a string longer than the explicit target is also disclosed as oversized; this adds no replay or continuation.
+`responseChars` is an optional per-call page-size target. Large responses split at row boundaries where possible, then inside long strings (`rowPart`). A line over 4 KB is read in byte windows, each served whole on its own page, sized in escaped JSON characters (the unit of `responseChars`): one row's windows follow the target, so a narrow target reads the line in many small pages and a wide one (`responseChars` has no maximum) in a few; a row of a batch keeps windows of at least 4,096 characters, so a narrow share of the target never reads a long line in slivers. A shorter line, and the window around a match, is never cut across byte windows. A page can exceed the target by its fixed parts: the envelope, the `responsePagination` block and the context each row part repeats. Provider metadata and rejected input rows can also add to the first page. A page states `oversized: true` only when it holds one value longer than the target that no page can split: an identity such as a path, a bounded value or a ready call. Other free text longer than a page is split into parts instead. An unpaged operation serves strings whole, so a string longer than the explicit target is also disclosed as oversized; this adds no replay or continuation.
 
 | Field | How to consume it |
 |---|---|

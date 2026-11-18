@@ -3,6 +3,7 @@
 use crate::support::{self, Run as _};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use support::{Workspace, call, row_data, row_status};
 use wiremock::matchers::{method, path, path_regex, query_param};
@@ -14,13 +15,28 @@ async fn github_tree_materialize_is_accepted_and_emits_location() {
     let sha = "0123456789abcdef0123456789abcdef01234567";
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"default_branch":"main"})))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json_fixture(r#"{"default_branch": "main"}"#)),
+        )
         .mount(&server)
         .await;
+    let entries = json!(
+        (0..60)
+            .map(|n| json!({"name":format!("f{n:02}.rs"),"path":format!("f{n:02}.rs"),"type":"file","size":9,"sha":"1".repeat(40)}))
+            .collect::<Vec<_>>()
+    );
+    octocode_test_support::mock_http::mount_folder_tree(
+        &server,
+        "/api/v3/repos/a/b",
+        sha,
+        "",
+        &entries,
+    )
+    .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents"))
         .and(query_param("ref", sha))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!((0..60).map(|n| json!({"name":format!("f{n:02}.rs"),"path":format!("f{n:02}.rs"),"type":"file","size":9,"sha":"1".repeat(40)})).collect::<Vec<_>>())))
+        .respond_with(ResponseTemplate::new(200).set_body_json(entries))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
@@ -49,12 +65,14 @@ async fn github_tree_materialize_is_accepted_and_emits_location() {
     let outcome = call(
         &runtime,
         "ghStructure",
-        json!({
-            "operation": "tree",
-            "owner": "a",
-            "repo": "b",
-            "materialize": true
-        }),
+        json_fixture(
+            r#"{
+                "operation": "tree",
+                "owner": "a",
+                "repo": "b",
+                "materialize": true
+            }"#,
+        ),
     )
     .await
     .expect("tree materialize");
@@ -89,7 +107,9 @@ async fn github_tree_materialize_with_unwritten_folders_is_not_complete() {
     let sha = "0123456789abcdef0123456789abcdef01234567";
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"default_branch":"main"})))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json_fixture(r#"{"default_branch": "main"}"#)),
+        )
         .mount(&server)
         .await;
     Mock::given(method("GET"))
@@ -120,7 +140,15 @@ async fn github_tree_materialize_with_unwritten_folders_is_not_complete() {
     let outcome = call(
         &runtime,
         "ghStructure",
-        json!({"operation":"tree","owner": "a", "repo": "b", "materialize": true, "maxDepth": 1}),
+        json_fixture(
+            r#"{
+                "operation": "tree",
+                "owner": "a",
+                "repo": "b",
+                "materialize": true,
+                "maxDepth": 1
+            }"#,
+        ),
     )
     .await
     .expect("tree materialize");
@@ -182,8 +210,8 @@ async fn github_tree_materialize_with_unwritten_folders_is_not_complete() {
 async fn clone_mcp_opt_in_is_independent_of_storage_and_cli_host() {
     let server = MockServer::start().await;
     for surface in [
-        octocode_native::config::RuntimeSurface::Cli,
-        octocode_native::config::RuntimeSurface::Mcp,
+        octocode_runtime_base::config::RuntimeSurface::Cli,
+        octocode_runtime_base::config::RuntimeSurface::Mcp,
     ] {
         for enabled in ["false", "true"] {
             let workspace = Workspace::new();
@@ -200,13 +228,13 @@ async fn clone_mcp_opt_in_is_independent_of_storage_and_cli_host() {
             .expect("runtime");
             assert_eq!(
                 runtime.is_available("ghCloneRepo"),
-                surface == octocode_native::config::RuntimeSurface::Cli || enabled == "true"
+                surface == octocode_runtime_base::config::RuntimeSurface::Cli || enabled == "true"
             );
             let result = runtime
                 .run_mcp(
                     "mcp-clone".into(),
                     "ghCloneRepo".into(),
-                    json!({"queries":[{"owner":"a","repo":"b"}]}),
+                    json_fixture(r#"{"queries": [{"owner": "a", "repo": "b"}]}"#),
                 )
                 .await
                 .expect("MCP response");

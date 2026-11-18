@@ -154,8 +154,8 @@ async fn provision_refusals_name_their_reason() {
         let dir = tempfile::tempdir().expect("tempdir");
         let outcome = provision_server(dir.path(), name, platform, mode, &fetch).await;
         assert!(!outcome.ok, "{reason}");
-        let error = outcome.error.expect("error should be set");
-        assert!(error.contains(reason), "{reason}: {error}");
+        let failure = outcome.failure.expect("failure should be set");
+        assert!(failure.message.contains(reason), "{reason}: {failure:?}");
     }
 }
 
@@ -177,7 +177,8 @@ async fn no_download_outlives_its_install() {
         &tampered(),
     )
     .await;
-    assert!(outcome.error.expect("error").contains("Checksum mismatch"));
+    let failure = outcome.failure.expect("failure");
+    assert!(failure.message.contains("Checksum mismatch"), "{failure:?}");
     assert_eq!(install_dir_leftovers(dir.path()), Vec::<String>::new());
 }
 
@@ -195,7 +196,9 @@ async fn install_runs_on_the_current_thread_runtime() {
         &tampered(),
     )
     .await;
-    assert_eq!(code, 5);
+    // A tampered download is refused (securityValidationFailed), so the
+    // install exits by that refusal's class.
+    assert_eq!(code, 4);
     let lock = dir.path().join("rust-analyzer/2026-06-22/.lock");
     assert!(lock_is_free(&lock));
 }
@@ -227,5 +230,6 @@ async fn a_panicking_install_releases_its_lock() {
         &tampered(),
     )
     .await;
-    assert!(retry.error.expect("error").contains("Checksum mismatch"));
+    let failure = retry.failure.expect("failure");
+    assert!(failure.message.contains("Checksum mismatch"), "{failure:?}");
 }

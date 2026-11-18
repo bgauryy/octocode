@@ -1,13 +1,13 @@
-use octocode_native::execution::availability::Availability;
-use octocode_native::id::ToolId;
 use octocode_native::runtime::ToolRuntime;
+use octocode_runtime_base::execution::availability::Availability;
+use octocode_runtime_base::id::ToolId;
 use serde_json::{Value, json};
 
 /// Text for a disabled tool whose gating env key was present in a `.env`
 /// file but not applied — the state change would otherwise be invisible.
 pub(super) fn dropped_key_hint(
     env_vars: &[&str],
-    dotenv: &octocode_native::config::EnvApplyReport,
+    dotenv: &octocode_runtime_base::config::EnvApplyReport,
 ) -> Option<String> {
     env_vars.iter().find_map(|name| {
         if dotenv.skipped_protected.iter().any(|key| key == name) {
@@ -28,7 +28,7 @@ pub(super) fn dropped_key_hint(
 /// it — the variables of its unset prerequisites, or the tool-list setting.
 pub(super) fn availability_entry(
     availability: Option<&Availability>,
-    dotenv: &octocode_native::config::EnvApplyReport,
+    dotenv: &octocode_runtime_base::config::EnvApplyReport,
 ) -> Value {
     let Some(availability) = availability.filter(|a| !a.is_available()) else {
         return json!({ "enabled": true });
@@ -53,7 +53,7 @@ pub(super) fn availability_entry(
 /// lists the embedded CLI presentation precomputes from the core Zod rows.
 pub(super) fn machine_catalog(runtime: &ToolRuntime) -> Result<Value, String> {
     let catalog = runtime.catalog();
-    let presentation = octocode_native::contracts::cli_presentation()
+    let presentation = octocode_runtime_base::contracts::cli_presentation()
         .map_err(|error| format!("Embedded CLI presentation is invalid: {error}"))?;
     let dotenv = &runtime.config().dotenv;
     let tools = ToolId::ALL

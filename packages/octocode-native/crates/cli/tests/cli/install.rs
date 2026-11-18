@@ -1,4 +1,5 @@
 use super::*;
+use octocode_test_support::json_fixture;
 
 /// `--scope workspace` writes the project file under the working directory,
 /// `--list` reports it per client, and `--remove` takes it out again.
@@ -29,7 +30,7 @@ fn install_scopes_list_status_and_remove_round_trip() {
     assert_eq!(row["status"], "installed", "{row}");
     assert_eq!(
         row["scopes"],
-        serde_json::json!(["home", "workspace"]),
+        json_fixture(r#"["home", "workspace"]"#),
         "{row}"
     );
     assert_eq!(listed("home")["status"], "absent");
@@ -127,7 +128,7 @@ fn install_writes_npx_latest_and_never_octo_mcp() {
     assert_eq!(server["command"], "npx");
     assert_eq!(
         server["args"],
-        serde_json::json!(["-y", "octocode-mcp@latest"])
+        json_fixture(r#"["-y", "octocode-mcp@latest"]"#)
     );
     assert_ne!(server["command"], "octo");
     assert!(

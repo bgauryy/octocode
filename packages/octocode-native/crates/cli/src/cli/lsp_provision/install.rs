@@ -1,3 +1,5 @@
+use super::Failure;
+use octocode_contract_types::ErrorCode;
 use octocode_engine::lsp::managed::{
     ArchiveKind, AssetIdentity, ManifestAsset, cache_marker, cached_server_bin_path, marker_path,
 };
@@ -19,15 +21,23 @@ pub(super) fn verify_and_install(
     bin_path: &Path,
     identity: &AssetIdentity,
     limit: u64,
-) -> Result<(), String> {
-    let read_error = |e: std::io::Error| format!("Reading the download failed: {e}");
+) -> Result<(), Failure> {
+    let read_error = |e: std::io::Error| {
+        Failure::new(
+            ErrorCode::FileAccessFailed,
+            format!("Reading the download failed: {e}"),
+        )
+    };
     let mut file = std::fs::File::open(download).map_err(read_error)?;
     let (_, actual) =
         octocode_engine::digest::copy_hashed(&mut file, std::io::sink()).map_err(read_error)?;
     if actual != identity.sha256 {
-        return Err(format!(
-            "Checksum mismatch for {name}: the downloaded {} is corrupted or substituted (the lock has sha256 {}, the bytes hash to {actual}).",
-            identity.asset, identity.sha256
+        return Err(Failure::new(
+            ErrorCode::SecurityValidationFailed,
+            format!(
+                "Checksum mismatch for {name}: the downloaded {} is corrupted or substituted (the lock has sha256 {}, the bytes hash to {actual}).",
+                identity.asset, identity.sha256
+            ),
         ));
     }
     file.rewind().map_err(read_error)?;
@@ -40,18 +50,29 @@ pub(super) fn verify_and_install(
             identity,
         ),
         ArchiveKind::Zip => {
-            let target = asset
-                .bin_path
-                .as_deref()
-                .ok_or_else(|| "zip asset is missing binPath in manifest".to_string())?;
-            let corrupt =
-                |e: zip::result::ZipError| format!("Downloaded zip archive is corrupt: {e}");
-            let mut archive = zip::ZipArchive::new(file).map_err(corrupt)?;
-            let index = zip_entry_index(&mut archive, target)?.ok_or_else(|| {
-                format!(
-                    "Could not find '{target}' in zip archive - try installing via your package manager."
+            let target = asset.bin_path.as_deref().ok_or_else(|| {
+                Failure::new(
+                    ErrorCode::ExecutionFailed,
+                    "zip asset is missing binPath in manifest",
                 )
             })?;
+            let corrupt = |e: zip::result::ZipError| {
+                Failure::new(
+                    ErrorCode::ExecutionFailed,
+                    format!("Downloaded zip archive is corrupt: {e}"),
+                )
+            };
+            let mut archive = zip::ZipArchive::new(file).map_err(corrupt)?;
+            let index = zip_entry_index(&mut archive, target)
+                .map_err(|error| Failure::new(ErrorCode::ExecutionFailed, error))?
+                .ok_or_else(|| {
+                    Failure::new(
+                        ErrorCode::ExecutionFailed,
+                        format!(
+                            "Could not find '{target}' in zip archive - try installing via your package manager."
+                        ),
+                    )
+                })?;
             let entry = archive.by_index(index).map_err(corrupt)?;
             install_binary(bin_path, entry, limit, identity)
         }
@@ -99,24 +120,40 @@ pub(super) fn install_binary(
     binary: impl Read,
     limit: u64,
     identity: &AssetIdentity,
-) -> Result<(), String> {
-    let dir = bin_path
-        .parent()
-        .ok_or_else(|| format!("bin path has no parent: {bin_path:?}"))?;
-    octocode_io::atomic::create_private_dir_all(dir)
-        .map_err(|e| format!("creating {dir:?}: {e}"))?;
+) -> Result<(), Failure> {
+    let dir = bin_path.parent().ok_or_else(|| {
+        Failure::new(
+            ErrorCode::ExecutionFailed,
+            format!("bin path has no parent: {bin_path:?}"),
+        )
+    })?;
+    octocode_io::atomic::create_private_dir_all(dir).map_err(|e| {
+        Failure::new(
+            ErrorCode::FileAccessFailed,
+            format!("creating {dir:?}: {e}"),
+        )
+    })?;
 
+    let over_limit = std::cell::Cell::new(false);
     let (size, binary_sha256) =
         octocode_io::atomic::write_atomic_with(bin_path, 0o700, false, |file| {
             let copied = octocode_engine::digest::copy_hashed(binary.take(limit + 1), file)?;
             if copied.0 > limit {
+                over_limit.set(true);
                 return Err(std::io::Error::other(format!(
                     "Archive output exceeds the {limit}-byte limit."
                 )));
             }
             Ok(copied)
         })
-        .map_err(|e| format!("installing {bin_path:?}: {e}"))?;
+        .map_err(|e| {
+            let code = if over_limit.get() {
+                ErrorCode::ContentSecurityLimit
+            } else {
+                ErrorCode::FileAccessFailed
+            };
+            Failure::new(code, format!("installing {bin_path:?}: {e}"))
+        })?;
 
     let marker = cache_marker(identity, &binary_sha256, size);
     octocode_io::atomic::write_atomic_mode(
@@ -125,7 +162,12 @@ pub(super) fn install_binary(
         0o600,
         false,
     )
-    .map_err(|e| format!("writing completion marker: {e}"))?;
+    .map_err(|e| {
+        Failure::new(
+            ErrorCode::FileAccessFailed,
+            format!("writing completion marker: {e}"),
+        )
+    })?;
     Ok(())
 }
 
@@ -158,7 +200,7 @@ impl Drop for Spool {
 
 /// Remove a server from the managed cache only (never external installs). Guards
 /// deletion to inside `root`.
-pub fn uninstall_server(root: &Path, name: &str, platform: &str) -> bool {
+pub(crate) fn uninstall_server(root: &Path, name: &str, platform: &str) -> bool {
     let Some(bin_path) = cached_server_bin_path(root, name, platform) else {
         return false;
     };

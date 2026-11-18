@@ -3,6 +3,7 @@
 use crate::support::{self};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use support::{Workspace, call, row_data, row_status};
 use wiremock::matchers::{method, path, query_param};
@@ -17,6 +18,7 @@ async fn github_file_read_goes_through_execute_and_redacts() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": sha})))
         .mount(&server)
         .await;
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "src/lib.rs").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/src%2Flib.rs"))
         .and(query_param("ref", sha))
@@ -36,13 +38,15 @@ async fn github_file_read_goes_through_execute_and_redacts() {
     let outcome = call(
         &runtime,
         "ghGetFileContent",
-        json!({
-            "owner": "a",
-            "repo": "b",
-            "path": "src/lib.rs",
-            "ref": "main",
-            "ranges": [{"startLine":1,"endLine":2}]
-        }),
+        json_fixture(
+            r#"{
+                "owner": "a",
+                "repo": "b",
+                "path": "src/lib.rs",
+                "ref": "main",
+                "ranges": [{"startLine": 1, "endLine": 2}]
+            }"#,
+        ),
     )
     .await
     .expect("github read");
@@ -75,11 +79,20 @@ async fn gh_get_file_content_on_directory_returns_tree_recovery() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": sha})))
         .mount(&server)
         .await;
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "src/lib.rs").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/src"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-            {"name":"lib.rs","path":"src/lib.rs","type":"file","size":3,"sha":"1"}
-        ])))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"[
+                {
+                    "name": "lib.rs",
+                    "path": "src/lib.rs",
+                    "type": "file",
+                    "size": 3,
+                    "sha": "1"
+                }
+            ]"#,
+        )))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -87,7 +100,7 @@ async fn gh_get_file_content_on_directory_returns_tree_recovery() {
     let outcome = call(
         &runtime,
         "ghGetFileContent",
-        json!({"owner":"a","repo":"b","path":"src","ref":"main"}),
+        json_fixture(r#"{"owner": "a", "repo": "b", "path": "src", "ref": "main"}"#),
     )
     .await
     .expect("directory read is a row error, not a contract violation");
@@ -125,6 +138,7 @@ async fn gh_file_read_of_binary_content_reports_size_and_blob() {
     let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     let blob = "b".repeat(40);
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "icon.png").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/icon.png"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -182,6 +196,7 @@ async fn big_file_runtime(
     window: usize,
 ) -> (MockServer, Workspace, octocode_native::runtime::ToolRuntime) {
     let server = MockServer::builder().start().await;
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "src/big.rs").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/src%2Fbig.rs"))
         .and(query_param("ref", sha))
@@ -194,7 +209,7 @@ async fn big_file_runtime(
     let workspace = Workspace::new();
     let runtime = workspace.runtime_with(
         &[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))],
-        octocode_native::execution::RuntimeLimits {
+        octocode_runtime_base::execution::RuntimeLimits {
             auto_page_chars: window,
             ..support::FIXTURE_LIMITS
         },
@@ -214,12 +229,13 @@ async fn gh_full_content_pages_stay_under_the_configured_window_and_cover_the_fi
             support::envelope(json!({"owner":"a","repo":"b","path":"src/big.rs","ref":sha,}));
         let walk = support::walk(&runtime, "ghGetFileContent", start, |output| {
             // Per-call provider metadata rides outside the page measure.
-            let chars = octocode_native::response::pager::budgeted_chars(output).expect("page");
+            let chars =
+                octocode_runtime_base::response::pager::budgeted_chars(output).expect("page");
             assert_eq!(
                 output.get("oversized") == Some(&json!(true)),
-                octocode_native::response::pager::holds_value_over(
+                octocode_runtime_base::response::pager::holds_value_over(
                     output.as_object().expect("envelope"),
-                    octocode_native::id::ToolId::GhGetFileContent,
+                    octocode_runtime_base::id::ToolId::GhGetFileContent,
                     window
                 ),
                 "a page is {chars} chars: overflow is disclosed by the value it holds"
@@ -333,6 +349,7 @@ async fn a_github_code_window_is_judged_as_the_local_read_of_its_file() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": sha})))
         .mount(&server)
         .await;
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "src/config.ts").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/src%2Fconfig.ts"))
         .and(query_param("ref", sha))
@@ -350,9 +367,14 @@ async fn a_github_code_window_is_judged_as_the_local_read_of_its_file() {
     workspace.write("src/config.ts", &source);
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     for read in [
-        json!({"ranges":[{"startLine":2,"endLine":2}]}),
-        json!({"matchString":["mode"],"contextLines":{"before":1,"after":0}}),
-        json!({"ranges":[{"startLine":1,"endLine":5}]}),
+        json_fixture(r#"{"ranges": [{"startLine": 2, "endLine": 2}]}"#),
+        json_fixture(
+            r#"{
+                "matchString": ["mode"],
+                "contextLines": {"before": 1, "after": 0}
+            }"#,
+        ),
+        json_fixture(r#"{"ranges": [{"startLine": 1, "endLine": 5}]}"#),
         json!({}),
     ] {
         let row = |fields: Value| {
@@ -365,14 +387,21 @@ async fn a_github_code_window_is_judged_as_the_local_read_of_its_file() {
         let local = call(
             &runtime,
             "localFetch",
-            row(json!({"path": "src/config.ts"})),
+            row(json_fixture(r#"{"path": "src/config.ts"}"#)),
         )
         .await
         .expect("local read");
         let github = call(
             &runtime,
             "ghGetFileContent",
-            row(json!({"owner": "a", "repo": "b", "path": "src/config.ts", "ref": "main"})),
+            row(json_fixture(
+                r#"{
+                    "owner": "a",
+                    "repo": "b",
+                    "path": "src/config.ts",
+                    "ref": "main"
+                }"#,
+            )),
         )
         .await
         .expect("github read");

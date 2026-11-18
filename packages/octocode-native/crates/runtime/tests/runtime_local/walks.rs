@@ -2,8 +2,9 @@
 
 use crate::support::{Workspace, call, row_data, row_status};
 use octocode_contract_types::ErrorCode;
-use octocode_native::config::RuntimeSurface;
 use octocode_native::runtime::{HostOptions, ToolRuntime};
+use octocode_runtime_base::config::RuntimeSurface;
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use std::collections::BTreeMap;
 
@@ -106,50 +107,51 @@ async fn local_walks_share_one_default_prune_and_exclude_adds() {
     workspace.write(".github/lib.rs", source);
     let runtime = workspace.runtime(&[]);
     let root = workspace.workspace.clone();
-    let exclude = json!(["extra", "extra/**"]);
+    let exclude = json_fixture(r#"["extra", "extra/**"]"#);
     let workspace_name = root
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
 
-    let paths_of =
-        |outcome: &octocode_native::response::outcome::ToolOutcome, key: &str| -> Vec<String> {
-            let data = row_data(outcome);
-            let rows = data[key]
-                .as_array()
-                .unwrap_or_else(|| panic!("{key} rows: {}", outcome.structured_content));
-            // structureSearch groups list entries by `dir`: `dir/<name> (<size>)`.
-            let mut paths = rows
-                .iter()
-                .flat_map(|row| match (row["dir"].as_str(), row["files"].as_array()) {
-                    (Some(dir), Some(entries)) => entries
-                        .iter()
-                        .filter_map(serde_json::Value::as_str)
-                        .map(|entry| format!("{dir}/{entry}"))
-                        .collect::<Vec<_>>(),
-                    _ => row
-                        .as_str()
-                        .or_else(|| row["path"].as_str())
-                        .map(str::to_owned)
-                        .into_iter()
-                        .collect(),
-                })
-                .map(|path| {
-                    let path = path.as_str();
-                    path.split(' ').next().unwrap_or(path).replace('\\', "/")
-                })
-                .filter(|path| path.ends_with(".rs"))
-                .map(|path| {
-                    // Rows are relative to `base`, the workspace's parent.
-                    path.strip_prefix(&format!("{}/", root.to_string_lossy()))
-                        .or_else(|| path.strip_prefix(&format!("{workspace_name}/")))
-                        .unwrap_or(&path)
-                        .to_owned()
-                })
-                .collect::<Vec<_>>();
-            paths.sort();
-            paths
-        };
+    let paths_of = |outcome: &octocode_runtime_base::response::outcome::ToolOutcome,
+                    key: &str|
+     -> Vec<String> {
+        let data = row_data(outcome);
+        let rows = data[key]
+            .as_array()
+            .unwrap_or_else(|| panic!("{key} rows: {}", outcome.structured_content));
+        // structureSearch groups list entries by `dir`: `dir/<name> (<size>)`.
+        let mut paths = rows
+            .iter()
+            .flat_map(|row| match (row["dir"].as_str(), row["files"].as_array()) {
+                (Some(dir), Some(entries)) => entries
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(|entry| format!("{dir}/{entry}"))
+                    .collect::<Vec<_>>(),
+                _ => row
+                    .as_str()
+                    .or_else(|| row["path"].as_str())
+                    .map(str::to_owned)
+                    .into_iter()
+                    .collect(),
+            })
+            .map(|path| {
+                let path = path.as_str();
+                path.split(' ').next().unwrap_or(path).replace('\\', "/")
+            })
+            .filter(|path| path.ends_with(".rs"))
+            .map(|path| {
+                // Rows are relative to `base`, the workspace's parent.
+                path.strip_prefix(&format!("{}/", root.to_string_lossy()))
+                    .or_else(|| path.strip_prefix(&format!("{workspace_name}/")))
+                    .unwrap_or(&path)
+                    .to_owned()
+            })
+            .collect::<Vec<_>>();
+        paths.sort();
+        paths
+    };
     let syntax_visible = vec![".github/lib.rs".to_owned(), "src/lib.rs".to_owned()];
 
     let searched = call(
@@ -244,7 +246,7 @@ async fn graph_build_reads_what_the_other_walks_read_and_discloses_the_prune() {
     }
     let runtime = workspace.runtime(&[]);
     let root = workspace.workspace.clone();
-    let rendered = |outcome: &octocode_native::response::outcome::ToolOutcome| {
+    let rendered = |outcome: &octocode_runtime_base::response::outcome::ToolOutcome| {
         serde_json::to_string(&row_data(outcome)["files"]).expect("json")
     };
     let searched = call(
@@ -320,7 +322,7 @@ async fn default_excludes_false_walks_dependency_directories() {
     workspace.write("src/app.rs", "fn needle() {}\n");
     workspace.write("node_modules/dep/index.js", "function needle() {}\n");
     let runtime = workspace.runtime(&[]);
-    let names = |outcome: &octocode_native::response::outcome::ToolOutcome| {
+    let names = |outcome: &octocode_runtime_base::response::outcome::ToolOutcome| {
         serde_json::to_string(&outcome.structured_content).unwrap_or_default()
     };
     let pruned = call(
@@ -340,7 +342,15 @@ async fn default_excludes_false_walks_dependency_directories() {
     );
     assert_eq!(
         row_data(&pruned)["skippedPaths"],
-        json!({"entries":[{"path":"node_modules","cause":"default-excluded"}],"sampled":false}),
+        json_fixture(
+            r#"{
+                "entries": [{
+                    "path": "node_modules",
+                    "cause": "default-excluded",
+                    "reason": "node_modules/"
+                }]
+            }"#
+        ),
         "{}",
         names(&pruned)
     );
@@ -611,7 +621,7 @@ async fn every_walking_tool_applies_its_own_calls_global_ignore() {
     let seen = |runtime: ToolRuntime| {
         let root = root.clone();
         async move {
-            let names_of = |outcome: &octocode_native::response::outcome::ToolOutcome| {
+            let names_of = |outcome: &octocode_runtime_base::response::outcome::ToolOutcome| {
                 let rendered = serde_json::to_string(&row_data(outcome)["files"]).expect("json");
                 ["keep", "a_secret", "b_scratch"]
                     .into_iter()

@@ -7,9 +7,9 @@ octocode-chrome-devtools /raw open --headless --port 9222 --url "<url>"         
 octocode-chrome-devtools /raw open --port 9222 --url "<url>"                     # visible isolated profile, for user auth
 octocode-chrome-devtools /raw open --profile Default --port 9222 --chromePath "<Chromium>"   # real profile: approval first, browser quit
 octocode-chrome-devtools /raw open --headless --proxyServer "socks5://127.0.0.1:1080"
-octocode-chrome-devtools /raw open --headless --port 9222 --enableFeatures WebMCP --url "<url>"   # Chrome 150+
 ```
 
+- Every fresh launch passes `--enable-features=WebMCP` (Chrome 150+), so pages see `document.modelContext` and the `webmcp-tools` check can list their tools; `--enableFeatures <csv>` adds more features to the same switch.
 - Proxy config example: `dist/engine/octocode-chrome-devtools.vpn.example.json`. Other flags: `--windowSize WxH`, `--userAgent`, `--chromePath` (only for non-standard installs), `--proxyBypassList`, `--proxyPacUrl`, `--config <proxy.json>`.
 - Mobile: the window size sets only outer dimensions; also use CDP Emulation.
 - Real profile (`--profile <dir>`): opens the data dir of the browser that `--chromePath` (or auto-detect) selects: Chrome, Canary, Chrome for Testing, Chromium or Brave. It fails, with no isolated fallback, when that browser is running, when the profile dir does not exist (it never creates one), with `--headless`, and on Google Chrome 136+, which [ignores remote debugging on its default data dir](https://developer.chrome.com/blog/remote-debugging-port). For Google Chrome, sign in inside an isolated session or move cookies with `cookies --from-port` / `--from-storage-state` (`intents.md#auth`).

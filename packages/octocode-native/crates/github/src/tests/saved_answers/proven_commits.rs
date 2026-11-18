@@ -1,9 +1,9 @@
-//! B90 round 2: a miss is kept only for a path inside a commit this request
+//! B90: a miss is kept only for a path inside a commit this request
 //! proved from the origin; a missing object (tree, blob, commit, compare)
 //! is asked again, since it can be pushed later. Only answers GitHub gave
 //! in this request vouch for a repository or a commit, never replays.
 use super::*;
-use crate::transport::RENAME_ROUTE_WINDOW;
+use crate::transport::route::RENAME_ROUTE_WINDOW;
 
 pub(super) fn not_found() -> ResponseTemplate {
     ResponseTemplate::new(404).set_body_string("{\"message\":\"Not Found\"}")
@@ -321,7 +321,6 @@ async fn a_read_within_its_max_age_under_a_route_sends_nothing() {
     assert_eq!(again.body.as_ref(), b"abc");
     assert!(context.followed_rename("old", "b"));
     assert_eq!(requests(&server).await.len(), 2, "nothing was sent");
-    let _ = RENAME_ROUTE_WINDOW;
 }
 
 /// `body` under an ETag and `max-age=60`, as GitHub answers repository

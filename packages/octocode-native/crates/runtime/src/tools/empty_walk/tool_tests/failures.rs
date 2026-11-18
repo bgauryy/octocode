@@ -1,7 +1,11 @@
 //! One failure, one code and recovery in every local walking tool.
+use octocode_runtime_base::execution::cancel::NeverCancel;
+use serde_json::Value;
+use serde_json::json;
 
 use super::*;
 use octocode_contract_types::{AstSearchQuery, LocalSearchQuery, StructureSearchQuery};
+use octocode_test_support::json_fixture;
 
 /// Each local walking tool's error code for a looping root, by its public
 /// entry.
@@ -10,8 +14,10 @@ fn loop_codes(root: &Path) -> Vec<(&'static str, octocode_contract_types::ErrorC
     let looping = root.join("a");
     let (paths, security) = simple_policy(root);
     let local: LocalSearchQuery =
-        serde_json::from_value(row(&looping, json!({"matchString": ["x"]}))).expect("query");
-    let local = crate::tools::local_search::execute_local_search(
+        serde_json::from_value(row(&looping, json_fixture(r#"{"matchString": ["x"]}"#)))
+            .expect("query");
+    let local = octocode_tool_local::local_search::execute_local_search(
+        octocode_runtime_base::test_support::BUILD_IDENTITY,
         &local,
         &paths,
         &security,
@@ -21,8 +27,9 @@ fn loop_codes(root: &Path) -> Vec<(&'static str, octocode_contract_types::ErrorC
     )
     .expect_err("loop");
     let structure: StructureSearchQuery =
-        serde_json::from_value(row(&looping, json!({"operation": "tree"}))).expect("query");
-    let structure = crate::tools::structure_search::execute_structure(
+        serde_json::from_value(row(&looping, json_fixture(r#"{"operation": "tree"}"#)))
+            .expect("query");
+    let structure = octocode_tool_local::structure_search::execute_structure(
         &structure,
         &paths,
         &security,
@@ -31,9 +38,17 @@ fn loop_codes(root: &Path) -> Vec<(&'static str, octocode_contract_types::ErrorC
     )
     .expect_err("loop");
     let ast: AstSearchQuery =
-        serde_json::from_value(row(&looping, json!({"operation": "symbols"}))).expect("query");
-    let ast = crate::tools::ast_search::execute_ast(&ast, &paths, &security, &NeverCancel, None)
-        .expect_err("loop");
+        serde_json::from_value(row(&looping, json_fixture(r#"{"operation": "symbols"}"#)))
+            .expect("query");
+    let ast = octocode_tool_ast::ast_search::execute_ast(
+        octocode_runtime_base::test_support::BUILD_IDENTITY,
+        &ast,
+        &paths,
+        &security,
+        &NeverCancel,
+        None,
+    )
+    .expect_err("loop");
     vec![
         ("localSearch", local.code),
         ("structureSearch", structure.code),
@@ -66,13 +81,19 @@ fn a_binary_file_is_binary_file_unsupported_in_ast_search() {
     std::fs::write(root.0.join("blob.rs"), b"fn a() {}\0\x01\x02").expect("blob");
     let query: AstSearchQuery = serde_json::from_value(row(
         &root.0.join("blob.rs"),
-        json!({"operation": "match", "rule": {"pattern": "fn a() {}"}}),
+        json_fixture(r#"{"operation": "match", "rule": {"pattern": "fn a() {}"}}"#),
     ))
     .expect("query");
     let (paths, security) = simple_policy(&root.0);
-    let error =
-        crate::tools::ast_search::execute_ast(&query, &paths, &security, &NeverCancel, None)
-            .expect_err("binary");
+    let error = octocode_tool_ast::ast_search::execute_ast(
+        octocode_runtime_base::test_support::BUILD_IDENTITY,
+        &query,
+        &paths,
+        &security,
+        &NeverCancel,
+        None,
+    )
+    .expect_err("binary");
     assert_eq!(
         error.code,
         octocode_contract_types::ErrorCode::BinaryFileUnsupported,
@@ -150,10 +171,11 @@ fn a_missing_path_has_one_recovery_and_no_absolute_root_in_every_tool() {
         row
     };
     let local: LocalSearchQuery =
-        serde_json::from_value(fields(json!({"matchString": ["x"]}))).expect("query");
+        serde_json::from_value(fields(json_fixture(r#"{"matchString": ["x"]}"#))).expect("query");
     errors.push((
         "localSearch",
-        crate::tools::local_search::execute_local_search(
+        octocode_tool_local::local_search::execute_local_search(
+            octocode_runtime_base::test_support::BUILD_IDENTITY,
             &local,
             &paths,
             &security,
@@ -164,10 +186,10 @@ fn a_missing_path_has_one_recovery_and_no_absolute_root_in_every_tool() {
         .expect_err("missing"),
     ));
     let structure: StructureSearchQuery =
-        serde_json::from_value(fields(json!({"operation": "tree"}))).expect("query");
+        serde_json::from_value(fields(json_fixture(r#"{"operation": "tree"}"#))).expect("query");
     errors.push((
         "structureSearch",
-        crate::tools::structure_search::execute_structure(
+        octocode_tool_local::structure_search::execute_structure(
             &structure,
             &paths,
             &security,
@@ -177,14 +199,21 @@ fn a_missing_path_has_one_recovery_and_no_absolute_root_in_every_tool() {
         .expect_err("missing"),
     ));
     for operation in [
-        json!({"operation": "symbols"}),
-        json!({"operation": "match", "rule": {"pattern": "x"}}),
+        json_fixture(r#"{"operation": "symbols"}"#),
+        json_fixture(r#"{"operation": "match", "rule": {"pattern": "x"}}"#),
     ] {
         let ast: AstSearchQuery = serde_json::from_value(fields(operation)).expect("query");
         errors.push((
             "astSearch",
-            crate::tools::ast_search::execute_ast(&ast, &paths, &security, &NeverCancel, None)
-                .expect_err("missing"),
+            octocode_tool_ast::ast_search::execute_ast(
+                octocode_runtime_base::test_support::BUILD_IDENTITY,
+                &ast,
+                &paths,
+                &security,
+                &NeverCancel,
+                None,
+            )
+            .expect_err("missing"),
         ));
     }
     let absolute = root.0.to_string_lossy().into_owned();
@@ -202,11 +231,11 @@ fn a_missing_path_has_one_recovery_and_no_absolute_root_in_every_tool() {
         let calls = error.calls.as_deref().expect("related request");
         let related = &calls["viewTree"];
         assert_eq!(related["kind"], "related", "{tool}: {calls}");
-        crate::contracts::validate("structureSearch", related["input"].clone())
+        octocode_runtime_base::contracts::validate("structureSearch", related["input"].clone())
             .expect("public recovery input");
         let query: StructureSearchQuery =
             serde_json::from_value(related["input"]["queries"][0].clone()).expect("tree query");
-        let out = crate::tools::structure_search::execute_structure(
+        let out = octocode_tool_local::structure_search::execute_structure(
             &query,
             &paths,
             &security,

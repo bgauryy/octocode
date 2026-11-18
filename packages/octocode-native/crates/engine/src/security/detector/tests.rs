@@ -2,11 +2,14 @@
 //! finds a sample of its own syntax, hides only its secret part, and leaves
 //! every other byte as written.
 
+mod corpus;
+mod forms;
 mod key_armor;
 mod labelled;
 mod sampling;
 
-use super::prescan::{prescan_candidates, shipped_and_reference};
+use super::prescan::prescan_candidates;
+use super::prescan::tests::shipped_and_reference;
 use super::regex_forms::{ascii_pattern_regex, pattern_regex};
 use super::*;
 use sampling::{Lcg, sample};
@@ -83,7 +86,7 @@ fn every_pattern_redacts_only_its_sample() {
             let groups = secret_groups(regex);
             let own = regex
                 .captures(&text)
-                .and_then(|captures| secret_of(&captures, &groups));
+                .and_then(|captures| secret_of(&captures, &groups, &template_groups(regex)));
             // A match whose secret group is empty (a key armor with no body)
             // or that went through its template branch hides nothing.
             let Some(own) = own.filter(|own| !own.is_empty()) else {
@@ -393,4 +396,97 @@ fn docker_and_kubeconfig_token_fields_hide_only_their_value() {
         hidden_parts(kubeconfig),
         ["fake.planted.idtoken0003", "fake-planted-refresh-0004"]
     );
+}
+
+/// An AWS key's value is hidden whatever touches it (a quote of any kind, a
+/// backtick, emphasis, a bracket, an ellipsis, an escaped quote, a zero-width
+/// space) and whichever base64 byte it ends with, in code and in a config
+/// file: only the value goes, never what touches it. A template that names
+/// the value (`${…}`, `$NAME`, `{{…}}`, `<…>`, `%…%`, `[…]`) holds none of it
+/// and stays.
+#[test]
+fn an_aws_value_touched_by_a_symbol_is_hidden_and_a_template_stays() {
+    const KEY: &str = "Qz8Rk2Lm9Np4Vw7Xt1Yb6Hc3Jd5Gf0SaEuWo2Ki9";
+    let session = format!("FwoGZXIvYXdzE{}", "Ab9+/xQ".repeat(30));
+    let keys = [
+        KEY.to_owned(),
+        format!("{}+", &KEY[..39]),
+        format!("{}/", &KEY[..39]),
+    ];
+    let touches = [
+        ("", ""),
+        ("\"", "\""),
+        ("'", "'"),
+        ("…", ""),
+        ("“", "”"),
+        ("«", "»"),
+        ("`", "`"),
+        ("**", "**"),
+        ("(", ")"),
+        ("\\\"", "\\\""),
+        ("\u{200B}", ""),
+    ];
+    let mut lines = Vec::new();
+    for (open, close) in touches {
+        for label in [
+            "aws_secret_access_key = ",
+            "AWS_SECRET_ACCESS_KEY=",
+            "SecretAccessKey: ",
+            "\"aws_secret_access_key\": ",
+        ] {
+            for key in &keys {
+                lines.push((format!("{label}{open}{key}{close}"), key.clone(), None));
+            }
+        }
+        lines.push((
+            format!("aws_session_token = {open}{session}{close}"),
+            session.clone(),
+            Some((open, close)),
+        ));
+    }
+    for (line, secret, touch) in &lines {
+        for form in [ValueForm::Code, ValueForm::Config] {
+            let hidden: Vec<&str> = secret_spans_in(line, form)
+                .into_iter()
+                .map(|span| &line[span.range])
+                .collect();
+            // A `token` label is also a labelled value's, whose bare run in a
+            // config file may start or end with a symbol of the secret itself:
+            // that rule cannot know the value's alphabet, so it may hide the
+            // touching symbols with it, never the label. Only AWS's base64
+            // alphabet proves a touch none of the value.
+            match (form, touch) {
+                (ValueForm::Config, Some((open, close))) => {
+                    let widened = [
+                        secret.clone(),
+                        format!("{open}{secret}"),
+                        format!("{secret}{close}"),
+                        format!("{open}{secret}{close}"),
+                    ];
+                    assert!(
+                        hidden.len() == 1 && widened.iter().any(|want| want == hidden[0]),
+                        "{form:?}: {line} -> {hidden:?}"
+                    );
+                }
+                _ => assert_eq!(hidden, [secret.as_str()], "{form:?}: {line}"),
+            }
+        }
+    }
+    let name = "SecretAccessKeyFromTheParameterStore0000";
+    assert_eq!(name.len(), 40);
+    for template in [
+        format!("${{{name}}}"),
+        format!("${name}"),
+        format!("{{{{{name}}}}}"),
+        format!("<{name}>"),
+        format!("%{name}%"),
+        format!("[{name}]"),
+        format!("\"${{{name}}}\""),
+        format!("(${{{name}}})"),
+    ] {
+        let line = format!("aws_secret_access_key = {template}");
+        for form in [ValueForm::Code, ValueForm::Config] {
+            assert!(secret_spans_in(&line, form).is_empty(), "{form:?}: {line}");
+        }
+    }
 }

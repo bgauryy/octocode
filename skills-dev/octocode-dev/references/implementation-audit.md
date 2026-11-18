@@ -13,7 +13,7 @@ Load when tracing a tool's inputs and data flow through the native runtime. This
 
 ## Data flow
 
-Trace one real call per variant: `$OCTO <tool> '<json>'` → `contracts/prepare.rs` → `runtime/dispatch.rs` → `tools/<tool>/` → provider/engine → `response/` → render. Record for each hop: what it adds, what it copies, what it discards.
+Trace one real call per variant: `$OCTO <tool> '<json>'` → `contracts/prepare.rs` → `runtime/dispatch.rs` → `crates/tool-<family>/src/<tool>/` → provider/engine → `response/` → render. Record for each hop: what it adds, what it copies, what it discards.
 
 - Redundant hops: re-parsing JSON, cloning whole payloads, converting shapes twice, building data the output drops.
 - Provider/API: count requests per query with provider instrumentation or tests; flag N+1 loops, missing batching (GraphQL), refetch of data already in the response, and unbounded fan-out.

@@ -29,7 +29,7 @@ fn a_stop_or_a_cancelled_job_ends_the_parse() {
         parse_until_stopped("fn f() {}", grammar("rs"), &|| true),
         Err(ParseFailure::Interrupted)
     ));
-    let cancelled = crate::deep_stack::run_as_cancelled_job(|| {
+    let cancelled = crate::deep_stack::tests::run_as_cancelled_job(|| {
         parse_until_stopped("fn f() {}", grammar("rs"), &|| false).is_err()
     });
     assert!(cancelled);

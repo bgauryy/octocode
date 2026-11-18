@@ -104,7 +104,7 @@ fn scan_package(package: &Path, stopped: &dyn Fn() -> bool) -> Option<(PackageSc
         // Before the read: an edit after it moves the stamp.
         inputs.follow(path.to_path_buf());
         #[cfg(test)]
-        PACKAGE_FILES_READ.with(|read| read.set(read.get() + 1));
+        super::tests::PACKAGE_FILES_READ.with(|read| read.set(read.get() + 1));
         let Ok(text) = std::fs::read_to_string(path) else {
             continue;
         };
@@ -189,12 +189,6 @@ pub fn cargo_package_includes(file: &Path, stopped: &dyn Fn() -> bool) -> Option
         declared_by: scan.modules.declared_by(&lexical(file), &targets),
         has_more: false,
     })
-}
-
-#[cfg(test)]
-thread_local! {
-    /// Package sources this thread's scans read.
-    pub(super) static PACKAGE_FILES_READ: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// What an `include!` reads: a build-script value (`env!`, possibly in a

@@ -6,6 +6,7 @@
 //! stdout or stderr. The terminal turns `\n` into `\r\n`; [`tty`] undoes it.
 
 use crate::support::Workspace;
+use octocode_test_support::json_fixture;
 use serde_json::Value;
 use std::process::Output;
 
@@ -63,7 +64,17 @@ fn piped_json_is_one_compact_line() {
 fn typed_context_controls_terminal_numbering_without_losing_source() {
     let workspace = Workspace::new();
     workspace.write("notes.txt", "alpha\nneedle here\nomega\n");
-    let query = serde_json::json!({"queries":[{"path":".","matchString":["needle"],"contextLines":{"before":1,"after":1}}]});
+    let query = json_fixture(
+        r#"{
+            "queries": [
+                {
+                    "path": ".",
+                    "matchString": ["needle"],
+                    "contextLines": {"before": 1, "after": 1}
+                }
+            ]
+        }"#,
+    );
     let output = workspace
         .cli()
         .args(["localSearch", &query.to_string()])
@@ -74,8 +85,11 @@ fn typed_context_controls_terminal_numbering_without_losing_source() {
         stdout(&output),
         "notes.txt\n1-alpha\n2:needle here\n3-omega\n"
     );
-    let files =
-        serde_json::json!({"queries":[{"path":".","matchString":["needle"],"view":"files"}]});
+    let files = json_fixture(
+        r#"{
+            "queries": [{"path": ".", "matchString": ["needle"], "view": "files"}]
+        }"#,
+    );
     let output = workspace
         .cli()
         .args(["localSearch", &files.to_string()])
@@ -94,10 +108,17 @@ fn terminal_cursor_commands_execute_in_a_later_process() {
             "it's a needle\n".repeat(30),
         );
     }
-    let input = serde_json::json!({"queries":[{"path":"src","matchString":["needle"]}],"responseChars":1800});
-    let output = workspace
+    let input = json_fixture(
+        r#"{
+            "queries": [{"path": "src", "matchString": ["needle"]}],
+            "responseChars": 1800
+        }"#,
+    );
+    // Persistent storage starts a warm server: the fixture owns its socket
+    // namespace and stops it when the test ends.
+    let persistent = workspace.persistent_cli();
+    let output = persistent
         .cli()
-        .env("OCTOCODE_STORAGE_MODE", "persistent")
         .args(["localSearch", &input.to_string()])
         .output()
         .expect("search");
@@ -115,9 +136,8 @@ fn terminal_cursor_commands_execute_in_a_later_process() {
     for input in commands {
         assert_eq!(input.as_object().expect("cursor input").len(), 1);
         assert!(input["cursor"].is_string());
-        let resumed = workspace
+        let resumed = persistent
             .cli()
-            .env("OCTOCODE_STORAGE_MODE", "persistent")
             .args(["localSearch", &input.to_string(), "--json"])
             .output()
             .expect("resume");
@@ -152,10 +172,12 @@ fn a_continuation_page_prints_in_its_first_pages_line_format() {
         .map(|n| format!("before {n}\nneedle {n}\n"))
         .collect();
     workspace.write("src/notes.txt", &source);
+    // Persistent storage starts a warm server: the fixture owns its socket
+    // namespace and stops it when the test ends.
+    let persistent = workspace.persistent_cli();
     let page = |input: &Value| {
-        let output = workspace
+        let output = persistent
             .cli()
-            .env("OCTOCODE_STORAGE_MODE", "persistent")
             .args(["localSearch", &input.to_string()])
             .output()
             .expect("search");
@@ -165,11 +187,11 @@ fn a_continuation_page_prints_in_its_first_pages_line_format() {
     for (context, expected) in [
         (serde_json::json!(null), "6:needle 3\n8:needle 4\n"),
         (
-            serde_json::json!({"before": 1, "after": 0}),
+            json_fixture(r#"{"before": 1, "after": 0}"#),
             "5-before 3\n6:needle 3\n7-before 4\n8:needle 4\n",
         ),
     ] {
-        let mut row = serde_json::json!({"path":"src","matchString":["needle"],"limit":2});
+        let mut row = json_fixture(r#"{"path": "src", "matchString": ["needle"], "limit": 2}"#);
         if !context.is_null() {
             row["contextLines"] = context;
         }
@@ -247,7 +269,7 @@ fn piped_skill_json_is_one_compact_line() {
     assert!(catalog["skills"].is_array(), "{catalog}");
 }
 
-/// A skill error is the `{error, errorCode}` envelope every command uses.
+/// A skill error is the `{error, errorCode, errorClass}` envelope every command uses.
 #[test]
 fn skill_errors_use_the_common_envelope() {
     let workspace = Workspace::new();
@@ -266,8 +288,9 @@ fn skill_errors_use_the_common_envelope() {
         .keys()
         .map(String::as_str)
         .collect();
-    assert_eq!(keys, ["error", "errorCode"], "{envelope}");
+    assert_eq!(keys, ["error", "errorCode", "errorClass"], "{envelope}");
     assert_eq!(envelope["errorCode"], "invalidInput");
+    assert_eq!(envelope["errorClass"], "correctInput");
     assert!(
         envelope["error"]
             .as_str()
@@ -327,6 +350,61 @@ fn json_argument_errors_keep_the_whole_clap_message() {
     let details = envelope["details"].to_string();
     assert!(details.contains("Usage: octocode"), "{envelope}");
     assert!(details.contains("--help"), "{envelope}");
+}
+
+/// A served call is its `tool` and `input`: JSON states no `kind` on any
+/// call, and text still prints each call by the channel that holds it, a
+/// `related[]` lead as a stderr note and never as a stdout continuation.
+#[test]
+fn served_calls_state_no_kind_and_text_prints_leads_by_their_channel() {
+    let workspace = Workspace::new();
+    workspace.write("src/a.txt", "needle\n");
+    let input = r#"{"queries":[{"path":"src/missing","matchString":["needle"]}]}"#;
+    let json = workspace
+        .cli()
+        .args(["localSearch", input, "--json"])
+        .output()
+        .expect("json");
+    let body = compact_line(stdout(&json));
+    fn kinds(value: &Value, found: &mut Vec<Value>) {
+        match value {
+            Value::Object(fields) => {
+                if fields.contains_key("tool") && fields.contains_key("kind") {
+                    found.push(value.clone());
+                }
+                fields.values().for_each(|child| kinds(child, found));
+            }
+            Value::Array(items) => items.iter().for_each(|child| kinds(child, found)),
+            _ => {}
+        }
+    }
+    let mut stated = Vec::new();
+    kinds(&body, &mut stated);
+    assert!(stated.is_empty(), "{body}");
+    let lead = &body["results"][0]["data"]["related"][0];
+    assert_eq!(lead["tool"], "structureSearch", "{body}");
+    assert!(lead["input"]["queries"].is_array(), "{body}");
+
+    let text = workspace
+        .cli()
+        .args(["localSearch", input])
+        .output()
+        .expect("text");
+    let notes = stderr(&text);
+    let printed = notes
+        .lines()
+        .find_map(|line| line.strip_prefix("# related[0]: octocode structureSearch "))
+        .unwrap_or_else(|| panic!("a related[0] lead note: {notes}"));
+    let printed: Value = serde_json::from_str(
+        &printed
+            .strip_prefix('\'')
+            .and_then(|call| call.strip_suffix('\''))
+            .expect("quoted input")
+            .replace(r"'\''", "'"),
+    )
+    .expect("JSON input");
+    assert_eq!(printed, lead["input"]);
+    assert!(!stdout(&text).contains("related[0]"), "{}", stdout(&text));
 }
 
 #[cfg(unix)]

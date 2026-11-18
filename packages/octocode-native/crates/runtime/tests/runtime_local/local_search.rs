@@ -152,12 +152,14 @@ async fn long_unicode_lines_show_a_window_around_the_hit_and_lead_to_the_whole_l
             value.len() < line.len() / 10,
             "MCP={mcp}: a window of the line"
         );
-        // The window is disclosed by the warning; any lead is a localFetch read
-        // of the hit's own line in the hit's own file.
-        assert!(data["warnings"].as_array().is_some_and(|w| {
-            w.iter()
-                .any(|w| w.as_str().is_some_and(|w| w.starts_with("windowedHits")))
-        }));
+        // The column marks the window, which no warning restates; any lead is
+        // a localFetch read of the hit's own line in the hit's own file.
+        assert!(
+            !data["warnings"]
+                .to_string()
+                .contains(data["files"][0]["path"].as_str().expect("path")),
+            "MCP={mcp}: {data}"
+        );
         for lead in data
             .get("related")
             .and_then(Value::as_array)
@@ -401,7 +403,9 @@ async fn every_local_input_repair_runs_and_names_the_real_field() {
             .filter(|warning| warning.contains("next time"))
             .collect::<Vec<_>>();
         assert!(
-            matches!(warnings.as_slice(), [one] if one.contains(&format!("send `{field}"))),
+            matches!(warnings.as_slice(), [one]
+                if one.contains(&format!("send `{}", field.split(':').next().unwrap_or(field)))
+                    && one.contains(field)),
             "{tool} {row}: {}",
             found.structured_content
         );

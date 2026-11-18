@@ -3,6 +3,7 @@
 use super::HISTORY_A_HEAD;
 use crate::support::{self};
 use octocode_contract_types::ErrorCode;
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use support::{Workspace, call, checks, row_data, row_status};
 use wiremock::matchers::{method, path};
@@ -15,7 +16,7 @@ async fn github_missing_identity_is_a_contract_error() {
     let error = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"commit","owner":"a","repo":"b"}),
+        json_fixture(r#"{"operation": "commit", "owner": "a", "repo": "b"}"#),
     )
     .await
     .expect_err("missing sha");
@@ -40,13 +41,24 @@ async fn gh_get_history_item_preserves_github_permission_reason() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation": "issue", "owner": "a", "repo": "b", "number": 42}),
+        json_fixture(
+            r#"{
+                "operation": "issue",
+                "owner": "a",
+                "repo": "b",
+                "number": 42
+            }"#,
+        ),
     )
     .await
     .expect("permission error row");
     let data = row_data(&outcome);
     assert_eq!(row_status(&outcome), "error");
-    assert_eq!(data["httpStatus"], 403);
+    assert_eq!(data["errorCode"], "permissionDenied");
+    assert!(
+        data.get("httpStatus").is_none(),
+        "permission already names the 403: {data}"
+    );
     assert!(
         data["error"]
             .as_str()
@@ -62,7 +74,9 @@ async fn gh_get_history_item_commit_not_found_surfaces_error() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/deadbeef1234567890"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message": "Not Found"})))
+        .respond_with(
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
+        )
         .mount(&server)
         .await;
 
@@ -72,8 +86,14 @@ async fn gh_get_history_item_commit_not_found_surfaces_error() {
     let result = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation": "commit", "owner": "a", "repo": "b",
-               "ref": "deadbeef1234567890"}),
+        json_fixture(
+            r#"{
+                "operation": "commit",
+                "owner": "a",
+                "repo": "b",
+                "ref": "deadbeef1234567890"
+            }"#,
+        ),
     )
     .await;
     // Either a top-level RuntimeError or a row-level error status
@@ -96,7 +116,7 @@ async fn history_repository_without_owner_is_rejected_before_provider_requests()
     let outcome = call(
         &runtime,
         "ghSearchHistory",
-        json!({"operation": "pullRequest", "repo": "b"}),
+        json_fixture(r#"{"operation": "pullRequest", "repo": "b"}"#),
     )
     .await
     .expect_err("repository-only scope must fail native contract validation");
@@ -125,10 +145,9 @@ async fn bad_commit_sha_is_not_found() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/deadbeef"))
-        .respond_with(
-            ResponseTemplate::new(422)
-                .set_body_json(json!({"message":"No commit found for SHA: deadbeef"})),
-        )
+        .respond_with(ResponseTemplate::new(422).set_body_json(json_fixture(
+            r#"{"message": "No commit found for SHA: deadbeef"}"#,
+        )))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -136,7 +155,14 @@ async fn bad_commit_sha_is_not_found() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"commit","owner":"a","repo":"b","ref":"deadbeef"}),
+        json_fixture(
+            r#"{
+                "operation": "commit",
+                "owner": "a",
+                "repo": "b",
+                "ref": "deadbeef"
+            }"#,
+        ),
     )
     .await
     .expect("commit row");
@@ -193,12 +219,14 @@ async fn gh_history_item_not_found_names_the_item() {
     // and the comparison of an unknown base is GitHub's bare 404.
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "full_name": "a/b",
-            "default_branch": "main",
-            "private": false,
-            "archived": false
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "full_name": "a/b",
+                "default_branch": "main",
+                "private": false,
+                "archived": false
+            }"#,
+        )))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
@@ -208,29 +236,58 @@ async fn gh_history_item_not_found_names_the_item() {
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/no-such-head"))
-        .respond_with(
-            ResponseTemplate::new(422)
-                .set_body_json(json!({"message":"No commit found for SHA: no-such-head"})),
-        )
+        .respond_with(ResponseTemplate::new(422).set_body_json(json_fixture(
+            r#"{"message": "No commit found for SHA: no-such-head"}"#,
+        )))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     for (query, named) in [
         (
-            json!({"operation":"pullRequest","owner":"a","repo":"b","number":987654}),
+            json_fixture(
+                r#"{
+                    "operation": "pullRequest",
+                    "owner": "a",
+                    "repo": "b",
+                    "number": 987654
+                }"#,
+            ),
             "#987654",
         ),
         (
-            json!({"operation":"issue","owner":"a","repo":"b","number":987654}),
+            json_fixture(
+                r#"{
+                    "operation": "issue",
+                    "owner": "a",
+                    "repo": "b",
+                    "number": 987654
+                }"#,
+            ),
             "#987654",
         ),
         (
-            json!({"operation":"compare","owner":"a","repo":"b","baseRef":"no-such-base","headRef":"main"}),
+            json_fixture(
+                r#"{
+                    "operation": "compare",
+                    "owner": "a",
+                    "repo": "b",
+                    "baseRef": "no-such-base",
+                    "headRef": "main"
+                }"#,
+            ),
             "no-such-base...",
         ),
         (
-            json!({"operation":"compare","owner":"a","repo":"b","baseRef":"main","headRef":"no-such-head"}),
+            json_fixture(
+                r#"{
+                    "operation": "compare",
+                    "owner": "a",
+                    "repo": "b",
+                    "baseRef": "main",
+                    "headRef": "no-such-head"
+                }"#,
+            ),
             "no-such-head",
         ),
     ] {
@@ -262,12 +319,21 @@ async fn gh_history_item_not_found_names_the_item() {
 async fn gh_history_item_in_a_missing_repository_leads_to_a_repository_search() {
     let server = MockServer::builder().start().await;
     Mock::given(wiremock::matchers::any())
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
+        .respond_with(
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
+        )
         .mount(&server)
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let query = json!({"operation":"pullRequest","owner":"a","repo":"b","number":987654});
+    let query = json_fixture(
+        r#"{
+            "operation": "pullRequest",
+            "owner": "a",
+            "repo": "b",
+            "number": 987654
+        }"#,
+    );
     let outcome = call(&runtime, "ghGetHistoryItem", query.clone())
         .await
         .expect("error row");
@@ -275,7 +341,7 @@ async fn gh_history_item_in_a_missing_repository_leads_to_a_repository_search() 
     let error = data["error"].as_str().unwrap_or_default();
     assert!(error.contains("Repository a/b not found"), "{data}");
     let lead = crate::support::checks::find_related_call(data, "ghSearchRepo", |input| {
-        input["queries"][0]["keywords"] == json!(["b"])
+        input["queries"][0]["keywords"] == json_fixture(r#"["b"]"#)
     });
     assert!(lead.is_some(), "a repository search for its name: {data}");
     runtime.close().await;
@@ -290,10 +356,20 @@ async fn gh_search_history_commit_not_found_names_the_scope() {
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     for (query, named) in [
         (
-            json!({"operation":"commit","owner":"a","repo":"b","ref":"no-such-ref"}),
+            json_fixture(
+                r#"{
+                    "operation": "commit",
+                    "owner": "a",
+                    "repo": "b",
+                    "ref": "no-such-ref"
+                }"#,
+            ),
             "\"no-such-ref\"",
         ),
-        (json!({"operation":"commit","owner":"a","repo":"b"}), "a/b"),
+        (
+            json_fixture(r#"{"operation": "commit", "owner": "a", "repo": "b"}"#),
+            "a/b",
+        ),
     ] {
         let outcome = call(&runtime, "ghSearchHistory", query.clone())
             .await

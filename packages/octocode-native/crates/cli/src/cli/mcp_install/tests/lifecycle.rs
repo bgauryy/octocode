@@ -1,4 +1,5 @@
 use super::*;
+use octocode_test_support::json_fixture;
 
 #[test]
 fn checks_inspect_existing_entries_without_creating_or_repairing_files() {
@@ -31,12 +32,26 @@ fn checks_inspect_existing_entries_without_creating_or_repairing_files() {
     let keys = spec("cursor").server_keys();
     assert!(!super::super::valid_server(
         spec("cursor"),
-        &json!({"mcpServers":{"octocode":{"command":"npx","args":["other-package"]}}}),
+        &json_fixture(
+            r#"{
+                "mcpServers": {"octocode": {"command": "npx", "args": ["other-package"]}}
+            }"#
+        ),
         &keys
     ));
     assert!(!super::super::valid_server(
         spec("vscode-cline"),
-        &json!({"mcpServers":{"octocode":{"command":"npx","args":["octocode-mcp@latest"],"disabled":true}}}),
+        &json_fixture(
+            r#"{
+                "mcpServers": {
+                    "octocode": {
+                        "command": "npx",
+                        "args": ["octocode-mcp@latest"],
+                        "disabled": true
+                    }
+                }
+            }"#
+        ),
         &keys
     ));
 }
@@ -91,7 +106,10 @@ fn remove_deletes_the_installed_entry_and_refuses_a_custom_one() {
     assert_eq!(super::super::install(&target, &remove).expect("remove"), 0);
     let root: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&path).expect("read")).expect("json");
-    assert_eq!(root, json!({"mcpServers":{"other":{"command":"x"}}}));
+    assert_eq!(
+        root,
+        json_fixture(r#"{"mcpServers": {"other": {"command": "x"}}}"#)
+    );
     assert!(
         path.with_file_name(".mcp.json.bak").exists(),
         "removal keeps a backup"
@@ -183,7 +201,9 @@ fn a_rolling_backup_restores_the_original_filename() {
             std::path::Path::new(original)
         );
         assert_eq!(
-            octocode_native::config::backup_path(&super::super::rollback_destination(rolling)),
+            octocode_runtime_base::config::backup_path(&super::super::rollback_destination(
+                rolling
+            )),
             rolling
         );
     }

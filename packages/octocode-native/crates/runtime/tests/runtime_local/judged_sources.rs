@@ -5,6 +5,7 @@
 //! All secrets are fake.
 
 use crate::support::{Workspace, call, query_path};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -228,16 +229,19 @@ async fn every_tool_serves_a_source_as_its_whole_file_judgment() {
         for query in [
             json!({"operation": "match", "rule": {"kind": kind}, "includeCaptures": true}),
             json!({"operation": "match", "rule": {"kind": kind}}),
-            json!({"operation": "symbols"}),
-            json!({"operation": "syntaxTree"}),
+            json_fixture(r#"{"operation": "symbols"}"#),
+            json_fixture(r#"{"operation": "syntaxTree"}"#),
         ] {
             responses.push(run("astSearch", query_path(&file(name), query)).await);
         }
     }
     for (name, rule) in [
-        ("s.ts", json!({"pattern": "const $NAME = $VALUE"})),
-        ("s.ts", json!({"kind": "string"})),
-        ("code.ts", json!({"kind": "pair"})),
+        (
+            "s.ts",
+            json_fixture(r#"{"pattern": "const $NAME = $VALUE"}"#),
+        ),
+        ("s.ts", json_fixture(r#"{"kind": "string"}"#)),
+        ("code.ts", json_fixture(r#"{"kind": "pair"}"#)),
     ] {
         let query = json!({"operation": "match", "rule": rule, "includeCaptures": true});
         let (call, output) = run("astSearch", query_path(&file(name), query)).await;
@@ -290,14 +294,19 @@ async fn every_tool_serves_a_source_as_its_whole_file_judgment() {
     // The graph: facts stored at build time are the judged source's.
     responses.push(run("graphBuild", query_path(&root, json!({}))).await);
     for query in [
-        json!({"operation": "find"}),
-        json!({"operation": "symbols", "target": "g.rs"}),
-        json!({"operation": "symbols", "target": "s.ts"}),
-        json!({"operation": "unresolved"}),
-        json!({"operation": "unresolved", "edges": ["calls", "uses", "passes", "imports"]}),
-        json!({"operation": "witnesses", "target": "g.rs"}),
-        json!({"operation": "callers", "target": "f"}),
-        json!({"operation": "callees", "target": "f"}),
+        json_fixture(r#"{"operation": "find"}"#),
+        json_fixture(r#"{"operation": "symbols", "target": "g.rs"}"#),
+        json_fixture(r#"{"operation": "symbols", "target": "s.ts"}"#),
+        json_fixture(r#"{"operation": "unresolved"}"#),
+        json_fixture(
+            r#"{
+                "operation": "unresolved",
+                "edges": ["calls", "uses", "passes", "imports"]
+            }"#,
+        ),
+        json_fixture(r#"{"operation": "witnesses", "target": "g.rs"}"#),
+        json_fixture(r#"{"operation": "callers", "target": "f"}"#),
+        json_fixture(r#"{"operation": "callees", "target": "f"}"#),
     ] {
         let outcome = call(&runtime, "graphQuery", query_path(&root, query.clone()))
             .await
@@ -603,7 +612,7 @@ async fn multiline_redactions_keep_names_and_one_placeholder_per_value() {
             if !hidden.is_empty() {
                 let (call, output) = run(
                     "localSearch",
-                    query_path(&file, json!({"matchString": "REDACTED-"})),
+                    query_path(&file, json_fixture(r#"{"matchString": "REDACTED-"}"#)),
                 )
                 .await;
                 let mut hits = Vec::new();
@@ -643,10 +652,10 @@ async fn multiline_redactions_keep_names_and_one_placeholder_per_value() {
                 }
                 responses.push((call, output));
                 for extra in [
-                    json!({"view": "matchOnly"}),
-                    json!({"view": "matchOnly", "unique": "list"}),
-                    json!({"view": "matchOnly", "unique": "count"}),
-                    json!({"contextLines": {"before": 1, "after": 1}}),
+                    json_fixture(r#"{"view": "matchOnly"}"#),
+                    json_fixture(r#"{"view": "matchOnly", "unique": "list"}"#),
+                    json_fixture(r#"{"view": "matchOnly", "unique": "count"}"#),
+                    json_fixture(r#"{"contextLines": {"before": 1, "after": 1}}"#),
                 ] {
                     let mut query = json!({"matchString": needle});
                     query
@@ -673,7 +682,7 @@ async fn multiline_redactions_keep_names_and_one_placeholder_per_value() {
             // Declaration names are the source's identifiers.
             let (call, output) = run(
                 "astSearch",
-                query_path(&file, json!({"operation": "symbols"})),
+                query_path(&file, json_fixture(r#"{"operation": "symbols"}"#)),
             )
             .await;
             let mut names = Vec::new();
@@ -843,7 +852,7 @@ async fn stale_graph_snapshot_of_another_analysis_version_serves_no_fact() {
                 .into_value()
         }
     };
-    let unresolved = || query_path(&root, json!({"operation": "unresolved"}));
+    let unresolved = || query_path(&root, json_fixture(r#"{"operation": "unresolved"}"#));
 
     let built = run("graphBuild", query_path(&root, json!({}))).await;
     let id = stale_graph_data(&built)["id"]
@@ -860,29 +869,34 @@ async fn stale_graph_snapshot_of_another_analysis_version_serves_no_fact() {
     stale_graph_as_previous_analysis(&workspace, &id);
     let mut refusals = Vec::new();
     for query in [
-        json!({"operation": "stats"}),
-        json!({"operation": "find"}),
+        json_fixture(r#"{"operation": "stats"}"#),
+        json_fixture(r#"{"operation": "find"}"#),
         json!({"operation": "find", "target": STALE_GRAPH_VALUE}),
         json!({"operation": "candidates", "target": STALE_GRAPH_VALUE}),
-        json!({"operation": "node", "target": "g.rs"}),
-        json!({"operation": "symbols", "target": "g.rs"}),
-        json!({"operation": "deps", "target": "g.rs"}),
-        json!({"operation": "dependents", "target": "g.rs"}),
-        json!({"operation": "callers", "target": "f"}),
-        json!({"operation": "callees", "target": "f", "confidence": "low"}),
-        json!({"operation": "walk", "target": "g.rs"}),
-        json!({"operation": "path", "target": "f", "to": "g.rs"}),
-        json!({"operation": "cycles"}),
-        json!({"operation": "hubs"}),
-        json!({"operation": "diagnostics"}),
-        json!({"operation": "witnesses", "target": "g.rs"}),
-        json!({"operation": "unresolved"}),
-        json!({"operation": "unresolved", "includeProvenance": true,
-            "edges": ["calls", "uses", "passes", "imports"]}),
-        json!({"operation": "stale"}),
-        json!({"operation": "issues"}),
+        json_fixture(r#"{"operation": "node", "target": "g.rs"}"#),
+        json_fixture(r#"{"operation": "symbols", "target": "g.rs"}"#),
+        json_fixture(r#"{"operation": "deps", "target": "g.rs"}"#),
+        json_fixture(r#"{"operation": "dependents", "target": "g.rs"}"#),
+        json_fixture(r#"{"operation": "callers", "target": "f"}"#),
+        json_fixture(r#"{"operation": "callees", "target": "f", "confidence": "low"}"#),
+        json_fixture(r#"{"operation": "walk", "target": "g.rs"}"#),
+        json_fixture(r#"{"operation": "path", "target": "f", "to": "g.rs"}"#),
+        json_fixture(r#"{"operation": "cycles"}"#),
+        json_fixture(r#"{"operation": "hubs"}"#),
+        json_fixture(r#"{"operation": "diagnostics"}"#),
+        json_fixture(r#"{"operation": "witnesses", "target": "g.rs"}"#),
+        json_fixture(r#"{"operation": "unresolved"}"#),
+        json_fixture(
+            r#"{
+                "operation": "unresolved",
+                "includeProvenance": true,
+                "edges": ["calls", "uses", "passes", "imports"]
+            }"#,
+        ),
+        json_fixture(r#"{"operation": "stale"}"#),
+        json_fixture(r#"{"operation": "issues"}"#),
         json!({"operation": "issues", "baseline": id}),
-        json!({"operation": "impact", "target": "f"}),
+        json_fixture(r#"{"operation": "impact", "target": "f"}"#),
         json!({"operation": "drift", "baseline": id}),
     ] {
         for named in [false, true] {
@@ -1031,7 +1045,7 @@ async fn lsp_server_text_shows_a_value_as_a_read_of_its_file_does() {
         assert!(!content.contains(value), "{name} reads {value}: {content}");
         read.insert(name, lsp_text_placeholder(&content).to_owned());
     }
-    let hover = json!({"operation": "hover", "symbolName": "pw", "line": 2});
+    let hover = json_fixture(r#"{"operation": "hover", "symbolName": "pw", "line": 2}"#);
 
     // A hover of a value its definition's file declares.
     let named = run("lspSearch", "use.ts", hover.clone()).await;
@@ -1060,7 +1074,12 @@ async fn lsp_server_text_shows_a_value_as_a_read_of_its_file_does() {
     );
 
     // A diagnostic that quotes its file's value, and one the file shows.
-    let diagnostics = run("lspSearch", "x.ts", json!({"operation": "diagnostic"})).await;
+    let diagnostics = run(
+        "lspSearch",
+        "x.ts",
+        json_fixture(r#"{"operation": "diagnostic"}"#),
+    )
+    .await;
     let shown = diagnostics.to_string();
     assert!(!shown.contains(X_VALUE), "{diagnostics}");
     let message = diagnostics["results"][0]["data"]["matches"][0]["message"]
@@ -1136,8 +1155,13 @@ async fn over_ceiling_source_rows_are_the_reads_lines() {
         assert!(redacted(&read[&line]), "line {line}: {:?}", read[&line]);
     }
     for query in [
-        json!({"matchString": "early|late", "regexEngine": "rust"}),
-        json!({"matchString": "Url", "contextLines": {"before": 2, "after": 1}}),
+        json_fixture(r#"{"matchString": "early|late", "regexEngine": "rust"}"#),
+        json_fixture(
+            r#"{
+                "matchString": "Url",
+                "contextLines": {"before": 2, "after": 1}
+            }"#,
+        ),
     ] {
         let output = run("localSearch", query.clone()).await;
         let mut hits = Vec::new();
@@ -1253,10 +1277,17 @@ async fn ast_search_states_every_digest_and_coordinate_over_the_shown_text() {
     let quote = shown_line.rfind('"').expect("closing quote");
     let mut responses = Vec::new();
     for query in [
-        json!({"operation": "match", "rule": {"kind": "string"}, "includeProvenance": true, "includeCaptures": true}),
-        json!({"operation": "symbols", "includeProvenance": true}),
-        json!({"operation": "syntaxTree", "includeProvenance": true}),
-        json!({"operation": "syntaxTree"}),
+        json_fixture(
+            r#"{
+                "operation": "match",
+                "rule": {"kind": "string"},
+                "includeProvenance": true,
+                "includeCaptures": true
+            }"#,
+        ),
+        json_fixture(r#"{"operation": "symbols", "includeProvenance": true}"#),
+        json_fixture(r#"{"operation": "syntaxTree", "includeProvenance": true}"#),
+        json_fixture(r#"{"operation": "syntaxTree"}"#),
     ] {
         responses.push((query.clone(), run("astSearch", query).await));
     }
@@ -1320,7 +1351,7 @@ async fn ast_search_states_every_digest_and_coordinate_over_the_shown_text() {
     // The lines around the value read as written.
     let data = run(
         "astSearch",
-        json!({"operation": "match", "rule": {"kind": "call"}}),
+        json_fixture(r#"{"operation": "match", "rule": {"kind": "call"}}"#),
     )
     .await;
     assert_eq!(

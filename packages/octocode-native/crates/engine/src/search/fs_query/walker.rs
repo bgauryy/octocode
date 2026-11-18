@@ -66,6 +66,13 @@ impl QueryState {
         self.tally.unreadable(self.position, denied);
     }
 
+    /// Count a directory whose listing failed, naming it.
+    pub(super) fn unreadable_dir(&mut self, err: &std::io::Error, dir: &Path) {
+        let denied = err.kind() == std::io::ErrorKind::PermissionDenied;
+        self.tally
+            .unreadable_dir(self.position, denied, dir.to_string_lossy().into_owned());
+    }
+
     /// Where the walk stands: the directories it is inside and, when the
     /// walk is about to enter one, that directory.
     fn cursor(&self, shape: u64, entering: Option<Frame>) -> WalkCursor {
@@ -151,7 +158,7 @@ fn read_children(
     // The deadline is set once the window inspected a new entry, so a
     // directory the window starts in (the root, a resumed one) is always
     // listed and every window makes progress.
-    let deadline = state.deadline;
+    let deadline = state.deadline.map(|at| (at, &query.walk_clock));
     let taken = match state.ahead.as_mut() {
         Some(ahead) => ahead.take(base, deadline),
         None => read_ahead::Taken::NotQueued,
@@ -175,7 +182,7 @@ fn read_children(
         Ok(read) => read,
         Err(err) => {
             if !reread {
-                state.unreadable(&err);
+                state.unreadable_dir(&err, base);
             }
             return Children::None;
         }

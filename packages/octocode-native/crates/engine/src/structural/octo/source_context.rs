@@ -17,7 +17,7 @@ impl SourceContext {
         clippy::expect_used,
         reason = "structural admission bounds input below u32 before the root unit is constructed"
     )]
-    pub fn root(node: Node<'_>, content: &str) -> Self {
+    pub(super) fn root(node: Node<'_>, content: &str) -> Self {
         let language = node.language();
         let name = crate::signatures::languages::all_entries()
             .iter()
@@ -34,7 +34,7 @@ impl SourceContext {
             trees: HashMap::from([(tree_id(node), UnitHandle(0))]),
         }
     }
-    pub fn region(
+    pub(super) fn region(
         &self,
         root: Node<'_>,
         range: tree_sitter::Range,
@@ -81,10 +81,10 @@ impl SourceContext {
         })
     }
     /// Whether a span in `tree` resolves through these units.
-    pub fn holds(&self, tree: usize) -> bool {
+    pub(super) fn holds(&self, tree: usize) -> bool {
         self.trees.contains_key(&tree)
     }
-    pub fn span(&self, node: Node<'_>) -> ObservedSpan {
+    pub(super) fn span(&self, node: Node<'_>) -> ObservedSpan {
         self.range(
             tree_id(node),
             saturating_u32(node.start_byte()),
@@ -95,7 +95,7 @@ impl SourceContext {
         clippy::expect_used,
         reason = "every capture tree is registered on entering its active parser frame"
     )]
-    pub fn range(&self, tree: usize, start: u32, end: u32) -> ObservedSpan {
+    pub(super) fn range(&self, tree: usize, start: u32, end: u32) -> ObservedSpan {
         ObservedSpan {
             unit: *self
                 .trees

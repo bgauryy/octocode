@@ -18,7 +18,7 @@ impl NativeLspClient {
     /// from one that never reported progress or is still busy.
     pub(crate) async fn wait_for_ready(&self, timeout_ms: Option<u32>) -> Result<Readiness> {
         let timeout_ms = u64::from(timeout_ms.unwrap_or(45_000));
-        let began = tokio::time::Instant::now();
+        let began = self.inner.clock.now();
         let readiness = self
             .inner
             .progress
@@ -240,7 +240,7 @@ impl NativeLspClient {
         self.inner.activity.load(Ordering::Acquire) > 0
     }
 
-    /// The server tree's resident bytes at the last watchdog sample.
+    /// The bytes the server tree held at the last watchdog sample.
     pub(crate) fn last_resident_bytes(&self) -> u64 {
         self.inner.resident_bytes.load(Ordering::Relaxed)
     }

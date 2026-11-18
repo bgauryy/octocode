@@ -3,7 +3,8 @@
 //! answers is not refused for a spent quota.
 
 use crate::support::{PACED_LIMITS, Run, Workspace, call, row_data, row_status};
-use octocode_native::execution::RuntimeLimits;
+use octocode_runtime_base::execution::RuntimeLimits;
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use wiremock::matchers::{method, path, query_param_contains};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -28,23 +29,23 @@ async fn a_quota_wait_reports_progress_and_still_returns_the_page() {
                 .insert_header("x-ratelimit-remaining", "0")
                 .insert_header("x-ratelimit-reset", reset.to_string().as_str())
                 .insert_header("x-ratelimit-resource", "code_search")
-                .set_body_json(json!({"message":"API rate limit exceeded"})),
+                .set_body_json(json_fixture(r#"{"message": "API rate limit exceeded"}"#)),
         )
         .up_to_n_times(1)
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path(SEARCH_CODE))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count":0,"incomplete_results":false,"items":[]})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"total_count": 0, "incomplete_results": false, "items": []}"#,
+        )))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"default_branch":"main","full_name":"a/b"})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"default_branch": "main", "full_name": "a/b"}"#,
+        )))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -64,7 +65,7 @@ async fn a_quota_wait_reports_progress_and_still_returns_the_page() {
         .run(call(
             &runtime,
             "ghSearchCode",
-            json!({"owner":"a","repo":"b","keywords":["needle"]}),
+            json_fixture(r#"{"owner": "a", "repo": "b", "keywords": ["needle"]}"#),
         ))
         .await
         .expect("the waited-for page");
@@ -101,15 +102,22 @@ async fn each_row_discloses_its_own_client_waits() {
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/repositories"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count":0,"incomplete_results":false,"items":[]})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"total_count": 0, "incomplete_results": false, "items": []}"#,
+        )))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/c/d"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "name":"d","full_name":"c/d","owner":{"login":"c"},
-            "default_branch":"main","html_url":"https://github.com/c/d"})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "name": "d",
+                "full_name": "c/d",
+                "owner": {"login": "c"},
+                "default_branch": "main",
+                "html_url": "https://github.com/c/d"
+            }"#,
+        )))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -123,10 +131,14 @@ async fn each_row_discloses_its_own_client_waits() {
     let outcome = call(
         &runtime,
         "ghSearchRepo",
-        json!({"queries":[
-            {"operation":"search","keywords":["needle"]},
-            {"operation":"get","owner":"c","repo":"d"}
-        ]}),
+        json_fixture(
+            r#"{
+                "queries": [
+                    {"operation": "search", "keywords": ["needle"]},
+                    {"operation": "get", "owner": "c", "repo": "d"}
+                ]
+            }"#,
+        ),
     )
     .await
     .expect("both rows");
@@ -169,7 +181,7 @@ async fn each_row_discloses_its_own_client_waits() {
     let alone = call(
         &runtime,
         "ghSearchRepo",
-        json!({"operation":"search","keywords":["needle"]}),
+        json_fixture(r#"{"operation": "search", "keywords": ["needle"]}"#),
     )
     .await
     .expect("an unpaced row");
@@ -187,7 +199,7 @@ fn spent(resource: &str, reset: Option<u64>) -> ResponseTemplate {
     let template = ResponseTemplate::new(403)
         .insert_header("x-ratelimit-remaining", "0")
         .insert_header("x-ratelimit-resource", resource)
-        .set_body_json(json!({"message":"API rate limit exceeded"}));
+        .set_body_json(json_fixture(r#"{"message": "API rate limit exceeded"}"#));
     match reset {
         Some(reset) => template.insert_header("x-ratelimit-reset", reset.to_string().as_str()),
         None => template,
@@ -226,7 +238,9 @@ async fn a_cancel_ends_a_quota_wait_github_gives_no_reset_for() {
     let scope = octocode_io::notice::Scope::with_progress(move |line| {
         sink.lock().expect("lines").push(line.to_owned());
     });
-    let input = crate::support::envelope(json!({"owner":"a","repo":"b","keywords":["needle"]}));
+    let input = crate::support::envelope(json_fixture(
+        r#"{"owner": "a", "repo": "b", "keywords": ["needle"]}"#,
+    ));
     let run = scope.run(runtime.run("no-reset".into(), "ghSearchCode".into(), input));
     tokio::pin!(run);
     let waiting = async {
@@ -280,10 +294,9 @@ async fn a_continuation_page_carries_none_of_the_first_pages_waits() {
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"default_branch":"main","full_name":"a/b"})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"default_branch": "main", "full_name": "a/b"}"#,
+        )))
         .mount(&server)
         .await;
     let items = (0..CODE_RESULTS)
@@ -295,7 +308,7 @@ async fn a_continuation_page_carries_none_of_the_first_pages_waits() {
         .collect();
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
-        .respond_with(octocode_github::mock_http::SearchIndex(items))
+        .respond_with(octocode_test_support::mock_http::SearchIndex(items))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -309,7 +322,15 @@ async fn a_continuation_page_carries_none_of_the_first_pages_waits() {
     let first = call(
         &runtime,
         "ghSearchCode",
-        json!({"owner":"a","repo":"b","keywords":["needle"],"matchIn":["path"],"limit":4}),
+        json_fixture(
+            r#"{
+                "owner": "a",
+                "repo": "b",
+                "keywords": ["needle"],
+                "matchIn": ["path"],
+                "limit": 4
+            }"#,
+        ),
     )
     .await
     .expect("page 1");
@@ -351,9 +372,9 @@ async fn file_rows_disclose_the_batch_warm_ups_cooldown_wait() {
                 .insert_header("retry-after", "1")
                 .insert_header("x-ratelimit-remaining", "4000")
                 .insert_header("x-ratelimit-resource", "core")
-                .set_body_json(json!({
+                .set_body_json(json_fixture(r#"{
                     "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."
-                })),
+                }"#)),
         )
         .up_to_n_times(1)
         .mount(&server)
@@ -378,16 +399,21 @@ async fn file_rows_disclose_the_batch_warm_ups_cooldown_wait() {
     Mock::given(method("POST"))
         .and(path("/api/graphql"))
         .respond_with(
-            ResponseTemplate::new(200).set_body_json(json!({"data":{"repository":{"object":{}}}})),
+            ResponseTemplate::new(200)
+                .set_body_json(json_fixture(r#"{"data": {"repository": {"object": {}}}}"#)),
         )
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!([{
-            "author": {"login": "rest-user"},
-            "commit": {"committer": {"date": "2025-05-05T00:00:00Z"}}
-        }])))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"[
+                {
+                    "author": {"login": "rest-user"},
+                    "commit": {"committer": {"date": "2025-05-05T00:00:00Z"}}
+                }
+            ]"#,
+        )))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -401,10 +427,14 @@ async fn file_rows_disclose_the_batch_warm_ups_cooldown_wait() {
     let outcome = call(
         &runtime,
         "ghGetFileContent",
-        json!({"queries":[
-            {"owner":"a","repo":"b","path":"a.txt"},
-            {"owner":"a","repo":"b","path":"b.txt"}
-        ]}),
+        json_fixture(
+            r#"{
+                "queries": [
+                    {"owner": "a", "repo": "b", "path": "a.txt"},
+                    {"owner": "a", "repo": "b", "path": "b.txt"}
+                ]
+            }"#,
+        ),
     )
     .await
     .expect("batch");
@@ -438,7 +468,11 @@ const DOUBLED_PAGE: &str = "4";
 /// the last, and the reset is an hour away.
 fn quota_spent_code_search(server_reset: u64) -> impl Fn(&str) -> Mock {
     move |extension: &str| {
-        struct Quota(&'static str, u64, octocode_github::mock_http::SearchIndex);
+        struct Quota(
+            &'static str,
+            u64,
+            octocode_test_support::mock_http::SearchIndex,
+        );
         impl wiremock::Respond for Quota {
             fn respond(&self, request: &wiremock::Request) -> ResponseTemplate {
                 let whole = request
@@ -467,7 +501,7 @@ fn quota_spent_code_search(server_reset: u64) -> impl Fn(&str) -> Mock {
             .respond_with(Quota(
                 remaining,
                 server_reset,
-                octocode_github::mock_http::SearchIndex(items),
+                octocode_test_support::mock_http::SearchIndex(items),
             ))
     }
 }
@@ -501,8 +535,15 @@ async fn a_continuation_the_journal_answers_is_not_refused_for_a_spent_quota() {
     let first = call(
         &runtime,
         "ghSearchCode",
-        json!({"owner":"a","keywords":["needle"],"matchIn":["path"],
-            "extensions":["rs","ts"],"limit":4}),
+        json_fixture(
+            r#"{
+                "owner": "a",
+                "keywords": ["needle"],
+                "matchIn": ["path"],
+                "extensions": ["rs", "ts"],
+                "limit": 4
+            }"#,
+        ),
     )
     .await
     .expect("page 1");
@@ -531,8 +572,15 @@ async fn a_continuation_the_journal_answers_is_not_refused_for_a_spent_quota() {
     let fresh = call(
         &runtime,
         "ghSearchCode",
-        json!({"owner":"a","keywords":["other"],"matchIn":["path"],
-            "extensions":["rs","ts"],"limit":4}),
+        json_fixture(
+            r#"{
+                "owner": "a",
+                "keywords": ["other"],
+                "matchIn": ["path"],
+                "extensions": ["rs", "ts"],
+                "limit": 4
+            }"#,
+        ),
     )
     .await
     .expect("fresh search");
@@ -571,18 +619,18 @@ async fn a_clone_discloses_its_git_admission_cooldown_on_its_own_row() {
             ResponseTemplate::new(403)
                 .insert_header("x-ratelimit-remaining", "21")
                 .insert_header("retry-after", "3")
-                .set_body_json(json!({"message":
-                    "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."})),
+                .set_body_json(json_fixture(r#"{
+                    "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."
+                }"#)),
         )
         .up_to_n_times(1)
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/repositories"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"total_count":0,"incomplete_results":false,"items":[]})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"total_count": 0, "incomplete_results": false, "items": []}"#,
+        )))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -602,7 +650,7 @@ async fn a_clone_discloses_its_git_admission_cooldown_on_its_own_row() {
     let clone = call(
         &runtime,
         "ghCloneRepo",
-        json!({"owner":"a","repo":"b","ref":"main"}),
+        json_fixture(r#"{"owner": "a", "repo": "b", "ref": "main"}"#),
     );
     let trigger = async {
         // Once the clone's commit lookup is in flight, another call meets
@@ -622,7 +670,7 @@ async fn a_clone_discloses_its_git_admission_cooldown_on_its_own_row() {
             .run(
                 "abuse-limited".into(),
                 "ghSearchRepo".into(),
-                crate::support::envelope(json!({"keywords":["needle"]})),
+                crate::support::envelope(json_fixture(r#"{"keywords": ["needle"]}"#)),
             )
             .await
             .expect("the search row");

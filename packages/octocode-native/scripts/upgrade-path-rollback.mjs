@@ -3,7 +3,7 @@
 // install without the optional platform package.
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { binPath, excerpt, fallbackVerdict, packageDir } from './upgrade-path-lib.mjs';
+import { binPath, excerpt, fallbackVerdict, packageDir, reportsVersion, sameVersion } from './upgrade-path-lib.mjs';
 
 const POSIX = process.platform !== 'win32';
 const CALLER = 'src/main.ts#main';
@@ -107,7 +107,7 @@ export async function rollbackChecks(ctx, { cli, mcp, bin, from, fromMcp, to, pl
     const install = npm(['install', `octocode@${from}`], cli);
     const version = exec(bin, ['--version']);
     return {
-      ok: remove.status === 0 && install.status === 0 && version.status === 0 && version.stdout.trim() !== `octocode ${to}`,
+      ok: remove.status === 0 && install.status === 0 && version.status === 0 && !reportsVersion(version.stdout, to),
       note: `--version '${version.stdout.trim()}'`,
     };
   });
@@ -143,7 +143,7 @@ export async function omitChecks(ctx, { to, platformName }) {
     const install = npm(['install', tgz('cli')], dir);
     const present = existsSync(packageDir(dir, platformName, 'project'));
     const run = exec(binPath(dir, 'octocode', 'project'), ['--version'], { timeoutMs: 300_000 });
-    const verdict = present ? { ok: run.stdout.trim() === `octocode ${to}`, kind: 'installed', note: `--version '${run.stdout.trim()}'` } : fallbackVerdict(run, to, platformName);
+    const verdict = present ? { ok: reportsVersion(run.stdout, to), kind: 'installed', note: `--version '${run.stdout.trim()}'` } : fallbackVerdict(run, to, platformName);
     return { ok: install.status === 0 && verdict.ok, note: `${present ? 'registry served the platform package' : 'npm skipped the unresolvable optional pin'}; ${verdict.kind}: ${verdict.note}` };
   });
   await step('omit.cli', `npm install --omit=optional <octocode-${to}.tgz>, then octocode --version`, () => {
@@ -161,7 +161,7 @@ export async function omitChecks(ctx, { to, platformName }) {
     const init = await session.initialize(300_000);
     const exit = await session.close();
     const message = init.error?.message ?? '';
-    const fetched = init.result?.serverInfo?.version === to;
+    const fetched = sameVersion(init.result?.serverInfo?.version ?? '', to);
     const clear = !init.timedOut && message.includes(platformName) && /not installed/i.test(message);
     ctx.current.commands.push({ command: `${session.command} (initialize)`, reply: init, exit, stderr: session.stderr.slice(0, 1500) });
     return {

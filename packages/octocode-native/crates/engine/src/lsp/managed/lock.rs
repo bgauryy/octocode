@@ -4,7 +4,8 @@
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
-const EMBEDDED: &str = include_str!("../managed.lock.json");
+/// The lock text embedded in this binary.
+pub(super) const EMBEDDED: &str = include_str!("../managed.lock.json");
 
 /// One asset as GitHub reported it when the lock was generated.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,9 +105,4 @@ fn parse_release(release: &serde_json::Value) -> Option<LockedRelease> {
 pub(super) fn embedded() -> &'static Lock {
     static LOCK: OnceLock<Lock> = OnceLock::new();
     LOCK.get_or_init(|| Lock::parse(EMBEDDED))
-}
-
-#[cfg(test)]
-pub(super) fn embedded_text() -> &'static str {
-    EMBEDDED
 }

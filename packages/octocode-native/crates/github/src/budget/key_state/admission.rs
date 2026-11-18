@@ -4,7 +4,7 @@ use super::{Admission, KeyFacts, KeyState};
 use crate::budget::slots::{Queued, Reserved, ReservedSlot, SlotPlan, Subject};
 use crate::budget::{ClientWaits, ExecutorConfig, Group, acquire, now_ms, waits};
 use crate::{ProviderError, ProviderErrorKind};
-use octocode_contract_types::ClientWaitKind;
+use octocode_contract_base::ClientWaitKind;
 use octocode_io::budget::pause_reporting;
 use octocode_io::cancellation::Cancellation;
 use std::{

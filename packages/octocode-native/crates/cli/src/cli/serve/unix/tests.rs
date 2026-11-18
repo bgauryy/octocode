@@ -6,7 +6,7 @@ use super::surface::Surface;
 use super::*;
 use crate::cli::output::Printed;
 use crate::cli::serve::runs_on_server;
-use octocode_native::id::ToolId;
+use octocode_runtime_base::id::ToolId;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -41,8 +41,8 @@ fn identity(
     home: &Path,
     cwd: &Path,
     env: &[(&str, &str)],
-) -> (octocode_native::config::ConfigOutput, String) {
-    use octocode_native::config::{RuntimeSurface, acquire_config_input, resolve_config};
+) -> (octocode_runtime_base::config::ConfigOutput, String) {
+    use octocode_runtime_base::config::{RuntimeSurface, acquire_config_input, resolve_config};
     let mut vars: BTreeMap<String, String> = env
         .iter()
         .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
@@ -114,7 +114,7 @@ impl Fixture {
 
     /// The identity a client of `surface` in `cwd` sends.
     fn identity_as(&self, surface: Surface, cwd: &Path) -> String {
-        use octocode_native::config::{acquire_config_input, resolve_config};
+        use octocode_runtime_base::config::{acquire_config_input, resolve_config};
         let os_home = std::env::home_dir().expect("home");
         let env = served_env(self.env.clone());
         let input = acquire_config_input(env, cwd.to_path_buf(), os_home, surface.runtime());

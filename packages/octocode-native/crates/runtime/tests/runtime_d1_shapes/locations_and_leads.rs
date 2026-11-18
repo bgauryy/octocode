@@ -1,6 +1,7 @@
 //! Location rows named like tool inputs, runnable recovery leads, and one camelCase error-code set.
 
 use crate::support::{self, Run as _, Workspace};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 
 const RUST_SOURCE: &str = "pub fn run() {\n    let a = 1;\n    let b = a + 1;\n}\n";
@@ -62,7 +63,7 @@ async fn location_rows_are_objects_named_like_tool_inputs() {
     let hits = support::run(
         &runtime,
         "localSearch",
-        json!({"path":"pkg","matchString":["let"]}),
+        json_fixture(r#"{"path": "pkg", "matchString": ["let"]}"#),
     )
     .await;
     let file = &hits.data()["files"][0];
@@ -70,7 +71,14 @@ async fn location_rows_are_objects_named_like_tool_inputs() {
     let owner = first["enclosing"].as_u64().expect("enclosing index");
     assert_eq!(
         file["declarations"][usize::try_from(owner).expect("index")],
-        json!({"symbolName":"run","kind":"function","line":1,"endLine":4}),
+        json_fixture(
+            r#"{
+                "symbolName": "run",
+                "kind": "function",
+                "line": 1,
+                "endLine": 4
+            }"#
+        ),
         "{}",
         hits.structured_content
     );
@@ -80,14 +88,20 @@ async fn location_rows_are_objects_named_like_tool_inputs() {
     let compact = support::run(
         &runtime,
         "astSearch",
-        json!({"operation":"symbols","path":"pkg"}),
+        json_fixture(r#"{"operation": "symbols", "path": "pkg"}"#),
     )
     .await;
     assert_eq!(
         compact.data()["files"][0]["symbols"][0],
-        json!({
-            "symbolName":"run","kind":"function","line":1,"endLine":4,"exported":true,
-        }),
+        json_fixture(
+            r#"{
+                "symbolName": "run",
+                "kind": "function",
+                "line": 1,
+                "endLine": 4,
+                "exported": true
+            }"#
+        ),
         "{}",
         compact.structured_content
     );
@@ -95,7 +109,13 @@ async fn location_rows_are_objects_named_like_tool_inputs() {
     let outline = support::run(
         &runtime,
         "astSearch",
-        json!({"operation":"symbols","path":"pkg","includeProvenance":true}),
+        json_fixture(
+            r#"{
+                "operation": "symbols",
+                "path": "pkg",
+                "includeProvenance": true
+            }"#,
+        ),
     )
     .await;
     let occurrence_id = identity(&outline.data()["files"][0]["symbols"][0]["occurrenceId"]);
@@ -125,7 +145,13 @@ async fn location_rows_are_objects_named_like_tool_inputs() {
     let repeated = support::run(
         &runtime,
         "astSearch",
-        json!({"operation":"symbols","path":"pkg","includeProvenance":true}),
+        json_fixture(
+            r#"{
+                "operation": "symbols",
+                "path": "pkg",
+                "includeProvenance": true
+            }"#,
+        ),
     )
     .await;
     assert_eq!(
@@ -141,7 +167,15 @@ async fn location_rows_are_objects_named_like_tool_inputs() {
     let matched = support::run(
         &runtime,
         "astSearch",
-        json!({"operation":"match","path":"pkg","parser":"rust","rule":{"pattern":"let $A = $B;"},"includeProvenance":true}),
+        json_fixture(
+            r#"{
+                "operation": "match",
+                "path": "pkg",
+                "parser": "rust",
+                "rule": {"pattern": "let $A = $B;"},
+                "includeProvenance": true
+            }"#,
+        ),
     )
     .await;
     let (match_unit, match_snapshot) = source_ids(
@@ -171,13 +205,21 @@ async fn location_rows_are_objects_named_like_tool_inputs() {
     let lean = support::run(
         &runtime,
         "astSearch",
-        json!({"operation":"match","path":"pkg","parser":"rust","rule":{"pattern":"let $A = $B;"},"includeCaptures":true}),
+        json_fixture(
+            r#"{
+                "operation": "match",
+                "path": "pkg",
+                "parser": "rust",
+                "rule": {"pattern": "let $A = $B;"},
+                "includeCaptures": true
+            }"#,
+        ),
     )
     .await;
     let row = &lean.data()["files"][0]["matches"][0];
     assert_eq!(
         row["metavarRanges"]["A"][0],
-        json!({"line":2,"column":9,"endColumn":10}),
+        json_fixture(r#"{"line": 2, "column": 9, "endColumn": 10}"#),
         "{}",
         lean.structured_content
     );
@@ -198,7 +240,7 @@ async fn a_case_sensitive_miss_leads_to_a_runnable_ignore_case_read() {
     let miss = support::run(
         &runtime,
         "localFetch",
-        json!({"path":"pkg/a.txt","matchString":["hello World"]}),
+        json_fixture(r#"{"path": "pkg/a.txt", "matchString": ["hello World"]}"#),
     )
     .await;
     let ignore = miss.data()["related"]
@@ -209,7 +251,7 @@ async fn a_case_sensitive_miss_leads_to_a_runnable_ignore_case_read() {
             call["tool"] == "localFetch" && call["input"]["queries"][0]["caseMode"] == "insensitive"
         })
         .expect("explicit insensitive alternative");
-    assert_eq!(ignore["kind"], "related");
+    assert_eq!(ignore.get("kind"), None);
     let hit = runtime
         .run(
             "case-recovery".into(),
@@ -229,7 +271,13 @@ async fn a_case_sensitive_miss_leads_to_a_runnable_ignore_case_read() {
     let insensitive = support::run(
         &runtime,
         "localFetch",
-        json!({"path":"pkg/a.txt","matchString":["absent"],"caseMode":"insensitive"}),
+        json_fixture(
+            r#"{
+                "path": "pkg/a.txt",
+                "matchString": ["absent"],
+                "caseMode": "insensitive"
+            }"#,
+        ),
     )
     .await;
     assert!(
@@ -248,14 +296,19 @@ async fn a_missing_file_leads_to_find_file() {
     let workspace = Workspace::new();
     workspace.write("pkg/server.rs", "fn main() {}\n");
     let runtime = workspace.runtime(&[]);
-    let missing = support::run(&runtime, "localFetch", json!({"path":"pkg/server.ts"})).await;
+    let missing = support::run(
+        &runtime,
+        "localFetch",
+        json_fixture(r#"{"path": "pkg/server.ts"}"#),
+    )
+    .await;
     let find = missing.data()["related"]
         .as_array()
         .expect("related calls")
         .iter()
         .find(|call| call["tool"] == "structureSearch")
         .expect("file discovery");
-    assert_eq!(find["kind"], "related");
+    assert_eq!(find.get("kind"), None);
     let listing = runtime
         .run(
             "find-file".into(),
@@ -275,12 +328,35 @@ async fn error_codes_are_declared_camel_case_names() {
     let workspace = Workspace::new();
     workspace.write("pkg/a.rs", "fn a() {}\n");
     let runtime = workspace.runtime(&[]);
-    let unsupported = runtime.run("invalid-parser".into(),"astSearch".into(),json!({"queries":[{"operation":"match","path":"pkg/a.rs","parser":"cobol","rule":{"pattern":"fn $A() {}"}}]})).await.expect_err("unknown parser rejected at admission");
+    let unsupported = runtime
+        .run(
+            "invalid-parser".into(),
+            "astSearch".into(),
+            json_fixture(
+                r#"{
+                    "queries": [
+                        {
+                            "operation": "match",
+                            "path": "pkg/a.rs",
+                            "parser": "cobol",
+                            "rule": {"pattern": "fn $A() {}"}
+                        }
+                    ]
+                }"#,
+            ),
+        )
+        .await
+        .expect_err("unknown parser rejected at admission");
     assert_eq!(
         unsupported.code,
         octocode_contract_types::ErrorCode::InvalidInput
     );
-    let missing = support::run(&runtime, "localFetch", json!({"path":"pkg/none.rs"})).await;
+    let missing = support::run(
+        &runtime,
+        "localFetch",
+        json_fixture(r#"{"path": "pkg/none.rs"}"#),
+    )
+    .await;
     assert_eq!(missing.data()["errorCode"], "notFound");
     {
         let code = support::row_data(&missing)["errorCode"]
@@ -291,7 +367,7 @@ async fn error_codes_are_declared_camel_case_names() {
             "{code} is not camelCase"
         );
         assert!(
-            octocode_native::id::error_codes::parse(code).is_some(),
+            octocode_runtime_base::id::error_codes::parse(code).is_some(),
             "{code} is not declared"
         );
     }

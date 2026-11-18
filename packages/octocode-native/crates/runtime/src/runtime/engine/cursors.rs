@@ -2,11 +2,11 @@
 //! A handle names one retained continuation by its content ([`handle`]). It
 //! never contains caller-editable progress.
 use super::page_replay::Refusal;
-use crate::cache::{CacheConfig, CacheKey, Disk, Store};
-use crate::execution::{ExecutionContext, ExecutionError, StorageFault};
-use crate::id::ToolId;
-use crate::response::cursor::{Cursor, issued};
 use crate::runtime::row_indices::RowOrigin;
+use octocode_runtime_base::cache::{CacheConfig, CacheKey, Disk, Store};
+use octocode_runtime_base::execution::{ExecutionContext, ExecutionError, StorageFault};
+use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::response::cursor::{Cursor, issued};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -48,7 +48,7 @@ pub(super) enum SavedWork {
 
 impl SavedWork {
     /// The query each row of this work answers.
-    pub fn origin(&self) -> RowOrigin {
+    pub(super) fn origin(&self) -> RowOrigin {
         match self {
             Self::Rows { indices }
             | Self::ResponsePage {
@@ -92,7 +92,7 @@ pub(super) struct Registry {
     /// The saved answers' directory, whose body files evidence links.
     answers: Option<Disk>,
     /// What they own that may not be stored
-    /// ([`crate::providers::saved_answers::gate_keeps`]): this process's
+    /// ([`octocode_runtime_base::providers::saved_answers::gate_keeps`]): this process's
     /// memory only ([`evidence`]).
     held_evidence: Store<octocode_github::ProviderEvidence>,
     policy: String,
@@ -121,10 +121,10 @@ pub(super) struct Opened {
 }
 
 impl Opened {
-    pub fn member(&self) -> &Member {
+    pub(super) fn member(&self) -> &Member {
         &self.issued.member
     }
-    pub fn github_identity(&self) -> Option<&str> {
+    pub(super) fn github_identity(&self) -> Option<&str> {
         self.issued.github_identity.as_deref()
     }
 }
@@ -133,7 +133,7 @@ mod evidence;
 mod walks;
 
 impl Registry {
-    pub fn new(config: CacheConfig, disk: Option<PathBuf>, policy: String) -> Self {
+    pub(super) fn new(config: CacheConfig, disk: Option<PathBuf>, policy: String) -> Self {
         Self {
             store: Store::new(config.clone(), disk.clone()),
             evidence: Store::new(config.clone(), disk.clone()),
@@ -145,7 +145,7 @@ impl Registry {
         }
     }
 
-    pub fn pending(&self, access: [u8; 32], github_identity: Option<String>) -> Pending {
+    pub(super) fn pending(&self, access: [u8; 32], github_identity: Option<String>) -> Pending {
         Pending {
             policy: self.policy.clone(),
             access,
@@ -157,7 +157,7 @@ impl Registry {
     }
 
     /// Evidence links the bodies of the saved answers in `directory`.
-    pub fn linking_answers(mut self, directory: Option<PathBuf>) -> Self {
+    pub(super) fn linking_answers(mut self, directory: Option<PathBuf>) -> Self {
         self.answers = directory.map(Disk::new);
         self
     }
@@ -170,7 +170,7 @@ impl Registry {
         }
     }
 
-    pub fn clear_memory(&self) {
+    pub(super) fn clear_memory(&self) {
         self.store.clear_memory();
         self.evidence.clear_memory();
         self.held_evidence.clear_memory();
@@ -180,7 +180,7 @@ impl Registry {
     /// publication. A handle names its content ([`handle`]), so one an
     /// earlier output issued is the same continuation: retaining it again
     /// refreshes its retention.
-    pub fn retain(
+    pub(super) fn retain(
         &self,
         pending: Pending,
         context: &ExecutionContext,
@@ -228,7 +228,7 @@ impl Registry {
             };
             let bytes = octocode_engine::json_size::bytes(&issued).unwrap_or(usize::MAX);
             let (_, stored) = self.store.put_checked(
-                crate::execution::cancel::deadline_of(context),
+                octocode_runtime_base::execution::cancel::deadline_of(context),
                 key,
                 issued,
                 bytes,
@@ -238,12 +238,16 @@ impl Registry {
                 // An entry the store refuses outright is no storage failure; a lock
                 // or a write the filesystem refuses is (full, over quota, read-only).
                 return Err(match cause {
-                    crate::cache::NotStored::Cancelled => ExecutionError::Cancelled,
-                    crate::cache::NotStored::Refused => ExecutionError::WorkerFailed,
-                    crate::cache::NotStored::Unlocked(kind) => ExecutionError::StorageUnavailable(
-                        kind.map_or(StorageFault::Other, Into::into),
-                    ),
-                    crate::cache::NotStored::Failed(kind) => {
+                    octocode_runtime_base::cache::NotStored::Cancelled => ExecutionError::Cancelled,
+                    octocode_runtime_base::cache::NotStored::Refused => {
+                        ExecutionError::WorkerFailed
+                    }
+                    octocode_runtime_base::cache::NotStored::Unlocked(kind) => {
+                        ExecutionError::StorageUnavailable(
+                            kind.map_or(StorageFault::Other, Into::into),
+                        )
+                    }
+                    octocode_runtime_base::cache::NotStored::Failed(kind) => {
                         ExecutionError::StorageUnavailable(kind.into())
                     }
                 });
@@ -257,7 +261,7 @@ impl Registry {
         context: &ExecutionContext,
     ) -> Result<octocode_io::lock::Turn<'_>, ExecutionError> {
         self.mutation.take(
-            crate::execution::cancel::deadline_of(context),
+            octocode_runtime_base::execution::cancel::deadline_of(context),
             octocode_io::lock::LOCK_POLL,
             || context.check(),
         )
@@ -277,7 +281,7 @@ impl Registry {
         // One stable sidecar bounds lock files and serializes short merges.
         loop {
             context.check()?;
-            let wait = crate::execution::cancel::deadline_of(context)
+            let wait = octocode_runtime_base::execution::cancel::deadline_of(context)
                 .saturating_duration_since(Instant::now())
                 .min(Duration::from_millis(100));
             match octocode_io::lock::lock_within(
@@ -297,7 +301,12 @@ impl Registry {
 
     /// The work `token` resumes for `tool` under `access`, or why it does
     /// not open here.
-    pub fn open(&self, tool: ToolId, token: &str, access: [u8; 32]) -> Result<Opened, Refusal> {
+    pub(super) fn open(
+        &self,
+        tool: ToolId,
+        token: &str,
+        access: [u8; 32],
+    ) -> Result<Opened, Refusal> {
         issued::parts(token).ok_or(Refusal::Malformed)?;
         let issued = self
             .store
@@ -315,7 +324,7 @@ impl Registry {
 
     /// The provider evidence `opened` owns while it is retained, and the
     /// digest it is retained under.
-    pub fn evidence(
+    pub(super) fn evidence(
         &self,
         opened: &Opened,
     ) -> Option<(String, Arc<octocode_github::ProviderEvidence>)> {
@@ -332,34 +341,38 @@ impl Registry {
 impl Pending {
     /// The provider evidence `tool`'s own tool continuations issued by
     /// this output own ([`evidence::owned`]).
-    pub fn own_evidence(&mut self, tool: ToolId, observed: octocode_github::ProviderEvidence) {
+    pub(super) fn own_evidence(
+        &mut self,
+        tool: ToolId,
+        observed: octocode_github::ProviderEvidence,
+    ) {
         self.evidence = evidence::owned(observed).map(|owned| (tool, owned));
         self.sealed = true;
     }
 
     /// `tool`'s own tool continuations issued by this output own the evidence
     /// already retained under `digest`.
-    pub fn keep_evidence(&mut self, tool: ToolId, digest: &str) {
+    pub(super) fn keep_evidence(&mut self, tool: ToolId, digest: &str) {
         self.evidence = Some((tool, evidence::Owned::retained(digest)));
         self.sealed = true;
     }
 
-    pub fn owns_evidence(&self) -> bool {
+    pub(super) fn owns_evidence(&self) -> bool {
         self.sealed
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub(super) fn is_empty(&self) -> bool {
         self.issued.is_empty()
     }
 
-    pub fn bind_github_identity(&mut self, identity: Option<String>) {
+    pub(super) fn bind_github_identity(&mut self, identity: Option<String>) {
         self.github_identity = identity;
     }
 
     /// The handle of `work` resuming `tool` with `input`, issued once per
     /// output; the same continuation always has the same handle
     /// ([`handle`]).
-    pub fn insert(&mut self, tool: ToolId, mut input: Value, work: SavedWork) -> String {
+    pub(super) fn insert(&mut self, tool: ToolId, mut input: Value, work: SavedWork) -> String {
         shown_paths(&mut input);
         let token = handle(&self.policy, &self.access, tool, &input, &work);
         let evidence = match (&self.evidence, &work) {
@@ -383,9 +396,9 @@ impl Pending {
 /// The paths a saved continuation names, as the shown (redacted) names: a
 /// file named after a credential is stored with the placeholder in its place,
 /// and resuming resolves the shown name back to the entry
-/// ([`crate::policy::path`]), as a localFetch continuation does.
+/// ([`octocode_runtime_base::policy::path`]), as a localFetch continuation does.
 fn shown_paths(input: &mut Value) {
-    let security = crate::security::ContentSecurity::new();
+    let security = octocode_runtime_base::security::ContentSecurity::new();
     let show = |text: &mut Value| {
         if let Some(shown) = text.as_str().and_then(|text| security.sanitize_leaf(text)) {
             *text = Value::String(shown);

@@ -1,6 +1,6 @@
 use super::super::mcp_clients::ClientSpec;
 use super::projection;
-use octocode_native::config::{config_revision, read_private_config};
+use octocode_runtime_base::config::{config_revision, read_private_config};
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -30,7 +30,7 @@ pub(super) fn inspect_continue_main(client: &ClientSpec, path: &Path) -> Value {
     let Some(text) = original else {
         return row;
     };
-    let root = match octocode_native::config::parse_config_json(&text) {
+    let root = match octocode_runtime_base::config::parse_config_json(&text) {
         Ok(root) => root,
         Err(error) => {
             row["status"] = json!("invalid");

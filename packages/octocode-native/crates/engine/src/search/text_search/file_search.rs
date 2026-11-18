@@ -3,8 +3,14 @@
 
 use crate::num::saturating_usize;
 mod prefix;
+mod read_digest;
+#[cfg(any(test, feature = "test-hooks"))]
+mod read_race;
 use prefix::is_leading_binary;
 pub(super) use prefix::read_prefix;
+pub(super) use read_digest::ReadDigest;
+#[cfg(any(test, feature = "test-hooks"))]
+pub use read_race::{DURING_SEARCH_READ, ReadRace};
 
 use super::file_terms::{CopiedRead, FILE_TERMS_MAX_BYTES};
 use super::mode::MatchWork;
@@ -72,13 +78,18 @@ pub(super) fn build_searcher(
 }
 
 /// The searcher's read of one opened file. Every byte the search reads
-/// passes through here once, so the file-level terms' bytes come from that
-/// read instead of a second one.
+/// passes through here once, so the file-level terms' bytes and the kept
+/// file's digest come from that read instead of a second one.
 struct SourceTap<'f> {
     file: &'f std::fs::File,
+    /// The file's path, for the tests' writes made while it is read.
+    #[cfg(any(test, feature = "test-hooks"))]
+    path: &'f Path,
     /// Every byte read, up to [`FILE_TERMS_MAX_BYTES`], when file-level terms
     /// are checked against this same read.
     copy: Option<Vec<u8>>,
+    /// The digest of the bytes read, for the file if it is kept.
+    digest: &'f mut ReadDigest,
     /// A read returned no bytes: the file was read to its end.
     eof: bool,
     /// Ends the read once the caller cancelled, so a large file is not read
@@ -87,10 +98,13 @@ struct SourceTap<'f> {
     cancelled: Option<&'f (dyn Fn() -> bool + Sync)>,
 }
 
-/// The digest of a kept file, read whole from offset 0 after its search
-/// (only kept files are hashed: most files a walk searches are dropped),
+/// The digest of a kept file, read whole from offset 0 after its search,
 /// with the proof that the hashed bytes are the opened file whole: `None`
-/// when its length or modification time moved since `meta`.
+/// when its length differs from `meta`'s or a write moved its stamp since
+/// ([`crate::text::unchanged_since`]). It binds a file
+/// searched as the text its judge served, whose bytes only the judge read
+/// ([`FileSearcher::searched_source`]); a file searched as its own bytes is
+/// bound to the read that searched them.
 pub(super) fn hashed_source(
     file: &std::fs::File,
     meta: &std::fs::Metadata,
@@ -124,27 +138,30 @@ pub(super) fn hashed_source(
             }
         }
     })?;
-    let after = file.metadata().ok()?;
-    let modified = meta.modified().ok();
-    (len == meta.len() && after.len() == len && after.modified().ok() == modified).then(|| {
-        SearchedSource {
-            size: len,
-            modified,
-            digest: hasher.finalize().into(),
-            lines: (!utf16).then(|| crate::num::saturating_u32(lines.lines())),
-        }
+    (len == meta.len() && crate::text::unchanged_since(file, meta)).then(|| SearchedSource {
+        size: len,
+        modified: meta.modified().ok(),
+        digest: hasher.finalize().into(),
+        lines: (!utf16).then(|| crate::num::saturating_u32(lines.lines())),
     })
 }
 
 impl<'f> SourceTap<'f> {
     fn new(
-        file: &'f std::fs::File,
+        (file, path): (&'f std::fs::File, &'f Path),
         copy: bool,
         cancelled: Option<&'f (dyn Fn() -> bool + Sync)>,
+        digest: &'f mut ReadDigest,
     ) -> Self {
+        digest.restart();
+        #[cfg(not(any(test, feature = "test-hooks")))]
+        let _ = path;
         Self {
             file,
+            #[cfg(any(test, feature = "test-hooks"))]
+            path,
             copy: copy.then(Vec::new),
+            digest,
             eof: false,
             cancelled,
         }
@@ -186,10 +203,17 @@ impl std::io::Read for SourceTap<'_> {
         if read == 0 {
             if !buf.is_empty() {
                 self.eof = true;
+                self.digest.ended();
             }
             return Ok(0);
         }
+        #[cfg(any(test, feature = "test-hooks"))]
+        read_race::during_read(
+            self.path,
+            std::io::Seek::stream_position(&mut self.file).unwrap_or(0),
+        );
         let bytes = &buf[..read];
+        self.digest.feed(bytes);
         if let Some(copy) = &mut self.copy {
             let room = saturating_usize(FILE_TERMS_MAX_BYTES) - copy.len();
             copy.extend_from_slice(&bytes[..read.min(room)]);
@@ -219,6 +243,9 @@ pub(super) struct FileOutcome {
     pub(super) utf8_bom: bool,
     /// Per searched term (see [`CollectSink::term_counts`]).
     pub(super) term_counts: Vec<u32>,
+    /// The values are of the text the search's judge served, which only the
+    /// judge read of the file ([`FileSearcher::searched_source`]).
+    pub(super) served: bool,
     /// Matched lines a test-code scope left out.
     pub(super) test_lines_excluded: u32,
     /// The file's test-only spans, when a hit read them.
@@ -239,6 +266,7 @@ impl<M: Matcher> From<CollectSink<'_, M>> for FileOutcome {
             not_utf8: sink.not_utf8,
             utf8_bom: false,
             term_counts: sink.term_counts,
+            served: false,
             test_lines_excluded: sink.test_lines_excluded,
             test_spans: sink.test_spans,
         }
@@ -291,6 +319,8 @@ pub(super) struct FileSearcher<'a, M: Matcher> {
     pub(super) terms: &'a [M],
     /// Which files the search's judge need not judge.
     pub(super) gate: &'a super::judge_gate::JudgeGate,
+    /// What the search's read of the current file took of its bytes.
+    pub(super) read: ReadDigest,
 }
 
 impl<M: Matcher> FileSearcher<'_, M> {
@@ -308,6 +338,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
         file: &std::fs::File,
         path: &Path,
     ) -> std::io::Result<FileOutcome> {
+        self.read.clear();
         let own = if self.opts.judge.is_some() && self.gate.gates() {
             let own = self.search_read(file, path)?;
             if self
@@ -324,7 +355,9 @@ impl<M: Matcher> FileSearcher<'_, M> {
             Some(served) => {
                 drop(own);
                 let work = self.work_for(file)?;
-                self.search_bytes(&served.text, path, work)?
+                let mut outcome = self.search_bytes(&served.text, path, work)?;
+                outcome.served = true;
+                outcome
             }
             None => match own {
                 Some(own) => own,
@@ -337,6 +370,70 @@ impl<M: Matcher> FileSearcher<'_, M> {
             outcome.utf8_bom =
                 !crate::text::has_utf16_bom(&prefix) && crate::text::bom_len(&prefix) > 0;
         }
+        Ok(outcome)
+    }
+
+    /// The digest a kept `file` (opened with `meta`) carries: of the bytes
+    /// its values were made from. A file searched as its own bytes is bound
+    /// to the read that searched them, finished from where it stopped. A file
+    /// searched as the text its judge served (`served`) was read by the judge
+    /// alone: it is bound to a whole read made after the judge, which proves
+    /// the file unmoved since it was opened ([`hashed_source`]), and, when the
+    /// search read the file before judging it, to that read too: the two
+    /// must be the same bytes. `None` when nothing binds the values (a write
+    /// moved the file's stamp since it was opened, so the digest is of no
+    /// one version, or its rest could not be read before the caller left).
+    pub(super) fn searched_source(
+        &mut self,
+        file: &std::fs::File,
+        meta: &std::fs::Metadata,
+        served: bool,
+    ) -> Option<SearchedSource> {
+        let read = self.read.finish(file, self.cancelled);
+        if served {
+            let whole = hashed_source(file, meta)?;
+            return match read {
+                Some(read) if read.digest != whole.digest => None,
+                _ => Some(whole),
+            };
+        }
+        let read = read?;
+        if !crate::text::unchanged_since(file, meta) {
+            return None;
+        }
+        Some(SearchedSource {
+            size: read.size,
+            modified: meta.modified().ok(),
+            digest: read.digest,
+            lines: read.lines,
+        })
+    }
+
+    /// What this search's read of `file` took of it, from its first byte to
+    /// its end, by count and SHA-256: the read finished from where it stopped,
+    /// as [`Self::searched_source`] binds it, for proving those bytes the
+    /// start of a version the file grew to ([`crate::text::Settling::settled_read`]).
+    /// `None` when the search hashed no read of its own bytes; after it, no
+    /// digest binds the file's values.
+    pub(super) fn taken(&mut self, file: &std::fs::File) -> Option<(u64, [u8; 32])> {
+        let read = self.read.finish(file, self.cancelled)?;
+        Some((read.size, read.digest))
+    }
+
+    /// [`Self::search`]'s outcome of `text`, held: the start of one version
+    /// of the file at `path` ([`crate::text::Proved::Prefix`]), or the text
+    /// its judge serves of those bytes (`served`, [`crate::types::JudgeHeld`]);
+    /// `utf16` when those bytes are BOM-marked UTF-16 ([`Self::work_for`]).
+    pub(super) fn search_proved(
+        &mut self,
+        text: &[u8],
+        path: &Path,
+        (utf16, served): (bool, bool),
+    ) -> std::io::Result<FileOutcome> {
+        let mut work = self.work;
+        work.deferred_line &= !utf16;
+        let mut outcome = self.search_bytes(text, path, work)?;
+        outcome.served = served;
         Ok(outcome)
     }
 
@@ -428,7 +525,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
             return self.search_read_whole(file, path, work);
         }
         let work = self.work_for(file)?;
-        let mut tap = SourceTap::new(file, self.copy, self.cancelled);
+        let mut tap = SourceTap::new((file, path), self.copy, self.cancelled, &mut self.read);
         let mut sink = CollectSink::new(self.matcher, work, (self.stop, self.held), self.terms);
         sink.cancelled = self.cancelled;
         sink.test_code = self.opts.test_code.as_ref().map(|scope| (scope, path));
@@ -463,7 +560,18 @@ impl<M: Matcher> FileSearcher<'_, M> {
             return Ok(outcome);
         };
         drop(buffered);
+        let copied = tap.copy.map(|bytes| CopiedRead {
+            bytes,
+            eof: tap.eof,
+        });
+        // The rows come from this second read of the bytes before the NUL:
+        // the file's digest is of it, read on from where it ends.
         let prefix = read_prefix(file, offset)?;
+        self.read.restart();
+        self.read.feed(&prefix);
+        if (prefix.len() as u64) < offset {
+            self.read.ended();
+        }
         let (opts, context) = (self.opts, self.context);
         let prefix_searcher = self
             .prefix_searcher
@@ -483,10 +591,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
         let mut outcome = FileOutcome::from(prefix_sink);
         outcome.binary = true;
         outcome.opaque = is_leading_binary(&prefix, outcome.matched_lines > 0);
-        outcome.copied = tap.copy.map(|bytes| CopiedRead {
-            bytes,
-            eof: tap.eof,
-        });
+        outcome.copied = copied;
         Ok(outcome)
     }
 

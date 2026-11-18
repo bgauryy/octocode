@@ -2,16 +2,21 @@
 'use strict';
 
 /**
- * The target runner of `cargo dev-test`: libtest has no per-test timeout, so a
- * stuck test would hold the run for good and read as slowness. libtest says when
- * a test passes 60 seconds; a test still unfinished this long after that fails
- * the run, by name. `--test-threads=1` prints no such line, so it stays unguarded.
+ * The target runner of every libtest run: the libtest part of `test:rust` (CI)
+ * and `cargo dev-test`. libtest has no per-test timeout, so a stuck test would
+ * hold the run for good and read as slowness. libtest says when a test passes 60
+ * seconds; a test still unfinished this long after that fails the run, by name.
+ * `--test-threads=1` prints no such line, so it stays unguarded.
  *
- * `cargo nextest` (`test:rust`, CI) kills a hung test itself (.config/nextest.toml).
- * OCTOCODE_TEST_STUCK_SECONDS overrides the wait.
+ * The nextest part of `test:rust` (PROCESS_TESTS in rust-tests.cjs) kills a hung
+ * test itself (.config/nextest.toml). OCTOCODE_TEST_STUCK_SECONDS overrides the wait.
+ *
+ * Each test binary runs with a private TMPDIR (test-tmpdir.cjs), removed when this
+ * process exits, so a killed test's temp dirs do not outlive the run.
  */
 
 const { spawn } = require('node:child_process');
+const { testTmpdir } = require('./test-tmpdir.cjs');
 
 /** Well past the slowest test seen with every test binary sharing one machine. */
 const STUCK_SECONDS = 600;
@@ -21,7 +26,14 @@ const RUNNING = /^test (.+) has been running for over \d+ seconds$/;
 
 const stuckAfterMs = (Number(process.env.OCTOCODE_TEST_STUCK_SECONDS) || STUCK_SECONDS) * 1000;
 const [binary, ...args] = process.argv.slice(2);
-const child = spawn(binary, args, { stdio: ['inherit', 'pipe', 'inherit'] });
+const tmp = testTmpdir();
+const child = spawn(binary, args, { stdio: ['inherit', 'pipe', 'inherit'], env: { ...process.env, TMPDIR: tmp.dir } });
+// A signal goes to the test binary; its exit ends this process through process.exit, which removes the temp root.
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(signal, () => {
+    if (child.exitCode === null && child.signalCode === null) child.kill(signal);
+  });
+}
 const running = new Map();
 let partial = '';
 

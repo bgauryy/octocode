@@ -7,6 +7,7 @@
 use crate::support;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use support::{Workspace, call, row_data, row_status};
 use wiremock::matchers::{method, path, query_param};
@@ -17,7 +18,7 @@ mod storage;
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-fn assert_no_cache_telemetry(outcome: &octocode_native::response::outcome::ToolOutcome) {
+fn assert_no_cache_telemetry(outcome: &octocode_runtime_base::response::outcome::ToolOutcome) {
     assert!(
         outcome
             .structured_content
@@ -48,11 +49,7 @@ async fn ghsearchhistory_reads_the_provider_on_every_call_without_cache_telemetr
     let settings = support::github_api(&server);
     let runtime = workspace.runtime(&settings);
 
-    let query = json!({
-        "operation": "pullRequest",
-        "owner": "o",
-        "repo": "r",
-    });
+    let query = json_fixture(r#"{"operation": "pullRequest", "owner": "o", "repo": "r"}"#);
     for _ in 0..2 {
         let outcome = call(&runtime, "ghSearchHistory", query.clone())
             .await

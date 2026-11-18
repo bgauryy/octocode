@@ -13,10 +13,14 @@ mod words;
 /// binary sniff.
 pub use file_extension::{JS_EXTENSIONS, JS_TS_EXTENSIONS, basename, extension_of};
 pub use ident::{is_ident_char, is_whole_word, whole_word_starts, word_pattern};
+#[cfg(any(test, feature = "test-hooks"))]
+pub use source::{BEFORE_PROOF, ProofRace};
 pub use source::{
-    BinaryVerdict, Charset, Decoded, Decoding, LATIN1_WARNING, LOSSY_WARNING, ReadError, Refusal,
-    SNIFF_BYTES, Source, admit, decode, has_utf16_bom, interior_offset, open_regular, read_regular,
-    read_source, read_source_from, sniff, sniff_complete,
+    BinaryVerdict, CHANGING_HINT, Charset, Decoded, Decoding, LATIN1_WARNING, LOSSY_WARNING,
+    Prefix, Proved, ReadError, Refusal, SNIFF_BYTES, Settled, Settling, Source, Taken, admit,
+    changed_while_read, decode, has_utf16_bom, interior_offset, is_changed_while_read,
+    open_regular, read_regular, read_source, read_source_from, sniff, sniff_complete,
+    unchanged_since,
 };
 pub use utf8_offsets::{LineCount, LineIndex, bom_len, line_at, line_containing, line_starts};
 pub use words::identifier_words;
@@ -64,40 +68,4 @@ pub fn lexical(path: &std::path::Path) -> std::path::PathBuf {
 }
 
 #[cfg(test)]
-mod slash_path_tests {
-    #[test]
-    fn a_path_reads_with_forward_slashes() {
-        assert_eq!(super::slash_path(std::path::Path::new("a/b.rs")), "a/b.rs");
-        #[cfg(windows)]
-        assert_eq!(
-            super::slash_path(std::path::Path::new("a\\b\\c.rs")),
-            "a/b/c.rs"
-        );
-        #[cfg(not(windows))]
-        assert_eq!(
-            super::slash_path(std::path::Path::new("a\\b\\c.rs")),
-            "a\\b\\c.rs"
-        );
-        assert_eq!(super::slash_path(std::path::Path::new("")), "");
-    }
-
-    #[test]
-    fn a_path_folds_dot_components_without_the_file_system() {
-        for (path, folded) in [
-            ("a/./b/../c", "a/c"),
-            ("./a/b/..", "a"),
-            ("../a", "a"),
-            ("../../a/../b", "b"),
-            ("/../a", "/a"),
-            ("/a/b/../../..", "/"),
-            ("/missing/./x/../y", "/missing/y"),
-            ("", ""),
-        ] {
-            assert_eq!(
-                super::lexical(std::path::Path::new(path)),
-                std::path::PathBuf::from(folded),
-                "{path}"
-            );
-        }
-    }
-}
+mod slash_path_tests;

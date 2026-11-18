@@ -5,6 +5,7 @@
 
 use super::{clasify, noul};
 use crate::support::{Workspace, clasify_runtime};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -29,7 +30,7 @@ async fn windowed() -> MockServer {
         .respond_with(|request: &wiremock::Request| {
             if request.body.len() > WINDOW_BYTES {
                 return ResponseTemplate::new(400)
-                    .set_body_json(json!({"detail":{"error_type":"max_tokens_exceeded"}}));
+                    .set_body_json(json_fixture(r#"{"detail": {"error_type": "max_tokens_exceeded"}}"#));
             }
             let body: Value = serde_json::from_slice(&request.body).expect("provider body");
             let target = body["state"]["target"]["text"].as_str().unwrap_or_default();
@@ -221,10 +222,9 @@ async fn a_source_whose_sections_are_refused_too_keeps_the_refusal() {
     let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
-        .respond_with(
-            ResponseTemplate::new(400)
-                .set_body_json(json!({"detail":{"error_type":"max_tokens_exceeded"}})),
-        )
+        .respond_with(ResponseTemplate::new(400).set_body_json(json_fixture(
+            r#"{"detail": {"error_type": "max_tokens_exceeded"}}"#,
+        )))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -316,8 +316,9 @@ async fn a_deadline_mid_sections_answers_from_the_judged_ones_and_counts_the_res
         .and(path("/v1/systemone"))
         .respond_with(|request: &wiremock::Request| {
             if request.body.len() > WINDOW_BYTES {
-                return ResponseTemplate::new(400)
-                    .set_body_json(json!({"detail":{"error_type":"max_tokens_exceeded"}}));
+                return ResponseTemplate::new(400).set_body_json(json_fixture(
+                    r#"{"detail": {"error_type": "max_tokens_exceeded"}}"#,
+                ));
             }
             let body: Value = serde_json::from_slice(&request.body).expect("provider body");
             let target = body["state"]["target"]["text"].as_str().unwrap_or_default();
@@ -345,7 +346,7 @@ async fn a_deadline_mid_sections_answers_from_the_judged_ones_and_counts_the_res
         .await;
     let workspace = Workspace::new();
     workspace.write("big.txt", source(6_000, 120));
-    let limits = octocode_native::execution::RuntimeLimits {
+    let limits = octocode_runtime_base::execution::RuntimeLimits {
         classification_timeout: Some(std::time::Duration::from_secs(3)),
         ..crate::support::PROVIDER_LIMITS
     };
@@ -367,5 +368,128 @@ async fn a_deadline_mid_sections_answers_from_the_judged_ones_and_counts_the_res
     // turned into an absence claim or hidden by optional fresh-work advice.
     assert_eq!(data["next"]["read"]["tool"], "localFetch", "{out}");
     crate::support::assert_cursor_only(&data["next"]["read"]["input"]);
+    runtime.close().await;
+}
+
+/// Refuses a body over [`WINDOW_BYTES`]; else answers `a` as a noul and `b`
+/// with a label its question does not offer, and reports the tokens of every
+/// taken request through `spent`.
+async fn half_invalid(spent: std::sync::Arc<std::sync::atomic::AtomicU64>) -> MockServer {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(move |request: &wiremock::Request| {
+            if request.body.len() > WINDOW_BYTES {
+                return ResponseTemplate::new(400).set_body_json(json_fixture(
+                    r#"{"detail": {"error_type": "max_tokens_exceeded"}}"#,
+                ));
+            }
+            let body: Value = serde_json::from_slice(&request.body).expect("provider body");
+            let answers = body["questions"]
+                .as_object()
+                .expect("questions")
+                .iter()
+                .map(|(id, question)| {
+                    let answer = if question["type"] == "choice" {
+                        json_fixture(
+                            r#"{
+                                "type": "choice",
+                                "choice": "not-a-label",
+                                "confidence": 1.0,
+                                "probabilities": {"not-a-label": 1.0}
+                            }"#,
+                        )
+                    } else {
+                        json_fixture(r#"{"type": "noul", "noul": 0.2}"#)
+                    };
+                    (id.clone(), answer)
+                })
+                .collect::<serde_json::Map<_, _>>();
+            let input = tokens(request.body.len()) as u64;
+            spent.fetch_add(input, std::sync::atomic::Ordering::SeqCst);
+            ResponseTemplate::new(200).set_body_json(json!({
+                "model":"jev-test","answers":answers,
+                "usage":{"input_tokens":input,"output_tokens":5},
+            }))
+        })
+        .mount(&server)
+        .await;
+    server
+}
+
+fn two_kinds() -> Value {
+    json!({
+        "a":noul("The text says the worker opens a socket."),
+        "b":{"type":"choice","criteria":{"clean":"Only routine entries.","odd":"An entry that is not routine."}},
+    })
+}
+
+/// One question every section answers and one every section's reply is
+/// invalid for: the row keeps the answered one, the other is an error cell
+/// with its sections' code, and the usage counts every request.
+#[tokio::test]
+async fn an_unanswered_question_is_an_error_cell_beside_the_answered_ones() {
+    let spent = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let server = half_invalid(spent.clone()).await;
+    let workspace = Workspace::new();
+    workspace.write("big.txt", source(6_000, 4_321));
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let row = |view: &str| {
+        json!({"operation":"evaluate","view":view,
+            "source":{"tool":"localFetch","query":{"path":"big.txt"}},
+            "questions":two_kinds()})
+    };
+    let summary = clasify(&runtime, vec![row("summary")]).await;
+    let data = &summary["results"][0]["data"];
+    assert_eq!(data["answers"]["a"]["noul"], 0.2, "{summary}");
+    assert_eq!(data["answers"]["b"]["status"], "error", "{summary}");
+    assert_eq!(
+        data["answers"]["b"]["error"]["errorCode"], "invalidClassificationResponse",
+        "{summary}"
+    );
+    assert!(data.get("errorCode").is_none(), "{summary}");
+    let requests = server.received_requests().await.unwrap().len() as u64;
+    assert_eq!(data["usage"]["calls"], json!(requests), "{summary}");
+
+    spent.store(0, std::sync::atomic::Ordering::SeqCst);
+    let before = server.received_requests().await.unwrap().len() as u64;
+    let details = clasify(&runtime, vec![row("details")]).await;
+    let data = &details["results"][0]["data"];
+    // The window refusals report no usage; every taken request did.
+    assert_eq!(
+        data["usage"]["inputTokens"],
+        json!(spent.load(std::sync::atomic::Ordering::SeqCst)),
+        "{details}"
+    );
+    let sent = server.received_requests().await.unwrap().len() as u64 - before;
+    assert_eq!(data["usage"]["calls"], json!(sent), "{details}");
+    runtime.close().await;
+}
+
+/// Every question failed for one reason that is not the window: the row
+/// fails with that reason, not the refusal, and still counts the spend.
+#[tokio::test]
+async fn a_row_whose_every_question_failed_alike_reports_that_reason_and_the_spend() {
+    let spent = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let server = half_invalid(spent.clone()).await;
+    let workspace = Workspace::new();
+    workspace.write("big.txt", source(6_000, 4_321));
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let out = clasify(
+        &runtime,
+        vec![json!({"operation":"evaluate","view":"details",
+            "source":{"tool":"localFetch","query":{"path":"big.txt"}},
+            "questions":{"b":two_kinds()["b"].clone()}})],
+    )
+    .await;
+    let data = &out["results"][0]["data"];
+    assert_eq!(data["errorCode"], "invalidClassificationResponse", "{out}");
+    let requests = server.received_requests().await.unwrap().len() as u64;
+    assert_eq!(data["usage"]["calls"], json!(requests), "{out}");
+    assert_eq!(
+        data["usage"]["inputTokens"],
+        json!(spent.load(std::sync::atomic::Ordering::SeqCst)),
+        "{out}"
+    );
     runtime.close().await;
 }

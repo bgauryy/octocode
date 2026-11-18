@@ -1,5 +1,6 @@
 //! Provider outcomes require usable continuations before their exit class is reported.
 use super::*;
+use octocode_test_support::json_fixture;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -9,7 +10,8 @@ async fn github(
     resumable: bool,
 ) -> (Workspace, MockServer, Output) {
     let server = MockServer::builder().start().await;
-    let mut response = ResponseTemplate::new(status).set_body_json(json!({"message": "fixture"}));
+    let mut response =
+        ResponseTemplate::new(status).set_body_json(json_fixture(r#"{"message": "fixture"}"#));
     for (name, value) in headers {
         response = response.insert_header(*name, *value);
     }
@@ -27,8 +29,18 @@ async fn github(
     command
         .env("GITHUB_API_URL", format!("{}/api/v3", server.uri()))
         .env("GITHUB_TOKEN", &workspace.token);
-    let input = json!({"queries":[{"owner":"a","repo":"b","path":"x.rs",
-        "ref":"0123456789abcdef0123456789abcdef01234567"}]});
+    let input = json_fixture(
+        r#"{
+            "queries": [
+                {
+                    "owner": "a",
+                    "repo": "b",
+                    "path": "x.rs",
+                    "ref": "0123456789abcdef0123456789abcdef01234567"
+                }
+            ]
+        }"#,
+    );
     let output = tokio::task::spawn_blocking(move || run_json(command, "ghGetFileContent", &input))
         .await
         .unwrap();
@@ -60,7 +72,7 @@ async fn classification_provider(delay: std::time::Duration) -> MockServer {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/v1/models"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"models":[]})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(r#"{"models": []}"#)))
         .mount(&server)
         .await;
     // Each question answered under its own key and type, as the provider
@@ -83,7 +95,7 @@ async fn classification_provider(delay: std::time::Duration) -> MockServer {
                                 .collect::<serde_json::Map<_, _>>();
                             json!({"type":"choice","choice":first,"confidence":1,"probabilities":probabilities})
                         }
-                        _ => json!({"type":"noul","noul":0.8}),
+                        _ => json_fixture(r#"{"type": "noul", "noul": 0.8}"#),
                     };
                     (id.clone(), answer)
                 })
@@ -112,7 +124,12 @@ fn clasify_command(mut command: Command, server: &MockServer) -> Command {
 /// One clasify row per state or source.
 fn rows(inputs: Vec<Value>) -> Value {
     json!({"queries": inputs.into_iter().map(|input| {
-        let mut row = json!({"operation":"evaluate","questions":{"q":{"type":"noul","instructions":"Does it define a step?"}}});
+        let mut row = json_fixture(r#"{
+            "operation": "evaluate",
+            "questions": {
+                "q": {"type": "noul", "instructions": "Does it define a step?"}
+            }
+        }"#);
         for (key, value) in input.as_object().expect("input object") {
             row[key] = value.clone();
         }
@@ -135,7 +152,7 @@ async fn clasify_exits_by_worst_row_outcome() {
         .to_string_lossy()
         .into_owned();
     let read = |path: &str| json!({"source":{"tool":"localFetch","query":{"path":path}}});
-    let state = json!({"content":{"fact":"present"}});
+    let state = json_fixture(r#"{"content": {"fact": "present"}}"#);
     let cases = [
         (rows(vec![read(&file)]), 0),
         (rows(vec![read(&missing)]), 2),
@@ -178,7 +195,11 @@ async fn clasify_exits_by_worst_row_outcome() {
     assert!(data.get("next").is_none(), "{answered}");
     assert!(!answered.to_string().contains("cursor"), "{answered}");
     let lines = data["answers"]["q"]["lines"].clone();
-    assert_eq!(lines, json!({"startLine":1,"endLine":1}), "{answered}");
+    assert_eq!(
+        lines,
+        json_fixture(r#"{"startLine": 1, "endLine": 1}"#),
+        "{answered}"
+    );
     let fresh = run_json(
         workspace.cli(),
         "localFetch",
@@ -256,7 +277,7 @@ async fn clasify_reads_a_rows_content_from_stdin() {
     let data = &answered["results"][0]["data"];
     assert_eq!(
         data["answers"]["q"],
-        json!({"noul":0.8,"lines":{"startLine":1,"endLine":1}}),
+        json_fixture(r#"{"noul": 0.8, "lines": {"startLine": 1, "endLine": 1}}"#),
         "{answered}"
     );
     let posts = || async {
@@ -276,9 +297,11 @@ async fn clasify_reads_a_rows_content_from_stdin() {
         )
     );
     let refused = tokio::task::spawn_blocking(piped(
-        rows(vec![
-            json!({"source":{"tool":"localFetch","query":{"path":"a.txt"}}}),
-        ]),
+        rows(vec![json_fixture(
+            r#"{
+                "source": {"tool": "localFetch", "query": {"path": "a.txt"}}
+            }"#,
+        )]),
         text,
     ))
     .await
@@ -297,7 +320,7 @@ async fn interrupted_call_exits_130() -> Result<(), String> {
     command
         .args([
             "clasify",
-            &rows(vec![json!({"content":{"fact":"present"}})]).to_string(),
+            &rows(vec![json_fixture(r#"{"content": {"fact": "present"}}"#)]).to_string(),
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());

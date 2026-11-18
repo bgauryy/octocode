@@ -6,6 +6,7 @@
 import { MCP_INSTRUCTION_PARTS } from '@octocodeai/octocode-core/mcp';
 import {
   buildOutputPresentationSchemas,
+  continuationMeanings,
   DIRECT_TOOL_DEFINITIONS,
   getPublicToolCatalog,
   operationRows,
@@ -162,6 +163,24 @@ function rendered(definition: Definition, selection: boolean) {
   };
 }
 
+/**
+ * `fields`, the tool's output reference, with the meaning of each `next`
+ * channel the tool can emit as `next.<channel>`, right after `next` itself:
+ * the field an answer holds is one lookup away.
+ */
+function withNextChannels(name: string, fields: Record<string, string>): Record<string, string> {
+  const channels = Object.entries(continuationMeanings(name)).map(
+    ([channel, meaning]) => [`next.${channel}`, meaning] as const
+  );
+  const out: Record<string, string> = {};
+  for (const [path, text] of Object.entries(fields)) {
+    out[path] = text;
+    if (path === 'next') for (const [key, meaning] of channels) out[key] = meaning;
+  }
+  for (const [key, meaning] of channels) out[key] ??= meaning;
+  return out;
+}
+
 /** The `cli-presentation.json` the native binary embeds beside the enforcement contract. */
 export function buildCliPresentation(): Json {
   const catalog = getPublicToolCatalog();
@@ -184,7 +203,7 @@ export function buildCliPresentation(): Json {
         fields: compactFields(definition, false),
         help: toolHelpSection(definition),
         // `schema <tool> --view output`: one copy, whichever row form is served.
-        output: outputSchema ? outputFields(outputSchema, {}) : {},
+        output: outputSchema ? withNextChannels(name, outputFields(outputSchema, {})) : {},
         ...plain,
         // Emit the selection variant only when it changes the row; Rust picks
         // it with the runtime's resolved switch.

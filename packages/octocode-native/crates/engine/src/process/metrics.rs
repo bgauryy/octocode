@@ -1,4 +1,4 @@
-//! Resident memory and CPU time of a process and its tree.
+//! Memory and CPU time of a process and its tree.
 
 #[cfg(target_os = "linux")]
 use std::path::Path;
@@ -7,7 +7,8 @@ use std::time::Duration;
 #[cfg(unix)]
 use super::descendants;
 #[cfg(target_os = "linux")]
-use super::proc_table::{read_proc_cpu_ticks, read_proc_rss};
+use super::proc_table::{read_proc_cpu_ticks, read_proc_memory};
+#[cfg(target_os = "macos")]
 use crate::num::saturating_u64;
 
 /// Kernel task info of `pid`; `None` when the process is gone.
@@ -24,10 +25,32 @@ fn task_info(pid: u32) -> Option<libc::proc_taskinfo> {
     (written == size).then_some(info)
 }
 
-/// Resident set size of `pid` in bytes; `None` when the process is gone.
+/// Memory `pid` holds, in bytes (see [`memory_in_use`]); `None` when the
+/// process is gone or has exited.
 #[cfg(target_os = "macos")]
-pub(super) fn rss_bytes(pid: u32) -> Option<u64> {
-    task_info(pid).map(|info| info.pti_resident_size)
+pub(super) fn memory_bytes(pid: u32) -> Option<u64> {
+    let pid = libc::c_int::try_from(pid).ok()?;
+    // SAFETY: `rusage_info_v2` is plain data; zero is a valid initial value.
+    let mut info: libc::rusage_info_v2 = unsafe { std::mem::zeroed() };
+    // SAFETY: the buffer is a live `rusage_info_v2`, the layout
+    // `RUSAGE_INFO_V2` writes.
+    let status =
+        unsafe { libc::proc_pid_rusage(pid, libc::RUSAGE_INFO_V2, (&raw mut info).cast()) };
+    if status != 0 {
+        return None;
+    }
+    memory_in_use(&info)
+}
+
+/// The memory a `RUSAGE_INFO_V2` record says its process holds: its physical
+/// footprint, which counts the pages the kernel compressed or swapped out as
+/// well as those in RAM. Under memory pressure the resident size of a process
+/// that holds memory it does not touch falls to almost nothing within
+/// seconds, while it still holds every page. `None` once the process has
+/// exited (a zombie keeps its record until it is reaped).
+#[cfg(target_os = "macos")]
+pub(super) fn memory_in_use(info: &libc::rusage_info_v2) -> Option<u64> {
+    (info.ri_proc_exit_abstime == 0).then_some(info.ri_phys_footprint)
 }
 
 /// `mach_timebase_info_data_t` from `<mach/mach_time.h>`.
@@ -64,11 +87,11 @@ fn cpu_time(pid: u32) -> Option<Duration> {
     Some(Duration::from_nanos(saturating_u64(nanos)))
 }
 
+/// Memory `pid` holds, in bytes (see [`read_proc_memory`]); `None` when the
+/// process is gone.
 #[cfg(target_os = "linux")]
-pub(super) fn rss_bytes(pid: u32) -> Option<u64> {
-    // SAFETY: `sysconf` has no preconditions.
-    let page_size = u64::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }).ok()?;
-    read_proc_rss(Path::new("/proc"), pid, page_size)
+pub(super) fn memory_bytes(pid: u32) -> Option<u64> {
+    read_proc_memory(Path::new("/proc"), pid)
 }
 
 #[cfg(target_os = "linux")]
@@ -205,15 +228,15 @@ fn cpu_time(root: u32) -> Option<Duration> {
     })
 }
 
-/// Resident memory of `root` plus every descendant, in bytes; `None` when
-/// `root` itself cannot be read (it exited).
+/// Memory held by `root` plus every descendant, in bytes (see
+/// [`memory_bytes`]); `None` when `root` itself cannot be read (it exited).
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-pub(crate) fn tree_rss_bytes(root: u32) -> Option<u64> {
-    let own = rss_bytes(root)?;
+pub(crate) fn tree_memory_bytes(root: u32) -> Option<u64> {
+    let own = memory_bytes(root)?;
     Some(
         descendants(root)
             .into_iter()
-            .filter_map(|process| rss_bytes(process.pid))
+            .filter_map(|process| memory_bytes(process.pid))
             .fold(own, u64::saturating_add),
     )
 }

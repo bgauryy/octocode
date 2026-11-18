@@ -1,11 +1,11 @@
 use super::page_replay::PageReplayMemo;
 use super::{HostOptions, RuntimeError, ToolRuntime, runtime_execution_error};
-use crate::config::{self, ConfigInput, ConfigOutput};
-use crate::execution::{RequestLimits, RequestRuntime, RuntimeLimits};
-use crate::id::ToolId;
-use crate::policy::path::{PathPolicy, PathPolicyConfig};
-use crate::security::ContentSecurity;
 use octocode_contract_types::ErrorCode;
+use octocode_runtime_base::config::{self, ConfigInput, ConfigOutput};
+use octocode_runtime_base::execution::{RequestLimits, RequestRuntime, RuntimeLimits};
+use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::policy::path::{PathPolicy, PathPolicyConfig};
+use octocode_runtime_base::security::ContentSecurity;
 use secrecy::SecretString;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -59,7 +59,7 @@ impl ToolRuntime {
     ) -> Result<Self, RuntimeError> {
         // Reject a bad timeout before config acquisition or maintenance run.
         if let Some(secs) = options.timeout_secs {
-            let max = crate::execution::MAX_TIMEOUT.as_secs();
+            let max = octocode_runtime_base::execution::MAX_TIMEOUT.as_secs();
             if !(1..=max).contains(&secs) {
                 return Err(RuntimeError::new(
                     ErrorCode::InvalidInput,
@@ -156,16 +156,16 @@ impl ToolRuntime {
         // Each holds one tree per directory at its depth.
         let fetched_code_roots = [
             (
-                crate::tools::gh_clone_repo::storage::clones_root(&octocode_home),
-                crate::tools::gh_clone_repo::storage::CHECKOUT_DEPTH,
+                octocode_tool_github::gh_clone_repo::storage::clones_root(&octocode_home),
+                octocode_tool_github::gh_clone_repo::storage::CHECKOUT_DEPTH,
             ),
             (
-                crate::tools::gh_structure::materialize::materialize_root(&octocode_home),
-                crate::tools::gh_structure::materialize::SNAPSHOT_DEPTH,
+                octocode_tool_github::gh_structure::materialize::materialize_root(&octocode_home),
+                octocode_tool_github::gh_structure::materialize::SNAPSHOT_DEPTH,
             ),
             (
-                crate::tools::source_capture::url::capture_root(&octocode_home),
-                crate::tools::source_capture::url::CAPTURE_DEPTH,
+                octocode_tools_shared::source_capture::url::capture_root(&octocode_home),
+                octocode_tools_shared::source_capture::url::CAPTURE_DEPTH,
             ),
         ];
         additional_roots.extend(fetched_code_roots.iter().map(|(root, _)| root.clone()));
@@ -176,7 +176,9 @@ impl ToolRuntime {
             .graph_home
             .iter()
             .map(|home| {
-                crate::tools::ast_graph::store::configured_graph_home(std::path::Path::new(home))
+                octocode_tool_graph::ast_graph::store::configured_graph_home(std::path::Path::new(
+                    home,
+                ))
             })
             .collect();
         // Default sandbox: the configured workspace, or the process cwd when
@@ -195,7 +197,7 @@ impl ToolRuntime {
             include_home: false,
             home_dir: Some(input.os_home.clone()),
             allow_credential_files: config.resolved.security.credential_files
-                == crate::config::CredentialFilesPolicy::Allow,
+                == octocode_runtime_base::config::CredentialFilesPolicy::Allow,
             octocode_home: Some(octocode_home.clone()),
             // The call's own environment names its global ignore file, so
             // one server walks each caller's tree under that caller's rules.
@@ -208,15 +210,13 @@ impl ToolRuntime {
         // The shared clone store holds git objects, not checkouts: local
         // tools read the worktrees under `clones/`, never the store, even
         // when the workspace contains the home.
-        .closing(&crate::tools::gh_git::store_root(
-            &octocode_home,
-        ));
+        .closing(&octocode_tools_shared::gh_git::store_root(&octocode_home));
         let security = ContentSecurity::new();
         let requests =
             RequestRuntime::new(RequestLimits::default()).map_err(runtime_execution_error)?;
         let persistent = config::is_persistent_storage_enabled(&config.resolved);
         let saves_local = config::saves_local_results(&config.resolved);
-        let lsp_execution_config = Arc::new(crate::tools::lsp_search::LspExecutionConfig {
+        let lsp_execution_config = Arc::new(octocode_tool_lsp::lsp_search::LspExecutionConfig {
             trust_project_config: config.resolved.lsp.trust_project_config,
             env: config
                 .effective_env
@@ -241,45 +241,55 @@ impl ToolRuntime {
             security: security.clone(),
             prewarm_state: std::sync::Arc::default(),
         });
-        let classification = crate::providers::classification::provider();
+        let classification = octocode_runtime_base::providers::classification::provider();
         let evaluator = evaluator(&config, &limits, classification);
-        let availability = Arc::new(crate::execution::availability::ToolAvailability::resolve(
-            &config,
-            input.runtime_surface,
-        ));
+        let availability = Arc::new(
+            octocode_runtime_base::execution::availability::ToolAvailability::resolve(
+                &config,
+                input.runtime_surface,
+            ),
+        );
         let selection_available = selection_available(&config, &availability);
         let page_replays = Arc::new(PageReplayMemo::new(&config, &input.cwd));
         let cursors = Arc::new(
             super::cursors::Registry::new(
-                crate::cache::CacheConfig::derived(),
-                saves_local.then(|| crate::cache::Directory::Continuations.path(&config.home)),
+                octocode_runtime_base::cache::CacheConfig::derived(),
+                saves_local.then(|| {
+                    octocode_runtime_base::cache::Directory::Continuations.path(&config.home)
+                }),
                 page_replays.policy.clone(),
             )
-            .linking_answers(
-                persistent.then(|| crate::cache::Directory::ProviderAnswers.path(&config.home)),
-            ),
+            .linking_answers(persistent.then(|| {
+                octocode_runtime_base::cache::Directory::ProviderAnswers.path(&config.home)
+            })),
         );
-        let section_sessions = Arc::new(crate::tools::clasify::sections::Sessions::new(
-            crate::cache::CacheConfig::derived(),
-            saves_local.then(|| crate::cache::Directory::SectionAssessments.path(&config.home)),
+        let section_sessions = Arc::new(octocode_tool_clasify::clasify::sections::Sessions::new(
+            octocode_runtime_base::cache::CacheConfig::derived(),
+            saves_local.then(|| {
+                octocode_runtime_base::cache::Directory::SectionAssessments.path(&config.home)
+            }),
             page_replays.policy.clone(),
         ));
-        let lsp_answers = Arc::new(crate::tools::lsp_search::ContinuationAnswers::new(
-            crate::cache::CacheConfig::derived(),
-            saves_local.then(|| crate::cache::Directory::LspAnswers.path(&config.home)),
+        let lsp_answers = Arc::new(octocode_tool_lsp::lsp_search::ContinuationAnswers::new(
+            octocode_runtime_base::cache::CacheConfig::derived(),
+            saves_local
+                .then(|| octocode_runtime_base::cache::Directory::LspAnswers.path(&config.home)),
             page_replays.policy.clone(),
         ));
-        let graph_rows = Arc::new(crate::tools::ast_graph::store::SavedRows::new(
-            crate::cache::CacheConfig::derived(),
-            persistent.then(|| crate::cache::Directory::GraphRows.path(&config.home)),
+        let graph_rows = Arc::new(octocode_tool_graph::ast_graph::store::SavedRows::new(
+            octocode_runtime_base::cache::CacheConfig::derived(),
+            persistent
+                .then(|| octocode_runtime_base::cache::Directory::GraphRows.path(&config.home)),
             page_replays.policy.clone(),
         ));
-        let provider_answers = Arc::new(crate::providers::saved_answers::KeptAnswers::new(
-            persistent.then(|| crate::cache::Directory::ProviderAnswers.path(&config.home)),
-        ));
+        let provider_answers = Arc::new(
+            octocode_runtime_base::providers::saved_answers::KeptAnswers::new(persistent.then(
+                || octocode_runtime_base::cache::Directory::ProviderAnswers.path(&config.home),
+            )),
+        );
         // Notices reach stderr and the warm-server reply outside any
         // envelope: they pass the same secret scrub as error text.
-        octocode_io::notice::set_scrubber(crate::security::scrub_error_text);
+        octocode_io::notice::set_scrubber(octocode_runtime_base::security::scrub_error_text);
         Ok(Self {
             requests,
             input,
@@ -313,10 +323,10 @@ impl ToolRuntime {
 fn evaluator(
     config: &ConfigOutput,
     limits: &RuntimeLimits,
-    provider: &'static dyn crate::providers::classification::ClassificationProvider,
-) -> crate::tools::judgment::Evaluator {
-    crate::tools::judgment::Evaluator::new(
-        crate::execution::availability::classification_key(config)
+    provider: &'static dyn octocode_runtime_base::providers::classification::ClassificationProvider,
+) -> octocode_tools_shared::judgment::Evaluator {
+    octocode_tools_shared::judgment::Evaluator::new(
+        octocode_runtime_base::execution::availability::classification_key(config)
             .map(|value| SecretString::from(value.to_owned())),
         config
             .resolved
@@ -343,16 +353,21 @@ fn evaluator(
 /// the embedded contract instead of another tool list.
 fn selection_available(
     config: &ConfigOutput,
-    availability: &crate::execution::availability::ToolAvailability,
+    availability: &octocode_runtime_base::execution::availability::ToolAvailability,
 ) -> bool {
-    crate::execution::availability::classification_key(config).is_some()
+    octocode_runtime_base::execution::availability::classification_key(config).is_some()
         && availability
             .available()
             .iter()
             .filter_map(|name| ToolId::from_name(name))
             .any(|id| {
                 id != ToolId::Clasify
-                    && crate::contracts::query_schema_value(id, None, "classification", "type")
-                        .is_some()
+                    && octocode_runtime_base::contracts::query_schema_value(
+                        id,
+                        None,
+                        "classification",
+                        "type",
+                    )
+                    .is_some()
             })
 }

@@ -1,6 +1,7 @@
 //! Tag-ref listings read every page by their own page number, as many as
 //! the request's deadline admits, whatever origin a forwarded `Link` names.
 use super::*;
+use octocode_test_support::json_fixture;
 
 #[tokio::test]
 async fn tag_names_follow_every_linked_page() {
@@ -153,11 +154,19 @@ async fn tag_refs_keep_the_object_each_ref_names() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/o/r/git/matching-refs/tags"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
-            {"ref": "refs/tags/rel/1.0", "object": {"sha": "c0ffee", "type": "commit"}},
-            {"ref": "refs/tags/v1.0", "object": {"sha": "7a9", "type": "tag"}},
-            {"ref": "refs/tags/bare"}
-        ])))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"[
+                {
+                    "ref": "refs/tags/rel/1.0",
+                    "object": {"sha": "c0ffee", "type": "commit"}
+                },
+                {
+                    "ref": "refs/tags/v1.0",
+                    "object": {"sha": "7a9", "type": "tag"}
+                },
+                {"ref": "refs/tags/bare"}
+            ]"#,
+        )))
         .mount(&server)
         .await;
     let endpoint = mock_endpoint(&server);
@@ -366,7 +375,7 @@ async fn tag_objects_graphql_cannot_answer_are_read_by_rest() {
     Mock::given(method("GET"))
         .and(path(format!("/api/v3/repos/o/r/git/tags/{gone}")))
         .respond_with(
-            ResponseTemplate::new(404).set_body_json(serde_json::json!({"message": "Not Found"})),
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
         )
         .mount(&server)
         .await;

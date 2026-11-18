@@ -1,6 +1,7 @@
 //! Issue comment pages: response-sized pages, body hops and a complete comment walk.
 
 use crate::support::{self, Run as _};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use support::Workspace;
 use wiremock::matchers::{method, path, query_param};
@@ -14,11 +15,19 @@ async fn issue_comment_pages_fit_the_response_with_one_cursor() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/issues/7"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "number": 7, "title": "Big thread", "state": "open", "body": "repro",
-            "user": {"login": "alice"}, "labels": [], "comments": 30,
-            "created_at": "2026-09-20T00:00:00Z", "updated_at": "2026-09-25T00:00:00Z"
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "number": 7,
+                "title": "Big thread",
+                "state": "open",
+                "body": "repro",
+                "user": {"login": "alice"},
+                "labels": [],
+                "comments": 30,
+                "created_at": "2026-09-20T00:00:00Z",
+                "updated_at": "2026-09-25T00:00:00Z"
+            }"#,
+        )))
         .mount(&server)
         .await;
     let comments = (0..30)
@@ -33,16 +42,48 @@ async fn issue_comment_pages_fit_the_response_with_one_cursor() {
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let walked = support::walk(&runtime, "ghGetHistoryItem", json!({"queries":[{"operation":"issue","owner":"a","repo":"b","number":7,"sections":["comments"]}],"responseChars":2500}), |output| {
-        output["results"].as_array().into_iter().flatten().flat_map(|row| {
-            assert!(row["status"] != "error", "{output}");
-            row["data"]["issues"].as_array().into_iter().flatten().flat_map(|issue| issue["comments"].as_array().into_iter().flatten()).map(|comment| {
-                let id = comment["id"].as_str().unwrap();
-                assert_eq!(comment["body"], format!("comment {id} {}", "x".repeat(900)));
-                id.to_owned()
-            })
-        }).collect()
-    }).await;
+    let walked = support::walk(
+        &runtime,
+        "ghGetHistoryItem",
+        json_fixture(
+            r#"{
+                "queries": [
+                    {
+                        "operation": "issue",
+                        "owner": "a",
+                        "repo": "b",
+                        "number": 7,
+                        "sections": ["comments"]
+                    }
+                ],
+                "responseChars": 2500
+            }"#,
+        ),
+        |output| {
+            output["results"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .flat_map(|row| {
+                    assert!(row["status"] != "error", "{output}");
+                    row["data"]["issues"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .flat_map(|issue| issue["comments"].as_array().into_iter().flatten())
+                        .map(|comment| {
+                            let id = comment["id"].as_str().unwrap();
+                            assert_eq!(
+                                comment["body"],
+                                format!("comment {id} {}", "x".repeat(900))
+                            );
+                            id.to_owned()
+                        })
+                })
+                .collect()
+        },
+    )
+    .await;
     assert_eq!(walked.rows.len(), 30);
     assert!(walked.queries.len() > 1);
     runtime.close().await;
@@ -88,8 +129,20 @@ async fn issue_comment_body_hops_list_only_unfinished_bodies() {
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let first = json!({"queries":[{"operation":"issue","owner":"a","repo":"b","number":7,
-        "sections":["body","comments"]}],"responseChars":6000});
+    let first = json_fixture(
+        r#"{
+            "queries": [
+                {
+                    "operation": "issue",
+                    "owner": "a",
+                    "repo": "b",
+                    "number": 7,
+                    "sections": ["body", "comments"]
+                }
+            ],
+            "responseChars": 6000
+        }"#,
+    );
     let mut queue = std::collections::VecDeque::from([first]);
     let mut followed = std::collections::HashSet::<String>::new();
     let mut read = std::collections::BTreeMap::<u64, String>::new();
@@ -258,11 +311,19 @@ async fn issue_comment_walk_reads_every_comment_and_counts_the_rest() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/issues/7"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "number": 7, "title": "Big thread", "state": "open", "body": "repro",
-            "user": {"login": "alice"}, "labels": [], "comments": 105,
-            "created_at": "2026-09-20T00:00:00Z", "updated_at": "2026-09-25T00:00:00Z"
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "number": 7,
+                "title": "Big thread",
+                "state": "open",
+                "body": "repro",
+                "user": {"login": "alice"},
+                "labels": [],
+                "comments": 105,
+                "created_at": "2026-09-20T00:00:00Z",
+                "updated_at": "2026-09-25T00:00:00Z"
+            }"#,
+        )))
         .mount(&server)
         .await;
     let comments = (0..105)
@@ -279,17 +340,51 @@ async fn issue_comment_walk_reads_every_comment_and_counts_the_rest() {
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let walked = support::walk(&runtime, "ghGetHistoryItem", json!({"queries":[{"operation":"issue","owner":"a","repo":"b","number":7,"sections":["comments"]}],"responseChars":4000}), |output| {
-        output["results"].as_array().into_iter().flatten().flat_map(|row| {
-            assert!(row["status"] != "error", "{output}");
-            row["data"]["issues"].as_array().into_iter().flatten().flat_map(|issue| issue["comments"].as_array().into_iter().flatten()).map(|comment| {
-                let id = comment["id"].as_str().unwrap();
-                assert_eq!(comment["body"], format!("comment {id} {}", "x".repeat(700)));
-                if ["40","90"].contains(&id) { assert_eq!(comment["author"], "github-actions[bot]"); }
-                id.to_owned()
-            })
-        }).collect()
-    }).await;
+    let walked = support::walk(
+        &runtime,
+        "ghGetHistoryItem",
+        json_fixture(
+            r#"{
+                "queries": [
+                    {
+                        "operation": "issue",
+                        "owner": "a",
+                        "repo": "b",
+                        "number": 7,
+                        "sections": ["comments"]
+                    }
+                ],
+                "responseChars": 4000
+            }"#,
+        ),
+        |output| {
+            output["results"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .flat_map(|row| {
+                    assert!(row["status"] != "error", "{output}");
+                    row["data"]["issues"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .flat_map(|issue| issue["comments"].as_array().into_iter().flatten())
+                        .map(|comment| {
+                            let id = comment["id"].as_str().unwrap();
+                            assert_eq!(
+                                comment["body"],
+                                format!("comment {id} {}", "x".repeat(700))
+                            );
+                            if ["40", "90"].contains(&id) {
+                                assert_eq!(comment["author"], "github-actions[bot]");
+                            }
+                            id.to_owned()
+                        })
+                })
+                .collect()
+        },
+    )
+    .await;
     assert_eq!(walked.rows.len(), 105);
     assert!(
         walked

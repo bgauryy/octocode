@@ -6,7 +6,7 @@ Load for latency, throughput, allocation, peak memory, layout or binary-size wor
 
 1. Record the input/corpus, expected output, toolchain, target, features, optimization, allocator and cache/process state. Use release-equivalent settings for production claims; use the actual dev configuration when investigating dev behavior.
 2. Pick the metric that answers the question: wall time, CPU, throughput, allocations, live/peak heap, RSS or binary size. These are not interchangeable. Include the serving process and children when a thin CLI delegates work.
-3. Repeat a stable baseline, inspect noise and profile the relevant process. Change one factor, verify identical behavior, then compare under the same conditions. Do not quote universal speedup factors.
+3. Repeat a stable baseline, inspect noise and profile the relevant process. On a loaded or shared machine, record the load and compare CPU time and counts; wall time there measures contention. Change one factor, verify identical behavior, then compare under the same conditions. Do not quote universal speedup factors.
 
 | Question | Candidate evidence |
 |---|---|

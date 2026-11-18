@@ -12,7 +12,7 @@ use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use tokio::task::AbortHandle;
-use tokio::time::{Instant, sleep_until};
+use tokio::time::Instant;
 
 impl<C: PoolClient> GenericPool<C> {
     pub(super) async fn finish_start<Fut>(
@@ -43,7 +43,7 @@ impl<C: PoolClient> GenericPool<C> {
                     } else {
                         let entry_id = state.next_id;
                         state.next_id = state.next_id.wrapping_add(1);
-                        let now = Instant::now();
+                        let now = self.clock.now();
                         let timer = self.spawn_idle_timer(key.clone(), entry_id, now);
                         #[cfg(test)]
                         {
@@ -113,7 +113,7 @@ impl<C: PoolClient> GenericPool<C> {
                         key.clone(),
                         StartBackoff {
                             failures,
-                            retry_at: Instant::now() + restart_backoff_delay(failures),
+                            retry_at: self.clock.deadline_after(restart_backoff_delay(failures)),
                             last_error: Arc::clone(&error),
                         },
                     );
@@ -134,11 +134,12 @@ impl<C: PoolClient> GenericPool<C> {
     fn spawn_idle_timer(&self, key: String, entry_id: u64, installed_at: Instant) -> AbortHandle {
         let state = Arc::clone(&self.state);
         let count = Arc::clone(&self.count);
+        let clock = self.clock.clone();
         let ttl = self.idle_timeout();
         tokio::spawn(async move {
             let mut deadline = installed_at + ttl;
             loop {
-                sleep_until(deadline).await;
+                clock.sleep_until(deadline).await;
                 let stale = {
                     let mut state = state.lock().await;
                     let Some(entry) = state
@@ -148,7 +149,7 @@ impl<C: PoolClient> GenericPool<C> {
                     else {
                         return;
                     };
-                    let now = Instant::now();
+                    let now = clock.now();
                     let expires = entry.last_used + ttl;
                     if now < expires {
                         deadline = expires;

@@ -20,6 +20,22 @@ const WRITE_LOCK_WAIT: Duration = Duration::from_secs(1);
 /// from a clock that jumped or a damaged file, never from a live reservation,
 /// and it must not hold the group until its own time arrives.
 const PEER_STAMP_HORIZON_MS: u64 = 120_000;
+/// How far past now a cooldown end or a bucket reset may lie and still be
+/// mirrored to the file or merged from it. GitHub meters its primary limits
+/// over a one-hour window, so a bucket resets at most an hour ahead, and a
+/// secondary limit asks for minutes
+/// (<https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api>);
+/// the start-stamp allowance covers a drifting clock. A limit past this comes
+/// from a bogus header or a clock that jumped: the process that received it
+/// still honors it, but it holds no other process.
+const PEER_LIMIT_HORIZON_MS: u64 = 3_600_000 + PEER_STAMP_HORIZON_MS;
+
+/// Whether a limit ending at `until_ms` (epoch milliseconds) still holds at
+/// `now_ms` and lies inside [`PEER_LIMIT_HORIZON_MS`]: one other processes
+/// share.
+fn shared_limit(until_ms: u64, now_ms: u64) -> bool {
+    until_ms > now_ms && until_ms <= now_ms.saturating_add(PEER_LIMIT_HORIZON_MS)
+}
 
 /// One write on the blocking pool, awaitable by every party that waits for
 /// it: the request that started it and any flush. A write whose runtime
@@ -125,7 +141,7 @@ fn warn_unshared(action: &str, path: &Path, error: &dyn std::fmt::Display) {
 /// read (with the warning).
 fn read_state(path: &Path) -> Option<Vec<u8>> {
     #[cfg(test)]
-    record_io(path);
+    tests::record_io(path);
     match std::fs::read(path) {
         Ok(bytes) => Some(bytes),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
@@ -134,32 +150,6 @@ fn read_state(path: &Path) -> Option<Vec<u8>> {
             None
         }
     }
-}
-
-/// Which thread touched which state file, for the tests that keep this file
-/// IO off the async workers.
-#[cfg(test)]
-static IO_THREADS: std::sync::Mutex<Vec<(PathBuf, std::thread::ThreadId)>> =
-    std::sync::Mutex::new(Vec::new());
-
-#[cfg(test)]
-fn record_io(path: &Path) {
-    IO_THREADS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .push((path.to_path_buf(), std::thread::current().id()));
-}
-
-/// The threads that read or wrote `path`'s state file.
-#[cfg(test)]
-fn io_threads(path: &Path) -> Vec<std::thread::ThreadId> {
-    IO_THREADS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .iter()
-        .filter(|(seen, _)| seen == path)
-        .map(|(_, thread)| *thread)
-        .collect()
 }
 
 pub(super) struct Persist {
@@ -191,10 +181,11 @@ fn file_stamp(path: &Path) -> Option<FileStamp> {
 }
 
 impl KeyFacts {
-    /// Keep the most restrictive of two views (memory vs. disk).
+    /// Keep the most restrictive of two views (memory vs. disk). A limit of
+    /// `other` past the horizon others share ([`shared_limit`]) is not taken.
     pub(super) fn merge(&mut self, other: Self, now_ms: u64) {
         for (name, bucket) in other.buckets {
-            if bucket.reset.saturating_mul(1000) <= now_ms {
+            if !shared_limit(bucket.reset.saturating_mul(1000), now_ms) {
                 continue;
             }
             let replace = self
@@ -205,7 +196,9 @@ impl KeyFacts {
                 self.buckets.insert(name, bucket);
             }
         }
-        self.cooldown_until_ms = self.cooldown_until_ms.max(other.cooldown_until_ms);
+        if shared_limit(other.cooldown_until_ms, now_ms) {
+            self.cooldown_until_ms = self.cooldown_until_ms.max(other.cooldown_until_ms);
+        }
         self.pull_request_max_age = match (self.pull_request_max_age, other.pull_request_max_age) {
             (Some(left), Some(right)) => Some(left.min(right)),
             (left, right) => left.or(right),
@@ -228,7 +221,8 @@ impl KeyFacts {
     /// Only facts that can block, pace or answer a future request are
     /// persisted: exhausted buckets, the live quota of quota-paced groups, the
     /// lifetime GitHub states for a pull request, and each owner's listing
-    /// route.
+    /// route. A cooldown or bucket past the horizon others share
+    /// ([`shared_limit`]) stays in this process.
     pub(super) fn blocking_view(&self, now_ms: u64) -> Self {
         Self {
             owner_routes: self.owner_routes.clone(),
@@ -237,11 +231,11 @@ impl KeyFacts {
                 .iter()
                 .filter(|(name, b)| {
                     (b.remaining == 0 || super::Group::paces_bucket(name))
-                        && b.reset.saturating_mul(1000) > now_ms
+                        && shared_limit(b.reset.saturating_mul(1000), now_ms)
                 })
                 .map(|(name, b)| (name.clone(), *b))
                 .collect(),
-            cooldown_until_ms: if self.cooldown_until_ms > now_ms {
+            cooldown_until_ms: if shared_limit(self.cooldown_until_ms, now_ms) {
                 self.cooldown_until_ms
             } else {
                 0
@@ -408,11 +402,16 @@ impl KeyState {
         .await;
     }
 
-    /// [`Self::persist`] with `adjust` applied to the merged view before the
-    /// write. A merged view equal to the file is not written again (a repeat
-    /// exhaust or cooldown with the same reset); a new start reservation
-    /// always changes it, and it must reach the file, because it is what
-    /// spaces the next process's search.
+    /// [`Self::persist`] with `adjust` applied before the write. The file's
+    /// facts are merged into this key's own first, as
+    /// [`Self::refresh_from_disk`] merges them: the write records the file's
+    /// new stamp as seen, so a peer fact the file carried must already be in
+    /// memory. `adjust` runs on the merged facts, so what the caller took back
+    /// in memory (a handed-back start, a forgotten route) is not restored from
+    /// the file. A merged view equal to the file is not written again (a
+    /// repeat exhaust or cooldown with the same reset); a new start
+    /// reservation always changes it, and it must reach the file, because it
+    /// is what spaces the next process's search.
     pub(super) fn persist_with(&self, adjust: impl FnOnce(&mut KeyFacts)) {
         let path = {
             let persist = self
@@ -440,15 +439,18 @@ impl KeyState {
             }
         };
         let now = now_ms();
-        let mut view = self.facts().blocking_view(now);
         let on_disk = read_state(&path);
-        if let Some(disk) = on_disk
+        let disk = on_disk
             .as_deref()
-            .and_then(|bytes| serde_json::from_slice::<KeyFacts>(bytes).ok())
-        {
-            view.merge(disk, now);
-        }
-        adjust(&mut view);
+            .and_then(|bytes| serde_json::from_slice::<KeyFacts>(bytes).ok());
+        let view = {
+            let mut facts = self.facts();
+            if let Some(disk) = disk {
+                facts.merge(disk, now);
+            }
+            adjust(&mut facts);
+            facts.blocking_view(now)
+        };
         self.write_view(&path, on_disk.as_deref(), &view);
     }
 
@@ -456,7 +458,7 @@ impl KeyState {
     /// file and an atomic rename; the caller holds the file lock.
     fn write_view(&self, path: &Path, on_disk: Option<&[u8]>, view: &KeyFacts) {
         #[cfg(test)]
-        record_io(path);
+        tests::record_io(path);
         let Ok(bytes) = serde_json::to_vec(view) else {
             return;
         };

@@ -4,9 +4,14 @@
 //! not stop a runaway *server* from exhausting host memory. The cap bounds
 //! memory the server tree actually uses, never address space it only reserves:
 //!
-//! - macOS and Linux: an RSS watchdog ([`watch_memory`]) samples the whole
-//!   server tree's resident memory every [`MEMORY_WATCHDOG_INTERVAL`]; a tree
+//! - macOS and Linux: a memory watchdog ([`watch_memory`]) samples the memory
+//!   the whole server tree holds every [`MEMORY_WATCHDOG_INTERVAL`]; a tree
 //!   over the cap is killed and its connection failed with a clear error.
+//!   Pages the kernel compressed or swapped out still count (the macOS
+//!   physical footprint; Linux resident plus swapped-out memory): under
+//!   memory pressure an idle server's resident size falls to almost nothing
+//!   within seconds, so a reader of resident pages alone misses a server that
+//!   grew past its cap between two samples.
 //! - Windows: a Job Object with `JOB_OBJECT_LIMIT_JOB_MEMORY` (committed
 //!   memory of the whole job).
 //! - Other Unix targets, which have no watchdog: `setrlimit(RLIMIT_AS)` in
@@ -28,7 +33,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::process::Command;
 
-/// How often the RSS watchdog samples a language-server tree.
+/// How often the memory watchdog samples a language-server tree.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) const MEMORY_WATCHDOG_INTERVAL: Duration = Duration::from_secs(2);
 
@@ -81,9 +86,9 @@ fn pool_memory_budget_bytes(host_memory_mb: Option<u64>, max_entries: usize) -> 
     })
 }
 
-/// Unix targets without the RSS watchdog: cap the child's address space
+/// Unix targets without the memory watchdog: cap the child's address space
 /// before `exec`, the only bound available there. Must be called before
-/// `Command::spawn`. macOS and Linux bound resident memory with
+/// `Command::spawn`. macOS and Linux bound the memory in use with
 /// [`watch_memory`] instead (see the module docs), so there this is a no-op.
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
 pub(crate) fn apply_pre_spawn_cap(command: &mut Command, cap_bytes: u64) {
@@ -109,18 +114,18 @@ pub(crate) fn apply_pre_spawn_cap(_command: &mut Command, _cap_bytes: u64) {}
 
 /// Error text for a server killed by the memory watchdog.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-pub(crate) fn memory_cap_exceeded_message(rss_bytes: u64, cap_bytes: u64) -> String {
+pub(crate) fn memory_cap_exceeded_message(used_bytes: u64, cap_bytes: u64) -> String {
     format!(
-        "language server exceeded memory cap ({} MiB resident > {} MiB); it was killed.",
-        rss_bytes / (1024 * 1024),
+        "language server exceeded memory cap ({} MiB in use > {} MiB); it was killed.",
+        used_bytes / (1024 * 1024),
         cap_bytes / (1024 * 1024)
     )
 }
 
-/// RSS watchdog for a spawned server tree (the leader `pid` plus every
+/// Memory watchdog for a spawned server tree (the leader `pid` plus every
 /// descendant). Samples every `interval` while `alive()` holds, publishing the
 /// latest sample in `resident` for the pool's aggregate budget; when the
-/// tree's resident memory exceeds `cap_bytes`, calls `on_exceed(rss)` (which
+/// memory the tree holds exceeds `cap_bytes`, calls `on_exceed(bytes)` (which
 /// fails the connection with a clear error) and then SIGKILLs the whole tree.
 /// Returns when the leader is gone, `alive()` turns false, or after a kill.
 /// The caller aborts the task before reaping the leader, so the pid being
@@ -145,13 +150,13 @@ pub(crate) async fn watch_memory<A, E>(
         if !alive() {
             return;
         }
-        let sample = tokio::task::spawn_blocking(move || process::tree_rss_bytes(pid)).await;
-        let Ok(Some(rss)) = sample else {
+        let sample = tokio::task::spawn_blocking(move || process::tree_memory_bytes(pid)).await;
+        let Ok(Some(used)) = sample else {
             return;
         };
-        resident.store(rss, Ordering::Relaxed);
-        if rss > cap_bytes {
-            on_exceed(rss);
+        resident.store(used, Ordering::Relaxed);
+        if used > cap_bytes {
+            on_exceed(used);
             process::kill_tree_blocking(pid).await;
             return;
         }

@@ -7,19 +7,21 @@ use super::SecretPattern;
 
 /// A SQL password literal, its capture groups named `secret…$suffix`: quoted
 /// (`'…'`, `N'…'`, `"…"`, a doubled quote or a backslash escape inside is the
-/// literal's own character) or dollar-quoted (`$$…$$`, `$tag$…$tag$`).
+/// literal's own character) or dollar-quoted (`$$…$$`, `$tag$…$tag$`), four
+/// characters at least as every labelled value is (`'x'` in a doc comment
+/// is a placeholder).
 macro_rules! sql_literal {
     ($suffix:literal) => {
         concat!(
             r###"N?'(?P<secret"###,
             $suffix,
-            r###">(?:''|\\.|[^'\\\r\n])+)'|N?"(?P<secret_dq"###,
+            r###">(?:''|\\.|[^'\\\r\n]){4,})'|N?"(?P<secret_dq"###,
             $suffix,
-            r###">(?:""|\\.|[^"\\\r\n])+)"|\$\$(?P<secret_dollar"###,
+            r###">(?:""|\\.|[^"\\\r\n]){4,})"|\$\$(?P<secret_dollar"###,
             $suffix,
-            r###">(?:[^$\r\n]|\$[^$\r\n])+)\$\$|\$[A-Za-z_]\w*\$(?P<secret_tag"###,
+            r###">(?:[^$\r\n]|\$[^$\r\n]){4,})\$\$|\$[A-Za-z_]\w*\$(?P<secret_tag"###,
             $suffix,
-            r###">[^$\r\n]+)\$[A-Za-z_]\w*\$"###
+            r###">[^$\r\n]{4,})\$[A-Za-z_]\w*\$"###
         )
     };
 }

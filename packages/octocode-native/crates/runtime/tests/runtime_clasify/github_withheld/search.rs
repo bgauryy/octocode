@@ -6,6 +6,7 @@ use super::{
 };
 use crate::runtime_clasify::sent;
 use crate::support::{self, Run as _, Workspace};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -43,8 +44,14 @@ async fn search_page(github: &MockServer) {
 /// withheld ones are read by no one, sent to no one, and disclosed as unjudged.
 #[tokio::test]
 async fn a_classified_code_search_judges_the_other_rows_and_discloses_the_withheld() {
-    let scoped = json!({"owner":"octo","repo":"demo","keywords":["needle"],
-        "classification":{"predicates":["Does it name the needle?"]}});
+    let scoped = json_fixture(
+        r#"{
+            "owner": "octo",
+            "repo": "demo",
+            "keywords": ["needle"],
+            "classification": {"predicates": ["Does it name the needle?"]}
+        }"#,
+    );
     let mut owner_wide = scoped.clone();
     owner_wide.as_object_mut().unwrap().remove("repo");
     let mut at_ref = scoped.clone();
@@ -118,8 +125,14 @@ async fn a_search_page_of_only_withheld_files_sends_nothing() {
     let row = support::run(
         &runtime,
         "ghSearchCode",
-        json!({"owner":"octo","repo":"demo","keywords":["needle"],
-            "classification":{"predicates":["Does it name the needle?"]}}),
+        json_fixture(
+            r#"{
+                "owner": "octo",
+                "repo": "demo",
+                "keywords": ["needle"],
+                "classification": {"predicates": ["Does it name the needle?"]}
+            }"#,
+        ),
     )
     .await;
     let data = row.data();

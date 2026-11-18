@@ -1,5 +1,6 @@
 //! Repository reads: renamed-repository redirects and shared metadata reads.
 use super::*;
+use octocode_test_support::json_fixture;
 
 /// A followed `/repos/a/b/…` → `/repositories/<id>/…` redirect marks
 /// `a/b` renamed; other repositories and plain reads stay unmarked.
@@ -21,7 +22,7 @@ async fn a_followed_repository_redirect_marks_the_name_renamed() {
         &server,
         "/api/v3/repos/x/y/commits/main",
         422,
-        serde_json::json!({"message":"No commit found for SHA: main"}),
+        json_fixture(r#"{"message": "No commit found for SHA: main"}"#),
     )
     .await;
     let provider = provider(&server).await;
@@ -53,7 +54,7 @@ async fn a_metadata_read_names_the_canonical_repository_for_its_request() {
         &server,
         "/api/v3/repos/a/b",
         200,
-        serde_json::json!({"default_branch":"main","full_name":"c/d"}),
+        json_fixture(r#"{"default_branch": "main", "full_name": "c/d"}"#),
     )
     .await;
     let provider = provider(&server).await;
@@ -78,10 +79,14 @@ async fn concurrent_repository_metadata_reads_are_independent() {
     let server = MockServer::builder().start().await;
     let repository = Delayed::new(
         Duration::from_millis(150),
-        ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "full_name": "o/r", "name": "r", "html_url": "https://github.com/o/r",
-            "default_branch": "main"
-        })),
+        ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "full_name": "o/r",
+                "name": "r",
+                "html_url": "https://github.com/o/r",
+                "default_branch": "main"
+            }"#,
+        )),
     );
     let hits = repository.arrivals.clone();
     Mock::given(method("GET"))
@@ -122,7 +127,7 @@ async fn a_failed_repository_read_is_reported_on_each_request() {
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/o/r"))
         .respond_with(
-            ResponseTemplate::new(404).set_body_json(serde_json::json!({"message":"Not Found"})),
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
         )
         .expect(2)
         .mount(&server)

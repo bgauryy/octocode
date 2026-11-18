@@ -6,7 +6,7 @@ use super::config::ManageError;
 use super::mcp_clients::{self, CLIENTS, ClientSpec, ConfigFormat, EnableFlag, EntryShape};
 use continue_main::continue_main_rows;
 pub(super) use document::render_document;
-use octocode_native::config::{config_revision, read_private_config};
+use octocode_runtime_base::config::{config_revision, read_private_config};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -50,7 +50,7 @@ pub(super) fn target(client: &str, scope: &str, cwd: &Path) -> Result<Target, St
     })
 }
 
-pub fn manage(request: &Value, cwd: &Path) -> Result<Value, ManageError> {
+pub(super) fn manage(request: &Value, cwd: &Path) -> Result<Value, ManageError> {
     let operation = request
         .get("operation")
         .and_then(Value::as_str)
@@ -99,7 +99,7 @@ pub(super) fn parse_document(format: ConfigFormat, text: &str) -> Result<Value, 
         return Ok(json!({}));
     }
     let value = match format {
-        ConfigFormat::Json => octocode_native::config::parse_config_json(text),
+        ConfigFormat::Json => octocode_runtime_base::config::parse_config_json(text),
         ConfigFormat::Toml => toml::from_str::<toml::Value>(text)
             .ok()
             .and_then(|value| serde_json::to_value(value).ok())

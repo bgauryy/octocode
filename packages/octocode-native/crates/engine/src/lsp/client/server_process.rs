@@ -196,7 +196,7 @@ pub(super) fn cpu_clock_for(child: &Child) -> Option<CpuClock> {
     }
 }
 
-/// Arm the RSS watchdog for a freshly spawned server on macOS and Linux (see
+/// Arm the memory watchdog for a freshly spawned server on macOS and Linux (see
 /// [`spawn_limits`]). Over the cap, the connection fails with a "language
 /// server exceeded memory cap" error and the server tree is killed. `None`
 /// when no cap is configured, on other platforms (the pre-spawn `RLIMIT_AS` /

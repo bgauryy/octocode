@@ -3,6 +3,7 @@
 
 use super::HISTORY_A_HEAD;
 use crate::support::{self};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use support::{Workspace, call, checks, row_data, row_status};
 use wiremock::matchers::{method, path};
@@ -77,11 +78,18 @@ async fn history_a_every_pr_view_carries_source_target_and_merge_commits() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     for extra in [
-        json!({"sections":["patches"]}),
-        json!({"sections":["files"]}),
-        json!({"sections":["patches"],"matchString": ["parsed"]}),
+        json_fixture(r#"{"sections": ["patches"]}"#),
+        json_fixture(r#"{"sections": ["files"]}"#),
+        json_fixture(r#"{"sections": ["patches"], "matchString": ["parsed"]}"#),
     ] {
-        let mut query = json!({"operation":"pullRequest","owner":"a","repo":"b","number":9});
+        let mut query = json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "a",
+                "repo": "b",
+                "number": 9
+            }"#,
+        );
         for (key, value) in extra.as_object().expect("fields") {
             query[key] = value.clone();
         }
@@ -99,7 +107,14 @@ async fn history_a_every_pr_view_carries_source_target_and_merge_commits() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"pullRequest","owner":"a","repo":"b","number":9}),
+        json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "a",
+                "repo": "b",
+                "number": 9
+            }"#,
+        ),
     )
     .await
     .expect("summary read");
@@ -136,8 +151,15 @@ async fn history_a_unpatched_file_gets_head_and_parent_reads() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"pullRequest","owner":"a","repo":"b","number":9,
-            "sections":["patches"]}),
+        json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "a",
+                "repo": "b",
+                "number": 9,
+                "sections": ["patches"]
+            }"#,
+        ),
     )
     .await
     .expect("patch read");
@@ -157,6 +179,7 @@ async fn history_a_unpatched_file_gets_head_and_parent_reads() {
             "let parsed = parse(input);\n",
         ),
     ] {
+        octocode_test_support::mock_http::list_in_trees(&server, "a", "b", path_name).await;
         Mock::given(method("GET")).and(path(format!("/api/v3/repos/a/b/contents/{}",path_name.replace('/',"%2F"))))
             .and(wiremock::matchers::query_param("ref",pinned))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({"type":"file","path":path_name,"encoding":"base64","content":base64::engine::general_purpose::STANDARD.encode(text)})))
@@ -216,7 +239,10 @@ async fn history_a_graphql_pr_reads_target_sha_and_totals() {
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    for sections in [json!(["body", "reviews"]), json!(["body", "files"])] {
+    for sections in [
+        json_fixture(r#"["body", "reviews"]"#),
+        json_fixture(r#"["body", "files"]"#),
+    ] {
         let outcome = call(
             &runtime,
             "ghGetHistoryItem",

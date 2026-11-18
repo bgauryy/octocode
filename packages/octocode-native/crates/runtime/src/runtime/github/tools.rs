@@ -1,24 +1,24 @@
 //! Per-tool execution: each GitHub tool's typed query run through the shared provider into its row.
 use super::GitHubServices;
 use super::rows::{history_error, provider_error, tool_row};
-use crate::execution::{ExecutionContext, ExecutionError};
-use crate::{
-    id::GitHubTool,
-    policy::path::PathPolicy,
-    response::outcome::{DomainResult, Upstream},
-    security::ContentSecurity,
-    tools::{
-        gh_clone_repo::{self, CloneFailure},
-        gh_get_file_content, gh_get_history_item,
-        gh_git::{self, GitConfig, GitSetup},
-        gh_search_code, gh_search_history, gh_search_repo, gh_structure,
-    },
-};
 use octocode_contract_types::{
     ErrorCode, GhCloneRepoQuery, GhGetFileContentQuery, GhSearchCodeQuery, GhSearchRepoQuery,
     GhStructureQuery,
 };
 use octocode_github::{ProviderError, RequestContext};
+use octocode_runtime_base::execution::{ExecutionContext, ExecutionError};
+use octocode_runtime_base::{
+    id::GitHubTool,
+    policy::path::PathPolicy,
+    response::outcome::{DomainResult, Upstream},
+    security::ContentSecurity,
+};
+use octocode_tool_github::gh_clone_repo;
+use octocode_tool_github::{
+    gh_clone_repo::CloneFailure, gh_get_file_content, gh_get_history_item, gh_search_code,
+    gh_search_history, gh_search_repo, gh_structure,
+};
+use octocode_tools_shared::gh_git::{self, GitConfig, GitSetup};
 use serde_json::Value;
 
 impl GitHubServices {
@@ -30,7 +30,7 @@ impl GitHubServices {
         context: &ExecutionContext,
         security: &ContentSecurity,
         paths: &PathPolicy,
-        selection: &crate::tools::selection::Runtime,
+        selection: &octocode_tools_shared::selection::Runtime,
     ) -> Result<DomainResult, ExecutionError> {
         context.check()?;
         // Generated query types carry the meta fields, so every tool parses
@@ -90,7 +90,6 @@ impl GitHubServices {
                 {
                     return Ok(withheld_file(path));
                 }
-                let asked_path = query["path"].as_str().unwrap_or_default().to_owned();
                 let query = typed!(GhGetFileContentQuery);
                 let shaping = gh_get_file_content::Shaping {
                     security: security.clone(),
@@ -103,17 +102,15 @@ impl GitHubServices {
                     request,
                     Some(context.row_page_chars(self.auto_page_chars)),
                     shaping,
+                    // The bytes of a symlink are its target's: a target the
+                    // policy withholds is refused as a read of it is, before
+                    // any of its bytes are asked for.
+                    &|target| paths.withholds_repository_file(target),
                 )
                 .await
                 {
-                    // The bytes of a symlink are its target's: a target the
-                    // policy withholds is refused as a read of it is.
-                    Ok(read) => match read.data["symlinkTarget"].as_str() {
-                        Some(target) if paths.withheld_text(&asked_path, None, Some(target)) => {
-                            return Ok(withheld_file(target));
-                        }
-                        _ => tool_row(Ok(read)),
-                    },
+                    Ok(Ok(read)) => tool_row(Ok(read)),
+                    Ok(Err(target)) => return Ok(withheld_file(&target)),
                     Err(failure) => tool_row(Err(failure)),
                 }
             }
@@ -171,7 +168,7 @@ impl GitHubServices {
             git_limiter: self.provider.transport.git_limiter().for_row(request),
             credential: request.resolved_credential().cloned(),
             cancellation: std::sync::Arc::new(context.clone()),
-            deadline: crate::execution::cancel::deadline_of(context),
+            deadline: octocode_runtime_base::execution::cancel::deadline_of(context),
             path_policy: paths.clone(),
             git: self.git.clone(),
         })
@@ -245,9 +242,9 @@ fn materializes(query: &GhStructureQuery) -> bool {
 fn withheld_file(path: &str) -> DomainResult {
     DomainResult::provider(
         ErrorCode::PathPolicyDenied,
-        crate::policy::discovery::withheld_message(
+        octocode_runtime_base::policy::discovery::withheld_message(
             path,
-            &crate::policy::discovery::repository_path(path),
+            &octocode_runtime_base::policy::discovery::repository_path(path),
         ),
         Vec::new(),
         None,
@@ -264,7 +261,7 @@ fn withheld_file(path: &str) -> DomainResult {
 fn drop_withheld_reads(data: &mut Value, paths: &PathPolicy) {
     let dropped = drop_reads_in(data, paths);
     if dropped > 0 {
-        crate::response::paging::push_warnings(
+        octocode_runtime_base::response::paging::push_warnings(
             data,
             [format!(
                 "{dropped} ghGetFileContent read row(s) were dropped from leads: the security path policy withholds their files under the user's configuration."
@@ -307,7 +304,7 @@ fn is_empty_container(value: &Value) -> bool {
 /// how many, and whether none is left.
 fn withheld_read(call: &mut Value, paths: &PathPolicy) -> (usize, bool) {
     if call.get("tool").and_then(Value::as_str)
-        != Some(crate::id::ToolId::GhGetFileContent.as_str())
+        != Some(octocode_runtime_base::id::ToolId::GhGetFileContent.as_str())
     {
         return (0, false);
     }
@@ -340,102 +337,4 @@ fn materialize_refused() -> DomainResult {
 }
 
 #[cfg(test)]
-mod lead_tests {
-    use super::drop_withheld_reads;
-    use crate::policy::path::{PathPolicy, PathPolicyConfig};
-    use serde_json::{Value, json};
-
-    fn policy(allow: bool) -> PathPolicy {
-        let root = tempfile::tempdir().expect("root");
-        PathPolicy::new(PathPolicyConfig {
-            workspace_root: Some(root.path().to_path_buf()),
-            allow_credential_files: allow,
-            ..Default::default()
-        })
-        .expect("policy")
-    }
-
-    fn read(paths: &[&str]) -> Value {
-        let rows: Vec<Value> = paths
-            .iter()
-            .map(|path| json!({"owner":"o","repo":"r","path":path}))
-            .collect();
-        json!({"kind":"related","tool":"ghGetFileContent","input":{"queries":rows}})
-    }
-
-    fn row() -> Value {
-        json!({
-            "files": [{"path": ".env", "related": [read(&[".env"]), read(&["src/a.rs"])]}],
-            "next": {"read": read(&[".env", ".ssh/config", "src/a.rs"])},
-            "calls": [read(&[".ssh/config"]),
-                {"kind":"related","tool":"ghSearchCode","input":{"queries":[{"owner":"o","path":".env"}]}}]
-        })
-    }
-
-    #[test]
-    fn leads_to_withheld_files_are_dropped_with_one_warning() {
-        let mut data = row();
-        drop_withheld_reads(&mut data, &policy(false));
-        let text = data.to_string();
-        assert!(!text.contains("\"path\":\".ssh/config\""), "{text}");
-        assert_eq!(
-            data["files"][0]["related"].as_array().map(Vec::len),
-            Some(1),
-            "{text}"
-        );
-        assert_eq!(
-            data["next"]["read"]["input"]["queries"],
-            json!([{"owner":"o","repo":"r","path":"src/a.rs"}])
-        );
-        // A call of another tool is not a read of the file.
-        assert_eq!(data["calls"].as_array().map(Vec::len), Some(1), "{text}");
-        assert_eq!(data["warnings"].as_array().map(Vec::len), Some(1), "{text}");
-        // Four query rows go, from three calls: the warning counts rows.
-        assert!(
-            text.contains("4 ghGetFileContent read row(s) were dropped from leads"),
-            "{text}"
-        );
-    }
-
-    #[test]
-    fn a_container_the_pass_empties_goes_with_its_last_lead() {
-        let mut data = json!({
-            "files": [{"path": ".env", "related": [read(&[".env"])]}],
-            "next": {"read": read(&[".env"])},
-            "calls": [read(&[".ssh/config"])],
-            "kept": {"empty": {}, "none": []}
-        });
-        drop_withheld_reads(&mut data, &policy(false));
-        let text = data.to_string();
-        assert!(data.get("next").is_none(), "no next:{{}}: {text}");
-        assert!(data.get("calls").is_none(), "no calls:[]: {text}");
-        assert!(
-            data["files"][0].get("related").is_none(),
-            "no related:[]: {text}"
-        );
-        assert_eq!(data["files"][0]["path"], ".env", "the row stays: {text}");
-        // A container that was empty before the pass is not its to remove.
-        assert_eq!(data["kept"], json!({"empty": {}, "none": []}), "{text}");
-        assert!(
-            text.contains("3 ghGetFileContent read row(s) were dropped from leads"),
-            "{text}"
-        );
-    }
-
-    #[test]
-    fn the_opt_in_keeps_credential_name_leads_never_sensitive_directories() {
-        let mut data = row();
-        drop_withheld_reads(&mut data, &policy(true));
-        let text = data.to_string();
-        assert_eq!(
-            data["files"][0]["related"].as_array().map(Vec::len),
-            Some(2),
-            "{text}"
-        );
-        assert!(!text.contains(".ssh/config"), "{text}");
-        assert!(
-            text.contains("2 ghGetFileContent read row(s) were dropped from leads"),
-            "{text}"
-        );
-    }
-}
+mod lead_tests;

@@ -37,11 +37,24 @@ const RETRIED_METHODS: &[&str] = &[
 
 impl NativeLspClient {
     pub async fn start(&self) -> Result<()> {
+        self.start_until(std::future::pending()).await
+    }
+
+    /// [`Self::start`] for a start that `abandoned` ends once no caller waits
+    /// for it any more. The `initialize` wait has no ceiling of its own: it
+    /// lasts while the server shows progress (a server that indexes inside
+    /// `initialize`, as jdtls and Metals do on a large project, is waited
+    /// for), so `abandoned` is what ends the wait of a start whose callers
+    /// left; the server tree is then stopped.
+    pub(crate) async fn start_until(
+        &self,
+        abandoned: impl std::future::Future<Output = ()> + Send,
+    ) -> Result<()> {
         let mut child_guard = self.inner.child.lock().await;
         if child_guard.is_some() {
             return Err(Error::new("LSP client already started"));
         }
-        let began = tokio::time::Instant::now();
+        let began = self.inner.clock.now();
         {
             let mut stderr_lines = self
                 .inner
@@ -53,25 +66,19 @@ impl NativeLspClient {
         self.reset_session_state();
 
         // OS-level memory cap: internal buffer bounds do not stop a runaway
-        // server from OOMing the host. macOS and Linux bound the resident
-        // memory of the whole server tree with an RSS watchdog
+        // server from OOMing the host. macOS and Linux bound the memory the
+        // whole server tree holds with a memory watchdog
         // (`memory_watchdog_for`); Windows attaches a Job Object right after
         // spawn; other Unix targets cap the address space before exec.
         let memory_cap = spawn_limits::memory_cap_bytes(self.inner.config.max_memory_mb);
-        crate::lsp::clangd_database::prepare_mirror(&self.inner.config).map_err(|error| {
-            Error::new(format!(
-                "Could not prepare the clangd index directory under the Octocode home: {error}. Set storage.mode to memory to run without an index."
-            ))
-        })?;
-        let _ = self.inner.started_at.set(std::time::SystemTime::now());
-        if crate::lsp::clangd_database::indexes_project(&self.inner.config) {
-            let _ = self
-                .inner
-                .listed_files
-                .set(crate::lsp::clangd_database::listed_files(
-                    &self.inner.config,
-                ));
-        }
+        let client = self.clone();
+        tokio::task::spawn_blocking(move || client.prepare_project_files())
+            .await
+            .map_err(|error| {
+                Error::new(format!(
+                    "Could not prepare the language server's project files: {error}"
+                ))
+            })??;
         let mut command = server_command(&self.inner.config, memory_cap).await?;
         let stderr_pipe = StderrPipe::attach(&mut command).await?;
         let spawned = command.spawn();
@@ -124,9 +131,10 @@ impl NativeLspClient {
             },
             Arc::clone(&self.inner.progress),
             cpu_clock_for(&child),
+            self.inner.clock.clone(),
         ));
-        // Watch the server tree's RSS (macOS has no address-space cap; Linux
-        // RLIMIT_AS bounds one process, not the tree). Armed before
+        // Watch the server tree's memory (macOS has no address-space cap;
+        // Linux RLIMIT_AS bounds one process, not the tree). Armed before
         // `initialize` (indexing can start there); dropping the guard on any
         // failed-start path aborts it.
         let memory_watchdog = memory_watchdog_for(
@@ -135,7 +143,15 @@ impl NativeLspClient {
             &connection,
             Arc::clone(&self.inner.resident_bytes),
         );
-        let initialize_result = match initialize(&connection, &self.inner.config).await {
+        let initialized = tokio::select! {
+            biased;
+            result = initialize(&connection, &self.inner.config, &self.inner.clock) => result,
+            () = abandoned => Err(Error::with_kind(
+                crate::error::ErrorKind::Cancelled,
+                "LSP start abandoned: no caller waits for it any more",
+            )),
+        };
+        let initialize_result = match initialized {
             Ok(value) => value,
             Err(error) => {
                 cleanup_failed_start(&mut child, Some(&mut memory_cap_guard), stderr_task).await;
@@ -180,6 +196,29 @@ impl NativeLspClient {
         }
         *child_guard = Some(child);
         self.record_wait(super::waits::WaitKind::Starting, began);
+        Ok(())
+    }
+
+    /// What a start reads from disk before the server runs: clangd's copy of
+    /// the project's compilation database, written under the Octocode home,
+    /// and the files that database lists. Blocking file reads and a parse of
+    /// a database that can be many megabytes: [`Self::start_until`] runs
+    /// this on a blocking thread, never on the runtime thread that serves
+    /// every other connection's reads, writes and timers.
+    fn prepare_project_files(&self) -> Result<()> {
+        let config = &self.inner.config;
+        crate::lsp::clangd_database::prepare_mirror(config).map_err(|error| {
+            Error::new(format!(
+                "Could not prepare the clangd index directory under the Octocode home: {error}. Set storage.mode to memory to run without an index."
+            ))
+        })?;
+        let _ = self.inner.started_at.set(std::time::SystemTime::now());
+        if crate::lsp::clangd_database::indexes_project(config) {
+            let _ = self
+                .inner
+                .listed_files
+                .set(crate::lsp::clangd_database::listed_files(config));
+        }
         Ok(())
     }
 
@@ -238,8 +277,16 @@ impl NativeLspClient {
             // A fixed second: an evicted server mid-index shows progress for
             // minutes, and a caller's deadline must not extend its exit.
             let _ = connection
-                .request("shutdown", Value::Null, WaitBudget::fixed(1_000))
+                .request(
+                    "shutdown",
+                    Value::Null,
+                    WaitBudget::fixed(1_000, self.inner.clock.now()),
+                )
                 .await;
+            // A request still pending on this server gets no answer after
+            // `shutdown`: it fails now, saying the server was stopped, not
+            // that the connection closed on its own.
+            connection.retire("LSP connection closed: Octocode stopped the language server");
             // A slow `shutdown` retires the connection; `exit` must still go out.
             let _ = connection.notify_best_effort("exit", Value::Null).await;
         }
@@ -333,13 +380,23 @@ pub(super) fn extract_position_encoding(initialize_result: &Value) -> Option<Str
         .map(str::to_owned)
 }
 
-async fn initialize(
+/// Sends `initialize` and waits for its answer while the server progresses:
+/// the start runs in a supervisor task outside every caller's scope, and a
+/// server that indexes inside `initialize` is not cut at a fixed ceiling
+/// (see [`WaitBudget::while_progressing`]). A server that shows no activity
+/// for the base window still fails.
+pub(super) async fn initialize(
     connection: &JsonRpcConnection,
     config: &LspLanguageServerConfig,
+    clock: &crate::lsp::clock::LspClock,
 ) -> Result<Value> {
     let params = initialize_params(config)?;
     connection
-        .request("initialize", params, REQUEST_TIMEOUT_MS)
+        .request(
+            "initialize",
+            params,
+            WaitBudget::while_progressing(REQUEST_TIMEOUT_MS, clock.now()),
+        )
         .await
 }
 

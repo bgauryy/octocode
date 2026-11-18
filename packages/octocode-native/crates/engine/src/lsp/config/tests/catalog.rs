@@ -2,7 +2,8 @@ use super::*;
 
 #[test]
 fn server_languages_keep_catalog_order_and_drop_unresolved_servers() {
-    use crate::lsp::config::{LspLanguageServerConfig, catalog::server_languages_with};
+    use crate::lsp::config::catalog::server_languages_with;
+    use crate::lsp::types::LspLanguageServerConfig;
     let config = |command: &str| LspLanguageServerConfig {
         command: command.to_owned(),
         args: Some(Vec::new()),

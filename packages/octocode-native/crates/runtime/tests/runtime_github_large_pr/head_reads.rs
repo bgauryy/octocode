@@ -2,6 +2,7 @@
 
 use super::{SHA, mount_file_batches, mount_pr, rest_file, run, run_status};
 use crate::support;
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use std::time::Duration;
 use wiremock::matchers::{method, path, query_param};
@@ -45,6 +46,8 @@ async fn a_later_listed_code_file_is_readable_at_the_returned_merge_commit() {
     mount_file_batches(&server, vec![files], Duration::ZERO).await;
     use base64::Engine as _;
     let merge = "fedcba9876543210fedcba9876543210fedcba98";
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "pkg/client/client.go")
+        .await;
     Mock::given(method("GET")).and(path("/api/v3/repos/a/b/contents/pkg%2Fclient%2Fclient.go"))
         .and(query_param("ref",merge))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"type":"file","encoding":"base64","path":"pkg/client/client.go","content":base64::engine::general_purpose::STANDARD.encode("package client\nfunc Alpha() {}\nfunc Beta() {}\n")})))
@@ -54,7 +57,15 @@ async fn a_later_listed_code_file_is_readable_at_the_returned_merge_commit() {
     let result = crate::support::run(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"pullRequest","owner":"a","repo":"b","number":9,"sections":["patches"]}),
+        json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "a",
+                "repo": "b",
+                "number": 9,
+                "sections": ["patches"]
+            }"#,
+        ),
     )
     .await;
     let data = result.data();
@@ -119,6 +130,7 @@ async fn match_context_past_the_hunk_reads_the_head_text() {
         Duration::ZERO,
     )
     .await;
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "src/a.rs").await;
     Mock::given(method("GET"))
         // The shared file read names the path as one segment, as
         // ghGetFileContent does.
@@ -132,7 +144,13 @@ async fn match_context_past_the_hunk_reads_the_head_text() {
         .await;
     let data = run(
         &server,
-        json!({"sections":["patches"], "matchString": ["needle"], "contextLines": {"before":10,"after":10}}),
+        json_fixture(
+            r#"{
+                "sections": ["patches"],
+                "matchString": ["needle"],
+                "contextLines": {"before": 10, "after": 10}
+            }"#,
+        ),
     )
     .await;
     let file = &data["pullRequests"][0]["files"][0];
@@ -177,6 +195,7 @@ async fn every_file_on_the_page_reads_its_head_text() {
     .await;
     for name in &names {
         let head = own(&head, name);
+        octocode_test_support::mock_http::list_in_trees(&server, "a", "b", name).await;
         Mock::given(method("GET"))
             .and(path(format!(
                 "/api/v3/repos/a/b/contents/{}",
@@ -193,7 +212,13 @@ async fn every_file_on_the_page_reads_its_head_text() {
     }
     let data = run(
         &server,
-        json!({"sections":["patches"], "matchString": ["needle"], "contextLines": {"before":10,"after":10}}),
+        json_fixture(
+            r#"{
+                "sections": ["patches"],
+                "matchString": ["needle"],
+                "contextLines": {"before": 10, "after": 10}
+            }"#,
+        ),
     )
     .await;
     let files = data["pullRequests"][0]["files"].as_array().expect("files");
@@ -230,6 +255,7 @@ async fn a_head_file_past_one_megabyte_is_read_through_its_blob() {
     )
     .await;
     let blob = "b".repeat(40);
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "src/a.rs").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/src%2Fa.rs"))
         .and(query_param("ref", SHA))
@@ -251,7 +277,13 @@ async fn a_head_file_past_one_megabyte_is_read_through_its_blob() {
         .await;
     let data = run(
         &server,
-        json!({"sections":["patches"], "matchString": ["needle"], "contextLines": {"before":10,"after":10}}),
+        json_fixture(
+            r#"{
+                "sections": ["patches"],
+                "matchString": ["needle"],
+                "contextLines": {"before": 10, "after": 10}
+            }"#,
+        ),
     )
     .await;
     let file = &data["pullRequests"][0]["files"][0];
@@ -282,6 +314,13 @@ async fn a_scoped_match_reads_only_its_selected_head_file() {
     )
     .await;
     for (file, reads) in [("a", 0), ("b", 1)] {
+        octocode_test_support::mock_http::list_in_trees(
+            &server,
+            "a",
+            "b",
+            &format!("src/{file}.rs"),
+        )
+        .await;
         Mock::given(method("GET"))
             .and(path(format!("/api/v3/repos/a/b/contents/src%2F{file}.rs")))
             .and(query_param("ref", SHA))
@@ -295,8 +334,14 @@ async fn a_scoped_match_reads_only_its_selected_head_file() {
     }
     let data = run(
         &server,
-        json!({"sections":["patches"], "matchString": ["needle"], "contextLines": {"before":10,"after":10},
-            "include":["src/b.rs"]}),
+        json_fixture(
+            r#"{
+                "sections": ["patches"],
+                "matchString": ["needle"],
+                "contextLines": {"before": 10, "after": 10},
+                "include": ["src/b.rs"]
+            }"#,
+        ),
     )
     .await;
     let file = &data["pullRequests"][0]["files"][0];
@@ -320,7 +365,13 @@ async fn match_context_clipped_by_the_hunk_is_flagged_with_a_head_read() {
     .await;
     let (_, data) = run_status(
         &server,
-        json!({"sections":["patches"], "matchString": ["needle"], "contextLines": {"before":10,"after":10}}),
+        json_fixture(
+            r#"{
+                "sections": ["patches"],
+                "matchString": ["needle"],
+                "contextLines": {"before": 10, "after": 10}
+            }"#,
+        ),
     )
     .await;
     let file = &data["pullRequests"][0]["files"][0];
@@ -359,13 +410,18 @@ async fn history_b_merged_match_string_read_offers_the_source_side_only() {
     .await;
     let data = run(
         &server,
-        json!({"matchString": ["needle"], "contextLines": {"before":1,"after":1}}),
+        json_fixture(
+            r#"{
+                "matchString": ["needle"],
+                "contextLines": {"before": 1, "after": 1}
+            }"#,
+        ),
     )
     .await;
     let at_commit = support::checks::related_call(&data, "ghGetFileContent", |input| {
         input["queries"][0]["ref"] == SHA && input["queries"][0]["path"] == "src/hit.rs"
     });
-    assert_eq!(at_commit["kind"], "related");
+    assert_eq!(at_commit.get("kind"), None);
     assert!(
         data["warnings"]
             .as_array()

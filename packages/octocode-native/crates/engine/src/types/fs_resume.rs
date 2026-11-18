@@ -87,8 +87,8 @@ impl WalkCursor {
 #[derive(Debug, Clone)]
 enum Counted {
     /// An entry or directory that could not be read; `denied` for want of
-    /// permission.
-    Unreadable { denied: bool },
+    /// permission; `path` names a directory the walk could not list.
+    Unreadable { denied: bool, path: Option<String> },
     /// An entry the ignore rules left out: its root-relative path, a
     /// directory's with a trailing `/`.
     Ignored(String),
@@ -108,13 +108,27 @@ pub struct WalkTally {
 pub(crate) struct Totals {
     pub(crate) skipped: u32,
     pub(crate) permission_denied: u32,
+    /// Directories whose listing was denied, absolute, in walk order.
+    pub(crate) denied_dirs: Vec<String>,
     pub(crate) ignored: Vec<String>,
     pub(crate) pruned_dirs: Vec<String>,
 }
 
 impl WalkTally {
     pub(crate) fn unreadable(&mut self, position: u32, denied: bool) {
-        self.events.push((position, Counted::Unreadable { denied }));
+        self.events
+            .push((position, Counted::Unreadable { denied, path: None }));
+    }
+
+    /// An unreadable directory, named by its absolute `path`.
+    pub(crate) fn unreadable_dir(&mut self, position: u32, denied: bool, path: String) {
+        self.events.push((
+            position,
+            Counted::Unreadable {
+                denied,
+                path: Some(path),
+            },
+        ));
     }
 
     /// `relative`: the ignored entry's root-relative path, a directory's
@@ -135,9 +149,12 @@ impl WalkTally {
                 continue;
             }
             match counted {
-                Counted::Unreadable { denied } => {
+                Counted::Unreadable { denied, path } => {
                     totals.skipped += 1;
                     totals.permission_denied += u32::from(*denied);
+                    if *denied && let Some(path) = path {
+                        totals.denied_dirs.push(path.clone());
+                    }
                 }
                 Counted::Ignored(relative) => totals.ignored.push(relative.clone()),
                 Counted::Pruned(relative) => totals.pruned_dirs.push(relative.clone()),

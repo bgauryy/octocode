@@ -4,6 +4,7 @@ use super::{error_code, judged, provider, provider_calls, sections};
 use crate::support::{Run as _, Workspace, clasify_runtime, github_api};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -21,6 +22,8 @@ async fn github_with(files: &[(&str, &[u8])]) -> MockServer {
         .mount(&github)
         .await;
     for (file, body) in files {
+        octocode_test_support::mock_http::list_in_trees(&github, "a", "b", &format!("docs/{file}"))
+            .await;
         Mock::given(method("GET"))
             .and(path(format!("/api/v3/repos/a/b/contents/docs%2F{file}")))
             .and(query_param("ref", SHA))
@@ -93,7 +96,7 @@ async fn a_github_resource_is_planned_from_its_pinned_commit() {
     );
     assert_eq!(
         guide["sections"][0]["target"]["lines"],
-        json!({"startLine":1,"endLine":3})
+        json_fixture(r#"{"startLine": 1, "endLine": 3}"#)
     );
     assert_eq!(guide["sections"][0]["answers"]["q"]["status"], "answered");
     assert!(judged(&provider).await.contains("Restart the service."));
@@ -159,10 +162,12 @@ async fn a_url_resource_to_an_internal_address_fails_alone_before_any_request() 
     );
     let out = sections(
         &runtime,
-        json!({
-            "page": {"url": "https://127.0.0.1:9/guide"},
-            "notes": {"tool":"localFetch","query":{"path":"notes.txt"}},
-        }),
+        json_fixture(
+            r#"{
+                "page": {"url": "https://127.0.0.1:9/guide"},
+                "notes": {"tool": "localFetch", "query": {"path": "notes.txt"}}
+            }"#,
+        ),
     )
     .await;
     let page = &out["resources"]["page"];
@@ -188,18 +193,35 @@ async fn local_ranges_bound_the_assessed_text_and_an_empty_selection_is_an_error
     let runtime = clasify_runtime(&workspace, &provider, &[]);
     let out = sections(
         &runtime,
-        json!({
-            "middle": {"tool":"localFetch","query":{"path":"notes.txt","ranges":[{"startLine":2,"endLine":3},{"startLine":3,"endLine":4}]}},
-            "past": {"tool":"localFetch","query":{"path":"notes.txt","ranges":[{"startLine":10,"endLine":12}]}},
-            "gone": {"tool":"localFetch","query":{"path":"missing.txt"}},
-        }),
+        json_fixture(
+            r#"{
+                "middle": {
+                    "tool": "localFetch",
+                    "query": {
+                        "path": "notes.txt",
+                        "ranges": [
+                            {"startLine": 2, "endLine": 3},
+                            {"startLine": 3, "endLine": 4}
+                        ]
+                    }
+                },
+                "past": {
+                    "tool": "localFetch",
+                    "query": {
+                        "path": "notes.txt",
+                        "ranges": [{"startLine": 10, "endLine": 12}]
+                    }
+                },
+                "gone": {"tool": "localFetch", "query": {"path": "missing.txt"}}
+            }"#,
+        ),
     )
     .await;
     let middle = &out["resources"]["middle"];
     assert_eq!(middle["status"], "ready", "{out:#}");
     assert_eq!(
         middle["sections"][0]["target"]["lines"],
-        json!({"startLine":2,"endLine":4}),
+        json_fixture(r#"{"startLine": 2, "endLine": 4}"#),
         "overlapping ranges are one selection"
     );
     let past = &out["resources"]["past"];
@@ -229,10 +251,12 @@ async fn partial_redacted_context_is_unsupported_without_blocking_healthy_sectio
     let runtime = clasify_runtime(&workspace, &provider, &[]);
     let out = sections(
         &runtime,
-        json!({
-            "context": {"tool":"localFetch","query":{"path":"context.txt"}},
-            "healthy": {"tool":"localFetch","query":{"path":"healthy.txt"}},
-        }),
+        json_fixture(
+            r#"{
+                "context": {"tool": "localFetch", "query": {"path": "context.txt"}},
+                "healthy": {"tool": "localFetch", "query": {"path": "healthy.txt"}}
+            }"#,
+        ),
     )
     .await;
     let planned = out["resources"]["context"]["sections"]
@@ -291,7 +315,7 @@ async fn partial_redacted_context_is_unsupported_without_blocking_healthy_sectio
 /// the lib test `quiet_identity`.)
 #[tokio::test]
 async fn next_quiet_of_a_github_plan_checks_the_github_identity_first() {
-    use octocode_native::providers::github::{CredentialStore, StoredCredentials};
+    use octocode_runtime_base::providers::github::{CredentialStore, StoredCredentials};
     let provider = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
@@ -301,7 +325,7 @@ async fn next_quiet_of_a_github_plan_checks_the_github_identity_first() {
                 .as_object()
                 .expect("questions")
                 .keys()
-                .map(|id| (id.clone(), json!({"type":"noul","noul":0.1})))
+                .map(|id| (id.clone(), json_fixture(r#"{"type": "noul", "noul": 0.1}"#)))
                 .collect::<serde_json::Map<_, _>>();
             ResponseTemplate::new(200).set_body_json(json!({
                 "model":"jev-1.13.0","answers":answers,
@@ -460,9 +484,23 @@ async fn classification_disclosures_glob_scope_and_listing_survive_details_repla
         .run(
             "scope-first".into(),
             "clasify".into(),
-            json!({"queries":[{"operation":"sections","view":"summary",
-                "resources":{"r":{"tool":"localFetch","query":{"path":"src/*.rs"}}},
-                "questions":{"q":{"type":"noul","instructions":"Does this section say to restart?"}}}]}),
+            json_fixture(
+                r#"{
+                    "queries": [
+                        {
+                            "operation": "sections",
+                            "view": "summary",
+                            "resources": {"r": {"tool": "localFetch", "query": {"path": "src/*.rs"}}},
+                            "questions": {
+                                "q": {
+                                    "type": "noul",
+                                    "instructions": "Does this section say to restart?"
+                                }
+                            }
+                        }
+                    ]
+                }"#,
+            ),
         )
         .await
         .expect("summary with a saved details continuation")
@@ -502,7 +540,12 @@ async fn classification_disclosures_glob_scope_and_listing_survive_details_repla
             .is_some_and(|calls| calls.iter().any(|call| call["tool"] == "structureSearch")),
         "{replay}"
     );
-    assert_eq!(replay["usage"]["calls"], 0, "{replay}");
+    assert_eq!(replay["usage"]["replayed"], true, "{replay}");
+    assert_eq!(
+        replay["usage"]["calls"].as_u64(),
+        Some(calls as u64),
+        "a replay reports the spend of the page it replays: {replay}"
+    );
     assert_eq!(replay["replayed"], true, "{replay}");
     assert_eq!(
         provider_calls(&provider).await,

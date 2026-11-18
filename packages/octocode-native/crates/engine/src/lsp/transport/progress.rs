@@ -1,5 +1,6 @@
 //! `$/progress` tracking and the readiness signal derived from it.
 
+use crate::lsp::clock::LspClock;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -126,6 +127,8 @@ pub(crate) struct ProgressTracker {
     messages: AtomicU64,
     count_tx: watch::Sender<usize>,
     count_rx: watch::Receiver<usize>,
+    /// The time the readiness waits run on.
+    clock: LspClock,
 }
 
 /// How many open tokens are work an answer waits for. Cache priming is not
@@ -146,7 +149,7 @@ fn open_work(active: &HashSet<String>) -> usize {
 }
 
 impl ProgressTracker {
-    pub(crate) fn new() -> Arc<Self> {
+    pub(crate) fn new(clock: LspClock) -> Arc<Self> {
         let (count_tx, count_rx) = watch::channel(0usize);
         Arc::new(Self {
             active: Mutex::new(HashSet::new()),
@@ -157,6 +160,7 @@ impl ProgressTracker {
             messages: AtomicU64::new(0),
             count_tx,
             count_rx,
+            clock,
         })
     }
 
@@ -279,14 +283,16 @@ impl ProgressTracker {
         /// rust-analyzer progress waves (~10-100 ms in practice).
         const QUIESCE_MS: u64 = 200;
 
-        let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+        let deadline = self.clock.deadline_after(Duration::from_millis(timeout_ms));
 
         let mut rx = self.count_rx.clone();
 
         // Phase 1 -- settle: wait briefly for the first $/progress begin.
         if *rx.borrow() == 0 && !self.ever_active.load(Ordering::Acquire) {
             let settle = Duration::from_millis(settle_ms.min(timeout_ms));
-            let became_active = tokio::time::timeout(settle, rx.wait_for(|c| *c > 0))
+            let became_active = self
+                .clock
+                .timeout(settle, rx.wait_for(|c| *c > 0))
                 .await
                 .is_ok();
             if !became_active {
@@ -296,7 +302,7 @@ impl ProgressTracker {
             }
         }
 
-        Self::drain_until_quiet(&mut rx, deadline, QUIESCE_MS).await
+        self.drain_until_quiet(&mut rx, deadline, QUIESCE_MS).await
     }
 
     /// Snapshot the progress stream so a later [`Self::wait_until_idle_after`]
@@ -324,29 +330,32 @@ impl ProgressTracker {
         timeout_ms: u64,
     ) -> Readiness {
         const QUIESCE_MS: u64 = 200;
-        let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+        let deadline = self.clock.deadline_after(Duration::from_millis(timeout_ms));
         if *rx.borrow() == 0 {
             let settle = Duration::from_millis(settle_ms.min(timeout_ms));
             // Any update since `subscribe` counts: a begin/end pair that already
             // completed still bumps the channel version.
-            if tokio::time::timeout(settle, rx.changed()).await.is_err() {
+            if self.clock.timeout(settle, rx.changed()).await.is_err() {
                 return Readiness::SilentServer;
             }
         }
-        Self::drain_until_quiet(&mut rx, deadline, QUIESCE_MS).await
+        self.drain_until_quiet(&mut rx, deadline, QUIESCE_MS).await
     }
 
     /// Drain + quiesce loop: repeat until a full `quiesce_ms` window passes
     /// with no active tokens and no new ones starting, or `deadline` expires.
     async fn drain_until_quiet(
+        &self,
         rx: &mut watch::Receiver<usize>,
         deadline: Instant,
         quiesce_ms: u64,
     ) -> Readiness {
         loop {
             // Wait for count to reach zero.
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if tokio::time::timeout(remaining, rx.wait_for(|c| *c == 0))
+            let remaining = deadline.saturating_duration_since(self.clock.now());
+            if self
+                .clock
+                .timeout(remaining, rx.wait_for(|c| *c == 0))
                 .await
                 .is_err()
             {
@@ -354,12 +363,12 @@ impl ProgressTracker {
             }
 
             // Quiesce: wait briefly to see if a new wave starts.
-            let remaining = deadline.saturating_duration_since(Instant::now());
+            let remaining = deadline.saturating_duration_since(self.clock.now());
             let full_quiescence = Duration::from_millis(quiesce_ms);
             let quiesce = full_quiescence.min(remaining);
             // Any update breaks quiescence, including a short begin/end wave
             // whose active count was coalesced back to zero before we woke.
-            let new_wave = tokio::time::timeout(quiesce, rx.changed()).await.is_ok();
+            let new_wave = self.clock.timeout(quiesce, rx.changed()).await.is_ok();
             if !new_wave {
                 return if remaining >= full_quiescence {
                     Readiness::ProgressIdle

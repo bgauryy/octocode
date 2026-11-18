@@ -1,5 +1,5 @@
 use crate::support::{Workspace, call, checks, row_data, row_status};
-use serde_json::json;
+use octocode_test_support::json_fixture;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -10,15 +10,16 @@ async fn gh_search_code_on_a_missing_repository_is_not_found() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"total_count":0,"incomplete_results":true,"items":[]})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"total_count": 0, "incomplete_results": true, "items": []}"#,
+        )))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/psf/zz-nope-repo"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
+        .respond_with(
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
+        )
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -26,7 +27,13 @@ async fn gh_search_code_on_a_missing_repository_is_not_found() {
     let outcome = call(
         &runtime,
         "ghSearchCode",
-        json!({"owner":"psf","repo":"zz-nope-repo","keywords":["needle"]}),
+        json_fixture(
+            r#"{
+                "owner": "psf",
+                "repo": "zz-nope-repo",
+                "keywords": ["needle"]
+            }"#,
+        ),
     )
     .await
     .expect("search");
@@ -50,7 +57,9 @@ async fn gh_clone_repo_classifies_a_missing_repository_before_git() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/ghost/nope"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message": "Not Found"})))
+        .respond_with(
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
+        )
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -58,7 +67,7 @@ async fn gh_clone_repo_classifies_a_missing_repository_before_git() {
     let outcome = call(
         &runtime,
         "ghCloneRepo",
-        json!({"owner":"ghost","repo":"nope"}),
+        json_fixture(r#"{"owner": "ghost", "repo": "nope"}"#),
     )
     .await
     .expect("clone error row");
@@ -104,10 +113,12 @@ async fn gh_file_read_on_a_missing_repository_reports_repository_access() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/ghost/nope/commits/HEAD"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
-            "message":"Not Found",
-            "documentation_url":"https://docs.github.com/rest/commits/commits#get-a-commit"
-        })))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json_fixture(
+            r#"{
+                "message": "Not Found",
+                "documentation_url": "https://docs.github.com/rest/commits/commits#get-a-commit"
+            }"#,
+        )))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -115,7 +126,7 @@ async fn gh_file_read_on_a_missing_repository_reports_repository_access() {
     let outcome = call(
         &runtime,
         "ghGetFileContent",
-        json!({"owner":"ghost","repo":"nope","path":"README.md"}),
+        json_fixture(r#"{"owner": "ghost", "repo": "nope", "path": "README.md"}"#),
     )
     .await
     .expect("error row");
@@ -142,12 +153,12 @@ async fn gh_file_read_on_a_missing_repository_reports_repository_access() {
     assert_eq!(find["tool"], "ghSearchRepo", "{data}");
     assert_eq!(
         find["input"]["queries"][0]["keywords"],
-        json!(["nope"]),
+        json_fixture(r#"["nope"]"#),
         "{data}"
     );
     assert_eq!(
         data["hints"],
-        json!(["Confirm the owner before using a related[] repository."]),
+        json_fixture(r#"["Confirm the owner before using a related[] repository."]"#),
         "{data}"
     );
     // Each lead asks for a page smaller than the tool's default: a lead
@@ -163,10 +174,18 @@ async fn gh_file_read_on_a_missing_repository_reports_repository_access() {
     }
     assert_eq!(
         related,
-        json!([
-            {"kind":"related","tool":"ghSearchRepo","input":{"queries":[{"operation":"search","keywords":["nope"]}]}},
-            {"kind":"related","tool":"ghSearchRepo","input":{"queries":[{"operation":"list","owner":"ghost"}]}}
-        ]),
+        json_fixture(
+            r#"[
+                {
+                    "tool": "ghSearchRepo",
+                    "input": {"queries": [{"operation": "search", "keywords": ["nope"]}]}
+                },
+                {
+                    "tool": "ghSearchRepo",
+                    "input": {"queries": [{"operation": "list", "owner": "ghost"}]}
+                }
+            ]"#
+        ),
         "{data}"
     );
     assert!(data.get("next").is_none(), "{data}");
@@ -186,7 +205,7 @@ async fn gh_search_repo_missing_owner_is_named() {
     let outcome = call(
         &runtime,
         "ghSearchRepo",
-        json!({"operation":"list","owner":"ghost-login"}),
+        json_fixture(r#"{"operation": "list", "owner": "ghost-login"}"#),
     )
     .await
     .expect("error row");
@@ -203,7 +222,7 @@ async fn gh_search_repo_missing_owner_is_named() {
 }
 
 /// A missing repository's row reads the same on every tool that
-/// takes a repository: `notFound` with `httpStatus: 404` (the clone row
+/// takes a repository: `notFound`, which names the 404 (the clone row
 /// too), the one message naming the repository, and the one hint the
 /// related[] calls do not state (confirm the owner).
 #[tokio::test]
@@ -211,38 +230,45 @@ async fn a_missing_repository_row_is_the_same_on_every_repository_tool() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(wiremock::matchers::path_regex("^/api/v3/repos/ghost/nope"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message": "Not Found"})))
+        .respond_with(
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
+        )
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"total_count":0,"incomplete_results":true,"items":[]})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"total_count": 0, "incomplete_results": true, "items": []}"#,
+        )))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     for (tool, input) in [
-        ("ghCloneRepo", json!({"owner":"ghost","repo":"nope"})),
+        (
+            "ghCloneRepo",
+            json_fixture(r#"{"owner": "ghost", "repo": "nope"}"#),
+        ),
         (
             "ghGetFileContent",
-            json!({"owner":"ghost","repo":"nope","path":"README.md"}),
+            json_fixture(r#"{"owner": "ghost", "repo": "nope", "path": "README.md"}"#),
         ),
         (
             "ghStructure",
-            json!({"operation":"tree","owner":"ghost","repo":"nope"}),
+            json_fixture(r#"{"operation": "tree", "owner": "ghost", "repo": "nope"}"#),
         ),
         (
             "ghSearchCode",
-            json!({"owner":"ghost","repo":"nope","keywords":["needle"]}),
+            json_fixture(r#"{"owner": "ghost", "repo": "nope", "keywords": ["needle"]}"#),
         ),
     ] {
         let outcome = call(&runtime, tool, input).await.expect("error row");
         let data = row_data(&outcome);
         assert_eq!(data["errorCode"], "notFound", "{tool}: {data}");
-        assert_eq!(data["httpStatus"], 404, "{tool}: {data}");
+        assert!(
+            data.get("httpStatus").is_none(),
+            "notFound already names the 404: {tool}: {data}"
+        );
         assert_eq!(
             data["error"],
             "Repository ghost/nope not found, or private and not accessible to this token",
@@ -250,7 +276,7 @@ async fn a_missing_repository_row_is_the_same_on_every_repository_tool() {
         );
         assert_eq!(
             data["hints"],
-            json!(["Confirm the owner before using a related[] repository."]),
+            json_fixture(r#"["Confirm the owner before using a related[] repository."]"#),
             "{tool}: {data}"
         );
     }

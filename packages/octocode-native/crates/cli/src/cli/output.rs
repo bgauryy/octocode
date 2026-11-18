@@ -1,10 +1,10 @@
 use super::{OutputMode, stdout_is_terminal};
-use octocode_native::id::ToolId;
-use octocode_native::response::exit::ExitClass;
-use octocode_native::response::outcome::ToolOutcome;
-use octocode_native::response::wire::wire_json;
 use octocode_native::runtime::error::tool_error_result;
 use octocode_native::runtime::{ErrorClass, RuntimeError};
+use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::response::exit::ExitClass;
+use octocode_runtime_base::response::outcome::ToolOutcome;
+use octocode_runtime_base::response::wire::wire_json;
 use serde_json::Value;
 #[cfg(unix)]
 use serde_json::json;
@@ -210,26 +210,4 @@ pub(super) fn json_text(value: &Value, terminal: bool) -> serde_json::Result<Str
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use octocode_native::runtime::error::mcp_result;
-    use octocode_native::security::Sanitized;
-    use serde_json::json;
-
-    #[test]
-    fn a_paged_fixture_is_byte_identical_on_cli_and_mcp() {
-        let fixture = json!({"results":[{"index":0,"data":{"files":[]}}],
-            "responsePagination":{"hasMore":true,
-                "next":{"kind":"continue","tool":"localSearch","input":{"cursor":"stable"}},
-                "expiresAt":"2026-11-02T00:00:00.000Z","replayed":false}});
-        let outcome = || ToolOutcome {
-            structured_content: Sanitized::scrubbed(fixture.clone()),
-            failure: Some(ErrorClass::Unservable),
-            all_failed: false,
-            continued: None,
-        };
-        let cli = Printed::finish("localSearch", Ok(outcome()), true, &Value::Null, None);
-        let mcp = mcp_result("localSearch", Ok(outcome())).expect("MCP result");
-        assert_eq!(cli.body.as_bytes(), mcp.text.as_bytes());
-    }
-}
+mod tests;

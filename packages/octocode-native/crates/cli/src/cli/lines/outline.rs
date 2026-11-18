@@ -23,7 +23,9 @@ pub(super) fn generic(row: &Map<String, Value>, query: &Value) -> Row {
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
-    let (stated, shown) = split_stated(data);
+    let (stated, mut shown) = split_stated(data);
+    // What a walk skipped reads as the one line every row prints.
+    once::skipped_line(&mut shown);
     let mut body = Vec::new();
     object(&shown, "", &mut body);
     tail(query, row, stated, Vec::new(), body)

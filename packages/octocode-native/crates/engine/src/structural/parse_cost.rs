@@ -10,7 +10,7 @@ pub const BYTES_PER_TOKEN: usize = 600;
 /// The tokens of `bytes`, counted as runs of word bytes and single other
 /// non-space bytes: what a grammar's lexer would cut it into, at most.
 #[must_use]
-pub fn tokens(bytes: &[u8]) -> usize {
+pub(super) fn tokens(bytes: &[u8]) -> usize {
     let (mut tokens, mut in_word) = (0usize, false);
     for &byte in bytes {
         let word = byte.is_ascii_alphanumeric() || byte == b'_' || byte >= 0x80;
@@ -32,39 +32,20 @@ pub fn parse_cost(bytes: &[u8]) -> usize {
 }
 
 /// The most memory one parse may be estimated to hold: the documented memory
-/// budget ([`crate::memory::WHOLE_FILES`]).
+/// budget ([`crate::memory::MEMORY`]), which also bounds the whole files
+/// admitted at once ([`crate::memory::WHOLE_FILES`]). A scan reads it once,
+/// on the thread that starts it.
 #[must_use]
 pub fn parse_budget() -> usize {
-    crate::memory::WHOLE_FILES.limit()
+    #[cfg(test)]
+    if let Some(budget) = test_budget::get() {
+        return budget;
+    }
+    crate::memory::MEMORY.limit()
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+pub(crate) mod test_budget;
 
-    fn minified(calls: usize) -> Vec<u8> {
-        format!(
-            "function f(x){{return x}}var a=[{}eval(zzz)];\n",
-            "f(1),".repeat(calls)
-        )
-        .into_bytes()
-    }
-
-    #[test]
-    fn a_dense_minified_file_costs_more_than_a_long_plain_file_of_its_size() {
-        let dense = minified(20_000);
-        let plain = "let value = compute_something(argument);\n"
-            .repeat(dense.len() / 40)
-            .into_bytes();
-        assert!(parse_cost(&dense) > 2 * parse_cost(&plain));
-    }
-
-    #[test]
-    fn a_pathological_single_line_is_over_a_small_budget_and_a_normal_file_is_not() {
-        let budget = 64 * 1024 * 1024;
-        // 9.4 MB of minified calls, as measured at about 2 GB.
-        assert!(parse_cost(&minified(1_886_000)) > budget * 8);
-        let normal = "fn main() { run(); }\n".repeat(2_000).into_bytes();
-        assert!(parse_cost(&normal) < budget);
-    }
-}
+#[cfg(test)]
+mod tests;

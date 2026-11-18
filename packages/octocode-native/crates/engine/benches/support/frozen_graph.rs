@@ -4,7 +4,7 @@ use octocode_engine::graph::FileGraphNode;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// `files` Rust files where each one uses the next `fanout` files.
-pub fn frozen_graph(files: usize, fanout: usize) -> BTreeMap<String, FileGraphNode> {
+pub(crate) fn frozen_graph(files: usize, fanout: usize) -> BTreeMap<String, FileGraphNode> {
     let mut graph = BTreeMap::new();
     for index in 0..files {
         let edges = (1..=fanout)

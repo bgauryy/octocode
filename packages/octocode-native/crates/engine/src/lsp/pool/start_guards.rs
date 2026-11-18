@@ -83,18 +83,36 @@ impl<C: PoolClient> Drop for StartCancellationGuard<C> {
     }
 }
 
-pub(super) async fn run_cancellation_safe_start<C, T, Fut>(
+/// Completes once no caller waits for a supervised start any more: the
+/// future awaiting [`run_cancellation_safe_start`] was dropped.
+pub(super) struct Abandoned(oneshot::Receiver<()>);
+
+impl Abandoned {
+    /// Waits until the start's caller is gone.
+    pub(super) async fn wait(self) {
+        // Nothing is ever sent: the sender's drop is the signal.
+        let _ = self.0.await;
+    }
+}
+
+pub(super) async fn run_cancellation_safe_start<C, T, F, Fut>(
     client: C,
-    future: Fut,
+    start: F,
 ) -> std::result::Result<T, oneshot::error::RecvError>
 where
     C: PoolClient,
     T: Send + 'static,
+    F: FnOnce(Abandoned) -> Fut,
     Fut: Future<Output = T> + Send + 'static,
 {
     // Dropping a raw start future can strand a spawned process before the
     // client publishes its child handle. Let startup finish in its supervisor;
-    // a closed receiver then takes the normal full-client shutdown path.
+    // a closed receiver then takes the normal full-client shutdown path. The
+    // start learns through `Abandoned` that its caller left, so a wait inside
+    // it that only progress bounds ends then instead of running on for no
+    // one.
+    let (attended, abandoned) = oneshot::channel::<()>();
+    let future = start(Abandoned(abandoned));
     let (send, receive) = oneshot::channel();
     tokio::spawn(async move {
         let result = future.await;
@@ -102,5 +120,6 @@ where
             client.stop().await;
         }
     });
+    let _attended = attended;
     receive.await
 }

@@ -1,6 +1,6 @@
 //! The final result: ordering, span collapsing, and stats.
 
-use super::mode::{Mode, only_matching};
+use super::mode::Mode;
 use super::state::{CollectResult, FileRec};
 use crate::num::{saturating_i64, saturating_u32};
 use crate::search::text_parser::assemble_file;
@@ -11,19 +11,16 @@ use crate::types::{
 use std::collections::HashMap;
 
 /// Sort `recs` into the final result order; every record is kept.
-pub(super) fn sort_recs(opts: &TextSearchOptions, mode: Mode, recs: &mut [FileRec]) {
-    recs.sort_by(|a, b| compare_recs(opts, mode, a, b));
+pub(super) fn sort_recs(opts: &TextSearchOptions, recs: &mut [FileRec]) {
+    recs.sort_by(|a, b| compare_recs(opts, a, b));
 }
 
-/// The per-file weight `matchCount` ordering ranks by: the unit the view
-/// reports as each file's match count (matched lines for line views, spans or
-/// submatches otherwise).
-fn rank_weight(opts: &TextSearchOptions, mode: Mode, rec: &FileRec) -> u32 {
-    match mode {
-        Mode::CountLines => rec.matched_lines,
-        Mode::Normal if !only_matching(opts) => rec.matched_lines,
-        _ => rec.submatches,
-    }
+/// The per-file weight `matchCount` ordering ranks by: the file's
+/// occurrences (submatches), whatever the view lists of it, so one order
+/// means the same in every view. A count-lines search enumerates them when it
+/// ranks by them (`collect`).
+fn rank_weight(rec: &FileRec) -> u32 {
+    rec.submatches
 }
 
 /// Total order over collected files, including `sort_reverse`. Every key ends
@@ -35,7 +32,6 @@ fn rank_weight(opts: &TextSearchOptions, mode: Mode, rec: &FileRec) -> u32 {
 /// * `traversal`: [`walk_order`].
 pub(super) fn compare_recs(
     opts: &TextSearchOptions,
-    mode: Mode,
     a: &FileRec,
     b: &FileRec,
 ) -> std::cmp::Ordering {
@@ -44,8 +40,8 @@ pub(super) fn compare_recs(
             .sort_time
             .cmp(&b.sort_time)
             .then_with(|| a.path.cmp(&b.path)),
-        SearchSort::MatchCount => rank_weight(opts, mode, b)
-            .cmp(&rank_weight(opts, mode, a))
+        SearchSort::MatchCount => rank_weight(b)
+            .cmp(&rank_weight(a))
             .then_with(|| a.path.cmp(&b.path)),
         SearchSort::Path => a.path.cmp(&b.path),
         SearchSort::Traversal => walk_order(&a.path, &b.path),
@@ -99,7 +95,7 @@ pub(super) fn build_result(
     mut collected: CollectResult,
 ) -> TextSearchResult {
     let mut recs = std::mem::take(&mut collected.recs);
-    sort_recs(opts, mode, &mut recs);
+    sort_recs(opts, &mut recs);
     // The returned files whose values are decoded text, in result order.
     let not_utf8_files = recs
         .iter()
@@ -126,6 +122,10 @@ pub(super) fn file_of(opts: &TextSearchOptions, mode: Mode, mut r: FileRec) -> T
         _ => None,
     };
     let source = r.source;
+    let counted = crate::types::FileCounts {
+        occurrences: r.submatches,
+        lines: r.matched_lines,
+    };
     // What each term held in the file, when the search counted terms: a
     // count view lists it, and any other view's caller reads which terms hit.
     let term_counts = std::mem::take(&mut r.term_counts);
@@ -139,6 +139,7 @@ pub(super) fn file_of(opts: &TextSearchOptions, mode: Mode, mut r: FileRec) -> T
             TextSearchFile {
                 path: r.path,
                 match_count: saturating_u32(matches.len()),
+                counted: Default::default(),
                 matches,
                 source: None,
                 term_counts: Vec::new(),
@@ -150,6 +151,7 @@ pub(super) fn file_of(opts: &TextSearchOptions, mode: Mode, mut r: FileRec) -> T
         Mode::FilesOnly | Mode::FilesWithoutMatch => TextSearchFile {
             path: r.path,
             match_count: 1,
+            counted: Default::default(),
             matches: Vec::new(),
             source: None,
             term_counts: Vec::new(),
@@ -157,6 +159,7 @@ pub(super) fn file_of(opts: &TextSearchOptions, mode: Mode, mut r: FileRec) -> T
         Mode::CountLines => TextSearchFile {
             path: r.path,
             match_count: r.matched_lines,
+            counted: Default::default(),
             matches: Vec::new(),
             source: None,
             term_counts: Vec::new(),
@@ -164,6 +167,7 @@ pub(super) fn file_of(opts: &TextSearchOptions, mode: Mode, mut r: FileRec) -> T
         Mode::CountMatches => TextSearchFile {
             path: r.path,
             match_count: r.submatches,
+            counted: Default::default(),
             matches: Vec::new(),
             source: None,
             term_counts: Vec::new(),
@@ -171,6 +175,7 @@ pub(super) fn file_of(opts: &TextSearchOptions, mode: Mode, mut r: FileRec) -> T
     };
     file.source = source;
     file.term_counts = term_counts;
+    file.counted = counted;
     file
 }
 
@@ -196,11 +201,14 @@ pub(super) fn build_stats(
         skipped_binary_count,
         file_terms_dropped,
         depth_cut_dirs,
+        scope_left_out,
         skipped_binary_extensions,
         cancelled,
         error_count,
         first_error,
         pattern_error_count,
+        changed_error_count,
+        grown_files,
         test_code_excluded,
     } = collected;
     // Cap reasons in a fixed order, so equal results carry equal reasons.
@@ -234,6 +242,8 @@ pub(super) fn build_stats(
         error_count: Some(error_count),
         first_error,
         pattern_error_count: (pattern_error_count > 0).then_some(pattern_error_count),
+        changed_error_count: (changed_error_count > 0).then_some(changed_error_count),
+        grown_files: (!grown_files.is_empty()).then_some(grown_files),
         test_code_excluded: opts.test_code.as_ref().map(|_| test_code_excluded),
         binary_files: (!binary_files.is_empty()).then_some(binary_files),
         binary_file_count: binary_quit.then_some(binary_file_count),
@@ -244,5 +254,6 @@ pub(super) fn build_stats(
             .then_some(skipped_binary_extensions),
         file_terms_dropped: (file_terms_dropped > 0).then_some(file_terms_dropped),
         depth_cut_dirs: (depth_cut_dirs > 0).then_some(depth_cut_dirs),
+        scope_left_out: (scope_left_out > 0).then_some(scope_left_out),
     }
 }

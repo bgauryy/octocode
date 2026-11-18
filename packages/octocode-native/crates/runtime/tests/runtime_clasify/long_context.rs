@@ -4,6 +4,7 @@
 
 use super::{Typed, clasify, noul};
 use crate::support::{Workspace, clasify_runtime};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Respond, ResponseTemplate};
@@ -17,8 +18,9 @@ async fn long_window_only() -> MockServer {
         .and(path("/v1/systemone"))
         .respond_with(|request: &wiremock::Request| {
             if request.headers.get(LONG).is_none() {
-                return ResponseTemplate::new(400)
-                    .set_body_json(json!({"detail":{"error_type":"max_tokens_exceeded"}}));
+                return ResponseTemplate::new(400).set_body_json(json_fixture(
+                    r#"{"detail": {"error_type": "max_tokens_exceeded"}}"#,
+                ));
             }
             Typed.respond(request)
         })

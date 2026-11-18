@@ -1,6 +1,7 @@
 //! A credential the origin refuses (401) keeps no saved answer: a
 //! commit-pinned answer that would serve unasked is read again.
 use crate::support::{Workspace, call, row_status};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -20,6 +21,7 @@ async fn contents_reads(server: &MockServer) -> usize {
 #[tokio::test]
 async fn a_refused_credential_stops_serving_its_pinned_answers() {
     let server = MockServer::builder().start().await;
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "notes.txt").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/notes.txt"))
         .respond_with(ResponseTemplate::new(200).set_body_raw(
@@ -31,7 +33,8 @@ async fn a_refused_credential_stops_serving_its_pinned_answers() {
     Mock::given(method("GET"))
         .and(path("/api/v3/search/repositories"))
         .respond_with(
-            ResponseTemplate::new(401).set_body_json(json!({"message":"Bad credentials"})),
+            ResponseTemplate::new(401)
+                .set_body_json(json_fixture(r#"{"message": "Bad credentials"}"#)),
         )
         .mount(&server)
         .await;
@@ -53,7 +56,7 @@ async fn a_refused_credential_stops_serving_its_pinned_answers() {
     let refused = call(
         &runtime,
         "ghSearchRepo",
-        json!({"operation":"search","keywords":["x"]}),
+        json_fixture(r#"{"operation": "search", "keywords": ["x"]}"#),
     )
     .await
     .expect("search");

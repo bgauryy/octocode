@@ -5,7 +5,7 @@ Load when using Octocode research tools through MCP or CLI. Source: `skills/comm
 | Available surface | Use |
 |---|---|
 | Connected Octocode MCP lists the needed tool | Call that tool. |
-| MCP absent or tool unlisted | Prefer the built CLI from a known checkout; otherwise installed `octocode` or `npx -y octocode`. |
+| MCP absent or tool unlisted | Prefer the built CLI from a known checkout; otherwise installed `octocode` (`octocode-cli` in Octocode Code agent shells, where `octocode` is the coding agent) or `npx -y octocode`. |
 | This checkout | `node packages/octocode/out/octocode.js` |
 | Another workspace | Absolute checkout CLI path; keep task cwd so relative inputs target that project. |
 
@@ -45,7 +45,7 @@ Inspect every `results[]` row's index (its position in the request's `queries`),
 
 | Result signal | Required action / meaning |
 |---|---|
-| `responsePagination.next`, else `next.nextPage` | Run in that order until neither remains. Send `{kind:"continue",tool,input:{cursor}}`'s `input` whole to its tool. |
+| `responsePagination.next`, else `next.nextPage` | Run in that order until neither remains. Send `{tool,input:{cursor}}`'s `input` whole to its tool. |
 | `rowPart{part,of}` | Read every part of the split row. |
 | `pagination{hasMore}` or `sectionPagination.<collection>` | Continue the same loop; each file, patch, source, diagnostic or history collection can remain incomplete independently. |
 | Other `next.<name>` | Branch, not page. Run it before claiming what it covers. |
@@ -56,7 +56,7 @@ Inspect every `results[]` row's index (its position in the request's `queries`),
 
 Use literal emitted keys. Finish every continuation needed for the claim or name unread scope.
 
-`related[]` contains `{kind:"related",tool,input:{queries:[...]}}` for optional fresh work; its calls may widen scope (hidden or ignored paths). Successful answers omit routine advice while preserving calls with otherwise unstated identity or required by a warning. `hints[]` is prose recovery for empty results or errors. Input errors name fields to correct; no repair call silently changes scope. Terminal limits require a narrower or different query, never an invented cursor.
+`related[]` contains `{tool,input:{queries:[...]}}` for optional fresh work; its calls may widen scope (hidden or ignored paths). Successful answers omit routine advice while preserving calls with otherwise unstated identity or required by a warning. `hints[]` is prose recovery for empty results or errors. Input errors name fields to correct; no repair call silently changes scope. Terminal limits require a narrower or different query, never an invented cursor.
 
 Absence needs unfiltered pages: `includeHidden:true`, `includeIgnored:true`, `defaultExcludes:false` and no `classification`. `status:"empty"` with skipped paths or `unknownItems>0` is not absence.
 

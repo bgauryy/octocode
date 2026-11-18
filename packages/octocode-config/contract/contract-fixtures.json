@@ -1602,7 +1602,7 @@
       "queries": [
         {
           "operation": "commit",
-          "commit": "6879efc"
+          "commitSha": "6879efc"
         }
       ]
     }

@@ -26,10 +26,15 @@ The package map is in `<repo>/AGENTS.md`. Native Cargo crates under `packages/oc
 
 | Crate dir | Cargo name | Owns |
 |---|---|---|
-| `runtime` | `octocode-native` | Tool catalog, validation, config resolution, GitHub auth, providers, security, response shaping, pagination, `clasify`; `build.rs` embeds `packages/octocode-config/contract/` |
+| `runtime` | `octocode-native` | The facade: tool catalog, admission and dispatch, the build identity (`build.rs`), and the tests that cross a tool seam |
+| `runtime-base` | `octocode-runtime-base` | The layers below the tools: identifiers, validation, config resolution, GitHub auth, providers, security, response shaping, pagination; `build.rs` embeds `packages/octocode-config/contract/`; the tools' test fixtures (`test_support`, feature `test-support`) |
+| `tools-shared` | `octocode-tools-shared` | Modules two or more tools use (walks, judgment, selection, leads, source view and capture), layered by `SHARED_LAYERS` in `crates/runtime/src/tools/module_boundaries/tool_edges.rs` |
+| `tool-*` | `octocode-tool-*` | One crate per tool family: `tool-graph` (`ast_graph`), `tool-lsp`, `tool-github` (`gh_*`), `tool-local` (`local_search`, `structure_search`, `local_fetch`), `tool-ast`, `tool-packages` (`security_check`, `artifact_search`, the `artifact` providers), `tool-clasify`; a tool imports no other tool |
+| `test-support` | `octocode-test-support` | Test fixtures no release build links: `mock_http` (wiremock) and the engine's conformance grammar; a dev-dependency only |
 | `engine` | `octocode-engine` | Primitives: text search, tree-sitter AST, LSP client pool, minification, secret scanning, code graph |
 | `io` | `octocode-io` | Shared low-level I/O, HTTP and resource primitives; no tool or provider policy |
 | `contract-types` | `octocode-contract-types` | Generated tool wire types from the config contract; no hand-written schema or tool logic |
+| `contract-base` | `octocode-contract-base` | The generated wire types the crates below `contract-types` name (`octocode_contract_base::…`); `contract-types` re-exports them |
 | `github` | `octocode-github` | GitHub REST/GraphQL transport, bounded provider operations, credential traits |
 | `cli` | `octocode-cli` | The native `octocode` binary: tool commands, `schema`, `config`, `auth`, `graph`, `skill`, `install`, and the stdio MCP server (`mcp`, on rmcp) |
 
@@ -43,23 +48,23 @@ Where each part of [the protocol](../../../docs/OCTOCODE_PROTOCOL.md) lives. Nat
 | MCP server: startup, tool listing from the embedded presentation, call dispatch | `crates/cli/src/cli/mcp_server.rs`, `mcp_server/` (`listing.rs`, `handler.rs`) |
 | MCP launcher: runs `octocode mcp` | `packages/octocode-mcp/src/index.ts` |
 | CLI dispatch and exit codes | `crates/cli/src/cli.rs` |
-| Validation and row isolation | `crates/runtime/src/contracts.rs`, `contracts/validate.rs` |
+| Validation and row isolation | `crates/runtime-base/src/contracts.rs`, `contracts/validate.rs` |
 | Gate, dispatch, row shaping | `crates/runtime/src/runtime/engine.rs`, `domain_dispatch.rs` |
-| Minimal output, next-step filtering | `crates/runtime/src/response/rows.rs` |
-| Continuation compaction and brief inheritance | `crates/runtime/src/response/continuations.rs` |
-| Page and lead split (`next` and `hints`) | `crates/runtime/src/response/result.rs` (follow-up calls), `notices.rs` (static notices) |
-| Rendering and response paging | `crates/runtime/src/response/stage.rs`, `pager.rs` |
-| Snapshot identity | `crates/runtime/src/tools/local_search/cursor.rs`; response tokens in `crates/runtime/src/response/pager.rs` |
-| Path sandbox and directory pruning | `crates/runtime/src/policy/path.rs`, `policy/prune.rs` |
-| Secret scanning and redaction | `crates/engine/src/security/`, `crates/runtime/src/security/content.rs` |
+| Minimal output, next-step filtering | `crates/runtime-base/src/response/rows.rs` |
+| Continuation compaction and brief inheritance | `crates/runtime-base/src/response/continuations.rs` |
+| Page and lead split (`next` and `hints`) | `crates/runtime-base/src/response/result.rs` (follow-up calls), `notices.rs` (static notices) |
+| Rendering and response paging | `crates/runtime-base/src/response/stage.rs`, `pager.rs` |
+| Snapshot identity | `crates/tool-local/src/local_search/cursor.rs`; response tokens in `crates/runtime-base/src/response/pager.rs` |
+| Path sandbox and directory pruning | `crates/runtime-base/src/policy/path.rs`, `policy/prune.rs` |
+| Secret scanning and redaction | `crates/engine/src/security/`, `crates/runtime-base/src/security/content.rs` |
 | Search (walk-order streaming and whole-scope scans) | `crates/engine/src/search/` (`text_search.rs`, `text_search/stream.rs`) |
 | Minification | `crates/engine/src/minify/` |
-| AST and rewrite | `crates/engine/src/structural/`, `crates/runtime/src/tools/ast_*` |
-| LSP | `crates/engine/src/lsp/`, `crates/runtime/src/tools/lsp_search/` |
-| Dependency graph | `crates/engine/src/graph/`, `crates/runtime/src/tools/ast_graph/` |
+| AST and rewrite | `crates/engine/src/structural/`, `crates/tool-ast/src/ast_search/`, `crates/tools-shared/src/ast_rule/` |
+| LSP | `crates/engine/src/lsp/`, `crates/tool-lsp/src/lsp_search/` |
+| Dependency graph | `crates/engine/src/graph/`, `crates/tool-graph/src/ast_graph/` |
 | GitHub client and rate-limit breaker | `crates/github/src/` (`budget.rs`), `crates/runtime/src/runtime/github.rs` |
-| `clasify` and context selection | `crates/runtime/src/tools/clasify/`, `tools/judgment/` (evaluator, transport), `tools/selection.rs`, `providers/classification/` |
-| Internal limits (timeouts, retries, page size, retained work) | `crates/runtime/src/execution/limits.rs` |
+| `clasify` and context selection | `crates/tool-clasify/src/clasify/`, `crates/tools-shared/src/judgment/` (evaluator, transport), `crates/tools-shared/src/selection.rs`, `crates/runtime-base/src/providers/classification/` |
+| Internal limits (timeouts, retries, page size, retained work) | `crates/runtime-base/src/execution/limits.rs` |
 | Loopback providers and the answer recorder | `skills-dev/octocode-dev/scripts/providers/` |
 
 ## Contract pipeline
@@ -69,18 +74,18 @@ flowchart TD
   A["Author in core: Zod schema, description, instructions, limits"] --> B[Build core]
   B --> C["node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen at the repo root: refreshes the file: copy of core (yarn install), then runs @octocodeai/config generate:tool-contract, the only generator"]
   C --> D["Output: packages/octocode-config/contract/; committed, never hand-edited; check:tool-contract fails when it is stale"]
-  D --> E["Rebuild native: yarn workspace @octocodeai/octocode-native build:dev; crates/runtime/build.rs embeds contract/ in place"]
+  D --> E["Rebuild native: yarn workspace @octocodeai/octocode-native build:dev; crates/runtime-base/build.rs embeds contract/ in place"]
   E --> F{Fingerprint matches?}
   F -- yes --> G["Native serves the contract: CLI and octocode mcp"]
   F -- no --> H[build.rs fails: regenerate and rebuild]
 ```
 
-Regeneration needs `cargo install cargo-typify --version 0.8.0 --locked`. `tool_types.rs` holds only the generated types native source names and what they reach: after a native edit that starts or stops naming one, regenerate (`check:tool-contract` fails until then). The binary embeds the contract it serves (CLI and `octocode mcp` alike), so a stale contract fails the native build and there is no runtime override. Release order: [RELEASE.md](RELEASE.md).
+Regeneration needs `cargo install cargo-typify --version 0.8.0 --locked`. `tool_types.rs` holds only the generated types native source names and what they reach, one type per shape: typify's per-position copies of one shape merge into one type, and a name native source uses stays that type's name. After a native edit that starts or stops naming one, regenerate (`check:tool-contract` fails until then). The binary embeds the contract it serves (CLI and `octocode mcp` alike), so a stale contract fails the native build and there is no runtime override. Release order: [RELEASE.md](RELEASE.md).
 
 ### Adding a tool field
 
 1. Add it in core and regenerate as above.
-2. Implement it, then declare its effect in `crates/runtime/src/contracts/field-effect-coverage.json`, or confirm it inherits its nearest declared ancestor's effect (a path with no entry inherits). `cargo test -p octocode-native --test integration field_effect_coverage::` fails on an unresolved path or a stale key.
+2. Implement it, then declare its effect in `crates/runtime-base/src/contracts/field-effect-coverage.json`, or confirm it inherits its nearest declared ancestor's effect (a path with no entry inherits). `$DEV test:dev -- field_effect_coverage::` fails on an unresolved path or a stale key.
 3. A public limit lives in core and reaches native as the contract's `limits`: change it there and regenerate (`check:tool-contract` fails on a stale copy). Tests assert the invariant the limit protects, never its value.
 4. Check the result against [TOOL_QUALITY.md](TOOL_QUALITY.md), then update `<repo>/docs/OCTOCODE_TOOLS.md`.
 
@@ -96,7 +101,7 @@ Run from the repo root. Repo-wide tasks run through `node skills-dev/octocode-de
 
 | Package | Test | Lint / format |
 |---|---|---|
-| native | `test` (`test:scripts` + `test:node` + `test:rust`), `test:rust` alone (nextest), `coverage:rust`, `check:features`, `mutants` | `lint` (`lint:oxlint`, then `lint:own`: clippy `-D warnings`), `fmt:rust`, `fmt:rust:check`, `deny`, `shear` |
+| native | `test` (`test:scripts` + `test:node` + `test:rust`), `test:rust` alone (libtest, and nextest for the child-process tests), `coverage:rust`, `check:features`, `mutants` | `lint` (`lint:oxlint`, then `lint:own`: clippy `-D warnings`), `fmt:rust`, `fmt:rust:check`, `deny`, `shear` |
 | config | `test`, `test:coverage`, `check:tool-contract`, `check:config-contract` | `lint` (`lint:own`: config contract check; then `lint:oxlint`; `build` checks the tool contract) |
 | mcp, octocode, vscode | `test`, `test:coverage` (the floors: `verify:own` and `test:ci` run it) | `lint` (`lint:own`: prettier `--check` and the package's checks; then `lint:oxlint`), `format` (prettier `--write`) |
 | chrome-devtools, claude-plugin, codex-plugin | `test` | `lint` (`lint:own`: prettier `--check` and the package's checks; then `lint:oxlint`), `format` (prettier `--write`) |
@@ -117,7 +122,7 @@ Run from the repo root. Repo-wide tasks run through `node skills-dev/octocode-de
 
 | Command | What runs | When |
 |---|---|---|
-| `$DEV check` | The oxlint baseline, rustfmt, `lint:rust`, every other workspace's `lint:own`, and every typecheck, with workspaces in parallel. No build, no tests | Before handing over a change, with a focused test (`cargo dev-test -- <filter>`) |
+| `$DEV check` | The oxlint baseline, rustfmt, `lint:rust`, every other workspace's `lint:own`, and every typecheck, with workspaces in parallel. No build, no tests | Before handing over a change, with a focused test (`$DEV test:dev -- <filter>`) |
 | `$DEV lint:rust` | Plain clippy, then the ratchet below | After a Rust edit, when `check` is more than you need |
 | `$DEV verify` | Builds, every test, `deny`, `shear`, docs | Cross-package handoff |
 
@@ -135,7 +140,7 @@ Run from the repo root. Repo-wide tasks run through `node skills-dev/octocode-de
 | `large_futures` | 29 | Largest 26 KB, no stack risk shown |
 | `let_underscore_must_use`, `map_err_ignore`, `filetype_is_file` | 117, 255, 26 | Deliberate in the sample |
 | `cargo-audit` | 1 beyond `deny` | RUSTSEC-2026-0383 `webpki-root-certs`: in `Cargo.lock`, not in the graph of any shipped target, which `deny` prunes correctly |
-| `cargo-machete` | 8 | All false: `dev-unify` feature and `include!`d generated code; `shear` has them listed with reasons |
+| `cargo-machete` | 2 | Both false: `include!`d generated code; `shear` has them listed with reasons |
 | `ast-grep` rules | 28 literal `.take(N)`, 3 `.lock().unwrap()` | 0.8 s and precise, but no bug in the sample; the source-scan tests hold the rest. Use `astSearch` for one-off audits |
 | Ruff, shellcheck in a gate | 14, 3 | One real bug (a duplicate dict key in `pep440/oracle.py`) over 51 mostly benchmark scripts: run once by hand with `uvx ruff check --select F,B`, `uvx --from shellcheck-py shellcheck` |
 | `semgrep` | Not run | `ast-grep` answers the same patterns without its install or metrics |
@@ -161,6 +166,8 @@ when trimmed, or makes the tool ask anything else.
 - Rust integration tests are one binary per crate: `tests/main.rs` declares each `tests/*.rs` as a `mod`.
 - Don't commit local lld or sccache Cargo configuration.
 - Use the repository’s shared `target/` and one build owner, per the [working rules](../../../AGENTS.md#working-rules). Other lanes run focused checks and reuse matching artifacts; do not create private targets or clean a concurrent build.
+- At most two Rust builds run on the machine at once (owner's decision, 2026-11-17: five concurrent builds drove the load to 59–172 on 12 cores and 32 GB). `packages/octocode-native/scripts/build-slot.cjs` enforces it with two slots in `os.tmpdir()/octocode-build-slots/`, which every session and isolated copy shares: `build:dev` and `build` (per platform job), `test:rust`, `coverage:rust`, `$DEV test:dev`, `lint:rust` (and `check`), `lint:own`, `check:features`, `mutants`, `fuzz`, `miri` and `llvm-lines` hold one for their whole run. A waiting job prints who holds each slot about once a minute; a slot whose process died is reclaimed; a wrapper started by another wrapper reuses its slot. `OCTOCODE_BUILD_SLOTS` overrides the count. A bare `cargo build`, `test`, `clippy` or `nextest` takes no slot: run any other cargo build as `node scripts/build-slot.cjs -- cargo …` in `packages/octocode-native`.
+- `test:rust`, `coverage:rust` and each test binary of `$DEV test:dev` (through `scripts/test-watchdog.cjs`) run with a private `TMPDIR`, `/tmp/octocode-rust-test-XXXXXX` (`scripts/test-tmpdir.cjs`), removed when the run ends, so a test killed by nextest's timeout or the watchdog leaves nothing in the system temp dir. That root is a backstop, not a cleanup: a test removes what it creates (an RAII `tempfile` dir or the crate's `test_support` temp dir, never a path built by hand under `temp_dir()`), and a test that starts a warm server owns its socket namespace and stops it (`persistent_cli`). It lives in `/tmp` because a serve test's socket path, 52 bytes past `TMPDIR`, would not fit macOS's 104-byte `sockaddr_un` under the per-user temp dir.
 - Most of the `target/` bloat was incremental `.rcgu.o` objects: since rustc 1.88 their names carry a random per-run segment and `split-debuginfo = "unpacked"` keeps them, so every rebuild left a new set ([rust-lang/rust#161824](https://github.com/rust-lang/rust/issues/161824); on 2026-11-13, 731k of 737k `target/debug/deps` entries, 307 GiB). `[profile.dev] incremental = false` stops it; never set `CARGO_INCREMENTAL=1`. The rest is one copy of our crates per package, feature and toolchain selection, which Cargo never removes (78 copies of `octocode_native` the same day).
 - `build:dev`, `test:rust` and `lint:rust` record the units each run used (from Cargo's JSON messages) in `target/.keep/`; the build and test runs also delete stale `.rcgu.o` of the units they recompiled and print `deps: N entries`. At the end of a round the build owner runs `$DEV prune:rust` (`--dry-run` previews): it refuses while any cargo, rustc or nextest process runs, then deletes `deps/`, `.fingerprint/` and `build/` entries no keep record of the last 7 days lists, `incremental/` dirs, `target/rust-lint/{debug,tmp}`, and files copied into `target/<profile>/`. It leaves profile dirs no record names and everything outside `target/`, such as the staged `npm/<platform>/octocode`. `$DEV clean:cache` (every copy of our crates, dependencies stay warm) and `$DEV clean` (all build outputs) remain the full resets, after coordinating with other sessions.
 - Benchmark campaigns keep a `build/` snapshot so a resumed run uses the same build. Remove it only when the campaign is final; `fingerprint.txt` records which build ran.
@@ -172,19 +179,19 @@ Every tool's version, and the dated nightly the opt-in tools use, is pinned in `
 
 | Tool | Script or command | Config | When |
 |---|---|---|---|
-| cargo-nextest | `test:rust` | `.config/nextest.toml` (CI sets `NEXTEST_PROFILE=ci`) | every change; CI |
+| cargo-nextest | `test:rust`, for the tests that start real child processes (`PROCESS_TESTS` in `scripts/rust-tests.cjs`) | `.config/nextest.toml` (CI sets `NEXTEST_PROFILE=ci`) | every change; CI |
 | cargo-shear | `shear`: unused or misplaced dependencies, unlinked files, a doctest under `doctest = false` | `[package.metadata.cargo-shear]` | `verify`; CI |
 | cargo-deny | `deny` | `deny.toml` | `verify`; CI |
 | cargo-llvm-cov | `coverage:rust [--html \| --lcov --output-path lcov.info \| --summary-only]` | runs the `test:rust` selections in `target/llvm-cov-target` (about 17 GiB; delete it when done) | before and after test work |
 | cargo-hack | `check:features`: every crate with each feature alone and with none (about 4 min warm) | | after changing `[features]` or `#[cfg(feature)]` code |
 | cargo-mutants | `$DEV mutants --in-diff <diff>` or `-f <file>` | `.cargo/mutants.toml` | manually, on changed code; it copies the tree and builds it, so never per commit |
 | samply | `$DEV profile` | `[profile.profiling]` | finding where a flow's CPU goes |
-| bacon | `bacon`, `bacon clippy`, `bacon test`, `bacon test-engine` | `bacon.toml` | edit loop |
+| bacon | `bacon`, `bacon clippy`, `bacon test` | `bacon.toml` | edit loop |
 | cargo-fuzz (nightly) | `$DEV fuzz:smoke` (60 s per target), `$DEV fuzz` (600 s); `[--seconds N] [--target-dir D] [target...]` | `fuzz/` workspace; bounds in `dev-tools.json` | after changing code a target covers; never CI |
 | Miri (nightly) | `$DEV miri`: the selected tests, deadline 1500 s | `miri` in `dev-tools.json` | after changing `unsafe`, offset or concurrency code they cover |
 | cargo-llvm-lines | `$DEV llvm-lines [package] [--timings]` | builds in `target/llvm-lines` (delete when done) | investigating compile time or binary size; not a gate |
 
-`scripts/rust-tests.cjs` holds the package and feature selections and runs them for `test:rust` and `coverage:rust`; a script test keeps the `bacon.toml` test jobs and the `cargo dev-test` alias equal to them. Run `cargo dev-test` from `packages/octocode-native`: its runner, `scripts/test-watchdog.cjs`, fails a test still unfinished 10 minutes after libtest's slow-test line, and its path is relative to that folder. Library crates set `doctest = false`: nextest runs no doctests, and `shear` fails if one appears.
+`scripts/rust-tests.cjs` holds the package and feature selections and runs them for `test:rust` and `coverage:rust`; a script test keeps the `bacon.toml` test jobs and the `cargo dev-test` alias equal to them. `test:rust` runs one build (`cargo test --no-run`, whose JSON messages name every test executable), then two runs at once: libtest over every test but `PROCESS_TESTS`, its binaries side by side, slowest first, each under the watchdog (`scripts/test-binaries.cjs`), and nextest over `PROCESS_TESTS` (one process per test); the script says why. A test that shares a process keeps no process-global state: a hook is thread-local or a guard that restores it on drop, a test forgets only what its own calls kept (its own temp workspace is its own store key), and time it asserts on is a frozen or injected clock or a count of work, never the wall clock. `$DEV test:dev [--crate <name>]... [--lib] -- <filter>` runs the same build, then only the named crates' test binaries (every crate without `--crate`; only unit-test binaries with `--lib`), side by side, in a build slot; `scripts/test-watchdog.cjs` fails a test still unfinished 10 minutes after libtest's slow-test line. The `cargo dev-test` alias stays for direct use and `bacon`, and runs the binaries one after another. `bacon` jobs run cargo directly, outside the slots. Library crates set `doctest = false`: nextest runs no doctests, and `shear` fails if one appears.
 
 #### Fuzzing, Miri and IR size
 
@@ -198,7 +205,7 @@ Every tool's version, and the dated nightly the opt-in tools use, is pinned in `
 One command, macOS and Linux:
 
 ```bash
-cargo build --locked --profile profiling -p octocode-cli   # in packages/octocode-native; or pass --build
+node scripts/build-slot.cjs -- cargo build --locked --profile profiling -p octocode-cli   # in packages/octocode-native; --build skips the slot
 $DEV profile localSearch '{"path":"crates","matchString":["fn "]}' --cwd packages/octocode-native --phase repeat
 samply load .octocode/octocode-dev/profile/<run>/profile.json.gz   # the flamegraph
 ```

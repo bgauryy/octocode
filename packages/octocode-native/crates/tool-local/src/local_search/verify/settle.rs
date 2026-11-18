@@ -1,0 +1,653 @@
+//! Each shown value settled against what its source's read said: its key block, its
+//! whole-source scan, or the lines around it.
+
+use super::guard::RowShape;
+use super::lines::VerificationLines;
+use super::*;
+use octocode_engine::security::Edits;
+use octocode_runtime_base::security::cut::{Cut, REDACTED, exposes, placed, rendered};
+
+/// A whole source's judgment ([`octocode_runtime_base::security::JudgedText`]): `None` when
+/// the pass replaced nothing of it, so every row shows its own bytes and the
+/// source's text need not be kept.
+pub(in crate::local_search) type Verdict =
+    Option<std::sync::Arc<octocode_runtime_base::security::JudgedText>>;
+
+/// What the read of one source said of its shown values.
+pub(super) struct Judged<'a> {
+    pub(super) read: &'a VerificationLines,
+    /// The whole source's scan, when one decides.
+    pub(super) whole: Option<Verdict>,
+}
+
+/// One judged window: what its scan replaced, by byte position in the window,
+/// and the scan's text when it replaced anything (a clean window needs none).
+type WindowJudgment = (std::sync::Arc<Edits>, std::sync::Arc<str>);
+
+/// The row windows a stored scan's pages judged, by source, the digest its
+/// bytes were proved to hash to, and the digest of the exact text judged. The
+/// scan owns it (as it owns
+/// its name prices), so a later page reuses what an earlier one judged of
+/// the same bytes instead of scanning the window again: a walk of spans on
+/// one long line scans that line once, not once per page.
+///
+/// Once the scan is stored, each verdict a later page learns is charged to
+/// the store ([`Billing`]) and kept only when the charge holds.
+///
+/// A source judged whole is kept the same way, under its path and the digest
+/// of its bytes ([`Verdict`]): the first page that shows it judges it, fresh
+/// or stored, and every later page of the walk cuts its rows from that
+/// judgment after proving the bytes, with no line of it read for a scan.
+#[derive(Default)]
+pub(in crate::local_search) struct JudgedWindows(
+    std::sync::Mutex<std::collections::HashMap<WindowKey, WindowJudgment>>,
+    Billing,
+    std::sync::Mutex<std::collections::HashMap<SourceKey, Verdict>>,
+);
+
+use crate::local_search::manifest::Billing;
+use crate::local_search::sources::Digest;
+
+/// A judged window: its source, the digest its bytes were proved to hash
+/// to, and the digest of the text judged, which places its edits.
+type WindowKey = (std::path::PathBuf, Digest, Digest);
+/// A source judged whole: its path and the digest of its bytes.
+type SourceKey = (std::path::PathBuf, Digest);
+/// Bytes one kept whole-source verdict holds.
+fn whole_weight((path, _): &SourceKey, verdict: &Verdict) -> usize {
+    path.as_os_str().len()
+        + verdict.as_ref().map_or(0, |judged| judged.weight())
+        + std::mem::size_of::<(SourceKey, Verdict)>()
+}
+/// Bytes one kept verdict holds.
+fn verdict_weight((path, ..): &WindowKey, (redacted, clean): &WindowJudgment) -> usize {
+    path.as_os_str().len()
+        + clean.len()
+        + redacted.heap_bytes()
+        + std::mem::size_of::<(WindowKey, WindowJudgment)>()
+}
+
+impl JudgedWindows {
+    fn lock(
+        &self,
+    ) -> std::sync::MutexGuard<'_, std::collections::HashMap<WindowKey, WindowJudgment>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn whole(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<SourceKey, Verdict>> {
+        self.2
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Bytes the judgments keep.
+    pub(in crate::local_search) fn weight(&self) -> usize {
+        let windows: usize = self
+            .lock()
+            .iter()
+            .map(|(key, judgment)| verdict_weight(key, judgment))
+            .sum();
+        let whole: usize = self
+            .whole()
+            .iter()
+            .map(|(key, verdict)| whole_weight(key, verdict))
+            .sum();
+        windows + whole
+    }
+
+    /// The judgment kept of the whole source at `source` whose bytes hash to
+    /// `digest`; `None` when no page judged those bytes, or its charge was
+    /// refused.
+    pub(super) fn whole_verdict(
+        &self,
+        source: &std::path::Path,
+        digest: Digest,
+    ) -> Option<Verdict> {
+        self.whole().get(&(source.to_path_buf(), digest)).cloned()
+    }
+
+    /// Keep `verdict` for the whole source at `key`, charged as
+    /// [`Self::learn`] charges a window's.
+    fn learn_whole(&self, key: SourceKey, verdict: Verdict) {
+        let mut known = self.whole();
+        if known.contains_key(&key) {
+            return;
+        }
+        if self.1.charge(whole_weight(&key, &verdict)) {
+            known.insert(key, verdict);
+        }
+    }
+
+    /// Where verdicts learned once the scan is stored are charged.
+    pub(in crate::local_search) fn billing(&self) -> &Billing {
+        &self.1
+    }
+
+    /// Keep `judgment` for `key` when its bytes are charged (or nothing bills
+    /// them yet: the scan is weighed whole when it is stored). A refused one is
+    /// not kept, and a later page judges that window again. Charged and kept
+    /// under one lock, so a verdict two pages learn is charged once.
+    fn learn(&self, key: WindowKey, judgment: WindowJudgment) {
+        let mut known = self.lock();
+        if known.contains_key(&key) {
+            return;
+        }
+        if self.1.charge(verdict_weight(&key, &judgment)) {
+            known.insert(key, judgment);
+        }
+    }
+}
+
+/// The source lines a shown row's value holds: the line it starts at and how
+/// many.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct RowLines {
+    pub(super) first: usize,
+    pub(super) span: usize,
+}
+
+/// The byte of its line `matched`'s value starts at, when the value is a
+/// span of that line and not its lines whole: a matchOnly row (`shape`)
+/// starts at its match, and a window of a line too long for a row where it
+/// says ([`octocode_engine::types::TextSearchMatch::window_start`]), in a
+/// page of any shape. Such a row is judged as the span it is.
+pub(super) fn span_start(
+    shape: RowShape,
+    matched: &octocode_engine::types::TextSearchMatch,
+) -> Option<u32> {
+    matched
+        .window_start
+        .or((shape == RowShape::Span).then_some(matched.byte_offset))
+}
+
+/// Where `matched`'s value starts in its source, for a row of `shape`. A span
+/// ([`span_start`]) starts at its line. A lines row holds its match's lines with the context the
+/// search joined around them, clamped at the source's start as the search
+/// clamps it, or its match's lines alone. `None` for a value that is neither:
+/// nothing places it.
+pub(super) fn row_lines(
+    shape: RowShape,
+    matched: &octocode_engine::types::TextSearchMatch,
+) -> Option<RowLines> {
+    let line = matched.line as usize;
+    let RowShape::Lines(context) = shape else {
+        // A span ending in its line's newline holds no line past it.
+        let span = matched.value.lines().count().max(1);
+        return Some(RowLines { first: line, span });
+    };
+    if matched.window_start.is_some() {
+        // A window is a span of its one line.
+        return Some(RowLines {
+            first: line,
+            span: 1,
+        });
+    }
+    // Where the search says its value starts: the lines it joined.
+    let first = matched.first_line as usize;
+    let span = matched.value.split('\n').count();
+    let own = matched
+        .last_line
+        .map_or(1, |last| (last as usize).saturating_sub(line) + 1);
+    // An invariant, not a derivation: a value whose lines disagree with the
+    // window the search reports is not placed.
+    let before = line.checked_sub(first)?;
+    let after = span.checked_sub(before + own)?;
+    (before <= context.before as usize && after <= context.after as usize)
+        .then_some(RowLines { first, span })
+}
+
+/// A stored scan's judged windows, with the digest a read proved its source's
+/// bytes hash to.
+pub(super) type Learned<'a> = (&'a JudgedWindows, crate::local_search::sources::Digest);
+
+/// Settle `shown`, each with the lines `windows` holds for it and where its
+/// value starts (`placed`, from [`row_lines`]). `learned`:
+/// the stored scan's judged windows and the digest this read proved its
+/// source's bytes hash to.
+pub(super) fn settle_rows(
+    shown: &mut [octocode_engine::types::TextSearchMatch],
+    windows: &[(usize, usize)],
+    judged: &Judged<'_>,
+    source: &std::path::Path,
+    security: &ContentSecurity,
+    (placed, shape, learned): (&[Option<RowLines>], RowShape, Option<Learned<'_>>),
+    hidden: &HiddenRows,
+) -> Verification {
+    let Judged { read, whole } = judged;
+    if let Some(whole) = whole {
+        return settle_judged(
+            shown,
+            placed,
+            shape,
+            whole,
+            (read.lines_read, hidden),
+            (source, security),
+        );
+    }
+    let mut verified = Verification::Verified;
+    // Rows of one line, or of nearby lines, share a window: each distinct
+    // window is judged once for the page, so a page of spans on one long
+    // line scans that line once, not once per span.
+    let mut judged_windows = std::collections::HashMap::<(usize, usize), WindowJudgment>::new();
+    for ((matched, &(lo, hi)), placed) in shown.iter_mut().zip(windows).zip(placed) {
+        let Some(RowLines { first, span }) = *placed else {
+            // Its lines disagree with the window the search reports: nothing
+            // places them in the source, so none is shown.
+            matched.value = octocode_runtime_base::security::row_shown_unchecked(
+                security,
+                &matched.value,
+                Some(source),
+            );
+            verified = Verification::Unverified;
+            continue;
+        };
+        let span_start = span_start(shape, matched);
+        let match_only = span_start.is_some();
+        if !read.key_ranges.is_empty()
+            && octocode_runtime_base::security::match_window_intersects_key_block(
+                matched.line,
+                &matched.value,
+                &read.key_ranges,
+            )
+        {
+            let kept =
+                redact_key_block_lines(matched.line, &matched.value, &read.key_ranges, |n| {
+                    read.retained.get(&(n as usize)).map(String::as_str)
+                });
+            matched.value = security
+                .sanitize_text(&kept, Some(source))
+                .content
+                .into_owned();
+            // No whole-source scan judged a span's lines past the block: they
+            // were judged only as the span cut them, and a token's first bytes
+            // after the armor match nothing. Nothing places them, so the span
+            // goes.
+            if match_only && span > 1 {
+                matched.value = REDACTED.to_owned();
+            }
+            // Its lines past the block were judged alone: they are judged
+            // again in their window, the block's lines masked there.
+            if match_only {
+                continue;
+            }
+        }
+        let line = matched.line as usize;
+        if line == 0 {
+            continue;
+        }
+        if line > read.lines_read {
+            // The source shrank or was replaced since the search.
+            matched.value = octocode_runtime_base::security::row_shown_unchecked(
+                security,
+                &matched.value,
+                Some(source),
+            );
+            verified = Verification::Unverified;
+            continue;
+        }
+        let (lo, hi) = row_window(
+            &read.retained,
+            (lo, hi.min(read.lines_read)),
+            (first, span),
+            security.limits().whole_source,
+        );
+        // Too long to keep for a second look, the search judged it, and only a
+        // window of it or its own span is on the row.
+        // The replacements it holds are the search's own, so the row is
+        // flagged by them.
+        if read.long_lines.contains(&line) {
+            if octocode_runtime_base::security::placeholders(&matched.value) > 0 {
+                hidden.note(matched);
+            }
+            continue;
+        }
+        // A private key's lines show as its placeholder wherever a window holds
+        // them, so no row renders them from the window.
+        let key_line = octocode_runtime_base::security::key_fragment_placeholder();
+        let key_line = key_line.as_str();
+        let in_block = |n: usize| {
+            read.key_ranges
+                .iter()
+                .any(|&(s, e)| s as usize <= n && n <= e as usize)
+        };
+        // A neighbor too long to keep holds no part of this row: it is the
+        // search's to judge, and reads here as an empty line.
+        let Some(window) = (lo..=hi)
+            .map(|n| {
+                let text = read
+                    .retained
+                    .get(&n)
+                    .map(String::as_str)
+                    .or_else(|| read.long_lines.contains(&n).then_some(""));
+                if in_block(n) {
+                    text.map(|_| key_line)
+                } else {
+                    text
+                }
+            })
+            .collect::<Option<Vec<_>>>()
+        else {
+            matched.value = octocode_runtime_base::security::row_shown_unchecked(
+                security,
+                &matched.value,
+                Some(source),
+            );
+            verified = Verification::Unverified;
+            continue;
+        };
+        let (redacted, clean) = judged_windows.entry((lo, hi)).or_insert_with(|| {
+            let joined = window.join("\n");
+            let key = learned.map(|(_, digest)| {
+                let text = octocode_engine::digest::sha256_digest(joined.as_bytes());
+                (source.to_path_buf(), digest, text)
+            });
+            if let (Some((known, _)), Some(key)) = (learned, &key)
+                && let Some(judgment) = known.lock().get(key)
+            {
+                return judgment.clone();
+            }
+            #[cfg(test)]
+            JUDGED.with(|judged| judged.set(judged.get() + joined.len()));
+            let sanitized = security.sanitize_text(&joined, Some(source));
+            let judgment: WindowJudgment = if sanitized.has_secrets {
+                (
+                    std::sync::Arc::new(fail_closed(
+                        sanitized.edits,
+                        joined.len(),
+                        &sanitized.content,
+                    )),
+                    sanitized.content.as_ref().into(),
+                )
+            } else {
+                (std::sync::Arc::default(), "".into())
+            };
+            if let (Some((known, _)), Some(key)) = (learned, key) {
+                known.learn(key, judgment.clone());
+            }
+            judgment
+        });
+        let keyed = (first..first + span).any(in_block);
+        show_in_window(
+            matched,
+            (&window, first - lo, span, keyed),
+            (redacted, clean),
+            span_start,
+        );
+    }
+    verified
+}
+
+/// Settle `matched`, a row starting on line `at` of `window` spanning `span`
+/// lines (`keyed`: some of them a private key's, masked in `window`), against
+/// the window's scan (`redacted`, leaving `clean`): what it shows is rendered
+/// from the runs that decided it. `span_start`: the row is a span of its line
+/// from that byte ([`span_start`]).
+fn show_in_window(
+    matched: &mut octocode_engine::types::TextSearchMatch,
+    (window, at, span, keyed): (&[&str], usize, usize, bool),
+    (redacted, clean): (&Edits, &str),
+    span_start: Option<u32>,
+) {
+    if redacted.is_empty() && !keyed {
+        return;
+    }
+    let cut = row_cut(span_start, &matched.value, span);
+    let joined = window.join("\n");
+    // The row's own lines, in the window's coordinates.
+    let lines = placed(window, at, &Cut::Lines(span));
+    let Cut::Span { text, .. } = cut else {
+        // A content row shows its lines as the window's scan left them.
+        if exposes(redacted, &lines) || keyed {
+            let text = joined.get(lines.clone()).unwrap_or_default();
+            matched.value = rendered(redacted.runs(clean), text, &lines, &lines, |r| {
+                joined.get(r)
+            });
+        }
+        return;
+    };
+    let own = placed(window, at, &cut);
+    if exposes(redacted, &own) {
+        matched.value = rendered(redacted.runs(clean), text, &own, &lines, |r| joined.get(r));
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Window bytes this thread's row settling judged, for tests that pin
+    /// how much a page scans.
+    static JUDGED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Window bytes judged by row settling on this thread so far.
+#[cfg(test)]
+pub(crate) fn judged_on_this_thread() -> usize {
+    JUDGED.with(std::cell::Cell::get)
+}
+
+/// The lines a row is judged with: `lo..=hi`, or its own when those are more than
+/// the scanner judges at once. A multi-line secret cannot be judged across such a
+/// neighbor anyway, and a row must not go with it.
+fn row_window(
+    retained: &std::collections::BTreeMap<usize, String>,
+    (lo, hi): (usize, usize),
+    (line, span): (usize, usize),
+    whole_source: usize,
+) -> (usize, usize) {
+    let bytes: usize = (lo..=hi)
+        .filter_map(|at| retained.get(&at))
+        .map(|text| text.len() + 1)
+        .sum();
+    if bytes > whole_source {
+        (line, (line + span - 1).min(hi))
+    } else {
+        (lo, hi)
+    }
+}
+
+/// What a row shows of its lines: its own span from byte `span_start` of
+/// its line ([`span_start`]), else its lines whole.
+fn row_cut(span_start: Option<u32>, value: &str, span: usize) -> Cut<'_> {
+    match span_start {
+        Some(offset) => Cut::Span {
+            offset: offset as usize,
+            text: value,
+        },
+        None => Cut::Lines(span),
+    }
+}
+
+/// `redacted`, the edits of a scan that found secrets in a text of `len` bytes
+/// and left `clean`; when they place nothing although the text changed, the
+/// whole text counts as redacted.
+fn fail_closed(redacted: Edits, len: usize, clean: &str) -> Edits {
+    if redacted.is_empty() {
+        Edits::of_pass([(0..len, clean.len())])
+    } else {
+        redacted
+    }
+}
+
+/// The whole source judged as a read of it shows it
+/// ([`octocode_runtime_base::security::JudgedText`]): the one redaction decision each of its
+/// rows is cut from; `None` when it could not be held whole.
+/// `learned` is the stored scan's judgments and the digest this read proved
+/// the source's bytes hash to: the judgment is kept there, so a later page of
+/// the walk cuts its rows from it ([`JudgedWindows::whole_verdict`]) and a
+/// file whose hits span many pages is scanned once, not once a page.
+pub(super) fn whole_source_scan(
+    read: &VerificationLines,
+    source: &std::path::Path,
+    security: &ContentSecurity,
+    learned: Option<Learned<'_>>,
+) -> Option<Verdict> {
+    if !read.whole_retained {
+        return None;
+    }
+    if let Some((known, digest)) = learned
+        && let Some(verdict) = known.whole_verdict(source, digest)
+    {
+        return Some(verdict);
+    }
+    let mut text = String::with_capacity(read.retained_bytes.saturating_add(read.retained.len()));
+    for (index, line) in read.retained.values().enumerate() {
+        if index > 0 {
+            text.push('\n');
+        }
+        text.push_str(line);
+    }
+    #[cfg(test)]
+    JUDGED.with(|judged| judged.set(judged.get() + text.len()));
+    // Judged whole, with nothing of the source kept by the request.
+    let judged = octocode_tools_shared::judged_rows::judged_text(&text, source, security);
+    let verdict = judged.is_redacted().then(|| std::sync::Arc::new(judged));
+    if let Some((known, digest)) = learned {
+        known.learn_whole((source.to_path_buf(), digest), verdict.clone());
+    }
+    Some(verdict)
+}
+
+/// Settle `shown`, the rows of a source judged whole (`whole`), each placed
+/// by `placed`: every row is the cut of its place in that one judgment, on
+/// the page that judged the source and on every later page that reuses it.
+/// `lines` is how many lines the source has: a row past them is not its
+/// bytes. Each row whose value shows text the pass wrote, whether settling
+/// cut it or the search already had (a window or span of the text a read
+/// serves), is noted in `hidden` by its line and column.
+pub(super) fn settle_judged(
+    shown: &mut [octocode_engine::types::TextSearchMatch],
+    placed: &[Option<RowLines>],
+    shape: RowShape,
+    whole: &Verdict,
+    (lines, hidden): (usize, &HiddenRows),
+    (source, security): (&std::path::Path, &ContentSecurity),
+) -> Verification {
+    let mut verified = Verification::Verified;
+    for (matched, placed) in shown.iter_mut().zip(placed) {
+        let Some(RowLines { first, span }) = *placed else {
+            // Its lines disagree with the window the search reports: nothing
+            // places them in the source, so none is shown.
+            matched.value = octocode_runtime_base::security::row_shown_unchecked(
+                security,
+                &matched.value,
+                Some(source),
+            );
+            verified = Verification::Unverified;
+            continue;
+        };
+        let line = matched.line as usize;
+        if line == 0 {
+            continue;
+        }
+        if line > lines {
+            // The source shrank or was replaced since the search.
+            matched.value = octocode_runtime_base::security::row_shown_unchecked(
+                security,
+                &matched.value,
+                Some(source),
+            );
+            verified = Verification::Unverified;
+            continue;
+        }
+        // A pass that replaced nothing leaves every row its own bytes.
+        if let Some(judged) = whole {
+            let raw = std::mem::take(&mut matched.value);
+            let cut = row_cut(span_start(shape, matched), &raw, span);
+            let shown = cut_of_whole_source(&cut, first, judged);
+            if shown.is_some() || served_span_hides(&cut, first, judged) {
+                hidden.note(matched);
+            }
+            matched.value = shown.unwrap_or(raw);
+            security.show(judged.path(), &matched.value);
+        }
+    }
+    verified
+}
+
+/// Whether `cut`, a span of line `first` that a row keeps as the search cut
+/// it from the text a read of that line serves, holds text the pass wrote
+/// there: a value the scan itself redacted. The source's own bytes at their
+/// place hold none.
+fn served_span_hides(
+    cut: &Cut<'_>,
+    first: usize,
+    judged: &octocode_runtime_base::security::JudgedText,
+) -> bool {
+    let &Cut::Span { offset, text } = cut else {
+        return false;
+    };
+    let Some(line) = judged
+        .line_span(first, 1)
+        .filter(|line| judged.exposes(line))
+    else {
+        return false;
+    };
+    let own = line.start + offset..line.start + offset + text.len();
+    if judged.raw().get(own) == Some(text) {
+        return false;
+    }
+    let Some(served) = judged.lines(first, 1) else {
+        return false;
+    };
+    let at = if served.get(offset..offset + text.len()) == Some(text) {
+        Some(offset)
+    } else {
+        served.find(text)
+    };
+    at.is_some_and(|at| judged.writes_in_line(first, &(at..at + text.len())))
+}
+
+/// What a row that showed `cut` of the lines from `first` shows of the whole
+/// source `judged`: the cut of its place there, as a read of those bytes
+/// shows it; `None` when the pass replaced nothing of it. A value that is
+/// not the source's bytes at its place is judged by every line it reaches:
+/// a span of one line that is text a read of that line shows (the scan
+/// already hid a key's line in it, keeping the line's label) stays as it is,
+/// and any other shows as the one placeholder those lines state
+/// ([`octocode_runtime_base::security::JudgedText::one_placeholder`]), or [`REDACTED`].
+fn cut_of_whole_source(
+    cut: &Cut<'_>,
+    first: usize,
+    judged: &octocode_runtime_base::security::JudgedText,
+) -> Option<String> {
+    let span = match cut {
+        Cut::Span { text, .. } => text.lines().count().max(1),
+        Cut::Lines(count) => *count,
+    };
+    let lines = judged.line_span(first, span);
+    let own = match (cut, &lines) {
+        (Cut::Span { offset, text }, Some(lines)) => {
+            let start = lines.start + offset;
+            let at = start..start + text.len();
+            (judged.raw().get(at.clone()) == Some(*text)).then_some(at)
+        }
+        _ => None,
+    };
+    match (own, lines) {
+        (Some(own), _) => judged.exposes(&own).then(|| judged.cut(own).into_owned()),
+        (None, Some(lines)) if !judged.exposes(&lines) => None,
+        // A span of one line that is not the source's bytes at its place,
+        // yet holds only what a read of that line shows, shows nothing that
+        // read hides.
+        (None, Some(lines))
+            if span == 1
+                && matches!(cut, Cut::Span { text, .. } if judged.cut(lines.clone()).contains(text)) =>
+        {
+            None
+        }
+        // Any other shows none of its text: the placeholder a read of its
+        // lines shows for what they hide, when they state one.
+        (None, Some(lines)) => Some(match cut {
+            Cut::Span { .. } => judged
+                .one_placeholder(&lines)
+                .unwrap_or(REDACTED)
+                .to_owned(),
+            Cut::Lines(_) => judged.cut(lines).into_owned(),
+        }),
+        (None, None) => judged.is_redacted().then(|| REDACTED.to_owned()),
+    }
+}
+
+#[cfg(test)]
+mod judged_tests;

@@ -1,10 +1,14 @@
 use super::*;
+use octocode_test_support::json_fixture;
 
 #[test]
 fn server_is_npx_latest_with_yes_flag() {
     let server = server_entry(EntryShape::Stdio, &server_spec(&default_args()));
     assert_eq!(server["command"], "npx");
-    assert_eq!(server["args"], json!(["-y", "octocode-mcp@latest"]));
+    assert_eq!(
+        server["args"],
+        json_fixture(r#"["-y", "octocode-mcp@latest"]"#)
+    );
     assert_ne!(spec("codex").format, ConfigFormat::Json);
 }
 
@@ -16,7 +20,7 @@ fn server_uses_bunx_when_specified() {
     });
     let server = server_entry(EntryShape::Stdio, &spec);
     assert_eq!(server["command"], "bunx");
-    assert_eq!(server["args"], json!(["octocode-mcp@latest"]));
+    assert_eq!(server["args"], json_fixture(r#"["octocode-mcp@latest"]"#));
 }
 
 /// The module promise, held by the entry's inputs: every runner
@@ -142,7 +146,7 @@ fn client_specific_json_shapes_are_valid_and_preserve_other_settings() {
         if ide == "opencode" {
             assert_eq!(
                 root[key]["octocode"]["command"],
-                json!(["npx", "-y", "octocode-mcp@latest"])
+                json_fixture(r#"["npx", "-y", "octocode-mcp@latest"]"#)
             );
         }
         let written = std::fs::read_to_string(&path).expect("read");

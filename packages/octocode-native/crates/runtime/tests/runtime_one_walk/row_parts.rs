@@ -5,6 +5,7 @@
 //! elements; one that resumes a file but begins on a whole hit names the file.
 use super::walk;
 use crate::support::Workspace;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 
 /// The first or last hit of a part's files: `(path, line)`.
@@ -42,7 +43,19 @@ async fn a_later_part_names_a_continued_value_only_when_one_is_cut() {
     let pages = walk(
         &runtime,
         "localSearch",
-        json!({"queries":[{"path":"docs","matchString":["needle"],"view":"content","limit":60}],"responseChars":450}),
+        json_fixture(
+            r#"{
+                "queries": [
+                    {
+                        "path": "docs",
+                        "matchString": ["needle"],
+                        "view": "content",
+                        "limit": 60
+                    }
+                ],
+                "responseChars": 450
+            }"#,
+        ),
     )
     .await;
     // The part before, and how many files the joined row holds so far.

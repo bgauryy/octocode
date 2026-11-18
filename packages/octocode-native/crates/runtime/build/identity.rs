@@ -8,39 +8,6 @@ use std::error::Error;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
-/// Every file under `dir`, recursively; a missing `dir` has none.
-fn files_under(dir: &Path, found: &mut Vec<PathBuf>) -> std::io::Result<()> {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error),
-    };
-    for entry in entries {
-        let path = entry?.path();
-        if path.is_dir() {
-            files_under(&path, found)?;
-        } else {
-            found.push(path);
-        }
-    }
-    Ok(())
-}
-
-/// What one crate contributes: its sources, manifest and build script.
-fn crate_inputs(crate_dir: &Path) -> std::io::Result<Vec<PathBuf>> {
-    let mut found = Vec::new();
-    for source in ["src", "build"] {
-        files_under(&crate_dir.join(source), &mut found)?;
-    }
-    for file in ["build.rs", "Cargo.toml"] {
-        let path = crate_dir.join(file);
-        if path.is_file() {
-            found.push(path);
-        }
-    }
-    Ok(found)
-}
-
 pub(super) fn emit_build_identity() -> Result<(), Box<dyn Error>> {
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
     let workspace = manifest_dir.join("../..").canonicalize()?;
@@ -55,7 +22,7 @@ pub(super) fn emit_build_identity() -> Result<(), Box<dyn Error>> {
     let mut roots = Vec::new();
     for dir in inputs::path_dependency_dirs(&manifest_dir)? {
         roots.push(relative(&dir));
-        for file in crate_inputs(&dir)? {
+        for file in inputs::crate_sources(&dir)? {
             inputs_hashed.push((relative(&file), file));
         }
     }
@@ -68,16 +35,14 @@ pub(super) fn emit_build_identity() -> Result<(), Box<dyn Error>> {
     }
     inputs_hashed.sort();
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    // Each hashed file is watched one by one, never its directory: a directory
+    // watch would rerun this script, and rebuild every crate linking the
+    // runtime, on an edit to a test-only file. A new source file reaches the
+    // build only through a declaration or `include*!` in a file watched here.
     for (label, path) in &inputs_hashed {
         label.hash(&mut hasher);
         std::fs::read(path)?.hash(&mut hasher);
         println!("cargo:rerun-if-changed={}", path.display());
-    }
-    // A file added later changes its directory's mtime, which cargo scans.
-    for dir in inputs::path_dependency_dirs(&manifest_dir)? {
-        for source in ["src", "build"] {
-            println!("cargo:rerun-if-changed={}", dir.join(source).display());
-        }
     }
     println!(
         "cargo:rustc-env=OCTOCODE_BUILD_IDENTITY={:016x}",

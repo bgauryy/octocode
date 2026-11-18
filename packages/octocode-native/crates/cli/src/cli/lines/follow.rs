@@ -1,7 +1,11 @@
-use super::words;
+use super::table::list_cell;
+use super::{outline, words};
 use serde_json::{Map, Value};
 
-/// Render each remaining field after declared calls have been separated.
+/// Render each remaining field after declared calls have been separated, as
+/// text: a flat object as words, a flat list as one cell, and any other
+/// object or list (a list of `diagnostics`, nested counts) in the outline
+/// and table layout a row's own fields print in, one line each.
 pub(super) fn field_notes(prefix: &str, fields: &Map<String, Value>) -> Vec<String> {
     let mut lines = Vec::new();
     for (key, value) in fields {
@@ -16,23 +20,52 @@ pub(super) fn field_notes(prefix: &str, fields: &Map<String, Value>) -> Vec<Stri
             }
             Value::String(text) => lines.push(format!("{prefix}{key}: {text}")),
             // A flat object reads as words: `summary: fileCount 4 dirCount 0`.
-            Value::Object(fields) if fields.values().all(|value| !value.is_object()) => {
+            Value::Object(fields) if fields.values().all(is_flat) => {
                 lines.push(format!("{prefix}{key}: {}", words(fields)));
             }
+            Value::Array(items) if is_flat(value) => match list_cell(items) {
+                Some(Value::String(cell)) => lines.push(format!("{prefix}{key}: {cell}")),
+                _ => nested(prefix, key, value, &mut lines),
+            },
+            Value::Array(_) | Value::Object(_) => nested(prefix, key, value, &mut lines),
             other => lines.push(format!("{prefix}{key}: {other}")),
         }
     }
     lines
 }
 
+/// Whether `value` reads as words inside one note: a scalar, or a list of
+/// scalars.
+fn is_flat(value: &Value) -> bool {
+    match value {
+        Value::Object(_) => false,
+        Value::Array(items) => items
+            .iter()
+            .all(|item| !item.is_object() && !item.is_array()),
+        _ => true,
+    }
+}
+
+/// `key` and its nested `value` as the outline prints a row's fields: a
+/// list of flat rows as a table, anything else indented under its key.
+fn nested(prefix: &str, key: &str, value: &Value, lines: &mut Vec<String>) {
+    let mut field = Map::new();
+    field.insert(key.to_owned(), value.clone());
+    let mut block = Vec::new();
+    outline::object(&field, "", &mut block);
+    lines.extend(block.into_iter().map(|line| format!("{prefix}{line}")));
+}
+
 /// Fields that say whether an answer is whole, beside any object that holds
 /// `hasMore`: they print in the stdout trailer, never only on stderr.
 const INCOMPLETE: [&str; 4] = ["rowPart", "isPartial", "partialReasons", "unknownItems"];
 
-/// Whether a field decides "am I done": a page state (`hasMore`) or a mark
-/// of an incomplete answer.
+/// Whether a field decides "am I done": the response page state (its `next`
+/// call is present while more remains), a tool page state (`hasMore`) or a
+/// mark of an incomplete answer.
 pub(super) fn decides_done(key: &str, value: &Value) -> bool {
     INCOMPLETE.contains(&key)
+        || key == "responsePagination"
         || value
             .as_object()
             .is_some_and(|fields| fields.contains_key("hasMore"))
@@ -122,13 +155,17 @@ pub(super) fn notes_of(calls: &[Call], row: Option<usize>) -> (Vec<String>, Vec<
 
 /// Extract commands only from positions declared as calls by the output schema.
 pub(super) fn separate_calls(
-    tool: octocode_native::id::ToolId,
+    tool: octocode_runtime_base::id::ToolId,
     structured: &Value,
 ) -> Option<(Value, Vec<Call>)> {
     let mut calls = Vec::new();
-    octocode_native::response::continuations::visit_calls(tool, structured, &mut |call, path| {
-        calls.push((path.to_vec(), call.clone()));
-    })
+    octocode_runtime_base::response::continuations::visit_calls(
+        tool,
+        structured,
+        &mut |call, path| {
+            calls.push((path.to_vec(), call.clone()));
+        },
+    )
     .ok()?;
     let mut display = structured.clone();
     for (path, _) in calls.iter().rev() {
@@ -170,7 +207,13 @@ pub(super) fn separate_calls(
                 row,
                 label,
                 command,
-                lead: call["kind"] == "related",
+                // A served call states no kind: the `related` list that holds
+                // it says it starts new work.
+                lead: rest
+                    .iter()
+                    .rev()
+                    .find(|part| part.parse::<usize>().is_err())
+                    .is_some_and(|key| key == "related"),
             }
         })
         .collect();

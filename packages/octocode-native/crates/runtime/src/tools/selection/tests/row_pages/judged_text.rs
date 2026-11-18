@@ -1,18 +1,32 @@
 //! The text of a history row that only the judge reads (a body) reaches the
 //! judge and leaves the row, on every outcome of the selection.
 use super::*;
+use octocode_runtime_base::id::ToolId;
+use octocode_test_support::json_fixture;
+use octocode_tools_shared::selection::SelectionJudge;
+use serde_json::Value;
+use serde_json::json;
 
 fn pulls() -> Value {
-    json!([
-        {"number": 1, "title": "tidy", "body": "fixes a crash"},
-        {"number": 2, "title": "tidy", "body": "renames a field"},
-        {"number": 3, "title": "tidy"},
-    ])
+    json_fixture(
+        r#"[
+            {"number": 1, "title": "tidy", "body": "fixes a crash"},
+            {"number": 2, "title": "tidy", "body": "renames a field"},
+            {"number": 3, "title": "tidy"}
+        ]"#,
+    )
 }
 
 fn pull_query(extra: Value) -> Value {
-    let mut query = json!({"owner":"o","repo":"r","operation":"pullRequest","keywords":["tidy"],
-        "classification":{"predicates":["Is this a bug fix?"]}});
+    let mut query = json_fixture(
+        r#"{
+            "owner": "o",
+            "repo": "r",
+            "operation": "pullRequest",
+            "keywords": ["tidy"],
+            "classification": {"predicates": ["Is this a bug fix?"]}
+        }"#,
+    );
     query
         .as_object_mut()
         .expect("object")
@@ -62,7 +76,7 @@ fn the_judge_reads_each_body_and_a_bodyless_row_judges_on_its_title() {
 fn a_body_the_caller_picked_stays_on_the_row() {
     let data = run(
         RecordingJudge::default(),
-        &pull_query(json!({"fields":["title","body"]})),
+        &pull_query(json_fixture(r#"{"fields": ["title", "body"]}"#)),
         pulls(),
     );
     assert!(bodies(&data).contains("fixes a crash"), "{data}");
@@ -73,7 +87,7 @@ fn a_pick_without_the_body_still_judges_it_and_shows_none() {
     let judge = RecordingJudge::default();
     let data = run(
         judge.clone(),
-        &pull_query(json!({"fields":["title"]})),
+        &pull_query(json_fixture(r#"{"fields": ["title"]}"#)),
         pulls(),
     );
     assert!(
@@ -104,8 +118,15 @@ fn a_refused_credential_shows_no_body() {
 #[test]
 fn a_commit_message_body_is_judged_and_leaves_the_row() {
     let judge = RecordingJudge::default();
-    let rows = json!([{"commitSha": "aaa", "messageHeadline": "tidy",
-        "messageBody": "fixes a crash in the cache"}]);
+    let rows = json_fixture(
+        r#"[
+            {
+                "commitSha": "aaa",
+                "messageHeadline": "tidy",
+                "messageBody": "fixes a crash in the cache"
+            }
+        ]"#,
+    );
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let runtime = runtime(judge.clone(), &executor);
     let query = query();

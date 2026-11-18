@@ -2,7 +2,7 @@ Load when a skill needs an Octocode setting or provider credential. Source: `ski
 
 ## Inspect without exposing secrets
 
-Use the task's selected CLI: prefer the built local Octocode CLI when available, otherwise an installed `octocode` or `npx -y octocode`. Examples use this checkout's CLI; substitute the selected CLI. From another workspace, invoke the local CLI by its absolute path so relative inputs keep their meaning.
+Use the task's selected CLI: prefer the built local Octocode CLI when available, otherwise an installed `octocode` (`octocode-cli` in Octocode Code agent shells, where `octocode` is the coding agent) or `npx -y octocode`. Examples use this checkout's CLI; substitute the selected CLI. From another workspace, invoke the local CLI by its absolute path so relative inputs keep their meaning.
 
 ```bash
 node packages/octocode/out/octocode.js config home          # the actual Octocode home; do not hard-code it

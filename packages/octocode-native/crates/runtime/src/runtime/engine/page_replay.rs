@@ -4,16 +4,16 @@
 
 use super::RuntimeError;
 use crate::build_identity::BUILD_IDENTITY;
-use crate::config::{self, ConfigOutput};
-use crate::response::cursor::Cursor;
-use crate::response::pager::SavedPages;
-use crate::response::result::ErrorClass;
-use crate::security::{CheckedQuery, Sanitized};
 use octocode_contract_types::ErrorCode;
+use octocode_runtime_base::config::{self, ConfigOutput};
+use octocode_runtime_base::response::cursor::Cursor;
+use octocode_runtime_base::response::pager::SavedPages;
+use octocode_runtime_base::response::result::ErrorClass;
+use octocode_runtime_base::security::{CheckedQuery, Sanitized};
 
-use crate::cache::{CONTINUATION_IDLE, CacheClass};
-use crate::id::ToolId;
-use crate::tools::clasify::sections::PLAN_IDLE;
+use octocode_runtime_base::cache::{CONTINUATION_IDLE, CacheClass};
+use octocode_runtime_base::id::ToolId;
+use octocode_tool_clasify::clasify::sections::PLAN_IDLE;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -34,12 +34,12 @@ pub(super) struct PageReplay {
 }
 
 pub(super) struct PageReplayMemo {
-    pub(super) store: crate::cache::Store<PageReplay>,
+    pub(super) store: octocode_runtime_base::cache::Store<PageReplay>,
     /// Saved responses whose envelope is [`Sanitized::held`] (text of a
     /// credential-named source): kept in this process only, in either
     /// storage mode, as held provider answers are. A later runtime answers
     /// their cursors by re-executing the pinned page.
-    held: crate::cache::Store<PageReplay>,
+    held: octocode_runtime_base::cache::Store<PageReplay>,
     pub(super) policy: String,
     pub(super) persistent: bool,
 }
@@ -49,11 +49,16 @@ impl PageReplayMemo {
         let persistent = config::saves_local_results(&config.resolved);
         let policy = replay_policy(config, cwd, BUILD_IDENTITY);
         Self {
-            store: crate::cache::Store::new(
-                crate::cache::CacheConfig::derived(),
-                persistent.then(|| crate::cache::Directory::ResponsePages.path(&config.home)),
+            store: octocode_runtime_base::cache::Store::new(
+                octocode_runtime_base::cache::CacheConfig::derived(),
+                persistent.then(|| {
+                    octocode_runtime_base::cache::Directory::ResponsePages.path(&config.home)
+                }),
             ),
-            held: crate::cache::Store::new(crate::cache::CacheConfig::derived(), None),
+            held: octocode_runtime_base::cache::Store::new(
+                octocode_runtime_base::cache::CacheConfig::derived(),
+                None,
+            ),
             policy,
             persistent,
         }
@@ -61,8 +66,8 @@ impl PageReplayMemo {
 
     /// A saved response is stored under its cursor's page-independent
     /// name: one entry per content, scope and page length.
-    fn key(cursor: &Cursor, policy: &str) -> crate::cache::CacheKey {
-        crate::cache::CacheKey {
+    fn key(cursor: &Cursor, policy: &str) -> octocode_runtime_base::cache::CacheKey {
+        octocode_runtime_base::cache::CacheKey {
             namespace: "response-pages-v2".into(),
             scope: format!("{policy}:{}", hex::encode(cursor.key)),
             resource: cursor.resource(),
@@ -87,13 +92,13 @@ impl PageReplayMemo {
         // The saved request names files by their shown (redacted) names, as
         // the saved response does: a file named after a credential never
         // reaches the store by its true name.
-        let security = crate::security::ContentSecurity::new();
-        let _ = crate::security::sanitize_json(&mut replay.response_query, &mut |text: &str,
-                                                                                 _: Option<
-            &str,
-        >| {
-            Ok::<_, std::convert::Infallible>(security.sanitize_leaf(text))
-        });
+        let security = octocode_runtime_base::security::ContentSecurity::new();
+        let _ = octocode_runtime_base::security::sanitize_json(
+            &mut replay.response_query,
+            &mut |text: &str, _: Option<&str>| {
+                Ok::<_, std::convert::Infallible>(security.sanitize_leaf(text))
+            },
+        );
         // The page memo a first read builds holds about one more copy of
         // the envelope (its row plan, bytes or text).
         let weight = octocode_engine::json_size::bytes(&replay)
@@ -154,7 +159,7 @@ pub(super) fn retention_of(tool: &str) -> CacheClass {
 
 /// The expiry a page of `tool` states: its read restarted the lifetime.
 pub(super) fn page_expiry(tool: &str) -> String {
-    crate::civil_date::iso8601_millis_after(idle_lifetime(tool))
+    octocode_runtime_base::civil_date::iso8601_millis_after(idle_lifetime(tool))
 }
 
 /// Why saved work does not answer a cursor. Each cause has its own text,

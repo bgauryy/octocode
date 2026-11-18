@@ -4,6 +4,7 @@
 
 use super::{MARKER, RAW_FILE, SHA, files_holding, github, opted_in};
 use crate::support::{self, Run as _, Workspace};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -147,7 +148,7 @@ const BLOB: &str = "2222222222222222222222222222222222222222";
 async fn past_the_contents_limit(too_large: bool, body: &str) -> MockServer {
     let github = github().await;
     let answer = if too_large {
-        ResponseTemplate::new(413).set_body_json(json!({"message":"too large"}))
+        ResponseTemplate::new(413).set_body_json(json_fixture(r#"{"message": "too large"}"#))
     } else {
         ResponseTemplate::new(200).set_body_json(json!({
             "type":"file","encoding":"none","content":"","size":2_000_000,"sha":BLOB

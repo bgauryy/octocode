@@ -8,6 +8,7 @@ use super::{Call, Index, files, hit, read_path, requests, walk, walk_with};
 use crate::support::{self, Run as _, Workspace};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
@@ -61,6 +62,9 @@ async fn mount_mixed(server: &MockServer, names: &[String]) {
         .enumerate()
         .map(|(n, file)| (file.clone(), if n % 7 == 3 { 40 } else { 1 + n % 3 }))
         .collect();
+    for file in names {
+        octocode_test_support::mock_http::list_in_trees(server, "o", "r", file).await;
+    }
     Mock::given(method("GET"))
         .and(path_regex(r"^/api/v3/repos/o/r/contents/"))
         .respond_with(Sized(needles))
@@ -69,7 +73,7 @@ async fn mount_mixed(server: &MockServer, names: &[String]) {
 }
 
 fn start(limit: Option<usize>, chars: usize) -> Value {
-    let mut row = json!({"owner": "o", "repo": "r", "keywords": ["needle"]});
+    let mut row = json_fixture(r#"{"owner": "o", "repo": "r", "keywords": ["needle"]}"#);
     if let Some(limit) = limit {
         row["limit"] = json!(limit);
     }
@@ -221,6 +225,9 @@ async fn a_page_shown_in_parts_states_its_shift_once() {
         .respond_with(Moving(Arc::clone(&index)))
         .mount(&server)
         .await;
+    for file in &names {
+        octocode_test_support::mock_http::list_in_trees(&server, "o", "r", file).await;
+    }
     Mock::given(method("GET"))
         .and(path_regex(r"^/api/v3/repos/o/r/contents/"))
         .respond_with(super::Files {

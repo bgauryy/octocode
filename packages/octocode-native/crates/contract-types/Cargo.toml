@@ -14,6 +14,7 @@ doctest = false
 test = false
 
 [dependencies]
+octocode-contract-base = { path = "../contract-base" }
 # Generated contract types use ECMAScript pattern validation.
 regress = "0.12"
 serde = { workspace = true }
@@ -22,7 +23,7 @@ serde_json = { workspace = true }
 [lints]
 workspace = true
 
-# The generated file `src/lib.rs` `include!`s uses all three; cargo-shear does
-# not read included source.
+# The generated file `src/lib.rs` `include!`s uses all four (it re-exports the
+# base crate's types); cargo-shear does not read included source.
 [package.metadata.cargo-shear]
-ignored = ["regress", "serde", "serde_json"]
+ignored = ["octocode-contract-base", "regress", "serde", "serde_json"]

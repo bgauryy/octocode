@@ -1,15 +1,24 @@
 //! GraphQL partial data, semantic errors and their retries.
 use super::*;
+use octocode_test_support::json_fixture;
 
 #[tokio::test]
 async fn preserves_graphql_partial_data_and_errors() {
     let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/api/graphql"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "data":{"repository":{"name":"repo"}},
-            "errors":[{"message":"field denied","path":["repository","secret"],"extensions":{"type":"FORBIDDEN"}}]
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "data": {"repository": {"name": "repo"}},
+                "errors": [
+                    {
+                        "message": "field denied",
+                        "path": ["repository", "secret"],
+                        "extensions": {"type": "FORBIDDEN"}
+                    }
+                ]
+            }"#,
+        )))
         .mount(&server)
         .await;
     let transport = anonymous_transport(&mock_endpoint(&server));
@@ -35,10 +44,17 @@ async fn graphql_top_level_rate_limited_type_is_a_primary_limit() {
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("x-ratelimit-reset", reset.to_string().as_str())
-                .set_body_json(serde_json::json!({
-                    "data": null,
-                    "errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded for user ID 1."}]
-                })),
+                .set_body_json(json_fixture(
+                    r#"{
+                        "data": null,
+                        "errors": [
+                            {
+                                "type": "RATE_LIMITED",
+                                "message": "API rate limit exceeded for user ID 1."
+                            }
+                        ]
+                    }"#,
+                )),
         )
         .expect(1)
         .mount(&server)
@@ -75,10 +91,17 @@ async fn a_spent_graphql_quota_is_disclosed_at_once_however_far_the_deadline() {
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("x-ratelimit-reset", reset.to_string().as_str())
-                .set_body_json(serde_json::json!({
-                    "data": null,
-                    "errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded for user ID 1."}]
-                })),
+                .set_body_json(json_fixture(
+                    r#"{
+                        "data": null,
+                        "errors": [
+                            {
+                                "type": "RATE_LIMITED",
+                                "message": "API rate limit exceeded for user ID 1."
+                            }
+                        ]
+                    }"#,
+                )),
         )
         .expect(1)
         .mount(&server)
@@ -117,12 +140,16 @@ async fn graphql_something_went_wrong_is_retried_like_a_500() {
     Mock::given(method("POST"))
         .and(path("/api/graphql"))
         .respond_with(Sequence::new(vec![
-            ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            ResponseTemplate::new(200).set_body_json(json_fixture(r#"{
                 "data": null,
-                "errors": [{"message": "Something went wrong while executing your query. This may be the result of a timeout."}]
-            })),
+                "errors": [
+                    {
+                        "message": "Something went wrong while executing your query. This may be the result of a timeout."
+                    }
+                ]
+            }"#)),
             ResponseTemplate::new(200)
-                .set_body_json(serde_json::json!({"data": {"viewer": {"login": "me"}}})),
+                .set_body_json(json_fixture(r#"{"data": {"viewer": {"login": "me"}}}"#)),
         ]))
         .expect(2)
         .mount(&server)
@@ -146,10 +173,14 @@ async fn graphql_something_went_wrong_is_retried_like_a_500() {
 #[tokio::test]
 async fn graphql_semantic_and_http_retries_share_one_attempt_budget() {
     let transient = || {
-        ResponseTemplate::new(200).set_body_json(serde_json::json!({
+        ResponseTemplate::new(200).set_body_json(json_fixture(r#"{
             "data": null,
-            "errors": [{"message": "Something went wrong while executing your query. This may be the result of a timeout."}]
-        }))
+            "errors": [
+                {
+                    "message": "Something went wrong while executing your query. This may be the result of a timeout."
+                }
+            ]
+        }"#))
     };
     let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
@@ -159,7 +190,7 @@ async fn graphql_semantic_and_http_retries_share_one_attempt_budget() {
             transient(),
             ResponseTemplate::new(503),
             ResponseTemplate::new(200)
-                .set_body_json(serde_json::json!({"data": {"viewer": {"login": "me"}}})),
+                .set_body_json(json_fixture(r#"{"data": {"viewer": {"login": "me"}}}"#)),
         ]))
         .mount(&server)
         .await;
@@ -194,10 +225,14 @@ async fn graphql_semantic_retry_backoff_honors_cancellation() {
     let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/api/graphql"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(r#"{
             "data": null,
-            "errors": [{"message": "Something went wrong while executing your query. This may be the result of a timeout."}]
-        })))
+            "errors": [
+                {
+                    "message": "Something went wrong while executing your query. This may be the result of a timeout."
+                }
+            ]
+        }"#)))
         .mount(&server)
         .await;
     let retry = RetryPolicy {
@@ -241,10 +276,14 @@ async fn a_graphql_secondary_limit_on_http_200_starts_the_cooldown() {
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("retry-after", "3600")
-                .set_body_json(serde_json::json!({
+                .set_body_json(json_fixture(r#"{
                     "data": null,
-                    "errors": [{"message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."}]
-                })),
+                    "errors": [
+                        {
+                            "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."
+                        }
+                    ]
+                }"#)),
         )
         .expect(1)
         .mount(&server)
@@ -289,9 +328,16 @@ async fn a_graphql_secondary_limit_is_not_mistaken_for_the_primary_one() {
     let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/api/graphql"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "errors": [{"type": "RATE_LIMITED", "message": "You have exceeded a secondary rate limit."}]
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "errors": [
+                    {
+                        "type": "RATE_LIMITED",
+                        "message": "You have exceeded a secondary rate limit."
+                    }
+                ]
+            }"#,
+        )))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
@@ -334,11 +380,13 @@ async fn a_short_graphql_secondary_limit_is_waited_out() {
     let limited = Sequence::new(vec![
         ResponseTemplate::new(200)
             .insert_header("retry-after", "1")
-            .set_body_json(serde_json::json!({
-                "errors": [{"message": "You have exceeded a secondary rate limit."}]
-            })),
+            .set_body_json(json_fixture(
+                r#"{
+                    "errors": [{"message": "You have exceeded a secondary rate limit."}]
+                }"#,
+            )),
         ResponseTemplate::new(200)
-            .set_body_json(serde_json::json!({"data": {"viewer": {"login": "me"}}})),
+            .set_body_json(json_fixture(r#"{"data": {"viewer": {"login": "me"}}}"#)),
     ]);
     let arrivals = limited.arrivals.clone();
     Mock::given(method("POST"))
@@ -371,7 +419,7 @@ async fn a_mutating_graphql_document_is_never_sent() {
     let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/api/graphql"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(r#"{"data": {}}"#)))
         .expect(0)
         .mount(&server)
         .await;
@@ -399,7 +447,7 @@ async fn a_read_that_mentions_mutation_is_sent() {
     let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/api/graphql"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(r#"{"data": {}}"#)))
         .expect(3)
         .mount(&server)
         .await;

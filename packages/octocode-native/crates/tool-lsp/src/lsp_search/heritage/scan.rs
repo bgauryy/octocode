@@ -1,0 +1,381 @@
+//! The syntax subtype scan, hedged against the language server, and how its
+//! coverage is described.
+use super::*;
+
+/// Whether `line` declares the type `name`, whose subtypes a scan can list.
+pub(super) fn anchors_type_declaration(content: &str, file: &str, line: u32, name: &str) -> bool {
+    let Some(document) = octocode_tools_shared::declarations::file_document(content, file) else {
+        return false;
+    };
+    let language = octocode_engine::lsp::config::detect_language_id(file);
+    let name = canonical_symbol_name(language.as_deref(), name);
+    document.declarations.iter().any(|declaration| {
+        canonical_symbol_name(language.as_deref(), &declaration.name) == name
+            && declaration.selection_range.start.line == line
+            && TYPE_DECLARATION_KINDS.contains(&declaration.kind.as_str())
+    })
+}
+
+/// The innermost type declaring `name` at `line`; an impl block has no owner
+/// that another declaration can extend or implement.
+pub(super) fn member_owner(content: &str, file: &str, line: u32, name: &str) -> Option<String> {
+    let document = octocode_tools_shared::declarations::file_document(content, file)?;
+    let holds_bodies =
+        |kind: &str| TYPE_DECLARATION_KINDS.contains(&kind) || kind == "impl" || kind == "module";
+    let language = octocode_engine::lsp::config::detect_language_id(file);
+    let name = canonical_symbol_name(language.as_deref(), name);
+    let member = document.declarations.iter().find(|declaration| {
+        canonical_symbol_name(language.as_deref(), &declaration.name) == name
+            && declaration.selection_range.start.line == line
+            && !holds_bodies(declaration.kind.as_str())
+    })?;
+    let owner = document
+        .declarations
+        .iter()
+        .filter(|declaration| {
+            declaration.id != member.id
+                && declaration.range.start <= member.range.start
+                && member.range.end <= declaration.range.end
+        })
+        .max_by(|left, right| left.range.start.cmp(&right.range.start))?;
+    TYPE_DECLARATION_KINDS
+        .contains(&owner.kind.as_str())
+        .then(|| owner.name.clone())
+}
+
+/// What the heritage scan read: the subtypes of `base` among the `files`
+/// that spell it, and the `unread` files (canonical paths) it could not read.
+pub(in super::super) struct HeritageScan {
+    pub(in super::super) base: String,
+    pub(in super::super) files: usize,
+    pub(in super::super) found: Vec<LspCodeSnippet>,
+    pub(in super::super) unread: Vec<String>,
+}
+
+/// How long the server's `textDocument/implementation` answer may still
+/// arrive once the syntax scan has finished: its rows are resolved, the
+/// scan's are matched by name, so a server that is merely slow (a cold
+/// rust-analyzer index takes tens of seconds) keeps the win, but one that
+/// has not answered by then costs no further wait.
+pub(in super::super) const SERVER_GRACE_AFTER_SCAN: std::time::Duration =
+    std::time::Duration::from_secs(20);
+
+/// Run `primary` (the server's request) and `hedge` (its syntax-scan
+/// substitute) at the same time. A primary answer wins and drops the hedge,
+/// which stops its blocking work, unless `keep` asks for the hedge beside
+/// the answer: then it is awaited (or taken, finished) and rides with it. A
+/// failure that `has_fallback` takes the hedge as it stands, finished or
+/// not, so the scan's time overlaps the primary's instead of following it.
+/// When the hedge finishes first and `grace` names a wait for it, the
+/// primary has that long to answer before `overdue` (given the wait) turns
+/// into its failure and the hedge is taken. The primary's own timeout still
+/// bounds everything else.
+pub(in super::super) async fn hedged<T, E, H>(
+    primary: impl Future<Output = Result<T, E>>,
+    hedge: impl Future<Output = H>,
+    has_fallback: impl Fn(&E) -> bool,
+    grace: impl Fn(&H) -> Option<std::time::Duration>,
+    overdue: impl FnOnce(std::time::Duration) -> E,
+    keep: bool,
+) -> Result<(T, Option<H>), (E, Option<H>)> {
+    let mut primary = std::pin::pin!(primary);
+    let mut hedge = std::pin::pin!(hedge);
+    let mut hedged = None;
+    let mut waiting = std::pin::pin!(tokio::time::sleep(std::time::Duration::MAX));
+    let mut allowed = None;
+    let failure = loop {
+        tokio::select! {
+            biased;
+            answer = &mut primary => match answer {
+                Ok(answer) if !keep => return Ok((answer, None)),
+                Ok(answer) => {
+                    let hedged = match hedged {
+                        Some(done) => done,
+                        None => hedge.await,
+                    };
+                    return Ok((answer, Some(hedged)));
+                }
+                Err(failure) => break failure,
+            },
+            done = &mut hedge, if hedged.is_none() => {
+                if let Some(wait) = grace(&done) {
+                    waiting.as_mut().reset(tokio::time::Instant::now() + wait);
+                    allowed = Some(wait);
+                }
+                hedged = Some(done);
+            }
+            () = &mut waiting, if allowed.is_some() => {
+                break overdue(allowed.unwrap_or_default());
+            }
+        }
+    };
+    if !has_fallback(&failure) {
+        return Err((failure, None));
+    }
+    let hedged = match hedged {
+        Some(done) => done,
+        None => hedge.await,
+    };
+    Err((failure, Some(hedged)))
+}
+
+/// The declarations of `content` whose `extends` / `implements` clause names
+/// `base` (as written, or as the last segment of a dotted name), located at
+/// the declaration's name. Matched by name, not resolved to a declaration.
+/// Read from the parts of the file that spell `base` where the engine can;
+/// else from the whole file's facts; a file whose grammar never names a
+/// supertype (Go embeds) holds none and is not parsed.
+pub(in super::super) fn subtype_snippets(
+    content: &str,
+    file: &str,
+    base: &str,
+) -> Vec<LspCodeSnippet> {
+    if !octocode_engine::signatures::may_name_supertypes(content, file) {
+        return Vec::new();
+    }
+    let language = octocode_engine::lsp::config::detect_language_id(file);
+    let base = canonical_symbol_name(language.as_deref(), base);
+    let Some(document) = octocode_tools_shared::declarations::named_heritage(content, file, base)
+        .or_else(|| octocode_tools_shared::declarations::graph_facts(content, file))
+    else {
+        return Vec::new();
+    };
+    let Ok(uri) = octocode_engine::lsp::uri::path_to_uri(file) else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    let mut seen = BTreeSet::new();
+    for edge in document
+        .edges
+        .iter()
+        .filter(|edge| matches!(edge.relation.as_str(), "extends" | "implements"))
+        .filter(|edge| {
+            edge.to
+                .rsplit(['.', ':'])
+                .next()
+                .is_some_and(|name| canonical_symbol_name(language.as_deref(), name) == base)
+        })
+    {
+        let Some(declaration) = document
+            .declarations
+            .iter()
+            .find(|declaration| declaration.id == edge.from)
+        else {
+            continue;
+        };
+        if !seen.insert(declaration.id.as_str()) {
+            continue;
+        }
+        let name = &declaration.selection_range;
+        found.push(LspCodeSnippet {
+            uri: uri.clone(),
+            range: LspRange {
+                start: LspExactPosition {
+                    line: name.start.line,
+                    character: name.start.character,
+                },
+                end: LspExactPosition {
+                    line: name.end.line,
+                    character: name.end.character,
+                },
+            },
+            // The declaration's own line, as a server location reads.
+            content: content
+                .lines()
+                .nth(name.start.line as usize)
+                .unwrap_or(&declaration.name)
+                .to_owned(),
+            symbol_kind: None,
+            display_range: None,
+        });
+    }
+    found.sort_by_key(|snippet| (snippet.range.start.line, snippet.range.start.character));
+    found
+}
+
+/// The members named `member` that the subtypes of `base` in `content`
+/// declare (a trait method's implementations, an interface method's, a
+/// class method's overrides), located at the member's name. A member
+/// belongs to the innermost declaration around it, so one in a type nested
+/// inside a subtype is not that subtype's. Matched by name like
+/// [`subtype_snippets`]; read from the whole file's facts, which hold the
+/// members.
+pub(in super::super) fn member_snippets(
+    content: &str,
+    file: &str,
+    base: &str,
+    member: &str,
+) -> Vec<LspCodeSnippet> {
+    if !octocode_engine::signatures::may_name_supertypes(content, file) {
+        return Vec::new();
+    }
+    let Some(document) = octocode_tools_shared::declarations::graph_facts(content, file) else {
+        return Vec::new();
+    };
+    let Ok(uri) = octocode_engine::lsp::uri::path_to_uri(file) else {
+        return Vec::new();
+    };
+    let language = octocode_engine::lsp::config::detect_language_id(file);
+    let base = canonical_symbol_name(language.as_deref(), base);
+    let member = canonical_symbol_name(language.as_deref(), member);
+    let subtypes = document
+        .edges
+        .iter()
+        .filter(|edge| matches!(edge.relation.as_str(), "extends" | "implements"))
+        .filter(|edge| {
+            edge.to
+                .rsplit(['.', ':'])
+                .next()
+                .is_some_and(|name| canonical_symbol_name(language.as_deref(), name) == base)
+        })
+        .map(|edge| edge.from.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut found = document
+        .declarations
+        .iter()
+        .filter(|declaration| {
+            canonical_symbol_name(language.as_deref(), &declaration.name) == member
+        })
+        .filter(|declaration| {
+            document
+                .declarations
+                .iter()
+                .filter(|outer| {
+                    outer.id != declaration.id
+                        && outer.range.start <= declaration.range.start
+                        && declaration.range.end <= outer.range.end
+                })
+                .max_by(|left, right| left.range.start.cmp(&right.range.start))
+                .is_some_and(|owner| subtypes.contains(owner.id.as_str()))
+        })
+        .map(|declaration| {
+            let name = &declaration.selection_range;
+            LspCodeSnippet {
+                uri: uri.clone(),
+                range: LspRange {
+                    start: LspExactPosition {
+                        line: name.start.line,
+                        character: name.start.character,
+                    },
+                    end: LspExactPosition {
+                        line: name.end.line,
+                        character: name.end.character,
+                    },
+                },
+                content: content
+                    .lines()
+                    .nth(name.start.line as usize)
+                    .unwrap_or(&declaration.name)
+                    .to_owned(),
+                symbol_kind: None,
+                display_range: None,
+            }
+        })
+        .collect::<Vec<_>>();
+    found.sort_by_key(|snippet| (snippet.range.start.line, snippet.range.start.character));
+    found.dedup_by_key(|snippet| (snippet.range.start.line, snippet.range.start.character));
+    found
+}
+
+/// The subtypes of `base` among `files` (canonical paths of the files that
+/// spell it), by file path then position, and the files that could not be
+/// read, by path. Files are parsed in parallel; `stopped` abandons the scan.
+pub(in super::super) fn scan_subtypes(
+    files: &BTreeSet<String>,
+    base: &str,
+    stopped: &(dyn Fn() -> bool + Sync),
+) -> (Vec<LspCodeSnippet>, Vec<String>) {
+    scan_files(files, stopped, &|content, file| {
+        subtype_snippets(content, file, base)
+    })
+}
+
+/// [`member_snippets`] of `member` among `files` (canonical paths of the
+/// files that spell it), as [`scan_subtypes`] reads them.
+pub(super) fn scan_members(
+    files: &BTreeSet<String>,
+    base: &str,
+    member: &str,
+    stopped: &(dyn Fn() -> bool + Sync),
+) -> (Vec<LspCodeSnippet>, Vec<String>) {
+    scan_files(files, stopped, &|content, file| {
+        member_snippets(content, file, base, member)
+    })
+}
+
+/// What `read` finds in each of `files`, by file path then position, and
+/// the files that could not be read, by path. Files are parsed in
+/// parallel; `stopped` abandons the scan.
+fn scan_files(
+    files: &BTreeSet<String>,
+    stopped: &(dyn Fn() -> bool + Sync),
+    read: &(dyn Fn(&str, &str) -> Vec<LspCodeSnippet> + Sync),
+) -> (Vec<LspCodeSnippet>, Vec<String>) {
+    let mut files = files.iter().collect::<Vec<_>>();
+    let workers = octocode_tools_shared::workers::workers(files.len(), None);
+    // Per file: what it holds, or `Err` when it could not be read or parsed
+    // (it is listed unread, never dropped); nothing once the scan stopped.
+    let scanned = octocode_tools_shared::workers::each_parallel(&mut files, workers, |file| {
+        if stopped() {
+            return None;
+        }
+        let parsed = read_bounded_source(std::path::Path::new(file.as_str()))
+            .ok()
+            .and_then(|content| {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| read(&content, file))).ok()
+            });
+        Some(parsed.ok_or_else(|| (*file).clone()))
+    });
+    let (mut found, mut unread) = (Vec::new(), Vec::new());
+    for outcome in scanned.into_iter().flatten() {
+        match outcome {
+            Ok(snippets) => found.extend(snippets),
+            Err(file) => unread.push(file),
+        }
+    }
+    unread.sort();
+    found.sort_by(|left, right| {
+        (&left.uri, left.range.start.line, left.range.start.character).cmp(&(
+            &right.uri,
+            right.range.start.line,
+            right.range.start.character,
+        ))
+    });
+    (found, unread)
+}
+
+/// The warning about the files a heritage scan could not read: their
+/// subtypes are missing from the answer. It names as many as the text-search
+/// lead lists one row each and counts the rest; the lead reaches them all.
+pub(in super::super) fn describe_unread(unread: &[String]) -> String {
+    let named = unread.len().min(super::super::failure::LISTED_TEXT_FILES);
+    let rest = match unread.len() - named {
+        0 => String::new(),
+        more => format!(" and {more} more"),
+    };
+    format!(
+        "The heritage scan could not read {} file(s), so subtypes declared there are missing: {}{rest}.",
+        unread.len(),
+        unread[..named].join(", ")
+    )
+}
+
+/// The caller-facing note of a heritage scan that replaced a failed
+/// implementation request.
+pub(in super::super) fn describe_scan(
+    failure: &LspFailure,
+    base: &str,
+    files: usize,
+    operation: &str,
+) -> String {
+    let noun = if operation == "implementation" {
+        "implementations"
+    } else {
+        "subtypes"
+    };
+    format!(
+        "The language server did not answer textDocument/implementation in time ({}): {noun} are the declarations whose extends/implements clause names `{base}`, read from source in {} spelling it. They are direct {noun} only; run {operation} on each to descend. They are unverified: the base is matched by name, not resolved to this declaration. Retry asks the server again.",
+        failure.message,
+        octocode_engine::text::counted(files, "file", "files")
+    )
+}

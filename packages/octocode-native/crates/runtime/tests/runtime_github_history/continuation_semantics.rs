@@ -1,4 +1,5 @@
 use crate::support::{Workspace, call, row_data, row_status, walk};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -62,9 +63,11 @@ async fn summary_and_patch_walks_terminate_without_requiring_each_other() {
     let summary_data = row_data(&summary);
     crate::support::checks::assert_leads_valid(summary_data);
     assert!(
-        summary_data["related"].as_array().is_none_or(|calls| calls
-            .iter()
-            .all(|call| { call["input"]["queries"][0]["sections"] != json!(["patches"]) })),
+        summary_data["related"]
+            .as_array()
+            .is_none_or(|calls| calls.iter().all(|call| {
+                call["input"]["queries"][0]["sections"] != json_fixture(r#"["patches"]"#)
+            })),
         "{summary_data}"
     );
     let input = json!({"queries":[{"operation":"commit","owner":"a","repo":"b","ref":row_data(&summary)["commitSha"],"sections":["patches"]}],"responseChars":4000});

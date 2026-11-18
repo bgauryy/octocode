@@ -1,6 +1,7 @@
 //! MCP response pages are reached by copying one opaque cursor input.
 
 use crate::support::{self, Run as _, Workspace};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 
 const LINES: usize = 120;
@@ -33,14 +34,13 @@ async fn walk(
             assert_ne!(pagination["restart"], true, "{pagination}");
         }
         pages.push(result);
-        if pagination["hasMore"] != true {
-            assert!(pagination["next"].is_null(), "{pagination}");
+        if pagination["next"].is_null() {
             break;
         }
         assert!(pages.len() < 200, "the walk terminates");
         let next = pagination["next"]["input"].clone();
         support::assert_cursor_only(&next);
-        octocode_native::contracts::validate(tool, next.clone()).expect("canonical cursor");
+        octocode_runtime_base::contracts::validate(tool, next.clone()).expect("canonical cursor");
         // Exactly what an MCP client sends: the cursor field and nothing else.
         request = next;
     }
@@ -118,7 +118,7 @@ async fn the_cursor_walks_saved_pages_across_persistent_restarts() {
     captured(&first_payload["results"], &mut seen);
     let mut pagination = first_payload["responsePagination"].clone();
     let mut pages = 1;
-    while pagination["hasMore"] == true {
+    while pagination["next"].is_object() {
         pages += 1;
         assert!(pages < 200, "finite persistent page walk");
         support::assert_cursor_only(&pagination["next"]["input"]);
@@ -160,8 +160,20 @@ async fn an_identical_continuation_is_one_cursor() {
         workspace.write(&format!("{name}.txt"), "x\n");
     }
     let runtime = workspace.runtime(&[]);
-    let request = json!({"queries":[{"operation":"files","path":".","entryType":"file",
-        "extensions":["txt"],"limit":2,"view":"paths"}]});
+    let request = json_fixture(
+        r#"{
+            "queries": [
+                {
+                    "operation": "files",
+                    "path": ".",
+                    "entryType": "file",
+                    "extensions": ["txt"],
+                    "limit": 2,
+                    "view": "paths"
+                }
+            ]
+        }"#,
+    );
     let mut leads = Vec::new();
     for call in ["first", "second"] {
         let result = runtime
@@ -328,7 +340,7 @@ async fn repaired_pages_after_eviction(repair: bool, rejected: bool) {
             &workspace,
             "localSearch",
             &start,
-            &json!({"responseChars": 60_000}),
+            &json_fixture(r#"{"responseChars": 60000}"#),
             Some(1),
         )
         .await;
@@ -364,22 +376,46 @@ async fn repaired_mixed_response_pages_survive_eviction() {
     repaired_pages_after_eviction(true, true).await;
 }
 
-/// An indivisible long line forces response pagination beside another read.
-/// The rejected row changes that read's share even though it is not replayed.
+/// A mixed read batch pages its response: a long line's byte walk and line
+/// reads beside a rejected row, and one line too wide for its share but
+/// shorter than a long line, which is read whole (never cut across byte
+/// windows) and which the response pager splits into parts. Its later pages
+/// replay identically after eviction. The rejected row changes the reads'
+/// shares even though it is not replayed.
 #[tokio::test]
 async fn mixed_read_response_pages_survive_eviction() {
+    let long_line = octocode_tools_shared::source_view::pagination::MIN_BYTE_PAGE;
     let workspace = Workspace::new();
-    let large = workspace.write(
-        "oversized.txt",
-        format!("needle captured {}\n", "x".repeat(7000)),
-    );
+    let long = format!("needle captured {}\n", "x".repeat(7000));
+    let wide = format!("needle captured {}\n", "x".repeat(3500));
+    assert!(wide.len() < long_line && long.len() > long_line);
+    let large = workspace.write("oversized.txt", long);
+    let wide = workspace.write("wide.txt", wide);
     let lines = workspace.write("captured.txt", source());
     for window in [900, 1200, 3000] {
         let start = json!({"queries":[
-            {"path":large}, {"path":lines,"offset":1}, {"path":lines}
+            {"path":large}, {"path":lines,"offset":1}, {"path":lines}, {"path":wide}
         ],"responseChars":window});
+        let runtime = workspace.runtime(&[]);
+        let first = runtime
+            .run("mixed".into(), "localFetch".into(), start.clone())
+            .await
+            .expect("first page")
+            .structured_content
+            .into_value();
+        runtime.close().await;
         let retained = later_pages(&workspace, "localFetch", &start, &json!({}), None).await;
-        assert!(!retained.is_empty(), "the mixed read pages");
+        assert!(!retained.is_empty(), "the mixed read pages at {window}");
+        // The walk reads byte-paged and line-paged rows.
+        let units = std::iter::once(&first["results"])
+            .chain(retained.iter().map(|(rows, _)| rows))
+            .flat_map(|rows| rows.as_array().into_iter().flatten())
+            .filter_map(|row| row.pointer("/data/pagination/unit")?.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        assert!(
+            units.contains("bytes") && units.contains("lines"),
+            "a mixed read at {window}: {units:?}"
+        );
         for after in [0, 1] {
             let rerun =
                 later_pages(&workspace, "localFetch", &start, &json!({}), Some(after)).await;
@@ -431,8 +467,10 @@ async fn a_repaired_response_still_refuses_changed_source_after_eviction() {
     runtime.close().await;
 }
 
-/// A cursor call is the cursor alone: any field beside it but the page size
-/// is refused, never silently ignored.
+/// A cursor call is the cursor alone: a field beside it at another value
+/// than the cursor's saved query holds, or a private progress field, is
+/// refused, never silently ignored. (One at its saved value is dropped and
+/// said: `runtime_cursor_beside`.)
 #[tokio::test]
 async fn a_cursor_call_refuses_another_field_beside_it() {
     let workspace = Workspace::new();
@@ -451,8 +489,8 @@ async fn a_cursor_call_refuses_another_field_beside_it() {
     let next = first["responsePagination"]["next"]["input"].clone();
     support::assert_cursor_only(&next);
     for (field, value) in [
-        ("path", json!(file)),
-        ("matchString", json!(["needle"])),
+        ("path", json!(workspace.write("other.txt", source()))),
+        ("matchString", json_fixture(r#"["captured"]"#)),
         ("page", json!(2)),
     ] {
         let mut input = next.clone();

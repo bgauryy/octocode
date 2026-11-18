@@ -1,6 +1,7 @@
 //! Tree and languages listings: file sizes, paging back to the first page,
 //! renamed repositories, and the fields each operation takes.
 use super::*;
+use octocode_test_support::json_fixture;
 
 /// Tree-only fields are rejected on refs and languages (ref also on languages).
 #[tokio::test]
@@ -8,9 +9,9 @@ async fn refs_and_languages_reject_tree_fields() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", "http://127.0.0.1:9/api/v3".into())]);
     for (operation, field) in [
-        ("refs", json!({"path": "src"})),
-        ("refs", json!({"materialize": true})),
-        ("languages", json!({"ref": "main"})),
+        ("refs", json_fixture(r#"{"path": "src"}"#)),
+        ("refs", json_fixture(r#"{"materialize": true}"#)),
+        ("languages", json_fixture(r#"{"ref": "main"}"#)),
     ] {
         let mut query = json!({"owner": "a", "repo": "b", "operation": operation});
         for (key, value) in field.as_object().expect("field") {
@@ -59,7 +60,7 @@ async fn languages_list_bytes_per_language_largest_first() {
     let outcome = call(
         &runtime,
         "ghStructure",
-        json!({"owner": "a", "repo": "b", "operation": "languages"}),
+        json_fixture(r#"{"owner": "a", "repo": "b", "operation": "languages"}"#),
     )
     .await
     .expect("languages");
@@ -84,14 +85,18 @@ async fn languages_list_bytes_per_language_largest_first() {
 async fn a_listing_states_each_file_size() {
     let server = MockServer::builder().start().await;
     mount_head_at_sha(&server).await;
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b/contents"))
-        .and(query_param("ref", SHA))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+    let entries = json_fixture(
+        r#"[
             {"name": "small.rs", "path": "small.rs", "type": "file", "size": 10},
             {"name": "big (1).bin", "path": "big (1).bin", "type": "file", "size": 400000},
             {"name": "src", "path": "src", "type": "dir", "size": 0}
-        ])))
+        ]"#,
+    );
+    mount_folder_tree(&server, "/api/v3/repos/a/b", SHA, "", &entries).await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents"))
+        .and(query_param("ref", SHA))
+        .respond_with(ResponseTemplate::new(200).set_body_json(entries))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -99,14 +104,14 @@ async fn a_listing_states_each_file_size() {
     let outcome = call(
         &runtime,
         "ghStructure",
-        json!({"operation":"tree","owner": "a", "repo": "b"}),
+        json_fixture(r#"{"operation": "tree", "owner": "a", "repo": "b"}"#),
     )
     .await
     .expect("listing");
     let data = row_data(&outcome);
     assert_eq!(
         data["files"][0]["files"],
-        json!(["big (1).bin (400000)", "small.rs (10)", "src/"]),
+        json_fixture(r#"["big (1).bin (400000)", "small.rs (10)", "src/"]"#),
         "{data}"
     );
     runtime.close().await;
@@ -159,19 +164,25 @@ async fn a_renamed_repository_is_listed_and_continued_under_its_canonical_name()
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"default_branch":"main","full_name":"c/d"})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"default_branch": "main", "full_name": "c/d"}"#,
+        )))
         .expect(1)
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/c/d/contents"))
         .and(query_param("ref", SHA))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-            {"name":"lib.rs","path":"lib.rs","type":"file","size":10}
-        ])))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"[
+                {
+                    "name": "lib.rs",
+                    "path": "lib.rs",
+                    "type": "file",
+                    "size": 10
+                }
+            ]"#,
+        )))
         .expect(1)
         .mount(&server)
         .await;
@@ -180,7 +191,14 @@ async fn a_renamed_repository_is_listed_and_continued_under_its_canonical_name()
     let outcome = call(
         &runtime,
         "ghStructure",
-        json!({"operation":"tree","owner": "a", "repo": "b", "ref": "main"}),
+        json_fixture(
+            r#"{
+                "operation": "tree",
+                "owner": "a",
+                "repo": "b",
+                "ref": "main"
+            }"#,
+        ),
     )
     .await
     .expect("listing");
@@ -200,7 +218,7 @@ async fn a_renamed_repository_is_listed_and_continued_under_its_canonical_name()
         "{data}"
     );
     assert!(data.get("related").is_none(), "{data}");
-    octocode_native::contracts::validate("ghGetFileContent", json!({"queries":[{"owner":data["owner"],"repo":data["repo"],"path":"lib.rs","ref":data["commitSha"]}]})).expect("canonical identity forms a valid source request");
+    octocode_runtime_base::contracts::validate("ghGetFileContent", json!({"queries":[{"owner":data["owner"],"repo":data["repo"],"path":"lib.rs","ref":data["commitSha"]}]})).expect("canonical identity forms a valid source request");
     assert!(graphql_requests(&server).await.is_empty());
     runtime.close().await;
 }
@@ -212,10 +230,9 @@ async fn a_renamed_repository_without_a_ref_costs_no_extra_metadata_read() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"default_branch":"main","full_name":"c/d"})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"default_branch": "main", "full_name": "c/d"}"#,
+        )))
         .expect(1)
         .mount(&server)
         .await;
@@ -227,9 +244,16 @@ async fn a_renamed_repository_without_a_ref_costs_no_extra_metadata_read() {
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/c/d/contents"))
         .and(query_param("ref", SHA))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-            {"name":"lib.rs","path":"lib.rs","type":"file","size":10}
-        ])))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"[
+                {
+                    "name": "lib.rs",
+                    "path": "lib.rs",
+                    "type": "file",
+                    "size": 10
+                }
+            ]"#,
+        )))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -237,7 +261,7 @@ async fn a_renamed_repository_without_a_ref_costs_no_extra_metadata_read() {
     let outcome = call(
         &runtime,
         "ghStructure",
-        json!({"operation":"tree","owner": "a", "repo": "b"}),
+        json_fixture(r#"{"operation": "tree", "owner": "a", "repo": "b"}"#),
     )
     .await
     .expect("listing");
@@ -266,7 +290,11 @@ async fn a_busy_answer_cache_is_said_in_the_responses_warnings() {
     call(
         &warmup,
         "ghStructure",
-        json!({"queries":[{"operation":"tree","owner":"a","repo":"b"}]}),
+        json_fixture(
+            r#"{
+                "queries": [{"operation": "tree", "owner": "a", "repo": "b"}]
+            }"#,
+        ),
     )
     .await
     .expect("create the configured provider store");
@@ -291,7 +319,11 @@ async fn a_busy_answer_cache_is_said_in_the_responses_warnings() {
     let outcome = call(
         &runtime,
         "ghStructure",
-        json!({"queries":[{"operation":"tree","owner":"a","repo":"b"}]}),
+        json_fixture(
+            r#"{
+                "queries": [{"operation": "tree", "owner": "a", "repo": "b"}]
+            }"#,
+        ),
     )
     .await
     .expect("listing");

@@ -1,6 +1,8 @@
 ---
 name: octocode-workflows
 description: "Load this skill first when designing, running or resuming a multi-step process with ordered stages, dependencies, retries, checkpoints or rollback, such as pipelines, migrations, releases or data jobs across tools and services. Load it before scripting the steps. Use octocode-orchestrator to coordinate live agents."
+metadata:
+  excluded-hosts: "octocode-code"
 ---
 
 # Octocode Workflows

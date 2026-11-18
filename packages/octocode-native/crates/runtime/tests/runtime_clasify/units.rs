@@ -5,6 +5,7 @@
 
 use super::{clasify, noul, sent};
 use crate::support::{self, Workspace, clasify_runtime};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -72,7 +73,7 @@ async fn search_hits_are_judged_one_by_one_and_only_the_passing_ones_return() {
     let workspace = Workspace::new();
     workspace.write("dense.txt", dense());
     let runtime = clasify_runtime(&workspace, &server, &[]);
-    let query = json!({"path":"dense.txt","matchString":["needle"]});
+    let query = json_fixture(r#"{"path": "dense.txt", "matchString": ["needle"]}"#);
     let out = clasify(
         &runtime,
         vec![rows_row("localSearch", query.clone(), "summary")],
@@ -82,12 +83,12 @@ async fn search_hits_are_judged_one_by_one_and_only_the_passing_ones_return() {
     assert_eq!(unit_keys(data), ["dense.txt:2", "dense.txt:5"], "{out}");
     assert_eq!(
         data["units"]["dense.txt:2"],
-        json!({"keep":{"noul":0.94}}),
+        json_fixture(r#"{"keep": {"noul": 0.94}}"#),
         "{out}"
     );
     assert_eq!(
         data["coverage"],
-        json!({"totalUnits":6,"answered":6,"quiet":4}),
+        json_fixture(r#"{"totalUnits": 6, "answered": 6, "quiet": 4}"#),
         "{out}"
     );
     assert_eq!(data["usage"]["calls"], 6, "{out}");
@@ -109,7 +110,7 @@ async fn search_hits_are_judged_one_by_one_and_only_the_passing_ones_return() {
     assert_eq!(unit_keys(data).len(), 6, "{out}");
     assert_eq!(
         data["units"]["dense.txt:1"]["keep"],
-        json!({"status":"answered","answer":{"noul":0.03}}),
+        json_fixture(r#"{"status": "answered", "answer": {"noul": 0.03}}"#),
         "{out}"
     );
     assert_eq!(data["model"], "jev-test", "{out}");
@@ -250,7 +251,7 @@ async fn listed_paths_are_units_named_by_path() {
         &runtime,
         vec![rows_row(
             "structureSearch",
-            json!({"path":"src"}),
+            json_fixture(r#"{"path": "src"}"#),
             "summary",
         )],
     )
@@ -273,7 +274,7 @@ async fn a_tools_next_page_is_the_rows_next_page() {
         workspace.write(file, dense());
     }
     let runtime = clasify_runtime(&workspace, &server, &[]);
-    let query = json!({"path":".","matchString":["needle"],"limit":1});
+    let query = json_fixture(r#"{"path": ".", "matchString": ["needle"], "limit": 1}"#);
     let first = clasify(&runtime, vec![rows_row("localSearch", query, "details")]).await;
     let data = &first["results"][0]["data"];
     let next = &data["next"]["nextPage"];
@@ -336,7 +337,7 @@ async fn github_search_rows_are_units() {
         .await;
     let workspace = Workspace::new();
     let runtime = clasify_runtime(&workspace, &server, &support::github_api(&github));
-    let query = json!({"owner":"octo","repo":"demo","keywords":["needle"]});
+    let query = json_fixture(r#"{"owner": "octo", "repo": "demo", "keywords": ["needle"]}"#);
     let out = clasify(&runtime, vec![rows_row("ghSearchCode", query, "details")]).await;
     let data = &out["results"][0]["data"];
     assert!(data.get("errorCode").is_none(), "{out}");
@@ -374,14 +375,18 @@ async fn content_items_are_units_when_asked_and_one_source_otherwise() {
     assert_eq!(unit_keys(data), ["17", "140"], "{out}");
     assert_eq!(
         data["coverage"],
-        json!({"totalUnits":150,"answered":150,"quiet":148}),
+        json_fixture(r#"{"totalUnits": 150, "answered": 150, "quiet": 148}"#),
         "{out}"
     );
     assert_eq!(sent(&server).await.len(), 150);
 
     let out = clasify(&runtime, vec![row(false)]).await;
     let data = &out["results"][0]["data"];
-    assert_eq!(data["answers"]["keep"], json!({"noul":0.94}), "{out}");
+    assert_eq!(
+        data["answers"]["keep"],
+        json_fixture(r#"{"noul": 0.94}"#),
+        "{out}"
+    );
     assert_eq!(sent(&server).await.len(), 151);
     runtime.close().await;
 }
@@ -404,7 +409,7 @@ async fn only_read_only_row_tools_are_sources_and_their_contract_checks_the_quer
             &runtime,
             format!("refused-{tool}"),
             "clasify".into(),
-            json!({"queries":[rows_row(tool, json!({"path":"."}), "summary")]}),
+            json!({"queries":[rows_row(tool, json_fixture(r#"{"path": "."}"#), "summary")]}),
         )
         .await;
         let refused = match result {
@@ -423,7 +428,7 @@ async fn only_read_only_row_tools_are_sources_and_their_contract_checks_the_quer
         &runtime,
         "refused-field".into(),
         "clasify".into(),
-        json!({"queries":[rows_row("localSearch", json!({"path":".","noSuchField":1}), "summary")]}),
+        json!({"queries":[rows_row("localSearch", json_fixture(r#"{"path": ".", "noSuchField": 1}"#), "summary")]}),
     )
     .await
     .expect_err("admission refuses the query");
@@ -433,5 +438,77 @@ async fn only_read_only_row_tools_are_sources_and_their_contract_checks_the_quer
         "{shown}"
     );
     assert!(sent(&server).await.is_empty());
+    runtime.close().await;
+}
+
+/// Answers every question yes and reports the usage of one small request.
+async fn reporting() -> MockServer {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(|request: &wiremock::Request| {
+            let body: Value = serde_json::from_slice(&request.body).expect("provider body");
+            let answers = body["questions"]
+                .as_object()
+                .expect("questions")
+                .keys()
+                .map(|id| (id.clone(), json_fixture(r#"{"type": "noul", "noul": 0.9}"#)))
+                .collect::<serde_json::Map<_, _>>();
+            ResponseTemplate::new(200).set_body_json(json!({
+                "model":"jev-test","answers":answers,
+                "usage":{"input_tokens":10,"output_tokens":2},
+            }))
+        })
+        .mount(&server)
+        .await;
+    server
+}
+
+fn item_row(items: &[&str]) -> Value {
+    json!({"operation":"evaluate","view":"details","perItem":true,
+        "content":items,
+        "questions":{"keep":noul("The item is marked to keep.")}})
+}
+
+fn spend(row: &Value) -> (u64, u64, u64) {
+    let usage = &row["data"]["usage"];
+    (
+        usage["calls"].as_u64().unwrap_or(0),
+        usage["inputTokens"].as_u64().unwrap_or(0),
+        usage["outputTokens"].as_u64().unwrap_or(0),
+    )
+}
+
+/// Identical items share one provider request, so the row reports that one
+/// request's tokens once, not once per item.
+#[tokio::test]
+async fn identical_items_report_one_requests_spend_once() {
+    let server = reporting().await;
+    let workspace = Workspace::new();
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let out = clasify(&runtime, vec![item_row(&["x", "x", "x"])]).await;
+    assert_eq!(sent(&server).await.len(), 1, "{out}");
+    assert_eq!(
+        out["results"][0]["data"]["usage"],
+        json_fixture(r#"{"calls": 1, "inputTokens": 10, "outputTokens": 2}"#),
+        "{out}"
+    );
+    runtime.close().await;
+}
+
+/// Rows whose items overlap send each distinct request once; their usage
+/// sums to what was billed, and the same row carries it on every run.
+#[tokio::test]
+async fn items_shared_across_rows_are_billed_once_to_the_first_row() {
+    let server = reporting().await;
+    let workspace = Workspace::new();
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    for _ in 0..5 {
+        let out = clasify(&runtime, vec![item_row(&["x", "y"]), item_row(&["x"])]).await;
+        let (first, second) = (spend(&out["results"][0]), spend(&out["results"][1]));
+        assert_eq!(first, (2, 20, 4), "{out}");
+        assert_eq!(second, (0, 0, 0), "{out}");
+    }
+    assert_eq!(sent(&server).await.len(), 10);
     runtime.close().await;
 }

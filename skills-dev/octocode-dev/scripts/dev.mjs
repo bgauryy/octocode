@@ -8,12 +8,15 @@ import { ROOT, SKILL_COLLECTIONS } from './lib/workspaces.mjs';
 import { skillTestCommand } from './lib/skill-tests.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+const NATIVE = path.join(ROOT, 'packages', 'octocode-native');
 // CI never builds native: native artifacts are built locally (`build:all` / `build:publish`).
 const CI_EXCLUDE = ['--exclude', '@octocodeai/octocode-native'];
 
 const script = (name, ...args) => ['node', [path.join(HERE, name), ...args]];
 const health = (...args) => script('workspace-health.mjs', ...args);
 const yarn = (...args) => ['yarn', args];
+// A step that builds Rust holds a machine-wide build slot for its whole run (packages/octocode-native/scripts/build-slot.cjs).
+const slotted = ([command, args], options) => ['node', [path.join(NATIVE, 'scripts', 'build-slot.cjs'), '--', command, ...args], options];
 // Shared assets have a private workspace; skill folders remain independently installable.
 const skill = (rel, ...args) => ['node', [path.join(ROOT, 'skills', rel), ...args]];
 const skillChecks = () => [
@@ -27,7 +30,7 @@ const OXLINT_BASELINE = script('oxlint-baseline.mjs');
 // The shared skill workspace's own lint/test; test:ci and lint:ci reach them through the workspace run.
 const SKILLS_COMMON = [yarn('workspace', '@octocodeai/skills-common', 'lint'), yarn('workspace', '@octocodeai/skills-common', 'test')];
 
-/** task → [description, steps]; extra CLI args go to the last step. */
+/** task → [description, steps]; a step is [command, args, spawn options?]; extra CLI args go to the last step. */
 const TASKS = {
   build: ['Release-mode build of every workspace (native host only, slow)', [health('run', 'build', '--parallel')]],
   'build:dev': ['Fast debug build of every workspace (native host only, default locally); shared cache cleanup is a separate explicit task', [health('run', 'build', '--parallel', '--prefer', 'build:dev')]],
@@ -35,6 +38,7 @@ const TASKS = {
   'build:publish': ['Resolution check, all-platform native build, MCP publish build', [script('prepublish.mjs'), yarn('workspace', '@octocodeai/octocode-native', 'build:all'), yarn('workspace', 'octocode-mcp', 'build')]],
   test: ['Run every workspace test script', [health('run', 'test')]],
   'test:ci': ['Skill checks, the release build without native (the tests import dist/), then tests in parallel without native, each under its coverage floors when it declares test:coverage', () => [...skillChecks(), health('run', 'build', '--parallel', ...CI_EXCLUDE), health('run', 'test', '--parallel', '--prefer', 'test:coverage', ...CI_EXCLUDE)]],
+  'test:dev': ['Focused Rust tests: the test:rust build, then only the test binaries asked for, side by side, in a build slot ([--crate tool-github]... [--lib] [--] [libtest filter, e.g. local_search::])', [['node', [path.join(NATIVE, 'scripts', 'rust-tests.cjs'), 'dev'], { cwd: NATIVE }]]],
   'skills:check': ['Skill lint, shared report viewer, and skill script tests', () => [...skillChecks(), ...SKILLS_COMMON]],
   'answers:record': ['Re-record the provider answers native mocks replay, live, read-only and public (test-utils/provider-answers; needs build:dev; [id,...])', [script('providers/record.mjs')]],
   check: ['Fast local static check: oxlint baseline, rustfmt, the clippy ratchet, every other workspace lint:own and typecheck, in parallel. No build, no tests: pair it with a focused test', [OXLINT_BASELINE, yarn('workspace', '@octocodeai/octocode-native', 'fmt:rust:check'), script('rust-lint.mjs'), health('run', 'lint:own', '--parallel', '--exclude', '@octocodeai/octocode-native'), health('run', 'typecheck', '--parallel')]],
@@ -50,7 +54,7 @@ const TASKS = {
   'check-outputs': ['Build outputs and host native version/contract match (--all checks every staged platform)', [health('check-outputs')]],
   clean: ['Remove every workspace build output (dist/, out/, native target/ + staged binaries)', [yarn('workspaces', 'foreach', '-A', 'run', 'clean')]],
   'clean:cache': ['Drop stale native build copies; compiled dependencies stay warm', [yarn('workspace', '@octocodeai/octocode-native', 'clean:cache')]],
-  'prune:rust': ['Delete native target/ outputs no build:dev, test:rust or lint:rust run of the last 7 days used, and copied binaries; refuses while cargo runs ([--dry-run] [--days N])', [['node', [path.join(ROOT, 'packages', 'octocode-native', 'scripts', 'target-hygiene.cjs'), 'prune']]]],
+  'prune:rust': ['Delete native target/ outputs no build:dev, test:rust or lint:rust run of the last 7 days used, and copied binaries; refuses while cargo runs ([--dry-run] [--days N])', [['node', [path.join(NATIVE, 'scripts', 'target-hygiene.cjs'), 'prune']]]],
   'docs:verify': ['Docs links, catalog, config keys, publishing contracts', [script('docs-verify.mjs')]],
   'deps:dedupe': ['One version range per external dependency (--fix rewrites)', [script('dedupe-deps.mjs')]],
   'contracts:regen': ['Build sibling core, refresh its copy (yarn install), then regenerate the tool contract', [script('core-build.mjs'), yarn('install'), yarn('workspace', '@octocodeai/config', 'generate:tool-contract')]],
@@ -60,12 +64,12 @@ const TASKS = {
   'lsp:lock': ['Generate the managed language-server lock from GitHub release digests ([--check] diffs it, [--bump] moves to the latest releases)', [script('lsp-lock.mjs')]],
   // Opt-in Rust quality tools, pinned in packages/octocode-native/dev-tools.json; none runs in CI or installs anything.
   'rust:tools': ['Pinned Rust dev tools vs installed; prints install commands ([--json])', [script('rust-quality.mjs', 'tools')]],
-  'fuzz:smoke': ['Every libFuzzer target for 60 s on the pinned nightly ([--seconds N] [target...])', [script('rust-quality.mjs', 'fuzz', '--smoke')]],
-  fuzz: ['A longer libFuzzer campaign (600 s per target; [--seconds N] [target...])', [script('rust-quality.mjs', 'fuzz')]],
-  miri: ['The selected Miri tests on the pinned nightly, with a deadline', [script('rust-quality.mjs', 'miri')]],
+  'fuzz:smoke': ['Every libFuzzer target for 60 s on the pinned nightly ([--seconds N] [target...])', [slotted(script('rust-quality.mjs', 'fuzz', '--smoke'))]],
+  fuzz: ['A longer libFuzzer campaign (600 s per target; [--seconds N] [target...])', [slotted(script('rust-quality.mjs', 'fuzz'))]],
+  miri: ['The selected Miri tests on the pinned nightly, with a deadline', [slotted(script('rust-quality.mjs', 'miri'))]],
   mutants: ['Mutation test of chosen code, never per commit (-f <file>, --in-diff <diff>, -p <package>; slow: copies the tree and builds it)', [yarn('workspace', '@octocodeai/octocode-native', 'mutants')]],
   profile: ['Profile one tool flow: instructions, peak memory, flamegraph, top frames (<tool> <query json> [--phase first|repeat|page:N|one] [--cwd DIR]; --heap, --build)', [['python3', ['-I', '-B', path.join(HERE, 'profile', 'profile.py')]]]],
-  'llvm-lines': ['LLVM IR lines per generic instantiation of one crate ([package] [--timings])', [script('rust-quality.mjs', 'llvm-lines')]],
+  'llvm-lines': ['LLVM IR lines per generic instantiation of one crate ([package] [--timings])', [slotted(script('rust-quality.mjs', 'llvm-lines'))]],
 };
 
 function help() {
@@ -95,9 +99,9 @@ try {
   console.error(`dev ${task}: ${error.message}`);
   process.exit(1);
 }
-steps.forEach(([command, args], index) => {
+steps.forEach(([command, args, options], index) => {
   const finalArgs = index === steps.length - 1 ? [...args, ...extra] : args;
-  const { status, error } = spawnSync(command, finalArgs, { cwd: ROOT, stdio: 'inherit' });
+  const { status, error } = spawnSync(command, finalArgs, { cwd: ROOT, stdio: 'inherit', ...options });
   if (error) {
     console.error(`dev ${task}: ${command} failed to start: ${error.message}`);
     process.exit(1);

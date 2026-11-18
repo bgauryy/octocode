@@ -42,7 +42,7 @@ To use memory mode for one workspace, put this in its `.octocode/.octocoderc` an
 | GitHub or registry response | An immutable SHA or an unexpired origin-supplied `max-age` can be reused directly. When an entry expires, a validator such as an ETag lets the origin confirm it. An unused answer expires after seven days. |
 | GitHub search or rename | With no origin lifetime, search results and renamed repository routes may be reused for five minutes. `data.observedAt` identifies when a reused result was observed. A multi-section pull request can reuse the lifetime learned from a REST pull-request read for that credential. |
 | GitHub file missing at a commit | A path missing at a verified immutable commit can be cached. A missing repository, ref, or path on a moving branch is checked again. |
-| Sensitive response or advisory | Provider answers containing detected secrets stay in RAM. GitHub applies the configured path policy. OSV advisory answers are fetched fresh. [Security](SECURITY.md) |
+| Sensitive response or advisory | Provider answers containing detected secrets stay in RAM. GitHub applies the configured path policy. OSV sends no lifetime with its advisory lists, so the list for one exact query may be reused for five minutes, like a GitHub search, and `data.observedAt` identifies when a reused list was observed. The records a list names are kept under their id and `modified` time, so a changed record is read again. [Security](SECURITY.md) |
 | Classification | A fresh judgment can cost provider tokens even when the source is cached. Saved result pages replay completed work. [Classification and costs](OCTOCODE_CLASIFY.md#availability) |
 
 ### Clear cached work

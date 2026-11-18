@@ -96,7 +96,7 @@ fn typescript_layout() -> (crate::test_support::TmpDir, LspLanguageServerConfig,
 #[test]
 fn an_untrusted_workspace_runs_the_servers_own_tsserver() {
     let (_dir, mut config, pinned) = typescript_layout();
-    super::super::invocation::typescript_cli_pin_for_tests(&mut config, false);
+    super::super::invocation::typescript_cli::pin_tsserver(&mut config, false);
     assert_eq!(
         config.initialization_options.expect("options")["tsserver"]["path"],
         json!(pinned)
@@ -109,11 +109,11 @@ fn an_untrusted_workspace_runs_the_servers_own_tsserver() {
 #[test]
 fn a_trusted_workspace_or_a_configured_path_is_left_alone() {
     let (_dir, mut trusted, _) = typescript_layout();
-    super::super::invocation::typescript_cli_pin_for_tests(&mut trusted, true);
+    super::super::invocation::typescript_cli::pin_tsserver(&mut trusted, true);
     assert!(trusted.initialization_options.is_none());
     let (_dir, mut own, _) = typescript_layout();
     own.initialization_options = Some(json!({"tsserver": {"path": "/mine/tsserver.js"}}));
-    super::super::invocation::typescript_cli_pin_for_tests(&mut own, false);
+    super::super::invocation::typescript_cli::pin_tsserver(&mut own, false);
     assert_eq!(
         own.initialization_options.expect("options")["tsserver"]["path"],
         json!("/mine/tsserver.js")

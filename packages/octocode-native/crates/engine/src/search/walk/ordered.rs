@@ -106,6 +106,9 @@ pub(crate) struct OrderedWalk<V> {
     /// Threads the read-ahead takes once it starts; none: never.
     ahead_workers: usize,
     directories_read: u32,
+    /// The walk is finding where to start ([`Self::seek_after`]): it reads
+    /// nothing ahead, since what it passes it never takes.
+    seeking: bool,
     scratch: PathBuf,
     /// The walk reached its end or its root left everything out.
     ended: bool,
@@ -124,6 +127,7 @@ impl<V: Copy> OrderedWalk<V> {
             ahead: None,
             ahead_workers,
             directories_read: 0,
+            seeking: false,
             scratch: PathBuf::new(),
             ended: false,
             over: false,
@@ -160,37 +164,125 @@ impl<V: Copy> OrderedWalk<V> {
                 self.offer_next();
                 continue;
             }
-            let at = frame.next;
-            frame.next += 1;
-            let depth = frame.depth;
-            let file_type = frame.children[at].file_type;
-            self.scratch.clear();
-            self.scratch.push(&frame.dir);
-            self.scratch.push(&frame.children[at].name);
-            let probe = Probe {
-                path: &self.scratch,
-                depth,
-                file_type,
-            };
-            let verdict =
-                frame.verdicts[at].unwrap_or_else(|| judge.verdict(frame.rules.as_ref(), probe));
-            match judge.judge(probe, verdict) {
-                Step::Skip => {
-                    if probe.is_dir()
-                        && let Some(ahead) = self.ahead.as_ref()
-                    {
-                        ahead.drop_unused(&self.scratch);
-                    }
-                }
-                Step::Enter => {
-                    let dir = self.scratch.clone();
-                    self.descend(dir, depth, judge);
-                    self.offer_next();
-                }
+            match self.step(judge) {
                 Step::Emit => return Some(self.scratch.clone()),
                 Step::End => return self.finish(true),
+                Step::Skip | Step::Enter => {}
             }
         }
+    }
+
+    /// Start the walk just past the entry `after` names (one name per
+    /// component below the root, as the listings spell them): the next file
+    /// is the first one past it in walk order, as the tree is now. Only the
+    /// directories on the way to it are listed, and each is decided as the
+    /// walk decides it on reaching it; the entries before the way are passed
+    /// with no decision. Called before the first [`Self::next`]. The
+    /// directories read on the way count for no read-ahead: it starts once
+    /// the walk has read its own few from there.
+    pub(crate) fn seek_after<J: Judge<Verdict = V>>(&mut self, after: &[Vec<u8>], judge: &mut J) {
+        self.seeking = true;
+        self.seek(after, judge);
+        self.seeking = false;
+        self.directories_read = 0;
+    }
+
+    fn seek<J: Judge<Verdict = V>>(&mut self, after: &[Vec<u8>], judge: &mut J) {
+        let Some(root) = self.root.take() else {
+            return;
+        };
+        match self.begin(root, judge) {
+            Begun::Walking => {}
+            // A root file is the walk's one candidate: nothing lies past it.
+            Begun::Emit(_) => {
+                self.finish(true);
+                return;
+            }
+            Begun::Over(ended) => {
+                self.finish(ended);
+                return;
+            }
+        }
+        for (at, name) in after.iter().enumerate() {
+            let Some(frame) = self.stack.last_mut() else {
+                return;
+            };
+            let index = frame
+                .children
+                .partition_point(|child| child.name.as_encoded_bytes() < name.as_slice());
+            frame.next = index;
+            let Some(child) = frame
+                .children
+                .get(index)
+                .filter(|child| child.name.as_encoded_bytes() == name.as_slice())
+            else {
+                return;
+            };
+            if !child.file_type.is_some_and(|kind| kind.is_dir()) {
+                // A file, or a link the walk does not follow, sorts at or
+                // before `after`: the walk goes on past it.
+                frame.next = index + 1;
+                return;
+            }
+            if at + 1 == after.len() {
+                // `after` is a directory now: what it holds lies past it.
+                return;
+            }
+            if judge.halted() {
+                self.finish(false);
+                return;
+            }
+            let depth = self.stack.len();
+            match self.step(judge) {
+                Step::Enter if self.stack.len() > depth => {}
+                Step::End => {
+                    self.finish(true);
+                    return;
+                }
+                // Left out, or not listed: the walk goes on past it.
+                _ => return,
+            }
+        }
+    }
+
+    /// Decide the entry the innermost directory stands at and move past it,
+    /// into it when the judge enters it. An emitted file's path is in
+    /// `scratch`.
+    fn step<J: Judge<Verdict = V>>(&mut self, judge: &mut J) -> Step {
+        let Some(frame) = self.stack.last_mut() else {
+            return Step::End;
+        };
+        let at = frame.next;
+        frame.next += 1;
+        let depth = frame.depth;
+        let file_type = frame.children[at].file_type;
+        self.scratch.clear();
+        self.scratch.push(&frame.dir);
+        self.scratch.push(&frame.children[at].name);
+        let probe = Probe {
+            path: &self.scratch,
+            depth,
+            file_type,
+        };
+        let verdict =
+            frame.verdicts[at].unwrap_or_else(|| judge.verdict(frame.rules.as_ref(), probe));
+        let step = judge.judge(probe, verdict);
+        match step {
+            Step::Skip => {
+                if probe.is_dir()
+                    && let Some(ahead) = self.ahead.as_ref()
+                {
+                    ahead.drop_unused(&self.scratch);
+                }
+            }
+            Step::Enter => {
+                let dir = self.scratch.clone();
+                self.descend(dir, depth, judge);
+                self.offer_next();
+            }
+            Step::Emit | Step::End => {}
+        }
+        step
     }
 
     fn finish(&mut self, ended: bool) -> Option<PathBuf> {
@@ -252,6 +344,7 @@ impl<V: Copy> OrderedWalk<V> {
         };
         self.directories_read += 1;
         if self.ahead.is_none()
+            && !self.seeking
             && self.ahead_workers > 0
             && self.directories_read == read_ahead::START_AFTER_DIRECTORIES
         {
@@ -342,6 +435,9 @@ pub(crate) fn path_error(path: &Path, error: &std::io::Error) -> String {
     let shown = path.display();
     format!("{shown}: IO error for operation on {shown}: {error}")
 }
+
+#[cfg(test)]
+mod tests;
 
 /// Whether a listing sorted by name holds `name`.
 pub(crate) fn listed<'c>(children: &'c [Child], name: &str) -> Option<&'c Child> {

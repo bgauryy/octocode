@@ -42,7 +42,9 @@ fn a_zip_download_installs_the_entry_named_after_normalizing_dot_slash() {
 #[test]
 fn a_download_that_cannot_install_leaves_nothing_in_the_cache() {
     let zip = zip_with(&[("x", b"y")]);
-    let cases: [(&str, ManifestAsset, Vec<u8>, u64, &str); 5] = [
+    // Each failure states its cause: a binary past its limit is refused, an
+    // archive that does not hold it cannot be installed.
+    let cases = [
         // A decompression bomb is refused at the limit, never held in memory.
         (
             "oversize gzip",
@@ -50,6 +52,7 @@ fn a_download_that_cannot_install_leaves_nothing_in_the_cache() {
             gz(&[0_u8; 1024]),
             512,
             "exceeds the 512-byte limit",
+            ErrorCode::ContentSecurityLimit,
         ),
         (
             "oversize zip entry",
@@ -57,6 +60,7 @@ fn a_download_that_cannot_install_leaves_nothing_in_the_cache() {
             zip_with(&[("x", &[7_u8; 64])]),
             16,
             "exceeds the 16-byte limit",
+            ErrorCode::ContentSecurityLimit,
         ),
         (
             "missing entry",
@@ -64,6 +68,7 @@ fn a_download_that_cannot_install_leaves_nothing_in_the_cache() {
             zip.clone(),
             1024,
             "Could not find 'nope'",
+            ErrorCode::ExecutionFailed,
         ),
         (
             "no binPath",
@@ -71,6 +76,7 @@ fn a_download_that_cannot_install_leaves_nothing_in_the_cache() {
             zip,
             1024,
             "missing binPath",
+            ErrorCode::ExecutionFailed,
         ),
         // Bytes that are not an archive are a corrupt download, not a missing entry.
         (
@@ -79,12 +85,14 @@ fn a_download_that_cannot_install_leaves_nothing_in_the_cache() {
             b"not a zip archive".to_vec(),
             1024,
             "corrupt",
+            ErrorCode::ExecutionFailed,
         ),
     ];
-    for (case, asset, download, limit, reason) in cases {
+    for (case, asset, download, limit, reason, code) in cases {
         let (installed, dir) = install_download(&asset, &download, limit);
         let error = installed.expect_err(case);
-        assert!(error.contains(reason), "{case}: {error}");
+        assert!(error.message.contains(reason), "{case}: {error:?}");
+        assert_eq!(error.code, code, "{case}: {error:?}");
         assert!(
             cache_entries(&dir).is_empty(),
             "{case}: {:?}",
@@ -108,7 +116,11 @@ fn a_download_that_does_not_match_its_pin_is_never_extracted() {
         1024,
     )
     .expect_err("mismatch");
-    assert!(error.starts_with("Checksum mismatch for tool"), "{error}");
+    assert!(
+        error.message.starts_with("Checksum mismatch for tool"),
+        "{error:?}"
+    );
+    assert_eq!(error.code, ErrorCode::SecurityValidationFailed);
     assert!(!dir.path().join("cache").exists());
 }
 

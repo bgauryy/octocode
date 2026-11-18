@@ -7,15 +7,14 @@ mod execute;
 mod graph;
 mod page_replay;
 
-use crate::config::{self, ConfigInput, ConfigOutput, RuntimeSurface};
-use crate::contracts;
-use crate::execution::cancel::CancellationCheck;
-use crate::execution::{ExecutionContext, ExecutionError, RequestRuntime, RuntimeLimits};
-use crate::id::ToolId;
-use crate::policy::path::PathPolicy;
-use crate::response::exit::ExitClass;
-use crate::security::ContentSecurity;
 use octocode_contract_types::ErrorCode;
+use octocode_runtime_base::config::{self, ConfigInput, ConfigOutput, RuntimeSurface};
+use octocode_runtime_base::contracts;
+use octocode_runtime_base::execution::{ExecutionError, RequestRuntime, RuntimeLimits};
+use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::policy::path::PathPolicy;
+use octocode_runtime_base::response::exit::ExitClass;
+use octocode_runtime_base::security::ContentSecurity;
 use page_replay::PageReplayMemo;
 
 use serde::{Deserialize, Serialize};
@@ -36,7 +35,7 @@ pub struct HostOptions {
     /// The caller's per-request budget in seconds; a call past it answers an
     /// honest partial. Default: none, as on every surface (CLI, warm server,
     /// MCP): no deadline, and each layer's own limit and a cancel end the
-    /// work ([`crate::execution::RequestLimits::timeout`]).
+    /// work ([`octocode_runtime_base::execution::RequestLimits::timeout`]).
     #[serde(default)]
     pub timeout_secs: Option<u64>,
     /// The config files this process already read for this directory, so a
@@ -85,7 +84,7 @@ pub struct ToolRuntime {
         std::sync::OnceLock<Result<super::github::GitHubServices, octocode_github::ProviderError>>,
     >,
     /// Provider answers kept across calls and, when persistent, processes.
-    provider_answers: Arc<crate::providers::saved_answers::KeptAnswers>,
+    provider_answers: Arc<octocode_runtime_base::providers::saved_answers::KeptAnswers>,
     lsp_pool: Arc<octocode_engine::lsp::pool::LspClientPool>,
     /// Whether this runtime created [`Self::lsp_pool`]: only its creator
     /// stops the servers on close; a runtime given a shared pool leaves them
@@ -95,20 +94,20 @@ pub struct ToolRuntime {
     /// and workspace only), so a later page skips re-executing the batch.
     page_replays: Arc<PageReplayMemo>,
     cursors: Arc<cursors::Registry>,
-    section_sessions: Arc<crate::tools::clasify::sections::Sessions>,
+    section_sessions: Arc<octocode_tool_clasify::clasify::sections::Sessions>,
     /// Resolved from config and surface without provider requests. Provider
     /// failures are request-local and do not remove an advertised tool.
-    availability: Arc<crate::execution::availability::ToolAvailability>,
+    availability: Arc<octocode_runtime_base::execution::availability::ToolAvailability>,
     /// Provider settings and selection availability, resolved once.
-    evaluator: crate::tools::judgment::Evaluator,
+    evaluator: octocode_tools_shared::judgment::Evaluator,
     /// Candidate pages selection judged, kept in memory so a replayed cursor
     /// bills no second judgment.
-    selection_pages: Arc<crate::tools::selection::SavedPlans>,
+    selection_pages: Arc<octocode_tools_shared::selection::SavedPlans>,
     selection_available: bool,
-    lsp_execution_config: Arc<crate::tools::lsp_search::LspExecutionConfig>,
-    lsp_answers: Arc<crate::tools::lsp_search::ContinuationAnswers>,
+    lsp_execution_config: Arc<octocode_tool_lsp::lsp_search::LspExecutionConfig>,
+    lsp_answers: Arc<octocode_tool_lsp::lsp_search::ContinuationAnswers>,
     /// Complete graph answer rows its first page retained for continuations.
-    graph_rows: Arc<crate::tools::ast_graph::store::SavedRows>,
+    graph_rows: Arc<octocode_tool_graph::ast_graph::store::SavedRows>,
     /// The sandbox workspace root (configured workspaceRoot, else host cwd).
     workspace_root: PathBuf,
 }
@@ -168,12 +167,12 @@ impl ToolRuntime {
     pub fn availability(
         &self,
         tool: &str,
-    ) -> Option<&crate::execution::availability::Availability> {
+    ) -> Option<&octocode_runtime_base::execution::availability::Availability> {
         self.availability.get(tool)
     }
 
     /// The resolved language-server settings `lspSearch` discovers with.
-    pub fn lsp_execution_config(&self) -> &crate::tools::lsp_search::LspExecutionConfig {
+    pub fn lsp_execution_config(&self) -> &octocode_tool_lsp::lsp_search::LspExecutionConfig {
         &self.lsp_execution_config
     }
 
@@ -183,16 +182,19 @@ impl ToolRuntime {
     /// and only while `lspSearch` is available. Each start is a whole-project
     /// index, up to gigabytes for a session that may never call `lspSearch`,
     /// so `targeted` waits for a response that serves an lspSearch call.
-    /// See [`crate::tools::lsp_search::prewarm::workspace::schedule_workspace`].
+    /// See [`octocode_tool_lsp::lsp_search::prewarm::workspace::schedule_workspace`].
     pub fn prewarm_lsp_workspace(&self, handle: &tokio::runtime::Handle) {
         let starts = match self.config.resolved.lsp.prewarm {
-            crate::config::LspPrewarm::Off | crate::config::LspPrewarm::Targeted => return,
-            crate::config::LspPrewarm::All => crate::tools::lsp_search::prewarm::MAX_PREWARM_KEYS,
+            octocode_runtime_base::config::LspPrewarm::Off
+            | octocode_runtime_base::config::LspPrewarm::Targeted => return,
+            octocode_runtime_base::config::LspPrewarm::All => {
+                octocode_tool_lsp::lsp_search::prewarm::MAX_PREWARM_KEYS
+            }
         };
         if !self.is_available(ToolId::LspSearch.as_str()) {
             return;
         }
-        crate::tools::lsp_search::prewarm::workspace::schedule_workspace(
+        octocode_tool_lsp::lsp_search::prewarm::workspace::schedule_workspace(
             handle,
             &self.lsp_pool,
             &self.paths,
@@ -230,10 +232,9 @@ impl ToolRuntime {
                     "title": id.title(),
                     "available": self.is_available(name),
                 });
-                if let Some(reason) = self
-                    .availability(name)
-                    .and_then(super::super::execution::availability::Availability::reason_code)
-                {
+                if let Some(reason) = self.availability(name).and_then(
+                    octocode_runtime_base::execution::availability::Availability::reason_code,
+                ) {
                     entry["unavailableReason"] = json!(reason);
                 }
                 entry
@@ -258,22 +259,13 @@ fn runtime_execution_error(error: ExecutionError) -> RuntimeError {
     // "report a tool failure".
     if matches!(error, ExecutionError::StorageUnavailable(_)) {
         let mut envelope = contracts::tool_error(&served.message, Vec::new());
-        envelope["hints"] = serde_json::json!([crate::response::rows::WRITE_ACCESS_HINT]);
+        octocode_runtime_base::response::result::set_hints(
+            &mut envelope,
+            [octocode_runtime_base::response::rows::WRITE_ACCESS_HINT],
+        );
         served.payload = Some(Box::new(envelope));
     }
     served
-}
-
-impl CancellationCheck for ExecutionContext {
-    fn check(&self) -> Result<(), String> {
-        Self::check(self).map_err(|error| error.to_string())
-    }
-    fn deadline(&self) -> Option<std::time::Instant> {
-        self.deadline
-    }
-    fn signal(&self) -> Option<&octocode_io::cancellation::Cancellation> {
-        Some(&self.cancellation)
-    }
 }
 
 #[cfg(test)]
@@ -284,3 +276,6 @@ mod security_matrix;
 
 #[cfg(test)]
 mod construction_tests;
+
+#[cfg(test)]
+mod exit_class_tests;

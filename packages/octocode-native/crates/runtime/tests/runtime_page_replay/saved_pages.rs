@@ -3,6 +3,7 @@
 use super::lines;
 use crate::support::{self, Run as _, Workspace};
 use octocode_contract_types::ErrorCode;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 
 async fn saved_fixture(
@@ -22,7 +23,7 @@ async fn saved_fixture(
     let next = first.structured_content["responsePagination"]["next"]["input"].clone();
     assert!(next.is_object(), "{}", first.structured_content);
     support::assert_cursor_only(&next);
-    octocode_native::contracts::validate("localSearch", next.clone())
+    octocode_runtime_base::contracts::validate("localSearch", next.clone())
         .expect("canonical continuation");
     (query, next)
 }
@@ -36,7 +37,7 @@ async fn saved_pages_reject_mixed_input_tool_credential_config_and_workspace_cha
     let (query, next) = saved_fixture(&workspace, &runtime).await;
     for changed in [
         query.clone(),
-        json!({"path":"/changed","matchString":["new question"]}),
+        json_fixture(r#"{"path": "/changed", "matchString": ["new question"]}"#),
     ] {
         let mut mixed = next.clone();
         mixed["queries"] = json!([changed]);
@@ -55,7 +56,9 @@ async fn saved_pages_reject_mixed_input_tool_credential_config_and_workspace_cha
     let admission = runtime
         .admit_with(
             "credential".into(),
-            Some(json!({"githubToken":"different-request-token"})),
+            Some(json_fixture(
+                r#"{"githubToken": "different-request-token"}"#,
+            )),
         )
         .expect("admit");
     let error = runtime

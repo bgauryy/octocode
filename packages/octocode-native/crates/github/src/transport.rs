@@ -24,6 +24,9 @@ use super::{
 #[derive(Clone, Copy, Debug)]
 pub enum HttpMethod {
     Get,
+    /// A GET that asks for the status and headers alone: GitHub answers it
+    /// as it would the GET, with no body.
+    Head,
     Post,
 }
 /// Octokit retry parity: `max_attempts` = retries + 1, with full-jitter 5xx/network backoff.
@@ -94,6 +97,13 @@ impl RequestSpec {
             reads_pull_request: false,
             kept_by_caller: false,
         }
+    }
+
+    /// Ask only whether this read would answer (its status and headers):
+    /// no byte of its body is downloaded.
+    pub(crate) fn status_only(mut self) -> Self {
+        self.method = HttpMethod::Head;
+        self
     }
 
     /// The caller stores this answer's body itself: it is not saved.
@@ -412,11 +422,9 @@ mod headers;
 pub use context::RequestContext;
 pub use evidence::{AnswerBody, ProviderAnswer, ProviderEvidence, requested_file};
 pub use execute::SEARCH_REUSE_WINDOW;
-#[cfg(test)]
-pub(crate) use route::RENAME_ROUTE_WINDOW;
 mod response;
 #[cfg(test)]
 mod response_error_tests;
-mod route;
+pub(crate) mod route;
 mod saved;
 pub use saved::{Reuse, SavedAnswer, SavedAnswers, worth_keeping};

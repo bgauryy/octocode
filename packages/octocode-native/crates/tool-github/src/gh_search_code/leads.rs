@@ -1,0 +1,336 @@
+//! ghSearchCode leads: optional top-hit reads and required unresolved-source reads.
+use super::code_output::{Resolution, requested_ref, row_repo};
+use octocode_contract_types::{
+    CaseMode, GhSearchCodeQuery, GhSearchCodeQueryMatchInItem, RegexEngine,
+};
+use octocode_engine::num::saturating_u32;
+use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::response::result::{Continuation, fresh_query_row, query_row};
+use octocode_tools_shared::leads::broaden::{Broaden, broaden};
+use octocode_tools_shared::leads::gh_file_read::{
+    Target, Terms, match_read, plain_read, range_read,
+};
+use serde_json::{Value, json};
+
+/// Code-search fragments carry no line numbers. Point the top hit at an exact
+/// ghGetFileContent match read, whose sourceLineRanges carry line numbers.
+/// Only a code hit (not docs, changelogs, or tests, which GitHub often ranks
+/// first) earns the lead. `reference` pins the read to a branch or commit.
+pub(super) fn read_top_match(top: &Value, reference: Option<&str>) -> Option<Value> {
+    let file = top.as_object()?;
+    let token = highlighted(top)?;
+    if token.trim().is_empty() {
+        return None;
+    }
+    let path = file.get("path")?.as_str()?;
+    if !code_hit(path) {
+        return None;
+    }
+    // A cross-tool read states its reason in `why`; its query carries only
+    // the brief the caller sent, which the response stage copies.
+    let target = Target {
+        owner: file.get("owner")?.as_str()?,
+        repo: file.get("repo")?.as_str()?,
+        path,
+        reference,
+    };
+    let read = match_read(&target, Terms::literal(vec![token]), Some((5, 5)), false)?;
+    Some(Continuation::related_query(read).build())
+}
+
+/// The text GitHub highlighted in the top file's first fragment.
+fn highlighted(top: &Value) -> Option<String> {
+    let matched = top
+        .get(super::code_output::FRAGMENTS)?
+        .as_array()?
+        .first()?;
+    matched["highlight"].as_str().map(str::to_owned)
+}
+
+/// A source file outside tests: the only hit a top-match read is worth.
+pub(super) fn code_hit(path: &str) -> bool {
+    matches!(
+        octocode_runtime_base::content::classify_file_type(path),
+        Some(octocode_runtime_base::content::FileType::Code)
+    ) && !octocode_engine::text::test_paths::is_test_path(path)
+}
+
+/// Read source keyword lines when the provider result could not be resolved
+/// to a locally scanned blob. Resolved blobs already show every hit whole.
+pub(super) fn hits_read(
+    query: &GhSearchCodeQuery,
+    row: &serde_json::Map<String, Value>,
+    sha: &str,
+) -> Option<Value> {
+    let path = row.get("path")?.as_str()?;
+    let (owner, repo) = row_repo(query, row)?;
+    let target = Target {
+        owner,
+        repo,
+        path,
+        reference: (!sha.is_empty())
+            .then_some(sha)
+            .or_else(|| requested_ref(query)),
+    };
+    let read = match_read(&target, keyword_terms(query)?, Some((0, 0)), false)?;
+    Some(Continuation::continued_query(read).build())
+}
+
+/// The query's keywords as the terms of a ghGetFileContent read, matching
+/// the way the listing does. `None` when the query has no keyword.
+fn keyword_terms(query: &GhSearchCodeQuery) -> Option<Terms> {
+    let keywords: Vec<&str> = query
+        .keywords
+        .iter()
+        .map(|keyword| keyword.trim())
+        .filter(|keyword| !keyword.is_empty())
+        .collect();
+    let max =
+        octocode_runtime_base::contracts::query_limits::gh_get_file_content::MATCH_STRING_MAX_ITEMS;
+    // The listing matched case-insensitively; smart case would turn an
+    // uppercase keyword case-sensitive and miss counted hits.
+    let case_mode = if keywords
+        .iter()
+        .any(|keyword| keyword.chars().any(char::is_uppercase))
+    {
+        CaseMode::Insensitive
+    } else {
+        CaseMode::Smart
+    };
+    let (terms, regex_engine) = match keywords.as_slice() {
+        [] => return None,
+        many if many.len() <= max => (
+            many.iter().map(|keyword| (*keyword).to_owned()).collect(),
+            RegexEngine::Literal,
+        ),
+        // More keywords than a matchString list holds: one escaped
+        // alternation matches the same lines.
+        many => (
+            vec![
+                many.iter()
+                    .map(|keyword| regex::escape(keyword))
+                    .collect::<Vec<_>>()
+                    .join("|"),
+            ],
+            RegexEngine::Rust,
+        ),
+    };
+    Some(Terms {
+        terms,
+        case_mode,
+        regex_engine,
+    })
+}
+
+/// The read of a file a `path` scope names: an empty search of that file
+/// reads it for the keywords instead, since the index may not hold it (its
+/// text when the search matched file contents).
+pub(super) fn file_scope_read(query: &GhSearchCodeQuery, file: &str) -> Option<Value> {
+    let target = Target {
+        owner: query.owner.as_str(),
+        repo: query.repo.as_deref()?,
+        path: file,
+        reference: requested_ref(query),
+    };
+    let terms = query
+        .match_in
+        .contains(&GhSearchCodeQueryMatchInItem::Content)
+        .then(|| keyword_terms(query))
+        .flatten();
+    // No keyword is a plain read of the file's start.
+    let read = match terms {
+        Some(terms) => match_read(&target, terms, None, false)?,
+        None => plain_read(&target)?,
+    };
+    Some(Continuation::related_query(read).build())
+}
+
+/// The index-fragment read of the top file, kept inside the verified source
+/// scope: pinned to the resolved commit, dropped when the file is absent
+/// there, and naming the requested ref or proven index commit when no lines
+/// were read. It never silently changes a known source revision.
+pub(super) fn scoped_fragment_read(
+    fragment: Option<&Value>,
+    query: &GhSearchCodeQuery,
+    resolution: Option<&Resolution>,
+) -> Option<Value> {
+    let fragment = fragment?;
+    // A highlight names a term the caller searched for. Any other text is what
+    // the index returned, which no row lists.
+    let token = highlighted(fragment)?.to_lowercase();
+    if !query
+        .keywords
+        .iter()
+        .any(|keyword| keyword.to_lowercase().contains(&token))
+    {
+        return None;
+    }
+    let branch = match resolution {
+        Some(resolution) => match resolution.hits.first() {
+            Some((_, super::lines::FileHits::Missing | super::lines::FileHits::Withheld)) => {
+                return None;
+            }
+            // At a ref, an unmatched or unread top file has no fragment read:
+            // its fragment is default-branch text.
+            Some((
+                _,
+                super::lines::FileHits::Unmatched
+                | super::lines::FileHits::Unavailable
+                | super::lines::FileHits::Panicked
+                | super::lines::FileHits::Oversized,
+            )) if resolution.reference.is_some() => {
+                return None;
+            }
+            // An owner-wide row without an indexed commit reads the
+            // default branch.
+            Some((sha, _)) if sha.is_empty() => None,
+            Some((sha, _)) => Some(sha.as_str()),
+            None => None,
+        },
+        None => requested_ref(query).or_else(|| {
+            fragment
+                .get("commitSha")
+                .and_then(Value::as_str)
+                .filter(|commit| octocode_github::is_full_sha(commit))
+        }),
+    };
+    read_top_match(fragment, branch)
+}
+
+/// ghGetFileContent read of the whole declaration the best hit names: its
+/// unique head line as `matchString` with `block`, at the resolved commit.
+/// A fixed line window would cut a function longer than the window.
+pub(super) fn declaration_read(
+    query: &GhSearchCodeQuery,
+    row: &serde_json::Map<String, Value>,
+    head: &str,
+    sha: &str,
+) -> Option<Value> {
+    let path = row.get("path")?.as_str()?;
+    let (owner, repo) = row_repo(query, row)?;
+    if !code_hit(path) {
+        return None;
+    }
+    let target = Target {
+        owner,
+        repo,
+        path,
+        reference: Some(sha),
+    };
+    let read = match_read(&target, Terms::literal(vec![head.to_owned()]), None, true)?;
+    Some(Continuation::related_query(read).build())
+}
+
+/// ghGetFileContent read of a resolved file's best hit for the goal (5 lines
+/// before it); a read anchored on the first hit widens to the last hit when
+/// that is close.
+pub(super) fn line_read(
+    query: &GhSearchCodeQuery,
+    row: &serde_json::Map<String, Value>,
+    (first, last, best): (u32, u32, u32),
+    line_count: usize,
+    sha: &str,
+) -> Option<Value> {
+    let path = row.get("path")?.as_str()?;
+    let (owner, repo) = row_repo(query, row)?;
+    let anchor = if best == 0 { first } else { best };
+    let start = anchor.saturating_sub(5).max(1);
+    let mut end = anchor.saturating_add(17);
+    if anchor == first && last.saturating_sub(first) <= 40 {
+        end = end.max(last.saturating_add(3));
+    }
+    let end = end.min(saturating_u32(line_count).max(start));
+    if !code_hit(path) {
+        return None;
+    }
+    // The commit the lines were read at: a branch push cannot shift the
+    // window before the read runs.
+    let target = Target {
+        owner,
+        repo,
+        path,
+        reference: Some(sha),
+    };
+    Some(Continuation::related_query(range_read(&target, start, end)?).build())
+}
+
+/// The read of a file the index did not search at the requested ref: the
+/// query's `path` and `filename` name one file of a repo-scoped search.
+pub(super) fn unsearched_ref_read(query: &GhSearchCodeQuery) -> Option<Value> {
+    let reference = requested_ref(query)?;
+    let repo = query.repo.as_deref()?;
+    let file = query.name_contains.as_deref()?;
+    let path = match query
+        .path
+        .as_deref()
+        .map(|path| path.as_str().trim_matches('/'))
+    {
+        Some(dir) if !dir.is_empty() => format!("{dir}/{file}"),
+        _ => file.to_owned(),
+    };
+    let target = Target {
+        owner: query.owner.as_str(),
+        repo: repo.as_str(),
+        path: &path,
+        reference: Some(reference),
+    };
+    Some(Continuation::related_query(plain_read(&target)?).build())
+}
+
+/// Keywords are ANDed literals, so an item holding a standalone `OR` ran as
+/// one phrase. The same search once per alternative, in one call; `None`
+/// when no item has one or the alternatives exceed one call's rows.
+pub(super) fn or_split(query: &GhSearchCodeQuery) -> Option<Value> {
+    let (index, alternatives) = query
+        .keywords
+        .iter()
+        .enumerate()
+        .find_map(|(index, item)| {
+            let words = item.split_whitespace().collect::<Vec<_>>();
+            let alternatives = words
+                .split(|word| *word == "OR")
+                .filter(|group| !group.is_empty())
+                .map(|group| group.join(" "))
+                .collect::<Vec<_>>();
+            (alternatives.len() > 1).then_some((index, alternatives))
+        })?;
+    if alternatives.len()
+        > octocode_runtime_base::response::result::rows_per_call(ToolId::GhSearchCode)
+    {
+        return None;
+    }
+    let rows = alternatives
+        .into_iter()
+        .map(|alternative| {
+            let mut row = fresh_query_row(ToolId::GhSearchCode, &query_row(query, &[]));
+            row["keywords"][index] = json!(alternative);
+            row
+        })
+        .collect::<Vec<_>>();
+    Some(Continuation::related_input(ToolId::GhSearchCode, json!({ "queries": rows })).build())
+}
+
+/// Variants an empty search offers at most: each one is another code search
+/// against a quota of 10 per minute.
+const BROADEN_VARIANTS: usize = 2;
+
+/// An empty search's broader variants ([`broaden`]): one per set filter
+/// (`path`, `filename`, `extensions`), then one per dropped keyword. No more
+/// are offered than `quota_room`, the code searches the quota still covers.
+pub(super) fn broaden_search(query: &GhSearchCodeQuery, quota_room: usize) -> Option<Value> {
+    broaden(
+        ToolId::GhSearchCode,
+        &query_row(query, &[]),
+        &Broaden {
+            // Code search indexes only the default branch: a `ref` adds
+            // nothing to a broader search.
+            strip: &["fields", "ref"],
+            groups: &[&["path"], &["nameContains"], &["extensions"]],
+            split_lone_keyword: false,
+        },
+        quota_room.min(BROADEN_VARIANTS),
+    )
+}
+
+#[cfg(test)]
+mod tests;

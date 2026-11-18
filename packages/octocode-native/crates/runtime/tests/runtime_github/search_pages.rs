@@ -5,6 +5,7 @@
 //! already read, and every result arrives once, in the provider's order, with
 //! the same totals as one large read.
 use crate::support::{self, Run as _, Workspace};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
@@ -103,7 +104,11 @@ async fn a_small_limit_repository_walk_reads_pages_that_double() {
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&support::github_api(&server));
-    let start = json!({"queries":[{"operation":"search","keywords":["x"],"limit":3}]});
+    let start = json_fixture(
+        r#"{
+            "queries": [{"operation": "search", "keywords": ["x"], "limit": 3}]
+        }"#,
+    );
     let walked = support::walk(&runtime, "ghSearchRepo", start, |output| {
         data_rows(output, "repositories", "repo")
     })
@@ -144,9 +149,19 @@ async fn a_small_limit_history_walk_doubles_up_to_the_largest_page() {
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&support::github_api(&server));
-    let start = json!({"queries":[{
-        "operation":"pullRequest","owner":"a","repo":"b","keywords":["fix"],"limit":7
-    }]});
+    let start = json_fixture(
+        r#"{
+            "queries": [
+                {
+                    "operation": "pullRequest",
+                    "owner": "a",
+                    "repo": "b",
+                    "keywords": ["fix"],
+                    "limit": 7
+                }
+            ]
+        }"#,
+    );
     let walked = support::walk(&runtime, "ghSearchHistory", start, |output| {
         data_rows(output, "pullRequests", "number")
     })
@@ -182,9 +197,19 @@ async fn a_small_limit_code_walk_lists_every_file_once() {
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&support::github_api(&server));
-    let start = json!({"queries":[{
-        "owner":"o","repo":"r","keywords":["x"],"limit":7,"fields":["path"]
-    }]});
+    let start = json_fixture(
+        r#"{
+            "queries": [
+                {
+                    "owner": "o",
+                    "repo": "r",
+                    "keywords": ["x"],
+                    "limit": 7,
+                    "fields": ["path"]
+                }
+            ]
+        }"#,
+    );
     let walked = support::walk(&runtime, "ghSearchCode", start, |output| {
         data_rows(output, "files", "path")
     })
@@ -224,7 +249,7 @@ async fn walks_of_every_limit_equal_the_unbudgeted_answer() {
             "ghSearchRepo",
             "/api/v3/search/repositories",
             repositories,
-            json!({"operation":"search","keywords":["x"]}),
+            json_fixture(r#"{"operation": "search", "keywords": ["x"]}"#),
             "repositories",
             "repo",
         ),
@@ -232,7 +257,14 @@ async fn walks_of_every_limit_equal_the_unbudgeted_answer() {
             "ghSearchHistory",
             "/api/v3/search/issues",
             pulls,
-            json!({"operation":"pullRequest","owner":"a","repo":"b","keywords":["fix"]}),
+            json_fixture(
+                r#"{
+                    "operation": "pullRequest",
+                    "owner": "a",
+                    "repo": "b",
+                    "keywords": ["fix"]
+                }"#,
+            ),
             "pullRequests",
             "number",
         ),
@@ -240,7 +272,14 @@ async fn walks_of_every_limit_equal_the_unbudgeted_answer() {
             "ghSearchCode",
             "/api/v3/search/code",
             (0..RESULTS).map(code_hit).collect::<Vec<_>>(),
-            json!({"owner":"o","repo":"r","keywords":["x"],"fields":["path"]}),
+            json_fixture(
+                r#"{
+                    "owner": "o",
+                    "repo": "r",
+                    "keywords": ["x"],
+                    "fields": ["path"]
+                }"#,
+            ),
             "files",
             "path",
         ),
@@ -304,12 +343,20 @@ async fn a_first_page_reads_a_whole_page_already_held() {
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&support::github_api(&server));
-    let whole = json!({"queries":[{"operation":"search","keywords":["x"],"limit":100}]});
+    let whole = json_fixture(
+        r#"{
+            "queries": [{"operation": "search", "keywords": ["x"], "limit": 100}]
+        }"#,
+    );
     runtime
         .run("whole".into(), "ghSearchRepo".into(), whole)
         .await
         .expect("whole page");
-    let small = json!({"queries":[{"operation":"search","keywords":["x"],"limit":5}]});
+    let small = json_fixture(
+        r#"{
+            "queries": [{"operation": "search", "keywords": ["x"], "limit": 5}]
+        }"#,
+    );
     let output = runtime
         .run("small".into(), "ghSearchRepo".into(), small)
         .await
@@ -335,7 +382,7 @@ async fn a_first_page_reads_a_whole_page_already_held() {
 /// a page keeping its own leads is covered by the unit walk in
 /// `response/page_receipts/tests.rs`.
 #[tokio::test]
-async fn a_tiny_window_walk_states_the_complete_coverage_on_page_one_only() {
+async fn a_tiny_window_walk_states_no_coverage_state_on_its_hit_pages() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
@@ -344,10 +391,20 @@ async fn a_tiny_window_walk_states_the_complete_coverage_on_page_one_only() {
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&support::github_api(&server));
-    let mut query = json!({"queries":[{
-        "owner":"o","repo":"r","keywords":["x"],"limit":7,"fields":["path"],
-        "responseChars":400
-    }]});
+    let mut query = json_fixture(
+        r#"{
+            "queries": [
+                {
+                    "owner": "o",
+                    "repo": "r",
+                    "keywords": ["x"],
+                    "limit": 7,
+                    "fields": ["path"],
+                    "responseChars": 400
+                }
+            ]
+        }"#,
+    );
     let mut pages = Vec::new();
     loop {
         let outcome = runtime
@@ -375,15 +432,52 @@ async fn a_tiny_window_walk_states_the_complete_coverage_on_page_one_only() {
         .collect::<Vec<_>>();
     assert_eq!(paths, expected, "every file exactly once");
     let state = |page: &Value| page["results"][0]["data"]["coverage"]["state"].clone();
-    assert_eq!(state(&pages[0]), "complete", "{}", pages[0]);
+    assert!(
+        state(&pages[0]).is_null(),
+        "a page of hits states no coverage state: {}",
+        pages[0]
+    );
     let mut later = 0;
     for page in &pages {
         let data = &page["results"][0]["data"];
         if data["pagination"]["offset"].as_u64().is_some_and(|n| n > 0) {
             later += 1;
-            assert!(data.get("coverage").is_none(), "later page: {page}");
+            assert!(
+                data["coverage"].get("state").is_none(),
+                "later page: {page}"
+            );
         }
     }
     assert!(later > 0, "the walk reaches a later answer page");
+    runtime.close().await;
+}
+
+/// A code search walk carries every file it listed in its private progress,
+/// 16 hex digits a file, so past 625 files that state is longer than any
+/// caller's string may be, well before GitHub's 1,000 reachable results. The
+/// walk is the runtime's own state, not the caller's text: it is followed to
+/// its end, every file once.
+#[tokio::test]
+async fn a_code_walk_past_625_files_is_followed_to_its_end() {
+    const FILES: usize = 749;
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/code"))
+        .respond_with(SearchIndex((0..FILES).map(code_hit).collect()))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&support::github_api(&server));
+    let start = json_fixture(
+        r#"{"queries": [{"owner": "o", "repo": "r", "keywords": ["x"], "limit": 100, "fields": ["path"]}]}"#,
+    );
+    let walked = support::walk(&runtime, "ghSearchCode", start, |output| {
+        data_rows(output, "files", "path")
+    })
+    .await;
+    let expected = (0..FILES)
+        .map(|n| json!(format!("src/f{n:03}.rs")).to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(walked.rows, expected);
     runtime.close().await;
 }

@@ -1,26 +1,121 @@
 //! Architecture guards the `tools/` layer test does not cover: the crate edges
-//! of the workspace, and tool knowledge in the shared `response` stage.
+//! of the workspace, and tool knowledge in the shared `response` stage
+//! (`octocode-runtime-base`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-include!("../src/tools/test_support/production_source.rs");
+include!("../../runtime-base/src/test_support/production_source.rs");
 
 /// Each crate and the workspace crates it may depend on in `[dependencies]`.
 /// The graph is one order, lowest first, so no two crates import each other:
 /// a new edge is a decision made here, not by a stray `Cargo.toml` line.
 const CRATE_EDGES: &[(&str, &[&str])] = &[
     ("io", &[]),
-    ("contract-types", &[]),
+    ("contract-base", &[]),
+    ("contract-types", &["contract-base"]),
     ("engine", &["io"]),
-    ("github", &["io", "contract-types"]),
-    ("runtime", &["io", "contract-types", "engine", "github"]),
+    ("github", &["io", "contract-base"]),
+    (
+        "runtime-base",
+        &["io", "contract-types", "engine", "github"],
+    ),
+    (
+        "tools-shared",
+        &["io", "contract-types", "engine", "github", "runtime-base"],
+    ),
+    (
+        "tool-ast",
+        &["contract-types", "engine", "runtime-base", "tools-shared"],
+    ),
+    (
+        "tool-clasify",
+        &[
+            "io",
+            "contract-types",
+            "engine",
+            "runtime-base",
+            "tools-shared",
+        ],
+    ),
+    (
+        "tool-graph",
+        &[
+            "io",
+            "contract-types",
+            "engine",
+            "runtime-base",
+            "tools-shared",
+        ],
+    ),
+    (
+        "tool-local",
+        &["contract-types", "engine", "runtime-base", "tools-shared"],
+    ),
+    (
+        "tool-lsp",
+        &[
+            "io",
+            "contract-types",
+            "engine",
+            "runtime-base",
+            "tools-shared",
+        ],
+    ),
+    (
+        "tool-packages",
+        &[
+            "io",
+            "contract-types",
+            "engine",
+            "github",
+            "runtime-base",
+            "tools-shared",
+        ],
+    ),
+    ("test-support", &["engine"]),
+    (
+        "tool-github",
+        &[
+            "io",
+            "contract-types",
+            "engine",
+            "github",
+            "runtime-base",
+            "tools-shared",
+            "test-support",
+        ],
+    ),
+    (
+        "runtime",
+        &[
+            "io",
+            "contract-types",
+            "engine",
+            "github",
+            "runtime-base",
+            "tools-shared",
+            "tool-ast",
+            "tool-clasify",
+            "tool-github",
+            "tool-graph",
+            "tool-local",
+            "tool-lsp",
+            "tool-packages",
+        ],
+    ),
     (
         "cli",
-        &["io", "contract-types", "engine", "github", "runtime"],
+        &[
+            "io",
+            "contract-types",
+            "engine",
+            "github",
+            "runtime-base",
+            "runtime",
+        ],
     ),
 ];
-
 /// Where a package name maps to its directory under `crates/`.
 fn crate_dir(package: &str) -> &str {
     match package {
@@ -114,7 +209,7 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
 
 #[test]
 fn response_names_no_tool_outside_its_allowlist() {
-    let response = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/response");
+    let response = Path::new(env!("CARGO_MANIFEST_DIR")).join("../runtime-base/src/response");
     let pattern = regex::Regex::new(r"\bToolId::[A-Z][a-z]\w*").expect("static pattern");
     let mut files = Vec::new();
     rust_files(&response, &mut files);
@@ -146,7 +241,7 @@ fn response_names_no_tool_outside_its_allowlist() {
 
 #[test]
 fn every_allowlisted_response_file_still_names_a_tool() {
-    let response = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/response");
+    let response = Path::new(env!("CARGO_MANIFEST_DIR")).join("../runtime-base/src/response");
     let pattern = regex::Regex::new(r"\bToolId::[A-Z][a-z]\w*").expect("static pattern");
     for (name, _) in TOOL_AWARE_RESPONSE_FILES {
         let source = std::fs::read_to_string(response.join(name)).expect("allowlisted file exists");

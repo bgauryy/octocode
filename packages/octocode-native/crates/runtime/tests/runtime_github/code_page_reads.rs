@@ -5,6 +5,7 @@
 use crate::support::{self, Run as _, Workspace, checks};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use wiremock::matchers::{method, path, path_regex};
@@ -64,7 +65,8 @@ impl Respond for Files {
     fn respond(&self, request: &Request) -> ResponseTemplate {
         let file = read_path(request);
         if self.failing.contains(&file) {
-            return ResponseTemplate::new(500).set_body_json(json!({"message": "boom"}));
+            return ResponseTemplate::new(500)
+                .set_body_json(json_fixture(r#"{"message": "boom"}"#));
         }
         let text = format!(
             "fn needle() {{ /* {file} */ }}\nlet other = 1;\n// needle: the first note of {file}\n// needle: the last note of {file}\n"
@@ -108,6 +110,9 @@ async fn mount(server: &MockServer, files: &[String], failing: &[&str]) {
         .respond_with(Index(items))
         .mount(server)
         .await;
+    for file in files {
+        octocode_test_support::mock_http::list_in_trees(server, "o", "r", file).await;
+    }
     Mock::given(method("GET"))
         .and(path_regex(r"^/api/v3/repos/o/r/contents/"))
         .respond_with(Files {
@@ -115,6 +120,16 @@ async fn mount(server: &MockServer, files: &[String], failing: &[&str]) {
         })
         .mount(server)
         .await;
+}
+
+/// Whether `request` reads a file's bytes (the raw media type), not the
+/// listing of a directory that says whether a path is a link.
+fn reads_file(request: &Request) -> bool {
+    request
+        .headers
+        .get("accept")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|accept| accept.contains("vnd.github.raw"))
 }
 
 /// The server's requests so far: code searches, and the paths of file reads.
@@ -126,7 +141,7 @@ async fn requests(server: &MockServer) -> (usize, Vec<String>) {
         .count();
     let reads = received
         .iter()
-        .filter(|request| request.url.path().contains("/contents/"))
+        .filter(|request| request.url.path().contains("/contents/") && reads_file(request))
         .map(read_path)
         .collect();
     (searches, reads)
@@ -228,10 +243,12 @@ async fn a_page_reads_only_the_files_it_shows_and_the_walk_reads_each_once() {
     mount(&server, &names, &[]).await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&support::github_api(&server));
-    let start = json!({
-        "queries": [{"owner": "o", "repo": "r", "keywords": ["needle"]}],
-        "responseChars": 5000
-    });
+    let start = json_fixture(
+        r#"{
+            "queries": [{"owner": "o", "repo": "r", "keywords": ["needle"]}],
+            "responseChars": 5000
+        }"#,
+    );
     let calls = walk(&server, &runtime, start).await;
     let first = &calls[0];
     assert!(
@@ -328,10 +345,12 @@ async fn unicode_paths_and_a_failed_read_are_listed_once_over_the_walk() {
     mount(&server, &names, &[failing.as_str()]).await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&support::github_api(&server));
-    let start = json!({
-        "queries": [{"owner": "o", "repo": "r", "keywords": ["needle"]}],
-        "responseChars": 2000
-    });
+    let start = json_fixture(
+        r#"{
+            "queries": [{"owner": "o", "repo": "r", "keywords": ["needle"]}],
+            "responseChars": 2000
+        }"#,
+    );
     let calls = walk(&server, &runtime, start).await;
     assert!(calls.len() > 1, "the window pages the hits");
     let shown = calls

@@ -1,8 +1,8 @@
 //! The surface a call comes from, which decides the runtime that answers it
 //! and the reply it gets.
 
-use octocode_native::config::RuntimeSurface;
 use octocode_native::runtime::HostOptions;
+use octocode_runtime_base::config::RuntimeSurface;
 
 /// Who asked: the CLI (a call answered as printed) or an MCP server (a call
 /// answered as an MCP result). Each is a runtime of its own on a server,

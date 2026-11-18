@@ -5,7 +5,7 @@
     reason = "benchmark fixtures must be readable and valid"
 )]
 
-use octocode_native::contracts::validate_output;
+use octocode_runtime_base::contracts::validate_output;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::hint::black_box;

@@ -9,15 +9,6 @@ use std::time::Duration;
 
 const FILES: usize = 16;
 
-/// The budget is one per process: the tests that set it take turns.
-static BUDGET: Mutex<()> = Mutex::new(());
-
-fn alone() -> std::sync::MutexGuard<'static, ()> {
-    BUDGET
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
 /// A judge that serves each file with `needle` shown as `NEEDLE`, keeps each
 /// call open for a moment so workers overlap, and counts how many ran at once.
 fn slow_judge(now: &Arc<AtomicUsize>, most: &Arc<AtomicUsize>) -> SourceJudge {
@@ -36,6 +27,7 @@ fn slow_judge(now: &Arc<AtomicUsize>, most: &Arc<AtomicUsize>) -> SourceJudge {
             },
         ),
         writes: Arc::new(|_: &str, _: bool| true),
+        held: None,
     }
 }
 
@@ -65,9 +57,8 @@ fn rows(root: &TmpDir) -> (Vec<(String, u32)>, usize) {
 
 #[test]
 fn held_bytes_stay_within_the_budget_whatever_the_workers() {
-    let _turn = alone();
     let (root, len) = tree();
-    test_limit::set(usize::MAX / 4);
+    let limit = test_limit::hold(usize::MAX / 4);
     let (unbounded, widest) = rows(&root);
     assert_eq!(unbounded.len(), FILES);
     if crate::cpu::host().share() >= 4 {
@@ -76,7 +67,7 @@ fn held_bytes_stay_within_the_budget_whatever_the_workers() {
 
     // Room for three files' judge copies at once.
     let budget = 3 * 3 * len;
-    test_limit::set(budget);
+    limit.set(budget);
     WHOLE_FILES.reset_peak();
     let (bounded, widest) = rows(&root);
     assert!(
@@ -90,9 +81,8 @@ fn held_bytes_stay_within_the_budget_whatever_the_workers() {
 
 #[test]
 fn a_file_larger_than_the_budget_is_searched_alone_not_refused() {
-    let _turn = alone();
     let (root, len) = tree();
-    test_limit::set(len / 2);
+    let _limit = test_limit::hold(len / 2);
     WHOLE_FILES.reset_peak();
     let (bounded, widest) = rows(&root);
     assert_eq!(bounded.len(), FILES);
@@ -124,6 +114,7 @@ fn a_stopped_search_ends_a_judge_at_work() {
             },
         ),
         writes: Arc::new(|_: &str, _: bool| true),
+        held: None,
     });
     let cancel = Arc::new(AtomicBool::new(false));
     let canceller = {
@@ -155,19 +146,18 @@ fn a_stopped_search_ends_a_judge_at_work() {
 /// search with no judge holds no more than it admits at once.
 #[test]
 fn files_read_through_the_line_buffer_are_admitted_by_their_bytes() {
-    let _turn = alone();
     let root = TmpDir::new();
     let body = format!("{}needle\n", "x".repeat(3 * 512 * 1024));
     for index in 0..FILES {
         root.write(&format!("big{index:02}.txt"), &body);
     }
-    test_limit::set(usize::MAX / 4);
+    let limit = test_limit::hold(usize::MAX / 4);
     let mut options = opts(root.path(), "needle");
     options.sort = SearchSort::Path;
     let unbounded = search(options.clone()).expect("search");
 
     let budget = 2 * body.len();
-    test_limit::set(budget);
+    limit.set(budget);
     WHOLE_FILES.reset_peak();
     let bounded = search(options).expect("search");
     assert!(
@@ -194,8 +184,8 @@ fn files_read_through_the_line_buffer_are_admitted_by_their_bytes() {
 fn a_file_opening_with_a_long_line_is_searched_like_any_other() {
     let t = TmpDir::new();
     let long = format!("{}needle\n", "lorem ".repeat(400_000));
-    t.write("long.txt", &format!("{long}tail needle\nplain\n"));
-    t.write("short.txt", &format!("head\n{long}tail needle\n"));
+    t.write("long.txt", format!("{long}tail needle\nplain\n"));
+    t.write("short.txt", format!("head\n{long}tail needle\n"));
     let mut options = opts(t.path(), "needle");
     options.output = SearchOutput::CountMatches;
     let result = search(options).expect("search");

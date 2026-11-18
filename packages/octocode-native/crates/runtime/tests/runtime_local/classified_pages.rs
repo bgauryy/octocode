@@ -1,6 +1,7 @@
 use crate::support::{self, Run as _, Workspace};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use octocode_native::runtime::ToolRuntime;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use std::collections::{HashSet, VecDeque};
 use wiremock::{
@@ -11,9 +12,9 @@ use wiremock::{
 async fn provider(exclude_first: bool) -> MockServer {
     judging(move |content| {
         if exclude_first && content.starts_with("line-1 ") {
-            json!({"0":1,"1":0,"2":0})
+            json_fixture(r#"{"0": 1, "1": 0, "2": 0}"#)
         } else {
-            json!({"0":0,"1":0,"2":1})
+            json_fixture(r#"{"0": 0, "1": 0, "2": 1}"#)
         }
     })
     .await
@@ -27,9 +28,9 @@ async fn unsure_after_third() -> MockServer {
             .iter()
             .any(|head| content.starts_with(head))
         {
-            json!({"0":0,"1":0,"2":1})
+            json_fixture(r#"{"0": 0, "1": 0, "2": 1}"#)
         } else {
-            json!({"0":0.3,"1":0.4,"2":0.3})
+            json_fixture(r#"{"0": 0.3, "1": 0.4, "2": 0.3}"#)
         }
     })
     .await
@@ -144,6 +145,7 @@ async fn selected_pages(tool: &str) {
     let local = workspace.write("pages.txt", &body);
     let server = provider(false).await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "pages.txt").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/pages.txt"))
         .respond_with(
@@ -163,7 +165,7 @@ async fn selected_pages(tool: &str) {
     } else {
         json!({"owner":"a","repo":"b","path":"pages.txt","ref":sha})
     };
-    query["classification"] = json!({"predicates":["Select all evidence"]});
+    query["classification"] = json_fixture(r#"{"predicates": ["Select all evidence"]}"#);
     let mut actual = walk(
         &runtime,
         tool,

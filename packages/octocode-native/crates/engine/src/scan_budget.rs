@@ -19,22 +19,59 @@ const MAX_CHUNK_FILES: usize = 4_096;
 /// Share of the budget one paced chunk aims to fill.
 const CHUNK_BUDGET_SHARE: u32 = 10;
 
+/// What a [`WalkClock`] reads the time from.
+pub type WalkNow = dyn Fn() -> std::time::Instant + Send + Sync;
+
+/// The clock a walk or scan reads its time budget on. The default reads
+/// [`walk_now`]; a caller that moves time itself (a test) passes its own
+/// reading.
+#[derive(Clone, Default)]
+pub struct WalkClock(Option<std::sync::Arc<WalkNow>>);
+
+impl WalkClock {
+    #[must_use]
+    pub fn now(&self) -> std::time::Instant {
+        match &self.0 {
+            Some(now) => now(),
+            None => walk_now(),
+        }
+    }
+}
+
+impl From<std::sync::Arc<WalkNow>> for WalkClock {
+    fn from(now: std::sync::Arc<WalkNow>) -> Self {
+        Self(Some(now))
+    }
+}
+
+impl std::fmt::Debug for WalkClock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self.0 {
+            Some(_) => "WalkClock(given)",
+            None => "WalkClock",
+        })
+    }
+}
+
 /// Paces the chunks of a scan: time is checked between chunks, and each
 /// chunk of a timed scan is sized from the throughput seen so far to end
 /// within a tenth of the budget and within what is left of it, so slow
 /// storage overshoots the budget by about one short chunk rather than a
 /// fixed file count. An untimed scan runs maximal chunks.
 pub(crate) struct ScanPacer {
+    clock: WalkClock,
     started: std::time::Instant,
     budget: Option<std::time::Duration>,
     evaluated: usize,
 }
 
 impl ScanPacer {
-    /// `budget: None` never stops the scan.
-    pub(crate) fn new(budget: Option<std::time::Duration>) -> Self {
+    /// A pacer whose budget starts now on `clock`; `budget: None` never
+    /// stops the scan.
+    pub(crate) fn new(budget: Option<std::time::Duration>, clock: WalkClock) -> Self {
         Self {
-            started: walk_now(),
+            started: clock.now(),
+            clock,
             budget,
             evaluated: 0,
         }
@@ -45,9 +82,9 @@ impl ScanPacer {
         self.evaluated > 0 && self.budget.is_some_and(|budget| self.elapsed() >= budget)
     }
 
-    /// Time since the scan began, on the walk clock ([`walk_now`]).
+    /// Time since the scan began, on its clock.
     fn elapsed(&self) -> std::time::Duration {
-        walk_now().saturating_duration_since(self.started)
+        self.clock.now().saturating_duration_since(self.started)
     }
 
     /// Candidates the next chunk evaluates.
@@ -135,44 +172,4 @@ pub fn advance_walk_clock(by: std::time::Duration) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Duration;
-
-    /// The budget is read on the walk clock: frozen, no real time spends it;
-    /// advanced past it, the pacer stops after the first chunk ran.
-    #[test]
-    fn the_pacer_spends_its_budget_on_the_walk_clock() {
-        let _frozen = freeze_walk_clock();
-        let mut pacer = ScanPacer::new(Some(SCAN_TIME_BUDGET));
-        assert!(!pacer.spent(), "never before the first chunk ran");
-        pacer.record(pacer.next_chunk());
-        assert!(!pacer.spent(), "a frozen clock spends nothing");
-        advance_walk_clock(SCAN_TIME_BUDGET);
-        assert!(pacer.spent());
-    }
-
-    #[test]
-    fn chunks_follow_the_measured_throughput() {
-        let budget = Some(Duration::from_secs(10));
-        assert_eq!(
-            chunk_files(None, 1_000, Duration::from_secs(1)),
-            MAX_CHUNK_FILES
-        );
-        assert_eq!(chunk_files(budget, 0, Duration::ZERO), FIRST_CHUNK_FILES);
-        // 10 ms a file: a one-second chunk is 100 files.
-        assert_eq!(chunk_files(budget, 128, Duration::from_millis(1_280)), 100);
-        // Near the end only what is left of the budget is filled.
-        assert_eq!(chunk_files(budget, 950, Duration::from_millis(9_500)), 50);
-        // Very slow storage still keeps every worker busy.
-        assert_eq!(
-            chunk_files(budget, 128, Duration::from_secs(9)),
-            MIN_CHUNK_FILES
-        );
-        // Fast storage runs maximal chunks.
-        assert_eq!(
-            chunk_files(budget, 128, Duration::from_micros(10)),
-            MAX_CHUNK_FILES
-        );
-    }
-}
+mod tests;

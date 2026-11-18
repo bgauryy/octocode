@@ -1,20 +1,22 @@
-//! Module-boundary guard: a tool module (every `tools/` entry not listed in
-//! [`tool_edges`]' `SHARED_LAYERS`) reaches shared code, never another
-//! tool's internals; a shared module reaches no tool, and only shared
-//! modules of a lower layer, so the shared modules form no cycle. Two
-//! modules that import each other cannot be changed or tested apart; a
-//! primitive both need lives in a lower shared module both import.
+//! Module-boundary guards the crate graph cannot express, one crate at a time.
 //!
-//! The guard resolves every path the production code of each `tools/` module
-//! (and of `tools.rs` itself) names (test files and `#[cfg(test)]` items
-//! are skipped: tests may drive several tools together): `use` trees with
-//! groups, `self`, `super` and aliases, and inline `crate::`/`super::`/bound
-//! paths.
+//! [`tool_edges`] keeps the tool crates apart inside each crate: in
+//! `octocode-tools-shared` a module reaches only modules of a lower layer, so
+//! the shared modules form no cycle; in a tool family crate a tool reaches no
+//! other tool. The crate graph (`tests/architecture_guards.rs` `CRATE_EDGES`)
+//! keeps one family from another, tools-shared from every tool, and every tool
+//! from the runtime.
+//!
+//! The guard resolves every path the production code of each module names
+//! (test files and `#[cfg(test)]` items are skipped: tests may drive several
+//! modules together): `use` trees with groups, `self`, `super` and aliases,
+//! and inline `crate::`/`super::`/bound paths.
 //!
 //! The same scanner keeps each crate's top-level modules layered
-//! ([`LAYERS`] for this crate, [`ENGINE_LAYERS`] for `octocode-engine`):
-//! production code of a module never names a module of a higher layer, so
-//! the lower layers stay separable from the ones that drive them.
+//! ([`LAYERS`] for this crate, [`BASE_LAYERS`] for `octocode-runtime-base`,
+//! [`ENGINE_LAYERS`] for `octocode-engine`): production code of a module never
+//! names a module of a higher layer, so the lower layers stay separable from
+//! the ones that drive them.
 
 use std::path::{Path, PathBuf};
 
@@ -23,12 +25,17 @@ mod tool_edges;
 
 use scanner::named_paths;
 
-/// The crate's top-level modules, lowest layer first. A module imports only
-/// its own layer's lower neighbours and below; a new top-level module is
-/// placed here.
-const LAYERS: &[&[&str]] = &[
+/// The crate's top-level production modules, lowest layer first. A module
+/// imports only its own layer's lower neighbours and below; a new top-level
+/// module is placed here. The tools are crates of their own below this one.
+const LAYERS: &[&[&str]] = &[&["build_identity"], &["runtime"]];
+
+/// `octocode-runtime-base`'s top-level modules, lowest layer first: the
+/// identifiers and numbers, the contracts, policy, configuration and security,
+/// the request kernel (`execution`), response shaping, retained work and the
+/// providers.
+const BASE_LAYERS: &[&[&str]] = &[
     &[
-        "build_identity",
         "civil_date",
         "digest",
         "id",
@@ -44,8 +51,6 @@ const LAYERS: &[&[&str]] = &[
     &["response"],
     &["cache"],
     &["providers"],
-    &["tools"],
-    &["runtime"],
 ];
 
 /// `octocode-engine`'s top-level modules, lowest layer first: shared
@@ -180,8 +185,8 @@ fn upward_imports(src: &Path, layers: &[&[&str]]) -> Vec<String> {
             }
             let source = std::fs::read_to_string(&path)
                 .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
-            let code = crate::tools::test_support::code_only(
-                &crate::tools::test_support::production_text(&source),
+            let code = octocode_runtime_base::test_support::code_only(
+                &octocode_runtime_base::test_support::production_text(&source),
             );
             let mut module = vec![top.clone()];
             let relative = path.strip_prefix(src.join(top)).unwrap_or(Path::new(""));
@@ -217,10 +222,16 @@ const UPWARD: &str = "a module imports a higher layer; move the shared piece dow
 
 /// Production code never imports a higher layer: `id` and `num` below the
 /// contracts, the request kernel (`execution`) below response shaping, and
-/// response below providers, tools and the runtime engine that drives them.
+/// response below providers (`octocode-runtime-base`); the build identity
+/// below the runtime engine that drives the tools.
 #[test]
 fn top_level_modules_import_only_lower_layers() {
-    let violations = upward_imports(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), LAYERS);
+    let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut violations = upward_imports(&crate_dir.join("src"), LAYERS);
+    violations.extend(upward_imports(
+        &crate_dir.join("../runtime-base/src"),
+        BASE_LAYERS,
+    ));
     assert!(
         violations.is_empty(),
         "{UPWARD}:\n  {}",
@@ -241,32 +252,38 @@ fn engine_modules_import_only_lower_layers() {
     );
 }
 
-/// A tool's own file walk starts from `tools::pruned_walk*` (the default prune,
-/// credential stores and ignore policy every walk shares), never a raw
-/// `ignore::WalkBuilder`: a prune rule changed there reaches every walk. Only
-/// `tools.rs` and `policy/` build one. (The engine's own walks live in its
+/// A tool's own file walk starts from `octocode_tools_shared::pruned_walk*`
+/// (the default prune, credential stores and ignore policy every walk shares),
+/// never a raw `ignore::WalkBuilder`: a prune rule changed there reaches every
+/// walk. Only `octocode-tools-shared`'s `lib.rs` and `policy/` (in
+/// `octocode-runtime-base`) build one. (The engine's own walks live in its
 /// crate.)
 #[test]
 fn tool_walks_start_from_the_shared_pruned_walk() {
-    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut files = Vec::new();
-    rust_files(&src, &mut files);
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the crates directory");
+    let builders = [
+        crates.join("tools-shared/src/lib.rs"),
+        crates.join("runtime-base/src/policy"),
+    ];
     let raw = ["WalkBuilder", "::new("].concat();
-    let violations: Vec<String> = files
-        .iter()
-        .filter(|file| {
-            let relative = file.strip_prefix(&src).unwrap_or(file);
-            relative != Path::new("tools.rs")
-                && !relative.starts_with("policy")
-                && relative != Path::new("tools/module_boundaries.rs")
-        })
-        .filter(|file| !mounted_for_tests(&src, file))
-        .filter(|file| std::fs::read_to_string(file).is_ok_and(|text| text.contains(&raw)))
-        .map(|file| file.display().to_string())
-        .collect();
+    let mut violations = Vec::new();
+    for src in octocode_runtime_base::test_support::runtime_crate_sources() {
+        let mut files = Vec::new();
+        rust_files(&src, &mut files);
+        violations.extend(
+            files
+                .iter()
+                .filter(|file| !builders.iter().any(|builder| file.starts_with(builder)))
+                .filter(|file| !mounted_for_tests(&src, file))
+                .filter(|file| std::fs::read_to_string(file).is_ok_and(|text| text.contains(&raw)))
+                .map(|file| file.display().to_string()),
+        );
+    }
     assert!(
         violations.is_empty(),
-        "start these walks from crate::tools::pruned_walk*:\n  {}",
+        "start these walks from octocode_tools_shared::pruned_walk*:\n  {}",
         violations.join("\n  ")
     );
 }

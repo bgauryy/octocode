@@ -19,8 +19,6 @@ mod js_fallback;
 mod python;
 mod receiver;
 mod rust;
-#[cfg(test)]
-pub(in crate::signatures) use rust::folded_attributes;
 mod rust_cfg;
 mod rust_macro_args;
 mod scala;
@@ -41,8 +39,6 @@ use from_tree::facts_from_tree;
 use imports::push_language_import;
 use macro_bodies::MacroBody;
 use positions::NodePositions;
-#[cfg(test)]
-use walk::visit_node;
 
 /// The diagnostic of `code`, with the message this module states for it.
 fn note(code: GraphFactCode) -> GraphFactDiagnostic {

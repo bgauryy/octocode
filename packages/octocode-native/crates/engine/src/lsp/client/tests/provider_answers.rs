@@ -294,27 +294,27 @@ fn open_documents_follow_their_files_and_never_replay_older_answers() {
     });
 }
 
-#[tokio::test(start_paused = true)]
-async fn settled_requests_wait_only_when_they_reach_the_server() {
-    use super::document_sync::{
-        client_with_fake_server_using, read_client_frame, send_server_frame,
-    };
-    let tmp = TmpDir::new();
-    let root = tmp.0.join("octocode-engine-settled-reuse");
-    std::fs::create_dir_all(&root).unwrap();
-    let source = root.join("a.ts");
-    std::fs::write(&source, "function foo() {}\nfoo();\n".repeat(10)).unwrap();
-    let source_path = source
-        .canonicalize()
-        .unwrap()
-        .to_string_lossy()
-        .into_owned();
-    let (client, mut reader, mut writer) =
-        client_with_fake_server_using(NativeLspClient::new(ts_config()), 64 * 1024).await;
-    let requests = Arc::new(AtomicUsize::new(0));
-    let seen = Arc::clone(&requests);
-    let server =
-        tokio::spawn(async move {
+#[test]
+fn settled_requests_wait_only_when_they_reach_the_server() {
+    paused(|clock| async move {
+        use super::document_sync::{
+            client_with_fake_server_using, read_client_frame, send_server_frame,
+        };
+        let tmp = TmpDir::new();
+        let root = tmp.0.join("octocode-engine-settled-reuse");
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("a.ts");
+        std::fs::write(&source, "function foo() {}\nfoo();\n".repeat(10)).unwrap();
+        let source_path = source
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        let (client, mut reader, mut writer) =
+            client_with_fake_server_using(client_on(&clock, ts_config()), 64 * 1024).await;
+        let requests = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::clone(&requests);
+        let server = tokio::spawn(async move {
             loop {
                 let request = read_client_frame(&mut reader).await;
                 assert_eq!(request["method"], "textDocument/references");
@@ -325,57 +325,59 @@ async fn settled_requests_wait_only_when_they_reach_the_server() {
                 }]})).await;
             }
         });
-    let settle = Duration::from_millis(200);
-    let selected = ResponseScope::default();
-    let ask = |settled: Option<Duration>| {
-        let client = &client;
-        let source_path = source_path.clone();
-        let scope = selected.clone();
-        RESPONSE_SCOPE.scope(std::cell::RefCell::new(scope), async move {
-            let started = tokio::time::Instant::now();
-            let line = client
-                .get_locations(
-                    LocationRequest::References {
-                        include_declaration: true,
-                    },
-                    source_path,
-                    0,
-                    9,
-                    &SnippetReadPolicy::default(),
-                    settled,
-                )
+        let settle = Duration::from_millis(200);
+        let selected = ResponseScope::default();
+        let ask = |settled: Option<Duration>| {
+            let client = &client;
+            let clock = &clock;
+            let source_path = source_path.clone();
+            let scope = selected.clone();
+            RESPONSE_SCOPE.scope(std::cell::RefCell::new(scope), async move {
+                let started = clock.now();
+                let line = client
+                    .get_locations(
+                        LocationRequest::References {
+                            include_declaration: true,
+                        },
+                        source_path,
+                        0,
+                        9,
+                        &SnippetReadPolicy::default(),
+                        settled,
+                    )
+                    .await
+                    .expect("references")[0]
+                    .range
+                    .start
+                    .line;
+                (line, clock.elapsed(started))
+            })
+        };
+        let (first, _) = ask(None).await;
+        // A settled request never takes the earlier (pre-settle) answer: it
+        // waits, then asks the server.
+        let (settled, waited) = ask(Some(settle)).await;
+        assert_ne!(settled, first);
+        assert_eq!(waited, settle);
+        // Repeated under the same generation, both answers come from the
+        // cache: no wait, no request (the server would answer a new line).
+        let (again, waited) = ask(Some(settle)).await;
+        assert_eq!(again, settled);
+        assert_eq!(waited, Duration::ZERO);
+        assert_eq!(ask(None).await.0, first);
+        assert_eq!(
+            requests.load(Ordering::SeqCst),
+            2,
+            "both cache hits avoid the provider"
+        );
+        server.abort();
+        assert!(
+            server
                 .await
-                .expect("references")[0]
-                .range
-                .start
-                .line;
-            (line, started.elapsed())
-        })
-    };
-    let (first, _) = ask(None).await;
-    // A settled request never takes the earlier (pre-settle) answer: it
-    // waits, then asks the server.
-    let (settled, waited) = ask(Some(settle)).await;
-    assert_ne!(settled, first);
-    assert_eq!(waited, settle);
-    // Repeated under the same generation, both answers come from the
-    // cache: no wait, no request (the server would answer a new line).
-    let (again, waited) = ask(Some(settle)).await;
-    assert_eq!(again, settled);
-    assert_eq!(waited, Duration::ZERO);
-    assert_eq!(ask(None).await.0, first);
-    assert_eq!(
-        requests.load(Ordering::SeqCst),
-        2,
-        "both cache hits avoid the provider"
-    );
-    server.abort();
-    assert!(
-        server
-            .await
-            .expect_err("mock task cancelled")
-            .is_cancelled()
-    );
+                .expect_err("mock task cancelled")
+                .is_cancelled()
+        );
+    });
 }
 
 /// Raw provider values survive serialization into continuation-owned state.

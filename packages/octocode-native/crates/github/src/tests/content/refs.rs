@@ -1,5 +1,6 @@
 //! Ref resolution: the default branch, fresh SHAs, missing refs and tag refs.
 use super::*;
+use octocode_test_support::json_fixture;
 
 #[tokio::test]
 async fn default_branch_resolves_with_one_sha_request_per_read() {
@@ -30,6 +31,7 @@ async fn default_branch_resolves_with_one_sha_request_per_read() {
             .mount(&server)
             .await;
     }
+    mount_trees(&server, "acme", "repo", sha, &["a.rs", "b.rs"]).await;
     let base = provider(&server).await;
     let provider = GitHubProvider::new(base.transport);
     let context = with_token("secret", Duration::from_secs(2), 1024);
@@ -87,14 +89,14 @@ async fn missing_ref_is_not_found_with_a_ref_reason() {
         &server,
         "/api/v3/repos/o/r/commits/nope",
         422,
-        serde_json::json!({"message": "No commit found for SHA: nope"}),
+        json_fixture(r#"{"message": "No commit found for SHA: nope"}"#),
     )
     .await;
     mount_json(
         &server,
         "/api/v3/repos/o/gone/commits/main",
         404,
-        serde_json::json!({"message": "Not Found"}),
+        json_fixture(r#"{"message": "Not Found"}"#),
     )
     .await;
     let provider = provider(&server).await;
@@ -131,7 +133,7 @@ async fn a_tag_exists_only_as_a_tag_ref() {
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/git/ref/tags/1.2.3"))
         .respond_with(
-            ResponseTemplate::new(404).set_body_json(serde_json::json!({"message": "Not Found"})),
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
         )
         .mount(&server)
         .await;

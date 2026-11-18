@@ -1,0 +1,113 @@
+//! Happy-path anchors: each operation's row carries the values the next hop
+//! reads (`number`, `headCommitSha`/`baseCommitSha`/`mergeCommitSha`, `commitSha`,
+//! changed files as path+stat, patch lines numbered on their own side).
+use super::{HistoryItemRequest, execute};
+use octocode_github::RetryPolicy;
+use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::security::scan::Passthrough;
+use octocode_runtime_base::test_support::{checks, published};
+use octocode_test_support::mock_http::mount_json;
+use octocode_tools_shared::gh_shared::test_support::{fixture_context, mock_provider};
+use serde_json::{Value, json};
+use std::time::Duration;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+mod batches;
+mod commit;
+mod commit_match;
+mod compare;
+mod discussion_match;
+mod issue;
+mod pull_request;
+mod redaction;
+mod renamed;
+
+const BASE: &str = "1111111111111111111111111111111111111111";
+const HEAD: &str = "2222222222222222222222222222222222222222";
+const MERGE_BASE: &str = "3333333333333333333333333333333333333333";
+
+async fn read(server: &MockServer, row: Value) -> Value {
+    read_with_budget(server, row, None).await
+}
+
+async fn read_with_budget(server: &MockServer, row: Value, page_chars: Option<usize>) -> Value {
+    let provider = mock_provider(server, RetryPolicy::default());
+    let context = fixture_context(Duration::from_secs(10), 4 << 20);
+    let (owner, repo) = (row["owner"].clone(), row["repo"].clone());
+    let mut request = HistoryItemRequest::from_row(row).expect("valid row");
+    request.auto_page_chars = page_chars;
+    let data = execute(&provider, &request, &context, &Passthrough)
+        .await
+        .expect("history item")
+        .data;
+    let items = data
+        .get("pullRequests")
+        .or_else(|| data.get("issues"))
+        .and_then(Value::as_array);
+    for item in items.map_or_else(|| vec![&data], |items| items.iter().collect()) {
+        assert_eq!(
+            item["owner"], owner,
+            "saved item retains its repository: {item}"
+        );
+        assert_eq!(
+            item["repo"], repo,
+            "saved item retains its repository: {item}"
+        );
+    }
+    data
+}
+
+fn changed_file(name: &str) -> Value {
+    json!({"filename":name,"status":"modified","additions":1,"deletions":1,
+        "patch":"@@ -10,2 +10,2 @@\n keep\n-old\n+new"})
+}
+
+fn commit_raw(sha: &str, message: &str) -> Value {
+    json!({"sha":sha,"commit":{"message":message,
+        "author":{"name":"Ada","email":"a@x","date":"2024-01-01T00:00:00Z"}},
+        "author":{"login":"ada"}})
+}
+
+fn assert_history_page_contract(data: &Value) {
+    let shaped = octocode_runtime_base::response::rows::result_row(0, data.clone(), None);
+    octocode_runtime_base::test_support::validate_sealed(
+        "ghGetHistoryItem",
+        &json!({"results": [shaped]}),
+    )
+    .expect("actual normalized history row satisfies the canonical output contract");
+}
+
+/// A provider list paged like GitHub: `per_page` items of `items` from
+/// `page`, with a `next` link while more follow.
+fn paged_like_github(
+    base_url: String,
+    items: Vec<Value>,
+    wrap: fn(Vec<Value>) -> Value,
+) -> impl Fn(&wiremock::Request) -> ResponseTemplate {
+    move |request: &wiremock::Request| {
+        let param = |key: &str| {
+            request
+                .url
+                .query_pairs()
+                .find(|(name, _)| name == key)
+                .and_then(|(_, value)| value.parse::<usize>().ok())
+        };
+        let (page, per) = (param("page").unwrap_or(1), param("per_page").unwrap_or(30));
+        let start = ((page - 1) * per).min(items.len());
+        let end = (start + per).min(items.len());
+        let mut response =
+            ResponseTemplate::new(200).set_body_json(wrap(items[start..end].to_vec()));
+        if end < items.len() {
+            response = response.insert_header(
+                "Link",
+                format!(
+                    "<{base_url}{}?per_page={per}&page={}>; rel=\"next\"",
+                    request.url.path(),
+                    page + 1
+                ),
+            );
+        }
+        response
+    }
+}

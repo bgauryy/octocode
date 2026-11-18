@@ -1,4 +1,5 @@
 use super::*;
+use octocode_test_support::json_fixture;
 
 /// A warning a call says on stderr outside its result (here: the shared
 /// GitHub rate-limit directory cannot be created) reaches the client of
@@ -11,7 +12,9 @@ async fn notices_reach_the_client_as_an_in_process_call_says_them() {
     use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
     let github = MockServer::builder().start().await;
     Mock::given(method("GET"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message": "Not Found"})))
+        .respond_with(
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
+        )
         .mount(&github)
         .await;
     let mut fixture = Fixture::new();
@@ -26,7 +29,7 @@ async fn notices_reach_the_client_as_an_in_process_call_says_them() {
     std::fs::write(fixture.home.path().join("tmp/ratelimit"), "").expect("blocker");
     let cwd = fixture.dir("a");
     // Two rows: they run on threads of their own, each reading GitHub.
-    let row = json!({"owner": "o", "repo": "r", "path": "README"});
+    let row = json_fixture(r#"{"owner": "o", "repo": "r", "path": "README"}"#);
     let input = json!({"queries": [row, row]});
     // A call in flight the whole time, such as a localSearch, that
     // raises nothing itself.
@@ -84,7 +87,7 @@ async fn the_server_answers_byte_for_byte_like_an_in_process_call() {
     let local = tokio::task::LocalSet::new();
     local
         .run_until(async {
-            let input = json!({"queries": [{"matchString": ["alpha"], "path": "."}]});
+            let input = json_fixture(r#"{"queries": [{"matchString": ["alpha"], "path": "."}]}"#);
             // The in-process answers come first: a server idle for its
             // 300 ms while one runs would stop before the next call.
             let mut calls = Vec::new();
@@ -174,7 +177,7 @@ async fn a_slow_runtime_build_holds_up_no_other_call() {
             let server = tokio::task::spawn_local(async move {
                 serve_on(listener, &server_daemon, Duration::from_millis(300), || {}).await;
             });
-            let input = json!({"queries": [{"matchString": ["alpha"], "path": "."}]});
+            let input = json_fixture(r#"{"queries": [{"matchString": ["alpha"], "path": "."}]}"#);
             let warm = fixture.dir("a");
             fixture
                 .ask(&socket, &warm, "localSearch", &input, true)
@@ -259,7 +262,7 @@ async fn a_stopped_server_finishes_the_calls_it_took() {
                 })
                 .await;
             });
-            let input = json!({"queries": [{"matchString": ["alpha"], "path": "."}]});
+            let input = json_fixture(r#"{"queries": [{"matchString": ["alpha"], "path": "."}]}"#);
             let (taken, ()) = tokio::join!(
                 fixture.ask(&socket, &slow, "localSearch", &input, true),
                 async {
@@ -315,7 +318,7 @@ async fn a_request_made_under_another_process_environment_falls_back() {
             let server = tokio::task::spawn_local(async move {
                 serve_on(listener, &server_daemon, Duration::from_millis(300), || {}).await;
             });
-            let input = json!({"queries": [{"matchString": ["alpha"], "path": "."}]});
+            let input = json_fixture(r#"{"queries": [{"matchString": ["alpha"], "path": "."}]}"#);
             let cwd = fixture.dir("a");
             let env = served_env(fixture.env.clone());
             let identity = fixture.identity(&cwd);
@@ -360,7 +363,7 @@ async fn an_mcp_request_is_its_own_runtime_with_mcp_policy_and_bytes() {
     let daemon = std::rc::Rc::new(Daemon::new(socket.clone()));
     tokio::task::LocalSet::new()
         .run_until(async {
-            let input = json!({"queries": [{"matchString": ["alpha"], "path": "."}]});
+            let input = json_fixture(r#"{"queries": [{"matchString": ["alpha"], "path": "."}]}"#);
             let cwd = fixture.dir("a");
             // The in-process answers come first: a server idle for its
             // 300 ms while one runs would stop before the next call.

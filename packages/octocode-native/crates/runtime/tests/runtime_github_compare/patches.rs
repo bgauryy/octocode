@@ -2,6 +2,7 @@
 
 use super::{BASE_SHA, HEAD_SHA, mount_capped_compare};
 use crate::support::{self};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use support::{Workspace, call, row_data};
 use wiremock::matchers::{method, path_regex};
@@ -18,8 +19,16 @@ async fn patch_selection_does_not_include_unrequested_commits() {
     let hop = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"v1","headRef":"v2",
-               "sections":["patches"]}),
+        json_fixture(
+            r#"{
+                "operation": "compare",
+                "owner": "a",
+                "repo": "b",
+                "baseRef": "v1",
+                "headRef": "v2",
+                "sections": ["patches"]
+            }"#,
+        ),
     )
     .await
     .expect("compare hop");
@@ -71,6 +80,7 @@ async fn compare_patch_view_reads_head_and_merge_base() {
         let content = (1..=20)
             .map(|line| format!("{marker} line {line}\n"))
             .collect::<String>();
+        octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "src/a.rs").await;
         Mock::given(method("GET")).and(wiremock::matchers::path("/api/v3/repos/a/b/contents/src%2Fa.rs"))
             .and(wiremock::matchers::query_param("ref",pinned))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({"type":"file","path":"src/a.rs","encoding":"base64","content":base64::engine::general_purpose::STANDARD.encode(content)})))

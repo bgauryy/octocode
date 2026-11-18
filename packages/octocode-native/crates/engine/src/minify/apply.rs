@@ -133,9 +133,4 @@ pub fn apply_content_view_minification(content: &str, file_path: &str) -> Compac
 }
 
 #[cfg(test)]
-pub(super) fn indent_of(content: &str, file_path: &str) -> Option<Indent> {
-    match lex(content, file_path, &|| false).0 {
-        Layout::Grammar(_, indent, _) => Some(indent),
-        _ => None,
-    }
-}
+pub(super) mod tests;

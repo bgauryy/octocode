@@ -1,15 +1,16 @@
 use super::*;
+use octocode_test_support::json_fixture;
 
 #[test]
 fn a_missing_capture_preserves_the_readers_executable_recovery() {
     let root = tempfile::tempdir().expect("root");
     std::fs::write(root.path().join("main.rs"), "fn main() {}\n").expect("write");
-    let paths = crate::tools::test_support::workspace_policy(root.path());
-    let query = serde_json::from_value(serde_json::json!({"path":"mains.rs"})).expect("query");
-    let Err(failed) = crate::tools::local_fetch::capture_text(
+    let paths = octocode_runtime_base::test_support::workspace_policy(root.path());
+    let query = serde_json::from_value(json_fixture(r#"{"path": "mains.rs"}"#)).expect("query");
+    let Err(failed) = octocode_tool_local::local_fetch::capture_text(
         &query,
         &paths,
-        &crate::execution::cancel::NeverCancel,
+        &octocode_runtime_base::execution::cancel::NeverCancel,
     ) else {
         panic!("a missing path is no capture");
     };
@@ -24,10 +25,10 @@ fn a_missing_capture_preserves_the_readers_executable_recovery() {
     assert_eq!(read["kind"], "related");
     let query = serde_json::from_value(read["input"]["queries"][0].clone()).expect("reader query");
     assert!(
-        crate::tools::local_fetch::capture_text(
+        octocode_tool_local::local_fetch::capture_text(
             &query,
             &paths,
-            &crate::execution::cancel::NeverCancel,
+            &octocode_runtime_base::execution::cancel::NeverCancel,
         )
         .is_ok(),
         "recovery must read an existing source: {read}"
@@ -40,16 +41,18 @@ fn a_missing_capture_preserves_the_readers_executable_recovery() {
 fn a_classifier_capture_stays_withheld_when_credential_files_are_allowed() {
     let root = tempfile::tempdir().expect("root");
     std::fs::write(root.path().join(".env"), "A=1\n").expect("write");
-    let allowed = crate::policy::path::PathPolicy::new(crate::policy::path::PathPolicyConfig {
-        workspace_root: Some(root.path().to_path_buf()),
-        allow_credential_files: true,
-        ..Default::default()
-    })
+    let allowed = octocode_runtime_base::policy::path::PathPolicy::new(
+        octocode_runtime_base::policy::path::PathPolicyConfig {
+            workspace_root: Some(root.path().to_path_buf()),
+            allow_credential_files: true,
+            ..Default::default()
+        },
+    )
     .expect("policy");
-    let query = serde_json::from_value(serde_json::json!({"path":".env"})).expect("query");
-    let cancel = crate::execution::cancel::NeverCancel;
-    assert!(crate::tools::local_fetch::capture_text(&query, &allowed, &cancel).is_ok());
-    let Err(failed) = crate::tools::local_fetch::capture_text(
+    let query = serde_json::from_value(json_fixture(r#"{"path": ".env"}"#)).expect("query");
+    let cancel = octocode_runtime_base::execution::cancel::NeverCancel;
+    assert!(octocode_tool_local::local_fetch::capture_text(&query, &allowed, &cancel).is_ok());
+    let Err(failed) = octocode_tool_local::local_fetch::capture_text(
         &query,
         &allowed.withholding_credentials(),
         &cancel,

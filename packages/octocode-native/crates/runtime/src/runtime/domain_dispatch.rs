@@ -3,19 +3,19 @@ mod lsp_row;
 mod registry_row;
 mod source_reader;
 use super::{dispatch, github};
-use crate::execution::{ExecutionContext, ExecutionError};
-use crate::tools::lsp_search::lsp_search_query;
-use crate::{
+use octocode_contract_types::{ErrorCode, LspSearchQuery};
+use octocode_engine::contain::Phase;
+use octocode_github::ProviderError;
+use octocode_runtime_base::execution::{ExecutionContext, ExecutionError};
+use octocode_runtime_base::{
     config::ConfigOutput,
     id::{ToolFamily, ToolId},
     policy::path::PathPolicy,
     response::outcome::{DomainResult, Upstream},
     security::{CheckedQuery, ContentSecurity},
-    tools::lsp_search::{LspExecutionConfig, prewarm},
 };
-use octocode_contract_types::{ErrorCode, LspSearchQuery};
-use octocode_engine::contain::Phase;
-use octocode_github::ProviderError;
+use octocode_tool_lsp::lsp_search::lsp_search_query;
+use octocode_tool_lsp::lsp_search::{LspExecutionConfig, prewarm};
 use serde_json::Value;
 use std::{
     path::PathBuf,
@@ -28,24 +28,24 @@ pub(crate) struct DomainDispatcher {
     pub egress_paths: Arc<PathPolicy>,
     pub security: Arc<ContentSecurity>,
     pub(super) github_services: Arc<OnceLock<Result<github::GitHubServices, ProviderError>>>,
-    pub(super) provider_answers: Arc<crate::providers::saved_answers::KeptAnswers>,
+    pub(super) provider_answers: Arc<octocode_runtime_base::providers::saved_answers::KeptAnswers>,
     pub(super) github_access: github::ResponseAccess,
     pub config: Arc<ConfigOutput>,
     /// Internal limits: the runtime's code constants.
-    pub limits: crate::execution::RuntimeLimits,
+    pub limits: octocode_runtime_base::execution::RuntimeLimits,
     pub home: PathBuf,
     pub handle: tokio::runtime::Handle,
     pub lsp_pool: Arc<octocode_engine::lsp::pool::LspClientPool>,
     pub lsp_execution_config: Arc<LspExecutionConfig>,
-    pub lsp_answers: Arc<crate::tools::lsp_search::ContinuationAnswers>,
-    pub graph_rows: Arc<crate::tools::ast_graph::store::SavedRows>,
-    pub availability: Arc<crate::execution::availability::ToolAvailability>,
+    pub lsp_answers: Arc<octocode_tool_lsp::lsp_search::ContinuationAnswers>,
+    pub graph_rows: Arc<octocode_tool_graph::ast_graph::store::SavedRows>,
+    pub availability: Arc<octocode_runtime_base::execution::availability::ToolAvailability>,
     /// Provider readiness and an enabled goals surface, independent of the
     /// public clasify tool's availability.
     pub(crate) selection_available: bool,
-    pub(crate) evaluator: crate::tools::judgment::Evaluator,
+    pub(crate) evaluator: octocode_tools_shared::judgment::Evaluator,
     /// The candidate pages selection judged in this runtime.
-    pub(crate) selection_pages: Arc<crate::tools::selection::SavedPlans>,
+    pub(crate) selection_pages: Arc<octocode_tools_shared::selection::SavedPlans>,
 }
 
 #[cfg(test)]
@@ -82,8 +82,8 @@ impl DomainDispatcher {
     pub(super) fn selection_runtime(
         &self,
         context: &ExecutionContext,
-    ) -> crate::tools::selection::Runtime {
-        crate::tools::selection::Runtime {
+    ) -> octocode_tools_shared::selection::Runtime {
+        octocode_tools_shared::selection::Runtime {
             limits: self.limits.selection,
             available: self.selection_available,
             judge: Arc::new(self.evaluator.clone()),
@@ -177,7 +177,13 @@ impl DomainDispatcher {
             ToolFamily::Remote => self.execute_artifact(query, context),
         })?;
         if matches!(tool.family(), ToolFamily::Local) {
-            crate::response::paths::workspace_relative(&mut result.data, &self.paths);
+            // A graph names its own rows from its snapshot root.
+            octocode_runtime_base::response::paths::shown_paths(
+                matches!(tool, ToolId::GraphBuild | ToolId::GraphQuery),
+                &mut result.data,
+                &self.paths,
+                query,
+            );
         }
         Ok(result)
     }
@@ -231,39 +237,41 @@ impl DomainDispatcher {
         // `targeted` warms from the lspSearch call the settled response
         // serves ([`Self::warm_served_leads`]), not from a lead the response
         // stage then drops.
-        let prewarm_query =
-            (self.config.resolved.lsp.prewarm == crate::config::LspPrewarm::All).then_some(query);
+        let prewarm_query = (self.config.resolved.lsp.prewarm
+            == octocode_runtime_base::config::LspPrewarm::All)
+            .then_some(query);
         let lsp = &self.lsp_execution_config;
         // The row already runs on a blocking or scoped worker thread inside
         // the runtime context ([`Self::execute`]): no further thread hop.
         // lspSearch leads offered by local tools probe the runtime's resolved
         // server settings, not the bare process env.
-        let result = crate::tools::leads::lsp::with_lead_discovery(lsp.discovery(), || {
-            dispatch::execute_local(
-                tool,
-                query,
-                &context,
-                &dispatch::LocalEnv {
-                    memory_only: !crate::config::is_persistent_storage_enabled(
-                        &self.config.resolved,
-                    ),
-                    graph_home: self
-                        .config
-                        .resolved
-                        .local
-                        .graph_home
-                        .as_deref()
-                        .map(std::path::Path::new),
-                    cargo: self
-                        .config
-                        .env_value(crate::config::environment::OCTOCODE_CARGO),
-                    paths: self.local_paths(tool, query, egress),
-                    security: &self.security,
-                    selection: Some(&selection),
-                    graph_rows: Some(&self.graph_rows),
-                },
-            )
-        })?;
+        let result =
+            octocode_tools_shared::leads::lsp::with_lead_discovery(lsp.discovery(), || {
+                dispatch::execute_local(
+                    tool,
+                    query,
+                    &context,
+                    &dispatch::LocalEnv {
+                        memory_only: !octocode_runtime_base::config::is_persistent_storage_enabled(
+                            &self.config.resolved,
+                        ),
+                        graph_home: self
+                            .config
+                            .resolved
+                            .local
+                            .graph_home
+                            .as_deref()
+                            .map(std::path::Path::new),
+                        cargo: self
+                            .config
+                            .env_value(octocode_runtime_base::config::environment::OCTOCODE_CARGO),
+                        paths: self.local_paths(tool, query, egress),
+                        security: &self.security,
+                        selection: Some(&selection),
+                        graph_rows: Some(&self.graph_rows),
+                    },
+                )
+            })?;
         // Under `all`, start the server of the file a read or search names
         // in the background. The pool bounds it: at most three start at once.
         if let Some(file) =
@@ -288,7 +296,7 @@ impl DomainDispatcher {
     /// finds it warm. Runs on the settled response only: a lead the stage
     /// dropped starts no server, and a page replay never reaches it.
     pub(crate) fn warm_served_leads(&self, tool: ToolId, structured: &Value) {
-        if self.config.resolved.lsp.prewarm == crate::config::LspPrewarm::Off
+        if self.config.resolved.lsp.prewarm == octocode_runtime_base::config::LspPrewarm::Off
             || tool.family() != ToolFamily::Local
             || tool == ToolId::LspSearch
         {
@@ -310,7 +318,7 @@ impl DomainDispatcher {
 /// captures it for one (`egress`), or the row judges with one.
 fn goes_to_provider(query: &Value, egress: bool) -> bool {
     egress
-        || crate::contracts::PROVIDER_FIELDS
+        || octocode_runtime_base::contracts::PROVIDER_FIELDS
             .into_iter()
             .any(|field| query.get(field).is_some())
 }

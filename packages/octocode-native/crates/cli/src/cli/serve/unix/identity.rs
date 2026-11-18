@@ -2,7 +2,7 @@
 //! environment. What keys a runtime inside it: the configuration identity
 //! and the call's whole environment.
 
-use octocode_native::config::SHELL_DIRECTORY_ENV;
+use octocode_runtime_base::config::SHELL_DIRECTORY_ENV;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -16,11 +16,11 @@ pub(super) fn served_env(mut env: BTreeMap<String, String>) -> BTreeMap<String, 
 }
 
 /// What a runtime keeps its calls under: the configuration identity
-/// ([`octocode_native::config::ConfigOutput::identity_digest`], which covers
+/// ([`octocode_runtime_base::config::ConfigOutput::identity_digest`], which covers
 /// every declared `OCTOCODE_*` name, both home files and the workspace's
 /// rc file). It keys the runtime, not the socket: a call under another
 /// configuration reaches the same server and gets its own runtime.
-pub(super) fn call_identity(config: &octocode_native::config::ConfigOutput) -> String {
+pub(super) fn call_identity(config: &octocode_runtime_base::config::ConfigOutput) -> String {
     config.identity_digest()
 }
 

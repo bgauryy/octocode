@@ -2,6 +2,7 @@
 
 use super::{mount_file_batches, mount_pr, raw_patch, rest_file};
 use crate::support::{self, Run as _};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use std::time::Duration;
 use support::Workspace;
@@ -36,7 +37,19 @@ async fn explicit_response_page_sizes_patch_walk_windows() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     for budget in [None, Some(50_000)] {
-        let mut input = json!({"queries":[{"operation":"pullRequest","owner":"a","repo":"b","number":9,"sections":["patches"]}]});
+        let mut input = json_fixture(
+            r#"{
+                "queries": [
+                    {
+                        "operation": "pullRequest",
+                        "owner": "a",
+                        "repo": "b",
+                        "number": 9,
+                        "sections": ["patches"]
+                    }
+                ]
+            }"#,
+        );
         if let Some(budget) = budget {
             input["responseChars"] = json!(budget);
         }
@@ -133,8 +146,19 @@ async fn default_large_pr_patch_walk_reaches_every_patch_once() {
     .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let mut envelope = json!({"queries": [{"operation": "pullRequest", "owner": "a",
-        "repo": "b", "number": 9, "sections": ["patches"]}]});
+    let mut envelope = json_fixture(
+        r#"{
+            "queries": [
+                {
+                    "operation": "pullRequest",
+                    "owner": "a",
+                    "repo": "b",
+                    "number": 9,
+                    "sections": ["patches"]
+                }
+            ]
+        }"#,
+    );
     let mut read = std::collections::BTreeMap::<String, String>::new();
     let mut calls = 0;
     loop {

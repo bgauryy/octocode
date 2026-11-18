@@ -1,6 +1,8 @@
 //! Fixtures shared by the engine's unit tests.
 use std::path::{Path, PathBuf};
 
+pub(crate) mod clock;
+
 /// A fresh temporary directory, removed (with everything under it) on drop.
 /// `.0` is its path; it also derefs to a [`Path`].
 #[derive(Debug)]

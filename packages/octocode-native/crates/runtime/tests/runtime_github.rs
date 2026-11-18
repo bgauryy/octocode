@@ -5,6 +5,7 @@ mod batches;
 mod code_page_reads;
 mod failures;
 mod file_reads;
+mod link_callers;
 mod materialize;
 mod missing_targets;
 mod owner_pages;

@@ -12,6 +12,7 @@ async fn concurrent_identical_reads_each_send_a_request() {
         Duration::from_millis(150),
     )
     .await;
+    mount_trees(&server, "a", "b", sha, &["flight.rs"]).await;
     let provider = provider(&server).await;
     let context = with_token("secret", Duration::from_secs(5), 1024);
     let request = file_at("flight.rs", sha);
@@ -21,7 +22,10 @@ async fn concurrent_identical_reads_each_send_a_request() {
     );
     let (first, second) = (first.expect("first"), second.expect("second"));
     assert_eq!(first.bytes, second.bytes);
-    assert_eq!(requests_to(&server, "/api/v3/repos/a/b/contents").await, 2);
+    assert_eq!(
+        requests_to(&server, "/api/v3/repos/a/b/contents/flight.rs").await,
+        2
+    );
 }
 
 /// A concurrent content or ref read stops on its own cancellation.
@@ -55,6 +59,9 @@ async fn a_cancelled_read_stops_without_cancelling_a_concurrent_read() {
         ))
         .mount(&server)
         .await;
+    // The commit's tree lists the file, as GitHub's would: the read checks
+    // it for a link, then asks for the bytes once.
+    mount_trees(&server, "a", "b", sha, &["held.rs"]).await;
     let provider = provider(&server).await;
     let request = file_at("held.rs", sha);
     let call = |call: &'static str, context: RequestContext| {
@@ -98,6 +105,9 @@ async fn a_cancelled_read_stops_without_cancelling_a_concurrent_read() {
         );
     }
     // Both reads reached the provider with independent cancellation.
-    assert_eq!(requests_to(&server, "/api/v3/repos/a/b/contents").await, 2);
+    assert_eq!(
+        requests_to(&server, "/api/v3/repos/a/b/contents/held.rs").await,
+        2
+    );
     assert_eq!(requests_to(&server, "/api/v3/repos/a/b/commits").await, 2);
 }

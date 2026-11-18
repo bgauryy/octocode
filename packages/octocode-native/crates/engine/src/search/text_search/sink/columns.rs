@@ -12,6 +12,19 @@ pub(super) fn block_text(bytes: &[u8]) -> (String, bool) {
     (decoded.text.into_owned(), decoded.warning.is_some())
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Bytes of text this thread's span cursors stepped over (tests).
+    static STEPPED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Bytes of text this thread's span cursors have stepped over: a block's
+/// spans cost one pass over it, however many it holds.
+#[cfg(test)]
+pub(in crate::search::text_search) fn stepped() -> usize {
+    STEPPED.with(std::cell::Cell::get)
+}
+
 /// Maps raw submatch offsets in a matched block to decoded-text offsets and UTF-16
 /// columns. `find_iter` yields non-overlapping matches left to right, so a
 /// forward cursor keeps a line with k spans at O(line + k) instead of
@@ -58,6 +71,8 @@ impl<'a> SpanColumns<'a> {
             self.line = 0;
             self.line_start = 0;
         }
+        #[cfg(test)]
+        STEPPED.with(|stepped| stepped.set(stepped.get() + (target - self.cursor_byte)));
         for (offset, ch) in self.text[self.cursor_byte..target].char_indices() {
             if ch == '\n' {
                 self.line = self.line.saturating_add(1);

@@ -36,9 +36,10 @@ Shared script support: [entry-point detection](lib/entrypoint.mjs) preserves inv
 
 `workspace-health.mjs` parses its mode and delegates to [workspace discovery and build order](lib/workspaces.mjs), [contract checks](lib/workspace-checks.mjs) and [script runs](lib/workspace-run.mjs).
 
-Related checks: [publish guard](prepublish.test.mjs), [symlinked entry points](entry-symlink.test.mjs), [build and test plans preserve shared artifacts](build-plans.test.mjs).
+Related checks: [publish guard](prepublish.test.mjs), [symlinked entry points](entry-symlink.test.mjs), [build and test plans preserve shared artifacts and take build slots](build-plans.test.mjs).
 
 ## Notes
 
+- Every task that compiles Rust holds one of two machine-wide build slots ([build-slot.cjs](../../../packages/octocode-native/scripts/build-slot.cjs)) for each Rust step: `build`, `build:dev`, `test`, `test:dev` (the `test:rust` build, then only the binaries asked for: `--crate <name>`, `--lib`, a libtest filter after `--`), `check`, `lint:rust`, `verify`, `mutants`, `fuzz`, `fuzz:smoke`, `miri` and `llvm-lines`. A bare `cargo` command takes no slot.
 - Follow `dev-setup.mjs` or `prepublish.mjs --fix` with `yarn install`.
 - Paths are root-relative. Scripts resolve the repo root as `../../..` from this folder (`../../../..` from `lib/`). If you move the folder, update `ROOT` in each script, the package builders that import `package-build.mjs`, and `.github/workflows/`.

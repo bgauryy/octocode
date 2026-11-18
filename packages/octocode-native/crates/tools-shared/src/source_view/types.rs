@@ -1,0 +1,270 @@
+use octocode_contract_types::{ErrorCode, LocalFetchQuery, ReadProgressUnit, ReadView};
+use octocode_engine::num::saturating_i64;
+use octocode_runtime_base::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS;
+use serde::{Deserialize, Serialize};
+
+pub mod local_fetch_query;
+mod next_calls;
+mod path_access;
+pub mod result;
+
+pub use next_calls::{FetchCall, NextCalls, ReadSource};
+pub use path_access::{NotAFile, PathAccess, PathFailure, ValidatedRead};
+pub use result::{LocalFetchResult, ReadStatus};
+
+/// Encodes an engine `usize` as a non-negative wire integer.
+pub fn wire_count(value: usize) -> i64 {
+    saturating_i64(value)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineRange {
+    /// First line (1-based), named like every span's start.
+    #[serde(rename = "line")]
+    pub start: usize,
+    /// Last line (1-based, inclusive).
+    #[serde(rename = "endLine")]
+    pub end: usize,
+}
+/// One window of the selected view; `result::PaginationWire` writes it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Pagination {
+    pub unit: ReadProgressUnit,
+    pub offset: usize,
+    pub length: usize,
+    /// The execution window in `unit`; never sent as an input field.
+    pub window: usize,
+    pub total_lines: usize,
+    pub total_bytes: usize,
+    pub has_more: bool,
+    pub next_offset: Option<usize>,
+    /// A byte page that finished an oversized line: the 0-based line the
+    /// next page resumes line paging at, so only that line is byte-chunked.
+    pub resume_line: Option<usize>,
+    /// A byte page of a selection (matches, ranges) placed in the source it
+    /// was selected from ([`super::pagination::Placement`]): the source byte
+    /// the page starts at and the source's size, which the wire states as a
+    /// plain read of the same file states its bytes. The page's own offsets,
+    /// and its continuation, stay the view's.
+    pub placed: Option<(usize, usize)>,
+}
+
+/// A source-line read of `ranges` derived from `q`: the extraction selectors,
+/// paging cursor, and `block` are cleared so the read returns exactly those
+/// lines, spelled as the published `ranges`. More ranges than one read
+/// holds read as one span from the first start to the last end.
+pub fn line_read(q: &LocalFetchQuery, ranges: &[LineRange]) -> Option<LocalFetchQuery> {
+    let (first, last) = (ranges.first()?, ranges.last()?);
+    let span = [LineRange {
+        start: first.start,
+        end: last.end,
+    }];
+    let ranges = if ranges.len() > RANGES_MAX_ITEMS {
+        &span[..]
+    } else {
+        ranges
+    };
+    local_fetch_query::updated(
+        q,
+        serde_json::json!({
+            "view": "content", "matchString": null, "regexEngine": null,
+            "caseMode": null, "wholeWord": null, "contextLines": null,
+            "block": null, "readProgress": null, "snapshot": null,
+            "ranges": ranges.iter().map(|range| serde_json::json!({
+                "startLine": range.start, "endLine": range.end
+            })).collect::<Vec<_>>()
+        }),
+    )
+    .ok()
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ViewFallback {
+    pub requested: ReadView,
+    pub applied: ReadView,
+    pub reason: String,
+}
+/// Why a row does not cover its requested scope beyond what pagination
+/// states (a share-cut page is `hasMore` with `next.nextPage`, no reason).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PartialReason {
+    FileTooLarge,
+    #[serde(rename = "securitySelectedViewSizeLimit")]
+    SecuritySelectedView,
+    /// A regex scan stopped at the memory budget for its match spans: the
+    /// selection is a prefix of the matches.
+    ScanBudget,
+}
+
+/// A declaration a `block:true` read widened a hit to: its name, name line
+/// and last line, an lspSearch anchor without parsing the text.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeclaredBlock {
+    pub symbol_name: String,
+    pub line: usize,
+    pub end_line: usize,
+}
+
+/// What the caller knows about a read besides its bytes.
+#[derive(Clone, Debug, Default)]
+pub struct SourceFacts {
+    /// Target content budget for this reader page. Remaining source is
+    /// reachable through `next.nextPage`; the response pager handles
+    /// envelope overhead and evidence that exceeds this target.
+    pub window: Option<usize>,
+    /// Estimated identity overhead beside the reader content, used when
+    /// choosing its page size.
+    pub beside: usize,
+    /// The bytes begin inside the file, past its first line (a streamed
+    /// window): a U+FEFF leading them is text, not the file's byte-order
+    /// mark.
+    pub interior: bool,
+    /// The bytes are a window of a larger byte view (a streamed source's
+    /// range): where they start in it and its whole size, so a byte page's
+    /// offsets, totals and continuation are the view's.
+    pub byte_origin: Option<ByteOrigin>,
+    /// The whole source's line count when the bytes are a window of it: the
+    /// widest line number a page's gutter shows. `None`: the bytes' own.
+    pub file_lines: Option<usize>,
+    /// The bytes are the whole of a local file, read at the path the read
+    /// scans with: the file every local tool judges whole and cuts its rows
+    /// from, by a pass kept by its text, that path and the scanner's limits
+    /// (`tools::judged_rows`). The read takes its redaction from that pass.
+    pub local_file: bool,
+}
+
+/// A byte window's place in the sealed byte view it was cut from: the view is
+/// redacted whole before any window is cut (its owner records every redaction
+/// as the source streams), so the window's bytes are final and its offsets are
+/// the view's.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ByteOrigin {
+    /// The view byte the window's first byte is.
+    pub base: usize,
+    /// Bytes of the window's first line before its first byte: the line's
+    /// length counts them when a byte page decides it is too long for a line
+    /// page.
+    pub lead: usize,
+    /// The view's size in bytes.
+    pub total: usize,
+    /// The window's lines (1-based) its redactions changed, with the
+    /// placeholders each shows: literal `[REDACTED…]` text is not one.
+    pub redacted: std::sync::Arc<[(usize, usize)]>,
+}
+
+impl ByteOrigin {
+    /// The byte offset of `q`, a byte read of the view, when no window of the
+    /// view ends there: before this window's first byte (inside the redaction
+    /// it starts with), or inside a character, a CRLF pair or a redaction
+    /// marker of `window`.
+    pub(super) fn off_edge(&self, q: &LocalFetchQuery, window: &str) -> Option<usize> {
+        let offset = local_fetch_query::offset(q)?;
+        if local_fetch_query::unit(q) != ReadProgressUnit::Bytes || offset == 0 {
+            return None;
+        }
+        let at = offset.checked_sub(self.base);
+        match at {
+            None => Some(offset),
+            Some(at)
+                if at <= window.len()
+                    && !octocode_runtime_base::response::cut::is_clean_cut(window, at) =>
+            {
+                Some(offset)
+            }
+            Some(_) => None,
+        }
+    }
+
+    /// `q`, a byte read of the view, as the same read of the window.
+    pub(super) fn within(&self, q: &LocalFetchQuery) -> LocalFetchQuery {
+        let mut window = q.clone();
+        if local_fetch_query::unit(&window) == ReadProgressUnit::Bytes {
+            let offset = local_fetch_query::offset(q)
+                .unwrap_or(0)
+                .saturating_sub(self.base);
+            local_fetch_query::set_progress(
+                &mut window,
+                Some(octocode_contract_types::ReadProgress {
+                    unit: ReadProgressUnit::Bytes,
+                    offset: wire_count(offset),
+                }),
+            );
+        }
+        window
+    }
+
+    /// A byte page cut from the window, restated in the view's coordinates:
+    /// its offset, the view's size, and whether (and where) more follows.
+    /// A page that stopped at an oversized line's end resumes by lines; either
+    /// way its remainder is the view's past the page.
+    pub(super) fn place(&self, page: &mut Pagination) {
+        page.offset += self.base;
+        page.total_bytes = self.total;
+        let end = page.offset + page.length;
+        page.has_more = end < self.total;
+        page.next_offset = page.has_more.then_some(end);
+    }
+}
+
+/// Byte spans one regex selected, in source order. `truncated` says the scan
+/// stopped because the memory budget had no room for more spans, with further
+/// matches unseen. `held` is what the spans hold of that budget until the
+/// value drops.
+#[derive(Debug, Default)]
+pub struct RegexSpans {
+    pub spans: Vec<(usize, usize)>,
+    pub truncated: bool,
+    pub held: Option<octocode_io::memo::Reservation<'static>>,
+    /// A list `matchString`: the index of each entry its scan found no
+    /// match of, in order. An entry the memory budget left unscanned is
+    /// not one: its scan is `truncated`.
+    pub missed: Vec<usize>,
+}
+
+/// A failed view selection: the row's `errorCode` and the reason the
+/// message carries after the code's lead (`Invalid regex pattern: <detail>`).
+/// The codes are `invalidPattern` (a `matchString` pattern does not
+/// compile), `executionFailed` (the regex engine the pattern needs cannot
+/// run it) and `invalidInput` (the request selects nothing the file has).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExtractionError {
+    pub code: ErrorCode,
+    pub detail: String,
+}
+
+impl ExtractionError {
+    pub fn new(code: ErrorCode, detail: impl Into<String>) -> Self {
+        Self {
+            code,
+            detail: detail.into(),
+        }
+    }
+
+    /// The row's error message.
+    pub fn message(&self) -> String {
+        match self.code {
+            ErrorCode::InvalidPattern => format!("Invalid regex pattern: {}", self.detail),
+            ErrorCode::ExecutionFailed => {
+                format!("Regex execution unavailable: {}", self.detail)
+            }
+            _ => self.detail.clone(),
+        }
+    }
+}
+
+/// Minimal valid wire query; tests override the fields they exercise.
+#[cfg(any(test, feature = "test-support"))]
+#[expect(
+    clippy::expect_used,
+    reason = "fixtures for tests, compiled only for them (`test`, `test-support`): a broken fixture fails its test at once"
+)]
+pub fn test_local_fetch_query() -> LocalFetchQuery {
+    serde_json::from_value(serde_json::json!({"path": "_"})).expect("minimal localFetch query")
+}
+
+#[cfg(test)]
+mod tests;

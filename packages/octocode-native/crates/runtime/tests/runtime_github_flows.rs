@@ -3,6 +3,7 @@
 
 use crate::support;
 
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use support::{Workspace, call, github_api, row_data, row_status};
 use wiremock::matchers::{method, path, path_regex, query_param};
@@ -67,8 +68,16 @@ async fn a_cross_fork_compare_pins_its_head_to_a_commit() {
     let out = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"main","headRef":"fork:main",
-               "include":["lib/**"]}),
+        json_fixture(
+            r#"{
+                "operation": "compare",
+                "owner": "a",
+                "repo": "b",
+                "baseRef": "main",
+                "headRef": "fork:main",
+                "include": ["lib/**"]
+            }"#,
+        ),
     )
     .await
     .expect("fork compare");
@@ -78,7 +87,7 @@ async fn a_cross_fork_compare_pins_its_head_to_a_commit() {
     let narrow = support::checks::related_call(&data, "ghSearchHistory", |input| {
         input["queries"][0]["operation"] == "commit" && input["queries"][0]["path"] == "lib/"
     });
-    assert_eq!(narrow["kind"], "related", "{data}");
+    assert_eq!(narrow.get("kind"), None, "{data}");
     assert_eq!(narrow["input"]["queries"][0]["ref"], FORK_HEAD_SHA);
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits"))
@@ -191,8 +200,16 @@ async fn a_capped_compare_states_the_file_cap() {
     let out = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"main","headRef":"fork:main",
-               "sections":["files"]}),
+        json_fixture(
+            r#"{
+                "operation": "compare",
+                "owner": "a",
+                "repo": "b",
+                "baseRef": "main",
+                "headRef": "fork:main",
+                "sections": ["files"]
+            }"#,
+        ),
     )
     .await
     .expect("capped compare");
@@ -203,7 +220,7 @@ async fn a_capped_compare_states_the_file_cap() {
     );
     assert_eq!(
         data["partialReasons"],
-        json!(["providerFileLimit"]),
+        json_fixture(r#"["providerFileLimit"]"#),
         "{data}"
     );
     assert!(!data["next"]["listCommits"].is_null(), "{data}");
@@ -218,7 +235,9 @@ async fn a_directory_at_the_contents_limit_keeps_the_identity_for_a_clone() {
     let sha = "0123456789abcdef0123456789abcdef01234567";
     Mock::given(method("GET"))
         .and(path_regex("^/api/v3/repos/a/b$"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"default_branch":"main"})))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json_fixture(r#"{"default_branch": "main"}"#)),
+        )
         .mount(&server)
         .await;
     Mock::given(method("GET"))
@@ -239,7 +258,7 @@ async fn a_directory_at_the_contents_limit_keeps_the_identity_for_a_clone() {
     let out = call(
         &runtime,
         "ghStructure",
-        json!({"operation":"tree","owner":"a","repo":"b"}),
+        json_fixture(r#"{"operation": "tree", "owner": "a", "repo": "b"}"#),
     )
     .await
     .expect("listing");
@@ -260,7 +279,7 @@ async fn a_directory_at_the_contents_limit_keeps_the_identity_for_a_clone() {
     );
     assert_eq!(data["terminalLimit"], true, "{data}");
     let query = json!({"owner":"a","repo":"b","ref":data["commitSha"]});
-    octocode_native::contracts::validate("ghCloneRepo", json!({"queries":[query]}))
+    octocode_runtime_base::contracts::validate("ghCloneRepo", json!({"queries":[query]}))
         .expect("capped listing identity forms a clone request");
     runtime.close().await;
 }
@@ -273,15 +292,16 @@ async fn an_unknown_owner_is_not_found_not_an_empty_search() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path_regex("^/api/v3/search/code$"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"total_count":0,"incomplete_results":true,"items":[]})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"total_count": 0, "incomplete_results": true, "items": []}"#,
+        )))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path_regex("^/api/v3/(users|orgs)/nobody/repos$"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
+        .respond_with(
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
+        )
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -289,7 +309,7 @@ async fn an_unknown_owner_is_not_found_not_an_empty_search() {
     let out = call(
         &runtime,
         "ghSearchCode",
-        json!({"owner":"nobody","keywords":["foo"]}),
+        json_fixture(r#"{"owner": "nobody", "keywords": ["foo"]}"#),
     )
     .await
     .expect("unknown owner");

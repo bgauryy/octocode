@@ -110,7 +110,7 @@ pub(super) async fn live_report(
         rows.push(row);
     }
     let report =
-        octocode_native::security::Sanitized::scrubbed(serde_json::json!({ "live": rows }))
+        octocode_runtime_base::security::Sanitized::scrubbed(serde_json::json!({ "live": rows }))
             .into_value();
     Ok((report, failed))
 }

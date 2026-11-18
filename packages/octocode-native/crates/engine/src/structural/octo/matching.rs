@@ -11,8 +11,6 @@ mod capture;
 mod walk;
 
 pub(super) use capture::CaptureEnv;
-#[cfg(test)]
-pub(in crate::structural) use walk::INTERRUPT_NEXT_COMPILE_PARSE;
 pub(in crate::structural) use walk::parse_tree_with_deadline;
 pub(super) use walk::{ancestors_from_root, collect_kind_matches, parse_tree, visit_named};
 
@@ -385,11 +383,6 @@ pub(super) fn raw_range(node: Node<'_>) -> RawRange {
         super::source_context::tree_id(node),
     )
 }
-
-/// The name relational rules (`has`/`inside`) once bound their related node
-/// under. They bind nothing now; tests check it never reaches output.
-#[cfg(test)]
-pub(super) const SECONDARY_CAPTURE: &str = "secondary";
 
 // Cursor iteration is O(k); `node.child(i)` scans siblings linearly, so an
 // indexed loop is O(k²) on wide nodes (long argument lists, big arrays).

@@ -1,5 +1,6 @@
 //! Common fields must change observable behavior consistently across tools.
 use crate::support::{Workspace, call, row_data};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 
 #[tokio::test]
@@ -65,20 +66,27 @@ async fn shared_walk_filters_select_the_same_files_in_text_structure_and_ast() {
     for (tool, mut query) in [
         (
             "localSearch",
-            json!({"matchString":["needle"],"view":"files"}),
+            json_fixture(r#"{"matchString": ["needle"], "view": "files"}"#),
         ),
         (
             "structureSearch",
-            json!({"operation":"files","entryType":"file"}),
+            json_fixture(r#"{"operation": "files", "entryType": "file"}"#),
         ),
         (
             "astSearch",
-            json!({"operation":"match","parser":"rust","rule":{"pattern":"pub fn needle() {}"},"view":"files"}),
+            json_fixture(
+                r#"{
+                    "operation": "match",
+                    "parser": "rust",
+                    "rule": {"pattern": "pub fn needle() {}"},
+                    "view": "files"
+                }"#,
+            ),
         ),
     ] {
         query["path"] = json!(workspace.workspace);
-        query["include"] = json!(["src/**/*.rs"]);
-        query["exclude"] = json!(["**/drop.rs", "src/nested/**"]);
+        query["include"] = json_fixture(r#"["src/**/*.rs"]"#);
+        query["exclude"] = json_fixture(r#"["**/drop.rs", "src/nested/**"]"#);
         let result = call(&runtime, tool, query).await.expect("filtered walk");
         let data = row_data(&result);
         let paths = data["files"]

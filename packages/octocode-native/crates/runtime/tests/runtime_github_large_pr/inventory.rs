@@ -5,6 +5,7 @@ use super::{
     rest_file, run,
 };
 use crate::support::{self};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use std::time::Duration;
 use support::{Workspace, call, row_data};
@@ -29,19 +30,23 @@ async fn large_pr_inventory_flags_patchless_files_and_keeps_rename_origin() {
         Duration::ZERO,
     )
     .await;
-    let data = run(&server, json!({"sections":["files"]})).await;
+    let data = run(&server, json_fixture(r#"{"sections": ["files"]}"#)).await;
     // Compact rows: every file of one directory shares its first group.
     assert_eq!(
         data["pullRequests"][0]["files"],
-        json!([
-            {"src/": [
-                "M +1 -1 ok.rs",
-                "R +0 -0 new_name.rs <- src/old_name.rs",
-                "M +39550 -39342 !tooLarge checker.ts",
-                "M !omitted omitted.ts"
-            ]},
-            "M +0 -0 !binary assets/logo.png"
-        ]),
+        json_fixture(
+            r#"[
+                {
+                    "src/": [
+                        "M +1 -1 ok.rs",
+                        "R +0 -0 new_name.rs <- src/old_name.rs",
+                        "M +39550 -39342 !tooLarge checker.ts",
+                        "M !omitted omitted.ts"
+                    ]
+                },
+                "M +0 -0 !binary assets/logo.png"
+            ]"#
+        ),
         "{data}"
     );
 }
@@ -56,7 +61,7 @@ async fn pr_inventory_carries_the_identity_header_and_its_own_next_steps_only() 
         Duration::ZERO,
     )
     .await;
-    let data = run(&server, json!({"sections":["files"]})).await;
+    let data = run(&server, json_fixture(r#"{"sections": ["files"]}"#)).await;
     let row = &data["pullRequests"][0];
     // A section read keeps what names the PR and the commits code is read at.
     for kept in ["number", "state", "headCommitSha", "mergeCommitSha"] {
@@ -104,14 +109,23 @@ async fn pr_inventory_supports_explicit_patch_selection_and_keeps_all_patches() 
         Duration::ZERO,
     )
     .await;
-    let data = run(&server, json!({"sections":["files"]})).await;
-    let selected_paths = json!([
-        "src/server/webStandardStreamableHttp.ts",
-        "src/server/sseKeepAlive.ts"
-    ]);
+    let data = run(&server, json_fixture(r#"{"sections": ["files"]}"#)).await;
+    let selected_paths = json_fixture(
+        r#"[
+            "src/server/webStandardStreamableHttp.ts",
+            "src/server/sseKeepAlive.ts"
+        ]"#,
+    );
     assert_eq!(
         data["pullRequests"][0]["files"][1],
-        json!({"src/server/":["M +15 -0 sseKeepAlive.ts","M +241 -94 webStandardStreamableHttp.ts"]}),
+        json_fixture(
+            r#"{
+                "src/server/": [
+                    "M +15 -0 sseKeepAlive.ts",
+                    "M +241 -94 webStandardStreamableHttp.ts"
+                ]
+            }"#
+        ),
         "{data}"
     );
     // A patch read the inventory offers is optional and reads this PR; the
@@ -124,7 +138,7 @@ async fn pr_inventory_supports_explicit_patch_selection_and_keeps_all_patches() 
         "{data}"
     );
     let selected = json!({"sections":["patches"],"include":selected_paths});
-    let all = json!({"sections":["patches"]});
+    let all = json_fixture(r#"{"sections": ["patches"]}"#);
     for (read, count) in [(selected, 2), (all, 5)] {
         let patches = run(&server, read).await;
         let files = patches["pullRequests"][0]["files"]
@@ -166,7 +180,7 @@ async fn a_large_pr_inventory_states_coverage_and_offers_patches_only_as_optiona
         Duration::ZERO,
     )
     .await;
-    let data = run(&server, json!({"sections":["files"]})).await;
+    let data = run(&server, json_fixture(r#"{"sections": ["files"]}"#)).await;
     let row = &data["pullRequests"][0];
     assert_eq!(row["changedFileCount"], 120, "{data}");
     assert_eq!(support::inventory_len(&row["files"]), 120, "{data}");
@@ -191,24 +205,39 @@ async fn pr_file_filter_narrows_the_inventory_and_its_counts() {
     mount_file_batches(&server, batches, Duration::ZERO).await;
     let data = run(
         &server,
-        json!({"sections":["files"],
-               "include":["**/*.md","src/b3/**"],"fileStatus":["added","modified"],"minChanges":3}),
+        json_fixture(
+            r#"{
+                "sections": ["files"],
+                "include": ["**/*.md", "src/b3/**"],
+                "fileStatus": ["added", "modified"],
+                "minChanges": 3
+            }"#,
+        ),
     )
     .await;
     let row = &data["pullRequests"][0];
-    assert_eq!(row["files"], json!(["M +30 -2 docs/guide.md"]), "{row}");
+    assert_eq!(
+        row["files"],
+        json_fixture(r#"["M +30 -2 docs/guide.md"]"#),
+        "{row}"
+    );
     // The one matching file is the complete filtered inventory: no block.
     assert!(row["sectionPagination"].get("files").is_none(), "{row}");
     assert_eq!(row["changedFileCount"], 250, "{row}");
     let data = run(
         &server,
-        json!({"sections":["files"],
-               "include":["src/b3/**"],"fileStatus":["added"]}),
+        json_fixture(
+            r#"{
+                "sections": ["files"],
+                "include": ["src/b3/**"],
+                "fileStatus": ["added"]
+            }"#,
+        ),
     )
     .await;
     assert_eq!(
         data["pullRequests"][0]["files"],
-        json!(["A +1 -1 src/b3/f3.rs"]),
+        json_fixture(r#"["A +1 -1 src/b3/f3.rs"]"#),
         "{data}"
     );
     assert!(
@@ -230,7 +259,7 @@ async fn pure_rename_patch_is_empty_not_a_provider_omission() {
         Duration::ZERO,
     )
     .await;
-    let data = run(&server, json!({"sections":["patches"]})).await;
+    let data = run(&server, json_fixture(r#"{"sections": ["patches"]}"#)).await;
     let files = &data["pullRequests"][0]["files"];
     assert_eq!(files[0]["path"], "src/new_name.rs", "{files}");
     assert_eq!(files[0]["previousPath"], "src/old_name.rs", "{files}");
@@ -251,7 +280,7 @@ async fn pr_file_list_stopped_by_the_provider_cap_is_not_complete() {
         Duration::ZERO,
     )
     .await;
-    let data = run(&server, json!({"sections":["files"]})).await;
+    let data = run(&server, json_fixture(r#"{"sections": ["files"]}"#)).await;
     // The section cursors always show; the provider limit is the
     // row's evidence beside them.
     assert!(
@@ -283,7 +312,7 @@ async fn pr_inventory_page_reports_the_provider_total() {
         Duration::ZERO,
     )
     .await;
-    let data = run(&server, json!({"sections":["files"]})).await;
+    let data = run(&server, json_fixture(r#"{"sections": ["files"]}"#)).await;
     // The provider total (250) is listed in full on this one page: the
     // row states it as `changedFileCount` and lists every file, and no
     // pagination block restates either.
@@ -320,8 +349,16 @@ async fn files_scope_matching_nothing_is_an_empty_row_with_an_inventory_lead() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation": "pullRequest", "owner": "a", "repo": "b", "number": 9,
-               "sections": ["patches"], "include": ["fastapi/_runtime.py"]}),
+        json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "a",
+                "repo": "b",
+                "number": 9,
+                "sections": ["patches"],
+                "include": ["fastapi/_runtime.py"]
+            }"#,
+        ),
     )
     .await
     .expect("read");
@@ -332,7 +369,7 @@ async fn files_scope_matching_nothing_is_an_empty_row_with_an_inventory_lead() {
     );
     assert!(data["hints"].is_null(), "{data}");
     let inventory = support::checks::related_call(data, "ghGetHistoryItem", |input| {
-        input["queries"][0]["sections"] == json!(["files"])
+        input["queries"][0]["sections"] == json_fixture(r#"["files"]"#)
     });
     assert!(inventory["input"]["queries"][0].get("include").is_none());
     let listed = support::run(&runtime, "ghGetHistoryItem", inventory["input"].clone()).await;

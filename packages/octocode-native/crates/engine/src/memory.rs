@@ -77,6 +77,13 @@ pub struct Ticket<'a> {
 }
 
 /// How often a waiting request looks at whether its search was stopped.
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::disallowed_methods,
+        reason = "a polling granularity for noticing a cancel, not a work budget: the request's own deadline still bounds the wait"
+    )
+)]
 const WAIT_SLICE: Duration = Duration::from_millis(25);
 
 impl ByteAdmission {
@@ -223,23 +230,6 @@ pub fn release_freed_memory() {
     }
 }
 
-#[cfg(test)]
-pub(crate) mod test_limit {
-    //! A small limit for [`super::WHOLE_FILES`], so a test is sized in kilobytes.
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    static LIMIT: AtomicUsize = AtomicUsize::new(0);
-
-    pub(crate) fn get() -> Option<usize> {
-        Some(LIMIT.load(Ordering::Relaxed)).filter(|limit| *limit != 0)
-    }
-
-    /// Admit at most `bytes` at once until the process ends.
-    pub(crate) fn set(bytes: usize) {
-        LIMIT.store(bytes, Ordering::Relaxed);
-    }
-}
-
 /// Bytes held for one whole-file read, taken from the system apart from the
 /// allocator: dropping them returns the pages at once, where the allocator
 /// keeps a freed large block (dirty, in the process's footprint) until idle exit.
@@ -334,3 +324,6 @@ impl Drop for Region {
         }
     }
 }
+
+#[cfg(test)]
+pub(crate) mod test_limit;

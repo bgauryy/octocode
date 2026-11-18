@@ -7,7 +7,7 @@ use crate::support::Workspace;
 use serde_json::{Value, json};
 
 /// The response window a call without `responseChars` pages under.
-const WINDOW: usize = octocode_native::id::DEFAULT_RESPONSE_CHARS;
+const WINDOW: usize = octocode_runtime_base::id::DEFAULT_RESPONSE_CHARS;
 /// The response chars around the `data` of `rows` result rows: the envelope
 /// and each row's `{"index":…,"data":…}` wrapper
 /// (`response::read_share::row_window`).
@@ -84,13 +84,19 @@ async fn each_row_of_a_read_batch_renders_within_its_share_and_reads_as_alone() 
         );
         // Each row reads with an equal share of the window
         // (`response::read_share::row_window`); the sources are alike, so
-        // every row continues on every page, and all of them fit one page.
-        let share = (WINDOW - frame(sources.len())) / sources.len();
-        assert_eq!(
-            page["results"].as_array().map_or(0, Vec::len),
-            sources.len(),
-            "page {at}: every row's page fits the response"
-        );
+        // every row fits the first page whole and keeps its own walk, and a
+        // continuation page reads one row with the share it asked for.
+        let rows_here = page["results"].as_array().map_or(0, Vec::len);
+        if at == 0 {
+            assert_eq!(
+                rows_here,
+                sources.len(),
+                "page {at}: every row's page fits the response"
+            );
+        } else {
+            assert!(rows_here >= 1, "page {at}: a continuation reads a row");
+        }
+        let share = (WINDOW - frame(rows_here)) / rows_here;
         for row in page["results"].as_array().into_iter().flatten() {
             assert!(
                 row.get("rowPart").is_none(),

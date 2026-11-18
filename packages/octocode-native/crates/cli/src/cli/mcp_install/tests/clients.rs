@@ -42,7 +42,7 @@ fn client_picker_bounds_input() {
 #[test]
 fn passed_env_names_are_config_contract_names() {
     assert!(super::super::local_enabled_env().is_some());
-    assert!(octocode_native::config::ENV_TOKEN_VARS.contains(&super::super::PASS_ENV_TOKEN));
+    assert!(octocode_runtime_base::config::ENV_TOKEN_VARS.contains(&super::super::PASS_ENV_TOKEN));
     let spec = super::super::server_spec(&super::super::InstallArgs {
         enable_local: Some(false),
         ..default_args()

@@ -16,6 +16,8 @@
  * --check type-checks the same selection for each platform through the same
  * cross tool (its C build scripts included) without linking or staging: the
  * fast loop for platform-specific code (`cfg(windows)`, `cfg(target_os)`).
+ *
+ * Each platform's cargo job holds a machine-wide build slot (build-slot.cjs).
  */
 'use strict';
 
@@ -25,6 +27,7 @@ const { availableParallelism, totalmem } = require('os');
 const { parseArgs } = require('util');
 const { join, relative } = require('path');
 const { PLATFORMS, executableName, getPlatformSuffix } = require('../bin/platform.cjs');
+const { slotCount, withSlot } = require('./build-slot.cjs');
 const { stageFile, verifyBinaryRuns } = require('./stage-binary.cjs');
 const { finishCargoRun, parseCargoLine } = require('./target-hygiene.cjs');
 
@@ -188,16 +191,19 @@ async function buildPlatform(platform, explicitTarget, options) {
   const target = explicitTarget ? platform : null;
   const dir = targetDir(target);
   const { command, args } = hostsCommand(target, options, dir);
-  const messages = [];
-  const startedMs = Date.now();
-  let success = false;
-  try {
-    await run(`${label}:${options.check ? 'check' : 'build'}`, command, args, process.env, messages);
-    success = true;
-  } finally {
-    const mode = options.check ? 'check' : options.release ? 'build-release' : 'build-dev';
-    finishCargoRun({ selection: `${mode}-${target ?? 'host'}`, messages, success, startedMs, targetRoot: targetDir(null), log: line => console.log(`[${label}] ${line}`) });
-  }
+  const mode = options.check ? 'check' : options.release ? 'build-release' : 'build-dev';
+  const selection = `${mode}-${target ?? 'host'}`;
+  await withSlot(`build-native ${selection}`, async slot => {
+    const messages = [];
+    const startedMs = Date.now();
+    let success = false;
+    try {
+      await run(`${label}:${options.check ? 'check' : 'build'}`, command, args, slot.env, messages);
+      success = true;
+    } finally {
+      finishCargoRun({ selection, messages, success, startedMs, targetRoot: targetDir(null), log: line => console.log(`[${label}] ${line}`) });
+    }
+  });
   if (options.check) return;
 
   const staged = stageBinary(platform, explicitTarget, options.release, dir);
@@ -210,12 +216,12 @@ async function buildPlatform(platform, explicitTarget, options) {
  * codegen-units = 1, then thin LTO), so most cores idle under one build; memory
  * bounds them, at a few GB peak per release link. Measured 2026-10-25 on 12
  * cores / 32 GB, 8 platforms: 3 jobs 751 s (31% CPU), 4 jobs 521 s (45% CPU),
- * peak RSS 2.9-3.9 GB, no swap-outs.
+ * peak RSS 2.9-3.9 GB, no swap-outs. A job past the build slot count only waits.
  */
 function defaultJobs(count) {
   const byCpu = Math.max(1, Math.floor(availableParallelism() / 2));
   const byMemory = Math.max(1, Math.floor(totalmem() / (8 * 1024 ** 3)));
-  return Math.min(count, byCpu, byMemory);
+  return Math.min(count, byCpu, byMemory, slotCount());
 }
 
 async function main() {

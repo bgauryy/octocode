@@ -1,17 +1,20 @@
 //! The shared store is no read root: the local tools read the worktrees under
 //! `clones/`, and a path in `clone-store/` is denied by the path policy.
+use octocode_tool_github::gh_clone_repo::storage;
 
-use super::*;
-use crate::config::{ConfigInput, FileInput, RuntimeSurface};
-use crate::execution::RuntimeLimits;
 use crate::runtime::{Channel, ToolRuntime};
+use octocode_runtime_base::config::{ConfigInput, FileInput, RuntimeSurface};
+use octocode_runtime_base::execution::RuntimeLimits;
+use octocode_tool_github::test_support::git;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::fs;
+use std::path::Path;
 
 /// A runtime whose home is `home`, run from `cwd`.
 fn runtime(home: &Path, cwd: &Path) -> ToolRuntime {
     let env = BTreeMap::from([(
-        crate::config::environment::OCTOCODE_HOME.to_owned(),
+        octocode_runtime_base::config::environment::OCTOCODE_HOME.to_owned(),
         home.to_string_lossy().into_owned(),
     )]);
     ToolRuntime::with_limits(
@@ -61,7 +64,7 @@ async fn the_shared_store_is_denied_to_the_local_tools() {
     let cwd = tempfile::tempdir().expect("cwd");
     let home = home.path().canonicalize().expect("canonical home");
     let checkout = storage::clones_root(&home).join("o/r/abc__host_x");
-    let store = crate::tools::gh_git::store_root(&home).join("o/r__host_x__g1.git");
+    let store = octocode_tools_shared::gh_git::store_root(&home).join("o/r__host_x__g1.git");
     for (dir, name) in [(&checkout, "README.md"), (&store, "config")] {
         fs::create_dir_all(dir).expect("dir");
         fs::write(dir.join(name), "readable?\n").expect("file");
@@ -96,7 +99,7 @@ async fn the_shared_store_is_denied_to_the_local_tools() {
         ),
         (
             "structureSearch",
-            json!({"operation":"tree","path": crate::tools::gh_git::store_root(&home)}),
+            json!({"operation":"tree","path": octocode_tools_shared::gh_git::store_root(&home)}),
         ),
     ] {
         let denied = call(&runtime, tool, row.clone()).await;
@@ -122,7 +125,7 @@ async fn a_store_in_a_home_inside_the_workspace_is_still_denied() {
         .canonicalize()
         .expect("canonical workspace");
     let home = workspace.join("home");
-    let store = crate::tools::gh_git::store_root(&home).join("o/r__host_x__g1.git");
+    let store = octocode_tools_shared::gh_git::store_root(&home).join("o/r__host_x__g1.git");
     fs::create_dir_all(store.join("worktrees")).expect("store");
     fs::write(store.join("config"), "readable?\n").expect("file");
     let runtime = runtime(&home, &workspace);
@@ -135,7 +138,7 @@ async fn a_store_in_a_home_inside_the_workspace_is_still_denied() {
         ),
         (
             "localSearch",
-            json!({"path": crate::tools::gh_git::store_root(&home), "matchString": ["readable"]}),
+            json!({"path": octocode_tools_shared::gh_git::store_root(&home), "matchString": ["readable"]}),
         ),
     ] {
         let denied = call(&runtime, tool, row.clone()).await;
@@ -155,7 +158,7 @@ async fn a_text_search_of_a_worktree_clone_withholds_nothing() {
     let home = tempfile::tempdir().expect("home");
     let cwd = tempfile::tempdir().expect("cwd");
     let home = home.path().canonicalize().expect("canonical home");
-    let store = crate::tools::gh_git::store_root(&home).join("o/r__host_x__g1.git");
+    let store = octocode_tools_shared::gh_git::store_root(&home).join("o/r__host_x__g1.git");
     fs::create_dir_all(&store).expect("store");
     git(&store, &["init", "--initial-branch=main", "."]);
     fs::write(store.join("README.md"), "needle\n").expect("file");

@@ -3,7 +3,7 @@ use super::{
     Method, Target, default_entry, entry_at, inspect, parse_document, render_document,
     uses_enabled_key,
 };
-use octocode_native::config::{read_private_config, replace_private_config};
+use octocode_runtime_base::config::{read_private_config, replace_private_config};
 use serde_json::{Value, json};
 
 pub(super) fn update(target: &Target, request: &Value, remove: bool) -> Result<Value, ManageError> {
@@ -83,8 +83,12 @@ pub(super) fn update(target: &Target, request: &Value, remove: bool) -> Result<V
                             .ok_or("Environment values must be strings or null.")?,
                     )
                 };
-                octocode_native::config::validate_env_edit(key, value, target.scope == "workspace")
-                    .map_err(|error| error.to_string())?;
+                octocode_runtime_base::config::validate_env_edit(
+                    key,
+                    value,
+                    target.scope == "workspace",
+                )
+                .map_err(|error| error.to_string())?;
                 match value {
                     Some(value) => {
                         values.insert(key.clone(), json!(value));

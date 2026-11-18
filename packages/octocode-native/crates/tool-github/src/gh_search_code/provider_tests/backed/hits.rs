@@ -1,0 +1,469 @@
+//! Hit rows: numbered occurrences, reads of every hit, owner-wide fragments and path matches.
+use super::*;
+use octocode_test_support::json_fixture;
+use octocode_test_support::mock_http::mount_json;
+use serde_json::json;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+/// Repo-scoped hits list every keyword line of the top files with its
+/// line number, retain repository and commit identity, and read the top hit.
+#[tokio::test]
+async fn repo_scoped_hits_list_every_occurrence_with_line_numbers() {
+    let server = MockServer::builder().start().await;
+    mount_code_search(&server).await;
+    mount_ref(&server, "HEAD").await;
+    mount_read(
+        &server,
+        "src/handler.py",
+        "import x\n\ndef wrap_app(app):\n    return app\n",
+    )
+    .await;
+    mount_read(
+            &server,
+            "src/routing.py",
+            "from h import wrap_app\n\nasync def a():\n    await wrap_app(app)(scope)\n\nasync def b():\n    await wrap_app(s)(scope)\n",
+        )
+        .await;
+    let out = run(
+        &server,
+        json_fixture(r#"{"owner": "a", "repo": "b", "keywords": ["wrap_app"]}"#),
+    )
+    .await
+    .expect("search");
+    let data = &out.data;
+    let files = data["files"].as_array().expect("files");
+    let routing = files
+        .iter()
+        .find(|row| row["path"] == "src/routing.py")
+        .expect("routing row");
+    assert_eq!(
+        listing(routing),
+        json_fixture(
+            r#"[
+                "1\tfrom h import wrap_app",
+                "4\t    await wrap_app(app)(scope)",
+                "7\t    await wrap_app(s)(scope)"
+            ]"#
+        ),
+        "{data}"
+    );
+    for row in files {
+        assert_eq!(row["owner"], "a", "{row}");
+        assert_eq!(row["repo"], "b", "{row}");
+        assert_eq!(row["commitSha"], TREE_SHA, "{row}");
+        assert!(row.get("fragments").is_none(), "{row}");
+    }
+    let read = &octocode_runtime_base::test_support::checks::related_call(
+        data,
+        "ghGetFileContent",
+        |_| true,
+    )["input"]["queries"][0];
+    assert_eq!(read["owner"], "a", "{data}");
+    // The top hit declares `wrap_app`, so the read is that whole
+    // declaration, never a fixed line window that may cut it.
+    assert_eq!(read["path"], "src/handler.py", "{data}");
+    assert_eq!(
+        read["matchString"],
+        json_fixture(r#"["def wrap_app(app):"]"#),
+        "{data}"
+    );
+    assert_eq!(read["block"], true, "{data}");
+    assert!(
+        read.get("startLine").is_none() && read.get("endLine").is_none(),
+        "{data}"
+    );
+    octocode_runtime_base::contracts::validate_query("ghGetFileContent", read.clone())
+        .expect("read is a valid ghGetFileContent query");
+}
+
+/// Resolved source hits reach the response pager whole, without a replay read.
+#[tokio::test]
+async fn complete_long_and_many_hits_need_no_recovery_read() {
+    let server = MockServer::builder().start().await;
+    mount_code_search(&server).await;
+    mount_ref(&server, "HEAD").await;
+    let long = format!("x = '{}' + wrap_app", "λ🦀".repeat(400));
+    mount_read(&server, "src/handler.py", &format!("{long}\n")).await;
+    mount_read(&server, "src/routing.py", &"wrap_app()\n".repeat(25)).await;
+    let out = run(
+        &server,
+        json_fixture(r#"{"owner": "a", "repo": "b", "keywords": ["Wrap_App"]}"#),
+    )
+    .await
+    .expect("search");
+    let items = out.data["files"].as_array().expect("files");
+    let lines = |path: &str| {
+        items
+            .iter()
+            .find(|row| row["path"] == path)
+            .map(listing)
+            .expect("file")
+            .as_array()
+            .expect("lines")
+            .clone()
+    };
+    assert_eq!(lines("src/handler.py"), vec![json!(format!("1\t{long}"))]);
+    assert_eq!(
+        lines("src/routing.py"),
+        (1..=25)
+            .map(|n| json!(format!("{n}\twrap_app()")))
+            .collect::<Vec<_>>()
+    );
+    assert!(out.data["next"].get("readHits").is_none());
+    assert_eq!(
+        octocode_runtime_base::test_support::checks::related_call(
+            &out.data,
+            "ghGetFileContent",
+            |_| true
+        )["kind"],
+        "related"
+    );
+}
+
+/// A fully shown hit list needs no extra read.
+#[tokio::test]
+async fn fully_shown_hit_files_get_no_hit_read() {
+    let server = MockServer::builder().start().await;
+    mount_code_search(&server).await;
+    mount_ref(&server, "HEAD").await;
+    mount_read(&server, "src/handler.py", "def wrap_app(app):\n").await;
+    mount_read(&server, "src/routing.py", "wrap_app()\n").await;
+    let out = run(
+        &server,
+        json_fixture(r#"{"owner": "a", "repo": "b", "keywords": ["wrap_app"]}"#),
+    )
+    .await
+    .expect("search");
+    assert!(out.data["next"].get("readHits").is_none(), "{}", out.data);
+}
+
+/// Unresolved owner-wide hits retain repository identity and fragment offsets.
+#[tokio::test]
+async fn owner_wide_hits_keep_fragments_without_offsets() {
+    let server = MockServer::builder().start().await;
+    mount_code_search(&server).await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/HEAD"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(TREE_SHA))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let out = run(
+        &server,
+        json_fixture(r#"{"owner": "a", "keywords": ["wrap_app"]}"#),
+    )
+    .await
+    .expect("search");
+    let row = &out.data["files"][0];
+    assert_eq!(row["owner"], "a", "{}", out.data);
+    assert_eq!(row["repo"], "b", "{}", out.data);
+    assert!(row.get("matches").is_none(), "{}", out.data);
+    assert!(row.get("commitSha").is_none(), "{row}");
+}
+
+/// GitHub's fragments reach no row. The one thing taken from them is the top
+/// file's related read, and that term is one the caller searched for: a
+/// highlight spelling anything else, a key's body line here, reaches no
+/// output. Every read the page leads to names only searched terms.
+#[tokio::test]
+async fn a_fragment_reaches_no_row_and_its_lead_only_names_a_searched_term() {
+    const BODY: &str = "MIIEpAIBAAKCAQEAfakebodylinefakebodylinefakebodyline00000";
+    for (keyword, start, end, led) in [
+        ("wrap_app", 4, 12, true),
+        ("WRAP_APP", 4, 12, true),
+        ("wrap_app", 0, BODY.len(), false),
+    ] {
+        let server = MockServer::builder().start().await;
+        let (fragment, highlighted) = if led {
+            (format!("def wrap_app(app): {BODY}"), "wrap_app")
+        } else {
+            (BODY.to_owned(), BODY)
+        };
+        mount_json(&server, "/api/v3/search/code", 200, json!({
+            "total_count":1,"incomplete_results":false,"items":[
+                {"name":"handler.py","path":"src/handler.py","sha":"1","html_url":"https://x",
+                 "repository":{"full_name":"a/b","html_url":"https://x","url":"https://x"},
+                 "text_matches":[{"fragment":fragment,"matches":[{"text":highlighted,"indices":[start,end]}]}]}
+            ]
+        })).await;
+        let out = run(&server, json!({"owner":"a","keywords":[keyword]}))
+            .await
+            .expect("search");
+        let shown = serde_json::to_string(&out.data).expect("data");
+        assert!(!shown.contains(BODY), "{shown}");
+        let fragment_lead = out.data["related"].to_string();
+        assert_eq!(fragment_lead.contains("wrap_app"), led, "{shown}");
+        let mut terms = Vec::new();
+        match_strings(&out.data, &mut terms);
+        assert!(
+            terms.iter().all(|term| term.eq_ignore_ascii_case(keyword)),
+            "{terms:?}: {shown}"
+        );
+    }
+}
+
+/// Every `matchString` term under `value`.
+fn match_strings(value: &serde_json::Value, terms: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Object(fields) => {
+            for (key, field) in fields {
+                if key == "matchString" {
+                    terms.extend(
+                        field
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|term| term.as_str().map(str::to_owned)),
+                    );
+                } else {
+                    match_strings(field, terms);
+                }
+            }
+        }
+        serde_json::Value::Array(items) => items.iter().for_each(|item| match_strings(item, terms)),
+        _ => {}
+    }
+}
+
+/// Path matches carry no empty snippet list.
+#[tokio::test]
+async fn path_match_rows_omit_empty_matches() {
+    let server = MockServer::builder().start().await;
+    mount_json(
+        &server,
+        "/api/v3/search/code",
+        200,
+        json_fixture(
+            r#"{
+                "total_count": 1,
+                "incomplete_results": false,
+                "items": [
+                    {
+                        "name": "pool.rs",
+                        "path": "src/pool.rs",
+                        "sha": "1",
+                        "html_url": "https://x",
+                        "repository": {
+                            "full_name": "a/b",
+                            "html_url": "https://x",
+                            "url": "https://x"
+                        }
+                    }
+                ]
+            }"#,
+        ),
+    )
+    .await;
+    let out = run(
+        &server,
+        json_fixture(
+            r#"{
+                "owner": "a",
+                "repo": "b",
+                "keywords": ["pool"],
+                "matchIn": ["path"]
+            }"#,
+        ),
+    )
+    .await
+    .expect("search");
+    let row = &out.data["files"][0];
+    assert_eq!(row["path"], "src/pool.rs", "{}", out.data);
+    assert!(row.get("matches").is_none(), "{}", out.data);
+}
+
+/// `contextLines` lists the neighbours of every hit as numbered lines of the
+/// same row; no row carries index fragments, and the read lead still opens
+/// on the hit line, not on its context.
+#[tokio::test]
+async fn context_lines_surround_hits_and_rows_carry_no_matches() {
+    let server = MockServer::builder().start().await;
+    mount_code_search(&server).await;
+    mount_ref(&server, "HEAD").await;
+    mount_read(
+        &server,
+        "src/handler.py",
+        "import x\n\ndef wrap_app(app):\n    return app\n",
+    )
+    .await;
+    mount_read(
+        &server,
+        "src/routing.py",
+        "from h import wrap_app\nimport y\n\nasync def a():\n    await wrap_app(app)(scope)\n    pass\n\nasync def b():\n    await wrap_app(s)(scope)\n",
+    )
+    .await;
+    let out = run(
+        &server,
+        json_fixture(
+            r#"{
+                "owner": "a",
+                "repo": "b",
+                "keywords": ["wrap_app"],
+                "contextLines": {"before": 1, "after": 1}
+            }"#,
+        ),
+    )
+    .await
+    .expect("search");
+    let data = &out.data;
+    let files = data["files"].as_array().expect("files");
+    let lines_of = |path: &str| {
+        files
+            .iter()
+            .find(|row| row["path"] == path)
+            .map(listing)
+            .expect("row")
+    };
+    assert_eq!(
+        lines_of("src/handler.py"),
+        json_fixture(r#"["2\t", "3\tdef wrap_app(app):", "4\t    return app"]"#),
+        "{data}"
+    );
+    // Windows 1-2, 4-6 and 8-9 touch but never repeat a line.
+    assert_eq!(
+        lines_of("src/routing.py"),
+        json_fixture(
+            r#"[
+                "1\tfrom h import wrap_app",
+                "2\timport y",
+                "4\tasync def a():",
+                "5\t    await wrap_app(app)(scope)",
+                "6\t    pass",
+                "8\tasync def b():",
+                "9\t    await wrap_app(s)(scope)"
+            ]"#
+        ),
+        "{data}"
+    );
+    for row in files {
+        assert!(row.get("fragments").is_none(), "{row}");
+    }
+    let read = &octocode_runtime_base::test_support::checks::related_call(
+        data,
+        "ghGetFileContent",
+        |_| true,
+    )["input"]["queries"][0];
+    assert_eq!(
+        read["matchString"],
+        json_fixture(r#"["def wrap_app(app):"]"#),
+        "{data}"
+    );
+}
+
+/// `matchedLines` appears only when context lines are listed beside the hits.
+#[tokio::test]
+async fn matched_lines_name_the_hits_only_when_context_is_listed() {
+    let server = MockServer::builder().start().await;
+    mount_code_search(&server).await;
+    mount_ref(&server, "HEAD").await;
+    mount_read(
+        &server,
+        "src/handler.py",
+        "import x\n\ndef wrap_app(app):\n    return app\n",
+    )
+    .await;
+    mount_read(
+        &server,
+        "src/routing.py",
+        "from h import wrap_app\nimport y\n\nasync def a():\n    await wrap_app(app)(scope)\n    pass\n\nasync def b():\n    await wrap_app(s)(scope)\n",
+    )
+    .await;
+    let plain = run(
+        &server,
+        json_fixture(r#"{"owner": "a", "repo": "b", "keywords": ["wrap_app"]}"#),
+    )
+    .await
+    .expect("search");
+    for row in plain.data["files"].as_array().expect("files") {
+        assert!(row.get("matchedLines").is_none(), "{row}");
+    }
+    let out = run(
+        &server,
+        json_fixture(
+            r#"{
+                "owner": "a",
+                "repo": "b",
+                "keywords": ["wrap_app"],
+                "contextLines": {"before": 1, "after": 1}
+            }"#,
+        ),
+    )
+    .await
+    .expect("search");
+    let files = out.data["files"].as_array().expect("files");
+    let matched = |path: &str| {
+        files
+            .iter()
+            .find(|row| row["path"] == path)
+            .map(|row| row["matchedLines"].clone())
+            .expect("row")
+    };
+    assert_eq!(
+        matched("src/handler.py"),
+        json_fixture(r#"[3]"#),
+        "{}",
+        out.data
+    );
+    assert_eq!(
+        matched("src/routing.py"),
+        json_fixture(r#"[1, 5, 9]"#),
+        "{}",
+        out.data
+    );
+}
+
+/// A hit whose blob the scan refuses (over the scan limit) is not silently
+/// reduced to `lineResolved:false`: on the default branch, as at a ref, the
+/// page leads to a ghGetFileContent read of its keyword lines at the commit.
+#[tokio::test]
+async fn an_oversize_default_branch_hit_leads_to_a_read_of_its_lines() {
+    let server = MockServer::builder().start().await;
+    wrap_app_hits(&server, &["big", "small"]).await;
+    mount_ref(&server, "HEAD").await;
+    mount_read(&server, "src/small.rs", "\nfn wrap_app() {}\n").await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/src%2Fbig.rs"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "application/vnd.github.raw; charset=utf-8")
+                .insert_header("etag", "\"0123456789abcdef0123456789abcdef01234567\"")
+                .set_body_bytes(vec![b'x'; crate::gh_search_code::lines::MAX_SCAN_BYTES + 1]),
+        )
+        .mount(&server)
+        .await;
+    let out = run(
+        &server,
+        json_fixture(r#"{"owner": "a", "repo": "b", "keywords": ["wrap_app"]}"#),
+    )
+    .await
+    .expect("search");
+    let data = &out.data;
+    let files = data["files"].as_array().expect("files");
+    let big = files
+        .iter()
+        .find(|row| row["path"] == "src/big.rs")
+        .expect("big row");
+    assert_eq!(big["lineResolved"], false, "{data}");
+    let small = files
+        .iter()
+        .find(|row| row["path"] == "src/small.rs")
+        .expect("small row");
+    assert!(small["matches"].is_array(), "{data}");
+    let reads = data["next"]
+        .as_object()
+        .expect("next")
+        .values()
+        .filter(|read| read["input"]["queries"][0]["path"] == "src/big.rs")
+        .collect::<Vec<_>>();
+    assert_eq!(reads.len(), 1, "{data}");
+    let read = &reads[0]["input"]["queries"][0];
+    assert_eq!(read["ref"], TREE_SHA, "{data}");
+    assert_eq!(
+        read["matchString"],
+        json_fixture(r#"["wrap_app"]"#),
+        "{data}"
+    );
+    octocode_runtime_base::contracts::validate_query("ghGetFileContent", read.clone())
+        .expect("read is a valid ghGetFileContent query");
+}

@@ -3,6 +3,7 @@
 //! (`schema <tool> --view output`), never in a response.
 use crate::support::checks::assert_no_reason_meaning;
 use crate::support::{Run as _, Workspace};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 
 #[tokio::test]
@@ -25,7 +26,7 @@ async fn a_fired_reason_is_its_code_and_no_response_explains_it() {
     for result in fired["results"].as_array().expect("rows") {
         assert_eq!(
             result["data"]["partialReasons"],
-            json!(["parseRecovered"]),
+            json_fixture(r#"["parseRecovered"]"#),
             "{result}"
         );
     }

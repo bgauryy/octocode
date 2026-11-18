@@ -1,7 +1,12 @@
 //! Platform-independent tests of the tree walk and the Linux `/proc`
 //! readers, run against synthetic tables and a synthetic `/proc` directory so
-//! the Linux-only parsing is exercised on every host.
+//! the Linux-only parsing is exercised on every host; and of the macOS
+//! memory record, on macOS.
 
+use super::super::proc_table::{
+    ProcStat, parse_proc_stat, parse_proc_stat_cpu_ticks, parse_proc_status_memory,
+    read_proc_cpu_ticks, read_proc_memory,
+};
 use super::*;
 use std::path::PathBuf;
 
@@ -22,16 +27,17 @@ impl FakeProc {
     }
 
     /// A process whose `stat` is `pid (comm) S ppid …` with start time
-    /// `start_of(pid)`, and whose `statm` reports `resident` pages.
-    fn process(&self, pid: u32, comm: &str, ppid: u32, resident: u64) -> &Self {
+    /// `start_of(pid)`, and whose `status` reports `resident_kib` in RAM and
+    /// none swapped out.
+    fn process(&self, pid: u32, comm: &str, ppid: u32, resident_kib: u64) -> &Self {
         let dir = self.0.join(pid.to_string());
         std::fs::create_dir_all(&dir).expect("pid dir");
         std::fs::write(dir.join("stat"), stat_line(pid, comm, ppid, start_of(pid))).expect("stat");
         std::fs::write(
-            dir.join("statm"),
-            format!("1000 {resident} 50 10 0 200 0\n"),
+            dir.join("status"),
+            format!("Name:\t{comm}\nVmRSS:\t{resident_kib} kB\nVmSwap:\t0 kB\n"),
         )
-        .expect("statm");
+        .expect("status");
         self
     }
 
@@ -134,19 +140,53 @@ fn stat_parsing_survives_hostile_comm_fields() {
     assert_eq!(parse_proc_stat(""), None);
 }
 
+/// Under memory pressure the kernel swaps out (to zram or zswap too) the
+/// pages a process holds but does not touch, and they leave its resident
+/// size. They are still the process's memory: a server that grew past its cap
+/// between two samples reads at what it holds, never at what is still in RAM.
 #[test]
-fn statm_parsing_scales_resident_pages() {
+fn status_memory_counts_pages_swapped_out() {
+    let status = "Name:\tnode\nState:\tS (sleeping)\nVmPeak:\t 1048576 kB\n\
+                  VmRSS:\t   38912 kB\nRssAnon:\t   20480 kB\nVmSwap:\t  386048 kB\n";
+    assert_eq!(parse_proc_status_memory(status), (38_912 + 386_048) * 1024);
+}
+
+#[test]
+fn status_memory_reads_kib_and_skips_what_it_cannot_parse() {
+    assert_eq!(parse_proc_status_memory("VmRSS:\t25 kB\n"), 25 * 1024);
+    // A zombie or a kernel thread lists no `Vm` line.
     assert_eq!(
-        parse_proc_statm_rss("1000 25 3 1 0 9 0\n", 4096),
-        Some(25 * 4096)
+        parse_proc_status_memory("Name:\tz\nState:\tZ (zombie)\n"),
+        0
     );
-    assert_eq!(parse_proc_statm_rss("0 0 0 0 0 0 0", 16_384), Some(0));
-    assert_eq!(parse_proc_statm_rss("1000", 4096), None);
-    assert_eq!(parse_proc_statm_rss("", 4096), None);
     assert_eq!(
-        parse_proc_statm_rss("1 18446744073709551615", 4096),
-        Some(u64::MAX)
+        parse_proc_status_memory("VmRSS:\tlots\nVmSwap:\t3 kB\n"),
+        3 * 1024
     );
+    assert_eq!(
+        parse_proc_status_memory("VmRSS:\t18446744073709551615 kB\n"),
+        u64::MAX
+    );
+    assert_eq!(parse_proc_status_memory(""), 0);
+}
+
+/// macOS compresses (and then swaps out) the pages a process holds but does
+/// not touch: its resident size falls toward zero within seconds while its
+/// physical footprint keeps every page. A server holding 401 MiB, read
+/// after that happened (as measured on a loaded host): it holds 401 MiB.
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_memory_counts_compressed_and_swapped_out_pages() {
+    use super::super::metrics::memory_in_use;
+    let mib = 1024 * 1024;
+    // SAFETY: `rusage_info_v2` is plain data; zero is a valid value.
+    let mut record: libc::rusage_info_v2 = unsafe { std::mem::zeroed() };
+    record.ri_resident_size = 0;
+    record.ri_phys_footprint = 401 * mib;
+    assert_eq!(memory_in_use(&record), Some(401 * mib));
+    // An exited process the parent has not reaped yet holds nothing.
+    record.ri_proc_exit_abstime = 1;
+    assert_eq!(memory_in_use(&record), None);
 }
 
 #[test]
@@ -178,10 +218,16 @@ fn synthetic_proc_tree_skips_vanished_zombie_and_mismatched_entries() {
     let bogus = proc.0.join("14");
     std::fs::create_dir_all(&bogus).expect("bogus dir");
     std::fs::write(bogus.join("stat"), stat_line(99, "x", 10, 1)).expect("stat");
+    // A zombie's `status` lists no `Vm` line.
+    std::fs::write(
+        proc.0.join("11/status"),
+        "Name:\tzombie\nState:\tZ (zombie)\n",
+    )
+    .expect("zombie status");
     assert_eq!(proc.descendants(10), vec![11, 12]);
-    assert_eq!(read_proc_rss(&proc.0, 11, 4096), Some(0), "zombie");
-    assert_eq!(read_proc_rss(&proc.0, 12, 4096), Some(5 * 4096));
-    assert_eq!(read_proc_rss(&proc.0, 13, 4096), None, "vanished");
+    assert_eq!(read_proc_memory(&proc.0, 11), Some(0), "zombie");
+    assert_eq!(read_proc_memory(&proc.0, 12), Some(5 * 1024));
+    assert_eq!(read_proc_memory(&proc.0, 13), None, "vanished");
     assert_eq!(read_proc_table(&proc.0.join("missing")), Vec::new());
 }
 

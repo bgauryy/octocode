@@ -89,6 +89,6 @@ impl NativeLspClient {
             .waits
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .record(kind, began, Instant::now());
+            .record(kind, began, self.inner.clock.now());
     }
 }

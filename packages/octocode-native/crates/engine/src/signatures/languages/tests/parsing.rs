@@ -130,7 +130,7 @@ fn every_registered_grammar_and_alias_parses_and_searches_real_source() {
                 source
             };
             assert!(extensions.insert(*ext), "duplicate grammar alias .{ext}");
-            let matches = crate::structural::search(source, ext, None, Some(&rule))
+            let matches = crate::structural::tests::search(source, ext, None, Some(&rule))
                 .unwrap_or_else(|error| panic!(".{ext}: {error}"));
             assert_eq!(matches.len(), 1, ".{ext}: exact root match");
             assert_eq!(matches[0].text.trim_end(), source.trim_end(), ".{ext}");

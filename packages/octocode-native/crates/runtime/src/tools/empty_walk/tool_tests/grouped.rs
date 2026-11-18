@@ -26,8 +26,9 @@ fn skipped_paths_of_one_cause_are_one_counted_entry() {
         match ignored.first() {
             Some(entry) => {
                 assert_eq!(entry["count"], 3, "{}: {out}", tool.name);
-                assert_eq!(
-                    out["skippedPaths"]["sampled"], false,
+                // A walk that finished states no `sampled` (only true is a value).
+                assert!(
+                    out["skippedPaths"].get("sampled").is_none(),
                     "{}: {out}",
                     tool.name
                 );

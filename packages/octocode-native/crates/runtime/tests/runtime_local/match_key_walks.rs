@@ -3,6 +3,7 @@
 //! path exactly once, and no page drops a key path to stay in its window.
 
 use crate::support::{self, Workspace};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 
 /// Hits per fixture file: enough that a tiny window cuts the file many times.
@@ -118,7 +119,11 @@ async fn key_paths_read_plainly_and_a_secret_shaped_name_in_one_is_hidden() {
     let manifest = support::run(
         &runtime,
         "localSearch",
-        json!({"queries":[{"path":"Cargo.toml","matchString":["serde"]}]}),
+        json_fixture(
+            r#"{
+                "queries": [{"path": "Cargo.toml", "matchString": ["serde"]}]
+            }"#,
+        ),
     )
     .await;
     let rows = page_rows(&manifest.structured_content.clone().into_value());
@@ -134,7 +139,11 @@ async fn key_paths_read_plainly_and_a_secret_shaped_name_in_one_is_hidden() {
     let tokens = support::run(
         &runtime,
         "localSearch",
-        json!({"queries":[{"path":"tokens.json","matchString":["needle"]}]}),
+        json_fixture(
+            r#"{
+                "queries": [{"path": "tokens.json", "matchString": ["needle"]}]
+            }"#,
+        ),
     )
     .await;
     let shown = tokens.structured_content.to_string();

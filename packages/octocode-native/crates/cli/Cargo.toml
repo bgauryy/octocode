@@ -25,6 +25,7 @@ path = "tests/main.rs"
 [dependencies]
 octocode-io = { path = "../io" }
 octocode-native = { path = "../runtime" }
+octocode-runtime-base = { path = "../runtime-base" }
 octocode-contract-types = { path = "../contract-types" }
 octocode-engine = { path = "../engine" }
 octocode-github = { path = "../github" }
@@ -58,6 +59,7 @@ libc = { workspace = true }
 junction = "2.1"
 
 [dev-dependencies]
+octocode-test-support = { path = "../test-support" }
 wiremock = { workspace = true }
 
 [lints]

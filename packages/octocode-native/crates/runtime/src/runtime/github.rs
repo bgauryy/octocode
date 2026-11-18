@@ -1,17 +1,17 @@
 //! One pooled HTTP client; credential acquisition stays inside admitted blocking work.
 
-use crate::execution::{ExecutionContext, ExecutionError};
-use crate::{
+use octocode_github::*;
+use octocode_io::budget::{PROVIDER_BODY_BYTES, RequestBudget};
+use octocode_runtime_base::execution::{ExecutionContext, ExecutionError};
+use octocode_runtime_base::{
     config::ConfigOutput,
     id::ToolId,
     policy::path::PathPolicy,
     providers::github::{Authentication, CallSelection},
     response::outcome::DomainResult,
     security::ContentSecurity,
-    tools::gh_git::SystemGit,
 };
-use octocode_github::*;
-use octocode_io::budget::{PROVIDER_BODY_BYTES, RequestBudget};
+use octocode_tools_shared::gh_git::SystemGit;
 use serde_json::{Value, json};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
@@ -63,7 +63,8 @@ impl GitHubServices {
         handle: &tokio::runtime::Handle,
         max_bytes: usize,
         access: &ResponseAccess,
-    ) -> Result<ContentResponse, ProviderError> {
+        withholds: &(dyn Fn(&str) -> bool + Sync),
+    ) -> Result<Result<(ContentResponse, Option<String>), String>, ProviderError> {
         let mut request_context = self.request_context(context, handle, access)?;
         // GitHub's JSON content envelope includes base64 and metadata. The
         // decoded bytes are checked separately.
@@ -74,7 +75,14 @@ impl GitHubServices {
             path: query["path"].as_str().unwrap_or_default().into(),
             reference: query["ref"].as_str().map(str::to_owned),
         };
-        let result = handle.block_on(self.provider.get_file_bytes(&request, &request_context));
+        // A symlink is followed to its file: `withholds` judges the target's
+        // name before any of its bytes are asked for, and the name the read
+        // resolved to comes back beside the bytes.
+        let result = handle.block_on(self.provider.get_file_bytes_following_links(
+            &request,
+            &request_context,
+            withholds,
+        ));
         if result
             .as_ref()
             .is_err_and(|error| error.kind == ProviderErrorKind::Authentication)
@@ -85,11 +93,11 @@ impl GitHubServices {
         result
     }
 
-    pub fn new(
+    pub(super) fn new(
         config: Arc<ConfigOutput>,
-        limits: &crate::execution::RuntimeLimits,
+        limits: &octocode_runtime_base::execution::RuntimeLimits,
         home: PathBuf,
-        answers: Arc<crate::providers::saved_answers::KeptAnswers>,
+        answers: Arc<octocode_runtime_base::providers::saved_answers::KeptAnswers>,
     ) -> Result<Self, ProviderError> {
         let endpoint =
             GitHubEndpoint::new(url::Url::parse(&config.resolved.github.api_url).map_err(
@@ -105,12 +113,13 @@ impl GitHubServices {
         )?;
         // Cross-process rate-limit coordination follows the storage policy.
         transport.set_rate_limit_state_dir(
-            crate::config::is_persistent_storage_enabled(&config.resolved)
+            octocode_runtime_base::config::is_persistent_storage_enabled(&config.resolved)
                 .then(|| home.join("tmp").join("ratelimit")),
         );
         transport.set_saved_answers(Some(answers));
         let git = std::sync::Arc::new(SystemGit::with_env(&config.credential_env()));
-        let persistent = crate::config::is_persistent_storage_enabled(&config.resolved);
+        let persistent =
+            octocode_runtime_base::config::is_persistent_storage_enabled(&config.resolved);
         let credentials = Authentication::new(config);
         Ok(Self {
             credentials,
@@ -123,14 +132,14 @@ impl GitHubServices {
         })
     }
 
-    pub fn execute_query(
+    pub(super) fn execute_query(
         &self,
         tool: ToolId,
         query: &Value,
         execution: QueryExecution<'_>,
         security: &ContentSecurity,
         paths: &PathPolicy,
-        selection: &crate::tools::selection::Runtime,
+        selection: &octocode_tools_shared::selection::Runtime,
     ) -> Result<DomainResult, ExecutionError> {
         let QueryExecution {
             context,
@@ -166,7 +175,10 @@ impl GitHubServices {
                 .reused_since()
                 .filter(|&observed| access.predates(observed))
             {
-                crate::providers::saved_answers::disclose_reuse(&mut result.data, observed);
+                octocode_runtime_base::providers::saved_answers::disclose_reuse(
+                    &mut result.data,
+                    observed,
+                );
             }
             // The row's own waits before its sends, by kind: latency the
             // provider did not cause. A row that waited for nothing says nothing.
@@ -177,13 +189,16 @@ impl GitHubServices {
                 data.insert("clientWaits".into(), json!(waits));
             }
         }
-        if crate::id::error_code_of(&result.data)
+        if octocode_runtime_base::id::error_code_of(&result.data)
             == Some(octocode_contract_types::ErrorCode::Authentication)
         {
             if context.github_credential.is_some() {
                 // The host supplied this token: the host re-authenticates
                 // its caller. Ambient credential state stays untouched.
-                crate::response::result::set_hints(&mut result.data, [REQUEST_TOKEN_AUTH_HINT]);
+                octocode_runtime_base::response::result::set_hints(
+                    &mut result.data,
+                    [REQUEST_TOKEN_AUTH_HINT],
+                );
             } else {
                 // GitHub rejected the credential: the next row selects again without it.
                 self.reject_credential(access.selection(), request_context.as_ref().ok());
@@ -220,7 +235,7 @@ impl GitHubServices {
         // The call's own deadline ends the request; the network timeout is
         // a stall bound on each read, so a response still flowing is never cut.
         RequestBudget::new(
-            crate::execution::cancel::deadline_of(context),
+            octocode_runtime_base::execution::cancel::deadline_of(context),
             context.cancellation.clone(),
             PROVIDER_BODY_BYTES,
         )

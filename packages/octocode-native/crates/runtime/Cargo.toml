@@ -38,102 +38,77 @@ harness = false
 
 [features]
 # Dev-loop feature unification, enabled by `build:dev` and `test:rust` but never
-# by release builds. wiremock and tempfile (dev-dependencies) turn these features
-# on in test builds; without the same set in `build:dev`, every `cargo test`
-# recompiled hyper → reqwest → this crate → cli under new hashes (47 extra units,
-# measured with `cargo --unit-graph`). Off in release: always-on cost +1.2% CLI
-# binary size. Keep in sync with test deps.
-# `octocode-engine/test-hooks` mirrors the dev-dependency below: without it the
-# engine (and everything above it) compiled under a second hash on every switch
-# between `build:dev` and `test:rust`. It adds one thread-local read per scan.
-dev-unify = ["dep:hyper", "dep:hyper-util", "dep:bitflags", "dep:fastrand", "dep:slab", "dep:tokio-util", "tokio-util/codec", "octocode-engine/test-hooks", "octocode-github/test-support"]
+# by release builds: the features the test selection's dev-dependencies turn on
+# (the dev-dependencies below; `getrandom/std` and `sys_rng` from the engine's
+# proptest). Without one of them in `build:dev`, tokio, hyper, reqwest and every
+# workspace crate compiled under a second hash, and each switch between
+# `build:dev` and `test:rust` rebuilt them (`cargo --unit-graph`: each entry
+# removed adds 6 to 20 duplicate units). Keep in sync with the dev-dependencies.
+# `octocode-engine/test-hooks` compiles test code into dev builds (the engine's
+# thread-local test clocks, read on every walk-clock and settle-clock reading);
+# the `test-support` features compile the fixtures the layers offer the tests
+# above them; `hyper` and `hyper-util` carry the features wiremock turns on. No
+# dev-dependency turns on tokio's `test-util`: tests move time through injected
+# clocks instead of tokio's paused clock.
+dev-unify = ["octocode-engine/test-hooks", "octocode-runtime-base/test-support", "getrandom/std", "getrandom/sys_rng", "octocode-tools-shared/test-support", "octocode-tool-graph/test-support", "octocode-tool-lsp/test-support", "octocode-tool-github/test-support", "octocode-tool-local/test-support", "octocode-tool-ast/test-support", "octocode-tool-packages/test-support", "octocode-tool-clasify/test-support", "dep:hyper", "dep:hyper-util", "dep:getrandom"]
 
 [dependencies]
+octocode-runtime-base = { path = "../runtime-base" }
+octocode-tools-shared = { path = "../tools-shared" }
+octocode-tool-graph = { path = "../tool-graph" }
+octocode-tool-lsp = { path = "../tool-lsp" }
+octocode-tool-github = { path = "../tool-github" }
+octocode-tool-local = { path = "../tool-local" }
+octocode-tool-ast = { path = "../tool-ast" }
+octocode-tool-packages = { path = "../tool-packages" }
+octocode-tool-clasify = { path = "../tool-clasify" }
 octocode-io = { path = "../io" }
 octocode-contract-types = { path = "../contract-types" }
 serde = { workspace = true }
 serde_json = { workspace = true }
-toml = { workspace = true }
-memchr = { workspace = true }
-# URL captures decode the charset a page declares.
-encoding_rs = "0.8"
-regex = { workspace = true }
-# Contract validation runs the schemas' ECMAScript patterns.
-regress = "0.12"
 url = { workspace = true }
-base64 = { workspace = true }
-getrandom = { workspace = true }
-aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc", "zeroize"] }
-reqwest = { workspace = true }
-# Optional: only for the `dev-unify` feature below (not used by code).
-hyper = { version = "1", features = ["full"], optional = true }
-hyper-util = { version = "0.1", features = ["server", "http2"], optional = true }
-bitflags = { version = "2", features = ["std"], optional = true }
-fastrand = { version = "2", optional = true }
-slab = { version = "0.4", optional = true }
-bytes = { workspace = true }
 futures-util = { workspace = true }
 secrecy = { workspace = true }
-keyring-core = "1"
 hex = { workspace = true }
-# `.gitignore` matching for graphBuild scans (already in the tree via the engine).
-ignore = { workspace = true }
-# PR changed-file `include` globs (already in the tree via `ignore`).
-globset = { workspace = true }
-# artifactSearch `version` ranges (already in the lockfile via the toolchain crates).
-semver = "1"
-# artifactSearch reads `.cargo_vcs_info.json` from a `.crate` archive (already in the lockfile via the CLI).
-flate2 = { workspace = true }
-# clasify URL sources: the browser-grade HTML parser (MIT OR Apache-2.0) behind section-addressable text.
-html5ever = "0.40"
-imagesize = { version = "0.15", default-features = false, features = ["png", "jpeg"] }
-# clasify pads images below the provider minimum onto a transparent PNG canvas
-# (crc32fast is already in the lockfile via flate2).
-crc32fast = "1"
-zune-jpeg = "0.5"
-zune-png = "0.5"
 octocode-engine = { path = "../engine" }
 octocode-github = { path = "../github" }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros", "sync", "time", "signal", "process", "io-util"] }
-# Only for `dev-unify`: request cancellation is `octocode_io::cancellation`.
-tokio-util = { workspace = true, optional = true }
+# Only for `dev-unify`: the features the dev-dependencies (wiremock) turn on,
+# so a dev build shares hyper's units with the test build. No code names them.
+hyper = { version = "1", features = ["full"], optional = true }
+hyper-util = { version = "0.1", features = ["http2"], optional = true }
+# Only for `dev-unify`, which turns on features the test build uses.
+getrandom = { workspace = true, optional = true }
 
 [build-dependencies]
-serde = { workspace = true }
-serde_json = { workspace = true }
 # Reads the path dependencies of the manifests the build identity hashes.
 toml = { workspace = true }
 
 [dev-dependencies]
+octocode-runtime-base = { path = "../runtime-base", features = ["test-support"] }
+octocode-tools-shared = { path = "../tools-shared", features = ["test-support"] }
+octocode-test-support = { path = "../test-support" }
+octocode-tool-graph = { path = "../tool-graph", features = ["test-support"] }
+octocode-tool-lsp = { path = "../tool-lsp", features = ["test-support"] }
+octocode-tool-github = { path = "../tool-github", features = ["test-support"] }
+octocode-tool-local = { path = "../tool-local", features = ["test-support"] }
+octocode-tool-ast = { path = "../tool-ast", features = ["test-support"] }
+octocode-tool-packages = { path = "../tool-packages", features = ["test-support"] }
+octocode-tool-clasify = { path = "../tool-clasify", features = ["test-support"] }
 sha2 = { workspace = true }
-tokio = { workspace = true, features = ["test-util"] }
 octocode-engine = { path = "../engine", features = ["test-hooks"] }
-octocode-github = { path = "../github", features = ["test-support"] }
 tempfile = { workspace = true }
 wiremock = { workspace = true }
-
-[target.'cfg(unix)'.dependencies]
-libc = { workspace = true }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-apple-native-keyring-store = { version = "1", features = ["keychain"] }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-zbus-secret-service-keyring-store = { version = "1", features = ["rt-tokio-crypto-rust"] }
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }
-windows-native-keyring-store = "1"
 
 # Inherits the shared floor from [workspace.lints] (root Cargo.toml). The runtime
 # keeps the existing shared policy; the engine library owns its stricter
 # stdout/stderr lint policy.
+toml = { workspace = true }
+regex = { workspace = true }
+base64 = { workspace = true }
 [lints]
 workspace = true
 
-# These exist only to unify features under `dev-unify`; no code uses them.
 [package.metadata.cargo-shear]
-ignored = ["hyper", "hyper-util", "bitflags", "fastrand", "slab", "tokio-util"]
-# build.rs mounts build/{config,tool}_gen.rs by #[path]; their child modules
-# resolve from build/, which cargo-shear does not follow.
-ignored-paths = ["build/*.rs"]
+# Named only by `dev-unify`, for the features the test build turns on.
+ignored = ["hyper", "hyper-util", "getrandom"]

@@ -1,6 +1,7 @@
 //! Issue reads: REST fetch, closing pull requests, body windows, summaries and the discussion beside the issue.
 
 use crate::support::{self};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use support::{Workspace, call, checks, row_data, row_status};
 use wiremock::matchers::{method, path};
@@ -11,15 +12,17 @@ async fn gh_get_history_item_issue_fetches_via_rest() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/issues/42"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "number": 42,
-            "title": "Parser OOM on large inputs",
-            "state": "open",
-            "body": "Detailed reproduction steps here",
-            "user": {"login": "alice"},
-            "labels": [],
-            "comments": 3
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "number": 42,
+                "title": "Parser OOM on large inputs",
+                "state": "open",
+                "body": "Detailed reproduction steps here",
+                "user": {"login": "alice"},
+                "labels": [],
+                "comments": 3
+            }"#,
+        )))
         .mount(&server)
         .await;
 
@@ -28,7 +31,14 @@ async fn gh_get_history_item_issue_fetches_via_rest() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation": "issue", "owner": "a", "repo": "b", "number": 42}),
+        json_fixture(
+            r#"{
+                "operation": "issue",
+                "owner": "a",
+                "repo": "b",
+                "number": 42
+            }"#,
+        ),
     )
     .await
     .expect("gh_get_history_item issue");
@@ -55,22 +65,45 @@ async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/issues/42"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "number": 42, "title": "model_config mutates", "state": "closed",
-            "state_reason": "completed", "body": "repro", "user": {"login": "alice"},
-            "labels": [], "comments": 0, "closed_at": "2026-09-25T00:29:37Z",
-            "created_at": "2026-09-20T00:00:00Z", "updated_at": "2026-09-25T00:29:37Z"
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "number": 42,
+                "title": "model_config mutates",
+                "state": "closed",
+                "state_reason": "completed",
+                "body": "repro",
+                "user": {"login": "alice"},
+                "labels": [],
+                "comments": 0,
+                "closed_at": "2026-09-25T00:29:37Z",
+                "created_at": "2026-09-20T00:00:00Z",
+                "updated_at": "2026-09-25T00:29:37Z"
+            }"#,
+        )))
         .mount(&server)
         .await;
     Mock::given(method("POST"))
         .and(path("/api/graphql"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
-            "repository": {"issue": {"closedByPullRequestsReferences": {"nodes": [
-                {"number": 13794, "state": "CLOSED", "mergedAt": null},
-                {"number": 13825, "state": "MERGED", "mergedAt": "2026-09-25T00:29:36Z"}
-            ]}}}
-        }})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "data": {
+                    "repository": {
+                        "issue": {
+                            "closedByPullRequestsReferences": {
+                                "nodes": [
+                                    {"number": 13794, "state": "CLOSED", "mergedAt": null},
+                                    {
+                                        "number": 13825,
+                                        "state": "MERGED",
+                                        "mergedAt": "2026-09-25T00:29:36Z"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+            }"#,
+        )))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -78,7 +111,14 @@ async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation": "issue", "owner": "a", "repo": "b", "number": 42}),
+        json_fixture(
+            r#"{
+                "operation": "issue",
+                "owner": "a",
+                "repo": "b",
+                "number": 42
+            }"#,
+        ),
     )
     .await
     .expect("issue read");
@@ -88,14 +128,20 @@ async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
     assert_eq!(
         issue["closedBy"],
         // #13794 was closed without merging: it declared a fix, it closed nothing.
-        json!([
-            {"number": 13825, "state": "merged", "mergedAt": "2026-09-25T00:29:36Z"}
-        ]),
+        json_fixture(
+            r#"[
+                {
+                    "number": 13825,
+                    "state": "merged",
+                    "mergedAt": "2026-09-25T00:29:36Z"
+                }
+            ]"#
+        ),
         "{data}"
     );
     let read = json!({"operation":"pullRequest","owner":"a","repo":"b","number":data["issues"][0]["closedBy"][0]["number"]});
     assert_eq!(read["number"], 13825, "{data}");
-    octocode_native::contracts::validate("ghGetHistoryItem", json!({"queries":[read]}))
+    octocode_runtime_base::contracts::validate("ghGetHistoryItem", json!({"queries":[read]}))
         .expect("closing reference forms a valid PR request");
     runtime.close().await;
 
@@ -103,17 +149,32 @@ async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/issues/42"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "number": 42, "title": "t", "state": "closed", "state_reason": "completed",
-            "body": "", "user": {"login": "alice"}, "labels": [], "comments": 0
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "number": 42,
+                "title": "t",
+                "state": "closed",
+                "state_reason": "completed",
+                "body": "",
+                "user": {"login": "alice"},
+                "labels": [],
+                "comments": 0
+            }"#,
+        )))
         .mount(&server)
         .await;
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation": "issue", "owner": "a", "repo": "b", "number": 42}),
+        json_fixture(
+            r#"{
+                "operation": "issue",
+                "owner": "a",
+                "repo": "b",
+                "number": 42
+            }"#,
+        ),
     )
     .await
     .expect("issue read");
@@ -124,8 +185,8 @@ async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
         .expect("issue number")
         .to_string();
     let find = json!({"operation":"pullRequest","owner":"a","repo":"b","keywords":[number]});
-    assert_eq!(find["keywords"], json!(["42"]), "{data}");
-    octocode_native::contracts::validate("ghSearchHistory", json!({"queries":[find]}))
+    assert_eq!(find["keywords"], json_fixture(r#"["42"]"#), "{data}");
+    octocode_runtime_base::contracts::validate("ghSearchHistory", json!({"queries":[find]}))
         .expect("issue identity forms a valid history search");
     runtime.close().await;
 }
@@ -163,13 +224,32 @@ async fn issue_body_windows_keep_closing_reference_coverage() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     let outputs = std::cell::RefCell::new(Vec::new());
-    support::walk(&runtime,"ghGetHistoryItem",json!({"queries":[{"operation":"issue","owner":"a","repo":"b","number":42,"sections":["body"]}],"responseChars":2500}),|output| {
-        for row in output["results"].as_array().into_iter().flatten() {
-            assert_ne!(row["status"],"error","{output}");
-        }
-        outputs.borrow_mut().push(output.clone());
-        Vec::new()
-    }).await;
+    support::walk(
+        &runtime,
+        "ghGetHistoryItem",
+        json_fixture(
+            r#"{
+                "queries": [
+                    {
+                        "operation": "issue",
+                        "owner": "a",
+                        "repo": "b",
+                        "number": 42,
+                        "sections": ["body"]
+                    }
+                ],
+                "responseChars": 2500
+            }"#,
+        ),
+        |output| {
+            for row in output["results"].as_array().into_iter().flatten() {
+                assert_ne!(row["status"], "error", "{output}");
+            }
+            outputs.borrow_mut().push(output.clone());
+            Vec::new()
+        },
+    )
+    .await;
     let outputs = outputs.into_inner();
     let issues = outputs
         .iter()
@@ -228,7 +308,14 @@ async fn history_a_issue_summary_counts_comments_and_offers_the_discussion() {
         let outcome = call(
             &runtime,
             "ghGetHistoryItem",
-            json!({"operation": "issue", "owner": "a", "repo": "b", "number": 42}),
+            json_fixture(
+                r#"{
+                    "operation": "issue",
+                    "owner": "a",
+                    "repo": "b",
+                    "number": 42
+                }"#,
+            ),
         )
         .await
         .expect("issue read");
@@ -236,17 +323,41 @@ async fn history_a_issue_summary_counts_comments_and_offers_the_discussion() {
         assert_eq!(row_status(&outcome), "success", "{data}");
         let issue = &data["issues"][0];
         let read = checks::find_related_call(data, "ghGetHistoryItem", |input| {
-            input["queries"][0]["sections"] == json!(["comments"])
+            input["queries"][0]["sections"] == json_fixture(r#"["comments"]"#)
         });
         if offered {
             // The count is the indication; the discussion is one documented
             // call away (the issue with `sections:["comments"]`).
             assert_eq!(issue["commentsCount"], 1, "{data}");
-            let read = json!({"input": {"queries": [{"operation": "issue", "owner": "a",
-                "repo": "b", "number": 42, "sections": ["comments"]}]}});
-            Mock::given(method("GET")).and(path("/api/v3/repos/a/b/issues/42/comments"))
-                .respond_with(ResponseTemplate::new(200).set_body_json(json!([{"id":17,"body":"discussion","user":{"login":"bob"},"created_at":"2026-09-21T00:00:00Z"}])))
-                .mount(&server).await;
+            let read = json_fixture(
+                r#"{
+                    "input": {
+                        "queries": [
+                            {
+                                "operation": "issue",
+                                "owner": "a",
+                                "repo": "b",
+                                "number": 42,
+                                "sections": ["comments"]
+                            }
+                        ]
+                    }
+                }"#,
+            );
+            Mock::given(method("GET"))
+                .and(path("/api/v3/repos/a/b/issues/42/comments"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+                    r#"[
+                        {
+                            "id": 17,
+                            "body": "discussion",
+                            "user": {"login": "bob"},
+                            "created_at": "2026-09-21T00:00:00Z"
+                        }
+                    ]"#,
+                )))
+                .mount(&server)
+                .await;
             let discussion = call(&runtime, "ghGetHistoryItem", read["input"].clone())
                 .await
                 .expect("discussion cursor");
@@ -267,17 +378,25 @@ async fn history_a_issue_summary_counts_comments_and_offers_the_discussion() {
 /// so the read is one round trip, not two.
 #[tokio::test]
 async fn an_issue_discussion_loads_beside_the_issue() {
-    use octocode_github::mock_http::Delayed;
+    use octocode_test_support::mock_http::Delayed;
     use std::time::Duration;
     let server = MockServer::builder().start().await;
     let delay = Duration::from_millis(400);
     let issue = Delayed::new(
         delay,
-        ResponseTemplate::new(200).set_body_json(json!({
-            "number": 7, "title": "Thread", "state": "open", "body": "repro",
-            "user": {"login": "alice"}, "labels": [], "comments": 2,
-            "created_at": "2026-09-20T00:00:00Z", "updated_at": "2026-09-25T00:00:00Z"
-        })),
+        ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "number": 7,
+                "title": "Thread",
+                "state": "open",
+                "body": "repro",
+                "user": {"login": "alice"},
+                "labels": [],
+                "comments": 2,
+                "created_at": "2026-09-20T00:00:00Z",
+                "updated_at": "2026-09-25T00:00:00Z"
+            }"#,
+        )),
     );
     let issue_arrivals = issue.arrivals.clone();
     Mock::given(method("GET"))
@@ -287,12 +406,24 @@ async fn an_issue_discussion_loads_beside_the_issue() {
         .await;
     let comments = Delayed::new(
         Duration::ZERO,
-        ResponseTemplate::new(200).set_body_json(json!([
-            {"id": 1, "user": {"login": "bob"}, "body": "one",
-             "created_at": "2026-09-21T00:00:00Z", "updated_at": "2026-09-21T00:00:00Z"},
-            {"id": 2, "user": {"login": "eve"}, "body": "two",
-             "created_at": "2026-09-22T00:00:00Z", "updated_at": "2026-09-22T00:00:00Z"}
-        ])),
+        ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"[
+                {
+                    "id": 1,
+                    "user": {"login": "bob"},
+                    "body": "one",
+                    "created_at": "2026-09-21T00:00:00Z",
+                    "updated_at": "2026-09-21T00:00:00Z"
+                },
+                {
+                    "id": 2,
+                    "user": {"login": "eve"},
+                    "body": "two",
+                    "created_at": "2026-09-22T00:00:00Z",
+                    "updated_at": "2026-09-22T00:00:00Z"
+                }
+            ]"#,
+        )),
     );
     let comment_arrivals = comments.arrivals.clone();
     Mock::given(method("GET"))
@@ -305,8 +436,15 @@ async fn an_issue_discussion_loads_beside_the_issue() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"issue","owner":"a","repo":"b","number":7,
-               "sections":["comments"]}),
+        json_fixture(
+            r#"{
+                "operation": "issue",
+                "owner": "a",
+                "repo": "b",
+                "number": 7,
+                "sections": ["comments"]
+            }"#,
+        ),
     )
     .await
     .expect("issue comments");

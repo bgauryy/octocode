@@ -2,8 +2,9 @@
 //! the calls each can answer (tool, operation, state).
 
 use crate::support::{self, PROVIDER_LIMITS, Workspace, recorded};
-use octocode_native::execution::RuntimeLimits;
 use octocode_native::runtime::ToolRuntime;
+use octocode_runtime_base::execution::RuntimeLimits;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
@@ -14,14 +15,14 @@ const SMALL_PAGE: u64 = 200;
 
 /// One call and the row state it must produce: `hit`, `empty`, `error`,
 /// `outOfRange`, or `paged` (a hit with more to read).
-pub struct Case {
+pub(super) struct Case {
     pub tool: String,
     pub operation: String,
     pub state: &'static str,
     pub input: Value,
 }
 
-pub struct World {
+pub(super) struct World {
     pub workspace: Workspace,
     pub runtime: ToolRuntime,
     pub cases: Vec<Case>,
@@ -121,13 +122,25 @@ fn workspace() -> Workspace {
 }
 
 fn search_cases() -> Vec<Case> {
-    let search = json!({"path":"src","matchString":["needle"]});
+    let search = json_fixture(r#"{"path": "src", "matchString": ["needle"]}"#);
     let with = |extra: Value| merged(&search, &extra);
     vec![
         case("localSearch", "hit", search.clone()),
-        case("localSearch", "hit", with(json!({"view":"files"}))),
-        case("localSearch", "hit", with(json!({"view":"countMatches"}))),
-        case("localSearch", "paged", with(json!({"limit":1}))),
+        case(
+            "localSearch",
+            "hit",
+            with(json_fixture(r#"{"view": "files"}"#)),
+        ),
+        case(
+            "localSearch",
+            "hit",
+            with(json_fixture(r#"{"view": "countMatches"}"#)),
+        ),
+        case(
+            "localSearch",
+            "paged",
+            with(json_fixture(r#"{"limit": 1}"#)),
+        ),
         case(
             "localSearch",
             "empty",
@@ -136,30 +149,39 @@ fn search_cases() -> Vec<Case> {
         case(
             "localSearch",
             "error",
-            json!({"path":"missing","matchString":["x"]}),
+            json_fixture(r#"{"path": "missing", "matchString": ["x"]}"#),
         ),
-        case("localFetch", "hit", json!({"path":"src/a.ts"})),
-        paged("localFetch", json!({"path":"src/long.ts"})),
-        case("localFetch", "error", json!({"path":"missing.ts"})),
+        case("localFetch", "hit", json_fixture(r#"{"path": "src/a.ts"}"#)),
+        paged("localFetch", json_fixture(r#"{"path": "src/long.ts"}"#)),
+        case(
+            "localFetch",
+            "error",
+            json_fixture(r#"{"path": "missing.ts"}"#),
+        ),
         case(
             "localFetch",
             "outOfRange",
-            json!({"path":"src/a.ts","ranges":[{"startLine":900,"endLine":901}]}),
+            json_fixture(
+                r#"{
+                    "path": "src/a.ts",
+                    "ranges": [{"startLine": 900, "endLine": 901}]
+                }"#,
+            ),
         ),
         case(
             "structureSearch",
             "hit",
-            json!({"operation":"tree","path":"src"}),
+            json_fixture(r#"{"operation": "tree", "path": "src"}"#),
         ),
         case(
             "structureSearch",
             "hit",
-            json!({"operation":"files","path":"src"}),
+            json_fixture(r#"{"operation": "files", "path": "src"}"#),
         ),
         case(
             "structureSearch",
             "paged",
-            json!({"operation":"files","path":"src","limit":2}),
+            json_fixture(r#"{"operation": "files", "path": "src", "limit": 2}"#),
         ),
         case(
             "structureSearch",
@@ -169,30 +191,36 @@ fn search_cases() -> Vec<Case> {
         case(
             "structureSearch",
             "error",
-            json!({"operation":"tree","path":"missing"}),
+            json_fixture(r#"{"operation": "tree", "path": "missing"}"#),
         ),
     ]
 }
 
 fn code_cases() -> Vec<Case> {
-    let anchor = json!({"path":"src/a.ts","symbolName":"needleA","line":2});
+    let anchor = json_fixture(r#"{"path": "src/a.ts", "symbolName": "needleA", "line": 2}"#);
     let lsp = |extra: Value| merged(&anchor, &extra);
     let never = json!({"terms":[NEVER],"mode":"exact"});
     vec![
         case(
             "astSearch",
             "hit",
-            json!({"operation":"symbols","path":"src"}),
+            json_fixture(r#"{"operation": "symbols", "path": "src"}"#),
         ),
         case(
             "astSearch",
             "hit",
-            json!({"operation":"match","path":"src","rule":{"kind":"return_statement"}}),
+            json_fixture(
+                r#"{
+                    "operation": "match",
+                    "path": "src",
+                    "rule": {"kind": "return_statement"}
+                }"#,
+            ),
         ),
         case(
             "astSearch",
             "paged",
-            json!({"operation":"symbols","path":"src","limit":2}),
+            json_fixture(r#"{"operation": "symbols", "path": "src", "limit": 2}"#),
         ),
         case(
             "astSearch",
@@ -202,69 +230,96 @@ fn code_cases() -> Vec<Case> {
         case(
             "astSearch",
             "error",
-            json!({"operation":"symbols","path":"missing"}),
+            json_fixture(r#"{"operation": "symbols", "path": "missing"}"#),
         ),
-        case("lspSearch", "hit", lsp(json!({"operation":"definition"}))),
-        case("lspSearch", "hit", lsp(json!({"operation":"references"}))),
         case(
             "lspSearch",
             "hit",
-            lsp(json!({"operation":"references","view":"files"})),
+            lsp(json_fixture(r#"{"operation": "definition"}"#)),
+        ),
+        case(
+            "lspSearch",
+            "hit",
+            lsp(json_fixture(r#"{"operation": "references"}"#)),
+        ),
+        case(
+            "lspSearch",
+            "hit",
+            lsp(json_fixture(
+                r#"{"operation": "references", "view": "files"}"#,
+            )),
         ),
         case(
             "lspSearch",
             "paged",
-            lsp(json!({"operation":"references","limit":2})),
+            lsp(json_fixture(r#"{"operation": "references", "limit": 2}"#)),
         ),
         case(
             "lspSearch",
             "error",
-            json!({"path":"missing.ts","symbolName":"x","line":1,"operation":"definition"}),
+            json_fixture(
+                r#"{
+                    "path": "missing.ts",
+                    "symbolName": "x",
+                    "line": 1,
+                    "operation": "definition"
+                }"#,
+            ),
         ),
     ]
 }
 
 /// graphQuery reads the snapshot graphBuild writes, so the build runs first.
 fn graph_cases() -> Vec<Case> {
-    let query = |extra: Value| merged(&json!({"path":"src"}), &extra);
+    let query = |extra: Value| merged(&json_fixture(r#"{"path": "src"}"#), &extra);
     vec![
-        case("graphBuild", "hit", json!({"path":"src"})),
-        case("graphQuery", "hit", query(json!({"operation":"stats"}))),
+        case("graphBuild", "hit", json_fixture(r#"{"path": "src"}"#)),
         case(
             "graphQuery",
             "hit",
-            query(json!({"operation":"stats","view":"details"})),
+            query(json_fixture(r#"{"operation": "stats"}"#)),
         ),
         case(
             "graphQuery",
             "hit",
-            query(json!({"operation":"find","target":"needle"})),
+            query(json_fixture(r#"{"operation": "stats", "view": "details"}"#)),
         ),
         case(
             "graphQuery",
             "hit",
-            query(json!({"operation":"symbols","target":"a.ts"})),
+            query(json_fixture(r#"{"operation": "find", "target": "needle"}"#)),
         ),
         case(
             "graphQuery",
             "hit",
-            query(json!({"operation":"dependents","target":"a.ts"})),
+            query(json_fixture(
+                r#"{"operation": "symbols", "target": "a.ts"}"#,
+            )),
         ),
         case(
             "graphQuery",
             "hit",
-            query(json!({"operation":"hubs","kind":"file"})),
+            query(json_fixture(
+                r#"{"operation": "dependents", "target": "a.ts"}"#,
+            )),
+        ),
+        case(
+            "graphQuery",
+            "hit",
+            query(json_fixture(r#"{"operation": "hubs", "kind": "file"}"#)),
         ),
         case(
             "graphQuery",
             "paged",
-            query(json!({"operation":"find","target":"needle","limit":1})),
+            query(json_fixture(
+                r#"{"operation": "find", "target": "needle", "limit": 1}"#,
+            )),
         ),
         // Functions and one-line constants in one list: rows of two builds.
         case(
             "graphQuery",
             "paged",
-            query(json!({"operation":"find","kind":"symbol"})),
+            query(json_fixture(r#"{"operation": "find", "kind": "symbol"}"#)),
         ),
         case(
             "graphQuery",
@@ -274,7 +329,7 @@ fn graph_cases() -> Vec<Case> {
         case(
             "graphQuery",
             "error",
-            json!({"operation":"stats","path":"missing"}),
+            json_fixture(r#"{"operation": "stats", "path": "missing"}"#),
         ),
     ]
 }
@@ -288,7 +343,7 @@ fn merged(base: &Value, extra: &Value) -> Value {
 }
 
 /// The local tools over the fixture workspace: no provider, no network.
-pub fn local() -> World {
+pub(super) fn local() -> World {
     let workspace = workspace();
     let runtime = workspace.runtime(&[("OCTOCODE_BETA", "true".into())]);
     let mut cases = search_cases();
@@ -306,7 +361,7 @@ pub fn local() -> World {
 /// that serves GitHub, OSV and an npm registry by path, in the `state` the
 /// recorded answer produces. `with_paged` adds the same call under a small
 /// response page.
-pub async fn recorded(name: &str, state: &'static str, with_paged: bool) -> World {
+pub(super) async fn recorded(name: &str, state: &'static str, with_paged: bool) -> World {
     let server = MockServer::builder().start().await;
     let recording = recorded::mount(&server, name, |url| match url.host_str() {
         Some("api.github.com") => recorded::github_path(url),
@@ -357,7 +412,7 @@ pub async fn recorded(name: &str, state: &'static str, with_paged: bool) -> Worl
 
 /// GitHub and a registry that find nothing: the empty and failed rows of
 /// every remote tool, and a clone the provider refuses.
-pub async fn nothing_found() -> World {
+pub(super) async fn nothing_found() -> World {
     let server = crate::runtime_empty_error_rows::github_and_registry().await;
     let workspace = workspace();
     let mut env = support::github_api(&server).to_vec();
@@ -366,8 +421,8 @@ pub async fn nothing_found() -> World {
         ("OCTOCODE_ENABLE_CLONE", "true".to_owned()),
     ]);
     let runtime = workspace.runtime_with(&env, PROVIDER_LIMITS);
-    let found = json!({"owner":"a","repo":"b"});
-    let missing = json!({"owner":"a","repo":"missing"});
+    let found = json_fixture(r#"{"owner": "a", "repo": "b"}"#);
+    let missing = json_fixture(r#"{"owner": "a", "repo": "missing"}"#);
     let package = NEVER.to_lowercase();
     let cases = vec![
         case(
@@ -391,19 +446,19 @@ pub async fn nothing_found() -> World {
         case(
             "ghStructure",
             "error",
-            merged(&missing, &json!({"operation":"tree"})),
+            merged(&missing, &json_fixture(r#"{"operation": "tree"}"#)),
         ),
         case(
             "ghGetFileContent",
             "error",
-            merged(&missing, &json!({"path":"missing.md"})),
+            merged(&missing, &json_fixture(r#"{"path": "missing.md"}"#)),
         ),
         case(
             "ghGetHistoryItem",
             "error",
             merged(
                 &missing,
-                &json!({"operation":"pullRequest","number":999_999}),
+                &json_fixture(r#"{"operation": "pullRequest", "number": 999999}"#),
             ),
         ),
         case("ghCloneRepo", "error", missing),
@@ -431,7 +486,7 @@ impl Respond for Judged {
             .as_object()
             .expect("questions")
             .keys()
-            .map(|id| (id.clone(), json!({"type":"noul","noul":0.9})))
+            .map(|id| (id.clone(), json_fixture(r#"{"type": "noul", "noul": 0.9}"#)))
             .collect();
         ResponseTemplate::new(200).set_body_json(json!({
             "model":"jev-1.13.0","answers":answers,"usage":{"input_tokens":40,"output_tokens":7}
@@ -440,7 +495,7 @@ impl Respond for Judged {
 }
 
 /// clasify over a classification-provider double.
-pub async fn judged() -> World {
+pub(super) async fn judged() -> World {
     let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
@@ -449,8 +504,14 @@ pub async fn judged() -> World {
         .await;
     let workspace = workspace();
     let runtime = support::clasify_runtime(&workspace, &server, &[]);
-    let questions =
-        json!({"exports":{"type":"noul","instructions":"Does the file export a function?"}});
+    let questions = json_fixture(
+        r#"{
+            "exports": {
+                "type": "noul",
+                "instructions": "Does the file export a function?"
+            }
+        }"#,
+    );
     let evaluate = |source: &str| {
         json!({
             "operation":"evaluate",
@@ -481,7 +542,7 @@ pub async fn judged() -> World {
 
 /// Every world, local first. Each runs without retries, so a call a double
 /// does not answer fails fast.
-pub async fn worlds() -> Vec<World> {
+pub(super) async fn worlds() -> Vec<World> {
     let mut worlds = vec![local(), nothing_found().await, judged().await];
     for (name, state, with_paged) in [
         ("github/repo-get", "hit", false),

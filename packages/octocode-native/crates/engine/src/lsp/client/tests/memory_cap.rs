@@ -1,4 +1,4 @@
-//! The per-server memory cap: the RSS watchdog and the Windows Job Object.
+//! The per-server memory cap: the memory watchdog and the Windows Job Object.
 
 use super::*;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -8,9 +8,9 @@ use crate::lsp::transport::ClientRequestContext;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use serde_json::json;
 
-/// On macOS and Linux a server whose resident memory passes its memory cap is
-/// killed by the RSS watchdog and its requests fail with a clear "exceeded
-/// memory cap" error.
+/// On macOS and Linux a server whose memory passes its memory cap is killed
+/// by the memory watchdog and its requests fail with a clear "exceeded memory
+/// cap" error.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn server_over_its_memory_cap_is_killed_with_a_clear_error() {
@@ -22,19 +22,35 @@ fn server_over_its_memory_cap_is_killed_with_a_clear_error() {
         &[("FAKE_ALLOC_MB", "400".into())],
         Some(128),
     );
+    let file = root.join("a.ts").to_string_lossy().into_owned();
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         let client = NativeLspClient::new(config);
         client.start().await.expect("fake server starts");
-        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        // The server allocates in its `initialized` handler and handles its
+        // messages in order, so once a request sent after the start is
+        // answered, it holds the memory (unless the watchdog already killed
+        // it). Memory the kernel then compresses or swaps out still counts, so
+        // from here every sample is over the cap and the next one fires.
+        let _ = client.get_hover(file.clone(), 0, 0).await;
+        // The wait ends on the watchdog's kill, however slowly a loaded host
+        // runs it. It gives up only when the watchdog's samples stop changing
+        // (it is not running) for a long stretch, never on total elapsed time.
+        let mut last_sample = client.last_resident_bytes();
+        let mut last_progress = std::time::Instant::now();
         while client.is_alive().await {
+            let sample = client.last_resident_bytes();
+            if sample != last_sample {
+                last_sample = sample;
+                last_progress = std::time::Instant::now();
+            }
             assert!(
-                std::time::Instant::now() < deadline,
-                "the watchdog never fired"
+                last_progress.elapsed() < Duration::from_secs(30),
+                "the watchdog never fired (last sample {last_sample} bytes)"
             );
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
         let error = client
-            .get_hover(root.join("a.ts").to_string_lossy().into_owned(), 0, 0)
+            .get_hover(file, 0, 0)
             .await
             .expect_err("the connection was failed");
         assert!(error.to_string().contains("exceeded memory cap"), "{error}");
@@ -47,9 +63,9 @@ fn server_over_its_memory_cap_is_killed_with_a_clear_error() {
     let _ = std::fs::remove_dir_all(root);
 }
 
-/// The RSS watchdog is armed on every platform that has a tree RSS reader
-/// (macOS and Linux): a server tree over its cap is killed and the connection
-/// fails with the "exceeded memory cap" error.
+/// The memory watchdog is armed on every platform that has a tree memory
+/// reader (macOS and Linux): a server tree over its cap is killed and the
+/// connection fails with the "exceeded memory cap" error.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn memory_watchdog_is_armed_and_fires_on_macos_and_linux() {
@@ -69,8 +85,9 @@ fn memory_watchdog_is_armed_and_fires_on_macos_and_linux() {
                 section_root: None,
                 workspace_folders: json!([]),
             },
-            ProgressTracker::new(),
+            ProgressTracker::new(LspClock::default()),
             None,
+            LspClock::default(),
         ));
         assert!(
             memory_watchdog_for(&child, None, &connection, Default::default()).is_none(),

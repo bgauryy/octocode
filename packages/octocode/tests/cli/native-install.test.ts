@@ -120,6 +120,17 @@ describe.skipIf(!posix)('installNativeBin', () => {
     expect(outEntries(layout.packageRoot)).toEqual(['octocode', 'octocode.js']);
   });
 
+  it('accepts a binary whose version carries the contract fingerprint', () => {
+    const layout = installedLayout(`${VERSION}+0a1b2c3d`);
+    const outcome = installNativeBin({
+      packageRoot: layout.packageRoot,
+      version: VERSION,
+      env: {},
+      resolveNative: () => layout.native,
+    });
+    expect(outcome).toEqual({ bin: 'native', path: layout.bin });
+  });
+
   it('passes stdin, stdout, stderr, arguments and the exit code through', () => {
     const layout = installedLayout();
     installNativeBin({
@@ -238,6 +249,17 @@ describe.skipIf(!posix)('installNativeBin', () => {
         resolveNative: () => layout.native,
       });
       kept(layout, outcome, /reports 'octocode 9\.9\.9'/);
+    });
+
+    it('when the binary version has a suffix that is not a fingerprint', () => {
+      const layout = installedLayout(`${VERSION}+zzz`);
+      const outcome = installNativeBin({
+        packageRoot: layout.packageRoot,
+        version: VERSION,
+        env: {},
+        resolveNative: () => layout.native,
+      });
+      kept(layout, outcome, /reports 'octocode 1\.2\.3\+zzz'/);
     });
 
     it('when the binary cannot run here', () => {

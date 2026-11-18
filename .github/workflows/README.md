@@ -34,7 +34,7 @@ yarn workspace @octocodeai/octocode-native typecheck && yarn workspace @octocode
 # needs the pinned cargo-typify: cargo install --locked $(node skills-dev/octocode-dev/scripts/rust-quality.mjs pins cargo-typify)
 yarn workspace @octocodeai/config check:tool-contract && yarn workspace @octocodeai/config check:config-contract
 # nightly.yml, from packages/octocode-native
-cargo nextest run --locked -p octocode-native --run-ignored only -E 'test(/full_matrix/)'
+cargo nextest run --locked -p octocode-native -p octocode-runtime-base --run-ignored only -E 'test(/full_matrix/)'
 ```
 
 `test:ci` starts with the skill linter over `skills/` and the skill script tests; the shared skill workspace (`skills/common`) runs in the workspace lint and test runs. After editing a skill, run `dev.mjs skills:check`, which adds the shared workspace's lint and test.

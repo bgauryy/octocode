@@ -4,6 +4,7 @@
 //! that parses a file answers it, and the graph says which lane read JS/TS.
 
 use crate::support::{self, Workspace};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 
 /// 50,000 levels, past what oxc's recursion holds on a 64 MiB stack.
@@ -44,7 +45,7 @@ async fn deeply_nested_sources_are_answered_by_every_parsing_tool() {
     let search = support::run(
         &runtime,
         "localSearch",
-        support::query_path(root, json!({"matchString": "keep"})),
+        support::query_path(root, json_fixture(r#"{"matchString": "keep"}"#)),
     )
     .await;
     assert_eq!(search.status(), "success", "{}", search.structured_content);
@@ -54,7 +55,7 @@ async fn deeply_nested_sources_are_answered_by_every_parsing_tool() {
         let symbols = support::run(
             &runtime,
             "localFetch",
-            support::query_path(&root.join(file), json!({"view": "symbols"})),
+            support::query_path(&root.join(file), json_fixture(r#"{"view": "symbols"}"#)),
         )
         .await;
         assert!(
@@ -65,7 +66,10 @@ async fn deeply_nested_sources_are_answered_by_every_parsing_tool() {
         let declared = support::run(
             &runtime,
             "astSearch",
-            support::query_path(&root.join(file), json!({"operation": "symbols"})),
+            support::query_path(
+                &root.join(file),
+                json_fixture(r#"{"operation": "symbols"}"#),
+            ),
         )
         .await;
         let text = declared.structured_content.to_string();

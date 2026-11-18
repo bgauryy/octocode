@@ -1,12 +1,13 @@
 //! Cursor publication binds saved work to the access identity used by the call.
 use super::ChannelRun;
-use crate::contracts;
-use crate::execution::{ExecutionContext, ExecutionError};
-use crate::response::{continuations, cursor::Cursor, outcome::ToolOutcome};
 use crate::runtime::engine::cursors::{Pending, SavedWork};
 use crate::runtime::row_indices::RowOrigin;
-use crate::security::Sanitized;
-use crate::tools::selection::{RecoveryLead, recovery_lead};
+use octocode_runtime_base::contracts;
+use octocode_runtime_base::execution::{ExecutionContext, ExecutionError};
+use octocode_runtime_base::response::pager::continuing_block_chars as page_block_chars;
+use octocode_runtime_base::response::{continuations, cursor::Cursor, outcome::ToolOutcome};
+use octocode_runtime_base::security::Sanitized;
+use octocode_tools_shared::selection::{RecoveryLead, recovery_lead};
 use serde_json::{Value, json};
 
 impl ChannelRun {
@@ -76,7 +77,11 @@ impl ChannelRun {
                 let fresh = (lead == RecoveryLead::Whole)
                     .then(|| fresh_whole_read(call))
                     .flatten();
-                leads.push((crate::json_pointer::of(row), channel.clone(), fresh));
+                leads.push((
+                    octocode_runtime_base::json_pointer::of(row),
+                    channel.clone(),
+                    fresh,
+                ));
             }
         })?;
         for (row_pointer, channel, fresh) in leads.into_iter().rev() {
@@ -93,16 +98,16 @@ impl ChannelRun {
             }
             let warning = match fresh {
                 Some(call) => {
-                    crate::response::result::attach_related(row, call);
+                    octocode_runtime_base::response::result::attach_related(row, call);
                     // Naming `related[]` keeps the call on a successful row
-                    // ([`crate::response::workflow_lead`]).
+                    // ([`octocode_runtime_base::response::workflow_lead`]).
                     format!(
                         "The {channel} lead is not offered: this command exits after one call and keeps no saved work, so the read without classification is the related[] request."
                     )
                 }
                 None => unsaved_lead_warning(row, &channel),
             };
-            crate::response::paging::push_warnings(row, [warning]);
+            octocode_runtime_base::response::paging::push_warnings(row, [warning]);
         }
         Ok(())
     }
@@ -169,15 +174,17 @@ impl ChannelRun {
         }
     }
 
-    /// Move the rows' linear walks to `responsePagination.next`, so one loop
-    /// reaches everything the request asked for: when the response pages (a
-    /// page break would sit between a row and its walk), when more than one
-    /// walk remains, or when a walk continues the page its row answered
-    /// (`continues_page`: the rest of that page is the rest of this
-    /// response). One walk to a later page on an unpaged response stays
-    /// where it is. A section's own walk (`next.<section>`) continues that
-    /// section alone: it stays on its row, and a split row places it on the
-    /// row's last part (`row_pages`, `take_enclosing_walks`).
+    /// Move the walks of the rows the response page splits to
+    /// `responsePagination.next`: a page break sits inside such a row, so
+    /// its walk can only follow its last part, and one loop through the
+    /// pages then reaches it. A row whose own page is shown whole keeps its
+    /// `next.nextPage` where it is, so finishing the pages never walks rows
+    /// the reader is done with. A walk that continues the page its row
+    /// answered (`continues_page`: the rest of that page is the rest of this
+    /// response) moves too, with every other walk. A section's own walk
+    /// (`next.<section>`) continues that section alone: it stays on its row,
+    /// and a split row places it on the row's last part (`row_pages`,
+    /// `take_enclosing_walks`).
     pub(super) fn hoist_walks(
         &self,
         structured: &mut Sanitized,
@@ -189,15 +196,31 @@ impl ChannelRun {
             walk.last()
                 .is_some_and(|name| name == continuations::LINEAR_WALK)
         });
-        let splits = self.options.pages(structured, self.output.auto_page_chars);
+        if !continues_page {
+            let budget = self
+                .options
+                .response_chars
+                .unwrap_or(self.output.auto_page_chars);
+            if budget == 0 || !self.options.pages(structured, self.output.auto_page_chars) {
+                return Ok(());
+            }
+            let split = split_rows(structured, budget.saturating_sub(page_block_chars(self.id)));
+            walks.retain(|walk| {
+                walk.get(1)
+                    .and_then(|row| row.parse::<usize>().ok())
+                    .is_some_and(|row| split.contains(&row))
+            });
+        }
         let handles = continuations::walk_handles(structured, &walks);
-        if handles.is_empty() || (handles.len() == 1 && !splits && !continues_page) {
+        if handles.is_empty() {
             return Ok(());
         }
         let Some(token) = pending.walk_handle(self.id, &handles) else {
             return Ok(());
         };
-        structured.edit(|output| continuations::hoist(output, &walks, self.id, &token));
+        structured.edit(|output| {
+            continuations::hoist(output, &walks, self.id, &token);
+        });
         Ok(())
     }
 
@@ -213,7 +236,7 @@ impl ChannelRun {
             .and_then(Value::as_str)
             .and_then(|token| self.cursors.open(self.id, token, self.access).ok());
         let inputs = std::iter::once(saved).chain(walk.as_ref().map(|walk| &walk.member().input));
-        crate::tools::clasify::sections::refresh_continued(
+        octocode_tool_clasify::clasify::sections::refresh_continued(
             &self.section_sessions,
             &self.access,
             inputs,
@@ -251,6 +274,23 @@ impl ChannelRun {
     }
 }
 
+/// The positions of the rows that alone fill more than a page of `budget`
+/// chars: the rows a response page splits into parts.
+fn split_rows(structured: &Value, budget: usize) -> Vec<usize> {
+    let size = |value: &Value| octocode_engine::json_size::utf16_units(value).unwrap_or(0);
+    let Some(rows) = structured.get("results").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let sizes: Vec<usize> = rows.iter().map(size).collect();
+    let rest = size(structured).saturating_sub(sizes.iter().sum::<usize>());
+    sizes
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| rest + **row > budget)
+        .map(|(index, _)| index)
+        .collect()
+}
+
 /// What a row loses when its `channel` lead cannot be saved: the units its
 /// receipt left undecided, which only saved plan pages reach, or the whole
 /// read that cannot restart without private progress.
@@ -273,15 +313,15 @@ fn unsaved_lead_warning(row: &Value, channel: &str) -> String {
 /// A continued whole-read lead as a fresh related call, or `None` when
 /// it is not one once its private progress is dropped.
 fn fresh_whole_read(call: &Value) -> Option<Value> {
-    let target = crate::id::ToolId::from_name(call["tool"].as_str()?)?;
+    let target = octocode_runtime_base::id::ToolId::from_name(call["tool"].as_str()?)?;
     let mut input = call["input"].clone();
     for row in input.get_mut("queries")?.as_array_mut()? {
-        *row = crate::response::result::fresh_query_row(target, row);
+        *row = octocode_runtime_base::response::result::fresh_query_row(target, row);
     }
     let mut checked = continuations::checked_input(target, true, &input).ok()?;
     // Validation fills in the contract defaults; a call states none.
     for row in checked.get_mut("queries")?.as_array_mut()? {
-        crate::response::result::canonical_row(target, row);
+        octocode_runtime_base::response::result::canonical_row(target, row);
     }
     Some(json!({"kind": "related", "tool": target.as_str(), "input": checked}))
 }

@@ -3,6 +3,31 @@ use super::super::key_state::Bucket;
 use super::super::*;
 use super::KeyFacts;
 use reqwest::header::HeaderMap;
+use std::path::{Path, PathBuf};
+
+/// Which thread touched which state file, for the tests that keep this file
+/// IO off the async workers.
+static IO_THREADS: std::sync::Mutex<Vec<(PathBuf, std::thread::ThreadId)>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Records that this thread touched `path`'s state file.
+pub(super) fn record_io(path: &Path) {
+    IO_THREADS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push((path.to_path_buf(), std::thread::current().id()));
+}
+
+/// The threads that read or wrote `path`'s state file.
+fn io_threads(path: &Path) -> Vec<std::thread::ThreadId> {
+    IO_THREADS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .filter(|(seen, _)| seen == path)
+        .map(|(_, thread)| *thread)
+        .collect()
+}
 
 /// A search quota GitHub reported is mirrored at once: the next process
 /// (a fresh registry on the same file) paces its first search from it
@@ -153,7 +178,7 @@ async fn a_shared_reservation_does_its_file_io_off_the_async_worker() {
         )
         .await
         .expect("reserved");
-    let io = super::io_threads(&file);
+    let io = io_threads(&file);
     assert_eq!(io.len(), 2, "one read and one write of {}", file.display());
     assert!(
         io.iter().all(|thread| *thread != worker),
@@ -622,4 +647,93 @@ fn a_released_reservation_is_a_tracked_write() {
             "the start was handed back on disk"
         );
     });
+}
+
+/// A peer's cooldown this process first meets inside its own write (here
+/// of a spent bucket) reaches its memory too: the file stamp that write
+/// records hides no peer fact from the next refresh, so the next core
+/// admission is blocked without waiting for another peer write.
+#[test]
+fn a_peer_cooldown_merged_by_a_write_blocks_this_process() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let key = LimiterKey::new("ghe.example", Some("tok"));
+    let config = ExecutorConfig::relaxed();
+    let state = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
+    let peer = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
+    let until = now_ms() + 30_000;
+    peer.cool_down(until);
+    state.exhaust("search", now_ms() / 1000 + 60);
+    state.refresh_from_disk();
+    assert!(
+        state.blocked("core", &config).is_some(),
+        "the peer's cooldown does not hold this process"
+    );
+    assert_eq!(state.facts().cooldown_until_ms, until);
+}
+
+/// A start handed back stays handed back in memory once the write that
+/// takes it off the file has merged that file, which still held it.
+#[tokio::test]
+async fn a_handed_back_start_is_not_restored_by_the_merged_write() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let key = LimiterKey::new("ghe.example", Some("handed-back"));
+    let start = now_ms() + 5_000;
+    let state = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
+    state
+        .facts()
+        .last_start_ms
+        .insert(Group::Search.name().to_owned(), start);
+    state.persist_with(|_| {});
+    state
+        .release_reservation(Group::Search, start, None, true)
+        .await;
+    assert_eq!(
+        state.facts().last_start_ms.get(Group::Search.name()),
+        None,
+        "memory took the start back from the file"
+    );
+    let next = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
+    assert_eq!(next.facts().last_start_ms.get(Group::Search.name()), None);
+}
+
+/// A cooldown or bucket reset beyond GitHub's own rate-limit window comes
+/// from a bogus header or a clock that jumped. The process that received it
+/// still honors it, but it is not mirrored, and one a file already holds
+/// (a peer's, an older build's) is not merged: no other process is blocked.
+#[test]
+fn a_limit_beyond_the_github_window_holds_only_the_process_that_received_it() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let key = LimiterKey::new("ghe.example", Some("tok"));
+    let config = ExecutorConfig::relaxed();
+    let file = dir.path().join(key.file_name());
+    let far = now_ms() + 10 * 24 * 3_600_000;
+    let held = KeyFacts {
+        cooldown_until_ms: far,
+        buckets: [(
+            "core".to_owned(),
+            Bucket {
+                remaining: 0,
+                reset: far / 1000,
+            },
+        )]
+        .into(),
+        ..KeyFacts::default()
+    };
+    std::fs::write(&file, serde_json::to_vec(&held).expect("json")).expect("peer write");
+    let fresh = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
+    assert_eq!(fresh.blocked("core", &config), None);
+
+    let other = tempfile::tempdir().expect("tempdir");
+    let receiving = GitHubBudget::relaxed().key_state(&key, Some(other.path()));
+    receiving.cool_down(far);
+    receiving.exhaust("graphql", far / 1000);
+    assert_eq!(
+        receiving
+            .blocked("core", &config)
+            .map(|block| block.until_ms),
+        Some(far)
+    );
+    let peer = GitHubBudget::relaxed().key_state(&key, Some(other.path()));
+    assert_eq!(peer.blocked("core", &config), None);
+    assert_eq!(peer.blocked("graphql", &config), None);
 }

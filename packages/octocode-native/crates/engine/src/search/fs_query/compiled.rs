@@ -51,6 +51,8 @@ pub(super) struct CompiledQuery {
     pub(super) limit: usize,
     /// How long the walk may inspect new entries (see `skip_entries`).
     pub(super) time_budget: Option<std::time::Duration>,
+    /// The clock `time_budget` is read on.
+    pub(super) walk_clock: crate::scan_budget::WalkClock,
     /// Leading entries (walk order) an earlier walk inspected: replayed.
     pub(super) skip_entries: u32,
     /// Leading entries (walk order) inspected before the time budget starts:
@@ -185,6 +187,7 @@ impl CompiledQuery {
             exclude,
             limit: options.limit.map_or(usize::MAX, |n| n as usize),
             time_budget: options.time_budget,
+            walk_clock: options.walk_clock,
             skip_entries: options.skip_entries.unwrap_or(0),
             budget_from: options
                 .skip_entries
@@ -244,10 +247,9 @@ impl CompiledQuery {
         if let (Some(ignore), Some(rules)) = (self.ignore_rules.as_ref(), rules)
             && ignore.is_ignored_in(rules, path, is_dir)
         {
-            // A dot entry out of view is not counted as ignored.
-            return Verdict::Ignored {
-                counted: self.show_hidden || !dot,
-            };
+            // Counted, a dot entry out of view too: the ledger is what an
+            // empty listing's lead lifts, and nothing else names it.
+            return Verdict::Ignored { counted: true };
         }
         // A caller exclusion is a path match: it reads no metadata.
         if self.excludes(path, is_dir) {

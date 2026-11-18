@@ -18,7 +18,7 @@ pub(super) trait PoolClient: Clone + Send + Sync + 'static {
     /// requests of one multi-request walk — not only while a single request is
     /// outstanding.
     fn busy(&self) -> bool;
-    /// Resident memory of the server tree at its last sample; `0` when
+    /// Memory the server tree held at its last sample; `0` when
     /// unsampled (no memory cap configured), which counts against nothing.
     fn resident_bytes(&self) -> u64;
     fn stop(&self) -> ClientFuture<()>;

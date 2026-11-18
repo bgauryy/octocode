@@ -3,7 +3,7 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { binPath, compareText, excerpt, packageDir } from './upgrade-path-lib.mjs';
+import { binPath, compareText, excerpt, packageDir, reportsVersion } from './upgrade-path-lib.mjs';
 import { legacySettings, omitChecks, rollbackChecks, survives } from './upgrade-path-rollback.mjs';
 
 const require = createRequire(import.meta.url);
@@ -130,7 +130,7 @@ async function upgradeCliPhase(ctx, run) {
   });
   await step('cli.new.use', `octocode ${to}: --version, schema, localSearch`, () => {
     const result = useCheck(ctx, bin);
-    return { ok: result.ok && result.version === `octocode ${to}`, note: result.note };
+    return { ok: result.ok && reportsVersion(result.version, to), note: result.note };
   });
   await step('state.new.config', `${to} reads the .env and .octocoderc that ${from} wrote`, () => configReadback(ctx, bin));
   await step('state.new.home', `${to} keeps and reuses what ${from} wrote under the home`, () => {
@@ -217,7 +217,7 @@ async function globalPhase(ctx, run) {
     const result = await ctx.mcpCheck(session, to);
     await session.close();
     return {
-      ok: install.status === 0 && use.ok && use.version === `octocode ${to}` && shim.ok && result.ok,
+      ok: install.status === 0 && use.ok && reportsVersion(use.version, to) && shim.ok && result.ok,
       note: `${use.note}; ${shim.note}; MCP ${result.note}`,
     };
   });
@@ -233,7 +233,7 @@ async function globalPhase(ctx, run) {
     const result = await ctx.mcpCheck(session, to);
     await session.close();
     return {
-      ok: version.stdout.trim() === `octocode ${to}` && schema.status === 0 && result.ok,
+      ok: reportsVersion(version.stdout, to) && schema.status === 0 && result.ok,
       note: `--version '${version.stdout.trim()}'; schema exit ${schema.status}; MCP ${result.note}`,
     };
   });

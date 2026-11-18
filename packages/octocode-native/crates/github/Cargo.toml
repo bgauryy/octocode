@@ -14,7 +14,7 @@ doctest = false
 
 [dependencies]
 octocode-io = { path = "../io" }
-octocode-contract-types = { path = "../contract-types" }
+octocode-contract-base = { path = "../contract-base" }
 base64 = { workspace = true }
 bytes = { workspace = true }
 futures-util = { workspace = true }
@@ -26,14 +26,9 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["macros", "sync", "time"] }
 url = { workspace = true }
-wiremock = { workspace = true, optional = true }
-
-[features]
-# The shared wiremock mounts and responders (`mock_http`) for downstream test
-# builds. octocode-native turns it on from its dev-dependencies and `dev-unify`.
-test-support = ["dep:wiremock"]
 
 [dev-dependencies]
+octocode-test-support = { path = "../test-support" }
 flate2 = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "io-util"] }

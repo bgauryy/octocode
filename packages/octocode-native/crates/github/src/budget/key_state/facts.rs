@@ -156,29 +156,23 @@ impl KeyState {
         self.persist();
     }
 
-    /// Blocking `git` admission for clone subprocesses: honors the key's
-    /// secondary cooldown / circuit, then takes a `git` group permit. The
-    /// time spent is recorded on `waits` once, by cause, however the wait
-    /// ends: a cooldown as `secondaryLimit`, the permit queue as `spacing`.
+    /// Blocking `git` admission for clone subprocesses: waits out the key's
+    /// secondary cooldown while it ends before `deadline`, as an API request
+    /// does (an open circuit, or a cooldown past the deadline, fails at once),
+    /// then takes a `git` group permit. The time spent is recorded on `waits`
+    /// once, by cause, however the wait ends: a cooldown as `secondaryLimit`,
+    /// the permit queue as `spacing`.
     pub(crate) fn acquire_git_blocking(
         &self,
         config: &ExecutorConfig,
-        cap: Duration,
         deadline: Instant,
         is_cancelled: &dyn Fn() -> bool,
         waits: &crate::budget::ClientWaits,
     ) -> Result<OwnedSemaphorePermit, ProviderError> {
-        use octocode_contract_types::ClientWaitKind;
+        use octocode_contract_base::ClientWaitKind;
         let mut cooled = Duration::ZERO;
         let mut queued = Duration::ZERO;
-        let ended = self.git_admission(
-            config,
-            cap,
-            deadline,
-            is_cancelled,
-            &mut cooled,
-            &mut queued,
-        );
+        let ended = self.git_admission(config, deadline, is_cancelled, &mut cooled, &mut queued);
         waits.record(ClientWaitKind::SecondaryLimit, cooled);
         waits.record(ClientWaitKind::Spacing, queued);
         ended
@@ -188,7 +182,6 @@ impl KeyState {
     fn git_admission(
         &self,
         config: &ExecutorConfig,
-        cap: Duration,
         deadline: Instant,
         is_cancelled: &dyn Fn() -> bool,
         cooled: &mut Duration,
@@ -216,7 +209,7 @@ impl KeyState {
             if let Some(block) = block {
                 let now = now_ms();
                 let wait = block.wait(now);
-                if block.circuit.is_some() || wait > cap || Instant::now() + wait >= deadline {
+                if block.circuit.is_some() || Instant::now() + wait >= deadline {
                     return Err(block.error(now));
                 }
                 sleep(wait.min(TICK), cooled);

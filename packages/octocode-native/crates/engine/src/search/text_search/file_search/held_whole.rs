@@ -28,7 +28,14 @@ impl<M: Matcher> FileSearcher<'_, M> {
         let len = file.metadata()?.len();
         let _held = self.admit(usize::try_from(len).unwrap_or(usize::MAX))?;
         let (bytes, filled) = self.read_whole(file, len)?;
-        self.search_bytes(&bytes.as_slice()[..filled], path, work)
+        // The rows come from these bytes: the file's digest is of them.
+        let held = &bytes.as_slice()[..filled];
+        self.read.restart();
+        self.read.feed(held);
+        if (filled as u64) < len {
+            self.read.ended();
+        }
+        self.search_bytes(held, path, work)
     }
 
     /// The first `len` bytes of the file in one region sized from them (no

@@ -3,8 +3,9 @@
 //! the batch exits.
 
 use crate::support::{PACED_LIMITS, Run as _, Workspace, call, row_data};
-use octocode_native::response::exit::ExitClass;
 use octocode_native::runtime::ErrorClass;
+use octocode_runtime_base::response::exit::ExitClass;
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use wiremock::matchers::{method, path, query_param_contains};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -34,7 +35,9 @@ async fn a_rate_limited_row_offers_a_retry_and_the_batch_exits_rate_limited() {
         .respond_with(
             ResponseTemplate::new(403)
                 .insert_header("retry-after", "1")
-                .set_body_json(json!({"message":"You have exceeded a secondary rate limit."})),
+                .set_body_json(json_fixture(
+                    r#"{"message": "You have exceeded a secondary rate limit."}"#,
+                )),
         )
         .mount(&server)
         .await;
@@ -47,9 +50,14 @@ async fn a_rate_limited_row_offers_a_retry_and_the_batch_exits_rate_limited() {
         .run(
             "t".into(),
             "ghSearchRepo".into(),
-            crate::support::envelope(json!({"queries":[
-                {"operation":"search","keywords":["good"]},
-                {"operation":"search","keywords":["limited"]}]})),
+            crate::support::envelope(json_fixture(
+                r#"{
+                    "queries": [
+                        {"operation": "search", "keywords": ["good"]},
+                        {"operation": "search", "keywords": ["limited"]}
+                    ]
+                }"#,
+            )),
         )
         .await
         .expect("batch");
@@ -91,7 +99,7 @@ async fn a_server_outage_row_states_the_provider_delay_and_offers_a_retry() {
         .respond_with(
             ResponseTemplate::new(503)
                 .insert_header("retry-after", "30")
-                .set_body_json(json!({"message":"Service Unavailable"})),
+                .set_body_json(json_fixture(r#"{"message": "Service Unavailable"}"#)),
         )
         .mount(&server)
         .await;
@@ -103,7 +111,7 @@ async fn a_server_outage_row_states_the_provider_delay_and_offers_a_retry() {
     let outcome = call(
         &runtime,
         "ghSearchRepo",
-        json!({"operation":"search","keywords":["x"]}),
+        json_fixture(r#"{"operation": "search", "keywords": ["x"]}"#),
     )
     .await
     .expect("row");
@@ -120,7 +128,9 @@ async fn a_permanent_failure_offers_no_retry() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path(SEARCH_REPOS))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
+        .respond_with(
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
+        )
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -131,7 +141,7 @@ async fn a_permanent_failure_offers_no_retry() {
     let outcome = call(
         &runtime,
         "ghSearchRepo",
-        json!({"operation":"search","keywords":["x"]}),
+        json_fixture(r#"{"operation": "search", "keywords": ["x"]}"#),
     )
     .await
     .expect("row");
@@ -145,7 +155,8 @@ async fn a_401_keeps_githubs_message_beside_the_login_hint() {
     Mock::given(method("GET"))
         .and(path(SEARCH_REPOS))
         .respond_with(
-            ResponseTemplate::new(401).set_body_json(json!({"message":"Bad credentials"})),
+            ResponseTemplate::new(401)
+                .set_body_json(json_fixture(r#"{"message": "Bad credentials"}"#)),
         )
         .mount(&server)
         .await;
@@ -157,7 +168,7 @@ async fn a_401_keeps_githubs_message_beside_the_login_hint() {
     let outcome = call(
         &runtime,
         "ghSearchRepo",
-        json!({"operation":"search","keywords":["x"]}),
+        json_fixture(r#"{"operation": "search", "keywords": ["x"]}"#),
     )
     .await
     .expect("row");
@@ -178,9 +189,11 @@ async fn a_saml_sso_403_surfaces_the_authorization_url() {
         .respond_with(
             ResponseTemplate::new(403)
                 .insert_header("x-github-sso", format!("required; url={url}").as_str())
-                .set_body_json(
-                    json!({"message":"Resource protected by organization SAML enforcement."}),
-                ),
+                .set_body_json(json_fixture(
+                    r#"{
+                        "message": "Resource protected by organization SAML enforcement."
+                    }"#,
+                )),
         )
         .mount(&server)
         .await;
@@ -192,7 +205,7 @@ async fn a_saml_sso_403_surfaces_the_authorization_url() {
     let outcome = call(
         &runtime,
         "ghSearchRepo",
-        json!({"operation":"search","keywords":["x"]}),
+        json_fixture(r#"{"operation": "search", "keywords": ["x"]}"#),
     )
     .await
     .expect("row");
@@ -212,18 +225,20 @@ async fn an_empty_code_search_reads_the_repository_once_and_offers_two_variants(
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"total_count":0,"incomplete_results":false,"items":[]})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"total_count": 0, "incomplete_results": false, "items": []}"#,
+        )))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/o/r"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"full_name":"o/r","default_branch":"main","archived":false})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "full_name": "o/r",
+                "default_branch": "main",
+                "archived": false
+            }"#,
+        )))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -234,7 +249,14 @@ async fn an_empty_code_search_reads_the_repository_once_and_offers_two_variants(
     let outcome = call(
         &runtime,
         "ghSearchCode",
-        json!({"owner":"o","repo":"r","keywords":["alpha","beta"],"path":"src"}),
+        json_fixture(
+            r#"{
+                "owner": "o",
+                "repo": "r",
+                "keywords": ["alpha", "beta"],
+                "path": "src"
+            }"#,
+        ),
     )
     .await
     .expect("empty search");
@@ -265,7 +287,9 @@ async fn a_partly_withheld_code_search_warns_to_authorize_the_token() {
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("x-github-sso", "partial-results; organizations=21955855")
-                .set_body_json(json!({"total_count":0,"incomplete_results":false,"items":[]})),
+                .set_body_json(json_fixture(
+                    r#"{"total_count": 0, "incomplete_results": false, "items": []}"#,
+                )),
         )
         .mount(&server)
         .await;
@@ -277,7 +301,7 @@ async fn a_partly_withheld_code_search_warns_to_authorize_the_token() {
     let outcome = call(
         &runtime,
         "ghSearchCode",
-        json!({"owner":"acme","keywords":["alpha"]}),
+        json_fixture(r#"{"owner": "acme", "keywords": ["alpha"]}"#),
     )
     .await
     .expect("search");

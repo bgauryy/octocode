@@ -1,4 +1,5 @@
 use super::*;
+use octocode_test_support::json_fixture;
 
 /// A file read and a patch window fill the row's share of the call's
 /// response page; only a call without one uses the automatic page.
@@ -15,15 +16,15 @@ fn github_rows_page_by_the_calls_response_window() {
     assert_eq!(context(None).row_page_chars(20_000), 20_000);
 }
 
-/// A failure row carries what an agent acts on: the code, the status and the
-/// message.
+/// A failure row carries what an agent acts on: the code and the message. The
+/// status rides only when the code does not already name it.
 #[test]
 fn a_failure_row_carries_what_an_agent_acts_on() {
     let mut error = ProviderError::new(ProviderErrorKind::NotFound, "Not Found");
     error.status = Some(404);
     let row = search_row(error);
     assert_eq!(row.data["errorCode"], "notFound", "{}", row.data);
-    assert_eq!(row.data["httpStatus"], 404, "{}", row.data);
+    assert!(row.data.get("httpStatus").is_none(), "{}", row.data);
     assert!(row.data["error"].is_string(), "{}", row.data);
 }
 
@@ -45,16 +46,19 @@ fn authentication_errors_preserve_typed_failure_and_status() {
         (ToolId::GhGetHistoryItem, history_error(error(), false)),
         (
             ToolId::GhGetFileContent,
-            file_row(error(), json!({"owner":"a","repo":"b","path":"x"})),
+            file_row(
+                error(),
+                json_fixture(r#"{"owner": "a", "repo": "b", "path": "x"}"#),
+            ),
         ),
         (ToolId::GhCloneRepo, provider_error(error())),
     ] {
         assert_eq!(
             result.failure,
-            Some(crate::id::error_codes::ErrorClass::Refused)
+            Some(octocode_runtime_base::id::error_codes::ErrorClass::Refused)
         );
         assert_eq!(result.data["errorCode"], "authentication");
-        assert_eq!(result.data["httpStatus"], 401);
+        assert!(result.data.get("httpStatus").is_none(), "{}", result.data);
         assert!(result.data["error"].is_string());
     }
 }
@@ -75,7 +79,10 @@ fn legal_block_is_not_rendered_as_a_network_failure() {
         search_row(error()),
         history_error(error(), true),
         history_error(error(), false),
-        file_row(error(), json!({"owner":"a","repo":"b","path":"x"})),
+        file_row(
+            error(),
+            json_fixture(r#"{"owner": "a", "repo": "b", "path": "x"}"#),
+        ),
         provider_error(error()),
     ] {
         let text = result.data["error"].as_str().unwrap_or_default();
@@ -145,13 +152,16 @@ fn permission_errors_keep_the_provider_reason_across_github_tools() {
         search_row(error()),
         history_error(error(), true),
         history_error(error(), false),
-        file_row(error(), json!({"owner":"a","repo":"b","path":"src/lib.rs"})),
+        file_row(
+            error(),
+            json_fixture(r#"{"owner": "a", "repo": "b", "path": "src/lib.rs"}"#),
+        ),
     ] {
         assert_eq!(result.data["error"], reason);
-        assert_eq!(result.data["httpStatus"], 403);
+        assert!(result.data.get("httpStatus").is_none(), "{}", result.data);
         assert_eq!(
             result.failure,
-            Some(crate::id::error_codes::ErrorClass::Refused)
+            Some(octocode_runtime_base::id::error_codes::ErrorClass::Refused)
         );
     }
 }
@@ -203,7 +213,6 @@ fn history_error_shapes_error_as_string() {
         &json!({
             "error": "Invalid search query or request parameters: repository rename not followed",
             "errorCode": "invalidInput",
-            "httpStatus": 422,
             "rateLimit": {"remaining": 11, "resetEpochSeconds": 1_700_000_000_u64}
         })
     );
@@ -226,12 +235,14 @@ fn file_error_names_the_missing_ref_for_explicit_branches() {
         sso_url: None,
         proxy: None,
     };
-    let query = json!({
-        "owner": "a",
-        "repo": "b",
-        "path": "src/lib.rs",
-        "ref": "no-such-branch"
-    });
+    let query = json_fixture(
+        r#"{
+            "owner": "a",
+            "repo": "b",
+            "path": "src/lib.rs",
+            "ref": "no-such-branch"
+        }"#,
+    );
 
     let result = file_row(error, query.clone());
     let data = &result.data;
@@ -239,10 +250,10 @@ fn file_error_names_the_missing_ref_for_explicit_branches() {
     assert_eq!(result.status, Some("error"));
     assert_eq!(
         result.failure,
-        Some(crate::id::error_codes::ErrorClass::CorrectInput)
+        Some(octocode_runtime_base::id::error_codes::ErrorClass::CorrectInput)
     );
     assert_eq!(data["errorCode"], json!("notFound"));
-    assert_eq!(data["httpStatus"], json!(404));
+    assert!(data.get("httpStatus").is_none(), "{data}");
     assert!(data.get("retryable").is_none(), "{data}");
     assert_eq!(
         data["error"].as_str(),
@@ -252,8 +263,8 @@ fn file_error_names_the_missing_ref_for_explicit_branches() {
     // the lead is the fix, so no hint text beside it.
     assert!(data.get("hints").is_none(), "{data}");
     assert_eq!(
-        crate::tools::test_support::checks::related_call(data, "ghStructure", |_| true)["input"]["queries"]
-            [0]["operation"],
+        octocode_runtime_base::test_support::checks::related_call(data, "ghStructure", |_| true)["input"]
+            ["queries"][0]["operation"],
         "refs"
     );
 
@@ -285,7 +296,10 @@ fn file_error_names_the_missing_ref_for_explicit_branches() {
         sso_url: None,
         proxy: None,
     };
-    let result = file_row(error, json!({"owner":"a","repo":"b","path":"src/lib.rs"}));
+    let result = file_row(
+        error,
+        json_fixture(r#"{"owner": "a", "repo": "b", "path": "src/lib.rs"}"#),
+    );
     assert_eq!(
         result.data["error"].as_str(),
         Some("Repository, resource, or path not found")
@@ -294,7 +308,7 @@ fn file_error_names_the_missing_ref_for_explicit_branches() {
 
 #[test]
 fn file_error_directory_and_binary_get_accurate_recovery() {
-    let query = json!({"owner":"a","repo":"b","path":"src","ref":"main"});
+    let query = json_fixture(r#"{"owner": "a", "repo": "b", "path": "src", "ref": "main"}"#);
     let error = ProviderError::new(
         ProviderErrorKind::Validation,
         "Path \"src\" is a directory, not a file; list it with ghStructure.",
@@ -310,13 +324,13 @@ fn file_error_directory_and_binary_get_accurate_recovery() {
         "{data}"
     );
     assert_eq!(
-        crate::tools::test_support::checks::related_call(data, "ghStructure", |_| true)["input"]["queries"]
-            [0]["path"],
+        octocode_runtime_base::test_support::checks::related_call(data, "ghStructure", |_| true)["input"]
+            ["queries"][0]["path"],
         "src"
     );
     assert_eq!(
-        crate::tools::test_support::checks::related_call(data, "ghStructure", |_| true)["input"]["queries"]
-            [0]["ref"],
+        octocode_runtime_base::test_support::checks::related_call(data, "ghStructure", |_| true)["input"]
+            ["queries"][0]["ref"],
         "main"
     );
 
@@ -325,7 +339,10 @@ fn file_error_directory_and_binary_get_accurate_recovery() {
         "Binary file (1234 bytes, blob abc); ghGetFileContent returns text only.",
     )
     .with_reason(ProviderErrorReason::BinaryFile);
-    let result = file_row(error, json!({"owner":"a","repo":"b","path":"x.png"}));
+    let result = file_row(
+        error,
+        json_fixture(r#"{"owner": "a", "repo": "b", "path": "x.png"}"#),
+    );
     let hint = result.data["hints"][0].as_str().unwrap_or_default();
     assert!(!hint.contains("Retry once"), "{hint}");
     assert!(hint.contains("Binary"), "{hint}");
@@ -349,7 +366,7 @@ fn file_error_directory_and_binary_get_accurate_recovery() {
 /// gets no directory continuation.
 #[test]
 fn directory_recovery_keys_on_the_typed_reason_not_the_message() {
-    let query = json!({"owner":"a","repo":"b","path":"src","ref":"main"});
+    let query = json_fixture(r#"{"owner": "a", "repo": "b", "path": "src", "ref": "main"}"#);
     let untyped = ProviderError::new(ProviderErrorKind::Validation, "src is a directory");
     assert!(
         file_row(untyped, query.clone()).data["next"]

@@ -3,6 +3,7 @@
 //! script that records every start: a marker file is the proof a call started
 //! one, whatever the call's row says.
 use super::fetched_code::{World, call};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 
 fn query(world: &World, context: Value) -> Value {
@@ -19,7 +20,7 @@ fn assert_refused(row: &Value, world: &World) {
     assert_eq!(row["errorCode"], "policy", "{row}");
     assert_eq!(row["lsp"]["serverAvailable"], false, "{row}");
     let error = row["error"].as_str().expect("error");
-    let allow = crate::config::field::LSP_ALLOW_BUILD_SCRIPTS;
+    let allow = octocode_runtime_base::config::field::LSP_ALLOW_BUILD_SCRIPTS;
     for named in [
         "build scripts",
         "procedural macros",
@@ -42,7 +43,11 @@ fn assert_answers(row: &Value, world: &World) {
 async fn build_scripts_are_refused_by_default() {
     let world = World::new();
     let runtime = world.runtime(&[], &json!({}), None);
-    let row = call(&runtime, query(&world, json!({"buildScripts": true}))).await;
+    let row = call(
+        &runtime,
+        query(&world, json_fixture(r#"{"buildScripts": true}"#)),
+    )
+    .await;
     assert_refused(&row, &world);
 }
 
@@ -50,9 +55,13 @@ async fn build_scripts_are_refused_by_default() {
 async fn proc_macros_are_refused_by_default() {
     let world = World::new();
     let runtime = world.runtime(&[], &json!({}), None);
-    let alone = call(&runtime, query(&world, json!({"procMacros": true}))).await;
+    let alone = call(
+        &runtime,
+        query(&world, json_fixture(r#"{"procMacros": true}"#)),
+    )
+    .await;
     assert_refused(&alone, &world);
-    let both = json!({"buildScripts": true, "procMacros": true});
+    let both = json_fixture(r#"{"buildScripts": true, "procMacros": true}"#);
     assert_refused(&call(&runtime, query(&world, both)).await, &world);
 }
 
@@ -63,24 +72,38 @@ async fn other_queries_keep_the_default_server() {
     let world = World::new();
     let runtime = world.runtime(&[], &json!({}), None);
     assert_refused(
-        &call(&runtime, query(&world, json!({"buildScripts": true}))).await,
+        &call(
+            &runtime,
+            query(&world, json_fixture(r#"{"buildScripts": true}"#)),
+        )
+        .await,
         &world,
     );
     let plain =
         json!({"path": world.cwd.join("checkout/src/lib.rs"), "operation": "documentSymbols"});
     assert_answers(&call(&runtime, plain).await, &world);
-    let off = json!({"buildScripts": false, "procMacros": false, "features": ["a"]});
+    let off = json_fixture(
+        r#"{
+            "buildScripts": false,
+            "procMacros": false,
+            "features": ["a"]
+        }"#,
+    );
     assert_answers(&call(&runtime, query(&world, off)).await, &world);
 }
 
 #[tokio::test]
 async fn the_home_setting_allows_build_scripts() {
     for context in [
-        json!({"buildScripts": true}),
-        json!({"buildScripts": true, "procMacros": true}),
+        json_fixture(r#"{"buildScripts": true}"#),
+        json_fixture(r#"{"buildScripts": true, "procMacros": true}"#),
     ] {
         let world = World::new();
-        let runtime = world.runtime(&[], &json!({"lsp": {"allowBuildScripts": true}}), None);
+        let runtime = world.runtime(
+            &[],
+            &json_fixture(r#"{"lsp": {"allowBuildScripts": true}}"#),
+            None,
+        );
         assert_answers(&call(&runtime, query(&world, context)).await, &world);
     }
 }
@@ -88,11 +111,15 @@ async fn the_home_setting_allows_build_scripts() {
 #[tokio::test]
 async fn the_process_environment_allows_build_scripts() {
     let world = World::new();
-    let env = crate::config::field::LSP_ALLOW_BUILD_SCRIPTS
+    let env = octocode_runtime_base::config::field::LSP_ALLOW_BUILD_SCRIPTS
         .env_name()
         .expect("bound");
     let runtime = world.runtime(&[(env, "true")], &json!({}), None);
-    let row = call(&runtime, query(&world, json!({"buildScripts": true}))).await;
+    let row = call(
+        &runtime,
+        query(&world, json_fixture(r#"{"buildScripts": true}"#)),
+    )
+    .await;
     assert_answers(&row, &world);
 }
 
@@ -101,17 +128,21 @@ async fn the_process_environment_allows_build_scripts() {
 #[tokio::test]
 async fn a_workspace_setting_cannot_allow_build_scripts() {
     let world = World::new();
-    let widen = json!({"lsp": {"allowBuildScripts": true}});
+    let widen = json_fixture(r#"{"lsp": {"allowBuildScripts": true}}"#);
     let runtime = world.runtime(&[], &json!({}), Some(&widen));
-    let row = call(&runtime, query(&world, json!({"buildScripts": true}))).await;
+    let row = call(
+        &runtime,
+        query(&world, json_fixture(r#"{"buildScripts": true}"#)),
+    )
+    .await;
     assert_refused(&row, &world);
 }
 
 /// The refusal's opt-in names the setting the contract declares.
 #[test]
 fn the_opt_in_names_the_declared_setting() {
-    let allow = crate::config::field::LSP_ALLOW_BUILD_SCRIPTS;
-    let opt_in = super::super::receipt::BUILD_SCRIPTS_OPT_IN;
+    let allow = octocode_runtime_base::config::field::LSP_ALLOW_BUILD_SCRIPTS;
+    let opt_in = octocode_tool_lsp::lsp_search::receipt::BUILD_SCRIPTS_OPT_IN;
     assert!(opt_in.contains(allow.path), "{opt_in}");
     assert!(
         opt_in.contains(allow.env_name().expect("bound")),

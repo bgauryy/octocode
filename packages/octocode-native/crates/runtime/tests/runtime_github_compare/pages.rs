@@ -1,6 +1,7 @@
 //! Comparison pagination preserves source identity and every requested row.
 use super::{BASE_SHA, HEAD_SHA};
 use crate::support::{self, Run as _, Workspace, call, row_data};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use wiremock::matchers::{method, path, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -28,8 +29,26 @@ async fn compare_cursors_deliver_each_requested_file_and_commit_once_in_batches(
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&support::github_api(&server));
     for budget in [2500, 12000] {
-        let files = json!({"operation":"compare","owner":"a","repo":"b","baseRef":"v1","headRef":"v2","sections":["files"]});
-        let commits = json!({"operation":"compare","owner":"a","repo":"b","baseRef":"v1","headRef":"v2","sections":["commits"]});
+        let files = json_fixture(
+            r#"{
+                "operation": "compare",
+                "owner": "a",
+                "repo": "b",
+                "baseRef": "v1",
+                "headRef": "v2",
+                "sections": ["files"]
+            }"#,
+        );
+        let commits = json_fixture(
+            r#"{
+                "operation": "compare",
+                "owner": "a",
+                "repo": "b",
+                "baseRef": "v1",
+                "headRef": "v2",
+                "sections": ["commits"]
+            }"#,
+        );
         let walked = support::walk(
             &runtime,
             "ghGetHistoryItem",
@@ -155,10 +174,9 @@ async fn bad_compare_ref_names_refs_not_a_sha() {
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/no-such-tag"))
-        .respond_with(
-            ResponseTemplate::new(404)
-                .set_body_json(json!({"message":"No commit found for SHA: no-such-tag"})),
-        )
+        .respond_with(ResponseTemplate::new(404).set_body_json(json_fixture(
+            r#"{"message": "No commit found for SHA: no-such-tag"}"#,
+        )))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -166,7 +184,15 @@ async fn bad_compare_ref_names_refs_not_a_sha() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"v1","headRef":"no-such-tag"}),
+        json_fixture(
+            r#"{
+                "operation": "compare",
+                "owner": "a",
+                "repo": "b",
+                "baseRef": "v1",
+                "headRef": "no-such-tag"
+            }"#,
+        ),
     )
     .await
     .expect("compare row");

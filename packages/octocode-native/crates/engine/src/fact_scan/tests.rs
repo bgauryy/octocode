@@ -13,7 +13,32 @@ fn scan_with_budget<T: Send>(
     budget: Option<std::time::Duration>,
 ) -> Result<GraphFactsMappedScan<T>, GraphScanError> {
     let walked = walk_graph_fact_files(&options, admit, stop)?;
-    evaluate_walk(options, walked, FactsSource::Graph, keep, map, stop, budget)
+    evaluate::evaluate_walk_with_registry(
+        options,
+        walked,
+        FactsSource::Graph,
+        keep,
+        map,
+        stop,
+        (budget, None),
+        RegistryView::installed(),
+        (MapLimits::default(), None),
+    )
+}
+
+/// A file whose relative path holds one of these markers panics in its
+/// decode step.
+pub(super) static DECODE_FAULTS: std::sync::Mutex<Vec<&'static str>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// The decode step's injected fault ([`DECODE_FAULTS`]).
+pub(super) fn decode_fault(relative_path: &str) {
+    let faulted = DECODE_FAULTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .any(|marker| relative_path.contains(marker));
+    assert!(!faulted, "injected decode fault");
 }
 
 /// A scan keeping every parsed file whole.

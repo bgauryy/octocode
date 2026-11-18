@@ -3,7 +3,7 @@
 // An exchange carries the fields of the transport's ProviderAnswer (status,
 // headers as pairs, body, next), with `body` parsed when it is JSON so a review
 // reads it, and `request` as what the wire showed.
-// The Rust tests read the same files (crates/runtime/src/providers/artifact/
+// The Rust tests read the same files (crates/tool-packages/src/artifact/
 // test_http/recorded.rs). Refresh: `dev.mjs answers:record`.
 import fs from 'node:fs';
 import path from 'node:path';

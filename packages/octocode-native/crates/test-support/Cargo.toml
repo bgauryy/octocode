@@ -1,0 +1,31 @@
+[package]
+name = "octocode-test-support"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Fixtures for Octocode's tests: wiremock mounts and responders, the fixture TOML grammar, JSON fixtures parsed from text"
+autobins = false
+autotests = false
+autoexamples = false
+autobenches = false
+
+# Only dev-dependencies name this crate: no release graph carries it.
+[lib]
+doctest = false
+
+[dependencies]
+octocode-engine = { path = "../engine" }
+base64 = { workspace = true }
+hex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+toml = { workspace = true }
+wiremock = { workspace = true }
+
+[lints]
+workspace = true

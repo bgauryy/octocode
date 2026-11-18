@@ -7,7 +7,7 @@ use std::time::Duration;
 use url::Url;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum GitHubResource {
+pub(crate) enum GitHubResource {
     Core,
     Search,
     CodeSearch,
@@ -28,7 +28,7 @@ impl GitHubResource {
 
 /// Octokit throttling groups layered under the per-key global group.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Group {
+pub(crate) enum Group {
     Search,
     CodeSearch,
     Graphql,
@@ -99,7 +99,7 @@ impl Group {
 /// `@octokit/plugin-throttling`, except on purpose for GraphQL spacing; tests
 /// shrink the timings.
 #[derive(Clone, Debug)]
-pub struct ExecutorConfig {
+pub(crate) struct ExecutorConfig {
     pub global_concurrency: usize,
     pub git_concurrency: usize,
     /// Space search and code-search starts by the quota GitHub reports for

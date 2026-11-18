@@ -1,4 +1,4 @@
-use super::super::commands::{discovery, run_list, run_uninstall};
+use super::super::commands::{discovery, install_item, run_list, run_uninstall};
 use super::*;
 use octocode_engine::lsp::managed::platform_id;
 use octocode_native::runtime::{HostOptions, ToolRuntime};
@@ -66,8 +66,8 @@ async fn each_subcommand_acts_on_the_cache_of_the_runtimes_home() {
                 json
             )
             .await,
-            5,
-            "one failed target fails the install"
+            2,
+            "one unknown target fails the install, and its class (the caller's to correct) sets the exit"
         );
     }
     assert_eq!(run(&runtime, install(&[]), false).await, 2);
@@ -164,7 +164,7 @@ fn a_clean_that_fails_is_reported_in_text_as_in_json() {
     assert!(!cache.exists());
 }
 
-/// An install that ends at any check prints its reason and exits 5; one that
+/// An install that ends at any check prints its reason and exits by its class; one that
 /// succeeds prints the checks it passed.
 #[tokio::test(flavor = "current_thread")]
 async fn install_output_names_each_outcome() {
@@ -181,11 +181,84 @@ async fn install_output_names_each_outcome() {
                 &Fake::never(),
             )
             .await,
-            5,
+            4,
             "auto-install off refuses the download"
         );
     }
     assert!(resolve_cached_server(&root, "rust-analyzer", "linux-x64").is_none());
+}
+
+/// Each `install` item states its outcome as `--json` prints it. A failed
+/// item names what stopped it (`errorCode`) and that code's class
+/// (`errorClass`), chosen by the cause: a name that is no managed server is
+/// the caller's to correct, an install its setting or its checks refuse is
+/// refused, and a server with no build for the platform cannot be served.
+/// An installed one carries neither.
+#[tokio::test(flavor = "current_thread")]
+async fn each_failed_install_item_states_its_error_code_and_class() {
+    let dir = tempfile::tempdir().expect("root");
+    let root = dir.path().canonicalize().expect("canonical root");
+    let cases = [
+        (
+            "nosuchlang",
+            "linux-x64",
+            LspAutoInstall::Auto,
+            Fake::never(),
+            "notFound",
+            "correctInput",
+        ),
+        (
+            "rust-analyzer",
+            "linux-x64",
+            LspAutoInstall::Off,
+            Fake::never(),
+            "policy",
+            "refused",
+        ),
+        (
+            "rust-analyzer",
+            "linux-x64",
+            LspAutoInstall::Auto,
+            tampered(),
+            "securityValidationFailed",
+            "refused",
+        ),
+        (
+            "clangd",
+            "linux-arm64",
+            LspAutoInstall::Auto,
+            Fake::never(),
+            "unavailable",
+            "unservable",
+        ),
+    ];
+    for (name, platform, mode, upstream, code, class) in cases {
+        let outcome = provision_server(&root, name, platform, mode, &upstream).await;
+        let item = install_item(name, &outcome);
+        assert_eq!(item["name"], name, "{item}");
+        assert_eq!(item["ok"], false, "{item}");
+        assert!(
+            item["error"]
+                .as_str()
+                .is_some_and(|error| !error.is_empty()),
+            "{item}"
+        );
+        assert_eq!(item["errorCode"], code, "{item}");
+        assert_eq!(item["errorClass"], class, "{item}");
+    }
+    installed(&root, "rust-analyzer", "linux-x64");
+    let outcome = provision_server(
+        &root,
+        "rust-analyzer",
+        "linux-x64",
+        LspAutoInstall::Auto,
+        &Fake::never(),
+    )
+    .await;
+    let item = install_item("rust-analyzer", &outcome);
+    assert_eq!(item["ok"], true, "{item}");
+    assert!(item.get("errorCode").is_none(), "{item}");
+    assert!(item.get("errorClass").is_none(), "{item}");
 }
 
 /// `--live` with no server for the file starts nothing and passes; a server
@@ -313,4 +386,32 @@ fn status_overview_lists_installs_and_unavailable_routes() {
         let code = run_status(&discovery, &root, &platform_id(), None, json);
         assert!(code <= 1, "{code}");
     }
+}
+
+/// An install exits by the strictest class across its failed items: a name no
+/// managed server has is the caller's to correct (2) even beside an item that
+/// could not be served (5); with only unservable items it exits 5.
+#[tokio::test(flavor = "current_thread")]
+async fn an_install_exits_by_the_strictest_class_of_its_failed_items() {
+    let dir = tempfile::tempdir().expect("root");
+    let root = dir.path().canonicalize().expect("canonical root");
+    let exit = |names: &[&str]| {
+        let targets: Vec<String> = names.iter().map(|name| (*name).to_owned()).collect();
+        let root = root.clone();
+        async move {
+            run_install(
+                &root,
+                "linux-arm64",
+                targets,
+                LspAutoInstall::Auto,
+                true,
+                &Fake::never(),
+            )
+            .await
+        }
+    };
+    assert_eq!(exit(&["clangd"]).await, 5, "no build for the platform");
+    assert_eq!(exit(&["nosuchlang"]).await, 2);
+    assert_eq!(exit(&["clangd", "nosuchlang"]).await, 2);
+    assert_eq!(exit(&["nosuchlang", "clangd"]).await, 2);
 }

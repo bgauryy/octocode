@@ -3,8 +3,10 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isObject, type Json } from './json.ts';
-import { keepReachable, nativeIdentifiers } from './rust-reach.ts';
+import { isObject, pascal, type Json } from './json.ts';
+import { mergeDuplicateTypes } from './rust-merge.ts';
+import { keepReachable, namesThrough, nativeIdentifiers, withoutTypesOf } from './rust-reach.ts';
+import { decodedTypes, encodeOnly } from './rust-serde.ts';
 import { shareStringSchemas } from './rust-shared.ts';
 import { dataTypeName, errorDataTypeName, queryBranches, queryTypeName, renderDispatch, type ChannelRegistry, type ErrorChannels } from './rust-dispatch.ts';
 
@@ -134,16 +136,35 @@ export const NATIVE_CRATES = fileURLToPath(new URL('../../../octocode-native/cra
 /** The tools and continuation channels the typed call dispatch is generated from. */
 export type Dispatch = { tools: readonly string[]; channels: ChannelRegistry; errorChannels: ErrorChannels };
 
+/** The schema roots a call decodes (each tool's query and bulk input) and those native only encodes (its output). */
+export const roleRoots = (tools: readonly string[]): { inputs: string[]; outputs: string[] } => ({
+  inputs: tools.flatMap(tool => [queryTypeName(tool), `${pascal(tool)}Input`]),
+  outputs: tools.map(tool => `${pascal(tool)}Output`),
+});
+
 /** The roots native names, plus each tool's query and row data types the generated dispatch names. */
 export const withDispatchRoots = (roots: Set<string>, tools: readonly string[]): Set<string> =>
   new Set([...roots, ...tools.flatMap(tool => [queryTypeName(tool), dataTypeName(tool), errorDataTypeName(tool)])]);
+
+/** The crate holding the generated types lower crates name (`crates/contract-base`), by its Rust path. */
+export const BASE_CRATE = 'octocode_contract_base';
+
+/**
+ * The generated Rust: `base` holds the types native names through
+ * {@link BASE_CRATE} and what they reach, with the shared `error` module; `types`
+ * holds the rest and the typed dispatch, and its crate re-exports `base`.
+ * A lower crate (GitHub) names the base crate, so it never waits for the
+ * whole contract.
+ */
+export type RenderedRust = { readonly types: string; readonly base: string };
 
 export function renderRust(
   header: string,
   bundleJson: string,
   roots = nativeIdentifiers(NATIVE_CRATES),
-  dispatch?: Dispatch
-): string {
+  dispatch?: Dispatch,
+  baseRoots = namesThrough(NATIVE_CRATES, BASE_CRATE)
+): RenderedRust {
   requireTypify();
   const scratch = mkdtempSync(join(tmpdir(), 'octocode-tool-types-'));
   try {
@@ -168,33 +189,57 @@ export function renderRust(
       // in-memory buffer to overflow, and a failure shows them before it throws.
       { stdio: ['ignore', 'ignore', 'inherit'] }
     );
-    // Inner attributes cannot survive `include!`; the native contract-types
-    // crate root (`crates/contract-types/src/lib.rs`) carries the equivalent `#[allow]`s.
-    const generated = keepReachable(
-      readFileSync(output, 'utf8')
-        .split('\n')
-        .filter((line) => !line.startsWith('#![') && !line.startsWith('//!'))
-        .join('\n'),
-      dispatch ? withDispatchRoots(roots, dispatch.tools) : roots
-    ).trim();
-    // Validated string newtypes format like the `String` they wrap.
-    // rustfmt may wrap a long name's field onto its own line.
-    const display = [...generated.matchAll(/^pub struct (\w+)\(\s*::std::string::String,?\s*\);$/gm)]
-      .map(
-        ([, name]) => `impl ::std::fmt::Display for ${name} {
+    // Inner attributes cannot survive `include!`; the native crate roots
+    // (`crates/contract-types/src/lib.rs`, `crates/contract-base/src/lib.rs`)
+    // carry the equivalent `#[allow]`s.
+    const named = dispatch ? withDispatchRoots(roots, dispatch.tools) : roots;
+    const typified = readFileSync(output, 'utf8')
+      .split('\n')
+      .filter((line) => !line.startsWith('#![') && !line.startsWith('//!'))
+      .join('\n');
+    // Roles come from the whole schema: the `*Input` and `*Output` roots are
+    // not kept, but they decide what their types must do. A type native names
+    // may be decoded there too (a saved page, a row checked against its type).
+    const decoded = decodedTypes(typified, roleRoots(dispatch?.tools ?? []), roots);
+    const reached = keepReachable(typified, named);
+    // One type per shape; the names native or the dispatch use stay their own types.
+    const { rust: merged, renamed } = mergeDuplicateTypes(
+      reached,
+      dispatch ? new Set([...named, ...queryBranches(reached, dispatch.tools).map(({ type }) => type)]) : named
+    );
+    // A merged type decodes when any of its copies did.
+    const generated = encodeOnly(merged, new Set([...decoded].map((name) => renamed.get(name) ?? name))).trim();
+    const base = keepReachable(generated, baseRoots).trim();
+    const types = withoutTypesOf(generated, base).trim();
+    const calls = dispatch
+      ? `\n${renderDispatch(dispatch.tools, dispatch.channels, dispatch.errorChannels, queryBranches(types, dispatch.tools))}`
+      : '';
+    const comments = header.split('\n').filter((line) => line.startsWith('//')).join('\n');
+    // Each base type has its one definition there; this crate names it through the re-export.
+    const shared = ['error', ...[...base.matchAll(/^pub (?:struct|enum|type) (\w+)/gm)].flatMap(([, name]) => (name ? [name] : []))];
+    return {
+      types: `${header}pub use ::${BASE_CRATE}::{${shared.join(', ')}};\n${finished(types)}${calls}\n`,
+      base: `${comments}\n${finished(base)}\n`,
+    };
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+/** Generated items with Unicode-mode patterns, then a `Display` for each validated string newtype. */
+function finished(generated: string): string {
+  // Validated string newtypes format like the `String` they wrap.
+  // rustfmt may wrap a long name's field onto its own line.
+  const display = [...generated.matchAll(/^pub struct (\w+)\(\s*::std::string::String,?\s*\);$/gm)]
+    .map(
+      ([, name]) => `impl ::std::fmt::Display for ${name} {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         f.write_str(&self.0)
     }
 }`
-      )
-      .join('\n');
-    const calls = dispatch
-      ? `\n${renderDispatch(dispatch.tools, dispatch.channels, dispatch.errorChannels, queryBranches(generated, dispatch.tools))}`
-      : '';
-    return `${header}\n${unicodePatterns(generated)}\n${display}${calls}\n`;
-  } finally {
-    rmSync(scratch, { recursive: true, force: true });
-  }
+    )
+    .join('\n');
+  return `${unicodePatterns(generated)}\n${display}`;
 }
 
 /** JSON Schema patterns use Unicode mode in both admission and typed decoding. */

@@ -3,6 +3,7 @@
 
 use crate::support;
 
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use support::{Workspace, call, row_data, row_status};
 use wiremock::matchers::{method, path};
@@ -13,12 +14,17 @@ async fn artifact_search_lookup_goes_through_execute() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/left-pad/latest"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "name": "left-pad",
-            "version": "1.3.0",
-            "description": "pad strings",
-            "repository": {"type": "git", "url": "https://github.com/stevemao/left-pad"}
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "name": "left-pad",
+                "version": "1.3.0",
+                "description": "pad strings",
+                "repository": {
+                    "type": "git",
+                    "url": "https://github.com/stevemao/left-pad"
+                }
+            }"#,
+        )))
         .mount(&server)
         .await;
 
@@ -45,11 +51,9 @@ async fn artifact_search_lookup_goes_through_execute() {
     );
     let data = row_data(&outcome);
     let artifact = &data["artifacts"][0];
-    assert_eq!(
-        (&artifact["packageName"], &artifact["version"]),
-        (&json!("left-pad"), &json!("1.3.0")),
-        "{data}"
-    );
+    // The name asked is the request's own; the version it resolved is news.
+    assert!(artifact.get("packageName").is_none(), "{data}");
+    assert_eq!(artifact["version"], "1.3.0", "{data}");
     assert_eq!(
         (&artifact["owner"], &artifact["repo"]),
         (&json!("stevemao"), &json!("left-pad")),
@@ -74,10 +78,9 @@ async fn artifact_search_npm_credentials_follow_the_runtime_env() {
         let server = MockServer::builder().start().await;
         Mock::given(method("GET"))
             .and(path("/runtime-env-auth/latest"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "name": "runtime-env-auth",
-                "version": "1.0.0"
-            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+                r#"{"name": "runtime-env-auth", "version": "1.0.0"}"#,
+            )))
             .mount(&server)
             .await;
         let port = server.address().port();
@@ -153,10 +156,9 @@ async fn artifact_search_npm_userconfig_never_comes_from_the_workspace_env() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/runtime-env-auth/latest"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "name": "runtime-env-auth",
-            "version": "1.0.0"
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"name": "runtime-env-auth", "version": "1.0.0"}"#,
+        )))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -170,7 +172,7 @@ async fn artifact_search_npm_userconfig_never_comes_from_the_workspace_env() {
         ("OCTOCODE_STORAGE_MODE", "memory".to_owned()),
         ("HOME", workspace.home.to_string_lossy().into_owned()),
     ]);
-    input.project_env = octocode_native::config::FileInput::Read {
+    input.project_env = octocode_runtime_base::config::FileInput::Read {
         path: workspace.workspace.join(".octocode/.env"),
         text: format!("NPM_CONFIG_USERCONFIG={}\n", planted.display()),
     };
@@ -210,7 +212,9 @@ async fn registry_failures_share_githubs_codes_and_retry_lead() {
     for (package, status) in [("down", 503), ("denied", 403)] {
         Mock::given(method("GET"))
             .and(path(format!("/{package}/latest")))
-            .respond_with(ResponseTemplate::new(status).set_body_json(json!({"error":"no"})))
+            .respond_with(
+                ResponseTemplate::new(status).set_body_json(json_fixture(r#"{"error": "no"}"#)),
+            )
             .mount(&server)
             .await;
     }
@@ -255,11 +259,13 @@ async fn a_redirected_repository_names_the_repository_github_redirects_to() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/left-pad/1.3.0"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "name": "left-pad",
-            "version": "1.3.0",
-            "repository": {"type": "git", "url": "https://github.com/a/b"}
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "name": "left-pad",
+                "version": "1.3.0",
+                "repository": {"type": "git", "url": "https://github.com/a/b"}
+            }"#,
+        )))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
@@ -277,10 +283,9 @@ async fn a_redirected_repository_names_the_repository_github_redirects_to() {
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"default_branch": "main", "full_name": "c/d"})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"default_branch": "main", "full_name": "c/d"}"#,
+        )))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
@@ -320,22 +325,24 @@ async fn a_stem_tag_is_another_packages_only_when_githubs_tree_holds_it() {
     const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
     for (files, pinned) in [
         (
-            json!([{"path": "packages/other/package.json", "type": "blob"}]),
+            json_fixture(r#"[{"path": "packages/other/package.json", "type": "blob"}]"#),
             false,
         ),
         (
-            json!([{"path": "docs/other/index.md", "type": "blob"}]),
+            json_fixture(r#"[{"path": "docs/other/index.md", "type": "blob"}]"#),
             true,
         ),
     ] {
         let server = MockServer::builder().start().await;
         Mock::given(method("GET"))
             .and(path("/left-pad/1.3.0"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "name": "left-pad",
-                "version": "1.3.0",
-                "repository": {"type": "git", "url": "https://github.com/a/b"}
-            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+                r#"{
+                    "name": "left-pad",
+                    "version": "1.3.0",
+                    "repository": {"type": "git", "url": "https://github.com/a/b"}
+                }"#,
+            )))
             .mount(&server)
             .await;
         Mock::given(method("GET"))
@@ -379,7 +386,9 @@ async fn a_stem_tag_is_another_packages_only_when_githubs_tree_holds_it() {
         let row = &data["artifacts"][0];
         let warnings = data["warnings"].to_string();
         if pinned {
-            assert_eq!(row["ref"], "other-v1.3.0", "{data}");
+            // Read at the commit the tag names; the tag is named apart.
+            assert_eq!(row["ref"], SHA, "{data}");
+            assert_eq!(row["releaseTag"], "other-v1.3.0", "{data}");
             assert_eq!(row["verification"], "tag", "{data}");
             assert!(
                 warnings.contains("has no directory named other holding a package manifest"),
@@ -406,11 +415,13 @@ async fn a_tag_check_stopped_by_a_spent_quota_states_its_reset() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/left-pad/1.3.0"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "name": "left-pad",
-            "version": "1.3.0",
-            "repository": {"type": "git", "url": "https://github.com/a/b"}
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "name": "left-pad",
+                "version": "1.3.0",
+                "repository": {"type": "git", "url": "https://github.com/a/b"}
+            }"#,
+        )))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
@@ -420,7 +431,7 @@ async fn a_tag_check_stopped_by_a_spent_quota_states_its_reset() {
                 .insert_header("x-ratelimit-remaining", "0")
                 .insert_header("x-ratelimit-reset", RESET.to_string().as_str())
                 .insert_header("x-ratelimit-resource", "core")
-                .set_body_json(json!({"message": "API rate limit exceeded"})),
+                .set_body_json(json_fixture(r#"{"message": "API rate limit exceeded"}"#)),
         )
         .mount(&server)
         .await;
@@ -440,7 +451,7 @@ async fn a_tag_check_stopped_by_a_spent_quota_states_its_reset() {
     .await
     .expect("artifactSearch");
     let data = row_data(&outcome);
-    assert_eq!(data["artifacts"][0]["packageName"], "left-pad", "{data}");
+    assert_eq!(data["artifacts"][0]["repo"], "b", "{data}");
     let warnings = data["warnings"].to_string();
     assert!(
         warnings.contains("rate limit") && warnings.contains("2100-01-01T00:00:00Z"),

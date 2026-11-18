@@ -3,6 +3,7 @@
 //! asks with its validator, and each answers the same evidence with no public
 //! cache telemetry.
 use super::*;
+use octocode_test_support::json_fixture;
 
 /// A commit-pinned body is read once and answers identical evidence without
 /// public cache telemetry.
@@ -10,6 +11,7 @@ use super::*;
 async fn pinned_ghgetfilecontent_reads_its_body_once_without_public_telemetry() {
     let server = MockServer::builder().start().await;
     let sha = sha('a');
+    octocode_test_support::mock_http::list_in_trees(&server, "o", "r", "file.rs").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/o/r/contents/file.rs"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -37,15 +39,14 @@ async fn pinned_ghgetfilecontent_reads_its_body_once_without_public_telemetry() 
     assert_eq!(row_data(&first), row_data(&second));
     server.verify().await;
     assert_eq!(row_data(&second)["content"], "1\thello cache\n");
-    // A read at a full SHA resolves nothing and asks no last-change date
-    // (a `related[]` ghSearchHistory lead replaces it): the one body read is
-    // every request both calls made.
+    // The body is fetched once for both calls. Other requests (the link
+    // check's commit-pinned tree) may ride along and are not this test's fact.
     let requests = server.received_requests().await.unwrap_or_default();
-    let paths = requests
+    let body_reads = requests
         .iter()
-        .map(|request| request.url.path())
-        .collect::<Vec<_>>();
-    assert_eq!(paths, ["/api/v3/repos/o/r/contents/file.rs"], "{paths:?}");
+        .filter(|request| request.url.path() == "/api/v3/repos/o/r/contents/file.rs")
+        .count();
+    assert_eq!(body_reads, 1, "{requests:?}");
     runtime.close().await;
 }
 
@@ -137,7 +138,14 @@ async fn ghgethistoryitem_confirms_a_mutable_item_with_its_validator() {
     let settings = [("GITHUB_API_URL", format!("{}/api/v3", server.uri()))];
     let runtime = workspace.runtime(&settings);
 
-    let query = json!({"operation":"pullRequest","owner":"o","repo":"r","number":1});
+    let query = json_fixture(
+        r#"{
+            "operation": "pullRequest",
+            "owner": "o",
+            "repo": "r",
+            "number": 1
+        }"#,
+    );
     let mut rows = Vec::new();
     for _ in 0..2 {
         let outcome = call(&runtime, "ghGetHistoryItem", query.clone())

@@ -44,23 +44,33 @@ pub(super) struct StreamJudge<'a> {
 }
 
 impl<'a> StreamJudge<'a> {
-    pub(super) fn new(scope: &'a WalkScope<'a>, filter: &'a Arc<dyn TextSearchPathFilter>) -> Self {
+    /// The judge of a walk whose first candidate gets the index `first`.
+    pub(super) fn new(
+        scope: &'a WalkScope<'a>,
+        filter: &'a Arc<dyn TextSearchPathFilter>,
+        first: usize,
+    ) -> Self {
         Self {
             scope,
             filter,
-            emitted: 0,
+            emitted: first,
             left: Vec::new(),
         }
     }
 
     /// Report to the path filter, in walk order, the entries left out before
-    /// candidate `cut`: those lying before the last committed candidate when
-    /// `cut` is the first one not committed. What the walker judged past it
-    /// depends on how far the read-ahead ran, and is the next page's.
-    pub(super) fn release(&mut self, cut: usize) {
+    /// candidate `cut` and not before candidate `released`: those lying
+    /// before the last committed candidate when `cut` is the first one not
+    /// committed. What the walker judged past it depends on how far the
+    /// read-ahead ran, and is the next page's; what lies before `released`
+    /// the page before reported.
+    pub(super) fn release(&mut self, released: usize, cut: usize) {
         for (before, path, left) in std::mem::take(&mut self.left) {
             if before >= cut {
                 break;
+            }
+            if before < released {
+                continue;
             }
             match left {
                 Left::Rule(skipped, is_dir) => {

@@ -1,7 +1,7 @@
 //! One stored copy of a body, held alive by whichever store still needs it.
 use super::*;
-use crate::providers::saved_answers::{KeptAnswers, body_digest};
 use octocode_github::{ProviderAnswer, ProviderEvidence, SavedAnswer, SavedAnswers as _};
+use octocode_runtime_base::providers::saved_answers::{KeptAnswers, body_digest};
 use std::os::unix::fs::MetadataExt as _;
 use std::path::Path;
 use std::time::SystemTime;
@@ -107,7 +107,7 @@ fn a_saved_body_and_its_evidence_are_one_file() {
     home.answers().save("scope", REQUEST, saved(body, 1));
     let registry = home.registry();
     let evidence = observed(vec![answer(body)]);
-    let address = crate::digest::json_sha256(&evidence);
+    let address = octocode_runtime_base::digest::json_sha256(&evidence);
     let token = issue(&registry, 1, "one", evidence.clone());
 
     let in_answers = holding(&home.answers_dir(), body);
@@ -162,7 +162,9 @@ fn an_expired_link_ends_only_the_evidence() {
     let registry = home.registry();
     let token = issue(&registry, 1, "one", observed(vec![answer("shared\n")]));
     let link = holding(&home.continuations_dir(), "shared\n").remove(0);
-    let aged = SystemTime::now() - crate::cache::CONTINUATION_IDLE - Duration::from_secs(1);
+    let aged = SystemTime::now()
+        - octocode_runtime_base::cache::CONTINUATION_IDLE
+        - Duration::from_secs(1);
     std::fs::File::options()
         .write(true)
         .open(&link)
@@ -286,7 +288,7 @@ fn credentials_stay_apart_on_the_same_bytes() {
     assert!(answers.load("scope-b", REQUEST).is_none());
     let registry = home.registry();
     let evidence = observed(vec![answer(body)]);
-    let digest = crate::digest::json_sha256(&evidence);
+    let digest = octocode_runtime_base::digest::json_sha256(&evidence);
     let token_a = issue(&registry, 1, "identity-a", evidence.clone());
     assert!(matches!(
         registry.open(TOOL, &token_a, [2; 32]),

@@ -21,7 +21,9 @@ pub(super) fn rollback_destination(backup: &Path) -> PathBuf {
 }
 
 pub(super) fn install(target: &Target, args: &InstallArgs) -> Result<u8, String> {
-    use octocode_native::config::{config_revision, read_private_config, replace_private_config};
+    use octocode_runtime_base::config::{
+        config_revision, read_private_config, replace_private_config,
+    };
     let (client, config_path, keys) = (target.client, target.path.as_path(), &target.keys);
     let original = read_private_config(config_path)
         .map_err(|error| format!("Cannot safely read agent configuration: {error}"))?;
@@ -85,7 +87,7 @@ pub(super) fn remove(
     root: &Value,
     args: &InstallArgs,
 ) -> Result<u8, String> {
-    use octocode_native::config::{config_revision, replace_private_config};
+    use octocode_runtime_base::config::{config_revision, replace_private_config};
     let (client, config_path) = (target.client, target.path.as_path());
     let report = |value: Value| super::super::write_json(&value);
     let Some(entry) = mcp_manage::entry_at(client, root, &target.keys) else {

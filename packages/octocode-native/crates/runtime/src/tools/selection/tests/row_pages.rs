@@ -2,6 +2,21 @@
 //! structureSearch at the response boundary: each row, entry or discussion
 //! item is a candidate.
 use super::*;
+use crate::runtime::tool_output::ToolOutputOf;
+use octocode_contract_types::ErrorCode;
+use octocode_runtime_base::id::ToolId;
+use octocode_test_support::json_fixture;
+use octocode_tools_shared::selection::Decision;
+use octocode_tools_shared::selection::JudgeCall;
+use octocode_tools_shared::selection::JudgeFailure;
+use octocode_tools_shared::selection::Judgments;
+use octocode_tools_shared::selection::ProviderError;
+use octocode_tools_shared::selection::Runtime;
+use octocode_tools_shared::selection::SelectionJudge;
+use octocode_tools_shared::selection::apply_sanitized_rows;
+use octocode_tools_shared::test_support::selection_runtime::test_runtime;
+use serde_json::Value;
+use serde_json::json;
 
 mod discussion;
 mod judged_text;
@@ -12,7 +27,7 @@ mod leads;
 struct FixJudge;
 impl SelectionJudge for FixJudge {
     fn identity(&self) -> Value {
-        json!({"test":"fix"})
+        json_fixture(r#"{"test": "fix"}"#)
     }
     fn select(&self, call: JudgeCall<'_>) -> Judgments {
         Ok(call
@@ -40,7 +55,7 @@ impl SelectionJudge for FixJudge {
 struct DownJudge;
 impl SelectionJudge for DownJudge {
     fn identity(&self) -> Value {
-        json!({"test":"down"})
+        json_fixture(r#"{"test": "down"}"#)
     }
     fn select(&self, _call: JudgeCall<'_>) -> Judgments {
         Err(JudgeFailure::Provider(ProviderError {
@@ -56,7 +71,7 @@ impl SelectionJudge for DownJudge {
 struct RecordingJudge(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
 impl SelectionJudge for RecordingJudge {
     fn identity(&self) -> Value {
-        json!({"test":"record"})
+        json_fixture(r#"{"test": "record"}"#)
     }
     fn select(&self, call: JudgeCall<'_>) -> Judgments {
         let mut seen = self.0.lock().expect("seen");
@@ -75,7 +90,7 @@ impl SelectionJudge for RecordingJudge {
 struct RefusedJudge;
 impl SelectionJudge for RefusedJudge {
     fn identity(&self) -> Value {
-        json!({"test":"refused"})
+        json_fixture(r#"{"test": "refused"}"#)
     }
     fn select(&self, _call: JudgeCall<'_>) -> Judgments {
         Err(JudgeFailure::Provider(ProviderError {
@@ -122,8 +137,15 @@ fn commits() -> Value {
 }
 
 fn query() -> Value {
-    json!({"owner":"o","repo":"r","operation":"commit","keywords":["x"],
-        "classification":{"predicates":["Is this a bug fix?"]}})
+    json_fixture(
+        r#"{
+            "owner": "o",
+            "repo": "r",
+            "operation": "commit",
+            "keywords": ["x"],
+            "classification": {"predicates": ["Is this a bug fix?"]}
+        }"#,
+    )
 }
 
 #[test]
@@ -234,11 +256,27 @@ fn a_provider_that_is_down_shows_every_row_with_a_warning() {
 fn a_structure_listing_keeps_the_entries_that_pass_and_drops_emptied_groups() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let runtime = runtime(FixJudge, &executor);
-    let query = json!({"path":".","classification":{"predicates":["Is it a fix?"]}});
-    let mut structured = json!({"results":[{"index":0,"data":{"files":[
-        {"dir":"a","files":["fix.rs (1)","other.rs (2)"]},
-        {"dir":"b","files":["plain.rs (3)"]},
-    ]}}]});
+    let query = json_fixture(
+        r#"{
+            "path": ".",
+            "classification": {"predicates": ["Is it a fix?"]}
+        }"#,
+    );
+    let mut structured = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "files": [
+                            {"dir": "a", "files": ["fix.rs (1)", "other.rs (2)"]},
+                            {"dir": "b", "files": ["plain.rs (3)"]}
+                        ]
+                    }
+                }
+            ]
+        }"#,
+    );
     let mut response_query = query.clone();
     apply(
         ToolId::StructureSearch,
@@ -248,7 +286,10 @@ fn a_structure_listing_keeps_the_entries_that_pass_and_drops_emptied_groups() {
         &runtime,
     );
     let data = &structured["results"][0]["data"];
-    assert_eq!(data["files"], json!([{"dir":"a","files":["fix.rs (1)"]}]));
+    assert_eq!(
+        data["files"],
+        json_fixture(r#"[{"dir": "a", "files": ["fix.rs (1)"]}]"#)
+    );
     assert_eq!(data["selection"]["totalItems"], 3);
 }
 
@@ -256,13 +297,34 @@ fn a_structure_listing_keeps_the_entries_that_pass_and_drops_emptied_groups() {
 fn history_item_discussion_is_judged_per_comment_and_review() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let runtime = runtime(FixJudge, &executor);
-    let query = json!({"owner":"o","repo":"r","operation":"pullRequest","number":1,
-        "classification":{"predicates":["Does it say fix?"]}});
-    let mut structured = json!({"results":[{"index":0,"data":{"pullRequests":[{
-        "number":1,"title":"t",
-        "comments":[{"body":"please fix"},{"body":"lgtm"}],
-        "reviews":[{"body":"fix the leak"},{"body":"ok"}],
-    }]}}]});
+    let query = json_fixture(
+        r#"{
+            "owner": "o",
+            "repo": "r",
+            "operation": "pullRequest",
+            "number": 1,
+            "classification": {"predicates": ["Does it say fix?"]}
+        }"#,
+    );
+    let mut structured = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "pullRequests": [
+                            {
+                                "number": 1,
+                                "title": "t",
+                                "comments": [{"body": "please fix"}, {"body": "lgtm"}],
+                                "reviews": [{"body": "fix the leak"}, {"body": "ok"}]
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#,
+    );
     let mut response_query = query.clone();
     apply(
         ToolId::GhGetHistoryItem,
@@ -272,8 +334,11 @@ fn history_item_discussion_is_judged_per_comment_and_review() {
         &runtime,
     );
     let row = &structured["results"][0]["data"]["pullRequests"][0];
-    assert_eq!(row["comments"], json!([{"body":"please fix"}]));
-    assert_eq!(row["reviews"], json!([{"body":"fix the leak"}]));
+    assert_eq!(row["comments"], json_fixture(r#"[{"body": "please fix"}]"#));
+    assert_eq!(
+        row["reviews"],
+        json_fixture(r#"[{"body": "fix the leak"}]"#)
+    );
     assert_eq!(row["title"], "t", "the item itself stays");
 }
 
@@ -282,10 +347,24 @@ fn a_credential_named_structure_path_is_withheld_from_the_judge_and_disclosed() 
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let judge = RecordingJudge::default();
     let runtime = runtime(judge.clone(), &executor);
-    let query = json!({"path":".","classification":{"predicates":["Is it code?"]}});
-    let mut structured = json!({"results":[{"index":0,"data":{"files":[
-        {"dir":"src","files":[".env (9)","lib.rs (2)"]},
-    ]}}]});
+    let query = json_fixture(
+        r#"{
+            "path": ".",
+            "classification": {"predicates": ["Is it code?"]}
+        }"#,
+    );
+    let mut structured = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "files": [{"dir": "src", "files": [".env (9)", "lib.rs (2)"]}]
+                    }
+                }
+            ]
+        }"#,
+    );
     let mut response_query = query.clone();
     apply(
         ToolId::StructureSearch,
@@ -312,15 +391,35 @@ fn a_credential_named_review_comment_path_is_withheld_like_a_listed_path() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let judge = RecordingJudge::default();
     let runtime = runtime(judge.clone(), &executor);
-    let query = json!({"owner":"o","repo":"r","operation":"pullRequest","number":1,
-        "classification":{"predicates":["Does it say fix?"]}});
-    let mut structured = json!({"results":[{"index":0,"data":{"pullRequests":[{
-        "number":1,
-        "reviewComments":[
-            {"body":"rotate this","path":"config/.env"},
-            {"body":"rename this","path":"src/lib.rs"},
-        ],
-    }]}}]});
+    let query = json_fixture(
+        r#"{
+            "owner": "o",
+            "repo": "r",
+            "operation": "pullRequest",
+            "number": 1,
+            "classification": {"predicates": ["Does it say fix?"]}
+        }"#,
+    );
+    let mut structured = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "pullRequests": [
+                            {
+                                "number": 1,
+                                "reviewComments": [
+                                    {"body": "rotate this", "path": "config/.env"},
+                                    {"body": "rename this", "path": "src/lib.rs"}
+                                ]
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#,
+    );
     let mut response_query = query.clone();
     apply(
         ToolId::GhGetHistoryItem,
@@ -347,7 +446,12 @@ fn a_refused_credential_fails_a_history_row_and_a_structure_row_with_the_unfilte
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let runtime = runtime(RefusedJudge, &executor);
     let history = query();
-    let structure = json!({"path":".","classification":{"predicates":["Is it a fix?"]}});
+    let structure = json_fixture(
+        r#"{
+            "path": ".",
+            "classification": {"predicates": ["Is it a fix?"]}
+        }"#,
+    );
     let cases = [
         (
             ToolId::GhSearchHistory,
@@ -357,7 +461,7 @@ fn a_refused_credential_fails_a_history_row_and_a_structure_row_with_the_unfilte
         (
             ToolId::StructureSearch,
             structure,
-            json!({"files":[{"dir":"a","files":["x (1)"]}]}),
+            json_fixture(r#"{"files": [{"dir": "a", "files": ["x (1)"]}]}"#),
         ),
     ];
     for (tool, query, data) in cases {
@@ -377,17 +481,27 @@ fn a_refused_credential_fails_a_history_row_and_a_structure_row_with_the_unfilte
 fn a_later_comment_page_stays_classified_and_its_unfiltered_lead_keeps_the_page() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let runtime = runtime(FixJudge, &executor);
-    let query = json!({"owner":"o","repo":"r","operation":"pullRequest","number":1,
-        "sections":["comments"],"page":2,
-        "classification":{"predicates":["Does it say fix?"]}});
+    let query = json_fixture(
+        r#"{
+            "owner": "o",
+            "repo": "r",
+            "operation": "pullRequest",
+            "number": 1,
+            "sections": ["comments"],
+            "page": 2,
+            "classification": {"predicates": ["Does it say fix?"]}
+        }"#,
+    );
     // The continuation to page 3 was built from this call's query, so it
     // carries the judge's token when this page was reached by a candidate walk.
     let mut next_query = query.clone();
     next_query["page"] = json!(3);
     next_query["selection"] = json!("token-of-this-page");
-    let lead =
-        crate::response::result::Continuation::continued(ToolId::GhGetHistoryItem, next_query)
-            .build();
+    let lead = octocode_runtime_base::response::result::Continuation::continued(
+        ToolId::GhGetHistoryItem,
+        next_query,
+    )
+    .build();
     let mut structured = json!({"results":[{"index":0,"data":{"pullRequests":[{
         "number":1,
         "comments":[{"body":"please fix"},{"body":"lgtm"}],
@@ -403,7 +517,7 @@ fn a_later_comment_page_stays_classified_and_its_unfiltered_lead_keeps_the_page(
     );
     let data = &structured["results"][0]["data"];
     let row = &data["pullRequests"][0];
-    assert_eq!(row["comments"], json!([{"body":"please fix"}]));
+    assert_eq!(row["comments"], json_fixture(r#"[{"body": "please fix"}]"#));
     // The unjudged comments of this page: the same page, no judge.
     let unfiltered = &data["next"]["unfiltered"]["input"]["queries"][0];
     assert_eq!(unfiltered["page"], 2);
@@ -424,12 +538,36 @@ fn the_unfiltered_lead_of_a_later_comment_window_keeps_its_position() {
     // the lead for the dropped comments is that window, not the first.
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let runtime = runtime(FixJudge, &executor);
-    let query = json!({"owner":"o","repo":"r","operation":"pullRequest","number":1,
-        "sections":["comments"],"page":2,"pageSize":2,"offset":400,
-        "classification":{"predicates":["Does it say fix?"]}});
-    let mut structured = json!({"results":[{"index":0,"data":{"pullRequests":[{
-        "number":1,"comments":[{"body":"please fix"},{"body":"lgtm"}],
-    }]}}]});
+    let query = json_fixture(
+        r#"{
+            "owner": "o",
+            "repo": "r",
+            "operation": "pullRequest",
+            "number": 1,
+            "sections": ["comments"],
+            "page": 2,
+            "pageSize": 2,
+            "offset": 400,
+            "classification": {"predicates": ["Does it say fix?"]}
+        }"#,
+    );
+    let mut structured = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "pullRequests": [
+                            {
+                                "number": 1,
+                                "comments": [{"body": "please fix"}, {"body": "lgtm"}]
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#,
+    );
     let mut response_query = query.clone();
     apply(
         ToolId::GhGetHistoryItem,
@@ -450,12 +588,31 @@ fn credential_named_directories_and_units_between_judged_ones_are_withheld() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let judge = RecordingJudge::default();
     let runtime = runtime(judge.clone(), &executor);
-    let query = json!({"path":".","classification":{"predicates":["Is it code?"]}});
-    let mut structured = json!({"results":[{"index":0,"data":{"files":[
-        {"dir":"src","files":["a.rs (1)",".env (2)","b.rs (3)"]},
-        {"dir":".ssh","files":["config (4)"]},
-        {"dir":"lib","files":["c.rs (5)"]},
-    ]}}]});
+    let query = json_fixture(
+        r#"{
+            "path": ".",
+            "classification": {"predicates": ["Is it code?"]}
+        }"#,
+    );
+    let mut structured = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "files": [
+                            {
+                                "dir": "src",
+                                "files": ["a.rs (1)", ".env (2)", "b.rs (3)"]
+                            },
+                            {"dir": ".ssh", "files": ["config (4)"]},
+                            {"dir": "lib", "files": ["c.rs (5)"]}
+                        ]
+                    }
+                }
+            ]
+        }"#,
+    );
     let mut response_query = query.clone();
     apply(
         ToolId::StructureSearch,
@@ -493,13 +650,36 @@ fn credential_named_directories_and_units_between_judged_ones_are_withheld() {
 fn the_unfiltered_lead_of_a_later_code_page_keeps_its_position_and_drops_the_judge() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let runtime = runtime(FixJudge, &executor);
-    let query = json!({"owner":"o","repo":"r","keywords":["retry"],"page":2,
-        "listed":"0123456789abcdef","matched":3,"indexHead":"0123456789abcdef0123456789abcdef01234567",
-        "classification":{"predicates":["Does it say fix?"]}});
-    let mut structured = json!({"results":[{"index":0,"data":{"files":[
-        {"path":"a.rs","matches":[{"line":1,"value":"fix it"}]},
-        {"path":"b.rs","matches":[{"line":1,"value":"other"}]},
-    ]}}]});
+    let query = json_fixture(
+        r#"{
+            "owner": "o",
+            "repo": "r",
+            "keywords": ["retry"],
+            "page": 2,
+            "listed": "0123456789abcdef",
+            "matched": 3,
+            "indexHead": "0123456789abcdef0123456789abcdef01234567",
+            "classification": {"predicates": ["Does it say fix?"]}
+        }"#,
+    );
+    let mut structured = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "files": [
+                            {
+                                "path": "a.rs",
+                                "matches": [{"line": 1, "value": "fix it"}]
+                            },
+                            {"path": "b.rs", "matches": [{"line": 1, "value": "other"}]}
+                        ]
+                    }
+                }
+            ]
+        }"#,
+    );
     let mut response_query = query.clone();
     apply_sanitized_rows(
         ToolId::GhSearchCode,
@@ -524,11 +704,33 @@ fn the_unfiltered_lead_of_a_later_code_page_keeps_its_position_and_drops_the_jud
 fn the_unfiltered_lead_of_a_history_item_keeps_its_head_sha() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let runtime = runtime(FixJudge, &executor);
-    let query = json!({"owner":"o","repo":"r","operation":"pullRequest","number":1,
-        "headSha":"deadbeef","classification":{"predicates":["Does it say fix?"]}});
-    let mut structured = json!({"results":[{"index":0,"data":{"pullRequests":[{
-        "number":1,"comments":[{"body":"please fix"},{"body":"lgtm"}],
-    }]}}]});
+    let query = json_fixture(
+        r#"{
+            "owner": "o",
+            "repo": "r",
+            "operation": "pullRequest",
+            "number": 1,
+            "headSha": "deadbeef",
+            "classification": {"predicates": ["Does it say fix?"]}
+        }"#,
+    );
+    let mut structured = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "pullRequests": [
+                            {
+                                "number": 1,
+                                "comments": [{"body": "please fix"}, {"body": "lgtm"}]
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#,
+    );
     let mut response_query = query.clone();
     apply(
         ToolId::GhGetHistoryItem,

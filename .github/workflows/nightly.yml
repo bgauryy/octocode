@@ -41,7 +41,7 @@ jobs:
         with:
           tool: ${{ steps.pins.outputs.nextest }}
       - name: Full matrices (nextest)
-        run: cargo nextest run --locked -p octocode-native --run-ignored only -E 'test(/full_matrix/)'
+        run: cargo nextest run --locked -p octocode-native -p octocode-runtime-base --run-ignored only -E 'test(/full_matrix/)'
         env:
           NEXTEST_PROFILE: ci
 

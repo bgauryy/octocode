@@ -4,6 +4,7 @@
 use crate::support::{Workspace, call, row_data, row_status};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -24,10 +25,9 @@ async fn redirect(server: &MockServer, from: &str, to: &str) {
 async fn canonical_metadata(server: &MockServer) {
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"default_branch":"main","full_name":"c/d"})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"default_branch": "main", "full_name": "c/d"}"#,
+        )))
         .mount(server)
         .await;
 }
@@ -41,6 +41,7 @@ async fn a_file_read_at_a_commit_follows_the_rename_to_the_content() {
         "/api/v3/repositories/1/contents/src%2Flib.rs",
     )
     .await;
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "src/lib.rs").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repositories/1/contents/src%2Flib.rs"))
         .and(query_param("ref", SHA))
@@ -80,12 +81,20 @@ async fn a_directory_listing_at_a_commit_follows_the_rename_to_the_entries() {
         "/api/v3/repositories/1/contents/src",
     )
     .await;
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "src/lib.rs").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repositories/1/contents/src"))
         .and(query_param("ref", SHA))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-            {"name":"lib.rs","path":"src/lib.rs","type":"file","size":10}
-        ])))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"[
+                {
+                    "name": "lib.rs",
+                    "path": "src/lib.rs",
+                    "type": "file",
+                    "size": 10
+                }
+            ]"#,
+        )))
         .mount(&server)
         .await;
     canonical_metadata(&server).await;

@@ -4,6 +4,7 @@
 
 use crate::runtime_clasify::{clasify, sent};
 use octocode_native::runtime::ToolRuntime;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -24,7 +25,7 @@ async fn provider() -> MockServer {
                 .as_object()
                 .expect("questions")
                 .keys()
-                .map(|id| (id.clone(), json!({"type":"noul","noul":0.9})))
+                .map(|id| (id.clone(), json_fixture(r#"{"type": "noul", "noul": 0.9}"#)))
                 .collect::<serde_json::Map<_, _>>();
             ResponseTemplate::new(200).set_body_json(json!({
                 "model":"jev-1.13.0","answers":answers,
@@ -93,7 +94,7 @@ pub(crate) fn assert_next_is_only_pinned_reads(out: &Value) {
             ),
             "`next.{key}` is not a source read: {call}"
         );
-        assert_eq!(call["kind"], "continue", "{call}");
+        assert_eq!(call.get("kind"), None, "{call}");
         assert!(call["input"]["cursor"].is_string(), "pinned cursor: {call}");
     }
 }

@@ -198,6 +198,19 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         regex: r###"auth-provider:[ \t]*\r?\n(?:(?:[ \t][^\r\n]*)?\r?\n)*?[ \t]+refresh-token:[ \t]*["']?(?P<secret>[^\s"'|>][^\s"']*)"###,
     },
     SecretPattern {
+        name: "cratesIoToken",
+        // The crates.io registry token (cargo's `credentials.toml`): `cio`
+        // and 32 letters and digits.
+        regex: r###"\bcio[A-Za-z0-9]{32}\b"###,
+    },
+    SecretPattern {
+        name: "terraformApiToken",
+        // The Terraform Cloud and Enterprise API token
+        // (`credentials.tfrc.json`): 14 letters and digits, `.atlasv1.`, then
+        // 60 to 70 characters of the URL-safe alphabet.
+        regex: r###"[A-Za-z0-9]{14}\.atlasv1\.[A-Za-z0-9_=-]{60,70}"###,
+    },
+    SecretPattern {
         name: "credentialsInUrl",
         // Any scheme's userinfo password, whatever the user: empty
         // (`redis://:pw@host`) or short (`amqp://u:pw@host`). A host holds

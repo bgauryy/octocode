@@ -1,0 +1,347 @@
+//! Explicit unread image references. Acquisition stays below text projection:
+//! the provider sees original bytes, and the host receives only provenance.
+use super::url;
+use crate::judgment::{ClassificationError, referenced};
+use crate::source_capture::SourceReader;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use octocode_contract_types::ErrorCode;
+use octocode_runtime_base::execution::ExecutionContext;
+use octocode_runtime_base::id::{ToolId, clasify_policy};
+use serde_json::{Map, Value, json};
+use std::collections::BTreeMap;
+use std::path::Path;
+
+mod fit;
+pub mod frame;
+
+pub(crate) use frame::Frame;
+
+/// How to cite an asset (the `assets` field text: "name each asset key in
+/// its question").
+const UNCITED_HINT: &str = "Name each asset key in the question that judges it.";
+
+pub struct CapturedAssets {
+    pub provider: Value,
+    pub provenance: Value,
+    /// Where each fitted asset's original sits on its judged canvas.
+    pub(crate) frames: BTreeMap<String, Frame>,
+}
+
+/// `state_field` names the request field that wrote `state` (`content`),
+/// or is `None` when the state is a read source the caller did not write.
+pub fn capture(
+    assets: &Value,
+    state: &Value,
+    state_field: Option<&str>,
+    questions: &[Value],
+    dispatcher: &dyn SourceReader,
+    context: &ExecutionContext,
+) -> Result<CapturedAssets, ClassificationError> {
+    let Some(assets) = assets.as_object() else {
+        return Err(invalid("Image assets must be a keyed map."));
+    };
+    for key in assets.keys() {
+        if !referenced(state, key) && !questions.iter().any(|question| referenced(question, key)) {
+            let cited = state_field.map_or_else(
+                || "any question".to_owned(),
+                |field| format!("{field} or any question"),
+            );
+            return Err(ClassificationError::new(
+                ErrorCode::InvalidClassificationContext,
+                format!("Image asset {key} is not named in {cited}; nothing was judged."),
+                UNCITED_HINT,
+            ));
+        }
+    }
+    let store = url::Store::open(dispatcher)?;
+    let mut provider = Map::new();
+    let mut provenance = Map::new();
+    let mut frames = BTreeMap::new();
+    let mut total = 0usize;
+    for (key, asset) in assets {
+        check(context)?;
+        let (bytes, origin) = acquire(&asset["source"], dispatcher, context)?;
+        let Fitted {
+            format,
+            width,
+            height,
+            bytes,
+            source,
+            frame,
+        } = fit(bytes)?;
+        total = total.saturating_add(bytes.len());
+        if total > clasify_policy::MAX_TOTAL_IMAGE_BYTES {
+            return Err(too_large(
+                "The combined images exceed the per-row byte limit.",
+            ));
+        }
+        // The saved snapshot is the judged image, so box fractions map onto it.
+        let saved = store.save_bytes(&bytes, &format!("source.{format}"))?;
+        provider.insert(
+            key.clone(),
+            json!({
+                "type":"image", "format":format, "data_base64":STANDARD.encode(&bytes),
+            }),
+        );
+        let mut provenance_row = json!({
+            "source":origin, "sourceDigest":saved["sourceDigest"],
+            "format":format, "bytes":bytes.len(), "width":width, "height":height,
+            "path":saved["path"], "expiresAt":saved["expiresAt"],
+        });
+        if let Some((source_width, source_height)) = source {
+            provenance_row["sourceWidth"] = json!(source_width);
+            provenance_row["sourceHeight"] = json!(source_height);
+        }
+        provenance.insert(key.clone(), provenance_row);
+        if let Some(frame) = frame {
+            frames.insert(key.clone(), frame);
+        }
+    }
+    check(context)?;
+    Ok(CapturedAssets {
+        provider: Value::Object(provider),
+        provenance: Value::Object(provenance),
+        frames,
+    })
+}
+
+fn acquire(
+    source: &Value,
+    dispatcher: &dyn SourceReader,
+    context: &ExecutionContext,
+) -> Result<(Vec<u8>, Value), ClassificationError> {
+    if let Some(address) = source["url"].as_str() {
+        return url::image(
+            address,
+            dispatcher,
+            context,
+            clasify_policy::MAX_IMAGE_BYTES,
+        );
+    }
+    let tool = source["tool"].as_str().unwrap_or_default();
+    if !dispatcher.availability().is_available(tool) {
+        return Err(ClassificationError::new(
+            ErrorCode::ClassificationContextUnavailable,
+            format!("The image reader {tool} is unavailable."),
+            "Enable the referenced reader before classifying its images.",
+        ));
+    }
+    let query = &source["query"];
+    match ToolId::from_name(tool) {
+        Some(ToolId::LocalFetch) => {
+            let path = dispatcher
+                .paths()
+                .validate_read(Path::new(query["path"].as_str().unwrap_or_default()))
+                .map_err(|error| {
+                    // The policy's failure keeps its shared code (a missing
+                    // image is `notFound`, one outside the roots
+                    // `outsideAllowedRoots`) and a direct read's recovery.
+                    super::resource::local_recovery(
+                        ClassificationError::with_hints(
+                            error.shared_code(),
+                            error.to_string(),
+                            Vec::new(),
+                        ),
+                        query,
+                        dispatcher,
+                    )
+                })?;
+            let mut options = std::fs::OpenOptions::new();
+            options.read(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+            }
+            let file = options.open(&path.canonical).map_err(|_| read_failed())?;
+            let before = file.metadata().map_err(|_| read_failed())?;
+            if !before.is_file() {
+                return Err(invalid("The image path is not a regular file."));
+            }
+            if before.len() > clasify_policy::MAX_IMAGE_BYTES as u64 {
+                return Err(too_large("The image exceeds the per-image byte limit."));
+            }
+            let read =
+                octocode_io::read::read_limited(&file, clasify_policy::MAX_IMAGE_BYTES as u64)
+                    .map_err(|_| read_failed())?;
+            let after = file.metadata().map_err(|_| read_failed())?;
+            if before.len() != after.len() || before.modified().ok() != after.modified().ok() {
+                return Err(ClassificationError::new(
+                    ErrorCode::StaleSnapshot,
+                    "The image changed while being captured; nothing was judged.",
+                    "Retry once the image is stable.",
+                ));
+            }
+            let Some(bytes) = read else {
+                return Err(too_large("The image grew beyond the per-image byte limit."));
+            };
+            Ok((
+                bytes,
+                json!({"tool":ToolId::LocalFetch.as_str(),"query":{"path":path.canonical}}),
+            ))
+        }
+        Some(ToolId::GhGetFileContent) => {
+            let response = dispatcher.capture_github_content(
+                query,
+                context,
+                clasify_policy::MAX_IMAGE_BYTES,
+            )?;
+            if response.bytes.len() > clasify_policy::MAX_IMAGE_BYTES {
+                return Err(too_large(
+                    "The GitHub image exceeds the per-image byte limit.",
+                ));
+            }
+            let mut query = query.clone();
+            query["ref"] = json!(response.resolved_ref);
+            Ok((
+                response.bytes.to_vec(),
+                json!({"tool":ToolId::GhGetFileContent.as_str(),"query":query}),
+            ))
+        }
+        _ => Err(invalid(
+            "The image source must name a local, GitHub or HTTPS image.",
+        )),
+    }
+}
+
+/// The format clasify judges under `assets` (a PNG with its IHDR, or a JPEG),
+/// from the head of the bytes.
+fn image_format(bytes: &[u8]) -> Option<&'static str> {
+    match imagesize::image_type(bytes) {
+        Ok(imagesize::ImageType::Png)
+            if bytes.starts_with(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR") && bytes.len() >= 33 =>
+        {
+            Some("png")
+        }
+        Ok(imagesize::ImageType::Jpeg) => Some("jpeg"),
+        _ => None,
+    }
+}
+
+/// Whether `head` starts a PNG or JPEG image clasify accepts under `assets`.
+pub fn is_judgeable_image(head: &[u8]) -> bool {
+    image_format(head).is_some()
+}
+
+fn dimensions(bytes: &[u8]) -> Result<(&'static str, usize, usize), ClassificationError> {
+    if bytes.len() > clasify_policy::MAX_IMAGE_BYTES {
+        return Err(too_large("The image exceeds the per-image byte limit."));
+    }
+    let format =
+        image_format(bytes).ok_or_else(|| invalid("The asset is not a PNG or JPEG image."))?;
+    let size = imagesize::blob_size(bytes)
+        .map_err(|_| invalid("The image header is incomplete or invalid."))?;
+    validate_dimensions(size.width, size.height)?;
+    Ok((format, size.width, size.height))
+}
+
+/// Source images this large are refused before decoding; anything smaller
+/// is fitted into the provider window.
+fn validate_dimensions(width: usize, height: usize) -> Result<(), ClassificationError> {
+    let max = clasify_policy::MAX_SOURCE_IMAGE_DIMENSION;
+    let bounds = || {
+        format!("Image width and height must each be 1..={max} pixels; received {width}x{height}.")
+    };
+    if width == 0 || height == 0 {
+        return Err(invalid(&bounds()));
+    }
+    if width > max || height > max {
+        return Err(too_large(&bounds()));
+    }
+    Ok(())
+}
+
+/// The image the provider judges, and the source size when it differs.
+#[derive(Debug, PartialEq)]
+struct Fitted {
+    format: &'static str,
+    width: usize,
+    height: usize,
+    bytes: Vec<u8>,
+    source: Option<(usize, usize)>,
+    /// The original's rectangle on the canvas; present with `source`.
+    frame: Option<Frame>,
+}
+
+/// Admits an image already inside the provider window as-is; otherwise
+/// scales it down (aspect kept) and pads a side below the minimum. A square
+/// window bounds the area as well as each side.
+fn fit(bytes: Vec<u8>) -> Result<Fitted, ClassificationError> {
+    let (format, width, height) = dimensions(&bytes)?;
+    let (min, max) = (
+        clasify_policy::MIN_IMAGE_DIMENSION,
+        clasify_policy::MAX_IMAGE_DIMENSION,
+    );
+    debug_assert!(min * min >= clasify_policy::MIN_IMAGE_PIXELS);
+    debug_assert!(max * max <= clasify_policy::MAX_IMAGE_PIXELS);
+    if (min..=max).contains(&width) && (min..=max).contains(&height) {
+        return Ok(Fitted {
+            format,
+            width,
+            height,
+            bytes,
+            source: None,
+            frame: None,
+        });
+    }
+    let (frame, fitted) = fit::fit(&bytes, format, width, height, min, max)?;
+    if fitted.len() > clasify_policy::MAX_IMAGE_BYTES {
+        return Err(too_large(
+            "The fitted image exceeds the per-image byte limit.",
+        ));
+    }
+    Ok(Fitted {
+        format: "png",
+        width: frame.canvas_width,
+        height: frame.canvas_height,
+        bytes: fitted,
+        source: Some((width, height)),
+        frame: Some(frame),
+    })
+}
+
+fn check(context: &ExecutionContext) -> Result<(), ClassificationError> {
+    context.check().map_err(|stop| {
+        let (code, hint) = if matches!(
+            stop,
+            octocode_runtime_base::execution::ExecutionError::Cancelled
+        ) {
+            (
+                ErrorCode::Cancelled,
+                octocode_runtime_base::response::rows::CANCELLED_HINT,
+            )
+        } else {
+            (ErrorCode::Timeout, "Retry with more time.")
+        };
+        ClassificationError::new(
+            code,
+            "The call stopped before the images were captured.",
+            hint,
+        )
+    })
+}
+
+fn invalid(message: &str) -> ClassificationError {
+    ClassificationError::new(
+        ErrorCode::InvalidClassificationContext,
+        message,
+        "Reference an explicit PNG or JPEG image by its asset key.",
+    )
+}
+fn too_large(message: &str) -> ClassificationError {
+    ClassificationError::new(
+        ErrorCode::ClassificationContextTooLarge,
+        message,
+        "Use a smaller image or fewer assets; images are never resized or truncated silently.",
+    )
+}
+fn read_failed() -> ClassificationError {
+    ClassificationError::new(
+        ErrorCode::ClassificationContextFailed,
+        "The image could not be read completely.",
+        "Check the file path and permissions.",
+    )
+}
+
+#[cfg(test)]
+mod tests;

@@ -25,7 +25,7 @@ fn usage(message: impl Into<String>) -> SchemaError {
 }
 
 fn presentation() -> Result<&'static Value, SchemaError> {
-    octocode_native::contracts::cli_presentation().map_err(|error| SchemaError {
+    octocode_runtime_base::contracts::cli_presentation().map_err(|error| SchemaError {
         message: format!("Embedded CLI presentation is invalid: {error}"),
         exit: 5,
     })
@@ -56,7 +56,7 @@ const CLI_INSTRUCTIONS: &str = "<cli>Listed tools are available; execution check
 /// tool's block. Served by MCP `initialize` and, with the CLI's own notes, by
 /// the full catalog.
 pub(super) fn instructions(presentation: &Value, available: impl Fn(&str) -> bool) -> String {
-    octocode_native::contracts::compose_instructions(presentation, available)
+    octocode_runtime_base::contracts::compose_instructions(presentation, available)
 }
 
 /// Select a core-generated presentation using the runtime's resolved switch.
@@ -87,7 +87,7 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
             Some(json!({
                 "name": name,
                 "title": tool["title"],
-                "when": octocode_native::contracts::cli_tool_trigger(name),
+                "when": octocode_runtime_base::contracts::cli_tool_trigger(name),
                 "fields": entry.get("fields").cloned().unwrap_or_else(|| json!("[]")),
             }))
         })
@@ -289,8 +289,8 @@ pub(super) fn tool_view(
         }
         Some(selection) => selected(tool, configured, selection)?.clone(),
     };
-    if octocode_native::id::ToolId::from_name(name)
-        .is_some_and(octocode_native::id::ToolId::lists_lsp_servers)
+    if octocode_runtime_base::id::ToolId::from_name(name)
+        .is_some_and(octocode_runtime_base::id::ToolId::lists_lsp_servers)
         && let (Some(description), Some(servers)) = (
             value["description"].as_str(),
             machine["lspServers"].as_array(),

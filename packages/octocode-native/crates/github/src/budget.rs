@@ -60,24 +60,17 @@ impl GitLimiter {
         self
     }
 
-    /// Admit one clone subprocess for `key`, waiting at most `cap` for a
-    /// cooldown and never past `deadline` or a cancel.
+    /// Admit one clone subprocess for `key`, waiting out a cooldown that ends
+    /// before `deadline`, never past it or a cancel.
     pub fn acquire_blocking(
         &self,
         key: &LimiterKey,
-        cap: Duration,
         deadline: Instant,
         is_cancelled: &dyn Fn() -> bool,
     ) -> Result<OwnedSemaphorePermit, ProviderError> {
         self.budget
             .key_state(key, self.state_dir.as_deref())
-            .acquire_git_blocking(
-                &self.budget.config,
-                cap,
-                deadline,
-                is_cancelled,
-                &self.waits,
-            )
+            .acquire_git_blocking(&self.budget.config, deadline, is_cancelled, &self.waits)
     }
 }
 
@@ -135,7 +128,7 @@ async fn acquire(
     deadline: Instant,
     cancellation: &Cancellation,
     waits: &ClientWaits,
-    kind: octocode_contract_types::ClientWaitKind,
+    kind: octocode_contract_base::ClientWaitKind,
 ) -> Result<OwnedSemaphorePermit, ProviderError> {
     if let Ok(permit) = semaphore.clone().try_acquire_owned() {
         return Ok(permit);

@@ -140,7 +140,7 @@ const ROUTES: &[(&str, &str)] = &[
 
 /// Download `path` from `base` into a fresh file, with every hop on `base`
 /// allowed and `limit` bytes accepted: the bytes written, or the refusal.
-async fn fetch(base: &str, path: &str, limit: u64) -> Result<Vec<u8>, String> {
+async fn fetch(base: &str, path: &str, limit: u64) -> Result<Vec<u8>, Failure> {
     let dir = tempfile::tempdir().expect("dir");
     let spool = dir.path().join("asset.download");
     let file = tokio::fs::File::create(&spool).await.expect("spool");
@@ -156,6 +156,8 @@ async fn fetch(base: &str, path: &str, limit: u64) -> Result<Vec<u8>, String> {
 /// A redirect is followed to the asset; every hop is checked, so a redirect
 /// off the allowed hosts is refused, and one without a target, a loop, an
 /// error status or an asset over the limit fails without writing past it.
+/// Each failure states its cause: a host or a size the install does not
+/// trust is refused, a release host that misanswers is the provider's.
 #[tokio::test(flavor = "current_thread")]
 async fn a_download_follows_allowed_redirects_and_refuses_the_rest() {
     let base = release_host(ROUTES);
@@ -171,16 +173,34 @@ async fn a_download_follows_allowed_redirects_and_refuses_the_rest() {
         let base = base.clone();
         async move { fetch(&base, path, limit).await.expect_err(path) }
     };
-    assert!(refused("/away", 1024).await.contains("elsewhere.example"));
-    assert!(refused("/nowhere", 1024).await.contains("Location"));
-    assert!(refused("/loop", 1024).await.contains("redirects"));
-    assert!(refused("/missing", 1024).await.contains("404"));
-    assert!(
-        refused("/claims-huge", 1024)
-            .await
-            .contains("Content-Length")
-    );
-    assert!(refused("/streams-long", 4).await.contains("limit"));
+    let cases = [
+        (
+            "/away",
+            1024,
+            "elsewhere.example",
+            ErrorCode::SecurityValidationFailed,
+        ),
+        ("/nowhere", 1024, "Location", ErrorCode::ProviderError),
+        ("/loop", 1024, "redirects", ErrorCode::ProviderError),
+        ("/missing", 1024, "404", ErrorCode::HttpStatus),
+        (
+            "/claims-huge",
+            1024,
+            "Content-Length",
+            ErrorCode::SecurityValidationFailed,
+        ),
+        (
+            "/streams-long",
+            4,
+            "limit",
+            ErrorCode::SecurityValidationFailed,
+        ),
+    ];
+    for (path, limit, reason, code) in cases {
+        let failure = refused(path, limit).await;
+        assert!(failure.message.contains(reason), "{path}: {failure:?}");
+        assert_eq!(failure.code, code, "{path}: {failure:?}");
+    }
 }
 
 /// Production's hop check is the release allowlist: a plain-HTTP first hop
@@ -194,5 +214,6 @@ async fn the_allowlist_refuses_a_plain_http_first_hop() {
     let error = super::download::fetch_allowlisted("http://github.com/asset", file, u64::MAX)
         .await
         .expect_err("plain http");
-    assert!(error.contains("github.com"), "{error}");
+    assert!(error.message.contains("github.com"), "{error:?}");
+    assert_eq!(error.code, ErrorCode::SecurityValidationFailed);
 }

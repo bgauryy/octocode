@@ -1,7 +1,10 @@
 //! What every walking tool's scope reaches and discloses alike.
+use octocode_runtime_base::execution::cancel::NeverCancel;
+use serde_json::json;
 
 use super::*;
 use octocode_contract_types::AstSearchQuery;
+use octocode_test_support::json_fixture;
 
 /// An `include` glob that names a default-excluded directory (`build/*.ts`)
 /// asks for its files: every tool with `include` walks into it, with no
@@ -19,7 +22,7 @@ fn an_include_naming_a_default_excluded_directory_reaches_it_in_every_tool() {
     {
         let label = describe(&tool, scenario);
         let mut query = (tool.query)(&root.0);
-        query["include"] = json!(["build/*.ts"]);
+        query["include"] = json_fixture(r#"["build/*.ts"]"#);
         let out = (tool.run)(&root.0, &query);
         assert!(
             (tool.found)(&out),
@@ -38,14 +41,28 @@ fn a_generated_file_is_default_excluded_by_every_searching_tool() {
     std::fs::write(root.0.join("visible.md"), "nothing here\n").expect("visible");
     std::fs::write(root.0.join("app.min.js"), "function needle() {}\n").expect("generated");
     let searches = [
-        (local_search(), json!({"matchString": ["needle"]})),
+        (
+            local_search(),
+            json_fixture(r#"{"matchString": ["needle"]}"#),
+        ),
         (
             ast_match(),
-            json!({"operation": "match", "parser": "javascript", "rule": {"pattern": "function needle() {}"}}),
+            json_fixture(
+                r#"{
+                    "operation": "match",
+                    "parser": "javascript",
+                    "rule": {"pattern": "function needle() {}"}
+                }"#,
+            ),
         ),
         (
             ast_symbols(),
-            json!({"operation": "symbols", "symbolFilter": {"terms":["needle"],"mode":"exact"}}),
+            json_fixture(
+                r#"{
+                    "operation": "symbols",
+                    "symbolFilter": {"terms": ["needle"], "mode": "exact"}
+                }"#,
+            ),
         ),
     ];
     for (tool, fields) in searches {
@@ -76,7 +93,10 @@ fn a_generated_file_is_default_excluded_by_every_searching_tool() {
         );
     }
     let listing = structure("files", &FLAGGED);
-    let out = (listing.run)(&root.0, &row(&root.0, json!({"operation": "files"})));
+    let out = (listing.run)(
+        &root.0,
+        &row(&root.0, json_fixture(r#"{"operation": "files"}"#)),
+    );
     assert!(out.to_string().contains("app.min.js"), "inventory: {out}");
 }
 
@@ -93,14 +113,14 @@ fn an_include_naming_a_generated_file_exactly_reads_it() {
         if tool.name == "astSearch match" {
             query["parser"] = json!("javascript");
         }
-        query["include"] = json!(["app.min.js"]);
+        query["include"] = json_fixture(r#"["app.min.js"]"#);
         let out = (tool.run)(&root.0, &query);
         assert!(
             (tool.found)(&out),
             "{}: exact include did not lift the default: {out}",
             tool.name
         );
-        query["include"] = json!(["*.js"]);
+        query["include"] = json_fixture(r#"["*.js"]"#);
         let out = (tool.run)(&root.0, &query);
         assert!(
             !(tool.found)(&out),
@@ -115,12 +135,18 @@ fn an_include_naming_a_generated_file_exactly_reads_it() {
 /// a `.toml` builds it once.
 #[test]
 fn an_ast_match_builds_the_file_type_table_only_for_a_passed_over_file() {
-    use crate::tools::leads::unparsed::TABLE_BUILDS;
+    use octocode_tools_shared::leads::unparsed::TABLE_BUILDS;
     let root = Fixture::new();
     std::fs::write(root.0.join("a.rs"), "fn needle() {}\n").expect("source");
     let query = row(
         &root.0,
-        json!({"operation": "match", "parser": "rust", "rule": {"pattern": "fn needle() {}"}}),
+        json_fixture(
+            r#"{
+                "operation": "match",
+                "parser": "rust",
+                "rule": {"pattern": "fn needle() {}"}
+            }"#,
+        ),
     );
     TABLE_BUILDS.with(|builds| builds.set(0));
     let out = run_ast(&root.0, &query);
@@ -138,8 +164,11 @@ fn a_parent_glob_is_warned_of_in_every_tool() {
     let root = Fixture::new();
     std::fs::create_dir_all(root.0.join("src")).expect("src");
     std::fs::write(root.0.join("src/lib.ts"), "function needle() {}\n").expect("source");
-    let expected = crate::policy::include::parent_glob_warning(&["../src/*.ts".to_owned()], &[])
-        .expect("warning");
+    let expected = octocode_runtime_base::policy::include::parent_glob_warning(
+        &["../src/*.ts".to_owned()],
+        &[],
+    )
+    .expect("warning");
     for tool in tools() {
         let mut query = (tool.query)(&root.0);
         let field = if tool.name == "astSearch symbols" {
@@ -147,11 +176,14 @@ fn a_parent_glob_is_warned_of_in_every_tool() {
         } else {
             "include"
         };
-        query[field] = json!(["../src/*.ts"]);
+        query[field] = json_fixture(r#"["../src/*.ts"]"#);
         let out = (tool.run)(&root.0, &query);
         let expected = if field == "exclude" {
-            crate::policy::include::parent_glob_warning(&[], &["../src/*.ts".to_owned()])
-                .expect("warning")
+            octocode_runtime_base::policy::include::parent_glob_warning(
+                &[],
+                &["../src/*.ts".to_owned()],
+            )
+            .expect("warning")
         } else {
             expected.clone()
         };
@@ -178,7 +210,13 @@ fn ast_search_admits_a_source_the_same_as_a_file_and_in_a_directory() {
             &root.0,
             &row(
                 path,
-                json!({"operation": "match", "parser": "javascript", "rule": {"pattern": "function needle() {}"}}),
+                json_fixture(
+                    r#"{
+                        "operation": "match",
+                        "parser": "javascript",
+                        "rule": {"pattern": "function needle() {}"}
+                    }"#,
+                ),
             ),
         );
         out["matchCount"].as_u64().unwrap_or(0)
@@ -191,13 +229,25 @@ fn ast_search_admits_a_source_the_same_as_a_file_and_in_a_directory() {
     );
     let query: AstSearchQuery = serde_json::from_value(row(
         &root.0.join("blob.js"),
-        json!({"operation": "match", "parser": "javascript", "rule": {"pattern": "function needle() {}"}}),
+        json_fixture(
+            r#"{
+                "operation": "match",
+                "parser": "javascript",
+                "rule": {"pattern": "function needle() {}"}
+            }"#,
+        ),
     ))
     .expect("query");
     let (paths, security) = simple_policy(&root.0);
-    let error =
-        crate::tools::ast_search::execute_ast(&query, &paths, &security, &NeverCancel, None)
-            .expect_err("binary");
+    let error = octocode_tool_ast::ast_search::execute_ast(
+        octocode_runtime_base::test_support::BUILD_IDENTITY,
+        &query,
+        &paths,
+        &security,
+        &NeverCancel,
+        None,
+    )
+    .expect_err("binary");
     assert_eq!(
         error.code,
         octocode_contract_types::ErrorCode::BinaryFileUnsupported
@@ -215,7 +265,13 @@ fn ast_search_admits_a_source_the_same_as_a_file_and_in_a_directory() {
             &root.0,
             &row(
                 &path,
-                json!({"operation": "match", "parser": "javascript", "rule": {"pattern": "function needle() {}"}}),
+                json_fixture(
+                    r#"{
+                        "operation": "match",
+                        "parser": "javascript",
+                        "rule": {"pattern": "function needle() {}"}
+                    }"#,
+                ),
             ),
         );
         assert_eq!(out["matchCount"], 1, "Latin-1 at {path:?}: {out}");
@@ -242,18 +298,15 @@ fn every_tool_discloses_unchecked_scope_and_offers_an_executable_related_search(
                 || prose(&out).contains("node_modules"),
             "{label}: skipped directory undisclosed: {out}"
         );
-        let out = crate::tools::empty_walk::with_probe_limits(
-            crate::tools::empty_walk::CUT_AT_ONCE,
+        let out = octocode_tools_shared::empty_walk::with_probe_limits(
+            octocode_tools_shared::empty_walk::CUT_AT_ONCE,
             || (tool.run)(&root.0, &query),
         );
         assert!(
             out.get("partialReasons").is_none() && out["isPartial"] != json!(true),
             "{label}: the requested scope was walked whole: {out}"
         );
-        assert!(
-            prose(&out).contains("not checked within the probe budget"),
-            "{label}: {out}"
-        );
+        assert!(prose(&out).contains("were not searched"), "{label}: {out}");
         let lead = skipped_query(&out).unwrap_or_else(|| panic!("{label}: {out}"));
         assert_eq!(lead["defaultExcludes"], json!(false), "{label}: {lead}");
     }

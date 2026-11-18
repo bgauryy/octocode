@@ -1,4 +1,6 @@
 use crate::support::{Workspace, call, row_data, row_status};
+use octocode_test_support::json_fixture;
+use octocode_test_support::mock_http::mount_folder_tree;
 use serde_json::json;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -14,33 +16,45 @@ async fn gh_file_read_of_a_missing_path_recovers_to_what_exists() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": sha})))
         .mount(&server)
         .await;
-    let listing = |entries: serde_json::Value| ResponseTemplate::new(200).set_body_json(entries);
     for (dir, entries) in [
         (
             "",
-            json!([
-                {"name":"tokio","path":"tokio","type":"dir"},
-                {"name":"README.md","path":"README.md","type":"file","size":3,"sha":"1"}
-            ]),
+            json_fixture(
+                r#"[
+                    {"name": "tokio", "path": "tokio", "type": "dir"},
+                    {
+                        "name": "README.md",
+                        "path": "README.md",
+                        "type": "file",
+                        "size": 3,
+                        "sha": "1"
+                    }
+                ]"#,
+            ),
         ),
         (
-            "/tokio",
-            json!([{"name":"src","path":"tokio/src","type":"dir"}]),
+            "tokio",
+            json_fixture(r#"[{"name": "src", "path": "tokio/src", "type": "dir"}]"#),
         ),
         (
-            "/tokio%2Fsrc",
-            json!([
-                {"name":"lib.rs","path":"tokio/src/lib.rs","type":"file","size":3,"sha":"2"}
-            ]),
+            "tokio/src",
+            json_fixture(
+                r#"[
+                    {
+                        "name": "lib.rs",
+                        "path": "tokio/src/lib.rs",
+                        "type": "file",
+                        "size": 3,
+                        "sha": "2"
+                    }
+                ]"#,
+            ),
         ),
     ] {
-        Mock::given(method("GET"))
-            .and(path(format!("/api/v3/repos/a/b/contents{dir}")))
-            .respond_with(listing(entries))
-            .mount(&server)
-            .await;
+        mount_folder_tree(&server, "/api/v3/repos/a/b", sha, dir, &entries).await;
     }
-    let not_found = || ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"}));
+    let not_found =
+        || ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#));
     for missing in [
         "Tokio%2Fsrc%2Flib.rs",
         "Tokio%2Fsrc",
@@ -131,21 +145,20 @@ async fn gh_structure_of_a_missing_path_recovers_to_the_nearest_directory() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": sha})))
         .mount(&server)
         .await;
-    let listing = |entries: serde_json::Value| ResponseTemplate::new(200).set_body_json(entries);
     for (dir, entries) in [
-        ("", json!([{"name":"src","path":"src","type":"dir"}])),
         (
-            "/src",
-            json!([{"name":"Tools","path":"src/Tools","type":"dir"}]),
+            "",
+            json_fixture(r#"[{"name": "src", "path": "src", "type": "dir"}]"#),
+        ),
+        (
+            "src",
+            json_fixture(r#"[{"name": "Tools", "path": "src/Tools", "type": "dir"}]"#),
         ),
     ] {
-        Mock::given(method("GET"))
-            .and(path(format!("/api/v3/repos/a/b/contents{dir}")))
-            .respond_with(listing(entries))
-            .mount(&server)
-            .await;
+        mount_folder_tree(&server, "/api/v3/repos/a/b", sha, dir, &entries).await;
     }
-    let not_found = || ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"}));
+    let not_found =
+        || ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#));
     for missing in [
         "src%2Fnope",
         "src%2Ftools",
@@ -221,7 +234,7 @@ async fn gh_structure_of_a_missing_path_recovers_to_the_nearest_directory() {
     runtime.close().await;
 }
 
-/// A missing path is located by listing its parent first, matching
+/// A missing path is located by reading its parent's tree first, matching
 /// case-insensitively there, and walking up only while a parent is missing:
 /// the commit's recursive tree (194 MB on next.js) is never read. The leads
 /// are the ones the tree gave: the case-corrected file, else the deepest
@@ -237,6 +250,7 @@ async fn a_missing_path_is_located_from_its_parent_listing_without_the_tree() {
         .await;
     Mock::given(method("GET"))
         .and(path(format!("/api/v3/repos/a/b/git/trees/{sha}")))
+        .and(wiremock::matchers::query_param("recursive", "1"))
         .respond_with(ResponseTemplate::new(500))
         .expect(0)
         .mount(&server)
@@ -244,28 +258,46 @@ async fn a_missing_path_is_located_from_its_parent_listing_without_the_tree() {
     for (dir, entries) in [
         (
             "",
-            json!([
-                {"name":"tokio","path":"tokio","type":"dir"},
-                {"name":"README.md","path":"README.md","type":"file","size":3,"sha":"1"}
-            ]),
+            json_fixture(
+                r#"[
+                    {"name": "tokio", "path": "tokio", "type": "dir"},
+                    {
+                        "name": "README.md",
+                        "path": "README.md",
+                        "type": "file",
+                        "size": 3,
+                        "sha": "1"
+                    }
+                ]"#,
+            ),
         ),
         (
-            "/tokio",
-            json!([{"name":"src","path":"tokio/src","type":"dir"}]),
+            "tokio",
+            json_fixture(r#"[{"name": "src", "path": "tokio/src", "type": "dir"}]"#),
         ),
         (
-            "/tokio%2Fsrc",
-            json!([
-                {"name":"lib.rs","path":"tokio/src/lib.rs","type":"file","size":3,"sha":"2"},
-                {"name":"link.rs","path":"tokio/src/link.rs","type":"symlink","size":6,"sha":"3"}
-            ]),
+            "tokio/src",
+            json_fixture(
+                r#"[
+                    {
+                        "name": "lib.rs",
+                        "path": "tokio/src/lib.rs",
+                        "type": "file",
+                        "size": 3,
+                        "sha": "2"
+                    },
+                    {
+                        "name": "link.rs",
+                        "path": "tokio/src/link.rs",
+                        "type": "symlink",
+                        "size": 6,
+                        "sha": "3"
+                    }
+                ]"#,
+            ),
         ),
     ] {
-        Mock::given(method("GET"))
-            .and(path(format!("/api/v3/repos/a/b/contents{dir}")))
-            .respond_with(ResponseTemplate::new(200).set_body_json(entries))
-            .mount(&server)
-            .await;
+        mount_folder_tree(&server, "/api/v3/repos/a/b", sha, dir, &entries).await;
     }
     for missing in [
         "Tokio%2Fsrc%2Flib.rs",
@@ -275,7 +307,10 @@ async fn a_missing_path_is_located_from_its_parent_listing_without_the_tree() {
     ] {
         Mock::given(method("GET"))
             .and(path(format!("/api/v3/repos/a/b/contents/{missing}")))
-            .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
+            .respond_with(
+                ResponseTemplate::new(404)
+                    .set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
+            )
             .mount(&server)
             .await;
     }
@@ -306,19 +341,18 @@ async fn a_missing_path_is_located_from_its_parent_listing_without_the_tree() {
         "tokio/src",
         "{data}"
     );
-    // The parent exists: its one listing locates the file, nothing above it.
+    // The parent exists: its own tree locates the file, nothing above it is
+    // read, and no Contents listing is sent.
+    let parent = format!("/api/v3/repos/a/b/git/trees/{sha}:tokio%2Fsrc");
     let listed = server.received_requests().await.unwrap_or_default()[before..]
         .iter()
         .map(|request| request.url.path().to_owned())
-        .filter(|path| path.starts_with("/api/v3/repos/a/b/contents") && !path.ends_with("nope.rs"))
+        .filter(|path| {
+            (path.contains("/contents") || path.contains("/git/trees/"))
+                && !path.ends_with("nope.rs")
+        })
         .collect::<Vec<_>>();
-    assert!(
-        listed.len() <= 1
-            && listed
-                .iter()
-                .all(|path| path == "/api/v3/repos/a/b/contents/tokio%2Fsrc"),
-        "{listed:?}"
-    );
+    assert!(listed.iter().all(|path| *path == parent), "{listed:?}");
     runtime.close().await;
     server.verify().await;
 }

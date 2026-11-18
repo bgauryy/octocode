@@ -15,8 +15,6 @@ use crate::types::{FileSystemQueryOptions, GraphFactsScanDiagnostic, GraphFactsS
 mod evaluate;
 use crate::signatures::languages::RegistryView;
 use crate::text::analysis::{AnalysisOperation, MapLimits};
-#[cfg(test)]
-use evaluate::evaluate_walk;
 pub use evaluate::{DECODED, PANICKED, SOURCE_BUDGET_EXCEEDED, over_budget_message, panicked};
 pub use memory::{FileHold, Refusal, ScanMemory};
 
@@ -127,7 +125,7 @@ pub fn parser_overrides_with_registry(
 ) -> Result<Vec<ParserOverride>, GraphScanError> {
     if rules.unwrap_or_default().len() > 400 {
         return Err(GraphScanError::InvalidGlob(
-            "languageGlobs exceeds 400 patterns".into(),
+            "parserGlobs exceeds 400 patterns".into(),
         ));
     }
     rules
@@ -144,12 +142,12 @@ pub fn parser_overrides_with_registry(
                 .and_then(|entry| entry.extensions().first())
                 .ok_or_else(|| {
                     GraphScanError::UnsupportedLanguage(format!(
-                        "languageGlobs key {:?} must select one registered grammar",
+                        "parserGlobs key {:?} must select one registered grammar",
                         rule.language
                     ))
                 })?;
             let matcher =
-                crate::search::glob::set(root, [rule.glob.as_str()].into_iter(), "languageGlobs")
+                crate::search::glob::set(root, [rule.glob.as_str()].into_iter(), "parserGlobs")
                     .map_err(|error| GraphScanError::InvalidGlob(error.reason))?
                     .unwrap_or_else(Gitignore::empty);
             Ok(((*extension).to_owned(), matcher))

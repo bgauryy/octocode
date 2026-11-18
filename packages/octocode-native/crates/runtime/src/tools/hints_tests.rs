@@ -5,9 +5,10 @@
 //! in owns it. An `errorCode` gets the shared recovery on every tool unless
 //! [`OVERRIDES`] names the tool and why its own text (or none) fits better.
 
+use crate::runtime::tool_output::ToolOutputOf;
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::id::{ToolId, error_codes};
+use octocode_runtime_base::id::{ToolId, error_codes};
 use serde_json::Value;
 
 mod scan;
@@ -17,6 +18,7 @@ mod scan;
 /// the row's message and leads already say it all.
 /// One `tool code: reason` per line.
 const OVERRIDES: &str = "\
+artifactSearch notFound: names packageName and ecosystem as the registry spells them; the shared hint is about paths
 astSearch fileTooLarge: the row's own hint and lead name only readers that serve the file's length
 astSearch invalidPattern: names the pattern/rule shape and the syntaxTree check
 astSearch languageUnsupported: names when parser applies, beside the text fallbacks
@@ -33,6 +35,7 @@ lspSearch requestFailed: names the retryable flag and the source fallback
 lspSearch serverCrashed: a crash restarts the server; a memory kill repeats
 lspSearch serverUnavailable: depends on operation and path; names the server setup
 lspSearch timeout: the first call cold-starts the language server
+securityCheck notFound: names the package, advisory id or repository as its database writes it; the shared hint is about paths
 ";
 
 /// The `(tool, code, reason)` rows of [`OVERRIDES`].
@@ -51,9 +54,12 @@ fn recoveries() -> BTreeMap<&'static str, Vec<(ToolId, &'static str)>> {
         let texts = ToolId::ALL
             .into_iter()
             .map(|tool| {
-                let text =
-                    crate::response::rows::error_code_hint(tool.output(), code, &Value::Null)
-                        .unwrap_or_default();
+                let text = octocode_runtime_base::response::rows::error_code_hint(
+                    tool.output(),
+                    code,
+                    &Value::Null,
+                )
+                .unwrap_or_default();
                 (tool, text)
             })
             .collect::<Vec<_>>();
@@ -133,11 +139,16 @@ fn wording(text: &str) -> String {
     out.trim().to_owned()
 }
 
+/// The sources whose hints the scans read: every crate of the runtime,
+/// `octocode-runtime-base` included, where `response/` owns the hint writers.
+fn source_roots() -> Vec<std::path::PathBuf> {
+    octocode_runtime_base::test_support::runtime_crate_sources()
+}
+
 #[test]
 fn one_hint_wording_is_written_at_one_site() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut sites = BTreeMap::<String, Vec<scan::Template>>::new();
-    for template in scan::templates(&root) {
+    for template in source_roots().iter().flat_map(|root| scan::templates(root)) {
         let wording = wording(&template.text);
         if wording.split(' ').count() > 3 {
             sites.entry(wording).or_default().push(template);
@@ -160,8 +171,10 @@ fn one_hint_wording_is_written_at_one_site() {
 
 #[test]
 fn hints_partial_and_continue_are_written_only_by_their_owners() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let raw = scan::raw_writes(&root);
+    let raw = source_roots()
+        .iter()
+        .flat_map(|root| scan::raw_writes(root))
+        .collect::<Vec<_>>();
     assert!(
         raw.is_empty(),
         "hints, isPartial and \"kind\":\"continue\" are written by their owners in response/ \

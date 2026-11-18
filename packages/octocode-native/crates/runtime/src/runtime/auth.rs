@@ -2,14 +2,14 @@
 //! a login does (refresh, keep a live credential, or run the device flow),
 //! the token status check, and logout. These decide; interfaces print.
 use super::ToolRuntime;
-use crate::providers::github::login::{self, TokenCheck};
-use crate::providers::github::{
-    AuthMode, AuthSelection, Authentication, CredentialStore, StoredCredentials,
-    configured_credential_host,
-};
 use octocode_contract_types::ErrorCode;
 use octocode_github::ProviderError;
 use octocode_io::budget::RequestBudget;
+use octocode_runtime_base::providers::github::login::{self, TokenCheck};
+use octocode_runtime_base::providers::github::{
+    AuthMode, AuthSelection, Authentication, CredentialStore, StoredCredentials,
+    configured_credential_host,
+};
 use std::time::Duration;
 
 /// How long a status check waits for credential resolution and for GitHub.
@@ -156,7 +156,7 @@ impl ToolRuntime {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map_or_else(|| self.github_credential_host(), str::to_owned);
-        let variable = crate::config::environment::OCTOCODE_GITHUB_CLIENT_ID;
+        let variable = octocode_runtime_base::config::environment::OCTOCODE_GITHUB_CLIENT_ID;
         let client_id = login::client_id_for_host(&host, self.config().env_value(variable));
         if client_id.is_empty() {
             return Err((
@@ -195,7 +195,7 @@ impl ToolRuntime {
             .config()
             .token
             .as_ref()
-            .map(crate::config::PrivateTokenSelection::source)
+            .map(octocode_runtime_base::config::PrivateTokenSelection::source)
             .and_then(|source| source.strip_prefix("env:"))
             .map(str::to_owned);
         LoginPlan::DeviceFlow { env_override }

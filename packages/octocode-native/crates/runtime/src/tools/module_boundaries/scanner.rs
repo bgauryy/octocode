@@ -172,14 +172,16 @@ pub(super) fn named_paths(code: &str, module: &[String]) -> Vec<Vec<String>> {
     found
 }
 
-/// The `tools/` modules a production source of `module` reaches.
+/// The top-level modules (the first segment of each absolute path) a
+/// production source of `module` reaches; a path rooted elsewhere names its
+/// extern crate.
 pub(super) fn imported_modules(source: &str, module: &[String]) -> BTreeSet<String> {
-    let code =
-        crate::tools::test_support::code_only(&crate::tools::test_support::production_text(source));
+    let code = octocode_runtime_base::test_support::code_only(
+        &octocode_runtime_base::test_support::production_text(source),
+    );
     named_paths(&code, module)
         .into_iter()
-        .filter(|path| path.first().is_some_and(|root| root == "tools"))
-        .filter_map(|path| path.get(1).cloned())
+        .filter_map(|path| path.into_iter().next())
         .collect()
 }
 
@@ -187,8 +189,9 @@ pub(super) fn imported_modules(source: &str, module: &[String]) -> BTreeSet<Stri
 /// `static`, `struct`, `enum`, `trait`, `type`), from its production code:
 /// the names a path into that module may end on instead of a submodule.
 pub(super) fn root_items(source: &str) -> BTreeSet<String> {
-    let code =
-        crate::tools::test_support::code_only(&crate::tools::test_support::production_text(source));
+    let code = octocode_runtime_base::test_support::code_only(
+        &octocode_runtime_base::test_support::production_text(source),
+    );
     let tokens = tokens(&code);
     let mut depth = 0usize;
     let mut items = BTreeSet::new();
@@ -213,19 +216,18 @@ pub(super) fn root_items(source: &str) -> BTreeSet<String> {
     items
 }
 
-/// The module path of a source file under `tools_dir`: `x/y.rs` is
-/// `tools::x::y`, `x.rs` is `tools::x`.
-pub(super) fn module_of(tools_dir: &Path, path: &Path) -> Vec<String> {
-    // `tools.rs` itself sits beside `tools/`: it is `tools`.
-    let relative = path.strip_prefix(tools_dir).unwrap_or(Path::new(""));
-    let mut module = vec!["tools".to_owned()];
-    module.extend(
-        relative
-            .with_extension("")
-            .components()
-            .map(|part| part.as_os_str().to_string_lossy().into_owned()),
-    );
-    module
+/// The module path of a source file under its crate's `src`: `x/y.rs` is
+/// `x::y`, `x.rs` is `x`, and the crate root `lib.rs` is the empty path.
+pub(super) fn module_of(src: &Path, path: &Path) -> Vec<String> {
+    let relative = path.strip_prefix(src).unwrap_or(Path::new(""));
+    if relative == Path::new("lib.rs") {
+        return Vec::new();
+    }
+    relative
+        .with_extension("")
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy().into_owned())
+        .collect()
 }
 
 /// Every spelling Rust accepts for a path into another module resolves to
@@ -234,30 +236,22 @@ pub(super) fn module_of(tools_dir: &Path, path: &Path) -> Vec<String> {
 /// test-only items name nothing.
 #[test]
 fn the_scanner_resolves_every_import_form() {
-    let tools = Path::new("/src/tools");
-    let module = |file: &str| module_of(tools, &tools.join(file));
+    let src = Path::new("/src");
+    let module = |file: &str| module_of(src, &src.join(file));
     let reached = |file: &str, source: &str| {
         imported_modules(source, &module(file))
             .into_iter()
             .collect::<Vec<_>>()
     };
-    assert_eq!(module("local_search.rs"), ["tools", "local_search"]);
-    assert_eq!(
-        module("local_search/a/b.rs"),
-        ["tools", "local_search", "a", "b"]
-    );
+    assert!(module("lib.rs").is_empty());
+    assert_eq!(module("local_search.rs"), ["local_search"]);
+    assert_eq!(module("local_search/a/b.rs"), ["local_search", "a", "b"]);
     for (file, source) in [
         ("local_search.rs", "use super::local_fetch::A;"),
-        ("local_search.rs", "use crate::{tools::local_fetch::A};"),
-        (
-            "local_search.rs",
-            "use crate::tools::{local_fetch::{A, B}};",
-        ),
+        ("local_search.rs", "use crate::{local_fetch::A};"),
+        ("local_search.rs", "use crate::{local_fetch::{A, B}};"),
         ("local_search.rs", "fn f() { super::local_fetch::x(); }"),
-        (
-            "local_search.rs",
-            "fn f() { crate::tools::local_fetch::x(); }",
-        ),
+        ("local_search.rs", "fn f() { crate::local_fetch::x(); }"),
         ("local_search/a.rs", "use super::super::local_fetch::A;"),
         (
             "local_search/a/b.rs",
@@ -265,20 +259,17 @@ fn the_scanner_resolves_every_import_form() {
         ),
         (
             "local_search.rs",
-            "use crate::tools;\nfn f() { tools::local_fetch::x(); }",
+            "use crate::local_fetch;\nfn f() { local_fetch::x(); }",
         ),
         (
             "local_search.rs",
-            "use crate::tools as t;\nfn f() { t::local_fetch::x(); }",
+            "use crate::local_fetch as t;\nfn f() { t::x(); }",
         ),
         (
             "local_search.rs",
-            "use crate::{tools::{self as t}};\nfn f() { t::local_fetch::x(); }",
+            "use crate::{local_fetch::{self as t}};\nfn f() { t::x(); }",
         ),
-        (
-            "local_search.rs",
-            "pub(crate) use crate::tools::local_fetch::*;",
-        ),
+        ("local_search.rs", "pub(crate) use crate::local_fetch::*;"),
         (
             "local_search/a.rs",
             "use super::super::{local_fetch as fetch};\nfn f() { fetch::x(); }",
@@ -296,15 +287,15 @@ fn the_scanner_resolves_every_import_form() {
     assert_eq!(
         reached(
             "local_search.rs",
-            "use crate::tools::{id::ToolId, local_fetch::{A, B}, result};\n\
-             fn f() { crate::tools::gh_shared::x(); }"
+            "use crate::{id::ToolId, local_fetch::{A, B}, result};\n\
+             fn f() { crate::gh_shared::x(); }"
         ),
         ["gh_shared", "id", "local_fetch", "result"]
     );
-    let nothing = "// crate::tools::lsp_search::ignored\n\
+    let nothing = "// crate::lsp_search::ignored\n\
                    /* use super::clasify::x; */\n\
-                   const S: &str = \"crate::tools::clasify::y\";\n\
-                   #[cfg(test)]\nmod tests { use crate::tools::clasify::t; }\n\
+                   const S: &str = \"crate::clasify::y\";\n\
+                   #[cfg(test)]\nmod tests { use crate::clasify::t; }\n\
                    #[cfg(test)]\nfn helper() { super::clasify::z(); }\n";
     assert!(reached("local_search.rs", nothing).is_empty());
     assert_eq!(

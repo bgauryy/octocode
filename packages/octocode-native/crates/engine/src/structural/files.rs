@@ -219,11 +219,15 @@ pub(crate) fn search_files_with_budget(
         anchors: AnchorFilter::new(&prefilter).map_err(Error::new)?,
         matchers: compile_matchers(&candidate_files, select_extension, &query),
         max_file_bytes,
+        parse_budget: crate::structural::parse_budget(),
         demand,
         keep_line,
         judge: judge.as_ref(),
     };
-    let pacer = crate::scan_budget::ScanPacer::new(budget.filter(|_| timed));
+    let pacer = crate::scan_budget::ScanPacer::new(
+        budget.filter(|_| timed),
+        crate::scan_budget::WalkClock::default(),
+    );
     let (outcomes, mut scan_resume) = scan_in_chunks(&scan, &candidate_files, skip, pacer)?;
     let scan_truncated = scan_truncated || scan_resume.is_some();
     // Every cut resumes where it stopped: the walk cap of an unset

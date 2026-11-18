@@ -1,11 +1,13 @@
 use super::*;
+use crate::cli::serve::unix::daemon::request::attended;
 use crate::cli::serve::unix::frames::{
     ALIVE, BACKLOG, Backlog, Frames, PROGRESS, Pace, progress_scope,
 };
+use octocode_test_support::json_fixture;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 fn reply() -> Value {
-    json!({"exit": 0, "body": "{}", "json": true})
+    json_fixture(r#"{"exit": 0, "body": "{}", "json": true}"#)
 }
 
 /// A pace whose heartbeat never comes within a test and whose silence ends

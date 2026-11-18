@@ -1,9 +1,9 @@
 //! The isolated fixture workspace: temp root, home, token and the runtime built over them.
 
 use super::{FIXTURE_LIMITS, UNMOCKED_GITHUB_API_URL};
-use octocode_native::config::{ConfigInput, FileInput, RuntimeSurface};
-use octocode_native::execution::RuntimeLimits;
 use octocode_native::runtime::ToolRuntime;
+use octocode_runtime_base::config::{ConfigInput, FileInput, RuntimeSurface};
+use octocode_runtime_base::execution::RuntimeLimits;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -104,7 +104,7 @@ impl Workspace {
             ("GITHUB_API_URL".into(), UNMOCKED_GITHUB_API_URL.into()),
             // Fixture workspaces trust their own language-server definitions.
             (
-                octocode_native::config::field::LSP_TRUST_PROJECT_CONFIG
+                octocode_runtime_base::config::field::LSP_TRUST_PROJECT_CONFIG
                     .env_name()
                     .expect("lsp.trustProjectConfig is bound")
                     .into(),

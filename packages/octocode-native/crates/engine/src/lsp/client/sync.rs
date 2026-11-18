@@ -91,7 +91,7 @@ impl NativeLspClient {
             self.settle_ms(u64::from(settle_ms.unwrap_or(OPEN_SETTLE_MS)))
         };
         let timeout_ms = u64::from(timeout_ms.unwrap_or(OPEN_READY_TIMEOUT_MS));
-        let waiting_since = tokio::time::Instant::now();
+        let waiting_since = self.inner.clock.now();
         let readiness = self
             .inner
             .progress

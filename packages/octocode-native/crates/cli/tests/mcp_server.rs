@@ -5,12 +5,14 @@
 //! notifications.
 
 use crate::support;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use server::{Server, assert_cli_json_parity, local_search, tool_names};
 use support::Workspace;
 
 mod cancel;
 mod graph_parity;
+mod identity;
 #[cfg(unix)]
 mod prewarm;
 mod progress;
@@ -26,15 +28,22 @@ fn serves_the_2025_era_over_stdio() {
 
     let init = server.request(
         "initialize",
-        json!({"protocolVersion": "2025-11-25", "capabilities": {},
-               "clientInfo": {"name": "test", "version": "1"}}),
+        json_fixture(
+            r#"{
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": {"name": "test", "version": "1"}
+            }"#,
+        ),
     );
     let result = &init["result"];
     assert_eq!(result["serverInfo"]["name"], "octocode-mcp");
     assert_eq!(result["capabilities"]["tools"]["listChanged"], false);
     let instructions = result["instructions"].as_str().expect("instructions");
     assert!(!instructions.is_empty());
-    server.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+    server.send(&json_fixture(
+        r#"{"jsonrpc": "2.0", "method": "notifications/initialized"}"#,
+    ));
 
     let list = server.request("tools/list", json!({}));
     let names = tool_names(&list);
@@ -43,8 +52,8 @@ fn serves_the_2025_era_over_stdio() {
     // initialize serves core's composition for exactly the tools it lists.
     assert_eq!(
         instructions,
-        octocode_native::contracts::compose_instructions(
-            octocode_native::contracts::cli_presentation().expect("embedded presentation"),
+        octocode_runtime_base::contracts::compose_instructions(
+            octocode_runtime_base::contracts::cli_presentation().expect("embedded presentation"),
             |name| names.contains(&name),
         )
     );
@@ -72,7 +81,12 @@ fn serves_the_2025_era_over_stdio() {
 
     let one_value = server.request(
         "tools/call",
-        json!({"name":"localSearch","arguments":{"queries":[{"path":".","matchString":"needle"}]}}),
+        json_fixture(
+            r#"{
+                "name": "localSearch",
+                "arguments": {"queries": [{"path": ".", "matchString": "needle"}]}
+            }"#,
+        ),
     );
     assert_eq!(
         one_value["result"]["isError"], false,
@@ -80,13 +94,21 @@ fn serves_the_2025_era_over_stdio() {
     );
     let invalid = server.request(
         "tools/call",
-        json!({"name":"localSearch","arguments":{"queries":[{"path":".","needle":"needle"}]}}),
+        json_fixture(
+            r#"{
+                "name": "localSearch",
+                "arguments": {"queries": [{"path": ".", "needle": "needle"}]}
+            }"#,
+        ),
     );
     assert_eq!(
         invalid["result"]["isError"], true,
         "an unknown field stays rejected: {invalid}"
     );
-    let unlisted = server.request("tools/call", json!({"name": "noSuchTool", "arguments": {}}));
+    let unlisted = server.request(
+        "tools/call",
+        json_fixture(r#"{"name": "noSuchTool", "arguments": {}}"#),
+    );
     assert_eq!(unlisted["error"]["code"], -32602);
     assert_eq!(unlisted["error"]["message"], "Tool noSuchTool not found");
     // A tool the server knows but leaves unlisted is refused by admission
@@ -95,7 +117,12 @@ fn serves_the_2025_era_over_stdio() {
     assert!(!names.contains(&"ghCloneRepo"), "{names:?}");
     let gated = server.request(
         "tools/call",
-        json!({"name": "ghCloneRepo", "arguments": {"queries": [{"owner": "o", "repo": "r"}]}}),
+        json_fixture(
+            r#"{
+                "name": "ghCloneRepo",
+                "arguments": {"queries": [{"owner": "o", "repo": "r"}]}
+            }"#,
+        ),
     );
     assert!(gated.get("error").is_none(), "{gated}");
     assert_eq!(gated["result"]["isError"], true, "{gated}");
@@ -118,21 +145,34 @@ fn every_result_shape_sends_json_once_and_matches_cli() {
     let mut server = Server::start(&workspace);
     server.request(
         "initialize",
-        json!({"protocolVersion": "2025-11-25", "capabilities": {},
-               "clientInfo": {"name": "test", "version": "1"}}),
+        json_fixture(
+            r#"{
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": {"name": "test", "version": "1"}
+            }"#,
+        ),
     );
-    server.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+    server.send(&json_fixture(
+        r#"{"jsonrpc": "2.0", "method": "notifications/initialized"}"#,
+    ));
 
     for (tool, input) in [
-        ("localFetch", json!({"queries":[{"path":"a.txt"}]})),
         (
             "localFetch",
-            json!({"queries":[{"path":"a.txt"},{"path":"missing.txt"}]}),
+            json_fixture(r#"{"queries": [{"path": "a.txt"}]}"#),
         ),
-        ("localFetch", json!({"queries":[{"path":"missing.txt"}]})),
         (
             "localFetch",
-            json!({"queries":[{"path":"a.txt","matchstring":"x"}]}),
+            json_fixture(r#"{"queries": [{"path": "a.txt"}, {"path": "missing.txt"}]}"#),
+        ),
+        (
+            "localFetch",
+            json_fixture(r#"{"queries": [{"path": "missing.txt"}]}"#),
+        ),
+        (
+            "localFetch",
+            json_fixture(r#"{"queries": [{"path": "a.txt", "matchstring": "x"}]}"#),
         ),
     ] {
         assert_cli_json_parity(&workspace, &mut server, tool, input);
@@ -141,7 +181,15 @@ fn every_result_shape_sends_json_once_and_matches_cli() {
     // same-fixture projection test in cli/output.rs pins its exact bytes.
     let paged = server.request(
         "tools/call",
-        json!({"name":"localSearch","arguments":{"queries":[{"path":"a.txt","matchString":["needle"]}],"responseChars":900}}),
+        json_fixture(
+            r#"{
+                "name": "localSearch",
+                "arguments": {
+                    "queries": [{"path": "a.txt", "matchString": ["needle"]}],
+                    "responseChars": 900
+                }
+            }"#,
+        ),
     );
     assert!(
         paged["result"].get("structuredContent").is_none(),
@@ -161,11 +209,13 @@ fn serves_the_2026_era_over_stdio() {
     let workspace = Workspace::new();
     std::fs::write(workspace.workspace.join("a.txt"), "beta needle\n").unwrap();
     let mut server = Server::start(&workspace);
-    let meta = json!({
-        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-        "io.modelcontextprotocol/clientCapabilities": {},
-        "io.modelcontextprotocol/clientInfo": {"name": "test", "version": "1"},
-    });
+    let meta = json_fixture(
+        r#"{
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {},
+            "io.modelcontextprotocol/clientInfo": {"name": "test", "version": "1"}
+        }"#,
+    );
 
     let discover = server.request("server/discover", json!({"_meta": meta}));
     let result = &discover["result"];
@@ -216,15 +266,22 @@ fn the_tool_flow_is_readable_as_a_resource() {
     let mut server = Server::start(&workspace);
     let init = server.request(
         "initialize",
-        json!({"protocolVersion": "2025-11-25", "capabilities": {},
-               "clientInfo": {"name": "test", "version": "1"}}),
+        json_fixture(
+            r#"{
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": {"name": "test", "version": "1"}
+            }"#,
+        ),
     );
     assert!(
         init["result"]["capabilities"]["resources"].is_object(),
         "{init}"
     );
     let uri = "octocode://research/tool-flow";
-    server.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+    server.send(&json_fixture(
+        r#"{"jsonrpc": "2.0", "method": "notifications/initialized"}"#,
+    ));
     let listed = server.request("resources/list", json!({}));
     let listed_uris: Vec<&str> = listed["result"]["resources"]
         .as_array()
@@ -281,7 +338,10 @@ fn the_tool_flow_is_readable_as_a_resource() {
         read_uris.push(current);
     }
     assert!(read_uris.len() > 1, "the tool flow links no reference");
-    let unknown = server.request("resources/read", json!({"uri": "octocode://nope"}));
+    let unknown = server.request(
+        "resources/read",
+        json_fixture(r#"{"uri": "octocode://nope"}"#),
+    );
     assert!(unknown["error"].is_object(), "{unknown}");
     assert!(server.finish().success());
 }
@@ -300,14 +360,21 @@ fn a_rejected_call_leaves_the_server_serving() {
     let mut server = Server::start(&workspace);
     server.request(
         "initialize",
-        json!({"protocolVersion": "2025-11-25", "capabilities": {},
-               "clientInfo": {"name": "test", "version": "1"}}),
+        json_fixture(
+            r#"{
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": {"name": "test", "version": "1"}
+            }"#,
+        ),
     );
-    server.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+    server.send(&json_fixture(
+        r#"{"jsonrpc": "2.0", "method": "notifications/initialized"}"#,
+    ));
 
     let empty = server.request(
         "tools/call",
-        json!({"name": "localSearch", "arguments": {"queries": []}}),
+        json_fixture(r#"{"name": "localSearch", "arguments": {"queries": []}}"#),
     );
     assert_eq!(empty["result"]["isError"], true, "{empty}");
     assert_eq!(server.request("ping", json!({}))["result"], json!({}));
@@ -316,7 +383,12 @@ fn a_rejected_call_leaves_the_server_serving() {
     // unknown method: the error says what to send.
     let listed = server.request(
         "tools/call",
-        json!({"name": "localSearch", "arguments": [{"matchString": ["x"], "path": "."}]}),
+        json_fixture(
+            r#"{
+                "name": "localSearch",
+                "arguments": [{"matchString": ["x"], "path": "."}]
+            }"#,
+        ),
     );
     assert_eq!(listed["error"]["code"], -32602, "{listed}");
     let message = listed["error"]["message"].as_str().expect("message");

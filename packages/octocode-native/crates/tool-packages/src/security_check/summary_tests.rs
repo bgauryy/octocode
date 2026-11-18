@@ -1,0 +1,458 @@
+//! The summary as a projection of a finished row.
+use super::*;
+use octocode_test_support::json_fixture;
+
+fn target(_query: Value) -> Target<'static> {
+    Target {
+        asked_name: Some("lodash"),
+        asked_version: Some("4.17.20"),
+        unfixed_in_major: 0,
+        gives_verdict: true,
+        upgrade_prerelease: false,
+    }
+}
+
+fn package() -> Value {
+    json_fixture(
+        r#"{
+            "operation": "package",
+            "ecosystem": "npm",
+            "packageName": "lodash",
+            "version": "4.17.20"
+        }"#,
+    )
+}
+
+/// The whole row is the `details` view, untouched.
+#[test]
+fn details_is_the_row_as_built() {
+    let row = json_fixture(
+        r#"{
+            "answer": "x",
+            "advisories": [{"id": "A"}],
+            "sources": [{"source": "osv", "status": "found"}]
+        }"#,
+    );
+    assert_eq!(
+        apply(SecurityCheckView::Details, row.clone(), target(package())),
+        row
+    );
+}
+
+/// A source that answered is silence; one that failed, stopped early or does
+/// not cover the target is named with why, and nothing else of it.
+#[test]
+fn only_a_source_that_leaves_the_row_incomplete_is_named() {
+    let row = json_fixture(
+        r#"{
+            "affected": false,
+            "advisories": [],
+            "sources": [
+                {"source": "osv", "status": "noneKnown"},
+                {
+                    "source": "github",
+                    "status": "found",
+                    "readOn": "2026-11-11",
+                    "facts": {"repositoryAdvisories": ["GHSA-1"]}
+                }
+            ]
+        }"#,
+    );
+    let lean = apply(SecurityCheckView::Summary, row, target(package()));
+    assert!(lean.get("sources").is_none(), "{lean}");
+    for status in ["partial", "failed", "unavailable", "notCovered"] {
+        let row = json!({"isPartial": true, "sources": [
+            {"source": "osv", "status": "found"},
+            {"source": "github", "status": status, "errorCode": "rateLimited", "why": "resets at 2999",
+                "readOn": "2026-11-11", "facts": {"repositoryAdvisories": ["GHSA-1"]}},
+        ]});
+        let lean = apply(SecurityCheckView::Summary, row, target(package()));
+        assert_eq!(
+            lean["sources"],
+            json!([{"source": "github", "status": status, "errorCode": "rateLimited", "why": "resets at 2999"}]),
+            "{status}"
+        );
+        assert_eq!(lean["isPartial"], true);
+    }
+}
+
+/// A withdrawn advisory is listed and never counted; the most severe counted
+/// one gives the severity and the link, whatever the list's order.
+#[test]
+fn the_indication_counts_live_advisories_and_links_the_most_severe() {
+    let row = json_fixture(
+        r#"{
+            "affected": true,
+            "advisories": [
+                {
+                    "id": "GONE",
+                    "severity": "critical",
+                    "withdrawn": "2024-01-01T00:00:00Z",
+                    "link": "https://osv.dev/vulnerability/GONE"
+                },
+                {
+                    "id": "LOW",
+                    "severity": "low",
+                    "link": "https://osv.dev/vulnerability/LOW"
+                },
+                {
+                    "id": "WORDLESS",
+                    "source": "https://example.test/wordless"
+                },
+                {
+                    "id": "HIGH",
+                    "severity": "high",
+                    "link": "https://osv.dev/vulnerability/HIGH"
+                }
+            ]
+        }"#,
+    );
+    let mut target = target(package());
+    target.unfixed_in_major = 2;
+    let lean = apply(SecurityCheckView::Summary, row, target);
+    assert_eq!(lean["advisoryCount"], 3, "{lean}");
+    assert_eq!(lean["highestSeverity"], "high");
+    assert_eq!(lean["unfixedInMajorCount"], 2);
+    assert_eq!(lean["link"], "https://osv.dev/vulnerability/HIGH");
+    assert!(lean.get("advisories").is_none(), "{lean}");
+    // None listed: the count says so, and nothing is linked.
+    let none = apply(
+        SecurityCheckView::Summary,
+        json_fixture(r#"{"affected": false, "advisories": []}"#),
+        self::target(package()),
+    );
+    assert_eq!(none["advisoryCount"], 0, "{none}");
+    for absent in ["highestSeverity", "link", "unfixedInMajorCount"] {
+        assert!(none.get(absent).is_none(), "{absent}: {none}");
+    }
+    // A list not finished is not counted.
+    let unfinished = apply(
+        SecurityCheckView::Summary,
+        json_fixture(r#"{"answer": "stopped", "isPartial": true}"#),
+        self::target(package()),
+    );
+    assert!(unfinished.get("advisoryCount").is_none(), "{unfinished}");
+}
+
+/// The sentence stays only where no field says it: a row with no verdict,
+/// whether or not its list finished. The name and version stay only when the
+/// request did not state them.
+#[test]
+fn the_answer_and_the_coordinates_stay_only_when_they_say_something_new() {
+    let row = |extra: Value| {
+        let mut row = json_fixture(
+            r#"{
+                "answer": "sentence",
+                "packageName": "lodash",
+                "version": "4.17.20"
+            }"#,
+        );
+        if let (Some(fields), Some(extra)) = (row.as_object_mut(), extra.as_object()) {
+            fields.extend(extra.clone());
+        }
+        row
+    };
+    let verdict = apply(
+        SecurityCheckView::Summary,
+        row(json_fixture(r#"{"affected": true, "advisories": []}"#)),
+        target(package()),
+    );
+    for echoed in ["answer", "packageName", "version"] {
+        assert!(verdict.get(echoed).is_none(), "{echoed}: {verdict}");
+    }
+    let empty = apply(
+        SecurityCheckView::Summary,
+        row(json_fixture(r#"{"advisories": []}"#)),
+        target(package()),
+    );
+    // No verdict on a finished empty list: the sentence says what the 0 does
+    // not prove.
+    assert_eq!(empty["answer"], "sentence", "{empty}");
+    let no_verdict = apply(
+        SecurityCheckView::Summary,
+        row(json!({})),
+        target(package()),
+    );
+    assert_eq!(no_verdict["answer"], "sentence", "{no_verdict}");
+    // A range the registry resolved, or a URL: the row's coordinates are news.
+    let mut resolved = target(package());
+    resolved.asked_version = Some("^4");
+    resolved.asked_name = None;
+    let lean = apply(
+        SecurityCheckView::Summary,
+        row(json_fixture(r#"{"affected": false, "advisories": []}"#)),
+        resolved,
+    );
+    assert_eq!(lean["version"], "4.17.20", "{lean}");
+    assert_eq!(lean["packageName"], "lodash", "{lean}");
+    // A row that gives no verdict by design keeps no sentence.
+    let mut repository = target(json_fixture(
+        r#"{"operation": "repository", "repo": "o/r"}"#,
+    ));
+    repository.gives_verdict = false;
+    let lean = apply(
+        SecurityCheckView::Summary,
+        json_fixture(r#"{"answer": "o/r: 5 stars.", "advisories": []}"#),
+        repository,
+    );
+    assert!(lean.get("answer").is_none(), "{lean}");
+}
+
+/// The checks of pinned dependencies stay, as no field of the row counts
+/// their advisories; no lead reads an advisory the row lists (the details
+/// view states it), and every other lead is left to the details view.
+#[test]
+fn the_leads_are_the_whole_row_and_the_pinned_dependency_checks() {
+    let call = |rows: Value| json!({"kind": "related", "tool": "securityCheck", "input": {"queries": rows}});
+    let pinned = call(json_fixture(
+        r#"[
+            {
+                "operation": "package",
+                "ecosystem": "npm",
+                "packageName": "dep",
+                "version": "1.0.0"
+            }
+        ]"#,
+    ));
+    let row = json!({"affected": true, "advisories": [{"id": "GHSA-29mw-wpgm-hmr9"}], "related": [
+        call(json_fixture(r#"[
+            {
+                "operation": "advisory",
+                "id": "GHSA-29mw-wpgm-hmr9",
+                "view": "details"
+            }
+        ]"#)),
+        pinned.clone(),
+        call(json_fixture(r#"[{"operation": "repository", "repo": "lodash/lodash"}]"#)),
+    ]});
+    let lean = apply(SecurityCheckView::Summary, row, target(package()));
+    assert_eq!(lean["related"], json!([pinned]), "{lean}");
+}
+
+/// A version the registry does not publish fails the same in details, so the
+/// summary leads only to the nearest published versions, and keeps the hint.
+#[test]
+fn a_missing_version_leads_to_the_nearest_versions_alone() {
+    let call = |queries: Value| json!({"kind": "related", "tool": "securityCheck", "input": {"queries": queries}});
+    let mut nearest = package();
+    nearest["version"] = json!("4.17.21");
+    let row = json!({"status": "error", "errorCode": "notFound",
+        "error": "lodash has no published version matching \"4.17.99\".",
+        "hints": ["Version not found: check the registry"], "versionEvaluated": false,
+        "advisories": [], "related": [call(json!([nearest.clone()]))]});
+    let lean = apply(SecurityCheckView::Summary, row, target(package()));
+    assert_eq!(lean["related"], json!([call(json!([nearest]))]), "{lean}");
+    assert_eq!(
+        lean["hints"],
+        json_fixture(r#"["Version not found: check the registry"]"#),
+        "{lean}"
+    );
+}
+
+/// Fields the summary does not name stay: a new disclosure is never dropped
+/// by a list that forgot it.
+#[test]
+fn a_field_the_summary_does_not_know_stays() {
+    let row = json_fixture(
+        r#"{
+            "affected": false,
+            "advisories": [],
+            "retryable": true,
+            "cautions": [{"rule": "archived"}],
+            "warnings": ["w"],
+            "outdated": false,
+            "versionEvaluated": false,
+            "registryConfirmed": false,
+            "someLaterDisclosure": 1,
+            "next": {
+                "nextPage": {
+                    "kind": "continue",
+                    "tool": "securityCheck",
+                    "input": {"cursor": "c"}
+                }
+            }
+        }"#,
+    );
+    let lean = apply(SecurityCheckView::Summary, row.clone(), target(package()));
+    for kept in [
+        "retryable",
+        "cautions",
+        "warnings",
+        "outdated",
+        "versionEvaluated",
+        "registryConfirmed",
+        "someLaterDisclosure",
+        "next",
+    ] {
+        assert_eq!(lean[kept], row[kept], "{kept}");
+    }
+}
+
+/// A source that answered and still names a read it could not make is named:
+/// its status alone would read as whole.
+#[test]
+fn a_found_source_that_names_a_failed_read_is_named() {
+    let row = json_fixture(
+        r#"{
+            "isPartial": true,
+            "advisories": [],
+            "sources": [
+                {"source": "osv", "status": "noneKnown"},
+                {
+                    "source": "github",
+                    "status": "found",
+                    "errorCode": "serverError",
+                    "why": "tags not read",
+                    "facts": {"exists": true}
+                }
+            ]
+        }"#,
+    );
+    let lean = apply(SecurityCheckView::Summary, row, target(package()));
+    assert_eq!(
+        lean["sources"],
+        json_fixture(
+            r#"[
+                {
+                    "source": "github",
+                    "status": "found",
+                    "errorCode": "serverError",
+                    "why": "tags not read"
+                }
+            ]"#
+        ),
+        "{lean}"
+    );
+}
+
+/// A row with no finished list has nothing to count: its sentence says what
+/// was read, whatever the operation, so the row never stands on leads alone.
+#[test]
+fn a_row_with_no_list_keeps_its_sentence() {
+    let mut repository = target(json_fixture(
+        r#"{"operation": "repository", "repo": "o/r"}"#,
+    ));
+    repository.gives_verdict = false;
+    let lean = apply(
+        SecurityCheckView::Summary,
+        json_fixture(
+            r#"{
+                "answer": "o/r: GitHub has no such repository.",
+                "cautions": [{"rule": "repositoryMissing"}],
+                "sources": [{"source": "github", "status": "found"}]
+            }"#,
+        ),
+        repository,
+    );
+    assert_eq!(
+        lean["answer"], "o/r: GitHub has no such repository.",
+        "{lean}"
+    );
+    assert!(lean.get("advisoryCount").is_none(), "{lean}");
+}
+
+/// Withdrawn GitHub records are never counted; the summary
+/// names them in one sentence (the `details` view states each with its
+/// date), and its `related` calls stay to read them.
+#[test]
+fn withdrawn_warnings_collapse_to_one_sentence_in_the_summary() {
+    let withdrew = |id: &str| {
+        format!(
+            "GitHub withdrew {id} at 2021-10-01T22:04:28Z, so it is not counted; the related read shows it."
+        )
+    };
+    let other = "OSV lists a range GitHub does not.".to_owned();
+    let warnings = json!([
+        withdrew("GHSA-aaaa-bbbb-cccc"),
+        other,
+        withdrew("GHSA-dddd-eeee-ffff"),
+        withdrew("GHSA-gggg-hhhh-iiii"),
+    ]);
+    let row = json!({"affected": true, "advisories": [], "warnings": warnings});
+    let details = apply(SecurityCheckView::Details, row.clone(), target(package()));
+    assert_eq!(details["warnings"], warnings, "details lists each");
+    let lean = apply(SecurityCheckView::Summary, row, target(package()));
+    let lean = lean["warnings"].as_array().expect("warnings");
+    assert_eq!(lean.len(), 2, "{lean:?}");
+    assert_eq!(
+        lean[0],
+        "GitHub withdrew GHSA-aaaa-bbbb-cccc, GHSA-dddd-eeee-ffff and GHSA-gggg-hhhh-iiii, so they are not counted; the related reads show them."
+    );
+    assert_eq!(lean[1], "OSV lists a range GitHub does not.");
+}
+
+/// A newer release is named once: `latestVersion` stays only when it is not
+/// the `upgradeTo` already stated, and `outdated:true` is derived from either.
+#[test]
+fn the_newer_release_is_named_once() {
+    let outdated = |upgrade_to: Option<&str>, latest: &str| {
+        let mut row = json!({"affected": true, "advisories": [], "outdated": true,
+            "latestVersion": latest});
+        if let Some(upgrade) = upgrade_to {
+            row["upgradeTo"] = json!(upgrade);
+        }
+        apply(SecurityCheckView::Summary, row, target(package()))
+    };
+    let same = outdated(Some("4.18.1"), "4.18.1");
+    assert!(same.get("latestVersion").is_none(), "{same}");
+    assert!(same.get("outdated").is_none(), "{same}");
+    let apart = outdated(Some("4.17.21"), "4.18.1");
+    assert_eq!(apart["latestVersion"], "4.18.1", "{apart}");
+    assert!(apart.get("outdated").is_none(), "{apart}");
+}
+
+/// One withdrawn advisory is one whole sentence that names it, and one lead:
+/// the read of that record. Reads of advisories the row lists are the details
+/// view's, chosen by id, whatever a warning says.
+#[test]
+fn one_withdrawn_advisory_is_one_sentence_and_one_lead() {
+    let call = |id: &str| {
+        json!({"kind": "related", "tool": "securityCheck", "input": {"queries": [
+            {"operation": "advisory", "id": id, "view": "details"}]}})
+    };
+    let row = json!({
+        "affected": true,
+        "advisories": [
+            {"id": "GHSA-listed-aaaa", "aliases": ["CVE-2026-0001"]},
+            {"id": "GHSA-listed-bbbb"}
+        ],
+        "warnings": ["GitHub withdrew GHSA-gone-cccc at 2021-10-01T22:04:28Z, so it is not counted; the related read shows it."],
+        "related": [call("GHSA-listed-aaaa"), call("CVE-2026-0001"), call("GHSA-listed-bbbb"), call("GHSA-gone-cccc")]
+    });
+    let lean = apply(SecurityCheckView::Summary, row, target(package()));
+    assert_eq!(
+        lean["warnings"],
+        json!(["GitHub withdrew GHSA-gone-cccc, so it is not counted; the related read shows it."]),
+        "{lean}"
+    );
+    assert_eq!(lean["related"], json!([call("GHSA-gone-cccc")]), "{lean}");
+}
+
+/// An advisory whose database states no severity word ranks by the CVSS
+/// rating of its vector (CVE-2023-25193's 7.5: high), above a `moderate`
+/// one; the row's link is that advisory's.
+#[test]
+fn a_vector_only_advisory_ranks_by_its_cvss_rating() {
+    let row = json!({
+        "affected": true,
+        "advisories": [
+            {"id": "GHSA-word-aaaa", "severity": "moderate", "link": "https://osv.dev/vulnerability/GHSA-word-aaaa"},
+            {"id": "OSV-2023-25193", "cvss": [{"type": "CVSS_V3",
+                "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"}],
+                "link": "https://osv.dev/vulnerability/OSV-2023-25193"}
+        ]
+    });
+    let lean = apply(SecurityCheckView::Summary, row, target(package()));
+    assert_eq!(lean["highestSeverity"], "high", "{lean}");
+    assert_eq!(
+        lean["link"], "https://osv.dev/vulnerability/OSV-2023-25193",
+        "{lean}"
+    );
+    // A word the database states still outranks nothing it does not state.
+    let worded = json!({"affected": true, "advisories": [
+        {"id": "A", "severity": "critical"},
+        {"id": "B", "cvss": [{"type": "CVSS_V3", "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"}]}
+    ]});
+    let lean = apply(SecurityCheckView::Summary, worded, target(package()));
+    assert_eq!(lean["highestSeverity"], "critical", "{lean}");
+}

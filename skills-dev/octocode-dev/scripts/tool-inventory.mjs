@@ -28,7 +28,8 @@ function findRoot(start) {
 const root = rootIdx >= 0 ? resolve(args[rootIdx + 1]) : findRoot(process.cwd());
 const runtime = join(root, 'packages/octocode-native/crates/runtime');
 const contract = JSON.parse(readFileSync(join(root, 'packages/octocode-config/contract/tool-contract.json'), 'utf8'));
-const coverage = JSON.parse(readFileSync(join(runtime, 'src/contracts/field-effect-coverage.json'), 'utf8'));
+// The coverage file lives in octocode-runtime-base; its evidence paths are relative to crates/.
+const coverage = JSON.parse(readFileSync(join(runtime, '../runtime-base/src/contracts/field-effect-coverage.json'), 'utf8'));
 
 // Native module dirs whose names do not follow camel→snake of the tool name.
 const snake = s => s.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`);
@@ -85,8 +86,9 @@ const report = [];
 for (const tool of contract.tools) {
   if (wanted.length && !wanted.includes(tool.name)) continue;
   const cov = coverage.tools[tool.name] ?? { evidence: [], fields: {} };
-  const moduleDir = join(runtime, 'src/tools', snake(tool.name));
-  const files = [...new Set([...rsFiles(moduleDir), ...cov.evidence.map(e => join(runtime, e)).flatMap(rsFiles)])];
+  const crates = join(runtime, '..');
+  const moduleDir = readdirSync(crates).map(dir => join(crates, dir, 'src', snake(tool.name))).find(existsSync) ?? '';
+  const files = [...new Set([...rsFiles(moduleDir), ...cov.evidence.map(e => join(runtime, '..', e)).flatMap(rsFiles)])];
   const corpus = files.map(f => readFileSync(f, 'utf8')).join('\n');
   const fields = [...leafFields(tool.querySchema)].map(([path, meta]) => {
     const leaf = path.split('.').pop().replace(/\[\]$/, '');

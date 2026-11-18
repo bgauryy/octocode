@@ -1,11 +1,12 @@
 mod output;
 
 use super::{TOOL_FLOW_COMMAND, catalog, grammar_instruction, tool_view};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 
 /// A machine catalog with every presentation tool enabled except `off`.
 fn machine(off: &[&str]) -> Value {
-    let presentation = octocode_native::contracts::cli_presentation().expect("presentation");
+    let presentation = octocode_runtime_base::contracts::cli_presentation().expect("presentation");
     let tools: Vec<Value> = presentation["tools"]
             .as_array()
             .expect("tools")
@@ -50,7 +51,7 @@ fn catalog_lists_only_enabled_tools() {
 
 #[test]
 fn full_catalog_serves_the_core_instructions_then_the_cli_notes() {
-    let presentation = octocode_native::contracts::cli_presentation().expect("presentation");
+    let presentation = octocode_runtime_base::contracts::cli_presentation().expect("presentation");
     let all = super::tools(presentation)
         .filter_map(|tool| tool["name"].as_str())
         .collect::<Vec<_>>();
@@ -64,9 +65,10 @@ fn full_catalog_serves_the_core_instructions_then_the_cli_notes() {
         vec!["clasify", "ghSearchHistory"],
         vec!["clasify", "securityCheck"],
     ] {
-        let expected = octocode_native::contracts::compose_instructions(presentation, |name| {
-            all.contains(&name) && !off.contains(&name)
-        });
+        let expected =
+            octocode_runtime_base::contracts::compose_instructions(presentation, |name| {
+                all.contains(&name) && !off.contains(&name)
+            });
         let value = catalog(&machine(&off), Some("full")).expect("catalog");
         assert_eq!(
             value["instructions"].as_str().expect("instructions"),
@@ -125,7 +127,7 @@ fn select_takes_a_second_pair() {
     let m = machine(&[]);
     let view = |selection| tool_view(&m, "astSearch", Some("query"), Some(selection));
     let operation = view("operation=match").expect("operation");
-    let presentation = octocode_native::contracts::cli_presentation().expect("presentation");
+    let presentation = octocode_runtime_base::contracts::cli_presentation().expect("presentation");
     let narrowed = presentation["tools"]
         .as_array()
         .expect("tools")
@@ -176,7 +178,7 @@ fn select_takes_a_second_pair() {
 
 /// The tool `name` of the embedded presentation.
 fn presented(name: &str) -> &'static Value {
-    octocode_native::contracts::cli_presentation().expect("presentation")["tools"]
+    octocode_runtime_base::contracts::cli_presentation().expect("presentation")["tools"]
         .as_array()
         .expect("tools")
         .iter()
@@ -224,7 +226,7 @@ fn a_second_pair_serves_the_narrowed_row_of_the_contract() {
 fn select_follows_the_resolved_presentation_switch() {
     let mut machine = machine(&[]);
     let mut classified = 0;
-    let presentation = octocode_native::contracts::cli_presentation().expect("presentation");
+    let presentation = octocode_runtime_base::contracts::cli_presentation().expect("presentation");
     for tool in super::tools(presentation) {
         let name = tool["name"].as_str().expect("name");
         let Some(rows) = tool["selection"]["selections"].as_object() else {
@@ -279,14 +281,64 @@ fn select_reads_one_operation_row() {
 }
 #[test]
 fn grammar_line_states_the_common_feature_set_once() {
-    let capabilities = json!([
-        { "language": "TypeScript", "languageId": "typescript", "selectorAliases": [], "extensions": ["ts"], "structuralSearch": true, "syntaxTree": true, "signatureOutline": true, "facts": {"declarations": true}, "graphFacts": true },
-        { "language": "Go", "languageId": "go", "selectorAliases": [], "extensions": ["go"], "structuralSearch": true, "syntaxTree": true, "signatureOutline": true, "facts": {"declarations": true}, "graphFacts": true },
-        { "language": "Asm", "languageId": "asm", "selectorAliases": ["s"], "extensions": ["asm", "s"], "structuralSearch": true, "signatureOutline": false, "graphFacts": false },
-        { "language": "Plain", "languageId": "plain", "selectorAliases": [], "extensions": [], "structuralSearch": true },
-        { "language": "Declarations", "languageId": "decl", "extensions": ["decl"], "facts": {"declarations": true}, "graphFacts": true },
-        { "language": "Unavailable", "languageId": "none", "extensions": ["none"], "structuralSearch": false, "syntaxTree": false, "signatureOutline": false, "graphFacts": false },
-    ]);
+    let capabilities = json_fixture(
+        r#"[
+            {
+                "language": "TypeScript",
+                "languageId": "typescript",
+                "selectorAliases": [],
+                "extensions": ["ts"],
+                "structuralSearch": true,
+                "syntaxTree": true,
+                "signatureOutline": true,
+                "facts": {"declarations": true},
+                "graphFacts": true
+            },
+            {
+                "language": "Go",
+                "languageId": "go",
+                "selectorAliases": [],
+                "extensions": ["go"],
+                "structuralSearch": true,
+                "syntaxTree": true,
+                "signatureOutline": true,
+                "facts": {"declarations": true},
+                "graphFacts": true
+            },
+            {
+                "language": "Asm",
+                "languageId": "asm",
+                "selectorAliases": ["s"],
+                "extensions": ["asm", "s"],
+                "structuralSearch": true,
+                "signatureOutline": false,
+                "graphFacts": false
+            },
+            {
+                "language": "Plain",
+                "languageId": "plain",
+                "selectorAliases": [],
+                "extensions": [],
+                "structuralSearch": true
+            },
+            {
+                "language": "Declarations",
+                "languageId": "decl",
+                "extensions": ["decl"],
+                "facts": {"declarations": true},
+                "graphFacts": true
+            },
+            {
+                "language": "Unavailable",
+                "languageId": "none",
+                "extensions": ["none"],
+                "structuralSearch": false,
+                "syntaxTree": false,
+                "signatureOutline": false,
+                "graphFacts": false
+            }
+        ]"#,
+    );
     assert_eq!(
         grammar_instruction(&capabilities).expect("line"),
         "Runtime grammar inventory (structural+syntaxTree+outline+declarations+graph unless noted): TypeScript (typescript: .ts); Go (go: .go); Asm (asm,s: .asm .s; structural); Plain (plain; structural); Declarations (decl: .decl; declarations+graph). Parser availability does not imply an installed language server or complete cross-file linking."
@@ -315,7 +367,7 @@ fn lsp_search_names_its_servers_at_the_end_of_when() {
 #[test]
 fn a_tool_schema_states_its_query_fields_once() {
     let machine = machine(&[]);
-    let presentation = octocode_native::contracts::cli_presentation().expect("presentation");
+    let presentation = octocode_runtime_base::contracts::cli_presentation().expect("presentation");
     for tool in presentation["tools"].as_array().expect("tools") {
         let name = tool["name"].as_str().expect("name");
         let value = tool_view(&machine, name, None, None).expect("tool schema");
@@ -349,7 +401,7 @@ fn views_a_request_cannot_have_are_usage_errors() {
 /// Without a tool entry in the runtime's catalog a tool is reported disabled.
 #[test]
 fn a_tool_the_runtime_does_not_list_is_disabled() {
-    let m = json!({ "fingerprint": "f", "grammarCapabilities": [], "tools": [] });
+    let m = json_fixture(r#"{"fingerprint": "f", "grammarCapabilities": [], "tools": []}"#);
     let view = tool_view(&m, "localSearch", Some("variants"), None).expect("variants");
     assert_eq!(view["availability"]["enabled"], false);
 }

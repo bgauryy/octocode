@@ -6,12 +6,12 @@
 )]
 #[path = "../../../runtime/tests/support/mod.rs"]
 mod runtime_fixture;
-pub use runtime_fixture::*;
+pub(crate) use runtime_fixture::*;
 use std::path::PathBuf;
 use std::process::Command;
 
 mod persistent_cli;
-pub use persistent_cli::PersistentCli;
+pub(crate) use persistent_cli::PersistentCli;
 
 /// Cargo and nextest supply the executable at run time so archived tests relocate.
 /// Direct test-binary runs fall back to Cargo's compiled path.
@@ -26,7 +26,7 @@ impl Workspace {
     /// The CLI in this workspace. Tool calls run in process
     /// (`storage.mode = memory`), so no test leaves a warm server behind;
     /// Persistent tests use `persistent_cli` to own and stop their servers.
-    pub fn cli(&self) -> Command {
+    pub(crate) fn cli(&self) -> Command {
         let mut command = Command::new(cli_executable());
         command
             .current_dir(&self.workspace)
@@ -50,7 +50,7 @@ impl Workspace {
     }
 
     /// Calls sharing durable state and a private warm-server namespace.
-    pub fn persistent_cli(&self) -> PersistentCli<'_> {
+    pub(crate) fn persistent_cli(&self) -> PersistentCli<'_> {
         PersistentCli::new(self)
     }
 }

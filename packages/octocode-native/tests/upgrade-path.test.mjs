@@ -110,5 +110,7 @@ test('fallbackVerdict accepts a fetched binary or a fast error naming the packag
   assert.equal(fallbackVerdict({ ...base, status: 5, stderr: `platform package '${name}' is not installed. HTTP 404` }, '1.2.3', name).kind, 'clear-error');
   assert.equal(fallbackVerdict({ ...base, status: 5, stderr: 'failed' }, '1.2.3', name).kind, 'unclear');
   assert.equal(fallbackVerdict({ ...base, status: 0, stdout: 'octocode 1.0.0' }, '1.2.3', name).ok, false);
+  assert.equal(fallbackVerdict({ ...base, status: 0, stdout: 'octocode 1.2.3+01a553b7\n' }, '1.2.3', name).kind, 'fetched');
+  assert.equal(fallbackVerdict({ ...base, status: 0, stdout: 'octocode 1.2.3+nothex' }, '1.2.3', name).ok, false);
   assert.equal(fallbackVerdict({ ...base, timedOut: true, status: null }, '1.2.3', name).kind, 'hang');
 });

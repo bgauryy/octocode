@@ -1,0 +1,535 @@
+//! Row shaping of one page; the reads and broader searches it offers are
+//! its [`follow_ups`].
+use super::*;
+use octocode_test_support::json_fixture;
+
+mod follow_ups;
+
+/// A ranking exposes its deciding value; `fields` can also request it,
+/// including a provider-stated zero, without inflating ordinary rows.
+#[test]
+fn reaction_rankings_and_picked_fields_keep_the_provider_count() {
+    for (operation, collection) in [("issue", "issues"), ("pullRequest", "pullRequests")] {
+        for (selection, keep) in [
+            (
+                json_fixture(r#"{"sort": {"by": "reactionCount", "order": "desc"}}"#),
+                true,
+            ),
+            (json_fixture(r#"{"fields": ["reactionCount"]}"#), true),
+            (json!({}), false),
+        ] {
+            for count in [Some(17), Some(0), None] {
+                let mut query = json!({"operation":operation,"owner":"o","repo":"r"});
+                query
+                    .as_object_mut()
+                    .expect("query object")
+                    .extend(selection.as_object().expect("selection object").clone());
+                let query = HistorySearch::new(serde_json::from_value(query).expect("query"))
+                    .expect("search");
+                let mut item = json_fixture(
+                    r#"{
+                        "number": 1,
+                        "title": "ranked",
+                        "state": "open",
+                        "created_at": "2026-01-01T00:00:00Z"
+                    }"#,
+                );
+                if let Some(count) = count {
+                    item["reactions"] = json!({"total_count":count});
+                }
+                let page = octocode_github::HistoryPage {
+                    total_count: 1,
+                    incomplete_results: false,
+                    items: vec![item],
+                    warnings: Vec::new(),
+                    listed: false,
+                    has_more: false,
+                };
+                let paging = super::shape::Paging::new(&page, 1, 10);
+                let value = super::shape::shape(&query, page, &paging, String::new());
+                assert_eq!(
+                    value[collection][0].get("reactionCount"),
+                    count.filter(|_| keep).map(Value::from).as_ref(),
+                    "{operation} {selection} {count:?}: {value}",
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn pull_request_rows_normalize_merged_state_from_list_and_search_shapes() {
+    let listed = map_pr(json_fixture(
+        r#"{
+            "number": 1,
+            "title": "listed",
+            "state": "closed",
+            "merged_at": "2026-09-20T10:00:00Z",
+            "user": {"login": "dev"},
+            "labels": [],
+            "created_at": "2026-09-19T10:00:00Z",
+            "comments": 2
+        }"#,
+    ));
+    assert_eq!(listed["state"], "merged");
+    assert_eq!(listed["mergedAt"], "2026-09-20T10:00:00Z");
+    assert_eq!(listed["author"], "dev");
+    assert_eq!(listed["commentsCount"], 2);
+
+    let searched = map_pr(json_fixture(
+        r#"{
+            "number": 2,
+            "title": "searched",
+            "state": "closed",
+            "pull_request": {"merged_at": "2026-09-20T11:00:00Z"},
+            "user": {"login": "dev"},
+            "labels": [],
+            "created_at": "2026-09-19T11:00:00Z",
+            "comments": 0
+        }"#,
+    ));
+    assert_eq!(searched["state"], "merged");
+    assert_eq!(searched["mergedAt"], "2026-09-20T11:00:00Z");
+
+    let closed = map_pr(json_fixture(
+        r#"{
+            "number": 3,
+            "title": "closed",
+            "state": "closed",
+            "merged_at": null,
+            "user": {"login": "dev"},
+            "labels": [],
+            "created_at": "2026-09-19T12:00:00Z",
+            "comments": 0
+        }"#,
+    ));
+    assert_eq!(closed["state"], "closed");
+    assert!(closed.get("mergedAt").is_none());
+}
+
+/// A commit with several parents is a merge: its row says so, and an
+/// ordinary one carries no flag.
+#[test]
+fn merge_commits_are_marked() {
+    let commit = |parents: serde_json::Value| {
+        map_commit_list(
+            json!({"sha":"abc","commit":{"message":"x","author":{"name":"Dev"}},
+            "parents": parents}),
+        )
+    };
+    assert_eq!(
+        commit(json_fixture(r#"[{"sha": "a"}, {"sha": "b"}]"#))["merge"],
+        true
+    );
+    assert!(
+        commit(json_fixture(r#"[{"sha": "a"}]"#))
+            .get("merge")
+            .is_none()
+    );
+    assert!(commit(json!([])).get("merge").is_none());
+}
+
+/// Row diet: commit authors are a login (else name) without email, list
+/// rows drop the message body, issue rows drop updatedAt and empty
+/// labels, PR rows drop empty labels and zero comment counts.
+#[test]
+fn history_rows_carry_no_emails_or_empty_fields() {
+    let raw = json_fixture(
+        r#"{
+            "sha": "abc",
+            "commit": {
+                "message": "Fix (#1)\n\nlong body",
+                "author": {
+                    "name": "Dev",
+                    "email": "dev@example.com",
+                    "date": "2026-01-01T00:00:00Z"
+                },
+                "committer": {"name": "GitHub", "email": "noreply@github.com"}
+            },
+            "author": {"login": "dev"},
+            "committer": {"login": "web-flow"}
+        }"#,
+    );
+    for row in [
+        octocode_tools_shared::gh_shared::commit::row(&raw),
+        map_commit_list(raw.clone()),
+    ] {
+        assert_eq!(row["author"], "dev", "{row}");
+        octocode_runtime_base::test_support::checks::assert_absent(&row, "@");
+        assert!(row.get("messageBody").is_none(), "{row}");
+        assert!(row.get("committer").is_none(), "{row}");
+    }
+    let nameless = json_fixture(
+        r#"{
+            "sha": "abc",
+            "commit": {
+                "message": "x",
+                "author": {"name": "Dev", "email": "d@e.f"}
+            }
+        }"#,
+    );
+    assert_eq!(map_commit_list(nameless)["author"], "Dev");
+    let other = json_fixture(
+        r#"{
+            "sha": "abc",
+            "commit": {
+                "message": "x",
+                "author": {"name": "A"},
+                "committer": {"name": "B"}
+            },
+            "author": {"login": "a"},
+            "committer": {"login": "b"}
+        }"#,
+    );
+    assert_eq!(map_commit_list(other)["committer"], "b");
+    let issue = map_issue(
+        json_fixture(
+            r#"{
+                "number": 1,
+                "title": "t",
+                "state": "open",
+                "user": {"login": "u"},
+                "labels": [],
+                "created_at": "c",
+                "updated_at": "u"
+            }"#,
+        ),
+        false,
+    );
+    assert!(
+        issue.get("updatedAt").is_none() && issue.get("labels").is_none(),
+        "{issue}"
+    );
+    let by_update = map_issue(
+        json_fixture(
+            r#"{
+                "number": 1,
+                "updated_at": "u",
+                "labels": [{"name": "bug"}]
+            }"#,
+        ),
+        true,
+    );
+    assert_eq!(by_update["updatedAt"], "u");
+    assert_eq!(by_update["labels"], json_fixture(r#"["bug"]"#));
+    let pr = map_pr(json_fixture(
+        r#"{
+            "number": 1,
+            "title": "t",
+            "state": "open",
+            "user": {"login": "u"},
+            "labels": [],
+            "created_at": "c",
+            "comments": 0
+        }"#,
+    ));
+    // No labels is no field; a count GitHub states, 0 included, is a value.
+    assert!(pr.get("labels").is_none(), "{pr}");
+    assert_eq!(pr["commentsCount"], 0, "{pr}");
+}
+
+#[test]
+fn empty_history_rows_are_marked_empty() {
+    for key in ["pullRequests", "issues", "commits"] {
+        let mut value = json!({ key: [] });
+        mark_empty(&mut value, false);
+        assert_eq!(value["status"], "empty", "{key}");
+    }
+    let mut more = json_fixture(r#"{"commits": []}"#);
+    mark_empty(&mut more, true);
+    assert!(more.get("status").is_none());
+    let mut rows = json_fixture(r#"{"issues": [{"number": 1}]}"#);
+    mark_empty(&mut rows, false);
+    assert!(rows.get("status").is_none());
+}
+
+/// Every row date is UTC `Z`: commit search reports the committer's own
+/// offset, the REST listings already use `Z`.
+#[test]
+fn row_dates_are_utc() {
+    let commit = json_fixture(
+        r#"{
+            "sha": "abc",
+            "commit": {
+                "message": "Fix",
+                "author": {"name": "Dev", "date": "2024-03-01T01:30:00.000+02:00"}
+            }
+        }"#,
+    );
+    assert_eq!(
+        octocode_tools_shared::gh_shared::commit::row(&commit)["committedAt"],
+        "2024-02-29T23:30:00Z"
+    );
+    assert_eq!(
+        map_commit_list(commit)["committedAt"],
+        "2024-02-29T23:30:00Z"
+    );
+    let pr = map_pr(json_fixture(
+        r#"{
+            "number": 1,
+            "state": "closed",
+            "user": {"login": "u"},
+            "created_at": "2024-01-01T10:00:00-01:00",
+            "merged_at": "2024-01-02T00:00:00+00:30"
+        }"#,
+    ));
+    assert_eq!(pr["createdAt"], "2024-01-01T11:00:00Z", "{pr}");
+    assert_eq!(pr["mergedAt"], "2024-01-01T23:30:00Z", "{pr}");
+    let issue = map_issue(
+        json_fixture(
+            r#"{
+                "number": 1,
+                "created_at": "2024-01-01T10:00:00Z",
+                "updated_at": "2024-01-01T10:00:00+01:00"
+            }"#,
+        ),
+        true,
+    );
+    assert_eq!(issue["createdAt"], "2024-01-01T10:00:00Z", "{issue}");
+    assert_eq!(issue["updatedAt"], "2024-01-01T09:00:00Z", "{issue}");
+}
+
+/// An empty search offers one runnable batch: the same search once without
+/// each narrowing filter (qualifiers, the date window, then keywords;
+/// A commit row whose headline ends in `(#N)` names the PR; only the
+/// trailing suffix counts (a revert names the reverting PR).
+#[test]
+fn a_squash_headline_names_its_pull_request_once() {
+    let commit =
+        |message: &str| json!({"sha":"abc","commit":{"message":message,"author":{"name":"Dev"}}});
+    for (message, number) in [
+        ("x (#123)", Some(123)),
+        ("Revert \"y (#1)\" (#2)\n\nbody", Some(2)),
+        ("(#12) prefix", None),
+        ("fix (#abc)", None),
+    ] {
+        for row in [
+            octocode_tools_shared::gh_shared::commit::row(&commit(message)),
+            map_commit_list(commit(message)),
+        ] {
+            // The headline states the number; the row adds no copy of it.
+            assert!(row.get("prNumber").is_none(), "{row}");
+            let headline = row["messageHeadline"].as_str().unwrap_or_default();
+            assert_eq!(
+                octocode_tools_shared::gh_shared::commit::headline_pull_request(headline),
+                number,
+                "{message}: {row}"
+            );
+        }
+    }
+}
+
+/// Issue rows carry the discussion size like PR rows, 0 included: only a
+/// count GitHub does not state is absent.
+#[test]
+fn issue_rows_carry_the_stated_comment_count() {
+    let issue = |comments: u64| {
+        map_issue(
+            json!({"number":1,"title":"t","state":"open","comments":comments}),
+            false,
+        )
+    };
+    assert_eq!(issue(105)["commentsCount"], 105);
+    assert_eq!(issue(0)["commentsCount"], 0);
+    let unstated = map_issue(
+        json_fixture(r#"{"number": 1, "title": "t", "state": "open"}"#),
+        false,
+    );
+    assert!(unstated.get("commentsCount").is_none(), "{unstated}");
+}
+
+/// A row drops what its query already says: the filtered `state`, and a
+/// merged row's `createdAt` unless the rows are sorted by creation.
+#[test]
+fn rows_drop_the_filtered_state_and_a_merged_rows_created_at() {
+    let merged = || {
+        map_pr(json_fixture(
+            r#"{
+                "number": 1,
+                "title": "t",
+                "state": "closed",
+                "merged_at": "2026-09-20T10:00:00Z",
+                "user": {"login": "dev"},
+                "created_at": "2026-09-19T10:00:00Z"
+            }"#,
+        ))
+    };
+    let mut row = merged();
+    super::rows::drop_implied(&mut row, Some("merged"), false, &[]);
+    assert!(row.get("state").is_none(), "{row}");
+    assert!(row.get("createdAt").is_none(), "{row}");
+    assert_eq!(row["mergedAt"], "2026-09-20T10:00:00Z");
+    // A key the caller picked is what they asked for: it stays.
+    let mut row = merged();
+    let picked = ["state", "createdAt"].map(String::from);
+    super::rows::drop_implied(&mut row, Some("merged"), false, &picked);
+    assert_eq!(row["state"], "merged");
+    assert_eq!(row["createdAt"], "2026-09-19T10:00:00Z");
+    // `closed` also lists merged PRs: their state stays.
+    let mut row = merged();
+    super::rows::drop_implied(&mut row, Some("closed"), true, &[]);
+    assert_eq!(row["state"], "merged");
+    assert_eq!(row["createdAt"], "2026-09-19T10:00:00Z");
+}
+
+#[test]
+fn fields_keep_the_row_id_then_the_picked_keys_in_request_order() {
+    let row = json_fixture(r#"{"number": 1, "title": "t", "state": "open", "author": "a"}"#);
+    let keys = ["title", "state", "missing"].map(String::from);
+    let picked = pick_fields(row.clone(), &["number"], &keys);
+    assert_eq!(
+        picked,
+        json_fixture(r#"{"number": 1, "title": "t", "state": "open"}"#)
+    );
+    assert_eq!(
+        picked
+            .as_object()
+            .map(|row| row.keys().cloned().collect::<Vec<_>>()),
+        Some(vec![
+            "number".to_owned(),
+            "title".to_owned(),
+            "state".to_owned()
+        ])
+    );
+    // No pick keeps the row whole.
+    assert_eq!(
+        pick_fields(row, &["number"], &[]),
+        json_fixture(r#"{"number": 1, "title": "t", "state": "open", "author": "a"}"#)
+    );
+}
+
+/// `since`/`until` filter pull requests on their created date, so the rows
+/// show it beside `mergedAt`: otherwise a merged row dated outside the window
+/// looks like a filter bug.
+#[test]
+fn rows_filtered_on_the_created_window_keep_created_at() {
+    let window = parse(
+        r#"{"operation":"pullRequest","owner":"a","repo":"b","filters":{"isMerged":true,"createdAt":{"from":"2026-09-01T00:00:00Z"}}}"#,
+    );
+    assert!(super::shape::keeps_created(
+        &search(&window).expect("query")
+    ));
+    let plain =
+        parse(r#"{"operation":"pullRequest","owner":"a","repo":"b","filters":{"isMerged":true}}"#);
+    assert!(!super::shape::keeps_created(
+        &search(&plain).expect("query")
+    ));
+    let qualifier = parse(
+        r#"{"operation":"pullRequest","owner":"a","repo":"b","filters":{"createdAt":{"from":"2026-01-02T00:00:00Z"}}}"#,
+    );
+    assert!(super::shape::keeps_created(
+        &search(&qualifier).expect("query")
+    ));
+}
+
+/// Saved history rows carry the repository required to read their item.
+#[test]
+fn cross_repository_rows_name_owner_and_repo() {
+    let item = json_fixture(
+        r#"{
+            "number": 3,
+            "repository_url": "https://api.github.com/repos/acme/widget"
+        }"#,
+    );
+    for ((owner, repo), expected) in [
+        (
+            (None, None),
+            json_fixture(r#"{"owner": "acme", "repo": "widget"}"#),
+        ),
+        (
+            (Some("Acme"), None),
+            json_fixture(r#"{"owner": "acme", "repo": "widget"}"#),
+        ),
+        (
+            (Some("other"), None),
+            json_fixture(r#"{"owner": "acme", "repo": "widget"}"#),
+        ),
+        (
+            (Some("acme"), Some("widget")),
+            json_fixture(r#"{"owner": "acme", "repo": "widget"}"#),
+        ),
+    ] {
+        let mut row = json!({});
+        rows::name_repository(&mut row, &item, owner, repo);
+        assert_eq!(row, expected, "{owner:?}/{repo:?}");
+    }
+    let mut listed = json_fixture(r#"{"commitSha": "abc"}"#);
+    rows::name_repository(&mut listed, &json!({}), Some("acme"), Some("widget"));
+    assert_eq!(
+        listed,
+        json_fixture(r#"{"commitSha": "abc", "owner": "acme", "repo": "widget"}"#)
+    );
+}
+
+/// `effectiveQuery` restates the request in GitHub's search syntax. It
+/// explains an answer the rows do not (nothing matched, or GitHub cut the
+/// search short); beside a whole page of rows it is left out.
+#[test]
+fn the_search_terms_are_said_only_where_the_rows_do_not_explain_the_answer() {
+    let query: GhSearchHistoryQuery = serde_json::from_value(json_fixture(
+        r#"{
+            "operation": "pullRequest",
+            "owner": "o",
+            "repo": "r",
+            "keywords": ["fix"]
+        }"#,
+    ))
+    .expect("query");
+    let query = search(&query).expect("search");
+    let shaped = |items: Vec<Value>, incomplete: bool| {
+        let page = octocode_github::HistoryPage {
+            total_count: items.len(),
+            incomplete_results: incomplete,
+            items,
+            warnings: Vec::new(),
+            listed: false,
+            has_more: false,
+        };
+        let paging = super::shape::Paging::new(&page, 1, 10);
+        super::shape::shape(&query, page, &paging, "fix is:pr repo:o/r".to_owned())
+    };
+    let row = || {
+        json_fixture(
+            r#"{
+                "number": 1,
+                "title": "t",
+                "state": "open",
+                "user": {"login": "a"},
+                "created_at": "2026-01-01T00:00:00Z"
+            }"#,
+        )
+    };
+    let hit = shaped(vec![row()], false);
+    assert_eq!(hit["pullRequests"][0]["number"], 1, "{hit}");
+    assert!(hit.get("effectiveQuery").is_none(), "{hit}");
+    let empty = shaped(Vec::new(), false);
+    assert_eq!(empty["effectiveQuery"], "fix is:pr repo:o/r", "{empty}");
+    let cut = shaped(vec![row()], true);
+    assert_eq!(cut["effectiveQuery"], "fix is:pr repo:o/r", "{cut}");
+}
+
+/// The labels a `labels` filter requires are on every row and in the
+/// request: a row states only its other labels, and none when it has none.
+#[test]
+fn rows_leave_out_the_labels_the_filter_requires() {
+    let mut page = json_fixture(
+        r#"{
+            "issues": [
+                {"number": 1, "labels": ["bug", "area: cli"]},
+                {"number": 2, "labels": ["Bug"]},
+                {"number": 3}
+            ]
+        }"#,
+    );
+    super::rows::drop_filtered_labels(&mut page, "issues", &["bug".to_owned()]);
+    assert_eq!(
+        page["issues"],
+        json_fixture(
+            r#"[
+                {"number": 1, "labels": ["area: cli"]},
+                {"number": 2},
+                {"number": 3}
+            ]"#
+        )
+    );
+}

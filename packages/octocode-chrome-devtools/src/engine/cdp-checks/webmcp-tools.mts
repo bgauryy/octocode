@@ -21,8 +21,8 @@ type ToolResponse = {
 
 // webmcp intent: discover and optionally invoke tools a page declared via
 // document.modelContext.registerTool(...), using the CDP WebMCP domain
-// instead of DOM selectors/clicks. Requires Chrome launched with
-// --enableFeatures WebMCP (see open-browser.mjs) — most pages will not have
+// instead of DOM selectors/clicks. Requires Chrome 150+ launched with the WebMCP
+// feature, which every fresh open-browser.mjs launch enables — most pages will not have
 // registered any tools yet, so WEBMCP_NO_TOOLS is an expected, non-error
 // outcome, not a failure.
 //
@@ -31,7 +31,8 @@ type ToolResponse = {
 //   WEBMCP_TOOL     tool name, required for invoke
 //   WEBMCP_INPUT    JSON string matching the tool's inputSchema, required for invoke
 //   WEBMCP_FRAME    frameId, only needed if WEBMCP_TOOL name collides across frames
-//   WEBMCP_WAIT_MS  discovery window in ms (default 2500), only spent in full when a tool was found
+//   WEBMCP_WAIT_MS  how long after the document's load event tools may still register, in ms
+//                   (default 2500); a page that loaded earlier costs only a short settle
 
 const ACTION = process.env.WEBMCP_ACTION ?? 'list';
 const TOOL_NAME = process.env.WEBMCP_TOOL ?? '';
@@ -40,10 +41,49 @@ const WANT_FRAME = process.env.WEBMCP_FRAME ?? '';
 const WAIT_MS = Number.parseInt(process.env.WEBMCP_WAIT_MS ?? '2500', 10);
 const SETTLE_MS = Math.min(400, WAIT_MS);
 const INVOKE_TIMEOUT_MS = 10000;
+const POLL_MS = 100;
+
+// Milliseconds since the current document's load event, or null while it is still loading.
+const LOAD_AGE_JS = `(() => {
+  if (document.readyState !== 'complete') return null;
+  const nav = performance.getEntriesByType('navigation')[0];
+  if (!nav) return performance.now();
+  return nav.loadEventEnd > 0 ? performance.now() - nav.loadEventEnd : 0;
+})()`;
 
 function assertAllowedAction(action: string) {
   if (!['list', 'invoke'].includes(action)) {
     throw new Error(`Unsupported WEBMCP_ACTION=${action}. Use list or invoke.`);
+  }
+}
+
+async function loadAgeMs(cdp: CheckSession): Promise<number | null> {
+  try {
+    const value = (
+      await cdp.send('Runtime.evaluate', {
+        expression: LOAD_AGE_JS,
+        returnByValue: true,
+      })
+    ).result?.value;
+    return typeof value === 'number' ? value : null;
+  } catch {
+    // A navigation destroyed the context; the next document has not loaded yet.
+    return null;
+  }
+}
+
+/**
+ * Pages register tools during load and after it, once their data fetches answer, so discovery
+ * lasts until WAIT_MS after the document's load event and at least SETTLE_MS after the start.
+ * Returns false when the document was still loading WAIT_MS after the start.
+ */
+async function awaitDiscovery(cdp: CheckSession, startedAt: number) {
+  for (;;) {
+    const age = await loadAgeMs(cdp);
+    const elapsed = Date.now() - startedAt;
+    if (age !== null && age >= WAIT_MS && elapsed >= SETTLE_MS) return true;
+    if (age === null && elapsed >= WAIT_MS) return false;
+    await new Promise(r => setTimeout(r, POLL_MS));
   }
 }
 
@@ -71,6 +111,7 @@ export async function run(cdp: CheckSession) {
       tools.delete(toolKey(tool.frameId, tool.name));
   });
 
+  const startedAt = Date.now();
   try {
     await cdp.send('WebMCP.enable');
   } catch (error) {
@@ -78,25 +119,18 @@ export async function run(cdp: CheckSession) {
       `[FINDING] WEBMCP_UNAVAILABLE ${cdp.targetInfo.url} — ${errorMessage(error)}`
     );
     console.log(
-      '[REASON] WebMCP CDP domain not supported by this Chrome build/flags. Launch with --enableFeatures WebMCP on Chrome 150+, or fall back to the automate/scrape intents.'
+      '[REASON] WebMCP CDP domain not supported by this Chrome build/flags. A fresh open launch enables WebMCP on Chrome 150+; a reused browser keeps its own flags, so run cleanup or use another port, or fall back to the automate/scrape intents.'
     );
     return;
   }
 
-  // Real registrations happen synchronously during page/script load in every
-  // case observed so far, so a short settle window covers the common
-  // zero-tools case cheaply; only pay the full WAIT_MS once something was
-  // actually found, in case more tools register asynchronously after that.
-  await new Promise(r => setTimeout(r, SETTLE_MS));
-  if (tools.size > 0 && WAIT_MS > SETTLE_MS) {
-    await new Promise(r => setTimeout(r, WAIT_MS - SETTLE_MS));
-  }
+  const documentLoaded = await awaitDiscovery(cdp, startedAt);
 
   const artifactPath = join(cdp.outputDir, 'webmcp-tools.json');
   const toolList = [...tools.values()];
   writeFileSync(
     artifactPath,
-    `${JSON.stringify({ url: cdp.targetInfo.url, tools: toolList }, null, 2)}\n`,
+    `${JSON.stringify({ url: cdp.targetInfo.url, documentLoaded, tools: toolList }, null, 2)}\n`,
     { mode: 0o600 }
   );
   cdp.upsertResourceMap?.('webmcp-tools', {
@@ -111,6 +145,10 @@ export async function run(cdp: CheckSession) {
     console.log(
       `[FINDING] WEBMCP_NO_TOOLS no page-declared tools found on ${cdp.targetInfo.url}`
     );
+    if (!documentLoaded)
+      console.log(
+        `[REASON] The document was still loading ${WAIT_MS}ms after discovery started; it may register tools once loaded. Run again or raise WEBMCP_WAIT_MS.`
+      );
     console.log(`[ARTIFACT] WEBMCP_TOOLS ${artifactPath}`);
     return;
   }

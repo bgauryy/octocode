@@ -110,6 +110,8 @@ pub fn count_listed(
                 copy: false,
                 terms: &[],
                 gate,
+                // Counting binds no digest to a file.
+                read: super::file_search::ReadDigest::new(false),
             })
             .collect::<Vec<_>>();
         let mut held = Vec::new();

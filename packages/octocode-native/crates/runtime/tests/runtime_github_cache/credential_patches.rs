@@ -3,6 +3,7 @@
 //! no known format is exactly what a recognizer cannot catch, so the marker here
 //! is plain text and the path facts of the patch decide.
 use crate::support::{Workspace, call, row_data, row_status, walk};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use std::path::Path;
 use wiremock::matchers::{method, path};
@@ -91,7 +92,15 @@ fn routes(files: Vec<Value>) -> Vec<Route> {
                     Value::Array(files),
                 ),
             ],
-            query: json!({"operation":"pullRequest","owner":"a","repo":"b","number":7,"sections":["patches"]}),
+            query: json_fixture(
+                r#"{
+                    "operation": "pullRequest",
+                    "owner": "a",
+                    "repo": "b",
+                    "number": 7,
+                    "sections": ["patches"]
+                }"#,
+            ),
         },
     ]
 }
@@ -113,11 +122,10 @@ async fn mounted(route: &Route) -> MockServer {
 }
 
 /// Commit, compare and pull-request patches of a credential-named file, by its
-/// name or a rename's old name: a dotenv patch shows the plain marker (it is in
-/// no credential form) and a key file's patch is redacted whole, a repeat
-/// answers the same, and the marker is in no file under the home once the
-/// runtime closes. The same patch of an ordinary file is on disk (the scan can
-/// see it).
+/// name or a rename's old name: the patch is withheld whole and the path
+/// stays, a repeat answers the same, and the marker is in no file under the
+/// home once the runtime closes. The same patch of an ordinary file is on disk
+/// (the scan can see it).
 #[tokio::test]
 async fn patches_of_credential_files_reach_no_file_under_the_home() {
     let renamed = {
@@ -126,21 +134,21 @@ async fn patches_of_credential_files_reach_no_file_under_the_home() {
         file["status"] = json!("renamed");
         file
     };
-    // Each fixture, and whether its row shows the marker. A credential
-    // extension the scanner leaves as text (`.ovpn` is no private-key class)
-    // shows it, so the disk check below proves the hold for that class too,
-    // where the redacted `KEY.PEM` row alone could not.
-    for (files, shown) in [
-        (vec![changed("tests/.env", WITHHELD)], true),
-        (vec![changed("deploy/client.ovpn", WITHHELD)], true),
+    // Each fixture, and the path its row keeps.
+    for (files, kept) in [
+        (vec![changed("tests/.env", WITHHELD)], "tests/.env"),
+        (
+            vec![changed("deploy/client.ovpn", WITHHELD)],
+            "deploy/client.ovpn",
+        ),
         (
             vec![
                 changed("src/app.rs", "ordinary"),
                 changed("KEY.PEM", WITHHELD),
             ],
-            false,
+            "KEY.PEM",
         ),
-        (vec![renamed], true),
+        (vec![renamed], "config.sample"),
     ] {
         for route in routes(files.clone()) {
             let server = mounted(&route).await;
@@ -152,19 +160,11 @@ async fn patches_of_credential_files_reach_no_file_under_the_home() {
                 .expect("read");
             assert_eq!(row_status(&first), "success", "{}", route.name);
             let row = row_data(&first).to_string();
-            if shown {
-                assert!(
-                    row.contains(WITHHELD),
-                    "{}: the row hides it: {row}",
-                    route.name
-                );
-            } else {
-                assert!(
-                    !row.contains(WITHHELD) && row.contains("REDACTED"),
-                    "{}: a key file's patch is redacted: {row}",
-                    route.name
-                );
-            }
+            assert!(
+                !row.contains(WITHHELD) && row.contains(kept),
+                "{}: a credential file's patch is withheld, its path kept: {row}",
+                route.name
+            );
             let repeat = call(&runtime, "ghGetHistoryItem", route.query.clone())
                 .await
                 .expect("repeat");
@@ -195,7 +195,8 @@ async fn patches_of_credential_files_reach_no_file_under_the_home() {
 }
 
 /// A patch too long for one response page is served through the saved pages and
-/// cursors: walking them still shows it whole, and neither reaches a file.
+/// cursors: a credential file's is withheld on every page, and none reaches a
+/// file.
 #[tokio::test]
 async fn a_paged_patch_of_a_credential_file_reaches_no_file_under_the_home() {
     let body = (0..400)
@@ -214,13 +215,16 @@ async fn a_paged_patch_of_a_credential_file_reaches_no_file_under_the_home() {
         })
         .await;
         let seen = walked.rows.concat();
-        for n in [0, 200, 399] {
-            assert!(
-                seen.contains(&format!("{WITHHELD}{n}")),
-                "{}: line {n} is unreachable",
-                route.name
-            );
-        }
+        assert!(
+            !seen.contains(WITHHELD),
+            "{}: a patch line shows",
+            route.name
+        );
+        assert!(
+            seen.contains("tests/.env"),
+            "{}: the path stays",
+            route.name
+        );
         runtime.close().await;
         assert_eq!(
             files_holding(&workspace.home, WITHHELD),

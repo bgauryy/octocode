@@ -1,6 +1,7 @@
 mod bundled_tsgo;
 pub mod clangd_database;
 pub mod client;
+pub(crate) mod clock;
 mod commands;
 pub mod config;
 pub mod config_file;

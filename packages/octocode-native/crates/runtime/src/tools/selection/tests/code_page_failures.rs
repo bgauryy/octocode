@@ -1,13 +1,25 @@
 //! Provider-page selection that keeps nothing, fails or cannot judge:
 //! typed errors, unavailable receipts and unfiltered recovery.
 use super::*;
+use octocode_contract_types::ErrorCode;
+use octocode_test_support::json_fixture;
+use octocode_tools_shared::selection::Decision;
+use octocode_tools_shared::selection::JudgeCall;
+use octocode_tools_shared::selection::JudgeFailure;
+use octocode_tools_shared::selection::Judgments;
+use octocode_tools_shared::selection::ProviderError;
+use octocode_tools_shared::selection::SelectionJudge;
+use octocode_tools_shared::test_support::selection_runtime::selecting_runtime;
+use octocode_tools_shared::test_support::selection_runtime::test_runtime;
+use serde_json::Value;
+use serde_json::json;
 
 #[test]
 fn empty_selection_preserves_provider_page_and_unfiltered_recovery() {
     struct ExcludingJudge(std::sync::Arc<AtomicUsize>);
     impl SelectionJudge for ExcludingJudge {
         fn identity(&self) -> Value {
-            json!({"test":"exclude"})
+            json_fixture(r#"{"test": "exclude"}"#)
         }
         fn select(&self, call: JudgeCall<'_>) -> Judgments {
             self.0.fetch_add(1, Ordering::SeqCst);
@@ -24,16 +36,54 @@ fn empty_selection_preserves_provider_page_and_unfiltered_recovery() {
         std::sync::Arc::new(ExcludingJudge(calls.clone())),
         executor.handle().clone(),
     );
-    let query = json!({"owner":"o","repo":"r","page":3,"keywords":["retry"],
-        "classification":{"predicates":["Does it state the termination condition?"]}});
-    let original = json!({"results":[{"index":0,"data":{
-        "files":[{"path":"retry.rs","matches":[{"line":1,"value":"UNRELATED_SENTINEL"}]}],
-        "next":{"nextPage":{"kind":"continue","tool":"ghSearchCode","input":{"queries":[{
-            "owner":"o","repo":"r","page":4,"keywords":["retry"],
-            "classification":{"predicates":["Does it state the termination condition?"]},
-            "selection":"old-plan"
-        }]}}}
-    }}]});
+    let query = json_fixture(
+        r#"{
+            "owner": "o",
+            "repo": "r",
+            "page": 3,
+            "keywords": ["retry"],
+            "classification": {"predicates": ["Does it state the termination condition?"]}
+        }"#,
+    );
+    let original = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "files": [
+                            {
+                                "path": "retry.rs",
+                                "matches": [{"line": 1, "value": "UNRELATED_SENTINEL"}]
+                            }
+                        ],
+                        "next": {
+                            "nextPage": {
+                                "kind": "continue",
+                                "tool": "ghSearchCode",
+                                "input": {
+                                    "queries": [
+                                        {
+                                            "owner": "o",
+                                            "repo": "r",
+                                            "page": 4,
+                                            "keywords": ["retry"],
+                                            "classification": {
+                                                "predicates": [
+                                                    "Does it state the termination condition?"
+                                                ]
+                                            },
+                                            "selection": "old-plan"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            ]
+        }"#,
+    );
     let mut selected = original.clone();
     let mut response_query = query.clone();
     apply_code_rows(&mut selected, query, &mut response_query, &runtime)
@@ -45,9 +95,11 @@ fn empty_selection_preserves_provider_page_and_unfiltered_recovery() {
     // The page says what it kept, once, and that empty is no absence.
     assert_eq!(
         data["warnings"],
-        json!([
-            "classification kept 0 of 1 hit that pass the classifiers. An empty classified result is not absence: next.unfiltered lists them all."
-        ]),
+        json_fixture(
+            r#"[
+                "classification kept 0 of 1 hit that pass the classifiers. An empty classified result is not absence: next.unfiltered lists them all."
+            ]"#
+        ),
         "{data}"
     );
     let provider_next = &data["next"]["nextPage"]["input"]["queries"][0];
@@ -82,7 +134,7 @@ fn an_empty_provider_page_offers_no_unfiltered_page() {
     struct NoJudge;
     impl SelectionJudge for NoJudge {
         fn identity(&self) -> Value {
-            json!({"test":"none"})
+            json_fixture(r#"{"test": "none"}"#)
         }
         fn select(&self, _: JudgeCall<'_>) -> Judgments {
             Ok(Vec::new())
@@ -90,9 +142,19 @@ fn an_empty_provider_page_offers_no_unfiltered_page() {
     }
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let runtime = test_runtime(std::sync::Arc::new(NoJudge), executor.handle().clone());
-    let query = json!({"owner":"o","repo":"r","keywords":["nothing"],
-        "classification":{"predicates":["Relevant?"]}});
-    let mut page = json!({"results":[{"index":0,"status":"empty","data":{"files":[]}}]});
+    let query = json_fixture(
+        r#"{
+            "owner": "o",
+            "repo": "r",
+            "keywords": ["nothing"],
+            "classification": {"predicates": ["Relevant?"]}
+        }"#,
+    );
+    let mut page = json_fixture(
+        r#"{
+            "results": [{"index": 0, "status": "empty", "data": {"files": []}}]
+        }"#,
+    );
     let mut response_query = query.clone();
     apply_code_rows(&mut page, query, &mut response_query, &runtime).expect("empty provider page");
     let data = &page["results"][0]["data"];
@@ -104,9 +166,19 @@ fn an_empty_provider_page_offers_no_unfiltered_page() {
 fn path_only_candidates_are_unknown_without_provider_work() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let (runtime, calls) = selecting_runtime(&executor);
-    let query = json!({"owner":"o","repo":"r","keywords":["retry"],
-        "classification":{"predicates":["Does this show a stopping condition?"]}});
-    let mut output = json!({"results":[{"index":0,"data":{"files":[{"path":"retry.rs"}]}}]});
+    let query = json_fixture(
+        r#"{
+            "owner": "o",
+            "repo": "r",
+            "keywords": ["retry"],
+            "classification": {"predicates": ["Does this show a stopping condition?"]}
+        }"#,
+    );
+    let mut output = json_fixture(
+        r#"{
+            "results": [{"index": 0, "data": {"files": [{"path": "retry.rs"}]}}]
+        }"#,
+    );
     let mut response_query = query.clone();
     apply_code_rows(&mut output, query, &mut response_query, &runtime)
         .expect("unknown path-only view");
@@ -121,11 +193,32 @@ fn path_only_candidates_are_unknown_without_provider_work() {
 fn source_failure_keeps_selection_coverage_visible_without_returning_partial_bodies() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let (runtime, calls) = selecting_runtime(&executor);
-    let query = json!({"owner":"o","keywords":["retry"],
-        "classification":{"predicates":["Does it describe retries?"]}});
-    let mut output = json!({"results":[{"index":0,"status":"error","data":{
-        "errorCode":"providerUnavailable","files":[{"path":"a.rs","matches":[{"line":1,"value":"UNJUDGED_BODY"}]}]
-    }}]});
+    let query = json_fixture(
+        r#"{
+            "owner": "o",
+            "keywords": ["retry"],
+            "classification": {"predicates": ["Does it describe retries?"]}
+        }"#,
+    );
+    let mut output = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "status": "error",
+                    "data": {
+                        "errorCode": "providerUnavailable",
+                        "files": [
+                            {
+                                "path": "a.rs",
+                                "matches": [{"line": 1, "value": "UNJUDGED_BODY"}]
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#,
+    );
     let mut response_query = query.clone();
     apply_code_rows(&mut output, query, &mut response_query, &runtime)
         .expect("failed source has a selection receipt");
@@ -143,7 +236,7 @@ fn a_provider_failing_the_whole_page_fails_the_row_with_its_typed_error() {
     struct Unauthorized;
     impl SelectionJudge for Unauthorized {
         fn identity(&self) -> Value {
-            json!({"backend":"unauthorized"})
+            json_fixture(r#"{"backend": "unauthorized"}"#)
         }
         fn select(&self, _call: JudgeCall<'_>) -> Judgments {
             Err(JudgeFailure::Provider(ProviderError {
@@ -155,11 +248,32 @@ fn a_provider_failing_the_whole_page_fails_the_row_with_its_typed_error() {
     }
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let runtime = test_runtime(std::sync::Arc::new(Unauthorized), executor.handle().clone());
-    let query = json!({"owner":"o","repo":"r","page":2,"keywords":["retry"],
-        "classification":{"predicates":["Does it state when retries stop?"]}});
-    let mut output = json!({"results":[{"index":0,"data":{"files":[
-        {"path":"a.rs","matches":[{"line":1,"value":"UNJUDGED_BODY"}]}
-    ]}}]});
+    let query = json_fixture(
+        r#"{
+            "owner": "o",
+            "repo": "r",
+            "page": 2,
+            "keywords": ["retry"],
+            "classification": {"predicates": ["Does it state when retries stop?"]}
+        }"#,
+    );
+    let mut output = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "files": [
+                            {
+                                "path": "a.rs",
+                                "matches": [{"line": 1, "value": "UNJUDGED_BODY"}]
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#,
+    );
     let mut response_query = query.clone();
     apply_code_rows(&mut output, query, &mut response_query, &runtime)
         .expect("a failed judgment is a row outcome");
@@ -195,12 +309,12 @@ fn a_provider_that_is_down_shows_the_whole_page_as_unavailable() {
     struct Down(std::sync::Arc<AtomicUsize>);
     impl SelectionJudge for Down {
         fn identity(&self) -> Value {
-            json!({"backend":"down"})
+            json_fixture(r#"{"backend": "down"}"#)
         }
         fn select(&self, _call: JudgeCall<'_>) -> Judgments {
             self.0.fetch_add(1, Ordering::SeqCst);
             Err(JudgeFailure::Provider(ProviderError {
-                code: crate::providers::classification::CIRCUIT_OPEN,
+                code: octocode_runtime_base::providers::classification::CIRCUIT_OPEN,
                 message: "Classification provider returned HTTP 503 Service Unavailable".into(),
                 hints: vec!["Retry later.".into()],
             }))
@@ -212,13 +326,36 @@ fn a_provider_that_is_down_shows_the_whole_page_as_unavailable() {
         std::sync::Arc::new(Down(calls.clone())),
         executor.handle().clone(),
     );
-    let query = json!({"owner":"o","repo":"r","keywords":["retry"],
-        "classification":{"predicates":["Does it state when retries stop?"]}});
+    let query = json_fixture(
+        r#"{
+            "owner": "o",
+            "repo": "r",
+            "keywords": ["retry"],
+            "classification": {"predicates": ["Does it state when retries stop?"]}
+        }"#,
+    );
     let page = || {
-        json!({"results":[{"index":0,"data":{"files":[
-            {"path":"a.rs","matches":[{"line":1,"value":"FIRST_BODY"}]},
-            {"path":"b.rs","matches":[{"line":2,"value":"SECOND_BODY"}]}
-        ]}}]})
+        json_fixture(
+            r#"{
+                "results": [
+                    {
+                        "index": 0,
+                        "data": {
+                            "files": [
+                                {
+                                    "path": "a.rs",
+                                    "matches": [{"line": 1, "value": "FIRST_BODY"}]
+                                },
+                                {
+                                    "path": "b.rs",
+                                    "matches": [{"line": 2, "value": "SECOND_BODY"}]
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }"#,
+        )
     };
     let mut output = page();
     let mut response_query = query.clone();
@@ -237,7 +374,9 @@ fn a_provider_that_is_down_shows_the_whole_page_as_unavailable() {
     assert_eq!(data["selection"]["status"], "unavailable");
     assert_eq!(
         data["selection"]["reason"],
-        crate::id::error_codes::as_str(crate::providers::classification::CIRCUIT_OPEN)
+        octocode_runtime_base::id::error_codes::as_str(
+            octocode_runtime_base::providers::classification::CIRCUIT_OPEN
+        )
     );
     assert_eq!(data["selection"]["unknownItems"], 2);
     let warnings = data["warnings"].to_string();
@@ -269,8 +408,15 @@ fn a_provider_that_is_down_shows_the_whole_page_as_unavailable() {
 fn malformed_code_page_fails_clearly_and_skips_judgment() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let (runtime, calls) = selecting_runtime(&executor);
-    let query = json!({"owner":"a","repo":"b","keywords":["target"],"classification":{"predicates":["wanted"]}});
-    let files = json!({"unexpected":"shape"});
+    let query = json_fixture(
+        r#"{
+            "owner": "a",
+            "repo": "b",
+            "keywords": ["target"],
+            "classification": {"predicates": ["wanted"]}
+        }"#,
+    );
+    let files = json_fixture(r#"{"unexpected": "shape"}"#);
     let mut structured = json!({"results":[{"index":0,"data":{"files":files,"marker":"retain"}}]});
     let mut response_query = query.clone();
     apply_code_rows(&mut structured, query, &mut response_query, &runtime).expect("malformed page");

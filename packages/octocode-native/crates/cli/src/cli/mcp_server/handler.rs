@@ -8,7 +8,7 @@ use super::warm::Warm;
 use octocode_contract_types::ErrorCode;
 use octocode_native::runtime::error::{McpResult, mcp_result};
 use octocode_native::runtime::{Channel, RuntimeError, ToolRuntime};
-use octocode_native::security::scrub_error_text;
+use octocode_runtime_base::security::scrub_error_text;
 use rmcp::ErrorData;
 use rmcp::ServerHandler;
 use rmcp::model::{
@@ -49,7 +49,8 @@ impl Handler {
             })
             .collect::<Result<Vec<_>, _>>()?;
         // Server identity is interface-owned: the contract carries tool
-        // guidance, not the server's name, title or version.
+        // guidance, not the server's name or title; the version carries the
+        // contract's fingerprint as build metadata.
         // Tools never change while connected: advertise `listChanged: false`.
         let mut capabilities = ServerCapabilities::builder()
             .enable_tools()
@@ -60,7 +61,7 @@ impl Handler {
         }
         let config = ServerConfig::new(capabilities)
             .with_server_info(
-                Implementation::new("octocode-mcp", env!("CARGO_PKG_VERSION"))
+                Implementation::new("octocode-mcp", crate::cli::build_version())
                     .with_title("Octocode MCP"),
             )
             .with_instructions(instructions);
@@ -210,7 +211,7 @@ impl ServerHandler for Handler {
         // runtime's admission, which refuses it with an error naming the
         // setting to change: "not found" would read as a connection fault.
         if !self.tools.iter().any(|tool| tool.name == request.name)
-            && octocode_native::id::ToolId::from_name(&request.name).is_none()
+            && octocode_runtime_base::id::ToolId::from_name(&request.name).is_none()
         {
             return Err(ErrorData::invalid_params(
                 format!("Tool {} not found", request.name),

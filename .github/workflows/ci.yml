@@ -192,7 +192,7 @@ jobs:
           -E 'test(/process::tests::job::/) | test(a_server_over_its_memory_cap_and_its_child_do_not_outlive_stop)'
       - name: Bounded run and token lookup containment (runtime)
         run: >-
-          cargo nextest run --locked -p octocode-native --lib
+          cargo nextest run --locked -p octocode-native -p octocode-runtime-base --lib
           -E 'test(/bounded_process::(held_pipe_tests|gated::tests)::/) | test(/discovery::containment_tests::/)'
 
   # The managed language-server lock still matches GitHub's release digests:

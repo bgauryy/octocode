@@ -8,6 +8,7 @@
 
 use super::server::{REPLY_TIMEOUT, Server, local_search};
 use crate::support::{PersistentCli, Workspace};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -18,10 +19,17 @@ use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 fn initialize(server: &mut Server) {
     server.request(
         "initialize",
-        json!({"protocolVersion": "2025-11-25", "capabilities": {},
-               "clientInfo": {"name": "test", "version": "1"}}),
+        json_fixture(
+            r#"{
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": {"name": "test", "version": "1"}
+            }"#,
+        ),
     );
-    server.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+    server.send(&json_fixture(
+        r#"{"jsonrpc": "2.0", "method": "notifications/initialized"}"#,
+    ));
 }
 
 fn text(reply: &Value) -> &str {
@@ -82,8 +90,12 @@ fn a_warm_mcp_call_answers_the_bytes_of_an_in_process_call() {
     let workspace = Workspace::new();
     std::fs::write(workspace.workspace.join("a.txt"), "alpha\nbeta needle\n").unwrap();
     let call = || {
-        json!({"name": "localSearch", "arguments": {"queries": [{
-            "matchString": ["needle"], "path": "."}]}})
+        json_fixture(
+            r#"{
+                "name": "localSearch",
+                "arguments": {"queries": [{"matchString": ["needle"], "path": "."}]}
+            }"#,
+        )
     };
     let mut local = Server::start(&workspace);
     initialize(&mut local);
@@ -150,8 +162,9 @@ struct SpentThenPage {
 impl Respond for SpentThenPage {
     fn respond(&self, _: &Request) -> ResponseTemplate {
         if self.calls.fetch_add(1, Ordering::SeqCst) % 2 == 1 {
-            return ResponseTemplate::new(200).set_body_json(json!({
-                "total_count": 0, "incomplete_results": false, "items": []}));
+            return ResponseTemplate::new(200).set_body_json(json_fixture(
+                r#"{"total_count": 0, "incomplete_results": false, "items": []}"#,
+            ));
         }
         let reset = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -162,7 +175,7 @@ impl Respond for SpentThenPage {
             .insert_header("x-ratelimit-remaining", "0")
             .insert_header("x-ratelimit-reset", reset.to_string().as_str())
             .insert_header("x-ratelimit-resource", "code_search")
-            .set_body_json(json!({"message": "API rate limit exceeded"}))
+            .set_body_json(json_fixture(r#"{"message": "API rate limit exceeded"}"#))
     }
 }
 
@@ -178,10 +191,9 @@ async fn github(reset_in: Duration) -> MockServer {
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"default_branch":"main","full_name":"a/b"})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"default_branch": "main", "full_name": "a/b"}"#,
+        )))
         .mount(&github)
         .await;
     github

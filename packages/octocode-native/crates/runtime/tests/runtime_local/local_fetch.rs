@@ -2,6 +2,7 @@
 
 use crate::support::{self, Workspace, call, query_path, row_data};
 use octocode_contract_types::ErrorCode;
+use octocode_test_support::json_fixture;
 use serde_json::json;
 
 #[tokio::test]
@@ -69,7 +70,10 @@ async fn local_fetch_redacted_content_is_marked_not_verbatim() {
     );
     let clean = workspace.write("clean.ts", "export const clean = 1;\n");
     let runtime = workspace.runtime(&[]);
-    for extra in [json!({}), json!({"ranges":[{"startLine":2,"endLine":2}]})] {
+    for extra in [
+        json!({}),
+        json_fixture(r#"{"ranges": [{"startLine": 2, "endLine": 2}]}"#),
+    ] {
         let outcome = call(&runtime, "localFetch", query_path(&path, extra.clone()))
             .await
             .expect("redacted read");
@@ -143,5 +147,65 @@ async fn a_missing_path_carries_its_listing_and_the_not_found_hint() {
             .is_some_and(|hint| hint.contains("retry with the exact listed path")),
         "{data}"
     );
+    runtime.close().await;
+}
+
+/// A long line's byte pages fit the row's share of the response page: all
+/// of it for one row, an equal share for each row of a batch
+/// (`read_share::row_window`), less the skeleton every page budget keeps. A
+/// share that holds 4 KB pages reads them; a narrower one reads smaller
+/// pages, never slivers under one hit's window, and no share grows past
+/// the page.
+#[tokio::test]
+async fn a_long_lines_byte_pages_fit_each_rows_share_and_never_shrink_to_slivers() {
+    use octocode_runtime_base::{id::ToolId, response::read_share::row_window};
+    use octocode_tools_shared::source_view::pagination::{
+        MIN_BYTE_PAGE, MIN_LONG_LINE_PAGE, byte_page_room,
+    };
+    let workspace = Workspace::new();
+    let line = (0..2_500).map(|at| format!("{at:07};")).collect::<String>();
+    let path = workspace.write("bundle.min.js", format!("{line}\n"));
+    let runtime = workspace.runtime(&[]);
+    let row = json!({"path": path});
+    let page_text = |data: &serde_json::Value| {
+        assert_eq!(data["pagination"]["unit"], "bytes", "{data}");
+        data["content"].as_str().expect("content").len()
+    };
+    // (rows, responseChars): one row of a narrow page, a batch's narrow
+    // shares of it, and a batch whose shares of the default page hold 4 KB.
+    for (rows, page) in [(1, 400), (3, 400), (3, 20_000)] {
+        let room = byte_page_room(Some(row_window(ToolId::LocalFetch, page, rows)));
+        assert!(
+            room >= MIN_BYTE_PAGE || page == 400,
+            "{rows} rows of {page}: a share of this page holds 4 KB pages"
+        );
+        let output = call(
+            &runtime,
+            "localFetch",
+            json!({"queries": vec![row.clone(); rows], "responseChars": page}),
+        )
+        .await
+        .expect("a read");
+        let results = output
+            .structured_content
+            .pointer("/results")
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert!(!results.is_empty(), "{:?}", output.structured_content);
+        for result in &results {
+            let shown = page_text(&result["data"]);
+            assert!(
+                (MIN_LONG_LINE_PAGE..=room).contains(&shown),
+                "{rows} rows of {page}: {shown} bytes, room {room}"
+            );
+            if page == 400 {
+                assert!(
+                    shown < MIN_BYTE_PAGE,
+                    "a narrow share stays narrow: {shown}"
+                );
+            }
+        }
+    }
     runtime.close().await;
 }

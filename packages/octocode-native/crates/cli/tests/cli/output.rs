@@ -1,4 +1,5 @@
 use super::*;
+use octocode_test_support::json_fixture;
 
 #[test]
 fn localsearch_emits_structured_results() {
@@ -29,7 +30,7 @@ fn localsearch_emits_structured_results() {
 #[test]
 fn text_mode_failed_rows_state_their_status_on_stdout() {
     let workspace = Workspace::new();
-    let query = serde_json::json!({"queries":[{"path":"missing.rs"}]}).to_string();
+    let query = json_fixture(r#"{"queries": [{"path": "missing.rs"}]}"#).to_string();
     let output = workspace
         .cli()
         .args(["localFetch", &query])
@@ -110,15 +111,16 @@ fn json_mode_errors_go_to_stdout_without_stderr() {
             .is_some_and(|message| message.contains("matchstring")),
         "{error}"
     );
-    // After the cause comes the shared static contract example, never a
-    // request built from what was sent or transport-specific guidance.
+    // After the cause comes one accepted request in the row's own terms: the
+    // path it sent, never the field at fault, and no transport-specific
+    // guidance.
     let details = error["details"].as_array().expect("repair reference");
     assert_eq!(details.len(), 1, "{error}");
     assert!(
         details[0]
             .as_str()
             .is_some_and(|line| line.starts_with("Example: {\"queries\":[")
-                && !line.contains("a.rs")
+                && line.contains("\"path\":\"a.rs\"")
                 && !line.contains("matchstring")),
         "{error}"
     );
@@ -157,9 +159,10 @@ async fn github_authentication_failure_uses_exit_four_and_actionable_hint() {
 
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
-        .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
-            "message": "Bad credentials"
-        })))
+        .respond_with(
+            ResponseTemplate::new(401)
+                .set_body_json(json_fixture(r#"{"message": "Bad credentials"}"#)),
+        )
         .mount(&server)
         .await;
     let workspace = Workspace::new();

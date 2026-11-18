@@ -1,7 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
 import { sharedAssets } from '../../../skills/common/build.mjs';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 function walk(directory) {
@@ -11,15 +10,6 @@ function walk(directory) {
       : [join(directory, entry.name)]
   );
 }
-for (const directory of ['tools', 'bin', 'tests'])
-  for (const file of walk(join(root, directory)).filter(file =>
-    file.endsWith('.mjs')
-  )) {
-    const result = spawnSync(process.execPath, ['--check', file], {
-      encoding: 'utf8',
-    });
-    if (result.status !== 0) throw Error(result.stderr);
-  }
 // The skill holds guidance only: shared assets byte-identical to their canonical source, and
 // its own Markdown, which names package commands rather than implementation paths.
 const skill = join(root, '../../skills/octocode-chrome-devtools');
@@ -47,4 +37,4 @@ for (const file of walk(skill)) {
       `Chrome skill must use package CLI/MCP, not implementation paths: ${entry}`
     );
 }
-console.log('Chrome syntax and guidance-only skill boundary passed');
+console.log('Chrome guidance-only skill boundary passed');

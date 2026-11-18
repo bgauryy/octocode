@@ -38,6 +38,9 @@ pub(super) struct FileScan<'a> {
     pub(super) anchors: Option<AnchorFilter>,
     pub(super) matchers: CompiledMatchers,
     pub(super) max_file_bytes: u64,
+    /// The parse budget ([`crate::structural::parse_budget`]), read when the
+    /// scan starts.
+    pub(super) parse_budget: usize,
     pub(super) demand: StructuralDemand<'a>,
     /// Which matches a scope keeps, by file and 1-based start line.
     pub(super) keep_line: Option<&'a crate::structural::types::KeepLine<'a>>,
@@ -131,7 +134,7 @@ impl FileScan<'_> {
         // limit, and every other is admitted by that estimate, so the files
         // parsed at once never hold more than the budget.
         let cost = crate::structural::parse_cost(&bytes);
-        let budget = crate::structural::parse_budget();
+        let budget = self.parse_budget;
         if cost > budget {
             return Ok(Some(source_skipped(
                 path_string,

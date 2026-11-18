@@ -1,4 +1,5 @@
 use super::*;
+use octocode_test_support::json_fixture;
 
 #[test]
 fn tool_rejects_non_canonical_fields() {
@@ -37,15 +38,17 @@ fn localfetch_cursor_walk_reconstructs_source_across_processes() {
     let mut input = serde_json::json!({"queries":[{"path":path}],"responseChars":2000});
     let mut shown = String::new();
     let mut pages = 0;
+    // Persistent storage starts a warm server: the fixture owns its socket
+    // namespace and stops it when the test ends.
+    let persistent = workspace.persistent_cli();
     loop {
         pages += 1;
         assert!(
             pages <= content.lines().count() + 1,
             "continuation must advance"
         );
-        let output = workspace
+        let output = persistent
             .cli()
-            .env("OCTOCODE_STORAGE_MODE", "persistent")
             .args(["localFetch", &input.to_string(), "--json"])
             .output()
             .expect("read page");
@@ -56,7 +59,7 @@ fn localfetch_cursor_walk_reconstructs_source_across_processes() {
                 shown.push_str(content);
             }
         }
-        let call = if value["responsePagination"]["hasMore"] == true {
+        let call = if value["responsePagination"]["next"].is_object() {
             &value["responsePagination"]["next"]
         } else {
             &value["results"][0]["data"]["next"]["nextPage"]
@@ -64,7 +67,7 @@ fn localfetch_cursor_walk_reconstructs_source_across_processes() {
         if call.is_null() {
             break;
         }
-        assert_eq!(call["kind"], "continue");
+        assert_eq!(call.get("kind"), None);
         assert_eq!(call["tool"], "localFetch");
         input = call["input"].clone();
         assert_eq!(input.as_object().expect("input").len(), 1);
@@ -214,9 +217,9 @@ fn localfetch_rejects_host_line_range_spellings() {
     let path = workspace.write("ranges.txt", &lines);
     for ranges in [
         serde_json::json!("2,4"),
-        serde_json::json!([" 2-4"]),
-        serde_json::json!(["2", "4"]),
-        serde_json::json!([2, 4]),
+        json_fixture(r#"[" 2-4"]"#),
+        json_fixture(r#"["2", "4"]"#),
+        json_fixture(r#"[2, 4]"#),
     ] {
         let query = serde_json::json!({"queries":[{
             "path": path, "ranges": ranges
@@ -246,7 +249,16 @@ fn inline_json_query_never_waits_on_an_open_stdin() {
 
     let workspace = Workspace::new();
     workspace.write("note.txt", "alpha\nbeta\n");
-    let query = serde_json::json!({"queries": [{"path": "note.txt", "ranges":[{"startLine":1,"endLine":1}]}]});
+    let query = json_fixture(
+        r#"{
+            "queries": [
+                {
+                    "path": "note.txt",
+                    "ranges": [{"startLine": 1, "endLine": 1}]
+                }
+            ]
+        }"#,
+    );
     let mut child = workspace
         .cli()
         .args(["localFetch", &query.to_string()])

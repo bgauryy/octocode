@@ -3,6 +3,7 @@
 //! decides it.
 use super::*;
 use crate::budget::now_ms;
+use octocode_test_support::json_fixture;
 
 /// A search answer reporting the `remaining` quota and the window's `reset`
 /// (epoch seconds).
@@ -11,7 +12,7 @@ fn quota_response(remaining: u64, reset: u64) -> ResponseTemplate {
         .insert_header("x-ratelimit-remaining", remaining.to_string().as_str())
         .insert_header("x-ratelimit-reset", reset.to_string().as_str())
         .insert_header("x-ratelimit-resource", "search")
-        .set_body_json(serde_json::json!({"total_count": 0, "items": []}))
+        .set_body_json(json_fixture(r#"{"total_count": 0, "items": []}"#))
 }
 
 async fn mount_search(server: &MockServer, responder: impl wiremock::Respond + 'static) {
@@ -41,7 +42,7 @@ async fn an_unreported_quota_holds_the_lane_only_until_the_first_answer() {
     let answer = Duration::from_millis(400);
     let answers = Delayed::new(
         answer,
-        ResponseTemplate::new(200).set_body_json(serde_json::json!({"items": []})),
+        ResponseTemplate::new(200).set_body_json(json_fixture(r#"{"items": []}"#)),
     );
     let arrivals = answers.arrivals.clone();
     mount_search(&server, answers).await;

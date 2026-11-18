@@ -18,7 +18,7 @@ use super::{EnvMap, call_var};
 
 /// What one environment resolves to.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Resolved {
+pub(super) struct Resolved {
     /// The global ignore file, which may not exist.
     file: Option<PathBuf>,
     /// Every file whose contents decide the rules: the file and the git
@@ -87,6 +87,13 @@ fn resolve_with(
         .chain(xdg.as_ref().map(|dir| dir.join("git/config")))
         .chain(Some(system))
         .collect();
+    #[cfg_attr(
+        octocode_clippy_ratchet,
+        expect(
+            clippy::disallowed_methods,
+            reason = "a git config is read whole, as git and the ignore crate read it; a size cap would drop a setting git still applies"
+        )
+    )]
     let named = configs
         .iter()
         .find_map(|config| excludes_file(&std::fs::read(config).ok()?, home.as_deref()));
@@ -103,13 +110,13 @@ fn resolve_with(
 fn excludes_file(data: &[u8], home: Option<&Path>) -> Option<PathBuf> {
     for line in String::from_utf8_lossy(data).lines() {
         let line = line.trim_start();
-        let Some(key) = line.get(.."excludesfile".len()) else {
+        let Some((key, rest)) = line.split_at_checked("excludesfile".len()) else {
             continue;
         };
         if !key.eq_ignore_ascii_case("excludesfile") {
             continue;
         }
-        let Some(value) = line["excludesfile".len()..].trim_start().strip_prefix('=') else {
+        let Some(value) = rest.trim_start().strip_prefix('=') else {
             continue;
         };
         let value = value.trim();

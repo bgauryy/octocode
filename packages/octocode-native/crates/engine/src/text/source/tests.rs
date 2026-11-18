@@ -253,3 +253,88 @@ fn interior_bytes_keep_a_leading_feff_as_text() {
         "\u{feff}caf\u{fffd}"
     );
 }
+
+thread_local! {
+    /// A write a bounded read on this thread makes before each chunk it
+    /// reads, as a writer racing the read makes it; it stays while it
+    /// returns `true`.
+    static DURING_BOUNDED_READ: std::cell::RefCell<Option<Box<dyn FnMut() -> bool>>> =
+        std::cell::RefCell::new(None);
+}
+
+/// Makes the write registered on this thread for a bounded read.
+pub(super) fn during_bounded_read() {
+    DURING_BOUNDED_READ.with_borrow_mut(|hook| {
+        if let Some(write) = hook
+            && !write()
+        {
+            *hook = None;
+        }
+    });
+}
+
+/// The two versions of a file rewritten in place while it is read: the
+/// first is shorter, so a read that took it whole and then reads on takes
+/// the second's rest, joined to it.
+fn versions() -> (&'static str, String) {
+    (
+        "short one\nshort two\n",
+        format!("{}\nsecond version\n", "z".repeat(60)),
+    )
+}
+
+/// A bounded read a rewrite tore (the old version's bytes, then the new
+/// version's rest) is made again: it returns the version that read settled
+/// on, never the joined bytes.
+#[test]
+fn a_bounded_read_a_rewrite_tore_reads_the_file_again() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("live.txt");
+    let (first, second) = versions();
+    std::fs::write(&path, first).expect("write");
+    let (target, rewrite, mut checks) = (path.clone(), second.clone(), 0);
+    DURING_BOUNDED_READ.with_borrow_mut(|hook| {
+        *hook = Some(Box::new(move || {
+            checks += 1;
+            if checks == 2 {
+                std::fs::write(&target, &rewrite).expect("rewrite in place");
+            }
+            checks < 2
+        }));
+    });
+    let read = read_source(&path, 1024).expect("read");
+    assert!(
+        DURING_BOUNDED_READ.with_borrow(Option::is_none),
+        "the file was rewritten while it was read"
+    );
+    assert_eq!(read.bytes, second.as_bytes());
+}
+
+/// A file rewritten before every chunk a bounded read takes never settles:
+/// the read fails as one whose file changed while it was read.
+#[test]
+fn a_bounded_read_of_a_file_rewritten_through_every_read_fails() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("live.txt");
+    let (first, second) = versions();
+    std::fs::write(&path, first).expect("write");
+    let (target, mut writes) = (path.clone(), 0u64);
+    DURING_BOUNDED_READ.with_borrow_mut(|hook| {
+        *hook = Some(Box::new(move || {
+            writes += 1;
+            let version = if writes % 2 == 1 {
+                second.as_str()
+            } else {
+                first
+            };
+            std::fs::write(&target, version).expect("rewrite in place");
+            true
+        }));
+    });
+    let read = read_source(&path, 1024);
+    DURING_BOUNDED_READ.with_borrow_mut(|hook| *hook = None);
+    assert!(
+        matches!(&read, Err(ReadError::Io(error)) if is_changed_while_read(error)),
+        "{read:?}"
+    );
+}

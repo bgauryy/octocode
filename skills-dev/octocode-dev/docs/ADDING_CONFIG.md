@@ -57,7 +57,7 @@ process environment / MCP client env block
 
 A setting is something a user chooses: a credential, an endpoint, a feature switch, a tool list, a scope, a storage mode, a model or a presentation format. Internal limits (timeouts, retries, waits, page sizes, retained-work sizes and TTLs, concurrency, spend caps, memory caps) are code constants, never settings: no `.env` or `.octocoderc` can change them. The contract has no number field type. A limit lives in one of two places:
 
-- **`RuntimeLimits::DEFAULT`** (`packages/octocode-native/crates/runtime/src/execution/limits.rs`) when several surfaces share it or tests vary it through `ToolRuntime::with_limits`.
+- **`RuntimeLimits::DEFAULT`** (`packages/octocode-native/crates/runtime-base/src/execution/limits.rs`) when several surfaces share it or tests vary it through `ToolRuntime::with_limits`.
 - **A named constant next to its single use** otherwise (for example `IDLE_EXIT` in `crates/cli/src/cli/serve.rs`). Its doc comment gives the rationale. When it bounds evidence, the response discloses the cut (a warning, a `*Clipped` flag or a continuation), never a silent gap.
 
 Docs link to the constant instead of copying its value.
@@ -209,7 +209,7 @@ Pattern B tests must prove:
 4. missing/blank file values fall back, while the explicit process classification opt-out stays disabled;
 5. `Debug`, diagnostics, inspection JSON and `get_config_value` do not contain the secret.
 
-Test the applicable process env, home/project `.env` and workspace/home `.octocoderc` precedence (see `packages/octocode-native/crates/runtime/src/config/layering_tests.rs`).
+Test the applicable process env, home/project `.env` and workspace/home `.octocoderc` precedence (see `packages/octocode-native/crates/runtime-base/src/config/layering_tests.rs`).
 
 After you build CLI/MCP, check outgoing credential selection with synthetic keys and a loopback provider by hand: the token precedence item of the [packaged auth checks](../../../packages/octocode-native/docs/GITHUB_AUTH_TESTS.md#packaged-checks).
 
@@ -227,7 +227,7 @@ let prewarm = &config.resolved.lsp.prewarm;
 let classification_key = config.env_value("OCTOCODE_CLASSIFICATION_API");
 ```
 
-Rust resolved structs are generated at build time. `crates/runtime/build.rs` reads `config-contract.json` through a manifest-relative path, so native-only builds do not depend on a prior TypeScript generation or the working directory. It does not re-validate the schema (the TypeScript generator does, with Zod); its renderer fails closed on missing or mistyped fields.
+Rust resolved structs are generated at build time. `crates/runtime-base/build.rs` reads `config-contract.json` through a manifest-relative path, so native-only builds do not depend on a prior TypeScript generation or the working directory. It does not re-validate the schema (the TypeScript generator does, with Zod); its renderer fails closed on missing or mistyped fields.
 
 ## Generated artifacts and checks
 

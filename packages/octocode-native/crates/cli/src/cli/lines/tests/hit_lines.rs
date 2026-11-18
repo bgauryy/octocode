@@ -1,5 +1,6 @@
 //! Hit lines: rg-style rows, numbering, clipping and grouped locations.
 use super::*;
+use octocode_test_support::json_fixture;
 
 #[test]
 fn hits_print_like_rg_and_lose_no_field() {
@@ -15,7 +16,6 @@ fn hits_print_like_rg_and_lose_no_field() {
             "996-) {",
             "997:  let sb = SearcherBuilder::new();  [function build 992-1016]",
             "# rowPart: part 1 of 2",
-            "# responsePagination: hasMore true",
             "# warnings: incomplete",
             "# responsePagination.next: octocode localSearch '{\"cursor\":\"issued-response-page\"}'",
             "# next.nextPage: octocode localSearch '{\"cursor\":\"issued-tool-page\"}'",
@@ -39,7 +39,18 @@ fn hits_print_like_rg_and_lose_no_field() {
 #[test]
 fn numbering_follows_the_query_and_matched_lines() {
     // Without context, a `N\t` prefix is the line's own text.
-    let tsv = json!({"results":[{"index":0,"data":{"files":[{"path":"t","matches":[{"line":3,"value":"3\tfoo"}]}]}}]});
+    let tsv = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "files": [{"path": "t", "matches": [{"line": 3, "value": "3\tfoo"}]}]
+                    }
+                }
+            ]
+        }"#,
+    );
     assert_eq!(
         render(ToolId::LocalSearch, &tsv, &json!({}), None)
             .expect("lines")
@@ -47,8 +58,29 @@ fn numbering_follows_the_query_and_matched_lines() {
         "t:3:3\tfoo"
     );
     // With context, `matchedLines` marks every hit.
-    let merged = json!({"results":[{"index":0,"data":{"files":[{"path":"a","matches":[
-            {"line":2,"matchedLines":[2,3],"value":"1\tx\n2\tfoo\n3\tfoo"}]}]}}]});
+    let merged = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "files": [
+                            {
+                                "path": "a",
+                                "matches": [
+                                    {
+                                        "line": 2,
+                                        "matchedLines": [2, 3],
+                                        "value": "1\tx\n2\tfoo\n3\tfoo"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#,
+    );
     assert_eq!(
         render(ToolId::LocalSearch, &merged, &context(), None)
             .expect("lines")
@@ -56,8 +88,23 @@ fn numbering_follows_the_query_and_matched_lines() {
         "a\n1-x\n2:foo\n3:foo"
     );
     // A clipped snippet that is not numbered prints in the generic layout.
-    let clipped = json!({"results":[{"index":0,"data":{"files":[{"path":"a","matches":[
-            {"line":6,"value":"xxx…","clipped":true}]}]}}]});
+    let clipped = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "files": [
+                            {
+                                "path": "a",
+                                "matches": [{"line": 6, "value": "xxx…", "clipped": true}]
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#,
+    );
     let lines = render(ToolId::LocalSearch, &clipped, &context(), None).expect("text");
     assert_eq!(
         lines.out,
@@ -67,15 +114,54 @@ fn numbering_follows_the_query_and_matched_lines() {
 
 #[test]
 fn empty_values_crlf_and_clipped_structural_matches() {
-    let blank = json!({"results":[{"index":0,"data":{"files":[{"path":"a","matches":[{"line":4,"value":""},{"line":5,"value":"x\r"}]}]}}]});
+    let blank = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "files": [
+                            {
+                                "path": "a",
+                                "matches": [{"line": 4, "value": ""}, {"line": 5, "value": "x\r"}]
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#,
+    );
     assert_eq!(
         render(ToolId::LocalSearch, &blank, &json!({}), None)
             .expect("lines")
             .out,
         "a\n4:\n5:x\r"
     );
-    let ast = json!({"results":[{"index":0,"data":{"files":[{"path":"m.ts","matches":[
-            {"line":1,"endLine":3,"column":1,"value":"function foo(a) …","clipped":true}]}]}}]});
+    let ast = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "files": [
+                            {
+                                "path": "m.ts",
+                                "matches": [
+                                    {
+                                        "line": 1,
+                                        "endLine": 3,
+                                        "column": 1,
+                                        "value": "function foo(a) …",
+                                        "clipped": true
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#,
+    );
     assert_eq!(
         render(ToolId::AstSearch, &ast, &json!({}), None)
             .expect("lines")
@@ -88,25 +174,99 @@ fn empty_values_crlf_and_clipped_structural_matches() {
 /// a long path on every line made the text larger than the JSON.
 #[test]
 fn several_hits_print_their_file_and_each_declaration_once() {
-    let result = json!({"results":[{"index":0,"data":{"files":[{
-        "path":"a.rs",
-        "declarations":[
-            {"symbolName":"first","kind":"function","line":1,"endLine":4},
-            {"symbolName":"second","kind":"function","line":5,"endLine":7}
-        ],
-        "matches":[
-            {"line":2,"value":"needle();","enclosing":0},
-            {"line":3,"value":"needle();","enclosing":0},
-            {"line":6,"value":"needle();","enclosing":1}
-        ]
-    },{
-        "path":"b.rs",
-        "matches":[{"line":9,"value":"needle();"}]
-    }]}}]});
+    let result = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "files": [
+                            {
+                                "path": "a.rs",
+                                "declarations": [
+                                    {
+                                        "symbolName": "first",
+                                        "kind": "function",
+                                        "line": 1,
+                                        "endLine": 4
+                                    },
+                                    {
+                                        "symbolName": "second",
+                                        "kind": "function",
+                                        "line": 5,
+                                        "endLine": 7
+                                    }
+                                ],
+                                "matches": [
+                                    {"line": 2, "value": "needle();", "enclosing": 0},
+                                    {"line": 3, "value": "needle();", "enclosing": 0},
+                                    {"line": 6, "value": "needle();", "enclosing": 1}
+                                ]
+                            },
+                            {
+                                "path": "b.rs",
+                                "matches": [{"line": 9, "value": "needle();"}]
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#,
+    );
     let lines = render(ToolId::LocalSearch, &result, &json!({}), None).expect("lines");
     assert_eq!(
         lines.out,
         "a.rs\n2:needle();  [function first 1-4]\n3:needle();\n6:needle();  [function second 5-7]\nb.rs:9:needle();"
+    );
+}
+
+/// A merged window holds hits of two declarations: its `enclosing` is one
+/// index per `matchedLines` entry, and each hit line states its own
+/// declaration. A window inside one declaration, with one index, states it once.
+#[test]
+fn a_merged_window_states_the_declaration_of_each_hit_it_holds() {
+    let result = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "files": [
+                            {
+                                "path": "a.rs",
+                                "declarations": [
+                                    {"symbolName": "first", "kind": "function", "line": 1, "endLine": 4},
+                                    {"symbolName": "second", "kind": "function", "line": 5, "endLine": 7}
+                                ],
+                                "matches": [
+                                    {
+                                        "line": 3,
+                                        "endLine": 6,
+                                        "value": "needle();\n}\nfn second() {\nneedle();",
+                                        "matchedLines": [3, 6],
+                                        "enclosing": [0, 1]
+                                    }
+                                ]
+                            },
+                            {
+                                "path": "b.rs",
+                                "declarations": [
+                                    {"symbolName": "only", "kind": "function", "line": 1, "endLine": 9}
+                                ],
+                                "matches": [
+                                    {"line": 2, "endLine": 3, "value": "needle();\nneedle();", "matchedLines": [2, 3], "enclosing": 0}
+                                ]
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#,
+    );
+    let lines = render(ToolId::LocalSearch, &result, &json!({}), None).expect("lines");
+    assert_eq!(
+        lines.out,
+        "a.rs\n3:needle();  [function first 1-4]\n4:}\n5:fn second() {\n6:needle();  [function second 5-7]\n\nb.rs\n2:needle();  [function only 1-9]\n3:needle();"
     );
 }
 
@@ -130,13 +290,27 @@ fn a_single_multiline_hit_prints_its_file_once_and_keeps_every_line() {
 /// A location answer groups its rows by file; each still prints as a hit.
 #[test]
 fn grouped_location_rows_print_as_hits() {
-    let result = json!({"results":[{"index":0,"data":{"operation":"references","files":[{
-        "path":"a.rs",
-        "matches":[
-            {"line":2,"content":"2\tneedle();\n","role":"call"},
-            {"line":6,"content":"6\tneedle();\n","role":"call"}
-        ]
-    }]}}]});
+    let result = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "operation": "references",
+                        "files": [
+                            {
+                                "path": "a.rs",
+                                "matches": [
+                                    {"line": 2, "content": "2\tneedle();\n", "role": "call"},
+                                    {"line": 6, "content": "6\tneedle();\n", "role": "call"}
+                                ]
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#,
+    );
     let lines = render(ToolId::LspSearch, &result, &json!({}), None).expect("lines");
     assert!(lines.out.starts_with("a.rs\n2:needle();"), "{}", lines.out);
     assert!(lines.out.contains("\n6:needle();"), "{}", lines.out);
@@ -162,7 +336,18 @@ fn location_labels_state_once_per_run_and_columns_only_where_needed() {
             hit(9, "export { needle };", 10, "reference")
         ]
     }]}}]});
-    let asked = json!({"queries":[{"operation":"references","path":"b.ts","symbolName":"needle","line":1}]});
+    let asked = json_fixture(
+        r#"{
+            "queries": [
+                {
+                    "operation": "references",
+                    "path": "b.ts",
+                    "symbolName": "needle",
+                    "line": 1
+                }
+            ]
+        }"#,
+    );
     let lines = render(ToolId::LspSearch, &result, &asked, None).expect("lines");
     assert_eq!(
         lines.out,
@@ -204,9 +389,17 @@ fn shorthand_context_lines_print_as_the_object_form() {
         .expect("lines")
         .out;
     for shorthand in [
-        json!({"queries":[{"path":"s","matchString":["x"],"contextLines":1}]}),
-        json!({"queries":[{"path":"s","matchString":"x","contextLines":1}]}),
-        json!({"path":"s","matchString":"x","contextLines":1}),
+        json_fixture(
+            r#"{
+                "queries": [{"path": "s", "matchString": ["x"], "contextLines": 1}]
+            }"#,
+        ),
+        json_fixture(
+            r#"{
+                "queries": [{"path": "s", "matchString": "x", "contextLines": 1}]
+            }"#,
+        ),
+        json_fixture(r#"{"path": "s", "matchString": "x", "contextLines": 1}"#),
     ] {
         let lines = render(ToolId::LocalSearch, &sample(), &shorthand, None).expect("lines");
         assert_eq!(lines.out, object, "{shorthand}");
@@ -226,5 +419,41 @@ fn shorthand_context_lines_print_as_the_object_form() {
             second.len() == text.len() || !second.starts_with(['\t', ':']),
             "a second line number: {line}"
         );
+    }
+}
+
+/// Counts by file print as one table whatever count field the files share
+/// (`countMatches` gives `matchCount`, `countLines` `matchedLineCount`): the
+/// head names the field once, each file is `N path`, and no file restates
+/// the field in `[ … ]`.
+#[test]
+fn count_views_print_one_table_whatever_their_count() {
+    for (view, field) in [
+        ("countMatches", "matchCount"),
+        ("countLines", "matchedLineCount"),
+    ] {
+        let mut files = Vec::new();
+        for (path, count) in [("hits.txt", 60), ("longline.txt", 1)] {
+            let mut file = json!({ "path": path });
+            file[field] = count.into();
+            files.push(file);
+        }
+        let mut data = json!({"matchedFiles": 2, "filesScanned": 4, "files": files});
+        data[field] = 61.into();
+        let result = json!({"results": [{"index": 0, "data": data}]});
+        let asked = json!({"queries": [{"path": "data", "matchString": ["beacon"], "view": view}]});
+        let out = render(ToolId::LocalSearch, &result, &asked, None)
+            .expect("text")
+            .out;
+        let heads: Vec<&str> = out.lines().filter(|line| line.contains("[]:")).collect();
+        assert_eq!(heads, [format!("files[]: {field} path")], "{view}:\n{out}");
+        for (count, path) in [(60, "hits.txt"), (1, "longline.txt")] {
+            assert!(
+                out.lines()
+                    .any(|line| line.trim() == format!("{count} {path}")),
+                "{view} {path}:\n{out}"
+            );
+        }
+        assert!(!out.contains(&format!("[{field}")), "{view}:\n{out}");
     }
 }

@@ -23,7 +23,8 @@ pub(super) fn traversal(root: &TmpDir, pattern: &str) -> TextSearchOptions {
 }
 
 /// One stream of a page of `files` files: the file after them overflows, and
-/// is read too.
+/// is read too. A first page, or the second one (its page before began at
+/// the walk's start).
 pub(super) fn page_with(
     o: &TextSearchOptions,
     filter: Arc<dyn TextSearchPathFilter>,
@@ -31,11 +32,22 @@ pub(super) fn page_with(
     pin: Option<Pin>,
     files: usize,
 ) -> Streaming {
+    page_after(o, filter, (from, pin, Anchor::START), files)
+}
+
+/// [`page_with`] of a page whose page before began at `anchor`.
+pub(super) fn page_after(
+    o: &TextSearchOptions,
+    filter: Arc<dyn TextSearchPathFilter>,
+    (from, pin, anchor): (u32, Option<Pin>, Anchor),
+    files: usize,
+) -> Streaming {
     let mut seen = 0;
     let stream = Stream {
         bind: String::new(),
         from,
         pin,
+        anchor,
         enough: Box::new(move |_| {
             seen += 1;
             seen > files
@@ -45,7 +57,11 @@ pub(super) fn page_with(
 }
 
 fn page(o: &TextSearchOptions, from: u32, pin: Option<Pin>, files: usize) -> Streamed {
-    match page_with(o, Arc::new(AllowAll), from, pin, files) {
+    page_at(o, (from, pin, Anchor::START), files)
+}
+
+fn page_at(o: &TextSearchOptions, at: (u32, Option<Pin>, Anchor), files: usize) -> Streamed {
+    match page_after(o, Arc::new(AllowAll), at, files) {
         Streaming::Streamed(streamed) => *streamed,
         Streaming::Stale => panic!("the pin of a fresh tree went stale"),
     }
@@ -126,10 +142,11 @@ fn resumed_streams_concatenate_to_the_whole_traversal_scan_exactly_once() {
         .collect::<Vec<_>>();
     for size in 1..=7 {
         let mut shown = Vec::new();
-        let (mut from, mut pin) = (0, None);
+        let (mut from, mut pin, mut anchor) = (0, None, Anchor::START);
         let mut pages = 0;
         loop {
-            let streamed = page(&o, from, pin.take(), size);
+            let streamed = page_at(&o, (from, pin.take(), anchor.clone()), size);
+            anchor = streamed.anchor.clone();
             pages += 1;
             let all = paths(&streamed);
             if streamed.ended {
@@ -246,18 +263,27 @@ fn page_one_lists_no_directory_past_its_cut() {
         t.write(&format!("d{dir:03}/f.txt"), "needle\n");
     }
     let o = traversal(&t, "needle");
-    let directories = Arc::new(Directories::default());
-    let Streaming::Streamed(streamed) = page_with(&o, directories.clone(), 0, None, 3) else {
-        panic!("stale");
-    };
-    assert_eq!(streamed.result.files.len(), 4, "the page and its overflow");
-    let looked = directories.0.load(Ordering::Relaxed) as usize;
-    // The directories of the files read (plus the root and what workers held
-    // in flight), never the 200 the tree holds.
-    assert!(
-        looked < 4 + 2 * crate::cpu::host().share().max(1) + 2,
-        "{looked} directories"
-    );
+    // The stream's share is pinned, so the bound is the one its walk ran
+    // with: the host's share moves with every other call this process
+    // computes meanwhile.
+    for share in [1, 2, 4, 12] {
+        for _ in 0..5 {
+            let directories = Arc::new(Directories::default());
+            let Streaming::Streamed(streamed) = super::stream::tests::with_share(share, || {
+                page_with(&o, directories.clone(), 0, None, 3)
+            }) else {
+                panic!("stale");
+            };
+            assert_eq!(streamed.result.files.len(), 4, "the page and its overflow");
+            let looked = directories.0.load(Ordering::Relaxed) as usize;
+            // The directories of the files read (plus the root and what
+            // workers held in flight), never the 200 the tree holds.
+            assert!(
+                looked < 4 + 2 * share + 2,
+                "{looked} directories at share {share}"
+            );
+        }
+    }
 }
 
 /// Records the threads that ask the walk's path filter about a file.
@@ -293,8 +319,8 @@ fn one_walker_thread_feeds_the_workers() {
     assert_eq!(threads, 1, "the walk was taken by {threads} threads");
 }
 
-/// A continuation's prefix is stamped on several threads and folded in walk
-/// order: the digest, the digest before the page's first candidate and the
+/// The page before a continuation is stamped on several threads and folded
+/// in walk order from that page's first candidate: the digest and the
 /// opening candidate are those of one thread stamping in order, though the
 /// stamps finish out of order.
 #[test]
@@ -317,11 +343,17 @@ fn a_replayed_prefix_stamped_in_parallel_folds_in_walk_order() {
         ));
         None
     };
+    // The page before began at candidate 40.
+    let first = 40;
     let replay = |workers| {
         replay_prefix(
-            paths.iter().cloned().enumerate(),
+            paths
+                .iter()
+                .cloned()
+                .enumerate()
+                .map(|(index, path)| (first + index, path)),
             (|path: &std::path::PathBuf| path.as_path(), &stamp),
-            (123, paths.len(), workers),
+            (first, first + 123, first + paths.len(), workers),
             ListedFiles::default(),
         )
     };
@@ -333,13 +365,12 @@ fn a_replayed_prefix_stamped_in_parallel_folds_in_walk_order() {
         let parallel = replay(workers);
         assert_eq!(parallel.count, 500);
         assert_eq!(parallel.check.hex(), serial.check.hex());
-        assert_eq!(parallel.at_from.hex(), serial.at_from.hex());
         assert_eq!(
             parallel
                 .opening
                 .as_ref()
                 .map(|(index, path, _)| (*index, path)),
-            Some((499, &paths[499])),
+            Some((first + 499, &paths[499])),
         );
     }
     assert!(
@@ -400,5 +431,168 @@ fn skips_are_reported_only_up_to_the_commit_cut_whatever_the_workers_do() {
         for _ in 0..10 {
             assert_eq!(run(share), (through, expected.clone()), "share {share}");
         }
+    }
+}
+
+/// Walks every page of `o` from the first, `files` files a page, each under
+/// `filter_of()` and `share` cores: the files shown in order, and the most
+/// files one page's walk decided.
+fn walk_pages<F: TextSearchPathFilter + 'static>(
+    o: &TextSearchOptions,
+    files: usize,
+    share: usize,
+    filter_of: impl Fn() -> Arc<F>,
+    decided: impl Fn(&F) -> usize,
+) -> (Vec<String>, usize) {
+    let (mut from, mut pin, mut anchor) = (0, None, Anchor::START);
+    let (mut shown, mut most) = (Vec::new(), 0);
+    loop {
+        let filter = filter_of();
+        let Streaming::Streamed(streamed) = super::stream::tests::with_share(share, || {
+            page_after(o, filter.clone(), (from, pin.take(), anchor.clone()), files)
+        }) else {
+            panic!("the pin of a fresh tree went stale");
+        };
+        most = most.max(decided(&filter));
+        anchor = streamed.anchor.clone();
+        let all = paths(&streamed);
+        if streamed.ended {
+            shown.extend(all);
+            return (shown, most);
+        }
+        let overflow = streamed.landmarks.last().expect("an overflowing file");
+        shown.extend(all[..all.len() - 1].iter().cloned());
+        from = overflow.position;
+        pin = Some(Pin {
+            covers: from,
+            hex: overflow.before.clone(),
+        });
+    }
+}
+
+/// A page deep in a walk starts where the page before it began, not at the
+/// root: it decides about two pages' worth of files wherever it stands, and
+/// the pages still concatenate to the whole scan exactly once.
+#[test]
+fn a_deep_page_walks_from_the_page_before_not_from_the_root() {
+    let t = TmpDir::new();
+    for i in 0..1200 {
+        t.write(&format!("d{:02}/f{i:04}.txt", i / 20), "needle\n");
+    }
+    let o = traversal(&t, "needle");
+    let whole = search(o.clone())
+        .expect("whole")
+        .files
+        .into_iter()
+        .map(|file| file.path)
+        .collect::<Vec<_>>();
+    let files = 10;
+    for share in [1, 4] {
+        let (shown, most) = walk_pages(
+            &o,
+            files,
+            share,
+            || Arc::new(Counting::default()),
+            |counting| counting.0.load(Ordering::Relaxed) as usize,
+        );
+        assert_eq!(shown, whole, "{share} cores");
+        // The page before, this page with the file that overflows it, and
+        // what the workers held past it.
+        assert!(
+            most <= 4 * (files + 1) + 4 * share,
+            "{share} cores: a page decided {most} of {} files",
+            whole.len()
+        );
+    }
+}
+
+/// A continuation replays the page before it: a file of that page changed,
+/// added or removed restarts the walk, wherever the page stands.
+#[test]
+fn a_change_in_the_page_before_fails_the_pin_on_any_page() {
+    let t = tree(60);
+    let o = traversal(&t, "needle");
+    let first = page(&o, 0, None, 4);
+    let cut = first.landmarks.last().expect("landmark");
+    let second_at = (
+        cut.position,
+        Some(Pin {
+            covers: cut.position,
+            hex: cut.before.clone(),
+        }),
+        first.anchor.clone(),
+    );
+    let second = page_at(&o, second_at, 4);
+    let cut = second.landmarks.last().expect("landmark");
+    let third = || {
+        page_after(
+            &o,
+            Arc::new(AllowAll),
+            (
+                cut.position,
+                Some(Pin {
+                    covers: cut.position,
+                    hex: cut.before.clone(),
+                }),
+                second.anchor.clone(),
+            ),
+            4,
+        )
+    };
+    assert!(matches!(third(), Streaming::Streamed(_)));
+    // A file the second page showed changes.
+    let shown = paths(&second)[1].clone();
+    let kept = fs::read_to_string(&shown).expect("read");
+    fs::write(&shown, "needle plus a longer line than before\n").expect("rewrite");
+    assert!(matches!(third(), Streaming::Stale));
+    fs::remove_file(&shown).expect("remove");
+    assert!(matches!(third(), Streaming::Stale));
+    // Restored as it was (a new stamp): still not what the page read.
+    fs::write(&shown, kept).expect("restore");
+    assert!(matches!(third(), Streaming::Stale));
+}
+
+/// Collects the dot entries every page reports as left out.
+#[derive(Default)]
+struct DotSkips(std::sync::Mutex<Vec<String>>);
+
+impl TextSearchPathFilter for DotSkips {
+    fn allows(&self, _: &Path, _: bool) -> bool {
+        true
+    }
+    fn skipped_hidden(&self, path: &Path, _: bool) {
+        self.0
+            .lock()
+            .expect("skips")
+            .push(path.to_string_lossy().into_owned());
+    }
+}
+
+/// Each entry the walk leaves out is reported once across a walk's pages,
+/// by the page whose stretch of the walk holds it: the pages together report
+/// what one whole walk reports.
+#[test]
+fn entries_left_out_are_reported_once_across_pages() {
+    let t = TmpDir::new();
+    for dir in 0..12 {
+        for file in 0..3 {
+            t.write(&format!("d{dir:02}/f{file}.txt"), "needle\n");
+            t.write(&format!("d{dir:02}/.h{file}"), "needle\n");
+        }
+    }
+    let o = traversal(&t, "needle");
+    let whole = Arc::new(DotSkips::default());
+    let Streaming::Streamed(_) = page_with(&o, whole.clone(), 0, None, 10_000) else {
+        panic!("stale");
+    };
+    let mut expected = whole.0.lock().expect("skips").clone();
+    expected.sort();
+    assert_eq!(expected.len(), 36);
+    for files in [1, 2, 5] {
+        let reported = Arc::new(DotSkips::default());
+        walk_pages(&o, files, 4, || Arc::clone(&reported), |_| 0);
+        let mut seen = reported.0.lock().expect("skips").clone();
+        seen.sort();
+        assert_eq!(seen, expected, "pages of {files}");
     }
 }

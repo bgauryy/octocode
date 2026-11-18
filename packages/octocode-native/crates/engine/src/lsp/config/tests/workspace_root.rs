@@ -80,14 +80,8 @@ fn deeply_nested_sources_can_root_directory_queries() {
 
 #[test]
 fn workspace_root_infers_its_server_from_project_markers() {
-    let base = std::env::temp_dir().join(format!(
-        "octocode-lsp-root-markers-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_nanos())
-            .unwrap_or(0)
-    ));
+    let dir = tempfile::tempdir().expect("base");
+    let base = dir.path().to_path_buf();
     let cargo_workspace = ("Cargo.toml", "[workspace]\nmembers = []\n");
     let cases = [
         ("rust", &[("Cargo.toml", "")][..], "rust"),
@@ -146,14 +140,8 @@ fn workspace_root_infers_its_server_from_project_markers() {
 
 #[test]
 fn workspace_root_representative_source_skips_vendored_dirs() {
-    let root = std::env::temp_dir().join(format!(
-        "octocode-lsp-root-representative-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_nanos())
-            .unwrap_or(0)
-    ));
+    let dir = tempfile::tempdir().expect("root");
+    let root = dir.path().to_path_buf();
     std::fs::create_dir_all(root.join("node_modules/dep")).expect("node_modules");
     std::fs::create_dir_all(root.join("src/nested")).expect("src");
     std::fs::write(root.join("tsconfig.json"), "{}").expect("tsconfig");
@@ -171,14 +159,8 @@ fn workspace_root_representative_source_skips_vendored_dirs() {
 
 #[test]
 fn workspace_root_representative_source_prefers_project_include_roots() {
-    let root = std::env::temp_dir().join(format!(
-        "octocode-lsp-root-include-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_nanos())
-            .unwrap_or(0)
-    ));
+    let dir = tempfile::tempdir().expect("root");
+    let root = dir.path().to_path_buf();
     std::fs::create_dir_all(root.join("lib/core")).expect("lib");
     std::fs::create_dir_all(root.join("src")).expect("src");
     // A root-level build script sorts first but is outside the project.
@@ -206,14 +188,8 @@ fn workspace_root_representative_source_prefers_project_include_roots() {
 /// whole include glob and no exclude, so the server loads the project.
 #[test]
 fn workspace_root_representative_source_matches_the_full_include_glob() {
-    let root = std::env::temp_dir().join(format!(
-        "octocode-lsp-root-glob-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_nanos())
-            .unwrap_or(0)
-    ));
+    let dir = tempfile::tempdir().expect("root");
+    let root = dir.path().to_path_buf();
     std::fs::create_dir_all(root.join("packages/agent/src/gen")).expect("agent src");
     std::fs::write(root.join("packages/agent/vitest.config.ts"), "").expect("config");
     std::fs::write(root.join("packages/agent/src/gen/a.ts"), "").expect("excluded");

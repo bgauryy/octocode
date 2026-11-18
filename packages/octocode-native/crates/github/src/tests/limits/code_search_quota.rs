@@ -2,6 +2,7 @@
 //! resource: the room it leaves, the wait once it is spent, and a refusal only
 //! when the reset falls past the request's own deadline.
 use super::*;
+use octocode_test_support::json_fixture;
 
 /// A code-search answer reporting `remaining` left until `reset` (epoch seconds).
 fn answer(remaining: u64, reset: u64) -> ResponseTemplate {
@@ -10,9 +11,9 @@ fn answer(remaining: u64, reset: u64) -> ResponseTemplate {
         .insert_header("x-ratelimit-remaining", remaining.to_string().as_str())
         .insert_header("x-ratelimit-reset", reset.to_string().as_str())
         .insert_header("x-ratelimit-resource", "code_search")
-        .set_body_json(
-            serde_json::json!({"total_count": 0, "incomplete_results": false, "items": []}),
-        )
+        .set_body_json(json_fixture(
+            r#"{"total_count": 0, "incomplete_results": false, "items": []}"#,
+        ))
 }
 
 async fn search(

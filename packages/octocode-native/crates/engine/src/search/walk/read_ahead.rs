@@ -22,6 +22,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Instant, SystemTime};
 
+use crate::scan_budget::WalkClock;
 use crate::types::fs_resume::Child;
 
 /// Directories a walk reads itself before it starts reading ahead: a small
@@ -71,15 +72,16 @@ pub(crate) fn read_listing_with(base: &Path, detail: Detail) -> Listing {
 /// costs about what reading one entry does.
 const ENTRIES_PER_DEADLINE_CHECK: usize = 64;
 
-/// [`read_listing`], given up once the walk's `deadline` passes during it
-/// (`None`): a directory too large to list within the walk's time budget is
-/// left for the window that resumes the walk, which lists it whole.
+/// [`read_listing`], given up once the walk's `deadline` (an instant on its
+/// clock) passes during it (`None`): a directory too large to list within
+/// the walk's time budget is left for the window that resumes the walk,
+/// which lists it whole.
 pub(crate) fn read_listing_until(
     base: &Path,
-    deadline: Option<Instant>,
+    deadline: Option<(Instant, &WalkClock)>,
     detail: Detail,
 ) -> Option<Listing> {
-    let late = || deadline.is_some_and(|at| crate::scan_budget::walk_now() >= at);
+    let late = || deadline.is_some_and(|(at, clock)| clock.now() >= at);
     #[cfg(test)]
     LISTED
         .lock()
@@ -310,9 +312,10 @@ impl ReadAhead {
     }
 
     /// The listing of `dir` when a worker read it, waiting for a read under
-    /// way until the walk's `deadline`. One no worker has begun is taken back:
-    /// the walk reads it now instead of waiting behind the queue.
-    pub(crate) fn take(&self, dir: &Path, deadline: Option<Instant>) -> Taken {
+    /// way until the walk's `deadline` (an instant on its clock). One no
+    /// worker has begun is taken back: the walk reads it now instead of
+    /// waiting behind the queue.
+    pub(crate) fn take(&self, dir: &Path, deadline: Option<(Instant, &WalkClock)>) -> Taken {
         let mut read = self
             .shared
             .read
@@ -334,7 +337,7 @@ impl ReadAhead {
                 read.pending.remove(dir);
                 return Taken::NotQueued;
             }
-            let Some(at) = deadline else {
+            let Some((at, clock)) = deadline else {
                 read = self
                     .shared
                     .arrived
@@ -342,7 +345,7 @@ impl ReadAhead {
                     .unwrap_or_else(PoisonError::into_inner);
                 continue;
             };
-            let left = at.saturating_duration_since(crate::scan_budget::walk_now());
+            let left = at.saturating_duration_since(clock.now());
             if left.is_zero() {
                 read.pending.remove(dir);
                 read.abandoned.insert(key);

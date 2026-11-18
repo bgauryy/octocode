@@ -18,6 +18,8 @@ pub(super) use retained::keep_span;
 mod columns;
 mod long_line;
 mod row_window;
+#[cfg(test)]
+pub(super) use columns::stepped;
 use columns::{SpanColumns, block_text, span_value};
 
 /// Whether `found`, a match in a matched block's `bytes`, is an empty match
@@ -319,50 +321,43 @@ impl<M: Matcher> CollectSink<'_, M> {
         false
     }
 
-    /// One matched block's per-term counts. With enumerated submatches
-    /// (count-matches) each submatch counts once, for the first term whose
-    /// own match there is that submatch, else the first that matches from its
-    /// start (a block with no enumerable submatch counts for the first term
-    /// it holds). Count-lines enumerates none: each term the block holds
-    /// counts the block's lines.
-    fn count_terms(&mut self, bytes: &[u8], spans: &[(usize, usize)]) -> std::io::Result<()> {
+    /// One matched block's per-term counts, each term counted as a search of
+    /// it alone counts it (`rg -o` per term): its own matches in the block,
+    /// so a term found only inside another term's match still counts and the
+    /// counts may sum past the block's matches. Count-lines counts lines
+    /// ([`MatchWork::terms_by_line`]): each term the block holds counts the
+    /// block's lines. Every line holding a term's match is a matched line, so
+    /// the matched blocks hold every match of every term.
+    fn count_terms(&mut self, bytes: &[u8]) -> std::io::Result<()> {
         let failed = |error: M::Error| std::io::Error::other(error.to_string());
         let terms = self.terms;
-        if self.work.enumerate_submatches {
-            if spans.is_empty() {
-                for (index, term) in terms.iter().enumerate() {
-                    if term.is_match(bytes).map_err(failed)? {
-                        self.term_counts[index] = self.term_counts[index].saturating_add(1);
-                        break;
-                    }
-                }
-                return Ok(());
-            }
-            for &(start, end) in spans {
-                let mut exact = None;
-                let mut from_start = None;
-                for (index, term) in terms.iter().enumerate() {
-                    if let Some(found) = term.find_at(bytes, start).map_err(failed)?
-                        && found.start() == start
-                    {
-                        from_start.get_or_insert(index);
-                        if found.end() == end {
-                            exact = Some(index);
-                            break;
-                        }
-                    }
-                }
-                if let Some(index) = exact.or(from_start) {
-                    self.term_counts[index] = self.term_counts[index].saturating_add(1);
+        if self.work.terms_by_line {
+            let lines = saturating_u32(bytes.split_inclusive(|&b| b == b'\n').count().max(1));
+            for (index, term) in terms.iter().enumerate() {
+                if term.is_match(bytes).map_err(failed)? {
+                    self.term_counts[index] = self.term_counts[index].saturating_add(lines);
                 }
             }
             return Ok(());
         }
-        let lines = saturating_u32(bytes.split_inclusive(|&b| b == b'\n').count().max(1));
+        // A block's terms count whole, page cut or not; only the caller's
+        // cancellation ends a long line's count early.
+        let (stop, cancelled) = (self.stop, self.cancelled);
         for (index, term) in terms.iter().enumerate() {
-            if term.is_match(bytes).map_err(failed)? {
-                self.term_counts[index] = self.term_counts[index].saturating_add(lines);
-            }
+            let mut found: u32 = 0;
+            term.find_iter(bytes, |matched| {
+                if past_block_end(bytes, matched) {
+                    return true;
+                }
+                found = found.saturating_add(1);
+                if found.is_multiple_of(MATCHES_PER_POLL) && cancelled.is_some_and(|gone| gone()) {
+                    stop.store(true, Ordering::Relaxed);
+                    return false;
+                }
+                true
+            })
+            .map_err(failed)?;
+            self.term_counts[index] = self.term_counts[index].saturating_add(found);
         }
         Ok(())
     }
@@ -415,7 +410,7 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
         } else if self.work.collect_spans {
             count = self.collect_spans(bytes, line_number, &mut first_start)?;
         } else if self.work.enumerate_submatches {
-            let keeps_spans = !self.terms.is_empty() || self.work.materialize_line;
+            let keeps_spans = self.work.materialize_line;
             let (stop, cancelled) = (self.stop, self.cancelled);
             self.matcher
                 .find_iter(bytes, |matched| {
@@ -452,7 +447,7 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
         }
 
         if !self.terms.is_empty() {
-            self.count_terms(bytes, &spans)?;
+            self.count_terms(bytes)?;
         }
         self.submatches = self.submatches.saturating_add(count.max(1));
         let lines = saturating_u32(bytes.split_inclusive(|&b| b == b'\n').count().max(1));

@@ -1,5 +1,6 @@
 use super::super::{InstallArgs, Scope, client_status, install, list_clients, run};
 use super::*;
+use octocode_test_support::json_fixture;
 
 /// `path` inside a fresh canonical directory, kept alive by the guard.
 fn config_in(name: &str) -> (tempfile::TempDir, std::path::PathBuf) {
@@ -155,7 +156,11 @@ fn an_entry_without_its_launch_shape_is_not_valid() {
     let cursor = spec("cursor");
     assert!(!super::super::valid_server(
         cursor,
-        &json!({"mcpServers":{"octocode":{"args":["octocode-mcp@latest"]}}}),
+        &json_fixture(
+            r#"{
+                "mcpServers": {"octocode": {"args": ["octocode-mcp@latest"]}}
+            }"#
+        ),
         &cursor.server_keys()
     ));
 }
@@ -217,7 +222,7 @@ fn rollback_refuses_what_is_not_a_backup_and_restores_one() {
         })
     };
     let backup = path.with_file_name("mcp.json.bak");
-    assert_eq!(rollback(&backup, false, false), 1, "a missing backup");
+    assert_eq!(rollback(&backup, false, false), 2, "a missing backup");
     let other = path.with_file_name("mcp.json.old");
     std::fs::write(&other, "{}").expect("not a backup");
     assert_eq!(rollback(&other, false, false), 2, "not a .bak file");
@@ -234,7 +239,7 @@ fn rollback_refuses_what_is_not_a_backup_and_restores_one() {
 
     let unreadable = path.with_file_name("dir.json.bak");
     std::fs::create_dir(&unreadable).expect("a directory named like a backup");
-    assert_eq!(rollback(&unreadable, false, false), 1);
+    assert_eq!(rollback(&unreadable, false, false), 5);
 }
 
 /// A request run cannot act on exits 2 before any file is touched: no

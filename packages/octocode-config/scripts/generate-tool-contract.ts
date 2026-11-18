@@ -10,8 +10,11 @@
 //        │                                             (native embed: `schema` and `<tool> --help`)
 //        └── tool-contract/bundle.ts ──▶ contract/tool-types.schema.json
 //                 └── tool-contract/rust.ts ────────▶ contract/tool_types.rs
+//                     │                               contract/tool_types_base.rs
 //                     (rust-reach.ts keeps only the types native source names
-//                      and what they reach)
+//                      and what they reach; rust-merge.ts emits each shape once;
+//                      rust-serde.ts derives Deserialize only where a call
+//                      decodes; the base file holds what lower crates name)
 //
 // octocode-native's build.rs embeds contract/ in place, so regenerating here
 // is the whole change. Outputs are committed and never hand-edited; `--check`
@@ -38,6 +41,7 @@ export { buildToolTypesBundle } from './tool-contract/bundle.ts';
 const contractFile = (name: string): string =>
   fileURLToPath(new URL(`../contract/${name}`, import.meta.url));
 const rustPath = contractFile('tool_types.rs');
+const basePath = contractFile('tool_types_base.rs');
 
 const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex');
 
@@ -93,14 +97,17 @@ function main(): void {
     // Finish fallible generation before publishing any part of the contract.
     const rust = renderRust(header, bundleJson, undefined, dispatch);
     for (const [path, content] of files) writeGenerated(path, content);
-    writeGenerated(rustPath, rust);
+    writeGenerated(basePath, rust.base);
+    writeGenerated(rustPath, rust.types);
     return;
   }
   const stale = [...files].filter(([path, content]) => readGenerated(path) !== content).map(([path]) => path);
-  // The whole Rust file is regenerated and compared: a matching header
+  // The whole Rust files are regenerated and compared: a matching header
   // (fingerprint + bundle digest) does not prove the body was not edited.
   // renderRust fails loudly when cargo-typify is missing.
-  if (readGenerated(rustPath) !== renderRust(header, bundleJson, undefined, dispatch)) stale.push(rustPath);
+  const rust = renderRust(header, bundleJson, undefined, dispatch);
+  if (readGenerated(rustPath) !== rust.types) stale.push(rustPath);
+  if (readGenerated(basePath) !== rust.base) stale.push(basePath);
   if (stale.length > 0) {
     throw new Error(
       `Generated tool contract is stale (${stale.join(', ')}). Run: node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen`

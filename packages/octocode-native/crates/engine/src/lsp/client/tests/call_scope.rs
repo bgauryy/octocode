@@ -79,90 +79,96 @@ async fn definition_line(client: &NativeLspClient, path: &str, scope: ResponseSc
         .line
 }
 
-#[tokio::test(start_paused = true)]
-async fn one_call_asks_the_server_once_per_distinct_request() {
-    let tmp = TmpDir::new();
-    let path = tmp.0.join("a.ts").to_string_lossy().into_owned();
-    std::fs::write(&path, "x\n".repeat(8)).expect("source");
-    let (client, reader, writer) =
-        client_with_fake_server_using(NativeLspClient::new(ts_config()), 64 * 1024).await;
-    let (server, mut frames) = serve(reader, writer, line_at);
-    let call = Some(CallId::next());
-    let selected = scope(call);
-    let first = definition_line(&client, &path, selected.clone()).await;
-    assert_eq!(
-        definition_line(&client, &path, selected.clone()).await,
-        first,
-        "the same call reuses its own answer without scope-wide reuse"
-    );
-    assert_eq!(methods(&mut frames).len(), 1);
-    let next_call = definition_line(&client, &path, scope(Some(CallId::next()))).await;
-    assert_ne!(next_call, first, "another call asks again");
-    let outside = definition_line(&client, &path, scope(None)).await;
-    assert_ne!(outside, next_call, "no call: every request asks");
-    server.abort();
-}
-
-#[tokio::test(start_paused = true)]
-async fn open_documents_are_compared_with_their_files_once_per_call() {
-    let tmp = TmpDir::new();
-    let anchor = tmp.0.join("a.ts").to_string_lossy().into_owned();
-    let other = tmp.0.join("b.ts").to_string_lossy().into_owned();
-    std::fs::write(&anchor, "x\n").expect("anchor");
-    std::fs::write(&other, "old\n").expect("other");
-    let (client, reader, writer) =
-        client_with_fake_server_using(NativeLspClient::new(ts_config()), 64 * 1024).await;
-    let (server, mut frames) = serve(reader, writer, line_at);
-    client
-        .open_document(other.clone(), "old\n")
-        .await
-        .expect("open");
-    let call = Some(CallId::next());
-    definition_line(&client, &anchor, scope(call)).await;
-    std::fs::write(&other, "new text\n").expect("edit");
-    definition_line(&client, &anchor, scope(call)).await;
-    assert!(
-        !methods(&mut frames).contains(&"textDocument/didChange".to_owned()),
-        "files do not change under one call"
-    );
-    definition_line(&client, &anchor, scope(Some(CallId::next()))).await;
-    assert_eq!(
-        methods(&mut frames),
-        ["textDocument/didChange", "textDocument/definition"],
-        "the next call syncs the edit before it asks"
-    );
-    server.abort();
-}
-
-#[tokio::test(start_paused = true)]
-async fn pull_diagnostics_name_the_previous_report_and_keep_it_when_unchanged() {
-    let tmp = TmpDir::new();
-    let path = tmp.0.join("a.ts").to_string_lossy().into_owned();
-    std::fs::write(&path, "x\n").expect("source");
-    let (client, reader, writer) =
-        client_with_fake_server_using(NativeLspClient::new(ts_config()), 64 * 1024).await;
-    let (server, mut frames) = serve(reader, writer, |_, nth| match nth {
-        1 => json!({"kind": "full", "resultId": "r1", "items": [{"message": "x"}]}),
-        _ => json!({"kind": "unchanged", "resultId": format!("r{nth}")}),
+#[test]
+fn one_call_asks_the_server_once_per_distinct_request() {
+    paused(|clock| async move {
+        let tmp = TmpDir::new();
+        let path = tmp.0.join("a.ts").to_string_lossy().into_owned();
+        std::fs::write(&path, "x\n".repeat(8)).expect("source");
+        let (client, reader, writer) =
+            client_with_fake_server_using(client_on(&clock, ts_config()), 64 * 1024).await;
+        let (server, mut frames) = serve(reader, writer, line_at);
+        let call = Some(CallId::next());
+        let selected = scope(call);
+        let first = definition_line(&client, &path, selected.clone()).await;
+        assert_eq!(
+            definition_line(&client, &path, selected.clone()).await,
+            first,
+            "the same call reuses its own answer without scope-wide reuse"
+        );
+        assert_eq!(methods(&mut frames).len(), 1);
+        let next_call = definition_line(&client, &path, scope(Some(CallId::next()))).await;
+        assert_ne!(next_call, first, "another call asks again");
+        let outside = definition_line(&client, &path, scope(None)).await;
+        assert_ne!(outside, next_call, "no call: every request asks");
+        server.abort();
     });
-    client
-        .open_document(path.clone(), "x\n")
-        .await
-        .expect("open");
-    let first = client.get_diagnostics(path.clone()).await.expect("first");
-    assert_eq!(first["items"], json!([{"message": "x"}]));
-    let second = client.get_diagnostics(path.clone()).await.expect("second");
-    assert_eq!(second["kind"], "full", "{second}");
-    assert_eq!(
-        second["items"], first["items"],
-        "unchanged keeps the report"
-    );
-    assert_eq!(second["resultId"], "r2");
-    client.get_diagnostics(path).await.expect("third");
-    let previous: Vec<Value> = std::iter::from_fn(|| frames.try_recv().ok())
-        .filter(|frame| frame["method"] == "textDocument/diagnostic")
-        .map(|frame| frame["params"]["previousResultId"].clone())
-        .collect();
-    assert_eq!(previous, [Value::Null, json!("r1"), json!("r2")]);
-    server.abort();
+}
+
+#[test]
+fn open_documents_are_compared_with_their_files_once_per_call() {
+    paused(|clock| async move {
+        let tmp = TmpDir::new();
+        let anchor = tmp.0.join("a.ts").to_string_lossy().into_owned();
+        let other = tmp.0.join("b.ts").to_string_lossy().into_owned();
+        std::fs::write(&anchor, "x\n").expect("anchor");
+        std::fs::write(&other, "old\n").expect("other");
+        let (client, reader, writer) =
+            client_with_fake_server_using(client_on(&clock, ts_config()), 64 * 1024).await;
+        let (server, mut frames) = serve(reader, writer, line_at);
+        client
+            .open_document(other.clone(), "old\n")
+            .await
+            .expect("open");
+        let call = Some(CallId::next());
+        definition_line(&client, &anchor, scope(call)).await;
+        std::fs::write(&other, "new text\n").expect("edit");
+        definition_line(&client, &anchor, scope(call)).await;
+        assert!(
+            !methods(&mut frames).contains(&"textDocument/didChange".to_owned()),
+            "files do not change under one call"
+        );
+        definition_line(&client, &anchor, scope(Some(CallId::next()))).await;
+        assert_eq!(
+            methods(&mut frames),
+            ["textDocument/didChange", "textDocument/definition"],
+            "the next call syncs the edit before it asks"
+        );
+        server.abort();
+    });
+}
+
+#[test]
+fn pull_diagnostics_name_the_previous_report_and_keep_it_when_unchanged() {
+    paused(|clock| async move {
+        let tmp = TmpDir::new();
+        let path = tmp.0.join("a.ts").to_string_lossy().into_owned();
+        std::fs::write(&path, "x\n").expect("source");
+        let (client, reader, writer) =
+            client_with_fake_server_using(client_on(&clock, ts_config()), 64 * 1024).await;
+        let (server, mut frames) = serve(reader, writer, |_, nth| match nth {
+            1 => json!({"kind": "full", "resultId": "r1", "items": [{"message": "x"}]}),
+            _ => json!({"kind": "unchanged", "resultId": format!("r{nth}")}),
+        });
+        client
+            .open_document(path.clone(), "x\n")
+            .await
+            .expect("open");
+        let first = client.get_diagnostics(path.clone()).await.expect("first");
+        assert_eq!(first["items"], json!([{"message": "x"}]));
+        let second = client.get_diagnostics(path.clone()).await.expect("second");
+        assert_eq!(second["kind"], "full", "{second}");
+        assert_eq!(
+            second["items"], first["items"],
+            "unchanged keeps the report"
+        );
+        assert_eq!(second["resultId"], "r2");
+        client.get_diagnostics(path).await.expect("third");
+        let previous: Vec<Value> = std::iter::from_fn(|| frames.try_recv().ok())
+            .filter(|frame| frame["method"] == "textDocument/diagnostic")
+            .map(|frame| frame["params"]["previousResultId"].clone())
+            .collect();
+        assert_eq!(previous, [Value::Null, json!("r1"), json!("r2")]);
+        server.abort();
+    });
 }

@@ -1,5 +1,6 @@
 //! Provider retry delays remain whole even when they exceed this call's deadline.
 use super::*;
+use octocode_test_support::json_fixture;
 
 #[tokio::test]
 async fn rest_preserves_provider_retry_after_beyond_a_day_without_retrying() {
@@ -48,13 +49,17 @@ async fn graphql_preserves_provider_retry_after_beyond_a_day_without_retrying() 
             .respond_with(
                 ResponseTemplate::new(200)
                     .insert_header("retry-after", delay.to_string())
-                    .set_body_json(serde_json::json!({
-                        "data": null,
-                        "errors": [{
-                            "type": "RATE_LIMITED",
-                            "message": "You have exceeded a secondary rate limit."
-                        }]
-                    })),
+                    .set_body_json(json_fixture(
+                        r#"{
+                            "data": null,
+                            "errors": [
+                                {
+                                    "type": "RATE_LIMITED",
+                                    "message": "You have exceeded a secondary rate limit."
+                                }
+                            ]
+                        }"#,
+                    )),
             )
             .expect(1)
             .mount(&server)

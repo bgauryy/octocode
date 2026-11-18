@@ -1,0 +1,455 @@
+//! The text a match of a source past the whole-file ceiling runs over: every
+//! line a read serves differently from the source, as the read serves it. A
+//! search, or a read's own match scan, then matches what a read shows, never
+//! a byte it withholds, without holding the source's text whole: only the
+//! changed lines are kept, and the source streams past them.
+use super::*;
+use std::collections::BTreeMap;
+use std::io::{BufRead, Read, Seek, SeekFrom};
+
+/// Each line (1-based) a read serves differently from the source, with what
+/// it serves there on one line.
+pub type ChangedLines = BTreeMap<usize, Shown>;
+
+pub mod long_line;
+use long_line::{Splice, judged_long};
+
+/// What a read serves of one line it changes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Shown {
+    /// A line a window held whole: the text served.
+    Line(String),
+    /// A line longer than a window: its redactions alone, laid over the
+    /// source's own bytes as they stream ([`long_line::LongLine`]).
+    Long(long_line::LongLine),
+}
+
+impl Shown {
+    /// How many times `needle` shows in what the read wrote on the line.
+    pub(crate) fn count(&self, needle: &str) -> usize {
+        match self {
+            Self::Line(text) => text.matches(needle).count(),
+            Self::Long(line) => line
+                .shown()
+                .map(|shown| shown.matches(needle).count())
+                .sum(),
+        }
+    }
+
+    /// Bytes it holds, weighed against the memory budget.
+    fn weight(&self) -> usize {
+        match self {
+            Self::Line(text) => text.len() + 16,
+            Self::Long(line) => line.weight(),
+        }
+    }
+}
+
+/// The changed lines of each source judged, kept by the digest of its bytes,
+/// its path and the scanner's limits: a later match of the same bytes takes
+/// them without judging the source again. Weighed against the one process
+/// budget ([`crate::page_memo::PageMemo`]).
+static JUDGED: crate::page_memo::PageMemo<std::sync::Arc<(ChangedLines, Option<String>)>> =
+    crate::page_memo::PageMemo::new();
+
+/// Source bytes one read of the planning pass takes.
+const PLAN_READ: usize = 256 * 1024;
+
+/// One line window to judge: its lines and the source bytes they take.
+struct Planned {
+    first: usize,
+    last: usize,
+    bytes: usize,
+}
+
+/// The lines of `file`, the source at `path` past the whole-file ceiling, a
+/// read serves differently from the source, as it serves them: cut from the
+/// one streamed judgment of the whole source ([`served_lines`]) window by
+/// window. A line longer than a window is judged on its own, in overlapping
+/// windows. With them, the digest of the bytes the judgment read (`None`
+/// when no window was served): a match of the source proves it read the same
+/// bytes. `None` for a source with no text lines to serve (binary, or
+/// UTF-16, which no line of its bytes holds).
+pub fn changed_lines(
+    path: &Path,
+    file: &std::fs::File,
+    meta: &std::fs::Metadata,
+    security: &impl ContentScan,
+    cancel: &impl CancellationCheck,
+) -> Result<Option<(ChangedLines, Option<String>)>, String> {
+    let failed = |error: std::io::Error| error.to_string();
+    let mut head = Vec::new();
+    let mut handle = file;
+    handle.seek(SeekFrom::Start(0)).map_err(failed)?;
+    handle.take(2).read_to_end(&mut head).map_err(failed)?;
+    if octocode_engine::text::has_utf16_bom(&head) {
+        return Ok(None);
+    }
+    let limits = security.limits();
+    let room = (limits.window / 2).max(1);
+    let (planned, digest) = plan(file, room, cancel).map_err(failed)?;
+    let key = format!("{}\n{}", hex::encode(digest), path.to_string_lossy());
+    let policy = format!("{limits:?} {}", std::any::type_name_of_val(security));
+    if let Some(kept) = JUDGED.get(&key, &policy, std::sync::Arc::clone) {
+        return Ok(Some((*kept).clone()));
+    }
+    // A judgment's windows are served together while they fit what one
+    // pass may hold; a later pass reads the first's proof.
+    let batch = room.max(octocode_engine::memory::MEMORY.limit() / 4);
+    let mut changed = ChangedLines::new();
+    let mut known: Option<String> = None;
+    let mut offset = 0u64;
+    let mut at = 0;
+    while at < planned.len() {
+        let mut end = at;
+        let mut bytes = 0usize;
+        while end < planned.len() && (end == at || bytes + planned[end].bytes <= batch) {
+            bytes += planned[end].bytes;
+            end += 1;
+        }
+        let group = &planned[at..end];
+        at = end;
+        // A line longer than a window is no window's whole line: it is
+        // judged on its own below, and only the others are served.
+        let wants = group
+            .iter()
+            .filter(|window| window.bytes <= room)
+            .map(|window| (window.first, window.last))
+            .collect::<Vec<_>>();
+        let mut spans = Vec::new();
+        if !wants.is_empty() {
+            let served =
+                match served_lines(path, file, meta, &wants, known.as_deref(), security, cancel) {
+                    Ok(served) => served,
+                    Err(error) if error == "binary content" => return Ok(None),
+                    Err(error) => return Err(error),
+                };
+            known = Some(served.digest);
+            spans = served.spans;
+        }
+        let mut spans = spans.into_iter();
+        // The source's own lines, from where the last group ended.
+        let mut handle = file;
+        handle.seek(SeekFrom::Start(offset)).map_err(failed)?;
+        let mut raw = std::io::BufReader::new(handle);
+        let mut line = Vec::new();
+        for window in group {
+            if window.bytes > room {
+                // Judged from the source in windows, never held whole.
+                cancel.check()?;
+                if let Some(shown) =
+                    judged_long(file, offset, window.bytes, path, security, cancel)?
+                {
+                    changed.insert(window.first, shown);
+                }
+                offset += window.bytes as u64;
+                raw.seek(SeekFrom::Start(offset)).map_err(failed)?;
+                continue;
+            }
+            let span = spans.next().flatten();
+            for number in window.first..=window.last {
+                cancel.check()?;
+                line.clear();
+                let read = raw.read_until(b'\n', &mut line).map_err(failed)?;
+                offset += read as u64;
+                let text = octocode_engine::text::Decoded::interior(&line).text;
+                let text = text.trim_end_matches(['\n', '\r']);
+                let shown = match span
+                    .as_ref()
+                    .and_then(|lines| lines.get(number - window.first))
+                {
+                    Some(shown) => shown.clone(),
+                    None => judged_alone(text, path, security, cancel)?,
+                };
+                if shown != text {
+                    changed.insert(number, Shown::Line(shown.replace('\n', " ")));
+                }
+            }
+        }
+    }
+    // The windows a read served were of the bytes planned: a write between
+    // the two passes would judge lines of one source by another's.
+    if known
+        .as_deref()
+        .is_some_and(|served| served != hex::encode(digest))
+    {
+        return Err("The source changed while it was read.".to_owned());
+    }
+    let weight = changed.values().map(Shown::weight).sum::<usize>();
+    let judged = (changed, known);
+    JUDGED.put(key, policy, weight, std::sync::Arc::new(judged.clone()));
+    Ok(Some(judged))
+}
+
+/// The line windows covering every line of `file`, in order: consecutive
+/// lines while they fit `room` bytes, and a longer line alone; with the
+/// digest of every byte read. A cancel ends it after the read it came during.
+fn plan(
+    file: &std::fs::File,
+    room: usize,
+    cancel: &impl CancellationCheck,
+) -> std::io::Result<(Vec<Planned>, [u8; 32])> {
+    let mut hasher = octocode_engine::digest::HashWriter::default();
+    let mut handle = file;
+    handle.seek(SeekFrom::Start(0))?;
+    let mut reader = std::io::BufReader::with_capacity(PLAN_READ, handle);
+    let mut planned: Vec<Planned> = Vec::new();
+    let (mut line, mut length, mut open) = (1usize, 0usize, false);
+    let push = |planned: &mut Vec<Planned>, number: usize, bytes: usize| match planned.last_mut() {
+        Some(window)
+            if window.last + 1 == number && bytes <= room && window.bytes + bytes <= room =>
+        {
+            window.last = number;
+            window.bytes += bytes;
+        }
+        _ => planned.push(Planned {
+            first: number,
+            last: number,
+            bytes,
+        }),
+    };
+    loop {
+        let piece = reader.fill_buf()?;
+        if piece.is_empty() {
+            if open {
+                push(&mut planned, line, length);
+            }
+            break;
+        }
+        let read = piece.len();
+        hasher.update(piece);
+        let mut rest = piece;
+        while let Some(at) = memchr::memchr(b'\n', rest) {
+            push(&mut planned, line, length + at + 1);
+            line += 1;
+            length = 0;
+            rest = &rest[at + 1..];
+        }
+        length += rest.len();
+        open = length > 0;
+        reader.consume(read);
+        cancel.check().map_err(std::io::Error::other)?;
+    }
+    Ok((planned, hasher.finalize()))
+}
+
+/// `text`, one line no window of the read holds whole, as a read judges it
+/// alone ([`judge_windows`]).
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::string_slice,
+        reason = "each redaction starts and ends at a char boundary of the text the scanner judged"
+    )
+)]
+fn judged_alone(
+    text: &str,
+    path: &Path,
+    security: &impl ContentScan,
+    cancel: &impl CancellationCheck,
+) -> Result<String, String> {
+    let mut whole = Some(text);
+    let hidden = judge_windows(
+        |out: &mut String| {
+            out.push_str(whole.take().unwrap_or_default());
+            Ok(false)
+        },
+        path,
+        security,
+        cancel,
+    )?;
+    let mut out = String::with_capacity(text.len());
+    let mut at = 0;
+    for (range, shown) in hidden {
+        out.push_str(&text[at..range.start]);
+        out.push_str(&shown);
+        at = range.end;
+    }
+    out.push_str(&text[at.min(text.len())..]);
+    Ok(out)
+}
+
+/// The redactions a read makes of one line judged alone: in windows of the
+/// scanner's size, each overlapping the next by a quarter, so a value across
+/// a window's edge is whole in one of them. A window the scanner refuses is
+/// withheld whole; the windows' redactions merge into their union
+/// ([`union`]), as byte ranges of the line's text. `more` appends the line's
+/// next text and says whether any is left: only the window being judged
+/// is held, and the cancel is polled before each.
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::string_slice,
+        reason = "offsets are char boundaries: `boundary` steps back to one, and each redaction starts and ends where the scanner's own text does"
+    )
+)]
+fn judge_windows(
+    mut more: impl FnMut(&mut String) -> Result<bool, String>,
+    path: &Path,
+    security: &impl ContentScan,
+    cancel: &impl CancellationCheck,
+) -> Result<Vec<(std::ops::Range<usize>, String)>, String> {
+    let size = security.limits().window.max(4);
+    let overlap = size / 4;
+    // The line's text from `base` on, and whether more of it is to come.
+    let (mut text, mut base, mut left) = (String::new(), 0usize, true);
+    let boundary = |text: &str, base: usize, mut at: usize| {
+        while !text.is_char_boundary(at - base) {
+            at -= 1;
+        }
+        at
+    };
+    let mut hidden: Vec<(std::ops::Range<usize>, String)> = Vec::new();
+    let mut start = 0;
+    loop {
+        cancel.check()?;
+        while left && base + text.len() < start + size {
+            left = more(&mut text)?;
+        }
+        let len = base + text.len();
+        let end = boundary(&text, base, (start + size).min(len));
+        let end = if end <= start { len } else { end };
+        let piece = &text[start - base..end - base];
+        match security.sanitize(piece, path) {
+            Ok((clean, _)) => hidden.extend(
+                redactions(piece, &clean)
+                    .into_iter()
+                    .map(|(range, shown)| (range.start + start..range.end + start, shown)),
+            ),
+            Err(_) => hidden.push((
+                start..end,
+                octocode_runtime_base::security::cut::REDACTED.to_owned(),
+            )),
+        }
+        if !left && end >= len {
+            break;
+        }
+        let next = boundary(&text, base, end.saturating_sub(overlap).max(start));
+        start = if next > start { next } else { end };
+        text.drain(..start - base);
+        base = start;
+    }
+    Ok(union(hidden))
+}
+
+/// The redactions of overlapping windows as one sorted, disjoint list over the
+/// same bytes: a redaction inside another (the same value both windows saw)
+/// goes with it; ones that only overlap hide the union of their bytes, showing
+/// each placeholder, or one [`octocode_runtime_base::security::cut::REDACTED`] when either
+/// shows text of the source too. No byte outside every redaction is dropped,
+/// and none inside one shows.
+fn union(
+    mut hidden: Vec<(std::ops::Range<usize>, String)>,
+) -> Vec<(std::ops::Range<usize>, String)> {
+    hidden.sort_by_key(|(range, _)| (range.start, std::cmp::Reverse(range.end)));
+    let mut out: Vec<(std::ops::Range<usize>, String)> = Vec::with_capacity(hidden.len());
+    for (range, shown) in hidden {
+        match out.last_mut() {
+            Some((last, _))
+                if range.end <= last.end && (range.start < last.end || range == *last) => {}
+            Some((last, text)) if range.start < last.end => {
+                last.end = range.end;
+                *text = if !placeholders_only(text) || !placeholders_only(&shown) {
+                    octocode_runtime_base::security::cut::REDACTED.to_owned()
+                } else if text.contains(&shown) {
+                    std::mem::take(text)
+                } else {
+                    format!("{text}{shown}")
+                };
+            }
+            _ => out.push((range, shown)),
+        }
+    }
+    out
+}
+
+/// Whether `shown` is placeholders alone, no text of the source beside them.
+fn placeholders_only(shown: &str) -> bool {
+    octocode_engine::security::placeholder_regex()
+        .replace_all(shown, "")
+        .replace(octocode_runtime_base::security::cut::REDACTED, "")
+        .is_empty()
+}
+
+/// The bytes of a source with each of its changed lines (1-based) replaced by
+/// the line a read serves, its own line break kept: what a match of the
+/// source runs over, streamed.
+pub struct Patched<'a, R> {
+    raw: R,
+    changed: &'a ChangedLines,
+    line: usize,
+    at_start: bool,
+    pending: Vec<u8>,
+    taken: usize,
+    /// A long line being served piece by piece.
+    splice: Option<Splice<'a>>,
+}
+
+impl<'a, R: BufRead> Patched<'a, R> {
+    pub fn new(raw: R, changed: &'a ChangedLines) -> Self {
+        Self {
+            raw,
+            changed,
+            line: 1,
+            at_start: true,
+            pending: Vec::new(),
+            taken: 0,
+            splice: None,
+        }
+    }
+}
+
+impl<R: BufRead> Read for Patched<'_, R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        while self.taken == self.pending.len() {
+            self.pending.clear();
+            self.taken = 0;
+            if let Some(splice) = &mut self.splice {
+                if !splice.step(&mut self.raw, &mut self.pending)? {
+                    self.splice = None;
+                    self.line += 1;
+                }
+                continue;
+            }
+            let changed = self.changed;
+            match changed.get(&self.line).filter(|_| self.at_start) {
+                Some(Shown::Long(long)) => self.splice = Some(Splice::new(long)),
+                Some(Shown::Line(shown)) => {
+                    // A line a window held whole: no longer than one.
+                    let mut skipped = Vec::new();
+                    self.raw.read_until(b'\n', &mut skipped)?;
+                    if skipped.is_empty() {
+                        return Ok(0);
+                    }
+                    self.pending.extend_from_slice(shown.as_bytes());
+                    if skipped.ends_with(b"\r\n") {
+                        self.pending.extend_from_slice(b"\r\n");
+                    } else if skipped.ends_with(b"\n") {
+                        self.pending.push(b'\n');
+                    }
+                    self.line += 1;
+                }
+                None => {
+                    let piece = self.raw.fill_buf()?;
+                    if piece.is_empty() {
+                        return Ok(0);
+                    }
+                    let take = memchr::memchr(b'\n', piece).map_or(piece.len(), |at| at + 1);
+                    self.pending.extend_from_slice(&piece[..take]);
+                    self.raw.consume(take);
+                    self.at_start = self.pending.last() == Some(&b'\n');
+                    if self.at_start {
+                        self.line += 1;
+                    }
+                }
+            }
+        }
+        let n = buf.len().min(self.pending.len() - self.taken);
+        buf[..n].copy_from_slice(&self.pending[self.taken..self.taken + n]);
+        self.taken += n;
+        Ok(n)
+    }
+}
+
+#[cfg(test)]
+mod tests;

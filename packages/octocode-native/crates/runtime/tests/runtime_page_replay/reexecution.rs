@@ -197,7 +197,7 @@ async fn search_server() -> wiremock::MockServer {
         })
         .collect();
     wiremock::Mock::given(wiremock::matchers::path("/api/v3/search/repositories"))
-        .respond_with(octocode_github::mock_http::SearchIndex(items))
+        .respond_with(octocode_test_support::mock_http::SearchIndex(items))
         .mount(&server)
         .await;
     server

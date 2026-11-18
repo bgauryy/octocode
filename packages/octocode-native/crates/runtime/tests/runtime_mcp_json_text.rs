@@ -3,6 +3,7 @@
 
 use crate::support::{Run as _, Workspace, clasify_runtime, mcp_payload};
 use octocode_native::runtime::ToolRuntime;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
@@ -75,7 +76,7 @@ async fn a_tool_error_is_json_text() {
     let result = mcp(
         &runtime,
         "localFetch",
-        json!({"queries":[{"path":"a.txt","matchstring":"x"}]}),
+        json_fixture(r#"{"queries": [{"path": "a.txt", "matchstring": "x"}]}"#),
     )
     .await;
     assert_eq!(result["isError"], true);
@@ -118,7 +119,7 @@ async fn clasify_receipts_are_json_text() {
                 .as_object()
                 .expect("questions")
                 .keys()
-                .map(|id| (id.clone(), json!({"type":"noul","noul":0.9})))
+                .map(|id| (id.clone(), json_fixture(r#"{"type": "noul", "noul": 0.9}"#)))
                 .collect::<serde_json::Map<_, _>>();
             ResponseTemplate::new(200).set_body_json(json!({
                 "model":"jev-1.13.0",
@@ -133,11 +134,22 @@ async fn clasify_receipts_are_json_text() {
     let result = mcp(
         &runtime,
         "clasify",
-        json!({"queries":[{
-            "operation":"evaluate",
-            "content":"Update the configuration, then restart the service.",
-            "questions":{"restart":{"type":"noul","instructions":"Does the content require a restart?"}}
-        }]}),
+        json_fixture(
+            r#"{
+                "queries": [
+                    {
+                        "operation": "evaluate",
+                        "content": "Update the configuration, then restart the service.",
+                        "questions": {
+                            "restart": {
+                                "type": "noul",
+                                "instructions": "Does the content require a restart?"
+                            }
+                        }
+                    }
+                ]
+            }"#,
+        ),
     )
     .await;
     assert!(

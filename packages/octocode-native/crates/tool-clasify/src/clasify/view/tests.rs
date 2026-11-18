@@ -1,0 +1,395 @@
+use super::*;
+use octocode_test_support::json_fixture;
+
+/// Every leaf a summary states is a leaf of the details row: a summary
+/// only removes, or unwraps an answered cell to its answer.
+fn within(summary: &Value, details: &Value) -> bool {
+    match (summary, details) {
+        (Value::Object(summary), Value::Object(details)) => {
+            if details.get("status") == Some(&json!("answered")) && !summary.contains_key("status")
+            {
+                return within(&Value::Object(summary.clone()), &details["answer"]);
+            }
+            summary
+                .iter()
+                .all(|(key, value)| details.get(key).is_some_and(|other| within(value, other)))
+        }
+        (Value::Array(summary), Value::Array(details)) => summary
+            .iter()
+            .all(|value| details.iter().any(|other| within(value, other))),
+        _ => summary == details,
+    }
+}
+
+fn summary_of(details: &Value) -> Value {
+    let mut summary = details.clone();
+    summarize(&mut summary, false);
+    // The one thing a summary adds is the warning that names what it
+    // left out; everything else it states is a leaf of the details.
+    let mut stated = summary.clone();
+    if let Some(fields) = stated.as_object_mut() {
+        fields.shift_remove("warnings");
+    }
+    assert!(within(&stated, details), "{summary}\n{details}");
+    summary
+}
+
+#[test]
+fn an_evaluation_keeps_each_answers_value_and_leaves_its_tokens_to_details() {
+    let details = json_fixture(
+        r#"{
+            "model": "jev-1",
+            "answers": {
+                "restart": {"noul": 0.96},
+                "kind": {
+                    "choice": "ops",
+                    "confidence": 0.81,
+                    "probabilities": {"ops": 0.93, "code": 0.07}
+                },
+                "risk": {
+                    "score": 1.5,
+                    "confidence": 0.5,
+                    "probabilities": {"0": 0.0, "1": 0.5, "2": 0.5},
+                    "legend": {"0": "low", "1": "medium", "2": "high"}
+                }
+            },
+            "usage": {"calls": 1, "inputTokens": 572, "outputTokens": 30}
+        }"#,
+    );
+    assert_eq!(
+        summary_of(&details),
+        json_fixture(
+            r#"{
+                "answers": {
+                    "restart": {"noul": 0.96},
+                    "kind": {"choice": "ops"},
+                    "risk": {"score": 1.5}
+                }
+            }"#
+        )
+    );
+}
+
+/// A combined answer keeps its lines and the row its coverage; several
+/// requests stay counted.
+#[test]
+fn a_sectioned_evaluation_keeps_lines_coverage_and_its_request_count() {
+    let details = json_fixture(
+        r#"{
+            "model": "jev-1",
+            "answers": {
+                "kind": {
+                    "choice": "a",
+                    "confidence": 0.75,
+                    "probabilities": {"a": 0.75, "b": 0.25},
+                    "lines": {"startLine": 21, "endLine": 30}
+                }
+            },
+            "coverage": {"totalSections": 4, "answered": 4},
+            "usage": {"calls": 5, "inputTokens": 400, "outputTokens": 20},
+            "next": {
+                "read": {
+                    "kind": "related",
+                    "tool": "localFetch",
+                    "input": {"queries": [{"path": "a"}]}
+                }
+            }
+        }"#,
+    );
+    let summary = summary_of(&details);
+    // The sections disagreed: each label's share stays.
+    assert_eq!(
+        summary["answers"]["kind"],
+        json_fixture(
+            r#"{
+                "choice": "a",
+                "probabilities": {"a": 0.75, "b": 0.25},
+                "lines": {"startLine": 21, "endLine": 30}
+            }"#
+        )
+    );
+    let mut agreed = details.clone();
+    agreed["answers"]["kind"]["probabilities"] = json_fixture(r#"{"a": 1.0, "b": 0.0}"#);
+    assert_eq!(
+        summary_of(&agreed)["answers"]["kind"],
+        json_fixture(r#"{"choice": "a", "lines": {"startLine": 21, "endLine": 30}}"#)
+    );
+    assert_eq!(summary["coverage"], details["coverage"]);
+    assert_eq!(summary["usage"]["calls"], 5);
+    assert_eq!(summary["next"], details["next"]);
+}
+
+#[test]
+fn image_provenance_stays_only_as_the_size_a_box_maps_to() {
+    let asset = json_fixture(
+        r#"{
+            "source": {"tool": "localFetch", "query": {"path": "shot.png"}},
+            "sourceDigest": "ab",
+            "format": "png",
+            "bytes": 10,
+            "width": 716,
+            "height": 1075,
+            "sourceWidth": 1432,
+            "sourceHeight": 2150,
+            "path": "/tmp/x.png",
+            "expiresAt": "2026"
+        }"#,
+    );
+    let boxed = json!({
+        "answers":{"where":{"box":{"top":0.1,"bottom":0.5,"left":0.1,"right":0.4},"confidence":0.9}},
+        "assets":{"shot":asset},
+    });
+    let summary = summary_of(&boxed);
+    assert_eq!(
+        summary["assets"]["shot"],
+        json_fixture(
+            r#"{
+                "width": 716,
+                "height": 1075,
+                "sourceWidth": 1432,
+                "sourceHeight": 2150
+            }"#
+        )
+    );
+    assert!(summary["answers"]["where"].get("confidence").is_none());
+    let plain = json!({"answers":{"logo":{"noul":0.9}},"assets":{"shot":asset}});
+    assert!(summary_of(&plain).get("assets").is_none());
+}
+
+#[test]
+fn a_section_is_its_lines_and_answers() {
+    let details = json_fixture(
+        r#"{
+            "model": "jev-1",
+            "resources": {
+                "mid": {
+                    "status": "ready",
+                    "sourceDigest": "d4",
+                    "sections": [
+                        {
+                            "id": "s12",
+                            "kind": "declarations",
+                            "name": "f_376 … f_406 (31 declarations)",
+                            "target": {
+                                "bytes": [23784, 25751],
+                                "lines": {"startLine": 1876, "endLine": 2027}
+                            },
+                            "context": [
+                                {
+                                    "bytes": [21784, 23784],
+                                    "lines": {"startLine": 1717, "endLine": 1875}
+                                }
+                            ],
+                            "answers": {
+                                "p": {"status": "answered", "answer": {"noul": 0.96}},
+                                "kind": {
+                                    "status": "answered",
+                                    "answer": {
+                                        "choice": "ops",
+                                        "confidence": 0.8,
+                                        "probabilities": {"ops": 0.9}
+                                    }
+                                },
+                                "late": {"status": "unassessed", "reason": "deadline"}
+                            }
+                        }
+                    ],
+                    "coverage": {"totalSections": 1, "answered": 2, "unassessed": 1}
+                }
+            },
+            "usage": {
+                "calls": 1,
+                "inputTokens": 5,
+                "knownUsageCalls": 1,
+                "models": ["jev-1"],
+                "outputTokens": 3,
+                "unknownUsageCalls": 0
+            }
+        }"#,
+    );
+    let summary = summary_of(&details);
+    let section = &summary["resources"]["mid"]["sections"][0];
+    assert_eq!(
+        section,
+        &json_fixture(
+            r#"{
+                "target": {"lines": {"startLine": 1876, "endLine": 2027}},
+                "answers": {
+                    "p": {"noul": 0.96},
+                    "kind": {"choice": "ops"},
+                    "late": {"status": "unassessed", "reason": "deadline"}
+                }
+            }"#
+        )
+    );
+    // The owner's bound: a summary section is at most 40% of the details one.
+    let (short, long) = (
+        section.to_string().len(),
+        details["resources"]["mid"]["sections"][0].to_string().len(),
+    );
+    assert!(short * 100 <= long * 40, "{short} of {long}");
+    assert_eq!(summary["usage"], json_fixture(r#"{"calls": 1}"#));
+    assert_eq!(
+        summary["resources"]["mid"]["coverage"],
+        details["resources"]["mid"]["coverage"]
+    );
+}
+
+#[test]
+fn a_summary_names_the_quiet_units_it_leaves_out() {
+    let details = json_fixture(
+        r#"{
+            "units": {
+                "a.rs:3": {"auth": {"status": "answered", "answer": {"noul": 0.91}}},
+                "a.rs:9": {"auth": {"status": "answered", "answer": {"noul": 0.02}}},
+                "b.rs:1": {"auth": {"status": "answered", "answer": {"noul": 0.1}}}
+            },
+            "coverage": {"totalUnits": 3, "answered": 3, "quiet": 2}
+        }"#,
+    );
+    let summary = summary_of(&details);
+    let warning = summary["warnings"][0].as_str().expect("a warning");
+    assert!(
+        warning.contains("a.rs:9") && warning.contains("b.rs:1"),
+        "{warning}"
+    );
+    assert!(!warning.contains("a.rs:3"), "{warning}");
+    // A row with no quiet unit says nothing.
+    let loud = json_fixture(
+        r#"{
+            "units": {
+                "a": {"auth": {"status": "answered", "answer": {"noul": 0.9}}}
+            }
+        }"#,
+    );
+    assert!(summary_of(&loud).get("warnings").is_none());
+}
+
+/// Usage that says more than its spend (unreported requests, an estimate
+/// of the rest) is kept whole.
+#[test]
+fn a_plans_usage_stays_whole_when_it_says_more_than_its_spend() {
+    let details = json_fixture(
+        r#"{
+            "resources": {"a": {"status": "ready", "sections": []}},
+            "usage": {
+                "calls": 2,
+                "inputTokens": 5,
+                "knownUsageCalls": 1,
+                "outputTokens": 3,
+                "unknownUsageCalls": 1
+            }
+        }"#,
+    );
+    assert_eq!(summary_of(&details)["usage"], details["usage"]);
+}
+
+#[test]
+fn a_sections_lead_longer_than_its_source_is_dropped() {
+    let lead = json_fixture(
+        r#"{
+            "kind": "related",
+            "tool": "clasify",
+            "input": {
+                "queries": [
+                    {
+                        "operation": "sections",
+                        "questions": {"p": {"type": "noul", "instructions": "Is it planted?"}},
+                        "resources": {
+                            "source": {"tool": "localFetch", "query": {"path": "tiny.rs"}}
+                        }
+                    }
+                ]
+            }
+        }"#,
+    );
+    let row = |read_chars: u64| json!({"answers":{"p":{"noul":0.9}},"readChars":read_chars,"related":[lead]});
+    assert!(summary_of(&row(43)).get("related").is_none());
+    assert_eq!(summary_of(&row(77_296))["related"], json!([lead]));
+}
+
+#[test]
+fn quiet_units_leave_a_summary_and_stay_counted() {
+    let details = json_fixture(
+        r#"{
+            "units": {
+                "a.rs:3": {"auth": {"status": "answered", "answer": {"noul": 0.91}}},
+                "a.rs:9": {"auth": {"status": "answered", "answer": {"noul": 0.02}}},
+                "b.rs:1": {
+                    "auth": {
+                        "status": "error",
+                        "error": {"errorCode": "timeout", "error": "late"}
+                    }
+                }
+            },
+            "coverage": {"totalUnits": 3, "answered": 2, "quiet": 1, "error": 1},
+            "usage": {"calls": 3, "inputTokens": 9, "outputTokens": 3}
+        }"#,
+    );
+    let summary = summary_of(&details);
+    assert_eq!(
+        summary["units"],
+        json_fixture(
+            r#"{
+                "a.rs:3": {"auth": {"noul": 0.91}},
+                "b.rs:1": {
+                    "auth": {
+                        "status": "error",
+                        "error": {"errorCode": "timeout", "error": "late"}
+                    }
+                }
+            }"#
+        )
+    );
+    assert_eq!(summary["coverage"], details["coverage"]);
+}
+
+#[test]
+fn a_failed_row_and_a_model_listing_are_left_whole() {
+    for row in [
+        json_fixture(
+            r#"{
+                "errorCode": "classificationProviderError",
+                "error": "x",
+                "usage": {"calls": 1, "inputTokens": 0, "outputTokens": 0}
+            }"#,
+        ),
+        json_fixture(
+            r#"{
+                "models": [{"name": "jev", "description": "d", "releaseDate": "r"}]
+            }"#,
+        ),
+    ] {
+        assert_eq!(summary_of(&row), row);
+    }
+}
+
+#[test]
+fn a_details_continuation_stays_in_details() {
+    let mut row = json_fixture(
+        r#"{
+            "next": {
+                "nextPage": {
+                    "kind": "continue",
+                    "tool": "clasify",
+                    "input": {"queries": [{"operation": "sections", "assessment": "t"}]}
+                },
+                "read": {
+                    "kind": "continue",
+                    "tool": "localFetch",
+                    "input": {"queries": [{"path": "a"}]}
+                }
+            }
+        }"#,
+    );
+    carry_details(&mut row);
+    assert_eq!(
+        row["next"]["nextPage"]["input"]["queries"][0]["view"],
+        "details"
+    );
+    assert!(
+        row["next"]["read"]["input"]["queries"][0]
+            .get("view")
+            .is_none()
+    );
+}

@@ -1,5 +1,5 @@
 use super::run_batch;
-use crate::execution::ExecutionError;
+use octocode_runtime_base::execution::ExecutionError;
 
 #[test]
 fn rows_come_back_in_query_order_at_any_width() {

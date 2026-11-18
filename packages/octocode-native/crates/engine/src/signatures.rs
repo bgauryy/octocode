@@ -342,7 +342,8 @@ pub fn may_name_supertypes(content: &str, file_path: &str) -> bool {
 /// The byte range of the scope of the local binding (a parameter no call
 /// site names by keyword, or a variable bound inside a callable) that `name`
 /// at byte `at` of `content`
-/// names, read with `file_path`'s grammar; `None` when it names no local
+/// names, read with `file_path`'s grammar (oxc semantics for JS/TS, see
+/// [`js_oxc::local_binding_scope`]); `None` when it names no local
 /// binding, or the grammar or a recovered parse cannot tell.
 pub(crate) fn local_binding_scope(
     content: &str,
@@ -351,6 +352,9 @@ pub(crate) fn local_binding_scope(
     at: usize,
     deadline: std::time::Instant,
 ) -> Option<std::ops::Range<usize>> {
+    if js_oxc::reads(file_path) {
+        return js_oxc::local_binding_scope(content, file_path, name, at);
+    }
     let (entry, _) = graph_facts_grammar(content, file_path)?;
     let adapter = entry.argument_adapter?;
     let tree = extractor::parse_before(content, &entry.language, deadline)?;
@@ -405,8 +409,6 @@ use crate::text::extension_of;
 use languages::CommentStyle;
 
 mod outline;
-#[cfg(test)]
-pub(crate) use outline::extract_signatures_inner;
 pub use outline::{OutlineUnavailable, declarations_outline, is_comment_line};
 
 // ── Tests ────────────────────────────────────────────────────────────────────

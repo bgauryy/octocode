@@ -1,6 +1,6 @@
 //! Real GitHub answers from `test-utils/provider-answers`, on a mock server: the
-//! store `src/providers/artifact/test_http/recorded.rs` and the end-to-end proxy
-//! read too.
+//! store `octocode-tool-packages`'s `src/artifact/test_http/recorded.rs`
+//! and the end-to-end proxy read too.
 
 use serde_json::Value;
 use std::path::PathBuf;
@@ -61,6 +61,23 @@ pub async fn mount(server: &MockServer, case: &str, served: impl Fn(&url::Url) -
             (json, _) => answer.set_body_json(json),
         };
         mock.respond_with(answer).mount(server).await;
+    }
+    // A file read first asks its folder's git tree for a symlink on its path.
+    // GitHub's tree of the commit lists the recorded file; a recorded tree
+    // exchange answers first.
+    if recording["tool"] == "ghGetFileContent" {
+        let field = |name: &str| {
+            recording["query"][name]
+                .as_str()
+                .expect("recorded query field")
+        };
+        octocode_test_support::mock_http::list_in_trees(
+            server,
+            field("owner"),
+            field("repo"),
+            field("path"),
+        )
+        .await;
     }
     recording
 }

@@ -46,7 +46,7 @@ pub(super) fn edit_json_members(
         }
         return Ok(rendered);
     }
-    octocode_native::config::edit_config_json(
+    octocode_runtime_base::config::edit_config_json(
         text,
         &keys.iter().map(String::as_str).collect::<Vec<_>>(),
         next,

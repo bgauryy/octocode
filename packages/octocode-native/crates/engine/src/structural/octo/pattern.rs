@@ -23,7 +23,8 @@ mod sigils;
 mod unsaid;
 
 use compile::effective_pattern_root;
-pub use qualified::{QualifiedPattern, Separator};
+pub use qualified::QualifiedPattern;
+pub(crate) use qualified::Separator;
 pub use sigils::{LiteralSigil, SigilForm, SigilRepair};
 use unsaid::declares;
 
@@ -88,7 +89,7 @@ pub(super) struct CompiledPattern {
     /// structural match walks it.
     required: Option<memchr::memmem::Finder<'static>>,
     #[cfg(test)]
-    probe: Probe,
+    probe: cache_tests::Probe,
     /// Whether each non-leaf pattern node declares (`unsaid::declares`),
     /// by node id: a match asks the same pattern nodes once per candidate.
     declaring: std::collections::HashMap<usize, bool>,
@@ -174,18 +175,6 @@ fn required_literal(
     }
     best.map(|text| memchr::memmem::Finder::new(text.as_bytes()).into_owned())
 }
-
-/// What a pattern counts of its own matching, in tests only.
-#[cfg(test)]
-#[derive(Default)]
-struct Probe {
-    /// Candidates that reached the structural comparison.
-    compared: std::sync::atomic::AtomicUsize,
-}
-
-/// Switches the pre-reject off, for the differential test.
-#[cfg(test)]
-static SKIP_PREREJECT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn node_key(node: Node<'_>) -> NodeKey {
     (node.start_byte(), node.end_byte(), node.kind_id())
@@ -473,7 +462,7 @@ impl CompiledPattern {
             return Ok(false);
         };
         #[cfg(test)]
-        let skip = SKIP_PREREJECT.load(std::sync::atomic::Ordering::Relaxed);
+        let skip = cache_tests::SKIP_PREREJECT.load(std::sync::atomic::Ordering::Relaxed);
         #[cfg(not(test))]
         let skip = false;
         if let Some(required) = self.required.as_ref().filter(|_| !skip)

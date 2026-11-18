@@ -1,0 +1,238 @@
+//! The blocking scan worker stops on cancel, deadline and drop.
+use super::*;
+
+/// Cancels once `signal` is raised, or once `deadline` passes (as a timeout).
+struct LiveCancel {
+    signal: octocode_io::cancellation::Cancellation,
+    deadline: Option<std::time::Instant>,
+}
+
+impl CancellationCheck for LiveCancel {
+    fn check(&self) -> Result<(), String> {
+        if self
+            .deadline
+            .is_some_and(|deadline| std::time::Instant::now() >= deadline)
+        {
+            return Err("Timeout".into());
+        }
+        if self.signal.is_cancelled() {
+            return Err("Cancelled".into());
+        }
+        Ok(())
+    }
+    fn deadline(&self) -> Option<std::time::Instant> {
+        self.deadline
+    }
+    fn signal(&self) -> Option<&octocode_io::cancellation::Cancellation> {
+        Some(&self.signal)
+    }
+}
+
+/// A worker that reports when it starts, then runs until its stop
+/// callback fires (or a safety bound passes), and reports whether it
+/// stopped because of the callback.
+/// The worker finished and reported `true` within 5 s.
+fn assert_worker_stopped(finished: &std::sync::mpsc::Receiver<bool>) {
+    assert!(
+        finished
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("worker terminated")
+    );
+}
+
+fn observed_worker(
+    started: std::sync::mpsc::Sender<()>,
+    finished: std::sync::mpsc::Sender<bool>,
+) -> impl FnOnce(&(dyn Fn() -> bool + Sync)) + Send + 'static {
+    move |stopped| {
+        let _ = started.send(());
+        let bound = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !stopped() && std::time::Instant::now() < bound {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let _ = finished.send(stopped());
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_running_worker_stops_when_the_request_is_cancelled_after_launch() {
+    let signal = octocode_io::cancellation::Cancellation::new();
+    let cancel = LiveCancel {
+        signal: signal.clone(),
+        deadline: None,
+    };
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+    let canceller = std::thread::spawn(move || {
+        started_rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("worker started");
+        signal.cancel();
+    });
+    let failure = blocking_cancellable(&cancel, observed_worker(started_tx, finished_tx))
+        .await
+        .expect_err("cancelled after launch");
+    assert_eq!(failure.code, ErrorCode::Cancelled);
+    assert_eq!(failure.message, "Cancelled");
+    canceller.join().expect("canceller");
+    assert!(
+        finished_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("worker terminated"),
+        "the worker must stop through its stop callback"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_deadline_expiring_during_the_scan_stops_the_worker_as_a_timeout() {
+    let cancel = LiveCancel {
+        signal: octocode_io::cancellation::Cancellation::new(),
+        deadline: Some(std::time::Instant::now() + std::time::Duration::from_millis(150)),
+    };
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+    let failure = blocking_cancellable(&cancel, observed_worker(started_tx, finished_tx))
+        .await
+        .expect_err("deadline expired");
+    started_rx.try_recv().expect("worker had started");
+    assert_eq!(failure.code, ErrorCode::Cancelled);
+    assert_eq!(failure.message, "Timeout");
+    assert_worker_stopped(&finished_rx);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dropping_the_request_stops_the_worker() {
+    let (started_tx, _started_rx) = std::sync::mpsc::channel();
+    let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+    let dropped = tokio::time::timeout(
+        std::time::Duration::from_millis(50),
+        blocking_cancellable(
+            &octocode_runtime_base::execution::cancel::NeverCancel,
+            observed_worker(started_tx, finished_tx),
+        ),
+    )
+    .await;
+    assert!(dropped.is_err(), "request future dropped by the timeout");
+    assert_worker_stopped(&finished_rx);
+}
+
+/// The real importer scan: cancellation observed after the request
+/// started is a cancellation, never a completed candidate list.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_candidate_scan_reports_cancellation_after_launch() {
+    struct CancelAfterFirst(std::sync::atomic::AtomicUsize);
+    impl CancellationCheck for CancelAfterFirst {
+        fn check(&self) -> Result<(), String> {
+            if self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                Ok(())
+            } else {
+                Err("Cancelled".into())
+            }
+        }
+    }
+    let root = tempfile::tempdir().expect("fixture");
+    for index in 0..200 {
+        std::fs::write(
+            root.path().join(format!("f{index}.ts")),
+            "import { target } from './a';\ntarget();\n",
+        )
+        .expect("fixture file");
+    }
+    let root_str = root.path().to_string_lossy().into_owned();
+    let policy =
+        |workspace: &Path| octocode_runtime_base::test_support::workspace_policy(workspace);
+    let scope = Scope::new(root_str.clone(), vec!["*.ts".into()]);
+    let failure = candidate_files(
+        &scope,
+        "target",
+        &HashSet::new(),
+        &policy(root.path()),
+        &CancelAfterFirst(std::sync::atomic::AtomicUsize::new(0)),
+    )
+    .await
+    .expect_err("cancellation is not an empty or complete scan");
+    assert_eq!(failure.code, ErrorCode::Cancelled);
+    let scope = Scope::new(root_str, vec!["*.ts".into()]);
+    let complete = candidate_files(
+        &scope,
+        "target",
+        &HashSet::new(),
+        &policy(root.path()),
+        &octocode_runtime_base::execution::cancel::NeverCancel,
+    )
+    .await
+    .expect("scan")
+    .expect("scan succeeded");
+    assert_eq!(complete.len(), 200, "every candidate, uncut");
+    let Cut::Window(window) = Window::cut(complete, WindowRequest::default()) else {
+        panic!("first window");
+    };
+    assert_eq!(window.files().len(), MAX_CANDIDATE_FILES);
+    assert!(window.more(), "more candidates than one window");
+}
+
+/// What a worker saw of its deep-stack parses around a cancel.
+#[derive(Debug, PartialEq)]
+struct DeepStackRun {
+    parsed_before: bool,
+    stop_carried: bool,
+    parsed_after: bool,
+}
+
+/// A cancel that lands while the worker runs deep-stack parses stops them:
+/// the request answers `Cancelled`, the stop flag the worker's deep-stack
+/// jobs inherit (`deep_stack::current_stop`) is raised, and the next parse on
+/// the deep stack is refused instead of run.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cancel_mid_deep_stack_stops_its_parses() {
+    const SOURCE: &str = "class B extends A {}\n";
+    let signal = octocode_io::cancellation::Cancellation::new();
+    let cancel = LiveCancel {
+        signal: signal.clone(),
+        deadline: None,
+    };
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (run_tx, run_rx) = std::sync::mpsc::channel();
+    let canceller = std::thread::spawn(move || {
+        started_rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("worker started");
+        signal.cancel();
+    });
+    let failure = blocking_cancellable(&cancel, move |_| {
+        // A TypeScript file parses on the deep-stack pool (oxc).
+        let parsed_before =
+            octocode_engine::signatures::extract_graph_facts(SOURCE, "/w/a.ts").is_some();
+        let carried = octocode_engine::deep_stack::current_stop();
+        let _ = started_tx.send(());
+        let bound = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let raised = || {
+            carried
+                .as_ref()
+                .is_some_and(|stop| stop.load(std::sync::atomic::Ordering::Relaxed))
+        };
+        while !raised() && std::time::Instant::now() < bound {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let _ = run_tx.send(DeepStackRun {
+            parsed_before,
+            stop_carried: raised(),
+            parsed_after: octocode_engine::signatures::extract_graph_facts(SOURCE, "/w/a.ts")
+                .is_some(),
+        });
+    })
+    .await
+    .expect_err("cancelled mid deep stack");
+    assert_eq!(failure.code, ErrorCode::Cancelled);
+    canceller.join().expect("canceller");
+    assert_eq!(
+        run_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("worker ended"),
+        DeepStackRun {
+            parsed_before: true,
+            stop_carried: true,
+            parsed_after: false,
+        }
+    );
+}

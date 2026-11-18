@@ -1,4 +1,5 @@
 use super::*;
+use octocode_test_support::json_fixture;
 
 /// A runtime given a pool runs its servers there and leaves them to the
 /// pool's owner on close; one built alone owns and stops its own.
@@ -73,7 +74,7 @@ fn availability_is_resolved_once_per_runtime() {
             ("DISABLE_TOOLS", "ghSearchRepo"),
         ],
     );
-    let resolved = crate::execution::availability::ToolAvailability::resolve(
+    let resolved = octocode_runtime_base::execution::availability::ToolAvailability::resolve(
         runtime.config(),
         RuntimeSurface::Mcp,
     );
@@ -176,10 +177,12 @@ fn cache_home_exposes_only_checkout_trees() {
     let home = os_home.path().join(".octocode");
     let credentials = home.join("credentials.json");
     let log = home.join("logs").join("x.log");
-    let clone = crate::tools::gh_clone_repo::storage::clones_root(&home).join("o/r/main/f.rs");
-    let tree =
-        crate::tools::gh_structure::materialize::materialize_root(&home).join("o/r/sha/f.rs");
-    let capture = crate::tools::source_capture::url::capture_root(&home).join("sha/source.txt");
+    let clone =
+        octocode_tool_github::gh_clone_repo::storage::clones_root(&home).join("o/r/main/f.rs");
+    let tree = octocode_tool_github::gh_structure::materialize::materialize_root(&home)
+        .join("o/r/sha/f.rs");
+    let capture =
+        octocode_tools_shared::source_capture::url::capture_root(&home).join("sha/source.txt");
     for file in [&credentials, &log, &clone, &tree, &capture] {
         std::fs::create_dir_all(file.parent().expect("parent")).expect("dir");
         std::fs::write(file, "x").expect("file");
@@ -189,7 +192,7 @@ fn cache_home_exposes_only_checkout_trees() {
         "OCTOCODE_HOME".to_owned(),
         home.to_string_lossy().into_owned(),
     );
-    let runtime = ToolRuntime::new(crate::config::ConfigInput {
+    let runtime = ToolRuntime::new(octocode_runtime_base::config::ConfigInput {
         env: vars,
         cwd: workspace.path().to_path_buf(),
         os_home: os_home.path().to_path_buf(),
@@ -271,7 +274,18 @@ fn a_host_with_loaded_config_files_reads_none() {
 #[tokio::test]
 async fn unknown_field_errors_list_only_the_published_fields() {
     let home = tempfile::tempdir().expect("home");
-    let input = serde_json::json!({"queries":[{"mainGoal":"g","reasoning":"r","path":"a.ts","lineStart":1}]});
+    let input = json_fixture(
+        r#"{
+            "queries": [
+                {
+                    "mainGoal": "g",
+                    "reasoning": "r",
+                    "path": "a.ts",
+                    "lineStart": 1
+                }
+            ]
+        }"#,
+    );
     for (env, published) in [
         (vec![], false),
         (vec![("OCTOCODE_CLASSIFICATION_API", "fixture-key")], true),
@@ -294,8 +308,8 @@ async fn unknown_field_errors_list_only_the_published_fields() {
 async fn cli_and_mcp_share_whole_call_and_mixed_row_input_errors() {
     let home = tempfile::tempdir().expect("home");
     let runtime = runtime(home.path(), &[]);
-    let bad = serde_json::json!({"path":"a.ts","lineStart":1});
-    let good = serde_json::json!({"path":"a.ts"});
+    let bad = json_fixture(r#"{"path": "a.ts", "lineStart": 1}"#);
+    let good = json_fixture(r#"{"path": "a.ts"}"#);
     let mut by_surface = Vec::new();
     for mcp in [false, true] {
         let whole = serde_json::json!({"queries":[bad.clone()]});

@@ -16,16 +16,17 @@ mod live_check;
 mod status;
 mod upstream;
 pub(super) use commands::{LspServerCommand, run};
-pub use download::host_allowed;
-pub use install::uninstall_server;
+pub(super) use download::host_allowed;
+pub(super) use install::uninstall_server;
 use install::{
     MAX_EXTRACTED_BYTES, SPOOL_SUFFIX, Spool, sweep_interrupted_installs, verify_and_install,
 };
+use octocode_contract_types::ErrorCode;
 use octocode_engine::lsp::managed::{
     AssetIdentity, ManifestAsset, ManifestServer, cached_server_bin_path, manifest_server,
     resolve_cached_server,
 };
-use octocode_native::config::LspAutoInstall;
+use octocode_runtime_base::config::LspAutoInstall;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use upstream::{Attestation, Upstream};
@@ -60,22 +61,43 @@ async fn acquire_or_wait(
 
 /// Outcome of a provision attempt.
 #[derive(Debug, PartialEq, Eq)]
-pub struct ProvisionOutcome {
+pub(super) struct ProvisionOutcome {
     pub ok: bool,
     pub path: Option<String>,
     pub source: Option<&'static str>,
-    pub error: Option<String>,
+    /// What stopped a failed attempt; `None` when it succeeded.
+    pub failure: Option<Failure>,
     /// Which checks a download passed, in words; `None` without a download.
     pub verification: Option<String>,
 }
 
+/// What stopped an install and why. The code names the cause, so a caller
+/// tells a name to correct from a refused install or a failed download.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct Failure {
+    pub code: ErrorCode,
+    pub message: String,
+}
+
+impl Failure {
+    fn new(code: ErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+}
+
 impl ProvisionOutcome {
-    fn fail(error: impl Into<String>) -> Self {
+    fn fail(code: ErrorCode, error: impl Into<String>) -> Self {
+        Self::failed(Failure::new(code, error))
+    }
+    fn failed(failure: Failure) -> Self {
         Self {
             ok: false,
             path: None,
             source: None,
-            error: Some(error.into()),
+            failure: Some(failure),
             verification: None,
         }
     }
@@ -84,7 +106,7 @@ impl ProvisionOutcome {
             ok: true,
             path: Some(path.to_string_lossy().into_owned()),
             source: Some(source),
-            error: None,
+            failure: None,
             verification: None,
         }
     }
@@ -102,13 +124,19 @@ async fn provision_server(
     upstream: &impl Upstream,
 ) -> ProvisionOutcome {
     let Some(server) = manifest_server(name) else {
-        return ProvisionOutcome::fail(format!("{name} is not an auto-downloadable server."));
+        return ProvisionOutcome::fail(
+            ErrorCode::NotFound,
+            format!("{name} is not an auto-downloadable server."),
+        );
     };
     if let Some(reason) = server.unsupported_platforms.get(platform) {
-        return ProvisionOutcome::fail(*reason);
+        return ProvisionOutcome::fail(ErrorCode::Unavailable, *reason);
     }
     let Some(asset) = server.platforms.get(platform) else {
-        return ProvisionOutcome::fail(format!("No {name} asset for platform {platform}."));
+        return ProvisionOutcome::fail(
+            ErrorCode::Unavailable,
+            format!("No {name} asset for platform {platform}."),
+        );
     };
     provision_entry(root, name, platform, server, asset, mode, upstream).await
 }
@@ -129,18 +157,25 @@ async fn provision_entry(
     }
     if mode == LspAutoInstall::Off {
         return ProvisionOutcome::fail(
+            ErrorCode::Policy,
             "Auto-install is off. Set OCTOCODE_LSP_AUTO_INSTALL=prompt|auto (or pass --force) to allow downloading.",
         );
     }
     let (Some(lock), Some(identity)) = (asset.lock.as_ref(), AssetIdentity::of(server, asset))
     else {
-        return ProvisionOutcome::fail(format!(
-            "{} is not in managed.lock.json for {}@{}; regenerate it with `node skills-dev/octocode-dev/scripts/dev.mjs lsp:lock`. Refusing to download unverified bytes.",
-            asset.asset, server.repo, server.release_tag
-        ));
+        return ProvisionOutcome::fail(
+            ErrorCode::SecurityValidationFailed,
+            format!(
+                "{} is not in managed.lock.json for {}@{}; regenerate it with `node skills-dev/octocode-dev/scripts/dev.mjs lsp:lock`. Refusing to download unverified bytes.",
+                asset.asset, server.repo, server.release_tag
+            ),
+        );
     };
     if !host_allowed(&lock.url) {
-        return ProvisionOutcome::fail("Blocked non-allowlisted/insecure download host.");
+        return ProvisionOutcome::fail(
+            ErrorCode::SecurityValidationFailed,
+            "Blocked non-allowlisted/insecure download host.",
+        );
     }
     // The live cross-check: GitHub's digest now must equal the lock's. A
     // different one means the asset was replaced after this build was made.
@@ -156,12 +191,17 @@ async fn provision_entry(
             checks.push("GitHub's live digest agrees".to_owned());
         }
         Ok(live) => {
-            return ProvisionOutcome::fail(format!(
-                "{name}: {} asset changed upstream since this Octocode build: managed.lock.json has sha256 {}, GitHub now reports {}. Refusing to install.",
-                asset.asset,
-                identity.sha256,
-                live.map_or_else(|| "no such asset or digest".to_owned(), |d| format!("sha256 {d}"))
-            ));
+            let live = live.map_or_else(
+                || "no such asset or digest".to_owned(),
+                |digest| format!("sha256 {digest}"),
+            );
+            return ProvisionOutcome::fail(
+                ErrorCode::SecurityValidationFailed,
+                format!(
+                    "{name}: {} asset changed upstream since this Octocode build: managed.lock.json has sha256 {}, GitHub now reports {live}. Refusing to install.",
+                    asset.asset, identity.sha256,
+                ),
+            );
         }
         Err(reason) => checks.push(format!(
             "GitHub's live digest was not checked ({reason}); verified against managed.lock.json only"
@@ -169,21 +209,28 @@ async fn provision_entry(
     }
 
     let Some(bin_path) = cached_server_bin_path(root, name, platform) else {
-        return ProvisionOutcome::fail(format!("Cannot compute cache path for {name}."));
+        return ProvisionOutcome::fail(
+            ErrorCode::ExecutionFailed,
+            format!("Cannot compute cache path for {name}."),
+        );
     };
     let Some(dir) = bin_path.parent() else {
-        return ProvisionOutcome::fail("bin path has no parent");
+        return ProvisionOutcome::fail(ErrorCode::ExecutionFailed, "bin path has no parent");
     };
     if let Err(e) = octocode_io::atomic::create_private_dir_all(dir) {
-        return ProvisionOutcome::fail(format!("creating {dir:?}: {e}"));
+        return ProvisionOutcome::fail(
+            ErrorCode::FileAccessFailed,
+            format!("creating {dir:?}: {e}"),
+        );
     }
     let lock_path = dir.join(".lock");
     let Some(_lock) =
         acquire_or_wait(lock_path.clone(), PEER_INSTALL_WAIT, PEER_INSTALL_POLL).await
     else {
-        return ProvisionOutcome::fail(format!(
-            "Another install of {name} is still in progress ({lock_path:?})."
-        ));
+        return ProvisionOutcome::fail(
+            ErrorCode::Busy,
+            format!("Another install of {name} is still in progress ({lock_path:?})."),
+        );
     };
 
     // Another process may have finished while this one waited for the lock.
@@ -193,11 +240,21 @@ async fn provision_entry(
     sweep_interrupted_installs(dir);
     let spool = match octocode_io::atomic::unique_sibling(&bin_path, SPOOL_SUFFIX) {
         Ok(path) => Spool(path),
-        Err(e) => return ProvisionOutcome::fail(format!("Cannot create the download file: {e}")),
+        Err(e) => {
+            return ProvisionOutcome::fail(
+                ErrorCode::FileAccessFailed,
+                format!("Cannot create the download file: {e}"),
+            );
+        }
     };
     let file = match octocode_io::atomic::create_new(&spool.0, 0o600) {
         Ok(file) => tokio::fs::File::from_std(file),
-        Err(e) => return ProvisionOutcome::fail(format!("Cannot create the download file: {e}")),
+        Err(e) => {
+            return ProvisionOutcome::fail(
+                ErrorCode::FileAccessFailed,
+                format!("Cannot create the download file: {e}"),
+            );
+        }
     };
     // The lock's exact size bounds the transfer: a mis-redirected page or a
     // hostile asset stops there, before its checksum is computed.
@@ -205,26 +262,35 @@ async fn provision_entry(
         // Flushing waits for the last write in flight before the file is read.
         Ok(mut file) => {
             if let Err(e) = tokio::io::AsyncWriteExt::flush(&mut file).await {
-                return ProvisionOutcome::fail(format!("Writing the download failed: {e}"));
+                return ProvisionOutcome::fail(
+                    ErrorCode::FileAccessFailed,
+                    format!("Writing the download failed: {e}"),
+                );
             }
             // The lock records the asset's size: a different byte count is
             // refused before any hashing or extraction.
             match file.metadata().await {
                 Ok(meta) if meta.len() == lock.size => {}
                 Ok(meta) => {
-                    return ProvisionOutcome::fail(format!(
-                        "Checksum mismatch for {name}: the downloaded {} is {} bytes but managed.lock.json records {}, so it is corrupted or substituted.",
-                        asset.asset,
-                        meta.len(),
-                        lock.size
-                    ));
+                    return ProvisionOutcome::fail(
+                        ErrorCode::SecurityValidationFailed,
+                        format!(
+                            "Checksum mismatch for {name}: the downloaded {} is {} bytes but managed.lock.json records {}, so it is corrupted or substituted.",
+                            asset.asset,
+                            meta.len(),
+                            lock.size
+                        ),
+                    );
                 }
                 Err(e) => {
-                    return ProvisionOutcome::fail(format!("Reading the download failed: {e}"));
+                    return ProvisionOutcome::fail(
+                        ErrorCode::FileAccessFailed,
+                        format!("Reading the download failed: {e}"),
+                    );
                 }
             }
         }
-        Err(e) => return ProvisionOutcome::fail(e),
+        Err(failure) => return ProvisionOutcome::failed(failure),
     }
     // An immutable release can carry a GitHub release attestation: refuse
     // only when a verified one does not cover this asset; when gh cannot
@@ -240,10 +306,13 @@ async fn provision_entry(
                 "the release is immutable but its attestation was not checked ({reason})"
             )),
             Attestation::Failed(reason) => {
-                return ProvisionOutcome::fail(format!(
-                    "{name}: the release attestation of {} does not verify: {reason}",
-                    asset.asset
-                ));
+                return ProvisionOutcome::fail(
+                    ErrorCode::SecurityValidationFailed,
+                    format!(
+                        "{name}: the release attestation of {} does not verify: {reason}",
+                        asset.asset
+                    ),
+                );
             }
         }
     } else {
@@ -264,9 +333,12 @@ async fn provision_entry(
     .await;
     match installed {
         Ok(Ok(())) => {}
-        Ok(Err(e)) => return ProvisionOutcome::fail(e),
+        Ok(Err(failure)) => return ProvisionOutcome::failed(failure),
         Err(_) => {
-            return ProvisionOutcome::fail(format!("Installing {name} stopped unexpectedly."));
+            return ProvisionOutcome::fail(
+                ErrorCode::ExecutionFailed,
+                format!("Installing {name} stopped unexpectedly."),
+            );
         }
     }
     ProvisionOutcome {

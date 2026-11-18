@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { hermeticEnv } from '../../../test-utils/hermetic-env.ts';
-import { renderFormula } from './brew-formula.mjs';
+import { checkBinaryVersion, renderFormula } from './brew-formula.mjs';
 import { ROOT } from './lib/workspaces.mjs';
 
 test('the generated Homebrew smoke query executes against the built CLI', () => {
@@ -26,5 +26,28 @@ test('the generated Homebrew smoke query executes against the built CLI', () => 
   } finally {
     rmSync(directory, { recursive: true, force: true });
     rmSync(env.OCTOCODE_HOME, { recursive: true, force: true });
+  }
+});
+
+test('checkBinaryVersion accepts the version with a hex fingerprint suffix and rejects anything else', { skip: process.platform === 'win32' }, () => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'octocode-brew-version-'));
+  const tarballWith = reported => {
+    const root = path.join(directory, reported.replace(/\W/g, '_'));
+    mkdirSync(path.join(root, 'package'), { recursive: true });
+    writeFileSync(path.join(root, 'package', 'octocode'), `#!/bin/sh\necho "${reported}"\n`, { mode: 0o755 });
+    const archive = path.join(root, 'pkg.tgz');
+    execFileSync('tar', ['-czf', archive, 'package'], { cwd: root });
+    return readFileSync(archive);
+  };
+  const log = console.log;
+  console.log = () => {};
+  try {
+    checkBinaryVersion(tarballWith('octocode 1.2.3'), 'linux-x64-gnu', '1.2.3');
+    checkBinaryVersion(tarballWith('octocode 1.2.3+01a553b7'), 'linux-x64-gnu', '1.2.3');
+    assert.throws(() => checkBinaryVersion(tarballWith('octocode 1.3.0+01a553b7'), 'linux-x64-gnu', '1.2.3'), /reports/);
+    assert.throws(() => checkBinaryVersion(tarballWith('octocode 1.2.3+nothex'), 'linux-x64-gnu', '1.2.3'), /reports/);
+  } finally {
+    console.log = log;
+    rmSync(directory, { recursive: true, force: true });
   }
 });

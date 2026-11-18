@@ -30,6 +30,7 @@ import {
 import {
   chromeLaunchArgs,
   effectiveProxy,
+  launchFeatures,
   loadProxyConfig,
 } from './browser-launch-config.mjs';
 
@@ -376,7 +377,7 @@ while (attempts < 40) {
         : undefined,
       sessionFile: usingIsolatedProfile ? SESSION_FILE : null,
       proxyConfigured: proxyRequested,
-      enableFeaturesConfigured: ENABLE_FEATURES || undefined,
+      enableFeaturesConfigured: launchFeatures(ENABLE_FEATURES),
       windowSize: WINDOW_SIZE || undefined,
     });
     process.exit(0);

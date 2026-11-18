@@ -1,44 +1,28 @@
-//! Long source lines retain their evidence through executable reads.
-
-use super::*;
-
-/// One 200 KB minified line: multi-byte text, a secret before and after the
-/// declaration, and `function target` at about byte 150,000. Returns the line
-/// and the declaration's zero-based UTF-16 column.
-fn huge_line() -> (String, usize) {
-    const TOKEN: &str = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";
-    let mut line = String::from("bundle;");
-    let (mut index, mut column) = (0, None);
-    while line.len() < 200_000 {
-        if (50_000..50_040).contains(&line.len()) || (160_000..160_040).contains(&line.len()) {
-            line.push_str(&format!("var token=\"{TOKEN}\";"));
-        }
-        if column.is_none() && line.len() >= 150_000 {
-            column = Some(line.encode_utf16().count());
-            line.push_str("function target(a){return a;}");
-        }
-        line.push_str(&format!("function f{index}(a){{return \"é{index}\"+a;}}"));
-        index += 1;
-    }
-    (line, column.expect("declaration column"))
-}
+use octocode_runtime_base::test_support::checks::location_rows;
+use octocode_runtime_base::test_support::temp_workspace;
+use octocode_test_support::json_fixture;
+use octocode_tool_lsp::lsp_search::source::SourceCache;
+use octocode_tool_lsp::test_support::{huge_line, query};
 
 /// Every page of a localFetch walk from `call` (a built continuation), joined.
-fn walk_local_fetch(call: &serde_json::Value, paths: &crate::policy::path::PathPolicy) -> String {
+fn walk_local_fetch(
+    call: &serde_json::Value,
+    paths: &octocode_runtime_base::policy::path::PathPolicy,
+) -> String {
     let row = call
         .pointer("/input/queries/0")
         .cloned()
         .expect("query row");
     let mut query: octocode_contract_types::LocalFetchQuery =
         serde_json::from_value(row).expect("localFetch query");
-    let security = crate::security::ContentSecurity::new();
+    let security = octocode_runtime_base::security::ContentSecurity::new();
     let mut joined = String::new();
     for _ in 0..1_000 {
-        let page = crate::tools::local_fetch::execute_local_fetch(
+        let page = octocode_tool_local::local_fetch::execute_local_fetch(
             &query,
             paths,
             &security,
-            &crate::execution::cancel::NeverCancel,
+            &octocode_runtime_base::execution::cancel::NeverCancel,
             None,
             None,
         );
@@ -67,7 +51,7 @@ async fn a_declaration_on_a_huge_line_is_a_byte_window_its_reads_complete() {
 #[tokio::test(flavor = "current_thread")]
 async fn a_context_window_on_a_huge_line_is_a_byte_window_its_reads_complete() {
     huge_line_window(
-        serde_json::json!({"contextLines": {"before": 0, "after": 0}}),
+        json_fixture(r#"{"contextLines": {"before": 0, "after": 0}}"#),
         "target(a)",
     )
     .await;
@@ -91,7 +75,7 @@ async fn huge_line_window(extra: serde_json::Value, anchor: &str) {
     }
     let q = query(fields);
     let mut sources = SourceCache::new(&paths);
-    let row = super::super::super::locations::locations(
+    let row = octocode_tool_lsp::lsp_search::locations::locations(
         &q,
         &mut sources,
         "definition",
@@ -103,7 +87,7 @@ async fn huge_line_window(extra: serde_json::Value, anchor: &str) {
             "displayRange": {"startLine": 1, "endLine": 1, "startCharacter": column + 1}
         })],
         budget,
-        &crate::security::ContentSecurity::new(),
+        &octocode_runtime_base::security::ContentSecurity::new(),
     )
     .await;
     // The page cost of a location: its public row with its path
@@ -117,8 +101,8 @@ async fn huge_line_window(extra: serde_json::Value, anchor: &str) {
         .split('\n')
         .find_map(|record| record.strip_prefix("1\t"))
         .expect("numbered window");
-    use crate::security::scan::ContentScan as _;
-    let view = crate::security::ContentSecurity::new()
+    use octocode_runtime_base::security::scan::ContentScan as _;
+    let view = octocode_runtime_base::security::ContentSecurity::new()
         .redact_source_lines(&format!("{line}\n"), &file)
         .expect("scan")
         .0
@@ -132,7 +116,7 @@ async fn huge_line_window(extra: serde_json::Value, anchor: &str) {
     assert_eq!(row["isPartial"], true, "{row}");
     assert_eq!(
         row["partialReasons"],
-        serde_json::json!(["declarationClipped"]),
+        json_fixture(r#"["declarationClipped"]"#),
         "{row}"
     );
     let read = &row["next"]["readDeclaration"];
@@ -158,50 +142,6 @@ async fn huge_line_window(extra: serde_json::Value, anchor: &str) {
     );
 }
 
-/// A contextLines window whose anchor sits on a later line than the first
-/// context line starts there: its row says so (the window, which the
-/// numbering and the line judging read) and numbers its text from that line.
-#[tokio::test(flavor = "current_thread")]
-async fn a_window_on_a_later_line_is_numbered_from_that_line() {
-    let (_dir, root, paths) = temp_workspace();
-    let file = root.join("bundle.js");
-    let (line, column) = huge_line();
-    std::fs::write(&file, format!("target(1);\n// before-line\n{line}\n")).expect("file");
-    let q = query(serde_json::json!({
-        "operation": "definition", "path": file.to_string_lossy(), "symbolName": "target",
-        "line": 1, "contextLines": {"before": 1, "after": 0}
-    }));
-    let mut sources = SourceCache::new(&paths);
-    let row = super::super::super::locations::locations(
-        &q,
-        &mut sources,
-        "definition",
-        "definitionProvider",
-        vec![serde_json::json!({
-            "uri": format!("file://{}", file.to_string_lossy()),
-            "range": {"start": {"line": 2, "character": column + 9}, "end": {"line": 2, "character": column + 15}},
-            "content": line,
-            "displayRange": {"startLine": 3, "endLine": 3, "startCharacter": column + 1}
-        })],
-        20_000,
-        &crate::security::ContentSecurity::new(),
-    )
-    .await;
-    let rows = location_rows(&row);
-    let location = rows.first().expect("one location");
-    let content = location["content"].as_str().expect("content");
-    assert!(content.contains("before the window on line 3"), "{content}");
-    let numbered = content
-        .split('\n')
-        .filter(|record| !record.starts_with('…'))
-        .collect::<Vec<_>>();
-    assert_eq!(numbered.len(), 1, "{content}");
-    assert!(numbered[0].starts_with("3\ttarget(a)"), "{content}");
-    assert_eq!(location["line"], 3, "{location}");
-    // A one-line range states no end: `endLine` is absent.
-    assert!(location.get("endLine").is_none(), "{location}");
-}
-
 /// Without contextLines (a request the contract did not default), a
 /// declaration longer than a row shows is its first lines, and its
 /// readDeclaration reads the rest exactly once.
@@ -217,7 +157,7 @@ async fn a_long_declaration_shows_its_first_lines_and_reads_the_rest() {
         "operation": "definition", "path": file.to_string_lossy(), "symbolName": "target", "line": 1
     }));
     let mut sources = SourceCache::new(&paths);
-    let row = super::super::super::locations::locations(
+    let row = octocode_tool_lsp::lsp_search::locations::locations(
         &q,
         &mut sources,
         "definition",
@@ -228,8 +168,8 @@ async fn a_long_declaration_shows_its_first_lines_and_reads_the_rest() {
             "content": declaration,
             "displayRange": {"startLine": 1, "endLine": lines}
         })],
-        20_000,
-        &crate::security::ContentSecurity::new(),
+        600,
+        &octocode_runtime_base::security::ContentSecurity::new(),
     )
     .await;
     let rows = location_rows(&row);

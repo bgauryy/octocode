@@ -80,7 +80,7 @@ pub(super) fn client_status(client: &'static ClientSpec, scope: Scope, cwd: &Pat
     let inspected = mcp_manage::inspect(&target);
     let status = match inspected["status"].as_str() {
         Some("configured") => {
-            let valid = octocode_native::config::read_private_config(&target.path)
+            let valid = octocode_runtime_base::config::read_private_config(&target.path)
                 .ok()
                 .flatten()
                 .and_then(|text| mcp_manage::parse_document(client.format, &text).ok())

@@ -2,8 +2,8 @@
 //! `PATH`, and the node that runs it.
 
 use crate::lsp::commands::{is_executable_path, which_on_path};
-use crate::process_env::EnvMap;
 use crate::lsp::types::{LspLanguageServerConfig, ServerSource};
+use crate::process_env::EnvMap;
 use std::path::{Path, PathBuf};
 
 /// Where the TypeScript server may be looked up when it is not on `PATH`.

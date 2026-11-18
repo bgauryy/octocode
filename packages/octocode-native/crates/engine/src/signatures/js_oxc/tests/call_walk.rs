@@ -1,6 +1,7 @@
 //! The call visitor: coverage, order, caller identity and cancellation.
 
 use super::*;
+use oxc_span::SourceType;
 
 #[test]
 fn visitor_finds_calls_the_hand_rolled_walker_dropped() {
@@ -111,7 +112,7 @@ fn call_walk_stops_when_the_job_is_cancelled() {
     let parsed = oxc_parser::Parser::new(&allocator, src, SourceType::ts()).parse();
     let line_index = SpanPositions::new(src);
     let mut calls = Vec::new();
-    crate::deep_stack::run_as_cancelled_job(|| {
+    crate::deep_stack::tests::run_as_cancelled_job(|| {
         collect_program_calls(&parsed.program, &line_index, &mut calls, &mut Vec::new());
     });
     assert!(calls.is_empty(), "cancelled walk must not descend");

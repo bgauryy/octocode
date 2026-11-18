@@ -4,6 +4,7 @@ use super::{Typed, clasify, content_row, noul, provider, sent};
 use crate::support::{Run as _, Workspace, clasify_runtime, github_api};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -276,7 +277,7 @@ impl wiremock::Respond for Locator {
                         .collect::<serde_json::Map<_, _>>();
                     json!({"type":"choice","choice":choice,"confidence":1,"probabilities":probabilities})
                 } else {
-                    json!({"type":"noul","noul":0.9})
+                    json_fixture(r#"{"type": "noul", "noul": 0.9}"#)
                 };
                 (id.clone(), answer)
             })
@@ -417,8 +418,9 @@ pub(super) async fn window_provider(limit: usize, long_limit: usize) -> MockServ
                 (limit, crate::support::WINDOW_TOKENS)
             };
             if request.body.len() > bytes {
-                return ResponseTemplate::new(400)
-                    .set_body_json(json!({"detail":{"error_type":"max_tokens_exceeded"}}));
+                return ResponseTemplate::new(400).set_body_json(json_fixture(
+                    r#"{"detail": {"error_type": "max_tokens_exceeded"}}"#,
+                ));
             }
             let mut reply = Typed::reply(request);
             reply["usage"]["input_tokens"] = json!((request.body.len() * tokens).div_ceil(bytes));
@@ -497,6 +499,7 @@ async fn a_github_source_reads_its_requested_ref_and_pins_the_lead_to_that_commi
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": sha})))
             .mount(&github)
             .await;
+        octocode_test_support::mock_http::list_in_trees(&github, "a", "b", "src/lib.rs").await;
         Mock::given(method("GET"))
             .and(path("/api/v3/repos/a/b/contents/src%2Flib.rs"))
             .and(query_param("ref", sha))
@@ -615,4 +618,86 @@ async fn an_omitted_long_context_asks_for_the_long_window_only_after_a_refusal()
     assert_eq!(long, 1, "false never asks for it");
     assert_eq!(data["usage"]["calls"], json!(sent - 3), "{out}");
     runtime.close().await;
+}
+
+/// Answers every `noul` with 0.33 and every companion choice with its first
+/// part, or with `unknown` when `abstain`.
+struct LowNoul {
+    abstain: bool,
+}
+
+impl wiremock::Respond for LowNoul {
+    fn respond(&self, request: &wiremock::Request) -> ResponseTemplate {
+        let mut reply = Typed::reply(request);
+        for answer in reply["answers"]
+            .as_object_mut()
+            .expect("answers")
+            .values_mut()
+        {
+            match answer["type"].as_str() {
+                Some("noul") => answer["noul"] = json!(0.33),
+                Some("choice") if self.abstain => {
+                    let probabilities = answer["probabilities"]
+                        .as_object()
+                        .expect("probabilities")
+                        .keys()
+                        .map(|label| {
+                            (
+                                label.clone(),
+                                json!(if label == "unknown" { 1.0 } else { 0.0 }),
+                            )
+                        })
+                        .collect::<serde_json::Map<_, _>>();
+                    answer["choice"] = json!("unknown");
+                    answer["probabilities"] = json!(probabilities);
+                }
+                _ => {}
+            }
+        }
+        ResponseTemplate::new(200).set_body_json(reply)
+    }
+}
+
+/// A low whole-window `noul` keeps the part its companion chose, which the
+/// judge picked in the same request; only a yes narrows `next.read`, so the
+/// read stays the whole source. A companion that chose no part gives none.
+#[tokio::test]
+async fn a_low_answer_keeps_its_chosen_part_without_narrowing_the_read() {
+    let line = |n: usize| format!("test case_{n:04} ... ok\n");
+    let body: String = (1..=3_000).map(line).collect();
+    let whole_chars = body.chars().count();
+    for (abstain, expect_lines) in [(false, true), (true, false)] {
+        let server = MockServer::builder().start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/systemone"))
+            .respond_with(LowNoul { abstain })
+            .mount(&server)
+            .await;
+        let workspace = Workspace::new();
+        workspace.write("out.log", &body);
+        let runtime = clasify_runtime(&workspace, &server, &[]);
+        let out = clasify(
+            &runtime,
+            vec![json!({"operation":"evaluate","source":{"tool":"localFetch","query":{"path":"out.log"}},
+                "questions":{"fail":noul("Does a test fail?")}})],
+        )
+        .await;
+        let data = &out["results"][0]["data"];
+        assert_eq!(data["answers"]["fail"]["noul"], 0.33, "{out}");
+        let lines = &data["answers"]["fail"]["lines"];
+        if expect_lines {
+            assert_eq!(lines["startLine"], 1, "{out}");
+            let end = lines["endLine"].as_u64().expect("end");
+            assert!(end > 1 && end < 3_000, "{out}");
+            // The read is the whole source, not the part.
+            let read_chars = data["readChars"].as_u64().unwrap_or(whole_chars as u64);
+            let part_chars = (1..=end as usize)
+                .map(|n| line(n).chars().count())
+                .sum::<usize>();
+            assert!(read_chars as usize > part_chars, "{out}");
+        } else {
+            assert!(lines.is_null(), "{out}");
+        }
+        runtime.close().await;
+    }
 }

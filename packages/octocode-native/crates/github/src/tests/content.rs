@@ -4,6 +4,7 @@ use super::*;
 mod blobs;
 mod flight;
 mod fresh;
+mod links;
 mod refs;
 mod repository;
 
@@ -18,6 +19,7 @@ async fn ghes_content_route_auth_and_decode() {
         serde_json::json!({"sha":sha}),
     )
     .await;
+    mount_trees(&server, "acme", "repo", sha, &["src/lib.rs"]).await;
     Mock::given(method("GET")).and(path("/api/v3/repos/acme/repo/contents/src%2Flib.rs")).and(query_param("ref",sha)).and(header("authorization","Bearer secret"))
         .respond_with(ResponseTemplate::new(200).insert_header("etag","\"v1\"").set_body_json(serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("hello\n")}))).mount(&server).await;
     let result = provider(&server)
@@ -34,6 +36,16 @@ async fn ghes_content_route_auth_and_decode() {
         .await
         .expect("content");
     assert_eq!(result.bytes, &b"hello\n"[..]);
+}
+
+/// GitHub's git trees of `owner/repo` at `commit` listing `files`: the
+/// symlink check a file read asks before its bytes.
+async fn mount_trees(server: &MockServer, owner: &str, repo: &str, commit: &str, files: &[&str]) {
+    let mut repository = octocode_test_support::mock_http::GitRepository::new();
+    for file in files {
+        repository = repository.file(file, "");
+    }
+    repository.mount_trees(server, owner, repo, commit).await;
 }
 
 fn file_at(path: &str, reference: &str) -> ContentRequest {
@@ -77,6 +89,7 @@ async fn a_body_kept_by_its_caller_is_not_continuation_evidence() {
     let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     mount_file(&server, "/api/v3/repos/a/b/contents/one.rs", Duration::ZERO).await;
+    mount_trees(&server, "a", "b", sha, &["one.rs"]).await;
     let provider = provider(&server).await;
     let contents_bodies = |context: &RequestContext| {
         context

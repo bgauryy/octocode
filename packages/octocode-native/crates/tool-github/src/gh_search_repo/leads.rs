@@ -1,0 +1,62 @@
+//! Where a repository page leads: the top repository, archived rows, a broadened empty search.
+use super::{FILTERS, GhSearchRepoQuery};
+use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::response::result::{Continuation, ToolData, query_row};
+use octocode_tools_shared::leads::broaden::{Broaden, broaden, set_broadened, set_no_broader};
+use serde_json::{Value, json};
+
+/// The search a lead copies, from its first page: defaults and the brief
+/// stay out of the copied call.
+pub(super) fn copied_search(query: &GhSearchRepoQuery) -> Value {
+    query_row(query, &["page"])
+}
+
+/// The same search with archived repositories included, from its first page.
+pub(super) fn include_archived(query: &GhSearchRepoQuery) -> Value {
+    let mut row = copied_search(query);
+    row["filters"]["archive"] = json!("include");
+    Continuation::related(ToolId::GhSearchRepo, row).build()
+}
+
+/// An empty search, broadened ([`broaden`]): one variant per set filter,
+/// then one per dropped keyword; a lone keyword of an `owner`+`repo` search
+/// drops to that repository's own row.
+pub(super) fn broaden_search(query: &GhSearchRepoQuery) -> Option<Value> {
+    broaden(
+        ToolId::GhSearchRepo,
+        &copied_search(query),
+        &Broaden {
+            strip: &[],
+            groups: FILTERS,
+            split_lone_keyword: false,
+        },
+        octocode_runtime_base::response::result::rows_per_call(ToolId::GhSearchRepo),
+    )
+}
+
+pub(super) fn repository_output(
+    value: Value,
+    query: &GhSearchRepoQuery,
+    repositories_empty: bool,
+    provider_incomplete: bool,
+    provider_capped: bool,
+) -> ToolData {
+    let mut output = ToolData::from(value);
+    // No rows is empty whether or not GitHub finished the search, as
+    // ghSearchCode reports it: an incomplete page keeps its retry (the CLI
+    // exits 1, nothing printed), and only a complete one is worth broadening.
+    if repositories_empty && !provider_capped {
+        output.status = Some("empty");
+        if !provider_incomplete {
+            match broaden_search(query) {
+                Some(broader) => set_broadened(&mut output.data, &copied_search(query), broader),
+                None if !super::access::keywords(query).is_empty() => {
+                    set_no_broader(&mut output.data);
+                }
+                None => {}
+            }
+        }
+    }
+    octocode_runtime_base::response::result::finish_calls(&mut output.data);
+    output
+}

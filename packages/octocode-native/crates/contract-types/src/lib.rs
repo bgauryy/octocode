@@ -4,9 +4,11 @@
 //! as the embedded contract (the runtime's build.rs refuses a mismatched
 //! pair), so Rust never hand-declares a tool wire shape. Regenerate there;
 //! never edit. The file holds only the generated types native source names and
-//! what they reach: naming one it lacks fails to compile until the contract is
-//! regenerated. A crate of its own, so a runtime edit does not re-expand and
-//! re-check them.
+//! what they reach, one type per shape: naming one it lacks fails to compile
+//! until the contract is regenerated. A crate of its own, so a runtime edit
+//! does not re-expand and re-check them. The types the crates below this one
+//! name are defined in `octocode-contract-base`; the generated file re-exports
+//! them.
 #![allow(
     dead_code,
     clippy::all,

@@ -1,0 +1,391 @@
+use super::schema::{validate_input_schema, validate_schema};
+use octocode_test_support::json_fixture;
+use serde_json::{Value, json};
+
+fn accepts_in_both_directions(schema: &Value, value: &Value, expected: bool) {
+    for input in [true, false] {
+        let mut candidate = value.clone();
+        let before = serde_json::to_vec(&candidate).expect("JSON bytes");
+        let result = if input {
+            validate_input_schema(schema, schema, &mut candidate, &mut Vec::new())
+        } else {
+            validate_schema(schema, schema, &mut candidate, &mut Vec::new())
+        };
+        assert_eq!(
+            result.is_ok(),
+            expected,
+            "input={input}, {value}: {result:?}"
+        );
+        assert_eq!(serde_json::to_vec(&candidate).expect("JSON bytes"), before);
+    }
+}
+
+#[test]
+fn canonical_word_classes_are_ecmascript_in_both_directions() {
+    let schema = json_fixture(r#"{"type": "string", "pattern": "^[\\w.][\\w.-]*$"}"#);
+    for owner in ["owner", "Owner_12", "a.b-c", ".owner"] {
+        accepts_in_both_directions(&schema, &json!(owner), true);
+    }
+    for owner in ["é", "owneré", "Ω", "中", "𝒜", "😀", "１２"] {
+        accepts_in_both_directions(&schema, &json!(owner), false);
+    }
+}
+
+#[test]
+fn canonical_whitespace_classes_distinguish_nel_from_bom() {
+    for (pattern, whitespace) in [(r"^\s$", true), (r"^\S$", false)] {
+        let schema = json!({"type":"string","pattern":pattern});
+        for (text, is_space) in [
+            (" ", true),
+            ("\t", true),
+            ("\n", true),
+            ("\r", true),
+            ("\u{a0}", true),
+            ("\u{feff}", true),
+            ("\u{85}", false),
+            ("\u{200b}", false),
+            ("x", false),
+        ] {
+            accepts_in_both_directions(&schema, &json!(text), is_space == whitespace);
+        }
+    }
+}
+
+#[test]
+fn property_names_obey_the_same_ecmascript_pattern_contract() {
+    let schema = json_fixture(
+        r#"{
+            "type": "object",
+            "propertyNames": {"type": "string", "pattern": "^\\w+$"},
+            "additionalProperties": {"type": "string"}
+        }"#,
+    );
+    accepts_in_both_directions(&schema, &json_fixture(r#"{"owner_1": "value"}"#), true);
+    for key in ["é", "Ω", "中", "𝒜", "１２"] {
+        accepts_in_both_directions(&schema, &json!({key:"value"}), false);
+    }
+}
+
+#[test]
+fn pattern_properties_validate_every_match_and_exclude_only_unmatched_additional_fields() {
+    let schema = json_fixture(
+        r#"{
+            "type": "object",
+            "properties": {"fixed": {"type": "string"}},
+            "patternProperties": {"^read": {"type": "integer"}, "2$": {"minimum": 2}},
+            "additionalProperties": false
+        }"#,
+    );
+    for value in [
+        json!({}),
+        json_fixture(r#"{"fixed": "x", "read": 1, "read2": 2}"#),
+    ] {
+        accepts_in_both_directions(&schema, &value, true);
+    }
+    for value in [
+        json_fixture(r#"{"read": "x"}"#),
+        json_fixture(r#"{"read2": 1}"#),
+        json_fixture(r#"{"other": 2}"#),
+    ] {
+        accepts_in_both_directions(&schema, &value, false);
+    }
+    let schema = json_fixture(
+        r#"{
+            "type": "object",
+            "patternProperties": {"^read": {"type": "integer"}},
+            "additionalProperties": {"type": "boolean"}
+        }"#,
+    );
+    accepts_in_both_directions(
+        &schema,
+        &json_fixture(r#"{"read2": 1, "other": true}"#),
+        true,
+    );
+    accepts_in_both_directions(&schema, &json_fixture(r#"{"read2": false}"#), false);
+    accepts_in_both_directions(&schema, &json_fixture(r#"{"other": 1}"#), false);
+}
+
+/// Every channel of every tool accepts a call to each of its owners and
+/// refuses one to any other tool. `refused_per_key` is how many tools that
+/// are not its owners each key is tried against, starting after its own tool
+/// in channel order (so the same neighbours are tried at every run).
+fn assert_channels_keep_their_owners(refused_per_key: usize) {
+    let contract = crate::contracts::parsed_contract().expect("contract");
+    let channels = contract["continuationChannels"]
+        .as_object()
+        .expect("channels");
+    let names = channels.keys().collect::<Vec<_>>();
+    for (position, (tool, registry)) in channels.iter().enumerate() {
+        let mut row = registry["row"].as_object().expect("row channels").clone();
+        for error in ["retry", "restart"] {
+            row.insert(error.into(), json!("branch"));
+        }
+        for (name, definition) in row {
+            let kind = definition
+                .as_str()
+                .or_else(|| definition["kind"].as_str())
+                .expect("kind");
+            let keys = match kind {
+                "branch" => vec![name.clone(), format!("{name}2"), format!("{name}102")],
+                "numbered" => vec![format!("{name}0"), format!("{name}22")],
+                _ => vec![name],
+            };
+            let owns = |owner: &String| {
+                definition["owner"]
+                    .as_array()
+                    .map_or(owner == tool, |owners| {
+                        owners
+                            .iter()
+                            .any(|candidate| candidate.as_str() == Some(owner.as_str()))
+                    })
+            };
+            let mut tried = names
+                .iter()
+                .copied()
+                .filter(|owner| owns(owner))
+                .collect::<Vec<_>>();
+            tried.extend(
+                names
+                    .iter()
+                    .cycle()
+                    .skip(position + 1)
+                    .take(names.len())
+                    .copied()
+                    .filter(|owner| !owns(owner))
+                    .take(refused_per_key),
+            );
+            for key in keys {
+                for owner in &tried {
+                    let expected = owns(owner);
+                    let mut output = json!({"results":[{"index":0,"data":{
+                        "error":"failed", "errorCode":"executionFailed", "next":{
+                            key.clone(): {"kind":"continue","tool":owner,"input":{"cursor":"issued"}}
+                        }
+                    }}]});
+                    let before = output.clone();
+                    let result = super::validate_output_in_place(tool, &mut output);
+                    assert_eq!(
+                        result.is_ok(),
+                        expected,
+                        "{tool}.{key} -> {owner}: {result:?}"
+                    );
+                    assert_eq!(output, before);
+                }
+            }
+        }
+    }
+}
+
+/// Each channel is tried against all its owners and two tools that are not.
+#[test]
+fn every_continuation_channel_keeps_its_own_owners_on_native_output() {
+    assert_channels_keep_their_owners(2);
+}
+
+#[test]
+#[ignore = "every tool as owner: cargo test -- --ignored every_tool"]
+fn every_continuation_channel_keeps_its_own_owners_against_every_tool() {
+    assert_channels_keep_their_owners(usize::MAX);
+}
+
+#[test]
+fn continuation_queries_reject_non_ecmascript_owners_without_mutating_output() {
+    for (owner, accepted) in [("valid_owner", true), ("owneré", false), ("中", false)] {
+        let mut output = json!({"results":[{"index":0,"data":{
+            "path":"a.ts", "content":"x", "totalLines":1,
+            "related":[{"kind":"related","tool":"ghStructure","input":{"queries":[{"operation":"tree","owner":owner,"repo":"repo"}]}}]
+        }}]});
+        let before = serde_json::to_vec(&output).expect("wire bytes");
+        let result = super::validate_output_in_place("localFetch", &mut output);
+        assert_eq!(result.is_ok(), accepted, "{owner}: {result:?}");
+        assert_eq!(serde_json::to_vec(&output).expect("wire bytes"), before);
+    }
+}
+
+/// No published schema shows a pattern, so an error states the rule in words:
+/// the value and field, then what the pattern's classes allow. A pattern too
+/// long to read gives the field's note of the accepted forms instead, and
+/// usage prose of a field with a readable rule stays out of the error.
+#[test]
+fn a_pattern_error_states_the_rule_in_words_not_the_regex() {
+    let message = |pattern: &str, note: &str| {
+        let schema = json!({"type":"object","properties":{"owner":{
+            "type":"string","pattern":pattern,"description":note}}});
+        let mut value = json_fixture(r#"{"owner": "a b"}"#);
+        let error = validate_input_schema(&schema, &schema, &mut value, &mut Vec::new())
+            .expect_err("pattern");
+        error.issues[0].message.clone()
+    };
+    assert_eq!(
+        message(r"^[\w.][\w.-]*$", "User or org; alone: its public repos."),
+        r#""a b" is not a valid value for owner: it must start with letters, digits, '_', '.' and may only contain letters, digits, '_', '.', '-'"#
+    );
+    let long = format!("^(?:{})$", "[a-z]+|".repeat(10));
+    assert_eq!(
+        message(&long, r#"Forms: "10..50"."#),
+        r#""a b" does not match the expected form: Forms: "10..50"."#
+    );
+}
+
+/// What each kind of pattern of the embedded contract reads as.
+#[test]
+fn the_contract_patterns_read_as_plain_rules() {
+    let rule = |pattern: &str, value: &str| {
+        let schema =
+            json!({"type":"object","properties":{"field":{"type":"string","pattern":pattern}}});
+        let mut input = json!({"field": value});
+        let error = validate_input_schema(&schema, &schema, &mut input, &mut Vec::new())
+            .expect_err("pattern");
+        error.issues[0].message.clone()
+    };
+    for (pattern, value, expected) in [
+        (
+            r"^(?:\w[\w.-]*|\.[\w-][\w.-]*|\.\.[\w.-]+)$",
+            "bad owner!",
+            r#""bad owner!" is not a valid value for field: it must start with letters, digits, '_', '.' and may only contain letters, digits, '_', '.', '-'"#,
+        ),
+        (
+            r"^\S+$",
+            "a b",
+            r#""a b" is not a valid value for field: it must not contain whitespace"#,
+        ),
+        (
+            r#"^[^\s"()]+$"#,
+            "a b",
+            r#""a b" is not a valid value for field: it must not contain whitespace, '"', '(', ')'"#,
+        ),
+        (
+            r"^[^\r\n\0]+$",
+            "a\nb",
+            r#""a
+b" is not a valid value for field: it must not contain line breaks, NUL"#,
+        ),
+        (
+            r"^[^\x00-\x1F\x7F]*$",
+            "a\rb",
+            "\"a\rb\" is not a valid value for field: it must not contain control characters",
+        ),
+        (
+            r"^[^\s\x00-\x1F\x7F]+$",
+            "a b",
+            r#""a b" is not a valid value for field: it must not contain whitespace, control characters"#,
+        ),
+        (
+            r"^[^*?[\]{}/\\\x00-\x1F\x7F]+$",
+            "a*",
+            r#""a*" is not a valid value for field: it must not contain '*', '?', '[', ']', '{', '}', '/', backslashes, control characters"#,
+        ),
+        (
+            r"^https:\/\/\S+$",
+            "http://x",
+            r#""http://x" is not a valid value for field: it must start with https:// and must not contain whitespace"#,
+        ),
+        (
+            r"^[0-7]{3,4}$",
+            "9",
+            r#""9" is not a valid value for field: it must be 3 to 4 characters from: 0-7"#,
+        ),
+        (
+            r"^[a-f0-9]{64}$",
+            "x",
+            r#""x" is not a valid value for field: it must be 64 characters from: a-f, digits"#,
+        ),
+        // A full commit hash: each alternative's length, not only the
+        // characters (a short hash holds only those and is still refused).
+        (
+            r"^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$",
+            "6879efc",
+            r#""6879efc" is not a valid value for field: it must be 40 or 64 characters from: digits, a-f, A-F"#,
+        ),
+        (
+            r"^(?:[a-f0-9]{16})+$",
+            "x",
+            r#""x" is not a valid value for field: it may only contain a-f, digits"#,
+        ),
+        // Words here would mislead: the field alone is named.
+        (
+            r"^(?:nextPage|retry(?:[2-9]|[1-9][0-9]+)?)$",
+            "x",
+            r#""x" is not a valid value for field"#,
+        ),
+        (
+            r"^[^:@=/\s]+:[^:@=/\s]+$",
+            "x",
+            r#""x" is not a valid value for field"#,
+        ),
+    ] {
+        assert_eq!(rule(pattern, value), expected, "{pattern}");
+    }
+}
+
+/// Every pattern of the embedded contract, wherever it sits, reads without
+/// regex syntax: no published schema shows one.
+#[test]
+fn no_contract_pattern_error_quotes_a_regex() {
+    fn patterns<'a>(value: &'a Value, out: &mut Vec<&'a str>) {
+        match value {
+            Value::Object(fields) => {
+                if let Some(pattern) = fields.get("pattern").and_then(Value::as_str) {
+                    out.push(pattern);
+                }
+                fields.values().for_each(|field| patterns(field, out));
+            }
+            Value::Array(items) => items.iter().for_each(|item| patterns(item, out)),
+            _ => {}
+        }
+    }
+    let contract = crate::contracts::parsed_contract().expect("contract");
+    let mut found = Vec::new();
+    patterns(contract, &mut found);
+    found.sort_unstable();
+    found.dedup();
+    assert!(found.len() > 10, "{}", found.len());
+    for pattern in found {
+        let schema =
+            json!({"type":"object","properties":{"field":{"type":"string","pattern":pattern}}});
+        let mut input = json_fixture(r#"{"field": "\u0001"}"#);
+        let Err(error) = validate_input_schema(&schema, &schema, &mut input, &mut Vec::new())
+        else {
+            continue;
+        };
+        let message = &error.issues[0].message;
+        for syntax in ["(?", "\\", "[^", "^[", "]+", "$"] {
+            assert!(!message.contains(syntax), "{pattern}: {message}");
+        }
+    }
+}
+
+/// A field a variant forbids outright (`{"not":{}}`) is refused with the
+/// description beside it when the schema gives one: it names where the field
+/// goes. Without one the refusal stays generic.
+#[test]
+fn a_forbidden_field_is_refused_with_its_description() {
+    let schema = json_fixture(
+        r#"{
+            "type": "object",
+            "properties": {
+                "stopBy": {
+                    "not": {},
+                    "description": "stopBy goes inside has or inside."
+                },
+                "field": {"not": {}}
+            }
+        }"#,
+    );
+    let refusal = |value: Value| {
+        let mut value = value;
+        validate_input_schema(&schema, &schema, &mut value, &mut Vec::new())
+            .expect_err("forbidden")
+            .issues[0]
+            .message
+            .clone()
+    };
+    assert_eq!(
+        refusal(json_fixture(r#"{"stopBy": "end"}"#)),
+        "stopBy goes inside has or inside."
+    );
+    assert_eq!(
+        refusal(json_fixture(r#"{"field": "name"}"#)),
+        "Field is not allowed in this variant"
+    );
+}

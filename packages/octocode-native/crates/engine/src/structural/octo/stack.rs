@@ -27,28 +27,28 @@ pub(in crate::structural) const MAX_STRUCTURAL_DEPTH: usize =
 /// and one it left unread comes back.
 pub(in crate::structural) fn on_deep_stack<T: Send>(f: impl FnOnce() -> T + Send) -> Option<T> {
     #[cfg(test)]
-    let interrupt = super::INTERRUPT_NEXT_COMPILE_PARSE.with(|flag| flag.replace(false));
+    let interrupt = super::tests::INTERRUPT_NEXT_COMPILE_PARSE.with(|flag| flag.replace(false));
     let (value, _left, _steps) = run_borrowing_on_deep_stack(move || {
         #[cfg(test)]
-        super::INTERRUPT_NEXT_COMPILE_PARSE.with(|flag| flag.set(interrupt));
+        super::tests::INTERRUPT_NEXT_COMPILE_PARSE.with(|flag| flag.set(interrupt));
         #[cfg(test)]
-        super::ANCESTOR_STEPS.with(|steps| steps.set(0));
+        super::tests::ANCESTOR_STEPS.with(|steps| steps.set(0));
         let value = f();
         #[cfg(test)]
-        let left = super::INTERRUPT_NEXT_COMPILE_PARSE.with(|flag| flag.replace(false));
+        let left = super::tests::INTERRUPT_NEXT_COMPILE_PARSE.with(|flag| flag.replace(false));
         #[cfg(not(test))]
         let left = false;
         #[cfg(test)]
-        let steps = super::ANCESTOR_STEPS.with(std::cell::Cell::get);
+        let steps = super::tests::ANCESTOR_STEPS.with(std::cell::Cell::get);
         #[cfg(not(test))]
         let steps = 0;
         (value, left, steps)
     })?;
     #[cfg(test)]
     {
-        super::INTERRUPT_NEXT_COMPILE_PARSE.with(|flag| flag.set(_left));
+        super::tests::INTERRUPT_NEXT_COMPILE_PARSE.with(|flag| flag.set(_left));
         // The pool's thread did the work; the caller's test reads its count.
-        super::ANCESTOR_STEPS.with(|steps| steps.set(steps.get() + _steps));
+        super::tests::ANCESTOR_STEPS.with(|steps| steps.set(steps.get() + _steps));
     }
     Some(value)
 }

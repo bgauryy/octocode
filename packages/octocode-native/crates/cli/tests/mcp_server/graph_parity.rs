@@ -3,6 +3,7 @@
 
 use super::server::Server;
 use crate::support::Workspace;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 
 /// Zero the values that name a run, not a result: opaque cursors and their
@@ -51,7 +52,10 @@ fn graph_issues_walk_matches_on_cli_and_mcp() {
     }
     let build = workspace
         .cli()
-        .args(["graphBuild", &json!({"queries":[{"path":"."}]}).to_string()])
+        .args([
+            "graphBuild",
+            &json_fixture(r#"{"queries": [{"path": "."}]}"#).to_string(),
+        ])
         .output()
         .expect("graphBuild");
     assert!(build.status.success(), "{build:?}");
@@ -59,13 +63,25 @@ fn graph_issues_walk_matches_on_cli_and_mcp() {
     let mut server = Server::start_with(&workspace, &[("OCTOCODE_BETA", "true")]);
     server.request(
         "initialize",
-        json!({"protocolVersion": "2025-11-25", "capabilities": {},
-               "clientInfo": {"name": "test", "version": "1"}}),
+        json_fixture(
+            r#"{
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": {"name": "test", "version": "1"}
+            }"#,
+        ),
     );
-    server.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+    server.send(&json_fixture(
+        r#"{"jsonrpc": "2.0", "method": "notifications/initialized"}"#,
+    ));
 
     // Each surface follows its own cursors; saved work must outlive a CLI call.
-    let first = json!({"queries":[{"operation":"issues"}],"responseChars":1500});
+    let first = json_fixture(
+        r#"{
+            "queries": [{"operation": "issues"}],
+            "responseChars": 1500
+        }"#,
+    );
     let walk = |mut call: Box<dyn FnMut(&Value) -> String>| {
         let (mut input, mut pages) = (first.clone(), Vec::new());
         while pages.len() < 200 {
@@ -86,10 +102,12 @@ fn graph_issues_walk_matches_on_cli_and_mcp() {
             .expect("MCP text")
             .to_owned()
     }));
+    // Persistent storage starts a warm server: the fixture owns its socket
+    // namespace and stops it when the test ends.
+    let persistent = workspace.persistent_cli();
     let cli_pages = walk(Box::new(|input| {
-        let cli = workspace
+        let cli = persistent
             .cli()
-            .env("OCTOCODE_STORAGE_MODE", "persistent")
             .args(["graphQuery", &input.to_string(), "--json"])
             .output()
             .expect("CLI --json");

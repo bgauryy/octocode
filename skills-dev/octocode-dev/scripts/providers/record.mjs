@@ -1,5 +1,5 @@
 // Records real provider answers into test-utils/provider-answers, which the native mocks replay
-// (crates/runtime/src/providers/artifact/test_http/recorded.rs, crates/runtime/tests/support/recorded.rs).
+// (crates/tool-packages/src/artifact/test_http/recorded.rs, crates/runtime/tests/support/recorded.rs).
 //
 //   node record.mjs [id,...]       re-record live, read-only and public: `dev.mjs answers:record`
 //

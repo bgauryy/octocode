@@ -1,0 +1,345 @@
+//! Fallback type-hierarchy graph walks: row and page helpers, partial
+//! relations and windowed subtypes.
+
+use super::*;
+use octocode_contract_types::LspSearchQuery;
+use octocode_test_support::json_fixture;
+
+mod candidates;
+mod hierarchy;
+
+type ImplementationTargets<'a> = (&'a str, usize, &'a [(&'a str, usize)]);
+
+fn fallback_graph_rows(
+    files: &[(&str, &str)],
+    definitions: &[(&str, usize, &str, &str, usize)],
+    implementations: &[ImplementationTargets<'_>],
+    queries: &[(&str, &str, usize, u32)],
+) -> Vec<serde_json::Value> {
+    fallback_graph_pages(files, definitions, implementations, queries)
+        .into_iter()
+        .map(|mut pages| {
+            assert_eq!(pages.len(), 1, "this fixture expects an unpaged result");
+            pages.remove(0)
+        })
+        .collect()
+}
+
+fn fallback_graph_pages(
+    files: &[(&str, &str)],
+    definitions: &[(&str, usize, &str, &str, usize)],
+    implementations: &[ImplementationTargets<'_>],
+    queries: &[(&str, &str, usize, u32)],
+) -> Vec<Vec<serde_json::Value>> {
+    fallback_graph_walk(files, definitions, implementations, queries, None).0
+}
+
+/// A server named `name` (its command stem) that answers each location
+/// request `delay_ms` late, and the most requests it held at once.
+struct Delayed<'a> {
+    name: &'a str,
+    delay_ms: u32,
+}
+
+/// [`fallback_graph_pages`] against the server, or a [`Delayed`] one, and
+/// the most location requests that server held at once (0 when undelayed).
+fn fallback_graph_walk(
+    files: &[(&str, &str)],
+    definitions: &[(&str, usize, &str, &str, usize)],
+    implementations: &[ImplementationTargets<'_>],
+    queries: &[(&str, &str, usize, u32)],
+    delayed: Option<Delayed<'_>>,
+) -> (Vec<Vec<serde_json::Value>>, usize) {
+    use crate::lsp_search::ops::Operation;
+    use crate::lsp_search::source::{SourceCache, snippet_policy};
+    use octocode_runtime_base::execution::cancel::NeverCancel;
+    use serde_json::json;
+    let (_dir, root, script) = fixture();
+    for (file, content) in files {
+        std::fs::write(root.join(file), content).expect("source fixture");
+    }
+    let declaration = |file: &str, line: usize| {
+        let content = files
+            .iter()
+            .find(|(name, _)| *name == file)
+            .expect("file")
+            .1;
+        let text = content.lines().nth(line).expect("line");
+        // A Rust trait impl is located at its self type, after `for`.
+        let words = text.split_whitespace().collect::<Vec<_>>();
+        let name = match words.iter().position(|word| *word == "for") {
+            Some(at) if words[0].starts_with("impl") => words[at + 1],
+            _ => words[2],
+        };
+        let start = text.find(name).expect("name position");
+        json!({"uri": octocode_engine::lsp::uri::path_to_uri(&root.join(file).to_string_lossy()).expect("uri"),
+            "range": {"start":{"line":line,"character":start},"end":{"line":line,"character":start+name.len()}}})
+    };
+    let mut graph = json_fixture(r#"{"definitions": {}, "implementations": {}}"#);
+    for (file, line, name, target, target_line) in definitions {
+        let text = files
+            .iter()
+            .find(|(entry, _)| entry == file)
+            .expect("file")
+            .1
+            .lines()
+            .nth(*line)
+            .expect("line");
+        let column = text.rfind(name).expect("reference position");
+        graph["definitions"]
+            .as_object_mut()
+            .expect("definition map")
+            .entry(format!("{file}:{line}:{column}"))
+            .or_insert_with(|| json!([]))
+            .as_array_mut()
+            .expect("definition targets")
+            .push(declaration(target, *target_line));
+    }
+    for (file, line, targets) in implementations {
+        let node = declaration(file, *line);
+        let column = node["range"]["start"]["character"]
+            .as_u64()
+            .expect("column");
+        graph["implementations"][format!("{file}:{line}:{column}")] = json!(
+            targets
+                .iter()
+                .map(|(target, line)| declaration(target, *line))
+                .collect::<Vec<_>>()
+        );
+    }
+    let server = FAKE_SERVER
+        .replace("hoverProvider: true", "definitionProvider: true, implementationProvider: true")
+        .replace(
+            "  } else if (msg.method === 'textDocument/hover') {\n    process.exit(3);",
+            r#"  } else if (msg.method === 'textDocument/definition' || msg.method === 'textDocument/implementation') {
+    const graph = JSON.parse(process.env.FAKE_LSP_GRAPH);
+    const file = require('path').basename(new URL(msg.params.textDocument.uri).pathname);
+    const p = msg.params.position;
+    const key = `${file}:${p.line}:${p.character}`;
+    const entries = graph[msg.method.endsWith('/definition') ? 'definitions' : 'implementations'];
+    const reply = () => send({ jsonrpc: '2.0', id: msg.id, result: entries[key] || [] });
+    const delay = Number(process.env.FAKE_LSP_DELAY || 0);
+    if (!delay) { reply(); return; }
+    globalThis.held = (globalThis.held || 0) + 1;
+    globalThis.peak = Math.max(globalThis.peak || 0, globalThis.held);
+    fs.writeFileSync(process.env.FAKE_LSP_PEAK, String(globalThis.peak));
+    setTimeout(() => { globalThis.held -= 1; reply(); }, delay);"#,
+        );
+    let script = match &delayed {
+        Some(delayed) => {
+            let named = root.join(delayed.name);
+            crate::lsp_search::tests::write_executable(&named, server.as_bytes());
+            named
+        }
+        None => script,
+    };
+    crate::lsp_search::tests::write_executable(&script, &server);
+    let peak = root.join("peak.log");
+    let mut config = config(&root, &script, None);
+    config.env = Some(
+        [("FAKE_LSP_GRAPH".into(), graph.to_string())]
+            .into_iter()
+            .chain(
+                delayed
+                    .as_ref()
+                    .map(|delayed| ("FAKE_LSP_DELAY".into(), delayed.delay_ms.to_string())),
+            )
+            .chain(
+                delayed
+                    .as_ref()
+                    .map(|_| ("FAKE_LSP_PEAK".into(), peak.to_string_lossy().into_owned())),
+            )
+            .collect(),
+    );
+    config
+        .env
+        .as_mut()
+        .expect("env")
+        .insert("PATH".to_owned(), std::env::var("PATH").unwrap_or_default());
+    let paths = octocode_runtime_base::test_support::workspace_policy(&root);
+    let rows = tokio::runtime::Runtime::new().expect("rt").block_on(async {
+        let client = NativeLspClient::new(config);
+        client.start().await.expect("server starts");
+        let mut rows = Vec::new();
+        for (operation, file, line, depth) in queries {
+            let name = files.iter().find(|(entry, _)| entry == file).expect("file").1.lines().nth(*line).expect("line").split_whitespace().nth(2).expect("name");
+            let path = root.join(file).to_string_lossy().into_owned();
+            let start = json!({"operation":operation,"path":path,"line":line+1,"symbolName":name,"depth":depth});
+            let mut pages = Vec::new();
+            let mut walker = Walker::new(ToolId::LspSearch.as_str(), json!({"queries":[start]}));
+            while let Some(call) = walker.next_query() {
+                let wire = octocode_runtime_base::test_support::opened_input(octocode_runtime_base::id::ToolId::LspSearch, &call)["queries"][0].clone();
+                let query: LspSearchQuery = serde_json::from_value(wire.clone()).expect("executable query");
+                let mut sources = SourceCache::new(&paths);
+                let policy = snippet_policy(&paths);
+                let scope = crate::lsp_search::scope::Scope::new(root.to_string_lossy().into_owned(), vec!["*.ts".into()]);
+                // Each call anchors where its query says: a resumed walk
+                // re-anchors on another node by name, line and occurrence.
+                let (path, line, character) = query_anchor(&wire);
+                let row = Operation { client: &client, query: &query, sources: &mut sources, snippet_policy: &policy,
+                    cancel: &NeverCancel, path: &path, scope: &scope, root_only: false, line, character,
+                    language_id:Some("typescript"), budget:16_000, security:&octocode_runtime_base::security::ContentSecurity::new(), anchor_opened: false }.run().await.expect("fallback hierarchy");
+                let row = crate::lsp_search::failure::with_next(&query, row);
+                if let Some(next) = row.pointer("/next/nextPage/input/queries/0") {
+                    let continued: LspSearchQuery = serde_json::from_value(next.clone()).expect("executable nextPage");
+                    assert!(lsp_search_query::page(&continued) > lsp_search_query::page(&query), "page cursor must advance");
+                }
+                let published = octocode_runtime_base::test_support::published(ToolId::LspSearch, &row);
+                walker.accept(Page { output: without_rerun(published, &query), rows: match_rows(&row) });
+                pages.push(row);
+            }
+            walker.finish();
+            rows.push(pages);
+        }
+        client.stop().await.expect("fixture server closed");
+        rows
+    });
+    let held = std::fs::read_to_string(&peak).map_or(0, |peak| peak.trim().parse().expect("peak"));
+    (rows, held)
+}
+
+/// The zero-based anchor of a query row: its path, its line, and the UTF-16
+/// column of the `occurrence`-th whole-word `symbolName` on that line.
+fn query_anchor(wire: &serde_json::Value) -> (String, u32, u32) {
+    let path = wire["path"].as_str().expect("path").to_owned();
+    let line = u32::try_from(wire["line"].as_u64().expect("line") - 1).expect("line");
+    let name = wire["symbolName"].as_str().expect("symbolName");
+    let occurrence = usize::try_from(wire["occurrence"].as_u64().unwrap_or(0)).expect("occurrence");
+    let text = std::fs::read_to_string(&path).expect("anchor source");
+    let row = text.lines().nth(line as usize).expect("anchor line");
+    let start = octocode_engine::text::whole_word_starts(row, name)
+        .nth(occurrence)
+        .expect("anchored name");
+    let character = row[..start].encode_utf16().count();
+    (path, line, u32::try_from(character).expect("character"))
+}
+
+#[test]
+fn fallback_type_hierarchy_marks_unresolved_relations_partial_without_retry() {
+    let rows = fallback_graph_rows(
+        &[(
+            "unknown.ts",
+            "export class Base {}\nexport class Child extends Unknown {}\n",
+        )],
+        &[],
+        &[("unknown.ts", 0, &[("unknown.ts", 1)])],
+        &[
+            ("supertypes", "unknown.ts", 1, 2),
+            ("subtypes", "unknown.ts", 0, 2),
+        ],
+    );
+    for row in rows {
+        assert_eq!(row["isPartial"], true, "{row}");
+        assert_eq!(
+            row["partialReasons"],
+            json_fixture(r#"["typeHierarchyExpansionFailed"]"#),
+            "{row}"
+        );
+        // An unresolved base stays unresolved: retrying reruns the same walk.
+        assert!(row.pointer("/next/retry").is_none(), "{row}");
+        assert!(
+            row["matches"].as_array().is_none_or(Vec::is_empty),
+            "unverified edges omitted: {row}"
+        );
+    }
+}
+
+#[test]
+fn fallback_subtypes_page_the_anchor_candidates_by_window() {
+    let cap = crate::lsp_search::walk::MAX_HIERARCHY_NODES;
+    let mut content = "export class Base {}\n".to_owned();
+    for index in 0..=cap {
+        content.push_str(&format!("export class Child{index} extends Base {{}}\n"));
+    }
+    let definitions = (1..=cap + 1)
+        .map(|line| ("wide.ts", line, "Base", "wide.ts", 0))
+        .collect::<Vec<_>>();
+    let candidates = (1..=cap + 1)
+        .map(|line| ("wide.ts", line))
+        .collect::<Vec<_>>();
+    let mut results = fallback_graph_pages(
+        &[("wide.ts", &content)],
+        &definitions,
+        &[("wide.ts", 0, &candidates)],
+        &[("subtypes", "wide.ts", 0, 1)],
+    );
+    assert_eq!(results.len(), 1);
+    let pages = results.remove(0);
+    // The anchor's candidates page by window: the first window's rows span
+    // result pages, and its last page continues to the next window.
+    let first_window = pages
+        .iter()
+        .take_while(|row| row["partialReasons"] == json_fixture(r#"["hierarchyCandidateLimit"]"#))
+        .collect::<Vec<_>>();
+    assert!(
+        first_window.len() > 1,
+        "the verified prefix must cross the page budget"
+    );
+    let mut offset = 0;
+    for (page_index, row) in first_window.iter().enumerate() {
+        assert_eq!(row["pagination"]["total"], cap, "{row}");
+        assert_eq!(
+            row["pagination"]["offset"], offset,
+            "pages follow each other: {row}"
+        );
+        offset += row["pagination"]["length"].as_u64().expect("length");
+        assert_eq!(row["isPartial"], true, "{row}");
+        assert!(row.get("terminalLimit").is_none(), "{row}");
+        assert_eq!(
+            row.pointer("/next/nextCandidatePage").is_some(),
+            page_index + 1 == first_window.len(),
+            "only the window's last page offers the next window: {row}"
+        );
+        if let Some(snapshot) = row.pointer("/next/nextCandidatePage/input/queries/0/snapshot") {
+            assert!(
+                snapshot
+                    .as_str()
+                    .is_some_and(|value| value.starts_with("lsp-candidates:")),
+                "candidate continuation pins the complete candidate list: {row}"
+            );
+        }
+    }
+    let mut identities = std::collections::HashSet::new();
+    let mut reached = 0;
+    for row in &pages {
+        let shown = row["matches"].as_array().expect("matches");
+        assert!(!shown.is_empty(), "each page retains complete rows: {row}");
+        for matched in shown {
+            assert_eq!(matched["symbolName"], format!("Child{reached}"), "{row}");
+            assert_eq!(matched["line"], reached + 2, "{row}");
+            assert_eq!(matched["level"], 1, "{row}");
+            assert!(
+                identities.insert((
+                    matched["path"].clone(),
+                    format!("{}:{}", matched["line"], matched["column"])
+                )),
+                "no repeated declaration: {matched}"
+            );
+            reached += 1;
+        }
+    }
+    assert_eq!(reached, cap + 1, "every candidate is reachable");
+    assert_eq!(
+        identities.len(),
+        cap + 1,
+        "each declaration must be reached once"
+    );
+    let last = pages.last().expect("final page");
+    assert!(last.get("isPartial").is_none(), "{last}");
+    // No page remains; the one lead walks one level deeper from the start.
+    assert!(
+        last["next"]
+            .as_object()
+            .is_none_or(serde_json::Map::is_empty),
+        "no remaining required work: {last}"
+    );
+    let deeper =
+        &octocode_runtime_base::test_support::checks::related_call(last, "lspSearch", |input| {
+            input["queries"][0]["depth"] == 2
+        })["input"]["queries"][0];
+    assert_eq!(deeper["depth"], 2, "{last}");
+    assert!(
+        deeper.get("candidatePage").is_none(),
+        "from the start: {last}"
+    );
+}

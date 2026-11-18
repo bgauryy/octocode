@@ -3,6 +3,7 @@
 
 use crate::support;
 
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -23,20 +24,36 @@ async fn requested_paths(server: &MockServer) -> Vec<String> {
 async fn mount_pull_request(server: &MockServer) {
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/pulls/7"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "number": 7, "title": "Fix parser", "state": "open", "merged_at": null,
-            "draft": false, "body": "Fixes the parser.", "user": {"login": "bob"},
-            "head": {"sha": "def456", "ref": "feat/parser"}, "base": {"ref": "main"},
-            "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-02T00:00:00Z",
-            "labels": []
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "number": 7,
+                "title": "Fix parser",
+                "state": "open",
+                "merged_at": null,
+                "draft": false,
+                "body": "Fixes the parser.",
+                "user": {"login": "bob"},
+                "head": {"sha": "def456", "ref": "feat/parser"},
+                "base": {"ref": "main"},
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-02T00:00:00Z",
+                "labels": []
+            }"#,
+        )))
         .mount(server)
         .await;
 }
 
 fn reviews_query() -> Value {
-    json!({"operation": "pullRequest", "owner": "a", "repo": "b", "number": 7,
-        "sections":["body","reviews"]})
+    json_fixture(
+        r#"{
+            "operation": "pullRequest",
+            "owner": "a",
+            "repo": "b",
+            "number": 7,
+            "sections": ["body", "reviews"]
+        }"#,
+    )
 }
 
 /// A GraphQL document GitHub rejects falls back to REST, observable as the
@@ -48,23 +65,43 @@ async fn pull_request_graphql_fallback_is_observable_and_equivalent() {
     let rejected = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/api/graphql"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"errors": [{
-            "path": ["query", "repository", "pullRequest", "isMerged"],
-            "extensions": {"code": "undefinedField", "typeName": "PullRequest"},
-            "message": "Field 'isMerged' doesn't exist on type 'PullRequest'"
-        }]})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "errors": [
+                    {
+                        "path": ["query", "repository", "pullRequest", "isMerged"],
+                        "extensions": {"code": "undefinedField", "typeName": "PullRequest"},
+                        "message": "Field 'isMerged' doesn't exist on type 'PullRequest'"
+                    }
+                ]
+            }"#,
+        )))
         .expect(1)
         .mount(&rejected)
         .await;
     mount_pull_request(&rejected).await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/pulls/7/reviews"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-            {"id": 11, "user": {"login": "ann"}, "state": "APPROVED", "body": "",
-             "submitted_at": "2026-01-03T00:00:00Z", "commit_id": "def456"},
-            {"id": 12, "user": {"login": "cy"}, "state": "COMMENTED", "body": "nit",
-             "submitted_at": "2026-01-04T00:00:00Z", "commit_id": "def456"}
-        ])))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"[
+                {
+                    "id": 11,
+                    "user": {"login": "ann"},
+                    "state": "APPROVED",
+                    "body": "",
+                    "submitted_at": "2026-01-03T00:00:00Z",
+                    "commit_id": "def456"
+                },
+                {
+                    "id": 12,
+                    "user": {"login": "cy"},
+                    "state": "COMMENTED",
+                    "body": "nit",
+                    "submitted_at": "2026-01-04T00:00:00Z",
+                    "commit_id": "def456"
+                }
+            ]"#,
+        )))
         .mount(&rejected)
         .await;
     let workspace = Workspace::new();
@@ -90,23 +127,57 @@ async fn pull_request_graphql_fallback_is_observable_and_equivalent() {
     let served = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/api/graphql"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
-            "repository": {"pullRequest": {
-                "number": 7, "title": "Fix parser", "url": "https://x", "state": "OPEN",
-                "body": "Fixes the parser.", "isDraft": false, "author": {"login": "bob"},
-                "labels": {"pageInfo": {"hasNextPage": false}, "nodes": []},
-                "baseRefName": "main", "headRefName": "feat/parser", "headRefOid": "def456",
-                "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z",
-                "closedAt": null, "mergedAt": null, "mergeCommit": null,
-                "comments": {"totalCount": 0}, "changedFiles": 1, "additions": 1, "deletions": 0,
-                "reviews": {"pageInfo": {"hasNextPage": false}, "nodes": [
-                    {"databaseId": 11, "author": {"login": "ann"}, "state": "APPROVED",
-                     "body": "", "submittedAt": "2026-01-03T00:00:00Z", "commit": {"oid": "def456"}},
-                    {"databaseId": 12, "author": {"login": "cy"}, "state": "COMMENTED",
-                     "body": "nit", "submittedAt": "2026-01-04T00:00:00Z", "commit": {"oid": "def456"}}
-                ]}
-            }}
-        }})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "data": {
+                    "repository": {
+                        "pullRequest": {
+                            "number": 7,
+                            "title": "Fix parser",
+                            "url": "https://x",
+                            "state": "OPEN",
+                            "body": "Fixes the parser.",
+                            "isDraft": false,
+                            "author": {"login": "bob"},
+                            "labels": {"pageInfo": {"hasNextPage": false}, "nodes": []},
+                            "baseRefName": "main",
+                            "headRefName": "feat/parser",
+                            "headRefOid": "def456",
+                            "createdAt": "2026-01-01T00:00:00Z",
+                            "updatedAt": "2026-01-02T00:00:00Z",
+                            "closedAt": null,
+                            "mergedAt": null,
+                            "mergeCommit": null,
+                            "comments": {"totalCount": 0},
+                            "changedFiles": 1,
+                            "additions": 1,
+                            "deletions": 0,
+                            "reviews": {
+                                "pageInfo": {"hasNextPage": false},
+                                "nodes": [
+                                    {
+                                        "databaseId": 11,
+                                        "author": {"login": "ann"},
+                                        "state": "APPROVED",
+                                        "body": "",
+                                        "submittedAt": "2026-01-03T00:00:00Z",
+                                        "commit": {"oid": "def456"}
+                                    },
+                                    {
+                                        "databaseId": 12,
+                                        "author": {"login": "cy"},
+                                        "state": "COMMENTED",
+                                        "body": "nit",
+                                        "submittedAt": "2026-01-04T00:00:00Z",
+                                        "commit": {"oid": "def456"}
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+            }"#,
+        )))
         .expect(1)
         .mount(&served)
         .await;
@@ -135,11 +206,20 @@ async fn issue_closing_references_past_the_read_limit_are_disclosed() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/issues/42"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "number": 42, "title": "t", "state": "closed", "state_reason": "completed",
-            "body": "", "user": {"login": "alice"}, "labels": [], "comments": 0,
-            "created_at": "2026-09-20T00:00:00Z", "updated_at": "2026-09-25T00:00:00Z"
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "number": 42,
+                "title": "t",
+                "state": "closed",
+                "state_reason": "completed",
+                "body": "",
+                "user": {"login": "alice"},
+                "labels": [],
+                "comments": 0,
+                "created_at": "2026-09-20T00:00:00Z",
+                "updated_at": "2026-09-25T00:00:00Z"
+            }"#,
+        )))
         .mount(&server)
         .await;
     let nodes = (1..=25)
@@ -159,7 +239,14 @@ async fn issue_closing_references_past_the_read_limit_are_disclosed() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation": "issue", "owner": "a", "repo": "b", "number": 42}),
+        json_fixture(
+            r#"{
+                "operation": "issue",
+                "owner": "a",
+                "repo": "b",
+                "number": 42
+            }"#,
+        ),
     )
     .await
     .expect("issue read");
@@ -181,7 +268,7 @@ async fn issue_closing_references_past_the_read_limit_are_disclosed() {
     assert_eq!(data["terminalLimit"], true, "{data}");
     assert_eq!(
         data["partialReasons"],
-        json!(["closingReferenceLimit"]),
+        json_fixture(r#"["closingReferenceLimit"]"#),
         "{data}"
     );
     assert!(
@@ -204,18 +291,16 @@ async fn archived_pull_request_listing_enforces_the_filter() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"full_name": "a/b", "default_branch": "main"})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"full_name": "a/b", "default_branch": "main"}"#,
+        )))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/issues"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"total_count": 0, "incomplete_results": false, "items": []})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"total_count": 0, "incomplete_results": false, "items": []}"#,
+        )))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
@@ -229,7 +314,14 @@ async fn archived_pull_request_listing_enforces_the_filter() {
     let outcome = call(
         &runtime,
         "ghSearchHistory",
-        json!({"operation": "pullRequest", "owner": "a", "repo": "b", "filters":{"archive":"only"}}),
+        json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "a",
+                "repo": "b",
+                "filters": {"archive": "only"}
+            }"#,
+        ),
     )
     .await
     .expect("archived listing");
@@ -257,12 +349,25 @@ async fn incomplete_code_search_page_discloses_partial_coverage() {
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
         .and(query_param("page", "1"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count": 1, "incomplete_results": true, "items": [
-                {"name": "app.rs", "path": "app.rs", "sha": "1", "html_url": "https://x",
-                 "repository": {"full_name": "a/b", "html_url": "https://x", "url": "https://x"}}
-            ]
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "total_count": 1,
+                "incomplete_results": true,
+                "items": [
+                    {
+                        "name": "app.rs",
+                        "path": "app.rs",
+                        "sha": "1",
+                        "html_url": "https://x",
+                        "repository": {
+                            "full_name": "a/b",
+                            "html_url": "https://x",
+                            "url": "https://x"
+                        }
+                    }
+                ]
+            }"#,
+        )))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -270,7 +375,7 @@ async fn incomplete_code_search_page_discloses_partial_coverage() {
     let outcome = call(
         &runtime,
         "ghSearchCode",
-        json!({"owner": "a", "keywords": ["app"], "matchIn": ["path"]}),
+        json_fixture(r#"{"owner": "a", "keywords": ["app"], "matchIn": ["path"]}"#),
     )
     .await
     .expect("code search");
@@ -286,7 +391,7 @@ async fn incomplete_code_search_page_discloses_partial_coverage() {
     );
     assert_eq!(
         data["partialReasons"],
-        json!(["providerIncompleteResults"]),
+        json_fixture(r#"["providerIncompleteResults"]"#),
         "{data}"
     );
     assert_eq!(data["next"]["retry"]["tool"], "ghSearchCode", "{data}");
@@ -346,8 +451,15 @@ async fn pull_request_commit_details_load_concurrently_in_order() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation": "pullRequest", "owner": "a", "repo": "b", "number": 7,
-            "sections":["commitFiles"]}),
+        json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "a",
+                "repo": "b",
+                "number": 7,
+                "sections": ["commitFiles"]
+            }"#,
+        ),
     )
     .await
     .expect("commit details");

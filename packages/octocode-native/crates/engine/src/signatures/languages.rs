@@ -275,16 +275,6 @@ pub fn select(selector: &str) -> impl Iterator<Item = &'static LanguageEntry> {
         .filter(move |entry| selects(entry, &selector))
 }
 
-/// The one grammar `selector` names by name, language id or extension;
-/// `None` when it names none, or several.
-#[cfg(test)]
-pub(crate) fn select_one(selector: &str) -> Option<&'static LanguageEntry> {
-    let selector = selector.trim();
-    let mut named = LANGUAGE_TABLE.iter().filter(|entry| names(entry, selector));
-    let entry = named.next()?;
-    named.next().is_none().then_some(entry)
-}
-
 /// The grammars a selector names: a grammar name, language id or
 /// extension, with or without its leading dot (`.cc` and `cpp` both name
 /// C++), plus the family its selector aliases span.
@@ -384,6 +374,3 @@ pub(crate) fn supported_extensions() -> Vec<&'static str> {
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(any(test, feature = "test-hooks"))]
-pub mod conformance;

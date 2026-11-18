@@ -1,5 +1,6 @@
 use crate::support::{Run as _, Workspace, provider_env};
 use octocode_contract_types::ErrorCode;
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -8,7 +9,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 async fn clasify_provider_errors_only_on_requested_models_invocation() {
     for (case, (response, expected)) in [
         (
-            ResponseTemplate::new(200).set_body_json(json!({"models":[]})),
+            ResponseTemplate::new(200).set_body_json(json_fixture(r#"{"models": []}"#)),
             None,
         ),
         (
@@ -20,7 +21,7 @@ async fn clasify_provider_errors_only_on_requested_models_invocation() {
             Some(ErrorCode::ClassificationProviderUnavailable),
         ),
         (
-            ResponseTemplate::new(200).set_body_json(json!({"wrong":[]})),
+            ResponseTemplate::new(200).set_body_json(json_fixture(r#"{"wrong": []}"#)),
             Some(ErrorCode::InvalidClassificationResponse),
         ),
     ]
@@ -53,7 +54,7 @@ async fn clasify_provider_errors_only_on_requested_models_invocation() {
             .run(
                 "models".into(),
                 "clasify".into(),
-                json!({"queries":[{"operation":"models"}]}),
+                json_fixture(r#"{"queries": [{"operation": "models"}]}"#),
             )
             .await;
         let outcome = result.expect("provider failures are isolated result rows");
@@ -91,8 +92,8 @@ async fn runtime_and_catalog_construction_never_contact_provider() {
         vec![("OCTOCODE_CLASSIFICATION_API", "fixture-key".into())],
     ] {
         for surface in [
-            octocode_native::config::RuntimeSurface::Cli,
-            octocode_native::config::RuntimeSurface::Mcp,
+            octocode_runtime_base::config::RuntimeSurface::Cli,
+            octocode_runtime_base::config::RuntimeSurface::Mcp,
         ] {
             let mut input = workspace.config(&provider_env(&server, &env));
             input.runtime_surface = surface;

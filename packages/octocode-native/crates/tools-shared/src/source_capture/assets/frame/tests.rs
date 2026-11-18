@@ -1,0 +1,163 @@
+use super::*;
+use octocode_test_support::json_fixture;
+use std::collections::BTreeMap;
+
+const PADDED: Frame = Frame {
+    canvas_width: 280,
+    canvas_height: 280,
+    left: 80,
+    top: 100,
+    width: 120,
+    height: 80,
+};
+
+fn assets(keys: &[&str], fitted: &[&str]) -> CapturedAssets {
+    CapturedAssets {
+        provider: json!({}),
+        provenance: keys
+            .iter()
+            .map(|key| (key.to_string(), json!({})))
+            .collect(),
+        frames: fitted
+            .iter()
+            .map(|key| (key.to_string(), PADDED))
+            .collect::<BTreeMap<_, _>>(),
+    }
+}
+
+fn answer() -> Value {
+    json_fixture(
+        r#"{
+                "type": "box",
+                "box": {"top": 0.36, "bottom": 0.46, "left": 0.6, "right": 0.65},
+                "confidence": 0.9
+            }"#,
+    )
+}
+
+fn mapped(assets: &CapturedAssets, question: &str) -> Vec<Value> {
+    let mut answers = vec![json_fixture(r#"{"type": "noul", "noul": 0.5}"#), answer()];
+    assets.attach_source_boxes(
+        &[json_fixture(r#"{"type": "noul"}"#), json!(question)],
+        &mut answers,
+    );
+    answers
+}
+
+fn close(actual: &Value, expected: [f64; 4]) {
+    for (name, want) in ["top", "bottom", "left", "right"].into_iter().zip(expected) {
+        let got = actual[name].as_f64().unwrap();
+        assert!((got - want).abs() < 0.005, "{name}: {got} vs {want}");
+    }
+}
+
+#[test]
+fn a_padded_small_image_maps_the_canvas_box_onto_the_original() {
+    let mapped = PADDED
+        .source_box(&json_fixture(
+            r#"{"top": 0.36, "bottom": 0.46, "left": 0.6, "right": 0.65}"#,
+        ))
+        .unwrap();
+    close(&mapped, [0.01, 0.36, 0.733, 0.85]);
+}
+
+#[test]
+fn a_scaled_then_padded_banner_maps_only_the_padded_axis() {
+    let frame = Frame {
+        canvas_width: 1568,
+        canvas_height: 280,
+        left: 0,
+        top: 101,
+        width: 1568,
+        height: 78,
+    };
+    let mapped = frame
+        .source_box(&json_fixture(
+            r#"{"top": 0.41, "bottom": 0.58, "left": 0.2, "right": 0.9}"#,
+        ))
+        .unwrap();
+    close(&mapped, [0.177, 0.787, 0.2, 0.9]);
+}
+
+#[test]
+fn a_box_reaching_into_the_image_clamps_to_its_visible_part() {
+    let mapped = PADDED
+        .source_box(&json_fixture(
+            r#"{"top": 0.2, "bottom": 0.46, "left": 0.6, "right": 1.0}"#,
+        ))
+        .unwrap();
+    close(&mapped, [0.0, 0.36, 0.733, 1.0]);
+}
+
+#[test]
+fn a_box_without_area_on_the_original_or_an_incomplete_box_maps_to_nothing() {
+    // wholly in the padding (above, then right of the image), and a line
+    for canvas_box in [
+        json_fixture(r#"{"top": 0.0, "bottom": 0.2, "left": 0.9, "right": 1.0}"#),
+        json_fixture(r#"{"top": 0.4, "bottom": 0.5, "left": 0.9, "right": 1.0}"#),
+        json_fixture(r#"{"top": 0.4, "bottom": 0.4, "left": 0.5, "right": 0.6}"#),
+        json_fixture(r#"{"top": 0.1}"#),
+    ] {
+        assert_eq!(PADDED.source_box(&canvas_box), None, "{canvas_box}");
+    }
+}
+
+#[test]
+fn an_answer_whose_box_misses_the_original_keeps_no_source_box() {
+    let assets = assets(&["img"], &["img"]);
+    let mut answers = vec![json_fixture(
+        r#"{
+                "type": "box",
+                "box": {"top": 0.0, "bottom": 0.2, "left": 0.9, "right": 1.0}
+            }"#,
+    )];
+    assets.attach_source_boxes(&[json!("x")], &mut answers);
+    assert_eq!(answers[0].get("sourceBox"), None);
+}
+
+#[test]
+fn a_boxs_image_is_the_only_asset_or_the_single_one_it_cites() {
+    let one = mapped(&assets(&["img"], &["img"]), "the square");
+    assert_eq!(one[0].get("sourceBox"), None);
+    close(&one[1]["sourceBox"], [0.01, 0.36, 0.733, 0.85]);
+    let two = assets(&["a", "b"], &["a", "b"]);
+    close(
+        &mapped(&two, "the square in b")[1]["sourceBox"],
+        [0.01, 0.36, 0.733, 0.85],
+    );
+    for question in ["the square", "the square in a or b"] {
+        assert_eq!(
+            mapped(&two, question)[1].get("sourceBox"),
+            None,
+            "{question}"
+        );
+    }
+}
+
+/// An image only scaled into the window fills its canvas, so the
+/// provider's box is already on the original: the answer states `box`
+/// alone, never a `sourceBox` that repeats it.
+#[test]
+fn a_scaled_only_image_answers_its_box_alone() {
+    let mut scaled = assets(&["img"], &["img"]);
+    scaled.frames.insert(
+        "img".into(),
+        Frame {
+            canvas_width: 1568,
+            canvas_height: 1045,
+            left: 0,
+            top: 0,
+            width: 1568,
+            height: 1045,
+        },
+    );
+    assert_eq!(mapped(&scaled, "x")[1], answer());
+}
+
+#[test]
+fn an_unfitted_image_gets_no_source_box() {
+    assert_eq!(mapped(&assets(&["img"], &[]), "x")[1], answer());
+    let mixed = assets(&["a", "b"], &["a"]);
+    assert_eq!(mapped(&mixed, "in b")[1], answer());
+    assert!(mapped(&mixed, "in a")[1].get("sourceBox").is_some());
+}

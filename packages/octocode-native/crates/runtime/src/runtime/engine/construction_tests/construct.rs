@@ -1,5 +1,7 @@
 use super::*;
 use crate::runtime::engine::construction::startup_diagnostics;
+use octocode_runtime_base::execution::ExecutionContext;
+use octocode_test_support::json_fixture;
 
 async fn section_result(
     runtime: &ToolRuntime,
@@ -34,7 +36,7 @@ async fn section_fixture(
             .respond_with(|request: &wiremock::Request| {
                 let body: Value = serde_json::from_slice(&request.body).expect("body");
                 let answers: serde_json::Map<String, Value> = body["questions"].as_object().expect("questions")
-                    .keys().map(|key| (key.clone(), json!({"type":"noul","noul":0.9}))).collect();
+                    .keys().map(|key| (key.clone(), json_fixture(r#"{"type": "noul", "noul": 0.9}"#))).collect();
                 ResponseTemplate::new(200).set_body_json(json!({"model":"jev-1.13.0","answers":answers,"usage":{"input_tokens":10,"output_tokens":2}}))
             }).mount(&server).await;
     let runtime = runtime(
@@ -132,7 +134,7 @@ async fn sections_runtime_resumes_replays_and_partitions_access_and_policy() {
             let mut content = None;
             for resource in [original, repeated] {
                 let read = &resource["read"];
-                assert_eq!(read["kind"], "continue");
+                assert_eq!(read.get("kind"), None);
                 let admission = runtime
                     .admit(format!("read-{name}"))
                     .expect("admit")
@@ -188,7 +190,7 @@ fn assert_next_is_only_pinned_reads(data: &Value) {
             ),
             "`next.{key}` is not a source read: {call}"
         );
-        assert_eq!(call["kind"], "continue", "{call}");
+        assert_eq!(call.get("kind"), None, "{call}");
         assert!(call["input"]["cursor"].is_string(), "pinned cursor: {call}");
     }
 }

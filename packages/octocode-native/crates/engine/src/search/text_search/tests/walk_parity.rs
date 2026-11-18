@@ -141,6 +141,7 @@ fn the_search_walks_exactly_what_the_ignore_walker_walks() {
                         bind: String::new(),
                         from: 0,
                         pin: None,
+                        anchor: Anchor::START,
                         enough: Box::new(|_| false),
                     },
                 )

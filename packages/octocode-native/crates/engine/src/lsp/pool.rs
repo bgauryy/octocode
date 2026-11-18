@@ -18,7 +18,7 @@ use std::sync::Arc;
 pub struct LspPoolOptions {
     pub idle_timeout_ms: u64,
     pub max_entries: usize,
-    /// Resident memory all pooled servers may hold together, in bytes: the
+    /// Memory all pooled servers may hold together, in bytes: the
     /// pool stops idle least-recently-used servers while the sampled total is
     /// over it, never the one in use or a busy one. `0` means no budget.
     pub max_resident_bytes: u64,
@@ -50,13 +50,15 @@ impl Default for LspPoolOptions {
 async fn start_client(
     config: LspLanguageServerConfig,
     options: super::client::LspClientOptions,
+    clock: super::clock::LspClock,
 ) -> SharedResult<NativeLspClient> {
-    let client = NativeLspClient::with_options(config, options);
+    let client = NativeLspClient::with_clock(config, options, clock);
     let starting_client = client.clone();
-    let start =
-        run_cancellation_safe_start(client.clone(), async move { starting_client.start().await })
-            .await
-            .map_err(|error| shared_error(format!("LSP client startup task failed: {error}")))?;
+    let start = run_cancellation_safe_start(client.clone(), |abandoned| async move {
+        starting_client.start_until(abandoned.wait()).await
+    })
+    .await
+    .map_err(|error| shared_error(format!("LSP client startup task failed: {error}")))?;
     start.map_err(Arc::new)?;
     Ok(Some(client))
 }
@@ -84,8 +86,9 @@ impl LspClientPool {
     ) -> Result<Option<NativeLspClient>> {
         let (key, family) = keys_of(&config).await?;
         let options = self.inner.options.client;
+        let clock = self.inner.clock.clone();
         self.inner
-            .acquire(key, family, || start_client(config, options))
+            .acquire(key, family, || start_client(config, options, clock))
             .await
             .map_err(Arc::unwrap_or_clone)
     }
@@ -99,11 +102,12 @@ impl LspClientPool {
     ) -> Result<Option<(NativeLspClient, LspLease)>> {
         let (key, family) = keys_of(&config).await?;
         let options = self.inner.options.client;
+        let clock = &self.inner.clock;
         self.inner
             .acquire_leased(
                 key,
                 family,
-                || start_client(config.clone(), options),
+                || start_client(config.clone(), options, clock.clone()),
                 NativeLspClient::lease,
             )
             .await
@@ -119,7 +123,7 @@ impl LspClientPool {
         self.inner.clear_all().await;
     }
 
-    /// The servers' resident bytes and the budget (`max_resident_bytes`) when
+    /// The servers' sampled bytes and the budget (`max_resident_bytes`) when
     /// they exceed it. The pool never stops a busy server, so it can stay over
     /// budget until the servers are idle.
     pub async fn over_budget(&self) -> Option<(u64, u64)> {

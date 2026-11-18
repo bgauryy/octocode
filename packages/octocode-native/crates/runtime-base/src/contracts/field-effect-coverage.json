@@ -1,0 +1,1072 @@
+{
+  "purpose": "Reviewed implementation responsibilities and behavioral test entry points. This index is not execution coverage; run the cited suites. Private cursor state (x-cursor) is excluded. Recursive rule fields are recorded once. A path with no entry inherits its nearest declared ancestor's effects (ranges[].startLine -> ranges[] -> ranges); a top-level path with none falls back to common, whose empty array means the field has no behavioral effect. tests/field_effect_coverage.rs gates both directions.",
+  "effects": [
+    "source",
+    "filter",
+    "matcher",
+    "selection",
+    "view",
+    "ordering",
+    "dispatch",
+    "navigation",
+    "execution"
+  ],
+  "envelope": {
+    "evidence": [
+      "runtime/tests/runtime_input_guard.rs",
+      "runtime/tests/runtime_batch_indices.rs",
+      "runtime/tests/runtime_page_replay/windows.rs",
+      "runtime/tests/runtime_response_cursor.rs",
+      "runtime/tests/runtime_one_walk/channels.rs",
+      "runtime-base/src/response/pager/tests/one_page.rs"
+    ],
+    "fields": {
+      "queries": [
+        "dispatch"
+      ],
+      "responseChars": [
+        "view"
+      ],
+      "cursor": [
+        "view"
+      ]
+    }
+  },
+  "common": {
+    "fields": {
+      "mainGoal": [],
+      "reasoning": []
+    }
+  },
+  "tools": {
+    "clasify": {
+      "evidence": [
+        "tool-clasify/src/clasify/tests.rs",
+        "tools-shared/src/judgment/batch/tests.rs",
+        "tools-shared/src/judgment/tests.rs",
+        "runtime-base/src/providers/classification/transport/tests/retries.rs",
+        "runtime-base/src/providers/classification/transport/tests/failures.rs",
+        "runtime-base/src/providers/classification/transport/endpoint_policy_tests.rs",
+        "runtime/tests/runtime_clasify/gating.rs",
+        "runtime/tests/runtime_clasify/judgments.rs",
+        "runtime/tests/runtime_clasify/sources.rs",
+        "runtime/tests/runtime_clasify/failures.rs",
+        "runtime/tests/runtime_clasify/units.rs",
+        "runtime/tests/runtime_clasify/views.rs",
+        "tool-clasify/src/clasify/view.rs",
+        "tool-clasify/src/clasify/units.rs",
+        "tools-shared/src/source_capture/assets.rs",
+        "runtime/tests/runtime_clasify_media/local_images.rs",
+        "runtime/tests/runtime_clasify_media/github_and_models.rs",
+        "runtime/tests/runtime_clasify_media/bounds.rs",
+        "tool-clasify/src/clasify/sections/tests.rs",
+        "tools-shared/src/source_sections/tests.rs",
+        "tools-shared/src/source_capture/tests.rs",
+        "runtime/src/tools/source_capture/page/tests.rs"
+      ],
+      "fields": {
+        "assets": [
+          "source"
+        ],
+        "content": [
+          "selection"
+        ],
+        "context": [
+          "selection"
+        ],
+        "longContext": [
+          "selection"
+        ],
+        "model": [
+          "selection"
+        ],
+        "operation": [
+          "dispatch"
+        ],
+        "perItem": [
+          "selection"
+        ],
+        "questions": [
+          "selection"
+        ],
+        "resources": [
+          "source"
+        ],
+        "source": [
+          "source"
+        ],
+        "view": [
+          "view"
+        ]
+      }
+    },
+    "ghSearchRepo": {
+      "evidence": [
+        "tool-github/src/gh_search_repo/tests.rs",
+        "runtime/tests/runtime_github/batches.rs"
+      ],
+      "fields": {
+        "fields": [
+          "view"
+        ],
+        "filters": [
+          "filter"
+        ],
+        "keywords": [
+          "filter"
+        ],
+        "matchIn": [
+          "filter"
+        ],
+        "operation": [
+          "dispatch"
+        ],
+        "owner": [
+          "source"
+        ],
+        "repo": [
+          "source"
+        ],
+        "sort": [
+          "ordering"
+        ],
+        "limit": [
+          "view"
+        ]
+      }
+    },
+    "ghSearchCode": {
+      "evidence": [
+        "tool-github/src/gh_search_code/query.rs",
+        "runtime/tests/runtime_github/refs.rs",
+        "tools-shared/src/selection/tests/plan_token.rs",
+        "tools-shared/src/selection/tests/plan_binding.rs",
+        "tools-shared/src/selection/tests/admission.rs",
+        "runtime/src/tools/selection/tests/candidate_pages.rs",
+        "runtime/src/tools/selection/tests/code_page.rs",
+        "runtime/src/tools/selection/tests/code_page_failures.rs",
+        "tools-shared/src/selection/judge/question_tests.rs",
+        "tools-shared/src/selection/judge/provider_tests.rs"
+      ],
+      "fields": {
+        "classification": [
+          "selection"
+        ],
+        "extensions": [
+          "filter"
+        ],
+        "fields": [
+          "view"
+        ],
+        "keywords": [
+          "filter"
+        ],
+        "matchIn": [
+          "filter"
+        ],
+        "nameContains": [
+          "filter"
+        ],
+        "owner": [
+          "source"
+        ],
+        "path": [
+          "filter"
+        ],
+        "ref": [
+          "source"
+        ],
+        "repo": [
+          "source"
+        ],
+        "contextLines": [
+          "view"
+        ],
+        "limit": [
+          "view"
+        ]
+      }
+    },
+    "ghStructure": {
+      "evidence": [
+        "tool-github/src/gh_structure/refs.rs",
+        "tool-github/src/gh_structure/tests.rs",
+        "tool-github/src/gh_structure/materialize/tests.rs",
+        "runtime/tests/runtime_github/materialize.rs",
+        "runtime/tests/runtime_gh_structure/listing.rs",
+        "runtime/tests/runtime_gh_structure/materialize.rs",
+        "runtime/tests/runtime_gh_structure/refs.rs"
+      ],
+      "fields": {
+        "include": [
+          "filter"
+        ],
+        "materialize": [
+          "execution"
+        ],
+        "maxDepth": [
+          "filter"
+        ],
+        "operation": [
+          "dispatch"
+        ],
+        "owner": [
+          "source"
+        ],
+        "path": [
+          "source"
+        ],
+        "ref": [
+          "source"
+        ],
+        "refKinds": [
+          "filter"
+        ],
+        "repo": [
+          "source"
+        ],
+        "limit": [
+          "view"
+        ],
+        "sort": [
+          "ordering"
+        ]
+      }
+    },
+    "ghGetFileContent": {
+      "evidence": [
+        "tool-github/src/gh_get_file_content/tests/windows.rs",
+        "tool-github/src/gh_get_file_content/tests/continuations.rs",
+        "tool-github/src/gh_get_file_content/tests/misses.rs",
+        "tool-local/src/local_fetch/tests/classified.rs",
+        "tool-local/src/local_fetch/tests/classified/recovery.rs",
+        "tool-local/src/local_fetch/tests/declarations.rs",
+        "tool-local/src/local_fetch/tests/line_walks.rs",
+        "tool-local/src/local_fetch/tests/long_lines.rs",
+        "tool-local/src/local_fetch/tests/match_misses.rs",
+        "tool-local/src/local_fetch/tests/match_patterns.rs",
+        "tool-local/src/local_fetch/tests/match_ranges.rs",
+        "tool-local/src/local_fetch/tests/match_windows.rs",
+        "tool-local/src/local_fetch/tests/paging.rs",
+        "tool-local/src/local_fetch/tests/paths.rs",
+        "tool-local/src/local_fetch/tests/redaction.rs",
+        "tool-local/src/local_fetch/tests/regex_dialects.rs",
+        "tool-local/src/local_fetch/tests/source.rs",
+        "tool-local/src/local_fetch/tests/streamed.rs",
+        "tool-local/src/local_fetch/tests/symbols.rs",
+        "tool-local/src/local_fetch/tests/views.rs",
+        "tool-local/src/local_fetch/tests/wire.rs",
+        "tools-shared/src/source_view/block/tests.rs",
+        "runtime/tests/runtime_github/file_reads.rs",
+        "tools-shared/src/selection/tests/plan_token.rs",
+        "tools-shared/src/selection/tests/plan_binding.rs",
+        "tools-shared/src/selection/tests/admission.rs",
+        "runtime/src/tools/selection/tests/candidate_pages.rs",
+        "runtime/src/tools/selection/tests/code_page.rs",
+        "runtime/src/tools/selection/tests/code_page_failures.rs",
+        "tools-shared/src/selection/judge/question_tests.rs",
+        "tools-shared/src/selection/judge/provider_tests.rs"
+      ],
+      "fields": {
+        "block": [
+          "view"
+        ],
+        "caseMode": [
+          "matcher"
+        ],
+        "classification": [
+          "selection"
+        ],
+        "contextLines": [
+          "view"
+        ],
+        "matchString": [
+          "matcher"
+        ],
+        "owner": [
+          "source"
+        ],
+        "path": [
+          "source"
+        ],
+        "ranges": [
+          "view"
+        ],
+        "ref": [
+          "source"
+        ],
+        "regexEngine": [
+          "matcher"
+        ],
+        "repo": [
+          "source"
+        ],
+        "view": [
+          "view"
+        ],
+        "wholeWord": [
+          "matcher"
+        ],
+        "readProgress": [
+          "view"
+        ]
+      }
+    },
+    "ghSearchHistory": {
+      "evidence": [
+        "tool-github/src/gh_search_history/tests/terms.rs",
+        "tool-github/src/gh_search_history/tests/provider/request_fields.rs",
+        "tool-github/src/gh_search_history/tests/provider/rows.rs",
+        "runtime/tests/runtime_github_history/search.rs",
+        "runtime/src/tools/selection/tests/row_pages.rs"
+      ],
+      "fields": {
+        "classification": [
+          "selection"
+        ],
+        "fields": [
+          "view"
+        ],
+        "filters": [
+          "filter"
+        ],
+        "keywords": [
+          "filter"
+        ],
+        "operation": [
+          "dispatch"
+        ],
+        "owner": [
+          "source"
+        ],
+        "path": [
+          "filter"
+        ],
+        "ref": [
+          "source"
+        ],
+        "repo": [
+          "source"
+        ],
+        "sort": [
+          "ordering"
+        ],
+        "limit": [
+          "view"
+        ]
+      }
+    },
+    "ghGetHistoryItem": {
+      "evidence": [
+        "tool-github/src/gh_get_history_item/tests.rs",
+        "runtime/tests/runtime_github_history/commits.rs",
+        "runtime/tests/runtime_github_compare/pages.rs",
+        "runtime/src/tools/selection/tests/row_pages.rs"
+      ],
+      "fields": {
+        "classification": [
+          "selection"
+        ],
+        "baseRef": [
+          "navigation"
+        ],
+        "caseMode": [
+          "matcher"
+        ],
+        "contextLines": [
+          "view"
+        ],
+        "fileStatus": [
+          "filter"
+        ],
+        "headRef": [
+          "navigation"
+        ],
+        "include": [
+          "filter"
+        ],
+        "matchString": [
+          "matcher"
+        ],
+        "minChanges": [
+          "filter"
+        ],
+        "number": [
+          "navigation"
+        ],
+        "operation": [
+          "dispatch"
+        ],
+        "owner": [
+          "source"
+        ],
+        "ref": [
+          "source"
+        ],
+        "regexEngine": [
+          "matcher"
+        ],
+        "repo": [
+          "source"
+        ],
+        "sections": [
+          "view"
+        ],
+        "wholeWord": [
+          "matcher"
+        ]
+      }
+    },
+    "artifactSearch": {
+      "evidence": [
+        "tool-packages/src/artifact/cursor_state_tests.rs",
+        "tool-packages/src/artifact/exact_lookup_tests.rs",
+        "tool-packages/src/artifact/version_gate_tests.rs",
+        "tool-packages/src/artifact/crates/tests.rs",
+        "tool-packages/src/artifact/go/discovery_tests.rs",
+        "tool-packages/src/artifact/go/tests.rs",
+        "tool-packages/src/artifact/packagist.rs",
+        "tool-packages/src/artifact/pypi/tests.rs",
+        "tool-packages/src/artifact/rubygems.rs",
+        "tool-packages/src/artifact_search/anchor_tests.rs",
+        "tool-packages/src/artifact_search/discovery_tests.rs",
+        "tool-packages/src/artifact_search/view_tests.rs",
+        "runtime/tests/runtime_artifact_search.rs"
+      ],
+      "fields": {
+        "ecosystem": [
+          "source"
+        ],
+        "keywords": [
+          "filter"
+        ],
+        "operation": [
+          "dispatch"
+        ],
+        "packageName": [
+          "source"
+        ],
+        "registryUrl": [
+          "source"
+        ],
+        "version": [
+          "source"
+        ],
+        "limit": [
+          "view"
+        ],
+        "view": [
+          "view"
+        ]
+      }
+    },
+    "securityCheck": {
+      "evidence": [
+        "tool-packages/src/security_check/osv/tests.rs",
+        "tool-packages/src/security_check/package_tests.rs",
+        "tool-packages/src/security_check/repository_tests.rs",
+        "tool-packages/src/security_check/tests.rs",
+        "tool-packages/src/security_check/url_source_tests.rs",
+        "tool-packages/src/security_check/view_tests.rs"
+      ],
+      "fields": {
+        "commitSha": [
+          "source"
+        ],
+        "ecosystem": [
+          "source"
+        ],
+        "id": [
+          "source"
+        ],
+        "operation": [
+          "dispatch"
+        ],
+        "packageName": [
+          "source"
+        ],
+        "release": [
+          "source"
+        ],
+        "repo": [
+          "source"
+        ],
+        "url": [
+          "source"
+        ],
+        "version": [
+          "source"
+        ],
+        "view": [
+          "view"
+        ]
+      }
+    },
+    "ghCloneRepo": {
+      "evidence": [
+        "tool-github/src/gh_clone_repo/tests/replacement.rs",
+        "tool-github/src/gh_clone_repo/tests/sparse.rs",
+        "tool-github/src/gh_clone_repo/tests/rows.rs",
+        "tool-github/src/gh_clone_repo/storage/tests.rs"
+      ],
+      "fields": {
+        "historyDepth": [
+          "execution"
+        ],
+        "owner": [
+          "source"
+        ],
+        "paths": [
+          "execution"
+        ],
+        "ref": [
+          "source"
+        ],
+        "repo": [
+          "source"
+        ]
+      }
+    },
+    "localSearch": {
+      "evidence": [
+        "tool-local/src/local_search/tests/pages.rs",
+        "tool-local/src/local_search/tests/secrets.rs",
+        "tool-local/src/local_search/tests/binaries.rs",
+        "tool-local/src/local_search/tests/scope.rs",
+        "tools-shared/src/selection/tests/plan_token.rs",
+        "tools-shared/src/selection/tests/plan_binding.rs",
+        "tools-shared/src/selection/tests/admission.rs",
+        "runtime/src/tools/selection/tests/candidate_pages.rs",
+        "runtime/src/tools/selection/tests/code_page.rs",
+        "runtime/src/tools/selection/tests/code_page_failures.rs",
+        "runtime/tests/runtime_local/local_search.rs",
+        "tools-shared/src/selection/judge/question_tests.rs",
+        "tools-shared/src/selection/judge/provider_tests.rs"
+      ],
+      "fields": {
+        "caseMode": [
+          "matcher"
+        ],
+        "classification": [
+          "selection"
+        ],
+        "contextLines": [
+          "view"
+        ],
+        "defaultExcludes": [
+          "filter"
+        ],
+        "exclude": [
+          "filter"
+        ],
+        "fileHas": [
+          "filter"
+        ],
+        "fileLacks": [
+          "filter"
+        ],
+        "fileType": [
+          "filter"
+        ],
+        "include": [
+          "filter"
+        ],
+        "includeHidden": [
+          "filter"
+        ],
+        "includeIgnored": [
+          "filter"
+        ],
+        "keyPath": [
+          "filter"
+        ],
+        "invertMatch": [
+          "matcher"
+        ],
+        "matchString": [
+          "matcher"
+        ],
+        "maxDepth": [
+          "filter"
+        ],
+        "multiline": [
+          "matcher"
+        ],
+        "path": [
+          "source"
+        ],
+        "regexEngine": [
+          "matcher"
+        ],
+        "sort": [
+          "ordering"
+        ],
+        "unique": [
+          "view"
+        ],
+        "view": [
+          "view"
+        ],
+        "wholeWord": [
+          "matcher"
+        ],
+        "testCode": [
+          "filter"
+        ],
+        "limit": [
+          "view"
+        ]
+      }
+    },
+    "structureSearch": {
+      "evidence": [
+        "tool-local/src/structure_search/tests/inputs.rs",
+        "tool-local/src/structure_search/tests/lines.rs",
+        "tool-local/src/structure_search/tests/files.rs",
+        "tool-local/src/structure_search/tests/tree.rs",
+        "tool-local/src/structure_search/tests/budget.rs",
+        "tool-local/src/structure_search/tests/budget/resume.rs",
+        "tool-local/src/structure_search/tests/budget/windows.rs",
+        "tool-local/src/structure_search/tests/ignore.rs",
+        "tool-local/src/structure_search/tests/listing.rs",
+        "tool-local/src/structure_search/tests/pages.rs",
+        "tool-local/src/structure_search/tests/read_leads.rs",
+        "tool-local/src/structure_search/tests/skips.rs",
+        "tool-local/src/structure_search/tests/walk_windows.rs",
+        "tool-local/src/structure_search/tests/scans.rs",
+        "tool-local/src/structure_search/tests/summaries.rs",
+        "tool-local/src/structure_search/tests/probes.rs",
+        "runtime/tests/runtime_local/walks.rs",
+        "tool-local/src/structure_search/tests/views.rs",
+        "runtime/src/tools/selection/tests/row_pages.rs"
+      ],
+      "fields": {
+        "classification": [
+          "selection"
+        ],
+        "access": [
+          "filter"
+        ],
+        "accessedAt": [
+          "filter"
+        ],
+        "defaultExcludes": [
+          "filter"
+        ],
+        "empty": [
+          "filter"
+        ],
+        "entryType": [
+          "filter"
+        ],
+        "exclude": [
+          "filter"
+        ],
+        "extensions": [
+          "filter"
+        ],
+        "include": [
+          "filter"
+        ],
+        "includeHidden": [
+          "filter"
+        ],
+        "includeIgnored": [
+          "filter"
+        ],
+        "maxDepth": [
+          "filter"
+        ],
+        "limit": [
+          "view"
+        ],
+        "minDepth": [
+          "filter"
+        ],
+        "modifiedAt": [
+          "filter"
+        ],
+        "nameRegex": [
+          "execution"
+        ],
+        "operation": [
+          "dispatch"
+        ],
+        "path": [
+          "source"
+        ],
+        "permissions": [
+          "filter"
+        ],
+        "bytes": [
+          "filter"
+        ],
+        "sort": [
+          "ordering"
+        ],
+        "view": [
+          "view"
+        ],
+        "testCode": [
+          "filter"
+        ]
+      }
+    },
+    "astSearch": {
+      "evidence": [
+        "tool-ast/src/ast_search/execute_tests.rs",
+        "tool-ast/src/ast_search/errors.rs",
+        "tool-ast/src/ast_search/policy_tests/grammar_windows.rs",
+        "tool-ast/src/ast_search/policy_tests/languages.rs",
+        "tool-ast/src/ast_search/policy_tests/walk.rs",
+        "tool-ast/src/ast_search/file_language_tests.rs",
+        "runtime/tests/runtime_local/lsp_ast.rs",
+        "tool-ast/src/ast_search/rule_tests/patterns.rs",
+        "tool-ast/src/ast_search/rule_tests/rules.rs",
+        "tool-ast/src/ast_search/rule_tests/syntax_tree.rs",
+        "engine/src/structural/octo/tests/patterns.rs",
+        "engine/src/structural/octo/tests/rules.rs",
+        "tool-ast/src/ast_search/region_tests.rs",
+        "engine/src/structural/octo/tests/rule_features.rs"
+      ],
+      "fields": {
+        "defaultExcludes": [
+          "filter"
+        ],
+        "exclude": [
+          "filter"
+        ],
+        "include": [
+          "filter"
+        ],
+        "includeCaptures": [
+          "view"
+        ],
+        "includeHidden": [
+          "filter"
+        ],
+        "includeIgnored": [
+          "filter"
+        ],
+        "includeProvenance": [
+          "view"
+        ],
+        "line": [
+          "navigation"
+        ],
+        "maxDepth": [
+          "filter"
+        ],
+        "namedOnly": [
+          "filter"
+        ],
+        "operation": [
+          "dispatch"
+        ],
+        "parser": [
+          "execution"
+        ],
+        "parserGlobs": [
+          "execution"
+        ],
+        "path": [
+          "source"
+        ],
+        "rule": [
+          "filter"
+        ],
+        "scope": [
+          "filter"
+        ],
+        "sort": [
+          "ordering"
+        ],
+        "symbolFilter": [
+          "filter"
+        ],
+        "symbolKinds": [
+          "filter"
+        ],
+        "view": [
+          "view"
+        ],
+        "testCode": [
+          "filter"
+        ],
+        "limit": [
+          "view"
+        ]
+      }
+    },
+    "localFetch": {
+      "evidence": [
+        "tool-local/src/local_fetch/tests/classified.rs",
+        "tool-local/src/local_fetch/tests/classified/recovery.rs",
+        "tool-local/src/local_fetch/tests/declarations.rs",
+        "tool-local/src/local_fetch/tests/line_walks.rs",
+        "tool-local/src/local_fetch/tests/long_lines.rs",
+        "tool-local/src/local_fetch/tests/match_misses.rs",
+        "tool-local/src/local_fetch/tests/match_patterns.rs",
+        "tool-local/src/local_fetch/tests/match_ranges.rs",
+        "tool-local/src/local_fetch/tests/match_windows.rs",
+        "tool-local/src/local_fetch/tests/paging.rs",
+        "tool-local/src/local_fetch/tests/paths.rs",
+        "tool-local/src/local_fetch/tests/redaction.rs",
+        "tool-local/src/local_fetch/tests/regex_dialects.rs",
+        "tool-local/src/local_fetch/tests/source.rs",
+        "tool-local/src/local_fetch/tests/streamed.rs",
+        "tool-local/src/local_fetch/tests/symbols.rs",
+        "tool-local/src/local_fetch/tests/views.rs",
+        "tool-local/src/local_fetch/tests/wire.rs",
+        "tool-local/src/local_fetch/executor/tests/size_limits.rs",
+        "tool-local/src/local_fetch/executor/tests/streamed.rs",
+        "tool-local/src/local_fetch/executor/tests/secrets.rs",
+        "tool-local/src/local_fetch/executor/tests/open.rs",
+        "tools-shared/src/source_view/selection/tests/chunks.rs",
+        "tools-shared/src/source_view/selection/tests/classified_reads.rs",
+        "tools-shared/src/source_view/selection/tests/provider.rs",
+        "tools-shared/src/source_view/selection/tests/state_budget.rs",
+        "tools-shared/src/selection/tests/plan_token.rs",
+        "tools-shared/src/selection/tests/plan_binding.rs",
+        "tools-shared/src/selection/tests/admission.rs",
+        "runtime/src/tools/selection/tests/candidate_pages.rs",
+        "runtime/src/tools/selection/tests/code_page.rs",
+        "runtime/src/tools/selection/tests/code_page_failures.rs",
+        "runtime-base/src/response/numbered/tests.rs",
+        "runtime/tests/runtime_local/local_fetch.rs",
+        "tools-shared/src/selection/judge/question_tests.rs",
+        "tools-shared/src/selection/judge/provider_tests.rs"
+      ],
+      "fields": {
+        "block": [
+          "view"
+        ],
+        "caseMode": [
+          "matcher"
+        ],
+        "classification": [
+          "selection"
+        ],
+        "contextLines": [
+          "view"
+        ],
+        "matchString": [
+          "matcher"
+        ],
+        "path": [
+          "source"
+        ],
+        "ranges": [
+          "view"
+        ],
+        "regexEngine": [
+          "matcher"
+        ],
+        "view": [
+          "view"
+        ],
+        "wholeWord": [
+          "matcher"
+        ],
+        "readProgress": [
+          "view"
+        ],
+        "limit": [
+          "view"
+        ]
+      }
+    },
+    "lspSearch": {
+      "evidence": [
+        "tool-lsp/src/lsp_search/analysis_context/tests.rs",
+        "tool-lsp/src/lsp_search/tests/call_counts.rs",
+        "tool-lsp/src/lsp_search/tests/call_rows.rs",
+        "tool-lsp/src/lsp_search/tests/caller_pages.rs",
+        "tool-lsp/src/lsp_search/tests/continuations.rs",
+        "tool-lsp/src/lsp_search/tests/diagnostics.rs",
+        "tool-lsp/src/lsp_search/tests/empty_rows.rs",
+        "tool-lsp/src/lsp_search/tests/failures.rs",
+        "tool-lsp/src/lsp_search/tests/hierarchy.rs",
+        "tool-lsp/src/lsp_search/tests/hierarchy_caps.rs",
+        "tool-lsp/src/lsp_search/tests/outline.rs",
+        "tool-lsp/src/lsp_search/tests/pagination.rs",
+        "tool-lsp/src/lsp_search/tests/references.rs",
+        "tool-lsp/src/lsp_search/tests/requests.rs",
+        "tool-lsp/src/lsp_search/tests/server_context.rs",
+        "tool-lsp/src/lsp_search/tests/servers.rs",
+        "tool-lsp/src/lsp_search/tests/sources.rs",
+        "tool-lsp/src/lsp_search/tests/test_code.rs",
+        "tool-lsp/src/lsp_search/tests/unresolved_anchors.rs",
+        "runtime/tests/runtime_local/lsp_ast.rs"
+      ],
+      "fields": {
+        "contextLines": [
+          "view"
+        ],
+        "depth": [
+          "view"
+        ],
+        "includeDeclaration": [
+          "view"
+        ],
+        "line": [
+          "navigation"
+        ],
+        "occurrence": [
+          "navigation"
+        ],
+        "operation": [
+          "dispatch"
+        ],
+        "path": [
+          "source"
+        ],
+        "rustContext": [
+          "execution"
+        ],
+        "symbolName": [
+          "navigation"
+        ],
+        "symbolFuzzy": [
+          "navigation"
+        ],
+        "testCode": [
+          "filter"
+        ],
+        "view": [
+          "view"
+        ],
+        "workspaceRoot": [
+          "source"
+        ],
+        "limit": [
+          "view"
+        ]
+      }
+    },
+    "graphBuild": {
+      "evidence": [
+        "runtime/src/runtime/config_effect_tests/graph_home.rs",
+        "tool-graph/src/ast_graph/graph/checkpoint/tests.rs",
+        "tool-graph/src/ast_graph/store/tools/tests.rs",
+        "tool-graph/src/ast_graph/store/tests/ingest.rs",
+        "tool-graph/src/ast_graph/store/tests/stale.rs"
+      ],
+      "fields": {
+        "path": [
+          "source"
+        ],
+        "exclude": [
+          "filter"
+        ],
+        "defaultExcludes": [
+          "filter"
+        ],
+        "includeIgnored": [
+          "filter"
+        ],
+        "includeHidden": [
+          "filter"
+        ],
+        "refresh": [
+          "execution"
+        ],
+        "parserGlobs": [
+          "matcher"
+        ],
+        "keep": [
+          "execution"
+        ]
+      }
+    },
+    "graphQuery": {
+      "evidence": [
+        "tool-graph/src/ast_graph/store/query/selective_tests.rs",
+        "tool-graph/src/ast_graph/store/query/window_tests.rs",
+        "tool-graph/src/ast_graph/store/tools/tests/candidates.rs",
+        "tool-graph/src/ast_graph/store/tools/tests/constructors.rs",
+        "tool-graph/src/ast_graph/store/tests/arguments.rs",
+        "tool-graph/src/ast_graph/store/tests/evidence.rs",
+        "tool-graph/src/ast_graph/store/tests/incremental.rs",
+        "tool-graph/src/ast_graph/store/tools/tests.rs",
+        "tool-graph/src/ast_graph/store/tests/queries.rs",
+        "tool-graph/src/ast_graph/store/tests/impact.rs",
+        "tool-graph/src/ast_graph/store/tests/issues.rs",
+        "tool-graph/src/ast_graph/store/query/sources.rs",
+        "tool-graph/src/ast_graph/store/tools/tests/projection.rs",
+        "tool-graph/src/ast_graph/store/tests/weights.rs"
+      ],
+      "fields": {
+        "path": [
+          "source"
+        ],
+        "graph": [
+          "source"
+        ],
+        "operation": [
+          "dispatch"
+        ],
+        "target": [
+          "filter"
+        ],
+        "to": [
+          "navigation"
+        ],
+        "edges": [
+          "filter"
+        ],
+        "kind": [
+          "filter"
+        ],
+        "direction": [
+          "navigation"
+        ],
+        "rankBy": [
+          "ordering"
+        ],
+        "depth": [
+          "navigation"
+        ],
+        "confidence": [
+          "filter"
+        ],
+        "limit": [
+          "view"
+        ],
+        "changed": [
+          "source"
+        ],
+        "since": [
+          "source"
+        ],
+        "baseline": [
+          "source"
+        ],
+        "includeProvenance": [
+          "view"
+        ],
+        "view": [
+          "view"
+        ],
+        "symbolName": [
+          "filter"
+        ],
+        "reasons": [
+          "filter"
+        ],
+        "detectors": [
+          "dispatch"
+        ],
+        "entries": [
+          "source"
+        ],
+        "minScore": [
+          "filter"
+        ],
+        "minTier": [
+          "filter"
+        ]
+      }
+    }
+  }
+}

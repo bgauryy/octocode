@@ -4,6 +4,7 @@ node_modules
 build
 # Cargo build-script modules (`build.rs` includes them by #[path]); source, not output.
 !packages/octocode-native/crates/runtime/build/
+!packages/octocode-native/crates/runtime-base/build/
 dist
 **/.octocode-build.lock
 .yarn/install-state.gz
@@ -70,3 +71,10 @@ __pycache__
 releases/**
 tmp
 *.log
+homes
+
+# Rust module directories are source, even when named like an ignored artifact
+# folder above (`output`, `context`, `tmp`): a module `output.rs` keeps its
+# children in `output/`.
+!packages/octocode-native/crates/*/src/**/
+!packages/octocode-native/crates/*/tests/**/

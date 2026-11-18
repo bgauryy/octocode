@@ -25,10 +25,12 @@ pub(super) use matching::{
 pub use rule::EXAMPLE_RULE;
 pub(super) use rule::{RawPattern, RawRule, decode_rule};
 
-#[cfg(test)]
-pub(super) use matching::INTERRUPT_NEXT_COMPILE_PARSE;
+// `structural::tests::limits` reaches the injected parse interruption and
+// the depth bound through these paths.
 #[cfg(test)]
 pub(super) use stack::MAX_STRUCTURAL_DEPTH;
+#[cfg(test)]
+pub(super) use tests::INTERRUPT_NEXT_COMPILE_PARSE;
 
 use crate::text::LineIndex;
 pub use error::COMPILE_FAILED;
@@ -39,34 +41,16 @@ use matching::{CaptureEnv, collect_kind_matches};
 pub(super) use matching::{Found, MatchWithKind};
 pub use matching::{MATCH_DEADLINE, PARSE_INTERRUPTED};
 use pattern::CompiledPattern;
-pub use pattern::{
-    LiteralSigil, PatternDeclaration, QualifiedPattern, Separator, SigilForm, SigilRepair,
-};
+pub(super) use pattern::Separator;
+pub use pattern::{LiteralSigil, PatternDeclaration, QualifiedPattern, SigilForm, SigilRepair};
 use recovery::Recovery;
 pub use rule::RULE_INVALID;
 use rule::{CompiledRule, Document, RelationMemo};
-
-#[cfg(test)]
-use matching::{SECONDARY_CAPTURE, parse_tree, visit_named};
-#[cfg(test)]
-use rule::{ANCESTOR_STEPS, RULE_DECODE_COUNT};
-
-#[cfg(test)]
-use super::types::StructuralMatch;
 
 /// A compiled query: matches one source into what the caller's [`Found`]
 /// keeps.
 pub(super) type OctoCompiledMatcher =
     Box<dyn Fn(&str, &mut Found<'_>) -> Result<(), ExecutionError> + Send + Sync>;
-
-/// Every match `run` finds in `content`, materialized.
-#[cfg(test)]
-pub(super) fn all_matches(
-    run: &OctoCompiledMatcher,
-    content: &str,
-) -> Result<Vec<MatchWithKind>, ExecutionError> {
-    matches_with_recovery(run, content).map(|(matches, _)| matches)
-}
 
 /// What recovered syntax could hide of one source's matches.
 pub(super) struct Recovered {
@@ -77,7 +61,8 @@ pub(super) struct Recovered {
     pub(super) bodies: Vec<super::types::RecoveredBody>,
 }
 
-/// [`all_matches`], and what recovered syntax could hide of them.
+/// Every match `run` finds in `content`, and what recovered syntax could
+/// hide of them.
 pub(super) fn matches_with_recovery(
     run: &OctoCompiledMatcher,
     content: &str,
@@ -257,7 +242,7 @@ pub(super) fn compile_matcher(
     let macro_anchors = macro_anchors.filter(|_| !super::files::unfiltered());
     let run = stack::compile_on_deep_stack(|| compile_matcher_here(lang, query, macro_anchors))?;
     #[cfg(test)]
-    let run = prefilter_audit(query, run);
+    let run = tests::prefilter_audit(query, run);
     Ok(Box::new(move |content, found| {
         stack::on_deep_stack(|| run(content, found))
             .unwrap_or_else(|| Err(stack::stack_unavailable()))
@@ -404,33 +389,6 @@ fn compile_matcher_here(
         }
         _ => unreachable!("StructuralQuery validates the query shape"),
     }
-}
-
-/// Every engine test audits the literal prefilter: a source in which `run`
-/// finds a match must hold what the query's prefilter requires, or a
-/// directory scan would skip that file and drop the match. A violation
-/// aborts the test binary (a panic here could be caught as a failed
-/// search), naming the query.
-#[cfg(test)]
-fn prefilter_audit(query: &StructuralQuery<'_>, run: OctoCompiledMatcher) -> OctoCompiledMatcher {
-    let prefilter = query.prefilter();
-    let Ok(Some(filter)) = super::files::anchors::AnchorFilter::new(&prefilter) else {
-        return run;
-    };
-    let source = query.explanation_with_prefilter(&prefilter).source;
-    Box::new(move |content, found| {
-        let before = found.pushed();
-        run(content, found)?;
-        if found.pushed() > before && !filter.admits(content.as_bytes()) {
-            use std::io::Write as _;
-            let _ = writeln!(
-                std::io::stderr(),
-                "prefilter audit: {prefilter:?} skips a source where {source} matches:\n{content}"
-            );
-            std::process::abort();
-        }
-        Ok(())
-    })
 }
 
 /// A matched node its macro body's re-parse could not read: no match, but

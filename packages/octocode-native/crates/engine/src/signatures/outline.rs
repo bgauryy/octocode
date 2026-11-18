@@ -464,16 +464,3 @@ pub fn is_comment_line(file_path: &str, line: &str) -> Option<bool> {
 /// lines effectively never reach this; a longer row (minified or bundled
 /// source, a deeply nested expression) lists its declaration heads instead.
 pub(super) const OUTLINE_MAX_LINE_CHARS: usize = 1000;
-
-/// The outline of `content` read from its own declarations document.
-#[cfg(test)]
-pub(crate) fn extract_signatures_inner(
-    content: &str,
-    file_path: &str,
-) -> Result<String, OutlineUnavailable> {
-    declarations_outline(
-        content,
-        file_path,
-        super::extract_declarations_document(content, file_path).as_ref(),
-    )
-}

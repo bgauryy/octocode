@@ -1,17 +1,18 @@
 //! Domain dispatch. Interfaces never select security or execution policy.
-use crate::execution::{ExecutionContext, ExecutionError};
-use crate::id::ToolId;
-use crate::policy::path::PathPolicy;
-use crate::response::outcome::{DomainResult, Upstream};
+use crate::runtime::tool_output::ToolOutputOf;
+use octocode_runtime_base::execution::{ExecutionContext, ExecutionError};
+use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::policy::path::PathPolicy;
+use octocode_runtime_base::response::outcome::{DomainResult, Upstream};
 
-use crate::security::ContentSecurity;
-use crate::tools::ast_search::execute_ast;
-use crate::tools::local_search::{SearchStatus, execute_local_search};
-use crate::tools::structure_search::execute_structure;
 use octocode_contract_types::{
     AstSearchQuery, ErrorCode, LocalFetchQuery, LocalSearchQuery, StructureSearchQuery,
 };
 use octocode_io::retry::classify_status;
+use octocode_runtime_base::security::ContentSecurity;
+use octocode_tool_ast::ast_search::execute_ast;
+use octocode_tool_local::local_search::{SearchStatus, execute_local_search};
+use octocode_tool_local::structure_search::execute_structure;
 use serde_json::Value;
 
 /// The runtime-owned services a local row runs against.
@@ -22,9 +23,9 @@ pub(super) struct LocalEnv<'a> {
     pub paths: &'a PathPolicy,
     pub security: &'a ContentSecurity,
     pub cargo: Option<&'a str>,
-    pub selection: Option<&'a crate::tools::selection::Runtime>,
+    pub selection: Option<&'a octocode_tools_shared::selection::Runtime>,
     /// The retained rows graph continuation pages replay; `None`: they compute.
-    pub graph_rows: Option<&'a std::sync::Arc<crate::tools::ast_graph::store::SavedRows>>,
+    pub graph_rows: Option<&'a std::sync::Arc<octocode_tool_graph::ast_graph::store::SavedRows>>,
 }
 
 /// Execute one local-filesystem row. The caller routes by [`ToolId`]; a tool
@@ -57,13 +58,13 @@ pub(super) fn execute_local(
     match tool {
         ToolId::GraphBuild => {
             let request = parsed!(octocode_contract_types::GraphBuildQuery);
-            crate::tools::ast_graph::store::tools::execute_build(
+            octocode_tool_graph::ast_graph::store::tools::execute_build(
                 &request,
                 paths,
                 security,
                 context,
                 cargo,
-                &crate::tools::ast_graph::store::tools::Store {
+                &octocode_tool_graph::ast_graph::store::tools::Store {
                     memory_only,
                     home: graph_home,
                 },
@@ -71,7 +72,7 @@ pub(super) fn execute_local(
         }
         ToolId::GraphQuery => {
             let _ = parsed!(octocode_contract_types::GraphQueryQuery);
-            crate::tools::ast_graph::store::tools::execute_query(
+            octocode_tool_graph::ast_graph::store::tools::execute_query(
                 query,
                 paths,
                 context,
@@ -81,7 +82,7 @@ pub(super) fn execute_local(
         }
         ToolId::LocalFetch => {
             let request = parsed!(LocalFetchQuery);
-            let result = crate::tools::local_fetch::execute_local_fetch(
+            let result = octocode_tool_local::local_fetch::execute_local_fetch(
                 &request,
                 paths,
                 security,
@@ -101,6 +102,7 @@ pub(super) fn execute_local(
             let request = parsed!(LocalSearchQuery);
             let (security, judged) = security.for_request();
             let result = execute_local_search(
+                crate::build_identity::BUILD_IDENTITY,
                 &request,
                 paths,
                 &security,
@@ -135,7 +137,14 @@ pub(super) fn execute_local(
             let request = parsed!(AstSearchQuery);
             let (security, judged) = security.for_request();
             Ok(
-                match execute_ast(&request, paths, &security, context, context.response_window) {
+                match execute_ast(
+                    crate::build_identity::BUILD_IDENTITY,
+                    &request,
+                    paths,
+                    &security,
+                    context,
+                    context.response_window,
+                ) {
                     Ok(data) => {
                         let mut row = value_result(data);
                         row.judged = judged.leaves();
@@ -177,10 +186,12 @@ pub(super) fn invalid_query(error: &serde_json::Error) -> DomainResult {
     )
 }
 
-/// A tool's [`crate::response::result::ToolData`] (a bare `Value` converts):
+/// A tool's [`octocode_runtime_base::response::result::ToolData`] (a bare `Value` converts):
 /// its payload as [`value_result`], keeping the typed notes of what its pages
 /// leave to read.
-pub(crate) fn data_result(data: impl Into<crate::response::result::ToolData>) -> DomainResult {
+pub(crate) fn data_result(
+    data: impl Into<octocode_runtime_base::response::result::ToolData>,
+) -> DomainResult {
     value_result(data.into().data)
 }
 
@@ -202,12 +213,14 @@ pub(super) fn offer_retry(tool: ToolId, query: &Value, data: &mut Value) {
     if data["retryable"] != serde_json::json!(true) {
         return;
     }
-    let retry = crate::response::result::Continuation::continued(tool, query.clone()).build();
-    crate::response::result::set_next(data, "retry", retry);
+    let retry =
+        octocode_runtime_base::response::result::Continuation::continued(tool, query.clone())
+            .build();
+    octocode_runtime_base::response::result::set_next(data, "retry", retry);
 }
 
 /// A registry or language-server failure row of `tool`, whose own recovery
-/// ([`crate::response::output::ToolOutput::error_hint`]) decides a shared
+/// ([`octocode_runtime_base::response::output::ToolOutput::error_hint`]) decides a shared
 /// code. `retryable` is the emitter's own verdict when it has one, else
 /// derived from the code and status.
 pub(super) fn provider_failure(
@@ -243,7 +256,11 @@ pub(super) fn provider_failure(
             } else {
                 code
             };
-            crate::response::rows::error_code_hint(tool.output(), situation, &Value::Null)
+            octocode_runtime_base::response::rows::error_code_hint(
+                tool.output(),
+                situation,
+                &Value::Null,
+            )
         };
         hints.extend(
             own.or_else(shared)

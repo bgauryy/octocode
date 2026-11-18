@@ -1,3 +1,4 @@
+use crate::lsp::clock::LspClock;
 use crate::lsp::project_config::ProjectConfigWatch;
 use crate::lsp::spawn_limits;
 use crate::lsp::transport::{JsonRpcConnection, ProgressTracker};
@@ -129,10 +130,10 @@ struct NativeLspClientInner {
     /// (closing a kill-on-close job hard-kills the tree). Unit on Unix, where
     /// the watchdog (or `pre_exec` on other Unix targets) applies the cap.
     memory_cap_guard: StdMutex<Option<crate::process::Job>>,
-    /// macOS and Linux: the RSS watchdog enforcing `max_memory_mb` on the
+    /// macOS and Linux: the memory watchdog enforcing `max_memory_mb` on the
     /// server tree. Dropped (aborted) by `stop` before the child is reaped.
     memory_watchdog: StdMutex<Option<spawn_limits::AbortOnDrop>>,
-    /// The server tree's resident bytes at the watchdog's last sample; `0`
+    /// The bytes the server tree held at the watchdog's last sample; `0`
     /// before the first one or without a watchdog.
     resident_bytes: Arc<AtomicU64>,
     /// The scope's files (relative path → stamp) as of the last request,
@@ -140,6 +141,9 @@ struct NativeLspClientInner {
     /// the next request sends it the difference (see `watched.rs`).
     watched_files: StdMutex<Option<std::collections::BTreeMap<String, String>>>,
     options: LspClientOptions,
+    /// The time this client and its connection set deadlines and record
+    /// waits on.
+    clock: LspClock,
 }
 
 /// One tool call's identity, unique within the process.
@@ -191,6 +195,16 @@ impl NativeLspClient {
     }
 
     pub fn with_options(config: LspLanguageServerConfig, options: LspClientOptions) -> Self {
+        Self::with_clock(config, options, LspClock::default())
+    }
+
+    /// [`Self::with_options`] on `clock`: the pool passes its own, so a
+    /// pool and its clients read one time.
+    pub(crate) fn with_clock(
+        config: LspLanguageServerConfig,
+        options: LspClientOptions,
+        clock: LspClock,
+    ) -> Self {
         // Every launch path (discovery, runtime) gets the per-server
         // safe defaults; user-supplied options still win key by key.
         let mut config = config;
@@ -215,7 +229,7 @@ impl NativeLspClient {
                 server_info: StdMutex::new(None),
                 readiness: StdMutex::new(None),
                 waits: StdMutex::default(),
-                progress: ProgressTracker::new(),
+                progress: ProgressTracker::new(clock.clone()),
                 started_at: std::sync::OnceLock::new(),
                 listed_files: std::sync::OnceLock::new(),
                 idle_at_begin: AtomicU64::new(0),
@@ -230,6 +244,7 @@ impl NativeLspClient {
                 resident_bytes: Arc::new(AtomicU64::new(0)),
                 watched_files: StdMutex::new(None),
                 options,
+                clock,
             }),
         }
     }

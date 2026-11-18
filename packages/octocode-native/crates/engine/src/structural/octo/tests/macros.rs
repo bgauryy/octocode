@@ -872,8 +872,8 @@ fn a_lone_macro_call_reparses_as_one_invocation() {
     }
 }
 
-/// RV-C3eH round 3 probe: no match returned from a re-parsed `json!` object
-/// has a wrong extent (text the real tree has no node for).
+/// No match returned from a re-parsed `json!` object has a wrong extent (text
+/// the real tree has no node for).
 #[test]
 fn rv_c3eh_r3_json_object_bodies_return_no_wrong_extent() {
     let source = "fn f(v: &V, i: u32) {\n    let a = json!({\"name\":format!(\"f{i:03}.rs\"),\"path\":format!(\"f{i:03}.rs\"),\"type\":\"file\",\"size\":1});\n    let b = json!({\"kind\": \"token_tree\", \"has\": {\"pattern\": \"check($A)\"}});\n    let c = json!({\n        \"id\": v[\"id\"].to_string().trim_matches('\"'),\n        \"author\": a.unwrap_or(\"unknown\"),\n    });\n}\n";

@@ -300,6 +300,7 @@ fn a_listing_that_outlasts_the_budget_is_left_whole_to_the_resume() {
         File::create(root.join("big").join(format!("{index:03}.ts"))).expect("file");
     }
     File::create(root.join("z.ts")).expect("file");
+    let clock = crate::test_support::clock::ManualWalkClock::new();
     let walk = |skip: u32, resume: Option<WalkCursor>, late_at_big: bool| {
         query_file_system(
             FileSystemQueryOptions {
@@ -307,13 +308,14 @@ fn a_listing_that_outlasts_the_budget_is_left_whole_to_the_resume() {
                 skip_entries: Some(skip),
                 resume,
                 time_budget: late_at_big.then_some(std::time::Duration::from_secs(3600)),
+                walk_clock: clock.walk_clock(),
                 ..Default::default()
             },
             &|path, _, _| {
                 // The budget runs out as the walk admits `big`: during its
                 // listing, which the walk reads right after.
                 if late_at_big && path.file_name().is_some_and(|name| name == "big") {
-                    crate::scan_budget::advance_walk_clock(std::time::Duration::from_secs(7200));
+                    clock.advance(std::time::Duration::from_secs(7200));
                 }
                 true
             },

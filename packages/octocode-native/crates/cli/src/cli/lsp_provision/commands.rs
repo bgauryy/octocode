@@ -1,12 +1,12 @@
 use super::live_check::run_live;
 use super::status::run_status;
 use super::upstream::{GitHub, Upstream};
-use super::{provision_server, uninstall_server};
+use super::{ProvisionOutcome, provision_server, uninstall_server};
 use octocode_engine::lsp::config::LspDiscoveryOptions;
 use octocode_engine::lsp::managed::{manifest, platform_id, resolve_cached_server};
-use octocode_native::config::LspAutoInstall;
-use octocode_native::response::exit::ExitClass;
 use octocode_native::runtime::{ErrorClass, ToolRuntime};
+use octocode_runtime_base::config::LspAutoInstall;
+use octocode_runtime_base::response::exit::ExitClass;
 use std::path::Path;
 
 /// The runtime's resolved language-server discovery settings, so status and
@@ -137,7 +137,7 @@ pub(super) async fn run_install(
         return 2;
     }
     let mut results = Vec::new();
-    let mut worst: u8 = 0;
+    let mut failed = Vec::new();
     for name in targets {
         let outcome = provision_server(root, &name, platform, mode, upstream).await;
         if outcome.ok {
@@ -152,24 +152,52 @@ pub(super) async fn run_install(
                 }
             }
         } else {
-            worst = super::super::exit_code(ExitClass::Failed(ErrorClass::Unservable));
+            failed.push(
+                outcome
+                    .failure
+                    .as_ref()
+                    .map_or(ErrorClass::Unservable, |failure| {
+                        octocode_runtime_base::id::error_codes::class(failure.code)
+                    }),
+            );
             if !json {
-                println!("{name}: {}", outcome.error.clone().unwrap_or_default());
+                let error = outcome
+                    .failure
+                    .as_ref()
+                    .map(|failure| failure.message.as_str());
+                println!("{name}: {}", error.unwrap_or_default());
             }
         }
-        results.push(serde_json::json!({
-            "name": name,
-            "ok": outcome.ok,
-            "source": outcome.source,
-            "path": outcome.path,
-            "error": outcome.error,
-            "verification": outcome.verification,
-        }));
+        results.push(install_item(&name, &outcome));
     }
     if json {
         super::super::write_json(&serde_json::json!({ "install": results }));
     }
-    worst
+    // The strictest class of the failed items: an unknown name is the
+    // caller's to correct (2), an execution failure is not (5).
+    octocode_runtime_base::response::exit::strictest(failed)
+        .map_or(0, |class| super::super::exit_code(ExitClass::Failed(class)))
+}
+
+/// One `install` item as `--json` prints it. A failed item also states what
+/// stopped it (`errorCode`) and that code's class (`errorClass`), as every
+/// other `--json` failure does.
+pub(super) fn install_item(name: &str, outcome: &ProvisionOutcome) -> serde_json::Value {
+    let failure = outcome.failure.as_ref();
+    let mut item = serde_json::json!({
+        "name": name,
+        "ok": outcome.ok,
+        "source": outcome.source,
+        "path": outcome.path,
+        "error": failure.map(|failure| &failure.message),
+        "verification": outcome.verification,
+    });
+    if let Some(failure) = failure {
+        item["errorCode"] = serde_json::json!(failure.code);
+        item["errorClass"] =
+            serde_json::json!(octocode_runtime_base::id::error_codes::class(failure.code));
+    }
+    item
 }
 
 pub(super) fn run_uninstall(root: &Path, platform: &str, names: Vec<String>, json: bool) -> u8 {

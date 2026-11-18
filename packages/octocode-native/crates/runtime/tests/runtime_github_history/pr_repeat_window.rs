@@ -3,6 +3,7 @@
 //! time the answer was observed. With no stated lifetime, the chosen
 //! `PULL_REQUEST_REUSE_WINDOW` stands in.
 use crate::support::{Workspace, call, row_data, row_status};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -61,11 +62,26 @@ async fn graphql_sent(server: &MockServer) -> usize {
 }
 
 fn summary() -> Value {
-    json!({"operation":"pullRequest","owner":"a","repo":"b","number":7})
+    json_fixture(
+        r#"{
+            "operation": "pullRequest",
+            "owner": "a",
+            "repo": "b",
+            "number": 7
+        }"#,
+    )
 }
 
 fn sections() -> Value {
-    json!({"operation":"pullRequest","owner":"a","repo":"b","number":7,"sections":["body","files"]})
+    json_fixture(
+        r#"{
+            "operation": "pullRequest",
+            "owner": "a",
+            "repo": "b",
+            "number": 7,
+            "sections": ["body", "files"]
+        }"#,
+    )
 }
 
 /// The stated lifetime learned from any REST read of a pull request stands for
@@ -97,7 +113,15 @@ async fn a_repeat_inside_the_stated_lifetime_sends_nothing_and_says_so() {
     assert!(observed.is_string(), "{observed}");
     assert_eq!(shown, row_data(&first).clone());
     // Another read of the same pull request asks for itself.
-    let other = json!({"operation":"pullRequest","owner":"a","repo":"b","number":7,"sections":["body","commits"]});
+    let other = json_fixture(
+        r#"{
+            "operation": "pullRequest",
+            "owner": "a",
+            "repo": "b",
+            "number": 7,
+            "sections": ["body", "commits"]
+        }"#,
+    );
     call(&runtime, "ghGetHistoryItem", other)
         .await
         .expect("other");
@@ -176,7 +200,7 @@ async fn with_no_stated_lifetime_a_repeat_stands_for_the_chosen_window() {
 #[tokio::test]
 async fn an_answer_with_errors_is_never_reused() {
     let mut partial = graphql_answer();
-    partial["errors"] = json!([{"message": "field denied", "path": ["repository"]}]);
+    partial["errors"] = json_fixture(r#"[{"message": "field denied", "path": ["repository"]}]"#);
     let server = server(partial, "private, max-age=60").await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);

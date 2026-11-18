@@ -2,6 +2,7 @@
 //! requested window in one request (`page=1`, `per_page` = the window), not
 //! a larger page sliced afterwards.
 use super::*;
+use octocode_test_support::json_fixture;
 
 async fn one_request_for(server: &MockServer, route: &str, per_page: usize) {
     let requests = server.received_requests().await.expect("recorded");
@@ -25,9 +26,9 @@ async fn one_request_for(server: &MockServer, route: &str, per_page: usize) {
 async fn empty_search_server() -> MockServer {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "total_count": 0, "incomplete_results": false, "items": []
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"total_count": 0, "incomplete_results": false, "items": []}"#,
+        )))
         .mount(&server)
         .await;
     server

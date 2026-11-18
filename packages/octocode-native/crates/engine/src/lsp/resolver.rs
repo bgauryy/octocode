@@ -60,19 +60,8 @@ fn check_source_size(size: usize) -> Result<()> {
     }
 }
 
-#[cfg(test)]
-pub(crate) fn resolve_position_from_content(
-    content: String,
-    fuzzy: LspFuzzyPosition,
-) -> Result<LspResolvedSymbol> {
-    check_source_size(content.len())?;
-    let deadline = whole_file_deadline();
-    let lines = normalized_lines(&content);
-    resolve_position_from_lines(&lines, &fuzzy, deadline)
-}
-
-/// [`resolve_position_from_content`] over `content` already read for `file_path` (the path
-/// only selects the grammar; the file is not read). Lets a caller resolve the
+/// Resolve `fuzzy` in `content` already read for `file_path` (the path only
+/// selects the grammar; the file is not read). Lets a caller resolve the
 /// anchor on exactly the text it synchronized with `didOpen`.
 pub fn resolve_position_in_file_content(
     file_path: &str,

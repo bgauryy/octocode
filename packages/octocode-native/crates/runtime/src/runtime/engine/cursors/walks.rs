@@ -1,12 +1,12 @@
 //! Several rows' walks on one handle.
 use super::{Pending, SavedWork};
-use crate::id::ToolId;
+use octocode_runtime_base::id::ToolId;
 
 impl Pending {
     /// The one handle that continues every walk in `handles` (each a tool
     /// continuation this output issued): the walk's own for one, else a new
     /// one whose rows run together and keep their queries' indices.
-    pub fn walk_handle(&mut self, tool: ToolId, handles: &[String]) -> Option<String> {
+    pub(crate) fn walk_handle(&mut self, tool: ToolId, handles: &[String]) -> Option<String> {
         if let [handle] = handles {
             return Some(handle.clone());
         }

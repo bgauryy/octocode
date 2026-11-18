@@ -10,7 +10,7 @@ use super::{
     DEFAULT_MAX_LINE_SEARCH_FILE_BYTES, DEFAULT_MAX_SEARCH_FILE_BYTES, TextSearchPathFilter,
 };
 use crate::error::Result;
-use crate::types::{PatternSyntax, SearchContext, SourceValues, TextSearchOptions};
+use crate::types::{PatternSyntax, SearchContext, SearchSort, SourceValues, TextSearchOptions};
 use grep_matcher::Matcher;
 use grep_searcher::BinaryDetection;
 use ignore::WalkState;
@@ -121,7 +121,15 @@ pub(super) fn walk_scope<'a>(
         rule: rule.map(Arc::new),
         selection,
         state,
-        control,
+        cancelled: Box::new(move || {
+            let cancelled = (control.cancelled)();
+            if cancelled {
+                state
+                    .cancelled
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            cancelled
+        }),
         max_file_bytes: byte_ceiling(opts),
         keep_unmatched: mode == Mode::FilesWithoutMatch,
         file_terms: FileTerms::new(opts),
@@ -165,15 +173,19 @@ pub(super) fn file_searcher<'a, M: Matcher>(
                 && !only_matching
                 && !opts.multiline.unwrap_or(false),
             row_window: opts.row_window,
+            // A matchCount order ranks by occurrences in every view, so a
+            // count-lines search counts them too.
+            enumerate_submatches: mode != Mode::CountLines || opts.sort == SearchSort::MatchCount,
             ..match_work(mode, only_matching)
         },
         stop,
         held,
         // A stream's files finish when it is cancelled: what it read before
         // the cut is the same on every run.
-        cancelled: (!scope.drains).then_some(scope.control.cancelled),
+        cancelled: (!scope.drains).then_some(&*scope.cancelled),
         copy: scope.file_terms.is_some(),
         terms,
         gate: &scope.judge_gate,
+        read: super::file_search::ReadDigest::new(opts.values.hashed()),
     }
 }

@@ -9,6 +9,7 @@ use super::pool_client::{ClientFuture, PoolClient};
 use super::start_guards::StartCancellationGuard;
 use super::state::*;
 use super::*;
+use crate::test_support::clock::{TestClock, paused};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use tokio::sync::Mutex;
@@ -113,12 +114,21 @@ impl PoolClient for FakeClient {
 }
 
 fn pool(max_entries: usize, idle_timeout_ms: u64) -> GenericPool<FakeClient> {
-    GenericPool::new(LspPoolOptions {
+    GenericPool::new(pool_options(max_entries, idle_timeout_ms))
+}
+
+/// [`pool`] on the test clock.
+fn pool_on(clock: &TestClock, max_entries: usize, idle_timeout_ms: u64) -> GenericPool<FakeClient> {
+    GenericPool::with_clock(pool_options(max_entries, idle_timeout_ms), clock.lsp())
+}
+
+fn pool_options(max_entries: usize, idle_timeout_ms: u64) -> LspPoolOptions {
+    LspPoolOptions {
         max_entries,
         idle_timeout_ms,
         max_resident_bytes: 0,
         ..LspPoolOptions::default()
-    })
+    }
 }
 
 fn pool_with_memory_budget(max_resident_bytes: u64) -> GenericPool<FakeClient> {

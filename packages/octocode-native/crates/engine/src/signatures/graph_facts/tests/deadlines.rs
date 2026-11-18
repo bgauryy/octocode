@@ -1,5 +1,6 @@
 //! Parse and walk deadlines, and deep nesting kept off the native stack.
 
+use super::super::walk::visit_node;
 use super::*;
 
 #[test]

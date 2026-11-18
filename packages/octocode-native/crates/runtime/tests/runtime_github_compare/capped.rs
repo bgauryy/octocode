@@ -2,6 +2,7 @@
 
 use super::{BASE_SHA, HEAD_SHA, mount_capped_compare};
 use crate::support::{self};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use support::{Workspace, call, row_data, row_status};
 use wiremock::matchers::{method, path, query_param};
@@ -18,7 +19,16 @@ async fn capped_compare_with_a_path_leads_to_the_path_history() {
     let out = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"v1","headRef":"v2","include":["lib/late.rs"]}),
+        json_fixture(
+            r#"{
+                "operation": "compare",
+                "owner": "a",
+                "repo": "b",
+                "baseRef": "v1",
+                "headRef": "v2",
+                "include": ["lib/late.rs"]
+            }"#,
+        ),
     )
     .await
     .expect("compare");
@@ -107,8 +117,17 @@ async fn capped_compare_reaches_every_changed_path_through_the_trees() {
     let read = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"v1","headRef":"v2",
-               "sections":["files"],"include":["lib/**"]}),
+        json_fixture(
+            r#"{
+                "operation": "compare",
+                "owner": "a",
+                "repo": "b",
+                "baseRef": "v1",
+                "headRef": "v2",
+                "sections": ["files"],
+                "include": ["lib/**"]
+            }"#,
+        ),
     )
     .await
     .expect("compare past the cap");
@@ -136,8 +155,16 @@ async fn compare_include_scopes_files_and_capped_scope_leads_to_path_history() {
     let listed = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"v1","headRef":"v2",
-               "include":["src/f001.rs","src/f2*.rs"]}),
+        json_fixture(
+            r#"{
+                "operation": "compare",
+                "owner": "a",
+                "repo": "b",
+                "baseRef": "v1",
+                "headRef": "v2",
+                "include": ["src/f001.rs", "src/f2*.rs"]
+            }"#,
+        ),
     )
     .await
     .expect("compare include");
@@ -157,8 +184,16 @@ async fn compare_include_scopes_files_and_capped_scope_leads_to_path_history() {
     let beyond = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"v1","headRef":"v2",
-               "include":["lib/**"]}),
+        json_fixture(
+            r#"{
+                "operation": "compare",
+                "owner": "a",
+                "repo": "b",
+                "baseRef": "v1",
+                "headRef": "v2",
+                "include": ["lib/**"]
+            }"#,
+        ),
     )
     .await
     .expect("compare include beyond cap");

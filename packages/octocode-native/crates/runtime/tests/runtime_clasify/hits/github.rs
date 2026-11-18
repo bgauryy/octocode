@@ -7,6 +7,7 @@ use base64::engine::general_purpose::STANDARD;
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 
 async fn github_file(github: &MockServer) {
+    octocode_test_support::mock_http::list_in_trees(github, "octo", "demo", "dense.txt").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/octo/demo/contents/dense.txt"))
         .respond_with(ResponseTemplate::new(200).set_body_json(

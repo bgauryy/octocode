@@ -8,9 +8,10 @@
 //! structured value.
 
 use super::construction_tests::runtime;
-use crate::contracts;
-use crate::id::ToolId;
-use crate::security::{ContentSecurity, InputPolicy};
+use octocode_runtime_base::contracts;
+use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::security::{ContentSecurity, InputPolicy};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 
 const TOKEN: &str = "ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8";
@@ -18,7 +19,7 @@ const TOKEN: &str = "ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8";
 fn policy(tool: ToolId) -> InputPolicy {
     if tool.is_clasify() {
         InputPolicy::ClasifyEvidence {
-            content_limit: crate::id::clasify_policy::REQUEST_BYTES,
+            content_limit: octocode_runtime_base::id::clasify_policy::REQUEST_BYTES,
         }
     } else if tool.is_local() {
         InputPolicy::LocalQuery
@@ -154,7 +155,7 @@ fn a_dangerous_key_is_rejected_for_any_tool() {
                 if nested {
                     row["ext"] = json!({"outer": {key: {"polluted": true}}});
                 } else {
-                    row[key] = json!({"polluted": true});
+                    row[key] = json_fixture(r#"{"polluted": true}"#);
                 }
                 let issues = security
                     .check_input(row.clone(), policy(tool))
@@ -191,7 +192,10 @@ fn oversized_or_too_deep_input_is_rejected_for_any_tool() {
         long[&field] = json!("a".repeat(limit + 1));
         let wide = {
             let mut row = base.clone();
-            row["ext"] = json!(vec!["a"; crate::id::MAX_INPUT_ARRAY_ITEMS + 1]);
+            row["ext"] = json!(vec![
+                "a";
+                octocode_runtime_base::id::MAX_INPUT_ARRAY_ITEMS + 1
+            ]);
             row
         };
         let mut nested = base.clone();

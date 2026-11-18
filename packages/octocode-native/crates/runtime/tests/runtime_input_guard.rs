@@ -1,6 +1,7 @@
 use crate::support::{self, Run as _};
 use octocode_contract_types::ErrorCode;
 
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use support::Workspace;
 
@@ -79,7 +80,7 @@ async fn a_credential_row_is_isolated_and_never_reaches_continuations() {
     assert!(support::checks::leads(&rows[1]).is_empty(), "{}", rows[1]);
     assert_no_rewrite(&outcome.structured_content);
     assert!(!outcome.all_failed);
-    octocode_native::contracts::validate_output("localSearch", &outcome.structured_content)
+    octocode_runtime_base::contracts::validate_output("localSearch", &outcome.structured_content)
         .expect("isolated batch output contract");
 
     let fetch = runtime
@@ -221,7 +222,7 @@ async fn an_unknown_tool_name_is_rejected_without_a_guessed_target() {
         .run(
             "unknown-tool".into(),
             "localSerch".into(),
-            json!({"queries":[json!({"path":".","matchString":["needle"]})]}),
+            json!({"queries":[json_fixture(r#"{"path": ".", "matchString": ["needle"]}"#)]}),
         )
         .await
         .expect_err("an unknown tool never runs");

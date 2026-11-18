@@ -1,9 +1,10 @@
 use super::*;
-use crate::cache::CONTINUATION_RETENTION;
-use crate::execution::ExecutionContext;
-use crate::id::ToolId;
 use crate::runtime::engine::cursors::{Registry, SavedWork};
 use octocode_io::cancellation::Cancellation;
+use octocode_runtime_base::cache::CONTINUATION_RETENTION;
+use octocode_runtime_base::execution::ExecutionContext;
+use octocode_runtime_base::id::ToolId;
+use octocode_test_support::json_fixture;
 use std::time::{Duration, Instant};
 
 #[tokio::test]
@@ -34,7 +35,7 @@ async fn changed_plan_expires_disk_handles_before_execution_but_current_handles_
     assert_eq!(current, runtime.page_replays.policy);
     let make = |policy| {
         Registry::new(
-            crate::cache::CacheConfig::derived(),
+            octocode_runtime_base::cache::CacheConfig::derived(),
             Some(runtime.config.home.join("tmp").join("continuations")),
             policy,
         )
@@ -62,7 +63,7 @@ async fn changed_plan_expires_disk_handles_before_execution_but_current_handles_
         ] {
             let token = pending.insert(
                 ToolId::LocalFetch,
-                json!({"queries":[{"path":"must-not-be-read"}]}),
+                json_fixture(r#"{"queries": [{"path": "must-not-be-read"}]}"#),
                 work,
             );
             writer.retain(pending, &context).unwrap();
@@ -155,8 +156,11 @@ fn expired_response_guidance_uses_the_retained_page_lifetime() {
 /// the walk an agent is still reading.
 #[test]
 fn a_burst_of_small_saved_work_never_evicts_an_active_walk() {
-    let store = crate::cache::Store::<usize>::new(crate::cache::CacheConfig::derived(), None);
-    let key = |index: usize| crate::cache::CacheKey {
+    let store = octocode_runtime_base::cache::Store::<usize>::new(
+        octocode_runtime_base::cache::CacheConfig::derived(),
+        None,
+    );
+    let key = |index: usize| octocode_runtime_base::cache::CacheKey {
         namespace: "burst".into(),
         scope: "policy".into(),
         resource: index.to_string(),
@@ -176,7 +180,7 @@ fn a_burst_of_small_saved_work_never_evicts_an_active_walk() {
 /// a clasify cursor is never shorter than its plan.
 #[test]
 fn a_clasify_continuation_lives_as_long_as_its_plan() {
-    use crate::tools::clasify::sections::PLAN_RETENTION;
+    use octocode_tool_clasify::clasify::sections::PLAN_RETENTION;
     assert_eq!(retention_of(ToolId::Clasify.as_str()), PLAN_RETENTION);
     for tool in [ToolId::LocalFetch, ToolId::GhSearchCode] {
         assert_eq!(retention_of(tool.as_str()), CONTINUATION_RETENTION);
@@ -198,11 +202,11 @@ fn a_clasify_continuation_lives_as_long_as_its_plan() {
 #[test]
 fn a_saved_clasify_page_lives_its_stated_expiry_from_its_last_read() {
     let dir = tempfile::tempdir().unwrap();
-    let store = crate::cache::Store::<u32>::new(
-        crate::cache::CacheConfig::derived(),
+    let store = octocode_runtime_base::cache::Store::<u32>::new(
+        octocode_runtime_base::cache::CacheConfig::derived(),
         Some(dir.path().to_path_buf()),
     );
-    let key = crate::cache::CacheKey {
+    let key = octocode_runtime_base::cache::CacheKey {
         namespace: "response-pages-v2".into(),
         scope: "policy".into(),
         resource: "page".into(),
@@ -210,12 +214,12 @@ fn a_saved_clasify_page_lives_its_stated_expiry_from_its_last_read() {
     let lifetime = retention_of(ToolId::Clasify.as_str());
     let ttl = lifetime.ttl().expect("a clasify page expires");
     assert!(store.put_confirmed(key.clone(), 7, 8, lifetime).1);
-    let file = crate::cache::Disk::new(dir.path().to_path_buf()).file(&key);
+    let file = octocode_runtime_base::cache::Disk::new(dir.path().to_path_buf()).file(&key);
     let bytes = std::fs::read(&file).unwrap();
     let split = bytes.iter().position(|byte| *byte == b'\n').unwrap();
     let mut header: serde_json::Value = serde_json::from_slice(&bytes[..split]).unwrap();
-    let saved =
-        crate::civil_date::unix_secs().unsigned_abs() - (ttl + Duration::from_secs(60)).as_secs();
+    let saved = octocode_runtime_base::civil_date::unix_secs().unsigned_abs()
+        - (ttl + Duration::from_secs(60)).as_secs();
     header["storedAtUnix"] = serde_json::json!(saved);
     let mut rewritten = serde_json::to_vec(&header).unwrap();
     rewritten.extend_from_slice(&bytes[split..]);

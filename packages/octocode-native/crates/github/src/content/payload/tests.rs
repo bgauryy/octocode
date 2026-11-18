@@ -70,5 +70,6 @@ fn a_symlink_answer_names_its_target() {
     let error = parse_content_payload(body, "a/link")
         .err()
         .expect("a link is no file");
-    assert!(error.message.contains("../real.txt"), "{}", error.message);
+    // The repository path it reaches: what a read names instead.
+    assert!(error.message.contains("\"real.txt\""), "{}", error.message);
 }

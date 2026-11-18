@@ -13,6 +13,10 @@
     clippy::unwrap_used,
     reason = "integration tests assert by unwrapping, expecting and panicking"
 )]
+#![expect(
+    unreachable_pub,
+    reason = "a test crate has no API: its `pub` items serve its own modules and the fixture the benchmarks mount"
+)]
 
 mod support;
 
@@ -21,6 +25,12 @@ mod auth_discovery;
 mod contract_field_effects;
 mod field_effect_coverage;
 mod lock_poison_policy;
+mod roast_cred_withhold;
+mod roast_envelope;
+mod roast_gh_history_item;
+mod roast_gh_search_leads;
+mod roast_graph_link;
+mod roast_local_fetch_view;
 mod runtime_artifact_search;
 mod runtime_ast_page_walks;
 mod runtime_batch_indices;
@@ -30,6 +40,7 @@ mod runtime_clasify_media;
 mod runtime_clasify_sections;
 mod runtime_clasify_url;
 mod runtime_code_meanings;
+mod runtime_cursor_beside;
 mod runtime_d1_shapes;
 mod runtime_deep_nesting;
 mod runtime_empty_error_rows;
@@ -63,6 +74,7 @@ mod runtime_request_credential;
 mod runtime_response_cursor;
 mod runtime_security_check_commit;
 mod runtime_security_check_repository;
+mod runtime_served_calls;
 mod runtime_stream_page_walk;
 mod runtime_surface_arms;
 mod runtime_tool_flow_handoffs;
@@ -77,5 +89,5 @@ fn every_test_file_is_a_module() {
     support::assert_every_test_file_is_a_module(env!("CARGO_MANIFEST_DIR"));
 }
 
-#[path = "../build/schema_defaults.rs"]
+#[path = "../../runtime-base/build/schema_defaults.rs"]
 mod schema_defaults;

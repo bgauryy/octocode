@@ -27,7 +27,7 @@ fn global_config_roundtrip_preserves_other_lines_and_hides_values() {
     assert!(text.starts_with("# keep me\r\nOTHER=leave-alone\r\n"));
     assert_eq!(text.matches("TEST_SETTING=").count(), 1);
     assert_eq!(
-        octocode_native::config::parse_env(Some(&text))["TEST_SETTING"],
+        octocode_runtime_base::config::parse_env(Some(&text))["TEST_SETTING"],
         secret
     );
     let get = workspace
@@ -183,7 +183,7 @@ fn config_stdin_creates_private_global_file() {
     assert!(!String::from_utf8_lossy(&output.stdout).contains("secret"));
     let path = workspace.home.join(".env");
     assert_eq!(
-        octocode_native::config::parse_env(Some(&std::fs::read_to_string(&path).unwrap()))["TEST_KEY"],
+        octocode_runtime_base::config::parse_env(Some(&std::fs::read_to_string(&path).unwrap()))["TEST_KEY"],
         "secret with spaces"
     );
     #[cfg(unix)]

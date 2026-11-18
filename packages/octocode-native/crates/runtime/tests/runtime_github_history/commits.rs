@@ -1,6 +1,7 @@
 //! ghGetHistoryItem commit reads: REST fetch, capped file scans, path-scoped totals and patch views.
 
 use crate::support::{self};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use support::{Workspace, call, checks, inventory_len, row_data, row_status};
 use wiremock::matchers::{method, path};
@@ -50,7 +51,7 @@ async fn gh_get_history_item_commit_fetches_via_rest() {
     let search =
         json!({"operation":"pullRequest","owner":"a","repo":"b","keywords":[data["commitSha"]]});
     assert_eq!(search["keywords"], json!([sha]), "{data}");
-    octocode_native::contracts::validate("ghSearchHistory", json!({"queries":[search]}))
+    octocode_runtime_base::contracts::validate("ghSearchHistory", json!({"queries":[search]}))
         .expect("commit identity forms a valid related history search");
     runtime.close().await;
 }
@@ -131,7 +132,7 @@ async fn commit_patch_view_keeps_the_whole_message() {
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    for sections in [json!(["patches"]), json!(["files"])] {
+    for sections in [json_fixture(r#"["patches"]"#), json_fixture(r#"["files"]"#)] {
         let outcome = call(
             &runtime,
             "ghGetHistoryItem",
@@ -228,6 +229,7 @@ async fn commit_patch_view_numbers_both_sides_and_reads_each_side() {
         let content = (1..=100)
             .map(|line| format!("{marker} line {line}\n"))
             .collect::<String>();
+        octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "src/a.rs").await;
         Mock::given(method("GET")).and(path("/api/v3/repos/a/b/contents/src%2Fa.rs"))
             .and(wiremock::matchers::query_param("ref",pinned))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({"type":"file","path":"src/a.rs","encoding":"base64","content":base64::engine::general_purpose::STANDARD.encode(content)})))

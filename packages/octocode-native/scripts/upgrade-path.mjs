@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import {
   callText, findTarballs, graphResultIds, graphVerdict, isolatedEnv, killTree, listDaemons, listFiles,
-  McpSession, packageDir, parseArgs, readJson, run, shim, USAGE,
+  McpSession, packageDir, parseArgs, readJson, run, sameVersion, shim, USAGE,
 } from './upgrade-path-lib.mjs';
 import { pathChecks } from './upgrade-path-steps.mjs';
 
@@ -173,7 +173,7 @@ async function mcpCheck(session, expectVersion) {
   const call = names.includes('localSearch') ? await mcpLocalSearch(session) : { ok: false };
   current.commands.push(mcpRecord(session, init, names, call));
   const server = init.result?.serverInfo ?? {};
-  const versionOk = !expectVersion || server.version === expectVersion;
+  const versionOk = !expectVersion || sameVersion(server.version ?? '', expectVersion);
   const expected = versionOk ? '' : `; expected version ${expectVersion}`;
   return {
     ok: Boolean(init.result) && call.ok && versionOk,

@@ -1,4 +1,5 @@
 use super::*;
+use octocode_test_support::json_fixture;
 
 fn rate_limited(remaining: Option<u64>, reset: Option<u64>, resource: &str) -> ProviderError {
     let mut error = ProviderError::new(ProviderErrorKind::RateLimited, "slow down");
@@ -27,7 +28,7 @@ fn rate_limit_rows_have_one_shape_on_every_github_tool() {
         ),
         (
             secondary,
-            json!({"resource": "search", "retryAfterSeconds": 60}),
+            json_fixture(r#"{"resource": "search", "retryAfterSeconds": 60}"#),
         ),
     ] {
         let expected = json!({
@@ -60,11 +61,14 @@ fn rate_limit_rows_have_one_shape_on_every_github_tool() {
             );
             assert_eq!(
                 result.failure,
-                Some(crate::id::error_codes::ErrorClass::Transient)
+                Some(octocode_runtime_base::id::error_codes::ErrorClass::Transient)
             );
         }
         // A file read adds only the file's identity.
-        let file = file_row(error.clone(), json!({"owner":"a","repo":"b","path":"x"}));
+        let file = file_row(
+            error.clone(),
+            json_fixture(r#"{"owner": "a", "repo": "b", "path": "x"}"#),
+        );
         let mut with_identity = expected.clone();
         with_identity["owner"] = json!("a");
         with_identity["repo"] = json!("b");
@@ -111,11 +115,15 @@ fn provider_rows_state_retryable_only_when_transient() {
         for result in [
             search_row(error.clone()),
             history_error(error.clone(), false),
-            file_row(error.clone(), json!({"owner":"a","repo":"b","path":"x"})),
+            file_row(
+                error.clone(),
+                json_fixture(r#"{"owner": "a", "repo": "b", "path": "x"}"#),
+            ),
             provider_error(error.clone()),
         ] {
-            let transient = crate::id::error_class(result.data["errorCode"].as_str().unwrap())
-                == crate::id::error_codes::ErrorClass::Transient;
+            let transient =
+                octocode_runtime_base::id::error_class(result.data["errorCode"].as_str().unwrap())
+                    == octocode_runtime_base::id::error_codes::ErrorClass::Transient;
             assert_eq!(
                 result.data.get("retryable"),
                 transient.then_some(&json!(expected)),

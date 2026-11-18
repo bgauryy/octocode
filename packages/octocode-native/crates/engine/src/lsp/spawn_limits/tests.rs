@@ -113,8 +113,8 @@ async fn memory_watchdog_kills_a_tree_over_its_cap() {
 /// `RLIMIT_AS` limits reserved address space, not memory in use. JVMs
 /// reserve their maximum heap and class space up front, V8 reserves
 /// WebAssembly memory cages and Go its arenas, all far past what they
-/// touch. Where the RSS watchdog runs (macOS, Linux), a server must be able
-/// to reserve well past the cap; only resident memory over it is stopped
+/// touch. Where the memory watchdog runs (macOS, Linux), a server must be
+/// able to reserve well past the cap; only memory in use over it is stopped
 /// (`memory_watchdog_kills_a_tree_over_its_cap`).
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[tokio::test]
@@ -144,7 +144,7 @@ async fn default_policy_lets_a_server_reserve_address_space_past_the_cap() {
     );
 }
 
-/// Unix targets without the RSS watchdog keep `RLIMIT_AS` as their only
+/// Unix targets without the memory watchdog keep `RLIMIT_AS` as their only
 /// bound: the default cap still lets a child start, and an allocation past
 /// a small cap fails inside the child instead of growing host memory.
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]

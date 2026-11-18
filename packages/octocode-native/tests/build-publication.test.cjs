@@ -23,6 +23,14 @@ test('every native build script routes through build-native.cjs', () => {
   }
 });
 
+test('every package script that compiles Rust holds a build slot', () => {
+  const scripts = json(join(__dirname, '..', 'package.json')).scripts;
+  const compiles = /\bcargo (?:build|check|clippy|hack|llvm-cov|mutants|nextest|test)\b/;
+  const slotted = Object.entries(scripts).filter(([, command]) => compiles.test(command));
+  assert.ok(slotted.length > 0);
+  for (const [name, command] of slotted) assert.match(command, /^node scripts\/build-slot\.cjs -- cargo /, name);
+});
+
 test('test:rust and coverage:rust run the selections, and bacon test jobs repeat them', () => {
   const { SELECTIONS } = require('../scripts/rust-tests.cjs');
   const scripts = json(join(__dirname, '..', 'package.json')).scripts;
@@ -36,15 +44,30 @@ test('test:rust and coverage:rust run the selections, and bacon test jobs repeat
   }
 });
 
-test('the unit run skips exactly the e2e profile selection, and every run reuses one selection', () => {
-  const { SELECTIONS, E2E_FILTER, RUNS } = require('../scripts/rust-tests.cjs');
+test('libtest skips exactly what nextest runs, and every run reuses one selection', () => {
+  const { SELECTIONS, PROCESS_TESTS, PROCESS_FILTER, UNIT, RUNS, buildArgs, runArgs, unitTestArgs } = require('../scripts/rust-tests.cjs');
+  // libtest's --skip matches a literal piece anywhere in a name, as an unanchored nextest
+  // regex does only while the piece holds no regex syntax.
+  for (const name of PROCESS_TESTS) assert.doesNotMatch(name, /[\\^$.*+?()[\]{}|/]/, name);
+  assert.equal(PROCESS_FILTER, `test(/${PROCESS_TESTS.join('|')}/)`);
+  assert.deepEqual(unitTestArgs(UNIT), PROCESS_TESTS.flatMap(name => ['--skip', name]));
+  assert.ok(SELECTIONS.includes(UNIT.selection));
+  assert.deepEqual(buildArgs(UNIT).slice(-UNIT.selection.length), UNIT.selection);
+  for (const run of RUNS) {
+    const args = runArgs(run);
+    assert.equal(args[args.indexOf('-E') + 1], PROCESS_FILTER, run.name);
+    assert.ok(SELECTIONS.includes(run.selection), run.name);
+  }
+});
+
+test('the process-heavy group names only tests the nextest run holds', () => {
+  const { PROCESS_TESTS } = require('../scripts/rust-tests.cjs');
   const nextest = readFileSync(join(__dirname, '..', '.config', 'nextest.toml'), 'utf8');
-  const e2e = /^\[profile\.e2e\]\s*\ndefault-filter = '(.+)'$/m.exec(nextest);
-  assert.ok(e2e, 'nextest.toml defines profile e2e with a default-filter');
-  assert.equal(e2e[1], E2E_FILTER);
-  assert.deepEqual(RUNS.find(run => run.name === 'native').extra, ['-E', `not (${E2E_FILTER})`]);
-  assert.deepEqual(RUNS.find(run => run.name === 'e2e').extra.slice(0, 2), ['--profile', 'e2e']);
-  for (const run of RUNS) assert.ok(SELECTIONS.includes(run.selection), run.name);
+  const group = /^filter = '(.+)'\ntest-group = "process-heavy"$/m.exec(nextest);
+  assert.ok(group, 'nextest.toml assigns the process-heavy group');
+  const pieces = [...group[1].matchAll(/test\(\/(.+?)\/\)/g)].flatMap(([, regex]) => regex.split('|').map(piece => piece.replace(/^\^/, '')));
+  assert.ok(pieces.length > 0);
+  for (const piece of pieces) assert.ok(PROCESS_TESTS.includes(piece), piece);
 });
 
 test('cargo dev-test is the first Rust test selection under libtest', () => {
@@ -130,6 +153,20 @@ test('verifyBinaryRuns requires the staged binary to report the package version'
   writeFileSync(bin, '#!/bin/sh\necho "octocode 1.2.3"\n', { mode: 0o755 });
   verifyBinaryRuns(bin, '1.2.3');
   assert.throws(() => verifyBinaryRuns(bin, '1.3.0'), /reports 'octocode 1\.2\.3', expected 'octocode 1\.3\.0'/);
+});
+
+test('verifyBinaryRuns accepts the contract fingerprint suffix and rejects other suffixes', { skip: process.platform === 'win32' }, t => {
+  const { verifyBinaryRuns } = require('../scripts/stage-binary.cjs');
+  const root = mkdtempSync(join(tmpdir(), 'octocode-smoke-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const reporting = (name, output) => {
+    const bin = join(root, name);
+    writeFileSync(bin, `#!/bin/sh\necho "${output}"\n`, { mode: 0o755 });
+    return bin;
+  };
+  verifyBinaryRuns(reporting('fingerprint', 'octocode 1.2.3+01a553b7'), '1.2.3');
+  assert.throws(() => verifyBinaryRuns(reporting('wrong', 'octocode 1.3.0+01a553b7'), '1.2.3'), /expected 'octocode 1\.2\.3'/);
+  assert.throws(() => verifyBinaryRuns(reporting('suffix', 'octocode 1.2.3+nothex'), '1.2.3'), /expected 'octocode 1\.2\.3'/);
 });
 
 test('runForwardingSignals passes exit codes through and maps signal deaths to 128+N', async () => {

@@ -10,7 +10,7 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const CONTRACT: &str = include_str!("../../../../octocode-config/contract/tool-contract.json");
-const COVERAGE: &str = include_str!("../src/contracts/field-effect-coverage.json");
+const COVERAGE: &str = include_str!("../../runtime-base/src/contracts/field-effect-coverage.json");
 
 fn json(text: &str) -> Value {
     serde_json::from_str(text).expect("valid JSON")
@@ -147,6 +147,53 @@ fn every_published_query_path_resolves_to_an_effect() {
         "declare these fields in field-effect-coverage.json, or add an ancestor whose effects they inherit:\n{}",
         unresolved.join("\n")
     );
+}
+
+/// Every evidence file the coverage cites exists, relative to the workspace's
+/// `crates/` directory, so a moved or deleted test leaves no stale citation
+/// behind.
+#[test]
+fn every_cited_evidence_file_exists() {
+    let coverage = json(COVERAGE);
+    let mut cited = Vec::new();
+    collect_evidence(&coverage, &mut cited);
+    assert!(!cited.is_empty(), "the coverage cites no evidence");
+    let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the crates directory");
+    let missing: Vec<_> = cited
+        .iter()
+        .filter(|path| !crates.join(path).is_file())
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "field-effect-coverage.json cites files that do not exist: {missing:?}"
+    );
+}
+
+fn collect_evidence<'a>(value: &'a Value, found: &mut Vec<&'a str>) {
+    match value {
+        Value::Object(entries) => {
+            for (key, item) in entries {
+                if key == "evidence" {
+                    found.extend(
+                        item.as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Value::as_str),
+                    );
+                } else {
+                    collect_evidence(item, found);
+                }
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_evidence(item, found);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[test]

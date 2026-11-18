@@ -1,5 +1,6 @@
 //! Secondary limits and provider retry-after: cooldown waits, their reset, and queued requests.
 use super::*;
+use octocode_test_support::json_fixture;
 
 #[tokio::test]
 async fn secondary_limit_without_retry_after_waits_sixty_seconds_or_fails_fast() {
@@ -133,9 +134,9 @@ async fn a_long_server_retry_after_is_surfaced() {
 async fn an_abuse_detection_403_is_a_secondary_limit() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
-        .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+        .respond_with(ResponseTemplate::new(403).set_body_json(json_fixture(r#"{
             "message": "You have triggered an abuse detection mechanism. Please wait a few minutes before you try again."
-        })))
+        }"#)))
         .mount(&server)
         .await;
     let (transport, endpoint) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
@@ -161,7 +162,7 @@ async fn an_http_date_retry_after_is_honored() {
         .respond_with(
             ResponseTemplate::new(429)
                 .insert_header("retry-after", date.as_str())
-                .set_body_json(serde_json::json!({"message": "Too Many Requests"})),
+                .set_body_json(json_fixture(r#"{"message": "Too Many Requests"}"#)),
         )
         .mount(&server)
         .await;
@@ -214,9 +215,9 @@ async fn a_secondary_message_on_a_spent_core_quota_is_disclosed_at_once() {
                 .insert_header("x-ratelimit-remaining", "0")
                 .insert_header("x-ratelimit-reset", reset.to_string().as_str())
                 .insert_header("x-ratelimit-resource", "core")
-                .set_body_json(serde_json::json!({
+                .set_body_json(json_fixture(r#"{
                     "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."
-                })),
+                }"#)),
         )
         .expect(1)
         .mount(&server)
@@ -285,9 +286,9 @@ async fn a_secondary_message_on_a_spent_bucket_still_cools_the_key() {
                 .insert_header("x-ratelimit-remaining", "0")
                 .insert_header("x-ratelimit-reset", reset.to_string().as_str())
                 .insert_header("x-ratelimit-resource", "core")
-                .set_body_json(serde_json::json!({
+                .set_body_json(json_fixture(r#"{
                     "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."
-                })),
+                }"#)),
         )
         .expect(1)
         .mount(&server)
@@ -345,10 +346,14 @@ async fn a_graphql_secondary_message_on_a_spent_bucket_still_cools_the_key() {
                 .insert_header("x-ratelimit-remaining", "0")
                 .insert_header("x-ratelimit-reset", reset.to_string().as_str())
                 .insert_header("x-ratelimit-resource", "graphql")
-                .set_body_json(serde_json::json!({
+                .set_body_json(json_fixture(r#"{
                     "data": null,
-                    "errors": [{"message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."}]
-                })),
+                    "errors": [
+                        {
+                            "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."
+                        }
+                    ]
+                }"#)),
         )
         .expect(1)
         .mount(&server)
@@ -383,5 +388,57 @@ async fn a_graphql_secondary_message_on_a_spent_bucket_still_cools_the_key() {
     assert_eq!(
         searched.map(|error| error.kind),
         Some(ProviderErrorKind::RateLimited)
+    );
+}
+
+/// A secondary limit that declares `retry-after: 0` still backs off before
+/// each retry, as GitHub asks while one repeats: the key cools down for the
+/// attempt's backoff, the retries wait it out as a secondary-limit wait, and
+/// none is sent back to back with the answer before it.
+#[tokio::test]
+async fn a_secondary_limit_with_a_zero_retry_after_still_backs_off() {
+    use octocode_contract_base::ClientWaitKind;
+    let server = MockServer::builder().start().await;
+    let limited = Sequence::new(vec![
+        secondary_limit(Some("0")),
+        secondary_limit(Some("0")),
+        secondary_limit(Some("0")),
+        ok_json(),
+    ]);
+    let hits = limited.arrivals.clone();
+    Mock::given(method("GET"))
+        .respond_with(limited)
+        .mount(&server)
+        .await;
+    let (transport, endpoint) = executor_transport(
+        &server,
+        GitHubBudget::relaxed(),
+        RetryPolicy {
+            max_attempts: 4,
+            base_delay: Duration::from_millis(100),
+        },
+    );
+    let context = with_token("zero", Duration::from_secs(10), 1024);
+    let page = transport
+        .execute(
+            RequestSpec::get(endpoint.rest(&["repos", "a", "b"]).expect("route")),
+            &context,
+        )
+        .await
+        .expect("retried after backing off");
+    assert_eq!(page.status, 200);
+    let times = hits.times();
+    assert_eq!(times.len(), 4, "every limited answer was retried once");
+    assert!(times.windows(2).all(|pair| pair[1] > pair[0]), "{times:?}");
+    let waited: i64 = context
+        .client_waits()
+        .iter()
+        .filter(|wait| wait.kind == ClientWaitKind::SecondaryLimit)
+        .map(|wait| wait.ms)
+        .sum();
+    assert!(
+        waited > 0,
+        "the retries were not held by a cooldown: {:?}",
+        context.client_waits()
     );
 }

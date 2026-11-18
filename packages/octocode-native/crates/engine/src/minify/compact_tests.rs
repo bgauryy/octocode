@@ -125,18 +125,21 @@ fn a_citation_is_the_line_the_text_is_on() {
 #[test]
 fn indentation_stays_only_in_a_grammar_that_scans_it() {
     let python = "def f():\n    return 1\n";
-    assert_eq!(super::apply::indent_of(python, "m.py"), Some(Indent::Keep));
+    assert_eq!(
+        super::apply::tests::indent_of(python, "m.py"),
+        Some(Indent::Keep)
+    );
     assert!(compact(python, "m.py").contains("\n    return 1\n"));
     for (source, name) in [("fn f() {\n}\n", "m.rs"), ("func f() {\n}\n", "m.go")] {
         assert_eq!(
-            super::apply::indent_of(source, name),
+            super::apply::tests::indent_of(source, name),
             Some(Indent::Strip),
             "{name}"
         );
     }
     #[cfg(feature = "tree-sitter-scala")]
     assert_eq!(
-        super::apply::indent_of("object A:\n  val b = 1\n", "m.scala"),
+        super::apply::tests::indent_of("object A:\n  val b = 1\n", "m.scala"),
         Some(Indent::Keep)
     );
 }

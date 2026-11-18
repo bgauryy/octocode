@@ -1,11 +1,22 @@
-use super::*;
+use crate::runtime::tool_output::ToolOutputOf;
+use octocode_contract_types::ErrorCode;
+use octocode_runtime_base::id::ToolId;
+use octocode_test_support::json_fixture;
+use octocode_tools_shared::source_capture::page::RERUN_HINT;
+use octocode_tools_shared::source_capture::page::reader_failure;
 use serde_json::json;
 
 /// A missing file's capture failure carries the reader's own leads and
 /// hints, not a re-run of a read that cannot succeed.
 #[test]
 fn a_final_reader_failure_keeps_its_own_leads_and_hints() {
-    let lead = json!({"kind":"related","tool":"structureSearch","input":{"queries":[{"operation":"tree","path":"src"}]}});
+    let lead = json_fixture(
+        r#"{
+            "kind": "related",
+            "tool": "structureSearch",
+            "input": {"queries": [{"operation": "tree", "path": "src"}]}
+        }"#,
+    );
     let data = json!({
         "path": "src/exector.rs",
         "errorCode": "notFound",
@@ -22,16 +33,20 @@ fn a_final_reader_failure_keeps_its_own_leads_and_hints() {
     // a re-run that fails the same way.
     let bare = reader_failure(
         ToolId::LocalFetch.output(),
-        &json!({"errorCode": "outsideAllowedRoots", "error": "no"}),
+        &json_fixture(r#"{"errorCode": "outsideAllowedRoots", "error": "no"}"#),
     );
     assert_eq!(bare.hints.len(), 1, "{:?}", bare.hints);
     assert_ne!(bare.hints[0], RERUN_HINT);
     // A failure a re-run can change keeps the re-run beside its hints.
     let transient = reader_failure(
         ToolId::LocalFetch.output(),
-        &json!({
-            "errorCode": "timeout", "error": "io", "hints": ["Disk busy."]
-        }),
+        &json_fixture(
+            r#"{
+                "errorCode": "timeout",
+                "error": "io",
+                "hints": ["Disk busy."]
+            }"#,
+        ),
     );
     assert_eq!(
         transient.hints,
@@ -39,7 +54,7 @@ fn a_final_reader_failure_keeps_its_own_leads_and_hints() {
     );
     let undeclared = reader_failure(
         ToolId::LocalFetch.output(),
-        &json!({"errorCode": "madeUp", "error": "x"}),
+        &json_fixture(r#"{"errorCode": "madeUp", "error": "x"}"#),
     );
     assert_eq!(undeclared.code, ErrorCode::ClassificationContextFailed);
 }

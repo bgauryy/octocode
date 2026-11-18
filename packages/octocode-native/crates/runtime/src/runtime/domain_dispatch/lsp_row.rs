@@ -13,11 +13,11 @@ impl DomainDispatcher {
             Err(row) => return Ok(*row),
         };
         let requested = lsp_search_query::path(&query).map(str::to_owned);
-        let judged = std::sync::Arc::new(crate::security::JudgedFiles::default());
+        let judged = std::sync::Arc::new(octocode_runtime_base::security::JudgedFiles::default());
         self.handle.block_on(async {
             match within_request(
                 context,
-                crate::tools::lsp_search::execute_judged(
+                octocode_tool_lsp::lsp_search::execute_judged(
                     query,
                     context,
                     &self.lsp_pool,
@@ -30,7 +30,7 @@ impl DomainDispatcher {
             .await?
             {
                 Ok(mut data) => {
-                    crate::tools::lsp_search::wire::lean(&mut data, requested.as_deref());
+                    octocode_tool_lsp::lsp_search::wire::lean(&mut data, requested.as_deref());
                     let mut row = dispatch::value_result(data);
                     row.judged = judged.leaves();
                     Ok(row)
@@ -56,10 +56,13 @@ impl DomainDispatcher {
                     // The same recovery every local tool gives a missing path.
                     if missing
                         && let Some(next) = requested.as_deref().and_then(|requested| {
-                            crate::response::result::missing_path_lead(&self.paths, requested)
+                            octocode_runtime_base::response::result::missing_path_lead(
+                                &self.paths,
+                                requested,
+                            )
                         })
                     {
-                        crate::response::result::attach_calls(&mut row.data, next);
+                        octocode_runtime_base::response::result::attach_calls(&mut row.data, next);
                     }
                     Ok(row)
                 }

@@ -1,5 +1,5 @@
 use super::*;
-use crate::lsp::config::invocation::rustup::{RustupView, view_env, with_view};
+use super::{RustupView, view_env, with_view};
 
 #[cfg(unix)]
 #[test]

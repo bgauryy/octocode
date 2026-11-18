@@ -4,6 +4,7 @@
 
 use crate::support::{Run as _, Workspace};
 
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use wiremock::matchers::method;
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -33,9 +34,9 @@ async fn wide_searches_and_unfinished_reads_offer_no_clasify_handoff() {
     for (tool, row) in [
         (
             "localSearch",
-            json!({"path":"src","matchString":["housekeeping"]}),
+            json_fixture(r#"{"path": "src", "matchString": ["housekeeping"]}"#),
         ),
-        ("localFetch", json!({"path":"src/file_0.c"})),
+        ("localFetch", json_fixture(r#"{"path": "src/file_0.c"}"#)),
     ] {
         let out = runtime
             .run(
@@ -47,17 +48,26 @@ async fn wide_searches_and_unfinished_reads_offer_no_clasify_handoff() {
             .expect("result")
             .structured_content;
         let mut required = 0;
-        let owner = octocode_native::id::ToolId::from_name(tool).expect("known tool");
-        octocode_native::response::continuations::visit_calls(owner, &out, &mut |call, _| {
-            assert_ne!(
-                call["tool"], "clasify",
-                "retrieval does not request implicit classification: {call}"
-            );
-            if call["kind"] == "continue" {
-                crate::support::assert_cursor_only(&call["input"]);
-                required += 1;
-            }
-        })
+        let owner = octocode_runtime_base::id::ToolId::from_name(tool).expect("known tool");
+        octocode_runtime_base::response::continuations::visit_calls(
+            owner,
+            &out,
+            &mut |call, path| {
+                assert_ne!(
+                    call["tool"], "clasify",
+                    "retrieval does not request implicit classification: {call}"
+                );
+                assert!(
+                    call.get("kind").is_none(),
+                    "a served call states no kind: {call}"
+                );
+                // A served call's channel says what it does: only `related[]` starts new work.
+                if !path.iter().any(|key| key == "related") {
+                    crate::support::assert_cursor_only(&call["input"]);
+                    required += 1;
+                }
+            },
+        )
         .expect("schema-directed calls");
         assert!(
             required > 0,

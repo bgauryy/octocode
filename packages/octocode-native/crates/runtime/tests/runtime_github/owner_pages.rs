@@ -1,6 +1,7 @@
 //! An owner listing's continuations: the route to a user's repositories is
 //! found once, by the first page, and its cursors carry it.
 use crate::support::{self, Run as _, Workspace};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -27,12 +28,14 @@ async fn a_user_listing_resolves_its_route_once_for_every_page() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/orgs/u/repos"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
+        .respond_with(
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
+        )
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/user"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"login":"me"})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(r#"{"login": "me"}"#)))
         .mount(&server)
         .await;
     for page in 1..=PAGES {
@@ -60,7 +63,11 @@ async fn a_user_listing_resolves_its_route_once_for_every_page() {
     }
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&support::github_api(&server));
-    let start = json!({"queries":[{"owner":"u","operation":"list","limit":2}]});
+    let start = json_fixture(
+        r#"{
+            "queries": [{"owner": "u", "operation": "list", "limit": 2}]
+        }"#,
+    );
     let mut walker = support::checks::Walker::new("ghSearchRepo", start);
     let mut continued = 0;
     while let Some(query) = walker.next_query() {

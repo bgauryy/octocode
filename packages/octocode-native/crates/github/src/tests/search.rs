@@ -1,8 +1,10 @@
 //! Fresh search and history reads, credentials and SSO-withheld results.
 use super::*;
+use octocode_test_support::json_fixture;
 
 mod first_page;
 mod past_the_cap;
+mod short_pages;
 mod sso;
 
 fn code_search_request() -> CodeSearchRequest {
@@ -21,9 +23,9 @@ async fn code_search_uses_each_request_credential() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "total_count": 0, "incomplete_results": false, "items": []
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"total_count": 0, "incomplete_results": false, "items": []}"#,
+        )))
         .expect(4)
         .mount(&server)
         .await;
@@ -49,14 +51,14 @@ async fn confirm_user_reads_fresh_and_types_a_missing_login() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/users/dev"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"login": "dev"})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(r#"{"login": "dev"}"#)))
         .expect(3)
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/users/ghost"))
         .respond_with(
-            ResponseTemplate::new(404).set_body_json(serde_json::json!({"message": "Not Found"})),
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
         )
         .mount(&server)
         .await;
@@ -99,9 +101,9 @@ async fn incomplete_code_search_pages_keep_partiality_on_every_read() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "total_count": 0, "incomplete_results": true, "items": []
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"total_count": 0, "incomplete_results": true, "items": []}"#,
+        )))
         .expect(2)
         .mount(&server)
         .await;
@@ -122,9 +124,9 @@ async fn incomplete_repository_and_history_pages_keep_partiality_on_every_read()
     for route in ["/api/v3/search/repositories", "/api/v3/search/issues"] {
         Mock::given(method("GET"))
             .and(path(route))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "total_count": 0, "incomplete_results": true, "items": []
-            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+                r#"{"total_count": 0, "incomplete_results": true, "items": []}"#,
+            )))
             .expect(2)
             .mount(&server)
             .await;
@@ -170,7 +172,7 @@ async fn history_reads_fetch_mutable_and_pinned_items_every_time() {
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("etag", "\"v1\"")
-                .set_body_json(serde_json::json!({"number": 1})),
+                .set_body_json(json_fixture(r#"{"number": 1}"#)),
         )
         .with_priority(2)
         .expect(3)

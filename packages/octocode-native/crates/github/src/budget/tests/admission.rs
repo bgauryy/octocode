@@ -192,7 +192,7 @@ async fn a_peer_held_state_lock_is_disclosed_as_spacing() {
     let spacing = waits
         .summed()
         .iter()
-        .filter(|wait| wait.kind == octocode_contract_types::ClientWaitKind::Spacing)
+        .filter(|wait| wait.kind == octocode_contract_base::ClientWaitKind::Spacing)
         .map(|wait| wait.ms)
         .sum::<i64>();
     assert!(spacing >= 200, "{:?}", waits.summed());

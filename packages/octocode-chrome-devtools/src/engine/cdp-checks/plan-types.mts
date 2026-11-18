@@ -14,6 +14,8 @@ export type PageCondition = { text?: string; selector?: string; url?: string };
 export type PlanStep = {
   op: string;
   url?: string;
+  direction?: string;
+  ignoreCache?: boolean;
   action?: string;
   ref?: string;
   selector?: string;

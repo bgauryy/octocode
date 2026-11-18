@@ -17,8 +17,6 @@ mod syntax_tree;
 mod types;
 
 pub use files::{Rebuilt, file_matches, search_files};
-#[cfg(test)]
-use files::{search_files_detailed, search_files_unfiltered};
 pub use octo::{
     COMPILE_FAILED, EXAMPLE_RULE, LiteralSigil, MATCH_DEADLINE, PARSE_INTERRUPTED,
     PatternDeclaration, QualifiedPattern, RULE_INVALID, SigilForm, SigilRepair, WrittenPattern,
@@ -29,8 +27,6 @@ pub use syntax_errors::count_syntax_errors;
 pub use syntax_tree::{
     SyntaxTreeInspectOptions, SyntaxTreeInspectResult, SyntaxTreeNode, inspect_with_extension,
 };
-#[cfg(test)]
-use types::StructuralMatch;
 pub use types::{
     FileMatches, JudgeText, KeepLine, RecoveredBody, StructuralDemand, StructuralDetailedMatch,
     StructuralDiagnostic, StructuralSearchDetailedResult, StructuralSearchFilesDetailedResult,
@@ -40,49 +36,9 @@ pub use types::{
 use crate::security::MAX_CONTENT_SIZE;
 use crate::signatures::languages;
 use language::AgLanguage;
-#[cfg(test)]
-use octo::all_matches;
 use octo::{compile_matcher, matches_with_recovery};
 use query::{StructuralQuery, invalid_query_explanation};
 use serde_json::Value;
-
-/// Test helper: a structural search over `content`, parsed with the grammar
-/// resolved from `ext`, returning bare matches. Exactly one of `pattern` /
-/// `rule` must be `Some`. Production runs [`search_detailed`].
-///
-/// Returns `Err` for: an unsupported extension, an invalid pattern, invalid
-/// rule object, or both/neither query supplied.
-#[cfg(test)]
-pub(crate) fn search(
-    content: &str,
-    ext: &str,
-    pattern: Option<&str>,
-    rule: Option<&Value>,
-) -> Result<Vec<StructuralMatch>, String> {
-    if content.len() > MAX_CONTENT_SIZE {
-        return Err(format!(
-            "[structural.content.tooLarge] structural search content exceeds {MAX_CONTENT_SIZE} byte limit"
-        ));
-    }
-    let query = StructuralQuery::new(pattern, rule)
-        .map_err(|message| format!("[structural.query.invalid] {message}"))?;
-    let entry = languages::find_entry(ext)
-        .filter(|entry| entry.admits(crate::text::analysis::AnalysisOperation::StructuralSearch))
-        .ok_or_else(|| {
-            format!(
-                "[structural.language.unsupported] structural search does not support .{ext} files"
-            )
-        })?;
-    let lang = AgLanguage::new(entry);
-    let run = compile_matcher(&lang, &query).map_err(|error| error.to_string())?;
-    // The non-detailed API returns bare StructuralMatch; node_kind is only
-    // surfaced by the detailed shape.
-    Ok(all_matches(&run, content)
-        .map_err(|err| err.to_string())?
-        .into_iter()
-        .map(|m| m.matched)
-        .collect())
-}
 
 /// The declaration a structural `pattern` spells in the grammar of `ext`
 /// (a function, a type, a method, a binding), with its name unless that is a
@@ -384,7 +340,7 @@ pub(crate) fn evaluate_source(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 mod source_binding;
 pub use source_binding::SourceBinder;

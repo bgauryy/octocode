@@ -9,11 +9,15 @@
 //! past the cut are discarded, so the search reads at most the page plus
 //! what the workers held in flight.
 //!
-//! A continuation names the candidates before its first file (`from`) and a
-//! pin over them: the digest of each one's path and stamp, in walk order. The
-//! walk replays that prefix (no search, one stamp each), and a pin that no
-//! longer matches says the files changed under the cursor: the caller
-//! restarts rather than skip or repeat a row.
+//! A continuation names its first file by index (`from`), where the page
+//! before it began ([`Anchor`]: the path of the candidate before that page),
+//! and a pin over the candidates of that page up to its own start: the digest
+//! of each one's path and stamp, in walk order. The walk starts at the anchor
+//! (it lists only the directories on the way there), replays the page before
+//! (no search, one stamp each), and a pin that no longer matches says those
+//! files changed under the cursor: the caller restarts rather than skip or
+//! repeat a row. A page costs its own walk and the one before it, wherever in
+//! the tree it stands.
 use super::TextSearchPathFilter;
 use super::collect::{WalkControl, WorkerRecs, file_searcher, walk_scope};
 use super::mode::Mode;
@@ -43,30 +47,101 @@ pub struct Stream {
     /// The candidates, in walk order, before the first one searched: walked
     /// and stamped, never searched.
     pub from: u32,
-    /// What the candidates before `from` (and the first one searched, when
-    /// `covers` is `from + 1`) were when the earlier page read them.
+    /// What the candidates from the anchor to `from` (and the first one
+    /// searched, when `covers` is `from + 1`) were when the earlier page read
+    /// them.
     pub pin: Option<Pin>,
+    /// Where the page before began; [`Anchor::START`] for a first page.
+    pub anchor: Anchor,
     /// Called with each committed file in walk order; `true` once that file
     /// overflows the page, which ends the stream after it (its rows past the
     /// page are the next page's).
     pub enough: Box<dyn FnMut(&TextSearchFile) -> bool + Send>,
 }
 
-/// The digest of the first `covers` candidates' paths and stamps.
+/// The digest of the bind and of the paths and stamps of the candidates from
+/// the anchor's index to `covers`.
 pub struct Pin {
     pub covers: u32,
     pub hex: String,
 }
 
 /// Where one returned file stands in the walk, with the pin of the
-/// candidates before it and through it.
+/// candidates of its page before it and through it.
 pub struct Landmark {
     /// Its index among the candidates, in walk order.
     pub position: u32,
-    /// The pin over the candidates before it.
+    /// The pin over the page's candidates before it.
     pub before: String,
-    /// The pin over the candidates through it.
+    /// The pin over the page's candidates through it.
     pub after: String,
+}
+
+/// Where a page began, for the page that continues it: the walk starts just
+/// past the candidate before that page (`after`), counts the next candidate
+/// as `index`, and replays the page up to its continuation's start. Entries
+/// the walk left out before candidate `released` that page reported.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Anchor {
+    index: u32,
+    /// The names of the path below the root of the candidate before `index`,
+    /// as the listings spell them; `None`: the walk's start.
+    after: Option<Vec<Vec<u8>>>,
+    released: u32,
+}
+
+impl Anchor {
+    /// The walk's start: a first page.
+    pub const START: Self = Self {
+        index: 0,
+        after: None,
+        released: 0,
+    };
+
+    /// The anchor as cursor text: `<index>.<released>`, then, past the walk's
+    /// start, `.` and each name of `after` in hex, `/` between names.
+    #[must_use]
+    pub fn encode(&self) -> String {
+        let mut text = format!("{}.{}", self.index, self.released);
+        if let Some(names) = &self.after {
+            text.push('.');
+            let names = names.iter().map(hex::encode).collect::<Vec<_>>();
+            text.push_str(&names.join("/"));
+        }
+        text
+    }
+
+    /// The anchor [`Self::encode`] wrote; `None` for any other text.
+    #[must_use]
+    pub fn decode(text: &str) -> Option<Self> {
+        let mut parts = text.splitn(3, '.');
+        let number = |part: Option<&str>| {
+            part.filter(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))?
+                .parse::<u32>()
+                .ok()
+        };
+        let index = number(parts.next())?;
+        let released = number(parts.next())?;
+        let after = match parts.next() {
+            None => None,
+            Some("") => Some(Vec::new()),
+            Some(names) => Some(
+                names
+                    .split('/')
+                    .map(|name| {
+                        (!name.is_empty() && !name.bytes().any(|b| b.is_ascii_uppercase()))
+                            .then(|| hex::decode(name).ok())
+                            .flatten()
+                    })
+                    .collect::<Option<Vec<_>>>()?,
+            ),
+        };
+        Some(Self {
+            index,
+            after,
+            released,
+        })
+    }
 }
 
 /// What a stream read.
@@ -81,8 +156,10 @@ pub struct Streamed {
     pub through: u32,
     /// No candidate lies at or after `through`: the walk is over.
     pub ended: bool,
-    /// The pin over the candidates before `through`.
+    /// The pin over the page's candidates before `through`.
     pub pin: String,
+    /// Where this page began, for the page that continues it.
+    pub anchor: Anchor,
 }
 
 /// How a stream ended.
@@ -99,6 +176,10 @@ struct Feeder<'a> {
     judge: StreamJudge<'a>,
     /// The index the next candidate gets.
     next: usize,
+    /// The first candidate the page searches, and the one before it once
+    /// walked: where the page that continues this one starts its walk.
+    from: usize,
+    before_from: Option<PathBuf>,
 }
 
 impl Feeder<'_> {
@@ -108,6 +189,9 @@ impl Feeder<'_> {
         let path = self.walk.next(&mut self.judge)?;
         let index = self.next;
         self.next += 1;
+        if index + 1 == self.from {
+            self.before_from = Some(path.clone());
+        }
         Some((index, path))
     }
 }
@@ -120,8 +204,10 @@ type Candidate = (usize, PathBuf, Option<SourceStamp>);
 struct Commit {
     /// The candidate committed next.
     next: usize,
+    /// The first candidate this stream walked: the start of the page before.
+    start: usize,
     pending: BTreeMap<usize, Finished>,
-    /// The candidates before `next`, as the search read them.
+    /// The page's candidates before `next`, as the search read them.
     listed: ListedFiles,
     /// The candidates the walker produced: at most `window` past `next`, so
     /// a worker slow on one file never lets the others read far ahead of
@@ -131,9 +217,10 @@ struct Commit {
     /// starts at `base`, a few per thread, and doubles each time the workers
     /// sit idle with the window full: one slow file at the head then holds
     /// the window, not the other files' reading. It never passes the
-    /// candidates committed so far: a stream that fills its page early reads
-    /// no further past it than it started with, and one that read far spends
-    /// at most as much again on the reading past its end. A fixed ceiling
+    /// candidates this stream walked and committed so far (from `start`): a
+    /// stream that fills its page early reads no further past it than it
+    /// started with, and one that read far spends at most as much again on
+    /// the reading past its end. A fixed ceiling
     /// would instead stall every worker behind one slow file, whenever it
     /// takes longer than the workers need to search the window.
     window: usize,
@@ -170,33 +257,45 @@ pub(super) fn run<M: Matcher + Sync>(
         bind,
         from,
         pin,
+        anchor,
         enough,
     } = stream;
     let from = saturating_usize(from);
+    let first = saturating_usize(anchor.index);
+    if first > from {
+        return Ok(Streaming::Stale);
+    }
     // The host's share of cores is one budget: the threads that search and
     // the threads that read directories ahead of the walk divide it.
     let room = share();
     let (threads, reading, opening) = budget(room);
     scope.open_gate = (opening < threads).then(|| OpenGate::new(opening));
+    let root = Path::new(&opts.path);
     let mut feeder = Feeder {
         // The walker's depth counts the root as 0, the contract's as -1.
         walk: OrderedWalk::new(
-            Path::new(&opts.path),
+            root,
             opts.max_depth.map(|max_depth| max_depth as usize + 1),
             reading,
         ),
-        judge: StreamJudge::new(&scope, &path_filter),
-        next: 0,
+        judge: StreamJudge::new(&scope, &path_filter, first),
+        next: first,
+        from,
+        before_from: None,
     };
-    // The prefix is walked and stamped, not searched; the candidate that
-    // opens the page, when it is a file's continuation, is stamped here too
-    // so its pin is read before its search.
+    if let Some(after) = &anchor.after {
+        feeder.walk.seek_after(after, &mut feeder.judge);
+    }
+    // The page before is walked again from its start and stamped, not
+    // searched; the candidate that opens the page, when it is a file's
+    // continuation, is stamped here too so its pin is read before its
+    // search.
     let covers = pin
         .as_ref()
         .map_or(from, |pin| saturating_usize(pin.covers));
     let stamped = covers.max(from);
-    let mut check = ListedFiles::default();
-    check.add(std::path::Path::new(&bind), None);
+    let mut bound = ListedFiles::default();
+    bound.add(std::path::Path::new(&bind), None);
     // `room`: candidates handed out past the last one committed, so a worker
     // slow on one file never lets the others read far ahead of the page cut.
     let replayed = replay_prefix(
@@ -208,21 +307,16 @@ pub(super) fn run<M: Matcher + Sync>(
             }
         }),
         (|path: &PathBuf| path.as_path(), stamp_of),
-        (from, stamped, room),
-        check,
+        (first, from, stamped, room),
+        bound.clone(),
     );
-    if replayed.count < stamped {
+    if replayed.count < stamped - first {
         if state.stopped() {
-            return finish(&scope, &state, &held, opts, mode, None);
+            return finish(&scope, &state, &held, opts, mode, (None, anchor));
         }
         return Ok(Streaming::Stale);
     }
-    let Replayed {
-        check,
-        at_from,
-        opening,
-        ..
-    } = replayed;
+    let Replayed { check, opening, .. } = replayed;
     if let Some(pin) = &pin
         && check.hex() != pin.hex
     {
@@ -232,8 +326,11 @@ pub(super) fn run<M: Matcher + Sync>(
     let work = Condvar::new();
     let commit = Mutex::new(Commit {
         next: from,
+        start: first,
         pending: BTreeMap::new(),
-        listed: at_from,
+        // The page's own pins start over at its first candidate: the page
+        // that continues it replays it from there.
+        listed: bound,
         handed: stamped,
         window: CANDIDATES_PER_THREAD * room,
         base: CANDIDATES_PER_THREAD * room,
@@ -294,11 +391,45 @@ pub(super) fn run<M: Matcher + Sync>(
     // A walk that ran to its end reports every entry it left out. Otherwise
     // only those before the last committed candidate: whether the walker had
     // judged the entries between it and the next candidate when the page
-    // filled depends on the read-ahead.
-    feeder
-        .judge
-        .release(if ended { usize::MAX } else { commit.next });
-    finish(&scope, &state, &held, opts, mode, Some((commit, ended)))
+    // filled depends on the read-ahead. What lies before the page before's
+    // cut that page reported.
+    feeder.judge.release(
+        saturating_usize(anchor.released),
+        if ended { usize::MAX } else { commit.next },
+    );
+    // The page that continues this one starts its walk just past the
+    // candidate before this page's first: walked here, or the anchor this
+    // page started past.
+    let after = if from > first {
+        feeder
+            .before_from
+            .take()
+            .map(|path| names_below(root, &path))
+    } else {
+        anchor.after
+    };
+    let next = Anchor {
+        index: saturating_u32(from),
+        after,
+        released: saturating_u32(commit.next),
+    };
+    finish(
+        &scope,
+        &state,
+        &held,
+        opts,
+        mode,
+        (Some((commit, ended)), next),
+    )
+}
+
+/// The names of `path` below `root`, as the walk's listings spell them.
+fn names_below(root: &Path, path: &Path) -> Vec<Vec<u8>> {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .components()
+        .map(|name| name.as_os_str().as_encoded_bytes().to_vec())
+        .collect()
 }
 
 /// The share of the host's cores this call holds.
@@ -324,14 +455,12 @@ fn budget(share: usize) -> (usize, usize, usize) {
     (share, reading, share.div_ceil(3))
 }
 
-/// What replaying a stream's prefix left.
+/// What replaying the page before a continuation left.
 pub(super) struct Replayed<T> {
     /// The candidates replayed.
     pub(super) count: usize,
     /// The pin's digest over them, and the bind before them.
     pub(super) check: ListedFiles,
-    /// The digest before the candidate `from`.
-    pub(super) at_from: ListedFiles,
     /// The last candidate at or after `from`, with its stamp.
     pub(super) opening: Option<(usize, T, Option<SourceStamp>)>,
 }
@@ -343,17 +472,16 @@ struct Fold<T> {
     next: usize,
     waiting: BTreeMap<usize, (T, Option<SourceStamp>)>,
     check: ListedFiles,
-    at_from: ListedFiles,
     opening: Option<(usize, T, Option<SourceStamp>)>,
 }
 
 impl<T> Fold<T> {
-    fn new(check: ListedFiles, from: usize) -> Self {
+    /// A fold whose first candidate is `first`.
+    fn new(check: ListedFiles, first: usize, from: usize) -> Self {
         Self {
             from,
-            next: 0,
+            next: first,
             waiting: BTreeMap::new(),
-            at_from: check.clone(),
             check,
             opening: None,
         }
@@ -368,9 +496,6 @@ impl<T> Fold<T> {
         while let Some((item, stamp)) = self.waiting.remove(&self.next) {
             let index = self.next;
             self.next += 1;
-            if index == self.from {
-                self.at_from = self.check.clone();
-            }
             self.check.add(path(&item), stamp);
             if index >= self.from {
                 self.opening = Some((index, item, stamp));
@@ -378,34 +503,31 @@ impl<T> Fold<T> {
         }
     }
 
-    fn done(mut self, count: usize) -> Replayed<T> {
-        if self.from == count {
-            self.at_from = self.check.clone();
-        }
+    fn done(self, count: usize) -> Replayed<T> {
         Replayed {
             count,
             check: self.check,
-            at_from: self.at_from,
             opening: self.opening,
         }
     }
 }
 
-/// Stamp the `expected` candidates of a continuation's prefix on `workers`
-/// threads while `candidates` is still walking, and fold the stamps into the
-/// pin's digest in walk order: the digest does not depend on which thread
-/// stamped a file or when. `from` is the first candidate the page searches.
+/// Stamp the candidates `first..end` of the page before a continuation on
+/// `workers` threads while `candidates` is still walking, and fold the stamps
+/// into the pin's digest in walk order: the digest does not depend on which
+/// thread stamped a file or when. `from` is the first candidate the page
+/// searches.
 pub(super) fn replay_prefix<T: Send>(
     candidates: impl Iterator<Item = (usize, T)>,
     (path, stamp): (
         impl Fn(&T) -> &std::path::Path + Sync,
         impl Fn(&std::path::Path) -> Option<SourceStamp> + Sync,
     ),
-    (from, expected, workers): (usize, usize, usize),
+    (first, from, end, workers): (usize, usize, usize, usize),
     check: ListedFiles,
 ) -> Replayed<T> {
-    let workers = workers.min(expected);
-    let mut fold = Fold::new(check, from);
+    let workers = workers.min(end.saturating_sub(first));
+    let mut fold = Fold::new(check, first, from);
     let mut count = 0;
     if workers <= 1 {
         for (index, item) in candidates {
@@ -494,6 +616,7 @@ impl Commit {
     fn empty() -> Self {
         Self {
             next: 0,
+            start: 0,
             pending: BTreeMap::new(),
             listed: ListedFiles::default(),
             handed: 0,
@@ -554,7 +677,7 @@ fn take_candidate(
         if ahead.walk_ended {
             return None;
         }
-        let cap = ahead.next.max(ahead.base);
+        let cap = (ahead.next - ahead.start).max(ahead.base);
         if ahead.handed >= ahead.next + ahead.window && !ahead.widened && ahead.window < cap {
             ahead.window = (2 * ahead.window).min(cap);
             ahead.widened = true;
@@ -627,14 +750,15 @@ impl Drop for Wake<'_> {
     }
 }
 
-/// The stream as its caller reads it, or a refusal past the held bound.
+/// The stream as its caller reads it, or a refusal past the held bound;
+/// `anchor`: where the page that continues it starts.
 fn finish(
     scope: &WalkScope<'_>,
     state: &CollectState,
     held: &Arc<Held>,
     opts: &TextSearchOptions,
     mode: Mode,
-    committed: Option<(Commit, bool)>,
+    (committed, anchor): (Option<(Commit, bool)>, Anchor),
 ) -> Result<Streaming> {
     scope.record_unreadable_ignore_files();
     if held.exhausted() {
@@ -663,118 +787,9 @@ fn finish(
         through: saturating_u32(next),
         ended,
         pin: listed.hex(),
+        anchor,
     })))
 }
 
 #[cfg(test)]
-pub(super) mod tests {
-    thread_local! {
-        /// The share a test gives the stream it starts on this thread.
-        pub(in crate::search::text_search) static SHARE: std::cell::Cell<Option<usize>> =
-            const { std::cell::Cell::new(None) };
-    }
-
-    use super::*;
-    use std::sync::{Condvar, Mutex};
-
-    /// Workers idle because the window is full (the head is slow) widen it,
-    /// once until the walker hands out more, and not past what was committed.
-    #[test]
-    fn workers_idle_behind_a_full_window_widen_it_once_per_hand_out() {
-        let commit = Mutex::new(Commit {
-            next: 24,
-            handed: 32,
-            window: 8,
-            base: 8,
-            ..Commit::empty()
-        });
-        let (committed, work) = (Condvar::new(), Condvar::new());
-        let state = CollectState::new();
-        let window = || commit.lock().expect("commit").window;
-        std::thread::scope(|scope| {
-            let idle = (0..3)
-                .map(|_| scope.spawn(|| take_candidate((&commit, &committed, &work), &state)))
-                .collect::<Vec<_>>();
-            while window() == 8 {
-                std::thread::yield_now();
-            }
-            // The other idle workers wait: one widening per hand-out.
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            assert_eq!(window(), 16);
-            // The walker hands out: the next stall widens again, to what
-            // was committed and no further.
-            {
-                let mut ahead = commit.lock().expect("commit");
-                ahead.handed = ahead.next + 16;
-                ahead.widened = false;
-            }
-            work.notify_all();
-            while window() == 16 {
-                std::thread::yield_now();
-            }
-            assert_eq!(window(), 24);
-            commit.lock().expect("commit").walk_ended = true;
-            work.notify_all();
-            for worker in idle {
-                assert!(worker.join().expect("worker").is_none());
-            }
-        });
-    }
-
-    /// One slow file at the head can outlast the time the workers need for
-    /// any fixed window: a stream that read far widens past it, up to what it
-    /// committed, so the workers keep searching behind the slow file.
-    #[test]
-    fn a_stream_that_read_far_widens_without_a_fixed_ceiling() {
-        let commit = Mutex::new(Commit {
-            next: 5000,
-            handed: 5000 + 768,
-            window: 768,
-            base: 24,
-            ..Commit::empty()
-        });
-        let (committed, work) = (Condvar::new(), Condvar::new());
-        let state = CollectState::new();
-        std::thread::scope(|scope| {
-            let idle = scope.spawn(|| take_candidate((&commit, &committed, &work), &state));
-            while commit.lock().expect("commit").window == 768 {
-                std::thread::yield_now();
-            }
-            assert_eq!(commit.lock().expect("commit").window, 1536);
-            commit.lock().expect("commit").walk_ended = true;
-            work.notify_all();
-            assert!(idle.join().expect("worker").is_none());
-        });
-    }
-
-    /// A stream that has read little widens nothing: its window stays the
-    /// start, so a page filled early reads no further past its end.
-    #[test]
-    fn a_stream_that_read_little_keeps_its_window() {
-        let commit = Mutex::new(Commit {
-            next: 4,
-            handed: 12,
-            window: 8,
-            base: 8,
-            ..Commit::empty()
-        });
-        let (committed, work) = (Condvar::new(), Condvar::new());
-        let state = CollectState::new();
-        std::thread::scope(|scope| {
-            let idle = scope.spawn(|| take_candidate((&commit, &committed, &work), &state));
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            assert_eq!(commit.lock().expect("commit").window, 8);
-            commit.lock().expect("commit").walk_ended = true;
-            work.notify_all();
-            assert!(idle.join().expect("worker").is_none());
-        });
-    }
-
-    /// Run `f` with the stream it starts holding `share` cores.
-    pub(in crate::search::text_search) fn with_share<R>(share: usize, f: impl FnOnce() -> R) -> R {
-        SHARE.with(|cell| cell.set(Some(share)));
-        let result = f();
-        SHARE.with(|cell| cell.set(None));
-        result
-    }
-}
+pub(super) mod tests;

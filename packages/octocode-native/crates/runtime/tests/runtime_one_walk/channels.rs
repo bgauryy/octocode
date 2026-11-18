@@ -2,11 +2,12 @@
 //! payload): at tiny windows, with Unicode, escapes and long values, every
 //! walk reads its evidence exactly once and equal to the unpaged answer, and
 //! no page says `hasMore:false` while a walk remains.
-use super::the_next_call;
+use super::the_next_calls;
 use crate::support::{Run as _, Workspace, mcp_payload};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use octocode_native::runtime::ToolRuntime;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -36,24 +37,21 @@ async fn page(runtime: &ToolRuntime, on: Transport, tool: &str, input: Value) ->
                 .unwrap_or_else(|error| panic!("{tool} {input}: {error:?}")),
         ),
     };
-    octocode_native::contracts::validate_output(tool, &output).expect("output contract");
+    octocode_runtime_base::contracts::validate_output(tool, &output).expect("output contract");
     output
 }
 
 /// Every page of the one loop from `start` on `on`.
 async fn walk_on(runtime: &ToolRuntime, on: Transport, tool: &str, start: Value) -> Vec<Value> {
     let mut pages = Vec::new();
-    let mut input = start;
-    loop {
+    let mut queue = std::collections::VecDeque::from([start]);
+    while let Some(input) = queue.pop_front() {
         assert!(pages.len() < 400, "the walk terminates");
         let output = page(runtime, on, tool, input).await;
-        let next = the_next_call(&output);
+        queue.extend(the_next_calls(&output));
         pages.push(output);
-        match next {
-            Some(call) => input = call,
-            None => return pages,
-        }
     }
+    pages
 }
 
 /// The source text a read walk delivered, byte for byte: a row part
@@ -184,6 +182,7 @@ async fn local_reads_walk_exactly_once_on_both_transports() {
 async fn github_reads_walk_exactly_once_on_both_transports() {
     let server = MockServer::builder().start().await;
     let body = body();
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "src/evidence.txt").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/src%2Fevidence.txt"))
         .and(query_param("ref", SHA))
@@ -212,7 +211,14 @@ async fn local_searches_walk_exactly_once_on_both_transports() {
         workspace.write(&format!("docs/f{file}.txt"), body());
     }
     let runtime = workspace.runtime(&[]);
-    let row = json!({"path":"docs","matchString":["evidence_"],"view":"content","limit":60});
+    let row = json_fixture(
+        r#"{
+            "path": "docs",
+            "matchString": ["evidence_"],
+            "view": "content",
+            "limit": 60
+        }"#,
+    );
     let baseline = hits(
         &walk_on(
             &runtime,
@@ -449,7 +455,7 @@ async fn whole_reads_over_the_automatic_page_never_state_a_fresh_end() {
             for page in &pages {
                 if let Some(block) = page.get("responsePagination") {
                     assert!(
-                        block["hasMore"] == true || block["replayed"] == true,
+                        block["next"].is_object() || block["replayed"] == true,
                         "{size} {on:?}: a fresh page states an end: {block}"
                     );
                 }
@@ -468,7 +474,7 @@ async fn a_single_walk_rides_its_row_unpaged_and_the_response_paged() {
     let workspace = Workspace::new();
     workspace.write("docs/a.txt", body());
     let runtime = workspace.runtime(&[]);
-    let row = json!({"path":"docs","matchString":["evidence_"],"limit":5});
+    let row = json_fixture(r#"{"path": "docs", "matchString": ["evidence_"], "limit": 5}"#);
     for on in [Transport::Cli, Transport::Mcp] {
         let unpaged = page(
             &runtime,
@@ -492,13 +498,11 @@ async fn a_single_walk_rides_its_row_unpaged_and_the_response_paged() {
             json!({"queries":[row.clone()],"responseChars":450}),
         )
         .await;
-        assert_eq!(
-            paged["responsePagination"]["hasMore"], true,
+        assert!(
+            paged["responsePagination"]["next"].is_object(),
             "{on:?}: {paged}"
         );
-        assert!(paged["responsePagination"]["next"].is_object());
-        // `the_next_call` asserts the row carries no second way on.
-        assert!(the_next_call(&paged).is_some());
+        assert!(!the_next_calls(&paged).is_empty());
     }
     runtime.close().await;
 }

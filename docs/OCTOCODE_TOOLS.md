@@ -9,6 +9,25 @@ The catalog has 17 tools. Agents call them by name over [MCP](OCTOCODE_MCP.md). 
 | [A package name or lockfile](#package-and-advisory-tools) | The published version, source revision and known advisories |
 | [A question about unread evidence](#semantic-assessment-reference) | Files or sections worth opening, using a configured classification provider |
 
+Which tool answers a question first. The MCP server's instructions give agents the same routing.
+
+```mermaid
+flowchart LR
+  accTitle: Which tool answers a question first
+  Q{"Question"} -->|"layout, names, sizes, dates"| ST["structureSearch"]
+  Q -->|"text, spelling, counts"| LS["localSearch"]
+  Q -->|"code shape"| AS["astSearch"]
+  Q -->|"definition, every caller"| LSP["lspSearch"]
+  Q -->|"importers, cycles, impact"| GB["graphBuild"] --> GQ["graphQuery"]
+  LS --> LF["localFetch<br/>Read the deciding lines"]
+  AS --> LF
+  Q -->|"another repository"| GR["ghSearchRepo"] --> GS["ghStructure or ghSearchCode"] --> GF["ghGetFileContent"]
+  Q -->|"why, when, who"| GH["ghSearchHistory"] --> GI["ghGetHistoryItem"]
+  Q -->|"package version"| AR["artifactSearch"]
+  Q -->|"known vulnerabilities"| SC["securityCheck"]
+  Q -->|"too many hits to read"| CL["clasify"]
+```
+
 ## How every tool call works
 
 Start with `{"queries":[…]}`. Each row in `results` has an `index` pointing back to its query. For a tool's fields, allowed combinations and defaults, ask the installed version. For example, this command shows the inputs for resolving a package.
@@ -20,6 +39,15 @@ octocode schema artifactSearch --view query --select operation=resolve
 ### Results, evidence, partial failures, and continuations
 
 Read each row's status, coverage and warnings. When the response has `responsePagination.next`, call its named tool with its exact `input` first. Otherwise follow the relevant `next.*` calls, including `next.nextPage`, until the requested evidence is complete. `related[]` offers optional new queries. If the provider reaches a terminal limit or a source fails, report what remains unknown. [Rows, split results and executable continuations](TOOL_DATA_CONTRACT.md#executable-continuations)
+
+```mermaid
+flowchart LR
+  accTitle: Read a result until its evidence is complete
+  C["Call with queries"] --> R["Read each row: status, coverage, warnings"]
+  R -->|"responsePagination.next"| P["Call it unchanged"] --> R
+  R -->|"next.nextPage or another next.*"| N["Follow it"] --> R
+  R -->|"complete, or a terminal limit"| D["Cite the evidence; name what stays unknown"]
+```
 
 ## Local code tools reference
 

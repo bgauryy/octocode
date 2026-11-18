@@ -31,8 +31,8 @@ fn extracts_graph_facts_for_imports_exports_and_calls() {
 
 #[test]
 fn destructured_exports_emit_each_binding_name() {
-    // Regression: `export const {a,b} = …` / `export const [x] = …` previously
-    // dropped every binding because only bare identifiers were collected.
+    // `export const {a,b} = …` / `export const [x] = …` export every binding
+    // the pattern names, nested and rest bindings included.
     let src = "export const { a, b } = obj;\nexport const [x, [y]] = arr;\nexport const { c: { d }, ...rest } = obj;\n";
     let v = graph(src, "main.ts");
     let exports = names(&v["exports"]);
@@ -89,9 +89,8 @@ fn distinguishes_declaration_and_specifier_level_type_imports() {
 #[test]
 fn extracts_string_literal_dynamic_import_as_a_dynamic_import_call() {
     // A dynamic `import('./mod.js')` with a string-literal source must be
-    // captured so the dead-code graph can treat the target as reachable —
-    // previously invisible, causing a false-positive "dead" verdict on files
-    // reached only through a dynamic import.
+    // captured so the dead-code graph can treat the target as reachable: a
+    // file reached only through a dynamic import is not dead.
     let src = "export async function loadPlugin() {\n  const mod = await import('./plugin.js');\n  return mod;\n}\n";
     let v = graph(src, "loader.ts");
     let calls = v["calls"].as_array().unwrap();
@@ -122,10 +121,9 @@ fn captures_a_dynamic_import_inside_a_bare_callback_argument() {
     // The common test-framework shape: `it('...', async () => { ... })` passes
     // the arrow function as a bare call argument, not a named declaration or an
     // IIFE callee. A dynamic import made inside that callback's body must still
-    // be captured — previously any function/arrow expression found as a plain
-    // sub-expression (a callback argument, an array element, a conditional
-    // branch) was skipped entirely, silently dropping every call made inside
-    // it, including a `dynamic-import`.
+    // be captured: every call inside a function or arrow expression found as a
+    // plain sub-expression (a callback argument, an array element, a
+    // conditional branch) is collected, a `dynamic-import` included.
     let src = "it('loads', async () => {\n  const { loadConfig } = await import('./loader.js');\n  loadConfig();\n});\n";
     let v = graph(src, "loader.test.ts");
     let calls = v["calls"].as_array().unwrap();

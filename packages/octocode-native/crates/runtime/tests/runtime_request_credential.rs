@@ -4,8 +4,9 @@
 use crate::support::{Workspace, envelope, row_data, row_status};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use octocode_contract_types::ErrorCode;
-use octocode_native::response::outcome::ToolOutcome;
 use octocode_native::runtime::{Channel, RuntimeError, ToolRuntime};
+use octocode_runtime_base::response::outcome::ToolOutcome;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -94,7 +95,7 @@ async fn request_tokens_get_isolated_cache_and_rate_partitions() {
                 .insert_header("x-ratelimit-remaining", "0")
                 .insert_header("x-ratelimit-reset", reset.to_string().as_str())
                 .insert_header("x-ratelimit-resource", "core")
-                .set_body_json(json!({"message": "API rate limit exceeded"})),
+                .set_body_json(json_fixture(r#"{"message": "API rate limit exceeded"}"#)),
         )
         .mount(&server)
         .await;
@@ -104,8 +105,13 @@ async fn request_tokens_get_isolated_cache_and_rate_partitions() {
         .respond_with(file("dave body\n"))
         .mount(&server)
         .await;
+    for name in ["secret.txt", "open.txt"] {
+        octocode_test_support::mock_http::list_in_trees(&server, "a", "b", name).await;
+    }
     Mock::given(method("GET"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
+        .respond_with(
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
+        )
         .with_priority(10)
         .mount(&server)
         .await;
@@ -139,13 +145,14 @@ async fn request_tokens_get_isolated_cache_and_rate_partitions() {
         "bob's read reached GitHub"
     );
 
-    // One read fans out to several requests at once (content, last-change
-    // lookups); how many of them leave before the first 403 spends the `core`
-    // quota depends on scheduling, and a straggler may arrive after the read
-    // returns. So the second read asks for another file: whatever the first
-    // read still has in flight is for `open.txt`, and a spent quota sends no
-    // REST request for `other.txt` (GraphQL has its own quota).
-    for name in ["open.txt", "other.txt"] {
+    // One read fans out to several requests (the link check's tree, content,
+    // last-change lookups); how many of them leave before the first 403 spends
+    // the `core` quota depends on scheduling, and a straggler may arrive after
+    // the read returns. So the second read asks for a file in a folder the
+    // first never names: whatever the first read still has in flight names no
+    // `sub`, and a spent quota sends no REST request for `sub/other.txt`
+    // (GraphQL has its own quota).
+    for name in ["open.txt", "sub/other.txt"] {
         let spent = read_as(&runtime, carol, name).await;
         assert_eq!(
             row_data(&spent)["errorCode"],
@@ -155,11 +162,11 @@ async fn request_tokens_get_isolated_cache_and_rate_partitions() {
         );
     }
     assert!(
-        gets_for(&server, carol, "open.txt").await >= 1,
+        sends_by(&server, carol).await >= 1,
         "carol's first read reached GitHub"
     );
     assert_eq!(
-        gets_for(&server, carol, "other.txt").await,
+        gets_for(&server, carol, "sub").await,
         0,
         "a spent quota refuses without sending"
     );
@@ -205,7 +212,7 @@ async fn rejected_request_token_never_falls_back_or_echoes() {
         ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
         ("PATH", workspace.fake_gh_path()),
     ]);
-    config.runtime_surface = octocode_native::config::RuntimeSurface::Mcp;
+    config.runtime_surface = octocode_runtime_base::config::RuntimeSurface::Mcp;
     let runtime = ToolRuntime::with_limits(config, crate::support::FIXTURE_LIMITS).unwrap();
 
     for _ in 0..2 {
@@ -234,9 +241,10 @@ async fn rejected_request_token_never_falls_back_or_echoes() {
         assert_eq!(data["errorCode"], "authentication", "{text}");
         assert!(text.contains("supplied with this request"), "{text}");
     }
-    // Each call sends the supplied token on its content read, and nothing
-    // else: a read at a full SHA resolves no ref and asks no last-change
-    // date.
+    // Each call sends the supplied token on its first request to the repo
+    // (the link check before a content read), the rejection ends the call,
+    // and nothing else carries it: a read at a full SHA resolves no ref and
+    // asks no last-change date.
     let bearer = format!("Bearer {bad}");
     let requests = server.received_requests().await.unwrap();
     let by_bad = requests
@@ -249,8 +257,11 @@ async fn rejected_request_token_never_falls_back_or_echoes() {
         })
         .map(|request| request.url.path())
         .collect::<Vec<_>>();
-    assert_eq!(
-        by_bad, ["/api/v3/repos/a/b/contents/x.txt"; 2],
+    assert_eq!(by_bad.len(), 2, "one rejected request per call: {by_bad:?}");
+    assert!(
+        by_bad
+            .iter()
+            .all(|path| path.starts_with("/api/v3/repos/a/b/")),
         "{by_bad:?}"
     );
     assert_eq!(
@@ -276,8 +287,8 @@ async fn request_options_are_strict_and_never_echoed() {
     let secret = format!("ghp_{}", "Q".repeat(36));
     for options in [
         json!({"githubTok": secret}),
-        json!({"githubToken": "  "}),
-        json!({"githubToken": 5}),
+        json_fixture(r#"{"githubToken": "  "}"#),
+        json_fixture(r#"{"githubToken": 5}"#),
     ] {
         let error: RuntimeError = runtime
             .admit_with("req".into(), Some(options))

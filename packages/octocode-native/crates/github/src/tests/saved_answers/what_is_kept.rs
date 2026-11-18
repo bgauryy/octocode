@@ -1,24 +1,25 @@
 //! What stays saved: never a partial, `no-store`, binary or error answer, nor
 //! one whose resource is gone; and which reads count as pinned to a commit.
 use super::*;
+use octocode_test_support::json_fixture;
 
 /// A partial answer is worth asking again, however it says so.
 #[tokio::test]
 async fn a_partial_search_is_never_kept() {
     let server = MockServer::start().await;
     Mock::given(path("/api/v3/search/issues"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(
-            serde_json::json!({"total_count":1,"incomplete_results":true,"items":[]}),
-        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"total_count": 1, "incomplete_results": true, "items": []}"#,
+        )))
         .mount(&server)
         .await;
     Mock::given(path("/api/v3/search/code"))
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("x-github-sso", "partial-results; organizations=7")
-                .set_body_json(
-                    serde_json::json!({"total_count":1,"incomplete_results":false,"items":[]}),
-                ),
+                .set_body_json(json_fixture(
+                    r#"{"total_count": 1, "incomplete_results": false, "items": []}"#,
+                )),
         )
         .mount(&server)
         .await;
@@ -140,7 +141,7 @@ async fn losing_access_drops_the_saved_answer_and_a_server_error_keeps_it() {
         .await;
     Mock::given(path("/api/v3/repos/a/b"))
         .respond_with(
-            ResponseTemplate::new(404).set_body_json(serde_json::json!({"message":"Not Found"})),
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
         )
         .mount(&server)
         .await;

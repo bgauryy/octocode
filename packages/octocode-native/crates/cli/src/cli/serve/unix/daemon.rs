@@ -2,7 +2,7 @@
 //! keeps a runtime per directory and environment, and answers each call.
 
 mod drain;
-mod request;
+pub(super) mod request;
 
 use super::identity::{call_identity, env_digest};
 use super::same_dir_form;
@@ -10,8 +10,6 @@ pub(super) use super::served::Served;
 use super::sockets::remove_stale_sockets;
 use super::startup::Startup;
 use super::surface::Surface;
-#[cfg(test)]
-pub(super) use request::attended;
 pub(super) use request::handle;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -253,8 +251,9 @@ pub(super) async fn shut_down(daemon: &Daemon) {
     drop(std::mem::take(&mut *daemon.stopped.borrow_mut()));
 }
 
-/// Accept connections until nothing has been asked for `idle`, or a
-/// [`STOP`](super::sockets::STOP) request arrives. Only a connection that
+/// Accept connections until nothing has been asked for `idle`, a
+/// [`STOP`](super::sockets::STOP) request arrives, or the process gets
+/// SIGTERM or SIGHUP. Only a connection that
 /// sends a request counts as asking: a probe that closes without one (a
 /// starting server looking for stale sockets), or one that stays open and
 /// silent, neither renews the server nor keeps it running. Then `leave`
@@ -276,10 +275,14 @@ pub(super) async fn serve_on(
     // A fixed schedule: connections arriving between checks do not move it.
     let mut check = tokio::time::interval_at(tokio::time::Instant::now() + poll, poll);
     let mut next_id = 0u64;
+    let mut terminate = listen(tokio::signal::unix::SignalKind::terminate());
+    let mut hangup = listen(tokio::signal::unix::SignalKind::hangup());
     loop {
         let accepted = tokio::select! {
             accepted = listener.accept() => accepted,
             () = daemon.stop.notified() => break,
+            () = signalled(&mut terminate) => break,
+            () = signalled(&mut hangup) => break,
             _ = check.tick() => {
                 let (active, last) = state.get();
                 if active != 0 || last.elapsed() < idle {
@@ -328,6 +331,23 @@ pub(super) async fn serve_on(
     daemon.tell_draining(state.get().0).await;
     let all = octocode_engine::num::saturating_u32(MAX_CONNECTIONS);
     let _ = daemon.telling_waiters(slots.acquire_many(all)).await;
+}
+
+/// A listener for `kind`, or `None` when the process cannot register one.
+fn listen(kind: tokio::signal::unix::SignalKind) -> Option<tokio::signal::unix::Signal> {
+    tokio::signal::unix::signal(kind).ok()
+}
+
+/// Resolves when `signal` arrives, and never without one: a stop signal
+/// leaves through the same path as idle or a stop request, so the socket
+/// goes and the language servers stop gracefully.
+async fn signalled(signal: &mut Option<tokio::signal::unix::Signal>) {
+    match signal {
+        Some(signal) => {
+            signal.recv().await;
+        }
+        None => std::future::pending().await,
+    }
 }
 
 /// The socket file's identity, `(device, inode)`, taken right after bind.

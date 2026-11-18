@@ -1,6 +1,6 @@
 ---
 name: rust-best-practices
-description: "Use when implementing, debugging, refactoring or reviewing Rust code: ownership, traits, errors, async, concurrency, unsafe/FFI, Cargo, MSRV, tests or measured performance. Includes CLI/TUI, parsing and napi-rs."
+description: "Use when implementing, debugging, refactoring or reviewing Rust code: ownership, traits, errors, async, concurrency, unsafe/FFI, crate layout and architecture, Cargo build and test speed, MSRV, tests or measured performance. Includes CLI/TUI, parsing and napi-rs."
 ---
 
 # Rust Best Practices
@@ -26,12 +26,13 @@ Read only the row for the current decision. Use [basics](basics.md) for a short 
 
 | When | Read | Why |
 |---|---|---|
-| Errors, borrowing, conversions or public APIs | [Idioms](references/idioms.md) | Ownership, recoverable failures and panic policy |
+| Errors, borrowing, conversions, public APIs, cleanup or lint suppression | [Idioms](references/idioms.md) | Ownership, typed failures, clean-code rules and panic policy |
 | Threads, locks, atomics, async or cancellation | [Concurrency and async](references/concurrency-and-async.md) | Task ownership, backpressure and shutdown |
 | Structs, enums, traits or pointers | [Types and patterns](references/types-and-patterns.md) | Choose the representation |
-| Dependency direction or extraction | [Crate structure](references/crate-structure.md) | Cohesive ownership |
-| Manifests, features, MSRV or lockfiles | [Workspace](references/workspace.md) | Workspace contract |
-| Compile time or target size | [Build profiles](references/build-profiles.md) | Measure build cost |
+| Module or crate layout, dependency direction, test placement or a crate that dominates build time | [Crate structure](references/crate-structure.md) | Clean architecture: enforced layers, guarded crate edges, minimal surfaces |
+| Manifests, features, MSRV or lockfiles | [Workspace](references/workspace.md) | Workspace contract and feature forks |
+| Compile time, repeated rebuilds, concurrent builds or target size | [Build profiles](references/build-profiles.md) | Measure by CPU and recompiled units; settings measured and rejected |
+| Heavy generics, derives, generated code or large futures | [Compile cost](references/code-size.md) | Shrink monomorphized and generated code, measured |
 | Runtime, RSS or allocation | [Performance and memory](references/performance-and-memory.md) | Prove with release benchmark/profile |
 | Untrusted input, unsafe code or FFI | [Safety and FFI](references/safety-and-ffi.md) | Safety obligations, trust boundaries and verification limits |
 | napi-rs project | [napi](references/napi.md) | Version-specific JS types, task lifetimes and platform artifacts |
@@ -40,12 +41,14 @@ Read only the row for the current decision. Use [basics](basics.md) for a short 
 | Language/API claim or dependency selection | [Sources and crates](references/sources-and-crates.md) | Primary authority and version-aware evaluation |
 | Research with available Octocode tools | [Octocode usage](references/octocode-usage.md) | Exact reads and continuations; other host tools also work |
 | Working in the Octocode repository | [Octocode development](references/octocode.md) | Local ownership, commands and shared-build rules |
-| Verification gates | [Testing and tooling](references/testing-and-tooling.md) | Crate checks |
+| Test design, test runners, verification gates or clean-code tools | [Testing and tooling](references/testing-and-tooling.md) | Process-safe, data-driven tests; tools that enforce clean code and architecture |
 
 ## Rules
 
 - Distinguish language guarantees, project policy and context-dependent recommendations. Check semantics against primary documentation; check third-party APIs against the locked version. Newer stable syntax is not automatically compatible with the project's MSRV or edition.
 - Fix ownership and type design before adding clones, shared state, boxing or `unsafe` to satisfy the compiler. A justified clone or concrete type is often simpler than a new abstraction.
+- Keep code clean: small cohesive modules, typed errors at library boundaries, cleanup owned by `Drop` guards, no process-global mutable state, clocks and limits passed in, tests in their own files, and `#[expect(lint, reason)]` instead of `#[allow]`. Keep the architecture clean: crates split along enforced layers with a guarded crate graph, serialization and generated code at the edges, a dispatch-only top crate, a minimal public surface per crate, fixtures only in dev-only crates or `test-support` features, build-wide values passed as parameters, temporary bridges deleted, and no growth of the crate that holds the build's critical path. The [clean-code tools](references/testing-and-tooling.md#tools-that-keep-code-and-architecture-clean) enforce what they can.
+- Change build settings, crate layout or test infrastructure only on measured evidence: CPU (user + sys) and recompiled units, A/B/A/B, never wall time under load. Do mechanical refactors with a replayable script. Do not reintroduce a setting [measured and rejected](references/build-profiles.md#measured-and-rejected-here) without new evidence.
 - Reuse std and established dependencies. Evaluate a new dependency's API, features, MSRV, license, maintenance and build-time effects. Proceed within the user's authorized scope; ask only when an unresolved decision materially changes compatibility or scope. Do not require fresh permission for routine Cargo-managed lockfile updates already implied by the task.
 - Preserve errors and requested data. Apply the owning contract's limits and backpressure; use continuation, streaming or explicit refusal instead of silently returning a prefix. Do not invent quotas or deadlines.
 - Understand diagnostics before changing code. Do not silence a lint, delete a test, weaken an invariant or lower a coverage floor to obtain a green result.

@@ -3,12 +3,13 @@
 //! not issued, or sent to the wrong tool, is the caller's input; any other
 //! cause is saved work this runtime cannot answer.
 use super::*;
-use crate::execution::ExecutionContext;
-use crate::id::ToolId;
-use crate::response::cursor::issued;
 use crate::runtime::engine::cursors::SavedWork;
 use crate::runtime::engine::{Channel, ToolRuntime};
 use octocode_io::cancellation::Cancellation;
+use octocode_runtime_base::execution::ExecutionContext;
+use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::response::cursor::issued;
+use octocode_test_support::json_fixture;
 use std::time::{Duration, Instant};
 
 const PERSISTENT: &[(&str, &str)] = &[("OCTOCODE_STORAGE_MODE", "persistent")];
@@ -29,7 +30,7 @@ fn issue(runtime: &ToolRuntime, tool: ToolId) -> String {
         .pending(page_replay_key("", &[], &[], None), None);
     let token = pending.insert(
         tool,
-        json!({"queries":[{"path":"must-not-be-read"}]}),
+        json_fixture(r#"{"queries": [{"path": "must-not-be-read"}]}"#),
         SavedWork::ToolResume { index: Some(0) },
     );
     runtime.cursors.retain(pending, &context()).unwrap();
@@ -194,14 +195,14 @@ async fn a_cursor_another_build_issued_is_refused_naming_the_build() {
     let home = tempfile::tempdir().unwrap();
     let runtime = super::super::construction_tests::runtime(home.path(), PERSISTENT);
     let other = crate::runtime::engine::cursors::Registry::new(
-        crate::cache::CacheConfig::derived(),
-        Some(crate::cache::Directory::Continuations.path(&runtime.config.home)),
+        octocode_runtime_base::cache::CacheConfig::derived(),
+        Some(octocode_runtime_base::cache::Directory::Continuations.path(&runtime.config.home)),
         replay_policy(&runtime.config, &runtime.input.cwd, "0123456789abcdef"),
     );
     let mut pending = other.pending(page_replay_key("", &[], &[], None), None);
     let token = pending.insert(
         ToolId::LocalFetch,
-        json!({"queries":[{"path":"must-not-be-read"}]}),
+        json_fixture(r#"{"queries": [{"path": "must-not-be-read"}]}"#),
         SavedWork::ToolResume { index: Some(0) },
     );
     other.retain(pending, &context()).unwrap();

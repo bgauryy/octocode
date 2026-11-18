@@ -1,7 +1,7 @@
 //! What a person sees and changes through `octocode config`: `.octocoderc`
 //! layering, `get`, `check`, `list` and `set`. Providers: `provider_host`.
 use super::*;
-use octocode_native::config::{CONFIG_FIELDS, KNOWN_ENV};
+use octocode_runtime_base::config::{CONFIG_FIELDS, KNOWN_ENV};
 use std::process::Output;
 
 pub(super) const HOST_ENV: &str = "OCTOCODE_CLASSIFICATION_API_HOST";

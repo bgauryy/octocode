@@ -146,14 +146,47 @@ fn a_socket_that_cannot_be_bound_is_unavailable_with_its_cause() {
     assert!(reason.contains(&socket.display().to_string()), "{reason}");
 }
 
+/// Leaves at `path` a stream socket's file that nobody answers on, as a
+/// killed server leaves it: the socket is bound and closed and never listens.
+/// A listener bound and dropped instead can stay answering: macOS marks a
+/// socket close-on-exec only after `socket` returns, so a child another test
+/// spawns in that gap keeps the listener open after the drop.
+fn stale_socket(path: &Path) {
+    use std::os::unix::ffi::OsStrExt as _;
+    let name = path.as_os_str().as_bytes();
+    // SAFETY: `sockaddr_un` is plain data, valid zeroed.
+    let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+    assert!(name.len() < address.sun_path.len(), "{}", path.display());
+    address.sun_family = libc::sa_family_t::try_from(libc::AF_UNIX).expect("family");
+    for (slot, byte) in address.sun_path.iter_mut().zip(name) {
+        *slot = libc::c_char::from_ne_bytes([*byte]);
+    }
+    let length =
+        libc::socklen_t::try_from(std::mem::size_of::<libc::sockaddr_un>()).expect("length");
+    // SAFETY: the descriptor is this function's from `socket` to `close`;
+    // `bind` reads `length` bytes of `address`, which it holds.
+    unsafe {
+        let fd = libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0);
+        assert!(fd >= 0, "{}", std::io::Error::last_os_error());
+        let bound = libc::bind(fd, (&raw const address).cast(), length);
+        let error = std::io::Error::last_os_error();
+        libc::close(fd);
+        assert_eq!(bound, 0, "{error}");
+    }
+}
+
 /// A socket file nobody answers on (its server was killed) is replaced;
 /// one a server answers on is that server's.
 #[test]
 fn a_stale_socket_is_replaced_and_a_live_one_is_existing() {
     let dir = tempfile::tempdir().expect("dir");
     let socket = dir.path().join("serve-s.sock");
-    drop(std::os::unix::net::UnixListener::bind(&socket).expect("stale"));
+    stale_socket(&socket);
     assert!(socket.exists(), "a stale file");
+    assert!(
+        std::os::unix::net::UnixStream::connect(&socket).is_err(),
+        "nobody answers on it"
+    );
     let (listener, ours) = claim(&socket).expect("replaced");
     assert_eq!(socket_identity(&socket), ours);
     assert!(matches!(claim(&socket), Err(Startup::Existing)));

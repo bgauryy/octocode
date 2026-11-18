@@ -112,6 +112,20 @@ pub(super) fn hits(
         let matched: Option<Vec<u64>> = extra
             .shift_remove("matchedLines")
             .and_then(|lines| serde_json::from_value(lines).ok());
+        // A merged window's declarations, one per `matchedLines` entry: each
+        // hit line states the declaration it belongs to.
+        let owners = match (extra.get("enclosing"), &matched) {
+            (Some(Value::Array(owners)), Some(_)) => {
+                let owners = owners.clone();
+                extra.shift_remove("enclosing");
+                Some(owners)
+            }
+            _ => None,
+        };
+        let owner_of = |n: u64| {
+            let at = matched.as_ref()?.iter().position(|m| *m == n)?;
+            owners.as_ref()?.get(at).cloned()
+        };
         let is_hit = |n: u64| match &matched {
             Some(lines) => lines.contains(&n),
             None => (line..=end).contains(&n),
@@ -134,8 +148,21 @@ pub(super) fn hits(
             } else {
                 format!("{path}{sep}{n}{sep}{text}")
             };
+            if hit && annotated && owners.is_some() {
+                let mut own = Map::new();
+                if let Some(owner) = owner_of(*n) {
+                    own.insert("enclosing".into(), owner);
+                }
+                if let Some(note) = match_note(&mut own, &mut last_owner) {
+                    entry.push_str("  ");
+                    entry.push_str(&note);
+                }
+            }
             if hit && !annotated {
                 annotated = true;
+                if let Some(owner) = owner_of(*n) {
+                    extra.insert("enclosing".into(), owner);
+                }
                 if let Some(note) = match_note(&mut extra, &mut last_owner) {
                     entry.push_str("  ");
                     entry.push_str(&note);

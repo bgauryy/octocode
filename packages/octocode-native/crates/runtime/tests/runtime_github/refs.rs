@@ -3,6 +3,7 @@
 use crate::support::{self};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use support::{Workspace, call, checks, row_data, row_status};
 use wiremock::matchers::{method, path, path_regex};
@@ -18,13 +19,31 @@ async fn pinned_ref_code_search_warns_and_leads_to_the_ref_listing() {
     let head = "fedcba9876543210fedcba9876543210fedcba98";
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count":1,"incomplete_results":false,"items":[
-                {"name":"base.py","path":"pkg/base.py","sha":"1","html_url":"https://x",
-                 "repository":{"full_name":"a/b","html_url":"https://x","url":"https://x"},
-                 "text_matches":[{"fragment":"class Base:","matches":[{"text":"class","indices":[0,5]}]}]}
-            ]
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "total_count": 1,
+                "incomplete_results": false,
+                "items": [
+                    {
+                        "name": "base.py",
+                        "path": "pkg/base.py",
+                        "sha": "1",
+                        "html_url": "https://x",
+                        "repository": {
+                            "full_name": "a/b",
+                            "html_url": "https://x",
+                            "url": "https://x"
+                        },
+                        "text_matches": [
+                            {
+                                "fragment": "class Base:",
+                                "matches": [{"text": "class", "indices": [0, 5]}]
+                            }
+                        ]
+                    }
+                ]
+            }"#,
+        )))
         .mount(&server)
         .await;
     for (reference, sha) in [("dev", at_ref), ("HEAD", head)] {
@@ -34,6 +53,7 @@ async fn pinned_ref_code_search_warns_and_leads_to_the_ref_listing() {
             .mount(&server)
             .await;
     }
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "pkg/base.py").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/pkg%2Fbase.py"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -46,7 +66,15 @@ async fn pinned_ref_code_search_warns_and_leads_to_the_ref_listing() {
     let out = call(
         &runtime,
         "ghSearchCode",
-        json!({"owner":"a","repo":"b","keywords":["class"],"path":"pkg","ref":"dev"}),
+        json_fixture(
+            r#"{
+                "owner": "a",
+                "repo": "b",
+                "keywords": ["class"],
+                "path": "pkg",
+                "ref": "dev"
+            }"#,
+        ),
     )
     .await
     .expect("search");
@@ -54,7 +82,11 @@ async fn pinned_ref_code_search_warns_and_leads_to_the_ref_listing() {
     // The warning states the per-call facts only; the route is the lead.
     assert_eq!(
         data["warnings"],
-        json!(["Candidate files come from the default-branch index at fedcba9, not dev: a file that exists only at dev cannot appear; `matches` read at dev."]),
+        json_fixture(
+            r#"[
+                "Candidate files come from the default-branch index at fedcba9, not dev: a file that exists only at dev cannot appear; `matches` read at dev."
+            ]"#
+        ),
         "{data}"
     );
     let lead = &crate::support::checks::related_call(data, "ghStructure", |input| {
@@ -73,10 +105,9 @@ async fn gh_bad_ref_is_not_found_with_a_refs_lead() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/no-such-ref"))
-        .respond_with(
-            ResponseTemplate::new(422)
-                .set_body_json(json!({"message":"No commit found for SHA: no-such-ref"})),
-        )
+        .respond_with(ResponseTemplate::new(422).set_body_json(json_fixture(
+            r#"{"message": "No commit found for SHA: no-such-ref"}"#,
+        )))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -84,11 +115,25 @@ async fn gh_bad_ref_is_not_found_with_a_refs_lead() {
     for (tool, query) in [
         (
             "ghGetFileContent",
-            json!({"owner":"a","repo":"b","path":"README.md","ref":"no-such-ref"}),
+            json_fixture(
+                r#"{
+                    "owner": "a",
+                    "repo": "b",
+                    "path": "README.md",
+                    "ref": "no-such-ref"
+                }"#,
+            ),
         ),
         (
             "ghStructure",
-            json!({"operation":"tree","owner":"a","repo":"b","ref":"no-such-ref"}),
+            json_fixture(
+                r#"{
+                    "operation": "tree",
+                    "owner": "a",
+                    "repo": "b",
+                    "ref": "no-such-ref"
+                }"#,
+            ),
         ),
     ] {
         let outcome = call(&runtime, tool, query).await.expect("error row");
@@ -203,6 +248,7 @@ async fn gh_file_read_of_a_renamed_repository_names_the_canonical_repository() {
         .respond_with(ResponseTemplate::new(200).set_body_string(sha))
         .mount(&server)
         .await;
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "README.md").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repositories/1/contents/README.md"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -220,10 +266,9 @@ async fn gh_file_read_of_a_renamed_repository_names_the_canonical_repository() {
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"default_branch":"main","full_name":"c/d"})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"default_branch": "main", "full_name": "c/d"}"#,
+        )))
         // One metadata read per process: each read learns the rename.
         .expect(2)
         .mount(&server)
@@ -260,7 +305,14 @@ async fn gh_file_read_of_a_renamed_repository_names_the_canonical_repository() {
     let outcome = call(
         &first,
         "ghGetFileContent",
-        json!({"owner":"a","repo":"b","path":"README.md","ref":"main"}),
+        json_fixture(
+            r#"{
+                "owner": "a",
+                "repo": "b",
+                "path": "README.md",
+                "ref": "main"
+            }"#,
+        ),
     )
     .await
     .expect("read");
@@ -296,6 +348,7 @@ async fn gh_file_read_of_a_renamed_repository_names_the_canonical_repository() {
 async fn gh_file_read_of_a_standing_repository_reads_no_metadata() {
     let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "README.md").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/README.md"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -306,7 +359,9 @@ async fn gh_file_read_of_a_standing_repository_reads_no_metadata() {
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"default_branch":"main"})))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json_fixture(r#"{"default_branch": "main"}"#)),
+        )
         .expect(0)
         .mount(&server)
         .await;

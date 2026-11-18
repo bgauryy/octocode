@@ -5,16 +5,17 @@
 //! All secrets are fake.
 
 use crate::support::{Run as _, Workspace, call, query_path, row_data};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 
 const TOKEN: &str = "ghp_aB3dE5gH7jK9mN1pQ3sT5vW7yZ9bD1fH3jK5";
 const OTHER: &str = "ghp_zY9xW7vU5tS3rQ1pN9mL7kJ5hG3fD1bA9zX7";
 
-fn rendered(outcome: &octocode_native::response::outcome::ToolOutcome) -> String {
+fn rendered(outcome: &octocode_runtime_base::response::outcome::ToolOutcome) -> String {
     outcome.structured_content.to_string()
 }
 
-fn flagged(outcome: &octocode_native::response::outcome::ToolOutcome) -> bool {
+fn flagged(outcome: &octocode_runtime_base::response::outcome::ToolOutcome) -> bool {
     row_data(outcome)["redacted"] == json!(true)
 }
 
@@ -50,7 +51,7 @@ async fn a_line_past_the_streamed_bound_flags_its_replacement() {
     let found = call(
         &runtime,
         "localSearch",
-        query_path(&file, json!({"matchString": ["markerone"]})),
+        query_path(&file, json_fixture(r#"{"matchString": ["markerone"]}"#)),
     )
     .await
     .expect("localSearch");

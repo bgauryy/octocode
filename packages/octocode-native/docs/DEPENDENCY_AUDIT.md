@@ -24,36 +24,193 @@ Every direct dependency of the native crates and the job it owns. A passing unus
 | `libc` (Unix), `windows-sys` (Windows) | Language-server memory limits, process groups, and module paths |
 | `criterion`, `proptest`, `tempfile` (development) | Benchmarks, property tests, and filesystem fixtures |
 | `octocode-io` | The memory budget and memo the LSP discovery keeps its scans in, shared with every other in-process store (`memory`) |
+| `octocode-test-support` (development) | The fixture grammar the fact-admission tests read (`tests/fact_admission.rs`) |
 
-## Runtime (`crates/runtime`)
+## Runtime base (`crates/runtime-base`)
 
 | Dependency | Owned job |
 |---|---|
-| `serde`, `serde_json`, `toml` | Contracts, configuration, provider payloads, rewrite rules, manifests, and output |
+| `serde`, `serde_json` | Contracts, configuration, provider payloads, and output |
 | `regex`, `regress` | Native patterns; `regress` runs the contract's ECMAScript patterns during validation |
 | `url` | Provider endpoint and URI validation |
-| `base64`, `sha2`, `hex`, `getrandom` | Encodings, hashes, snapshots, receipts, and random nonces |
+| `base64`, `hex`, `getrandom` | Encodings, snapshots, receipts, and random nonces |
 | `aes-gcm` | Encrypted home credential files |
 | `reqwest`, `bytes`, `futures-util` | Bounded HTTP providers and streaming responses |
 | `secrecy`, `keyring-core` | Credential secrecy and the platform credential-store abstraction |
-| `ignore`, `globset` | Local scopes and path filters for GitHub trees and history |
-| `semver` | Registry version ranges in `artifactSearch` |
-| `flate2` | Release-archive reading in `artifactSearch` |
-| `html5ever` | Text extraction from captured URL sources |
-| `imagesize` | Dimensions of captured PNG and JPEG images |
+| `globset` | Path filters for GitHub trees and history |
+| `semver` | Registry version ranges in the artifact providers |
+| `flate2` | Release-archive reading in the artifact providers |
 | `octocode-io`, `octocode-engine`, `octocode-github`, `octocode-contract-types` | Internal crates; the engine with its default features |
-| `tokio`, `tokio-util` | Runtime lifecycle, cancellation, signals, and asynchronous tools |
+| `tokio` | Provider I/O, request lifecycle, and synchronization |
 | `libc` (Unix) | Process-group and low-level lifecycle controls |
 | `apple-native-keyring-store` (macOS), `zbus-secret-service-keyring-store` (Linux), `windows-native-keyring-store` (Windows) | OS credential stores |
 | `windows-sys` (Windows) | File-handle confinement and job-object process controls |
-| `hyper`, `hyper-util`, `bitflags`, `fastrand`, `slab` (optional, `dev-unify` feature) | Unify development feature sets |
-| `tempfile`, `wiremock` (development) | Filesystem and provider integration tests |
+| `tempfile` (optional, `test-support`; development) | Fixture directories of the tests' shared fixtures (`test_support`), enabled only by dev builds |
+| `sha2`, `wiremock` (development) | Digests and provider mocks in tests |
 | `serde`, `serde_json` (build) | `build.rs` renders the configuration and tool-identity Rust from the `@octocodeai/config` contracts and embeds the tool contract |
+| `octocode-test-support` (development) | The shared wiremock mounts (`mock_http`) of the provider tests |
+
+## Tools shared (`crates/tools-shared`)
+
+| Dependency | Owned job |
+|---|---|
+| `libc` (Unix) | Process-group, file-lock and low-level process controls |
+| `windows-sys` (Windows) | Process-group, file-lock and low-level process controls |
+| `sha2` (development) | Digests in tests |
+| `tempfile` (development) | Filesystem fixtures |
+| `base64`, `getrandom`, `hex` (optional) | Encodings, digests, and random nonces |
+| `bytes`, `futures-util`, `reqwest` (optional) | Bounded HTTP and streamed responses |
+| `crc32fast`, `imagesize`, `zune-jpeg`, `zune-png` (optional) | Dimensions of captured PNG and JPEG images, and padding small images for the classification provider |
+| `encoding_rs` (optional) | Decoding the charset a captured page declares |
+| `flate2` (optional) | Compressed state and archive reading |
+| `globset`, `ignore` (optional) | Gitignore-aware walks and path globs |
+| `html5ever` (optional) | Text extraction from captured URL sources |
+| `memchr` (optional) | Byte scans over source text |
+| `regex` (optional) | Native patterns |
+| `secrecy` (optional) | Credential secrecy |
+| `serde`, `serde_json`, `toml` (optional) | Payloads, manifests, and output |
+| `tokio` (optional) | Asynchronous I/O, processes, timeouts, and synchronization |
+| `url` (optional) | URL parsing and validation |
+| `wiremock` (optional) | Mock HTTP servers in tests |
+| `octocode-contract-types`, `octocode-engine`, `octocode-github`, `octocode-io`, `octocode-runtime-base` | Internal crates; the engine with its default features |
+| `octocode-test-support` (development) | Fixtures for tests: the wiremock mounts and the conformance grammar |
+
+## AST search (`crates/tool-ast`)
+
+| Dependency | Owned job |
+|---|---|
+| `ignore` | Gitignore-aware walks and path globs |
+| `memchr` | Byte scans over source text |
+| `regex` | Native patterns |
+| `serde`, `serde_json` | Payloads, manifests, and output |
+| `tempfile` (development) | Filesystem fixtures |
+| `octocode-contract-types`, `octocode-engine`, `octocode-io`, `octocode-runtime-base`, `octocode-tools-shared` | Internal crates; the engine with its default features |
+
+## Clasify (`crates/tool-clasify`)
+
+| Dependency | Owned job |
+|---|---|
+| `futures-util` | Bounded HTTP and streamed responses |
+| `hex` | Encodings, digests, and random nonces |
+| `serde`, `serde_json` | Payloads, manifests, and output |
+| `tokio` | Asynchronous I/O, processes, timeouts, and synchronization |
+| `tempfile` (development) | Filesystem fixtures |
+| `octocode-contract-types`, `octocode-engine`, `octocode-github`, `octocode-io`, `octocode-runtime-base`, `octocode-tools-shared` | Internal crates; the engine with its default features |
+
+## Code graph (`crates/tool-graph`)
+
+| Dependency | Owned job |
+|---|---|
+| `flate2` | Compressed state and archive reading |
+| `getrandom`, `hex` | Encodings, digests, and random nonces |
+| `memchr` | Byte scans over source text |
+| `serde`, `serde_json`, `toml` | Payloads, manifests, and output |
+| `tempfile` (development) | Filesystem fixtures |
+| `wiremock` (development) | Mock HTTP servers in tests |
+| `octocode-contract-types`, `octocode-engine`, `octocode-io`, `octocode-runtime-base`, `octocode-tools-shared` | Internal crates; the engine with its default features |
+| `octocode-test-support` (development) | Fixtures for tests: the wiremock mounts and the conformance grammar |
+
+## Local tools (`crates/tool-local`)
+
+| Dependency | Owned job |
+|---|---|
+| `flate2` | Compressed state and archive reading |
+| `hex` | Encodings, digests, and random nonces |
+| `regex` | Native patterns |
+| `secrecy` | Credential secrecy |
+| `serde`, `serde_json` | Payloads, manifests, and output |
+| `tokio` | Asynchronous I/O, processes, timeouts, and synchronization |
+| `sha2` (development) | Digests in tests |
+| `tempfile` (development) | Filesystem fixtures |
+| `wiremock` (development) | Mock HTTP servers in tests |
+| `octocode-contract-types`, `octocode-engine`, `octocode-io`, `octocode-runtime-base`, `octocode-tools-shared` | Internal crates; the engine with its default features |
+
+## LSP search (`crates/tool-lsp`)
+
+| Dependency | Owned job |
+|---|---|
+| `futures-util`, `reqwest` | Bounded HTTP and streamed responses |
+| `globset`, `ignore` | Gitignore-aware walks and path globs |
+| `hex` | Encodings, digests, and random nonces |
+| `memchr` | Byte scans over source text |
+| `regex` | Native patterns |
+| `serde`, `serde_json`, `toml` | Payloads, manifests, and output |
+| `tokio` | Asynchronous I/O, processes, timeouts, and synchronization |
+| `url` | URL parsing and validation |
+| `tempfile` (development) | Filesystem fixtures |
+| `octocode-contract-types`, `octocode-engine`, `octocode-io`, `octocode-runtime-base`, `octocode-tools-shared` | Internal crates; the engine with its default features |
+
+## Package tools (`crates/tool-packages`)
+
+| Dependency | Owned job |
+|---|---|
+| `base64`, `hex` | Encodings, digests, and random nonces |
+| `flate2` | Compressed state and archive reading |
+| `futures-util`, `reqwest` | Bounded HTTP and streamed responses |
+| `regex` | Native patterns |
+| `secrecy` | Credential secrecy |
+| `semver` | Registry version ranges |
+| `serde`, `serde_json` | Payloads, manifests, and output |
+| `tokio` | Asynchronous I/O, processes, timeouts, and synchronization |
+| `url` | URL parsing and validation |
+| `sha2` (development) | Digests in tests |
+| `wiremock` (development) | Mock HTTP servers in tests |
+| `octocode-contract-types`, `octocode-engine`, `octocode-github`, `octocode-io`, `octocode-runtime-base`, `octocode-tools-shared` | Internal crates; the engine with its default features |
+
+## GitHub tools (`crates/tool-github`)
+
+| Dependency | Owned job |
+|---|---|
+| `libc` (Unix) | Process-group, file-lock and low-level process controls |
+| `tempfile` (development) | Filesystem fixtures |
+| `base64`, `hex` (optional) | Encodings, digests, and random nonces |
+| `bytes`, `futures-util` (optional) | Bounded HTTP and streamed responses |
+| `globset` (optional) | Gitignore-aware walks and path globs |
+| `regex` (optional) | Native patterns |
+| `serde`, `serde_json` (optional) | Payloads, manifests, and output |
+| `tokio` (optional) | Asynchronous I/O, processes, timeouts, and synchronization |
+| `url` (optional) | URL parsing and validation |
+| `wiremock` (optional) | Mock HTTP servers in tests |
+| `octocode-contract-types`, `octocode-engine`, `octocode-github`, `octocode-io`, `octocode-runtime-base`, `octocode-test-support`, `octocode-tools-shared` | Internal crates; the engine with its default features |
+
+## Runtime facade (`crates/runtime`)
+
+| Dependency | Owned job |
+|---|---|
+| `base64`, `hex` | Encodings, digests, and random nonces |
+| `futures-util` | Bounded HTTP and streamed responses |
+| `ignore` | Gitignore-aware walks and path globs |
+| `regex` | Native patterns |
+| `secrecy` | Credential secrecy |
+| `serde`, `serde_json`, `toml` | Payloads, manifests, and output |
+| `tokio` | Asynchronous I/O, processes, timeouts, and synchronization |
+| `url` | URL parsing and validation |
+| `libc` (Unix) | Process-group, file-lock and low-level process controls |
+| `windows-sys` (Windows) | Process-group, file-lock and low-level process controls |
+| `toml` (build) | `build.rs` reads the path dependencies of the manifests the build identity hashes |
+| `sha2` (development) | Digests in tests |
+| `tempfile` (development) | Filesystem fixtures |
+| `wiremock` (development) | Mock HTTP servers in tests |
+| `getrandom`, `hyper`, `hyper-util` (optional, `dev-unify`) | Feature unification for development builds: the features the test selection's dev-dependencies turn on |
+| `octocode-contract-types`, `octocode-engine`, `octocode-github`, `octocode-io`, `octocode-runtime-base`, `octocode-tool-ast`, `octocode-tool-clasify`, `octocode-tool-github`, `octocode-tool-graph`, `octocode-tool-local`, `octocode-tool-lsp`, `octocode-tool-packages`, `octocode-tools-shared` | Internal crates; the engine with its default features |
+| `octocode-test-support` (development) | Fixtures for tests: the wiremock mounts and the conformance grammar |
+
+## Test support (`crates/test-support`)
+
+| Dependency | Owned job |
+|---|---|
+| `base64`, `hex` | Encodings, digests, and random nonces |
+| `serde`, `serde_json`, `toml` | Payloads, manifests, and output |
+| `sha2` | Digests in tests |
+| `tokio` | Asynchronous I/O, processes, timeouts, and synchronization |
+| `wiremock` | Mock HTTP servers in tests |
+| `octocode-engine` | Internal crates; the engine with its default features |
 
 ## Other crates
 
-- `octocode-github`: GitHub transport (`reqwest`, `bytes`, `futures-util`, `tokio`, `tokio-util`), `url`, `base64` (file contents), `sha2`/`hex` (cache keys), `getrandom` (retry jitter), `secrecy`, and payload serialization (`serde`, `serde_json`). Configuration, credential discovery, and keyrings stay in the runtime. Development: `tempfile`, `wiremock`.
-- `octocode-contract-types`: the generated wire types' `serde`/`serde_json` derives and `regress` (their ECMAScript patterns).
+- `octocode-github`: GitHub transport (`reqwest`, `bytes`, `futures-util`, `tokio`), `url`, `base64` (file contents), `sha2`/`hex` (cache keys), `secrecy`, payload serialization (`serde`, `serde_json`), and the contract types it reports (`octocode-contract-base`: error codes and client waits). Configuration, credential discovery, and keyrings stay in the runtime base. Development: `tempfile`, `wiremock`, and `octocode-test-support` (the shared wiremock mounts, `mock_http`).
+- `octocode-contract-base`: the `serde` derives of the generated wire types the crates below `octocode-contract-types` name.
+- `octocode-contract-types`: the generated wire types' `serde`/`serde_json` derives, `regress` (their ECMAScript patterns), and `octocode-contract-base`, whose types it re-exports.
 - `octocode-io`: `reqwest` client policy, `getrandom`, `hex`, `libc`, and `tokio`. Development: `tempfile`.
 - `octocode-cli`:
   - `clap` for arguments.

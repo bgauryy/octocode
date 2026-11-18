@@ -8,14 +8,19 @@
 // Version defaults to the `latest` dist-tag of @octocodeai/octocode-native.
 // Hashes are computed from the registry's bytes, never from a local `npm pack`
 // (a repack is not guaranteed to be byte-identical). The host platform's
-// binary is extracted and must report `octocode <version>`, the formula's test.
+// binary is extracted and must report `octocode <version>` (optionally with
+// `+<hex>` build metadata), the formula's test.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { isMainModule } from './lib/entrypoint.mjs';
 import { ROOT } from './lib/workspaces.mjs';
+
+// One version rule everywhere: `<version>`, optionally `+<hex>` (the contract fingerprint).
+const { reportsVersion } = createRequire(import.meta.url)(path.join(ROOT, 'packages/octocode-native/bin/fetch-binary.cjs'));
 
 const REGISTRY = 'https://registry.npmjs.org';
 const PACKAGE = '@octocodeai/octocode-native';
@@ -48,14 +53,18 @@ async function download(url) {
 // npm platform package this machine can execute; Linux hosts are assumed glibc.
 const HOST = `${process.platform}-${process.arch}${process.platform === 'linux' ? '-gnu' : ''}`;
 
-/** Throws unless the tarball's `package/octocode` prints `octocode <version>`. */
-function checkBinaryVersion(tarball, platform, version) {
+/**
+ * Throws unless the tarball's `package/octocode` prints `octocode <version>`,
+ * optionally with `+<hex>` build metadata (the contract fingerprint the binary
+ * was built against).
+ */
+export function checkBinaryVersion(tarball, platform, version) {
   const dir = mkdtempSync(path.join(tmpdir(), 'octocode-brew-'));
   try {
     writeFileSync(path.join(dir, 'pkg.tgz'), tarball);
     execFileSync('tar', ['-xzf', 'pkg.tgz', 'package/octocode'], { cwd: dir });
     const reported = execFileSync(path.join(dir, 'package', 'octocode'), ['--version'], { encoding: 'utf8' }).trim();
-    if (reported !== `octocode ${version}`) {
+    if (!reportsVersion(reported, version)) {
       throw new Error(`${PACKAGE}-${platform}@${version} ships a binary that reports "${reported}"; republish with a fresh build before rendering the formula.`);
     }
     console.log(`${platform.padEnd(16)} binary reports ${reported}`);

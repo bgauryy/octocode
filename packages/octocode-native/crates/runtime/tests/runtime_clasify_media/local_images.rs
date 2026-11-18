@@ -4,6 +4,7 @@ use super::{png, provider, requests, row, runtime};
 use crate::runtime_clasify::clasify;
 use crate::support::Workspace;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 
 #[tokio::test]
@@ -113,7 +114,7 @@ async fn question_only_placeholders_and_multiple_assets_are_preserved() {
     std::fs::write(workspace.workspace.join("one.png"), png()).unwrap();
     let runtime = runtime(&workspace, &server, &[]);
     let mut query = row("one.png");
-    query["content"] = json!({"purpose":"screen two independent images"});
+    query["content"] = json_fixture(r#"{"purpose": "screen two independent images"}"#);
     query["assets"]["image_b"] = query["assets"]["image_a"].clone();
     query["questions"]["visible"]["instructions"] =
         json!("Does image_a show the same shape as image_b?");
@@ -147,7 +148,8 @@ async fn invalid_missing_oversized_and_private_images_never_reach_provider() {
     unused["assets"]["unused"] = unused["assets"]["image_a"].take();
     unused["assets"].as_object_mut().unwrap().remove("image_a");
     let mut url = row("unused");
-    url["assets"]["image_a"]["source"] = json!({"url":"https://127.0.0.1:9/image.png"});
+    url["assets"]["image_a"]["source"] =
+        json_fixture(r#"{"url": "https://127.0.0.1:9/image.png"}"#);
     let out = clasify(
         &runtime,
         vec![
@@ -186,7 +188,7 @@ async fn invalid_missing_oversized_and_private_images_never_reach_provider() {
     );
     assert_eq!(
         uncited["hints"],
-        json!(["Name each asset key in the question that judges it."]),
+        json_fixture(r#"["Name each asset key in the question that judges it."]"#),
         "{out}"
     );
     assert!(requests(&server).await.is_empty());

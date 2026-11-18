@@ -1,0 +1,280 @@
+//! `operation: "issue"`: issue metadata, body window, and one page of
+//! discussion comments.
+use super::axis::Axis;
+use super::promotion::promote_issue_continuations;
+use super::remaining::Remainder;
+use super::text::paginate_text;
+use super::util::{str_at, string};
+use super::{HistoryItemRequest, fetch, validation};
+use crate::gh_get_history_item::Source;
+use crate::gh_get_history_item::gh_get_history_item_query;
+use crate::gh_get_history_item::sections::Section;
+use octocode_github::{ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext};
+use octocode_runtime_base::response::result::ToolData;
+use octocode_tools_shared::gh_shared::dates::{utc_date, utc_value};
+use octocode_tools_shared::gh_shared::ensure_calls;
+use serde_json::{Map, Value, json};
+
+mod closing;
+mod comments;
+
+#[cfg(test)]
+pub(super) use closing::{CLOSING_FIRST_DOCUMENT, CLOSING_REFERENCES_DOCUMENT};
+use closing::{attach_fix_leads, closing_pull_requests};
+use comments::{CommentRead, comment_batch, first_comment_batch, issue_comments};
+
+/// A pull-request read that 404ed: when the number is an issue, say so with
+/// a typed reason (the caller offers the issue read); otherwise keep the
+/// original not-found.
+pub(super) async fn name_issue_number(
+    source: &Source<'_>,
+    query: &HistoryItemRequest,
+    context: &RequestContext,
+    not_found: ProviderError,
+) -> ProviderError {
+    let Some(number) = gh_get_history_item_query::number(query).map(|number| number.to_string())
+    else {
+        return not_found;
+    };
+    let issue_path = [
+        "repos",
+        gh_get_history_item_query::owner(query),
+        gh_get_history_item_query::repo(query),
+        "issues",
+        &number,
+    ];
+    match fetch(source, &issue_path, &[], context).await {
+        Ok((raw, _)) if raw.get("pull_request").is_none_or(Value::is_null) => {
+            let mut error = ProviderError::new(
+                ProviderErrorKind::NotFound,
+                format!("#{number} is an issue, not a pull request"),
+            )
+            .with_reason(ProviderErrorReason::PullRequestIsIssue);
+            error.status = not_found.status;
+            error
+        }
+        _ => not_found,
+    }
+}
+
+pub(super) async fn issue(
+    source: &Source<'_>,
+    query: &HistoryItemRequest,
+    context: &RequestContext,
+) -> Result<ToolData, ProviderError> {
+    let number = gh_get_history_item_query::number(query)
+        .ok_or_else(|| validation("number is required"))?
+        .to_string();
+    let issue_path = [
+        "repos",
+        gh_get_history_item_query::owner(query),
+        gh_get_history_item_query::repo(query),
+        "issues",
+        &number,
+    ];
+    // The closing PRs load beside the issue on its first window, which
+    // states their bound once; later windows list no `closedBy`.
+    let first_window = gh_get_history_item_query::page(query).unwrap_or(1) <= 1
+        && gh_get_history_item_query::char_offset(query).is_none_or(|offset| offset == 0);
+    // The discussion's first comment batch depends only on the page asked
+    // for, so it loads beside the issue too (wasted only when the number
+    // names a pull request).
+    // A `matchString` scans every batch instead ([`issue_comments`]).
+    let first_batch = query
+        .sections()
+        .has(Section::Comments)
+        .then(|| first_comment_batch(query))
+        .flatten()
+        .filter(|_| query.matcher.is_none());
+    let (fetched, closed_by, prefetched) = tokio::join!(
+        fetch(source, &issue_path, &[], context),
+        async {
+            if first_window {
+                closing_pull_requests(source, query, context).await
+            } else {
+                None
+            }
+        },
+        async {
+            match first_batch {
+                Some(batch) => Some(comment_batch(source, &issue_path, batch, context).await),
+                None => None,
+            }
+        }
+    );
+    let (raw, _) = fetched?;
+    // The number names a pull request: not found as an issue, typed like a
+    // pull-request read of an issue number ([`name_issue_number`]).
+    if raw.get("pull_request").is_some_and(|v| !v.is_null()) {
+        return Err(ProviderError::new(
+            ProviderErrorKind::NotFound,
+            format!("#{number} is a pull request, not an issue"),
+        )
+        .with_reason(ProviderErrorReason::IssueIsPullRequest));
+    }
+    // A summary (no section named) previews the body; a section read shows
+    // what it names.
+    let sections = query.sections();
+    let want_body = sections.is_empty() || sections.has(Section::Body);
+    let want_comments = sections.has(Section::Comments);
+    // A comment-body hop (`offset` > 0 with the discussion) continues the
+    // comment bodies of its first window. The issue body is not shown again
+    // (its own body page reads it at its own offset), but its first
+    // window still counts against the page, so the hop pages exactly the
+    // comments that window showed.
+    let comment_hop = want_comments
+        && gh_get_history_item_query::char_offset(query).is_some_and(|offset| offset > 0);
+    let show_body = want_body && !comment_hop;
+    // A later comment page continues a read whose first page named the
+    // issue; a section read's sections carry its evidence: either restates
+    // only the number and state (the summary owns the rest).
+    let later_page = gh_get_history_item_query::page(query).unwrap_or(1) > 1;
+    let slim = later_page || gh_get_history_item_query::has_sections(query);
+    let header = issue_header(&raw);
+    let header_for = || {
+        let mut row = header.clone();
+        if slim && let Some(fields) = row.as_object_mut() {
+            fields.retain(|key, _| key == "number" || key == "state");
+        }
+        row
+    };
+    let body_view = want_body.then(|| str_at(&raw, "/body").unwrap_or(""));
+    let mut row = header_for();
+    let mut pagination = Map::new();
+    let mut remainder = Remainder::default();
+    let mut dropped = None;
+    // A summary previews the body, as a pull request's does; the body read
+    // (`sections:["body"]`) holds it whole.
+    let summary = sections.is_empty();
+    if summary {
+        // An empty body previews nothing: the null is removed with the row's.
+        let preview = body_view.and_then(super::pr_finish::body_preview);
+        row["bodyPreview"] = json!(preview);
+    } else if let Some(body_view) = body_view.filter(|_| show_body) {
+        let (body, page) = paginate_text(
+            body_view,
+            gh_get_history_item_query::char_offset(query),
+            None,
+        );
+        row["body"] = json!(body);
+        if gh_get_history_item_query::char_offset(query).is_some() || page["hasMore"] == true {
+            pagination.insert(Axis::Body.key().into(), page);
+        }
+    }
+    if want_comments {
+        // A comment-body hop counts the row its first window showed.
+        let used = if comment_hop {
+            let mut first = header_for();
+            if let Some(body_view) = body_view {
+                first["body"] = json!(paginate_text(body_view, None, None).0);
+            }
+            octocode_engine::json_size::utf16_units(&first).unwrap_or(0)
+        } else {
+            octocode_engine::json_size::utf16_units(&row).unwrap_or(0)
+        };
+        let at = CommentRead {
+            issue_path: &issue_path,
+            used,
+            total: raw.get("comments").and_then(Value::as_u64),
+        };
+        let mut page = issue_comments(source, query, context, &at, prefetched).await?;
+        dropped = page.dropped.take();
+        page.attach(&mut row, &mut pagination, &mut remainder);
+        // The discussion the caller asked for is always stated: an empty
+        // list says zero. A body hop lists only the bodies it continues.
+        if !comment_hop && row.get("comments").is_none() {
+            row["comments"] = json!([]);
+        }
+    }
+    if !pagination.is_empty() {
+        row["sectionPagination"] = Value::Object(pagination);
+    }
+    let closed = raw.get("state").and_then(Value::as_str) == Some("closed");
+    let closed_by = closed_by.map(|references| references.closers(closed));
+    if let Some(references) = closed_by.as_ref() {
+        let closers = references.rows();
+        if !closers.is_empty() {
+            row["closedBy"] = Value::Array(closers);
+        }
+        if let Some(events) = references.state_events() {
+            row["stateEvents"] = events;
+        }
+    }
+    let mut out = json!({"issues":[row]});
+    if let Some(warning) = dropped {
+        // Lossless recovery: the same read without the literal.
+        octocode_runtime_base::response::paging::push_warnings(&mut out, [warning]);
+        ensure_calls(&mut out);
+        out["calls"]["withoutMatchString"] = without_match_lead(query);
+    }
+    promote_issue_continuations(&mut out, query, &remainder);
+    let bounded = closed_by.as_ref().and_then(|references| {
+        references
+            .bounded_total
+            .map(|total| (references.listed, total))
+    });
+    if let Some((listed, total)) = bounded {
+        mark_bounded_closing(&mut out, listed, total);
+    }
+    if let Some(references) = closed_by.as_ref() {
+        // A closer GitHub withheld from the token: no read lifts it.
+        let withheld = references.withheld_warnings();
+        if !withheld.is_empty() {
+            octocode_runtime_base::response::paging::terminal_limit(
+                &mut out,
+                octocode_runtime_base::response::paging::PartialReason::ProviderIncompleteResults,
+                &withheld,
+            );
+        }
+        if let Some(bound) = references.events_bound() {
+            octocode_runtime_base::response::paging::push_warnings(&mut out, [bound]);
+        }
+    }
+    if first_window {
+        attach_fix_leads(&mut out, query, closed_by.as_ref(), closed);
+    }
+    Ok(ToolData::from(out))
+}
+
+/// The issue's identity and decision facts: number, title, state, author,
+/// labels (when any), creation, the discussion's size, the last update of
+/// an open issue, the close date, and why a closed issue closed.
+fn issue_header(raw: &Value) -> Value {
+    let closed = str_at(raw, "/state") == Some("closed");
+    json!({
+        "number":raw["number"],"title":string(raw.get("title")),
+        "state":str_at(raw,"/state").unwrap_or("open"),"author":str_at(raw,"/user/login").unwrap_or("unknown"),
+        // Labels only when there are any.
+        "labels":Some(raw.get("labels").and_then(Value::as_array).into_iter().flatten().filter_map(|v|str_at(v,"/name").map(str::to_owned)).collect::<Vec<_>>()).filter(|labels| !labels.is_empty()),
+        "createdAt":utc_date(str_at(raw,"/created_at")),
+        // The discussion's size, so the caller can choose to read it.
+        "commentsCount":super::util::nonzero(raw.get("comments")),
+        // Only an open issue's last update says whether it is still moving.
+        "updatedAt":(str_at(raw,"/state").unwrap_or("open") == "open").then(|| utc_date(str_at(raw,"/updated_at"))),
+        "closedAt":utc_value(raw.get("closed_at")),
+        // GitHub's own reason (REST `state_reason`: completed, not_planned,
+        // duplicate), so it needs no GraphQL.
+        "stateReason":closed.then(|| str_at(raw, "/state_reason")).flatten()
+    })
+}
+
+/// The issue read without its `matchString`, from its first comment page.
+fn without_match_lead(query: &HistoryItemRequest) -> Value {
+    let mut same = super::pr_menu::base_public_query(query, super::ItemOperation::Issue);
+    for key in ["offset", "page", "pageSize"] {
+        super::pr_menu::remove_key(&mut same, key);
+    }
+    super::pr_menu::without_match_string(same)
+}
+
+/// The closing-reference set ends at a bound: no cursor continues it, and the
+/// fix it names is a candidate among the listed references only.
+fn mark_bounded_closing(out: &mut Value, listed: usize, total: u64) {
+    octocode_runtime_base::response::paging::terminal_limit(
+        out,
+        octocode_runtime_base::response::paging::PartialReason::ClosingReferenceLimit,
+        &[format!(
+            "closedBy lists {listed} of {total} linked pull requests; the first is a candidate, not the complete fix set."
+        )],
+    );
+}

@@ -1,23 +1,38 @@
 //! Contract-declared evidence and exploration calls execute unchanged.
 use crate::support::{self, Run as _, Workspace};
-use octocode_native::{contracts, id::ToolId, response::continuations::visit_calls};
+use octocode_runtime_base::{contracts, id::ToolId, response::continuations::visit_calls};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 
-fn calls(tool: &str, output: &Value) -> Vec<Value> {
+/// Each served call of `output` with its channel: `related` for a lead,
+/// `continue` for any other. A served call states no `kind`; where it sits
+/// says what it does.
+fn calls(tool: &str, output: &Value) -> Vec<(&'static str, Value)> {
     let tool = ToolId::from_name(tool).expect("tool");
     let mut calls = Vec::new();
-    visit_calls(tool, output, &mut |call, _| calls.push(call.clone())).expect("declared call walk");
-    for call in &calls {
+    visit_calls(tool, output, &mut |call, path| {
+        let channel = if path.iter().any(|key| key == "related") {
+            "related"
+        } else {
+            "continue"
+        };
+        calls.push((channel, call.clone()));
+    })
+    .expect("declared call walk");
+    for (channel, call) in &calls {
+        assert!(
+            call.get("kind").is_none(),
+            "a served call states no kind: {call}"
+        );
         contracts::validate(
             call["tool"].as_str().expect("target"),
             call["input"].clone(),
         )
         .expect("complete public request");
-        if call["kind"] == "continue" {
+        if *channel == "continue" {
             support::assert_cursor_only(&call["input"]);
         } else {
-            assert_eq!(call["kind"], "related");
             assert!(call["input"]["queries"].is_array());
         }
     }
@@ -54,33 +69,60 @@ async fn emitted_local_calls_are_strict_and_replay_without_input_rewriting() {
     let seeds = [
         (
             "localSearch",
-            json!({"path":"src","matchString":["helper"]}),
+            json_fixture(r#"{"path": "src", "matchString": ["helper"]}"#),
         ),
-        ("structureSearch", json!({"operation":"files","path":"src"})),
         (
             "structureSearch",
-            json!({"operation":"tree","path":"src/lib.rs"}),
+            json_fixture(r#"{"operation": "files", "path": "src"}"#),
+        ),
+        (
+            "structureSearch",
+            json_fixture(r#"{"operation": "tree", "path": "src/lib.rs"}"#),
         ),
         (
             "astSearch",
-            json!({"operation":"syntaxTree","path":"src/lib.rs"}),
+            json_fixture(r#"{"operation": "syntaxTree", "path": "src/lib.rs"}"#),
         ),
         (
             "astSearch",
-            json!({"operation":"match","path":"src/lib.rs","rule":{"pattern":"helper($A)"}}),
+            json_fixture(
+                r#"{
+                    "operation": "match",
+                    "path": "src/lib.rs",
+                    "rule": {"pattern": "helper($A)"}
+                }"#,
+            ),
         ),
         (
             "astSearch",
-            json!({"operation":"symbols","path":"src/lib.rs","symbolFilter":{"terms":["helper"]}}),
+            json_fixture(
+                r#"{
+                    "operation": "symbols",
+                    "path": "src/lib.rs",
+                    "symbolFilter": {"terms": ["helper"]}
+                }"#,
+            ),
         ),
-        ("localFetch", json!({"path":"src/lib.rs"})),
+        ("localFetch", json_fixture(r#"{"path": "src/lib.rs"}"#)),
         (
             "localFetch",
-            json!({"path":"src/lib.rs","matchString":["caller3"],"contextLines":{"before":1,"after":2}}),
+            json_fixture(
+                r#"{
+                    "path": "src/lib.rs",
+                    "matchString": ["caller3"],
+                    "contextLines": {"before": 1, "after": 2}
+                }"#,
+            ),
         ),
         (
             "localFetch",
-            json!({"path":"src/lib.rs","ranges":[{"startLine":5,"endLine":6}],"block":true}),
+            json_fixture(
+                r#"{
+                    "path": "src/lib.rs",
+                    "ranges": [{"startLine": 5, "endLine": 6}],
+                    "block": true
+                }"#,
+            ),
         ),
     ];
     let mut all = Vec::new();
@@ -95,8 +137,8 @@ async fn emitted_local_calls_are_strict_and_replay_without_input_rewriting() {
         .structured_content
         .clone();
         checked(tool, &output);
-        for call in calls(tool, &output) {
-            kinds.insert(call["kind"].as_str().unwrap().to_owned());
+        for (channel, call) in calls(tool, &output) {
+            kinds.insert(channel);
             all.push(call);
         }
     }

@@ -189,7 +189,7 @@ fn a_decode_panic_is_that_files_skip_in_the_decode_phase() {
     for name in ["a.ts".to_owned(), format!("{MARKER}.ts")] {
         fs::write(root.join(name), "export const value = 1;\n").expect("write fixture");
     }
-    super::super::evaluate::DECODE_FAULTS
+    super::DECODE_FAULTS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .push(MARKER);
@@ -278,7 +278,7 @@ fn malformed_parser_glob_fails_before_scanning_files() {
     assert!(
         error
             .to_string()
-            .starts_with("[ast.language.invalidGlob] invalid languageGlobs glob '[': "),
+            .starts_with("[ast.language.invalidGlob] invalid parserGlobs glob '[': "),
         "{error}"
     );
     let unsupported = scan_graph_facts(GraphFactsScanOptions {

@@ -44,6 +44,11 @@ The MCP launcher, CLI launcher and VS Code extension are thin adapters with no t
   or truncate valid work: let the owning layer's limit or its explicit refusal decide (for
   example, split on `scopeTooBroad`, not at a guessed file count). Tests assert the invariant,
   such as the constant itself or a lower bound, never a copied literal that every bump breaks.
+- Tests share a process: `yarn test:rust` runs each test binary under libtest, so a test keeps
+  no process-global state (a hook is thread-local or a guard that restores it, a store key is
+  the test's own temp workspace), asserts on work counts or a frozen clock rather than wall
+  time, and removes what it creates (RAII temp dirs, warm servers through `persistent_cli`).
+  Only tests that start real child processes run one per process, under nextest.
 - No legacy paths, compatibility shims or extra complexity unless the task asks for them.
 - No aliases or duplication in any layer: one name and one source for each tool, field, setting
   and piece of logic.
@@ -54,12 +59,17 @@ The MCP launcher, CLI launcher and VS Code extension are thin adapters with no t
 - Clean up after yourself before you report: stop the processes you started (by PID), remove
   your scratch files and pinned test binaries, and keep only the evidence a report cites. Never
   remove a worktree with uncommitted changes. Build, test and lint Rust only through `dev.mjs
-  build:dev`, `yarn test:rust` or `cargo dev-test -- <filter>`, and `dev.mjs lint:rust` or
-  `lint:own`, in the repo's `target/`: never a bare `cargo test -p …` or `cargo nextest -p …`
-  with another selection, `CARGO_INCREMENTAL=1`, a private `CARGO_TARGET_DIR`, or a binary
-  copied into `target/`; each leaves build outputs nothing removes. In a multi-agent round one
-  owner runs full builds and suites and, at the end, `dev.mjs prune:rust` and `df -h .`; fixers
-  run focused tests only.
+  build:dev`, `yarn test:rust` or `dev.mjs test:dev -- <filter>`, and `dev.mjs lint:rust` or
+  `lint:own`, in the repo's `target/`: never a bare `cargo build`, `cargo test`, `cargo clippy`
+  or `cargo nextest`, `CARGO_INCREMENTAL=1`, a private `CARGO_TARGET_DIR`, or a binary copied
+  into `target/`. Another selection leaves build outputs nothing removes, and a bare cargo
+  command skips the build slots: at most two Rust builds run on the machine at once, across
+  sessions and isolated copies, because each wrapper holds one of two slots
+  (`packages/octocode-native/scripts/build-slot.cjs`) for its whole run and otherwise waits,
+  printing who holds them. Run any other cargo build as `node
+  packages/octocode-native/scripts/build-slot.cjs -- cargo …`. In a multi-agent round one owner
+  runs full builds and suites and, at the end, `dev.mjs prune:rust` and `df -h .`; fixers run
+  focused tests only, and their builds queue for the same two slots.
 - Don't use `facebook/react` as a live GitHub check target: it was renamed, and the GitHub API
   blocks or refuses some repositories, so a failure there says nothing about our tools. Check on
   other public repositories, and on more than one before calling a GitHub result a defect.
@@ -138,7 +148,7 @@ flowchart LR
 
 - Core pipeline details: [contract pipeline](skills-dev/octocode-dev/docs/DEVELOPMENT.md#contract-pipeline).
   Declare each new field's effect in
-  `packages/octocode-native/crates/runtime/src/contracts/field-effect-coverage.json`, or confirm it
+  `packages/octocode-native/crates/runtime-base/src/contracts/field-effect-coverage.json`, or confirm it
   inherits its nearest declared ancestor's effect; `tests/field_effect_coverage.rs` fails on an
   unresolved path or a key that names no schema path.
 - `contracts:regen` builds a stale core first. Afterward, confirm new text arrived by searching

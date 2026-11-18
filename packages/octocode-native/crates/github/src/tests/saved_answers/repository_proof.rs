@@ -4,7 +4,7 @@
 //! that learned it.
 use super::proven_commits::{conditional_sends, fresh_for_a_minute, not_found, read, sends_to};
 use super::*;
-use crate::transport::RENAME_ROUTE_WINDOW;
+use crate::transport::route::RENAME_ROUTE_WINDOW;
 
 fn missing_file(endpoint: &GitHubEndpoint, sha: &str) -> RequestSpec {
     let mut spec = read(endpoint, &["contents", "gone.md"]);

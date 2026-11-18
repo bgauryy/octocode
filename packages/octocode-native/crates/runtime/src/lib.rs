@@ -1,6 +1,7 @@
 //! Native execution shared by the CLI commands and the stdio MCP server
 //! (`octocode mcp`) of the one `octocode` binary. Every tool runs
-//! here; the interfaces have no execution fallback.
+//! here, admitted and dispatched by [`runtime`]; the tools live in their
+//! family crates. The interfaces have no execution fallback.
 
 // Numeric conversions are explicit (`try_from` with a stated outcome): a
 // lossy `as` cast fails CI (`-D warnings`). Tests may cast fixture values.
@@ -17,24 +18,8 @@
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
 mod build_identity;
-pub(crate) mod cache;
-mod civil_date;
-pub mod config;
-pub(crate) mod content;
-pub mod contracts;
-mod digest;
-pub mod execution;
-pub mod id;
-mod json_pointer;
-pub(crate) mod num;
-pub(crate) mod policy;
-mod private_file;
-#[cfg(test)]
-mod process_fixture;
-#[cfg(test)]
-mod process_status;
-pub mod providers;
-pub mod response;
 pub mod runtime;
-pub mod security;
-pub mod tools;
+/// Tests that cross the tool families or run the whole runtime, at the
+/// module paths they had before the split.
+#[cfg(test)]
+mod tools;

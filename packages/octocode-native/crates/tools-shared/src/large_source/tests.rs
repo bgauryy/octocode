@@ -1,0 +1,299 @@
+use super::held::Want;
+use super::stream::stream;
+use super::*;
+use octocode_contract_types::LocalFetchQuery;
+use octocode_runtime_base::execution::cancel::NeverCancel;
+use sha2::{Digest, Sha256};
+
+/// The limits these reads judge at: windows of a part of a megabyte.
+const LIMITS: octocode_runtime_base::security::SourceLimits =
+    octocode_runtime_base::security::SourceLimits::SMALL;
+/// A fixture length: a third of a byte page's window, so a few of them reach
+/// past one.
+const STRETCH: usize = BYTE_WINDOW_BYTES / 3;
+
+/// Bytes that take a source past the whole-file ceiling of [`LIMITS`].
+fn past_whole() -> usize {
+    LIMITS.whole_source + LIMITS.whole_source / 10
+}
+
+fn opened(path: &Path) -> std::fs::File {
+    std::fs::File::open(path).expect("open")
+}
+
+fn temp(content: &[u8]) -> tempfile::NamedTempFile {
+    let mut file = tempfile::NamedTempFile::new().expect("temp");
+    std::io::Write::write_all(&mut file, content).expect("write");
+    file
+}
+
+fn stream_one(path: &Path, first: usize, last: usize) -> Streamed {
+    stream(&opened(path), &[Want::lines(first, last)], &NeverCancel)
+        .expect("stream")
+        .pop()
+        .expect("window")
+}
+
+/// Counts the copy blocks a stream writes (one check each).
+struct Blocks(std::sync::atomic::AtomicUsize);
+impl CancellationCheck for Blocks {
+    fn check(&self) -> Result<(), String> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+/// `query` read through [`fetch_window`] from `file`'s own handle, with the
+/// row `share`.
+fn fetch(
+    file: &tempfile::NamedTempFile,
+    query: &LocalFetchQuery,
+    share: Option<usize>,
+) -> LocalFetchResult {
+    fetch_window(
+        query,
+        file.path(),
+        &opened(file.path()),
+        &std::fs::metadata(file.path()).expect("meta"),
+        share,
+        &octocode_runtime_base::security::ContentSecurity::with_limits(LIMITS),
+        &NeverCancel,
+    )
+}
+
+/// A query from wire JSON.
+fn query(json: serde_json::Value) -> LocalFetchQuery {
+    serde_json::from_value(json).expect("query")
+}
+
+mod byte_pages;
+mod edges;
+mod kept_matches;
+mod kept_pass;
+mod long_lines;
+mod reads;
+mod scans;
+mod secrets;
+
+/// One stream re-reads its handle from the start, wherever an earlier
+/// read left it.
+#[test]
+fn a_stream_reads_its_handle_from_the_start() {
+    let file = temp(b"a\nb\n");
+    let source = opened(file.path());
+    std::io::Read::read(&mut &source, &mut [0_u8; 3]).expect("sample");
+    let windows = stream(&source, &[Want::lines(1, 2)], &NeverCancel).expect("stream");
+    assert_eq!(windows[0].window, b"a\nb\n");
+}
+
+/// One pass holds every window, each with the file's digest and totals,
+/// and key-block lines replaced in each window they reach.
+#[test]
+fn one_stream_holds_every_requested_window() {
+    let file =
+        temp(b"a\n-----BEGIN RSA PRIVATE KEY-----\nSECRET\n-----END RSA PRIVATE KEY-----\nb\nc\n");
+    let windows = stream(
+        &opened(file.path()),
+        &[Want::lines(1, 1), Want::lines(3, 3), Want::lines(5, 6)],
+        &NeverCancel,
+    )
+    .expect("stream");
+    let held = windows
+        .iter()
+        .map(|window| String::from_utf8(window.window.clone()).expect("utf8"))
+        .collect::<Vec<_>>();
+    assert_eq!(held[0], "a\n");
+    assert!(!held[1].contains("SECRET"), "{}", held[1]);
+    assert_eq!(held[2], "b\nc\n");
+    assert_eq!(windows[1].key_lines, 1);
+    assert!(
+        windows
+            .iter()
+            .all(|window| window.total_lines == 6 && window.digest == windows[0].digest)
+    );
+    assert_eq!(
+        windows
+            .iter()
+            .map(|w| (w.first, w.last))
+            .collect::<Vec<_>>(),
+        vec![(1, 1), (3, 3), (5, 6)]
+    );
+}
+
+#[test]
+fn streams_hash_totals_and_window() {
+    let file = temp(b"a\nb\nc\nd");
+    let streamed = stream_one(file.path(), 2, 3);
+    assert_eq!(streamed.total_lines, 4);
+    assert_eq!(streamed.window, b"b\nc\n");
+    assert_eq!((streamed.first, streamed.last), (2, 3));
+    assert_eq!(streamed.digest, hex::encode(Sha256::digest(b"a\nb\nc\nd")));
+}
+
+/// A cancel ends the hashing copy with the cancel's own reason.
+#[test]
+fn a_cancelled_stream_stops_with_the_cancel_reason() {
+    struct Cancelled;
+    impl CancellationCheck for Cancelled {
+        fn check(&self) -> Result<(), String> {
+            Err("deadline reached".into())
+        }
+    }
+    let file = temp(b"a\nb\n");
+    assert_eq!(
+        stream(&opened(file.path()), &[Want::lines(1, 2)], &Cancelled)
+            .map(drop)
+            .err()
+            .map(|error| error.to_string())
+            .as_deref(),
+        Some("deadline reached")
+    );
+}
+
+/// Lines split across copy blocks count once, and an unterminated last
+/// line is a line: the totals agree with the whole-text line count.
+#[test]
+fn lines_across_copy_blocks_count_like_the_whole_text() {
+    let mut text = "x".repeat(70 * 1024);
+    text.push('\n');
+    text.push_str("tail without newline");
+    let file = temp(text.as_bytes());
+    let streamed = stream_one(file.path(), 2, 2);
+    assert_eq!(streamed.total_lines, 2);
+    assert_eq!(streamed.window, b"tail without newline");
+    assert_eq!(
+        streamed.digest,
+        hex::encode(Sha256::digest(text.as_bytes()))
+    );
+}
+
+#[test]
+fn key_block_lines_are_replaced_even_when_markers_are_outside_the_window() {
+    let file = temp(
+        b"x\n-----BEGIN RSA PRIVATE KEY-----\nSECRET1\nSECRET2\n-----END RSA PRIVATE KEY-----\ny\n",
+    );
+    let streamed = stream_one(file.path(), 3, 4);
+    let window = String::from_utf8(streamed.window).expect("utf8");
+    assert!(!window.contains("SECRET"), "{window}");
+    assert_eq!(streamed.key_lines, 2);
+    let after = stream_one(file.path(), 6, 6);
+    assert_eq!(after.window, b"y\n");
+}
+
+#[test]
+fn unterminated_key_redacts_its_body_run_and_leaves_later_code_readable() {
+    let file = temp(
+        b"let a = 1;\nconst PEM = \"-----BEGIN RSA PRIVATE KEY-----\";\nlet b = compute(a);\nfn main() {}\n-----BEGIN OPENSSH PRIVATE KEY-----\nSECRET1\nSECRET2\nfn tail() {}\n",
+    );
+    let streamed = stream_one(file.path(), 1, 8);
+    let window = String::from_utf8(streamed.window).expect("utf8");
+    // The armor lines read as written (a literal's closing quote too); the
+    // unterminated block's body lines are hidden.
+    assert!(!window.contains("SECRET"), "{window}");
+    assert!(
+        window.contains("const PEM = \"-----BEGIN RSA PRIVATE KEY-----\";\n")
+            && window.contains("\n-----BEGIN OPENSSH PRIVATE KEY-----\n"),
+        "{window}"
+    );
+    assert!(window.contains("let b = compute(a);"), "{window}");
+    assert!(
+        window.contains("fn main() {}") && window.contains("fn tail() {}"),
+        "{window}"
+    );
+    assert_eq!(streamed.key_lines, 2);
+}
+
+/// A key block the pass replaces line by line is no key marker left in the
+/// text its scanner judges: a line of base64 far from an unterminated block
+/// stays the source's own, as a read of the same bytes held whole shows it.
+#[test]
+fn an_unterminated_key_hides_no_line_outside_its_block() {
+    let innocent = "QUJDREVGR0hJSktMTU5PUFFSU1RVinnocentB64VldYWVowMTIzNDU2Nzg5";
+    let body = "MIIEpQIBAAKCAQEAinteriorKeyBodyQWERTYAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    let text =
+        format!("{innocent}\nlet a = 1;\n-----BEGIN OPENSSH PRIVATE KEY-----\n{body}\n{body}\n");
+    let file = temp(text.as_bytes());
+    let streamed = stream_one(file.path(), 1, 5);
+    let window = String::from_utf8(streamed.window).expect("utf8");
+    assert!(!window.contains("interior"), "{window}");
+    assert!(
+        window.starts_with(&format!("{innocent}\nlet a = 1;\n")),
+        "{window}"
+    );
+    let whole = crate::source_view::prepare::sealed_view(
+        text.as_bytes(),
+        file.path(),
+        &octocode_runtime_base::security::ContentSecurity::new(),
+    )
+    .expect("sealed");
+    assert_eq!(
+        window, whole.text,
+        "the stream seals as the whole read does"
+    );
+}
+
+/// Every request proves the full source again and preserves selected windows,
+/// digest, totals and key blocks that start before those windows.
+#[test]
+fn every_streamed_request_reads_and_proves_its_source() {
+    let mut text = String::new();
+    for line in 1..=40_000 {
+        match line {
+            4_090 => text.push_str("-----BEGIN RSA PRIVATE KEY-----\n"),
+            4_091..=4_110 => text.push_str("SECRETSECRETSECRET\n"),
+            4_111 => text.push_str("-----END RSA PRIVATE KEY-----\n"),
+            _ => text.push_str(&format!("line {line}\n")),
+        }
+    }
+    let file = temp(text.as_bytes());
+    let source = opened(file.path());
+    let spans = [Want::lines(4_100, 4_120), Want::lines(39_990, 40_000)];
+    let whole = Blocks(Default::default());
+    let first = stream(&source, &spans, &whole).expect("first");
+    let second = Blocks(Default::default());
+    let again = stream(&source, &spans, &second).expect("again");
+    let full = whole.0.into_inner();
+    let second_reads = second.0.into_inner();
+    assert_eq!(second_reads, full, "each request reads the source once");
+    for (a, b) in first.iter().zip(&again) {
+        assert_eq!(a.window, b.window);
+        assert_eq!(
+            (a.first, a.last, a.key_lines),
+            (b.first, b.last, b.key_lines)
+        );
+        assert_eq!((&a.digest, a.total_lines), (&b.digest, b.total_lines));
+    }
+    let held = String::from_utf8(again[0].window.clone()).expect("utf8");
+    assert!(!held.contains("SECRET"), "{held}");
+    assert!(held.contains("line 4112\n"), "{held}");
+    // The body lines in the window; the END armor reads as written.
+    assert!(held.contains("-----END RSA PRIVATE KEY-----\n"), "{held}");
+    assert_eq!(again[0].key_lines, 11);
+    // There is no metadata-keyed result to reuse: a third request reads again.
+    let third = Blocks(Default::default());
+    stream(&source, &spans, &third).expect("third");
+    assert_eq!(third.0.into_inner(), full);
+}
+
+#[test]
+fn a_giant_single_line_is_cut_to_a_window_not_buffered() {
+    let big = vec![b'z'; WINDOW_BYTES + 10];
+    let file = temp(&big);
+    let streamed = stream_one(file.path(), 1, 1);
+    assert_eq!(streamed.total_lines, 1);
+    assert!(streamed.window.len() <= WINDOW_BYTES + 1);
+    // The window is a part of the line's bytes: the view is all of them.
+    assert_eq!(streamed.origin.base, 0);
+    assert_eq!(streamed.origin.total, big.len());
+}
+
+#[test]
+fn cutting_a_utf8_line_keeps_only_complete_source_characters() {
+    let text = format!("€{}", "🙂".repeat(WINDOW_BYTES / 4 + 1));
+    let file = temp(text.as_bytes());
+    let streamed = stream_one(file.path(), 1, 1);
+    let prefix = std::str::from_utf8(&streamed.window).expect("complete UTF-8");
+    assert!(text.starts_with(prefix));
+    assert_eq!(prefix.len(), WINDOW_BYTES - 1);
+    assert_eq!(streamed.origin.total, text.len());
+}

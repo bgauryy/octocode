@@ -1,4 +1,4 @@
-//! The Linux `/proc` readers: process table, CPU ticks and resident pages.
+//! The Linux `/proc` readers: process table, CPU ticks and memory.
 //! Plain file I/O over a `/proc`-layout directory, so the synthetic-tree
 //! tests run them on every host.
 
@@ -43,11 +43,20 @@ pub(super) fn read_proc_stat(proc_root: &Path, pid: u32) -> Option<ProcStat> {
     parse_proc_stat(&stat).filter(|stat| stat.pid == pid)
 }
 
-/// Resident bytes from one `/proc/<pid>/statm` line (`size resident …`, in
-/// pages). A zombie reports `0` resident pages, which is correct.
-pub(super) fn parse_proc_statm_rss(statm: &str, page_size: u64) -> Option<u64> {
-    let pages = statm.split_whitespace().nth(1)?.parse::<u64>().ok()?;
-    Some(pages.saturating_mul(page_size))
+/// Bytes a process holds, from its `/proc/<pid>/status` text: `VmRSS` (in
+/// RAM) plus `VmSwap` (swapped out, to zram or zswap too), both in kB. A
+/// zombie lists neither and reads `0`, which is correct.
+pub(super) fn parse_proc_status_memory(status: &str) -> u64 {
+    status
+        .lines()
+        .filter_map(|line| {
+            line.strip_prefix("VmRSS:")
+                .or_else(|| line.strip_prefix("VmSwap:"))
+        })
+        .filter_map(|value| value.trim().strip_suffix("kB")?.trim().parse::<u64>().ok())
+        .fold(0, |total, kib| {
+            total.saturating_add(kib.saturating_mul(1024))
+        })
 }
 
 /// CPU clock ticks from one `/proc/<pid>/stat` line: `utime + stime` of the
@@ -101,8 +110,9 @@ pub(super) fn children_from_table(table: Vec<ProcStat>) -> impl Fn(u32) -> Vec<P
     }
 }
 
-/// Resident bytes of `pid` under a `/proc`-layout directory.
-pub(super) fn read_proc_rss(proc_root: &Path, pid: u32, page_size: u64) -> Option<u64> {
-    let statm = std::fs::read_to_string(proc_root.join(pid.to_string()).join("statm")).ok()?;
-    parse_proc_statm_rss(&statm, page_size)
+/// Bytes `pid` holds under a `/proc`-layout directory (see
+/// [`parse_proc_status_memory`]); `None` when the process is gone.
+pub(super) fn read_proc_memory(proc_root: &Path, pid: u32) -> Option<u64> {
+    let status = std::fs::read_to_string(proc_root.join(pid.to_string()).join("status")).ok()?;
+    Some(parse_proc_status_memory(&status))
 }

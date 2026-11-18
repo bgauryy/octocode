@@ -165,7 +165,8 @@ jobs:
           version=$(node -p 'require(process.argv[1]).version' "$pkg/package.json")
           reported=$(octo --version | tr -d '\r')
           echo "$reported"
-          [ "$reported" = "octocode $version" ]
+          # `octocode <version>`, optionally `+<hex>` (the contract fingerprint); any other suffix fails.
+          node -e 'process.exit(require(process.argv[1]).reportsVersion(process.argv[2], process.argv[3]) ? 0 : 1)' "$PWD/packages/octocode-native/bin/fetch-binary.cjs" "$reported" "$version"
           fingerprint=$(node -p 'require(process.argv[1]).contractFingerprint' "$PWD/packages/octocode-config/contract/provenance.json")
           printf '{"expectedFingerprint":"%s","operation":"inspect"}' "$fingerprint" | octo config --manage > /dev/null
           echo "contract fingerprint $fingerprint"

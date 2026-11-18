@@ -9,17 +9,21 @@
 //! groups; `line: kind name` declarations), a lone row as `path:line:text` or
 //! `path:line: kind name`, sites as `path:line,line`, and a file without rows
 //! as its path. `path:N` is always a line. A file's other fields (counts, its
-//! page) follow its path in `[ … ]`. Files that share a directory print
-//! relative to it, stated once before them as `# root: dir`
-//! ([`once::relative_paths`]); counts by file print as a `files[]: matchCount
-//! path` table. A listing prints each `dir/` once with its entries indented
-//! under it, a lone entry as `dir/entry`. Every other result prints as
-//! indented `key: value` text ([`outline`]), a list of flat rows as a
-//! [`table`]. A fraction prints to 4 significant digits ([`rounded`]).
+//! page) follow its path in `[ … ]`. Paths that share a directory (the
+//! files' and those the walk skipped) print relative to it, stated once
+//! before them as `# root: dir` ([`once::relative_paths`]); counts by file
+//! print as a `files[]: matchCount path` table, whichever count the files
+//! share. A listing prints each `dir/` once with its entries indented under
+//! it, a lone entry as `dir/entry`. Every other result prints as indented
+//! `key: value` text ([`outline`]), a list of flat rows as a [`table`]; a
+//! `graphQuery` row's paths print relative to the scope its query names,
+//! stated once as its root ([`once::under_scope`]). A fraction prints to 4
+//! significant digits ([`rounded`]).
 //!
 //! The trailer follows the content, one `# ` line each, the same for every
 //! tool: a `status` that is not ok, each page state (an object holding
-//! `hasMore`) and incomplete mark, the row's `warnings` and `hints`, the
+//! `hasMore`, in one form: its count first, `hasMore` last) and incomplete
+//! mark, the row's `warnings` and `hints`, the
 //! identity of what was read (`ref`, `commitSha`, `location`),
 //! then the commands that continue the answer: `responsePagination.next`
 //! first, then `next.nextPage`, then any other. A call rejected before it ran prints as
@@ -31,8 +35,10 @@
 //! ([`once::shared_fields`]), a snapshot a later row names by its id alone
 //! among them ([`once::with_batch_facts`]).
 //!
-//! Counters (one line, [`once::counters`]) and `related[]` leads are the
-//! stderr notes.
+//! Counters (one line, [`once::counters`]), what a walk skipped (one line of
+//! names, [`once::skipped_line`]) and `related[]` leads are the stderr
+//! notes; a note's nested value prints in the outline layout, one `# ` line
+//! each.
 //! Calls print as `octocode <tool> '<json>'` commands. They are read from
 //! the structured result only, never from rendered text, so fetched content
 //! that looks like a call is never rewritten.
@@ -51,7 +57,7 @@ mod table;
 use follow::{field_notes, split_stated, stated_notes};
 use hits::{annotation, hits, value_lines};
 use listing::{is_working_directory, listing, locations, outline_rows, words};
-use octocode_native::id::ToolId;
+use octocode_runtime_base::id::ToolId;
 use printable::{one_line, printable};
 use serde_json::{Map, Value, json};
 
@@ -110,7 +116,7 @@ pub(super) fn render(
     query: &Value,
     cwd: Option<&std::path::Path>,
 ) -> Option<Lines> {
-    let query = &printable(octocode_native::contracts::input_as_run(
+    let query = &printable(octocode_runtime_base::contracts::input_as_run(
         tool.as_str(),
         query.clone(),
     ));
@@ -154,8 +160,16 @@ pub(super) fn render(
             out.push(format!("## {label}"));
         }
         let asked = asked_by(&row);
+        let scope = if tool == ToolId::GraphQuery {
+            once::under_scope(&mut row, &asked)
+        } else {
+            None
+        };
         let mut text =
             render_data(tool, &row, &asked).unwrap_or_else(|| outline::generic(&row, &asked));
+        if text.root.is_none() {
+            text.root = scope.map(|scope| format!("root: {scope}"));
+        }
         let (commands, leads) = follow::notes_of(&calls, Some(position));
         let prefix = if batch {
             format!("# {label} ")
@@ -251,18 +265,27 @@ fn location_rows(data: &Map<String, Value>) -> Option<Vec<Value>> {
     Some(rows)
 }
 
-/// `matches` with each hit's `enclosing` index replaced by the declaration it
-/// names, so a line can state it.
+/// `matches` with each hit's `enclosing` replaced by the declaration it
+/// names, so a line can state it. A merged window's `enclosing` may be one
+/// index per `matchedLines` entry; each resolves to its own declaration.
 fn with_declarations(matches: Value, declarations: Option<&Value>) -> Value {
     let Value::Array(mut rows) = matches else {
         return matches;
     };
+    let declaration = |index: &Value| {
+        let index = usize::try_from(index.as_u64()?).ok()?;
+        declarations?.get(index).cloned()
+    };
     for row in &mut rows {
-        let named = row
-            .get("enclosing")
-            .and_then(Value::as_u64)
-            .and_then(|index| declarations?.get(usize::try_from(index).ok()?))
-            .cloned();
+        let named = match row.get("enclosing") {
+            Some(Value::Array(indexes)) => indexes
+                .iter()
+                .map(&declaration)
+                .collect::<Option<Vec<_>>>()
+                .map(Value::Array),
+            Some(index) => declaration(index),
+            None => None,
+        };
         if let (Some(named), Some(row)) = (named, row.as_object_mut()) {
             row.insert("enclosing".into(), named);
         }
@@ -278,14 +301,16 @@ fn render_data(tool: ToolId, row: &Map<String, Value>, query: &Value) -> Option<
         return None;
     }
     let data = row.get("data")?.as_object()?;
-    let mut rest = data.clone();
     let mut body = Vec::new();
     let mut marks = Vec::new();
     // A listing's groups print relative to the directory they share, as hits do.
     let mut relative = data.clone();
     let root = once::relative_paths(&mut relative);
     if listing(&relative, &mut body).is_some() {
+        let mut rest = relative;
         rest.shift_remove("files");
+        // A stated root prints as the listing's own root line.
+        rest.shift_remove("root");
         let mut text = tail(query, row, rest, marks, body);
         text.root = root.map(|root| format!("root: {root}"));
         return Some(text);
@@ -428,10 +453,8 @@ fn tail(
     let (stated, mut info) = split_stated(data);
     let (done, mut advice) = stated_notes(stated);
     trailer.extend(done);
-    // Beside content, what a walk skipped reads as a count per cause.
-    if !body.is_empty() {
-        once::skipped_counts(&mut info);
-    }
+    // What a walk skipped reads as one line of names, beside content or not.
+    once::skipped_line(&mut info);
     let (counts, info) = once::counters(info);
     let mut notes: Vec<String> = counts.into_iter().collect();
     notes.extend(field_notes("", &info));

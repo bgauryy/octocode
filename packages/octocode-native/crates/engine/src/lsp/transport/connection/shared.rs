@@ -7,19 +7,23 @@ use super::super::patience::ServerActivity;
 use super::super::push_diagnostics::PushDiagnosticsStore;
 use super::NOTIFY_BASE_DEADLINE_MS;
 use crate::error::{Error, Result};
+use crate::lsp::clock::LspClock;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::{Duration, Instant};
+use tokio::time::Duration;
 
 type PendingSender = oneshot::Sender<Result<Value>>;
 
 /// One complete frame for the writer task.
 pub(super) struct Outbound {
     pub(super) frame: Vec<u8>,
-    pub(super) deadline: Instant,
+    /// How long the server may read nothing of this frame once the writer
+    /// takes it: past it the write is stuck and the stream is broken. Time
+    /// spent queued behind other frames never counts.
+    pub(super) stall: Duration,
     /// Completed once the frame is flushed (or the write failed).
     pub(super) written: Option<oneshot::Sender<Result<()>>>,
 }
@@ -42,7 +46,8 @@ pub(super) struct Shared {
     /// Frames whose body was not valid JSON (skipped). A spike means the
     /// stream lost its framing.
     pub(super) unparseable_frames: AtomicU64,
-    /// Request timeouts since the server last answered a pending request.
+    /// Request timeouts that an idle server ended since it last answered a
+    /// pending request.
     pub(super) consecutive_timeouts: AtomicU32,
     /// The server's progress signals, which extend a request's wait.
     pub(super) activity: ServerActivity,
@@ -50,6 +55,11 @@ pub(super) struct Shared {
     /// (`client/registerCapability`), so it expects file events for files
     /// it has not opened.
     pub(super) watches_files: AtomicBool,
+    /// The time every deadline of this connection is set and read on.
+    pub(super) clock: LspClock,
+    /// Bytes the writer has handed to the server's input so far: while this
+    /// grows, the server reads.
+    pub(super) written_bytes: AtomicU64,
 }
 
 impl Shared {
@@ -111,49 +121,74 @@ impl Shared {
     }
 
     /// Queues a frame without waiting. Used from `Drop` (cancel on drop).
-    pub(super) fn try_enqueue(&self, frame: Vec<u8>, deadline: Instant) {
+    pub(super) fn try_enqueue(&self, frame: Vec<u8>, stall: Duration) {
         let _ = self.outbound.try_send(Outbound {
             frame,
-            deadline,
+            stall,
             written: None,
         });
     }
 
-    /// Queues a frame, waiting for queue space until `deadline`.
-    pub(super) async fn enqueue(&self, outbound: Outbound, deadline: Instant) -> Result<()> {
-        match tokio::time::timeout_at(deadline, self.outbound.send(outbound)).await {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(_)) => Err(self.closed()),
-            Err(_) => {
-                let reason = "LSP request write timed out: server is not reading stdin";
-                self.fail(reason);
-                Err(Error::timeout(reason))
+    /// `done`'s output, waited for while the server reads its input: `None`
+    /// once the writer hands it nothing for a whole `stall`. A wait behind
+    /// frames the server is still reading, however many and however large,
+    /// never ends on time alone.
+    pub(super) async fn while_reading<F: Future>(
+        &self,
+        stall: Duration,
+        done: F,
+    ) -> Option<F::Output> {
+        let mut done = std::pin::pin!(done);
+        loop {
+            let mark = self.written_bytes.load(Ordering::Acquire);
+            match self.clock.timeout(stall, &mut done).await {
+                Ok(output) => return Some(output),
+                Err(_) if self.written_bytes.load(Ordering::Acquire) == mark => return None,
+                Err(_) => {}
             }
         }
     }
 
-    /// Queues a frame and waits until it is flushed, both bounded by `deadline`.
-    pub(super) async fn write_frame(&self, frame: Vec<u8>, deadline: Instant) -> Result<()> {
+    /// Fails the connection because the server read nothing of its input
+    /// for `stall`, and returns that as a timeout.
+    fn stopped_reading(&self, stall: Duration) -> Error {
+        let reason = stalled_write(stall);
+        self.fail(&reason);
+        Error::timeout(reason)
+    }
+
+    /// Queues a frame, waiting for queue space while the server reads the
+    /// frames ahead; a server that reads nothing for the frame's stall
+    /// window fails the connection.
+    pub(super) async fn enqueue(&self, outbound: Outbound) -> Result<()> {
+        let stall = outbound.stall;
+        match self
+            .while_reading(stall, self.outbound.send(outbound))
+            .await
+        {
+            Some(Ok(())) => Ok(()),
+            Some(Err(_)) => Err(self.closed()),
+            None => Err(self.stopped_reading(stall)),
+        }
+    }
+
+    /// Queues a frame and waits until it is flushed, while the server reads
+    /// the frames ahead of it and then this one: a server that reads
+    /// nothing for `stall` fails the connection.
+    pub(super) async fn write_frame(&self, frame: Vec<u8>, stall: Duration) -> Result<()> {
         let (tx, rx) = oneshot::channel();
-        self.enqueue(
-            Outbound {
-                frame,
-                deadline,
-                written: Some(tx),
-            },
-            deadline,
-        )
+        self.enqueue(Outbound {
+            frame,
+            stall,
+            written: Some(tx),
+        })
         .await?;
-        match tokio::time::timeout_at(deadline, rx).await {
-            Ok(Ok(result)) => result,
-            Ok(Err(_)) => Err(closed_error()),
-            Err(_) => {
-                // The writer task enforces the same deadline and breaks the
-                // stream if the frame is stuck mid-write.
-                let reason = "LSP notification write timed out";
-                self.fail(reason);
-                Err(Error::timeout(reason))
-            }
+        match self.while_reading(stall, rx).await {
+            Some(Ok(result)) => result,
+            // The writer drops a frame it never reached when the stream
+            // broke on an earlier one; the connection's failure says why.
+            Some(Err(_)) => Err(self.closed()),
+            None => Err(self.stopped_reading(stall)),
         }
     }
 
@@ -173,7 +208,15 @@ impl Shared {
     }
 }
 
-pub(super) fn closed_error() -> Error {
+/// Why a write failed whose server read nothing of its input for `stall`.
+pub(super) fn stalled_write(stall: Duration) -> String {
+    format!(
+        "LSP write timed out: the server read nothing for {}ms",
+        stall.as_millis()
+    )
+}
+
+fn closed_error() -> Error {
     Error::connection_closed("JSON-RPC connection closed")
 }
 
@@ -214,8 +257,8 @@ impl Drop for CancelOnDrop<'_> {
         if self.shared.take_pending(self.id).is_some()
             && let Ok(frame) = encode_frame(&cancel_message(self.id))
         {
-            let deadline = Instant::now() + Duration::from_millis(NOTIFY_BASE_DEADLINE_MS);
-            self.shared.try_enqueue(frame, deadline);
+            self.shared
+                .try_enqueue(frame, Duration::from_millis(NOTIFY_BASE_DEADLINE_MS));
         }
     }
 }

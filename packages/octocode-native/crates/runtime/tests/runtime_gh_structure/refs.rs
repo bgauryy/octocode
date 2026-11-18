@@ -1,6 +1,7 @@
 //! Refs listings: branches and tags paged together, the default branch,
 //! one resolved ref, and the leads of a refs page.
 use super::*;
+use octocode_test_support::json_fixture;
 
 /// Branches and tags page together: each page
 /// holds the same page number of both lists, and `next.nextPage` continues
@@ -59,7 +60,14 @@ async fn refs_list_every_branch_and_tag_once_with_the_default_branch() {
     let first = call(
         &runtime,
         "ghStructure",
-        json!({"owner": "a", "repo": "b", "operation": "refs", "limit": 100}),
+        json_fixture(
+            r#"{
+                "owner": "a",
+                "repo": "b",
+                "operation": "refs",
+                "limit": 100
+            }"#,
+        ),
     )
     .await
     .expect("refs");
@@ -74,12 +82,12 @@ async fn refs_list_every_branch_and_tag_once_with_the_default_branch() {
     assert!(data.get("commitSha").is_none(), "{data}");
     assert_eq!(
         data["branches"],
-        json!([{"name":"dev","sha":sha(1)},{"name":"main","sha":sha(2)}]),
+        json!([{"name":"dev","commitSha":sha(1)},{"name":"main","commitSha":sha(2)}]),
         "{data}"
     );
     assert_eq!(
         data["tags"],
-        json!([{"name":"v1.0.0","sha":sha(4)}]),
+        json!([{"name":"v1.0.0","commitSha":sha(4)}]),
         "{data}"
     );
     let next = data["next"]["nextPage"]["input"].clone();
@@ -90,7 +98,7 @@ async fn refs_list_every_branch_and_tag_once_with_the_default_branch() {
     let data = row_data(&second);
     assert_eq!(
         data["branches"],
-        json!([{"name":"release","sha":sha(3)}]),
+        json!([{"name":"release","commitSha":sha(3)}]),
         "{data}"
     );
     assert_eq!(data["tags"], json!([]), "{data}");
@@ -135,14 +143,14 @@ async fn a_credential_worded_branch_keeps_its_commit_sha() {
     let out = call(
         &runtime,
         "ghStructure",
-        json!({"owner": "a", "repo": "b", "operation": "refs"}),
+        json_fixture(r#"{"owner": "a", "repo": "b", "operation": "refs"}"#),
     )
     .await
     .expect("refs");
     let data = row_data(&out);
     assert_eq!(
         data["branches"],
-        json!([{"name":name,"sha":head}]),
+        json!([{"name":name,"commitSha":head}]),
         "{}",
         out.structured_content
     );
@@ -175,7 +183,9 @@ async fn refs_with_ref_resolves_one_ref() {
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/git/ref/heads/v1.0.0"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
+        .respond_with(
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
+        )
         .expect(1)
         .mount(&server)
         .await;
@@ -184,7 +194,14 @@ async fn refs_with_ref_resolves_one_ref() {
     let outcome = call(
         &runtime,
         "ghStructure",
-        json!({"owner": "a", "repo": "b", "operation": "refs", "ref": "v1.0.0"}),
+        json_fixture(
+            r#"{
+                "owner": "a",
+                "repo": "b",
+                "operation": "refs",
+                "ref": "v1.0.0"
+            }"#,
+        ),
     )
     .await
     .expect("one ref");
@@ -210,10 +227,9 @@ async fn every_not_found_row_of_a_batch_carries_its_own_recovery_hint() {
         .and(path_regex(
             "/api/v3/repos/a/b/(commits|git/ref|git/trees)/.*nope-",
         ))
-        .respond_with(
-            ResponseTemplate::new(422)
-                .set_body_json(json!({"message":"No commit found for SHA: nope"})),
-        )
+        .respond_with(ResponseTemplate::new(422).set_body_json(json_fixture(
+            r#"{"message": "No commit found for SHA: nope"}"#,
+        )))
         .mount(&server)
         .await;
     let workspace = Workspace::new();

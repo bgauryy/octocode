@@ -215,7 +215,8 @@ fn non_utf8_line_spans_and_columns_map_through_lossy_decoding() {
 
 /// Review M6: only-matching columns on one long line are computed with a
 /// left-to-right cursor, not a rescan of the line prefix per span. 1000 spans
-/// at the end of a ~4 MB multibyte line rescanned ~12 GB before the fix.
+/// at the end of a ~4 MB multibyte line rescanned ~12 GB before the fix: the
+/// cursor steps over the line once, whatever the machine's load.
 #[test]
 fn only_matching_long_line_columns_are_linear_and_exact() {
     let t = TmpDir::new();
@@ -225,12 +226,14 @@ fn only_matching_long_line_columns_are_linear_and_exact() {
         line.push_str("😀x");
     }
     line.push('\n');
-    t.write("long.txt", line);
-    let mut o = opts(t.path(), "x");
+    let line_bytes = line.len();
+    // A file root is searched on this thread, where the cursor's count is kept.
+    let file = t.write("long.txt", line);
+    let mut o = opts(file.to_string_lossy().into_owned(), "x");
     o.output = SearchOutput::Spans(SpanValues::Every);
-    let started = std::time::Instant::now();
+    let before = crate::search::text_search::sink::stepped();
     let r = search(o).expect("ok");
-    let elapsed = started.elapsed();
+    let stepped = crate::search::text_search::sink::stepped() - before;
     let matches = &r.files[0].matches;
     assert_eq!(matches.len(), 1000);
     for (i, m) in matches.iter().enumerate() {
@@ -239,8 +242,8 @@ fn only_matching_long_line_columns_are_linear_and_exact() {
         assert_eq!(m.value, "x");
     }
     assert!(
-        elapsed < std::time::Duration::from_secs(5),
-        "only-matching span columns took {elapsed:?}"
+        stepped <= line_bytes,
+        "the span cursor stepped over {stepped} bytes of a {line_bytes}-byte line"
     );
 }
 

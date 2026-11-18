@@ -3,16 +3,17 @@
 //! both streams together carry every JSON leaf, text is no larger than its
 //! JSON, and a row prints alike alone and in a batch.
 use super::*;
+use octocode_test_support::json_fixture;
 
 /// A tool, the query it ran and its result.
 type Case = (ToolId, Value, Value);
 
 fn next(tool: &str, cursor: &str) -> Value {
-    json!({"nextPage":{"kind":"continue","tool":tool,"input":{"cursor":cursor}}})
+    json!({"nextPage":{"tool":tool,"input":{"cursor":cursor}}})
 }
 
 fn related(tool: &str, path: &str) -> Value {
-    json!([{"kind":"related","tool":tool,"input":{"queries":[{"path":path}]}}])
+    json!([{"tool":tool,"input":{"queries":[{"path":path}]}}])
 }
 
 fn one(data: Value) -> Value {
@@ -28,7 +29,7 @@ fn with_status(mut result: Value, status: &str) -> Value {
 /// sites, outlines and plain `key: value` rows.
 fn cases() -> Vec<Case> {
     let dir = "packages/native/crates/cli/src/cli/lines";
-    let search = json!({"queries":[{"path":"src","matchString":["fn "]}]});
+    let search = json_fixture(r#"{"queries": [{"path": "src", "matchString": ["fn "]}]}"#);
     let mut cases = vec![
         (
             ToolId::LocalSearch,
@@ -64,20 +65,34 @@ fn cases() -> Vec<Case> {
         ),
         (
             ToolId::LocalSearch,
-            json!({"queries":[{"path":"src","matchString":["fn "],"view":"countMatches"}]}),
+            json_fixture(
+                r#"{
+                    "queries": [
+                        {
+                            "path": "src",
+                            "matchString": ["fn "],
+                            "view": "countMatches"
+                        }
+                    ]
+                }"#,
+            ),
             one(json!({"matchCount":17,"files":[
                 {"path":format!("{dir}/outline/tests.rs"),"matchCount":9},
                 {"path":format!("{dir}/listing.rs"),"matchCount":8}]})),
         ),
         (
             ToolId::LocalSearch,
-            json!({"queries":[{"path":"src","matchString":["fn "],"view":"files"}]}),
+            json_fixture(
+                r#"{
+                    "queries": [{"path": "src", "matchString": ["fn "], "view": "files"}]
+                }"#,
+            ),
             one(json!({"matchedFiles":2,"files":[
                 {"path":format!("{dir}/outline/tests.rs")},{"path":format!("{dir}/listing.rs")}]})),
         ),
         (
             ToolId::StructureSearch,
-            json!({"queries":[{"path":".","operation":"files"}]}),
+            json_fixture(r#"{"queries": [{"path": ".", "operation": "files"}]}"#),
             one(json!({"files":[
                 {"dir":dir,"files":["follow.rs (4680, totalLines=132)","hits.rs (5453, totalLines=140)","outline/"]},
                 {"dir":format!("{dir}/outline"),"files":["tests.rs (7354, totalLines=184)"]}],
@@ -88,7 +103,7 @@ fn cases() -> Vec<Case> {
         ),
         (
             ToolId::StructureSearch,
-            json!({"queries":[{"path":".","operation":"tree"}]}),
+            json_fixture(r#"{"queries": [{"path": ".", "operation": "tree"}]}"#),
             one(
                 json!({"files":[{"dir":dir,"files":["follow.rs","hits.rs","listing.rs","outline/","outline.rs"]}],
                 "summary":{"fileCount":4,"dirCount":1,"bytes":29702}}),
@@ -96,9 +111,15 @@ fn cases() -> Vec<Case> {
         ),
         (
             ToolId::StructureSearch,
-            json!({"queries":[{"path":".","operation":"files","nameRegex":"zzz"}]}),
+            json_fixture(
+                r#"{
+                    "queries": [{"path": ".", "operation": "files", "nameRegex": "zzz"}]
+                }"#,
+            ),
             with_status(
-                one(json!({"files":[],"hints":["No entry matches nameRegex."]})),
+                one(json_fixture(
+                    r#"{"files": [], "hints": ["No entry matches nameRegex."]}"#,
+                )),
                 "empty",
             ),
         ),
@@ -113,7 +134,18 @@ fn more_cases(dir: &str) -> Vec<Case> {
     vec![
         (
             ToolId::GhStructure,
-            json!({"queries":[{"operation":"tree","owner":"facebook","repo":"react","path":"packages"}]}),
+            json_fixture(
+                r#"{
+                    "queries": [
+                        {
+                            "operation": "tree",
+                            "owner": "facebook",
+                            "repo": "react",
+                            "path": "packages"
+                        }
+                    ]
+                }"#,
+            ),
             one(
                 json!({"owner":"react","files":[{"dir":"packages","files":["jest-react/","react/","react-art/","react-dom/"]}],
                 "summary":{"fileCount":0,"dirCount":40,"bytes":0},"ref":"main",
@@ -125,11 +157,40 @@ fn more_cases(dir: &str) -> Vec<Case> {
         (
             ToolId::AstSearch,
             json!({"queries":[{"path":format!("{dir}/follow.rs"),"operation":"symbols"}]}),
-            one(json!({"filesScanned":1,"symbols":[
-                {"symbolName":"field_notes","kind":"function","line":5,"endLine":26,"docStartLine":4},
-                {"symbolName":"separate_calls","kind":"function","line":29,"endLine":79},
-                {"symbolName":"Call","kind":"impl","line":81,"endLine":107,
-                 "members":[{"symbolName":"note","kind":"method","line":83,"endLine":85}]}]})),
+            one(json_fixture(
+                r#"{
+                    "filesScanned": 1,
+                    "symbols": [
+                        {
+                            "symbolName": "field_notes",
+                            "kind": "function",
+                            "line": 5,
+                            "endLine": 26,
+                            "docStartLine": 4
+                        },
+                        {
+                            "symbolName": "separate_calls",
+                            "kind": "function",
+                            "line": 29,
+                            "endLine": 79
+                        },
+                        {
+                            "symbolName": "Call",
+                            "kind": "impl",
+                            "line": 81,
+                            "endLine": 107,
+                            "members": [
+                                {
+                                    "symbolName": "note",
+                                    "kind": "method",
+                                    "line": 83,
+                                    "endLine": 85
+                                }
+                            ]
+                        }
+                    ]
+                }"#,
+            )),
         ),
         (
             ToolId::AstSearch,
@@ -142,7 +203,19 @@ fn more_cases(dir: &str) -> Vec<Case> {
         ),
         (
             ToolId::LspSearch,
-            json!({"queries":[{"path":"src/budget.rs","operation":"references","symbolName":"deadline","line":29,"view":"files"}]}),
+            json_fixture(
+                r#"{
+                    "queries": [
+                        {
+                            "path": "src/budget.rs",
+                            "operation": "references",
+                            "symbolName": "deadline",
+                            "line": 29,
+                            "view": "files"
+                        }
+                    ]
+                }"#,
+            ),
             one(json!({"matchCount":6,"files":[
                 {"path":"packages/native/crates/github/src/budget/tests/gates.rs","matchCount":1,"matchedLines":[69]},
                 {"path":"packages/native/crates/github/src/commit_dates/tests.rs","matchCount":2,"matchedLines":[5,32]},
@@ -152,16 +225,40 @@ fn more_cases(dir: &str) -> Vec<Case> {
         ),
         (
             ToolId::LspSearch,
-            json!({"queries":[{"path":"src/budget.rs","operation":"references","symbolName":"deadline","line":29}]}),
-            one(
-                json!({"operation":"references","files":[{"path":"a.rs","matches":[
-                {"line":2,"content":"2\tneedle();\n","role":"call"},
-                {"line":6,"content":"6\tneedle();\n","role":"call"}]}]}),
+            json_fixture(
+                r#"{
+                    "queries": [
+                        {
+                            "path": "src/budget.rs",
+                            "operation": "references",
+                            "symbolName": "deadline",
+                            "line": 29
+                        }
+                    ]
+                }"#,
             ),
+            one(json_fixture(
+                r#"{
+                    "operation": "references",
+                    "files": [
+                        {
+                            "path": "a.rs",
+                            "matches": [
+                                {"line": 2, "content": "2\tneedle();\n", "role": "call"},
+                                {"line": 6, "content": "6\tneedle();\n", "role": "call"}
+                            ]
+                        }
+                    ]
+                }"#,
+            )),
         ),
         (
             ToolId::LocalFetch,
-            json!({"queries":[{"path":"src/security_check.rs","view":"compact"}]}),
+            json_fixture(
+                r#"{
+                    "queries": [{"path": "src/security_check.rs", "view": "compact"}]
+                }"#,
+            ),
             one(
                 json!({"content":"4\tmod advisories;\n5\tmod answer;\n6\tmod commit;","totalLines":411,
                 "pagination":{"unit":"lines","offset":0,"length":3,"hasMore":true},
@@ -170,12 +267,35 @@ fn more_cases(dir: &str) -> Vec<Case> {
         ),
         (
             ToolId::LocalFetch,
-            json!({"queries":[{"path":"src/tests.rs","ranges":[{"startLine":100,"endLine":105}]}]}),
-            with_status(one(json!({"content":"","totalLines":23})), "outOfRange"),
+            json_fixture(
+                r#"{
+                    "queries": [
+                        {
+                            "path": "src/tests.rs",
+                            "ranges": [{"startLine": 100, "endLine": 105}]
+                        }
+                    ]
+                }"#,
+            ),
+            with_status(
+                one(json_fixture(r#"{"content": "", "totalLines": 23}"#)),
+                "outOfRange",
+            ),
         ),
         (
             ToolId::GhSearchHistory,
-            json!({"queries":[{"operation":"pullRequest","owner":"facebook","repo":"react","keywords":["useEffectEvent"]}]}),
+            json_fixture(
+                r#"{
+                    "queries": [
+                        {
+                            "operation": "pullRequest",
+                            "owner": "facebook",
+                            "repo": "react",
+                            "keywords": ["useEffectEvent"]
+                        }
+                    ]
+                }"#,
+            ),
             one(json!({"pullRequests":[
                 {"number":37618,"title":"[compiler] Add regression test","mergedAt":"2026-09-16T08:53:44Z"},
                 {"number":34831,"title":"[Fiber] Ensure latest values","mergedAt":"2025-10-13T15:58:43Z"}],
@@ -186,7 +306,7 @@ fn more_cases(dir: &str) -> Vec<Case> {
         ),
         (
             ToolId::GraphQuery,
-            json!({"queries":[{"operation":"find","target":"lease"}]}),
+            json_fixture(r#"{"queries": [{"operation": "find", "target": "lease"}]}"#),
             one(
                 json!({"graph":{"id":"20261110T181651Z-src-d9b10b","root":"src","isPartial":true,"partialReasons":["filesSkipped"]},
                 "rows":[{"id":"runtime/rows.ts#leaseKind","kind":"symbol","file":"runtime/rows.ts","line":29,"name":"leaseKind"}],
@@ -200,9 +320,15 @@ fn more_cases(dir: &str) -> Vec<Case> {
 /// The envelope's own page over a paged row: the response page runs first.
 fn response_paged() -> Case {
     let (tool, query, mut result) = cases().swap_remove(0);
-    result["results"][0]["rowPart"] = json!({"part":1,"of":3});
-    result["responsePagination"] = json!({"hasMore":true,
-        "next":{"kind":"continue","tool":"localSearch","input":{"cursor":"cursor2.response-page"}}});
+    result["results"][0]["rowPart"] = json_fixture(r#"{"part": 1, "of": 3}"#);
+    result["responsePagination"] = json_fixture(
+        r#"{
+            "next": {
+                "tool": "localSearch",
+                "input": {"cursor": "cursor2.response-page"}
+            }
+        }"#,
+    );
     (tool, query, result)
 }
 
@@ -211,25 +337,28 @@ fn text(case: &Case) -> Lines {
     render(*tool, result, query, None).unwrap_or_else(|| panic!("{tool:?} prints text: {result}"))
 }
 
-/// Every call of `value` as its command, with whether it is a `related` lead.
+/// Every call of `value` as its command, with whether it is a `related` lead:
+/// a served call states no kind, the `related` list that holds it does.
 pub(super) fn commands(value: &Value, out: &mut Vec<(String, bool)>) {
-    match value {
-        Value::Object(fields) => {
-            if let (Some(tool), Some(input)) = (
-                fields.get("tool").and_then(Value::as_str),
-                fields.get("input"),
-            ) {
-                out.push((
-                    follow::command(tool, &input.to_string()),
-                    fields.get("kind").and_then(Value::as_str) == Some("related"),
-                ));
-                return;
+    fn visit(value: &Value, lead: bool, out: &mut Vec<(String, bool)>) {
+        match value {
+            Value::Object(fields) => {
+                if let (Some(tool), Some(input)) = (
+                    fields.get("tool").and_then(Value::as_str),
+                    fields.get("input"),
+                ) {
+                    out.push((follow::command(tool, &input.to_string()), lead));
+                    return;
+                }
+                for (key, value) in fields {
+                    visit(value, key == "related", out);
+                }
             }
-            fields.values().for_each(|value| commands(value, out));
+            Value::Array(items) => items.iter().for_each(|item| visit(item, lead, out)),
+            _ => {}
         }
-        Value::Array(items) => items.iter().for_each(|item| commands(item, out)),
-        _ => {}
     }
+    visit(value, false, out);
 }
 
 /// How many objects of `value` state `hasMore`.
@@ -360,14 +489,24 @@ fn identity_fields_print_on_stdout() {
     let sha = "b05c0b75fd9778536152eead30814c9ca90c810a";
     let tree = (
         ToolId::GhStructure,
-        json!({"queries":[{"operation":"tree","owner":"facebook","repo":"react"}]}),
+        json_fixture(
+            r#"{
+                "queries": [
+                    {"operation": "tree", "owner": "facebook", "repo": "react"}
+                ]
+            }"#,
+        ),
         one(json!({"files":[{"dir":".","files":["README.md"]}],
             "summary":{"fileCount":1,"dirCount":0,"bytes":9},
             "ref":"main","commitSha":sha})),
     );
     let code = (
         ToolId::GhSearchCode,
-        json!({"queries":[{"owner":"facebook","repo":"react","keywords":["fn"]}]}),
+        json_fixture(
+            r#"{
+                "queries": [{"owner": "facebook", "repo": "react", "keywords": ["fn"]}]
+            }"#,
+        ),
         one(
             json!({"files":[{"path":"a.js","matches":[{"line":1,"value":"fn"}]}],
             "commitSha":sha}),
@@ -404,7 +543,7 @@ fn the_response_page_comes_before_the_rows_next_page() {
         "{out}"
     );
     assert!(
-        out.contains("\n# responsePagination: hasMore true\n# responsePagination.next: octocode "),
+        out.contains("\n# responsePagination.next: octocode "),
         "{out}"
     );
 }
@@ -663,4 +802,138 @@ fn a_batch_row_without_content_states_its_status() {
         "{}",
         lines.notes
     );
+}
+
+/// A response over three pages: the text view of each page but the last
+/// names the call that continues it, the last names none, so following the
+/// stated call from the first page reaches the end and stops.
+#[test]
+fn the_text_view_follows_a_three_page_response_to_its_end() {
+    let page = |cursor: Option<&str>, replayed: bool| {
+        let mut result = one(json_fixture(
+            r#"{
+                "files": [{"path": "a.rs", "matches": [{"line": 1, "value": "x"}]}]
+            }"#,
+        ));
+        let mut block = json_fixture(r#"{"expiresAt": "2026-11-17T00:00:00.000Z"}"#);
+        if let Some(cursor) = cursor {
+            block["next"] = json!({"tool":"localSearch","input":{"cursor":cursor}});
+        }
+        if replayed {
+            block["replayed"] = json!(true);
+        }
+        result["responsePagination"] = block;
+        result
+    };
+    let pages = [
+        page(Some("cursor-2"), false),
+        page(Some("cursor-3"), true),
+        page(None, true),
+    ];
+    let asked = json_fixture(r#"{"queries": [{"path": ".", "matchString": ["x"]}]}"#);
+    let (mut at, mut visited) = (0, 0);
+    loop {
+        visited += 1;
+        assert!(visited <= pages.len(), "the walk never ends");
+        let out = render(ToolId::LocalSearch, &pages[at], &asked, None)
+            .expect("text")
+            .out;
+        let stated: Vec<&str> = out
+            .lines()
+            .filter(|line| line.starts_with("# responsePagination.next: octocode localSearch "))
+            .collect();
+        match stated.as_slice() {
+            [] => break,
+            [line] => {
+                let cursor = format!("cursor-{}", at + 2);
+                assert!(line.contains(&cursor), "{out}");
+                at += 1;
+            }
+            _ => panic!("two ways on: {out}"),
+        }
+    }
+    assert_eq!(
+        (at, visited),
+        (2, 3),
+        "stops on the page that states no call"
+    );
+}
+
+/// Page states of every shape the output schema allows (`offset` and
+/// `hasMore` required; `unit`, `length`, `total`, `countScope` optional),
+/// in the field order a tool may write them.
+fn page_shapes() -> Vec<Value> {
+    vec![
+        json_fixture(
+            r#"{"unit": "lines", "offset": 0, "length": 3, "total": 58, "hasMore": true}"#,
+        ),
+        json_fixture(r#"{"hasMore": true, "length": 4096, "offset": 8192, "unit": "bytes"}"#),
+        json_fixture(r#"{"hasMore": true, "offset": 0, "total": 82}"#),
+        json_fixture(r#"{"countScope": "loaded", "offset": 0, "hasMore": true, "total": 8}"#),
+        json_fixture(r#"{"hasMore": true, "offset": 20}"#),
+        json_fixture(r#"{"hasMore": false, "offset": 10, "length": 10, "total": 20}"#),
+    ]
+}
+
+/// The text a page state prints as, wherever it prints: the rest of a
+/// `pagination: ` trailer line, or the words after `pagination ` up to the
+/// end of a `[ … ]` note.
+fn printed_pages(text: &str) -> Vec<&str> {
+    text.lines()
+        .filter_map(|line| {
+            let (_, rest) = line
+                .split_once("pagination: ")
+                .or_else(|| line.split_once("pagination "))?;
+            Some(rest.split(']').next().unwrap_or(rest))
+        })
+        .collect()
+}
+
+/// One page format for every page state, the row's and a file's alike: its
+/// count first (`length of total unit`, or the total alone when no length
+/// is stated), `after offset` when it starts later, any other field, then
+/// `hasMore` (or `hasMore false`) last; every number stays.
+#[test]
+fn every_page_state_reads_count_first_and_has_more_last() {
+    let asked = json_fixture(r#"{"queries": [{"path": "src", "matchString": ["x"]}]}"#);
+    let mut checked = 0;
+    for page in page_shapes() {
+        let result = one(
+            json!({"files":[{"path":"a.rs","matches":[{"line":3,"value":"x"}],
+            "pagination":page}],"pagination":page}),
+        );
+        let lines = render(ToolId::LocalSearch, &result, &asked, None).expect("text");
+        let both = format!("{}\n{}", lines.out, lines.notes);
+        let printed = printed_pages(&both);
+        assert_eq!(printed.len(), 2, "{page}:\n{both}");
+        let number = |key: &str| page[key].as_u64();
+        let more = page["hasMore"].as_bool().expect("hasMore");
+        for text in printed {
+            checked += 1;
+            let words: Vec<&str> = text.split(' ').collect();
+            let count = match (number("length"), number("total")) {
+                (Some(length), Some(total)) => format!("{length} of {total}"),
+                (Some(length), None) => length.to_string(),
+                (None, Some(total)) => format!("total {total}"),
+                (None, None) => String::new(),
+            };
+            assert!(text.starts_with(&count), "count first: {text}");
+            let last = if more { "hasMore" } else { "hasMore false" };
+            assert!(text.ends_with(last), "hasMore last: {text}");
+            assert_eq!(text.matches("hasMore").count(), 1, "{text}");
+            if let Some(offset) = number("offset").filter(|offset| *offset > 0) {
+                assert!(text.contains(&format!("after {offset} ")), "{text}");
+            }
+            for key in ["unit", "offset", "length", "true"] {
+                assert!(!words.contains(&key), "{key} named: {text}");
+            }
+            if let Some(unit) = page["unit"].as_str() {
+                assert!(text.contains(&format!("{count} {unit}")), "{text}");
+            }
+            if let Some(scope) = page["countScope"].as_str() {
+                assert!(text.contains(&format!("countScope {scope}")), "{text}");
+            }
+        }
+    }
+    assert!(checked > 0);
 }

@@ -36,3 +36,5 @@ pub mod notice;
 pub mod read;
 pub mod retry;
 pub mod shell;
+#[cfg(test)]
+mod test_support;

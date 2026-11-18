@@ -17,6 +17,9 @@ pub(super) struct MatchWork {
     pub(super) materialize_line: bool,
     pub(super) deferred_line: bool,
     pub(super) enumerate_submatches: bool,
+    /// Each searched term counts the lines a matched block holds it on
+    /// (count-lines), not the submatches it makes.
+    pub(super) terms_by_line: bool,
     pub(super) collect_spans: bool,
     /// Show a matched line too long for a row as windows around its hits.
     pub(super) row_window: Option<crate::types::RowWindow>,
@@ -27,6 +30,7 @@ pub(super) fn match_work(mode: Mode, only_matching: bool) -> MatchWork {
         materialize_line: mode == Mode::Normal,
         deferred_line: false,
         enumerate_submatches: mode != Mode::CountLines,
+        terms_by_line: mode == Mode::CountLines,
         collect_spans: mode == Mode::Normal && only_matching,
         row_window: None,
     }

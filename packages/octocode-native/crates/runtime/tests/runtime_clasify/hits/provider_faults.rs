@@ -1,13 +1,14 @@
 //! What a slow or refusing provider leaves of a judged view: the hits stay readable,
 //! and the real cause is named.
 use super::*;
+use octocode_test_support::json_fixture;
 
 /// A provider slower than the network layer's request time still answers, on
 /// every route: no client cap bounds a classification, only the call's own
 /// deadline does (a 40 s provider reply once failed at the 30 s network time).
 #[tokio::test]
 async fn a_slow_provider_is_waited_for_on_every_route() {
-    let limits = octocode_native::execution::RuntimeLimits {
+    let limits = octocode_runtime_base::execution::RuntimeLimits {
         network_timeout: std::time::Duration::from_secs(1),
         classification_timeout: None,
         ..support::FIXTURE_LIMITS
@@ -64,7 +65,7 @@ async fn a_timeout_shows_the_hits_and_names_the_real_cause() {
         .await;
     let workspace = Workspace::new();
     let file = workspace.write("dense.txt", DENSE);
-    let limits = octocode_native::execution::RuntimeLimits {
+    let limits = octocode_runtime_base::execution::RuntimeLimits {
         classification_timeout: Some(std::time::Duration::from_millis(200)),
         ..support::PROVIDER_LIMITS
     };
@@ -102,9 +103,9 @@ async fn a_score_with_choice_shaped_criteria_is_refused_with_the_correct_form() 
     let workspace = Workspace::new();
     let runtime = support::clasify_runtime(&workspace, &server, &[]);
     for criteria in [
-        json!({"0":"low","1":"high"}),
+        json_fixture(r#"{"0": "low", "1": "high"}"#),
         json!("low"),
-        json!(["only one"]),
+        json_fixture(r#"["only one"]"#),
     ] {
         let refused = support::call(
             &runtime,

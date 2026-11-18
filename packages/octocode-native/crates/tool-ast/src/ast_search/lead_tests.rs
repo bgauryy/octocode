@@ -1,0 +1,468 @@
+//! Every lead astSearch hands out validates against the contract and runs
+//! without an error: a hint that loops into another error is a bug.
+use super::{AstSearchQuery, execute_ast};
+use octocode_runtime_base::execution::cancel::NeverCancel;
+use octocode_runtime_base::test_support::{Fixture, simple_policy};
+use octocode_test_support::json_fixture;
+use serde_json::{Value, json};
+
+fn leads(out: &Value) -> Vec<(String, Value)> {
+    octocode_runtime_base::test_support::checks::leads(out)
+        .into_iter()
+        .filter_map(|lead| {
+            if lead.tool == "astSearch" {
+                Some((lead.name, lead.query))
+            } else {
+                octocode_runtime_base::contracts::validate_saved(&lead.tool, lead.query)
+                    .unwrap_or_else(|error| panic!("related {} invalid: {error:?}", lead.tool));
+                None
+            }
+        })
+        .collect()
+}
+
+/// Runs `row`, then follows every lead it names (and theirs) to `depth`,
+/// asserting each validates and succeeds. Returns the calls it ran.
+fn follow(root: &std::path::Path, row: Value, depth: usize) -> usize {
+    let (paths, security) = simple_policy(root);
+    let mut pending = vec![("start".to_owned(), json!({"queries":[row]}))];
+    let mut ran = 0;
+    for _ in 0..=depth {
+        let mut next_pending = Vec::new();
+        for (name, input) in pending.drain(..) {
+            octocode_runtime_base::contracts::validate_saved("astSearch", input.clone())
+                .unwrap_or_else(|error| panic!("lead {name} invalid {input}: {:?}", error.issues));
+            for row in input["queries"].as_array().expect("rows") {
+                let query: AstSearchQuery = serde_json::from_value(row.clone()).expect("typed row");
+                ran += 1;
+                match execute_ast(
+                    octocode_runtime_base::test_support::BUILD_IDENTITY,
+                    &query,
+                    &paths,
+                    &security,
+                    &NeverCancel,
+                    None,
+                ) {
+                    Ok(out) => {
+                        assert!(out.get("errorCode").is_none(), "{name} -> {out}");
+                        next_pending.extend(leads(&out));
+                    }
+                    Err(error) => {
+                        panic!("lead {name} {row} failed: {error:?}")
+                    }
+                }
+            }
+        }
+        pending = next_pending;
+    }
+    ran
+}
+
+/// A directory with no file of the requested language leads to a query that
+/// runs; removing a language a directory needs is not that.
+#[test]
+fn empty_language_lead_runs() {
+    let root = Fixture::new();
+    root.write("a.rs", "fn a() { hit(1); }\n");
+    root.write("b.ts", "hit(2);\n");
+    let ran = follow(
+        &root.0,
+        json!({"operation":"match","path":root.0,"parser":"python","rule":{"pattern":"hit($A)"}}),
+        2,
+    );
+    assert!(ran >= 1);
+}
+
+/// Per-file inference covers more grammars than a repair batch could hold.
+#[test]
+fn per_file_inference_covers_more_grammars_than_a_repair_batch() {
+    let root = Fixture::new();
+    for (name, source) in [
+        ("a.rs", "fn a() { hit(1); }\n"),
+        ("b.ts", "hit(2);\n"),
+        ("c.py", "hit(3)\n"),
+        ("d.js", "hit(4);\n"),
+        ("e.java", "class E { void e() { hit(5); } }\n"),
+        ("f.go", "package f\nfunc f() { hit(6) }\n"),
+        ("g.cs", "class G { void G() { hit(7); } }\n"),
+        ("h.cpp", "void h() { hit(8); }\n"),
+    ] {
+        std::fs::write(root.0.join(name), source).expect("source");
+    }
+    let (paths, security) = simple_policy(&root.0);
+    let query: AstSearchQuery = serde_json::from_value(
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"hit($A)"}}),
+    )
+    .expect("row");
+    let out = execute_ast(
+        octocode_runtime_base::test_support::BUILD_IDENTITY,
+        &query,
+        &paths,
+        &security,
+        &NeverCancel,
+        None,
+    )
+    .expect("per-file inference");
+    assert_eq!(out["matchCount"], 8, "{out}");
+    assert_eq!(out["files"].as_array().map(Vec::len), Some(8), "{out}");
+    assert!(out["next"].get("repair").is_none(), "{out}");
+}
+
+/// A battery of real astSearch calls: every lead any of them hands out (page,
+/// scan, capture, syntax-tree and text leads, to three hops) validates and
+/// runs without error.
+#[test]
+fn every_lead_of_a_battery_of_calls_validates_and_runs() {
+    let root = Fixture::new();
+    for index in 0..6 {
+        let calls = (0..4)
+            .map(|call| format!("hit({index}{call});\n"))
+            .collect::<String>();
+        root.write(
+            &format!("f{index}.ts"),
+            format!("export class C{index} extends Base {{ run() {{ {calls} }} }}\n{calls}"),
+        );
+    }
+    let dir = root.0.to_string_lossy().into_owned();
+    let file = root.0.join("f0.ts").to_string_lossy().into_owned();
+    let rows = [
+        json!({"operation":"match","path":dir,"parser":"typescript","rule":{"pattern":"hit($A)"}}),
+        json!({"operation":"match","path":dir,"parser":"typescript","rule":{"pattern":"hit($A)"},"includeCaptures":false}),
+        json!({"operation":"match","path":dir,"parser":"typescript","rule":{"pattern":"nothing($A)"}}),
+        json!({"operation":"match","path":dir,"parser":"typescript","rule":{"pattern":"hit($A)"}}),
+        json!({"operation":"symbols","path":dir}),
+        json!({"operation":"symbols","path":file}),
+        json!({"operation":"syntaxTree","path":file}),
+    ];
+    for row in rows {
+        follow(&root.0, row, 3);
+    }
+    // Scans cut into two-file windows hand out their resume leads too.
+    let _window = crate::ast_search::scan_window::test_window(2);
+    for row in [
+        json!({"operation":"match","path":dir,"parser":"typescript","rule":{"pattern":"hit($A)"}}),
+        json!({"operation":"symbols","path":dir,"symbolFilter":{"terms":["C1"]}}),
+    ] {
+        follow(&root.0, row, 3);
+    }
+}
+
+/// Files an empty scan skipped (ignored, hidden, default-excluded) lead to a
+/// query that finds them.
+#[test]
+fn leads_over_skipped_files_validate_and_find_them() {
+    let root = Fixture::new();
+    std::fs::create_dir_all(root.0.join(".git")).expect("git dir");
+    root.write(".gitignore", "gen/\n");
+    for dir in ["gen", ".cfg", "node_modules/pkg"] {
+        std::fs::create_dir_all(root.0.join(dir)).expect("dir");
+        std::fs::write(
+            root.0.join(dir).join("a.py"),
+            "def skipped():\n    hit(1)\n",
+        )
+        .expect("source");
+    }
+    let row =
+        json!({"operation":"match","path":root.0,"parser":"python","rule":{"pattern":"hit($A)"}});
+    let ran = follow(&root.0, row, 2);
+    assert!(ran >= 2, "the empty call and its lead both ran");
+}
+
+/// Runs one astSearch row and returns its (first) result value.
+fn run(root: &std::path::Path, row: Value) -> Value {
+    let (paths, security) = simple_policy(root);
+    let query: AstSearchQuery = serde_json::from_value(row).expect("typed row");
+    execute_ast(
+        octocode_runtime_base::test_support::BUILD_IDENTITY,
+        &query,
+        &paths,
+        &security,
+        &NeverCancel,
+        None,
+    )
+    .expect("runs")
+}
+
+/// A diagnosis respects the query's `include`: `.spin/` holds python too, but
+/// the filter is `.github/**`, so the hint names `.github/` alone, and the
+/// repair does not offer languages that occur only outside the filter.
+#[test]
+fn skipped_hint_respects_the_query_include() {
+    let root = Fixture::new();
+    for dir in [".spin", ".github"] {
+        std::fs::create_dir_all(root.0.join(dir)).expect("dir");
+        std::fs::write(root.0.join(dir).join("a.py"), "class E(Exception): pass\n")
+            .expect("source");
+    }
+    root.write("lib.cpp", "void f() {}\n");
+    root.write("app.js", "function f() {}\n");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"include":[".github/**"],"parser":"python","rule":{"pattern":"class $N(Exception): $$$B"}}),
+    );
+    let hint = out["warnings"].to_string();
+    assert!(hint.contains("hidden .github/"), "{hint}");
+    assert!(!hint.contains(".spin"), "{hint}");
+    assert!(out["next"].get("repair").is_none(), "{out}");
+    let lead = &super::test_rows::skipped_call(&out)
+        .unwrap_or_else(|| panic!("missing skipped-scope lead: {out}"))["input"]["queries"][0];
+    assert_eq!(lead["includeHidden"], json!(true), "{out}");
+    assert_eq!(lead["include"], json_fixture(r#"[".github/**"]"#), "{out}");
+}
+
+/// Hidden files outside the query's `include` are not a reason for an empty
+/// result: no lead, no hidden claim.
+#[test]
+fn skipped_files_outside_the_include_are_not_named() {
+    let root = Fixture::new();
+    std::fs::create_dir_all(root.0.join(".spin")).expect("dir");
+    std::fs::create_dir_all(root.0.join("src")).expect("dir");
+    root.write(".spin/a.py", "def a(): pass\n");
+    root.write("src/b.js", "function b() {}\n");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"include":["src/**"],"parser":"python","rule":{"pattern":"def $N(): pass"}}),
+    );
+    let hint = out["hints"][0].as_str().expect("hint");
+    assert!(!hint.contains("skipped as"), "{hint}");
+    assert!(super::test_rows::skipped_call(&out).is_none(), "{out}");
+}
+
+/// An empty match states what it searched as `filesScanned`, for a pattern
+/// and for a rule alike, with no hint repeating it (why a compiled query
+/// can match nothing is the tool description's). No file spells the
+/// query's anchor (the prefilter skipped every one unparsed), so no file is
+/// a near miss: no syntax tree of an unrelated file is offered.
+#[test]
+fn an_empty_match_reports_the_files_it_parsed() {
+    let root = Fixture::new();
+    for name in ["a.ts", "b.ts", "c.ts"] {
+        std::fs::write(root.0.join(name), "export const a = 1;\n").expect("source");
+    }
+    for query in [
+        json_fixture(r#"{"rule": {"pattern": "zzNoSuch($$$A)"}}"#),
+        json_fixture(r#"{"rule": {"pattern": "zzNoSuch($$$A)"}}"#),
+    ] {
+        let mut row = json!({"operation":"match","path":root.0,"parser":"typescript"});
+        row.as_object_mut()
+            .expect("object")
+            .extend(query.as_object().expect("object").clone());
+        let out = run(&root.0, row);
+        assert_eq!(out["status"], "empty", "{out}");
+        assert_eq!(out["filesScanned"], json!(3), "{out}");
+        assert!(out.get("hints").is_none(), "{out}");
+        assert!(out["next"].get("viewSyntax").is_none(), "{out}");
+    }
+}
+
+/// The live miss (2026-10-24): `fn failure(..) -> $R {..}` over a directory
+/// with no function of that name led to page 1 of an unrelated file whose
+/// comment spelled `failure`. A declaration pattern with no declaration
+/// of its kind and name offers the rule listing its kind instead.
+#[test]
+fn an_empty_declaration_without_a_near_miss_broadens_to_its_kind() {
+    let root = Fixture::new();
+    root.write(
+        "a.rs",
+        "// failure modes
+fn other() -> u8 { 1 }
+",
+    );
+    root.write(
+        "b.rs",
+        "fn second(x: u8) -> u8 { x }
+",
+    );
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"fn failure($$$ARGS) -> $R { $$$BODY }"}}),
+    );
+    assert_eq!(out["status"], "empty", "{out}");
+    assert!(out["next"].get("viewSyntax").is_none(), "{out}");
+    let broaden = &octocode_runtime_base::test_support::checks::related_call(
+        &out,
+        "astSearch",
+        |_| true,
+    )["input"]["queries"][0];
+    assert_eq!(
+        broaden["rule"],
+        json_fixture(r#"{"kind": "function_item"}"#),
+        "{out}"
+    );
+    assert!(broaden.get("pattern").is_none(), "{out}");
+    let listed = run(&root.0, broaden.clone());
+    assert_eq!(listed["matchCount"], 2, "{listed}");
+}
+
+/// An empty declaration pattern's syntax-tree lead opens a file holding a
+/// declaration of the pattern's kind, at that declaration's line, not the
+/// first file the scan read.
+#[test]
+fn an_empty_declaration_match_leads_to_a_tree_of_that_kind() {
+    let root = Fixture::new();
+    root.write("a.rs", "const A: u8 = 1;\n");
+    root.write("b.rs", "// one\nfn helper() -> u8 { 1 }\n");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"fn $N() -> u128 { $$$ }"}}),
+    );
+    assert_eq!(out["status"], "empty", "{out}");
+    let tree =
+        &octocode_runtime_base::test_support::checks::related_call(&out, "astSearch", |input| {
+            input["queries"][0]["operation"] == "syntaxTree"
+        })["input"]["queries"][0];
+    assert!(
+        tree["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("b.rs")),
+        "{out}"
+    );
+    assert_eq!(tree["line"], 2, "{out}");
+}
+
+/// A match that found something still names the walks the defaults skipped
+/// for files of its grammar, with the lead that includes them: the matches
+/// listed are not the scope's matches.
+#[test]
+fn a_match_with_hits_names_the_skipped_walks_and_leads_to_them() {
+    let root = Fixture::new();
+    root.write("a.ts", "hit(1);\n");
+    root.write("dist/b.ts", "hit(2);\n");
+    let request = json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"hit($A)"}});
+    let out = run(&root.0, request);
+    assert_eq!(out["matchCount"], json!(1), "{out}");
+    let hints = out["warnings"].to_string();
+    assert!(
+        hints.contains("1 typescript file behind skipped paths (dist/)"),
+        "{hints}"
+    );
+    let lead = &super::test_rows::skipped_call(&out)
+        .unwrap_or_else(|| panic!("missing skipped-scope lead: {out}"));
+    assert_eq!(lead["tool"], "astSearch", "{out}");
+    let retry = &lead["input"]["queries"][0];
+    assert_eq!(retry["defaultExcludes"], json!(false), "{out}");
+    let found = run(&root.0, retry.clone());
+    assert_eq!(found["matchCount"], json!(2), "{found}");
+    assert!(found.get("warnings").is_none(), "{found}");
+    assert!(super::test_rows::skipped_call(&found).is_none(), "{found}");
+}
+
+/// Nothing skipped, nothing said: no notice and no lead beside the hits.
+#[test]
+fn a_match_with_hits_and_nothing_skipped_has_no_skipped_notice() {
+    let root = Fixture::new();
+    root.write("a.ts", "hit(1);\n");
+    root.write("dist/readme.md", "hit(2);\n");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"hit($A)"}}),
+    );
+    assert_eq!(out["matchCount"], json!(1), "{out}");
+    assert!(out.get("warnings").is_none(), "{out}");
+    assert!(super::test_rows::skipped_call(&out).is_none(), "{out}");
+}
+
+/// A pattern that spells a `;` in place of the body is the grammar's
+/// signature form: it hits the body-less signatures and none of the
+/// definitions, which a warning says (with the fuller kind to ask for): a
+/// page with matches keeps no hints once served. Spelling neither matches
+/// both (B88), and spelling the body is no miss.
+#[test]
+fn a_bodiless_pattern_hints_at_the_fuller_declaration() {
+    let root = Fixture::new();
+    root.write(
+        "a.rs",
+        "trait T { fn sig(&self); }\nfn define(x: u8) { let _ = x; }\n",
+    );
+    let signature = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"fn $N($$$A);"}}),
+    );
+    assert_eq!(signature["matchCount"], json!(1), "{signature}");
+    let warnings = signature["warnings"].to_string();
+    assert!(warnings.contains("function_item"), "{warnings}");
+    assert!(warnings.contains("function_signature_item"), "{warnings}");
+    let unspelled = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"fn $N($$$A)"}}),
+    );
+    assert_eq!(unspelled["matchCount"], json!(2), "{unspelled}");
+    assert!(unspelled.get("hints").is_none(), "{unspelled}");
+    let definition = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"fn $N($$$A) { $$$ }"}}),
+    );
+    assert!(definition["matchCount"].as_u64() >= Some(1), "{definition}");
+    assert!(definition.get("hints").is_none(), "{definition}");
+}
+
+/// B118: a pattern that parses as a construct the scope holds none of (TS
+/// `$N: number` is a labeled statement, not a field) says what it parsed
+/// as, and offers the `{context, selector}` form.
+#[test]
+fn a_pattern_read_as_an_absent_construct_names_it_and_offers_a_context() {
+    let root = Fixture::new();
+    root.write("a.ts", "class P {\n  a: number;\n}\n");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"$N: number"}}),
+    );
+    assert_eq!(out["status"], "empty", "{out}");
+    let diagnostics = out["diagnostics"].to_string();
+    assert!(diagnostics.contains("labeled_statement"), "{out}");
+    assert!(diagnostics.contains("selector"), "{out}");
+}
+
+/// B108: a page with no row hints at the fuller declaration too, and its
+/// census counts the near misses of the fuller kind: a definition of the
+/// name a signature pattern spells.
+#[test]
+fn a_bodiless_pattern_with_no_hit_hints_and_counts_the_fuller_declaration() {
+    let root = Fixture::new();
+    root.write("a.rs", "fn foo(x: u8) { let _ = x; }\n");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"fn foo($$$A);"}}),
+    );
+    let hints = out["hints"].to_string();
+    assert!(hints.contains("function_item"), "{out}");
+    let diagnostics = out["diagnostics"].to_string();
+    assert!(
+        diagnostics.contains("1 function_signature_item or function_item node(s) named `foo`"),
+        "{out}"
+    );
+}
+
+/// A cut probe proves a prefix of the skipped paths at most, so the lead is
+/// not narrowed to them; its disclosure says it walks all they hide.
+#[test]
+fn a_cut_probe_discloses_that_its_lead_walks_everything_the_causes_hide() {
+    let root = Fixture::new();
+    root.write("a.ts", "hit(1);\n");
+    for index in 0..50 {
+        root.write(&format!("dist/f{index}.ts"), "hit(2);\n");
+    }
+    let request = json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"hit($A)"}});
+    let out = octocode_tools_shared::empty_walk::with_probe_limits(
+        octocode_tools_shared::empty_walk::CUT_AT_ONCE,
+        || run(&root.0, request),
+    );
+    let warnings = out["warnings"].to_string();
+    assert!(warnings.contains("were not searched"), "{out}");
+    // The hint names the lead as the response carries it: the related[]
+    // request, by the flags it sets (related[] rows carry no name).
+    let lead =
+        &octocode_runtime_base::test_support::checks::related_call(&out, "astSearch", |input| {
+            input["queries"][0].get("defaultExcludes").is_some()
+        })["input"]["queries"][0];
+    let flags = ["includeIgnored", "includeHidden", "defaultExcludes"]
+        .into_iter()
+        .filter_map(|field| Some(format!("{field}:{}", lead.get(field)?)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    assert!(!flags.is_empty(), "{out}");
+    assert!(
+        warnings.contains(&format!("The related[] request with {flags} walks")),
+        "{flags}: {out}"
+    );
+}

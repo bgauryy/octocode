@@ -1,0 +1,209 @@
+#[cfg(test)]
+mod delivered_page_tests;
+#[cfg(test)]
+mod encoding_tests;
+mod errors;
+mod evidence;
+#[cfg(test)]
+mod execute_tests;
+#[cfg(test)]
+mod fidelity_tests;
+#[cfg(test)]
+mod file_language_tests;
+mod judged_rows;
+mod language;
+#[cfg(test)]
+mod lead_tests;
+#[cfg(test)]
+mod limit_tests;
+#[cfg(test)]
+mod match_tests;
+mod matches;
+mod memo;
+#[cfg(test)]
+mod outline_tests;
+pub mod output;
+#[cfg(test)]
+mod paging_tests;
+#[cfg(test)]
+mod policy_tests;
+mod region;
+#[cfg(test)]
+mod region_tests;
+#[cfg(test)]
+mod rule_tests;
+mod scan_window;
+mod source;
+mod symbols;
+#[cfg(test)]
+mod symbols_tests;
+mod syntax;
+#[cfg(test)]
+mod test_code_tests;
+#[cfg(test)]
+mod test_rows;
+
+use octocode_contract_types::{AstSearchQuery, ErrorCode};
+use serde_json::Value;
+
+use matches::MatchQuery;
+
+use octocode_runtime_base::response::result::ToolError;
+
+/// A source identity that remains resolvable without response rewriting.
+pub(super) fn rooted_display(root: &std::path::Path, relative: &std::path::Path) -> String {
+    root.join(relative).to_string_lossy().into_owned()
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct RowPaths<'a> {
+    paths: &'a octocode_runtime_base::policy::path::PathPolicy,
+    scope: &'a std::path::Path,
+    is_file: bool,
+}
+
+impl<'a> RowPaths<'a> {
+    pub(super) fn new(
+        paths: &'a octocode_runtime_base::policy::path::PathPolicy,
+        scope: &'a std::path::Path,
+        is_file: bool,
+    ) -> Self {
+        Self {
+            paths,
+            scope,
+            is_file,
+        }
+    }
+
+    /// The file a row names as `shown`.
+    pub(super) fn file(&self, shown: &str) -> std::path::PathBuf {
+        if self.is_file {
+            self.scope.to_path_buf()
+        } else {
+            self.scope.parent().unwrap_or(self.scope).join(shown)
+        }
+    }
+
+    /// `shown` as the response prints it. Warning text is not rewritten by
+    /// the response stage, so a path it names is spelled here, the same way,
+    /// to be passed on verbatim.
+    pub(super) fn delivered(&self, shown: &str) -> String {
+        let file = self.file(shown);
+        self.paths
+            .workspace_relative(&file)
+            .unwrap_or_else(|| file.to_string_lossy().into_owned())
+    }
+
+    /// The characters `shown` takes in a row as delivered: its JSON string
+    /// body in UTF-16 units, as the response window counts them.
+    pub(super) fn chars(&self, shown: &str) -> usize {
+        octocode_engine::json_size::string_body_units(&self.delivered(shown))
+    }
+}
+
+/// Execute one typed row. The runtime parses the validated row with its
+/// shared `parse_query`, so a shape mismatch has one code across tools.
+/// Its rows show their sources as `security` judges them whole
+/// ([`judged_rows`]).
+pub fn execute_ast(
+    build: &'static str,
+    query: &AstSearchQuery,
+    paths: &octocode_runtime_base::policy::path::PathPolicy,
+    security: &octocode_runtime_base::security::ContentSecurity,
+    cancellation: &dyn octocode_runtime_base::execution::cancel::CancellationCheck,
+    response_window: Option<usize>,
+) -> Result<Value, ToolError> {
+    let requested = match query {
+        AstSearchQuery::Symbols(query) => query.path.as_str(),
+        AstSearchQuery::Match0(query) => query.path.as_str(),
+        AstSearchQuery::MatchView(query) => query.path.as_str(),
+        AstSearchQuery::SyntaxTree(query) => query.path.as_str(),
+    };
+    run_ast(build, query, paths, cancellation, response_window)
+        .map(|(mut data, places)| {
+            let sources = octocode_tools_shared::judged_rows::RowSources::as_shown(paths, security);
+            judged_rows::judge_rows(&mut data, &sources, places);
+            judged_rows::drop_judging_positions(&mut data);
+            data
+        })
+        .map_err(|mut error| {
+            if matches!(
+                error.code,
+                ErrorCode::LanguageUnsupported
+                    | ErrorCode::SymbolsUnsupported
+                    | ErrorCode::CapabilityUnavailable
+            ) && error.calls.is_none()
+                && let Ok(path) = paths.validate_read(requested)
+                && path.canonical.is_file()
+            {
+                error.calls = Some(Box::new(serde_json::json!({
+                    "read": output::unsupported_read(&path.canonical.to_string_lossy())
+                })));
+            }
+            missing_path_recovery(error, requested, paths)
+        })
+}
+
+/// A `notFound` for the query's path leads to the tree of its nearest
+/// existing parent ([`missing_path_lead`]), the recovery every local tool
+/// gives a missing path; its message names no absolute filesystem path.
+///
+/// [`missing_path_lead`]: octocode_runtime_base::response::result::missing_path_lead
+fn missing_path_recovery(
+    mut error: ToolError,
+    requested: &str,
+    paths: &octocode_runtime_base::policy::path::PathPolicy,
+) -> ToolError {
+    if error.code != ErrorCode::NotFound || error.calls.is_some() {
+        return error;
+    }
+    error.calls =
+        octocode_runtime_base::response::result::missing_path_lead(paths, requested).map(Box::new);
+    error
+}
+
+fn run_ast(
+    build: &'static str,
+    query: &AstSearchQuery,
+    paths: &octocode_runtime_base::policy::path::PathPolicy,
+    cancellation: &dyn octocode_runtime_base::execution::cancel::CancellationCheck,
+    response_window: Option<usize>,
+) -> Result<(Value, judged_rows::NamePlaces), ToolError> {
+    let unplaced = |data| (data, judged_rows::NamePlaces::default());
+    match query {
+        AstSearchQuery::Symbols(query) => {
+            execute_symbols(query, paths, cancellation, response_window)
+        }
+        AstSearchQuery::Match0(query) => execute_match(
+            build,
+            MatchQuery::Content(query),
+            paths,
+            cancellation,
+            response_window,
+        )
+        .map(unplaced),
+        AstSearchQuery::MatchView(query) => execute_match(
+            build,
+            MatchQuery::Summary(query),
+            paths,
+            cancellation,
+            response_window,
+        )
+        .map(unplaced),
+        AstSearchQuery::SyntaxTree(query) => {
+            execute_syntax(query, paths, cancellation, response_window).map(unplaced)
+        }
+    }
+}
+
+pub use matches::execute_match;
+pub use output::Output;
+pub(crate) use symbols::execute_symbols;
+pub use syntax::execute_syntax;
+
+/// A dot-named entry (`.git`, `.env`): out of view of a walk without
+/// `hidden`.
+pub(super) fn is_dot_entry(path: &std::path::Path) -> bool {
+    path.file_name()
+        .is_some_and(|name| name.to_string_lossy().starts_with('.'))
+}

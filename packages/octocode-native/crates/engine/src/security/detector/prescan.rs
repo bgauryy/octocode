@@ -9,9 +9,10 @@ use std::sync::LazyLock;
 // ---------------------------------------------------------------------------
 // Literal prescan — the cheap gate in front of regex compilation.
 //
-// The old path lazily built a 309-branch RegexSet DFA plus 309 individual
-// regexes on the FIRST sanitize call (~250-800 ms), a tax every fresh process
-// paid even for entirely clean content. The prescan replaces it:
+// Compiling every pattern up front (a 309-branch RegexSet DFA plus 309
+// individual regexes) costs ~250-800 ms on the first sanitize call, a tax
+// every fresh process would pay even for entirely clean content. The prescan
+// avoids it:
 //
 //   1. At build time (`build.rs`), extract every pattern's gate via
 //      regex-syntax HIR: its *required prefix literals*, else literals its
@@ -59,13 +60,6 @@ fn automaton(kind: AhoCorasickKind) -> AhoCorasick {
         .expect("prescan literal automaton must build")
 }
 
-/// The shipped automaton and a contiguous-NFA twin, for the differential
-/// test.
-#[cfg(test)]
-pub(super) fn shipped_and_reference() -> (&'static AhoCorasick, AhoCorasick) {
-    (&PRESCAN, automaton(AhoCorasickKind::ContiguousNFA))
-}
-
 /// A set of pattern indices, one bit per pattern, kept on the stack: picking
 /// a text's candidates allocates nothing.
 #[derive(Clone, Copy, Default)]
@@ -104,18 +98,35 @@ pub(super) fn prescan_candidates(content: &str) -> PatternSet {
     }
     // A fallback pattern has no prefix literal, but may still require some text
     // in every match (its weak gate): without that text its regex cannot match.
-    for &(idx, needles) in gates::FALLBACK_GATES {
-        if needles.is_empty() || needles.iter().any(|needle| holds(content, needle)) {
-            candidates.insert(idx);
+    for (idx, needles) in WEAK_GATES.iter() {
+        if needles.is_empty()
+            || needles
+                .iter()
+                .any(|needle| needle.find(content.as_bytes()).is_some())
+        {
+            candidates.insert(*idx);
         }
     }
     candidates
 }
 
-/// Whether `content` holds `needle`, exactly.
-fn holds(content: &str, needle: &str) -> bool {
-    match needle.as_bytes() {
-        [byte] => content.as_bytes().contains(byte),
-        _ => content.contains(needle),
-    }
-}
+/// Each fallback pattern with a searcher per weak-gate needle, built once:
+/// `memmem` searches in `memchr`'s own compiled code, vectorized for any
+/// needle length, so each needle a text lacks costs one fast pass over it and
+/// no searcher is built per text.
+static WEAK_GATES: LazyLock<Vec<(usize, Vec<memchr::memmem::Finder<'static>>)>> =
+    LazyLock::new(|| {
+        gates::FALLBACK_GATES
+            .iter()
+            .map(|&(idx, needles)| {
+                let finders = needles
+                    .iter()
+                    .map(|needle| memchr::memmem::Finder::new(needle.as_bytes()))
+                    .collect();
+                (idx, finders)
+            })
+            .collect()
+    });
+
+#[cfg(test)]
+pub(super) mod tests;

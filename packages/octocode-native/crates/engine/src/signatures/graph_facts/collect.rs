@@ -295,7 +295,7 @@ fn push_call(
     let from = caller_decl.map_or_else(|| format!("file:{}", acc.file_path), str::to_owned);
     let id = format!("call:{}:{}:{}", caller, callee, acc.calls.len());
     acc.calls.push(GraphFactCall {
-        id: id.clone(),
+        id,
         caller,
         caller_id: caller_decl.map(str::to_owned),
         callee: callee.to_owned(),

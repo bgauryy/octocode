@@ -1,4 +1,19 @@
 use super::*;
+use crate::error::Result;
+use crate::lsp::resolver::{check_source_size, normalized_lines, resolve_position_from_lines};
+use crate::lsp::types::LspResolvedSymbol;
+use crate::signatures::extractor::whole_file_deadline;
+
+/// The lexical resolution of `fuzzy` in `content`, with no grammar.
+fn resolve_position_from_content(
+    content: String,
+    fuzzy: LspFuzzyPosition,
+) -> Result<LspResolvedSymbol> {
+    check_source_size(content.len())?;
+    let deadline = whole_file_deadline();
+    let lines = normalized_lines(&content);
+    resolve_position_from_lines(&lines, &fuzzy, deadline)
+}
 
 #[test]
 fn code_occurrences_skip_comments_and_strings() {
@@ -45,14 +60,11 @@ fn an_out_of_range_line_counts_the_lines_the_file_has() {
     // 29 lines, each ending in a break: the empty text after the last
     // break is no line.
     let source = "let a = 1;\n".repeat(29);
-    let error = crate::lsp::resolver::resolve_position_from_content(source, fuzzy("a", Some(40)))
+    let error = resolve_position_from_content(source, fuzzy("a", Some(40)))
         .expect_err("line 40 is past the end");
     assert!(error.to_string().contains("(file has 29 lines)"), "{error}");
-    let error = crate::lsp::resolver::resolve_position_from_content(
-        "let a = 1;".into(),
-        fuzzy("a", Some(3)),
-    )
-    .expect_err("line 3 is past the end");
+    let error = resolve_position_from_content("let a = 1;".into(), fuzzy("a", Some(3)))
+        .expect_err("line 3 is past the end");
     assert!(error.to_string().contains("(file has 1 line)"), "{error}");
 }
 
@@ -63,11 +75,8 @@ fn lexical_resolution_counts_crlf_and_lone_cr_as_line_breaks() {
         "let a = 1;\rlet b = 2;\rfn target() {}\r",
         "let a = 1;\nlet b = 2;\r\nfn target() {}\r",
     ] {
-        let hit = crate::lsp::resolver::resolve_position_from_content(
-            source.to_owned(),
-            fuzzy("target", None),
-        )
-        .expect("target resolves");
+        let hit = resolve_position_from_content(source.to_owned(), fuzzy("target", None))
+            .expect("target resolves");
         assert_eq!(hit.position.line, 2, "{source:?}");
         assert_eq!(hit.position.character, 3, "{source:?}");
         assert_eq!(hit.line_content, "fn target() {}");
@@ -102,11 +111,9 @@ fn grammar_resolution_reports_utf16_columns_after_non_ascii_and_emoji() {
     let expected = "const s = 'é😀'; const ".encode_utf16().count() as u32;
     assert_eq!(hit.position.character, expected);
 
-    let lexical = crate::lsp::resolver::resolve_position_from_content(
-        "x\ré😀 target\n".to_owned(),
-        fuzzy("target", Some(2)),
-    )
-    .expect("lexical target");
+    let lexical =
+        resolve_position_from_content("x\ré😀 target\n".to_owned(), fuzzy("target", Some(2)))
+            .expect("lexical target");
     assert_eq!((lexical.position.line, lexical.position.character), (1, 4));
 }
 

@@ -2,6 +2,10 @@
 //! its receipt counts zero, so the row says which sections hold the entries
 //! classification judges instead of letting "complete" read as absence.
 use super::*;
+use octocode_runtime_base::id::ToolId;
+use octocode_test_support::json_fixture;
+use serde_json::Value;
+use serde_json::json;
 
 /// The classified read of `query` over `data`, with a judge that records
 /// every candidate it is shown.
@@ -45,7 +49,13 @@ fn warnings(data: &Value) -> Vec<String> {
 fn an_issue_summary_with_counted_comments_says_nothing_was_judged_and_where_they_are() {
     let (data, seen) = classified(
         query("issue", None),
-        json!({"issues":[{"number":2,"body":"needs a prefix","commentsCount":1}]}),
+        json_fixture(
+            r#"{
+                "issues": [
+                    {"number": 2, "body": "needs a prefix", "commentsCount": 1}
+                ]
+            }"#,
+        ),
     );
     assert!(seen.is_empty(), "nothing judgeable was sent: {seen:?}");
     assert_eq!(data["selection"]["totalItems"], 0, "{data}");
@@ -69,7 +79,11 @@ fn an_issue_section_read_that_restates_no_header_names_its_comments_uncounted() 
     // say whether the issue has comments: they may hold judgeable entries.
     let (data, _) = classified(
         query("issue", Some(&["body"])),
-        json!({"issues":[{"number":2,"state":"open","body":"needs a prefix"}]}),
+        json_fixture(
+            r#"{
+                "issues": [{"number": 2, "state": "open", "body": "needs a prefix"}]
+            }"#,
+        ),
     );
     let notes = warnings(&data);
     assert!(
@@ -84,7 +98,13 @@ fn an_issue_section_read_that_restates_no_header_names_its_comments_uncounted() 
 fn a_pull_request_files_read_names_every_discussion_section_it_left_out() {
     let (data, _) = classified(
         query("pullRequest", Some(&["files"])),
-        json!({"pullRequests":[{"number":2,"files":["A +2 -1 a.ts"],"commentsCount":3}]}),
+        json_fixture(
+            r#"{
+                "pullRequests": [
+                    {"number": 2, "files": ["A +2 -1 a.ts"], "commentsCount": 3}
+                ]
+            }"#,
+        ),
     );
     let notes = warnings(&data);
     assert!(
@@ -101,7 +121,7 @@ fn a_pull_request_names_its_uncounted_reviews_but_not_sections_it_read() {
     // entries; the comments it read were empty and stay unnamed.
     let (data, _) = classified(
         query("pullRequest", Some(&["comments", "reviewComments"])),
-        json!({"pullRequests":[{"number":2}]}),
+        json_fixture(r#"{"pullRequests": [{"number": 2}]}"#),
     );
     let notes = warnings(&data);
     assert!(
@@ -119,18 +139,18 @@ fn a_read_with_nothing_left_to_judge_adds_no_note() {
     for (query, data) in [
         (
             query("issue", None),
-            json!({"issues":[{"number":2,"title":"t","body":"b"}]}),
+            json_fixture(r#"{"issues": [{"number": 2, "title": "t", "body": "b"}]}"#),
         ),
         (
             query("issue", Some(&["comments"])),
-            json!({"issues":[{"number":2,"commentsCount":1}]}),
+            json_fixture(r#"{"issues": [{"number": 2, "commentsCount": 1}]}"#),
         ),
         (
             query(
                 "pullRequest",
                 Some(&["comments", "reviews", "reviewComments"]),
             ),
-            json!({"pullRequests":[{"number":2,"commentsCount":1}]}),
+            json_fixture(r#"{"pullRequests": [{"number": 2, "commentsCount": 1}]}"#),
         ),
     ] {
         let (data, _) = classified(query, data);
@@ -148,7 +168,17 @@ fn a_read_with_nothing_left_to_judge_adds_no_note() {
 fn a_read_whose_discussion_was_judged_adds_no_note() {
     let (data, seen) = classified(
         query("issue", Some(&["comments"])),
-        json!({"issues":[{"number":2,"commentsCount":1,"comments":[{"body":"a prefix, yes"}]}]}),
+        json_fixture(
+            r#"{
+                "issues": [
+                    {
+                        "number": 2,
+                        "commentsCount": 1,
+                        "comments": [{"body": "a prefix, yes"}]
+                    }
+                ]
+            }"#,
+        ),
     );
     assert_eq!(seen.len(), 1, "{seen:?}");
     assert!(

@@ -10,10 +10,6 @@ mod types;
 mod user_config;
 mod workspace_root;
 
-#[cfg(all(test, unix))]
-use crate::lsp::commands::command_resolves_to_executable;
-#[cfg(test)]
-use crate::lsp::types::LspLanguageServerConfig;
 pub(crate) use catalog::configuration_section;
 pub use catalog::install_hint;
 pub use catalog::{

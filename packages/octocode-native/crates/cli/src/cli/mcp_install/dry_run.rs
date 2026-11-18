@@ -113,18 +113,3 @@ pub(super) fn already_installed(
     );
     Ok(1)
 }
-
-#[cfg(test)]
-pub(super) fn render_fixture(
-    client: &ClientSpec,
-    existing: Option<&str>,
-    args: &InstallArgs,
-) -> Result<(String, Existing), String> {
-    let text = existing.unwrap_or("");
-    let keys = client.server_keys();
-    let root = super::mcp_manage::parse_document(client.format, text)?;
-    let server = super::mcp_manage::default_entry(client, args.method);
-    let already = Existing::of(super::mcp_manage::entry_at(client, &root, &keys), &server);
-    let rendered = super::mcp_manage::render_document(client, text, &keys, Some(&server))?;
-    Ok((rendered, already))
-}

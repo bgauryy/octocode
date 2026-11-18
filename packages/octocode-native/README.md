@@ -88,17 +88,28 @@ it atomically. A plain
 
 ## Architecture
 
-Six internal crates (`publish = false`, one workspace version). The last column
+Seventeen internal crates (`publish = false`, one workspace version). The last column
 lists every Cargo dependency between them.
 
 | Crate | Owns | Depends on |
 |---|---|---|
-| `crates/engine` | Reusable algorithms: search, AST, signatures, graph facts, minification, the language-server pool | none |
 | `crates/io` | Cross-crate primitives: owner-only atomic writes, `flock` waits, environment reads, the HTTP client policy, lock-free request cancellation, the in-process memo, keyed single flight, stderr notices ([`lib.rs`](crates/io/src/lib.rs)) | none |
-| `crates/github` | GitHub protocol and transport, retries, `Partition` ([`lib.rs`](crates/github/src/lib.rs)) | `io` |
-| `crates/contract-types` | The tool wire types generated from the contract (`include!`s `packages/octocode-config/contract/tool_types.rs`) | none |
-| `crates/runtime` (`octocode-native`) | `ToolRuntime`: config, credentials, contracts, availability, tools, responses | `io`, `engine`, `github`, `contract-types` |
-| `crates/cli` | The `octocode` binary: its commands, its warm tool server and the stdio MCP server (`octocode mcp`) | `io`, `runtime`, `engine`, `github` |
+| `crates/contract-base` | The generated wire types the crates below `contract-types` name (`include!`s `packages/octocode-config/contract/tool_types_base.rs`) | none |
+| `crates/contract-types` | The tool wire types generated from the contract (`include!`s `packages/octocode-config/contract/tool_types.rs`), re-exporting `contract-base` | `contract-base` |
+| `crates/engine` | Reusable algorithms: search, AST, signatures, graph facts, minification, the language-server pool | `io` |
+| `crates/github` | GitHub protocol and transport, retries, `Partition` ([`lib.rs`](crates/github/src/lib.rs)) | `io`, `contract-base` |
+| `crates/runtime-base` (`octocode-runtime-base`) | The layers below the tools: config, credentials, contracts, availability, policy, security, responses, providers; the tools' shared test fixtures (`test_support`, feature `test-support`) | `io`, `contract-types`, `engine`, `github` |
+| `crates/tools-shared` (`octocode-tools-shared`) | Logic two or more tools use, in layers (`SHARED_LAYERS`): walks, bounded processes, judgment, selection, leads, the source view and capture; the `selection_fake` and `read_view` fixtures behind `test-support` | `io`, `contract-types`, `engine`, `github`, `runtime-base` |
+| `crates/tool-ast` (`octocode-tool-ast`) | `astSearch` (`ast_search`) | `io`, `contract-types`, `engine`, `runtime-base`, `tools-shared` |
+| `crates/tool-clasify` (`octocode-tool-clasify`) | `clasify` | `io`, `contract-types`, `engine`, `github`, `runtime-base`, `tools-shared` |
+| `crates/tool-graph` (`octocode-tool-graph`) | `graphBuild` and `graphQuery` (`ast_graph`) and the persisted code graph | `io`, `contract-types`, `engine`, `runtime-base`, `tools-shared` |
+| `crates/tool-local` (`octocode-tool-local`) | `localSearch`, `structureSearch` and `localFetch` (`local_search`, `structure_search`, `local_fetch`) | `io`, `contract-types`, `engine`, `runtime-base`, `tools-shared` |
+| `crates/tool-lsp` (`octocode-tool-lsp`) | `lspSearch` (`lsp_search`) | `io`, `contract-types`, `engine`, `runtime-base`, `tools-shared` |
+| `crates/tool-packages` (`octocode-tool-packages`) | `securityCheck` and `artifactSearch`, with the package-registry providers they read (`artifact`) | `io`, `contract-types`, `engine`, `github`, `runtime-base`, `tools-shared` |
+| `crates/test-support` | Test fixtures no release build links: the wiremock mounts (`mock_http`) and the engine's conformance grammar; a dev-dependency only | `engine` |
+| `crates/tool-github` (`octocode-tool-github`) | The GitHub tools: `ghSearchCode`, `ghSearchRepo`, `ghSearchHistory`, `ghGetHistoryItem`, `ghGetFileContent`, `ghStructure`, `ghCloneRepo` (`gh_*`) | `io`, `contract-types`, `engine`, `github`, `runtime-base`, `tools-shared`, `test-support` |
+| `crates/runtime` (`octocode-native`) | `ToolRuntime`: admission, dispatch, the tool catalog and the build identity; the seam-crossing tests | `io`, `contract-types`, `engine`, `github`, `runtime-base`, `tools-shared`, `tool-ast`, `tool-clasify`, `tool-github`, `tool-graph`, `tool-local`, `tool-lsp`, `tool-packages` |
+| `crates/cli` | The `octocode` binary: its commands, its warm tool server and the stdio MCP server (`octocode mcp`) | `io`, `contract-types`, `engine`, `github`, `runtime-base`, `runtime` |
 
 Design and invariants: [ARCHITECTURE.md](ARCHITECTURE.md). Languages and what
 each feature supports:
@@ -109,7 +120,7 @@ dependencies: [DEPENDENCY_AUDIT.md](docs/DEPENDENCY_AUDIT.md).
 
 ```
 packages/octocode-native/
-├─ crates/{engine,io,github,contract-types,runtime,cli}/
+├─ crates/{engine,io,github,contract-base,contract-types,runtime-base,runtime,cli}/
 ├─ bin/         platform map, binary resolver, registry fallback, signal-forwarding launcher (bundled into the launchers)
 ├─ npm/<p>/     one package per platform: the `octocode` binary
 └─ scripts/     build-native.cjs (build + atomic staging), stage-binary.cjs, platform-packages.cjs (derived manifests),
@@ -143,8 +154,9 @@ npx octocode localSearch --input query.json
 ```
 
 A paged result exits `0`. Copy the `input` from its `next` call to the named tool.
-Required continuations use `{kind:"continue", tool, input:{cursor}}`; `related`
-calls start optional work, and `hints` are prose.
+A call is `{tool, input}`: under `next` or `responsePagination.next` it is a
+required continuation (`input:{cursor}`); under `related` it starts optional
+work. `hints` are prose.
 Field reference: [OCTOCODE_TOOLS.md](../../docs/OCTOCODE_TOOLS.md).
 
 ## Commands
@@ -273,7 +285,7 @@ Native owns the interactive `install` picker, skill commands, and `config view`.
 ## Test
 
 ```sh
-yarn workspace @octocodeai/octocode-native test:rust   # workspace Rust tests with cargo-nextest
+yarn workspace @octocodeai/octocode-native test:rust   # workspace Rust tests: libtest, and nextest for the child-process tests
 yarn workspace @octocodeai/octocode-native test        # script checks, Node tests, then test:rust
 yarn workspace @octocodeai/octocode-native verify      # fmt, oxlint + clippy, cargo deny, cargo shear, tsgo typecheck, tests, contract freshness
 cargo dev-test -- <filter>                             # the test:rust selection under libtest, reusing its build
@@ -282,10 +294,12 @@ cargo dev-test -- <filter>                             # the test:rust selection
 `cargo dev-test` (an alias in `.cargo/config.toml`) is the local loop: it
 carries the `test:rust` packages and features, so it reuses that build instead
 of compiling another copy, and libtest runs each test binary in one process.
-`test:rust` stays on nextest, which kills a test stuck past 3 minutes, and every
-gate uses it; `scripts/rust-tests.cjs` holds the selections and says why. In the
-local loop a stuck test shows as libtest's `has been running for over 60 seconds`,
-then `scripts/test-watchdog.cjs` fails the run by the test's name 10 minutes later
+`test:rust`, which every gate uses, runs the same selection under libtest
+except the tests that start real child processes (`PROCESS_TESTS`): nextest runs
+those beside it, one process per test, and kills one stuck past 3 minutes.
+`scripts/rust-tests.cjs` holds the selections and says why. Under libtest a stuck
+test shows as libtest's `has been running for over 60 seconds`, then
+`scripts/test-watchdog.cjs` fails the run by the test's name 10 minutes later
 (`OCTOCODE_TEST_STUCK_SECONDS`). `--test-threads=1` prints no such line, so nothing
 guards that run.
 

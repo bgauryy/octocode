@@ -1,0 +1,83 @@
+[package]
+name = "octocode-runtime-base"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Octocode runtime layers below the tools: identity, contracts, policy, configuration, security, execution, response shaping, retained work and providers"
+autobins = false
+autotests = false
+autoexamples = false
+autobenches = false
+
+[lib]
+# Unit tests stay in src (private access); nextest and libtest run no doctests,
+# and `cargo shear --check-test-targets` flags one.
+doctest = false
+
+[features]
+# Fixtures for dependent crates' tests: `test_support`, `process_fixture`,
+# `process_status` and the `cfg(test)` helpers those tests name. Enabled by
+# octocode-native's dev-dependency and by its `dev-unify`, never by release
+# builds.
+test-support = ["dep:tempfile"]
+
+[dependencies]
+octocode-io = { path = "../io" }
+octocode-contract-types = { path = "../contract-types" }
+octocode-engine = { path = "../engine" }
+octocode-github = { path = "../github" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+memchr = { workspace = true }
+regex = { workspace = true }
+# Contract validation runs the schemas' ECMAScript patterns.
+regress = "0.12"
+url = { workspace = true }
+base64 = { workspace = true }
+getrandom = { workspace = true }
+aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc", "zeroize"] }
+reqwest = { workspace = true }
+bytes = { workspace = true }
+secrecy = { workspace = true }
+keyring-core = "1"
+hex = { workspace = true }
+# PR changed-file `include` globs (already in the tree via `ignore`).
+globset = { workspace = true }
+tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros", "sync", "time", "signal", "process", "io-util"] }
+tempfile = { workspace = true, optional = true }
+
+[build-dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+sha2 = { workspace = true }
+octocode-engine = { path = "../engine", features = ["test-hooks"] }
+octocode-test-support = { path = "../test-support" }
+tempfile = { workspace = true }
+wiremock = { workspace = true }
+futures-util = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "1", features = ["keychain"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus-secret-service-keyring-store = { version = "1", features = ["rt-tokio-crypto-rust"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }
+windows-native-keyring-store = "1"
+
+[lints]
+workspace = true
+
+[package.metadata.cargo-shear]
+# build.rs mounts build/{config,tool}_gen.rs by #[path]; their child modules
+# resolve from build/, which cargo-shear does not follow.
+ignored-paths = ["build/*.rs"]

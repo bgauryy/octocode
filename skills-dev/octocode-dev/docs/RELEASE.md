@@ -44,7 +44,7 @@ Row 7 has not shipped yet: the tap still serves the old Node-based 2.0.0 formula
 1. **Version:** `packages/octocode-native/package.json`, `packages/octocode/package.json`, `packages/octocode-mcp/package.json`, `workspace.package.version` in `packages/octocode-native/Cargo.toml`, `packages/octocode-mcp/manifest.json` and `server.json`. Then `node packages/octocode-native/scripts/platform-packages.cjs` (writes every platform manifest and both launchers' pins at that version) and `yarn install`.
 2. **Registry, not local resolutions:** `node skills-dev/octocode-dev/scripts/prepublish.mjs --fix`, `yarn install`, then `yarn workspace @octocodeai/config check:core-contract-sync:published`.
 3. **Commit and push**: the Release workflow builds a pushed commit, and the published `gitHead` names it.
-4. **Build, verify and pack in CI:** run the Release workflow at that commit (`gh workflow run release.yml -f ref=<sha>`). Per platform it runs `build-native.cjs --release --target <p>`, then runs the binary on that platform's own runner with plain commands: `--version` → `octocode <v>`, `config --manage` accepting this commit's contract fingerprint, `schema` exiting 0, and one `localSearch` call finding a fixture line. Each gnu binary also runs in a glibc 2.28 image, and `readelf` finds no `GLIBC_` above 2.28. When every platform passes, `pack-release.cjs` checks each binary's format, CPU, libc and embedded version and fingerprint, packs the platform packages and both launchers into the `release-packages` artifact with `SHA256SUMS`, and `upgrade-path.mjs` installs them over the previous release on Linux, macOS and Windows. Every job must be green; the `upgrade-path-*` artifacts hold the JSON reports. A binary built before the bump fails the version checks, and npm never lets you replace a published version.
+4. **Build, verify and pack in CI:** run the Release workflow at that commit (`gh workflow run release.yml -f ref=<sha>`). Per platform it runs `build-native.cjs --release --target <p>`, then runs the binary on that platform's own runner with plain commands: `--version` → `octocode <v>` (optionally `+<hex>`, the contract fingerprint), `config --manage` accepting this commit's contract fingerprint, `schema` exiting 0, and one `localSearch` call finding a fixture line. Each gnu binary also runs in a glibc 2.28 image, and `readelf` finds no `GLIBC_` above 2.28. When every platform passes, `pack-release.cjs` checks each binary's format, CPU, libc and embedded version and fingerprint, packs the platform packages and both launchers into the `release-packages` artifact with `SHA256SUMS`, and `upgrade-path.mjs` installs them over the previous release on Linux, macOS and Windows. Every job must be green; the `upgrade-path-*` artifacts hold the JSON reports. A binary built before the bump fails the version checks, and npm never lets you replace a published version.
 5. **Download, check, publish** rows 2–4 from the verified tarballs, in this order:
 
 ```bash
@@ -64,10 +64,10 @@ dir=$(mktemp -d) && cd "$dir" && npm init -y >/dev/null
 npm install octocode@<v>
 readlink node_modules/.bin/octocode                         # → ../octocode/out/octocode
 file node_modules/octocode/out/octocode                     # → the native executable (postinstall ran)
-node_modules/.bin/octocode --version                        # → octocode <v>
+node_modules/.bin/octocode --version                        # → octocode <v>[+<hex>]
 node_modules/.bin/octocode schema localSearch --view query  # exit 0
 bin=$(find node_modules/@octocodeai -path '*octocode-native-*' -name octocode -type f)
-"$bin" --version                                            # → octocode <v>
+"$bin" --version                                            # → octocode <v>[+<hex>]
 "$bin" schema localSearch --view query                      # exit 0, no Node involved
 npm view octocode-mcp dist-tags.latest                      # → <v>
 ```

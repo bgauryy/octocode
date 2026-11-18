@@ -1,6 +1,7 @@
 'use strict';
 
 const { spawnSync } = require('child_process');
+const { reportsVersion } = require('../bin/fetch-binary.cjs');
 const { randomUUID } = require('crypto');
 const { chmodSync, closeSync, copyFileSync, openSync, readSync, renameSync, rmSync, statSync } = require('fs');
 
@@ -54,7 +55,7 @@ function stageFile(source, destination, { executable = false } = {}) {
 }
 
 /**
- * Run `binaryPath --version`; it must exit 0 and print exactly `octocode <version>`.
+ * Run `binaryPath --version`; it must exit 0 and print `octocode <version>`, optionally followed by `+<hex>` build metadata.
  * `run(args)` returns a spawnSync result; the smoke passes one that runs in a container.
  */
 function verifyBinaryRuns(binaryPath, version, run = args => spawnSync(binaryPath, args, { encoding: 'utf8', timeout: SMOKE_TIMEOUT_MS })) {
@@ -65,7 +66,7 @@ function verifyBinaryRuns(binaryPath, version, run = args => spawnSync(binaryPat
     );
   }
   const reported = ran.stdout.trim();
-  if (reported !== `octocode ${version}`) {
+  if (!reportsVersion(reported, version)) {
     throw new Error(`Binary ${binaryPath} reports '${reported}', expected 'octocode ${version}': it was built before the version bump`);
   }
 }

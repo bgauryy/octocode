@@ -1,7 +1,7 @@
-use crate::execution::{ExecutionContext, ExecutionError};
-use crate::id::{ToolFamily, ToolId};
-use crate::response::read_share;
-use crate::security::CheckedQuery;
+use octocode_runtime_base::execution::{ExecutionContext, ExecutionError};
+use octocode_runtime_base::id::{ToolFamily, ToolId};
+use octocode_runtime_base::response::read_share;
+use octocode_runtime_base::security::CheckedQuery;
 
 /// How many queries of one batch run at once: read-only rows fan out one
 /// thread per query; mutating and self-scheduled tools stay ordered. Each
@@ -29,7 +29,7 @@ pub(super) fn execute_ordinary_queries(
     response_page: Option<usize>,
     dispatcher: &crate::runtime::domain_dispatch::DomainDispatcher,
     context: &ExecutionContext,
-) -> Result<Vec<crate::response::outcome::DomainResult>, ExecutionError> {
+) -> Result<Vec<octocode_runtime_base::response::outcome::DomainResult>, ExecutionError> {
     // Each row's share of the response page its output must fit.
     let context = &ExecutionContext {
         response_window: response_page

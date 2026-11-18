@@ -3,7 +3,7 @@
 //! repository that answered. A mutable ref's miss and a missing
 //! repository are asked again: either can appear.
 use super::*;
-use crate::transport::RENAME_ROUTE_WINDOW;
+use crate::transport::route::RENAME_ROUTE_WINDOW;
 
 fn at_sha(endpoint: &GitHubEndpoint, git_ref: &str) -> RequestSpec {
     let mut url = endpoint

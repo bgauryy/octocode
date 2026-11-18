@@ -2,6 +2,7 @@
 
 use super::{mount_file_batches, mount_pr, numbered, pr, rest_file, run};
 use crate::support::{self, Run as _};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use std::time::Duration;
 use support::Workspace;
@@ -23,7 +24,7 @@ async fn selected_patch_scan_reads_file_batches_concurrently() {
     let arrivals = mount_file_batches(&server, batches, delay).await;
     let data = run(
         &server,
-        json!({"sections":["patches"],"include":["src/late.rs"]}),
+        json_fixture(r#"{"sections": ["patches"], "include": ["src/late.rs"]}"#),
     )
     .await;
     let file = &data["pullRequests"][0]["files"][0];
@@ -85,8 +86,9 @@ async fn patch_rows_in_one_call_share_one_budget() {
     assert!(content.get("responsePagination").is_none(), "{content}");
     for index in 0..2 {
         let data = &content["results"][index]["data"];
-        let file = &data["pullRequests"][0]["files"][0];
-        let taken = file["patchPagination"]["length"].as_u64().unwrap_or(0);
+        let taken = data["pullRequests"][0]["sectionPagination"]["patches"]["length"]
+            .as_u64()
+            .unwrap_or(0);
         // Half the default window each (one budget), not a whole window each.
         assert!((4_000..=20_000).contains(&taken), "row {index}: {taken}");
         assert_eq!(
@@ -150,8 +152,20 @@ async fn match_string_review_comment_pages_read_each_provider_batch_once() {
     }
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let mut input = json!({"queries":[{"operation":"pullRequest","owner":"a","repo":"b","number":9,
-        "sections":["reviewComments"],"matchString":["note"]}]});
+    let mut input = json_fixture(
+        r#"{
+            "queries": [
+                {
+                    "operation": "pullRequest",
+                    "owner": "a",
+                    "repo": "b",
+                    "number": 9,
+                    "sections": ["reviewComments"],
+                    "matchString": ["note"]
+                }
+            ]
+        }"#,
+    );
     let mut bodies = Vec::new();
     let mut seen_inputs = std::collections::BTreeSet::new();
     let mut call_arrivals = Vec::new();

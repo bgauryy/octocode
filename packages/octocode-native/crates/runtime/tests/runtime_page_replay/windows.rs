@@ -4,6 +4,7 @@ use crate::support::{self, Run as _, Workspace};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use octocode_contract_types::ErrorCode;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -19,7 +20,7 @@ async fn retired_window_controls_are_rejected() {
         "responseScope",
         "responseSnapshot",
     ] {
-        let mut input = json!({"queries":[{"path":"one.txt"}]});
+        let mut input = json_fixture(r#"{"queries": [{"path": "one.txt"}]}"#);
         input[field] = json!(0);
         let error = runtime
             .run("retired".into(), "localFetch".into(), input)
@@ -67,10 +68,10 @@ async fn assert_complete(runtime: &octocode_native::runtime::ToolRuntime, tool: 
                     .into_value();
                 // Per-call provider metadata rides outside the page measure.
                 let chars =
-                    octocode_native::response::pager::budgeted_chars(&output).expect("page");
+                    octocode_runtime_base::response::pager::budgeted_chars(&output).expect("page");
                 assert_eq!(
                     output.get("oversized") == Some(&json!(true)),
-                    octocode_native::response::pager::holds_value_over(
+                    octocode_runtime_base::response::pager::holds_value_over(
                         output.as_object().expect("envelope"),
                         tool.parse().expect("tool"),
                         budget
@@ -135,7 +136,7 @@ async fn a_fresh_first_page_is_oversized_only_when_what_it_delivers_is() {
         row.get("pagination").is_none() && row.get("hasMore").is_none(),
         "{default}"
     );
-    let whole = octocode_native::response::pager::budgeted_chars(&default).expect("page");
+    let whole = octocode_runtime_base::response::pager::budgeted_chars(&default).expect("page");
     let echo = serde_json::to_string(&json!({ "path": file }))
         .expect("echo")
         .len();
@@ -146,7 +147,7 @@ async fn a_fresh_first_page_is_oversized_only_when_what_it_delivers_is() {
     let mut over = 0;
     for budget in (whole / 2..=whole + 2 * echo).step_by(5) {
         let output = read(Some(budget)).await;
-        let chars = octocode_native::response::pager::budgeted_chars(&output).expect("page");
+        let chars = octocode_runtime_base::response::pager::budgeted_chars(&output).expect("page");
         over += usize::from(chars > budget);
         assert!(
             output["results"][0]["data"].get("path").is_none(),
@@ -184,12 +185,13 @@ async fn content_parts(
                 .expect("read")
                 .structured_content
                 .into_value();
-            let chars = octocode_native::response::pager::budgeted_chars(&output).expect("page");
+            let chars =
+                octocode_runtime_base::response::pager::budgeted_chars(&output).expect("page");
             assert_eq!(
                 output.get("oversized") == Some(&json!(true)),
-                octocode_native::response::pager::holds_value_over(
+                octocode_runtime_base::response::pager::holds_value_over(
                     output.as_object().expect("envelope"),
-                    octocode_native::id::ToolId::LocalFetch,
+                    octocode_runtime_base::id::ToolId::LocalFetch,
                     budget
                 ),
                 "oversize must be explicit: {chars}/{budget} {output}"
@@ -268,25 +270,48 @@ async fn a_single_huge_content_line_pages_in_windows() {
     runtime.close().await;
 }
 
-/// The byte-window floor `docs/TOOL_DATA_CONTRACT.md` states.
-const FLOOR: usize = 4_096;
+/// The length past which a line is a long line, read in byte windows
+/// (`docs/TOOL_DATA_CONTRACT.md`).
+const FLOOR: usize = octocode_tools_shared::source_view::pagination::MIN_BYTE_PAGE;
 
-/// A long line read at a narrow budget walks in byte windows of the
-/// documented floor, each served whole on one page and never `oversized`
+/// A long line read at a narrow budget walks in byte windows that fit the
+/// budget's page room, never under one hit's window, each served whole on one
+/// page and flagged `oversized` only when it holds a value over the budget
 /// ([`content_parts`] checks the flag on every page): a 40 KB line at 300
-/// chars takes a call per floor window, not one per budget-sized sliver.
+/// chars takes a call per window of that room, every byte once.
 #[tokio::test]
-async fn a_long_line_at_a_narrow_budget_takes_a_call_per_floor_window() {
+async fn a_long_line_at_a_narrow_budget_takes_a_call_per_window_of_its_room() {
+    use octocode_tools_shared::source_view::pagination::{MIN_LONG_LINE_PAGE, byte_page_room};
     let workspace = Workspace::new();
     let line = "abcdefghij".repeat(4_000);
     let text = format!("{line}\n");
     workspace.write("long.txt", &text);
     let runtime = workspace.runtime(&[]);
-    for (parts, _) in content_parts(&runtime, "long.txt", 300).await {
+    let budget = 300;
+    let share = octocode_runtime_base::response::read_share::row_window(
+        octocode_runtime_base::id::ToolId::LocalFetch,
+        budget,
+        1,
+    );
+    let room = byte_page_room(Some(share));
+    assert!(
+        (MIN_LONG_LINE_PAGE..FLOOR).contains(&room),
+        "a narrow room: {room}"
+    );
+    for (parts, _) in content_parts(&runtime, "long.txt", budget).await {
+        let windows = parts
+            .iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>();
         assert!(
-            parts.len() <= text.len().div_ceil(FLOOR) + 1,
-            "{} calls for {} bytes",
-            parts.len(),
+            windows.iter().all(|part| part.len() <= room),
+            "each window fits its {room}-char room: {:?}",
+            windows.iter().map(|part| part.len()).collect::<Vec<_>>()
+        );
+        assert!(
+            windows.len() <= text.len().div_ceil(room) + 1,
+            "{} windows for {} bytes in {room}-char rooms",
+            windows.len(),
             text.len()
         );
         assert_eq!(parts.concat(), text, "every byte once, in order");
@@ -307,6 +332,7 @@ async fn local_source_pages_preserve_numbered_unicode_lines_on_both_transports()
 async fn github_source_pages_preserve_numbered_unicode_lines_on_both_transports() {
     let server = MockServer::builder().start().await;
     let body = body();
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "src/source.rs").await;
     Mock::given(method("GET")).and(path("/api/v3/repos/a/b/contents/src%2Fsource.rs")).and(query_param("ref",SHA)).respond_with(ResponseTemplate::new(200).set_body_json(json!({"type":"file","encoding":"base64","content":STANDARD.encode(&body),"size":body.len(),"sha":"f".repeat(40),"path":"src/source.rs"}))).mount(&server).await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);

@@ -2,6 +2,7 @@
 //! captured through the authorized readers, answered by a mock provider.
 
 use crate::support::Run as _;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
@@ -79,7 +80,7 @@ impl Typed {
                         }
                         json!({"type":"score","score":1.5,"confidence":0.5,"probabilities":probabilities,"legend":legend})
                     }
-                    _ => json!({"type":"noul","noul":0.9}),
+                    _ => json_fixture(r#"{"type": "noul", "noul": 0.9}"#),
                 };
                 (id.clone(), answer)
             })

@@ -164,32 +164,32 @@ fn workspace_typescript_server_requires_a_trusted_workspace() {
 
     // The invocation root: the workspace itself or a directory inside it.
     assert!(
-        crate::lsp::config::invocation::workspace_is_invocation_root(
+        crate::lsp::config::invocation::typescript_cli::workspace_is_invocation_root(
             &checkout_str,
             Some(&checkout)
         )
     );
     assert!(
-        crate::lsp::config::invocation::workspace_is_invocation_root(
+        crate::lsp::config::invocation::typescript_cli::workspace_is_invocation_root(
             &checkout.join("node_modules").to_string_lossy(),
             Some(&checkout)
         )
     );
     assert!(
-        !crate::lsp::config::invocation::workspace_is_invocation_root(
+        !crate::lsp::config::invocation::typescript_cli::workspace_is_invocation_root(
             &checkout_str,
             Some(&elsewhere)
         )
     );
     assert!(
-        !crate::lsp::config::invocation::workspace_is_invocation_root(
+        !crate::lsp::config::invocation::typescript_cli::workspace_is_invocation_root(
             &checkout_str,
             Some(std::path::Path::new("/"))
         )
     );
     if let Some(home) = std::env::home_dir() {
         assert!(
-            !crate::lsp::config::invocation::workspace_is_invocation_root(
+            !crate::lsp::config::invocation::typescript_cli::workspace_is_invocation_root(
                 &home.join(".octocode/clones/x").to_string_lossy(),
                 Some(&home)
             ),

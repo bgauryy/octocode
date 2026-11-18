@@ -39,15 +39,6 @@ impl std::fmt::Display for ProbeError {
     }
 }
 
-/// Run `command args..` with null stdio; `Ok` when it exited successfully.
-/// See [`probe_command`]. Blocking: call from a blocking thread.
-#[cfg(all(test, unix))]
-pub(crate) fn probe_command_succeeds(command: &str, args: &[&str]) -> Result<(), ProbeError> {
-    let mut probe = Command::new(command);
-    probe.args(args);
-    probe_command(&mut probe, false).map(drop)
-}
-
 /// Run a prepared `probe` (its stdin and stderr are nulled) and return its
 /// stdout when it exited successfully. The probe has no clock of its own: it
 /// runs until it exits or its caller stops ([`crate::deep_stack::while_stoppable`],
@@ -59,7 +50,10 @@ pub(crate) fn probe_command_stdout(probe: &mut Command) -> Result<Vec<u8>, Probe
     probe_command(probe, true)
 }
 
-fn probe_command(probe: &mut Command, capture_stdout: bool) -> Result<Vec<u8>, ProbeError> {
+pub(super) fn probe_command(
+    probe: &mut Command,
+    capture_stdout: bool,
+) -> Result<Vec<u8>, ProbeError> {
     use std::io::Read;
     use std::process::Stdio;
     probe

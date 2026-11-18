@@ -21,23 +21,35 @@ use clap::Parser;
 use commands::{AuthCommand, Command, ConfigCommand};
 use management::config_management;
 use octocode_contract_types::ErrorCode;
-use octocode_native::config::RuntimeSurface;
 use octocode_native::runtime::{HostOptions, RuntimeError, ToolRuntime};
+use octocode_runtime_base::config::RuntimeSurface;
 use output::exit_code;
 pub(super) use output::{write_json, write_text};
 use parse::emit_error;
-pub use parse::parse_args;
+pub(crate) use parse::parse_args;
 use std::io::{self};
 use tool_call::run_tool;
+
+/// The package version with the tool contract's fingerprint as build
+/// metadata (`20.2.0+01a553b7`), so a stale build, an MCP server or the CLI
+/// alike, is told apart from a current one by its version.
+fn build_version() -> String {
+    let fingerprint = octocode_contract_types::TOOL_TYPES_CONTRACT_FINGERPRINT;
+    format!(
+        "{}+{}",
+        env!("CARGO_PKG_VERSION"),
+        fingerprint.get(..8).unwrap_or(fingerprint)
+    )
+}
 
 #[derive(Parser)]
 #[command(
     name = "octocode",
-    version,
+    version = build_version(),
     about = "Native Octocode research tools",
     after_help = ROOT_HELP_AFTER
 )]
-pub struct Args {
+pub(crate) struct Args {
     #[command(subcommand)]
     command: Command,
     /// Print JSON instead of text: indented on a terminal, one line on a pipe.
@@ -150,7 +162,7 @@ fn interactive_session() -> bool {
         && config_view::can_show_window(|name| std::env::var_os(name))
 }
 
-pub async fn run(args: Args) -> u8 {
+pub(crate) async fn run(args: Args) -> u8 {
     let Args { command, json } = args;
     let mode = command.output_mode(json);
     let json_out = mode.json;

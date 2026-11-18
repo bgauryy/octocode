@@ -2,13 +2,13 @@ use super::admission::AdmittedRows;
 use super::channel::{ChannelRun, OutputSettings};
 use super::page_replay::{Refusal, RefusalScope, page_replay_key, snapshot_expired};
 use super::{Channel, RuntimeError, ToolRuntime, runtime_execution_error};
-use crate::contracts;
-use crate::id::ToolId;
-use crate::response::outcome::ToolOutcome;
-use crate::response::page_model::ResponsePageOptions;
 use crate::runtime::row_indices::RowOrigin;
 use octocode_contract_types::ErrorCode;
 use octocode_engine::contain::Phase;
+use octocode_runtime_base::contracts;
+use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::response::outcome::ToolOutcome;
+use octocode_runtime_base::response::page_model::ResponsePageOptions;
 use secrecy::SecretString;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -18,7 +18,7 @@ impl ToolRuntime {
     pub fn admit(
         &self,
         request_id: String,
-    ) -> Result<crate::execution::RequestAdmission, RuntimeError> {
+    ) -> Result<octocode_runtime_base::execution::RequestAdmission, RuntimeError> {
         self.requests
             .admit(request_id)
             .map_err(runtime_execution_error)
@@ -31,7 +31,7 @@ impl ToolRuntime {
         &self,
         request_id: String,
         options: Option<Value>,
-    ) -> Result<crate::execution::RequestAdmission, RuntimeError> {
+    ) -> Result<octocode_runtime_base::execution::RequestAdmission, RuntimeError> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase", deny_unknown_fields)]
         struct RequestOptions {
@@ -67,7 +67,7 @@ impl ToolRuntime {
     /// projects once through [`super::super::error::tool_error_result`].
     pub async fn execute(
         &self,
-        admission: crate::execution::RequestAdmission,
+        admission: octocode_runtime_base::execution::RequestAdmission,
         tool: String,
         input: Value,
         channel: Channel,
@@ -99,7 +99,7 @@ impl ToolRuntime {
 
     async fn execute_channel(
         &self,
-        admission: crate::execution::RequestAdmission,
+        admission: octocode_runtime_base::execution::RequestAdmission,
         tool: String,
         input: Value,
         mcp: bool,
@@ -109,7 +109,7 @@ impl ToolRuntime {
             !panic_tests::INJECTED.get(),
             "injected panic before the rows run"
         );
-        let (input, repairs) = contracts::normalized_input(&tool, input);
+        let (mut input, mut repairs) = contracts::normalized_input(&tool, input);
         let id = match self.admit_tool(&tool, mcp) {
             Ok(id) => id,
             // A setting the call lacks is reported after its input: an
@@ -133,10 +133,32 @@ impl ToolRuntime {
         }
         let clasify = id.is_clasify();
         let access = page_replay_key("", &[], &[], admission.github_credential());
-        let opened = if let Some(token) = input.get("cursor").and_then(Value::as_str) {
+        let opened = if let Some(token) = input
+            .get("cursor")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+        {
+            let opened = self.open_cursor(id, &token, admission.github_credential());
+            // Query fields beside the cursor are read against the saved query
+            // this caller's cursor restores, and nothing else: at its values
+            // they are dropped and said; at others the refusal leads with the
+            // fields that refuse it and names the saved values.
+            let holds = match &opened {
+                Ok(opened) => {
+                    match contracts::read_beside_cursor(&tool, &mut input, &opened.member().input) {
+                        contracts::BesideCursor::Held(notes) => {
+                            repairs.extend(notes);
+                            None
+                        }
+                        contracts::BesideCursor::Holds(holds) => Some(holds),
+                        contracts::BesideCursor::AsSent => None,
+                    }
+                }
+                Err(_) => None,
+            };
             contracts::validate(&tool, input.clone())
-                .map_err(|error| self.invalid_input(&tool, error, &input))?;
-            Some(self.open_cursor(id, token, admission.github_credential())?)
+                .map_err(|error| naming_saved(self.invalid_input(&tool, error, &input), holds))?;
+            Some(opened?)
         } else {
             None
         };
@@ -159,6 +181,8 @@ impl ToolRuntime {
             | super::cursors::SavedWork::Rows { .. } => None,
         });
         let mut options = ResponsePageOptions::deserialize(normalized_input).unwrap_or_default();
+        // Every snapshot and cursor of the call's pages binds to this build.
+        options.build_identity = crate::build_identity::BUILD_IDENTITY;
         // A saved page whose response is no longer retained re-executes its
         // rows, pinned to the page: it answers only when its sources
         // reproduce that response. A judgment is not reproducible, so
@@ -313,6 +337,22 @@ impl ToolRuntime {
             },
         )
     }
+}
+
+/// `refused` with `holds`, what the cursor's saved query holds of the fields
+/// that refuse the call and which fields sent beside it were at its values,
+/// after its error.
+fn naming_saved(mut refused: RuntimeError, holds: Option<String>) -> RuntimeError {
+    if let Some(holds) = holds
+        && let Some(Value::String(error)) = refused
+            .payload
+            .as_deref_mut()
+            .and_then(|payload| payload.get_mut("error"))
+    {
+        error.push(' ');
+        error.push_str(&holds);
+    }
+    refused
 }
 
 #[cfg(test)]

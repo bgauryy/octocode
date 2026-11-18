@@ -1,6 +1,7 @@
 //! A command that exits cannot promise another call into its memory-only store.
 use crate::support::Workspace;
-use serde_json::{Value, json};
+use octocode_test_support::json_fixture;
+use serde_json::Value;
 
 #[test]
 fn a_one_shot_memory_call_refuses_unreachable_continuations() {
@@ -11,7 +12,7 @@ fn a_one_shot_memory_call_refuses_unreachable_continuations() {
             .map(|n| format!("evidence {n}\n"))
             .collect::<String>(),
     );
-    let input = json!({"queries":[{"path":"many.txt"}],"responseChars":4000});
+    let input = json_fixture(r#"{"queries": [{"path": "many.txt"}], "responseChars": 4000}"#);
     let output = workspace
         .cli()
         .args(["localFetch", &input.to_string(), "--json"])
@@ -38,7 +39,7 @@ fn a_one_shot_memory_call_refuses_unreachable_continuations() {
 fn a_complete_one_shot_memory_answer_still_succeeds() {
     let workspace = Workspace::new();
     workspace.write("small.txt", "complete evidence\n");
-    let input = json!({"queries":[{"path":"small.txt"}]});
+    let input = json_fixture(r#"{"queries": [{"path": "small.txt"}]}"#);
     let output = workspace
         .cli()
         .args(["localFetch", &input.to_string(), "--json"])

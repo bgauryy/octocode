@@ -3,6 +3,7 @@
 //! window (disclosed) only where GitHub offers neither.
 use super::*;
 use crate::transport::SEARCH_REUSE_WINDOW;
+use octocode_test_support::json_fixture;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use wiremock::Request;
@@ -48,6 +49,17 @@ impl Memory {
     fn len(&self) -> usize {
         self.0.lock().unwrap().len()
     }
+
+    /// Saved file reads, apart from the tree reads that say whether a path
+    /// is a link.
+    fn file_answers(&self) -> usize {
+        self.0
+            .lock()
+            .unwrap()
+            .keys()
+            .filter(|(_, request)| request.contains("/contents/"))
+            .count()
+    }
 }
 
 fn keeping(server: &MockServer) -> (GitHubTransport, GitHubEndpoint, Arc<Memory>) {
@@ -64,6 +76,17 @@ fn request(token: &str) -> RequestContext {
 
 async fn requests(server: &MockServer) -> Vec<Request> {
     server.received_requests().await.unwrap()
+}
+
+/// The requests that read the contents of `file` itself, not the listings
+/// that say whether a path is a link.
+async fn file_reads(server: &MockServer, file: &str) -> usize {
+    let wanted = format!("/api/v3/repos/a/b/contents/{file}");
+    requests(server)
+        .await
+        .iter()
+        .filter(|request| request.url.path() == wanted)
+        .count()
 }
 
 /// `body` under an ETag, or 304 when the request presents that ETag.
@@ -249,9 +272,9 @@ async fn one_credentials_answers_never_reach_another() {
 async fn a_search_without_a_validator_reuses_within_its_window_and_says_so() {
     let server = MockServer::start().await;
     Mock::given(path("/api/v3/search/repositories"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(
-            serde_json::json!({"total_count":1,"incomplete_results":false,"items":[]}),
-        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"total_count": 1, "incomplete_results": false, "items": []}"#,
+        )))
         .mount(&server)
         .await;
     let (transport, endpoint, memory) = keeping(&server);
@@ -296,9 +319,9 @@ async fn a_rate_limited_repeat_serves_the_saved_answer_and_discloses_it() {
     let server = MockServer::start().await;
     let (transport, endpoint, memory) = keeping(&server);
     Mock::given(path("/api/v3/search/repositories"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(
-            serde_json::json!({"total_count":1,"incomplete_results":false,"items":[]}),
-        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"total_count": 1, "incomplete_results": false, "items": []}"#,
+        )))
         .up_to_n_times(1)
         .mount(&server)
         .await;
@@ -308,7 +331,7 @@ async fn a_rate_limited_repeat_serves_the_saved_answer_and_discloses_it() {
             ResponseTemplate::new(403)
                 .insert_header("x-ratelimit-remaining", "0")
                 .insert_header("x-ratelimit-reset", reset.as_str())
-                .set_body_json(serde_json::json!({"message":"API rate limit exceeded"})),
+                .set_body_json(json_fixture(r#"{"message": "API rate limit exceeded"}"#)),
         )
         .mount(&server)
         .await;
@@ -373,6 +396,11 @@ async fn a_saved_answer_reused_by_a_read_its_caller_keeps_is_not_evidence() {
         )
         .mount(&server)
         .await;
+    // The symlink check every read asks first.
+    octocode_test_support::mock_http::GitRepository::new()
+        .file("one.rs", "body\n")
+        .mount_trees(&server, "a", "b", sha)
+        .await;
     let (transport, _, memory) = keeping(&server);
     let provider = GitHubProvider::new(transport);
     let file = ContentRequest {
@@ -385,7 +413,7 @@ async fn a_saved_answer_reused_by_a_read_its_caller_keeps_is_not_evidence() {
         .get_file_bytes(&file, &request("reuse"))
         .await
         .expect("an ordinary read");
-    assert_eq!(memory.len(), 1, "the ordinary read is saved");
+    assert_eq!(memory.file_answers(), 1, "the ordinary read is saved");
     let kept = request("reuse");
     let read = provider
         .get_file_bytes_kept_by_caller(&file, &kept)
@@ -393,7 +421,7 @@ async fn a_saved_answer_reused_by_a_read_its_caller_keeps_is_not_evidence() {
         .expect("a read its caller keeps");
     assert_eq!(read.bytes, &b"body\n"[..]);
     assert_eq!(
-        requests(&server).await.len(),
+        file_reads(&server, "one.rs").await,
         1,
         "the kept read was answered by the saved answer, unasked"
     );
@@ -417,9 +445,13 @@ async fn an_undecodable_contents_body_is_not_kept_so_a_retry_asks_again() {
     let sha = "0123456789abcdef0123456789abcdef01234567";
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/one.rs"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "type": "file", "encoding": "base64", "content": "@@ not base64 @@"
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "type": "file",
+                "encoding": "base64",
+                "content": "@@ not base64 @@"
+            }"#,
+        )))
         .up_to_n_times(1)
         .mount(&server)
         .await;
@@ -429,6 +461,11 @@ async fn an_undecodable_contents_body_is_not_kept_so_a_retry_asks_again() {
             "type": "file", "encoding": "base64", "content": STANDARD.encode("body\n")
         })))
         .mount(&server)
+        .await;
+    // The symlink check every read asks first.
+    octocode_test_support::mock_http::GitRepository::new()
+        .file("one.rs", "body\n")
+        .mount_trees(&server, "a", "b", sha)
         .await;
     let (transport, _, memory) = keeping(&server);
     let provider = GitHubProvider::new(transport);
@@ -444,7 +481,11 @@ async fn an_undecodable_contents_body_is_not_kept_so_a_retry_asks_again() {
         .await
         .expect_err("an undecodable body");
     assert_eq!(error.kind, ProviderErrorKind::Decode, "{error:?}");
-    assert_eq!(memory.len(), 0, "the undecodable answer is not kept");
+    assert_eq!(
+        memory.file_answers(),
+        0,
+        "the undecodable answer is not kept"
+    );
     assert!(
         first
             .evidence()
@@ -459,6 +500,10 @@ async fn an_undecodable_contents_body_is_not_kept_so_a_retry_asks_again() {
         .await
         .expect("the retry reads the good body");
     assert_eq!(read.bytes, &b"body\n"[..]);
-    assert_eq!(requests(&server).await.len(), 2, "the retry asked GitHub");
-    assert_eq!(memory.len(), 1, "the good answer is kept");
+    assert_eq!(
+        file_reads(&server, "one.rs").await,
+        2,
+        "the retry asked GitHub"
+    );
+    assert_eq!(memory.file_answers(), 1, "the good answer is kept");
 }

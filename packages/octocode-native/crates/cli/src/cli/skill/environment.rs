@@ -1,5 +1,5 @@
 use super::super::ToolRuntime;
-use octocode_native::config::ENV_TOKEN_VARS;
+use octocode_runtime_base::config::ENV_TOKEN_VARS;
 use serde_json::{Value, json};
 
 pub(super) fn status(runtime: &ToolRuntime, name: &str, github_auth: bool) -> Value {

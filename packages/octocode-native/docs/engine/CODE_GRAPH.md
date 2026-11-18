@@ -6,7 +6,7 @@ The native `crates/engine` crate owns the reusable code graph model and algorith
 
 One graph is queried and stored; the build has one intermediate:
 
-- `BuiltGraph` (`runtime/src/tools/ast_graph/types.rs`): the linker's output for one scan, per-file facts plus the file graph (target file and edge kinds with their first line). Ingest projects it and drops it; nothing stores or queries it.
+- `BuiltGraph` (`tool-graph/src/ast_graph/types.rs`): the linker's output for one scan, per-file facts plus the file graph (target file and edge kinds with their first line). Ingest projects it and drops it; nothing stores or queries it.
 - `GraphTables` (`ast_graph/store/format.rs`): file, symbol and package nodes joined by compact relationship edges, with separate occurrence witnesses, unresolved sites, declaration evidence, diagnostics, file digests, components and entries. It is the snapshot `graph.bin` holds and the one model every graphQuery operation, `drift` included, reads. Current extraction emits `contains`, `imports`, `uses`, `calls`, `inherits` and `passes`. A `passes` relation observes a named value supplied as an argument; propagation and invocation remain unsupported.
 
 The graph-facts scan (`engine/src/fact_scan/`) crosses the Rust package boundary as `GraphFactsMappedScan<T>`: `scan_walked_graph_facts` takes a `walk_graph_fact_files` walk, hands each parsed file to the caller's map as a borrowed `GraphFactsView`, and keeps only what the map returns. `FactsSource` picks full graph facts (`Graph`), validated reusable graph facts (`CachedGraph`), or the caller's cached declarations (`Declarations`).
@@ -812,7 +812,7 @@ Class fields and interface members stay undeclared there.
 
 Every call edge keeps its `resolution` and `confidence`. `graphQuery` then
 answers bounded, paged questions without rebuilding. The code is in
-`crates/runtime/src/tools/ast_graph/store/`.
+`crates/tool-graph/src/ast_graph/store/`.
 
 Ingest also classifies files by role, infers entrypoints, and reads manifests
 into components and declared dependencies. That code is in `classify.rs`
@@ -989,7 +989,7 @@ gets `next.cycle<i>` (the row's index on its page), which pages every member.
 Continuations repeat the query's `path` and pin the snapshot ID.
 
 Every build and snapshot bound lives in one place
-(`crates/runtime/src/tools/ast_graph/limits.rs`). Snapshot reads are bounded at
+(`crates/tool-graph/src/ast_graph/limits.rs`). Snapshot reads are bounded at
 512 MiB. Decode permits at most 64 sections, 5 million items per table,
 2 million edges, and 512 MiB of expanded string content. A build is refused
 with `scopeTooBroad` and narrower-scope hints as soon as its snapshot can no
@@ -1019,7 +1019,7 @@ identity, reverse-graph invariants, SCC partitioning, and native response parity
 ```bash
 cargo test --manifest-path packages/octocode-native/Cargo.toml -p octocode-engine --no-default-features graph::
 cargo test --manifest-path packages/octocode-native/Cargo.toml -p octocode-engine --no-default-features --test graph_benchmark frozen_graph_correctness_receipt_is_stable -- --exact
-cargo test --manifest-path packages/octocode-native/Cargo.toml -p octocode-native tools::ast_graph
+cargo test --manifest-path packages/octocode-native/Cargo.toml -p octocode-tool-graph ast_graph
 ```
 
 The language battery ingests one pinned repository per grammar

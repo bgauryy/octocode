@@ -1,8 +1,8 @@
 //! What an install asks GitHub: the release asset's live digest (the API host
 //! is used for this metadata request only), the asset's bytes through the
 //! release-host allowlist, and, for an immutable release, its attestation.
-use super::READ_TIMEOUT;
 use super::download::{download_client, download_error, fetch_allowlisted};
+use super::{Failure, READ_TIMEOUT};
 use std::process::Output;
 
 /// The GitHub REST API, the one host a release's metadata is read from.
@@ -10,7 +10,7 @@ pub(super) const GITHUB_API: &str = "https://api.github.com";
 
 /// What an immutable release's attestation check found.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Attestation {
+pub(super) enum Attestation {
     /// A verified attestation of the release covers the asset's digest.
     Verified,
     /// No attestation was verified, so none could contradict the asset: `gh`
@@ -40,7 +40,7 @@ pub(super) trait Upstream {
         url: &str,
         file: tokio::fs::File,
         limit: u64,
-    ) -> Result<tokio::fs::File, String>;
+    ) -> Result<tokio::fs::File, Failure>;
     /// Whether the release attestation of `repo@tag` covers an asset with
     /// this `sha256`.
     async fn attest(&self, repo: &str, tag: &str, sha256: &str) -> Attestation;
@@ -169,7 +169,7 @@ impl Upstream for GitHub {
         url: &str,
         file: tokio::fs::File,
         limit: u64,
-    ) -> Result<tokio::fs::File, String> {
+    ) -> Result<tokio::fs::File, Failure> {
         fetch_allowlisted(url, file, limit).await
     }
 

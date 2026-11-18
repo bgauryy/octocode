@@ -36,12 +36,14 @@ mod visit;
 mod walk_rule;
 mod window;
 
+#[cfg(any(test, feature = "test-hooks"))]
+pub use file_search::{DURING_SEARCH_READ, ReadRace};
 pub use listed::{count_listed, listable};
 pub(crate) use pcre2::{
     ACTIVE_PCRE2_WORKERS, MAX_ACTIVE_PCRE2_WORKERS, Pcre2WorkerSlot, pcre2_builder,
     release_worker_slot, try_acquire_worker_slot,
 };
-pub use stream::{Landmark, Pin, Stream, Streamed, Streaming};
+pub use stream::{Anchor, Landmark, Pin, Stream, Streamed, Streaming};
 pub use window::{Clock, Earlier, Pause, Resume, SearchWindow, Searched, Windowed};
 
 pub trait TextSearchPathFilter: Send + Sync {
@@ -171,7 +173,9 @@ pub fn search_stream(
     stream: Stream,
 ) -> Result<Streaming> {
     if opts.syntax == PatternSyntax::Pcre2 {
-        return Err(Error::new("a PCRE2 search runs in windows, not as a stream"));
+        return Err(Error::new(
+            "a PCRE2 search runs in windows, not as a stream",
+        ));
     }
     let mode = resolve_mode(&opts);
     let b = rust_matcher_builder(&opts);

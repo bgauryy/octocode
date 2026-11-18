@@ -1,9 +1,9 @@
 //! GitHub failure rows: the shared provider row, its rate-limit block and the wording each arm adds.
-use crate::response::outcome::{DomainResult, Upstream};
-use crate::response::result::ToolData;
-use crate::tools::gh_shared::{GhFailure, provider_hint};
 use octocode_contract_types::ErrorCode;
 use octocode_github::{ProviderError, RateLimit};
+use octocode_runtime_base::response::outcome::{DomainResult, Upstream};
+use octocode_runtime_base::response::result::ToolData;
+use octocode_tools_shared::gh_shared::{GhFailure, provider_hint};
 use serde_json::{Value, json};
 
 const ANONYMOUS_RATE_LIMIT_HINT: &str =
@@ -13,7 +13,7 @@ const ANONYMOUS_RATE_LIMIT_HINT: &str =
 /// ([`DomainResult::provider`]) with the arm's own hint (a per-call fact
 /// the `errorCode` does not state). A row with no hint and no lead gets the code's one
 /// shared recovery from the response stage
-/// ([`crate::response::rows::attach_error_hint`]).
+/// ([`octocode_runtime_base::response::rows::attach_error_hint`]).
 pub(super) fn provider_row(
     error: &ProviderError,
     message: impl Into<String>,
@@ -26,7 +26,20 @@ pub(super) fn provider_row(
         http_status: error.status,
         rate_limit: error.rate_limit.as_deref().map(rate_limit_block),
     };
+    // The caution beside a missing repository's leads, and the spelling
+    // check of a missing owner, are static: notices, said once per
+    // response, not once per failed row.
+    let (notices, hints): (Vec<_>, Vec<_>) = hints.into_iter().partition(|hint| {
+        [
+            octocode_tools_shared::gh_shared::REPOSITORY_SEARCH_HINT,
+            octocode_tools_shared::gh_shared::OWNER_SPELLING_HINT,
+        ]
+        .contains(&hint.as_str())
+    });
     let mut row = DomainResult::provider(code, message, hints, next, upstream);
+    for notice in notices {
+        octocode_runtime_base::response::paging::push_notice(&mut row.data, notice);
+    }
     if let Some(sso_url) = &error.sso_url {
         row.data["ssoUrl"] = json!(sso_url);
     }
@@ -58,10 +71,10 @@ fn rate_limit_block(rate: &RateLimit) -> Value {
 /// to log in; a secondary limit or circuit cooldown keeps its wait hint.
 pub(super) fn advise_login_for_anonymous_quota(data: &mut Value, anonymous: bool) {
     if anonymous
-        && crate::id::error_code_of(data) == Some(ErrorCode::RateLimited)
+        && octocode_runtime_base::id::error_code_of(data) == Some(ErrorCode::RateLimited)
         && data.pointer("/rateLimit/remaining") == Some(&json!(0))
     {
-        crate::response::result::add_hints(data, [ANONYMOUS_RATE_LIMIT_HINT]);
+        octocode_runtime_base::response::result::add_hints(data, [ANONYMOUS_RATE_LIMIT_HINT]);
     }
 }
 
@@ -106,7 +119,8 @@ pub(in crate::runtime) fn provider_error(error: ProviderError) -> DomainResult {
 /// A history failure row; the wording comes from the history tools
 /// (`search` marks ghSearchHistory).
 pub(super) fn history_error(error: ProviderError, search: bool) -> DomainResult {
-    let (message, hint) = crate::tools::gh_shared::history::history_failure(&error, search);
+    let (message, hint) =
+        octocode_tools_shared::gh_shared::history::history_failure(&error, search);
     let hints = hint.map(str::to_owned).into_iter().collect();
     provider_row(&error, message, hints, None)
 }

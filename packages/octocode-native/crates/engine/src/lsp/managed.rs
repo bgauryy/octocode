@@ -15,8 +15,6 @@ mod platform;
 pub use lock::{AssetLock, ReleaseLock};
 pub(crate) use platform::npm_platform_id;
 pub use platform::platform_id;
-#[cfg(test)]
-use platform::platform_id_for;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -371,7 +369,7 @@ pub fn resolve_cached_server(root: &Path, name: &str, platform: &str) -> Option<
     }
     let file = std::fs::File::open(&bin_path).ok()?;
     #[cfg(test)]
-    HASH_CALLS.with(|calls| calls.set(calls.get() + 1));
+    tests::HASH_CALLS.with(|calls| calls.set(calls.get() + 1));
     let (size, digest) = crate::digest::copy_hashed(&file, std::io::sink()).ok()?;
     // Do not publish a memo for another file than the one hashed, or for a
     // file whose metadata changed while it was read.
@@ -394,12 +392,6 @@ pub fn resolve_cached_server(root: &Path, name: &str, platform: &str) -> Option<
         }
     }
     matches.then_some(bin_path)
-}
-
-#[cfg(test)]
-thread_local! {
-    /// Binary hashes computed on this thread (test observation of M7 memoization).
-    static HASH_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 #[cfg(test)]

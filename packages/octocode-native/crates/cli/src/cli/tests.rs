@@ -4,13 +4,19 @@ use super::{Command, OutputMode, dispatch, lsp_provision, start_failed};
 use octocode_contract_types::ErrorCode;
 use octocode_native::runtime::RuntimeError;
 use octocode_native::runtime::{HostOptions, ToolRuntime};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 
 /// A terminal gets indented JSON, a pipe one compact line, whatever the
 /// command; both are the same value.
 #[test]
 fn json_is_indented_for_a_terminal_and_compact_for_a_pipe() {
-    let value = json!({"results": [{"index": 0, "data": {"a": [1, 2]}}], "root": "/w"});
+    let value = json_fixture(
+        r#"{
+            "results": [{"index": 0, "data": {"a": [1, 2]}}],
+            "root": "/w"
+        }"#,
+    );
     let pipe = super::output::json_text(&value, false).expect("compact");
     assert_eq!(
         pipe,
@@ -92,10 +98,13 @@ async fn second_interrupt_stops_waiting_for_uncooperative_work() {
 /// then `# status: error`), and exits by the code's class.
 #[test]
 fn rejected_calls_print_the_runtime_projection() {
-    use octocode_native::contracts;
+    use octocode_runtime_base::contracts;
     let tool = "localFetch";
-    let error = contracts::validate(tool, json!({"queries":[{"path":"a.rs","matchstring":"x"}]}))
-        .expect_err("invalid input");
+    let error = contracts::validate(
+        tool,
+        json_fixture(r#"{"queries": [{"path": "a.rs", "matchstring": "x"}]}"#),
+    )
+    .expect_err("invalid input");
     let invalid = || RuntimeError {
         code: ErrorCode::InvalidInput,
         message: error.to_string(),
@@ -152,10 +161,26 @@ fn rejected_calls_print_the_runtime_projection() {
 /// it, so the same page prints as `key: value` text without it.
 #[test]
 fn a_continuation_prints_in_the_line_format_of_the_request_it_continued() {
-    use octocode_native::response::outcome::ToolOutcome;
-    use octocode_native::security::Sanitized;
-    let page = json!({"results":[{"index":0,"data":{"matchCount":9,"files":[{"path":"a.rs","matches":[
-        {"line":26,"value":"25\tuse a;\n26\tuse b;"}]}]}}]});
+    use octocode_runtime_base::response::outcome::ToolOutcome;
+    use octocode_runtime_base::security::Sanitized;
+    let page = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "matchCount": 9,
+                        "files": [
+                            {
+                                "path": "a.rs",
+                                "matches": [{"line": 26, "value": "25\tuse a;\n26\tuse b;"}]
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#,
+    );
     let printed = |continued: Option<serde_json::Value>| {
         Printed::finish(
             "localSearch",
@@ -166,18 +191,38 @@ fn a_continuation_prints_in_the_line_format_of_the_request_it_continued() {
                 continued,
             }),
             false,
-            &json!({"cursor":"cursor2.page"}),
+            &json_fixture(r#"{"cursor": "cursor2.page"}"#),
             None,
         )
     };
-    let asked = json!({"queries":[{"path":"a.rs","matchString":["use"],"contextLines":{"before":1,"after":0}}]});
+    let asked = json_fixture(
+        r#"{
+            "queries": [
+                {
+                    "path": "a.rs",
+                    "matchString": ["use"],
+                    "contextLines": {"before": 1, "after": 0}
+                }
+            ]
+        }"#,
+    );
     let continued = printed(Some(asked));
     assert_eq!(continued.body, "a.rs\n25-use a;\n26:use b;");
     assert_eq!(continued.notes.as_deref(), Some("# matchCount 9"));
     // A page holding one row of a batch reads that row's own query, under
     // that query's heading.
-    let batch = json!({"queries":[{"path":"b.rs","matchString":["x"]},
-        {"path":"a.rs","matchString":["use"],"contextLines":{"before":1,"after":0}}]});
+    let batch = json_fixture(
+        r#"{
+            "queries": [
+                {"path": "b.rs", "matchString": ["x"]},
+                {
+                    "path": "a.rs",
+                    "matchString": ["use"],
+                    "contextLines": {"before": 1, "after": 0}
+                }
+            ]
+        }"#,
+    );
     let mut second_row = page.clone();
     second_row["results"][0]["index"] = json!(1);
     let later = Printed::finish(
@@ -189,7 +234,7 @@ fn a_continuation_prints_in_the_line_format_of_the_request_it_continued() {
             continued: Some(batch),
         }),
         false,
-        &json!({"cursor":"cursor2.page"}),
+        &json_fixture(r#"{"cursor": "cursor2.page"}"#),
         None,
     );
     assert_eq!(later.body, "## results[1]\na.rs\n25-use a;\n26:use b;");
@@ -205,7 +250,7 @@ fn a_continuation_prints_in_the_line_format_of_the_request_it_continued() {
 fn every_contract_tool_parses_as_a_tool_command() {
     use clap::CommandFactory;
     super::Args::command().debug_assert();
-    let contract = octocode_native::contracts::parsed_contract().expect("contract");
+    let contract = octocode_runtime_base::contracts::parsed_contract().expect("contract");
     for tool in contract["tools"].as_array().expect("tools") {
         let name = tool["name"].as_str().expect("name");
         let args = parse_args_from(["octocode", name, "{}", "--json"]).expect(name);
@@ -281,7 +326,7 @@ fn tool_input_reads_a_file_and_rejects_bad_json() {
     };
     assert_eq!(
         super::tool_call::tool_input("localSearch", &args),
-        Ok(json!({"queries": []}))
+        Ok(json_fixture(r#"{"queries": []}"#))
     );
     let bad = super::commands::ToolArgs {
         args: vec!["{".into()],
@@ -309,7 +354,12 @@ fn tool_input_reads_a_file_and_rejects_bad_json() {
 #[test]
 fn content_from_stdin_fills_exactly_one_row_that_names_no_input() {
     use super::tool_call::{stdin_text, tool_input, with_content};
-    let row = json!({"operation":"evaluate","questions":{"q":{"type":"noul","instructions":"Does a test fail?"}}});
+    let row = json_fixture(
+        r#"{
+            "operation": "evaluate",
+            "questions": {"q": {"type": "noul", "instructions": "Does a test fail?"}}
+        }"#,
+    );
     let text = "test a ... ok\ntest b ... FAILED\n\u{e9}\n".to_owned();
     let filled =
         with_content("clasify", json!({"queries":[row.clone()]}), text.clone()).expect("one row");
@@ -318,9 +368,9 @@ fn content_from_stdin_fills_exactly_one_row_that_names_no_input() {
     let error = |query: serde_json::Value| {
         with_content("clasify", query, String::new()).expect_err("refused")
     };
-    assert!(error(json!({"cursor":"c"})).contains("no queries"));
+    assert!(error(json_fixture(r#"{"cursor": "c"}"#)).contains("no queries"));
     assert!(error(json!({"queries":[row.clone(), row.clone()]})).contains("has 2 rows"));
-    assert!(error(json!({"queries":[]})).contains("has 0 rows"));
+    assert!(error(json_fixture(r#"{"queries": []}"#)).contains("has 0 rows"));
     for field in ["content", "source", "resources"] {
         let mut named = row.clone();
         named[field] = json!("x");
@@ -343,7 +393,12 @@ fn content_from_stdin_fills_exactly_one_row_that_names_no_input() {
 /// The query's own size bound holds once stdin is in it.
 #[test]
 fn content_from_stdin_keeps_the_query_size_bound() {
-    let row = json!({"operation":"evaluate","questions":{"q":{"type":"noul","instructions":"Q?"}}});
+    let row = json_fixture(
+        r#"{
+            "operation": "evaluate",
+            "questions": {"q": {"type": "noul", "instructions": "Q?"}}
+        }"#,
+    );
     let limit = usize::try_from(super::commands::MAX_QUERY_BYTES).expect("usize");
     let refused =
         super::tool_call::with_content("clasify", json!({"queries":[row]}), "a".repeat(limit));
@@ -386,7 +441,7 @@ fn only_clasify_takes_content_from_stdin() {
 #[test]
 fn no_surface_budget_cuts_a_cold_lsp_request() {
     assert_eq!(
-        octocode_native::execution::RequestLimits::default().timeout,
+        octocode_runtime_base::execution::RequestLimits::default().timeout,
         None
     );
 }
@@ -495,8 +550,8 @@ fn request_fields(schema: &serde_json::Value, fields: &mut std::collections::BTr
 #[test]
 fn root_help_names_every_request_field_of_the_contract() {
     let mut fields = std::collections::BTreeSet::new();
-    for tool in octocode_native::id::ToolId::ALL {
-        let contract = octocode_native::contracts::tool_contract_named(tool.as_str())
+    for tool in octocode_runtime_base::id::ToolId::ALL {
+        let contract = octocode_runtime_base::contracts::tool_contract_named(tool.as_str())
             .expect("a contract tool")
             .expect("its contract");
         request_fields(&contract["inputSchema"], &mut fields);

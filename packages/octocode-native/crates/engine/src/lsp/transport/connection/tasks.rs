@@ -6,19 +6,23 @@ use super::super::progress::{HealthLevel, ProgressTracker, ServerHealth};
 use super::super::server_requests::{
     ClientRequestContext, client_response_for, declined_build_import,
 };
-use super::NOTIFY_BASE_DEADLINE_MS;
-use super::shared::{FailOnExit, Outbound, Shared};
+use super::notify_stall_ms;
+use super::shared::{FailOnExit, Outbound, Shared, stalled_write};
 use crate::error::{Error, RpcError};
 use serde_json::{Map, Value};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
-use tokio::time::{Duration, Instant};
+use tokio::time::Duration;
 
-/// How long the reader may wait for writer-queue space to reply to a server
-/// request before declaring the server wedged (it is not reading stdin).
-const REPLY_ENQUEUE_DEADLINE_MS: u64 = 1_000;
+/// Why a frame's write did not complete.
+enum WriteFault {
+    /// The pipe refused the write.
+    Failed(std::io::Error),
+    /// The server read nothing of the frame for its whole stall window.
+    Stalled,
+}
 
 pub(super) async fn write_loop<W>(
     mut writer: W,
@@ -28,19 +32,16 @@ pub(super) async fn write_loop<W>(
     W: AsyncWrite + Unpin,
 {
     while let Some(outbound) = frames.recv().await {
-        let write = async {
-            writer.write_all(&outbound.frame).await?;
-            writer.flush().await
-        };
-        let (result, broken) = match tokio::time::timeout_at(outbound.deadline, write).await {
-            Ok(Ok(())) => (Ok(()), None),
-            Ok(Err(error)) => {
+        let write = write_progressing(&mut writer, &outbound, &exit.shared);
+        let (result, broken) = match write.await {
+            Ok(()) => (Ok(()), None),
+            Err(WriteFault::Failed(error)) => {
                 let reason = format!("JSON-RPC connection write failed: {error}");
                 (Err(Error::connection_closed(reason.clone())), Some(reason))
             }
-            Err(_) => {
+            Err(WriteFault::Stalled) => {
                 // Possibly a partial frame on the wire: the stream is unusable.
-                let reason = "LSP request write timed out".to_owned();
+                let reason = stalled_write(outbound.stall);
                 (Err(Error::timeout(reason.clone())), Some(reason))
             }
         };
@@ -49,8 +50,48 @@ pub(super) async fn write_loop<W>(
         }
         if let Some(reason) = broken {
             exit.reason = reason;
+            // Fail the connection before the queue closes, so a caller
+            // waiting for queue space reads why.
+            drop(exit);
             return;
         }
+    }
+}
+
+/// Writes the frame whole and flushes it, failing only when the server
+/// stops reading: each write and the flush may wait up to the frame's stall
+/// window for the pipe to take anything, and every byte it takes starts the
+/// window again (and counts in [`Shared::written_bytes`]). A server that
+/// reads slowly but steadily is never cut, however large the frame.
+async fn write_progressing<W>(
+    writer: &mut W,
+    outbound: &Outbound,
+    shared: &Shared,
+) -> std::result::Result<(), WriteFault>
+where
+    W: AsyncWrite + Unpin,
+{
+    let (stall, clock) = (outbound.stall, &shared.clock);
+    let mut rest = outbound.frame.as_slice();
+    while !rest.is_empty() {
+        match clock.timeout(stall, writer.write(rest)).await {
+            Ok(Ok(0)) => {
+                return Err(WriteFault::Failed(std::io::ErrorKind::WriteZero.into()));
+            }
+            Ok(Ok(taken)) => {
+                rest = rest.get(taken..).unwrap_or_default();
+                shared
+                    .written_bytes
+                    .fetch_add(taken as u64, Ordering::AcqRel);
+            }
+            Ok(Err(error)) => return Err(WriteFault::Failed(error)),
+            Err(_) => return Err(WriteFault::Stalled),
+        }
+    }
+    match clock.timeout(stall, writer.flush()).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => Err(WriteFault::Failed(error)),
+        Err(_) => Err(WriteFault::Stalled),
     }
 }
 
@@ -68,7 +109,11 @@ pub(super) async fn read_loop<R>(
         let body = match read_frame(&mut reader).await {
             Ok(Frame::Body(body)) => body,
             Ok(Frame::Empty) => continue,
-            Ok(Frame::Eof) => return,
+            Ok(Frame::Eof) => {
+                "LSP connection closed: the language server closed its output (it exited or closed stdout)"
+                    .clone_into(&mut exit.reason);
+                return;
+            }
             Err(error) => {
                 exit.reason = error.0;
                 return;
@@ -160,16 +205,21 @@ async fn dispatch(
                 }
                 let reply = client_response_for(&method, params.as_ref(), context).into_message(id);
                 let frame = encode_frame(&reply).map_err(|error| error.reason)?;
-                let deadline = Instant::now() + Duration::from_millis(REPLY_ENQUEUE_DEADLINE_MS);
+                let stall = Duration::from_millis(notify_stall_ms(frame.len()));
                 let queued = Outbound {
                     frame,
-                    deadline: deadline + Duration::from_millis(NOTIFY_BASE_DEADLINE_MS),
+                    stall,
                     written: None,
                 };
-                match tokio::time::timeout_at(deadline, shared.outbound.send(queued)).await {
-                    Ok(Ok(())) => {}
-                    Ok(Err(_)) => return Err("JSON-RPC writer stopped".to_owned()),
-                    Err(_) => {
+                // Waits for queue space only while the server reads the
+                // frames ahead.
+                match shared
+                    .while_reading(stall, shared.outbound.send(queued))
+                    .await
+                {
+                    Some(Ok(())) => {}
+                    Some(Err(_)) => return Err("JSON-RPC writer stopped".to_owned()),
+                    None => {
                         return Err(format!(
                             "LSP server stopped reading replies (reply to {method} could not be queued)"
                         ));

@@ -172,7 +172,8 @@ fn accepted_keeping(
     kept: bool,
 ) -> (Vec<(usize, usize, u16)>, usize, usize) {
     use crate::structural::octo::matching::CaptureEnv;
-    use crate::structural::octo::rule::{CompiledRule, Document, EVALUATIONS, RelationMemo};
+    use crate::structural::octo::rule::{CompiledRule, Document, RelationMemo};
+    use crate::structural::octo::tests::EVALUATIONS;
     let lang = AgLanguage::new(languages::find_entry(ext).expect("language"));
     let language = lang.tree_sitter_language();
     let tree = parse_tree(&language, source).expect("parses");

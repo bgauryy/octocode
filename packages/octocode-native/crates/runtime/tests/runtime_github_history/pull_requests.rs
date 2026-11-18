@@ -1,6 +1,7 @@
 //! ghGetHistoryItem pull request reads: output contract, body preview, squash merges and issue numbers.
 
 use crate::support::{self};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use support::{Workspace, call, checks, row_data, row_status};
 use wiremock::matchers::{method, path};
@@ -57,7 +58,7 @@ async fn squash_merge_commit_reads_its_pull_request_directly() {
     // state keeps its lead) and never reads it itself.
     assert_eq!(
         data["related"],
-        json!([{"kind":"related","tool":"ghGetHistoryItem",
+        json!([{"tool":"ghGetHistoryItem",
             "input":{"queries":[{"owner":"a","repo":"b","operation":"pullRequest","number":number}]}}]),
         "{data}"
     );
@@ -106,7 +107,14 @@ async fn gh_get_history_item_pull_request_without_content_passes_output_contract
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation": "pullRequest", "owner": "a", "repo": "b", "number": 7}),
+        json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "a",
+                "repo": "b",
+                "number": 7
+            }"#,
+        ),
     )
     .await
     .expect("PR fetch must satisfy the output contract");
@@ -145,14 +153,21 @@ async fn gh_pull_request_read_of_an_issue_number_offers_read_issue() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/pulls/9"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
+        .respond_with(
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
+        )
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/issues/9"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "number": 9, "title": "A bug", "state": "open", "user": {"login": "x"}
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "number": 9,
+                "title": "A bug",
+                "state": "open",
+                "user": {"login": "x"}
+            }"#,
+        )))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -160,7 +175,14 @@ async fn gh_pull_request_read_of_an_issue_number_offers_read_issue() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"pullRequest","owner":"a","repo":"b","number":9}),
+        json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "a",
+                "repo": "b",
+                "number": 9
+            }"#,
+        ),
     )
     .await
     .expect("error row");
@@ -211,7 +233,14 @@ async fn pr_summary_previews_the_body() {
     let outcome = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation": "pullRequest", "owner": "a", "repo": "b", "number": 7}),
+        json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "a",
+                "repo": "b",
+                "number": 7
+            }"#,
+        ),
     )
     .await
     .expect("PR summary");

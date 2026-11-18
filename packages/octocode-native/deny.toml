@@ -30,6 +30,9 @@ ignore = [
     { id = "RUSTSEC-2026-0370", reason = "zvariant: Linux-only via secret-service -> zbus 5; no zbus 6 keyring store released" },
     { id = "RUSTSEC-2026-0371", reason = "zbus_names: Linux-only via secret-service -> zbus 5; no zbus 6 keyring store released" },
     { id = "RUSTSEC-2026-0372", reason = "zvariant_derive: Linux-only via secret-service -> zbus 5; no zbus 6 keyring store released" },
+    # chrono is unmaintained and has no replacement release; rmcp 3.10 (the MCP
+    # server) and its schemars depend on it unconditionally. Remove when rmcp drops it.
+    { id = "RUSTSEC-2026-0543", reason = "chrono: required by rmcp 3.10 and schemars 1.2 with no feature to drop it" },
 ]
 
 # ── Licenses ──────────────────────────────────────────────────────────────────────────────
@@ -63,6 +66,8 @@ skip = [
     { name = "num-bigint", version = "0.4.8" },
     # Upstream: core-foundation 0.9 (keyring/security stacks) and 0.10 (reqwest).
     { name = "core-foundation", version = "0.9.4" },
+    # Upstream: wiremock 0.6 (a test dependency) uses base64 0.22; reqwest and hyper-util use 0.23.
+    { name = "base64", version = "0.22.1" },
 ]
 
 # ── Sources (crate registry allow-list) ──────────────────────────────────────────────────

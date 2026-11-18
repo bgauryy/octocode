@@ -54,6 +54,8 @@ const PLAN_SCOPES = {
   frameOperations: ['act', 'wait', 'extract', 'cdp', 'listen'],
   sessionOperations: [
     'goto',
+    'history',
+    'reload',
     'act',
     'wait',
     'extract',

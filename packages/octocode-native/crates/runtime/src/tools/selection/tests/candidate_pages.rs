@@ -1,6 +1,21 @@
 //! Candidate pages: each judges what the page before left unjudged, so a
 //! chain judges every eligible ordinal once.
 use super::*;
+use octocode_contract_types::SelectionStatus;
+use octocode_contract_types::SelectionUnit;
+use octocode_test_support::json_fixture;
+use octocode_tools_shared::selection::Candidate;
+use octocode_tools_shared::selection::Decision;
+use octocode_tools_shared::selection::JudgeCall;
+use octocode_tools_shared::selection::Judgments;
+use octocode_tools_shared::selection::SelectionJudge;
+use octocode_tools_shared::selection::kept_note;
+use octocode_tools_shared::selection::needs_candidate_states;
+use octocode_tools_shared::test_support::selection_runtime::select_source;
+use octocode_tools_shared::test_support::selection_runtime::selecting_runtime;
+use octocode_tools_shared::test_support::selection_runtime::test_runtime;
+use serde_json::Value;
+use serde_json::json;
 
 #[test]
 fn candidate_pages_walk_in_source_order_and_a_large_state_runs_alone() {
@@ -8,12 +23,12 @@ fn candidate_pages_walk_in_source_order_and_a_large_state_runs_alone() {
     let (mut runtime, calls) = selecting_runtime(&executor);
     runtime.limits.max_chars = 64;
     let candidates = [
-        Candidate::new(Some(json!({"content":"first"}))),
+        Candidate::new(Some(json_fixture(r#"{"content": "first"}"#))),
         Candidate::new(Some(json!({"content":"x".repeat(64)}))),
-        Candidate::new(Some(json!({"content":"second"}))),
+        Candidate::new(Some(json_fixture(r#"{"content": "second"}"#))),
         Candidate::new(None),
     ];
-    let query = json!({"classification":{"predicates":["find evidence"]}});
+    let query = json_fixture(r#"{"classification": {"predicates": ["find evidence"]}}"#);
     let run = |prior| {
         select_source(&runtime, &query, prior, &candidates, SelectionUnit::Hits)
             .unwrap_or_else(|_| panic!("mixed candidate page"))
@@ -55,7 +70,7 @@ fn a_chain_of_candidate_pages_judges_every_ordinal_once() {
     struct Recording(std::sync::Mutex<Vec<usize>>);
     impl SelectionJudge for Recording {
         fn identity(&self) -> Value {
-            json!({"test":"recording"})
+            json_fixture(r#"{"test": "recording"}"#)
         }
         fn select(&self, call: JudgeCall<'_>) -> Judgments {
             self.0.lock().expect("lock").extend(call.admitted);
@@ -82,7 +97,7 @@ fn a_chain_of_candidate_pages_judges_every_ordinal_once() {
         .map(|i| Candidate::new(Some(json!({"content":format!("evidence {i}")}))))
         .collect::<Vec<_>>();
     candidates.push(Candidate::new(None));
-    let query = json!({"classification":{"predicates":["evidence"]}});
+    let query = json_fixture(r#"{"classification": {"predicates": ["evidence"]}}"#);
     let run = |prior: Option<&str>| {
         select_source(&runtime, &query, prior, &candidates, SelectionUnit::Chunks)
             .unwrap_or_else(|_| panic!("candidate page"))
@@ -145,7 +160,7 @@ fn the_last_candidate_page_tallies_the_whole_walk() {
     struct Thirds;
     impl SelectionJudge for Thirds {
         fn identity(&self) -> Value {
-            json!({"test":"thirds"})
+            json_fixture(r#"{"test": "thirds"}"#)
         }
         fn select(&self, call: JudgeCall<'_>) -> Judgments {
             Ok(call
@@ -168,7 +183,7 @@ fn the_last_candidate_page_tallies_the_whole_walk() {
     let candidates = (0..9)
         .map(|i| Candidate::new(Some(json!({"content":format!("evidence {i}")}))))
         .collect::<Vec<_>>();
-    let query = json!({"classification":{"predicates":["evidence"]}});
+    let query = json_fixture(r#"{"classification": {"predicates": ["evidence"]}}"#);
     let run = |prior: Option<&str>| {
         select_source(&runtime, &query, prior, &candidates, SelectionUnit::Hits)
             .unwrap_or_else(|_| panic!("candidate page"))
@@ -217,7 +232,7 @@ fn the_kept_note_names_hidden_near_misses() {
     struct Related;
     impl SelectionJudge for Related {
         fn identity(&self) -> serde_json::Value {
-            json!({"test":"related"})
+            json_fixture(r#"{"test": "related"}"#)
         }
         fn select(&self, call: JudgeCall<'_>) -> Judgments {
             Ok(call
@@ -232,7 +247,7 @@ fn the_kept_note_names_hidden_near_misses() {
     let candidates = (0..3)
         .map(|i| Candidate::new(Some(json!({"content":format!("evidence {i}")}))))
         .collect::<Vec<_>>();
-    let query = json!({"classification":{"predicates":["evidence"]}});
+    let query = json_fixture(r#"{"classification": {"predicates": ["evidence"]}}"#);
     let outcome = select_source(&runtime, &query, None, &candidates, SelectionUnit::Hits)
         .unwrap_or_else(|_| panic!("selection"));
     assert_eq!(outcome.receipt.status, SelectionStatus::Complete);
@@ -248,14 +263,20 @@ fn the_kept_note_names_hidden_near_misses() {
 /// long-context window answered warns on its row with the tokens billed.
 #[test]
 fn a_provider_page_discloses_its_long_context_retries() {
-    use crate::tools::selection::long_window_fake::{BILLED, LongWindow};
+    use octocode_tools_shared::selection::long_window_fake::{BILLED, LongWindow};
     let window = LongWindow::start();
     let files: Vec<Value> = (0..2)
         .map(|i| json!({"path":format!("{i}.rs"),"matches":[{"line":1,"value":format!("fn candidate_{i}() {{}}")}]}))
         .collect();
     let mut output = json!({"results":[{"index":0,"data":{"owner":"o","repo":"r","files":files}}]});
-    let query = json!({"owner":"o","repo":"r","keywords":["fn"],
-        "classification":{"predicates":["Does this define a function?"]}});
+    let query = json_fixture(
+        r#"{
+            "owner": "o",
+            "repo": "r",
+            "keywords": ["fn"],
+            "classification": {"predicates": ["Does this define a function?"]}
+        }"#,
+    );
     apply_code_rows(
         &mut output,
         query.clone(),
@@ -286,14 +307,14 @@ fn a_provider_page_discloses_its_long_context_retries() {
 /// original read as the one that billed the tokens, and no request is sent.
 #[test]
 fn a_replayed_candidate_page_keeps_its_retry_notice_without_claiming_the_billing() {
-    use crate::tools::selection::long_window_fake::{BILLED, LongWindow};
+    use octocode_tools_shared::selection::long_window_fake::{BILLED, LongWindow};
     let mut window = LongWindow::start();
     window.selection.limits.max_chars = 1;
     let candidates = [
-        Candidate::new(Some(json!({"content":"first"}))),
-        Candidate::new(Some(json!({"content":"second"}))),
+        Candidate::new(Some(json_fixture(r#"{"content": "first"}"#))),
+        Candidate::new(Some(json_fixture(r#"{"content": "second"}"#))),
     ];
-    let query = json!({"classification":{"predicates":["find evidence"]}});
+    let query = json_fixture(r#"{"classification": {"predicates": ["find evidence"]}}"#);
     let run = |prior| {
         select_source(
             &window.selection,
@@ -337,14 +358,20 @@ fn a_replayed_candidate_page_keeps_its_retry_notice_without_claiming_the_billing
 /// wording is pinned at `judgment::tests::usage`.)
 #[test]
 fn a_long_window_answer_without_usage_is_refused_not_billed_as_a_number() {
-    use crate::tools::selection::long_window_fake::LongWindow;
+    use octocode_tools_shared::selection::long_window_fake::LongWindow;
     let window = LongWindow::start_without_usage();
     let files: Vec<Value> = (0..2)
         .map(|i| json!({"path":format!("{i}.rs"),"matches":[{"line":1,"value":format!("fn candidate_{i}() {{}}")}]}))
         .collect();
     let mut output = json!({"results":[{"index":0,"data":{"owner":"o","repo":"r","files":files}}]});
-    let query = json!({"owner":"o","repo":"r","keywords":["fn"],
-        "classification":{"predicates":["Does this define a function?"]}});
+    let query = json_fixture(
+        r#"{
+            "owner": "o",
+            "repo": "r",
+            "keywords": ["fn"],
+            "classification": {"predicates": ["Does this define a function?"]}
+        }"#,
+    );
     apply_code_rows(
         &mut output,
         query.clone(),
@@ -376,8 +403,15 @@ fn a_default_page_walk_follows_each_emitted_candidate_page() {
         .map(|i| json!({"path":format!("{i}.rs"),"matches":[{"line":1,"value":format!("fn candidate_{i}() {{}}")}]}))
         .collect();
     let original = json!({"results":[{"index":0,"data":{"owner":"o","repo":"r","files":files}}]});
-    let mut query = json!({"owner":"o","repo":"r","page":1,"keywords":["fn"],
-        "classification":{"predicates":["Does this define a function?"]}});
+    let mut query = json_fixture(
+        r#"{
+            "owner": "o",
+            "repo": "r",
+            "page": 1,
+            "keywords": ["fn"],
+            "classification": {"predicates": ["Does this define a function?"]}
+        }"#,
+    );
     let mut seen = HashSet::new();
     loop {
         let mut output = original.clone();
@@ -417,8 +451,15 @@ fn provider_candidate_pages_cover_the_same_page_and_refuse_source_drift() {
             "owner":"o","repo":"r","keywords":["fn"],"page":4
         }]}}}
     }}]});
-    let mut query = json!({"owner":"o","repo":"r","page":3,"keywords":["fn"],
-        "classification":{"predicates":["Does this define a function?"]}});
+    let mut query = json_fixture(
+        r#"{
+            "owner": "o",
+            "repo": "r",
+            "page": 3,
+            "keywords": ["fn"],
+            "classification": {"predicates": ["Does this define a function?"]}
+        }"#,
+    );
     let mut seen = HashSet::new();
     let mut first_next = None;
     for page in 0..6 {
@@ -454,7 +495,8 @@ fn provider_candidate_pages_cover_the_same_page_and_refuse_source_drift() {
     assert_eq!(calls.load(Ordering::SeqCst), 6);
     let query = first_next.expect("continuation");
     let mut changed = original;
-    changed["results"][0]["data"]["files"][0]["matches"] = json!([{"line":1,"value":"changed"}]);
+    changed["results"][0]["data"]["files"][0]["matches"] =
+        json_fixture(r#"[{"line": 1, "value": "changed"}]"#);
     apply_code_rows(&mut changed, query.clone(), &mut query.clone(), &runtime)
         .expect("typed stale error");
     assert_eq!(changed["results"][0]["data"]["errorCode"], "staleSnapshot");

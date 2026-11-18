@@ -4,6 +4,7 @@
 //! splits a row, and every line arrives once, in order.
 use super::walk;
 use crate::support::Workspace;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 
 const WINDOW: usize = 900;
@@ -13,6 +14,27 @@ fn utf16(value: &Value) -> usize {
         .expect("serializes")
         .encode_utf16()
         .count()
+}
+
+/// Response chars the pager measured of the calls `page` serves: each call's
+/// `kind` (`"kind":"continue",`), which the response drops once the page is
+/// cut, so a served page can end that much short of its window.
+fn dropped_kinds(page: &Value) -> usize {
+    let mut chars = 0;
+    octocode_runtime_base::response::continuations::visit_calls(
+        octocode_runtime_base::id::ToolId::LocalFetch,
+        page,
+        &mut |_, path| {
+            let kind = if path.iter().any(|key| key == "related") {
+                "related"
+            } else {
+                "continue"
+            };
+            chars += format!("\"kind\":\"{kind}\",").len();
+        },
+    )
+    .expect("declared calls");
+    chars
 }
 
 /// Response chars one source line takes as a page counts it: its JSON text
@@ -49,15 +71,16 @@ async fn a_line_page_fills_its_window_up_to_the_line_that_does_not_fit() {
         assert!(row.get("rowPart").is_none(), "page {at} splits its row");
         let content = row["data"]["content"].as_str().expect("content");
         // The page as the reader counts it: each line at the widest gutter,
-        // and the row as a cursor's page shows it. The first response to the
+        // each call with the kind the pager measured, and the row as a
+        // cursor's page shows it. The first response to the
         // fresh request drops the `path` that echoes its query after the
         // reader measured the row, so it keeps that room unused; a page read
         // through a cursor keeps its `path` and fills its window exactly.
         let mut shown = 0;
-        let mut counted_chars = chars;
+        let mut counted_chars = chars + dropped_kinds(page);
         if at == 0 {
             assert!(row["data"].get("path").is_none(), "{page}");
-            counted_chars += utf16(&json!({"path":"source.txt"})) - 1;
+            counted_chars += utf16(&json_fixture(r#"{"path": "source.txt"}"#)) - 1;
         } else {
             assert_eq!(row["data"]["path"], "source.txt", "{page}");
         }

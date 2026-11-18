@@ -1,4 +1,5 @@
 use super::*;
+use octocode_test_support::json_fixture;
 
 /// The same continuation (tool, canonical input, saved work) issued to the
 /// same access identity has one handle, whichever output issues it and in
@@ -13,9 +14,19 @@ fn an_identical_continuation_has_one_handle() {
         assert!(registry.retain(pending, &context()).is_ok());
         token
     };
-    let lead = || json!({"queries":[{"path":"src","importerPage":2,"snapshot":"s"}]});
+    let lead = || {
+        json_fixture(
+            r#"{
+                "queries": [{"path": "src", "importerPage": 2, "snapshot": "s"}]
+            }"#,
+        )
+    };
     let first = issue(1, ToolId::LspSearch, lead(), 0);
-    let reordered = json!({"queries":[{"snapshot":"s","importerPage":2,"path":"src"}]});
+    let reordered = json_fixture(
+        r#"{
+            "queries": [{"snapshot": "s", "importerPage": 2, "path": "src"}]
+        }"#,
+    );
     assert_eq!(issue(1, ToolId::LspSearch, reordered, 0), first);
     assert_eq!(issue(1, ToolId::LspSearch, lead(), 0), first);
     for other in [
@@ -25,7 +36,11 @@ fn an_identical_continuation_has_one_handle() {
         issue(
             1,
             ToolId::LspSearch,
-            json!({"queries":[{"path":"src","importerPage":3,"snapshot":"s"}]}),
+            json_fixture(
+                r#"{
+                    "queries": [{"path": "src", "importerPage": 3, "snapshot": "s"}]
+                }"#,
+            ),
             0,
         ),
     ] {
@@ -38,7 +53,7 @@ fn an_identical_continuation_has_one_handle() {
     assert!(registry.open(ToolId::LspSearch, &first, [2; 32]).is_err());
     assert_eq!(
         first.len(),
-        crate::response::cursor::issued::placeholder().len()
+        octocode_runtime_base::response::cursor::issued::placeholder().len()
     );
 }
 
@@ -57,7 +72,7 @@ fn reissuing_work_under_another_policy_does_not_resurrect_old_tokens() {
     };
     let (old, current) = (make("old-policy"), make("current-policy"));
     let access = [1; 32];
-    let input = json!({"queries":[{"path":"src"}]});
+    let input = json_fixture(r#"{"queries": [{"path": "src"}]}"#);
     for work in [
         SavedWork::ToolResume { index: Some(0) },
         SavedWork::Rows {
@@ -109,7 +124,7 @@ fn policy_free_handles_stay_expired_after_identical_work_is_reissued() {
     let mut pending = registry.pending([1; 32], None);
     let new_token = pending.insert(
         ToolId::LocalFetch,
-        json!({"queries":[{"path":"src"}]}),
+        json_fixture(r#"{"queries": [{"path": "src"}]}"#),
         SavedWork::ToolResume { index: Some(0) },
     );
     registry.retain(pending, &context()).unwrap();

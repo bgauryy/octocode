@@ -2,6 +2,7 @@
 
 use super::{SHA, mount_file_batches, mount_pr, numbered, pr, raw_patch, rest_file, run};
 use crate::support::{self, Run as _};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use std::time::Duration;
 use support::Workspace;
@@ -20,7 +21,20 @@ async fn inventory_cursors_keep_identity_and_reach_each_file_once() {
     .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let mut input = json!({"queries":[{"operation":"pullRequest","owner":"a","repo":"b","number":9,"sections":["files"]}],"responseChars":3000});
+    let mut input = json_fixture(
+        r#"{
+            "queries": [
+                {
+                    "operation": "pullRequest",
+                    "owner": "a",
+                    "repo": "b",
+                    "number": 9,
+                    "sections": ["files"]
+                }
+            ],
+            "responseChars": 3000
+        }"#,
+    );
     let mut seen = Vec::new();
     for _ in 0..100 {
         let result = support::run(&runtime, "ghGetHistoryItem", input).await;
@@ -35,7 +49,7 @@ async fn inventory_cursors_keep_identity_and_reach_each_file_once() {
             .pointer("/responsePagination/next")
             .or_else(|| data.pointer("/pullRequests/0/next/files"));
         let Some(next) = next else { break };
-        assert_eq!(next["kind"], "continue");
+        assert_eq!(next.get("kind"), None);
         assert!(next["input"]["cursor"].is_string());
         input = next["input"].clone();
     }
@@ -63,13 +77,14 @@ async fn patch_window_does_not_repeat_the_file_cursor_in_content_pagination() {
     .await;
     let data = run(
         &server,
-        json!({"sections":["patches"],"include":["src/big.rs"]}),
+        json_fixture(r#"{"sections": ["patches"], "include": ["src/big.rs"]}"#),
     )
     .await;
     let row = &data["pullRequests"][0];
-    let file = &row["files"][0];
-    assert_eq!(file["patchPagination"]["hasMore"], true, "{row}");
     let pages = &row["sectionPagination"];
+    // The window is stated once, on the section; the file row repeats none.
+    assert!(row["files"][0].get("patchPagination").is_none(), "{row}");
+    assert_eq!(pages["patches"]["hasMore"], true, "{row}");
     // The finished single-page file list states no block (one page holds
     // its complete result), and the cursor copy adds nothing.
     assert!(pages.get("files").is_none(), "{pages}");
@@ -108,7 +123,11 @@ async fn pr_views_are_verbatim_by_default() {
         Duration::ZERO,
     )
     .await;
-    let data = run(&server, json!({"sections":["body","patches"]})).await;
+    let data = run(
+        &server,
+        json_fixture(r#"{"sections": ["body", "patches"]}"#),
+    )
+    .await;
     let row = &data["pullRequests"][0];
     assert_eq!(row["body"], raw_body, "{row}");
     assert!(row.get("bodyView").is_none(), "{row}");
@@ -160,17 +179,25 @@ async fn merged_pr_rows_keep_merge_state_on_every_read() {
         ("summary", json!({}), true),
         (
             "body+inventory",
-            json!({"sections":["body","files"]}),
+            json_fixture(r#"{"sections": ["body", "files"]}"#),
             false,
         ),
-        ("inventory", json!({"sections":["files"]}), false),
+        (
+            "inventory",
+            json_fixture(r#"{"sections": ["files"]}"#),
+            false,
+        ),
         (
             "patches",
-            json!({"sections":["patches"],"include":["src/hit.rs"]}),
+            json_fixture(r#"{"sections": ["patches"], "include": ["src/hit.rs"]}"#),
             false,
         ),
         // A `matchString` with no section named reads the patches it searches.
-        ("matchString", json!({"matchString": ["needle"]}), false),
+        (
+            "matchString",
+            json_fixture(r#"{"matchString": ["needle"]}"#),
+            false,
+        ),
     ] {
         let data = run(&server, query).await;
         let row = &data["pullRequests"][0];
@@ -184,7 +211,11 @@ async fn merged_pr_rows_keep_merge_state_on_every_read() {
         if full_header {
             assert_eq!(row["mergedAt"], "2024-01-03T00:00:00Z", "{label}: {row}");
             assert_eq!(row["baseBranch"], "main", "{label}: {row}");
-            assert_eq!(row["labels"], json!(["refactor"]), "{label}: {row}");
+            assert_eq!(
+                row["labels"],
+                json_fixture(r#"["refactor"]"#),
+                "{label}: {row}"
+            );
         } else {
             for summary_only in ["mergedAt", "baseBranch", "labels", "title", "author"] {
                 assert!(row.get(summary_only).is_none(), "{label}: {row}");
@@ -213,7 +244,15 @@ async fn inventory_cursor_replay_returns_the_same_pinned_file_page() {
     let first = support::run(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"pullRequest","owner":"a","repo":"b","number":9,"sections":["files"]}),
+        json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "a",
+                "repo": "b",
+                "number": 9,
+                "sections": ["files"]
+            }"#,
+        ),
     )
     .await;
     let next = first.data()["pullRequests"][0]["next"]["files"]["input"].clone();
@@ -285,7 +324,15 @@ async fn files_and_reviews_together_walk_every_file_and_review_once() {
         mount_reviews(&server, reviews).await;
         let workspace = Workspace::new();
         let runtime = workspace.runtime(&support::github_api(&server));
-        let query = json!({"operation":"pullRequest","owner":"a","repo":"b","number":9,"sections":["files","reviews"]});
+        let query = json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "a",
+                "repo": "b",
+                "number": 9,
+                "sections": ["files", "reviews"]
+            }"#,
+        );
         for start in [
             json!({"queries": [query]}),
             json!({"queries": [query], "responseChars": 3000}),
@@ -369,10 +416,24 @@ async fn file_page_continuations_continue_the_same_grid_in_any_batch() {
     .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let files_row = json!({"operation":"pullRequest","owner":"a","repo":"b","number":9,
-        "sections":["files"]});
-    let body_row = json!({"operation":"pullRequest","owner":"a","repo":"b","number":9,
-        "sections":["body"]});
+    let files_row = json_fixture(
+        r#"{
+            "operation": "pullRequest",
+            "owner": "a",
+            "repo": "b",
+            "number": 9,
+            "sections": ["files"]
+        }"#,
+    );
+    let body_row = json_fixture(
+        r#"{
+            "operation": "pullRequest",
+            "owner": "a",
+            "repo": "b",
+            "number": 9,
+            "sections": ["body"]
+        }"#,
+    );
     // One call: the files row with or without a batched body row; returns
     // the files row's paths and its copied-unchanged next file page.
     for first_batched in [true, false] {

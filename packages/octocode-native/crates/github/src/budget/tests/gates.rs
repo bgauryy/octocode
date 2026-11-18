@@ -56,7 +56,7 @@ async fn oauth_admission_holds_permits_and_honors_cancellation_and_shared_cooldo
 /// queue is routine spacing.
 #[test]
 fn git_admission_waits_land_on_the_row_by_cause() {
-    use octocode_contract_types::ClientWaitKind;
+    use octocode_contract_base::ClientWaitKind;
     let ms = |context: &crate::RequestContext, kind: ClientWaitKind| {
         context
             .waits
@@ -82,7 +82,7 @@ fn git_admission_waits_land_on_the_row_by_cause() {
     drop(
         GitLimiter::new(Arc::clone(&budget), None)
             .for_row(&cooled)
-            .acquire_blocking(&key, Duration::from_secs(1), deadline(), &|| false)
+            .acquire_blocking(&key, deadline(), &|| false)
             .expect("after the cooldown"),
     );
     assert!(
@@ -94,19 +94,14 @@ fn git_admission_waits_land_on_the_row_by_cause() {
     let held = (0..budget.config().git_concurrency.max(1))
         .map(|_| {
             GitLimiter::new(Arc::clone(&budget), None)
-                .acquire_blocking(&key, Duration::from_secs(1), deadline(), &|| false)
+                .acquire_blocking(&key, deadline(), &|| false)
                 .expect("a free permit")
         })
         .collect::<Vec<_>>();
     let refused = row();
     let error = GitLimiter::new(Arc::clone(&budget), None)
         .for_row(&refused)
-        .acquire_blocking(
-            &key,
-            Duration::from_secs(1),
-            Instant::now() + Duration::from_millis(250),
-            &|| false,
-        )
+        .acquire_blocking(&key, Instant::now() + Duration::from_millis(250), &|| false)
         .expect_err("every permit stays held past the deadline");
     assert_eq!(error.kind, ProviderErrorKind::Timeout);
     assert!(
@@ -130,12 +125,63 @@ fn git_gate_fails_fast_on_long_cooldown() {
     let state = budget.key_state(&key, Some(dir.path()));
     let deadline = Instant::now() + Duration::from_secs(5);
     let permit = GitLimiter::new(Arc::clone(&budget), Some(dir.path().to_owned()))
-        .acquire_blocking(&key, Duration::from_secs(1), deadline, &|| false)
+        .acquire_blocking(&key, deadline, &|| false)
         .expect("free git slot");
     drop(permit);
     state.cool_down(now_ms() + 60_000);
     let error = GitLimiter::new(GitHubBudget::relaxed(), Some(dir.path().to_owned()))
-        .acquire_blocking(&key, Duration::from_secs(1), deadline, &|| false)
+        .acquire_blocking(&key, deadline, &|| false)
         .expect_err("cooldown");
     assert_eq!(error.kind, ProviderErrorKind::RateLimited);
+}
+
+/// A clone waits out a secondary cooldown of any length while it ends before
+/// the clone's deadline (here until the caller cancels), as an API request
+/// does; a cooldown that ends past the deadline fails at once with its
+/// rate-limit facts, waiting nothing.
+#[test]
+fn git_admission_waits_out_a_long_cooldown_that_ends_before_the_deadline() {
+    use octocode_contract_base::ClientWaitKind;
+    let secondary = |context: &crate::RequestContext| {
+        context
+            .waits
+            .summed()
+            .iter()
+            .filter(|wait| wait.kind == ClientWaitKind::SecondaryLimit)
+            .map(|wait| wait.ms)
+            .sum::<i64>()
+    };
+    let row = || {
+        crate::RequestContext::new(
+            octocode_io::budget::RequestBudget::with_timeout(Duration::from_secs(60), 1024),
+            None,
+        )
+    };
+    let budget = GitHubBudget::relaxed();
+    let key = LimiterKey::new("github.com", None);
+    budget.key_state(&key, None).cool_down(now_ms() + 30_000);
+
+    let waiting = row();
+    let started = Instant::now();
+    let error = GitLimiter::new(Arc::clone(&budget), None)
+        .for_row(&waiting)
+        .acquire_blocking(&key, started + Duration::from_secs(60), &|| {
+            started.elapsed() >= Duration::from_millis(300)
+        })
+        .expect_err("cancelled while it waits out the cooldown");
+    assert_eq!(error.kind, ProviderErrorKind::Cancelled, "{error:?}");
+    assert!(secondary(&waiting) >= 200, "{:?}", waiting.waits.summed());
+
+    let refused = row();
+    let error = GitLimiter::new(Arc::clone(&budget), None)
+        .for_row(&refused)
+        .acquire_blocking(&key, Instant::now() + Duration::from_secs(20), &|| false)
+        .expect_err("the cooldown ends past the deadline");
+    assert_eq!(error.kind, ProviderErrorKind::RateLimited, "{error:?}");
+    let rate = error.rate_limit.expect("the cooldown's facts");
+    assert!(
+        rate.retry_after_seconds.is_some_and(|seconds| seconds > 20),
+        "{rate:?}"
+    );
+    assert_eq!(secondary(&refused), 0, "{:?}", refused.waits.summed());
 }

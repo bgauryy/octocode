@@ -6,7 +6,7 @@ use std::{sync::Arc, time::Duration};
 
 use octocode_io::retry::{classify_status, header_u64, retry_after_delay};
 
-use super::super::response::response_error;
+use super::super::{RetryPolicy, response::response_error};
 use super::{Attempts, RetryWait};
 use crate::budget::{
     CircuitCause, ExecutorConfig, GitHubResource, KeyState, is_primary_rate_limit,
@@ -46,7 +46,7 @@ impl Attempts<'_> {
                     secondary_cooldown(
                         &self.state,
                         headers,
-                        secondary_wait(headers, self.config),
+                        secondary_wait(headers, self.config, &self.transport.retry, *self.attempt),
                         resource,
                     );
                 }
@@ -79,8 +79,10 @@ impl Attempts<'_> {
                     sleep: Duration::ZERO,
                 })
             }
-            Failure::Secondary { wait } => {
+            Failure::Secondary => {
                 *self.failed = Some(CircuitCause::Secondary);
+                let wait =
+                    secondary_wait(headers, self.config, &self.transport.retry, *self.attempt);
                 error.kind = ProviderErrorKind::RateLimited;
                 error.retryable = true;
                 error.message = "GitHub secondary rate limit exceeded".into();
@@ -129,22 +131,30 @@ enum Failure {
         wait: Duration,
         secondary: bool,
     },
-    /// Secondary limit: key-wide cooldown for `wait`.
-    Secondary { wait: Duration },
+    /// Secondary limit: a key-wide cooldown for [`secondary_wait`].
+    Secondary,
     /// 5xx or 408: retried with jittered backoff or `retry-after`.
     Server,
     /// Octokit doNotRetry (400/401/403/404/410/422/451) and everything else.
     Final,
 }
 
-/// How long a secondary limit answered with `headers` holds: what GitHub says,
-/// else the documented default. A spent bucket's reset is not a secondary
-/// wait: such an answer is that bucket's limit ([`spent_bucket_reset`]).
+/// How long a secondary limit answered with `headers` on attempt `attempt`
+/// (0-based) holds: what GitHub says, else the documented default, and never
+/// less than that attempt's backoff. GitHub asks for an exponentially growing
+/// wait while a secondary limit repeats, so a declared wait under the backoff
+/// (`retry-after: 0`) still backs off, while a longer one is kept whole. A
+/// spent bucket's reset is not a secondary wait: such an answer is that
+/// bucket's limit ([`spent_bucket_reset`]).
 pub(in crate::transport) fn secondary_wait(
     headers: &HeaderMap,
     config: &ExecutorConfig,
+    retry: &RetryPolicy,
+    attempt: u8,
 ) -> Duration {
-    provider_retry_after(headers).unwrap_or(config.secondary_default)
+    provider_retry_after(headers)
+        .unwrap_or(config.secondary_default)
+        .max(retry.backoff().next_delay(u32::from(attempt)))
 }
 
 /// The reset of the bucket a rate-limited answer's headers say is spent
@@ -210,9 +220,7 @@ fn classify_failure(
         };
     }
     if is_secondary_rate_limit(code, remaining, retry_after, &text) {
-        return Failure::Secondary {
-            wait: secondary_wait(headers, config),
-        };
+        return Failure::Secondary;
     }
     if is_primary_rate_limit(code, remaining, &text) {
         let reset = reset.unwrap_or_else(|| {
@@ -232,21 +240,4 @@ fn classify_failure(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn provider_retry_after_preserves_declared_delays_without_a_day_cap() {
-        for seconds in [2 * 24 * 60 * 60, u64::MAX] {
-            let mut headers = HeaderMap::new();
-            headers.insert(
-                "retry-after",
-                reqwest::header::HeaderValue::from_str(&seconds.to_string()).expect("header"),
-            );
-            assert_eq!(
-                provider_retry_after(&headers),
-                Some(Duration::from_secs(seconds))
-            );
-        }
-    }
-}
+mod tests;

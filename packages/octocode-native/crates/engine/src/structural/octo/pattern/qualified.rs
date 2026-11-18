@@ -18,7 +18,7 @@ use crate::structural::octo::metavars::meta_from_node;
 
 /// How a grammar qualifies a name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Separator {
+pub(crate) enum Separator {
     /// A namespace path (`a::name`): a longer path before a literal name is
     /// a qualification, never a receiver.
     Path,

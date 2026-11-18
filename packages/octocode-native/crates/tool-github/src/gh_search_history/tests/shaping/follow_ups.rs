@@ -1,0 +1,345 @@
+//! The reads and broader searches a page leads to: the best row to read,
+//! the issue-links read, and one-filter-at-a-time broadening of an empty
+//! search.
+use super::*;
+use octocode_test_support::json_fixture;
+
+/// Commit history's path is literal and can name a file or directory;
+/// the next tool takes globs, which must preserve that exact scope.
+#[test]
+fn history_path_handoffs_preserve_literal_files_and_directory_descendants() {
+    for path in [
+        "src",
+        "src/",
+        "src/lib.rs",
+        "src/file name.rs",
+        "src/日本語.rs",
+    ] {
+        assert_path_handoffs(path);
+    }
+}
+
+/// These valid GitHub names cannot reach the native handoff until core's
+/// LiteralPathSchema stops treating literal metacharacters as authored globs.
+#[test]
+#[ignore = "Blocked by core LiteralPathSchema rejecting valid GitHub paths with [], ? or {}"]
+fn history_path_handoffs_preserve_literal_metacharacters() {
+    for path in ["src/[id]", "src/a?.rs", "src/{one,two}.rs"] {
+        assert_path_handoffs(path);
+    }
+}
+
+fn assert_path_handoffs(path: &str) {
+    let query: GhSearchHistoryQuery = serde_json::from_value(json!({
+        "operation":"commit","owner":"o","repo":"r","path":path
+    }))
+    .unwrap_or_else(|error| panic!("contract rejected {path:?}: {error}"));
+    let rows = [json_fixture(r#"{"messageHeadline": "Fix (#1)"}"#)];
+    for lead in [
+        super::leads::read_commit(&query, "a"),
+        super::leads::read_commit_pull_request(&query, &rows),
+    ] {
+        let lead = lead.expect("read");
+        let patterns: Vec<_> = lead["input"]["queries"][0]["include"]
+            .as_array()
+            .expect("include")
+            .iter()
+            .map(|pattern| {
+                globset::GlobBuilder::new(pattern.as_str().expect("glob"))
+                    .literal_separator(true)
+                    .build()
+                    .expect("valid emitted glob")
+                    .compile_matcher()
+            })
+            .collect();
+        let selected = |candidate: &str| patterns.iter().any(|p| p.is_match(candidate));
+        let root = path.trim_end_matches('/');
+        assert!(selected(root), "literal {path}: {lead}");
+        assert!(
+            selected(&format!("{root}/nested/file.rs")),
+            "directory {path}: {lead}"
+        );
+        assert!(
+            !selected(&format!("{root}-sibling/file.rs")),
+            "sibling {path}: {lead}"
+        );
+        if path.contains('[') {
+            assert!(!selected("src/i"), "literal brackets: {lead}");
+        }
+        if path.contains('?') {
+            assert!(!selected("src/ab.rs"), "literal question mark: {lead}");
+        }
+        if path.contains('{') {
+            assert!(!selected("src/one.rs"), "literal braces: {lead}");
+        }
+    }
+}
+
+/// The default PR read targets the merged fix, not the first
+/// (unmerged) search row; the rows already name the others.
+#[test]
+fn read_pr_prefers_the_first_merged_row() {
+    let rows = [
+        json_fixture(
+            r#"{
+                "number": 13794,
+                "state": "closed",
+                "pull_request": {"merged_at": null}
+            }"#,
+        ),
+        json_fixture(
+            r#"{
+                "number": 13825,
+                "state": "closed",
+                "pull_request": {"merged_at": "2026-09-25T00:29:36Z"}
+            }"#,
+        ),
+        json_fixture(r#"{"number": 13787, "state": "open"}"#),
+    ];
+    let target = read_target(&rows, is_merged).expect("rows");
+    assert_eq!(item_number(&rows[target]), Some(13825));
+    // No merged row: the first row, unchanged.
+    let open = [
+        json_fixture(r#"{"number": 5, "state": "open"}"#),
+        json_fixture(r#"{"number": 6, "state": "closed"}"#),
+    ];
+    assert_eq!(read_target(&open, is_merged), Some(0));
+    assert_eq!(read_target(&[], is_merged), None);
+    let read = serde_json::to_value(pr_read_query("o", "r", 13825)).expect("plain data");
+    assert_eq!(read["number"], 13825);
+    assert_eq!(read["sections"], json_fixture(r#"["body", "files"]"#));
+    assert!(read.get("pageSize").is_none(), "{read}");
+}
+
+/// The issue read prefers an issue closed as completed (its fix landed).
+#[test]
+fn read_issue_prefers_a_completed_issue() {
+    let rows = [
+        json_fixture(r#"{"number": 1, "state": "open"}"#),
+        json_fixture(
+            r#"{
+                "number": 2,
+                "state": "closed",
+                "state_reason": "not_planned"
+            }"#,
+        ),
+        json_fixture(
+            r#"{
+                "number": 3,
+                "state": "closed",
+                "state_reason": "completed"
+            }"#,
+        ),
+    ];
+    let target = read_target(&rows, is_completed).expect("rows");
+    assert_eq!(item_number(&rows[target]), Some(3));
+    let read = serde_json::to_value(issue_read_query("o", "r", 3)).expect("plain data");
+    assert_eq!(
+        read["sections"],
+        json_fixture(r#"["body", "comments"]"#),
+        "{read}"
+    );
+}
+
+/// A bare issue number in the keywords links straight to that issue's
+/// closing pull requests.
+#[test]
+fn bare_issue_number_keywords_offer_the_issue_links_read() {
+    let q = parse(r##"{"operation":"pullRequest","owner":"o","repo":"r","keywords":["#13786"]}"##);
+    let read = issue_links_read(&q).expect("bare number");
+    assert_eq!(read["input"]["queries"][0]["operation"], "issue");
+    assert_eq!(read["input"]["queries"][0]["number"], 13786);
+    let words =
+        parse(r#"{"operation":"pullRequest","owner":"o","repo":"r","keywords":["fix 13786"]}"#);
+    assert!(issue_links_read(&words).is_none());
+}
+
+/// commits, pull requests and issues all take `since`/`until`).
+#[test]
+fn empty_searches_offer_a_broader_search() {
+    let broadened = |row: Value| {
+        let query: GhSearchHistoryQuery = serde_json::from_value(row).expect("query");
+        super::leads::broaden_search(&query).map(|lead| lead["input"]["queries"][0].clone())
+    };
+    let scoped: GhSearchHistoryQuery = serde_json::from_value(json_fixture(
+        r#"{
+            "operation": "pullRequest",
+            "owner": "o",
+            "repo": "r",
+            "keywords": ["fix"],
+            "page": 2,
+            "filters": {"author": "x"}
+        }"#,
+    ))
+    .expect("query");
+    let scoped = super::leads::broaden_search(&scoped).expect("lead")["input"]["queries"].clone();
+    // A variant keeps at least one keyword: dropping the only one would
+    // list the scope, unrelated to the topic searched.
+    assert_eq!(scoped.as_array().map(Vec::len), Some(1), "{scoped}");
+    assert!(scoped[0].get("filters").is_none(), "{scoped}");
+    assert!(scoped[0].get("page").is_none(), "{scoped}");
+    assert_eq!(
+        scoped[0]["keywords"],
+        json_fixture(r#"["fix"]"#),
+        "{scoped}"
+    );
+    // Every narrowing filter gets its own variant: a scoped keyword search
+    // that is empty because of its date window is recoverable too.
+    let both: GhSearchHistoryQuery = serde_json::from_value(json_fixture(
+        r#"{
+            "operation": "pullRequest",
+            "owner": "o",
+            "repo": "r",
+            "keywords": ["fix"],
+            "filters": {"createdAt": {"from": "2030-01-01T00:00:00Z"}}
+        }"#,
+    ))
+    .expect("query");
+    let both = super::leads::broaden_search(&both).expect("lead")["input"]["queries"].clone();
+    assert_eq!(both.as_array().map(Vec::len), Some(1), "{both}");
+    assert!(
+        both[0].get("filters").is_none() && both[0]["keywords"] == json_fixture(r#"["fix"]"#),
+        "{both}"
+    );
+    let qualifiers = broadened(json_fixture(
+        r#"{
+            "operation": "issue",
+            "owner": "o",
+            "repo": "r",
+            "filters": {"labels": ["bug"]}
+        }"#,
+    ))
+    .expect("qualifiers dropped");
+    assert!(qualifiers.get("filters").is_none(), "{qualifiers}");
+    let window = broadened(json_fixture(
+        r#"{
+            "operation": "commit",
+            "owner": "o",
+            "repo": "r",
+            "path": "src",
+            "filters": {"committedAt": {"from": "2026-09-24T00:00:00Z"}}
+        }"#,
+    ))
+    .expect("window dropped");
+    assert!(window.get("filters").is_none(), "{window}");
+    assert_eq!(window["path"], "src", "{window}");
+    for operation in ["pullRequest", "issue"] {
+        let window = broadened(json!({"operation":operation,"owner":"o","repo":"r",
+            "filters":{"createdAt":{"from":"2026-10-01T00:00:00Z","to":"2026-10-03T23:59:59Z"}}}))
+        .expect("window dropped");
+        assert!(window.get("filters").is_none(), "{operation}: {window}");
+        assert!(window.get("filters").is_none(), "{operation}: {window}");
+    }
+    assert!(
+        broadened(json_fixture(
+            r#"{"operation": "commit", "owner": "o", "repo": "r"}"#
+        ))
+        .is_none()
+    );
+}
+
+/// An empty search with several keywords offers one drop-one variant
+/// per keyword (at most 5, the last keyword dropped first) instead of
+/// dropping them all; a lone keyword is never dropped.
+#[test]
+fn empty_multi_keyword_search_broadens_one_keyword_at_a_time() {
+    let variants = |keywords: Value| {
+        let query: GhSearchHistoryQuery = serde_json::from_value(json!({"operation":"pullRequest",
+            "owner":"o","repo":"r","keywords":keywords}))
+        .expect("query");
+        super::leads::broaden_search(&query).expect("lead")["input"]["queries"].clone()
+    };
+    let three = variants(json_fixture(r#"["a", "b", "c"]"#));
+    let kept = three
+        .as_array()
+        .expect("queries")
+        .iter()
+        .map(|row| row["keywords"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        kept,
+        vec![
+            json_fixture(r#"["a", "b"]"#),
+            json_fixture(r#"["a", "c"]"#),
+            json_fixture(r#"["b", "c"]"#)
+        ]
+    );
+    // A variant is a fresh search from its first page.
+    assert!(
+        three
+            .as_array()
+            .expect("queries")
+            .iter()
+            .all(|row| row.get("pageSize").is_none())
+    );
+    // The only keyword is never dropped: nothing broader is offered.
+    let one: GhSearchHistoryQuery = serde_json::from_value(json_fixture(
+        r#"{
+            "operation": "pullRequest",
+            "owner": "o",
+            "repo": "r",
+            "keywords": ["a"]
+        }"#,
+    ))
+    .expect("query");
+    assert!(super::leads::broaden_search(&one).is_none());
+    let seven = variants(json_fixture(r#"["a", "b", "c", "d", "e", "f", "g"]"#));
+    assert_eq!(seven.as_array().map(Vec::len), Some(5), "{seven}");
+    assert_eq!(
+        seven[0]["keywords"],
+        json_fixture(r#"["a", "b", "c", "d", "e", "f"]"#)
+    );
+    assert_eq!(
+        seven[4]["keywords"],
+        json_fixture(r#"["a", "b", "d", "e", "f", "g"]"#)
+    );
+}
+
+/// The PR read of a relevance-ordered search targets row 0 (the best
+/// match), not the first merged row; a sorted page keeps merged-first.
+#[test]
+fn pull_request_read_targets_the_best_match_unless_sorted() {
+    let rows = [
+        json_fixture(r#"{"number": 10, "state": "open"}"#),
+        json_fixture(
+            r#"{
+                "number": 11,
+                "state": "closed",
+                "pull_request": {"merged_at": "2026-01-01T00:00:00Z"}
+            }"#,
+        ),
+    ];
+    let read = |query: Value| {
+        let query: GhSearchHistoryQuery = serde_json::from_value(query).expect("query");
+        super::leads::read_pull_request(&query, &rows).expect("read")["input"]["queries"][0]["number"].clone()
+    };
+    assert_eq!(
+        read(json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "o",
+                "repo": "r",
+                "keywords": ["x"]
+            }"#
+        )),
+        10
+    );
+    assert_eq!(
+        read(json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "o",
+                "repo": "r",
+                "keywords": ["x"],
+                "sort": {"by": "updatedAt", "order": "desc"}
+            }"#
+        )),
+        11
+    );
+    assert_eq!(
+        read(json_fixture(
+            r#"{"operation": "pullRequest", "owner": "o", "repo": "r"}"#
+        )),
+        11
+    );
+}

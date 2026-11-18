@@ -1,5 +1,5 @@
 use super::ToolRuntime;
-use crate::tools::ast_graph::store;
+use octocode_tool_graph::ast_graph::store;
 use std::path::PathBuf;
 
 impl ToolRuntime {

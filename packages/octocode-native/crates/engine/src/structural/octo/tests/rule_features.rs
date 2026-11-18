@@ -1,4 +1,5 @@
-use crate::structural::{StructuralMatch, search};
+use crate::structural::tests::search;
+use crate::structural::types::StructuralMatch;
 
 fn matches(source: &str, rule: serde_json::Value) -> Vec<StructuralMatch> {
     search(source, "ts", None, Some(&rule)).expect("valid structural rule")

@@ -1,6 +1,7 @@
 //! ghSearchHistory lists: commits, issues and pull requests via REST and search, defaults, filters and page ceilings.
 
 use crate::support::{self};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use support::{Workspace, call, row_data, row_status};
 use wiremock::matchers::{method, path, query_param};
@@ -12,25 +13,26 @@ async fn gh_search_history_commits_lists_via_rest() {
     // Repository metadata (rename) pre-flight
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"full_name":"a/b","default_branch":"main"})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"full_name": "a/b", "default_branch": "main"}"#,
+        )))
         .mount(&server)
         .await;
     // commit list (no keywords → REST list, not search API)
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-            {
-                "sha": "abc123",
-                "commit": {
-                    "message": "fix: stabilise parser",
-                    "author": {"name": "Alice", "date": "2024-01-01T00:00:00Z"}
-                },
-                "author": {"login": "alice"}
-            }
-        ])))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"[
+                {
+                    "sha": "abc123",
+                    "commit": {
+                        "message": "fix: stabilise parser",
+                        "author": {"name": "Alice", "date": "2024-01-01T00:00:00Z"}
+                    },
+                    "author": {"login": "alice"}
+                }
+            ]"#,
+        )))
         .mount(&server)
         .await;
 
@@ -39,7 +41,7 @@ async fn gh_search_history_commits_lists_via_rest() {
     let outcome = call(
         &runtime,
         "ghSearchHistory",
-        json!({"operation": "commit", "owner": "a", "repo": "b"}),
+        json_fixture(r#"{"operation": "commit", "owner": "a", "repo": "b"}"#),
     )
     .await
     .expect("gh_search_history commits");
@@ -65,12 +67,21 @@ async fn gh_search_history_issues_list_via_issue_search() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/issues"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count": 1,
-            "incomplete_results": false,
-            "items": [{"number": 42, "title": "Memory leak in parser", "state": "open",
-                       "user": {"login": "alice"}, "labels": []}]
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "total_count": 1,
+                "incomplete_results": false,
+                "items": [
+                    {
+                        "number": 42,
+                        "title": "Memory leak in parser",
+                        "state": "open",
+                        "user": {"login": "alice"},
+                        "labels": []
+                    }
+                ]
+            }"#,
+        )))
         .mount(&server)
         .await;
 
@@ -79,7 +90,7 @@ async fn gh_search_history_issues_list_via_issue_search() {
     let outcome = call(
         &runtime,
         "ghSearchHistory",
-        json!({"operation": "issue", "owner": "a", "repo": "b"}),
+        json_fixture(r#"{"operation": "issue", "owner": "a", "repo": "b"}"#),
     )
     .await
     .expect("gh_search_history issues");
@@ -115,24 +126,28 @@ async fn gh_search_history_pull_requests_lists_via_rest() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"full_name":"a/b","default_branch":"main"})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"full_name": "a/b", "default_branch": "main"}"#,
+        )))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/pulls"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-            {
-                "number": 7,
-                "title": "Add concurrency buffering",
-                "state": "open",
-                "user": {"login": "bob"},
-                "head": {"sha": "def4567def4567def4567def4567def4567def4567", "ref": "feat/buf"},
-                "base": {"sha": "main", "ref": "main"}
-            }
-        ])))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"[
+                {
+                    "number": 7,
+                    "title": "Add concurrency buffering",
+                    "state": "open",
+                    "user": {"login": "bob"},
+                    "head": {
+                        "sha": "def4567def4567def4567def4567def4567def4567",
+                        "ref": "feat/buf"
+                    },
+                    "base": {"sha": "main", "ref": "main"}
+                }
+            ]"#,
+        )))
         .mount(&server)
         .await;
 
@@ -141,7 +156,7 @@ async fn gh_search_history_pull_requests_lists_via_rest() {
     let outcome = call(
         &runtime,
         "ghSearchHistory",
-        json!({"operation": "pullRequest", "owner": "a", "repo": "b"}),
+        json_fixture(r#"{"operation": "pullRequest", "owner": "a", "repo": "b"}"#),
     )
     .await
     .expect("gh_search_history pullRequests");
@@ -168,13 +183,33 @@ async fn history_rest_continuations_execute_the_next_provider_page() {
         let (endpoint, rows, field) = if operation == "pullRequest" {
             (
                 "pulls",
-                json!([{"number": 9, "title": "Current PR", "state": "open", "user": {"login": "bob"}}]),
+                json_fixture(
+                    r#"[
+                        {
+                            "number": 9,
+                            "title": "Current PR",
+                            "state": "open",
+                            "user": {"login": "bob"}
+                        }
+                    ]"#,
+                ),
                 "pullRequests",
             )
         } else {
             (
                 "commits",
-                json!([{"sha": "abc123", "commit": {"message": "Current commit", "author": {"name": "Bob", "date": "2024-01-01T00:00:00Z"}}, "author": {"login": "bob"}}]),
+                json_fixture(
+                    r#"[
+                        {
+                            "sha": "abc123",
+                            "commit": {
+                                "message": "Current commit",
+                                "author": {"name": "Bob", "date": "2024-01-01T00:00:00Z"}
+                            },
+                            "author": {"login": "bob"}
+                        }
+                    ]"#,
+                ),
                 "commits",
             )
         };
@@ -217,7 +252,7 @@ async fn history_rest_continuations_execute_the_next_provider_page() {
             "{data}"
         );
         let next = &data["next"]["nextPage"];
-        assert_eq!(next["kind"], "continue");
+        assert_eq!(next.get("kind"), None);
         let end = call(&runtime, "ghSearchHistory", next["input"].clone())
             .await
             .expect("provider next page");
@@ -231,10 +266,9 @@ async fn history_rest_continuations_execute_the_next_provider_page() {
 async fn mount_repo_metadata(server: &MockServer) {
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"full_name":"a/b","default_branch":"main"})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"full_name": "a/b", "default_branch": "main"}"#,
+        )))
         .mount(server)
         .await;
 }
@@ -247,9 +281,16 @@ async fn gh_search_history_pull_request_list_defaults_to_all_states_newest_first
         .and(path("/api/v3/repos/a/b/pulls"))
         .and(query_param("state", "all"))
         .and(query_param("direction", "desc"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-            {"number": 9, "title": "Newest", "state": "closed", "user": {"login": "bob"}}
-        ])))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"[
+                {
+                    "number": 9,
+                    "title": "Newest",
+                    "state": "closed",
+                    "user": {"login": "bob"}
+                }
+            ]"#,
+        )))
         .mount(&server)
         .await;
 
@@ -258,7 +299,7 @@ async fn gh_search_history_pull_request_list_defaults_to_all_states_newest_first
     let outcome = call(
         &runtime,
         "ghSearchHistory",
-        json!({"operation": "pullRequest", "owner": "a", "repo": "b"}),
+        json_fixture(r#"{"operation": "pullRequest", "owner": "a", "repo": "b"}"#),
     )
     .await
     .expect("PR list");
@@ -279,11 +320,20 @@ async fn gh_search_history_pull_request_search_works_across_repositories() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/issues"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count": 1,
-            "incomplete_results": false,
-            "items": [{"number": 3, "title": "Cross repo fix", "state": "open", "user": {"login": "eve"}}]
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "total_count": 1,
+                "incomplete_results": false,
+                "items": [
+                    {
+                        "number": 3,
+                        "title": "Cross repo fix",
+                        "state": "open",
+                        "user": {"login": "eve"}
+                    }
+                ]
+            }"#,
+        )))
         .mount(&server)
         .await;
 
@@ -292,7 +342,7 @@ async fn gh_search_history_pull_request_search_works_across_repositories() {
     let outcome = call(
         &runtime,
         "ghSearchHistory",
-        json!({"operation": "pullRequest", "keywords": ["buffer"]}),
+        json_fixture(r#"{"operation": "pullRequest", "keywords": ["buffer"]}"#),
     )
     .await
     .expect("cross-repo PR search");
@@ -325,9 +375,17 @@ async fn gh_search_history_commit_list_forwards_committer() {
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits"))
         .and(query_param("committer", "web-flow"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-            {"sha": "abc", "commit": {"message": "merged via UI", "author": {"name": "A", "date": "2024-01-01T00:00:00Z"}}}
-        ])))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"[
+                {
+                    "sha": "abc",
+                    "commit": {
+                        "message": "merged via UI",
+                        "author": {"name": "A", "date": "2024-01-01T00:00:00Z"}
+                    }
+                }
+            ]"#,
+        )))
         .mount(&server)
         .await;
 
@@ -336,7 +394,14 @@ async fn gh_search_history_commit_list_forwards_committer() {
     let outcome = call(
         &runtime,
         "ghSearchHistory",
-        json!({"operation": "commit", "owner": "a", "repo": "b", "filters": {"committer":"web-flow"}}),
+        json_fixture(
+            r#"{
+                "operation": "commit",
+                "owner": "a",
+                "repo": "b",
+                "filters": {"committer": "web-flow"}
+            }"#,
+        ),
     )
     .await
     .expect("commit list");

@@ -204,3 +204,178 @@ fn a_bare_value_is_a_value_only_in_a_config_file() {
         }
     }
 }
+
+/// A URL query value is a literal: it is hidden in code and in a config file,
+/// and the rest of the URL reads as written.
+#[test]
+fn a_url_query_value_is_hidden_in_code_too() {
+    for (line, secret) in [
+        ("fetch(\"/x?token=abc123xyz&page=2\")", "abc123xyz"),
+        (
+            "GET /v1/items?page=2&api_key=FAKEurlKey123456 HTTP/1.1",
+            "FAKEurlKey123456",
+        ),
+        (
+            "const u = `${base}/cb?access_token=s3cretT0ken#top`;",
+            "s3cretT0ken",
+        ),
+        ("curl 'https://h/x?password=hunter2x&u=1'", "hunter2x"),
+        (
+            "\"download_url\": \"https://raw.example/README.md?token=ABTH2BQWERTYUIOP\"",
+            "ABTH2BQWERTYUIOP",
+        ),
+    ] {
+        for out in [read(line), read_as_code(line)] {
+            assert!(!out.contains(secret), "{line} -> {out}");
+            assert!(out.contains("[REDACTED-"), "{line} -> {out}");
+        }
+    }
+    let kept = read_as_code("fetch(\"/x?token=abc123xyz&page=2\")");
+    assert!(
+        kept.contains("?token=") && kept.contains("&page=2"),
+        "{kept}"
+    );
+    assert!(holds_credential_as_request("/x?token=abc123xyz&page=2"));
+    assert!(holds_credential_as_request("password: \"hunter2x!\""));
+}
+
+/// A quoted label word is a key only when an assignment holds it: a ternary
+/// branch is a value, a key in a mapping or `key = value` is a label.
+#[test]
+fn a_quoted_label_in_a_ternary_branch_is_no_key_but_an_assignment_is() {
+    for line in [
+        "input.type = secret ? 'password' : 'text';",
+        "x = ok?'token':'secret'",
+    ] {
+        untouched(line);
+    }
+    for (line, secret) in [
+        ("const o = { 'password': 'hunter2x!' };", "hunter2x!"),
+        ("const o = { password: 'hunter2x!' };", "hunter2x!"),
+        (
+            "const o = ok ? 1 : { 'password': 'hunter2x!' };",
+            "hunter2x!",
+        ),
+        ("password = 'hunter2x!'", "hunter2x!"),
+        ("Example: secret='LEAKED' in a config", "LEAKED"),
+    ] {
+        for out in [read(line), read_as_code(line)] {
+            assert!(!out.contains(secret), "{line} -> {out}");
+        }
+    }
+}
+
+/// A query key is hidden only when it is a known secret key: the bare label
+/// or a listed prefix of it (RFC 6750 `access_token`, AWS's
+/// `X-Amz-Security-Token`, `x-api-key`). A paging, sync or CSRF token is no
+/// credential and reads as written.
+#[test]
+fn only_known_secret_query_keys_are_hidden() {
+    for (line, secret) in [
+        ("GET /v1?access_token=Abc123Def456 HTTP/1.1", "Abc123Def456"),
+        ("GET /v1?a=1&token=Abc123Def456 HTTP/1.1", "Abc123Def456"),
+        ("GET /v1?api_key=Abc123Def456 HTTP/1.1", "Abc123Def456"),
+        ("GET /v1?apiKey=Abc123Def456 HTTP/1.1", "Abc123Def456"),
+        ("GET /v1?x-api-key=Abc123Def456 HTTP/1.1", "Abc123Def456"),
+        (
+            "GET /v1?client_secret=Abc123Def456 HTTP/1.1",
+            "Abc123Def456",
+        ),
+        ("GET /v1?password=Abc123Def456 HTTP/1.1", "Abc123Def456"),
+        (
+            "GET /v1?refresh_token=Abc123Def456 HTTP/1.1",
+            "Abc123Def456",
+        ),
+        ("GET /v1?id_token=Abc123Def456 HTTP/1.1", "Abc123Def456"),
+        (
+            "GET /v1?X-Amz-Security-Token=Abc123Def456 HTTP/1.1",
+            "Abc123Def456",
+        ),
+    ] {
+        for out in [read(line), read_as_code(line)] {
+            assert!(!out.contains(secret), "{line} -> {out}");
+        }
+    }
+    for line in [
+        "GET /v1?page_token=Abc123Def456 HTTP/1.1",
+        "GET /v1?a=1&next_token=Abc123Def456 HTTP/1.1",
+        "GET /v1?nextPageToken=Abc123Def456 HTTP/1.1",
+        "GET /v1?pageToken=Abc123Def456 HTTP/1.1",
+        "GET /v1?pagetoken=Abc123Def456 HTTP/1.1",
+        "GET /v1?continuation_token=Abc123Def456 HTTP/1.1",
+        "GET /v1?sync_token=Abc123Def456 HTTP/1.1",
+        "GET /v1?csrf_token=Abc123Def456 HTTP/1.1",
+    ] {
+        assert_eq!(read_as_code(line), line, "{line}");
+        assert_eq!(read(line), line, "{line}");
+    }
+    // A listed key later in the same URL is still hidden.
+    let both = read_as_code("/x?page_token=Abc123Def456&access_token=Zyx987Wvu654");
+    assert!(both.contains("page_token=Abc123Def456"), "{both}");
+    assert!(!both.contains("Zyx987Wvu654"), "{both}");
+}
+
+/// Letters-only and short bare values are values in a config file; in code
+/// they stay as written.
+#[test]
+fn a_config_value_of_letters_or_a_short_tail_is_hidden() {
+    for line in [
+        "password: letmein",
+        "password: hunter2",
+        "password: userPass12",
+        "password=letmein1",
+        "db_password: Summer2024",
+        "secret: sunshine",
+    ] {
+        let config = read(line);
+        assert!(
+            config.contains("[REDACTED-"),
+            "config hides {line}: {config}"
+        );
+        assert!(config.starts_with(&line[..line.find(['=', ':']).expect("operator")]));
+        assert_eq!(read_as_code(line), line, "code shows {line}");
+        assert!(!holds_credential_as_request(line), "{line} refused");
+    }
+}
+
+/// An interpolation's literal default is the value: the default alone is
+/// hidden. A placeholder default, a short one, an empty one and a lookup that
+/// names a source stay.
+#[test]
+fn an_interpolation_default_is_the_value() {
+    let out = read("spring.datasource.password=${MYSQL_PASS:petclinic}");
+    assert_eq!(
+        out,
+        "spring.datasource.password=${MYSQL_PASS:[REDACTED-PASSWORDASSIGNMENT]}"
+    );
+    let shell = read_as_code("PASSWORD=${DB_PASS:-hunter2x}");
+    assert!(
+        shell.starts_with("PASSWORD=${DB_PASS:-[REDACTED-"),
+        "{shell}"
+    );
+    assert!(shell.ends_with("}"), "{shell}");
+    for line in [
+        "spring.datasource.password=${MYSQL_PASS:changeme}",
+        "spring.datasource.password=${MYSQL_PASS:<your-password>}",
+        "spring.datasource.password=${MYSQL_PASS:pw}",
+        "spring.datasource.password=${MYSQL_PASS:}",
+        "password: ${DB_PASS:-}",
+        "password: ${DB_PASS:-$OTHER}",
+        "password: ${DB_PASS:true}",
+        "token: ${env:API_HOME}",
+        "token: ${vault:secret/data/app}",
+    ] {
+        untouched(line);
+        assert!(!holds_credential_as_request(line), "{line} refused");
+    }
+}
+
+#[test]
+fn a_one_word_sql_placeholder_is_no_password() {
+    untouched("ALTER ROLE r PASSWORD 'x';");
+    let out = read("ALTER USER u PASSWORD 'S3cretPw!';");
+    assert!(
+        !out.contains("S3cretPw!") && out.contains("[REDACTED-"),
+        "{out}"
+    );
+}

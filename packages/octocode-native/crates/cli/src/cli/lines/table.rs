@@ -11,6 +11,7 @@
 //! prints `-` in its column; the columns after its last field are left out
 //! (a row ends early). Any other list keeps its `key: value` layout.
 //! Counts by file are such a table, the count first ([`count_table`]).
+//! A flat list in a note is one such cell ([`list_cell`]).
 use super::{one_line, words};
 use serde_json::{Map, Value};
 
@@ -30,7 +31,7 @@ pub(super) fn is_word(value: &Value) -> bool {
 /// `,` (a word itself), or by `, ` when an item holds a space (free text).
 /// `None` for a list no cell holds unambiguously: an item that is a list, an
 /// object, empty, on several lines or holding a comma.
-fn list_cell(items: &[Value]) -> Option<Value> {
+pub(super) fn list_cell(items: &[Value]) -> Option<Value> {
     let texts = items
         .iter()
         .map(|item| match item {
@@ -133,24 +134,29 @@ pub(super) fn table(key: &str, items: &[Value], indent: &str) -> Option<Vec<Stri
     Some(lines)
 }
 
-/// Counts by file (every file only its `path` and `matchCount`, two or
-/// more) as a table, the count first as `uniq -c` prints it:
-/// `files[]: matchCount path`, then `389 a.rs` per file. `None` for any
-/// other files.
+/// Counts by file (two or more files, each only its `path` and one
+/// whole-number field, the same field on every file: whatever count the view
+/// gives, `matchCount` or `matchedLineCount`) as a table, the count first as
+/// `uniq -c` prints it: `files[]: matchCount path`, then `389 a.rs` per file.
+/// `None` for any other files.
 pub(super) fn count_table(files: &[Value]) -> Option<Vec<String>> {
     if files.len() < 2 {
         return None;
     }
+    let mut shared: Option<&String> = None;
     let rows = files
         .iter()
         .map(|file| {
             let fields = file.as_object().filter(|fields| fields.len() == 2)?;
+            let path = fields.get("path")?.as_str()?;
+            let (field, count) = fields.iter().find(|(field, _)| *field != "path")?;
+            let count = count.as_u64()?;
+            if *shared.get_or_insert(field) != field {
+                return None;
+            }
             let mut row = Map::new();
-            row.insert(
-                "matchCount".into(),
-                fields.get("matchCount")?.as_u64()?.into(),
-            );
-            row.insert("path".into(), fields.get("path")?.as_str()?.into());
+            row.insert(field.clone(), count.into());
+            row.insert("path".into(), path.into());
             Some(Value::Object(row))
         })
         .collect::<Option<Vec<_>>>()?;

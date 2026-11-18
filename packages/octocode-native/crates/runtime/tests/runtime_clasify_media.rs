@@ -3,6 +3,7 @@
 use crate::support::{Workspace, capture_allowed, clasify_runtime};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use octocode_native::runtime::ToolRuntime;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
@@ -20,10 +21,27 @@ struct Answer;
 impl Respond for Answer {
     fn respond(&self, request: &Request) -> ResponseTemplate {
         let body: Value = serde_json::from_slice(&request.body).unwrap();
-        let answers: serde_json::Map<String, Value> = body["questions"].as_object().unwrap().iter()
-            .map(|(key, question)| (key.clone(), if question["type"] == "box" {
-                json!({"type":"box","box":{"top":0.1,"bottom":0.9,"left":0.2,"right":0.8},"confidence":null})
-            } else { json!({"type":"noul","noul":0.9}) })).collect();
+        let answers: serde_json::Map<String, Value> = body["questions"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(key, question)| {
+                (
+                    key.clone(),
+                    if question["type"] == "box" {
+                        json_fixture(
+                            r#"{
+                                "type": "box",
+                                "box": {"top": 0.1, "bottom": 0.9, "left": 0.2, "right": 0.8},
+                                "confidence": null
+                            }"#,
+                        )
+                    } else {
+                        json_fixture(r#"{"type": "noul", "noul": 0.9}"#)
+                    },
+                )
+            })
+            .collect();
         ResponseTemplate::new(200).set_body_json(json!({"model":"jev-preview","answers":answers,
             "usage":{"input_tokens":100,"output_tokens":10}}))
     }

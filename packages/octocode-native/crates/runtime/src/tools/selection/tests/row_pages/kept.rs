@@ -2,12 +2,20 @@
 //! empty one that it is no absence, as every classified reader does; the
 //! units it left unknown are one `next.unfilteredUnknown` call away.
 use super::*;
+use octocode_runtime_base::id::ToolId;
+use octocode_test_support::json_fixture;
+use octocode_tools_shared::selection::Decision;
+use octocode_tools_shared::selection::JudgeCall;
+use octocode_tools_shared::selection::Judgments;
+use octocode_tools_shared::selection::SelectionJudge;
+use serde_json::Value;
+use serde_json::json;
 
 /// Excludes every candidate.
 struct NoneJudge;
 impl SelectionJudge for NoneJudge {
     fn identity(&self) -> Value {
-        json!({"test":"none"})
+        json_fixture(r#"{"test": "none"}"#)
     }
     fn select(&self, call: JudgeCall<'_>) -> Judgments {
         Ok(call
@@ -22,7 +30,7 @@ impl SelectionJudge for NoneJudge {
 struct UnsureJudge;
 impl SelectionJudge for UnsureJudge {
     fn identity(&self) -> Value {
-        json!({"test":"unsure"})
+        json_fixture(r#"{"test": "unsure"}"#)
     }
     fn select(&self, call: JudgeCall<'_>) -> Judgments {
         Ok(call
@@ -57,7 +65,14 @@ fn page(tool: ToolId, judge: impl SelectionJudge + 'static, query: &Value, data:
 }
 
 fn structure() -> Value {
-    json!({"files":[{"dir":"a","files":["fix.rs (1)","other.rs (2)"]},{"dir":"b","files":["plain.rs (3)"]}]})
+    json_fixture(
+        r#"{
+            "files": [
+                {"dir": "a", "files": ["fix.rs (1)", "other.rs (2)"]},
+                {"dir": "b", "files": ["plain.rs (3)"]}
+            ]
+        }"#,
+    )
 }
 
 /// The receipt states the kept and total counts; a page that shows all it
@@ -74,7 +89,12 @@ fn a_page_showing_all_it_kept_states_the_counts_once_in_the_receipt() {
     let listing = page(
         ToolId::StructureSearch,
         FixJudge,
-        &json!({"path":".","classification":{"predicates":["Is it a fix?"]}}),
+        &json_fixture(
+            r#"{
+                "path": ".",
+                "classification": {"predicates": ["Is it a fix?"]}
+            }"#,
+        ),
         structure(),
     );
     for data in [history, listing] {
@@ -100,14 +120,35 @@ fn a_page_that_keeps_nothing_says_an_empty_result_is_not_absence() {
     let listing = page(
         ToolId::StructureSearch,
         NoneJudge,
-        &json!({"path":".","classification":{"predicates":["Is it a fix?"]}}),
+        &json_fixture(
+            r#"{
+                "path": ".",
+                "classification": {"predicates": ["Is it a fix?"]}
+            }"#,
+        ),
         structure(),
     );
     let code = page(
         ToolId::GhSearchCode,
         NoneJudge,
-        &json!({"owner":"o","repo":"r","keywords":["x"],"classification":{"predicates":["Is it a fix?"]}}),
-        json!({"files":[{"path":"a.rs","matches":[{"line":1,"value":"fix it"}]}]}),
+        &json_fixture(
+            r#"{
+                "owner": "o",
+                "repo": "r",
+                "keywords": ["x"],
+                "classification": {"predicates": ["Is it a fix?"]}
+            }"#,
+        ),
+        json_fixture(
+            r#"{
+                "files": [
+                    {
+                        "path": "a.rs",
+                        "matches": [{"line": 1, "value": "fix it"}]
+                    }
+                ]
+            }"#,
+        ),
     );
     for data in [history, listing, code] {
         let warnings = data["warnings"].to_string();

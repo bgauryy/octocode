@@ -3,8 +3,8 @@ use super::commands::{self, ToolArgs};
 use super::output::Printed;
 use super::{OutputMode, cli_host, serve, start_failed};
 use octocode_contract_types::ErrorCode;
-use octocode_native::id::ToolId;
 use octocode_native::runtime::{Channel, HostOptions, RuntimeError, ToolRuntime};
+use octocode_runtime_base::id::ToolId;
 use serde_json::Value;
 
 /// Parse the query, then run it on the workspace's warm server (read-only

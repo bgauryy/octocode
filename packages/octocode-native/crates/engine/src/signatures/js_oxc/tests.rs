@@ -111,6 +111,7 @@ mod call_walk;
 mod calls;
 mod commonjs;
 mod graph_occurrences;
+mod local_binding;
 mod module_facts;
 mod nested_callers;
 mod nesting;

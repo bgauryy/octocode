@@ -1,12 +1,22 @@
 use super::*;
+use octocode_test_support::json_fixture;
 
 #[test]
 fn clasify_missing_key_is_actionable() {
     let workspace = Workspace::new();
-    let query = serde_json::json!({"queries":[{
-        "operation":"evaluate","content":{"fact":"present"},
-        "questions":{"relevant":{"type":"noul","instructions":"Is it relevant?"}}
-    }]});
+    let query = json_fixture(
+        r#"{
+            "queries": [
+                {
+                    "operation": "evaluate",
+                    "content": {"fact": "present"},
+                    "questions": {
+                        "relevant": {"type": "noul", "instructions": "Is it relevant?"}
+                    }
+                }
+            ]
+        }"#,
+    );
     let output = workspace
         .cli()
         .env("OCTOCODE_BETA", "false")
@@ -57,7 +67,9 @@ fn clasify_with_unreachable_provider_exits_by_failure_class() {
             .expect("clasify execution")
     };
     // A provider that cannot be reached is an execution failure, not bad input.
-    let unreachable = run(serde_json::json!({"type":"noul","instructions":"Is it relevant?"}));
+    let unreachable = run(json_fixture(
+        r#"{"type": "noul", "instructions": "Is it relevant?"}"#,
+    ));
     assert_eq!(exit_code(&unreachable), Some(7), "{}", stdout(&unreachable));
 }
 
@@ -65,7 +77,17 @@ fn clasify_with_unreachable_provider_exits_by_failure_class() {
 async fn clasify_rejects_removed_question_types_without_provider_requests() {
     let server = wiremock::MockServer::start().await;
     let workspace = Workspace::new();
-    let query = serde_json::json!({"queries":[{"operation":"evaluate","content":{"fact":"present"},"questions":{"q":{"type":"locate","instructions":"fact"}}}]});
+    let query = json_fixture(
+        r#"{
+            "queries": [
+                {
+                    "operation": "evaluate",
+                    "content": {"fact": "present"},
+                    "questions": {"q": {"type": "locate", "instructions": "fact"}}
+                }
+            ]
+        }"#,
+    );
     let mut command = workspace.cli();
     command
         .env("OCTOCODE_CLASSIFICATION_API", "dummy")
@@ -95,10 +117,19 @@ fn blank_classification_key_disables_clasify_despite_home_and_vendor_keys() {
         "OCTOCODE_CLASSIFICATION_API=from-home-env\n",
     )
     .unwrap();
-    let query = serde_json::json!({"queries":[{
-        "operation":"evaluate","content":{"fact":"present"},
-        "questions":{"relevant":{"type":"noul","instructions":"Is it relevant?"}}
-    }]})
+    let query = json_fixture(
+        r#"{
+            "queries": [
+                {
+                    "operation": "evaluate",
+                    "content": {"fact": "present"},
+                    "questions": {
+                        "relevant": {"type": "noul", "instructions": "Is it relevant?"}
+                    }
+                }
+            ]
+        }"#,
+    )
     .to_string();
     let output = workspace
         .cli()

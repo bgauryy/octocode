@@ -2,7 +2,8 @@
 
 use super::{mount_file_batches, mount_pr, numbered, raw_patch, rest_file};
 use crate::support::{self, Run as _};
-use serde_json::{Value, json};
+use octocode_test_support::json_fixture;
+use serde_json::Value;
 use std::time::Duration;
 use support::Workspace;
 use wiremock::MockServer;
@@ -56,8 +57,19 @@ async fn history_b_large_pr_lead_walk_is_lossless_at_the_first_page_size() {
     let workspace = Workspace::new();
     // The constant 20k page: 15k patch windows on every call.
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let mut envelope = json!({"queries": [{"operation": "pullRequest", "owner": "a",
-        "repo": "b", "number": 9, "sections": ["patches"]}]});
+    let mut envelope = json_fixture(
+        r#"{
+            "queries": [
+                {
+                    "operation": "pullRequest",
+                    "owner": "a",
+                    "repo": "b",
+                    "number": 9,
+                    "sections": ["patches"]
+                }
+            ]
+        }"#,
+    );
     let mut read = std::collections::BTreeMap::<String, String>::new();
     let mut calls = 0;
     loop {
@@ -72,8 +84,8 @@ async fn history_b_large_pr_lead_walk_is_lossless_at_the_first_page_size() {
             .await
             .expect("patch window");
         let content = &outcome.structured_content;
-        assert_ne!(
-            content["responsePagination"]["hasMore"], true,
+        assert!(
+            content["responsePagination"]["next"].is_null(),
             "call {calls}: a patch window overflowed the page it asked for"
         );
         let data = &content["results"][0]["data"];
@@ -165,8 +177,19 @@ async fn overflowing_patch_hop_pages_by_rows_and_loses_nothing() {
     mount_file_batches(&server, vec![first, second], Duration::ZERO).await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let mut envelope = json!({"queries": [{"operation": "pullRequest", "owner": "a",
-        "repo": "b", "number": 9, "sections": ["patches"]}]});
+    let mut envelope = json_fixture(
+        r#"{
+            "queries": [
+                {
+                    "operation": "pullRequest",
+                    "owner": "a",
+                    "repo": "b",
+                    "number": 9,
+                    "sections": ["patches"]
+                }
+            ]
+        }"#,
+    );
     let mut read = std::collections::BTreeMap::<String, String>::new();
     let mut listed = std::collections::BTreeMap::<String, usize>::new();
     let mut same = std::collections::BTreeMap::<String, String>::new();

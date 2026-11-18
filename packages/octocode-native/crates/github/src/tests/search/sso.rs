@@ -1,5 +1,6 @@
 //! Results SAML enforcement withheld: the organizations named, and no cached copy.
 use super::*;
+use octocode_test_support::json_fixture;
 
 /// `partial-results` names the organizations that withheld results.
 #[tokio::test]
@@ -12,7 +13,7 @@ async fn partial_sso_results_name_the_withheld_organizations() {
                     "x-github-sso",
                     "partial-results; organizations=21955855,20582480",
                 )
-                .set_body_json(serde_json::json!({"items": []})),
+                .set_body_json(json_fixture(r#"{"items": []}"#)),
         )
         .mount(&server)
         .await;
@@ -43,9 +44,9 @@ async fn a_search_partly_withheld_by_saml_names_the_organizations_and_is_not_cac
                     "x-github-sso",
                     "partial-results; organizations=21955855,20582480",
                 )
-                .set_body_json(serde_json::json!({
-                    "total_count": 0, "incomplete_results": false, "items": []
-                })),
+                .set_body_json(json_fixture(
+                    r#"{"total_count": 0, "incomplete_results": false, "items": []}"#,
+                )),
         )
         .expect(4)
         .mount(&server)
@@ -93,9 +94,9 @@ async fn a_repository_search_partly_withheld_by_saml_names_the_organizations() {
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("x-github-sso", "partial-results; organizations=21955855")
-                .set_body_json(serde_json::json!({
-                    "total_count": 0, "incomplete_results": false, "items": []
-                })),
+                .set_body_json(json_fixture(
+                    r#"{"total_count": 0, "incomplete_results": false, "items": []}"#,
+                )),
         )
         .mount(&server)
         .await;

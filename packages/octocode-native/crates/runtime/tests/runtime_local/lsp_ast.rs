@@ -1,6 +1,7 @@
 //! lspSearch server discovery and astSearch row paths through the runtime.
 
 use crate::support::{Workspace, call, row_data, row_status};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 
 #[tokio::test]
@@ -148,9 +149,17 @@ async fn lsp_search_returns_a_typed_row_when_no_server_is_configured() {
     let path = workspace.write("notes.md", "# title\n");
     std::fs::write(
         workspace.home.join("lsp-servers.json"),
-        json!({"languageServers": {".md": {
-            "command": "octocode-test-missing-lsp", "args": [], "languageId": "markdown"
-        }}})
+        json_fixture(
+            r#"{
+                "languageServers": {
+                    ".md": {
+                        "command": "octocode-test-missing-lsp",
+                        "args": [],
+                        "languageId": "markdown"
+                    }
+                }
+            }"#,
+        )
         .to_string(),
     )
     .expect("lsp config");

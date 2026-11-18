@@ -29,16 +29,18 @@
 # `cargo dev-test` is the first Rust test selection (scripts/rust-tests.cjs) under
 # libtest: the same packages and features, so it reuses the crates `test:rust`
 # and `build:dev` compiled instead of forking another copy, and it runs each
-# test binary in one process (about 4× faster than nextest's process per test).
+# test binary in one process, as `test:rust` runs every test but the ones that
+# start child processes (about 4× faster than nextest's process per test).
 # A bare `cargo test -p octocode-native` drops `dev-unify` and builds a second
 # copy. Narrow a run with a libtest filter, which every binary applies:
 #   cargo dev-test -- runtime_github_history::      # an integration-test file
-#   cargo dev-test -- tools::local_search::         # a runtime unit-test module
+#   cargo dev-test -- local_search::                # a tool crate's unit-test module
+#   cargo dev-test -- structural::                  # an engine unit-test module
 # tests/build-publication.test.cjs keeps this alias equal to that selection. Its
 # runner fails a test stuck past libtest's slow-test line (scripts/test-watchdog.cjs),
 # and its path is relative to where cargo runs: run it from this package.
 [alias]
-dev-test = "test --locked -p octocode-native -p octocode-github -p octocode-io -p octocode-cli --features octocode-native/dev-unify --config=target.'cfg(all())'.runner=\"scripts/test-watchdog.cjs\""
+dev-test = "test --locked -p octocode-native -p octocode-runtime-base -p octocode-tools-shared -p octocode-tool-graph -p octocode-tool-lsp -p octocode-tool-github -p octocode-tool-local -p octocode-tool-ast -p octocode-tool-packages -p octocode-tool-clasify -p octocode-github -p octocode-io -p octocode-cli -p octocode-engine -p octocode-contract-types -p octocode-test-support --features octocode-native/dev-unify --config=target.'cfg(all())'.runner=\"scripts/test-watchdog.cjs\""
 
 # ── sccache: cache rustc invocations across branches / clean builds ───────────
 # 60–80% faster on a warm cache. Tradeoff: sccache disables incremental

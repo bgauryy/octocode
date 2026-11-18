@@ -2,8 +2,8 @@
 //! `lspSearch` request asks, and `which` with the config reads is most of a
 //! warm request's discovery.
 use super::write_lsp_config;
+use super::{RustupView, view_env, with_view};
 use crate::lsp::config::catalog::resolve_route;
-use crate::lsp::config::invocation::rustup::{RustupView, view_env, with_view};
 use crate::lsp::config::route::kept_route;
 use crate::lsp::config::{LspDiscoveryOptions, default_server_for_directory};
 use crate::lsp::module_path::install_anchor;

@@ -47,6 +47,7 @@ pub(super) async fn client_with_fake_server_using(
         },
         Arc::clone(&client.inner.progress),
         None,
+        client.inner.clock.clone(),
     );
     *client.inner.connection.lock().await = Some(Arc::new(connection));
     (client, BufReader::new(server_r), server_w)
@@ -220,8 +221,9 @@ fn concurrent_syncs_of_one_document_reach_the_server_in_version_order() {
         // implementation is caught with high probability.
         const ROUNDS: usize = 4;
         let (client, mut server, _server_w) = client_with_fake_server(64 * 1024).await;
+        let dir = TmpDir::new();
         for round in 0..ROUNDS {
-            let file = std::env::temp_dir().join(format!("octocode-sync-order-{round}.ts"));
+            let file = dir.join(format!("sync-order-{round}.ts"));
             let file = file.to_string_lossy().into_owned();
             let reader = tokio::spawn(async move {
                 let mut frames = Vec::new();
@@ -267,26 +269,29 @@ fn concurrent_syncs_of_one_document_reach_the_server_in_version_order() {
     });
 }
 
-#[tokio::test(start_paused = true)]
-async fn a_blocked_sync_keeps_the_client_busy_and_cancelling_it_releases() {
-    let (client, _server, _server_w) = client_with_fake_server(1).await;
-    let tmp = TmpDir::new();
-    let content = "x".repeat(4096);
-    let mut syncing = Box::pin(client.open_document(
-        tmp.0.join("busy.ts").to_string_lossy().into_owned(),
-        &content,
-    ));
-    std::future::poll_fn(|context| {
-        assert!(
-            syncing.as_mut().poll(context).is_pending(),
-            "the unread pipe blocks the sync"
-        );
-        std::task::Poll::Ready(())
-    })
-    .await;
-    assert!(client.is_busy(), "sync takes its lease before writing");
-    tokio::time::advance(Duration::from_millis(50)).await;
-    assert!(client.is_busy(), "a stalled sync is activity, not idleness");
-    drop(syncing);
-    assert!(!client.is_busy(), "cancelling the sync releases its lease");
+#[test]
+fn a_blocked_sync_keeps_the_client_busy_and_cancelling_it_releases() {
+    paused(|clock| async move {
+        let (client, _server, _server_w) =
+            client_with_fake_server_using(client_on(&clock, ts_config()), 1).await;
+        let tmp = TmpDir::new();
+        let content = "x".repeat(4096);
+        let mut syncing = Box::pin(client.open_document(
+            tmp.0.join("busy.ts").to_string_lossy().into_owned(),
+            &content,
+        ));
+        std::future::poll_fn(|context| {
+            assert!(
+                syncing.as_mut().poll(context).is_pending(),
+                "the unread pipe blocks the sync"
+            );
+            std::task::Poll::Ready(())
+        })
+        .await;
+        assert!(client.is_busy(), "sync takes its lease before writing");
+        clock.advance(Duration::from_millis(50)).await;
+        assert!(client.is_busy(), "a stalled sync is activity, not idleness");
+        drop(syncing);
+        assert!(!client.is_busy(), "cancelling the sync releases its lease");
+    });
 }

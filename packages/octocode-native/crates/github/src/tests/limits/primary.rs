@@ -1,5 +1,6 @@
 //! Primary rate limits: waits for a short reset, fail-fast past the cap, and limit metadata.
 use super::*;
+use octocode_test_support::json_fixture;
 
 #[tokio::test]
 async fn retries_secondary_rate_limit_without_remaining_zero() {
@@ -41,7 +42,7 @@ async fn projects_rate_limit_metadata_without_retrying_long_delays() {
                 .insert_header("retry-after", "60")
                 .insert_header("x-ratelimit-remaining", "0")
                 .insert_header("x-ratelimit-reset", "1900000000")
-                .set_body_json(serde_json::json!({"message":"rate limited"})),
+                .set_body_json(json_fixture(r#"{"message": "rate limited"}"#)),
         )
         .expect(1)
         .mount(&server)
@@ -73,7 +74,7 @@ fn primary_limit(resource: &str, reset: u64) -> ResponseTemplate {
         .insert_header("x-ratelimit-remaining", "0")
         .insert_header("x-ratelimit-reset", reset.to_string().as_str())
         .insert_header("x-ratelimit-resource", resource)
-        .set_body_json(serde_json::json!({"message": "API rate limit exceeded"}))
+        .set_body_json(json_fixture(r#"{"message": "API rate limit exceeded"}"#))
 }
 
 /// A spent search quota (a minute window the search pacing plans around) is
@@ -138,7 +139,7 @@ async fn primary_limit_fails_fast_and_blocks_later_sends_until_reset() {
                 .insert_header("x-ratelimit-remaining", "0")
                 .insert_header("x-ratelimit-reset", reset.to_string().as_str())
                 .insert_header("x-ratelimit-resource", "core")
-                .set_body_json(serde_json::json!({"message": "API rate limit exceeded"})),
+                .set_body_json(json_fixture(r#"{"message": "API rate limit exceeded"}"#)),
         )
         .expect(1)
         .mount(&server)
@@ -178,9 +179,9 @@ async fn primary_limit_fails_fast_and_blocks_later_sends_until_reset() {
 async fn a_headerless_rate_limit_body_is_a_primary_limit() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
-        .respond_with(ResponseTemplate::new(403).set_body_json(
-            serde_json::json!({"message": "API rate limit exceeded for user ID 1."}),
-        ))
+        .respond_with(ResponseTemplate::new(403).set_body_json(json_fixture(
+            r#"{"message": "API rate limit exceeded for user ID 1."}"#,
+        )))
         .mount(&server)
         .await;
     let (transport, endpoint) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());

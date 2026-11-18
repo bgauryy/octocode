@@ -1,11 +1,27 @@
-use super::{Existing, command_line, render_fixture, server_spec};
+use super::{Existing, InstallArgs, command_line, server_spec};
 use crate::cli::mcp_clients::{self, ClientSpec, ConfigFormat, EntryShape};
-use crate::cli::mcp_manage::{Method, ServerSpec, Target, server_entry};
+use crate::cli::mcp_manage::{self, Method, ServerSpec, Target, server_entry};
 use serde_json::json;
 mod clients;
 mod entries;
 mod lifecycle;
 mod output;
+
+/// The document installing for `client` writes over `existing` (none: an
+/// empty file), and how the entry already there compares with it.
+fn render_fixture(
+    client: &ClientSpec,
+    existing: Option<&str>,
+    args: &InstallArgs,
+) -> Result<(String, Existing), String> {
+    let text = existing.unwrap_or("");
+    let keys = client.server_keys();
+    let root = mcp_manage::parse_document(client.format, text)?;
+    let server = mcp_manage::default_entry(client, args.method);
+    let already = Existing::of(mcp_manage::entry_at(client, &root, &keys), &server);
+    let rendered = mcp_manage::render_document(client, text, &keys, Some(&server))?;
+    Ok((rendered, already))
+}
 
 fn spec(id: &str) -> &'static ClientSpec {
     mcp_clients::client(id).expect("supported client")

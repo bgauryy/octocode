@@ -3,6 +3,7 @@
 //! deletes from the OS credential store, so its tests live beside the code with
 //! an injected store.
 use crate::support::Workspace;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use std::process::{Command, Output};
 use wiremock::{
@@ -41,7 +42,8 @@ async fn github_user(login: Option<&str>) -> MockServer {
     let server = MockServer::builder().start().await;
     let response = match login {
         Some(login) => ResponseTemplate::new(200).set_body_json(json!({"login": login})),
-        None => ResponseTemplate::new(401).set_body_json(json!({"message": "Bad credentials"})),
+        None => ResponseTemplate::new(401)
+            .set_body_json(json_fixture(r#"{"message": "Bad credentials"}"#)),
     };
     Mock::given(method("GET"))
         .and(path("/api/v3/user"))
@@ -138,9 +140,11 @@ fn status_without_any_token_is_unauthenticated_with_the_login_step() {
     let lines = stderr(&text).lines().collect::<Vec<_>>();
     assert_eq!(lines[0], "unauthenticated");
     // The login step names the login command and every token variable.
-    for fact in std::iter::once("octocode auth login")
-        .chain(octocode_native::config::ENV_TOKEN_VARS.iter().copied())
-    {
+    for fact in std::iter::once("octocode auth login").chain(
+        octocode_runtime_base::config::ENV_TOKEN_VARS
+            .iter()
+            .copied(),
+    ) {
         assert!(lines[1].contains(fact), "{fact}: {}", lines[1]);
     }
 
@@ -195,9 +199,11 @@ fn login_refresh_without_a_stored_credential_is_an_authentication_failure() {
     assert_eq!(text.status.code(), Some(4), "{}", stderr(&text));
     // The next step names the login command and every token variable.
     let next_step = stderr(&text);
-    for fact in std::iter::once("octocode auth login")
-        .chain(octocode_native::config::ENV_TOKEN_VARS.iter().copied())
-    {
+    for fact in std::iter::once("octocode auth login").chain(
+        octocode_runtime_base::config::ENV_TOKEN_VARS
+            .iter()
+            .copied(),
+    ) {
         assert!(next_step.contains(fact), "{fact}: {next_step}");
     }
 

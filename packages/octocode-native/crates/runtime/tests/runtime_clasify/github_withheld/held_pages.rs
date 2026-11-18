@@ -67,9 +67,9 @@ async fn a_credential_file_paged_by_the_response_pager_leaves_no_copy_and_walks_
         let settings = if file == ".env" { &held } else { &kept };
         let workspace = Workspace::new();
         let mut runtime = workspace.runtime(settings);
-        let mut input = batch(file);
+        let mut queue = std::collections::VecDeque::from([batch(file)]);
         let mut pages = Vec::new();
-        loop {
+        while let Some(input) = queue.pop_front() {
             assert!(pages.len() < 400, "{file}: the walk must end");
             let out = crate::support::Run::run(
                 &runtime,
@@ -88,24 +88,15 @@ async fn a_credential_file_paged_by_the_response_pager_leaves_no_copy_and_walks_
                 out.pointer("/responsePagination/oversized").is_none(),
                 "{file}: an oversized page: {out}"
             );
-            let next = crate::support::next_input(&out);
+            queue.extend(crate::support::next_inputs(&out));
             pages.push(out);
-            let Some(next) = next else {
-                break;
-            };
-            input = next;
             if restart_each_page {
                 runtime.close().await;
                 runtime = workspace.runtime(settings);
             }
         }
         runtime.close().await;
-        assert!(
-            pages
-                .iter()
-                .any(|page| page.pointer("/responsePagination/hasMore") == Some(&json!(true))),
-            "{file}: the batch must be cut by the response pager"
-        );
+        assert!(pages.len() > 1, "{file}: the batch must page");
         let on_disk = files_holding(&workspace.home, MARKER);
         if file == ".env" {
             assert_eq!(

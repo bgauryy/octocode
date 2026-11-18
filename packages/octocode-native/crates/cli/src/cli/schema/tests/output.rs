@@ -15,7 +15,7 @@ fn the_output_view_is_the_tools_output_reference() {
 #[test]
 fn output_views_expose_the_embedded_collection_routes_for_lossless_reassembly() {
     let m = machine(&[]);
-    let contract = octocode_native::contracts::parsed_contract().expect("embedded contract");
+    let contract = octocode_runtime_base::contracts::parsed_contract().expect("embedded contract");
     for tool in contract["tools"].as_array().expect("tools") {
         let name = tool["name"].as_str().expect("tool name");
         let view = tool_view(&m, name, Some("output"), None).expect("output view");

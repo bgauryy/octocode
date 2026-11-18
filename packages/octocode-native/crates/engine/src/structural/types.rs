@@ -19,7 +19,7 @@ pub struct MetavarRange {
 /// directly as an `lspSearch` `line`; columns are 0-based UTF-16
 /// code-unit offsets (converted from tree-sitter's native byte columns to match
 /// the resolver, signatures, and LSP layers).
-pub struct StructuralMatch {
+pub(crate) struct StructuralMatch {
     pub source_span: ObservedSpan,
     pub header_span: Option<ObservedSpan>,
     pub source_templates: Arc<SourceTemplates>,

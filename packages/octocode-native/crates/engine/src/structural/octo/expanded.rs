@@ -220,35 +220,6 @@ fn innermost_group(groups: &[Span], error: &Span) -> Option<Span> {
         .cloned()
 }
 
-/// Test-only extent audit: a match from a body lies inside the body's text
-/// and agrees with every flat bracket group of its owner (it spans a group,
-/// or lies inside it without touching its delimiters, or is apart from it).
-/// A violation aborts the test binary (a panic could be caught as a failed
-/// search), naming the node.
-#[cfg(test)]
-fn audit_extent(body: &Body, node: Node<'_>) {
-    let span = node.byte_range();
-    let inside_text = body.range.start_byte <= span.start && span.end <= body.range.end_byte;
-    let agrees = |group: &Span| {
-        let apart = span.end <= group.start || group.end <= span.start;
-        let spans = span.start <= group.start && group.end <= span.end;
-        let within = group.start < span.start && span.end < group.end;
-        apart || spans || within
-    };
-    if !(inside_text && body.audit_groups.iter().all(agrees)) {
-        use std::io::Write as _;
-        let _ = writeln!(
-            std::io::stderr(),
-            "extent audit: a {} match at {span:?} disagrees with its body {:?} ({} line {}) or a bracket group of it",
-            node.kind(),
-            body.range.start_byte..body.range.end_byte,
-            body.disclosed.name,
-            body.disclosed.line,
-        );
-        std::process::abort();
-    }
-}
-
 /// The body whose tree holds a node; `None` is the file's own tree.
 type Frame<'t> = Option<&'t Body>;
 
@@ -472,7 +443,7 @@ impl<'f> ExpandedTree<'f> {
             let seen = Self::seen(node, frame);
             #[cfg(test)]
             if let (Seen::Candidate, Some(body)) = (seen, frame) {
-                audit_extent(body, node);
+                tests::audit_extent(body, node);
             }
             match visit(node, &ancestors, seen)? {
                 Visit::Found => return Ok(true),
@@ -908,3 +879,6 @@ fn with_groups(mut body: Body, groups: &[Span], recovered: bool) -> Body {
 fn line_of(point: tree_sitter::Point) -> u32 {
     crate::num::saturating_u32(point.row).saturating_add(1)
 }
+
+#[cfg(test)]
+mod tests;

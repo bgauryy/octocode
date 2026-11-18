@@ -68,6 +68,22 @@ const REASONS: Record<string, (details: StepDetails, step: DomStep) => string> =
 //   DOM_SETTLE_MS wait before verifying (default 500)
 //   DOM_DIALOG    dismiss (default) | accept, for alert/confirm/prompt opened by the action
 //   DOM_DIFF=0    skip the after-action [NEW] ref diff
+/** What a missed wait waited for: its target (ref, selector, role and name) and text. */
+function waitTargetLabel(step: DomStep, waitText: string) {
+  const text = step.value || waitText;
+  const target = step.waitTarget
+    ? [
+        step.ref && `ref ${step.ref}`,
+        step.selector && `selector ${JSON.stringify(step.selector)}`,
+        (step.role || step.name) &&
+          `role ${JSON.stringify(step.role)} name ${JSON.stringify(step.name)}`,
+      ]
+    : [];
+  return [...target, text && `text ${JSON.stringify(text)}`]
+    .filter(Boolean)
+    .join(', ');
+}
+
 export function createDomOperations(options: DomOptions = {}) {
   const cfg = readDomConfig(options);
   const MODE = cfg.mode;
@@ -142,10 +158,11 @@ export function createDomOperations(options: DomOptions = {}) {
         console.log(
           `[FINDING] ${prefix}JS_DIALOG ${effects.dialog.type} ${JSON.stringify(effects.dialog.message)} ${ACCEPT_DIALOG ? 'accepted' : 'dismissed (DOM_DIALOG=accept to accept)'}`
         );
-      if (details.verified === false)
-        console.log(
-          `[FINDING] ${prefix}VERIFY_MISMATCH expected=${JSON.stringify(details.expected)}${MODE === 'trusted' ? ' — retry with DOM_ACTION=type or DOM_INPUT=js' : ''}`
-        );
+      if (details.verified === false) {
+        const finding = `VERIFY_MISMATCH expected=${JSON.stringify(details.expected)}${MODE === 'trusted' ? ' — retry with action:"type" (keystrokes)' : ''}`;
+        details.error = finding;
+        console.log(`[FINDING] ${prefix}${finding}`);
+      }
       const noEffect =
         !effects.navigatedTo &&
         !effects.popup &&
@@ -156,10 +173,12 @@ export function createDomOperations(options: DomOptions = {}) {
       if (
         noEffect &&
         ['click', 'dblclick', 'press', 'drag'].includes(step.action)
-      )
-        console.log(
-          `[FINDING] ${prefix}NO_VISIBLE_EFFECT nothing changed in the DOM or URL; the target may need another action, or the handler is async (DOM_WAIT_TEXT or DOM_SETTLE_MS)`
-        );
+      ) {
+        const finding =
+          'NO_VISIBLE_EFFECT nothing changed in the DOM or URL; the target may need another action, or the handler is async (set after.text to wait for the result, or raise timeoutMs)';
+        details.error = finding;
+        console.log(`[FINDING] ${prefix}${finding}`);
+      }
       return details.verified !== false;
     }
     console.log(
@@ -263,12 +282,18 @@ export function createDomOperations(options: DomOptions = {}) {
               ms: null,
             }
           : await waitForText(cdp, step.value || WAIT_TEXT, ctx);
+        const timeout = `WAIT_TIMEOUT none of ${waitTargetLabel(step, WAIT_TEXT)} appeared within ${WAIT_MS}ms`;
         console.log(
           hit
             ? `[WAIT] ${prefix}found ${JSON.stringify(hit)} after ${ms}ms`
-            : `[FINDING] ${prefix}WAIT_TIMEOUT none of ${JSON.stringify(step.value || WAIT_TEXT)} appeared within ${WAIT_MS}ms`
+            : `[FINDING] ${prefix}${timeout}`
         );
-        results.push({ step, found: Boolean(hit), ms });
+        results.push({
+          step,
+          found: Boolean(hit),
+          ms,
+          ...(hit ? {} : { details: { error: timeout } }),
+        });
         if (!hit) {
           ok = false;
           break;
@@ -294,12 +319,17 @@ export function createDomOperations(options: DomOptions = {}) {
         ctx,
         results.at(-1)?.objectId
       );
+      const timeout = `WAIT_TIMEOUT none of ${JSON.stringify(WAIT_TEXT)} appeared within ${WAIT_MS}ms`;
       console.log(
         hit
           ? `[WAIT] found ${JSON.stringify(hit)} after ${ms}ms`
-          : `[FINDING] WAIT_TIMEOUT none of ${JSON.stringify(WAIT_TEXT)} appeared within ${WAIT_MS}ms`
+          : `[FINDING] ${timeout}`
       );
       const last = results.at(-1);
+      if (!hit && last?.details)
+        last.details.error = [last.details.error, timeout]
+          .filter(Boolean)
+          .join('; ');
       if (last?.details)
         last.details.postActionWait = {
           text: WAIT_TEXT,

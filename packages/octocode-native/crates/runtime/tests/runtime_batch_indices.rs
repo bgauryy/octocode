@@ -1,5 +1,6 @@
 //! Rejected rows retain their input indices and appear once while admitted evidence pages.
 use crate::support::{Run as _, Workspace};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 
 #[tokio::test]
@@ -29,7 +30,7 @@ async fn tool_continuations_preserve_nonzero_indices_and_every_source_line() {
             .await
             .expect("admitted reads execute")
             .structured_content;
-        octocode_native::contracts::validate_output("localFetch", &output)
+        octocode_runtime_base::contracts::validate_output("localFetch", &output)
             .expect("indexed output contract");
         for row in output["results"].as_array().expect("results") {
             if row["status"] == "error" {
@@ -91,15 +92,31 @@ async fn clasify_isolates_invalid_rows_before_capturing_admitted_sources() {
         ),
     ]);
     let output = runtime
-        .run("mixed-clasify".into(), "clasify".into(), json!({"queries":[
-            {"operation":"models","bogus":true},
-            {"operation":"evaluate","source":{"tool":"localFetch","query":{"path":"missing.txt"}},
-             "questions":{"q":{"type":"noul","instructions":"Does it contain evidence?"}}}
-        ]}))
+        .run(
+            "mixed-clasify".into(),
+            "clasify".into(),
+            json_fixture(
+                r#"{
+                    "queries": [
+                        {"operation": "models", "bogus": true},
+                        {
+                            "operation": "evaluate",
+                            "source": {"tool": "localFetch", "query": {"path": "missing.txt"}},
+                            "questions": {
+                                "q": {
+                                    "type": "noul",
+                                    "instructions": "Does it contain evidence?"
+                                }
+                            }
+                        }
+                    ]
+                }"#,
+            ),
+        )
         .await
         .expect("invalid row does not block an admitted sibling")
         .structured_content;
-    octocode_native::contracts::validate_output("clasify", &output).expect("output contract");
+    octocode_runtime_base::contracts::validate_output("clasify", &output).expect("output contract");
     let rows = output["results"].as_array().expect("indexed results");
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0]["index"], 0);
@@ -143,7 +160,7 @@ async fn rejected_rows_and_admitted_evidence_keep_original_indices_across_pages(
                 .await
                 .expect("valid rows execute")
                 .structured_content;
-            octocode_native::contracts::validate_output("localSearch", &output)
+            octocode_runtime_base::contracts::validate_output("localSearch", &output)
                 .expect("page output contract");
             for row in output["results"].as_array().expect("indexed rows") {
                 let index = row["index"].as_u64().expect("original index");

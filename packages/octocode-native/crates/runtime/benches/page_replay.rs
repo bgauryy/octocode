@@ -26,6 +26,10 @@
     unused_imports,
     reason = "shared integration-test fixture; the benchmark uses part of it"
 )]
+#[expect(
+    unreachable_pub,
+    reason = "a benchmark crate has no API: the fixture's `pub` items serve its own modules"
+)]
 #[path = "../tests/support/mod.rs"]
 mod support;
 
@@ -120,8 +124,8 @@ async fn evict(runtime: &ToolRuntime, filler: &str) {
                 ], "responseLength": 50}),
         )
         .await;
-        assert_eq!(
-            structured["responsePagination"]["hasMore"], true,
+        assert!(
+            structured["responsePagination"]["next"].is_object(),
             "filler call must page to be stored"
         );
     }
@@ -140,7 +144,11 @@ async fn measure(runtime: &ToolRuntime, workload: &Workload, filler: &str) -> Me
         let (page_one, elapsed) = call(runtime, workload.tool, first.clone()).await;
         measured.page_one.push(elapsed);
         let pagination = &page_one["responsePagination"];
-        assert_eq!(pagination["hasMore"], true, "{} must page", workload.name);
+        assert!(
+            pagination["next"].is_object(),
+            "{} must page",
+            workload.name
+        );
         measured.total_chars = pagination["totalChars"]
             .as_u64()
             .and_then(|chars| usize::try_from(chars).ok())

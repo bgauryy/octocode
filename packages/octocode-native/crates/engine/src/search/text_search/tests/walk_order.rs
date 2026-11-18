@@ -2,7 +2,7 @@
 //! sorted by name gives, the same candidate index for every path whatever
 //! the threads do, and no directory read that the rules leave out.
 
-use super::streaming::{page_with, paths, traversal};
+use super::streaming::{page_after, page_with, paths, traversal};
 use super::*;
 use crate::search::text_search::stream::tests::with_share;
 use crate::search::walk::read_ahead::{listed_under, queued_under};
@@ -200,6 +200,7 @@ fn stream_walk(
             bind: String::new(),
             from: 0,
             pin: None,
+            anchor: Anchor::START,
             enough: Box::new(|_| false),
         },
     )
@@ -382,13 +383,16 @@ fn no_directory_the_rules_leave_out_is_ever_listed() {
 fn candidate_indexes_and_pins_hold_under_any_number_of_threads() {
     let tree = wide();
     let o = traversal(&tree, "needle");
-    let one_page = |share: usize, from: u32, pin: Option<Pin>, files: usize| {
-        let Streaming::Streamed(streamed) = with_share(share, || {
-            page_with(&o, Arc::new(AllowAll), from, pin, files)
-        }) else {
+    let page_from = |share: usize, at: (u32, Option<Pin>, Anchor), files: usize| {
+        let Streaming::Streamed(streamed) =
+            with_share(share, || page_after(&o, Arc::new(AllowAll), at, files))
+        else {
             panic!("stale")
         };
         *streamed
+    };
+    let one_page = |share: usize, from: u32, pin: Option<Pin>, files: usize| {
+        page_from(share, (from, pin, Anchor::START), files)
     };
     let cut = |streamed: &Streamed| {
         (
@@ -428,10 +432,11 @@ fn candidate_indexes_and_pins_hold_under_any_number_of_threads() {
     // the pages concatenate to the whole scan exactly once.
     for (before, after) in [(32, 1), (1, 32), (12, 3)] {
         let mut shown = Vec::new();
-        let (mut from, mut pin) = (0, None);
+        let (mut from, mut pin, mut anchor) = (0, None, Anchor::START);
         let mut share = before;
         loop {
-            let streamed = one_page(share, from, pin.take(), 11);
+            let streamed = page_from(share, (from, pin.take(), anchor.clone()), 11);
+            anchor = streamed.anchor.clone();
             let all = paths(&streamed);
             if streamed.ended {
                 shown.extend(all);
@@ -497,6 +502,7 @@ fn a_walker_blocked_on_a_full_window_ends_when_the_caller_cancels() {
                     bind: String::new(),
                     from: 0,
                     pin: None,
+                    anchor: Anchor::START,
                     enough: Box::new(move |_| {
                         seen.fetch_add(1, Ordering::Relaxed);
                         std::thread::sleep(std::time::Duration::from_millis(20));

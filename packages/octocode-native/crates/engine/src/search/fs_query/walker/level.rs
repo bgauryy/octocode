@@ -13,14 +13,6 @@ use crate::search::walk::read_ahead;
 use crate::search::walk::{DirRules, Stop};
 use crate::types::fs_resume::{Child, Frame};
 
-/// Entries the walk inspects between two looks at its deadline. A test that
-/// advances the walk clock entry by entry looks at every one.
-const ENTRIES_PER_CLOCK_LOOK: u32 = if cfg!(any(test, feature = "test-hooks")) {
-    1
-} else {
-    64
-};
-
 /// Queue the directories of `children` (entries of `base`) the walk would
 /// enter, as far as their names and ignore rules tell, to be read ahead: a dot
 /// or ignored one can be far larger than the rest of the tree.
@@ -54,7 +46,8 @@ fn queue_ahead(
 /// Whether the walk's time budget ran out at this entry, which it then names,
 /// leaving the cursor that resumes there. The budget starts at the first new
 /// entry, which a positive budget always inspects: every resumed window makes
-/// progress.
+/// progress. The clock is read at every later entry: a read costs tens of
+/// nanoseconds against microseconds per walked entry.
 fn time_ran_out(
     base: &std::path::Path,
     file_name: &std::ffi::OsStr,
@@ -67,9 +60,8 @@ fn time_ran_out(
     let first = state.deadline.is_none();
     let deadline = *state
         .deadline
-        .get_or_insert_with(|| crate::scan_budget::walk_now() + budget);
-    let looks = state.position.is_multiple_of(ENTRIES_PER_CLOCK_LOOK);
-    if !(budget.is_zero() || (!first && looks)) || crate::scan_budget::walk_now() < deadline {
+        .get_or_insert_with(|| query.walk_clock.now() + budget);
+    if (first && !budget.is_zero()) || query.walk_clock.now() < deadline {
         return false;
     }
     let path = base.join(file_name);

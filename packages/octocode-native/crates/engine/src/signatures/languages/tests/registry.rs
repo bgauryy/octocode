@@ -63,7 +63,7 @@ fn extensions_outside_the_registry_are_unsupported_and_unrouted() {
             ".{ext}"
         );
         assert!(
-            crate::signatures::extract_signatures_inner("target(value);", &file).is_err(),
+            crate::signatures::tests::extract_signatures_inner("target(value);", &file).is_err(),
             ".{ext}"
         );
         assert!(
@@ -146,7 +146,8 @@ fn optional_grammar_features_control_admission_and_absence_explicitly() {
             );
             if !enabled {
                 assert!(
-                    crate::signatures::extract_signatures_inner("target(value);", &file).is_err(),
+                    crate::signatures::tests::extract_signatures_inner("target(value);", &file)
+                        .is_err(),
                     ".{ext}"
                 );
                 assert!(

@@ -1,6 +1,6 @@
 #![cfg(unix)]
 use crate::support;
-use serde_json::json;
+use octocode_test_support::json_fixture;
 use std::os::unix::fs::PermissionsExt;
 use support::Workspace;
 use wiremock::{
@@ -49,7 +49,9 @@ async fn native_cli_status_uses_host_scoped_gh_and_preserves_json() {
     Mock::given(method("GET"))
         .and(path("/api/v3/user"))
         .and(header("authorization", "Bearer synthetic-gh-credential"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"login":"fixture-user"})))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json_fixture(r#"{"login": "fixture-user"}"#)),
+        )
         .expect(1)
         .mount(&server)
         .await;
@@ -89,7 +91,8 @@ async fn native_cli_status_reports_a_rejected_token_as_invalid() {
     Mock::given(method("GET"))
         .and(path("/api/v3/user"))
         .respond_with(
-            ResponseTemplate::new(401).set_body_json(json!({"message":"Bad credentials"})),
+            ResponseTemplate::new(401)
+                .set_body_json(json_fixture(r#"{"message": "Bad credentials"}"#)),
         )
         .mount(&server)
         .await;

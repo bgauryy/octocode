@@ -18,15 +18,19 @@
     unused_imports,
     reason = "shared integration-test fixture; the benchmark uses part of it"
 )]
+#[expect(
+    unreachable_pub,
+    reason = "a benchmark crate has no API: the fixture's `pub` items serve its own modules"
+)]
 #[path = "../tests/support/mod.rs"]
 mod support;
 
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use octocode_native::contracts::validate_output;
 use octocode_native::runtime::{Channel, ToolRuntime};
-use octocode_native::security::Sanitized;
+use octocode_runtime_base::contracts::validate_output;
+use octocode_runtime_base::security::Sanitized;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use support::Workspace;
@@ -104,7 +108,7 @@ fn stages(name: &str, tool: &str, page: &Value) {
 
 fn main() {
     let workspace = Workspace::new();
-    let sources = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tools/local_search");
+    let sources = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tool-local/src/local_search");
     copy_sources(&workspace, &sources, "src");
     let root = workspace
         .write("src/.keep", "")

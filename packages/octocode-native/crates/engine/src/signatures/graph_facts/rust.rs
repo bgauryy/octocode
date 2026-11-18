@@ -55,25 +55,13 @@ impl RustContext {
     }
 }
 
-#[cfg(test)]
-thread_local! {
-    /// Attributes folded on this thread, for the work-bound test.
-    static FOLDED_ATTRIBUTES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-/// Attributes folded on this thread so far: each should fold once.
-#[cfg(test)]
-pub(in crate::signatures) fn folded_attributes() -> usize {
-    FOLDED_ATTRIBUTES.with(std::cell::Cell::get)
-}
-
 /// Fold one more attribute into the run read so far, in source order: the
 /// farthest (first written) `#[path]` wins, a repeated `#[path]` or any
 /// non-lint attribute is unsupported. Each attribute is folded once as the
 /// run grows, so a run of any length costs linear work.
 fn fold_rust_attribute(folded: &mut RustAttributes, attribute: Node<'_>, content: &str) {
     #[cfg(test)]
-    FOLDED_ATTRIBUTES.with(|count| count.set(count.get() + 1));
+    crate::signatures::tests::FOLDED_ATTRIBUTES.with(|count| count.set(count.get() + 1));
     let inner = outer_attribute_body(attribute, content);
     let name = inner.split(['(', '=']).next().unwrap_or_default().trim();
     match name {

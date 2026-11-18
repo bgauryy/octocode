@@ -2,6 +2,7 @@
 
 use super::{clasify, content_row, noul, provider, sent};
 use crate::support::{Workspace, clasify_runtime};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 
 #[tokio::test]
@@ -10,14 +11,29 @@ async fn a_content_row_sends_the_questions_unchanged_and_returns_provider_answer
     let workspace = Workspace::new();
     let runtime = clasify_runtime(&workspace, &server, &[]);
     let mut row = content_row();
-    row["questions"] = json!({
-        "restart": {"type":"noul","instructions":{"question":"Requires `action`?","action":"restart"},
-            "criteria":{"true":{"meaning":"yes"},"false":["no"]}},
-        "route": {"type":"choice","instructions":"Which procedure?",
-            "criteria":{"restart":"Restart.","hot":["No restart."],"unknown":null}},
-        "support": {"type":"score","instructions":"How direct?",
-            "criteria":[{"meaning":"Unrelated."},["Mentions it."],"Steps."]}
-    });
+    row["questions"] = json_fixture(
+        r#"{
+            "restart": {
+                "type": "noul",
+                "instructions": {"question": "Requires `action`?", "action": "restart"},
+                "criteria": {"true": {"meaning": "yes"}, "false": ["no"]}
+            },
+            "route": {
+                "type": "choice",
+                "instructions": "Which procedure?",
+                "criteria": {
+                    "restart": "Restart.",
+                    "hot": ["No restart."],
+                    "unknown": null
+                }
+            },
+            "support": {
+                "type": "score",
+                "instructions": "How direct?",
+                "criteria": [{"meaning": "Unrelated."}, ["Mentions it."], "Steps."]
+            }
+        }"#,
+    );
     let out = clasify(&runtime, vec![row.clone()]).await;
     let request = &sent(&server).await[0];
     assert_eq!(request["state"], row["content"]);
@@ -45,9 +61,12 @@ async fn a_content_row_sends_the_questions_unchanged_and_returns_provider_answer
     assert_eq!(result["model"], "jev-1.13.0");
     assert_eq!(
         result["usage"],
-        json!({"inputTokens":40,"outputTokens":7,"calls":1})
+        json_fixture(r#"{"inputTokens": 40, "outputTokens": 7, "calls": 1}"#)
     );
-    assert_eq!(result["answers"]["restart"], json!({"noul":0.9}));
+    assert_eq!(
+        result["answers"]["restart"],
+        json_fixture(r#"{"noul": 0.9}"#)
+    );
     assert!(
         result["answers"]["route"].get("type").is_none(),
         "an answer names its type by its value key, not a type field"
@@ -55,7 +74,7 @@ async fn a_content_row_sends_the_questions_unchanged_and_returns_provider_answer
     assert_eq!(result["answers"]["route"]["choice"], "restart");
     assert_eq!(
         result["answers"]["route"]["probabilities"],
-        json!({"restart":1.0,"hot":0.0,"unknown":0.0})
+        json_fixture(r#"{"restart": 1.0, "hot": 0.0, "unknown": 0.0}"#)
     );
     assert_eq!(
         result["answers"]["support"]["score"], 1.5,
@@ -63,7 +82,13 @@ async fn a_content_row_sends_the_questions_unchanged_and_returns_provider_answer
     );
     assert_eq!(
         result["answers"]["support"]["legend"],
-        json!({"0":{"meaning":"Unrelated."},"1":["Mentions it."],"2":"Steps."})
+        json_fixture(
+            r#"{
+                "0": {"meaning": "Unrelated."},
+                "1": ["Mentions it."],
+                "2": "Steps."
+            }"#
+        )
     );
     assert!(
         result.get("hints").is_none(),
@@ -134,7 +159,7 @@ async fn an_identical_evaluation_reaches_the_provider_every_time() {
     );
     assert_eq!(
         again["results"][0]["data"]["usage"],
-        json!({"inputTokens":40,"outputTokens":7,"calls":1}),
+        json_fixture(r#"{"inputTokens": 40, "outputTokens": 7, "calls": 1}"#),
         "a repeat is new spend"
     );
     // A different question is a different evaluation.

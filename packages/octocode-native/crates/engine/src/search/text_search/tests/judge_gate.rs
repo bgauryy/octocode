@@ -33,6 +33,7 @@ fn judge(judged: &Arc<AtomicUsize>) -> SourceJudge {
             };
             literal.contains(['[', ']']) || written.contains(&literal)
         }),
+        held: None,
     }
 }
 

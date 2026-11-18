@@ -106,7 +106,9 @@ async fn a_live_digest_that_differs_from_the_lock_is_refused_as_changed_upstream
         },
     )
     .await;
-    let error = outcome.error.expect("refused");
+    let failure = outcome.failure.expect("refused");
+    assert_eq!(failure.code, ErrorCode::SecurityValidationFailed);
+    let error = failure.message;
     assert!(
         error.contains("changed upstream since this Octocode build"),
         "{error}"
@@ -126,7 +128,8 @@ async fn a_live_digest_that_differs_from_the_lock_is_refused_as_changed_upstream
         },
     )
     .await;
-    assert!(outcome.error.expect("refused").contains("changed upstream"));
+    let failure = outcome.failure.expect("refused");
+    assert!(failure.message.contains("changed upstream"), "{failure:?}");
 }
 
 /// Bytes of the locked size whose hash is not the locked one are refused by
@@ -157,7 +160,9 @@ async fn bytes_that_differ_from_the_lock_are_refused_as_corrupted() {
             },
         )
         .await;
-        let error = outcome.error.expect("refused");
+        let failure = outcome.failure.expect("refused");
+        assert_eq!(failure.code, ErrorCode::SecurityValidationFailed);
+        let error = failure.message;
         assert!(error.contains("corrupted or substituted"), "{error}");
         assert!(error.contains(refusal), "{refusal}: {error}");
         assert_eq!(install_dir_leftovers(dir.path()), Vec::<String>::new());
@@ -203,7 +208,8 @@ async fn an_unreachable_api_installs_from_the_lock_and_says_so() {
         },
     )
     .await;
-    assert!(outcome.error.expect("refused").contains("corrupted"));
+    let failure = outcome.failure.expect("refused");
+    assert!(failure.message.contains("corrupted"), "{failure:?}");
 }
 
 /// An immutable release's attestation is checked; a failing one refuses.
@@ -246,7 +252,10 @@ async fn an_immutable_release_verifies_its_attestation() {
         .await;
         match expected {
             Ok(text) => assert!(outcome.verification.expect("ok").contains(text)),
-            Err(text) => assert!(outcome.error.expect("refused").contains(text)),
+            Err(text) => {
+                let failure = outcome.failure.expect("refused");
+                assert!(failure.message.contains(text), "{failure:?}");
+            }
         }
     }
 }
@@ -291,7 +300,10 @@ async fn the_token_goes_to_the_api_host_and_never_to_a_download_host() {
         .download(&format!("{download_base}/asset.gz"), spool, u64::MAX)
         .await
         .expect_err("a host outside the allowlist is refused");
-    assert!(refused.contains("Blocked non-allowlisted"), "{refused}");
+    assert!(
+        refused.message.contains("Blocked non-allowlisted"),
+        "{refused:?}"
+    );
     assert!(download_requests.lock().expect("requests").is_empty());
 }
 

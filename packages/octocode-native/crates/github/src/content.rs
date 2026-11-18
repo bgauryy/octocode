@@ -4,6 +4,7 @@ use bytes::Bytes;
 use super::GitHubTransport;
 
 mod file;
+mod links;
 mod listing;
 mod payload;
 mod reference;

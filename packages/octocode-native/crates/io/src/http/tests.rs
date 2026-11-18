@@ -1,0 +1,423 @@
+use super::*;
+use crate::test_support::{loopback, loopback_client};
+
+#[test]
+fn response_delay_increases_origin_age_conservatively() {
+    use reqwest::header::{AGE, HeaderMap, HeaderValue};
+    for (origin, delay, expected) in [
+        (None, Duration::ZERO, 0),
+        (None, Duration::from_nanos(1), 1),
+        (Some("45"), Duration::from_millis(1_250), 47),
+        (Some("invalid"), Duration::from_secs(2), 2),
+        (
+            Some("18446744073709551615"),
+            Duration::from_secs(2),
+            u64::MAX,
+        ),
+    ] {
+        let mut headers = HeaderMap::new();
+        if let Some(origin) = origin {
+            headers.insert(AGE, HeaderValue::from_static(origin));
+        }
+        account_response_delay(&mut headers, delay);
+        assert_eq!(headers[AGE], expected.to_string());
+    }
+}
+
+#[test]
+fn response_delay_never_restarts_an_overflow_or_list_age_at_zero() {
+    use reqwest::header::{AGE, HeaderMap, HeaderValue};
+    for (value, expected) in [
+        ("18446744073709551616", u64::MAX),
+        ("999999999999999999999999999999", u64::MAX),
+        ("120, 0", 120),
+    ] {
+        let mut headers = HeaderMap::new();
+        headers.insert(AGE, HeaderValue::from_static(value));
+        account_response_delay(&mut headers, Duration::ZERO);
+        assert_eq!(headers[AGE], expected.to_string(), "{value}");
+    }
+}
+
+#[test]
+fn age_uses_the_first_member_and_rejects_non_decimal_syntax() {
+    for (value, expected) in [
+        ("0", Some(0)),
+        (" 120 , 0", Some(120)),
+        ("00042", Some(42)),
+        ("", None),
+        (", 120", None),
+        ("-1", None),
+        ("+1", None),
+        ("1.0", None),
+        ("1e3", None),
+        ("12x", None),
+        ("18446744073709551616", Some(u64::MAX)),
+    ] {
+        assert_eq!(parse_age(value), expected, "{value}");
+    }
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.append("age", reqwest::header::HeaderValue::from_static("120"));
+    headers.append("age", reqwest::header::HeaderValue::from_static("0"));
+    account_response_delay(&mut headers, Duration::ZERO);
+    assert_eq!(headers["age"], "120");
+}
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpListener};
+use std::time::{Duration, Instant};
+
+/// One request on a loopback listener that answers `reply`, then closes.
+fn serve_once(reply: &'static str) -> (SocketAddr, std::thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let handle = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept");
+        let mut buf = [0_u8; 1024];
+        let _ = stream.read(&mut buf);
+        let _ = stream.write_all(reply.as_bytes());
+    });
+    (addr, handle)
+}
+
+fn runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime")
+}
+
+/// The test fixture connects directly and changes nothing else in the
+/// policy a test asks for.
+#[test]
+fn the_loopback_fixture_connects_directly_and_keeps_the_policy() {
+    let fixture = loopback(ClientPolicy::without_deadline());
+    assert!(connects_directly(&fixture));
+    assert_eq!(fixture.read_timeout, Some(READ_STALL));
+    assert_eq!(fixture.timeout, None);
+}
+
+/// A failure names the proxy the request went through by scheme, host
+/// and port: its credentials are never stated, and a host the proxy
+/// settings exempt names none.
+#[test]
+fn the_named_proxy_drops_userinfo_and_honors_exemptions() {
+    let matcher = hyper_util::client::proxy::matcher::Matcher::builder()
+        .all("http://user:secret@proxy.internal:3128")
+        .no("ghe.internal")
+        .build();
+    let named = named_proxy(&matcher, "https://api.github.com/repos/o/r");
+    assert_eq!(named.as_deref(), Some("http://proxy.internal:3128"));
+    assert!(!named.unwrap_or_default().contains("secret"));
+    assert_eq!(
+        named_proxy(&matcher, "https://ghe.internal/api/v3"),
+        None,
+        "an exempt host connects directly"
+    );
+    // A direct policy never looks the system settings up.
+    assert_eq!(
+        proxy_in_effect(&loopback(ClientPolicy::default()), "https://api.github.com"),
+        None
+    );
+}
+
+#[test]
+fn only_direct_or_pinned_policies_bypass_the_proxy() {
+    let pinned = Some(("pinned.invalid".to_owned(), Vec::new()));
+    let policy = |proxy, resolve| ClientPolicy {
+        proxy,
+        resolve,
+        ..ClientPolicy::default()
+    };
+    assert!(!connects_directly(&policy(Proxy::System, None)));
+    assert!(connects_directly(&policy(Proxy::Direct, None)));
+    assert!(
+        connects_directly(&policy(Proxy::System, pinned.clone())),
+        "a pinned name must not be re-resolved by a proxy"
+    );
+    assert!(connects_directly(&policy(Proxy::Direct, pinned)));
+}
+
+#[test]
+fn a_redirect_is_returned_not_followed() {
+    // A 307 would replay a POST body to its Location; the caller must see it.
+    let (addr, server) = serve_once(
+        "HTTP/1.1 307 Temporary Redirect\r\nLocation: http://127.0.0.1:1/elsewhere\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+    );
+    let status = runtime().block_on(async {
+        let client = loopback_client(ClientPolicy::default());
+        client
+            .get(format!("http://{addr}/"))
+            .send()
+            .await
+            .expect("send")
+            .status()
+    });
+    server.join().expect("server");
+    assert_eq!(status.as_u16(), 307);
+}
+
+/// A peer that sends `head`, then `chunks` (each after `gap`), then goes
+/// silent for `silence` before closing.
+fn serve_slowly(head: &'static str, chunks: usize, gap: Duration, silence: Duration) -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept");
+        let mut buf = [0_u8; 1024];
+        let _ = stream.read(&mut buf);
+        let _ = stream.write_all(head.as_bytes());
+        for _ in 0..chunks {
+            std::thread::sleep(gap);
+            let _ = stream.write_all(b"x");
+            let _ = stream.flush();
+        }
+        std::thread::sleep(silence);
+    });
+    addr
+}
+
+/// The body as `client` reads it with a read stall bound of `stall`, and
+/// how long the request took.
+fn read_body(addr: SocketAddr, stall: Duration) -> (reqwest::Result<String>, Duration) {
+    runtime().block_on(async {
+        let policy = ClientPolicy {
+            read_timeout: Some(stall),
+            ..ClientPolicy::without_deadline()
+        };
+        let client = loopback_client(policy);
+        let started = Instant::now();
+        let body = async {
+            client
+                .get(format!("http://{addr}/"))
+                .send()
+                .await?
+                .text()
+                .await
+        };
+        (body.await, started.elapsed())
+    })
+}
+
+/// B75: a client without a deadline ends a request only at its stall
+/// bound, [`READ_STALL`] in production.
+#[test]
+fn a_client_without_a_deadline_bounds_only_its_read_stall() {
+    let policy = ClientPolicy::without_deadline();
+    assert_eq!(policy.read_timeout, Some(READ_STALL));
+    assert_eq!(policy.timeout, None, "no total deadline");
+}
+
+/// A peer that answers its headers and part of the body, then goes silent,
+/// fails the read at the stall bound with a timeout.
+#[test]
+fn a_body_that_stops_mid_way_times_out_at_the_stall_bound() {
+    let stall = Duration::from_millis(300);
+    let addr = serve_slowly(
+        "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabc",
+        0,
+        Duration::ZERO,
+        Duration::from_secs(5),
+    );
+    let (body, elapsed) = read_body(addr, stall);
+    let error = body.expect_err("a silent peer ends the read");
+    assert!(error.is_timeout(), "the stall is a timeout: {error}");
+    assert!(elapsed >= stall, "cut before the bound: {elapsed:?}");
+    assert!(
+        elapsed < Duration::from_secs(4),
+        "not cut at the bound: {elapsed:?}"
+    );
+}
+
+/// A body that keeps trickling, each chunk inside the stall bound, is read
+/// whole however many multiples of the bound it takes.
+#[test]
+fn a_body_that_keeps_trickling_completes_past_many_stall_bounds() {
+    let stall = Duration::from_millis(400);
+    let chunks = 8;
+    let gap = Duration::from_millis(250);
+    let addr = serve_slowly(
+        "HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\n",
+        chunks,
+        gap,
+        Duration::ZERO,
+    );
+    let (body, elapsed) = read_body(addr, stall);
+    assert_eq!(body.expect("a flowing body completes"), "x".repeat(chunks));
+    assert!(elapsed > stall * 4, "outlasted several bounds: {elapsed:?}");
+}
+
+#[test]
+fn a_stalled_peer_fails_within_the_read_timeout() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let _peer = std::thread::spawn(move || {
+        let (_stream, _) = listener.accept().expect("accept");
+        std::thread::sleep(Duration::from_secs(5));
+    });
+    let (result, elapsed) = runtime().block_on(async {
+        let policy = ClientPolicy {
+            read_timeout: Some(Duration::from_millis(200)),
+            ..ClientPolicy::default()
+        };
+        let client = loopback_client(policy);
+        // Platform client setup is separate from a request's read timeout.
+        let started = Instant::now();
+        let result = client.get(format!("http://{addr}/")).send().await;
+        (result, started.elapsed())
+    });
+    let error = result.expect_err("a stalled peer must not hang the request");
+    assert!(
+        error.is_timeout(),
+        "the stalled read must time out: {error}"
+    );
+    assert!(elapsed < Duration::from_secs(4), "request took {elapsed:?}");
+}
+
+#[test]
+fn a_dns_pin_connects_the_name_to_the_pinned_address() {
+    let (addr, server) =
+        serve_once("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+    let body = runtime().block_on(async {
+        let policy = ClientPolicy {
+            proxy: Proxy::Direct,
+            resolve: Some(("pinned.invalid".into(), vec![addr])),
+            ..ClientPolicy::default()
+        };
+        let client = loopback_client(policy);
+        let port = addr.port();
+        client
+            .get(format!("http://pinned.invalid:{port}/"))
+            .send()
+            .await
+            .expect("send")
+            .text()
+            .await
+            .expect("body")
+    });
+    server.join().expect("server");
+    assert_eq!(body, "ok");
+}
+
+fn gzipped(plain: &[u8]) -> Vec<u8> {
+    use flate2::{Compression, write::GzEncoder};
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(plain).expect("encode");
+    encoder.finish().expect("finish")
+}
+
+async fn gzip_server(plain: &[u8]) -> (wiremock::MockServer, Vec<u8>) {
+    let server = wiremock::MockServer::start().await;
+    let wire = gzipped(plain);
+    wiremock::Mock::given(wiremock::matchers::any())
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .insert_header("content-encoding", "gzip")
+                .set_body_bytes(wire.clone()),
+        )
+        .mount(&server)
+        .await;
+    (server, wire)
+}
+
+#[tokio::test]
+async fn a_gzip_body_is_requested_and_decoded() {
+    let plain = "{\"ok\":true}".repeat(200);
+    let (server, wire) = gzip_server(plain.as_bytes()).await;
+    let client = loopback_client(ClientPolicy::default());
+    let response = client.get(server.uri()).send().await.expect("send");
+    let budget = crate::budget::RequestBudget::with_timeout(Duration::from_secs(5), 1 << 20);
+    let body = crate::retry::read_bounded(response, &budget, 1 << 20)
+        .await
+        .expect("body");
+    assert_eq!(body.as_ref(), plain.as_bytes());
+    assert!(wire.len() < plain.len());
+    let sent = server.received_requests().await.expect("requests");
+    let accept = sent[0]
+        .headers
+        .get("accept-encoding")
+        .expect("accept-encoding");
+    assert!(accept.to_str().expect("text").contains("gzip"));
+}
+
+#[tokio::test]
+async fn a_gzip_body_over_the_limit_is_refused_by_its_decoded_size() {
+    let plain = vec![0_u8; 4 << 20];
+    let (server, wire) = gzip_server(&plain).await;
+    assert!(wire.len() < 64 << 10, "the bomb is small on the wire");
+    let client = loopback_client(ClientPolicy::default());
+    let response = client.get(server.uri()).send().await.expect("send");
+    let budget = crate::budget::RequestBudget::with_timeout(Duration::from_secs(5), 1 << 20);
+    let read = crate::retry::read_bounded(response, &budget, 1 << 20).await;
+    assert_eq!(read, Err(crate::retry::BodyError::TooLarge));
+}
+
+/// A body read under `gzip`, whose wire bytes `wire` are not what that
+/// header promises.
+async fn read_labelled_gzip(wire: Vec<u8>) -> Result<bytes::Bytes, crate::retry::BodyError> {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::any())
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .insert_header("content-encoding", "gzip")
+                .set_body_bytes(wire),
+        )
+        .mount(&server)
+        .await;
+    let client = loopback_client(ClientPolicy::default());
+    let response = client.get(server.uri()).send().await.expect("send");
+    let budget = crate::budget::RequestBudget::with_timeout(Duration::from_secs(5), 1 << 20);
+    crate::retry::read_bounded(response, &budget, 1 << 20).await
+}
+
+/// The server answered in full and the bytes do not decode: no network
+/// failure, and sending the request again gets the same bytes.
+#[tokio::test]
+async fn a_body_that_does_not_decode_as_labelled_is_a_decode_error() {
+    let plain = b"{\"plain\":\"not gzip at all\"}".to_vec();
+    let truncated = {
+        let mut wire = gzipped(&b"{\"ok\":true}".repeat(200));
+        wire.truncate(wire.len() / 2);
+        wire
+    };
+    for wire in [plain, truncated] {
+        assert_eq!(
+            read_labelled_gzip(wire).await,
+            Err(crate::retry::BodyError::Decode)
+        );
+    }
+}
+
+/// The connection dying inside a compressed body stays a network failure.
+#[test]
+fn a_connection_lost_inside_a_compressed_body_is_transport() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let address = listener.local_addr().expect("address");
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept");
+        let mut request = [0_u8; 1024];
+        let _ = std::io::Read::read(&mut stream, &mut request).expect("request");
+        let wire = gzipped(&b"{\"ok\":true}".repeat(200));
+        let head = format!(
+            "HTTP/1.1 200 OK\r\ncontent-encoding: gzip\r\ncontent-length: {}\r\n\r\n",
+            wire.len()
+        );
+        stream.write_all(head.as_bytes()).expect("head");
+        stream.write_all(&wire[..wire.len() / 2]).expect("part");
+    });
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    let read = runtime.block_on(async {
+        let client = loopback_client(ClientPolicy::default());
+        let response = client
+            .get(format!("http://{address}/"))
+            .send()
+            .await
+            .expect("send");
+        let budget = crate::budget::RequestBudget::with_timeout(Duration::from_secs(5), 1 << 20);
+        crate::retry::read_bounded(response, &budget, 1 << 20).await
+    });
+    server.join().expect("server");
+    assert_eq!(read, Err(crate::retry::BodyError::Transport));
+}

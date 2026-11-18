@@ -34,4 +34,11 @@ Use `rustup doc` for installed offline documentation. If browsing is unavailable
 
 ## Refinement provenance
 
-Reviewed against primary documentation on **2026-11-12**: Vec growth and Arc auto-trait guarantees; additive Cargo features and MSRV; Tokio task/process cancellation; Miri's limitations; unsafe-block obligations; API evolution and profiling methodology. This review establishes source support, not measured runtime improvement or activation accuracy across every agent host. Recheck version-sensitive advice when applying it.
+Reviewed against primary documentation on **2026-11-12**: Vec growth and Arc auto-trait guarantees; additive Cargo features and MSRV; Tokio task/process cancellation; Miri's limitations; unsafe-block obligations; API evolution and profiling methodology. On **2026-11-17**, build, test and crate-layout practices were checked against the Cargo reference, rust-lang/rust issues and the source or pull requests of rust-analyzer, Zed, Servo, uv, Deno, cargo, oxc, swc, ruff, biome and Materialize; the timings quoted with them come from one workspace. This review establishes source support, not measured runtime improvement or activation accuracy across every agent host. Recheck version-sensitive advice when applying it.
+
+The measured numbers in [crate structure](crate-structure.md), [build profiles](build-profiles.md), [compile cost](code-size.md), [workspace](workspace.md), [testing](testing-and-tooling.md) and [concurrency](concurrency-and-async.md) come from Octocode's native workspace on **2026-11-17**:
+- Setup: 8 crates and about 690k lines, rustc 1.99.1, an M2 Pro with 12 cores and 32 GB, sccache off.
+- Method: CPU is user + sys per unit, taken by a `RUSTC_WRAPPER` timer or `/usr/bin/time`, with A/B/A/B pairs at a recorded load average. Unit counts are cargo JSON artifacts with `fresh: false`, and unit-graph diffs use nightly `--unit-graph`.
+- Not measured: IR-line savings are not converted to CPU unless stated, and proposals are marked as not applied.
+
+The evidence lives in that checkout's `.octocode/build-audit/2026-11-17/` and `.octocode/octocode-rfc-generator/2026-11-17-native-build-velocity/`.

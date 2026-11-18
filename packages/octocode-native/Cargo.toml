@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/engine", "crates/github", "crates/io", "crates/contract-types", "crates/runtime", "crates/cli"]
+members = ["crates/engine", "crates/github", "crates/io", "crates/contract-base", "crates/contract-types", "crates/runtime-base", "crates/tools-shared", "crates/tool-graph", "crates/tool-lsp", "crates/tool-github", "crates/tool-local", "crates/tool-ast", "crates/tool-packages", "crates/tool-clasify", "crates/test-support", "crates/runtime", "crates/cli"]
 default-members = ["crates/cli"]
 # libFuzzer targets: their own workspace and lockfile (fuzz/Cargo.toml).
 exclude = ["fuzz"]
@@ -31,7 +31,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 memchr = "2"
 regex = "1"
-regex-automata = { version = "0.4", default-features = false }
 url = "2"
 sha2 = "0.11"
 hex = "0.4"
@@ -72,6 +71,9 @@ unused_mut = "deny"
 # not only the Clippy gate.
 private_interfaces = "deny"
 private_bounds = "deny"
+# A `pub` item no other crate can reach is `pub(crate)`: the crate split widened 1,002
+# items so the move would compile, and this keeps the widening from staying or returning.
+unreachable_pub = "warn"
 
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }
@@ -123,6 +125,26 @@ strip = "symbols"
 # the global `codegen-units = 1`.
 [profile.release.package.octocode-native]
 codegen-units = 16
+# The layers below the tools, split out of octocode-native: the same reasoning.
+[profile.release.package.octocode-runtime-base]
+codegen-units = 16
+# The tool crates split out of octocode-native: the same reasoning.
+[profile.release.package.octocode-tools-shared]
+codegen-units = 16
+[profile.release.package.octocode-tool-graph]
+codegen-units = 16
+[profile.release.package.octocode-tool-lsp]
+codegen-units = 16
+[profile.release.package.octocode-tool-github]
+codegen-units = 16
+[profile.release.package.octocode-tool-local]
+codegen-units = 16
+[profile.release.package.octocode-tool-ast]
+codegen-units = 16
+[profile.release.package.octocode-tool-packages]
+codegen-units = 16
+[profile.release.package.octocode-tool-clasify]
+codegen-units = 16
 
 # NOTE (measured 2026-09-22): the engine is the release long pole at the global
 # cu=1 (~146s, compiled up to 3×), but it must STAY at cu=1. Benchmarked cu=1 vs
@@ -163,6 +185,30 @@ incremental = false
 [profile.dev.package."*"]
 debug = false
 
+# The runtime is the largest unit, and its lib-test is the whole critical path of
+# the test build. No line tables: dev lib -24% CPU, lib-test -16% (A/B, 2026-11-17).
+# Panic messages keep file:line; backtrace frames in this crate lose it. 256 codegen
+# units (16 is the non-incremental default) cut its codegen wall time ~18% at equal
+# CPU; the engine measured worse with 256 and keeps the default.
+[profile.dev.package.octocode-native]
+debug = false
+[profile.dev.package.octocode-tools-shared]
+debug = false
+[profile.dev.package.octocode-tool-graph]
+debug = false
+[profile.dev.package.octocode-tool-lsp]
+debug = false
+[profile.dev.package.octocode-tool-github]
+debug = false
+[profile.dev.package.octocode-tool-local]
+debug = false
+[profile.dev.package.octocode-tool-ast]
+debug = false
+[profile.dev.package.octocode-tool-packages]
+debug = false
+[profile.dev.package.octocode-tool-clasify]
+debug = false
+
 # Every CLI process builds the secret sanitizer's literal prescan (regex-syntax
 # parse + aho-corasick) and compiles its no-literal fallback patterns on first
 # output. Unoptimized, that one-time init cost ~50 ms per debug tool call
@@ -176,6 +222,11 @@ opt-level = 3
 [profile.dev.package."regex"]
 opt-level = 3
 [profile.dev.package."regex-automata"]
+opt-level = 3
+# memchr's `memmem` searches run in memchr's own code, which regex, aho-corasick and our
+# byte scans (secret prescan needles, line splits) call into. Unoptimized, a pass over
+# 32 MB took 25-70 ms; at opt-level 3 about 1 ms (measured 2026-11-17).
+[profile.dev.package."memchr"]
 opt-level = 3
 
 # Contract validation, row shaping and every tool result move `serde_json::Value`
@@ -191,15 +242,13 @@ opt-level = 3
 # ── Heavy dep clusters: optimise for dev-loop runtime without slowing own-crate rebuilds ──
 # Own code stays at opt-level=0 for fast incremental recompile; only dependency
 # code is bumped. This mirrors the regex-automata pattern already applied above.
-# tree-sitter-cpp / -c-sharp / -scala (~74 MB of generated parser.c) are left at
-# opt-level 0 on purpose: `cc` follows the profile level, so -O3 on them costs
+# tree-sitter-cpp / -cuda / -c-sharp / -scala (~104 MB of generated parser.c) are
+# left at opt-level 0 on purpose: `cc` follows the profile level, so -O3 on them costs
 # minutes of cold dev/test build while tests only parse tiny fixtures.
 
 [profile.dev.package."tree-sitter"]
 opt-level = 3
 [profile.dev.package."tree-sitter-asm"]
-opt-level = 3
-[profile.dev.package."tree-sitter-cuda"]
 opt-level = 3
 [profile.dev.package."tree-sitter-javascript"]
 opt-level = 3

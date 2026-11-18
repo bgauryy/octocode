@@ -17,11 +17,11 @@ fn root_help_lists_tools_independent_of_mcp_filters_and_clasify_only_with_a_key(
             .expect("help");
         assert!(output.status.success());
         let text = stdout(&output);
-        for tool in octocode_native::id::ToolId::ALL {
+        for tool in octocode_runtime_base::id::ToolId::ALL {
             assert_eq!(
                 text.contains(&format!("\n  {} ", tool.as_str())),
                 match tool {
-                    octocode_native::id::ToolId::Clasify => !key.is_empty(),
+                    octocode_runtime_base::id::ToolId::Clasify => !key.is_empty(),
                     _ => true,
                 },
                 "{key:?} {}: {text}",
@@ -49,7 +49,7 @@ fn root_help_lists_tools_independent_of_mcp_filters_and_clasify_only_with_a_key(
 #[test]
 fn tool_help_states_each_contract_tools_trigger() {
     let workspace = Workspace::new();
-    let contract = octocode_native::contracts::parsed_contract().expect("embedded contract");
+    let contract = octocode_runtime_base::contracts::parsed_contract().expect("embedded contract");
     let root = all_tools_enabled(workspace.cli().arg("--help"))
         .output()
         .expect("root help");
@@ -100,7 +100,8 @@ fn tool_help_states_each_contract_tools_trigger() {
         .join(" ");
     for tool in contract["tools"].as_array().expect("contract tools") {
         let name = tool["name"].as_str().expect("tool name");
-        let trigger = octocode_native::contracts::cli_tool_trigger(name).expect("tool trigger");
+        let trigger =
+            octocode_runtime_base::contracts::cli_tool_trigger(name).expect("tool trigger");
         assert!(!trigger.is_empty(), "{name}");
         assert!(
             root_text.contains(trigger),
@@ -148,7 +149,7 @@ fn a_command_the_help_does_not_list_is_rejected() {
 #[test]
 fn help_names_each_tools_required_fields_and_output_reference() {
     let workspace = Workspace::new();
-    let presentation = octocode_native::contracts::cli_presentation().expect("presentation");
+    let presentation = octocode_runtime_base::contracts::cli_presentation().expect("presentation");
     for flag in ["--help", "-h"] {
         let root = all_tools_enabled(workspace.cli().arg(flag))
             .output()
@@ -251,7 +252,7 @@ fn help_names_each_tools_required_fields_and_output_reference() {
         let own = stdout(&own);
         for form in forms {
             // Each form the root entry summarizes is a valid query.
-            octocode_native::contracts::validate_query(name, form["example"].clone())
+            octocode_runtime_base::contracts::validate_query(name, form["example"].clone())
                 .unwrap_or_else(|error| panic!("{name} {} example: {error:?}", form["name"]));
             for field in form["requires"].as_array().expect("requires") {
                 let field = field.as_str().expect("field");

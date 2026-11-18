@@ -1,7 +1,7 @@
 //! Admission rejects invalid shapes and constraints without guessing a replacement request.
 use crate::support::{Run as _, Workspace};
 use octocode_contract_types::ErrorCode;
-use serde_json::json;
+use octocode_test_support::json_fixture;
 
 #[tokio::test]
 async fn invalid_inputs_preserve_caller_intent_by_rejecting_without_executable_repairs() {
@@ -10,62 +10,128 @@ async fn invalid_inputs_preserve_caller_intent_by_rejecting_without_executable_r
     for (tool, input, field) in [
         (
             "localFetch",
-            json!({"queries":[{"path":"a.rs","fullContent":true,"length":100}]}),
+            json_fixture(
+                r#"{
+                    "queries": [{"path": "a.rs", "fullContent": true, "length": 100}]
+                }"#,
+            ),
             "fullContent",
         ),
         (
             "localFetch",
-            json!({"queries":[{"queries":[{"path":"a.rs"}]}]}),
+            json_fixture(r#"{"queries": [{"queries": [{"path": "a.rs"}]}]}"#),
             "queries",
         ),
         (
             "localFetch",
-            json!({"queries":[{"path":"a.rs","ranges":"1-2"}]}),
+            json_fixture(r#"{"queries": [{"path": "a.rs", "ranges": "1-2"}]}"#),
             "ranges",
         ),
         (
             "localFetch",
-            json!({"queries":[{"path":"a.rs","ranges":[{"startLine":5,"endLine":2}]}]}),
+            json_fixture(
+                r#"{
+                    "queries": [
+                        {"path": "a.rs", "ranges": [{"startLine": 5, "endLine": 2}]}
+                    ]
+                }"#,
+            ),
             "ranges",
         ),
         (
             "localSearch",
-            json!({"queries":[{"path":".","matchString":["x"],"caseMode":"ignore"}]}),
+            json_fixture(
+                r#"{
+                    "queries": [{"path": ".", "matchString": ["x"], "caseMode": "ignore"}]
+                }"#,
+            ),
             "caseMode",
         ),
         (
             "localSearch",
-            json!({"queries":[{"path":".","matchstring":["x"]}]}),
+            json_fixture(r#"{"queries": [{"path": ".", "matchstring": ["x"]}]}"#),
             "matchstring",
         ),
         (
             "localSearch",
-            json!({"queries":[{"path":".","matchString":["x"],"glob":"*.ts"}]}),
+            json_fixture(
+                r#"{
+                    "queries": [{"path": ".", "matchString": ["x"], "glob": "*.ts"}]
+                }"#,
+            ),
             "glob",
         ),
         (
             "lspSearch",
-            json!({"queries":[{"operation":"refs","path":"a.ts","symbolName":"a","line":1}]}),
+            json_fixture(
+                r#"{
+                    "queries": [
+                        {
+                            "operation": "refs",
+                            "path": "a.ts",
+                            "symbolName": "a",
+                            "line": 1
+                        }
+                    ]
+                }"#,
+            ),
             "operation",
         ),
         (
             "lspSearch",
-            json!({"queries":[{"operation":"definition","path":"a.ts","symbolName":"a","line":0}]}),
+            json_fixture(
+                r#"{
+                    "queries": [
+                        {
+                            "operation": "definition",
+                            "path": "a.ts",
+                            "symbolName": "a",
+                            "line": 0
+                        }
+                    ]
+                }"#,
+            ),
             "line",
         ),
         (
             "ghGetFileContent",
-            json!({"queries":[{"path":"https://github.com/o/r/blob/main/a.rs"}]}),
+            json_fixture(
+                r#"{
+                    "queries": [{"path": "https://github.com/o/r/blob/main/a.rs"}]
+                }"#,
+            ),
             "owner",
         ),
         (
             "ghStructure",
-            json!({"queries":[{"operation":"tree","owner":"o","repo":"r","ref":"v1","branch":"main"}]}),
+            json_fixture(
+                r#"{
+                    "queries": [
+                        {
+                            "operation": "tree",
+                            "owner": "o",
+                            "repo": "r",
+                            "ref": "v1",
+                            "branch": "main"
+                        }
+                    ]
+                }"#,
+            ),
             "branch",
         ),
         (
             "astSearch",
-            json!({"queries":[{"operation":"symbols","path":".","rule":{"pattern":"eval($X)"}}]}),
+            json_fixture(
+                r#"{
+                    "queries": [
+                        {
+                            "operation": "symbols",
+                            "path": ".",
+                            "rule": {"pattern": "eval($X)"}
+                        }
+                    ]
+                }"#,
+            ),
             "rule",
         ),
     ] {
@@ -85,7 +151,7 @@ async fn invalid_inputs_preserve_caller_intent_by_rejecting_without_executable_r
             crate::support::checks::leads(payload).is_empty(),
             "no guessed executable request: {payload}"
         );
-        assert!(octocode_native::contracts::validate(tool, input).is_err());
+        assert!(octocode_runtime_base::contracts::validate(tool, input).is_err());
     }
     runtime.close().await;
 }

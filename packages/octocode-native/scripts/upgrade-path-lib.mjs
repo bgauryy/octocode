@@ -4,7 +4,11 @@
 // for tests/upgrade-path.test.mjs.
 import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
+
+// One version rule everywhere: `<version>`, optionally `+<hex>` (the contract fingerprint).
+export const { reportsVersion, sameVersion } = createRequire(import.meta.url)('../bin/fetch-binary.cjs');
 
 export const USAGE =
   'Usage: node packages/octocode-native/scripts/upgrade-path.mjs --packages <dir> ' +
@@ -318,7 +322,7 @@ export function graphVerdict(query, expectedIds) {
  */
 export function fallbackVerdict(result, version, packageName) {
   if (result.timedOut) return { ok: false, kind: 'hang', note: `no answer within ${result.ms} ms` };
-  if (result.status === 0 && result.stdout.trim() === `octocode ${version}`) {
+  if (result.status === 0 && reportsVersion(result.stdout, version)) {
     return { ok: true, kind: 'fetched', note: `registry fallback fetched ${packageName}@${version} (${result.ms} ms)` };
   }
   const text = `${result.stdout}\n${result.stderr}`;

@@ -84,8 +84,9 @@ fn ignore_rules_are_honored_counted_and_lifted() {
         paths.sort();
         (paths, found.ignored.len())
     };
-    // A dot entry out of view is not counted as ignored.
-    assert_eq!(files(IgnorePolicy::default()), (vec!["a.rs".to_owned()], 2));
+    // An ignored dot entry out of view is counted as ignored too: the count
+    // is what an empty listing's lead lifts.
+    assert_eq!(files(IgnorePolicy::default()), (vec!["a.rs".to_owned()], 3));
     let shown = IgnorePolicy {
         include_ignored: false,
         include_hidden: true,

@@ -1,5 +1,6 @@
 //! Real process trees: CPU clocks, the tree walk and teardown.
 
+use super::super::metrics::memory_bytes;
 use super::*;
 use crate::process::identity::ProcessTable;
 use std::time::{Duration, Instant};
@@ -30,7 +31,7 @@ fn process_gone(pid: u32) -> bool {
     loop {
         // SAFETY: signal 0 only checks existence.
         let alive = unsafe { libc::kill(pid as i32, 0) } == 0;
-        if !alive || rss_bytes(pid).is_none() {
+        if !alive || memory_bytes(pid).is_none() {
             return true;
         }
         if Instant::now() >= deadline {
@@ -116,7 +117,7 @@ fn tree_walk_and_kill_reach_a_setsid_grandchild() {
         Some(seen.start),
         "the walk reads the same start time a signal is checked against"
     );
-    assert!(tree_rss_bytes(child.id()).is_some_and(|rss| rss > 0));
+    assert!(tree_memory_bytes(child.id()).is_some_and(|bytes| bytes > 0));
     kill_tree(child.id());
     let _ = child.wait();
     assert!(

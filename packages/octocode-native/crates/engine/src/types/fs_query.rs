@@ -10,7 +10,7 @@
 pub struct ListsEntry(pub std::sync::Arc<ListsRule>);
 
 /// The rule a [`ListsEntry`] holds.
-pub type ListsRule = dyn Fn(&std::path::Path, bool, u32) -> bool + Send + Sync;
+pub(super) type ListsRule = dyn Fn(&std::path::Path, bool, u32) -> bool + Send + Sync;
 
 impl std::fmt::Debug for ListsEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -100,6 +100,8 @@ pub struct FileSystemQueryOptions {
     /// reports where in [`FileSystemQueryResult::time_cut`]. `None` walks
     /// to the end.
     pub time_budget: Option<std::time::Duration>,
+    /// The clock `time_budget` is read on (default: the monotonic clock).
+    pub walk_clock: crate::scan_budget::WalkClock,
     /// Resume position: the leading entries (walk order, as
     /// [`FileSystemQueryResult::walk_position`] counts them) an earlier walk
     /// of the same query already inspected. The walk replays them without
@@ -223,6 +225,10 @@ pub struct FileSystemQueryResult {
     pub first_unlisted: Option<String>,
     pub skipped: u32,
     pub permission_denied: u32,
+    /// Absolute paths of the directories whose listing was denied, in walk
+    /// order; an entry that could not be read without a directory of its own
+    /// is only counted.
+    pub denied_dirs: Vec<String>,
     /// Root-relative paths of the entries the ignore rules left out (the
     /// topmost of each ignored subtree), in walk order, a directory's with a
     /// trailing `/` (a caller's own prune may name some of them too); a dot
@@ -273,6 +279,7 @@ impl FileSystemQueryResult {
         let totals = self.tally.through(position);
         self.skipped = totals.skipped;
         self.permission_denied = totals.permission_denied;
+        self.denied_dirs = totals.denied_dirs;
         self.ignored = totals.ignored;
         self.pruned_dirs = totals.pruned_dirs;
         self.walk_position = position;

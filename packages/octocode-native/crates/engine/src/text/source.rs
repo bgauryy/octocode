@@ -16,6 +16,13 @@ use std::io::Read;
 use std::path::Path;
 
 pub mod analysis;
+mod stable;
+#[cfg(any(test, feature = "test-hooks"))]
+pub use stable::{BEFORE_PROOF, ProofRace};
+pub use stable::{
+    CHANGING_HINT, Prefix, Proved, Settled, Settling, Taken, changed_while_read,
+    is_changed_while_read, unchanged_since,
+};
 
 /// Why [`read_source`] refused a path.
 #[derive(Debug)]
@@ -119,7 +126,7 @@ fn utf16_unit(bytes: &[u8], offset: usize) -> u16 {
 
 /// Strict Unicode decoding for consumers that must not infer a legacy encoding.
 /// Coordinates refer to decoded text; callers retain the original bytes for digests.
-pub fn decode_unicode(bytes: &[u8]) -> Option<Cow<'_, str>> {
+pub(super) fn decode_unicode(bytes: &[u8]) -> Option<Cow<'_, str>> {
     if has_utf16_bom(bytes) {
         if !bytes.len().is_multiple_of(2) {
             return None;
@@ -255,9 +262,8 @@ pub fn interior_offset(bytes: &[u8], raw: usize) -> usize {
 #[derive(Debug)]
 pub struct Source {
     pub bytes: Vec<u8>,
-    /// Metadata of the opened handle, taken after the read: it describes the
-    /// bytes read unless the file was written meanwhile (its length then
-    /// differs, or its change time is recent).
+    /// Metadata of the opened handle, taken after the read, which no write
+    /// moved ([`Settling`]): it describes the bytes read.
     pub metadata: std::fs::Metadata,
 }
 
@@ -371,24 +377,36 @@ pub fn read_regular(path: &Path, limit: u64) -> Result<Source, ReadError> {
 }
 
 /// The bounded read behind [`read_source`] and [`read_regular`];
-/// `unfollowed` refuses a final symlink.
+/// `unfollowed` refuses a final symlink. It returns only a stable read
+/// ([`Settling`]): one a write moved under is made again from a fresh open,
+/// and a file that keeps changing fails as [`changed_while_read`].
 fn read_bounded(path: &Path, limit: u64, unfollowed: bool) -> Result<Source, ReadError> {
-    let file = open_nonblocking(path, unfollowed).map_err(ReadError::Io)?;
-    let metadata = file.metadata().map_err(ReadError::Io)?;
-    if !metadata.is_file() {
-        return Err(ReadError::NotRegular);
+    let mut settling = Settling::default();
+    loop {
+        let file = open_nonblocking(path, unfollowed).map_err(ReadError::Io)?;
+        let opened = file.metadata().map_err(ReadError::Io)?;
+        if !opened.is_file() {
+            return Err(ReadError::NotRegular);
+        }
+        if opened.len() > limit {
+            return Err(ReadError::TooLarge(opened.len()));
+        }
+        let bytes = read_source_from(
+            &file,
+            Vec::with_capacity(usize::try_from(opened.len()).unwrap_or(0)),
+            limit,
+            || {
+                #[cfg(test)]
+                tests::during_bounded_read();
+                Ok(())
+            },
+        )?;
+        match settling.settled(&file, &opened) {
+            Settled::Stable(metadata) => return Ok(Source { bytes, metadata }),
+            Settled::Again => {}
+            Settled::Unsettled => return Err(ReadError::Io(changed_while_read())),
+        }
     }
-    if metadata.len() > limit {
-        return Err(ReadError::TooLarge(metadata.len()));
-    }
-    let bytes = read_source_from(
-        &file,
-        Vec::with_capacity(usize::try_from(metadata.len()).unwrap_or(0)),
-        limit,
-        || Ok(()),
-    )?;
-    let metadata = file.metadata().map_err(ReadError::Io)?;
-    Ok(Source { bytes, metadata })
 }
 
 /// Bytes [`read_source_from`] reads between two checks.

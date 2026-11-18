@@ -23,31 +23,8 @@ use crate::contain::{Phase, contain, observe, within};
 use crate::signatures::languages::{RegistryEntry, RegistryView};
 use crate::text::analysis::{AnalysisOperation, MapLimits};
 
-/// Read, parse and map the walked candidates of a scan, within its time
-/// budget when `max_files` is unset.
-#[cfg(test)]
-pub(super) fn evaluate_walk<T: Send>(
-    options: GraphFactsScanOptions,
-    query: crate::types::FileSystemQueryResult,
-    source: FactsSource<'_>,
-    keep: &(dyn Fn(&str) -> bool + Sync),
-    map: &(dyn Fn(&GraphFactsView<'_>) -> Option<T> + Sync),
-    stop: &Stop<'_>,
-    budget: Option<std::time::Duration>,
-) -> Result<GraphFactsMappedScan<T>, GraphScanError> {
-    evaluate_walk_with_registry(
-        options,
-        query,
-        source,
-        keep,
-        map,
-        stop,
-        (budget, None),
-        RegistryView::installed(),
-        (MapLimits::default(), None),
-    )
-}
-
+/// Read, parse and map the walked candidates of a scan with `registry`,
+/// within its time budget when `max_files` is unset.
 pub(super) fn evaluate_walk_with_registry<T: Send>(
     options: GraphFactsScanOptions,
     query: crate::types::FileSystemQueryResult,
@@ -94,7 +71,10 @@ pub(super) fn evaluate_walk_with_registry<T: Send>(
     // Raised once `stop` says the scan is cancelled: a file's extraction runs to
     // completion unless then (no clock cuts a file; the pacer pages between files).
     let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let mut pacer = crate::scan_budget::ScanPacer::new(budget.filter(|_| timed));
+    let mut pacer = crate::scan_budget::ScanPacer::new(
+        budget.filter(|_| timed),
+        crate::scan_budget::WalkClock::default(),
+    );
     let mut kept: Vec<(String, T)> = Vec::new();
     let mut skipped = Vec::new();
     let mut decoded = Vec::new();
@@ -176,22 +156,6 @@ pub(super) fn evaluate_walk_with_registry<T: Send>(
         scan_frontier: query.first_unlisted,
         pruned_dirs: query.pruned_dirs,
     })
-}
-
-/// Test-only: a file whose relative path holds one of these markers panics
-/// in its decode step.
-#[cfg(test)]
-pub(super) static DECODE_FAULTS: std::sync::Mutex<Vec<&'static str>> =
-    std::sync::Mutex::new(Vec::new());
-
-#[cfg(test)]
-fn decode_fault(relative_path: &str) {
-    let faulted = DECODE_FAULTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .iter()
-        .any(|marker| relative_path.contains(marker));
-    assert!(!faulted, "injected decode fault");
 }
 
 /// The walk's root as the caller spelled it, and as the file system names it.
@@ -316,7 +280,7 @@ impl<T> EntryEvaluator<'_, T> {
             .map_err(|error| GraphScanError::Failed(format!("source identity: {error}")))?;
         let admitted = match within(Phase::Decode, || {
             #[cfg(test)]
-            decode_fault(&relative_path);
+            super::tests::decode_fault(&relative_path);
             crate::text::analysis::AdmittedSource::from_bytes(
                 &source.bytes,
                 &identity.to_string_lossy(),
@@ -360,7 +324,7 @@ impl<T> EntryEvaluator<'_, T> {
         let Ok(parser) = self.selected_parser(path) else {
             return outcome(
                 "graph.scan.ambiguousParser",
-                "languageGlobs matched this path with more than one parser",
+                "parserGlobs matched this path with more than one parser",
             );
         };
         // The digest and the settled stamp identify the file's bytes; the

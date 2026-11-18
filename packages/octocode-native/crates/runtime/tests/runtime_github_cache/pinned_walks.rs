@@ -9,6 +9,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 /// A server answering `file` as GitHub's raw media type does.
 async fn raw_file_server(file: &str, body: &str) -> MockServer {
     let server = MockServer::builder().start().await;
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", file).await;
     Mock::given(method("GET"))
         .and(path(format!("/api/v3/repos/a/b/contents/{file}")))
         .respond_with(

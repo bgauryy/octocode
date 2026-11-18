@@ -1,7 +1,8 @@
 //! B91: a request discloses the client-side waits it spent before its sends,
 //! summed by kind ([`RequestContext::client_waits`]), and only its own.
 use super::*;
-use octocode_contract_types::ClientWaitKind;
+use octocode_contract_base::ClientWaitKind;
+use octocode_test_support::json_fixture;
 use std::time::Instant;
 
 /// Milliseconds `context` discloses it waited of `kind`.
@@ -32,7 +33,9 @@ fn spent_quota(reset: Option<u64>) -> ResponseTemplate {
     let response = ResponseTemplate::new(403)
         .insert_header("x-ratelimit-remaining", "0")
         .insert_header("x-ratelimit-resource", "search")
-        .set_body_json(serde_json::json!({"message": "API rate limit exceeded for user."}));
+        .set_body_json(json_fixture(
+            r#"{"message": "API rate limit exceeded for user."}"#,
+        ));
     match reset {
         Some(reset) => response.insert_header("x-ratelimit-reset", reset.to_string().as_str()),
         None => response,
@@ -111,7 +114,7 @@ async fn a_fixed_spacing_is_recorded_on_the_spaced_request_alone() {
     let query = || {
         RequestSpec::graphql(
             endpoint.graphql(),
-            serde_json::json!({"query": "{viewer{login}}"}),
+            json_fixture(r#"{"query": "{viewer{login}}"}"#),
         )
     };
     let first = with_token("spaced", Duration::from_secs(5), 1024);
@@ -144,7 +147,7 @@ async fn a_search_held_for_its_lane_is_recorded_as_spacing() {
     Mock::given(method("GET"))
         .respond_with(Delayed::new(
             Duration::from_millis(400),
-            ResponseTemplate::new(200).set_body_json(serde_json::json!({"items": []})),
+            ResponseTemplate::new(200).set_body_json(json_fixture(r#"{"items": []}"#)),
         ))
         .mount(&server)
         .await;
@@ -310,12 +313,16 @@ async fn a_transient_graphql_backoff_is_disclosed_as_retry_after() {
     let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(Sequence::new(vec![
-            ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            ResponseTemplate::new(200).set_body_json(json_fixture(r#"{
                 "data": null,
-                "errors": [{"message": "Something went wrong while executing your query. This may be the result of a timeout."}]
-            })),
+                "errors": [
+                    {
+                        "message": "Something went wrong while executing your query. This may be the result of a timeout."
+                    }
+                ]
+            }"#)),
             ResponseTemplate::new(200)
-                .set_body_json(serde_json::json!({"data": {"viewer": {"login": "me"}}})),
+                .set_body_json(json_fixture(r#"{"data": {"viewer": {"login": "me"}}}"#)),
         ]))
         .mount(&server)
         .await;

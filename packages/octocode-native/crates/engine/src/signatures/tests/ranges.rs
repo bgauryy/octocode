@@ -198,9 +198,9 @@ fn a_long_attribute_run_folds_each_attribute_once() {
     let attributes = 12_000;
     let mut source = "#[allow(dead_code)]\n".repeat(attributes);
     source.push_str("fn target() {}\n");
-    let before = super::graph_facts::folded_attributes();
+    let before = FOLDED_ATTRIBUTES.with(std::cell::Cell::get);
     let spans = extents(&source, "lib.rs");
-    let folded = super::graph_facts::folded_attributes() - before;
+    let folded = FOLDED_ATTRIBUTES.with(std::cell::Cell::get) - before;
     let attributes_u32 = u32::try_from(attributes).expect("count");
     assert_eq!(
         spans,

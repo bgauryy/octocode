@@ -1,8 +1,9 @@
 use super::{ChannelRun, execute_ordinary_queries};
-use crate::execution::{ExecutionContext, ExecutionError};
-use crate::response::result::ErrorClass;
-use crate::response::rows;
-use crate::security::{JudgedLeaves, Sanitized};
+use crate::runtime::tool_output::ToolOutputOf;
+use octocode_runtime_base::execution::{ExecutionContext, ExecutionError};
+use octocode_runtime_base::response::result::ErrorClass;
+use octocode_runtime_base::response::rows;
+use octocode_runtime_base::security::{JudgedLeaves, Sanitized};
 use serde_json::{Value, json};
 
 impl ChannelRun {
@@ -87,12 +88,12 @@ impl ChannelRun {
         let before = rows::placeholders_per_row(&envelope);
         // The rows' own text: a lead or an error that repeats a request
         // value repeats it as the caller sent it.
-        let own = crate::security::Admitted::of(&self.queries);
+        let own = octocode_runtime_base::security::Admitted::of(&self.queries);
         let mut structured = self.dispatcher.security.seal_judged(
             envelope,
             judged,
             &own,
-            crate::security::Pii {
+            octocode_runtime_base::security::Pii {
                 emails: self.output.redact_emails && self.id.is_github(),
                 uuids: self.output.redact_uuid,
             },
@@ -102,7 +103,7 @@ impl ChannelRun {
         structured.edit(|structured| {
             rows::warn_redacted_rows(structured, &before);
             if self.id.selects_provider_page() {
-                crate::tools::selection::apply_sanitized_rows(
+                octocode_tools_shared::selection::apply_sanitized_rows(
                     self.id,
                     self.id.output(),
                     structured,
@@ -146,12 +147,12 @@ impl ChannelRun {
     ) -> Result<EvaluatedRows, ExecutionError> {
         let (id, queries, dispatcher) = (self.id, &self.queries, &self.dispatcher);
         if self.clasify {
-            let receipts = crate::tools::clasify::call(
+            let receipts = octocode_tool_clasify::clasify::call(
                 &dispatcher.evaluator,
                 queries,
                 dispatcher,
                 context,
-                crate::tools::clasify::sections::Runtime {
+                octocode_tool_clasify::clasify::sections::Runtime {
                     sessions: &self.section_sessions,
                     access: self.access,
                     can_resume: self.can_resume,
@@ -217,7 +218,7 @@ pub(super) struct ShapedRows {
     pub(super) rejected_at: Vec<usize>,
     pub(super) failure: Option<ErrorClass>,
     /// A row's walk continues the page it answered
-    /// ([`crate::response::result::ToolDiagnostics::continues_page`]).
+    /// ([`octocode_runtime_base::response::result::ToolDiagnostics::continues_page`]).
     pub(super) continues_page: bool,
 }
 

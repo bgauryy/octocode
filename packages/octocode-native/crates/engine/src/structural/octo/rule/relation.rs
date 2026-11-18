@@ -14,17 +14,9 @@ use crate::structural::octo::matching::{CaptureEnv, ExecutionError};
 
 use super::{CompiledRule, Document, RawRule, RawStopBy, RelationMemo, StopKind};
 
-#[cfg(test)]
-thread_local! {
-    /// Ancestors an `inside` relation read in this thread (a deep-stack run
-    /// adds its own): the work its answers cost, so a test asserts how it
-    /// grows with depth instead of timing it.
-    pub(in crate::structural::octo) static ANCESTOR_STEPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
 fn note_ancestor_steps(_steps: usize) {
     #[cfg(test)]
-    ANCESTOR_STEPS.with(|total| total.set(total.get() + _steps));
+    crate::structural::octo::tests::ANCESTOR_STEPS.with(|total| total.set(total.get() + _steps));
 }
 
 #[derive(Clone, Copy)]

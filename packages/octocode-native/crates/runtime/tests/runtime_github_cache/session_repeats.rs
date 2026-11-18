@@ -3,6 +3,7 @@
 
 use crate::support::{Workspace, call, row_data, row_status};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
@@ -15,32 +16,61 @@ async fn repeated_repository_and_history_searches_spend_one_search() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/repositories"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count": 1, "incomplete_results": false,
-            "items": [{"full_name": "a/ripgrep", "name": "ripgrep",
-                       "html_url": "https://github.com/a/ripgrep", "default_branch": "main",
-                       "created_at": null, "updated_at": null, "pushed_at": null,
-                       "language": "Rust", "homepage": null, "license": null}]
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "total_count": 1,
+                "incomplete_results": false,
+                "items": [
+                    {
+                        "full_name": "a/ripgrep",
+                        "name": "ripgrep",
+                        "html_url": "https://github.com/a/ripgrep",
+                        "default_branch": "main",
+                        "created_at": null,
+                        "updated_at": null,
+                        "pushed_at": null,
+                        "language": "Rust",
+                        "homepage": null,
+                        "license": null
+                    }
+                ]
+            }"#,
+        )))
         .expect(1)
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/issues"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count": 1, "incomplete_results": false,
-            "items": [{"number": 700, "title": "Merged change", "state": "closed",
-                       "user": {"login": "alice"}, "labels": [],
-                       "pull_request": {"merged_at": "2026-01-01T00:00:00Z"}}]
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "total_count": 1,
+                "incomplete_results": false,
+                "items": [
+                    {
+                        "number": 700,
+                        "title": "Merged change",
+                        "state": "closed",
+                        "user": {"login": "alice"},
+                        "labels": [],
+                        "pull_request": {"merged_at": "2026-01-01T00:00:00Z"}
+                    }
+                ]
+            }"#,
+        )))
         .expect(1)
         .mount(&server)
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let repo = json!({"operation":"search","keywords": ["ripgrep"]});
-    let history =
-        json!({"operation": "pullRequest", "owner": "a", "repo": "b", "filters":{"isMerged":true}});
+    let repo = json_fixture(r#"{"operation": "search", "keywords": ["ripgrep"]}"#);
+    let history = json_fixture(
+        r#"{
+            "operation": "pullRequest",
+            "owner": "a",
+            "repo": "b",
+            "filters": {"isMerged": true}
+        }"#,
+    );
     let mut first = Vec::new();
     for (tool, query) in [("ghSearchRepo", &repo), ("ghSearchHistory", &history)] {
         let outcome = call(&runtime, tool, query.clone()).await.unwrap();
@@ -118,6 +148,7 @@ async fn each_call_resolves_its_branch_once_and_batches_read_the_pinned_sha() {
         })
         .mount(&server)
         .await;
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "source.rs").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/source.rs"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -127,7 +158,14 @@ async fn each_call_resolves_its_branch_once_and_batches_read_the_pinned_sha() {
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let file = json!({"owner":"a", "repo":"b", "path":"source.rs", "ref":"main"});
+    let file = json_fixture(
+        r#"{
+            "owner": "a",
+            "repo": "b",
+            "path": "source.rs",
+            "ref": "main"
+        }"#,
+    );
     let outcome = call(&runtime, "ghGetFileContent", file).await.unwrap();
     assert_eq!(
         row_status(&outcome),
@@ -135,8 +173,16 @@ async fn each_call_resolves_its_branch_once_and_batches_read_the_pinned_sha() {
         "{}",
         outcome.structured_content
     );
-    let commit = json!({"operation":"commit", "owner":"a", "repo":"b", "ref":"main",
-        "sections":["files"], "include":["last.rs"]});
+    let commit = json_fixture(
+        r#"{
+            "operation": "commit",
+            "owner": "a",
+            "repo": "b",
+            "ref": "main",
+            "sections": ["files"],
+            "include": ["last.rs"]
+        }"#,
+    );
     let outcome = call(&runtime, "ghGetHistoryItem", commit).await.unwrap();
     assert_eq!(
         row_status(&outcome),

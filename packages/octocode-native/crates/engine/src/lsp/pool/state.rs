@@ -172,11 +172,12 @@ pub(super) fn inflight_is_current<C>(
         .is_some_and(|current| Arc::ptr_eq(current, expected))
 }
 
-pub(super) fn touch_entry<C>(state: &mut State<C>, key: &str) -> bool {
+/// Mark `key` used at `now` and most recently used.
+pub(super) fn touch_entry<C>(state: &mut State<C>, key: &str, now: Instant) -> bool {
     let Some(entry) = state.entries.get_mut(key) else {
         return false;
     };
-    entry.last_used = Instant::now();
+    entry.last_used = now;
     remove_lru(&mut state.lru, key);
     state.lru.push_back(key.to_owned());
     true

@@ -2,7 +2,7 @@
 //! their fixtures from small limits, so these are what prove the limits every build serves.
 
 use crate::support::{Workspace, call, row_data};
-use octocode_native::security::SourceLimits;
+use octocode_runtime_base::security::SourceLimits;
 use serde_json::json;
 
 /// A source of `bytes` short lines holding `needle` on its first line.

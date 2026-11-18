@@ -1,6 +1,12 @@
+use super::includes::cargo_package_build_script;
 use super::*;
 use crate::test_support::TmpDir;
 use std::fs;
+
+thread_local! {
+    /// Package sources this thread's scans read (`includes`).
+    pub(super) static PACKAGE_FILES_READ: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 mod modules;
 

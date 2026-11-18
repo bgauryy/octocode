@@ -1,0 +1,25 @@
+[package]
+name = "octocode-contract-base"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The generated tool wire types the crates below the contract types name"
+
+# No doctests (the generated doc comments are not examples) and no unit tests.
+[lib]
+doctest = false
+test = false
+
+[dependencies]
+serde = { workspace = true }
+
+[lints]
+workspace = true
+
+# The generated file `src/lib.rs` `include!`s uses it; cargo-shear does not
+# read included source.
+[package.metadata.cargo-shear]
+ignored = ["serde"]

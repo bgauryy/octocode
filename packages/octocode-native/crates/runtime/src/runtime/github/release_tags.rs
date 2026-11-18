@@ -1,7 +1,7 @@
 //! artifactSearch's release-tag and commit checks through a row's GitHub transport.
 use super::{GitHubServices, ResponseAccess};
-use crate::execution::ExecutionContext;
 use octocode_github::ProviderErrorReason;
+use octocode_runtime_base::execution::ExecutionContext;
 
 /// Release-tag checks through a row's GitHub transport (see
 /// [`GitHubServices::release_tags`]).
@@ -11,14 +11,14 @@ pub(crate) struct ReleaseTagCheck<'a> {
     pub(super) access: &'a ResponseAccess,
 }
 
-impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
+impl octocode_tool_packages::artifact::ReleaseTags for ReleaseTagCheck<'_> {
     fn tag_commit<'a>(
         &'a self,
         owner: &'a str,
         repo: &'a str,
         tag: &'a str,
-    ) -> crate::providers::artifact::TagCommitFuture<'a> {
-        use crate::providers::artifact::CheckFailure;
+    ) -> octocode_tool_packages::artifact::TagCommitFuture<'a> {
+        use octocode_tool_packages::artifact::CheckFailure;
         Box::pin(async move {
             let request = self
                 .services
@@ -40,8 +40,8 @@ impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
         &'a self,
         owner: &'a str,
         repo: &'a str,
-    ) -> crate::providers::artifact::TagRefsFuture<'a> {
-        use crate::providers::artifact::CheckFailure;
+    ) -> octocode_tool_packages::artifact::TagRefsFuture<'a> {
+        use octocode_tool_packages::artifact::CheckFailure;
         Box::pin(async move {
             let request = self
                 .services
@@ -62,8 +62,8 @@ impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
         owner: &'a str,
         repo: &'a str,
         tags: &'a [octocode_github::TagRef],
-    ) -> crate::providers::artifact::TagCommitsFuture<'a> {
-        use crate::providers::artifact::CheckFailure;
+    ) -> octocode_tool_packages::artifact::TagCommitsFuture<'a> {
+        use octocode_tool_packages::artifact::CheckFailure;
         Box::pin(async move {
             let request = self
                 .services
@@ -84,8 +84,8 @@ impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
         owner: &'a str,
         repo: &'a str,
         commit: &'a str,
-    ) -> crate::providers::artifact::CommitFuture<'a> {
-        use crate::providers::artifact::{CheckFailure, CommitCheck};
+    ) -> octocode_tool_packages::artifact::CommitFuture<'a> {
+        use octocode_tool_packages::artifact::{CheckFailure, CommitCheck};
         Box::pin(async move {
             let request = self
                 .services
@@ -103,12 +103,12 @@ impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
                     // The redirect names the repository's id, not its new
                     // name: the repository's metadata names it. A read that
                     // fails leaves the target unnamed, not the check failed.
-                    let to = crate::tools::gh_shared::canonical_repo(
+                    let to = octocode_tools_shared::gh_shared::canonical_repo(
                         &self.services.provider,
                         owner,
                         repo,
                         &request,
-                        crate::tools::gh_shared::RenameCheck::Redirected,
+                        octocode_tools_shared::gh_shared::RenameCheck::Redirected,
                     )
                     .await
                     .ok()
@@ -133,8 +133,8 @@ impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
         owner: &'a str,
         repo: &'a str,
         commit: &'a str,
-    ) -> crate::providers::artifact::TreeFilesFuture<'a> {
-        use crate::providers::artifact::{CheckFailure, TreeFiles};
+    ) -> octocode_tool_packages::artifact::TreeFilesFuture<'a> {
+        use octocode_tool_packages::artifact::{CheckFailure, TreeFiles};
         Box::pin(async move {
             let request = self
                 .services

@@ -1,6 +1,7 @@
 use super::*;
+use octocode_test_support::json_fixture;
 
-/// A failed login answers with the one `{error, errorCode}` envelope and
+/// A failed login answers with the one `{error, errorCode, errorClass}` envelope and
 /// exits by the code's class: an enterprise host without a client id is
 /// missing configuration (5); a login without a terminal is the caller's
 /// request (2).
@@ -77,7 +78,14 @@ pub(super) fn manage(
 #[test]
 fn managed_edits_type_a_missing_revision_as_invalid_input_and_a_stale_one_as_conflict() {
     let workspace = Workspace::new();
-    let edit = serde_json::json!({"operation": "setEnv", "scope": "home", "key": "TEST_KEY", "value": "v"});
+    let edit = json_fixture(
+        r#"{
+            "operation": "setEnv",
+            "scope": "home",
+            "key": "TEST_KEY",
+            "value": "v"
+        }"#,
+    );
     let (code, missing) = manage(&workspace, edit.clone());
     assert_eq!(code, Some(2));
     assert_eq!(missing["error"]["code"], "INVALID_INPUT", "{missing}");
@@ -96,7 +104,12 @@ fn management_contract_drift_is_unavailable() {
     let workspace = Workspace::new();
     let (code, drift) = manage(
         &workspace,
-        serde_json::json!({"operation": "inspect", "expectedFingerprint": "not-this-build"}),
+        json_fixture(
+            r#"{
+                "operation": "inspect",
+                "expectedFingerprint": "not-this-build"
+            }"#,
+        ),
     );
     assert_eq!(code, Some(5));
     assert_eq!(drift["success"], false, "{drift}");
@@ -109,7 +122,7 @@ fn unknown_settings_are_rejected_without_mutating_saved_configuration() {
     let path = workspace.home.join(".octocoderc");
     let original = r#"{"lsp":{"prewarm":"off"}}"#;
     std::fs::write(&path, original).unwrap();
-    let (_, inspected) = manage(&workspace, serde_json::json!({"operation": "inspect"}));
+    let (_, inspected) = manage(&workspace, json_fixture(r#"{"operation": "inspect"}"#));
     let revision = inspected["data"]["files"]["homeSettings"]["revision"].clone();
     let (code, rejected) = manage(
         &workspace,
@@ -144,7 +157,7 @@ fn arbitrary_environment_keys_remain_editable_and_values_are_not_disclosed() {
         String::from_utf8_lossy(&set.stdout)
     );
     assert!(!String::from_utf8_lossy(&set.stdout).contains("private-marker"));
-    let (_, inspected) = manage(&workspace, serde_json::json!({"operation":"inspect"}));
+    let (_, inspected) = manage(&workspace, json_fixture(r#"{"operation": "inspect"}"#));
     assert!(!inspected.to_string().contains("private-marker"));
     assert!(
         inspected["data"]["keys"]
@@ -177,7 +190,7 @@ fn unknown_saved_settings_warn_without_appearing_as_resolved_settings() {
     let diagnostics = shown["diagnostics"].as_array().unwrap();
     assert_eq!(diagnostics.len(), 1, "{shown}");
     assert_eq!(diagnostics[0]["code"], "unknown_or_future_config");
-    let (_, inspected) = manage(&workspace, serde_json::json!({"operation":"inspect"}));
+    let (_, inspected) = manage(&workspace, json_fixture(r#"{"operation": "inspect"}"#));
     let settings = inspected["data"]["settings"].as_array().unwrap();
     assert!(
         settings

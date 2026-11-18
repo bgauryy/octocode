@@ -1,6 +1,7 @@
 //! securityCheck's GitHub reads: a commit and where it lives, and a repository's
 //! advisory pages, each against GitHub's own answers and refusals.
 use super::*;
+use octocode_test_support::json_fixture;
 use serde_json::json;
 
 const SHA: &str = "4f0b76e2eca13de1c1fe8b4305abc1f7d63f4b86";
@@ -31,20 +32,30 @@ async fn a_commit_reads_as_its_signature_and_a_hash_github_cannot_resolve_as_non
     mount(
         &server,
         &format!("commits/{SHA}"),
-        json_ok(json!({"commit": {"verification": {"verified": true, "reason": "valid"}}})),
+        json_ok(json_fixture(
+            r#"{
+                "commit": {"verification": {"verified": true, "reason": "valid"}}
+            }"#,
+        )),
     )
     .await;
-    mount(&server, "commits/unsigned", json_ok(json!({"commit": {}}))).await;
+    mount(
+        &server,
+        "commits/unsigned",
+        json_ok(json_fixture(r#"{"commit": {}}"#)),
+    )
+    .await;
     mount(
         &server,
         "commits/unknown",
-        ResponseTemplate::new(422).set_body_json(json!({"message": "No commit found for SHA"})),
+        ResponseTemplate::new(422)
+            .set_body_json(json_fixture(r#"{"message": "No commit found for SHA"}"#)),
     )
     .await;
     mount(
         &server,
         "commits/gone",
-        ResponseTemplate::new(404).set_body_json(json!({"message": "Not Found"})),
+        ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
     )
     .await;
     let github = transport(&server).await;
@@ -164,7 +175,7 @@ async fn a_commit_is_on_a_branch_when_the_compare_says_identical_or_behind() {
     mount(
         &server,
         &format!("compare/unrelated...{SHA}"),
-        ResponseTemplate::new(404).set_body_json(json!({"message": "Not Found"})),
+        ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
     )
     .await;
     let github = transport(&server).await;
@@ -229,19 +240,19 @@ async fn another_branch_that_holds_the_commit_is_named_and_the_default_is_not_co
     mount(
         &server,
         &format!("compare/b2...{SHA}"),
-        json_ok(json!({"status": "diverged"})),
+        json_ok(json_fixture(r#"{"status": "diverged"}"#)),
     )
     .await;
     mount(
         &server,
         &format!("compare/c3...{SHA}"),
-        json_ok(json!({"status": "behind"})),
+        json_ok(json_fixture(r#"{"status": "behind"}"#)),
     )
     .await;
     // The default branch was compared by the caller: asking again is a defect.
     Mock::given(method("GET"))
         .and(path(format!("/api/v3/repos/o/r/compare/a1...{SHA}")))
-        .respond_with(json_ok(json!({"status": "behind"})))
+        .respond_with(json_ok(json_fixture(r#"{"status": "behind"}"#)))
         .expect(0)
         .mount(&server)
         .await;
@@ -298,7 +309,9 @@ async fn the_tag_pages_are_listed_once_and_the_walk_reuses_them() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/o/r/tags"))
-        .respond_with(json_ok(json!([{"name": "v1", "commit": {"sha": "c3"}}])))
+        .respond_with(json_ok(json_fixture(
+            r#"[{"name": "v1", "commit": {"sha": "c3"}}]"#,
+        )))
         .expect(1)
         .mount(&server)
         .await;
@@ -306,7 +319,7 @@ async fn the_tag_pages_are_listed_once_and_the_walk_reuses_them() {
     mount(
         &server,
         &format!("compare/c3...{SHA}"),
-        json_ok(json!({"status": "behind"})),
+        json_ok(json_fixture(r#"{"status": "behind"}"#)),
     )
     .await;
     let github = transport(&server).await;
@@ -368,13 +381,13 @@ async fn no_other_branch_holding_the_commit_is_proved_only_by_every_branch_compa
     mount(
         &server,
         &format!("compare/b2...{SHA}"),
-        json_ok(json!({"status": "ahead"})),
+        json_ok(json_fixture(r#"{"status": "ahead"}"#)),
     )
     .await;
     mount(
         &server,
         &format!("compare/c3...{SHA}"),
-        json_ok(json!({"status": "diverged"})),
+        json_ok(json_fixture(r#"{"status": "diverged"}"#)),
     )
     .await;
     let github = transport(&server).await;
@@ -396,7 +409,7 @@ async fn no_other_branch_holding_the_commit_is_proved_only_by_every_branch_compa
     mount(
         &refused,
         &format!("compare/b2...{SHA}"),
-        json_ok(json!({"status": "ahead"})),
+        json_ok(json_fixture(r#"{"status": "ahead"}"#)),
     )
     .await;
     mount(
@@ -426,7 +439,7 @@ async fn a_tag_comparison_that_fails_leaves_the_commit_unproven_unless_another_r
     mount(
         &server,
         &format!("compare/d4...{SHA}"),
-        json_ok(json!({"status": "ahead"})),
+        json_ok(json_fixture(r#"{"status": "ahead"}"#)),
     )
     .await;
     let github = transport(&server).await;
@@ -445,7 +458,7 @@ async fn a_tag_comparison_that_fails_leaves_the_commit_unproven_unless_another_r
     mount(
         &holding,
         &format!("compare/d4...{SHA}"),
-        json_ok(json!({"status": "identical"})),
+        json_ok(json_fixture(r#"{"status": "identical"}"#)),
     )
     .await;
     let found = transport(&holding)
@@ -468,7 +481,14 @@ async fn a_tag_comparison_that_fails_leaves_the_commit_unproven_unless_another_r
 #[tokio::test]
 async fn advisory_pages_name_their_next_cursor_and_a_link_without_one_is_a_decode_failure() {
     let server = MockServer::builder().start().await;
-    let advisory = json!([{"ghsa_id": "GHSA-aaaa-bbbb-cccc", "cve_id": "CVE-2026-0001"}]);
+    let advisory = json_fixture(
+        r#"[
+            {
+                "ghsa_id": "GHSA-aaaa-bbbb-cccc",
+                "cve_id": "CVE-2026-0001"
+            }
+        ]"#,
+    );
     let link = |target: &str| {
         format!(
             "<{}/api/v3/repos/o/r/security-advisories?{target}>; rel=\"next\"",
@@ -527,7 +547,7 @@ async fn advisories_of_a_missing_repository_are_repository_not_found() {
     mount(
         &server,
         "security-advisories",
-        ResponseTemplate::new(404).set_body_json(json!({"message": "Not Found"})),
+        ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
     )
     .await;
     let error = transport(&server)
@@ -567,27 +587,37 @@ fn the_failure_kept_is_the_first_by_ref_order_not_by_arrival() {
 /// GitHub's global advisory as its database publishes it (recorded from
 /// `GET /advisories/GHSA-wcg3-cvx6-7396`, trimmed to the fields read).
 fn global_advisory() -> serde_json::Value {
-    json!({
-        "ghsa_id": "GHSA-wcg3-cvx6-7396",
-        "cve_id": "CVE-2020-26235",
-        "url": "https://api.github.com/advisories/GHSA-wcg3-cvx6-7396",
-        "html_url": "https://github.com/advisories/GHSA-wcg3-cvx6-7396",
-        "type": "reviewed",
-        "epss": {"percentage": 0.01965, "percentile": 0.80029},
-        "cvss": {"vector_string": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H", "score": 6.2},
-        "cvss_severities": {
-            "cvss_v3": {"vector_string": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H", "score": 6.2},
-            "cvss_v4": {"vector_string": null, "score": 0.0}
-        },
-        "vulnerabilities": [{
-            "package": {"ecosystem": "rust", "name": "time"},
-            "vulnerable_version_range": ">= 0.2.7, < 0.2.23",
-            "first_patched_version": "0.2.23"
-        }],
-        "references": ["https://rustsec.org/advisories/RUSTSEC-2020-0071.html"],
-        "credits": [{"user": {"login": "kroemeke"}, "type": "reporter"}],
-        "cwes": [{"cwe_id": "CWE-476", "name": "NULL Pointer Dereference"}]
-    })
+    json_fixture(
+        r#"{
+            "ghsa_id": "GHSA-wcg3-cvx6-7396",
+            "cve_id": "CVE-2020-26235",
+            "url": "https://api.github.com/advisories/GHSA-wcg3-cvx6-7396",
+            "html_url": "https://github.com/advisories/GHSA-wcg3-cvx6-7396",
+            "type": "reviewed",
+            "epss": {"percentage": 0.01965, "percentile": 0.80029},
+            "cvss": {
+                "vector_string": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+                "score": 6.2
+            },
+            "cvss_severities": {
+                "cvss_v3": {
+                    "vector_string": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+                    "score": 6.2
+                },
+                "cvss_v4": {"vector_string": null, "score": 0.0}
+            },
+            "vulnerabilities": [
+                {
+                    "package": {"ecosystem": "rust", "name": "time"},
+                    "vulnerable_version_range": ">= 0.2.7, < 0.2.23",
+                    "first_patched_version": "0.2.23"
+                }
+            ],
+            "references": ["https://rustsec.org/advisories/RUSTSEC-2020-0071.html"],
+            "credits": [{"user": {"login": "kroemeke"}, "type": "reporter"}],
+            "cwes": [{"cwe_id": "CWE-476", "name": "NULL Pointer Dereference"}]
+        }"#,
+    )
 }
 
 /// A global advisory keeps everything GitHub states that securityCheck shows:
@@ -619,16 +649,21 @@ fn an_advisory_keeps_epss_scores_credits_and_its_api_address() {
     );
     assert_eq!(global.cwe_list(), ["CWE-476"]);
 
-    let repository: RepositoryAdvisory = serde_json::from_value(json!({
-        "ghsa_id": "GHSA-aaaa-bbbb-cccc",
-        "url": "https://api.github.com/repos/o/r/security-advisories/GHSA-aaaa-bbbb-cccc",
-        "publisher": {"login": "maintainer"},
-        "state": "published",
-        "credits": [{"login": "finder", "type": "finder"}],
-        "cwe_ids": ["CWE-79"],
-        "cwes": [{"cwe_id": "CWE-79", "name": "XSS"}],
-        "cvss": {"vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N", "score": 5.4}
-    }))
+    let repository: RepositoryAdvisory = serde_json::from_value(json_fixture(
+        r#"{
+            "ghsa_id": "GHSA-aaaa-bbbb-cccc",
+            "url": "https://api.github.com/repos/o/r/security-advisories/GHSA-aaaa-bbbb-cccc",
+            "publisher": {"login": "maintainer"},
+            "state": "published",
+            "credits": [{"login": "finder", "type": "finder"}],
+            "cwe_ids": ["CWE-79"],
+            "cwes": [{"cwe_id": "CWE-79", "name": "XSS"}],
+            "cvss": {
+                "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N",
+                "score": 5.4
+            }
+        }"#,
+    ))
     .expect("repository advisory");
     assert_eq!(
         repository.url.as_deref(),
@@ -685,13 +720,20 @@ async fn global_advisories_are_asked_by_package_version_page_by_page() {
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/advisories/GHSA-none-none-none"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message": "Not Found"})))
+        .respond_with(
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
+        )
         .mount(&server)
         .await;
     mount(
         &server,
         "security-advisories/GHSA-aaaa-bbbb-cccc",
-        json_ok(json!({"ghsa_id": "GHSA-aaaa-bbbb-cccc", "publisher": {"login": "m"}})),
+        json_ok(json_fixture(
+            r#"{
+                "ghsa_id": "GHSA-aaaa-bbbb-cccc",
+                "publisher": {"login": "m"}
+            }"#,
+        )),
     )
     .await;
     let github = transport(&server).await;

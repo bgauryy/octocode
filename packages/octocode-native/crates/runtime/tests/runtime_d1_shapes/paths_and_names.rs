@@ -1,6 +1,7 @@
 //! One workspace-relative path form and one name per purpose.
 
 use crate::support::{self, Run as _, Workspace};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 
 // ---------- one workspace-relative path form ----------
@@ -13,7 +14,7 @@ async fn ast_search_error_rows_name_workspace_relative_paths() {
     let outcome = support::run(
         &runtime,
         "astSearch",
-        json!({"operation":"symbols","path":"sub/dir/Cargo.toml"}),
+        json_fixture(r#"{"operation": "symbols", "path": "sub/dir/Cargo.toml"}"#),
     )
     .await;
     let row = &outcome.structured_content["results"][0];
@@ -37,7 +38,14 @@ async fn ast_search_matches_name_workspace_relative_paths() {
     let outcome = support::run(
         &runtime,
         "astSearch",
-        json!({"operation":"match","path":"sub/dir","parser":"rust","rule":{"pattern":"old($A)"}}),
+        json_fixture(
+            r#"{
+                "operation": "match",
+                "path": "sub/dir",
+                "parser": "rust",
+                "rule": {"pattern": "old($A)"}
+            }"#,
+        ),
     )
     .await;
     let data = outcome.data();
@@ -56,7 +64,9 @@ async fn artifact_search_takes_ecosystem_and_registry_url() {
     use wiremock::{Mock, MockServer, ResponseTemplate};
     let server = MockServer::builder().start().await;
     Mock::given(path_regex(".*"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"error":"Not found"})))
+        .respond_with(
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"error": "Not found"}"#)),
+        )
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -72,7 +82,13 @@ async fn artifact_search_takes_ecosystem_and_registry_url() {
     // Retired field names fail admission before reaching the registry.
     for (row, removed) in [
         (
-            json!({"operation":"resolve","type":"npm","packageName":"zod"}),
+            json_fixture(
+                r#"{
+                    "operation": "resolve",
+                    "type": "npm",
+                    "packageName": "zod"
+                }"#,
+            ),
             "type",
         ),
         (
@@ -132,19 +148,34 @@ async fn history_reviews_and_issue_comments_name_author_and_commit_sha() {
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/issues/9"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "number": 9, "title": "Bug", "state": "open", "body": "repro",
-            "user": {"login": "alice"}, "labels": [], "comments": 1,
-            "created_at": "2026-09-20T00:00:00Z", "updated_at": "2026-09-25T00:00:00Z"
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "number": 9,
+                "title": "Bug",
+                "state": "open",
+                "body": "repro",
+                "user": {"login": "alice"},
+                "labels": [],
+                "comments": 1,
+                "created_at": "2026-09-20T00:00:00Z",
+                "updated_at": "2026-09-25T00:00:00Z"
+            }"#,
+        )))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/issues/9/comments"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-            {"id": 1, "user": {"login": "bob"}, "body": "same here",
-             "created_at": "2026-09-21T00:00:00Z", "updated_at": "2026-09-21T00:00:00Z"}
-        ])))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"[
+                {
+                    "id": 1,
+                    "user": {"login": "bob"},
+                    "body": "same here",
+                    "created_at": "2026-09-21T00:00:00Z",
+                    "updated_at": "2026-09-21T00:00:00Z"
+                }
+            ]"#,
+        )))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -152,7 +183,16 @@ async fn history_reviews_and_issue_comments_name_author_and_commit_sha() {
     let reviews = support::run(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"pullRequest","owner":"a","repo":"b","number":7,"sections":["body","reviews"]}))
+        json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "a",
+                "repo": "b",
+                "number": 7,
+                "sections": ["body", "reviews"]
+            }"#,
+        ),
+    )
     .await;
     let review = &reviews.data()["pullRequests"][0]["reviews"][0];
     let seen = server
@@ -171,7 +211,15 @@ async fn history_reviews_and_issue_comments_name_author_and_commit_sha() {
     let comments = support::run(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"issue","owner":"a","repo":"b","number":9,"sections":["comments"]}),
+        json_fixture(
+            r#"{
+                "operation": "issue",
+                "owner": "a",
+                "repo": "b",
+                "number": 9,
+                "sections": ["comments"]
+            }"#,
+        ),
     )
     .await;
     let comment = &comments.data()["issues"][0]["comments"][0];

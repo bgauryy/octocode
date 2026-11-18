@@ -5,16 +5,16 @@
 
 use std::path::{Path, PathBuf};
 
-include!("../src/tools/test_support/production_source.rs");
+include!("../../runtime-base/src/test_support/production_source.rs");
 
 /// Production files allowed a non-recovering lock, each with its reason.
 const ALLOWED: &[&str] = &[
     // `lsp_search/scope.rs` and its split children, allowed as one file before
     // the split. The walk marks itself abandoned and quits: an explicit
     // failure, not a skip.
-    "runtime/src/tools/lsp_search/scope.rs",
-    "runtime/src/tools/lsp_search/scope/fingerprint.rs",
-    "runtime/src/tools/lsp_search/scope/text.rs",
+    "tool-lsp/src/lsp_search/scope.rs",
+    "tool-lsp/src/lsp_search/scope/fingerprint.rs",
+    "tool-lsp/src/lsp_search/scope/text.rs",
 ];
 
 /// A guard taken from `lock()`, `read()` or `write()` whose `Err` (a
@@ -71,15 +71,21 @@ fn the_skip_pattern_recognizes_every_skip_shape() {
 
 #[test]
 fn no_production_lock_is_skipped_when_poisoned() {
-    let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the crates directory");
     let pattern = skip_pattern();
     let mut offenders = Vec::new();
-    for krate in ["engine", "github", "io", "runtime", "cli"] {
+    let sources = ["engine", "github", "io", "cli"]
+        .map(|krate| crates.join(krate).join("src"))
+        .into_iter()
+        .chain(octocode_runtime_base::test_support::runtime_crate_sources());
+    for source in sources {
         let mut files = Vec::new();
-        rust_sources(&crates.join(krate).join("src"), &mut files);
+        rust_sources(&source, &mut files);
         for file in files {
             let relative = file
-                .strip_prefix(&crates)
+                .strip_prefix(crates)
                 .unwrap_or(&file)
                 .to_string_lossy()
                 .replace('\\', "/");

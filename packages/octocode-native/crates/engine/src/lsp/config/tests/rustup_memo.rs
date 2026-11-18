@@ -2,7 +2,7 @@
 //! once per state of what it reads: a declaration lead asks on every search
 //! hit, and a process per hit is the whole cost of that hit.
 use super::rustup_fixture::{FakeRustup, toolchain_binary};
-use crate::lsp::config::invocation::rustup::{RustupView, view_env, with_view};
+use super::{RustupView, view_env, with_view};
 use crate::lsp::config::{LspDiscoveryOptions, default_server_for_file, server_command_resolves};
 use crate::lsp::types::ServerSource;
 use crate::stamp::settle_written_so_far;

@@ -1,20 +1,21 @@
 use super::super::github;
 use super::DomainDispatcher;
-use crate::execution::{ExecutionContext, ExecutionError};
-use crate::{
+use crate::runtime::tool_output::ToolOutputOf;
+use octocode_contract_types::ErrorCode;
+use octocode_runtime_base::execution::{ExecutionContext, ExecutionError};
+use octocode_runtime_base::{
     config::ConfigOutput,
     id::ToolId,
     policy::path::PathPolicy,
     response::outcome::DomainResult,
     security::{CheckedQuery, ContentSecurity},
-    tools::source_capture::{SourceReader, withheld_github_source},
 };
-use octocode_contract_types::ErrorCode;
+use octocode_tools_shared::source_capture::{SourceReader, withheld_github_source};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-fn retained_access_error() -> crate::tools::judgment::ClassificationError {
-    crate::tools::judgment::ClassificationError::new(
+fn retained_access_error() -> octocode_tools_shared::judgment::ClassificationError {
+    octocode_tools_shared::judgment::ClassificationError::new(
         ErrorCode::ClassificationContextUnavailable,
         "The saved source access identity changed or could not be verified. No saved evidence was returned.",
         "Check source access, then start a fresh request explicitly.",
@@ -39,7 +40,7 @@ impl SourceReader for DomainDispatcher {
         &self.config
     }
 
-    fn limits(&self) -> &crate::execution::RuntimeLimits {
+    fn limits(&self) -> &octocode_runtime_base::execution::RuntimeLimits {
         &self.limits
     }
 
@@ -51,15 +52,18 @@ impl SourceReader for DomainDispatcher {
         &self.handle
     }
 
-    fn availability(&self) -> &crate::execution::availability::ToolAvailability {
+    fn availability(&self) -> &octocode_runtime_base::execution::availability::ToolAvailability {
         &self.availability
     }
 
-    fn evaluator(&self) -> &crate::tools::judgment::Evaluator {
+    fn evaluator(&self) -> &octocode_tools_shared::judgment::Evaluator {
         &self.evaluator
     }
 
-    fn output(&self, tool: ToolId) -> &'static dyn crate::response::output::ToolOutput {
+    fn output(
+        &self,
+        tool: ToolId,
+    ) -> &'static dyn octocode_runtime_base::response::output::ToolOutput {
         tool.output()
     }
 
@@ -76,7 +80,7 @@ impl SourceReader for DomainDispatcher {
     fn retained_github_identity(
         &self,
         context: &ExecutionContext,
-    ) -> Result<Option<String>, crate::tools::judgment::ClassificationError> {
+    ) -> Result<Option<String>, octocode_tools_shared::judgment::ClassificationError> {
         let observed = self
             .github_access
             .identity()
@@ -89,10 +93,10 @@ impl SourceReader for DomainDispatcher {
         &self,
         expected: Option<&str>,
         context: &ExecutionContext,
-    ) -> Result<(), crate::tools::judgment::ClassificationError> {
+    ) -> Result<(), octocode_tools_shared::judgment::ClassificationError> {
         let check = || {
             context.check().map_err(|error| {
-                crate::tools::judgment::ClassificationError::new(
+                octocode_tools_shared::judgment::ClassificationError::new(
                     error.code(),
                     error.to_string(),
                     "Retry the request explicitly.",
@@ -113,25 +117,29 @@ impl SourceReader for DomainDispatcher {
     }
 
     fn text_capture_limit(&self) -> usize {
-        octocode_engine::num::saturating_usize(crate::tools::local_fetch::MAX_SOURCE_BYTES)
+        octocode_engine::num::saturating_usize(octocode_tool_local::local_fetch::MAX_SOURCE_BYTES)
     }
 
     fn capture_local_text(
         &self,
         query: &Value,
         context: &ExecutionContext,
-    ) -> Result<(String, PathBuf, String), crate::tools::judgment::ClassificationError> {
+    ) -> Result<(String, PathBuf, String), octocode_tools_shared::judgment::ClassificationError>
+    {
         let parsed = serde_json::from_value(query.clone()).map_err(|_| {
-            crate::tools::judgment::ClassificationError::new(
+            octocode_tools_shared::judgment::ClassificationError::new(
                 ErrorCode::InvalidClassificationContext,
                 "The local resource query could not be decoded.",
                 "Inspect the localFetch schema.",
             )
         })?;
-        let captured =
-            crate::tools::local_fetch::capture_text(&parsed, self.egress_paths.as_ref(), context);
+        let captured = octocode_tool_local::local_fetch::capture_text(
+            &parsed,
+            self.egress_paths.as_ref(),
+            context,
+        );
         context.check().map_err(|error| {
-            crate::tools::judgment::ClassificationError::new(
+            octocode_tools_shared::judgment::ClassificationError::new(
                 error.code(),
                 error.to_string(),
                 "Retry the request explicitly.",
@@ -148,7 +156,10 @@ impl SourceReader for DomainDispatcher {
         query: &Value,
         context: &ExecutionContext,
         max_bytes: usize,
-    ) -> Result<octocode_github::ContentResponse, crate::tools::judgment::ClassificationError> {
+    ) -> Result<
+        octocode_github::ContentResponse,
+        octocode_tools_shared::judgment::ClassificationError,
+    > {
         if let Some(withheld) = withheld_github_source(query, &self.paths) {
             return Err(withheld);
         }
@@ -162,16 +173,22 @@ impl SourceReader for DomainDispatcher {
                     &self.handle,
                     max_bytes,
                     &self.github_access,
+                    // The bytes of a symlink are its target's: a target the
+                    // egress withholds is never asked for.
+                    &|target| {
+                        withheld_github_source(&serde_json::json!({"path": target}), &self.paths)
+                            .is_some()
+                    },
                 )
             });
-        acquired.map_err(|error| {
+        let read = acquired.map_err(|error| {
             let row = github::provider_error(error);
-            crate::tools::judgment::ClassificationError {
+            octocode_tools_shared::judgment::ClassificationError {
                 failure: row.failure,
-                ..crate::tools::judgment::ClassificationError::with_hints(
+                ..octocode_tools_shared::judgment::ClassificationError::with_hints(
                     row.data["errorCode"]
                         .as_str()
-                        .and_then(crate::id::error_codes::parse)
+                        .and_then(octocode_runtime_base::id::error_codes::parse)
                         .unwrap_or(ErrorCode::ClassificationContextFailed),
                     row.data["error"]
                         .as_str()
@@ -185,7 +202,24 @@ impl SourceReader for DomainDispatcher {
                         .collect(),
                 )
             }
-        })
+        })?;
+        match read {
+            Ok((read, _)) => Ok(read),
+            // A withheld target is refused by its own name, as a capture of
+            // that path is.
+            Err(target) => Err(
+                withheld_github_source(&serde_json::json!({"path": &target}), &self.paths)
+                    .unwrap_or_else(|| {
+                        octocode_tools_shared::judgment::ClassificationError::new(
+                            ErrorCode::PathPolicyDenied,
+                            format!(
+                                "The symlink resolves to '{target}', which the security path policy withholds from classification: nothing was fetched or sent to the provider."
+                            ),
+                            "Classify another file.",
+                        )
+                    }),
+            ),
+        }
     }
 }
 
@@ -207,8 +241,8 @@ pub(super) fn withheld_github_read(query: &Value, reads: &PathPolicy) -> Option<
 /// A failed local capture as a classification error, with the reader's own
 /// code, message, hints and leads (`viewTree`, `findFile`, `read`).
 pub(super) fn local_capture_failure(
-    result: Box<crate::tools::source_view::LocalFetchResult>,
-) -> crate::tools::judgment::ClassificationError {
+    result: Box<octocode_tools_shared::source_view::LocalFetchResult>,
+) -> octocode_tools_shared::judgment::ClassificationError {
     let leads = result
         .next
         .as_ref()
@@ -216,9 +250,9 @@ pub(super) fn local_capture_failure(
         .and_then(|next| next.as_object().cloned())
         .map(|next| next.into_iter().collect())
         .unwrap_or_default();
-    crate::tools::judgment::ClassificationError {
+    octocode_tools_shared::judgment::ClassificationError {
         leads,
-        ..crate::tools::judgment::ClassificationError::with_hints(
+        ..octocode_tools_shared::judgment::ClassificationError::with_hints(
             result
                 .error_code
                 .unwrap_or(ErrorCode::ClassificationContextUnavailable),

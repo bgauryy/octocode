@@ -3,7 +3,8 @@
 //! what each answer reads as, from the reads joined in `repository_read.rs`.
 
 use crate::support::{FIXTURE_LIMITS, Workspace, call, row_data};
-use octocode_native::execution::RuntimeLimits;
+use octocode_runtime_base::execution::RuntimeLimits;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -15,13 +16,14 @@ fn ok(body: Value) -> ResponseTemplate {
 }
 
 fn server_error() -> ResponseTemplate {
-    ResponseTemplate::new(500).set_body_json(json!({"message": "Server Error"}))
+    ResponseTemplate::new(500).set_body_json(json_fixture(r#"{"message": "Server Error"}"#))
 }
 
 /// A refusal that is no rate limit: the read is denied, not waited for.
 fn denied() -> ResponseTemplate {
-    ResponseTemplate::new(403)
-        .set_body_json(json!({"message": "Resource not accessible by integration"}))
+    ResponseTemplate::new(403).set_body_json(json_fixture(
+        r#"{"message": "Resource not accessible by integration"}"#,
+    ))
 }
 
 async fn get(server: &MockServer, route: &str, response: ResponseTemplate) {
@@ -43,27 +45,42 @@ async fn github(over: &[(&str, ResponseTemplate)]) -> MockServer {
     let defaults = [
         (
             String::new(),
-            ok(json!({
-                "full_name": "o/r", "name": "r", "default_branch": "main",
-                "html_url": "https://github.com/o/r", "private": false, "visibility": "public",
-                "stargazers_count": 5000, "forks_count": 10, "archived": false, "fork": false,
-                "pushed_at": "2999-01-01T00:00:00Z",
-            })),
+            ok(json_fixture(
+                r#"{
+                    "full_name": "o/r",
+                    "name": "r",
+                    "default_branch": "main",
+                    "html_url": "https://github.com/o/r",
+                    "private": false,
+                    "visibility": "public",
+                    "stargazers_count": 5000,
+                    "forks_count": 10,
+                    "archived": false,
+                    "fork": false,
+                    "pushed_at": "2999-01-01T00:00:00Z"
+                }"#,
+            )),
         ),
         (
             format!("/commits/{SHA}"),
-            ok(json!({"commit": {"verification": {"verified": true, "reason": "valid"}}})),
+            ok(json_fixture(
+                r#"{
+                    "commit": {"verification": {"verified": true, "reason": "valid"}}
+                }"#,
+            )),
         ),
         (format!("/commits/{SHA}/branches-where-head"), ok(json!([]))),
         (format!("/commits/{SHA}/pulls"), ok(json!([]))),
         ("/tags".to_owned(), ok(json!([]))),
         (
             format!("/compare/main...{SHA}"),
-            ok(json!({"status": "ahead"})),
+            ok(json_fixture(r#"{"status": "ahead"}"#)),
         ),
         (
             "/branches".to_owned(),
-            ok(json!([{"name": "main", "commit": {"sha": "a1"}}])),
+            ok(json_fixture(
+                r#"[{"name": "main", "commit": {"sha": "a1"}}]"#,
+            )),
         ),
         ("/security-advisories".to_owned(), ok(json!([]))),
     ];
@@ -78,7 +95,7 @@ async fn osv() -> MockServer {
     let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/querybatch"))
-        .respond_with(ok(json!({"results": [{}]})))
+        .respond_with(ok(json_fixture(r#"{"results": [{}]}"#)))
         .mount(&server)
         .await;
     server
@@ -103,7 +120,7 @@ async fn read(github: &MockServer) -> Value {
         &runtime,
         "securityCheck",
         // The whole row: these tests read each source's entry and facts.
-        json!({"operation": "commit", "commit": SHA, "repo": "o/r", "view": "details"}),
+        json!({"operation": "commit", "commitSha": SHA, "repo": "o/r", "view": "details"}),
     )
     .await
     .expect("securityCheck row");
@@ -181,31 +198,35 @@ async fn the_tag_list_read_once_serves_the_tag_tips_and_the_other_ref_walk() {
     let server = github(&[
         (
             "/branches",
-            ok(json!([
-                {"name": "main", "commit": {"sha": "a1"}},
-                {"name": "dev", "commit": {"sha": "b2"}},
-            ])),
+            ok(json_fixture(
+                r#"[
+                    {"name": "main", "commit": {"sha": "a1"}},
+                    {"name": "dev", "commit": {"sha": "b2"}}
+                ]"#,
+            )),
         ),
         (
             &format!("/compare/b2...{SHA}"),
-            ok(json!({"status": "ahead"})),
+            ok(json_fixture(r#"{"status": "ahead"}"#)),
         ),
         (
             &format!("/compare/c3...{SHA}"),
-            ok(json!({"status": "behind"})),
+            ok(json_fixture(r#"{"status": "behind"}"#)),
         ),
     ])
     .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/o/r/tags"))
-        .respond_with(ok(json!([{"name": "v1", "commit": {"sha": "c3"}}])))
+        .respond_with(ok(json_fixture(
+            r#"[{"name": "v1", "commit": {"sha": "c3"}}]"#,
+        )))
         .expect(1)
         .with_priority(1)
         .mount(&server)
         .await;
     let data = read(&server).await;
     let facts = &github_entry(&data)["facts"];
-    assert_eq!(facts["inTag"], json!(["v1"]), "{data}");
+    assert_eq!(facts["inTag"], json_fixture(r#"["v1"]"#), "{data}");
     assert_eq!(facts["inRefsComplete"], true, "{data}");
     assert_eq!(facts["onDefaultBranch"], false, "{data}");
     assert!(rules(&data).is_empty(), "{data}");
@@ -234,22 +255,24 @@ async fn a_failed_comparison_beside_a_holder_is_named_with_its_reason() {
     let server = github(&[
         (
             "/branches",
-            ok(json!([
-                {"name": "main", "commit": {"sha": "a1"}},
-                {"name": "x", "commit": {"sha": "b2"}},
-                {"name": "y", "commit": {"sha": "c3"}},
-            ])),
+            ok(json_fixture(
+                r#"[
+                    {"name": "main", "commit": {"sha": "a1"}},
+                    {"name": "x", "commit": {"sha": "b2"}},
+                    {"name": "y", "commit": {"sha": "c3"}}
+                ]"#,
+            )),
         ),
         (
             &format!("/compare/b2...{SHA}"),
-            ok(json!({"status": "behind"})),
+            ok(json_fixture(r#"{"status": "behind"}"#)),
         ),
         (&format!("/compare/c3...{SHA}"), server_error()),
     ])
     .await;
     let data = read(&server).await;
     let facts = &github_entry(&data)["facts"];
-    assert_eq!(facts["inBranch"], json!(["x"]), "{data}");
+    assert_eq!(facts["inBranch"], json_fixture(r#"["x"]"#), "{data}");
     assert_eq!(facts["inRefsComplete"], false, "{data}");
     let answer = data["answer"].as_str().unwrap_or_default();
     assert!(

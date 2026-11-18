@@ -60,11 +60,13 @@ Rules for the graph:
    costs no lock and removes design time from the critical path.
 6. **Say what is cut.** A list of deferred items with one reason each is part of the plan.
 
-Two or three fixers on the native tree is the limit, on separate crates: they share one cargo lock and one `target/`.
+At most two Rust builds run on the machine at once, across sessions and isolated copies: every build, test and lint wrapper holds one of two build slots for its whole run ([§1a](#1a-resource-budget)). Native fixers share one cargo lock and one `target/`, on separate crates; plan lanes so no more than two need a build at a time, since a third only waits.
 
 ## 1a. Resource budget
 
-The owner's Mac also runs other Claude and Codex sessions, Ollama and vitest pools. The harness limit counts agents (Claude Code refuses a new subagent at 20 running); memory and the cargo lock run out long before. Measured 2026-11-12, six lanes plus three or four other sessions on 12 cores and 32 GB: load 14–27, swap 4.9 of 6 GB, about 7 GB of compressor, one `clippy-driver` at 2.7 GB, three cargo jobs of one session queued on one `target/` of 347 GB.
+The owner's Mac also runs other Claude and Codex sessions, Ollama and vitest pools. The harness limit counts agents (Claude Code refuses a new subagent at 20 running); memory and the cargo lock run out long before. Measured 2026-11-12, six lanes plus three or four other sessions on 12 cores and 32 GB: load 14–27, swap 4.9 of 6 GB, about 7 GB of compressor, one `clippy-driver` at 2.7 GB, three cargo jobs of one session queued on one `target/` of 347 GB. On 2026-11-17 five concurrent builds from isolated copies drove the load to 59–172, with swap: a crate that needed 80 s of CPU took 365 s.
+
+**Build slots.** The owner's limit is two Rust builds on the machine at once. `packages/octocode-native/scripts/build-slot.cjs` enforces it: `build:dev` (per platform job), `test:rust`, `coverage:rust`, `$DEV test:dev`, `lint:rust`, `lint:own`, `check:features`, `mutants`, `fuzz`, `miri` and `llvm-lines` each take a slot in `os.tmpdir()/octocode-build-slots/` for their whole run, so isolated copies under `/private/tmp/claude-501/…` share them. A waiting job prints who holds each slot (pid, label, folder, time held) about once a minute; a slot whose owner died is reclaimed. A bare `cargo build`, `test`, `clippy` or `nextest` takes no slot, so lanes use the wrappers, and any other cargo build runs as `node packages/octocode-native/scripts/build-slot.cjs -- cargo …`.
 
 **Read before spawning lanes and before each heavy job.** Every command only reads:
 
@@ -81,11 +83,11 @@ df -h .
 
 | Work | Rule |
 |---|---|
-| Heavy: any cargo build, check, clippy or test; `$DEV` gates; benchmarks | One at a time on the shared `target/`, granted by the build owner. Cargo locks the whole build directory, so a second job only waits, and a different `-p` or feature selection compiles another copy of our crates (a lane's bare `cargo test -p octocode-native --test integration` did that on 2026-11-12; `cargo dev-test -- <filter>` reuses the `test:rust` selection). Grant the next job when the running one's PID has exited, the pressure level is 1 and load is below the core count. At level 2, or with swapouts rising between two `vm_stat` reads, run it with `CARGO_BUILD_JOBS` = available memory ÷ the largest `rustc`/`clippy-driver` footprint of the last run. |
+| Heavy: any cargo build, check, clippy or test; `$DEV` gates; benchmarks | Through the slot wrappers only, granted by the build owner; the slots stop a third build machine-wide. Cargo locks the whole build directory, so a second job on one `target/` only waits, and a different `-p` or feature selection compiles another copy of our crates (a lane's bare `cargo test -p octocode-native --test integration` did that on 2026-11-12; `$DEV test:dev -- <filter>` reuses the `test:rust` selection). Grant the next job when the pressure level is 1 and load is below the core count. At level 2, or with swapouts rising between two `vm_stat` reads, run it with `CARGO_BUILD_JOBS` = available memory ÷ the largest `rustc`/`clippy-driver` footprint of the last run. |
 | Light: research, docs and skill edits, Octocode tool calls, a pinned binary's checks | Parallel, while the pressure level is below 4. |
 | Other sessions' load (Ollama, vitest, their builds) | Counts against the budget; report it, never stop it, never start Ollama. |
 
-**Mark every lane.** Each brief requires the prefix `OCTOCODE_LANE=<lane>` on every command that starts a long-running or background process, e.g. `OCTOCODE_LANE=lsp-fix cargo dev-test -- lsp::`. Claude Code already puts `CLAUDE_CODE_SESSION_ID` and `CLAUDE_PID` in every child's environment; the lane marker separates subagents of one session. Both survive reparenting: an orphaned `octocode serve` under PID 1 still carried its session's ID.
+**Mark every lane.** Each brief requires the prefix `OCTOCODE_LANE=<lane>` on every command that starts a long-running or background process, e.g. `OCTOCODE_LANE=lsp-fix node skills-dev/octocode-dev/scripts/dev.mjs test:dev -- lsp::`. Claude Code already puts `CLAUDE_CODE_SESSION_ID` and `CLAUDE_PID` in every child's environment; the lane marker separates subagents of one session. Both survive reparenting: an orphaned `octocode serve` under PID 1 still carried its session's ID.
 
 **Wait on a PID** (`while kill -0 "$pid" 2>/dev/null; do sleep 30; done`) or the task notification, never on `pgrep -f "<command>"`: the pattern is in the waiting shell's own command line, so it matches itself. On 2026-11-12 six such loops of one session were alive 13 hours to a day after their jobs ended.
 
@@ -111,7 +113,7 @@ A brief is the agent's whole context. Include in this order:
 | Ordered work | Repro command, measured before and target for each item |
 | Method | Required approach, such as tracing fields with Octocode |
 | Constraints | Owner rules; fixed names, cursors and redaction; core-schema requests give tool, field, values, default |
-| Build | Focused tests only; shared `target/`; heavy jobs when the build owner grants them ([§1a](#1a-resource-budget)); lock retries 3 minutes apart; report after 20 |
+| Build | Focused tests only, through the slot wrappers; shared `target/`; heavy jobs when the build owner grants them ([§1a](#1a-resource-budget)); lock retries 3 minutes apart; report after 20 |
 | Processes | `OCTOCODE_LANE=<lane>` prefix on every long-running or background command; wait on a PID, never a pattern |
 | Cleanup / sign-off | Stop by PID, remove scratch, run the lane-end leak check; no self-sign-off |
 | Return | Root cause `file:line`, change, before/after table, tests/counts, leftovers and reasons |
@@ -209,8 +211,8 @@ each invent one.
 ## Checklist
 
 - [ ] Task list with dependencies; graph drawn; cuts listed.
-- [ ] Lanes are disjoint directories; two or three fixers at most on native.
-- [ ] Machine read before each heavy job; one heavy cargo job at a time; lanes marked `OCTOCODE_LANE`.
+- [ ] Lanes are disjoint directories; no more than two native lanes need a build at a time.
+- [ ] Machine read before each heavy job; builds only through the slot wrappers (two at most); lanes marked `OCTOCODE_LANE`.
 - [ ] Each brief has targets, repro commands, constraints, build rules, report shape.
 - [ ] One status table; `reported` is not `verified`.
 - [ ] Standup answers correlated; cross-lane conflicts and requests resolved in one reply each.

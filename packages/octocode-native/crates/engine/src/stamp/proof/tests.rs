@@ -37,7 +37,7 @@ fn a_large_proof_is_one_across_its_chunks() {
     let proof = Proof::capture(files.clone(), Link::Follow, None).expect("stamped");
     assert_eq!(
         proof
-            .0
+            .seen
             .iter()
             .map(|(path, _)| path.clone())
             .collect::<Vec<_>>(),
@@ -116,13 +116,51 @@ fn taken_stamps_and_presences_join_one_proof() {
     let file = dir.path().join("a.rs");
     std::fs::write(&file, "x").expect("write");
     let stamp = SourceStamp::of(&std::fs::symlink_metadata(&file).expect("meta")).expect("stamp");
-    let before = stamp_stats();
     let marker = dir.path().join("marker");
     let proof = Proof::default()
         .with_taken(Link::Itself, vec![(file.clone(), stamp)])
         .with_presence(vec![(marker.clone(), false)]);
-    assert_eq!(stamp_stats(), before, "taken stamps cost no stat");
+    assert_eq!(proof.stamps_read(), 0, "taken stamps cost no stat");
     assert!(proof.holds());
     std::fs::write(&marker, "x").expect("marker");
     assert!(!proof.holds(), "the marker appeared");
+}
+
+/// A proof says what it read: each stamp it took itself while it was built,
+/// each stamp it compares when checked, and none past the first change.
+#[test]
+fn a_proof_reports_the_stamps_it_read() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let files = ["a.rs", "b.rs", "c.rs"].map(|name| dir.path().join(name));
+    for file in &files {
+        std::fs::write(file, "x").expect("write");
+    }
+    let mut built = Proof::capture(files.clone(), Link::Follow, None).expect("all exist");
+    assert_eq!(built.stamps_read(), files.len());
+    built.follow(dir.path().join("absent"));
+    assert_eq!(
+        built.stamps_read(),
+        files.len() + 1,
+        "an absent path is read too"
+    );
+    let joined = Proof::default().with(&built);
+    assert_eq!(
+        joined.stamps_read(),
+        built.stamps_read(),
+        "joined, its reads come along"
+    );
+    assert_eq!(
+        built.check(),
+        Checked {
+            holds: true,
+            stamps_read: files.len() + 1
+        }
+    );
+    std::fs::remove_file(&files[0]).expect("remove");
+    let changed = built.check();
+    assert!(!changed.holds, "a deleted path is a change");
+    assert_eq!(
+        changed.stamps_read, 1,
+        "the check stops at the first change"
+    );
 }

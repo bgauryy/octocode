@@ -4,7 +4,7 @@ use std::io;
 use std::path::Path;
 use std::process::Command;
 
-pub struct PersistentCli<'a> {
+pub(crate) struct PersistentCli<'a> {
     workspace: &'a Workspace,
     sockets: tempfile::TempDir,
 }
@@ -21,7 +21,7 @@ impl<'a> PersistentCli<'a> {
         }
     }
 
-    pub fn cli(&self) -> Command {
+    pub(crate) fn cli(&self) -> Command {
         let mut command = self.workspace.cli();
         command
             .env("TMPDIR", self.sockets())
@@ -29,18 +29,18 @@ impl<'a> PersistentCli<'a> {
         command
     }
 
-    pub fn sockets(&self) -> &Path {
+    pub(crate) fn sockets(&self) -> &Path {
         self.sockets.path()
     }
 
-    pub fn server_pids(&self) -> Vec<u32> {
+    pub(crate) fn server_pids(&self) -> Vec<u32> {
         self.owned_server_pids().expect("list owned warm servers")
     }
 
     /// Stop only servers whose executable and socket still identify this
     /// fixture immediately before each signal. False means cleanup could not
     /// be verified; Drop never panics while another assertion is unwinding.
-    pub fn stop(&self) -> bool {
+    pub(crate) fn stop(&self) -> bool {
         for signal in ["-TERM", "-KILL"] {
             let Ok(pids) = self.owned_server_pids() else {
                 return false;

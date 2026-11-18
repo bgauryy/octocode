@@ -1,12 +1,12 @@
 //! Process containment and tree inspection for spawned commands: the
 //! descendants of a pid (following parent links, so a child that called
-//! `setsid` and left the process group is still found), their resident
-//! memory and CPU time, and a freeze-then-kill teardown of the whole tree
+//! `setsid` and left the process group is still found), the memory they
+//! hold and their CPU time, and a freeze-then-kill teardown of the whole tree
 //! that signals a descendant only while its pid still names it.
 //!
 //! Implemented on macOS (`libproc`) and Linux (`/proc`); Windows reads the
 //! server process's own CPU time. Elsewhere the tree walk finds nothing,
-//! there is no RSS or CPU reader, and teardown falls back to the process
+//! there is no memory or CPU reader, and teardown falls back to the process
 //! group.
 
 #[cfg(target_os = "linux")]
@@ -28,15 +28,8 @@ pub use identity::parent_pid;
 pub use job::Job;
 #[cfg(any(target_os = "macos", target_os = "linux", windows))]
 pub(crate) use metrics::TreeCpuClock;
-#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
-use metrics::rss_bytes;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-pub(crate) use metrics::tree_rss_bytes;
-#[cfg(test)]
-use proc_table::{
-    ProcStat, parse_proc_stat, parse_proc_stat_cpu_ticks, parse_proc_statm_rss,
-    read_proc_cpu_ticks, read_proc_rss,
-};
+pub(crate) use metrics::tree_memory_bytes;
 #[cfg(any(test, target_os = "linux"))]
 use proc_table::{children_from_table, read_proc_table};
 #[cfg(unix)]

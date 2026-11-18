@@ -1,11 +1,23 @@
 //! The compile-time caches of a pattern (root, `declares`, required
 //! literal) answer exactly what the per-candidate computations did.
 
-use super::{CompiledPattern, SKIP_PREREJECT, declares, effective_pattern_root};
+use super::{CompiledPattern, declares, effective_pattern_root};
 use crate::signatures::languages;
 use crate::structural::language::AgLanguage;
-use crate::structural::octo::{all_matches, compile_matcher};
+use crate::structural::octo::compile_matcher;
+use crate::structural::octo::tests::all_matches;
 use crate::structural::query::StructuralQuery;
+
+/// What a pattern counts of its own matching.
+#[derive(Default)]
+pub(super) struct Probe {
+    /// Candidates that reached the structural comparison.
+    pub(super) compared: std::sync::atomic::AtomicUsize,
+}
+
+/// Switches the pre-reject off, for the differential test.
+pub(super) static SKIP_PREREJECT: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 /// The two tests that flip the process-wide switch run one at a time.
 static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());

@@ -27,7 +27,7 @@ fn removal_paths_drop_values_after_releasing_the_memo_lock() {
     impl Drop for Probe {
         fn drop(&mut self) {
             if let Some(memo) = self.memo.upgrade() {
-                let unlocked = memo.inner.get().unwrap().try_lock().is_ok();
+                let unlocked = memo.entries.inner.get().unwrap().try_lock().is_ok();
                 self.observations.lock().unwrap().push(unlocked);
             }
         }
@@ -257,11 +257,11 @@ fn a_poisoned_lock_is_recovered_not_skipped() {
     memo.insert(1, 1, 1, None);
     let poisoner = Arc::clone(&memo);
     let _ = std::thread::spawn(move || {
-        let _guard = poisoner.inner.get().unwrap().lock().unwrap();
+        let _guard = poisoner.entries.inner.get().unwrap().lock().unwrap();
         panic!("poison the memo");
     })
     .join();
-    assert!(memo.inner.get().unwrap().is_poisoned());
+    assert!(memo.entries.inner.get().unwrap().is_poisoned());
     assert_eq!(memo.get(&1).map(|hit| *hit.value), Some(1));
     memo.insert(2, 2, 1, None);
     memo.remove(&1);
@@ -483,4 +483,101 @@ fn a_reservation_evicts_memo_entries_to_fit_but_never_past_the_limit() {
     drop(held);
     assert!(budget.reserve(budget.limit() + 1).is_none());
     assert_eq!(budget.used(), 0);
+}
+
+/// A hit's age counts from when its entry was stored; a touch restarts it.
+/// Touching a key with no entry stores nothing.
+#[test]
+fn a_hit_reports_its_age_and_a_touch_restarts_it() {
+    let memo = Memo::<&str, u8>::new(budget!(10));
+    let start = Instant::now();
+    memo.insert_full("a", 1, (), 1, None, start);
+    let hit = memo
+        .get_at("a", start + Duration::from_secs(5))
+        .expect("stored");
+    assert_eq!(hit.age, Duration::from_secs(5));
+
+    let before = Instant::now();
+    memo.touch("a", Duration::from_secs(60));
+    let after = Instant::now();
+    let read_at = after + Duration::from_secs(3);
+    let age = memo.get_at("a", read_at).expect("touched").age;
+    assert!(age >= Duration::from_secs(3), "{age:?}");
+    assert!(age <= read_at - before, "{age:?}");
+
+    memo.touch("missing", Duration::from_secs(60));
+    assert_eq!(memo.contents(), (vec!["a"], 1));
+}
+
+/// Memos with one key type keep their own entries: the same key in each
+/// answers with that memo's value and metadata.
+#[test]
+fn memos_with_one_key_type_keep_their_own_values_and_metadata() {
+    let budget = budget!(100);
+    let words = Memo::<&str, String, u8>::new(budget);
+    let numbers = Memo::<&str, u64, String>::new(budget);
+    let now = Instant::now();
+    words.insert_full("k", "word".to_owned(), 7, 2, None, now);
+    numbers.insert_full("k", 42, "meta".to_owned(), 3, None, now);
+    for _ in 0..2 {
+        let word = words.get("k").expect("word");
+        assert_eq!((word.value.as_str(), word.meta), ("word", 7));
+        let number = numbers.get("k").expect("number");
+        assert_eq!((*number.value, number.meta.as_str()), (42, "meta"));
+    }
+    words.remove("k");
+    assert!(words.get("k").is_none());
+    assert_eq!(*numbers.get("k").expect("still held").value, 42);
+    assert_eq!(budget.used(), 3);
+}
+
+/// An entry past its deadline takes no charge, though it is still held
+/// until something releases it.
+#[test]
+fn a_charge_to_an_expired_entry_is_refused() {
+    let budget = budget!(100);
+    let memo = Memo::<&str, u8>::new(budget);
+    let ttl = Duration::from_millis(20);
+    let (_, kept) = memo.insert("short", 1, 1, Some(ttl));
+    assert!(kept);
+    std::thread::sleep(ttl + Duration::from_millis(10));
+    assert!(!memo.charge("short", 5));
+    assert_eq!((memo.contents().1, budget.used()), (1, 1));
+}
+
+/// Metadata is released with its entry, after the memo's lock, like the value.
+#[test]
+fn metadata_is_dropped_with_its_entry_outside_the_memo_lock() {
+    use std::sync::{Mutex, Weak};
+
+    #[derive(Clone)]
+    struct Probe {
+        memo: Weak<Memo<&'static str, u8, Self>>,
+        observations: Arc<Mutex<Vec<bool>>>,
+    }
+    impl Drop for Probe {
+        fn drop(&mut self) {
+            if let Some(memo) = self.memo.upgrade() {
+                let unlocked = memo.entries.inner.get().unwrap().try_lock().is_ok();
+                self.observations.lock().unwrap().push(unlocked);
+            }
+        }
+    }
+
+    let memo = Arc::new(Memo::new(budget!(8)));
+    let observations = Arc::new(Mutex::new(Vec::new()));
+    let probe = Probe {
+        memo: Arc::downgrade(&memo),
+        observations: Arc::clone(&observations),
+    };
+    memo.insert_full("key", 1, probe, 1, None, Instant::now());
+    let hit = memo.get("key").expect("stored");
+    drop(hit);
+    assert_eq!(*observations.lock().unwrap(), [true], "a hit's copy");
+    memo.remove("key");
+    assert_eq!(
+        *observations.lock().unwrap(),
+        [true, true],
+        "the entry's own"
+    );
 }

@@ -5,6 +5,7 @@
 
 use super::server::{REPLY_TIMEOUT, Server};
 use crate::support::Workspace;
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use std::time::Duration;
 use wiremock::matchers::{method, path};
@@ -24,7 +25,7 @@ impl Respond for Spent {
             .insert_header("x-ratelimit-remaining", "0")
             .insert_header("x-ratelimit-reset", reset.to_string().as_str())
             .insert_header("x-ratelimit-resource", "code_search")
-            .set_body_json(json!({"message": "API rate limit exceeded"}))
+            .set_body_json(json_fixture(r#"{"message": "API rate limit exceeded"}"#))
     }
 }
 
@@ -38,18 +39,24 @@ async fn spent_github(reset_in: Duration) -> MockServer {
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"default_branch":"main","full_name":"a/b"})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"default_branch": "main", "full_name": "a/b"}"#,
+        )))
         .mount(&github)
         .await;
     github
 }
 
 fn search() -> Value {
-    json!({"name": "ghSearchCode", "_meta": {"progressToken": "wait"},
-           "arguments": {"queries": [{"owner": "a", "repo": "b", "keywords": ["needle"]}]}})
+    json_fixture(
+        r#"{
+            "name": "ghSearchCode",
+            "_meta": {"progressToken": "wait"},
+            "arguments": {
+                "queries": [{"owner": "a", "repo": "b", "keywords": ["needle"]}]
+            }
+        }"#,
+    )
 }
 
 /// Starts the server against `api`, sends the search, and returns the
@@ -62,10 +69,17 @@ fn start_search(workspace: &Workspace, api: &str) -> (Server, u64, Value) {
     );
     server.request(
         "initialize",
-        json!({"protocolVersion": "2025-11-25", "capabilities": {},
-               "clientInfo": {"name": "test", "version": "1"}}),
+        json_fixture(
+            r#"{
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": {"name": "test", "version": "1"}
+            }"#,
+        ),
     );
-    server.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+    server.send(&json_fixture(
+        r#"{"jsonrpc": "2.0", "method": "notifications/initialized"}"#,
+    ));
     server.next_id += 1;
     let id = server.next_id;
     server.send(&json!({"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": search()}));

@@ -6,6 +6,16 @@ use std::time::Instant;
 
 const SHORT: Duration = Duration::from_millis(50);
 
+/// Run `f` as if it were a pool job whose caller already stopped.
+pub(crate) fn run_as_cancelled_job<T: Default>(f: impl FnOnce() -> T) -> T {
+    let cancel = Arc::new(AtomicBool::new(false));
+    let previous = CURRENT_CANCEL.with(|slot| slot.replace(Some(Arc::clone(&cancel))));
+    cancel.store(true, Ordering::Relaxed);
+    let result = catch_unwind(AssertUnwindSafe(f)).unwrap_or_default();
+    CURRENT_CANCEL.with(|slot| *slot.borrow_mut() = previous);
+    result
+}
+
 /// Spin until the job is cancelled (or a safety cap elapses), counting
 /// iterations in `ticks`; flags `exited` on return.
 fn spin_until_cancelled(ticks: &AtomicUsize, exited: &AtomicBool) -> u32 {

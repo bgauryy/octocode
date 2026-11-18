@@ -7,7 +7,7 @@ const { execFileSync } = require('node:child_process');
 const { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } = require('node:fs');
 const nodePath = require('node:path');
 const { tmpdir } = require('node:os');
-const { extractTarFile, fetchNativeBinary, registryFor } = require('../bin/fetch-binary.cjs');
+const { extractTarFile, fetchNativeBinary, registryFor, reportsVersion, sameVersion } = require('../bin/fetch-binary.cjs');
 
 const SUFFIX = 'linux-x64-gnu';
 const VERSION = '1.2.3';
@@ -69,6 +69,26 @@ const options = (home, fetch, run = () => `octocode ${VERSION}\n`) => ({
   fetch,
   log: () => {},
   run,
+});
+
+test('a reported version is the pinned one, optionally with a hex fingerprint suffix', () => {
+  assert.equal(reportsVersion('octocode 1.2.3\n', '1.2.3'), true);
+  assert.equal(reportsVersion('octocode 1.2.3+01a553b7\n', '1.2.3'), true);
+  assert.equal(reportsVersion('octocode 1.2.4+01a553b7', '1.2.3'), false);
+  assert.equal(reportsVersion('octocode 1.2.3+zzz', '1.2.3'), false);
+  assert.equal(reportsVersion('octocode 1.2.3+', '1.2.3'), false);
+  assert.equal(reportsVersion('octocode 1.2.3-rc.1', '1.2.3'), false);
+  assert.equal(reportsVersion('other 1.2.3', '1.2.3'), false);
+  assert.equal(sameVersion('1.2.3+0a1b', '1.2.3'), true);
+  assert.equal(sameVersion('1.2.3+0A1B', '1.2.3'), false);
+  assert.equal(sameVersion('9.9.9', '1.2.3'), false);
+});
+
+test('accepts a binary that reports the pinned version with its fingerprint', async () => {
+  const home = tempDir('octocode-home-');
+  const { fetch } = registry(tarball());
+  const path = await fetchNativeBinary(options(home, fetch, () => `octocode ${VERSION}+01a553b7\n`));
+  assert.ok(existsSync(path));
 });
 
 test('registryFor follows the scope registry, then the default registry, like npm', () => {

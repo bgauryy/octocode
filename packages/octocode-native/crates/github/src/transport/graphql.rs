@@ -131,7 +131,7 @@ impl GitHubTransport {
             if spent.is_none() && parsed.errors.iter().any(GraphQlError::is_secondary_limit) {
                 let state = self.key_state(context.resolved_credential());
                 let config = self.budget.config();
-                let wait = secondary_wait(&page.headers, config);
+                let wait = secondary_wait(&page.headers, config, &self.retry, attempt);
                 let limit =
                     secondary_cooldown(&state, &page.headers, wait, GitHubResource::Graphql);
                 if attempt + 1 < self.retry.max_attempts
@@ -162,7 +162,7 @@ impl GitHubTransport {
                     secondary_cooldown(
                         &state,
                         &page.headers,
-                        secondary_wait(&page.headers, config),
+                        secondary_wait(&page.headers, config, &self.retry, attempt),
                         GitHubResource::Graphql,
                     );
                     state.record_circuit_failure(config, CircuitCause::Secondary);
@@ -200,7 +200,7 @@ impl GitHubTransport {
                     if context
                         .waits
                         .timed(
-                            octocode_contract_types::ClientWaitKind::RetryAfter,
+                            octocode_contract_base::ClientWaitKind::RetryAfter,
                             pause(delay, context.budget.deadline, &context.budget.cancellation),
                         )
                         .await

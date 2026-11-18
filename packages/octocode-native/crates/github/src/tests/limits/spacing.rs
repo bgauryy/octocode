@@ -1,5 +1,6 @@
 //! Permits during backoff, per-key search pacing and token isolation.
 use super::*;
+use octocode_test_support::json_fixture;
 
 #[tokio::test]
 async fn permits_are_released_while_backing_off() {
@@ -64,7 +65,7 @@ async fn permits_are_released_while_backing_off() {
 async fn search_requests_within_quota_burst_per_key() {
     let server = MockServer::builder().start().await;
     let search = Sequence::new(vec![reporting_quota_spacing(
-        ResponseTemplate::new(200).set_body_json(serde_json::json!({"items": []})),
+        ResponseTemplate::new(200).set_body_json(json_fixture(r#"{"items": []}"#)),
         Duration::from_millis(150),
     )]);
     let arrivals = search.arrivals.clone();
@@ -112,7 +113,7 @@ async fn limiter_keys_isolate_tokens() {
             ResponseTemplate::new(403)
                 .insert_header("x-ratelimit-remaining", "0")
                 .insert_header("x-ratelimit-reset", reset.to_string().as_str())
-                .set_body_json(serde_json::json!({"message": "API rate limit exceeded"})),
+                .set_body_json(json_fixture(r#"{"message": "API rate limit exceeded"}"#)),
         )
         .expect(1)
         .mount(&server)
@@ -151,7 +152,7 @@ async fn production_graphql_reads_are_unspaced_and_one_at_a_time() {
     let server = MockServer::builder().start().await;
     let answer = Delayed::new(
         Duration::from_millis(100),
-        ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})),
+        ResponseTemplate::new(200).set_body_json(json_fixture(r#"{"data": {}}"#)),
     );
     let arrivals = answer.arrivals.clone();
     Mock::given(method("POST"))

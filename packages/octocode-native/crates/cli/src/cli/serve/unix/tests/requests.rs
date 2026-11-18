@@ -1,4 +1,5 @@
 use super::*;
+use octocode_test_support::json_fixture;
 
 #[test]
 fn exit_removes_only_the_socket_this_server_bound() {
@@ -86,7 +87,7 @@ async fn client_reads_one_reply_line_and_treats_a_silent_close_as_no_reply() {
             .expect("reply");
         request
     });
-    let input = json!({"q": 1});
+    let input = json_fixture(r#"{"q": 1}"#);
     let request = request(&input, Path::new("/work/here"));
     let reply = exchange_plain(&mut client, &request, reply_deadline()).await;
     assert_eq!(
@@ -255,7 +256,7 @@ async fn ctrl_c_ends_a_reply_wait_that_has_no_deadline() {
 /// process. Both follow the contract's `mutatesWorkspace`.
 #[test]
 fn tool_transport_keeps_writing_tools_in_the_invoking_process() {
-    let presentation = octocode_native::contracts::cli_presentation().expect("presentation");
+    let presentation = octocode_runtime_base::contracts::cli_presentation().expect("presentation");
     let listed = presentation["tools"]
         .as_array()
         .expect("presentation tools");

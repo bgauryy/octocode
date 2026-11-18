@@ -2,6 +2,7 @@
 //! an isolated fragment (B165 D1), and a secret in that source stays
 //! redacted in every range.
 use crate::support::{Run as _, Workspace};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 
 const SOURCE: &str = "use serde::Serialize;\n\n#[derive(Serialize)]\nstruct SavingWalk<'a> {\n    pending: &'a [Ref],\n    token: Option<&'a str>,\n    read: &'a [Value],\n    import: &'a Option<String>,\n}\n\nfn main() {}\n";
@@ -651,7 +652,7 @@ async fn every_view_bounds_a_value_as_a_read_does() {
     let runtime = workspace.runtime(&[]);
     for (name, source, needle, secrets, kept) in bound_fixtures() {
         let path = workspace.write(name, &source);
-        let content = view_lines(&runtime, &path, json!({"view": "content"})).await;
+        let content = view_lines(&runtime, &path, json_fixture(r#"{"view": "content"}"#)).await;
         let read = content.values().cloned().collect::<Vec<_>>().join("\n");
         for secret in &secrets {
             assert!(!read.contains(secret), "{name}: {read}");
@@ -659,7 +660,7 @@ async fn every_view_bounds_a_value_as_a_read_does() {
         for text in &kept {
             assert!(read.contains(text), "{name} lost {text:?}: {read}");
         }
-        let compact = view_lines(&runtime, &path, json!({"view": "compact"})).await;
+        let compact = view_lines(&runtime, &path, json_fixture(r#"{"view": "compact"}"#)).await;
         // The compact view drops comments: a line it keeps whole shows the
         // read's placeholders, and one it cut shows the first of them only.
         for (line, text) in &compact {
@@ -678,8 +679,13 @@ async fn every_view_bounds_a_value_as_a_read_does() {
             let query = query_path(&path, json!({"matchString": needle, "view": view}));
             responses.push(call(&runtime, "localSearch", query).await.expect("search"));
         }
-        let ast =
-            json!({"operation": "match", "rule": {"kind": "string"}, "includeCaptures": true});
+        let ast = json_fixture(
+            r#"{
+                "operation": "match",
+                "rule": {"kind": "string"},
+                "includeCaptures": true
+            }"#,
+        );
         if !name.ends_with(".txt") {
             responses.push(
                 call(&runtime, "astSearch", query_path(&path, ast))
@@ -1138,14 +1144,20 @@ async fn a_redacted_row_is_flagged_once_and_a_literal_placeholder_is_not() {
     let runtime = workspace.runtime(&[]);
     let queries = [
         ("localFetch", json!({})),
-        ("localFetch", json!({"view": "compact"})),
+        ("localFetch", json_fixture(r#"{"view": "compact"}"#)),
         (
             "localSearch",
-            json!({"matchString": "export const", "view": "content"}),
+            json_fixture(r#"{"matchString": "export const", "view": "content"}"#),
         ),
         (
             "astSearch",
-            json!({"operation": "match", "rule": {"kind": "string"}, "includeCaptures": true}),
+            json_fixture(
+                r#"{
+                    "operation": "match",
+                    "rule": {"kind": "string"},
+                    "includeCaptures": true
+                }"#,
+            ),
         ),
     ];
     for (tool, extra) in queries {
@@ -1216,7 +1228,10 @@ async fn a_search_of_an_unreadable_or_rewritten_source_never_hides_a_whole_row()
         let outcome = call(
             &runtime,
             "localSearch",
-            query_path(&path, json!({"matchString": "needle", "view": "content"})),
+            query_path(
+                &path,
+                json_fixture(r#"{"matchString": "needle", "view": "content"}"#),
+            ),
         )
         .await;
         let Ok(outcome) = outcome else { continue };

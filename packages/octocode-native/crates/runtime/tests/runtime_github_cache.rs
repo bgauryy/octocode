@@ -1,6 +1,7 @@
 use crate::support;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use octocode_test_support::json_fixture;
 use serde_json::json;
 use support::{Workspace, call, row_data, row_status};
 use wiremock::matchers::{method, path};
@@ -26,6 +27,7 @@ async fn contents_reads(server: &MockServer) -> usize {
 #[tokio::test]
 async fn a_restarted_runtime_answers_a_pinned_file_with_nothing_sent() {
     let server = MockServer::builder().start().await;
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "source.rs").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/source.rs"))
         .respond_with(
@@ -91,7 +93,14 @@ async fn a_restarted_runtime_confirms_a_mutable_read_and_sees_a_change() {
         .await;
     let workspace = Workspace::new();
     let settings = [("GITHUB_API_URL", format!("{}/api/v3", server.uri()))];
-    let query = json!({"operation":"commit", "owner":"a", "repo":"b", "limit":1});
+    let query = json_fixture(
+        r#"{
+            "operation": "commit",
+            "owner": "a",
+            "repo": "b",
+            "limit": 1
+        }"#,
+    );
     let first = workspace.runtime(&settings);
     let outcome = call(&first, "ghSearchHistory", query.clone())
         .await
@@ -131,19 +140,32 @@ async fn a_repeated_search_spends_no_quota_and_discloses_when_it_was_observed() 
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/repositories"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count": 1, "incomplete_results": false,
-            "items": [{"full_name": "a/ripgrep", "name": "ripgrep",
-                       "html_url": "https://github.com/a/ripgrep", "default_branch": "main",
-                       "created_at": null, "updated_at": null, "pushed_at": null,
-                       "language": "Rust", "homepage": null, "license": null}]
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "total_count": 1,
+                "incomplete_results": false,
+                "items": [
+                    {
+                        "full_name": "a/ripgrep",
+                        "name": "ripgrep",
+                        "html_url": "https://github.com/a/ripgrep",
+                        "default_branch": "main",
+                        "created_at": null,
+                        "updated_at": null,
+                        "pushed_at": null,
+                        "language": "Rust",
+                        "homepage": null,
+                        "license": null
+                    }
+                ]
+            }"#,
+        )))
         .expect(1)
         .mount(&server)
         .await;
     let workspace = Workspace::new();
     let settings = [("GITHUB_API_URL", format!("{}/api/v3", server.uri()))];
-    let query = json!({"operation":"search","keywords": ["ripgrep"]});
+    let query = json_fixture(r#"{"operation": "search", "keywords": ["ripgrep"]}"#);
     let first = workspace.runtime(&settings);
     let fresh = call(&first, "ghSearchRepo", query.clone()).await.unwrap();
     assert!(
@@ -178,6 +200,7 @@ async fn a_repeated_search_spends_no_quota_and_discloses_when_it_was_observed() 
 async fn an_answer_holding_a_credential_never_reaches_disk() {
     let secret = format!("token = \"ghp_{}\"\n", "a1B2c3D4e5F6".repeat(3));
     let server = MockServer::builder().start().await;
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "secret.rs").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/secret.rs"))
         .respond_with(ResponseTemplate::new(200).set_body_raw(
@@ -227,6 +250,7 @@ async fn memory_storage_mode_does_not_persist_github_content_to_disk() {
     // ETag; a conditional request would get 304.  In memory-only mode the
     // second runtime must NOT send a conditional request because it has no
     // cached ETag — the disk was never written.
+    octocode_test_support::mock_http::list_in_trees(&server, "c", "d", "readme.md").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/c/d/contents/readme.md"))
         .respond_with(|request: &Request| {

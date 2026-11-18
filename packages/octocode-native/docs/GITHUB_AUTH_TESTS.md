@@ -26,8 +26,8 @@ fixtures. They do not log in to a real GitHub account or save OS credentials.
 | Packaged interfaces | [Packaged checks](#packaged-checks) | Native reads a Node-written home and Node decrypts the native rewrite; CLI and stdio MCP; explicit home isolation; home logout and OS-delete failure reporting; corrupt-home gh fallback |
 
 Paths without a package prefix are relative to
-`crates/runtime/src/providers/github`, except `src/config.rs` and `tests/`,
-which are relative to `crates/runtime` and `crates/cli`, respectively.
+`crates/runtime-base/src/providers/github`, except `src/config.rs` and `tests/`,
+which are relative to `crates/runtime-base` and `crates/cli`, respectively.
 
 ## Run
 

@@ -66,6 +66,7 @@ pub(crate) fn assemble_file(
         return TextSearchFile {
             path,
             match_count: saturating_u32(entry.prepared.len()),
+            counted: Default::default(),
             matches: entry.prepared,
             source: None,
             term_counts: Vec::new(),
@@ -93,6 +94,7 @@ pub(crate) fn assemble_file(
         return TextSearchFile {
             path,
             match_count: saturating_u32(matches.len()),
+            counted: Default::default(),
             matches,
             source: None,
             term_counts: Vec::new(),
@@ -171,6 +173,7 @@ pub(crate) fn assemble_file(
     TextSearchFile {
         path,
         match_count,
+        counted: Default::default(),
         matches,
         source: None,
         term_counts: Vec::new(),

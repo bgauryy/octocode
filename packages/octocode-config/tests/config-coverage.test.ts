@@ -18,7 +18,6 @@ const declared = new Set([
 // child-process values, never something a user configures.
 const NOT_CONFIGURATION = new Map([
   ['OCTOCODE_NATIVE_BIN', 'dev-only launcher override, gated by devOverridesAllowed'],
-  ['OCTOCODE_LEAD_PROBE', 'a value the leads/lsp.rs unit test passes through discovery'],
   ['OCTOCODE_NET_GUARD_TEST_LOOPBACK', 'lets skill tests reach a loopback server'],
   ['OCTOCODE_CLI', 'skill scripts: which local CLI to run'],
   ['OCTOCODE_ASKPASS_USERNAME_PROMPT', 'private Git helper prompt, set for one child by AskPass'],

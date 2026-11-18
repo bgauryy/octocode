@@ -78,10 +78,10 @@ windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_
 tokio = { workspace = true, features = ["net"] }
 
 [dev-dependencies]
+octocode-test-support = { path = "../test-support" }
 criterion = { version = "0.8" }
 proptest = "1"
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["test-util"] }
 
 [[bench]]
 name = "structural"
@@ -110,5 +110,9 @@ tree-sitter-cuda = ["dep:tree-sitter-cuda"]
 # (about 6.8 MiB per artifact, docs/DEPENDENCY_AUDIT.md#footprint-interpretation).
 tree-sitter-large-grammars = ["tree-sitter-cpp", "tree-sitter-c-sharp"]
 tree-sitter-scala = ["dep:tree-sitter-scala"]
-# Lets another crate's tests lower the scan walk ceiling (`scan_budget::lower_walk_ceiling`).
+# Test clocks, a stat counter and a fixture grammar for octocode-native's tests,
+# on in its dev-dependencies and `dev-unify`, never in a release build: the walk
+# clock (`scan_budget::freeze_walk_clock`, `advance_walk_clock`), the settle
+# clock (`stamp::settle_written_so_far`, `settled_through`), the stat count
+# (`stamp::stamp_stats`) and `signatures::languages::conformance`.
 test-hooks = []

@@ -6,6 +6,7 @@
 //! them.
 use super::recorded_results::recorded;
 use super::*;
+use octocode_test_support::json_fixture;
 use std::collections::BTreeSet;
 
 /// The tools whose rows print as lines of files.
@@ -185,9 +186,27 @@ fn fractions(value: &Value, out: &mut Vec<f64>) {
 /// gone.
 #[test]
 fn a_fraction_prints_to_four_significant_digits() {
-    let rank = json!({"results":[{"index":0,"data":{"rows":[
-        {"id":"a.ts","evidence":{"pageRank":0.04051045341394517}},
-        {"id":"b.ts","evidence":{"pageRank":0.11554587546608726}}]}}]});
+    let rank = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "rows": [
+                            {
+                                "id": "a.ts",
+                                "evidence": {"pageRank": 0.04051045341394517}
+                            },
+                            {
+                                "id": "b.ts",
+                                "evidence": {"pageRank": 0.11554587546608726}
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#,
+    );
     let mut results: Vec<(String, ToolId, Value, Value)> = recorded()
         .into_iter()
         .map(|call| (call.label, call.tool, call.query, call.result))
@@ -224,11 +243,45 @@ fn a_fraction_prints_to_four_significant_digits() {
 /// the list's key; the fields that differ stay on each item.
 #[test]
 fn a_field_every_item_shares_is_stated_once() {
-    let issues = json!({"results":[{"index":0,"data":{"rows":[
-        {"id":"4ed5","detector":"unused-export","subject":"src/a.ts","title":"1 export(s) with no importer",
-         "confidence":0.6,"tier":60,"evidence":{"exports":["reclaimLock"],"count":1,"dynamicallyImported":false}},
-        {"id":"1b29","detector":"unused-export","subject":"src/b.ts","title":"2 export(s) with no importer",
-         "confidence":0.6,"tier":60,"evidence":{"exports":["run","stop"],"count":2,"dynamicallyImported":false}}]}}]});
+    let issues = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "rows": [
+                            {
+                                "id": "4ed5",
+                                "detector": "unused-export",
+                                "subject": "src/a.ts",
+                                "title": "1 export(s) with no importer",
+                                "confidence": 0.6,
+                                "tier": 60,
+                                "evidence": {
+                                    "exports": ["reclaimLock"],
+                                    "count": 1,
+                                    "dynamicallyImported": false
+                                }
+                            },
+                            {
+                                "id": "1b29",
+                                "detector": "unused-export",
+                                "subject": "src/b.ts",
+                                "title": "2 export(s) with no importer",
+                                "confidence": 0.6,
+                                "tier": 60,
+                                "evidence": {
+                                    "exports": ["run", "stop"],
+                                    "count": 2,
+                                    "dynamicallyImported": false
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        }"#,
+    );
     let out = render(ToolId::GraphQuery, &issues, &json!({}), None)
         .expect("text")
         .out;
@@ -254,15 +307,27 @@ fn a_field_every_item_shares_is_stated_once() {
 
 /// The rows of a batch of graph queries, every one on one snapshot.
 fn graph_batch() -> (Value, Value) {
-    let graph =
-        json!({"id":"20261113T192541Z-src-d9b10b","root":"src","createdAt":"2026-11-13T19:25:41Z"});
+    let graph = json_fixture(
+        r#"{
+            "id": "20261113T192541Z-src-d9b10b",
+            "root": "src",
+            "createdAt": "2026-11-13T19:25:41Z"
+        }"#,
+    );
     let row = |index: u64, rows: Value| json!({"index":index,"data":{"graph":graph,"rows":rows,"freshness":{"fresh":true,"analysisCurrent":true}}});
     let result = json!({"results":[
-        row(0, json!([{"id":"src/a.ts","fanIn":3}])),
-        row(1, json!([{"id":"src/b.ts","fanIn":1}])),
+        row(0, json_fixture(r#"[{"id": "src/a.ts", "fanIn": 3}]"#)),
+        row(1, json_fixture(r#"[{"id": "src/b.ts", "fanIn": 1}]"#)),
         row(2, json!([]))]});
-    let asked =
-        json!({"queries":[{"operation":"hubs"},{"operation":"dependents"},{"operation":"cycles"}]});
+    let asked = json_fixture(
+        r#"{
+            "queries": [
+                {"operation": "hubs"},
+                {"operation": "dependents"},
+                {"operation": "cycles"}
+            ]
+        }"#,
+    );
     (result, asked)
 }
 
@@ -284,8 +349,13 @@ fn a_field_every_batch_row_shares_prints_once() {
     }
     // A failed row shares nothing: every row states its own fields.
     let mut failed = result.clone();
-    failed["results"][2] =
-        json!({"index":2,"status":"error","data":{"errorCode":"notFound","error":"gone"}});
+    failed["results"][2] = json_fixture(
+        r#"{
+            "index": 2,
+            "status": "error",
+            "data": {"errorCode": "notFound", "error": "gone"}
+        }"#,
+    );
     let out = render(ToolId::GraphQuery, &failed, &asked, None)
         .expect("text")
         .out;
@@ -315,8 +385,15 @@ fn graph_batch_stated_once(snapshots: [&str; 3]) -> (Value, Value) {
             }
         })
         .collect();
-    let asked =
-        json!({"queries":[{"operation":"hubs"},{"operation":"dependents"},{"operation":"cycles"}]});
+    let asked = json_fixture(
+        r#"{
+            "queries": [
+                {"operation": "hubs"},
+                {"operation": "dependents"},
+                {"operation": "cycles"}
+            ]
+        }"#,
+    );
     (json!({ "results": rows }), asked)
 }
 
@@ -365,9 +442,16 @@ fn a_batch_row_is_named_by_its_query_on_every_line() {
         .enumerate()
     {
         let mut row = row.clone();
-        row["data"]["pagination"] =
-            json!({"unit":"items","offset":0,"length":1,"total":4,"hasMore":true});
-        row["data"]["warnings"] = json!(["renamed"]);
+        row["data"]["pagination"] = json_fixture(
+            r#"{
+                "unit": "items",
+                "offset": 0,
+                "length": 1,
+                "total": 4,
+                "hasMore": true
+            }"#,
+        );
+        row["data"]["warnings"] = json_fixture(r#"["renamed"]"#);
         let page = json!({"results":[row]});
         let lines = render(ToolId::GraphQuery, &page, &asked, None).expect("text");
         let label = format!("results[{index}]");
@@ -385,37 +469,238 @@ fn a_batch_row_is_named_by_its_query_on_every_line() {
     }
 }
 
-/// Beside content, `skippedPaths` reads as a count per cause; a row without
-/// content lists the entries.
+/// The `# skippedPaths: ` note lines of `text`.
+fn skipped_lines(text: &str) -> Vec<&str> {
+    text.lines()
+        .filter_map(|line| line.strip_prefix("# skippedPaths: "))
+        .collect()
+}
+
+/// `skippedPaths` reads as one note line, the same beside content and on a
+/// row without it, a search's or a listing's: every entry by its path, with
+/// its cause and every other field it carries (`count`, `reason`), and the
+/// object's own facts (`sampled`); never as JSON. An entry under the row's
+/// printed root reads relative to it.
 #[test]
-fn skipped_paths_beside_content_read_as_counts_per_cause() {
-    let skipped = json!({"entries":[
-        {"cause":"ignored","count":169,"path":".claude"},
-        {"cause":"hidden","count":25,"path":".agents"},
-        {"cause":"hidden","path":".github"}],"sampled":true});
-    let hit = json!({"results":[{"index":0,"data":{"matchCount":1,"filesScanned":4810,
-        "files":[{"path":"a.rs","matches":[{"line":3,"value":"x"}]}],"skippedPaths":skipped}}]});
-    let asked = json!({"queries":[{"path":".","matchString":["x"]}]});
-    let notes = render(ToolId::LocalSearch, &hit, &asked, None)
-        .expect("text")
-        .notes;
-    let line = notes
-        .lines()
-        .find(|line| line.starts_with("# skippedPaths: "))
-        .unwrap_or_else(|| panic!("{notes}"));
+fn skipped_paths_read_the_same_beside_content_and_alone() {
+    let skipped = json_fixture(
+        r#"{
+            "entries": [
+                {"cause": "ignored", "count": 169, "path": ".claude"},
+                {"cause": "hidden", "count": 25, "path": ".agents"},
+                {"cause": "hidden", "path": ".github"},
+                {"cause": "default-excluded", "reason": "*.min.js", "path": "bigline.min.js"},
+                {"cause": "withheld", "reason": "credential file", "count": 2, "path": "keys"}
+            ],
+            "sampled": true
+        }"#,
+    );
+    let asked = json_fixture(r#"{"queries": [{"path": ".", "matchString": ["x"]}]}"#);
+    let rows = [
+        (
+            ToolId::LocalSearch,
+            json!({"index":0,"data":{"matchCount":1,"filesScanned":4810,
+                "files":[{"path":"a.rs","matches":[{"line":3,"value":"x"}]}],"skippedPaths":skipped}}),
+        ),
+        (
+            ToolId::LocalSearch,
+            json!({"index":0,"status":"empty","data":{"filesScanned":4810,"skippedPaths":skipped}}),
+        ),
+        (
+            ToolId::StructureSearch,
+            json!({"index":0,"data":{"files":[{"dir":"src","files":["a.rs","b.rs"]}],
+                "skippedPaths":skipped}}),
+        ),
+    ];
+    let mut lines = Vec::new();
+    for (tool, row) in rows {
+        let text = render(tool, &json!({ "results": [row] }), &asked, None).expect("text");
+        let both = format!("{}\n{}", text.out, text.notes);
+        let found = skipped_lines(&both);
+        assert_eq!(found.len(), 1, "{tool:?}:\n{both}");
+        lines.push(found[0].to_owned());
+    }
+    assert!(lines.iter().all(|line| *line == lines[0]), "{lines:#?}");
+    let line = &lines[0];
+    assert!(!line.contains('{') && !line.contains('"'), "{line}");
+    assert!(line.contains("sampled"), "{line}");
+    for entry in skipped["entries"].as_array().expect("entries") {
+        for value in entry.as_object().expect("an entry").values() {
+            let value = value
+                .as_str()
+                .map_or_else(|| value.to_string(), str::to_owned);
+            assert!(line.contains(&value), "{value}: {line}");
+        }
+    }
+    // Entries under the root a row prints read relative to it.
+    let rooted = json_fixture(
+        r#"{
+            "matchCount": 2,
+            "files": [
+                {"path": "pkg/src/a.rs", "matches": [{"line": 3, "value": "x"}]},
+                {"path": "pkg/src/b.rs", "matches": [{"line": 4, "value": "x"}]}
+            ],
+            "skippedPaths": {
+                "entries": [
+                    {"cause": "ignored", "path": "pkg/src/vendor"},
+                    {"cause": "hidden", "path": "pkg/src/.cache"},
+                    {"cause": "withheld", "reason": "credential file", "path": "pkg/src"}
+                ]
+            }
+        }"#,
+    );
+    let result = json!({"results": [{"index": 0, "data": rooted}]});
+    let text = render(ToolId::LocalSearch, &result, &asked, None).expect("text");
+    // The directory a withheld entry names holds the files, so the root
+    // stays theirs, and that entry reads as the root itself.
+    let root = printed_root(&text.out).unwrap_or_else(|| panic!("{}", text.out));
+    assert_eq!(root, "pkg/src", "{}", text.out);
+    let both = format!("{}\n{}", text.out, text.notes);
+    let line = skipped_lines(&both)[0];
     assert!(
-        line.contains("169 ignored") && line.contains("26 hidden"),
+        line.contains("withheld: . [reason credential file]"),
         "{line}"
     );
-    assert!(line.contains("sampled"), "{line}");
-    assert!(!notes.contains(".claude"), "{notes}");
-    let empty = json!({"results":[{"index":0,"status":"empty","data":{"filesScanned":4810,
-        "skippedPaths":skipped}}]});
-    let notes = render(ToolId::LocalSearch, &empty, &asked, None)
-        .expect("text")
-        .notes;
-    for path in [".claude", ".agents", ".github"] {
-        assert!(notes.contains(path), "{path}: {notes}");
+    for path in ["pkg/src/vendor", "pkg/src/.cache"] {
+        let relative = path
+            .strip_prefix(&format!("{root}/"))
+            .unwrap_or_else(|| panic!("{path} is not under {root}"));
+        assert!(
+            line.split([' ', ',', ';']).any(|word| word == relative),
+            "{line}"
+        );
+    }
+    assert!(!line.contains(&format!("{root}/")), "{line}");
+}
+
+/// A graph answer names its files from the workspace root, the scope the
+/// query asked included. Its text states that scope once, as the row's
+/// root, and every path under it relative to it; a value that is no path
+/// under it (a symbol id named from the snapshot, a package key) prints as
+/// the result spells it, and the calls keep the result's exact paths.
+#[test]
+fn graph_rows_name_files_under_the_scope_once() {
+    let scope = "packages/native/crates/io";
+    let deep = json!({"results":[{"index":0,"data":{
+        "graph":{"id":"20261118T011419Z-io-015ce9"},
+        "rows":[
+            {"id":format!("{scope}/src/http.rs"),"kind":"file","fanIn":2,"fanOut":5,"sites":7},
+            {"id":format!("{scope}/src/budget.rs"),"kind":"file","fanIn":1,"fanOut":3,"sites":2},
+            {"id":"src/http.rs#get","kind":"function","path":format!("{scope}/src/http.rs"),"line":9},
+            {"id":"pkg:tokio","kind":"package","fanIn":4},
+            {"from":scope,"to":format!("{scope}/src/http"),"edges":3}],
+        "evidence":{"mentionedIn":[format!("{scope}/README.md:12")]},
+        "related":[{"tool":"graphQuery","input":{"queries":[
+            {"operation":"dependents","path":scope,"target":format!("{scope}/src/http.rs")}]}}]}}]});
+    let deep_asked = json!({"queries":[{"operation":"hubs","path":scope}]});
+    let mut cases: Vec<(String, Value, Value)> = recorded()
+        .into_iter()
+        .filter(|call| call.tool == ToolId::GraphQuery)
+        .map(|call| (call.label, call.query, call.result))
+        .collect();
+    cases.push(("deep scope".into(), deep_asked, deep));
+    let mut rooted = 0;
+    for (label, asked, result) in cases {
+        let Some(scope) = asked["queries"][0]["path"].as_str() else {
+            continue;
+        };
+        let mut paths = Vec::new();
+        under(&result["results"][0]["data"], scope, &mut paths);
+        let text = render(ToolId::GraphQuery, &result, &asked, None).expect("text");
+        let both = format!("{}\n{}", text.out, text.notes);
+        if paths.is_empty() {
+            assert!(printed_root(&text.out).is_none(), "{label}:\n{both}");
+            continue;
+        }
+        rooted += 1;
+        let stated: Vec<&str> = text
+            .out
+            .lines()
+            .filter_map(|line| line.strip_prefix("# root: "))
+            .collect();
+        assert_eq!(stated, [scope], "{label}:\n{both}");
+        let mut calls = Vec::new();
+        super::done_facts::commands(&result, &mut calls);
+        for (command, _) in &calls {
+            assert!(
+                both.contains(command.as_str()),
+                "{label} {command}:\n{both}"
+            );
+        }
+        let content: Vec<&str> = both
+            .lines()
+            .filter(|line| !line.contains("octocode graphQuery "))
+            .collect();
+        for path in &paths {
+            let relative = path.strip_prefix(&format!("{scope}/")).unwrap_or(".");
+            assert!(
+                content.iter().any(|line| line
+                    .split([' ', ','])
+                    .any(|word| word == relative || word.starts_with(&format!("{relative}:")))),
+                "{label} lost {path} as {relative}:\n{both}"
+            );
+        }
+        assert!(
+            !content
+                .iter()
+                .any(|line| line.contains(&format!("{scope}/"))),
+            "{label} repeats its scope:\n{both}"
+        );
+    }
+    assert!(rooted > 1, "no graph row names a file under its scope");
+    // Ids named from the snapshot print as they are.
+    let text = render(
+        ToolId::GraphQuery,
+        &json_fixture(
+            r#"{
+                "results": [
+                    {
+                        "index": 0,
+                        "data": {
+                            "rows": [
+                                {"id": "src/x.ts#f", "kind": "function", "path": "src/src/x.ts", "line": 1},
+                                {"id": "a.ts#g", "kind": "function", "path": "src/a.ts", "line": 2}
+                            ]
+                        }
+                    }
+                ]
+            }"#,
+        ),
+        &json_fixture(r#"{"queries": [{"operation": "find", "path": "src"}]}"#),
+        None,
+    )
+    .expect("text");
+    let words: Vec<&str> = text.out.split_whitespace().collect();
+    for word in ["src/x.ts#f", "a.ts#g", "src/x.ts", "a.ts"] {
+        assert!(words.contains(&word), "{word}:\n{}", text.out);
+    }
+    assert!(!text.out.contains("src/src/"), "{}", text.out);
+    assert_eq!(printed_root(&text.out), Some("src"), "{}", text.out);
+}
+
+/// Every string of `value` outside its calls and its snapshot reference
+/// (`graph`) that is a path in `scope` or `scope` itself, as a graph answer
+/// names them (`path:line` mentions as their path).
+fn under(value: &Value, scope: &str, out: &mut Vec<String>) {
+    match value {
+        Value::Object(fields) => {
+            for (key, value) in fields {
+                if !matches!(key.as_str(), "graph" | "related" | "next") {
+                    under(value, scope, out);
+                }
+            }
+        }
+        Value::Array(items) => items.iter().for_each(|item| under(item, scope, out)),
+        Value::String(text) if !text.contains('#') => {
+            let path = text
+                .rsplit_once(':')
+                .filter(|(_, line)| line.bytes().all(|byte| byte.is_ascii_digit()))
+                .map_or(text.as_str(), |(path, _)| path);
+            if path == scope || path.starts_with(&format!("{scope}/")) {
+                out.push(path.to_owned());
+            }
+        }
+        _ => {}
     }
 }
 
@@ -454,9 +739,33 @@ fn a_reads_numbered_lines_print_unindented() {
 /// is one `dir/entry` line.
 #[test]
 fn counts_by_file_and_lone_entries_read_as_one_line_each() {
-    let counts = json!({"results":[{"index":0,"data":{"matchCount":17,"files":[
-        {"path":"src/x/tests.rs","matchCount":9},{"path":"src/x/listing.rs","matchCount":8}]}}]});
-    let asked = json!({"queries":[{"path":"src","matchString":["fn "],"view":"countMatches"}]});
+    let counts = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "matchCount": 17,
+                        "files": [
+                            {"path": "src/x/tests.rs", "matchCount": 9},
+                            {"path": "src/x/listing.rs", "matchCount": 8}
+                        ]
+                    }
+                }
+            ]
+        }"#,
+    );
+    let asked = json_fixture(
+        r#"{
+            "queries": [
+                {
+                    "path": "src",
+                    "matchString": ["fn "],
+                    "view": "countMatches"
+                }
+            ]
+        }"#,
+    );
     let out = render(ToolId::LocalSearch, &counts, &asked, None)
         .expect("text")
         .out;
@@ -470,9 +779,22 @@ fn counts_by_file_and_lone_entries_read_as_one_line_each() {
         );
     }
     assert_eq!(out.matches("matchCount").count(), 1, "{out}");
-    let sorted = json!({"results":[{"index":0,"data":{"files":[
-        {"dir":"src/a","files":["big.rs (900)"]},{"dir":"src/b","files":["mid.rs (500)"]},
-        {"dir":"src/a","files":["small.rs (10)","tiny.rs (1)"]}]}}]});
+    let sorted = json_fixture(
+        r#"{
+            "results": [
+                {
+                    "index": 0,
+                    "data": {
+                        "files": [
+                            {"dir": "src/a", "files": ["big.rs (900)"]},
+                            {"dir": "src/b", "files": ["mid.rs (500)"]},
+                            {"dir": "src/a", "files": ["small.rs (10)", "tiny.rs (1)"]}
+                        ]
+                    }
+                }
+            ]
+        }"#,
+    );
     let out = render(ToolId::StructureSearch, &sorted, &json!({}), None)
         .expect("text")
         .out;
@@ -502,4 +824,40 @@ fn counts_by_file_and_lone_entries_read_as_one_line_each() {
         }
     }
     assert!(!out.lines().any(|line| line == "src/b/"), "{out}");
+}
+
+/// A row whose evidence lies outside the workspace names its paths from the
+/// `root` it states: the text states that root once, joined with the
+/// directory its files share when they share one.
+#[test]
+fn a_stated_root_is_the_one_printed_root() {
+    let root = "/clones/o/r/main";
+    for (tool, data, asked) in [
+        (
+            ToolId::LocalSearch,
+            json!({"root":root,"matchCount":2,"files":[
+                {"path":"src/a.ts","matches":[{"line":3,"value":"x"}]},
+                {"path":"src/b.ts","matches":[{"line":4,"value":"x"}]}]}),
+            json!({"queries":[{"path":root,"matchString":["x"]}]}),
+        ),
+        (
+            ToolId::StructureSearch,
+            json!({"root":root,"files":[{"dir":"src","files":["a.ts","b.ts"]}]}),
+            json!({"queries":[{"path":root}]}),
+        ),
+    ] {
+        let result = json!({"results":[{"index":0,"data":data}]});
+        let text = render(tool, &result, &asked, None).expect("text");
+        let printed = printed_root(&text.out).unwrap_or_else(|| panic!("{}", text.out));
+        assert!(printed.starts_with(root), "{printed}:\n{}", text.out);
+        let all = format!("{}{}", text.out, text.notes);
+        assert_eq!(
+            all.matches(root).count(),
+            1,
+            "the root is stated once:\n{all}"
+        );
+        for name in ["a.ts", "b.ts"] {
+            assert!(text.out.contains(name), "{name}:\n{}", text.out);
+        }
+    }
 }

@@ -13,22 +13,21 @@ use super::mcp_manage::{self, Method, ServerSpec};
 pub(super) use apply::valid_server;
 use apply::{install, rollback_destination};
 use clients::{client_status, list_clients, select_client, unknown_client_message};
-#[cfg(test)]
-use dry_run::render_fixture;
 use dry_run::{Existing, already_installed, command_line, dry_run_text};
 use octocode_contract_types::ErrorCode;
+use octocode_runtime_base::response::exit::ExitClass;
 use serde_json::json;
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 
 /// The env name bound to the `local.enabled` config key (`OCTOCODE_ENABLE_LOCAL`).
 fn local_enabled_env() -> Option<&'static str> {
-    octocode_native::config::field::LOCAL_ENABLED.env_name()
+    octocode_runtime_base::config::field::LOCAL_ENABLED.env_name()
 }
 
 /// The GitHub token env var `--pass-env` forwards; one of the config
 /// contract's `ENV_TOKEN_VARS` (a unit test pins that).
-const PASS_ENV_TOKEN: &str = octocode_native::config::environment::GITHUB_TOKEN;
+const PASS_ENV_TOKEN: &str = octocode_runtime_base::config::environment::GITHUB_TOKEN;
 
 fn server_spec(args: &InstallArgs) -> ServerSpec {
     let mut spec = ServerSpec::new(args.method);
@@ -74,7 +73,7 @@ impl Scope {
 
 /// `octocode install`: add the Octocode MCP server to an agent client's configuration.
 #[derive(clap::Args, Debug, Default)]
-pub struct InstallArgs {
+pub(super) struct InstallArgs {
     /// Client id from `--list`, e.g. `claude-code`, `cursor`, `claude-desktop`.
     #[arg(long, value_name = "ID")]
     pub ide: Option<String>,
@@ -114,17 +113,23 @@ pub struct InstallArgs {
     pub rollback: Option<String>,
 }
 
-pub fn run(mut args: InstallArgs) -> u8 {
+pub(super) fn run(mut args: InstallArgs) -> u8 {
     // Rollback mode: restore the backup an earlier install left beside the config
     if let Some(ref bak_str) = args.rollback {
         let bak = PathBuf::from(bak_str);
         if !bak.exists() {
-            eprintln!("rollback: backup file not found: {}", bak.display());
-            return 1;
+            return fail(
+                ErrorCode::NotFound,
+                &format!("rollback: backup file not found: {}", bak.display()),
+                args.json,
+            );
         }
         if bak.extension().and_then(|value| value.to_str()) != Some("bak") {
-            eprintln!("rollback: expected a .bak backup file");
-            return 2;
+            return fail(
+                ErrorCode::InvalidInput,
+                "rollback: expected a .bak backup file",
+                args.json,
+            );
         }
         let dest = rollback_destination(&bak);
         if args.dry_run {
@@ -137,7 +142,7 @@ pub fn run(mut args: InstallArgs) -> u8 {
             return 0;
         }
         let restore = (|| {
-            use octocode_native::config::{
+            use octocode_runtime_base::config::{
                 config_revision, read_private_config, replace_private_config,
             };
             let backup = read_private_config(&bak)?
@@ -154,10 +159,11 @@ pub fn run(mut args: InstallArgs) -> u8 {
                 println!("Restored {} from {}", dest.display(), bak.display());
                 0
             }
-            Err(e) => {
-                eprintln!("rollback: {e}");
-                1
-            }
+            Err(e) => fail(
+                ErrorCode::ExecutionFailed,
+                &format!("rollback: {e}"),
+                args.json,
+            ),
         };
     }
     let cwd = match std::env::current_dir() {
@@ -229,18 +235,21 @@ pub fn run(mut args: InstallArgs) -> u8 {
     }
     let target = match mcp_manage::target(client.id, args.scope.name(), &cwd) {
         Ok(target) => target,
-        Err(message) => {
-            eprintln!("{message}");
-            return 1;
-        }
+        Err(message) => return fail(ErrorCode::ExecutionFailed, &message, args.json),
     };
     match install(&target, &args) {
         Ok(code) => code,
-        Err(message) => {
-            eprintln!("{message}");
-            1
-        }
+        Err(message) => fail(ErrorCode::ExecutionFailed, &message, args.json),
     }
+}
+
+/// Report a failure of this command (a JSON envelope under `--json`, text
+/// on stderr otherwise) and give the exit code of the error's class.
+fn fail(code: ErrorCode, message: &str, json: bool) -> u8 {
+    super::emit_error(code, message, json);
+    super::exit_code(ExitClass::Failed(
+        octocode_runtime_base::id::error_codes::class(code),
+    ))
 }
 
 #[cfg(test)]

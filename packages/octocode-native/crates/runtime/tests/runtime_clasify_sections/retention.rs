@@ -3,10 +3,15 @@
 use super::{provider, provider_calls, separate_functions};
 use crate::support::{Workspace, clasify_runtime};
 use octocode_native::runtime::{Channel, ToolRuntime};
+use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 
 fn questions() -> Value {
-    json!({"q":{"type":"noul","instructions":"Does this say restart?"}})
+    json_fixture(
+        r#"{
+            "q": {"type": "noul", "instructions": "Does this say restart?"}
+        }"#,
+    )
 }
 
 fn source(path: &str) -> Value {
@@ -80,7 +85,17 @@ async fn exiting_memory_clasify_refuses_section_plans_before_capture_or_billing(
         source("simple.rs"),
         source("many.rs"),
         source("never-created.rs"),
-        json!({"tool":"ghGetFileContent","query":{"owner":"octo","repo":"demo","path":"source.rs","ref":"main"}}),
+        json_fixture(
+            r#"{
+                "tool": "ghGetFileContent",
+                "query": {
+                    "owner": "octo",
+                    "repo": "demo",
+                    "path": "source.rs",
+                    "ref": "main"
+                }
+            }"#,
+        ),
     ];
     for source in sources {
         let rows = vec![
@@ -107,6 +122,7 @@ const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 async fn a_one_shot_memory_evaluation_can_be_verified_in_the_next_runtime() {
     use base64::Engine as _;
     let server = provider().await;
+    octocode_test_support::mock_http::list_in_trees(&server, "octo", "demo", "source.rs").await;
     wiremock::Mock::given(wiremock::matchers::method("GET"))
         .and(wiremock::matchers::path(
             "/api/v3/repos/octo/demo/contents/source.rs",
@@ -280,7 +296,7 @@ async fn exiting_memory_clasify_keeps_literal_siblings_and_long_lived_source_rea
             "{output:#}"
         );
         let next = &output["results"][0]["data"]["next"]["read"];
-        assert_eq!(next["kind"], "continue", "{next:#}");
+        assert_eq!(next.get("kind"), None, "{next:#}");
         assert!(next["input"]["cursor"].is_string(), "{next:#}");
         let read = runtime
             .execute(

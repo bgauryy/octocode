@@ -1,8 +1,8 @@
+pub(crate) mod declaration;
 pub mod fs_query;
 pub mod glob;
 pub mod pattern_reach;
 pub mod pcre2_ranges;
-pub(crate) mod declaration;
 pub use declaration::is_declaration_keyword;
 pub mod repository;
 pub mod rust_ranges;

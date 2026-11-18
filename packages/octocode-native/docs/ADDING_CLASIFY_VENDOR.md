@@ -2,11 +2,11 @@
 
 The classification transport, batching, cache, endpoint gate, and source capture are vendor-agnostic. One provider (Jev) is built in and no setting selects it. A second vendor needs one new trait implementation and a setting that chooses between the two; nothing else changes.
 
-Reference implementation: [`jev.rs`](../crates/runtime/src/providers/classification/jev.rs). The trait and each method's contract: [`classification.rs`](../crates/runtime/src/providers/classification.rs).
+Reference implementation: [`jev.rs`](../crates/runtime-base/src/providers/classification/jev.rs). The trait and each method's contract: [`classification.rs`](../crates/runtime-base/src/providers/classification.rs).
 
 ## 1. Implement the provider
 
-Create `crates/runtime/src/providers/classification/<vendor>.rs` with a static value that implements `ClassificationProvider`:
+Create `crates/runtime-base/src/providers/classification/<vendor>.rs` with a static value that implements `ClassificationProvider`:
 
 | Method | Supplies |
 |---|---|
@@ -33,8 +33,8 @@ Add an integration test that runs `clasify` against a mock of the vendor API; `c
 | Layer | Code |
 |---|---|
 | HTTP transport, retries, budget, error codes | `providers/classification/transport.rs` |
-| Question batching | `tools/judgment/batch.rs` |
-| Judgment cache | `tools/judgment/cache.rs` |
+| Question batching | `crates/tools-shared/src/judgment/batch.rs` |
+| Judgment cache | `crates/tools-shared/src/judgment/cache.rs` |
 | Per-endpoint concurrency gate | `providers/classification/gate.rs` |
-| Source capture (files, GitHub, URLs, images) | `tools/source_capture/` |
-| The `clasify` tool | `tools/clasify.rs` |
+| Source capture (files, GitHub, URLs, images) | `crates/tools-shared/src/source_capture/` |
+| The `clasify` tool | `crates/tool-clasify/src/clasify.rs` |

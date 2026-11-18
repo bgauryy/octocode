@@ -1,4 +1,5 @@
 use super::*;
+use octocode_test_support::json_fixture;
 
 /// Saved outline entries under a runtime home; a symbols view is a request's
 /// own answer, so no storage mode may leave one.
@@ -82,14 +83,30 @@ async fn graph_memory_storage_publishes_requested_snapshot_without_extraction_ca
 async fn clone_receipts_are_complete_without_saved_response_cache() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
-        .respond_with(ResponseTemplate::new(403).set_body_json(json!({"message":"Forbidden"})))
+        .respond_with(
+            ResponseTemplate::new(403).set_body_json(json_fixture(r#"{"message": "Forbidden"}"#)),
+        )
         .mount(&server)
         .await;
     let workspace = Workspace::new();
     let mut settings = support::github_api(&server).to_vec();
     settings.push(("OCTOCODE_ENABLE_CLONE", "true".into()));
     let runtime = workspace.runtime(&settings);
-    let outcome = call(&runtime, "ghCloneRepo", json!({"queries":[{"owner":"a","repo":"one"},{"owner":"b","repo":"two"}],"responseChars":1})).await.unwrap();
+    let outcome = call(
+        &runtime,
+        "ghCloneRepo",
+        json_fixture(
+            r#"{
+                "queries": [
+                    {"owner": "a", "repo": "one"},
+                    {"owner": "b", "repo": "two"}
+                ],
+                "responseChars": 1
+            }"#,
+        ),
+    )
+    .await
+    .unwrap();
     assert_eq!(
         outcome.structured_content["results"]
             .as_array()

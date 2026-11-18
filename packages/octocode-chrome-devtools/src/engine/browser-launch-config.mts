@@ -116,6 +116,21 @@ function proxyArgs(proxy: ProxySettings) {
   ];
 }
 
+/**
+ * Features every fresh launch enables. WebMCP (Chrome 150+) exposes `document.modelContext` to
+ * pages and the CDP `WebMCP` domain, so page-declared tools can be listed and invoked; builds
+ * without it ignore the name.
+ */
+const DEFAULT_FEATURES = ['WebMCP'];
+
+/** The default features plus the requested CSV, each once, as one `--enable-features` value. */
+export function launchFeatures(requested: string) {
+  const extra = requested.split(',').map(feature => feature.trim());
+  return [...new Set([...DEFAULT_FEATURES, ...extra.filter(Boolean)])].join(
+    ','
+  );
+}
+
 /** What open-browser launches: the port, profile, display, options and proxy. */
 type LaunchOptions = {
   port: string;
@@ -126,6 +141,7 @@ type LaunchOptions = {
   os: string;
   userAgent: string;
   windowSize: string;
+  /** Requested features; the defaults are always added. */
   enableFeatures: string;
   proxy: ProxySettings;
   url: string;
@@ -137,9 +153,7 @@ function optionArgs(launch: LaunchOptions) {
     ...(launch.windowSize
       ? [`--window-size=${launch.windowSize.replace('x', ',')}`]
       : []),
-    ...(launch.enableFeatures
-      ? [`--enable-features=${launch.enableFeatures}`]
-      : []),
+    `--enable-features=${launchFeatures(launch.enableFeatures)}`,
   ];
 }
 

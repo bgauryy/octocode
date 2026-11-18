@@ -4,15 +4,15 @@
 //! mutate process environment or race under `cargo test`.
 #![expect(clippy::panic, reason = "test assertions fail by panicking")]
 
-use octocode_native::execution::RuntimeLimits;
-use octocode_native::response::outcome::ToolOutcome;
 use octocode_native::runtime::{Channel, RuntimeError, ToolRuntime};
+use octocode_runtime_base::execution::RuntimeLimits;
+use octocode_runtime_base::response::outcome::ToolOutcome;
 use serde_json::{Value, json};
 use std::path::Path;
 
 // The contract, lead and page-walk checks the unit tests use: one copy, by path.
-use octocode_native::contracts::{partial_reasons, validate, validate_output};
-#[path = "../../src/tools/test_support/checks.rs"]
+use octocode_runtime_base::contracts::{partial_reasons, validate, validate_output};
+#[path = "../../../runtime-base/src/test_support/checks.rs"]
 #[expect(dead_code, reason = "the unit tests use the rest of the shared checks")]
 pub mod checks;
 
@@ -59,8 +59,26 @@ pub const UNMOCKED_GITHUB_API_URL: &str = "http://127.0.0.1:1/api/v3";
 
 /// One call admitted under `request_id`, as the CLI (`run`: structured JSON)
 /// or the N-API adapter (`run_mcp`: the MCP `CallToolResult`) makes it.
-/// The one call a reader runs next: `responsePagination.next`, else the
-/// `next.nextPage` of a whole response.
+/// Every call a reader runs next: `responsePagination.next` when the response
+/// pager cut the page, and the `next.nextPage` of each whole row.
+pub fn next_inputs(output: &Value) -> Vec<Value> {
+    let mut calls: Vec<Value> = output
+        .pointer("/responsePagination/next/input")
+        .cloned()
+        .into_iter()
+        .collect();
+    calls.extend(
+        output["results"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|row| row.pointer("/data/next/nextPage/input").cloned()),
+    );
+    calls
+}
+
+/// The first call a reader runs next: `responsePagination.next`, else the
+/// `next.nextPage` of the first whole row.
 pub fn next_input(output: &Value) -> Option<Value> {
     output
         .pointer("/responsePagination/next/input")
@@ -174,17 +192,17 @@ fn publish_for_assertion(_tool: &str, output: &Value) -> Value {
 }
 /// The response stage's `related[]` rule, for the shared checks.
 fn keep_workflow_lead(tool: &str, output: &mut Value) {
-    octocode_native::response::workflow_lead::retain_guidance(
-        octocode_native::id::ToolId::from_name(tool).expect("a runtime tool"),
+    octocode_runtime_base::response::workflow_lead::retain_guidance(
+        octocode_runtime_base::id::ToolId::from_name(tool).expect("a runtime tool"),
         output,
         &Value::Null,
     );
 }
-use octocode_native::response::workflow_lead::carried_identities;
+use octocode_runtime_base::response::workflow_lead::carried_identities;
 fn validate_test_input(
     tool: &str,
     input: &Value,
-) -> Result<Value, octocode_native::contracts::ContractValidationError> {
+) -> Result<Value, octocode_runtime_base::contracts::ContractValidationError> {
     validate(tool, input.clone())
 }
 
@@ -266,7 +284,7 @@ pub async fn run(runtime: &ToolRuntime, tool: &str, row: Value) -> Row {
 }
 
 /// A response is a fixed point of the stage's `related[]` rule
-/// ([`octocode_native::response::workflow_lead`]): a row that answered whole
+/// ([`octocode_runtime_base::response::workflow_lead`]): a row that answered whole
 /// offers only its tool's workflow lead and the calls that carry a fact the
 /// row does not state; applying the rule again changes nothing.
 pub fn assert_workflow_leads(tool: &str, envelope: &Value) {

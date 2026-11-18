@@ -18,6 +18,7 @@ async fn github_file_server(content_hits: u64) -> MockServer {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": sha})))
         .mount(&server)
         .await;
+    octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "src/lib.rs").await;
     let body = lines("remote");
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/src%2Flib.rs"))
@@ -127,7 +128,7 @@ async fn pages_at(server: &MockServer, reference: &str) {
 
 #[tokio::test]
 async fn saved_github_pages_check_current_home_credentials_before_any_provider_read() {
-    use octocode_native::providers::github::{CredentialStore, StoredCredentials};
+    use octocode_runtime_base::providers::github::{CredentialStore, StoredCredentials};
     for tool in ["ghGetFileContent", "clasify"] {
         // A continuation answers from the evidence its cursor owns.
         let server = github_file_server(1).await;
@@ -189,7 +190,8 @@ async fn saved_github_pages_check_current_home_credentials_before_any_provider_r
             .unwrap_or_else(|| panic!("continuation: {}", first.structured_content))
             .query;
         support::assert_cursor_only(&next);
-        octocode_native::contracts::validate(tool, next.clone()).expect("public snapshot contract");
+        octocode_runtime_base::contracts::validate(tool, next.clone())
+            .expect("public snapshot contract");
         let before_replay = server
             .received_requests()
             .await
@@ -269,11 +271,15 @@ async fn saved_history_item_pages_replay_after_a_persistent_restart() {
         .await
         .expect("first page");
     let mut pagination = first.structured_content["responsePagination"].clone();
-    assert_eq!(pagination["hasMore"], true, "{}", first.structured_content);
+    assert!(
+        pagination["next"].is_object(),
+        "{}",
+        first.structured_content
+    );
     runtime.close().await;
     let mut files = filenames(&first.structured_content);
     let mut page = 1;
-    while pagination["hasMore"] == true {
+    while pagination["next"].is_object() {
         let next = pagination["next"]["input"].clone();
         support::assert_cursor_only(&next);
         let runtime = workspace.runtime(&env);

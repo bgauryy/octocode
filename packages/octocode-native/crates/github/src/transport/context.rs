@@ -57,9 +57,9 @@ impl RequestContext {
     /// cooldown, a `retry-after`): latency the provider did not cause. Routine
     /// spacing between starts is how every request is sent, not news to the
     /// caller: it is left out. Empty when no limit held it.
-    pub fn client_waits(&self) -> Vec<octocode_contract_types::ClientWait> {
+    pub fn client_waits(&self) -> Vec<octocode_contract_base::ClientWait> {
         let mut waits = self.waits.summed();
-        waits.retain(|wait| wait.kind != octocode_contract_types::ClientWaitKind::Spacing);
+        waits.retain(|wait| wait.kind != octocode_contract_base::ClientWaitKind::Spacing);
         waits
     }
 
@@ -351,19 +351,4 @@ fn repository_note(fact: &str, owner: &str, repo: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// What this request saw resolve is its own fact: a continuation that
-    /// resumes it re-checks a repository that may have gone since.
-    #[test]
-    fn a_resolved_repository_does_not_travel_in_continuation_evidence() {
-        let request = RequestContext::with_timeout(Duration::from_secs(5), 1024);
-        let url = Url::parse("https://api.github.com/repos/a/b/pulls/1").expect("url");
-        request.record_answered(&url);
-        assert!(request.repository_resolves("A", "b"));
-        let resumed = RequestContext::with_timeout(Duration::from_secs(5), 1024)
-            .resuming(Arc::new(request.evidence()));
-        assert!(!resumed.repository_resolves("a", "b"));
-    }
-}
+mod tests;

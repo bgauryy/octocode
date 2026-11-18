@@ -2,6 +2,7 @@
 //! answer its request: the MCP server runs each request in a task that sends
 //! the response only when the handler returns.
 use super::*;
+use octocode_test_support::json_fixture;
 use std::cell::Cell;
 
 thread_local! {
@@ -18,7 +19,7 @@ async fn a_panic_outside_the_rows_is_answered_as_an_error() {
         .execute(
             runtime.admit("panic-outside-rows".into()).unwrap(),
             "localSearch".into(),
-            json!({"queries":[{"path":".","pattern":"x"}]}),
+            json_fixture(r#"{"queries": [{"path": ".", "pattern": "x"}]}"#),
             Channel::Mcp,
         )
         .await;

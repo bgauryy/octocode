@@ -106,13 +106,13 @@ mod platforms;
 mod workspace_and_messaging;
 
 #[derive(Debug, Clone, Copy)]
-pub struct SecretPattern {
+pub(crate) struct SecretPattern {
     pub name: &'static str,
     pub regex: &'static str,
 }
 
 /// Secret patterns in evaluation order; a pattern's index is its identity.
-pub static PATTERNS: &[SecretPattern] = &join::<PATTERN_COUNT>(&SLICES);
+pub(crate) static PATTERNS: &[SecretPattern] = &join::<PATTERN_COUNT>(&SLICES);
 
 /// How many patterns [`PATTERNS`] holds.
 pub(crate) const PATTERN_COUNT: usize = total(&SLICES);

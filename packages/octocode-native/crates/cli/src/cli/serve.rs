@@ -81,7 +81,7 @@
 #[cfg(unix)]
 mod unix;
 
-use octocode_native::id::ToolId;
+use octocode_runtime_base::id::ToolId;
 #[cfg(unix)]
 pub(super) use unix::{Remote, Surface, Warm, call, run, stop_all, stop_all_and_wait};
 
@@ -99,7 +99,7 @@ pub(super) async fn call(
     _tool: &str,
     _input: &serde_json::Value,
     _mode: super::OutputMode,
-    _loaded: &mut Option<octocode_native::config::ConfigInput>,
+    _loaded: &mut Option<octocode_runtime_base::config::ConfigInput>,
 ) -> Option<u8> {
     None
 }

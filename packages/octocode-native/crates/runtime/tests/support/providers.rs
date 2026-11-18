@@ -1,8 +1,8 @@
 //! Fixture settings that point tools at mock servers: the classification provider and GitHub.
 
 use super::{FIXTURE_LIMITS, Workspace};
-use octocode_native::execution::RuntimeLimits;
 use octocode_native::runtime::ToolRuntime;
+use octocode_runtime_base::execution::RuntimeLimits;
 use wiremock::MockServer;
 
 /// The environment pointing clasify at the mock classification provider

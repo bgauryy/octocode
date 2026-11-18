@@ -1,0 +1,329 @@
+//! Searches and listings naming a login that does not resolve, and the one confirmation of each login.
+use super::*;
+use octocode_test_support::json_fixture;
+
+/// GitHub answers a search naming a missing user (`author:ghost`) with a
+/// 422 "The listed users cannot be searched…", without "repositories": the
+/// repository is fine. That is a missing user, with the same query minus its
+/// person qualifiers as the way on; a repository 422 stays a repository.
+#[tokio::test]
+async fn search_naming_a_missing_user_is_not_a_missing_repository() {
+    use octocode_github::ProviderErrorReason;
+    use wiremock::MockServer;
+
+    let server = MockServer::builder().start().await;
+    mount_json(
+        &server,
+        "/api/v3/search/issues",
+        422,
+        json_fixture(r#"{
+            "message": "Validation Failed",
+            "errors": [
+                {
+                    "message": "The listed users cannot be searched either because the users do not exist or you do not have permission to view the users.",
+                    "resource": "Search",
+                    "field": "q",
+                    "code": "invalid"
+                }
+            ]
+        }"#),
+    )
+    .await;
+    let provider = one_shot_provider(&server);
+    let query: GhSearchHistoryQuery = serde_json::from_value(json_fixture(
+        r#"{
+            "operation": "pullRequest",
+            "owner": "o",
+            "repo": "r",
+            "filters": {
+                "author": "ghost",
+                "notReviewedBy": ["bot"],
+                "labels": ["bug"]
+            }
+        }"#,
+    ))
+    .expect("query");
+    let failure =
+        crate::gh_search_history::execute(&provider, query, &default_context(), &Passthrough)
+            .await
+            .expect_err("missing user");
+    assert_eq!(failure.error.kind, ProviderErrorKind::NotFound);
+    assert_eq!(
+        failure.error.reason,
+        Some(ProviderErrorReason::UserNotFound)
+    );
+    let (message, hint) = history_failure(&failure.error, true);
+    assert!(
+        message.contains("user") && !message.contains("Repository"),
+        "{message}"
+    );
+    assert!(
+        message.contains("cannot be searched"),
+        "GitHub's words stay: {message}"
+    );
+    // The `withoutUsers` lead is the repair; no hint restates the message.
+    assert_eq!(hint, None);
+    let lead = failure
+        .calls
+        .expect("a lead")
+        .pointer("/withoutUsers/input/queries/0")
+        .cloned();
+    let lead = lead.expect("withoutUsers is a ghSearchHistory query");
+    assert_eq!(lead["filters"]["labels"], json_fixture(r#"["bug"]"#));
+    assert!(lead["filters"].get("author").is_none());
+    assert!(lead["filters"].get("reviewedBy").is_none());
+    assert_eq!(
+        (lead["owner"].as_str(), lead["repo"].as_str()),
+        (Some("o"), Some("r"))
+    );
+
+    // Person qualifiers only: the lead drops `qualifiers` altogether.
+    let only: GhSearchHistoryQuery = serde_json::from_value(json_fixture(
+        r#"{
+            "operation": "pullRequest",
+            "owner": "o",
+            "repo": "r",
+            "filters": {"author": "ghost"}
+        }"#,
+    ))
+    .expect("query");
+    let failure =
+        crate::gh_search_history::execute(&provider, only, &default_context(), &Passthrough)
+            .await
+            .expect_err("missing user");
+    let lead = *failure.calls.expect("a lead");
+    assert!(
+        lead["withoutUsers"]["input"]["queries"][0]
+            .pointer("/filters/author")
+            .is_none(),
+        "{lead}"
+    );
+}
+
+/// A commit list (no keywords) answers an unknown author with no rows, which
+/// reads as a true empty. Only an empty list confirms the login: a missing
+/// one is the typed missing-user failure with its `withoutUsers` lead, and a
+/// list with rows never pays for the lookup.
+#[tokio::test]
+async fn an_empty_commit_list_naming_a_missing_author_is_the_missing_user_failure() {
+    use octocode_github::ProviderErrorReason;
+    use wiremock::matchers::{method, path, query_param};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/users/ghost"))
+        .respond_with(
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/users/dev"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(r#"{"login": "dev"}"#)))
+        .expect(0)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/o/r/commits"))
+        .and(query_param("author", "ghost"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/o/r/commits"))
+        .and(query_param("author", "dev"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"[
+                {
+                    "sha": "aaa",
+                    "commit": {
+                        "message": "Fix cache",
+                        "committer": {"date": "2026-01-01T00:00:00Z"}
+                    },
+                    "author": {"login": "dev"}
+                }
+            ]"#,
+        )))
+        .mount(&server)
+        .await;
+    let provider = one_shot_provider(&server);
+    let list = |login: &str| -> GhSearchHistoryQuery {
+        serde_json::from_value(json!({
+            "operation":"commit","owner":"o","repo":"r","filters":{"author":login}
+        }))
+        .expect("query")
+    };
+    let failure = crate::gh_search_history::execute(
+        &provider,
+        list("ghost"),
+        &default_context(),
+        &Passthrough,
+    )
+    .await
+    .expect_err("missing user");
+    assert_eq!(
+        failure.error.reason,
+        Some(ProviderErrorReason::UserNotFound),
+        "{:?}",
+        failure.error
+    );
+    assert!(
+        failure
+            .calls
+            .as_ref()
+            .and_then(|next| next.pointer("/withoutUsers/input/queries/0"))
+            .is_some_and(|lead| lead.pointer("/filters/author").is_none()),
+        "{:?}",
+        failure.calls
+    );
+    assert!(
+        crate::gh_search_history::execute(&provider, list("dev"), &default_context(), &Passthrough)
+            .await
+            .is_ok(),
+        "a list with rows"
+    );
+}
+
+/// GitHub's commit search drops an unknown `author:`/`committer:` login
+/// without error and answers the unfiltered total. A named login is
+/// confirmed once per call (`GET /users/{login}`): a missing one is the same
+/// typed missing-user failure and `withoutUsers` lead that issue and PR
+/// search return, and the search never runs.
+#[tokio::test]
+async fn commit_search_naming_a_missing_user_fails_before_the_search() {
+    use octocode_github::ProviderErrorReason;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/users/ghost"))
+        .respond_with(
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
+        )
+        .expect(2)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/users/dev"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(r#"{"login": "dev"}"#)))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/commits"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{
+                "total_count": 1498,
+                "incomplete_results": false,
+                "items": []
+            }"#,
+        )))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let provider = one_shot_provider(&server);
+    // The missing login may be the author or the committer, next to a real one.
+    for filters in [
+        json_fixture(r#"{"author": "ghost"}"#),
+        json_fixture(r#"{"author": "dev", "committer": "ghost"}"#),
+    ] {
+        let query: GhSearchHistoryQuery = serde_json::from_value(json!({
+            "operation":"commit","owner":"o","repo":"r","keywords":["fix"],
+            "filters": filters
+        }))
+        .expect("query");
+        let failure =
+            crate::gh_search_history::execute(&provider, query, &default_context(), &Passthrough)
+                .await
+                .expect_err("missing user");
+        assert_eq!(failure.error.kind, ProviderErrorKind::NotFound, "{filters}");
+        assert_eq!(
+            failure.error.reason,
+            Some(ProviderErrorReason::UserNotFound),
+            "{filters}"
+        );
+        let (message, hint) = history_failure(&failure.error, true);
+        assert!(
+            message.contains("user")
+                && message.contains("ghost")
+                && !message.contains("Repository"),
+            "{message}"
+        );
+        assert_eq!(hint, None, "{filters}");
+        let lead = failure
+            .calls
+            .expect("a lead")
+            .pointer("/withoutUsers/input/queries/0")
+            .cloned()
+            .expect("withoutUsers is a ghSearchHistory query");
+        assert!(lead.pointer("/filters/author").is_none(), "{lead}");
+        assert_eq!(lead["keywords"], json_fixture(r#"["fix"]"#), "{lead}");
+    }
+}
+
+/// A login is confirmed once per call however many qualifiers name it, and
+/// not at all when no qualifier (or only an email, which has no profile)
+/// names a user. A failed confirmation never blocks the search.
+#[tokio::test]
+async fn commit_search_confirms_each_named_login_once_and_only_then() {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/users/Dev"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(r#"{"login": "dev"}"#)))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/users/flaky"))
+        .respond_with(
+            ResponseTemplate::new(500).set_body_json(json_fixture(r#"{"message": "boom"}"#)),
+        )
+        .mount(&server)
+        .await;
+    mount_json(
+        &server,
+        "/api/v3/search/commits",
+        200,
+        json_fixture(r#"{"total_count": 0, "incomplete_results": false, "items": []}"#),
+    )
+    .await;
+    let provider = one_shot_provider(&server);
+    let run = |filters: Option<Value>| {
+        let mut row = json_fixture(
+            r#"{
+                "operation": "commit",
+                "owner": "o",
+                "repo": "r",
+                "keywords": ["fix"]
+            }"#,
+        );
+        if let Some(filters) = filters {
+            row["filters"] = filters;
+        }
+        let query: GhSearchHistoryQuery = serde_json::from_value(row).expect("query");
+        let provider = &provider;
+        async move {
+            crate::gh_search_history::execute(provider, query, &default_context(), &Passthrough)
+                .await
+                .expect("search runs")
+        }
+    };
+    // One login named as author and committer (case aside): one request.
+    run(Some(json_fixture(
+        r#"{"author": "Dev", "committer": "dev"}"#,
+    )))
+    .await;
+    // No user qualifier, or an email: no /users request (an unmounted route
+    // would 404 as a missing user and fail the search).
+    run(None).await;
+    run(Some(json_fixture(r#"{"author": "dev@example.com"}"#))).await;
+    // Any failure but 404 does not block; the search says it was unchecked.
+    let data = run(Some(json_fixture(r#"{"author": "flaky"}"#))).await;
+    let warnings = data["warnings"].to_string();
+    assert!(warnings.contains("flaky"), "{data}");
+}

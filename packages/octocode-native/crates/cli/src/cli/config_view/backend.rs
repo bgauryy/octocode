@@ -21,7 +21,7 @@ pub(super) async fn request(
     if closing.is_cancelled() {
         return Err(Failure::new(StatusCode::GONE, "CLOSED"));
     }
-    let fingerprint = octocode_native::contracts::cli_presentation()
+    let fingerprint = octocode_runtime_base::contracts::cli_presentation()
         .map_err(|_| unavailable())?
         .get("fingerprint")
         .and_then(Value::as_str)

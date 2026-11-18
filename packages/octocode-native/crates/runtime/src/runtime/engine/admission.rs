@@ -3,12 +3,12 @@
 //! their repair lead, and the input errors a rejected call answers with.
 
 use super::{RuntimeError, ToolRuntime};
-use crate::contracts;
-use crate::execution::availability::Availability;
-use crate::id::ToolId;
-use crate::response::rows;
-use crate::security::{CheckedQuery, InputPolicy};
 use octocode_contract_types::ErrorCode;
+use octocode_runtime_base::contracts;
+use octocode_runtime_base::execution::availability::Availability;
+use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::response::rows;
+use octocode_runtime_base::security::{CheckedQuery, InputPolicy};
 
 use serde_json::{Value, json};
 
@@ -25,7 +25,7 @@ fn rejected_row(
         .get("details")
         .filter(|details| details.as_array().is_some_and(|items| !items.is_empty()))
     {
-        crate::response::result::set_hints(
+        octocode_runtime_base::response::result::set_hints(
             &mut data,
             details
                 .as_array()
@@ -93,7 +93,7 @@ impl ToolRuntime {
         if mcp
             && let Some(id) = requested
             && let Some(restriction) =
-                crate::execution::availability::mcp_restriction(&self.config, id)
+                octocode_runtime_base::execution::availability::mcp_restriction(&self.config, id)
         {
             return Err(RuntimeError::new(
                 ErrorCode::ToolUnavailable,
@@ -114,8 +114,10 @@ impl ToolRuntime {
         };
         if availability.is_available() {
             if id == ToolId::GhCloneRepo {
-                crate::tools::gh_clone_repo::require_persistent_storage(
-                    crate::config::is_persistent_storage_enabled(&self.config.resolved),
+                octocode_tool_github::gh_clone_repo::require_persistent_storage(
+                    octocode_runtime_base::config::is_persistent_storage_enabled(
+                        &self.config.resolved,
+                    ),
                 )
                 .map_err(|error| RuntimeError::new(error.code, error.message))?;
             }
@@ -167,9 +169,9 @@ impl ToolRuntime {
             mut invalid,
         } = prepare_queries(tool, input, saved, &self.unpublished_fields(tool))?;
         let mcp_availability = (mcp && id.is_clasify()).then(|| {
-            crate::execution::availability::ToolAvailability::resolve(
+            octocode_runtime_base::execution::availability::ToolAvailability::resolve(
                 &self.config,
-                crate::config::RuntimeSurface::Mcp,
+                octocode_runtime_base::config::RuntimeSurface::Mcp,
             )
         });
         let reader_availability = mcp_availability.as_ref().unwrap_or(&self.availability);
@@ -186,19 +188,19 @@ impl ToolRuntime {
             if let Some(field) = judged.filter(|_| !self.selection_available) {
                 let mut path = prefix.clone();
                 path.push(field.into());
-                later.push(crate::contracts::ValidationIssue {
+                later.push(octocode_runtime_base::contracts::ValidationIssue {
                     rule_id: "classification.available".into(),
                     schema: None,
                     received: None,
                     path,
                     message: format!(
                         "{field} needs {}; set it, or omit {field}.",
-                        crate::config::field::CLASSIFICATION_API.display_name()
+                        octocode_runtime_base::config::field::CLASSIFICATION_API.display_name()
                     ),
                 });
             }
             if id.is_clasify() {
-                later.extend(crate::tools::clasify::unavailable_source_issues(
+                later.extend(octocode_tool_clasify::clasify::unavailable_source_issues(
                     &query,
                     &prefix,
                     reader_availability,
@@ -206,14 +208,21 @@ impl ToolRuntime {
             }
             let policy = if id.is_clasify() {
                 InputPolicy::ClasifyEvidence {
-                    content_limit: crate::id::clasify_policy::REQUEST_BYTES,
+                    content_limit: octocode_runtime_base::id::clasify_policy::REQUEST_BYTES,
                 }
             } else if id.is_local() {
                 InputPolicy::LocalQuery
             } else {
                 InputPolicy::Query
             };
-            let (checked, mut issues) = match self.security.check_input(query, policy) {
+            // A row a cursor restored carries the runtime's private progress,
+            // which its gate leaves as written.
+            let gated = if saved {
+                self.security.check_saved_input(query, policy, id)
+            } else {
+                self.security.check_input(query, policy)
+            };
+            let (checked, mut issues) = match gated {
                 Ok(checked) => (Some(checked), Vec::new()),
                 Err(mut issues) => {
                     for issue in &mut issues {
@@ -290,5 +299,7 @@ fn prepare_queries(
     Ok(prepared)
 }
 
+#[cfg(test)]
+mod saved_state_tests;
 #[cfg(test)]
 mod security_issue_tests;

@@ -4,20 +4,30 @@
 //! Ownership and failure model:
 //! * **One writer task** owns the server's stdin and receives complete encoded
 //!   frames over a bounded queue. A caller's cancellation can never cut a frame
-//!   in half; each frame carries its own deadline, and a write that misses it
-//!   (or fails) breaks the stream, which fails the connection.
+//!   in half. Each frame carries a stall window that starts when the writer
+//!   takes it, not when it was queued: a write fails only when the server
+//!   reads nothing for that window, and then the stream is broken, which
+//!   fails the connection and closes the queue. Callers wait for queue space
+//!   and for their frame's write while the server reads, however long the
+//!   frames ahead take: a frame's place in the queue is never a fault, and
+//!   only a server that reads nothing for the frame's window is.
 //! * **One reader task** owns stdout. Replies to server→client requests are
-//!   queued to the writer (bounded wait), never written inline, so a server
-//!   that stops reading stdin cannot stall reads.
-//! * **Failure is total**: EOF, a framing fault, a broken write, a queue that
-//!   stays full, or a second consecutive request timeout marks the connection
-//!   failed and fails every pending request at once (the pending map is taken,
-//!   not iterated).
+//!   queued to the writer, never written inline; the reader waits for queue
+//!   space only while the server reads its input, so a server that stops
+//!   reading stdin cannot stall reads past a reply's stall window.
+//! * **Failure is total**: EOF, a framing fault, a broken or stalled write, or
+//!   a second consecutive timeout of a server that showed no activity marks
+//!   the connection failed and fails every pending request at once (the
+//!   pending map is taken, not iterated). Each such request's error names its
+//!   own method, then the failure's first reason, which may be another
+//!   request's.
 //! * **One slow request is not a fault**: a request that uses its whole
 //!   wait (the timeout, extended while the server makes progress) is
 //!   cancelled with `$/cancelRequest` and the server is kept, so the next
 //!   request does not pay a cold start. Only [`RETIRE_AFTER_TIMEOUTS`]
-//!   timeouts with no answered request between them retire the connection.
+//!   timeouts that an idle server ended, with no answered request between
+//!   them, retire the connection; a wait that the caller's deadline ended
+//!   while the server still worked never counts.
 //!   Both tasks install a [`FailOnExit`] guard, so every exit path, including
 //!   panic and abort, fails the connection.
 //! * **Cancel on drop**: a dropped `request` future removes its pending entry
@@ -29,40 +39,69 @@ mod tasks;
 
 use super::codec::encode_frame;
 use super::partial::PartialResultStore;
-use super::patience::{ActivityMark, CpuClock, ServerActivity, WaitBudget};
+use super::patience::{ActivityMark, CpuClock, RequestWait, ServerActivity, WaitBudget};
 use super::progress::ProgressTracker;
 use super::push_diagnostics::PushDiagnosticsStore;
 use super::server_requests::ClientRequestContext;
-use crate::error::{Error, Result};
+use crate::error::{Error, ErrorKind, Result};
+use crate::lsp::clock::LspClock;
 use serde_json::{Value, json};
-use shared::{CancelOnDrop, FailOnExit, Outbound, Shared, cancel_message, closed_error};
+use shared::{CancelOnDrop, FailOnExit, Outbound, Shared, cancel_message};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use tasks::{read_loop, write_loop};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
-use tokio::time::{Duration, Instant};
+use tokio::time::Duration;
 
 /// Frames queued for the writer task. Bounded so a server that stops reading
 /// stdin pushes back on callers instead of growing memory.
 const WRITER_QUEUE_FRAMES: usize = 128;
-/// Floor for a notification's write deadline. A small notification (initialized,
-/// exit, a tiny didChange) must complete within this window.
+/// Floor of a notification's stall window: how long the writer may see the
+/// server read nothing of a small notification (initialized, exit, a tiny
+/// didChange) before the stream counts as stuck.
 const NOTIFY_BASE_DEADLINE_MS: u64 = 1_000;
-/// Extra write budget granted per megabyte of notification payload, so a large
-/// `didOpen` body is not guillotined by the flat floor.
+/// Extra stall window granted per megabyte of notification payload, so a
+/// server that reads a large `didOpen` body in bursts is not cut by the flat
+/// floor.
 const NOTIFY_MS_PER_MIB: u64 = 1_000;
-/// How long a timed-out request waits for its `$/cancelRequest` to be written.
+/// Stall window of a timed-out request's `$/cancelRequest`: a server that
+/// reads none of it for this long once the writer reaches it stopped reading
+/// stdin, and the connection is retired.
 const CANCEL_WRITE_WAIT_MS: u64 = 100;
-/// Request timeouts in a row, with no answered request between them, that
-/// retire the connection as wedged. The first one only cancels its request.
+/// Timeouts in a row that an idle server ended, with no answered request
+/// between them, that retire the connection as wedged. The first one only
+/// cancels its request.
 const RETIRE_AFTER_TIMEOUTS: u32 = 2;
 
-/// Write deadline (in ms) for a notification of `payload_bytes`.
-fn notify_write_deadline_ms(payload_bytes: usize) -> u64 {
+/// Stall window (in ms) of a notification of `payload_bytes`.
+fn notify_stall_ms(payload_bytes: usize) -> u64 {
     let mib = (payload_bytes as u64) / (1024 * 1024);
     NOTIFY_BASE_DEADLINE_MS.saturating_add(mib.saturating_mul(NOTIFY_MS_PER_MIB))
+}
+
+/// `error`, a failure of the connection itself, as the error of the
+/// `method` request it failed while the request waited: the request names
+/// itself, and the connection's first failure, which may be another
+/// request's, follows.
+fn not_answered(method: &str, mut error: Error) -> Error {
+    error.reason = format!("LSP request {method} was not answered: {}", error.reason);
+    error
+}
+
+/// `error`, the failure the connection already had, as the refusal of
+/// `what` (the operation refused, when known): the failure came earlier,
+/// and its reason may name another request.
+fn failed_earlier(what: Option<std::fmt::Arguments<'_>>, mut error: Error) -> Error {
+    error.reason = match what {
+        Some(what) => format!(
+            "{what} was not sent: the LSP connection failed earlier: {}",
+            error.reason
+        ),
+        None => format!("the LSP connection failed earlier: {}", error.reason),
+    };
+    error
 }
 
 pub(crate) struct JsonRpcConnection {
@@ -86,6 +125,7 @@ impl JsonRpcConnection {
         context: ClientRequestContext,
         progress: Arc<ProgressTracker>,
         cpu_clock: Option<CpuClock>,
+        clock: LspClock,
     ) -> Self
     where
         R: AsyncRead + Unpin + Send + 'static,
@@ -99,8 +139,10 @@ impl JsonRpcConnection {
             partial_results: PartialResultStore::default(),
             unparseable_frames: AtomicU64::new(0),
             consecutive_timeouts: AtomicU32::new(0),
-            activity: ServerActivity::new(cpu_clock, Arc::clone(&progress)),
+            activity: ServerActivity::new(cpu_clock, Arc::clone(&progress), clock.clone()),
             watches_files: AtomicBool::new(false),
+            clock,
+            written_bytes: AtomicU64::new(0),
         });
         // The guards are created before spawning so they run even if a task is
         // aborted before its first poll.
@@ -145,11 +187,13 @@ impl JsonRpcConnection {
         self.shared.is_alive()
     }
 
+    /// `Err` once the connection has failed, saying that the failure came
+    /// earlier: its reason may name another request.
     pub(crate) fn ensure_alive(&self) -> Result<()> {
         if self.is_alive() {
             Ok(())
         } else {
-            Err(self.shared.closed())
+            Err(failed_earlier(None, self.shared.closed()))
         }
     }
 
@@ -204,13 +248,14 @@ impl JsonRpcConnection {
     ) -> Vec<Option<Value>> {
         let store = &self.shared.push_diagnostics;
         if quiet_ms > 0 {
+            let clock = &self.shared.clock;
             let quiet = Duration::from_millis(u64::from(quiet_ms));
-            let budget = WaitBudget::new(quiet_ms);
+            let budget = WaitBudget::new(quiet_ms, clock.now());
             loop {
                 let mark = self.shared.activity.mark();
-                let window = budget.capped(Instant::now() + quiet);
-                if store.wait_for_all(documents, window).await
-                    || budget.is_spent()
+                let window = budget.capped(clock.deadline_after(quiet));
+                if store.wait_for_all(documents, window, clock).await
+                    || budget.is_spent(clock.now())
                     || !self.shared.activity.worked_since(&mark)
                 {
                     break;
@@ -228,7 +273,7 @@ impl JsonRpcConnection {
         self.shared.unparseable_frames.load(Ordering::Relaxed)
     }
 
-    /// Sends a request and waits for its response within `budget`: a base
+    /// Sends a request and waits for its response within `wait`: a base
     /// timeout in milliseconds (`u32`) or a shared [`WaitBudget`].
     ///
     /// Starvation policy (see `patience`): past the budget's base timeout
@@ -246,40 +291,51 @@ impl JsonRpcConnection {
     /// with `$/cancelRequest` and fails with a timeout; the server is kept, so
     /// one slow walk on a large tree does not cost a cold start. The
     /// connection is retired as wedged only when the cancel cannot be
-    /// written in time (the server stopped reading stdin) or on the
-    /// [`RETIRE_AFTER_TIMEOUTS`]th timeout with no answered request between:
-    /// then every other pending request fails immediately and the pool
-    /// restarts the server on the next acquire.
+    /// written (the server stopped reading stdin) or on the
+    /// [`RETIRE_AFTER_TIMEOUTS`]th timeout that an idle server ended with no
+    /// answered request between: then every other pending request fails
+    /// immediately and the pool restarts the server on the next acquire. A
+    /// wait that its ceiling (the caller's deadline) ended while the server
+    /// still worked says the server is slow, not wedged, and never counts.
+    ///
+    /// When the connection fails, before the request is sent or while it
+    /// waits, the error names this request and then the failure's first
+    /// reason, which may be another request's.
     pub(crate) async fn request(
         &self,
         method: &str,
         params: Value,
-        budget: impl Into<WaitBudget>,
+        wait: impl Into<RequestWait>,
     ) -> Result<Value> {
-        let budget = budget.into();
-        let started = Instant::now();
-        let deadline = started + budget.base;
+        let started = self.shared.clock.now();
+        let budget = wait.into().budget(started);
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let frame =
             encode_frame(&json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}))?;
-        let response = self.shared.register(id)?;
+        let response = self
+            .shared
+            .register(id)
+            .map_err(|error| failed_earlier(Some(format_args!("LSP request {method}")), error))?;
         let _cancel_on_drop = CancelOnDrop {
             shared: &self.shared,
             id,
         };
         self.shared
-            .enqueue(
-                Outbound {
-                    frame,
-                    deadline,
-                    written: None,
-                },
-                deadline,
-            )
-            .await?;
+            .enqueue(Outbound {
+                frame,
+                stall: budget.base,
+                written: None,
+            })
+            .await
+            .map_err(|error| not_answered(method, error))?;
         match self.shared.activity.wait(response, started, budget).await {
-            Ok(Ok(result)) => result,
-            Ok(Err(_)) => Err(closed_error()),
+            Ok(Ok(result)) => result.map_err(|error| match error.kind() {
+                ErrorKind::ConnectionClosed | ErrorKind::ResourceExhausted => {
+                    not_answered(method, error)
+                }
+                _ => error,
+            }),
+            Ok(Err(_)) => Err(not_answered(method, self.shared.closed())),
             Err(unanswered) => {
                 let cause = match unanswered.idle {
                     Some(idle) => format!(
@@ -292,43 +348,53 @@ impl JsonRpcConnection {
                     "LSP request {method} timed out after {}ms: {cause}",
                     unanswered.waited.as_millis()
                 );
-                // `true` when the cancel could not be written in time: the
-                // writer queue is full or the pipe does not drain, so the
-                // server stopped reading stdin.
-                let mut cancel_refused = false;
-                if self.shared.take_pending(id).is_some()
-                    && let Ok(frame) = encode_frame(&cancel_message(id))
-                {
-                    // Tell the server to stop computing the abandoned request,
-                    // briefly waiting so the cancel precedes any retirement.
-                    let (tx, rx) = oneshot::channel();
-                    let cancel_deadline =
-                        Instant::now() + Duration::from_millis(CANCEL_WRITE_WAIT_MS);
-                    let queued = self.shared.outbound.try_send(Outbound {
-                        frame,
-                        deadline: cancel_deadline,
-                        written: Some(tx),
-                    });
-                    cancel_refused = match queued {
-                        Ok(()) => !matches!(
-                            tokio::time::timeout_at(cancel_deadline, rx).await,
-                            Ok(Ok(Ok(())))
-                        ),
-                        Err(_) => true,
-                    };
-                }
-                let timeouts = self
-                    .shared
-                    .consecutive_timeouts
-                    .fetch_add(1, Ordering::AcqRel)
-                    .saturating_add(1);
-                if cancel_refused || timeouts >= RETIRE_AFTER_TIMEOUTS {
+                let cancel_refused = self.cancel_abandoned(id).await;
+                let timeouts = if unanswered.idle.is_some() {
+                    self.shared
+                        .consecutive_timeouts
+                        .fetch_add(1, Ordering::AcqRel)
+                        .saturating_add(1)
+                } else {
+                    self.shared.consecutive_timeouts.load(Ordering::Acquire)
+                };
+                if cancel_refused {
                     self.shared.fail(&format!(
-                        "{reason}; LSP connection retired as wedged after {timeouts} consecutive timeout(s)"
+                        "{reason}; LSP connection retired as wedged: the server stopped reading its input, so the cancel could not be written"
+                    ));
+                } else if timeouts >= RETIRE_AFTER_TIMEOUTS {
+                    self.shared.fail(&format!(
+                        "{reason}; LSP connection retired as wedged after {timeouts} consecutive timeouts of a server that showed no activity"
                     ));
                 }
                 Err(Error::timeout(reason))
             }
+        }
+    }
+
+    /// Tells the server to stop computing the abandoned request `id` and
+    /// waits until the `$/cancelRequest` is written, so it precedes any
+    /// retirement: while the server reads the frames queued ahead, however
+    /// long they take. `true` when the cancel cannot be written (the queue
+    /// is full, or the server read nothing for the cancel's stall window),
+    /// so the server stopped reading stdin; `false` when it was written or
+    /// nothing was pending.
+    async fn cancel_abandoned(&self, id: u64) -> bool {
+        if self.shared.take_pending(id).is_none() {
+            return false;
+        }
+        let Ok(frame) = encode_frame(&cancel_message(id)) else {
+            return false;
+        };
+        let (tx, rx) = oneshot::channel();
+        let stall = Duration::from_millis(CANCEL_WRITE_WAIT_MS);
+        let queued = self.shared.outbound.try_send(Outbound {
+            frame,
+            stall,
+            written: Some(tx),
+        });
+        match queued {
+            Ok(()) => !matches!(self.shared.while_reading(stall, rx).await, Some(Ok(Ok(())))),
+            Err(_) => true,
         }
     }
 
@@ -338,7 +404,7 @@ impl JsonRpcConnection {
         &self,
         method: &str,
         mut params: Value,
-        budget: impl Into<WaitBudget>,
+        wait: impl Into<RequestWait>,
     ) -> Result<Value> {
         let token = format!(
             "octocode-partial-{}",
@@ -353,26 +419,32 @@ impl JsonRpcConnection {
         );
         // The guard discards the collected chunks if this future is dropped.
         let partials = self.shared.partial_results.begin(token);
-        let result = self.request(method, params, budget).await?;
+        let result = self.request(method, params, wait).await?;
         partials.finish(result)
     }
 
     /// Sends a notification and waits until it is flushed. Refused once the
     /// connection has failed.
     pub(crate) async fn notify(&self, method: &str, params: Value) -> Result<()> {
-        self.ensure_alive()?;
+        if !self.is_alive() {
+            return Err(failed_earlier(
+                Some(format_args!("LSP notification {method}")),
+                self.shared.closed(),
+            ));
+        }
         self.notify_best_effort(method, params).await
     }
 
     /// Sends a notification even when the connection is already failed (for
     /// example `exit` after a timed-out `shutdown`), as long as the writer is
-    /// still healthy. The write deadline scales with payload size so a large
-    /// `didOpen` gets proportional headroom.
+    /// still healthy. Waits while frames queued ahead are written; the write
+    /// fails only when the server reads nothing of it for its stall window,
+    /// which scales with payload size so a large `didOpen` gets proportional
+    /// headroom.
     pub(crate) async fn notify_best_effort(&self, method: &str, params: Value) -> Result<()> {
         let frame = encode_frame(&json!({"jsonrpc":"2.0","method":method,"params":params}))?;
-        let deadline =
-            Instant::now() + Duration::from_millis(notify_write_deadline_ms(frame.len()));
-        self.shared.write_frame(frame, deadline).await
+        let stall = Duration::from_millis(notify_stall_ms(frame.len()));
+        self.shared.write_frame(frame, stall).await
     }
 }
 

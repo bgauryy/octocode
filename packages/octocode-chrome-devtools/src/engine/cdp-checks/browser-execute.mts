@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { run as monitor } from './live-har-monitor.mjs';
 import { jsonPointer, validatePlan } from './plan-validate.mjs';
 import { frameScope, scopedSession } from './plan-scopes.mjs';
+import { historyOps } from './plan-history-ops.mjs';
 import { pageOps } from './plan-page-ops.mjs';
 import { logQueryContinuation, protocolOps } from './plan-protocol-ops.mjs';
 import type { Payload } from '../cdp-connection.mjs';
@@ -38,7 +39,7 @@ const arg = (flag: string) => {
   const i = process.argv.indexOf(flag);
   return i < 0 ? null : process.argv[i + 1];
 };
-const ops = { ...pageOps, ...protocolOps };
+const ops = { ...pageOps, ...historyOps, ...protocolOps };
 const log = (line: string) => console.log(line);
 const readPlanInput = () => {
   const file = arg('--plan');
@@ -72,10 +73,14 @@ function stepFailure(error: unknown, step: PlanStep, index: number): Failure {
   return {
     step: index + 1,
     error: message,
-    ...(uncertain || /CDP timeout|step deadline/.test(message)
+    ...(uncertain ||
+    /CDP timeout|step deadline|step budget exhausted/.test(message)
       ? {
           outcomeUncertain:
-            uncertain || ['act', 'cdp', 'goto', 'readStream'].includes(step.op),
+            uncertain ||
+            ['act', 'cdp', 'goto', 'history', 'reload', 'readStream'].includes(
+              step.op
+            ),
           instruction:
             'Inspect state before any retry; an acknowledged outcome is unavailable.',
         }
@@ -104,9 +109,21 @@ export async function run(connection: CheckSession, input?: unknown) {
         return Promise.reject(
           new Error(`Browser step deadline exceeded before ${method}`)
         );
-      return connection.send(method, params, sessionId, {
-        timeoutMs: Math.min(plan.commandMs ?? plan.waitMs ?? 8000, remaining),
+      const commandMs = plan.commandMs ?? plan.waitMs ?? 8000;
+      const request = connection.send(method, params, sessionId, {
+        timeoutMs: Math.min(commandMs, remaining),
       });
+      // The step budget, not the command limit, cut this request short.
+      return remaining < commandMs
+        ? request.catch((error: unknown) => {
+            throw /^CDP timeout/.test(errorMessage(error))
+              ? new Error(
+                  `Browser step budget exhausted during ${method} (${Math.round(remaining)}ms left); raise timeoutMs`,
+                  { cause: error }
+                )
+              : error;
+          })
+        : request;
     },
   };
   const results: StepRow[] = [],
