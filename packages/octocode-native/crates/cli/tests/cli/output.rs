@@ -22,7 +22,11 @@ fn localsearch_emits_structured_results() {
     let data = &value["results"][0]["data"];
     // A complete single page carries no stats: the listed rows are the counts.
     assert!(data.get("stats").is_none(), "{data}");
-    assert_eq!(data["files"][0]["matches"][0]["value"], "needle", "{data}");
+    // matchOnly with one literal term omits a value equal to that term; the
+    // span is its line and column.
+    let span = &data["files"][0]["matches"][0];
+    assert!(span.get("value").is_none(), "{data}");
+    assert_eq!((span["line"].as_u64(), span["column"].as_u64()), (Some(1), Some(4)), "{data}");
 }
 
 /// A failed row prints on stdout as text, its fields and then its status,

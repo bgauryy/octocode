@@ -171,7 +171,7 @@ Rules:
 
 ### Billing
 
-- **One billed request per row.** A `clasify` row is one request for each path, GitHub file, URL, `content` entry, `perItem` item or whole-file chunk. A search `source` bills **per file**: the hits of one file share one request, with one question per hit. Identical units share one request.
+- **One billed request per row.** A `clasify` row is one request for each path, GitHub file, URL, `content` entry, `perItem` item or whole-file chunk. A search `source` bills **per file**: the hits of one file share one request, with one question per hit, and a long question's words are sent once per request. Identical units share one request. `perHit: true` (with a tool `source`) judges each hit in its own request instead, priced one request per hit.
 - **Refusals and retries add requests.** When the provider refuses a request as too large, its hits are split and asked again. When it leaves an answer out, that hit is asked once more. An answer still missing is reported as an `error` cell.
 - **`evaluate` always re-bills.** Repeating an identical `clasify` evaluation sends new requests, even on cached source.
 - **Saved `sections` pages replay for free.** `next.details`, `next.quiet` and `responsePagination.next` replay saved answers with no request. A fresh `evaluate` or `sections` call starts again.
@@ -185,7 +185,7 @@ Set `maxRequests` (an integer of at least 1) on a row to cap the provider reques
 |---|---|
 | `maxRequests` | Cap on provider requests for the row, per response page |
 | `usage.requestsPlanned` | Requests the row expects to send |
-| `usage.requestsCeiling` | Most requests the row can send, counting every re-ask and split a refusal can add |
+| `usage.requestsCeiling` | Most requests the row or `sections` page can send: the first round, every re-ask and split, and the 3 transient retries the row shares. Absent means unbounded |
 | `usage.calls` | Requests actually sent |
 | `usage.refused` | Requests the provider refused |
 | `usage.remainingInputTokensEstimate` | Estimated input tokens for the requests not yet sent |
@@ -194,6 +194,8 @@ Behavior:
 
 - If `requestsCeiling` is above `maxRequests`, the row is refused before anything is sent. The error is `classificationOverBudget`, with `usage.calls: 0`, the planned and ceiling counts, and `next.confirm`. `next.confirm` reruns the same row with `maxRequests` raised to the ceiling. That rerun is billed.
 - If the cap runs out during a run, the next send is not made and the row reports `classificationOverBudget`.
+- A row without `maxRequests` is held to its ceiling too, except that a refusal's retries (long window or split) may pass it; they are counted and named in a warning. Transient retries never pass it.
+- Units still unanswered after the retries stay `error` cells; `next.retry` asks only them again, at their own price.
 - To keep a request under budget, narrow the source: fewer files, hits or resources, or smaller line ranges.
 
 ```json
