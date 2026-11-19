@@ -162,7 +162,7 @@ async fn run_tree(
         .await);
     }
     let found = locate_path(provider, &at, context).await;
-    Err(path_failure(error, &at, query.max_depth, found))
+    Err(path_failure(error, &at, requested, query.max_depth, found))
 }
 
 /// The query with its `path` as the repository names it
@@ -233,13 +233,18 @@ struct Traversal {
     /// it answers the target's bytes under the link's name.
     #[serde(default)]
     unchecked: usize,
+    /// Folders the walk left unread at its read budget
+    /// ([`traverse::MAX_WALK_READS`]): nothing below them is
+    /// listed.
+    #[serde(default)]
+    unwalked: usize,
 }
 
 impl Traversal {
     /// The walk left entries unlisted that the same listing may read on a
     /// retry: a folder that failed to list, or files no tree typed.
     fn missed(&self) -> bool {
-        self.failed_subtrees > 0 || self.unchecked > 0
+        self.failed_subtrees > 0 || self.unchecked > 0 || self.unwalked > 0
     }
 }
 

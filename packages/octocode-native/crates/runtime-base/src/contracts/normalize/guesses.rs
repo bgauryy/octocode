@@ -510,16 +510,8 @@ pub(super) const SPELLINGS: &[Spelling] = &[
         reads: ("ecosystem", "\"crates\""),
     },
     // A size sort has one key: the file's size in bytes, spelled `bytes` (as
-    // the `bytes` filter is) or, in a contract that still names it so,
-    // `sizeBytes`; a reading applies only where the contract declares its
-    // value ([`Spelling::declared`]).
-    Spelling {
-        tools: &[ToolId::GhStructure, ToolId::StructureSearch],
-        within: "sort",
-        field: "by",
-        sent: "size",
-        reads: ("by", "\"sizeBytes\""),
-    },
+    // the `bytes` filter is); its former name `sizeBytes` and the bare
+    // `size` read as it.
     Spelling {
         tools: &[ToolId::GhStructure, ToolId::StructureSearch],
         within: "sort",

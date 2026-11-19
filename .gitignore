@@ -78,3 +78,6 @@ homes
 # children in `output/`.
 !packages/octocode-native/crates/*/src/**/
 !packages/octocode-native/crates/*/tests/**/
+
+# Swarm measurement scripts and baselines (2026-11-19); temporary, removed after the fix wave
+/skills-dev/octocode-dev/scripts/profile/

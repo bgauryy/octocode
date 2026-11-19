@@ -289,6 +289,146 @@ pub(crate) fn named_heritage_from_tree(
     }
 }
 
+/// The declarations of `content`, the text of `file_path`, whose name is on
+/// one of `lines` (0-based, as `selection_range.start.line` counts them), as
+/// the file's declarations-only facts
+/// ([`crate::signatures::extract_declarations_document`]) hold them, in their
+/// order there, from a walk of only the nodes that touch those lines. A
+/// declaration contains its name, so every node between the root and one
+/// named on a line touches that line and is read with the same ancestors,
+/// siblings and enclosing declarations as the whole walk reads it.
+///
+/// `None` when only the whole outline can tell: oxc owns the file or no
+/// tree-sitter grammar reads it; what it declares depends on code elsewhere
+/// in it (a GoogleTest include, a JS/TS file oxc did not read, whose exports
+/// another statement names); a Rust macro body touches the lines (which
+/// bodies the whole walk reads depends on the file's other macros); the walk
+/// passed its deadline; or the caller stopped. A Python class touching the
+/// lines is read whole: each member name is declared once per class, by its
+/// first declaration in source order.
+#[must_use]
+pub fn declarations_on_lines(
+    content: &str,
+    file_path: &str,
+    lines: &[usize],
+) -> Option<Vec<crate::graph::GraphFactDeclaration>> {
+    if crate::deep_stack::caller_stopped() {
+        return None;
+    }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        declarations_on_lines_inner(content, file_path, lines)
+    }))
+    .unwrap_or(None)
+}
+
+fn declarations_on_lines_inner(
+    content: &str,
+    file_path: &str,
+    lines: &[usize],
+) -> Option<Vec<crate::graph::GraphFactDeclaration>> {
+    let (entry, grammar) = crate::signatures::graph_facts_grammar(content, file_path)?;
+    let entry = entry.admitted(crate::text::analysis::AnalysisOperation::Declarations)?;
+    let ext = canonical_extension(&grammar).to_owned();
+    if crate::text::JS_TS_EXTENSIONS.contains(&grammar.as_str())
+        || js_fallback::is_fallback_lane(&ext)
+        || matches!(ext.as_str(), "cpp" | "cu") && content.contains("gtest/gtest.h")
+        // The whole outline's source unit holds at most `u32::MAX` bytes.
+        || u32::try_from(content.len()).is_err()
+    {
+        return None;
+    }
+    let mut wanted = lines.to_vec();
+    wanted.sort_unstable();
+    wanted.dedup();
+    let deadline = crate::signatures::extractor::whole_file_deadline();
+    let parsed = crate::contain::within(crate::contain::Phase::Parse, || {
+        crate::signatures::extractor::parse_with_deadline(content, &entry.language, deadline)
+    });
+    // No tree: the whole outline declares nothing either.
+    let Ok(tree) = parsed else {
+        return Some(Vec::new());
+    };
+    let root = tree.root_node();
+    let mut spans = line_spans(content, &wanted);
+    if ext == "py" {
+        let touched = super::walk::Spans::new(spans.clone());
+        spans.extend(classes_touching(root, &touched));
+    }
+    let mut acc = GraphAccumulator::new(file_path, &ext);
+    acc.declarations_only = true;
+    acc.argument_adapter = entry.argument_adapter;
+    acc.call_adapter = entry.call_adapter;
+    acc.visibility_adapter = entry.visibility_adapter;
+    acc.export_forwarding_node = entry.export_forwarding_node;
+    acc.only_spans = Some(super::walk::Spans::new(spans));
+    let positions = NodePositions::new(content);
+    if !visit_node(root, content, &positions, &mut acc, deadline, &[], None)
+        || !acc.macro_bodies.is_empty()
+    {
+        return None;
+    }
+    let source_lines = content.lines().collect::<Vec<_>>();
+    Some(
+        acc.declarations
+            .into_iter()
+            .filter(|declaration| {
+                wanted
+                    .binary_search(&(declaration.selection_range.start.line as usize))
+                    .is_ok()
+            })
+            .map(|mut declaration| {
+                declaration.doc_line =
+                    crate::signatures::declaration_doc_line(&source_lines, &declaration, &ext);
+                declaration
+            })
+            .collect(),
+    )
+}
+
+/// The byte span of each of `lines` (sorted, 0-based, split at `\n` as
+/// tree-sitter rows are), from its first byte to its end before the `\n`.
+fn line_spans(content: &str, lines: &[usize]) -> Vec<(usize, usize)> {
+    let mut spans = Vec::with_capacity(lines.len());
+    let mut wanted = lines.iter().copied().peekable();
+    let mut start = 0;
+    for (row, line) in content.split_inclusive('\n').enumerate() {
+        let Some(&next) = wanted.peek() else {
+            break;
+        };
+        if row == next {
+            spans.push((start, start + line.trim_end_matches('\n').len()));
+            wanted.next();
+        }
+        start += line.len();
+    }
+    spans
+}
+
+/// The spans of the Python classes that touch `spans`, outermost only: a
+/// class read whole reads its nested ones.
+fn classes_touching(
+    root: tree_sitter::Node<'_>,
+    spans: &super::walk::Spans,
+) -> Vec<(usize, usize)> {
+    let mut found = Vec::new();
+    let mut cursor = root.walk();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if crate::signatures::node_kinds::kind_of(node) == "class_definition" {
+            found.push((node.start_byte(), node.end_byte()));
+            continue;
+        }
+        stack.extend(
+            node.named_children(&mut cursor)
+                .filter(|child| spans.touches(child.start_byte(), child.end_byte())),
+        );
+    }
+    found
+}
+
+#[cfg(test)]
+mod near_lines_tests;
+
 fn language_label(ext: &str, language_id: Option<&str>) -> String {
     language_id
         .unwrap_or_else(|| canonical_extension(ext))

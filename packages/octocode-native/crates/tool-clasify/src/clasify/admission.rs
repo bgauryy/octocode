@@ -76,5 +76,6 @@ pub(super) fn unretainable_source(row: &super::Row, can_resume: bool) -> Option<
         captured: None,
         assets: None,
         identity: None,
+        price: None,
     })
 }

@@ -73,7 +73,7 @@ impl<'q> Alternates<'q> {
                 .iter()
                 .any(|term| local_search_query::case_sensitive(written, term)))
         .then(|| {
-            "No case-sensitive match; next.asInsensitive runs the same search with case ignored."
+            "No case-sensitive match; the related[] call with caseMode \"insensitive\" runs the same search with case ignored."
                 .to_owned()
         })
     }
@@ -98,7 +98,7 @@ impl<'q> Alternates<'q> {
             map.insert("asRegex".into(), lead);
         }
         row.hints.push(
-            "No literal match; the terms hold regex syntax: next.asRegex reads them as a regex (regexEngine:\"rust\")."
+            "No literal match; the terms hold regex syntax: the related[] call with regexEngine \"rust\" reads them as a regex."
                 .to_owned(),
         );
     }
@@ -154,7 +154,7 @@ impl<'q> Alternates<'q> {
             || local_search_query::snapshot(written).is_some()
             || terms
                 .iter()
-                .all(|term| regex::escape(term) == term.as_str())
+                .all(|term| octocode_engine::search::text_pattern::regex_spells_itself(term))
             || terms.iter().any(|term| regex::Regex::new(term).is_err())
         {
             return None;

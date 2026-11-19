@@ -176,7 +176,7 @@ The earlier 2026-10-28 source-only comparison does not describe this measured ro
   or files read one by one).
 - **Better means:** the same answer with fewer main-agent characters, the billed request count,
   and recall: `next.unfiltered` shows what classification left out. Savings figures are owned by
-  the [classification guide](../../docs/OCTOCODE_CLASIFY.md#main-agent-tokens-with-and-without-jev).
+  the [benchmark README](README.md#main-agent-tokens-with-and-without-jev).
 - **Stored evidence:** `results/mcp-clasify-ab-111154-2026-10-09/`, `results/gated-jev-*`,
   `results/selective-guidance-*`. When clasify was offered, agents did not call it, so no saving
   appeared; adoption is the open question, not the tool's answer.

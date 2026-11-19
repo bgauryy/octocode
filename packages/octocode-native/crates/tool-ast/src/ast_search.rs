@@ -33,6 +33,7 @@ mod region_tests;
 #[cfg(test)]
 mod rule_tests;
 mod scan_window;
+mod shared_rows;
 mod source;
 mod symbols;
 #[cfg(test)]
@@ -119,29 +120,37 @@ pub fn execute_ast(
         AstSearchQuery::MatchView(query) => query.path.as_str(),
         AstSearchQuery::SyntaxTree(query) => query.path.as_str(),
     };
-    run_ast(build, query, paths, cancellation, response_window)
-        .map(|(mut data, places)| {
-            let sources = octocode_tools_shared::judged_rows::RowSources::as_shown(paths, security);
-            judged_rows::judge_rows(&mut data, &sources, places);
-            judged_rows::drop_judging_positions(&mut data);
-            data
-        })
-        .map_err(|mut error| {
-            if matches!(
-                error.code,
-                ErrorCode::LanguageUnsupported
-                    | ErrorCode::SymbolsUnsupported
-                    | ErrorCode::CapabilityUnavailable
-            ) && error.calls.is_none()
-                && let Ok(path) = paths.validate_read(requested)
-                && path.canonical.is_file()
-            {
-                error.calls = Some(Box::new(serde_json::json!({
-                    "read": output::unsupported_read(&path.canonical.to_string_lossy())
-                })));
-            }
-            missing_path_recovery(error, requested, paths)
-        })
+    let page = match query {
+        // Identical rows asked at once share one page ([`shared_rows`]).
+        AstSearchQuery::Symbols(query) => {
+            shared_rows::symbols_page(query, paths, security, cancellation, response_window)
+        }
+        _ => {
+            run_ast(build, query, paths, cancellation, response_window).map(|(mut data, places)| {
+                let sources =
+                    octocode_tools_shared::judged_rows::RowSources::as_shown(paths, security);
+                judged_rows::judge_rows(&mut data, &sources, places);
+                judged_rows::drop_judging_positions(&mut data);
+                data
+            })
+        }
+    };
+    page.map_err(|mut error| {
+        if matches!(
+            error.code,
+            ErrorCode::LanguageUnsupported
+                | ErrorCode::SymbolsUnsupported
+                | ErrorCode::CapabilityUnavailable
+        ) && error.calls.is_none()
+            && let Ok(path) = paths.validate_read(requested)
+            && path.canonical.is_file()
+        {
+            error.calls = Some(Box::new(serde_json::json!({
+                "read": output::unsupported_read(&path.canonical.to_string_lossy())
+            })));
+        }
+        missing_path_recovery(error, requested, paths)
+    })
 }
 
 /// A `notFound` for the query's path leads to the tree of its nearest

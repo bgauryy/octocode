@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+mod batch;
 mod fallback;
 mod pages;
 mod redaction;

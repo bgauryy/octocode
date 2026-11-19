@@ -102,6 +102,8 @@ async fn search_walks_reach_every_hit_once_with_source_coordinates() {
                         let joined=declared.borrow().get(&path).cloned().unwrap_or(Value::Null);
                         for matched in file["matches"].as_array().expect("matches") {
                             let owner=matched.get("enclosing").and_then(serde_json::Value::as_u64).and_then(|owner|joined.get(usize::try_from(owner).ok()?)).unwrap_or_else(||panic!("each hit retains enclosing evidence: {matched}, {file}"));
+                            // A declaration is a line-first outline string (Q5, formed by the hoist stage).
+                            let owner=owner.as_str().and_then(octocode_runtime_base::response::symbol_outline::outline_row).map_or_else(||owner.clone(),|(_,row)|row);
                             assert!(owner["symbolName"].as_str().expect("name").starts_with("holder_"));
                             let line=matched["line"].as_u64().expect("line");
                             assert!(owner["line"].as_u64().expect("start")<=line&&owner["endLine"].as_u64().expect("end")>=line);

@@ -119,7 +119,7 @@ pub(super) struct Opened<'a> {
     /// The request's earlier pass over the whole source, with its line
     /// count: windows are read from its checkpoints, not streamed again.
     pub(super) proven: Option<(&'a Proven, usize)>,
-    /// The scanner's limits: a line window holds [`SourceLimits::window`] bytes.
+    /// The scanner's limits: a line window holds [`SourceLimits::window`](octocode_runtime_base::security::SourceLimits::window) bytes.
     pub(super) limits: octocode_runtime_base::security::SourceLimits,
     /// The read's scanner: a pass records what it redacts.
     pub(super) scan: &'a dyn ContentScan,

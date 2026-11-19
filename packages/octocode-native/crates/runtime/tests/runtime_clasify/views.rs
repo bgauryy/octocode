@@ -58,10 +58,10 @@ fn within(summary: &Value, details: &Value) -> bool {
 }
 
 /// Three questions over a text: the summary is the three values and the
-/// tokens, within the owner's 250 characters; details adds the distribution,
-/// the legend, the model and the request count.
+/// request ceiling, within the owner's 250 characters; details adds the
+/// distribution, the legend, the model, the tokens and the request count.
 #[tokio::test]
-async fn a_text_answer_is_its_values_and_tokens_by_default() {
+async fn a_text_answer_is_its_values_and_ceiling_by_default() {
     let server = provider().await;
     let workspace = Workspace::new();
     let runtime = clasify_runtime(&workspace, &server, &[]);
@@ -84,7 +84,8 @@ async fn a_text_answer_is_its_values_and_tokens_by_default() {
                     "restart": {"noul": 0.9},
                     "kind": {"choice": "ops"},
                     "risk": {"score": 1.5}
-                }
+                },
+                "usage": {"requestsCeiling": 1}
             }"#
         ),
         "{summary}"
@@ -203,10 +204,11 @@ async fn a_section_summary_is_its_lines_and_answers() {
     }
     assert_eq!(short["coverage"], whole["coverage"], "{summary}");
     assert_eq!(short["sourceDigest"], whole["sourceDigest"], "{summary}");
+    // The page's spend and its ceiling; its first round equals its calls.
     let usage = &summary["results"][0]["data"]["usage"];
     assert_eq!(
         usage.as_object().unwrap().keys().collect::<Vec<_>>(),
-        ["calls"],
+        ["calls", "requestsCeiling"],
         "{summary}"
     );
     assert!(
@@ -370,7 +372,8 @@ async fn an_absent_view_is_a_summary_on_cli_and_mcp() {
 /// shows `calls: 0`, and the summary states `calls` on both so a reader sees
 /// who paid. A single row states no usage.
 #[tokio::test]
-async fn a_summary_states_calls_on_every_row_when_a_sibling_shows_zero() {
+async fn a_summary_states_calls_on_every_row_when_a_sibling_shows_zero_and_a_lone_row_its_ceiling()
+{
     let server = provider().await;
     let workspace = Workspace::new();
     let runtime = clasify_runtime(&workspace, &server, &[]);
@@ -402,8 +405,9 @@ async fn a_summary_states_calls_on_every_row_when_a_sibling_shows_zero() {
         )],
     )
     .await;
-    assert!(
-        single["results"][0]["data"].get("usage").is_none(),
+    assert_eq!(
+        single["results"][0]["data"]["usage"],
+        json!({"requestsCeiling": 1}),
         "{single}"
     );
     runtime.close().await;

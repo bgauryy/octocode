@@ -72,10 +72,17 @@ fn full_catalog_serves_the_core_instructions_then_the_cli_notes() {
         let value = catalog(&machine(&off), Some("full")).expect("catalog");
         assert_eq!(
             value["instructions"].as_str().expect("instructions"),
-            format!("{expected}\n{}", super::CLI_INSTRUCTIONS),
+            format!("{expected}\n{}", super::cli_notes(presentation)),
             "{off:?}"
         );
     }
+    // The CLI's notes are core's text, carried by the embedded presentation.
+    assert!(
+        super::cli_notes(presentation).starts_with("<cli>")
+            && super::cli_notes(presentation).ends_with("</cli>"),
+        "{}",
+        super::cli_notes(presentation)
+    );
     // Without the tool, the CLI's own notes do not name it either.
     let value = catalog(&machine(&["clasify", "securityCheck"]), Some("full")).expect("catalog");
     let text = value["instructions"].as_str().expect("instructions");

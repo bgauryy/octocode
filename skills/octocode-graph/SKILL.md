@@ -1,6 +1,6 @@
 ---
 name: octocode-graph
-description: "Load this skill first when asking structural questions about a codebase: who imports or calls what, dependency paths, cycles, hubs, change impact, dead-code candidates or files that change together, answered with graphBuild and graphQuery. Use octocode-graph-view for an interactive map."
+description: "Load first for structural questions about a codebase: who imports or calls what, dependency paths, cycles, hubs, change impact, dead-code candidates, files that change together, via graphBuild and graphQuery. Interactive map: octocode-graph-view."
 ---
 
 # Octocode Graph

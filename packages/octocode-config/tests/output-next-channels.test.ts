@@ -36,10 +36,12 @@ describe('output reference next channels (pkg-13)', () => {
   it("says what clasify's read lead reads", () => {
     const output = at(tool('clasify'), 'output');
     expect(output['next.read']).toMatch(/deciding lines/);
+    expect(output['next.confirm']).toMatch(/maxRequests raised to its requestsCeiling/);
     expect(Object.keys(output).filter(key => key.startsWith('next.'))).toEqual([
       'next.nextPage',
       'next.quiet',
       'next.details',
+      'next.confirm',
       'next.read',
       'next.retry',
       'next.restart',

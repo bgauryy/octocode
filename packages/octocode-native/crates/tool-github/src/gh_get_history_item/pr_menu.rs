@@ -16,7 +16,7 @@ use serde_json::{Map, Value, json};
 /// The caller's query as a working query for `operation`: the public
 /// fields, with the sections the read resolved (`patches` alone already
 /// lists their files: it is not restated as `files`); builders replace
-/// `sections` with [`Sections::set_on`].
+/// `sections` with [`Sections::set_on`](super::sections::Sections::set_on).
 pub(super) fn base_public_query(q: &HistoryItemRequest, operation: ItemOperation) -> Value {
     let mut v = q.public.clone();
     remove_nulls(&mut v);

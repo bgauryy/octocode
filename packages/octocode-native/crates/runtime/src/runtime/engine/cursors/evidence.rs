@@ -51,17 +51,111 @@ impl Owned {
     }
 }
 
+/// What one call's evidence made, by the evidence's identity ([`identity`]):
+/// its digest and each answer's [`gate_keeps`] verdict, with the bodies it
+/// names. A call that observes the same saved answers as an earlier one (a
+/// repeat served from them) names and splits its evidence without hashing
+/// or judging every body again. Holding the bodies keeps their buffers
+/// alive, so a buffer's address names one immutable text for as long as the
+/// entry lives. Weighed against the one process budget, in memory only.
+static DIGESTS: octocode_tools_shared::page_memo::PageMemo<Judged> =
+    octocode_tools_shared::page_memo::PageMemo::new();
+
+/// A [`DIGESTS`] entry.
+#[derive(Clone)]
+struct Judged {
+    _bodies: Arc<[AnswerBody]>,
+    digest: String,
+    /// Per answer, in order: whether [`gate_keeps`] accepts it.
+    kept: Arc<[bool]>,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Digests this thread computed (not read from [`DIGESTS`]).
+    static COMPUTED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// What fixes `evidence`'s serialized text: every field of every answer,
+/// with each body named by its buffer (address and length), and the notes.
+fn identity(evidence: &ProviderEvidence) -> Option<String> {
+    use std::fmt::Write as _;
+    let mut key = String::new();
+    for answer in &evidence.answers {
+        let body = answer.body.as_bytes();
+        write!(
+            key,
+            "{}\n{}\n{:?}\n{:?}\n{}\n{:p}:{}\n",
+            answer.request,
+            answer.status,
+            answer.headers,
+            answer.next,
+            serde_json::to_string(&answer.not_found).ok()?,
+            body.as_ptr(),
+            body.len(),
+        )
+        .ok()?;
+    }
+    key.push_str(&serde_json::to_string(&evidence.notes).ok()?);
+    Some(key)
+}
+
+/// `evidence`'s content digest ([`octocode_runtime_base::digest::json_sha256`])
+/// and each answer's [`gate_keeps`] verdict, read from [`DIGESTS`] when the
+/// same answers were judged before.
+fn judged(evidence: &ProviderEvidence) -> (String, Arc<[bool]>) {
+    let compute = || {
+        #[cfg(test)]
+        COMPUTED.with(|computed| computed.set(computed.get() + 1));
+        let security = ContentSecurity::new();
+        let kept = evidence
+            .answers
+            .iter()
+            .map(|answer| gate_keeps(&security, answer))
+            .collect::<Arc<[bool]>>();
+        (octocode_runtime_base::digest::json_sha256(evidence), kept)
+    };
+    let Some(key) = identity(evidence) else {
+        return compute();
+    };
+    if let Some(known) = DIGESTS.get(&key, "", |known| (known.digest.clone(), known.kept.clone())) {
+        return known;
+    }
+    let (digest, kept) = compute();
+    let bodies = evidence
+        .answers
+        .iter()
+        .map(|answer| answer.body.clone())
+        .collect::<Arc<[AnswerBody]>>();
+    let weight = key.len() + bodies.iter().map(AnswerBody::len).sum::<usize>();
+    DIGESTS.put(
+        key,
+        String::new(),
+        weight,
+        Judged {
+            _bodies: bodies,
+            digest: digest.clone(),
+            kept: kept.clone(),
+        },
+    );
+    (digest, kept)
+}
+
 /// `evidence` split by [`gate_keeps`], and its content digest.
 pub(super) fn owned(evidence: ProviderEvidence) -> Option<Owned> {
     if evidence.is_empty() {
         return None;
     }
-    let digest = octocode_runtime_base::digest::json_sha256(&evidence);
-    let security = ContentSecurity::new();
-    let (kept, held) = evidence
+    let (digest, verdicts) = judged(&evidence);
+    let (kept, held): (Vec<_>, Vec<_>) = evidence
         .answers
         .into_iter()
-        .partition(|answer| gate_keeps(&security, answer));
+        .zip(verdicts.iter())
+        .partition(|(_, kept)| **kept);
+    let (kept, held) = (
+        kept.into_iter().map(|(answer, _)| answer).collect(),
+        held.into_iter().map(|(answer, _)| answer).collect(),
+    );
     Some(Owned {
         digest,
         sealed: ProviderEvidence {

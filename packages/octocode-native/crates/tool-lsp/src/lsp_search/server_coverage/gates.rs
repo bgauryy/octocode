@@ -38,6 +38,15 @@ pub(super) fn annotate_rust(
     // Only an incomplete scan that found none needs the prose.
     if gated.matches > 0 {
         flag_partial(row, query, CFG_REASON, None, scope);
+        // The count lets a reader weigh the rerun, which walks every feature.
+        if lists_reason(row, CFG_REASON)
+            && let Some(fields) = row.as_object_mut()
+        {
+            fields
+                .entry("coverage")
+                .or_insert_with(|| serde_json::json!({}))["cfgGatedFiles"] =
+                serde_json::json!(gated.matches);
+        }
     } else {
         // Only the scan's own counts: what `cfgGatedFiles` means is core's.
         let warning = gated.incomplete_warning().trim_end().to_owned();

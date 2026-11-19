@@ -106,6 +106,12 @@ pub(crate) fn request_bytes(
     })
 }
 
+/// The most input tokens per request byte a taken request reported here,
+/// if any did: what prices a request before it is sent.
+pub(crate) fn tokens_per_byte(endpoint: &str, model: &str, long: bool) -> Option<f64> {
+    with(endpoint, model, long, |bounds| bounds.tokens_per_byte)
+}
+
 /// The window refused a request of `bytes` as too large.
 pub(crate) fn refused(endpoint: &str, model: &str, long: bool, bytes: usize) {
     with(endpoint, model, long, |bounds| {

@@ -1,8 +1,13 @@
 //! Cargo facts reach reads: a file's package, its target roots, which
 //! packages depend on another, and the modules a package places by
-//! `#[path]`.
+//! `#[path]` (read once per state of the package).
+use octocode_engine::stamp::Link;
+use octocode_tools_shared::page_memo::{
+    PageMemo, Proven, Watch, directory_ignore_inputs_with, repository_markers,
+};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 const MANIFEST: &str = "Cargo.toml";
 const DEPENDENCY_TABLES: [&str; 3] = ["dependencies", "dev-dependencies", "build-dependencies"];
@@ -188,26 +193,114 @@ fn patched(package: &Path, defining: &Path) -> bool {
         .any(|path| std::fs::canonicalize(root.join(path)).is_ok_and(|dir| dir == defining))
 }
 
+/// One relocated module: (declaring file, module file), canonical.
+pub(super) type Relocated = (PathBuf, PathBuf);
+
+/// Kept [`relocated_modules`] by package, against the one process budget,
+/// each with the proof of what its walk read.
+static RELOCATED: PageMemo<Proven<[Relocated]>> = PageMemo::new();
+
+/// The package directory is the whole key.
+const ANY_POLICY: &str = "";
+
 /// The modules the package at `package` places by `#[path = "…"]`, each
 /// as (declaring file, module file), canonical; nested packages are their
-/// own. Every `.rs` file is read (bounded, never a FIFO); `None` when `stopped` ended the walk
-/// first.
+/// own. Every `.rs` file is read (bounded, never a FIFO), once per state of
+/// the package: the answer is kept while a proof of every directory the walk
+/// entered (a source added, removed or renamed changes its stamp), its
+/// ignore inputs and every source it read holds. `None` when `stopped` ended
+/// the walk first.
 pub(super) fn relocated_modules(
     package: &Path,
     stopped: &dyn Fn() -> bool,
-) -> Option<Vec<(PathBuf, PathBuf)>> {
+) -> Option<Arc<[Relocated]>> {
+    let key = package.to_string_lossy();
+    if let Some(kept) = RELOCATED.current(&key, ANY_POLICY) {
+        return Some(kept);
+    }
+    #[cfg(test)]
+    SCANS.note(package);
+    // Before the walk's first read, on the request's own clock.
+    let started = octocode_engine::stamp::settle_clock();
+    let (found, read) = scan_relocated(package, stopped)?;
+    let found: Arc<[Relocated]> = found.into();
+    let rules = octocode_engine::search::walk::external_ignore_inputs_with(
+        package,
+        octocode_engine::search::walk::GlobalIgnore::NONE,
+    );
+    if !read.untracked
+        && let Some(proof) = (Watch {
+            root: package,
+            sources: &read.watched,
+            rules: &[rules, read.rules].concat(),
+            markers: &repository_markers(package),
+        })
+        .capture(Link::Follow, Some(started))
+    {
+        let bytes = found
+            .iter()
+            .map(|(declarer, module)| {
+                super::super::paths::path_bytes(declarer) + super::super::paths::path_bytes(module)
+            })
+            .sum::<usize>()
+            + proof.weight();
+        RELOCATED.put_proven(
+            key.into_owned(),
+            ANY_POLICY.to_owned(),
+            bytes,
+            proof,
+            Arc::clone(&found),
+        );
+    }
+    Some(found)
+}
+
+/// What one walk of a package's sources read.
+#[derive(Default)]
+struct Read {
+    /// Entered directories, their ignore files, and every source read.
+    watched: Vec<PathBuf>,
+    /// Ignore inputs a nested repository reads from outside the walk.
+    rules: Vec<PathBuf>,
+    /// An ignore input no stamp can watch: the answer is not kept.
+    untracked: bool,
+}
+
+/// Test-only count of the walks of each package.
+#[cfg(test)]
+pub(super) static SCANS: super::super::path_counter::PathCounter =
+    super::super::path_counter::PathCounter::new();
+
+/// [`relocated_modules`] by walking `package`, with what the walk read.
+fn scan_relocated(package: &Path, stopped: &dyn Fn() -> bool) -> Option<(Vec<Relocated>, Read)> {
     let walker = octocode_tools_shared::package_walk(package).build();
     let mut found = Vec::new();
+    let mut read = Read::default();
     for entry in walker.flatten() {
         if stopped() {
             return None;
         }
         let path = entry.path();
+        if entry.file_type().is_some_and(|kind| kind.is_dir()) {
+            let inputs = directory_ignore_inputs_with(
+                path,
+                package,
+                octocode_engine::search::walk::GlobalIgnore::NONE,
+                |_| true,
+            );
+            read.watched.push(path.to_path_buf());
+            read.watched.extend(inputs.files);
+            read.rules.extend(inputs.external);
+            read.untracked |= inputs.untracked;
+            continue;
+        }
         if !entry.file_type().is_some_and(|kind| kind.is_file())
             || path.extension().is_none_or(|ext| ext != "rs")
         {
             continue;
         }
+        // Before the read: an edit after it moves the stamp.
+        read.watched.push(path.to_path_buf());
         let Ok(bytes) = octocode_tools_shared::source::read_bounded(
             path,
             octocode_runtime_base::security::SourceLimits::REAL.whole_source,
@@ -224,7 +317,7 @@ pub(super) fn relocated_modules(
             found.push((path.to_path_buf(), target));
         }
     }
-    Some(found)
+    Some((found, read))
 }
 
 /// The targets of the `#[path = "…"]` attributes in `text`.

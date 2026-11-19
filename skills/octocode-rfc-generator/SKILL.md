@@ -1,6 +1,6 @@
 ---
 name: octocode-rfc-generator
-description: "Load this skill first when writing, revising or reviewing an RFC, design or feature proposal, migration plan or implementation plan: features, decisions, entities and flows, tasks with what to make, validation and rollout. Use octocode-documentation for settled explanations."
+description: "Load first to write, revise or review an RFC, design or feature proposal, migration plan or implementation plan: features, decisions, entities and flows, tasks with what to make, validation, rollout."
 ---
 
 # Octocode RFC Generator

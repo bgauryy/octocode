@@ -1,12 +1,11 @@
 //! What a build's walk left out of the graph: the files no graph grammar
 //! parses (`leads::unparsed`'s record and sentence, as astSearch names the
 //! ones no AST grammar does), and, when the scan parsed no file, what the
-//! walk skipped, as every local tool discloses it (`empty_walk`'s diagnosis,
+//! walk skipped, as every local tool discloses it (the walk's ledger,
 //! `leads::skipped`'s sentence and lead).
 use super::*;
 use octocode_runtime_base::id::ToolId;
 use octocode_runtime_base::response::result::ToolError;
-use octocode_tools_shared::empty_walk::{FileProbe, Globs, Walk, diagnose_shown};
 use octocode_tools_shared::leads::skipped;
 use octocode_tools_shared::leads::unparsed::{Reader, SourceTypes, Unparsed};
 
@@ -16,62 +15,54 @@ const BUILD: Reader = Reader {
     unread: ["it is not in the graph", "they are not in the graph"],
 };
 
-/// The files of the build's own `walk` of `root` that `keep` leaves out and
-/// the build does not read as script-bearing markup (its scan counts those
-/// itself, `markupNotLinked`); `None` when `stop` ended the walk, which then
-/// proves no count.
-fn unparsed(
+/// The build's own walk of `root` (its flags, `exclude` and default prune),
+/// listing every file: the files `keep` leaves out that the build does not
+/// read as script-bearing markup (its scan counts those itself,
+/// `markupNotLinked`), and what the walk left out of the graph source files
+/// it could hold (ignored, dot and default-excluded paths, as every local
+/// walk records them). `None` when `stop` ended the walk, which then proves
+/// no count.
+fn walk_scope(
     root: &Path,
-    walk: Walk,
-    exclude: &[String],
+    options: &IngestOptions,
     paths: &PathPolicy,
-    permits: &dyn Fn(&Path, Option<std::fs::FileType>) -> bool,
     keep: &dyn Fn(&Path) -> bool,
-    stop: &dyn Fn() -> bool,
-) -> Option<Unparsed> {
+    stop: &(dyn Fn() -> bool + Sync),
+) -> Option<(
+    Unparsed,
+    octocode_runtime_base::policy::discovery::WalkSkips,
+)> {
     let markup = octocode_engine::signatures::languages::SCRIPT_BEARING_MARKUP;
-    let entries = walk
-        .walker(
-            root,
-            &octocode_runtime_base::policy::prune::walk_names(walk.default_excludes, &[]),
-            Globs {
-                include: &[],
-                exclude,
-            },
-        )
-        .ok()?;
+    let admission = crate::ast_graph::walk_scope::build_admission(paths, root);
+    let walked = octocode_engine::search::fs_query::query_file_system(
+        octocode_engine::types::FileSystemQueryOptions {
+            path: root.to_string_lossy().into_owned(),
+            recursive: Some(true),
+            ignore: options.walk.ignore,
+            global_ignore: paths.global_ignore(),
+            entry_type: Some(octocode_engine::types::EntryType::File),
+            default_exclude_dir: Some(octocode_runtime_base::policy::prune::walk_names(
+                options.walk.default_excludes,
+                &[],
+            )),
+            exclude: (!options.exclude.is_empty()).then(|| options.exclude.clone()),
+            ..Default::default()
+        },
+        &|path: &Path, kind, _| admission.admit(path, kind, |_| true),
+        stop,
+    )
+    .ok()?;
+    admission.record_left_out((&walked.ignored, &walked.hidden, &walked.pruned_dirs), keep);
     let mut found = Unparsed::default();
-    // The walk is depth first: a store directory's entries follow it.
-    let mut store: Option<PathBuf> = None;
-    for entry in entries {
-        if stop() {
-            return None;
-        }
-        let Ok(entry) = entry else { continue };
-        let (path, kind) = (entry.path(), entry.file_type());
-        // Octocode's own graph store is no part of any scope, whatever the
-        // walk's flags (`prune::is_octocode_artifact`), as the build's walk
-        // leaves it out.
-        if store.as_ref().is_some_and(|store| path.starts_with(store)) {
-            continue;
-        }
-        let is_dir = kind.is_some_and(|kind| kind.is_dir());
-        if octocode_runtime_base::policy::prune::is_octocode_artifact(root, path, is_dir) {
-            store = Some(path.to_path_buf());
-            continue;
-        }
-        // Every directory on the way is shown to the discovery policy, which
-        // decides what lies in it from its real path.
-        if !permits(path, kind) || !kind.is_some_and(|kind| kind.is_file()) {
-            continue;
-        }
-        let extension = octocode_engine::text::extension_of(&path.to_string_lossy(), true, "");
+    for entry in &walked.entries {
+        let path = Path::new(&entry.path);
+        let extension = octocode_engine::text::extension_of(&entry.path, true, "");
         if keep(path) || markup.contains(&extension.as_str()) {
             continue;
         }
         found.record(path, shown(paths, root, path));
     }
-    Some(found)
+    Some((found, admission.skipped()))
 }
 
 /// `path`, under the snapshot `root`, as the build's rows name it: from the
@@ -110,10 +101,11 @@ fn unparsed_hints(found: &Unparsed, read: Option<&SourceTypes>) -> Vec<String> {
 }
 
 /// Names what the build of `root` left out. The files its walk met that no
-/// graph grammar parses are a hint. When it scanned no file, the graph
-/// source files behind its walk's skipped paths (ignore rules, dot entries,
-/// the default excludes) are a hint too, with the graphBuild lead that
-/// builds them. Both honor the build's `exclude` and `parserGlobs`.
+/// graph grammar parses are a hint. When it scanned no file, the paths its
+/// walk skipped (ignore rules, dot entries, the default excludes) that could
+/// hold a graph source file are named too, with the graphBuild lead that
+/// builds them; nothing behind them is read. Both honor the build's
+/// `exclude` and `parserGlobs`.
 pub(super) fn note_skipped(
     query: &GraphBuildQuery,
     root: &Path,
@@ -147,68 +139,35 @@ pub(super) fn note_skipped(
             .as_ref()
             .is_some_and(|set| octocode_engine::search::glob::matches(set, path, false))
     };
-    let discovery = paths.discovery_walk();
-    let permits =
-        |path: &Path, kind: Option<std::fs::FileType>| discovery.permits_entry(path, kind);
     let stop = || context.check().is_err();
-    // The build's own walk, as the query set it (`graph::scan::scan_options`):
-    // only what it still skips is named.
-    let walk = Walk {
-        ignored: options.walk.ignore.include_ignored,
-        hidden: options.walk.ignore.include_hidden,
-        default_excludes: options.walk.default_excludes,
-        global: paths.global_ignore(),
+    let Some((found, walked)) = walk_scope(root, &options, paths, &keep, &stop) else {
+        return Ok(());
     };
-    if let Some(found) = unparsed(root, walk, &options.exclude, paths, &permits, &keep, &stop) {
-        let read = read_by(parsed_any);
-        octocode_runtime_base::response::paging::push_warnings(
-            out,
-            unparsed_hints(&found, read.as_ref()),
-        );
-        // Each file the hint counts is its own `unparsed` entry; the walk
-        // finished, so the list is whole.
-        // Inside the workspace the response names each entry from it.
-        let entries = found.skipped(read.as_ref()).into_iter().map(|mut entry| {
+    let read = read_by(parsed_any);
+    octocode_runtime_base::response::paging::push_warnings(
+        out,
+        unparsed_hints(&found, read.as_ref()),
+    );
+    // Each file the hint counts is its own `unparsed` entry; the walk
+    // finished, so the list is whole.
+    // Inside the workspace the response names each entry from it.
+    let entries = found
+        .skipped(read.as_ref())
+        .into_iter()
+        .map(|mut entry| {
             if paths.workspace_relative(&entry.path).is_none() {
                 entry.path = shown(paths, root, Path::new(&entry.path));
             }
             entry
-        });
-        if let Some(skipped) = skipped::skipped_paths(entries, true, false)? {
-            out["skippedPaths"] =
-                serde_json::to_value(skipped).map_err(skipped::skipped_path_error)?;
-        }
+        })
+        .collect();
+    if let Some(skipped) = skipped::unparsed_paths(entries, false)? {
+        out["skippedPaths"] = serde_json::to_value(skipped).map_err(skipped::skipped_path_error)?;
     }
     if parsed_any {
         return Ok(());
     }
-    let probe = FileProbe::new(root, &permits, &keep)
-        .under(paths.global_ignore())
-        .stopping(&stop)
-        .within(Globs {
-            include: &[],
-            exclude: &options.exclude,
-        })
-        .beyond(walk);
-    // The rules are named as the receipt names its root: workspace-relative.
-    let shown = |path: &Path| paths.shown(path);
-    let Ok(verdict) = diagnose_shown(root, walk, &shown, |relaxed| probe.find(relaxed)) else {
-        return Ok(());
-    };
-    let skipping = walk.skipping();
-    let named = skipping
-        .iter()
-        .map(|cause| cause.label())
-        .collect::<Vec<_>>()
-        .join(", ");
-    let Some(disclosure) = skipped::disclose(
-        &verdict,
-        ["graph source file", "graph source files"],
-        skipped::Unchecked {
-            causes: &skipping,
-            named: &named,
-        },
-    ) else {
+    let Some(disclosure) = skipped::unsearched_ledger(&walked) else {
         return Ok(());
     };
     // The same build with exactly the skipping causes lifted.

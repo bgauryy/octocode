@@ -138,7 +138,10 @@ pub(in super::super) fn with_next(query: &LspSearchQuery, mut value: Value) -> V
         // A workspaceRoot-only query has no file to fall back to reading, and
         // reading source cannot stand in for missing diagnostics.
         let category = value.pointer("/category").and_then(Value::as_str);
+        // A workspace symbol's file only picks the project: reading it does
+        // not stand in for the search, whose lead is the text search.
         if lsp_search_query::path(query).is_some()
+            && lsp_search_query::op(query) != crate::lsp_search::Op::WorkspaceSymbol
             && !matches!(category, Some("noDiagnostics" | "diagnosticsNotPublished"))
         {
             attach_recovery_next(&mut value, query);

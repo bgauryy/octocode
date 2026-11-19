@@ -63,12 +63,14 @@ fn related_rows(read: &LocalFetchResult) -> Vec<serde_json::Value> {
 /// The most bytes a first answer about a match in a long line takes.
 const WINDOW_PAGE_BYTES: usize = 400;
 
-/// D3: a match deep inside a line too long for one page is on page 1, with
-/// the bytes around it, at the byte offset the page states. The required
-/// pages then hold the rest of the line: its redacted prefix and suffix,
-/// every byte exactly once, with no optional read.
+/// D3, Q4: a match deep inside a line too long for one page is on page 1,
+/// with the bytes around it, at the byte offset the page states. Page 1
+/// holds every match of the read's last line, so no page follows it: the
+/// rest of the line is an optional read of the whole line (`related`),
+/// whose own walk is the line, redacted prefix and suffix, every byte
+/// exactly once.
 #[test]
-fn a_match_deep_in_a_long_line_is_on_page_one_and_the_line_is_walked_once() {
+fn a_match_deep_in_a_long_line_is_on_page_one_and_the_line_is_an_optional_read() {
     let fixture = Fixture::new();
     let filler = positional(300_000);
     let hit_at = 200_000;
@@ -100,13 +102,33 @@ fn a_match_deep_in_a_long_line_is_on_page_one_and_the_line_is_walked_once() {
         "the page states where its bytes are, around byte {hit}: {page:?}"
     );
     assert_eq!(page.total_bytes, view.len(), "{page:?}");
+    assert!(!page.has_more, "no page follows: {page:?}");
     assert!(
-        related_rows(&read).is_empty(),
-        "no optional prefix recovery"
+        read.next
+            .as_ref()
+            .is_none_or(|next| next.continue_window.is_none()),
+        "{read:?}"
     );
-    let pages = walk_exactly_once(&query, &paths, None, &view);
-    assert_eq!(pages[0].0, page.offset);
-    assert_eq!(pages[1].0, 0, "the rest starts at the line's first byte");
+    assert!(
+        read.warnings
+            .iter()
+            .any(|warning| warning.contains("Every match in line 1")),
+        "{:?}",
+        read.warnings
+    );
+    let [line]: [serde_json::Value; 1] = related_rows(&read).try_into().expect("one optional read");
+    assert_eq!(
+        line["ranges"],
+        serde_json::json!([{"startLine": 1, "endLine": 1}]),
+        "{line}"
+    );
+    assert!(line.get("matchString").is_none(), "{line}");
+    let line: LocalFetchQuery = serde_json::from_value(line).expect("a read");
+    let pages = walk_exactly_once(&line, &paths, None, &view);
+    assert_eq!(
+        pages[0].0, 0,
+        "the line read starts at the line's first byte"
+    );
 }
 
 /// D3: every match in a long line has its window before the rest of the
@@ -178,8 +200,12 @@ fn every_match_window_of_a_long_line_comes_before_the_rest() {
             );
         }
         assert_eq!(windows[0].0, 0, "{window:?}: a hit at the line start");
+        // Q4: a first page holding every window leaves the rest of the line
+        // to the line's own read, which walks the whole line, its matches
+        // among it; else the required pages after the windows hold none.
+        let rest_read = pages[0].1.contains(" not shown] ...");
         assert!(
-            pages[1..].iter().all(|(_, text)| !text.contains("NEEDLE")),
+            rest_read || pages[1..].iter().all(|(_, text)| !text.contains("NEEDLE")),
             "{window:?}: the rest holds no match"
         );
     }
@@ -274,7 +300,12 @@ fn a_hit_near_the_line_start_is_a_window_from_the_first_byte() {
     let pages = walk_exactly_once(&query, &paths, None, &format!("{line}\n"));
     assert_eq!(pages[0].0, 0);
     assert!(pages[0].1.contains("NEEDLE_HIT"));
-    assert_eq!(pages[1].0, pages[0].1.len(), "the rest goes on from it");
+    // Q4: page 1 shows the line's only match; its optional read walks the
+    // whole line from its first byte.
+    assert_eq!(
+        pages[1].0, 0,
+        "the line read starts at the line's first byte"
+    );
 }
 
 /// A matched line one byte page holds whole is that page: nothing to put
@@ -522,7 +553,11 @@ fn a_page_of_match_windows_states_the_bytes_and_lines_it_shows() {
     let shown: usize = pieces.iter().map(|(_, piece)| piece.len()).sum();
     assert_eq!(page.length, shown, "{page:?}");
     assert_eq!(read.returned_lines, Some(1), "{read:?}");
-    assert!(page.has_more, "the rest of the line follows: {page:?}");
+    // Q4: every match of the read's last line is on this page, so the rest
+    // of the line is the related read, not a page: the gaps say so.
+    assert!(!page.has_more, "no page follows: {page:?}");
+    assert!(text.contains(" not shown] ..."), "{text:.300}");
+    assert_eq!(related_rows(&read).len(), 1, "the line's read: {read:?}");
 }
 
 /// A line longer than a line page is walked in byte pages as large as the

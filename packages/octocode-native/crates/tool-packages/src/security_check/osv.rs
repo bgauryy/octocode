@@ -19,8 +19,9 @@ use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use url::Url;
 
-/// Records read at once: how politely one call asks the public API, not a limit
-/// on how many it reads.
+/// OSV requests one call has in flight at once, every row of it together
+/// ([`crate::artifact::CallShare`]): how politely a call asks the public API,
+/// not a limit on how many it reads.
 pub(super) const CONCURRENT_READS: usize = 8;
 
 /// What one OSV query asks about.
@@ -248,17 +249,28 @@ pub(super) async fn record_ids(
 }
 
 /// One record by id, withdrawn ones included. An id OSV does not have is not
-/// found, never clean.
+/// found, never clean. A record read by id names no stamp to ask by, so it
+/// is kept as a search answer: a repeat within the search window reads the
+/// kept one, and the row states when it was observed ([`hydrate::by_id_kept`]).
 async fn check_advisory(net: &Net<'_>, id: &str) -> Result<SourceResult, ArtifactError> {
-    let Some(fetched) = by_id(net, id).await? else {
-        return Err(ArtifactError::new(
-            ErrorCode::NotFound,
-            format!("OSV has no record {id}: this says nothing about whether it exists elsewhere."),
-        )
-        .with_status(404));
+    let record = match hydrate::by_id_kept(net, id) {
+        Some(record) => record,
+        None => {
+            let Some(fetched) = by_id(net, id).await? else {
+                return Err(ArtifactError::new(
+                    ErrorCode::NotFound,
+                    format!(
+                        "OSV has no record {id}: this says nothing about whether it exists elsewhere."
+                    ),
+                )
+                .with_status(404));
+            };
+            hydrate::keep_by_id(net, id, &fetched);
+            fetched.record
+        }
     };
     let mut result = SourceResult::new(Source::Osv);
-    result.advisories = rows(&[fetched.record], &Selection::All, id)?;
+    result.advisories = rows(&[record], &Selection::All, id)?;
     Ok(result)
 }
 
@@ -343,19 +355,28 @@ pub(super) fn malformed(reason: &str, target: &str) -> ArtifactError {
     )
 }
 
+/// A POST of `body`, sent once in the call however many rows send it, under
+/// the call's bound on OSV requests in flight.
 async fn post(
     net: &Net<'_>,
     path: &str,
     body: &Value,
     target: &str,
 ) -> Result<ArtifactHttpResponse, ArtifactError> {
+    let request = request(net, path)?;
+    let body = body.to_string();
+    let key = format!(
+        "POST {}\n{}",
+        request.url,
+        octocode_engine::digest::sha256(body.as_bytes())
+    );
     let response = net
-        .http
-        .post(
-            request(net, path)?,
-            body.to_string().into_bytes(),
-            net.budget,
-        )
+        .share
+        .requests
+        .once(key, async move {
+            let _permit = net.share.advisory_permit(CONCURRENT_READS).await;
+            net.http.post(request, body.into_bytes(), net.budget).await
+        })
         .await
         .map_err(|error| transport_failure(error, target))?;
     if (200..300).contains(&response.status) {
@@ -373,11 +394,19 @@ pub(super) struct FetchedRecord {
 }
 
 /// One record by id, withdrawn ones included; `None` when OSV has no such id.
+/// Read once in a call, whichever of its rows asks, under the call's bound on
+/// OSV requests in flight.
 pub(super) async fn by_id(net: &Net<'_>, id: &str) -> Result<Option<FetchedRecord>, ArtifactError> {
     let encoded: String = url::form_urlencoded::byte_serialize(id.as_bytes()).collect();
+    let request = request(net, &format!("vulns/{encoded}"))?;
+    let key = format!("GET {}", request.url);
     let response = net
-        .http
-        .get(request(net, &format!("vulns/{encoded}"))?, net.budget)
+        .share
+        .requests
+        .once(key, async move {
+            let _permit = net.share.advisory_permit(CONCURRENT_READS).await;
+            net.http.get(request, net.budget).await
+        })
         .await
         .map_err(|error| transport_failure(error, id))?;
     match response.status {

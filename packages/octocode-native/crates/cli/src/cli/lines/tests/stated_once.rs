@@ -861,3 +861,39 @@ fn a_stated_root_is_the_one_printed_root() {
         }
     }
 }
+
+/// TC0b: what the response states once in `shared.data` (a batch's commit,
+/// its `lsp` block) prints once before the rows, on stdout, and no row
+/// repeats it; the envelope's `hints` print as the envelope's notes do.
+#[test]
+fn what_the_response_shares_prints_once_before_the_rows() {
+    let output = json!({
+        "shared": {"data": {"commitSha": "fdf7a1", "lsp": {"serverAvailable": true}}},
+        "hints": ["Widen the scope."],
+        "results": [
+            {"index": 0, "data": {"files": [{"path": "a.rs", "matches": [{"line": 1, "value": "fn a"}]}]}},
+            {"index": 1, "status": "empty", "data": {"files": []}},
+        ],
+    });
+    let query = json!({"queries": [{"owner": "o", "repo": "r", "keywords": ["fn"]}, {"owner": "o", "repo": "r", "keywords": ["zz"]}]});
+    let lines = render(ToolId::GhSearchCode, &output, &query, None).expect("lines");
+    assert_eq!(
+        lines.out.matches("commitSha: fdf7a1").count(),
+        1,
+        "{}",
+        lines.out
+    );
+    let first_row = lines.out.find("## results[0]").expect("rows");
+    assert!(
+        lines.out.find("commitSha: fdf7a1").expect("shared") < first_row,
+        "{}",
+        lines.out
+    );
+    assert!(lines.out.contains("serverAvailable"), "{}", lines.out);
+    assert!(
+        format!("{}\n{}", lines.out, lines.notes).contains("Widen the scope."),
+        "{}\n{}",
+        lines.out,
+        lines.notes
+    );
+}

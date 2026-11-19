@@ -80,3 +80,14 @@ fn a_bad_entry_of_a_list_is_named_as_written() {
     assert!(shown.contains("`threads(`"), "{shown}");
     assert!(!shown.contains("(?i"), "{shown}");
 }
+
+/// A term whose only "regex syntax" is a character a regex reads as itself
+/// (`-` in `fs-minipass`) means the same either way: no regex reading.
+#[test]
+fn a_term_that_reads_the_same_as_a_regex_gets_no_offer() {
+    for terms in [vec!["fs-minipass"], vec!["no-such-term-here"]] {
+        let row = search_fixture(&FILES, literal(&terms));
+        assert!(!offers_regex(&row), "{terms:?}: {row}");
+        assert!(!row["hints"].to_string().contains("as a regex"), "{row}");
+    }
+}

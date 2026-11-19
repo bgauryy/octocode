@@ -10,7 +10,7 @@ use crate::error::{Error, Result};
 use crate::lsp::clock::LspClock;
 use serde_json::{Value, json};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Duration;
@@ -51,10 +51,11 @@ pub(super) struct Shared {
     pub(super) consecutive_timeouts: AtomicU32,
     /// The server's progress signals, which extend a request's wait.
     pub(super) activity: ServerActivity,
-    /// The server registered for `workspace/didChangeWatchedFiles`
-    /// (`client/registerCapability`), so it expects file events for files
-    /// it has not opened.
-    pub(super) watches_files: AtomicBool,
+    /// The ids of the server's live `workspace/didChangeWatchedFiles`
+    /// registrations (`client/registerCapability`): while any is live it
+    /// expects file events for files it has not opened. One unregistration
+    /// ends only its own id.
+    pub(super) file_watches: std::sync::Mutex<std::collections::BTreeSet<String>>,
     /// The time every deadline of this connection is set and read on.
     pub(super) clock: LspClock,
     /// Bytes the writer has handed to the server's input so far: while this

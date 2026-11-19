@@ -119,6 +119,13 @@ impl<'a> WalkLog<'a> {
         admitted
     }
 
+    /// Whether the scan reads the file `path`: a grammar's (under `parser`,
+    /// the requested one's, or a `parserGlobs` entry's).
+    pub(super) fn reads(&self, path: &Path) -> bool {
+        self.scope.parsers.extension(path).is_some()
+            || (super::parses(self.scope, path) && has_extension_in(path, &self.grammars))
+    }
+
     /// Whether this is the first the log hears of the file `path`.
     fn meet(&self, path: &Path) -> bool {
         self.counted

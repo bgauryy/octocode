@@ -3,6 +3,8 @@
 //! release-host allowlist, and, for an immutable release, its attestation.
 use super::download::{download_client, download_error, fetch_allowlisted};
 use super::{Failure, READ_TIMEOUT};
+use octocode_io::budget::{PROVIDER_BODY_BYTES, RequestBudget};
+use octocode_io::retry::{BodyError, read_bounded};
 use std::process::Output;
 
 /// The GitHub REST API, the one host a release's metadata is read from.
@@ -146,9 +148,14 @@ impl Upstream for GitHub {
         if let Some(token) = &self.token {
             request = request.bearer_auth(token);
         }
-        let response = tokio::time::timeout(READ_TIMEOUT, request.send())
+        // One deadline for the headers and the whole body, and the provider
+        // body bound every other GitHub answer is read under.
+        let budget = RequestBudget::with_timeout(READ_TIMEOUT, PROVIDER_BODY_BYTES);
+        let no_answer = || format!("no answer within {}s", READ_TIMEOUT.as_secs());
+        let response = budget
+            .wait(request.send())
             .await
-            .map_err(|_| format!("no answer within {}s", READ_TIMEOUT.as_secs()))?
+            .map_err(|_| no_answer())?
             .map_err(|e| download_error(e).replacen("Download failed", "request failed", 1))?;
         let status = response.status();
         if status == reqwest::StatusCode::NOT_FOUND {
@@ -157,10 +164,24 @@ impl Upstream for GitHub {
         if !status.is_success() {
             return Err(format!("GitHub API answered HTTP {}", status.as_u16()));
         }
-        let release: serde_json::Value = response
-            .json()
+        let body = read_bounded(response, &budget, budget.max_body_bytes)
             .await
-            .map_err(|e| format!("unreadable release JSON: {}", e.without_url()))?;
+            .map_err(|error| match error {
+                BodyError::TooLarge => format!(
+                    "the release JSON exceeds the {}-byte limit",
+                    budget.max_body_bytes
+                ),
+                BodyError::Stopped(_) => no_answer(),
+                BodyError::Transport => {
+                    "unreadable release JSON: the connection failed mid-body".to_owned()
+                }
+                BodyError::Decode => {
+                    "unreadable release JSON: the body does not decode as its Content-Encoding says"
+                        .to_owned()
+                }
+            })?;
+        let release: serde_json::Value =
+            serde_json::from_slice(&body).map_err(|e| format!("unreadable release JSON: {e}"))?;
         Ok(release_asset_digest(&release, asset))
     }
 

@@ -45,6 +45,7 @@ async fn row(registered: Registered, github: Option<&dyn RepositoryRead>) -> Val
         config: &crate::security_check::tests::default_config(),
         github,
         osv_api: octocode_runtime_base::execution::RuntimeLimits::DEFAULT.osv_api,
+        share: &crate::artifact::CallShare::new(),
     };
     let mut data = json_fixture(r#"{"sources": [{"source": "osv", "status": "found"}]}"#);
     let confirmed = crate::security_check::source::Confirmed {

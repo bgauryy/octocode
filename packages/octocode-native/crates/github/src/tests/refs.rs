@@ -347,6 +347,73 @@ async fn annotated_tags_read_their_commits_together() {
     assert_eq!(asked.len(), 2, "one read per nesting step");
 }
 
+/// Tag objects cannot change: a GraphQL answer naming every tag object it
+/// was asked is kept, so the same tags listed again send nothing (the
+/// ghStructure refs repeat). An answer that names no object for one is not
+/// kept: that object may be pushed later.
+#[tokio::test]
+async fn tag_targets_named_whole_are_kept_and_a_missing_object_is_asked_again() {
+    for (missing, expected) in [(false, 1), (true, 2)] {
+        let server = MockServer::builder().start().await;
+        let (annotated, gone) = ("d".repeat(40), "9".repeat(40));
+        // Several objects: the read must name them in one order every time.
+        let others = ["a", "b", "c", "f"].map(|digit| digit.repeat(40));
+        let mut targets = vec![(annotated.clone(), tagged("Commit", &"e".repeat(40)))];
+        targets.extend(
+            others
+                .iter()
+                .map(|other| (other.clone(), tagged("Commit", &"1".repeat(40)))),
+        );
+        if missing {
+            targets.push((gone.clone(), None));
+        }
+        Mock::given(method("POST"))
+            .and(path("/api/graphql"))
+            .respond_with(tag_targets_answer(targets))
+            .mount(&server)
+            .await;
+        // The REST read of an object GraphQL did not name: GitHub has none.
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(404).set_body_string("{\"message\":\"Not Found\"}"))
+            .mount(&server)
+            .await;
+        let mut transport = anonymous_transport(&mock_endpoint(&server));
+        transport.set_saved_answers(Some(std::sync::Arc::new(
+            super::saved_answers::Memory::default(),
+        )));
+        let mut tags = vec![TagRef {
+            name: "annotated".into(),
+            object: Some(TagObject::Annotated(annotated.clone())),
+        }];
+        tags.extend(others.iter().map(|other| TagRef {
+            name: format!("t{other}"),
+            object: Some(TagObject::Annotated(other.clone())),
+        }));
+        if missing {
+            tags.push(TagRef {
+                name: "gone".into(),
+                object: Some(TagObject::Annotated(gone.clone())),
+            });
+        }
+        for _ in 0..2 {
+            let context = with_token("t", Duration::from_secs(10), 1 << 20);
+            let commits = transport
+                .tag_commits("o", "r", &tags, &context)
+                .await
+                .expect("commits");
+            assert_eq!(commits[0], Some("e".repeat(40)));
+        }
+        let posts = server
+            .received_requests()
+            .await
+            .expect("requests")
+            .iter()
+            .filter(|request| request.url.path() == "/api/graphql")
+            .count();
+        assert_eq!(posts, expected, "missing object: {missing}");
+    }
+}
+
 /// Without GraphQL (an anonymous request), and for any object a GraphQL
 /// read leaves unanswered, each tag object is read by REST: the same
 /// commits, the transport choice no part of the answer. An object GitHub no

@@ -28,7 +28,6 @@ mod stderr;
 mod sync;
 #[cfg(test)]
 mod tests;
-mod waits;
 mod watched;
 
 pub use crate::lsp::transport::{HealthLevel, Readiness, ServerHealth};
@@ -36,7 +35,6 @@ pub use absence::{AskedAt, EmptyAnswer};
 use open_documents::{MAX_OPEN_DOCUMENTS, OpenDocuments};
 pub use requests::LocationRequest;
 pub use snippets::{SNIPPET_CONTENT_WITHHELD, SnippetPathAuthorizer, SnippetReadPolicy};
-pub use waits::ServerWaits;
 pub use watched::WatchedFileUpdate;
 
 pub(super) const REQUEST_TIMEOUT_MS: u32 = 30_000;
@@ -66,6 +64,9 @@ pub struct NativeLspClient {
     inner: Arc<NativeLspClientInner>,
 }
 
+/// The next [`NativeLspClientInner::instance`].
+static NEXT_INSTANCE: AtomicU64 = AtomicU64::new(1);
+
 /// Lock order: `child` → `connection` → `stderr_task`. `start` and `stop`
 /// both take `child` first and hold it for their whole run, so a `stop` that
 /// overlaps a `start` waits for it and then tears down exactly what it
@@ -73,6 +74,9 @@ pub struct NativeLspClient {
 /// methods take `connection` alone and never while holding it acquire
 /// `child`. The `StdMutex` fields are leaf locks held only for a copy.
 struct NativeLspClientInner {
+    /// This client's number in the process, never reused: what a kept answer
+    /// names as the server it came from.
+    instance: u64,
     config: LspLanguageServerConfig,
     child: Mutex<Option<Child>>,
     // Stored behind an `Arc` so callers can clone a handle out from under the
@@ -87,8 +91,6 @@ struct NativeLspClientInner {
     capabilities: StdMutex<Option<Value>>,
     server_info: StdMutex<Option<Value>>,
     readiness: StdMutex<Option<Readiness>>,
-    /// What callers waited on here: the start and the project loads.
-    waits: StdMutex<waits::Waits>,
     progress: Arc<ProgressTracker>,
     /// When this server started: a file changed since is not what it indexed.
     started_at: std::sync::OnceLock<std::time::SystemTime>,
@@ -187,6 +189,17 @@ impl Default for ResponseScope {
 
 tokio::task_local! {
     pub static RESPONSE_SCOPE: std::cell::RefCell<ResponseScope>;
+    /// Set while [`asked_again`] runs: requests go to the server even when
+    /// the response scope recorded an answer for them.
+    static ASKING_AGAIN: ();
+}
+
+/// Run `work` with its requests asked of the server again, not read from
+/// the answers the response scope recorded: a request whose first answer
+/// predates documents it then opened. Each fresh answer replaces the
+/// recorded one, so a later page of the response reads it.
+pub async fn asked_again<F: std::future::Future>(work: F) -> F::Output {
+    ASKING_AGAIN.scope((), work).await
 }
 
 impl NativeLspClient {
@@ -221,6 +234,7 @@ impl NativeLspClient {
         Self {
             inner: Arc::new(NativeLspClientInner {
                 config,
+                instance: NEXT_INSTANCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
                 child: Mutex::new(None),
                 connection: Mutex::new(None),
                 stderr_task: Mutex::new(None),
@@ -228,7 +242,6 @@ impl NativeLspClient {
                 capabilities: StdMutex::new(None),
                 server_info: StdMutex::new(None),
                 readiness: StdMutex::new(None),
-                waits: StdMutex::default(),
                 progress: ProgressTracker::new(clock.clone()),
                 started_at: std::sync::OnceLock::new(),
                 listed_files: std::sync::OnceLock::new(),

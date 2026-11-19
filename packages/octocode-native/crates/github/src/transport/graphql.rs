@@ -9,7 +9,9 @@ use std::time::Instant;
 
 use super::attempts::{secondary_cooldown, secondary_wait, spent_bucket_reset};
 use super::execute::Obtained;
-use super::{GitHubTransport, GraphQlError, GraphQlPage, RequestContext, RequestSpec};
+use super::{
+    GitHubTransport, GraphQlError, GraphQlPage, RequestContext, RequestSpec, ResponsePage,
+};
 use crate::budget::{CircuitCause, GitHubResource, now_ms, rate_limited_error};
 use crate::{ProviderError, ProviderErrorKind, RateLimit};
 
@@ -88,6 +90,10 @@ impl GitHubTransport {
     /// [`Self::execute_graphql`] for a read of one pull request: a kept answer
     /// stands for as long as GitHub says that pull request's REST read stands,
     /// disclosed by when it was observed.
+    ///
+    /// A batch that read its rows' pull requests in one aliased request
+    /// ([`crate::RefMemo::record_pull_request`]) answers this read with the
+    /// part that is this read's own, recorded and kept as its answer.
     pub async fn execute_pull_request_graphql(
         &self,
         query: &str,
@@ -95,14 +101,90 @@ impl GitHubTransport {
         context: &RequestContext,
     ) -> Result<GraphQlPage, ProviderError> {
         let spec = self.graphql_spec(query, variables)?.reading_pull_request();
+        if let Some(memo) = context.ref_memo()
+            && let Some(body) = spec.body.as_ref().map(ToString::to_string)
+            && let Some(page) = memo.pull_request(&body).await
+            && let Ok(parsed) = serde_json::from_slice::<GraphQlPage>(&page.body)
+        {
+            memo.adopt_waits(context);
+            let page = super::execute::joined(&spec, page, context);
+            if parsed.errors.is_empty() {
+                self.keep(&spec, &page, context);
+            } else {
+                context.journal.forget(&spec);
+            }
+            return Ok(parsed);
+        }
         self.graphql(spec, context).await
     }
 
+    /// [`Self::execute_graphql`] for a read of git objects named by their
+    /// ids (tag objects, blobs, trees), which cannot change: an answer kept
+    /// for the same read answers it with nothing sent, and an answer with no
+    /// `errors[]` that `complete` finds names every object asked is kept
+    /// pinned. An object the answer did not name may be pushed later, so an
+    /// answer missing one is not kept.
+    pub(crate) async fn execute_object_graphql(
+        &self,
+        query: &str,
+        variables: Value,
+        context: &RequestContext,
+        complete: impl Fn(&GraphQlPage) -> bool,
+    ) -> Result<GraphQlPage, ProviderError> {
+        let spec = self.graphql_spec(query, variables)?.reading_objects();
+        let (page, fresh) = self.graphql_uncoordinated(spec.clone(), context).await?;
+        if let Some(raw) = fresh
+            && complete(&page)
+        {
+            self.keep(&spec, &raw, context);
+        }
+        Ok(page)
+    }
+
+    /// A GraphQL read; identical reads of one pull request asked together
+    /// share one fill ([`GitHubTransport::fill_key`]): the first sends it,
+    /// and the rest take the answer GitHub gave it, so a call that reads one
+    /// pull request in two rows asks GitHub once.
     async fn graphql(
         &self,
         spec: RequestSpec,
         context: &RequestContext,
     ) -> Result<GraphQlPage, ProviderError> {
+        if let Some(key) = self.fill_key(&spec, context) {
+            let ticket = self.fills.join(key);
+            let mut fill = context.budget.wait(ticket.turn()).await?;
+            if let Some(page) = fill.answer.clone() {
+                drop(fill);
+                let page = super::execute::joined(&spec, page, context);
+                return serde_json::from_slice(&page.body).map_err(|_| {
+                    ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub GraphQL response")
+                });
+            }
+            if !fill.started {
+                fill.started = true;
+                let result = self.graphql_uncoordinated(spec.clone(), context).await;
+                if let Ok((_, Some(raw))) = &result
+                    && self.shares_in_flight(&spec, raw)
+                {
+                    fill.answer = Some(raw.clone());
+                }
+                drop(fill);
+                return result.map(|(page, _)| page);
+            }
+        }
+        self.graphql_uncoordinated(spec, context)
+            .await
+            .map(|(page, _)| page)
+    }
+
+    /// [`Self::graphql`] outside any fill, with GitHub's page when it sent
+    /// it just now and it holds no `errors[]` (what a waiting identical read
+    /// may take).
+    async fn graphql_uncoordinated(
+        &self,
+        spec: RequestSpec,
+        context: &RequestContext,
+    ) -> Result<(GraphQlPage, Option<ResponsePage>), ProviderError> {
         // One physical-attempt budget for the whole operation: HTTP retries
         // inside `execute_counted` and the semantic retries below share it.
         let mut attempt: u8 = 0;
@@ -214,7 +296,8 @@ impl GitHubTransport {
                     }
                 }
             }
-            return Ok(parsed);
+            let fresh = (from_origin && parsed.errors.is_empty()).then_some(page);
+            return Ok((parsed, fresh));
         }
     }
 }

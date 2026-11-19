@@ -32,17 +32,17 @@ flowchart LR
 | `gh-cli` | `gh auth token --hostname <host>` reads the host's GitHub CLI login. Octocode clears token variables for this subprocess. |
 | `none` | No credential selected. Public endpoints that allow anonymous reads have lower rate limits. Private repositories and code search require authentication. [GitHub search requirements](https://docs.github.com/en/rest/search/search#rate-limit) |
 
-For example, a shell `GITHUB_TOKEN` wins over a workspace `GH_TOKEN`. If GitHub rejects the explicit environment token, fix or remove it to switch accounts. If GitHub rejects a stored or `gh` token, subsequent requests in that runtime skip the rejected credential.
+For example, a shell `GITHUB_TOKEN` wins over a workspace `GH_TOKEN`. If GitHub rejects the explicit environment token, fix or remove it to switch accounts. If GitHub rejects a stored or `gh` token, later calls skip that credential, and later rows of the same call select again.
 
 ### Refresh
 
-Octocode refreshes a stored expiring access token on a request within five minutes of expiry and saves the replacement to its original store. To refresh manually, run `npx -y octocode auth login --refresh`. If the refresh token expired, start a new device login. Octocode treats environment tokens as supplied.
+Octocode refreshes a stored expiring access token when a request falls within five minutes of its expiry. To refresh manually, run `npx -y octocode auth login --refresh`. If the refresh token expired, start a new device login. Octocode treats environment tokens as supplied.
 
 ### Status and logout
 
 | Goal | Command | What to expect |
 |---|---|---|
-| Verify the active credential | `npx -y octocode auth status --json` | Reports host, account, source and verification. Available quota buckets include remaining requests and reset times. Status checks with GitHub without refreshing the token. |
+| Verify the active credential | `npx -y octocode auth status --json` | Reports host, account, source and verification. Available quota buckets include remaining requests and reset times. |
 | Switch stored accounts | `npx -y octocode auth login --force` | Replaces the saved login after successful approval. An environment token still takes priority. |
 | Remove the host's saved login | `npx -y octocode auth logout` | Clears the Octocode and OS entries for the configured host. Manage environment tokens and `gh` logins at their source. |
 
@@ -59,7 +59,7 @@ npx -y octocode auth login
 npx -y octocode auth status --json
 ```
 
-For token-based access, set the same API root and supply a token for that host. An enterprise `gh auth login --hostname <host>` is also eligible. `auth login --hostname <host>` overrides the hostname for one login. Set `GITHUB_API_URL` or home `github.apiUrl` so later requests, status, and logout target that host.
+For token-based access, set the same API root and supply a token for that host. `auth login --hostname <host>` overrides the hostname for one login. Set `GITHUB_API_URL` or home `github.apiUrl` so later requests, status, and logout target that host.
 
 ## MCP clients and the VS Code extension
 
@@ -84,7 +84,7 @@ For `artifactSearch`, select `ecosystem: "npm"` and set `registryUrl` for a cust
 //registry.example.com/npm/:_authToken=${NPM_TOKEN}
 ```
 
-Set `NPM_TOKEN` in the environment for this example. The longest matching host, port and path prefix wins. `:_authToken` supplies Bearer auth and `:_auth` supplies Basic auth. Octocode sends credentials over HTTPS or loopback HTTP. A private, loopback or link-local registry also needs `network.allowPrivateRegistry: true` in trusted configuration. [Configuration](CONFIGURATION.md#all-settings-and-defaults)
+Set `NPM_TOKEN` in the environment for this example; if a referenced variable is unset, that entry is ignored. The longest matching host, port and path prefix wins. `:_authToken` supplies Bearer auth and `:_auth` supplies Basic auth. Octocode sends credentials over HTTPS or loopback HTTP. A private, loopback or link-local registry also needs `network.allowPrivateRegistry: true` in trusted configuration. [Configuration](CONFIGURATION.md#all-settings-and-defaults)
 
 ## Troubleshooting
 

@@ -650,3 +650,95 @@ fn a_revoked_credential_keeps_no_saved_answer() {
         assert!(store.load("revoked", "r1").is_some(), "disk {disk}");
     }
 }
+
+/// A stored body that no longer holds its digest is refused when its answer
+/// would serve, from memory or disk, whichever value the store hands out,
+/// and the answer is forgotten; a probe never serves it.
+#[test]
+fn a_changed_stored_body_is_refused_when_its_answer_would_serve() {
+    for persistent in [false, true] {
+        let dir = tempfile::tempdir().expect("dir");
+        let store = KeptAnswers::new(persistent.then(|| dir.path().to_owned()));
+        let body = "fn kept() {}\n";
+        store.save("scope", "read", saved(body));
+        assert_eq!(
+            store.load("scope", "read").expect("kept").answer.body,
+            body,
+            "persistent {persistent}"
+        );
+        let digest = body_digest(&AnswerBody::from(body));
+        let changed = AnswerBody::from("fn other() {}\n");
+        let length = changed.len();
+        store
+            .bodies
+            .put_confirmed(body_key(&digest), changed, length, UNUSED_RETENTION);
+        assert!(
+            store.probe("scope", "read").is_some(),
+            "a probe reads no body: persistent {persistent}"
+        );
+        assert_eq!(store.load("scope", "read"), None, "persistent {persistent}");
+        assert_eq!(
+            store.probe("scope", "read"),
+            None,
+            "persistent {persistent}"
+        );
+    }
+}
+
+/// The memory store hands out the one value it keeps: it is hashed once
+/// however often its answer serves. A disk read is hashed every time.
+#[test]
+fn a_memory_body_is_hashed_once_and_a_disk_body_on_every_load() {
+    for persistent in [false, true] {
+        let dir = tempfile::tempdir().expect("dir");
+        let store = KeptAnswers::new(persistent.then(|| dir.path().to_owned()));
+        store.save("scope", "read", saved("fn kept() {}\n"));
+        for _ in 0..3 {
+            assert!(store.load("scope", "read").is_some());
+        }
+        let hashed = store.verified.lock().expect("verified").hashed;
+        assert_eq!(
+            hashed,
+            if persistent { 3 } else { 1 },
+            "persistent {persistent}"
+        );
+    }
+}
+
+/// A probe states what a load would reuse: the same headers and
+/// observation, so the same reuse; a memory body's length, none of a disk
+/// body unread; a held answer whole; nothing for an answer not kept. It
+/// hashes no body.
+#[test]
+fn a_probe_states_what_a_load_would_reuse_without_reading_a_disk_body() {
+    let secret = format!("token = \"ghp_{}\"\n", "a1B2c3D4e5F6".repeat(3));
+    for persistent in [false, true] {
+        let dir = tempfile::tempdir().expect("dir");
+        let store = KeptAnswers::new(persistent.then(|| dir.path().to_owned()));
+        let body = "fn kept() {}\n";
+        store.save("scope", "read", saved(body));
+        let (probed, length) = store.probe("scope", "read").expect("probed");
+        assert_eq!(store.verified.lock().expect("verified").hashed, 0);
+        let loaded = store.load("scope", "read").expect("loaded");
+        assert_eq!(probed.answer.headers, loaded.answer.headers);
+        assert_eq!(probed.observed_ms, loaded.observed_ms);
+        assert_eq!(probed.redirected, loaded.redirected);
+        for pinned in [false, true] {
+            assert_eq!(
+                probed.reuse(pinned, Some(Duration::from_secs(60)), 2),
+                loaded.reuse(pinned, Some(Duration::from_secs(60)), 2)
+            );
+        }
+        assert_eq!(
+            length,
+            (!persistent).then_some(body.len()),
+            "persistent {persistent}"
+        );
+        store.save("scope", "secret", saved(&secret));
+        assert_eq!(
+            store.probe("scope", "secret"),
+            Some((saved(&secret), Some(secret.len())))
+        );
+        assert_eq!(store.probe("scope", "missing"), None);
+    }
+}

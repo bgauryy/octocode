@@ -198,7 +198,7 @@ fn the_last_candidate_page_tallies_the_whole_walk() {
     assert_eq!(
         kept_note(&first, first.selected.len()).as_deref(),
         Some(
-            "classification kept 1 of 9 hits that pass the classifiers; 6 hits not judged yet: next.nextCandidatePage judges them."
+            "classification passed 1 of 9 hits; 6 hits not judged yet: next.nextCandidatePage judges them."
         )
     );
     let mut last = first;
@@ -220,7 +220,7 @@ fn the_last_candidate_page_tallies_the_whole_walk() {
     assert_eq!(
         kept_note(&last, last.selected.len()).as_deref(),
         Some(
-            "classification kept 3 of 9 hits that pass the classifiers (1 on this page); none is left to judge, and 3 hits stay unknown."
+            "classification passed 3 of 9 hits (1 on this page); none is left to judge, and 3 hits stay unknown."
         )
     );
 }
@@ -254,7 +254,7 @@ fn the_kept_note_names_hidden_near_misses() {
     assert_eq!(
         kept_note(&outcome, 0).as_deref(),
         Some(
-            "classification kept 0 of 3 hits that pass the classifiers; 3 hits judged related (near misses, hidden): next.unfiltered shows them. An empty classified result is not absence: next.unfiltered lists them all."
+            "classification passed 0 of 3 hits; 3 hits judged related (near misses, hidden): next.unfiltered shows them. An empty classified result is not absence: next.unfiltered lists them all."
         )
     );
 }

@@ -493,7 +493,15 @@ impl<'a> Ownership<'a> {
                     && let Some(first) = items.first().and_then(Value::as_object)
                 {
                     for (key, value) in first {
-                        if value.is_null() || !items.iter().all(|item| item.get(key) == Some(value))
+                        // An empty object or list states no fact, so its
+                        // repeats are nothing to state once (an object an
+                        // omitted value left, `databaseSpecific: {}` once
+                        // its `source` equals the record's).
+                        let empty = value.as_object().is_some_and(serde_json::Map::is_empty)
+                            || value.as_array().is_some_and(Vec::is_empty);
+                        if value.is_null()
+                            || empty
+                            || !items.iter().all(|item| item.get(key) == Some(value))
                         {
                             continue;
                         }

@@ -52,9 +52,14 @@ pub(super) const CONNECTION_PAGE: u32 = 100;
 impl Connection {
     /// The connection's selection; `after` binds `$after` (a continuation).
     pub(super) fn selection(&self, after: bool) -> String {
+        self.selection_as(after, "")
+    }
+
+    /// [`Self::selection`] with its page-size variable named `${variable}{suffix}`.
+    fn selection_as(&self, after: bool, suffix: &str) -> String {
         let after = if after { ",after:$after" } else { "" };
         format!(
-            "{}(first:${}{after}){{ pageInfo{{ hasNextPage endCursor }} nodes{{ {} }} }}",
+            "{}(first:${}{suffix}{after}){{ pageInfo{{ hasNextPage endCursor }} nodes{{ {} }} }}",
             self.field, self.variable, self.nodes
         )
     }
@@ -69,11 +74,67 @@ impl Connection {
     }
 }
 
+/// The whole comment count's selection: conversation, inline review
+/// comments and review bodies, the count GitHub's search sorts by.
+const WHOLE_COUNT: &str = "totalCommentsCount";
+
+/// A summary read's document: the pull request's whole comment count.
+pub(super) const WHOLE_COUNT_DOCUMENT: &str = "query($owner:String!,$repo:String!,$number:Int!){ repository(owner:$owner,name:$repo){ pullRequest(number:$number){ totalCommentsCount } } }";
+
 /// The pull-request document for the collections GraphQL serves, and the
 /// page size variable each collection binds. The body is selected only when
 /// the read shows it (`body`); a row without it leaves `body` unknown, not
 /// empty.
 pub(super) fn pull_request_document(wants: &GraphqlWants) -> (String, Vec<(&'static str, u32)>) {
+    let (selection, variables) = pull_request_selection(wants, "");
+    let mut header = String::from("query($owner:String!,$repo:String!,$number:Int!");
+    for (variable, _) in &variables {
+        header.push_str(&format!(",${variable}:Int!"));
+    }
+    header.push(')');
+    let document = format!(
+        "{header}{{ repository(owner:$owner,name:$repo){{ pullRequest(number:$number){{ {selection} }} }} }}"
+    );
+    (document, variables)
+}
+
+/// One document reading several pull requests' first pages: row `i` is
+/// aliased `r{i}` and binds its variables with the suffix `i`
+/// (`$owner{i}`, `$number{i}`, `$files{i}`, ...), so each alias's answer is
+/// what that row's own [`pull_request_document`] answers under `repository`.
+/// A row with no `wants` reads the whole comment count alone
+/// ([`WHOLE_COUNT_DOCUMENT`]).
+pub(super) fn pull_requests_document(rows: &[Option<GraphqlWants>]) -> String {
+    let mut header = String::from("query(");
+    let mut body = Vec::new();
+    for (at, wants) in rows.iter().enumerate() {
+        let (selection, variables) = match wants {
+            Some(wants) => pull_request_selection(wants, &at.to_string()),
+            None => (WHOLE_COUNT.to_owned(), Vec::new()),
+        };
+        if at > 0 {
+            header.push(',');
+        }
+        header.push_str(&format!(
+            "$owner{at}:String!,$repo{at}:String!,$number{at}:Int!"
+        ));
+        for (variable, _) in &variables {
+            header.push_str(&format!(",${variable}{at}:Int!"));
+        }
+        body.push(format!(
+            "r{at}: repository(owner:$owner{at},name:$repo{at}){{ pullRequest(number:$number{at}){{ {selection} }} }}"
+        ));
+    }
+    header.push(')');
+    format!("{header}{{ {} }}", body.join(" "))
+}
+
+/// The pull request's selections, with each collection's page-size variable
+/// named `${variable}{suffix}`, and the page size each binds.
+fn pull_request_selection(
+    wants: &GraphqlWants,
+    suffix: &str,
+) -> (String, Vec<(&'static str, u32)>) {
     let mut selections: Vec<String> = [
         "number title url state isDraft author { login }",
         "baseRefName baseRefOid headRefName headRefOid createdAt updatedAt closedAt mergedAt mergeCommit { oid }",
@@ -88,7 +149,6 @@ pub(super) fn pull_request_document(wants: &GraphqlWants) -> (String, Vec<(&'sta
         selections.push("body".to_owned());
     }
     let mut variables = Vec::new();
-    let mut header = String::from("query($owner:String!,$repo:String!,$number:Int!");
     for (wanted, connection) in [
         (wants.files, &FILES),
         (wants.discussion, &DISCUSSION),
@@ -96,15 +156,9 @@ pub(super) fn pull_request_document(wants: &GraphqlWants) -> (String, Vec<(&'sta
         (wants.commits, &COMMITS),
     ] {
         if wanted {
-            selections.push(connection.selection(false));
+            selections.push(connection.selection_as(false, suffix));
             variables.push((connection.variable, CONNECTION_PAGE));
-            header.push_str(&format!(",${}:Int!", connection.variable));
         }
     }
-    header.push(')');
-    let document = format!(
-        "{header}{{ repository(owner:$owner,name:$repo){{ pullRequest(number:$number){{ {} }} }} }}",
-        selections.join(" ")
-    );
-    (document, variables)
+    (selections.join(" "), variables)
 }

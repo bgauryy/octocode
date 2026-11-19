@@ -6,7 +6,7 @@ use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 
 #[tokio::test]
-async fn a_content_row_sends_the_questions_unchanged_and_returns_provider_answers() {
+async fn a_content_row_sends_the_questions_unchanged_and_returns_provider_answers_and_its_price() {
     let server = provider(1).await;
     let workspace = Workspace::new();
     let runtime = clasify_runtime(&workspace, &server, &[]);
@@ -61,7 +61,9 @@ async fn a_content_row_sends_the_questions_unchanged_and_returns_provider_answer
     assert_eq!(result["model"], "jev-1.13.0");
     assert_eq!(
         result["usage"],
-        json_fixture(r#"{"inputTokens": 40, "outputTokens": 7, "calls": 1}"#)
+        json_fixture(
+            r#"{"inputTokens": 40, "outputTokens": 7, "calls": 1, "requestsPlanned": 1, "requestsCeiling": 1}"#
+        )
     );
     assert_eq!(
         result["answers"]["restart"],
@@ -144,7 +146,7 @@ async fn research_context_wraps_the_state_once_and_changes_the_cache_identity() 
 }
 
 #[tokio::test]
-async fn an_identical_evaluation_reaches_the_provider_every_time() {
+async fn an_identical_evaluation_reaches_the_provider_every_time_at_its_price() {
     let server = provider(3).await;
     let workspace = Workspace::new();
     let runtime = clasify_runtime(&workspace, &server, &[]);
@@ -159,8 +161,10 @@ async fn an_identical_evaluation_reaches_the_provider_every_time() {
     );
     assert_eq!(
         again["results"][0]["data"]["usage"],
-        json_fixture(r#"{"inputTokens": 40, "outputTokens": 7, "calls": 1}"#),
-        "a repeat is new spend"
+        json_fixture(
+            r#"{"inputTokens": 40, "outputTokens": 7, "calls": 1, "requestsPlanned": 1, "requestsCeiling": 1}"#
+        ),
+        "a repeat is new spend, at the same price"
     );
     // A different question is a different evaluation.
     let mut other = content_row();

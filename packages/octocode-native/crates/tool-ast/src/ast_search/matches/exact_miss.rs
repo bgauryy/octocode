@@ -6,7 +6,7 @@ use super::continuations::tree_lead;
 use super::query::MatchQuery;
 use super::reads::row_file;
 use super::rows::push_diagnostic;
-use super::scan::{scan_directory, scan_file};
+use super::scan::{Keeps, scan_directory_keeping, scan_file};
 use super::scope::{resolve_scope, scope_extension};
 use super::types::{Scan, Scope};
 use octocode_contract_types::AstSearchQueryMatch0;
@@ -333,7 +333,7 @@ pub(super) fn lead_call(
 }
 
 /// The census scan of an [`ExactMiss`]: one [`rule_scan`], cut after
-/// [`census_window`] files in tests.
+/// `census_window` files in tests.
 fn census_scan(
     query: &AstSearchQueryMatch0,
     paths: &PathPolicy,
@@ -343,7 +343,7 @@ fn census_scan(
     let _window = CENSUS_WINDOW
         .with(std::cell::Cell::get)
         .map(super::super::scan_window::test_window);
-    rule_scan(query, paths, cancel)
+    rule_scan(query, paths, cancel, Keeps::Counts)
 }
 
 #[cfg(test)]
@@ -377,6 +377,7 @@ pub(super) fn rule_scan(
     query: &AstSearchQueryMatch0,
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
+    keeps: Keeps,
 ) -> Option<Scan> {
     #[cfg(test)]
     RULE_SCANS.with(|scans| scans.set(scans.get() + 1));
@@ -385,7 +386,7 @@ pub(super) fn rule_scan(
     if rule_scope.is_file {
         scan_file(rule_query, &rule_scope, paths, cancel)
     } else {
-        scan_directory(rule_query, &rule_scope, paths, cancel, None)
+        scan_directory_keeping(rule_query, &rule_scope, paths, cancel, None, keeps)
     }
     .ok()
 }

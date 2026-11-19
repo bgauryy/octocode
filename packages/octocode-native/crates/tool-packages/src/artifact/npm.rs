@@ -147,7 +147,7 @@ async fn exact(
     {
         let (check, search) = tokio::join!(
             super::release_ref::commit_check(&repository, &head, client),
-            super::release_ref::release_tag_search(&artifact, &package, &version, client),
+            super::release_ref::release_tag_search(&artifact, &package, &version, &head, client),
         );
         searched = search;
         match check {

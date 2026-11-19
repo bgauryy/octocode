@@ -156,7 +156,7 @@ impl From<GitError> for CloneFailure {
 
 /// Run one ghCloneRepo row. One API answer pins the checkout before git
 /// runs: the commit the requested ref (else the default branch) names, read
-/// with the caller's own credential ([`pin`]). The checkout is keyed by that
+/// with the caller's own credential ([`pin`](fn@pin)). The checkout is keyed by that
 /// commit under the repository's canonical name, so a branch that moved is
 /// checked out again, and one commit reached by branch, abbreviated or full
 /// SHA, or an old repository name shares one checkout.

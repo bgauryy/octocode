@@ -25,7 +25,7 @@ node packages/octocode/out/octocode.js schema --view full
 node packages/octocode/out/octocode.js localFetch '{"queries":[{"path":"src/index.ts","ranges":[{"startLine":1,"endLine":40}]}]}'
 ```
 
-New requests contain `queries` and optional `responseChars`; each query takes `mainGoal` (the task) and `reasoning` (why this query). Use one tool per batch and respect its schema's batch limit. Resume only with an emitted `{cursor}` input. CLI and MCP use the same envelope. For long requests, save JSON under the active skill's scratch directory and use CLI `--input <file>`.
+New requests contain `queries` and optional `responseChars`; each query takes `mainGoal` (the question this query answers) and `reasoning` (evidence so far and why this query decides). Use one tool per batch and respect its schema's batch limit. Resume only with an emitted `{cursor}` input. CLI and MCP use the same envelope. For long requests, save JSON under the active skill's scratch directory and use CLI `--input <file>`.
 
 Save long command output under the active skill's workspace scratch directory. Search known failure markers with `localSearch` and read deciding spans with `localFetch`. When exact search cannot split large unstructured evidence, use `clasify` with `source:{tool:"localFetch",query:{path:".octocode/<skill-folder>/out.log"}}` and a typed question. Read emitted `next.read` before citing its lines. Use `sections` when order or every occurrence matters. Files outside allowed workspace roots, such as `/tmp`, are refused.
 
@@ -46,7 +46,7 @@ Inspect every `results[]` row's index (its position in the request's `queries`),
 | Result signal | Required action / meaning |
 |---|---|
 | `responsePagination.next`, else `next.nextPage` | Run in that order until neither remains. Send `{tool,input:{cursor}}`'s `input` whole to its tool. |
-| `rowPart{part,of}` | Read every part of the split row. |
+| `rowPart{part,of}` | Read every part of the split row and join them in order: `rowPart.continues` names the array element a part resumes, `rowPart.text` the string its value appends to. |
 | `pagination{hasMore}` or `sectionPagination.<collection>` | Continue the same loop; each file, patch, source, diagnostic or history collection can remain incomplete independently. |
 | Other `next.<name>` | Branch, not page. Run it before claiming what it covers. |
 | Claim complete | No `hasMore:true` or `next` covering that claim, with or without a paging object. |

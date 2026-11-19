@@ -6,7 +6,7 @@
 //!
 //! In that tree, an expanded body's owner (a Rust token tree, a C `#define`
 //! value) has the body's nodes as its children. What the re-parse adds and
-//! no source spells is not in it ([`MacroBodies::is_member`]: the body
+//! no source spells is not in it ([`MacroBodies::is_member`](Body::is_member): the body
 //! tree's root, the delimiter wrapper, text past the body, text inside a
 //! string literal the re-parse misread); such a node's children take its
 //! place. Which nodes are matches is narrower ([`Seen`]): a node the re-parse

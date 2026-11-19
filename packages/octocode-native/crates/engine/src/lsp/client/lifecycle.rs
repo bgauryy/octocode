@@ -54,7 +54,6 @@ impl NativeLspClient {
         if child_guard.is_some() {
             return Err(Error::new("LSP client already started"));
         }
-        let began = self.inner.clock.now();
         {
             let mut stderr_lines = self
                 .inner
@@ -195,7 +194,6 @@ impl NativeLspClient {
             *guard = memory_watchdog;
         }
         *child_guard = Some(child);
-        self.record_wait(super::waits::WaitKind::Starting, began);
         Ok(())
     }
 

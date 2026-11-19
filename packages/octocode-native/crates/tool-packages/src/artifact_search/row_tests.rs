@@ -152,6 +152,7 @@ async fn a_package_with_only_prereleases_warns() {
                 answers: None,
                 reused: &reused,
                 tags: None,
+                share: None,
             },
         )
         .await

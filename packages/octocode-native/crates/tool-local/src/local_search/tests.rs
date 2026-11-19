@@ -78,6 +78,13 @@ fn search_fixture(files: &[(&str, &str)], request: LocalSearchQuery) -> serde_js
     )
 }
 
+/// A published match row's value as its reader takes it: its own `value`,
+/// else `term`, the request's one `matchString` term (a span equal to it
+/// leaves its value out, as the output reference states).
+fn read_value(row: &serde_json::Value, term: &str) -> String {
+    row["value"].as_str().unwrap_or(term).to_owned()
+}
+
 /// [`search_fixture`] under a scanner that judges sources at `limits`.
 fn search_fixture_at(
     files: &[(&str, &str)],

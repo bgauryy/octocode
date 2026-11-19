@@ -457,3 +457,69 @@ fn count_views_print_one_table_whatever_their_count() {
         assert!(!out.contains(&format!("[{field}")), "{view}:\n{out}");
     }
 }
+
+/// TC7: ghSearchCode states each hit as one numbered line (`"N\ttext"`);
+/// the text view prints it as the `{line, value}` hit it stands for.
+#[test]
+fn a_line_first_hit_prints_as_the_hit_it_stands_for() {
+    let row = |matches: Value| {
+        json!({"results": [{"index": 0, "data": {
+            "files": [{"path": "src/a.js", "matches": matches}], "commitSha": "abc"}}]})
+    };
+    let query = json!({"queries": [{"owner": "o", "repo": "r", "keywords": ["fn"]}]});
+    let objects = render(
+        ToolId::GhSearchCode,
+        &row(json!([{"line": 3, "value": "fn a()"}, {"line": 9, "value": "fn b(x)\tok"}])),
+        &query,
+        None,
+    )
+    .expect("lines");
+    let strings = render(
+        ToolId::GhSearchCode,
+        &row(json!(["3\tfn a()", "9\tfn b(x)\tok"])),
+        &query,
+        None,
+    )
+    .expect("lines");
+    assert_eq!(strings.out, objects.out);
+    assert_eq!(strings.notes, objects.notes);
+    assert!(strings.out.contains("fn b(x)"), "{}", strings.out);
+}
+
+/// A localSearch span equal to the query's one term leaves out its `value`
+/// (the request states it): it prints as the same span holding the term
+/// does, beside a span spelled otherwise that keeps its own. Without one
+/// term to read (several terms), the spans print as the fields they hold.
+#[test]
+fn a_span_without_its_value_prints_the_one_term() {
+    let page = |first: serde_json::Value, last: serde_json::Value| {
+        json!({"results": [{"index": 0, "data": {"files": [
+            {"path": "src/lock.rs", "matches": [
+                first,
+                {"line": 7, "column": 2, "value": "Needle"},
+                last
+            ]},
+            {"path": "src/other.rs", "matches": [{"line": 1, "column": 1}]}
+        ]}}]})
+    };
+    let omitted = page(
+        json!({"line": 3, "column": 9}),
+        json!({"line": 12, "column": 5}),
+    );
+    let mut stated = page(
+        json!({"line": 3, "column": 9, "value": "needle"}),
+        json!({"line": 12, "column": 5, "value": "needle"}),
+    );
+    stated["results"][0]["data"]["files"][1]["matches"][0]["value"] = json!("needle");
+    let query = |terms: serde_json::Value| json!({"queries": [{"path": "src", "matchString": terms, "view": "matchOnly"}]});
+    let one = query(json!(["needle"]));
+    let printed = render(ToolId::LocalSearch, &omitted, &one, None).expect("lines");
+    let expected = render(ToolId::LocalSearch, &stated, &one, None).expect("lines");
+    assert_eq!(printed.out, expected.out);
+    assert_eq!(printed.notes, expected.notes);
+    assert!(printed.out.contains("3:needle"), "{}", printed.out);
+    assert!(printed.out.contains("7:Needle"), "{}", printed.out);
+    let several = query(json!(["needle", "pin"]));
+    let printed = render(ToolId::LocalSearch, &omitted, &several, None).expect("lines");
+    assert!(!printed.out.contains(":needle"), "{}", printed.out);
+}

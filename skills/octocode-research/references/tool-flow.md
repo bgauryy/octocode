@@ -2,24 +2,25 @@ Load for tool selection, scouting or cross-source research. Live schemas own fie
 
 ## Route: where the evidence is
 
-| Question | Tool → next step |
+The routes the server instructions serve, generated from core (`node skills/common/tool-flow.mjs`); a route is served only while every tool it names is listed. CLI: `octocode schema --view full`, field `instructions`.
+
+| Route (server instructions §1) | Served when listed |
 |---|---|
-| Known local file or span | `localFetch`; skip discovery |
-| Layout, half-known path, largest/newest file | `structureSearch` → `localFetch` |
-| Spelling, counts, files containing a term | `localSearch` → deciding source span |
-| Declarations, imports, calls or nesting by shape | `astSearch` → source; LSP for identity |
-| Definition, references, callers or inferred type | `lspSearch` at an observed symbol and line → source |
-| Dependencies, cycles or impact | `graphBuild` → `graphQuery`, when listed → source and LSP |
-| Unknown repository | `ghSearchRepo` → tree or code search |
-| GitHub paths, refs or a past revision | `ghStructure` → `ghGetFileContent` at the resolved revision |
-| Text on GitHub's default branch | `ghSearchCode` → `ghGetFileContent` |
-| Why, when or who changed code | `ghSearchHistory` → `ghGetHistoryItem` |
-| Known PR, issue, commit or two refs | `ghGetHistoryItem`; page files, patches and discussion independently |
-| Package source or version | `artifactSearch` → verified repository/ref → source |
-| Known vulnerabilities | `securityCheck` at the version in use; an empty result is not proof of safety |
-| Many searches or AST analysis over a few paths of another repo | `ghStructure` materialize → returned `location.path` → local tools |
-| Many searches or AST analysis over the whole repo | `ghCloneRepo` → local tools |
-| Unread evidence requiring judgment by meaning | `classification` or `clasify`, when listed → exact read |
+| layout, files by name, size, date → structureSearch; text, spelling, counts → localSearch; then localFetch | `structureSearch`, `localSearch`, `localFetch` |
+| code shape: declarations, calls, nesting → astSearch → localFetch ranges | `astSearch`, `localFetch` |
+| definition, identity, every caller or use → lspSearch at a search hit's line | `lspSearch` |
+| known file → localFetch | `localFetch` |
+| hits meaning X (cause, kind, intent) → localSearch + classification | `clasify`, `localSearch` |
+| too many hits, paths, commits or thread entries; huge file, log, command output, many files or docs, images → clasify → next.read | `clasify` |
+| web page or URL → clasify source.url → next.read | `clasify` |
+| command output, git state → shell (§5) | always |
+| repo or library not in this checkout → ghSearchRepo → ghStructure (tree, tags) or ghSearchCode → ghGetFileContent | `ghSearchRepo`, `ghStructure`, `ghSearchCode`, `ghGetFileContent` |
+| why, when, who → ghSearchHistory → ghGetHistoryItem | `ghSearchHistory`, `ghGetHistoryItem` |
+| package version → artifactSearch → ghStructure → ghGetFileContent at its repo and ref | `artifactSearch`, `ghStructure`, `ghGetFileContent` |
+| known vulnerabilities, or a package before fetching or trusting it → securityCheck | `securityCheck` |
+| importers, cycles, impact, dead code → graphBuild → graphQuery | `graphBuild`, `graphQuery` |
+| many searches over a few paths of another repo → ghStructure tree materialize:true → local tools | `ghStructure`, `localSearch` |
+| a whole repo, or paths you cannot name → ghCloneRepo → local tools | `ghCloneRepo` |
 
 Prefer the local checkout for code and GitHub for discussion. Trace `entry → transformations → state → output → consumers`; change tools when the next claim needs different evidence. Batch independent queries, wait for dependent results, and reuse observed paths, lines and refs.
 
@@ -111,7 +112,7 @@ Build the smallest directory containing both sides of the relationship, and keep
 
 `find` discovers nodes, `candidates` resolves ambiguous references to an exact ID, `witnesses` lists every occurrence behind a relationship, `unresolved` lists missing links with reasons. A `passes` edge is a direct reference in an argument slot, not invocation, scheduling or value propagation. Dynamic imports, feature gates, generated inputs and frameworks can constrain reachability. Test declarations suggest relevance; only test execution establishes a result.
 
-Before an exhaustive claim, page and branch as [usage](octocode-usage.md#read-results-and-recover) states (`responsePagination.next` first, then each row's `next.nextPage`, then the other `next.*` the claim needs); size the population from `pagination.total`, not one page (a `countScope` other than `complete`, such as a localSearch `loaded` total, is a floor: a count view sizes that population). A terminal scan or model limit is not overcome by more pages. A query verifies only the snapshot blocks it reads: for coverage read `scan`, `linkage` and `argumentCoverage` from `stats` and `coverage` on call queries; for currency read `freshness` and the `stale` operation. `extraction.resumedFiles` counts recovered extraction after an interrupted build, and `refresh` ignores checkpoints.
+Before an exhaustive claim, finish the pages and branches the claim needs, as the server instructions §3 state. A terminal scan or model limit is not overcome by more pages. A query verifies only the snapshot blocks it reads: for coverage read `scan`, `linkage` and `argumentCoverage` from `stats` and `coverage` on call queries; for currency read `freshness` and the `stale` operation. `extraction.resumedFiles` counts recovered extraction after an interrupted build, and `refresh` ignores checkpoints.
 
 ## History
 
@@ -131,7 +132,7 @@ Read every row's `errorCode`, message, `hints` and recovery calls, even in a suc
 | Unsupported grammar or declarations | Use the related outline or text read; set `parser` only for source written in that grammar |
 | Missing language server or capability | Inspect related text candidates and report semantic verification as unavailable; retry after configuration changes |
 | Missing path, identifier or revision | Verify the observed identity and access; use an emitted discovery call; never substitute another revision for a claim about it |
-| Timeout or transient provider failure | Retry when the failure is transient and another attempt can add evidence; follow reported backoff. Transient rows state a boolean `retryable`: `true` a retry can succeed, `false` it cannot; other error classes (`correctInput`, `refused`, `unservable`, `restart`) do not retry unchanged: follow `errorClass` and the hint. Stop unchanged failures and state the remaining scope |
+| Timeout or transient provider failure | Retry as `errorClass` and `retryable` direct (server instructions §3) when another attempt can add evidence; follow reported backoff. Stop unchanged failures and state the remaining scope |
 | Authentication, permission or rate limit | Correct access or wait for the reported reset; repeats do not restore it |
 | Stale or expired continuation | Restart as [usage](octocode-usage.md#read-results-and-recover) states. `responseSnapshotExpired` covers unknown or expired saved work; a malformed cursor, or one sent to another tool, is `invalidInput`; the message names the cause |
 | Tool or contract failure | Keep the failing call and error code, use applicable recovery, report the gap |

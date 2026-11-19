@@ -1,6 +1,6 @@
 ---
 name: octocode-orchestrator
-description: "Load this skill first when coordinating several agents through an ongoing task: assigning work, tracking dependencies, merging their evidence, recovering stalled loops or resuming interrupted runs. Use octocode-workflows to design a workflow and octocode-agentic to design agent systems."
+description: "Load first to coordinate several agents through an ongoing task: assigning work, tracking dependencies, merging evidence, recovering stalled loops, resuming interrupted runs."
 metadata:
   excluded-hosts: "octocode-code"
 ---

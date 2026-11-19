@@ -81,7 +81,7 @@ async fn the_ref_commit_resolves_while_the_search_runs() {
     assert!(out.data.get("contentReads").is_none(), "{}", out.data);
     assert_eq!(
         out.data["files"][0]["matches"],
-        json_fixture(r#"[{"line": 1, "value": "fn wrap_app() {}"}]"#)
+        json!(["1\tfn wrap_app() {}"])
     );
     let first = |slow: &Delayed| *slow.arrivals.times().first().expect("requested");
     let (searched, resolved) = (first(&search), first(&commit));

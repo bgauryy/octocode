@@ -249,7 +249,7 @@ pub(super) const ROW_BODIES: [&str; 2] = ["body", "messageBody"];
 
 /// Whether rows carry `key`: the caller picked it in `fields`, or
 /// classification judges the page and reads it (a judged-only body leaves
-/// at the end of selection, [`super::Output::strip_judge_only`]).
+/// at the end of selection, [`super::Output::strip_judge_only`](octocode_runtime_base::response::output::ToolOutput::strip_judge_only)).
 fn carries(query: &HistorySearch, fields: &[String], key: &str) -> bool {
     gh_search_history_query::judged(query) || fields.iter().any(|field| field == key)
 }

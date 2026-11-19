@@ -340,8 +340,9 @@ fn keep_shown(
 fn has_text(item: &Value) -> bool {
     item["matches"].as_array().is_some_and(|matches| {
         matches.iter().any(|matched| {
-            matched["value"]
-                .as_str()
+            provider_hits::entry(matched)
+                .map(|(_, text)| text)
+                .or_else(|| matched["value"].as_str())
                 .is_some_and(|text| !text.trim().is_empty())
         })
     })

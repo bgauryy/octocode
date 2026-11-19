@@ -76,6 +76,16 @@ impl<T: Send + Sync + 'static> ScanMemo<T> {
         self.store.evict(snapshot);
     }
 
+    /// This request's turn at computing what is stored under `snapshot`
+    /// ([`PageMemo::turn`]).
+    pub(super) fn turn(
+        &self,
+        snapshot: &str,
+        stop: &dyn Fn() -> bool,
+    ) -> octocode_tools_shared::page_memo::Turn<'_> {
+        self.store.turn(snapshot, stop)
+    }
+
     /// Whether a scan is stored for `snapshot`.
     #[cfg(test)]
     pub(super) fn holds(&self, snapshot: &str) -> bool {

@@ -10,6 +10,46 @@ mod rust;
 mod targets;
 mod text_leads;
 
+/// An empty workspace-symbol answer leads to the text search alone: its
+/// anchor file only picked the project, so neither its outline nor a read
+/// of it stands in for the search (local-flows F10).
+#[test]
+fn an_empty_workspace_symbol_answer_leads_only_to_the_text_search() {
+    let scope = Scope::new("/w".into(), vec!["*.ts".into()]);
+    let query: LspSearchQuery = serde_json::from_value(json!({
+        "operation": "workspaceSymbol", "symbolFuzzy": "walkSkipLedger", "path": "/w/a.ts"
+    }))
+    .expect("query");
+    let mut empty = json_fixture(r#"{"status": "empty", "category": "noLocations"}"#);
+    workspace_symbols(
+        &mut empty,
+        &query,
+        "walkSkipLedger",
+        &scope,
+        Some("/w/a.ts"),
+        None,
+    );
+    let empty = crate::lsp_search::failure::with_next(&query, empty);
+    let tools = empty["related"]
+        .as_array()
+        .expect("leads")
+        .iter()
+        .map(|call| call["tool"].as_str().expect("tool"))
+        .collect::<Vec<_>>();
+    assert_eq!(tools, ["localSearch"], "{empty}");
+    // An answer with symbols still offers the anchor's outline.
+    let mut found = json_fixture(r#"{"matches": [{"symbolName": "walkSkipLedger"}]}"#);
+    workspace_symbols(
+        &mut found,
+        &query,
+        "walkSkipLedger",
+        &scope,
+        Some("/w/a.ts"),
+        None,
+    );
+    assert!(found.to_string().contains("documentSymbols"), "{found}");
+}
+
 /// The protocol has no completeness marker on any workspace-symbol answer:
 /// the tool description says so once, so the row is no partial and carries
 /// no note of it; it leads to the lexical search that checks the rest.

@@ -253,3 +253,76 @@ async fn the_text_scan_prunes_the_directories_every_local_walk_prunes() {
         (vec!["dist/copy.rs".into(), "src/lib.rs".into()], 1)
     );
 }
+
+/// One request stats each path once (TE9): its kept fingerprint's proof
+/// stamps every file and directory, and the text scan over the kept listing
+/// (the listing's proof, then a spelling lookup per file) stats none of them
+/// again: the fingerprint's held proof answers both.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_request_stats_each_path_once() {
+    use crate::lsp_search::scope::spelling_index::STATS;
+    let (_dir, root) = repository();
+    for index in 0..24 {
+        write(&root.join(format!("src/f{index:02}.ts")), "f();\n");
+    }
+    settle_written_so_far();
+    let shown = root.to_string_lossy().into_owned();
+    let policy = workspace_policy(&root);
+    // Keep the scope's fingerprint, its listing and the files' entries.
+    let warm = Scope::new(shown.clone(), vec!["*.ts".into()]);
+    let clock = octocode_engine::stamp::settle_clock();
+    assert!(
+        warm.walk_fingerprint(clock, NEVER)
+            .await
+            .expect("walk")
+            .is_some()
+    );
+    warm.text_files("f", &policy, NEVER).await.expect("scan");
+    warm.text_files("g", &policy, NEVER).await.expect("entries");
+    let listed = warm.listed_files("g").expect("listed");
+    assert!(listed.len() > 24, "{listed:?}");
+    let stats = |files: &[PathBuf]| files.iter().map(|file| STATS.of(file)).sum::<usize>();
+    let before = stats(&listed);
+
+    let request = Scope::new(shown.clone(), vec!["*.ts".into()]);
+    let work = Arc::new(Work::default());
+    let stamped = measure(
+        &work,
+        crate::lsp_search::observation::with_observation(async {
+            assert!(
+                request
+                    .walk_fingerprint(clock, NEVER)
+                    .await
+                    .expect("kept")
+                    .is_some()
+            );
+            let stamped = work.observed.stats();
+            let found = request.text_files("g", &policy, NEVER).await.expect("scan");
+            assert_eq!(found.map(|files| files.len()), Some(1), "a.ts");
+            stamped
+        }),
+    )
+    .await;
+    assert_eq!(Work::get(&work.walks), 1, "the request's kept fingerprint");
+    assert_eq!(Work::get(&work.text_scans), 0, "the kept listing");
+    assert!(stamped > listed.len(), "the fingerprint stamped every file");
+    assert_eq!(stats(&listed), before, "no spelling lookup stat'ed a file");
+    assert!(
+        work.observed.stats() - stamped < listed.len() / 2,
+        "the listing's proof reads only what the fingerprint does not stamp: {} for {} files",
+        work.observed.stats() - stamped,
+        listed.len()
+    );
+
+    // Without the fingerprint's held proof, the same scan stats each file.
+    let alone = Scope::new(shown, vec!["*.ts".into()]);
+    let work = Arc::new(Work::default());
+    measure(
+        &work,
+        crate::lsp_search::observation::with_observation(async {
+            alone.text_files("g", &policy, NEVER).await.expect("scan");
+        }),
+    )
+    .await;
+    assert_eq!(stats(&listed), before + listed.len());
+}

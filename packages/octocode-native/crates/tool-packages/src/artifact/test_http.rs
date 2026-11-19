@@ -402,6 +402,7 @@ pub async fn execute(
         answers: None,
         reused: &reused,
         tags: tags.map(|tags| tags as &dyn super::ReleaseTags),
+        share: None,
     };
     super::execute_artifact(query, &context).await
 }

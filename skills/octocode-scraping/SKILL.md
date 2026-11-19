@@ -1,6 +1,6 @@
 ---
 name: octocode-scraping
-description: "Load this skill first when extracting text, tables, prices or links from public web pages, or crawling a site or docs into a saved, resumable corpus. Load it before fetching pages ad hoc. Use octocode-chrome-devtools for logged-in pages, clicks and other live browser actions."
+description: "Load first to extract text, tables, prices or links from public web pages, or crawl a site or docs into a saved, resumable corpus, before fetching pages ad hoc."
 ---
 
 # Octocode Scraping

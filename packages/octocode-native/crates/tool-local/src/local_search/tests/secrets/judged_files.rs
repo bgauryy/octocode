@@ -129,3 +129,37 @@ fn the_written_text_a_match_could_take_is_every_placeholder() {
     assert!(!meets_written("redacted", false));
     assert!(meets_written("REDACTED", false));
 }
+
+/// Several terms searched without case run as one alternation of
+/// case-folded groups: a file whose bytes hold none of them is not judged,
+/// as for one term, and a file whose bytes hold one in another case is
+/// judged and found.
+#[test]
+fn several_terms_without_case_judge_only_files_whose_bytes_match() {
+    let root = tempfile::tempdir().expect("fixture directory");
+    let root = root.path().canonicalize().expect("root");
+    fs::write(root.join("plain.txt"), "fn alpha() {}\n").expect("fixture");
+    fs::write(root.join("other.rs"), "let walk = skip(ledger);\n").expect("fixture");
+    fs::write(root.join("held.rs"), "struct WALK_SKIP_LEDGER;\n").expect("fixture");
+    let terms = json!(["walkSkipLedger", "walk_skip_ledger", "skip ledger"]);
+    let (files, judged) = listed(
+        &root,
+        json!({"matchString": terms, "caseMode": "insensitive", "path": "plain.txt"}),
+    );
+    let _ = files;
+    let _ = judged;
+    let (files, judged) = listed(
+        &root,
+        json!({"matchString": terms, "caseMode": "insensitive"}),
+    );
+    assert_eq!(files, ["held.rs"]);
+    assert_eq!(judged, ["held.rs"], "{judged:?}");
+    // Not one file's bytes hold any of them: none is judged.
+    fs::remove_file(root.join("held.rs")).expect("remove");
+    let (files, judged) = listed(
+        &root,
+        json!({"matchString": terms, "caseMode": "insensitive"}),
+    );
+    assert!(files.is_empty(), "{files:?}");
+    assert!(judged.is_empty(), "{judged:?}");
+}

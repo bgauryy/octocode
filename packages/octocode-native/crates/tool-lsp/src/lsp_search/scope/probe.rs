@@ -1,6 +1,6 @@
 //! Test-only counters of one request's whole-scope work: how many walks it
-//! makes, how many files they stamp, and how many paths the text scan
-//! canonicalizes.
+//! makes, how many files they stamp, how many paths the text scan
+//! canonicalizes, and what the request stats ([`Work::observed`]).
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -12,6 +12,9 @@ pub(in super::super) struct Work {
     pub(in super::super) stamped: AtomicUsize,
     pub(in super::super) text_scans: AtomicUsize,
     pub(in super::super) canonicalized: AtomicUsize,
+    /// The request's observation of the file system: its stats and the
+    /// paths they read.
+    pub(in super::super) observed: Arc<octocode_engine::stamp::Observed>,
 }
 
 impl Work {
@@ -30,6 +33,6 @@ pub(in super::super) async fn measure<F: Future>(work: &Arc<Work>, request: F) -
 }
 
 /// The counters of the request this task belongs to, if measured.
-pub(super) fn current() -> Option<Arc<Work>> {
+pub(in super::super) fn current() -> Option<Arc<Work>> {
     WORK.try_with(Arc::clone).ok()
 }

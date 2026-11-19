@@ -10,6 +10,8 @@ use serde_json::{Value, json};
 pub mod judge;
 #[cfg(any(test, feature = "test-support"))]
 pub mod long_window_fake;
+#[cfg(any(test, feature = "test-support"))]
+pub mod transient_fake;
 pub use judge::section_question;
 pub mod plan;
 mod provider_hits;
@@ -336,7 +338,7 @@ pub(crate) fn kept_note_with(
         return None;
     }
     let mut note = format!(
-        "classification kept {} of {} that pass the classifiers",
+        "classification passed {} of {}",
         receipt.selected_items,
         counted(count(receipt.total_items))
     );

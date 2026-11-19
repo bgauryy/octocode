@@ -1,5 +1,5 @@
 //! An OS lock serializes publication, latest and retention across CLI
-//! processes. Builds run outside it: [`super::ingest`] takes it only to
+//! processes. Builds run outside it: [`super::ingest`](fn@super::ingest) takes it only to
 //! stage, publish and prune.
 use super::super::graph::checkpoint::lock;
 use super::*;

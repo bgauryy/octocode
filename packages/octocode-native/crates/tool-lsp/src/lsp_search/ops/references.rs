@@ -12,6 +12,7 @@ impl Operation<'_, '_> {
         let query = self.query;
         let include_declaration = lsp_search_query::include_declaration(query).unwrap_or(true);
         let later_window = lsp_search_query::importer_page(query) > 1;
+        let sent_before = self.client.documents_sent();
         let (mut found, respelled, withheld) = get_spelled_locations(
             self.client,
             self.snippet_policy,
@@ -39,10 +40,40 @@ impl Operation<'_, '_> {
         let mut recovered = recovered.snippets;
         // Files the answer names, its declaration's included: answered
         // even when the declaration row is left out.
-        let known_files = known_files(&found, &recovered);
-        let importers = self.importers(&known_files).await?;
+        let mut known_files = known_files(&found, &recovered);
+        let mut importers = self.importers(&known_files).await?;
         if importers.as_ref().is_some_and(|importers| importers.stale) {
             return Ok(snapshot_changed(query));
+        }
+        // References must not depend on what the server had loaded: once
+        // this request opened files, the anchor is asked again, so a first
+        // call lists what its identical repeat would, and importer anchors in
+        // files that answer then covers are the server's own.
+        if let Some(importers) = importers.as_mut()
+            && !later_window
+            && importers::SiteProof::of(self.language_id) == importers::SiteProof::DefinitionChain
+            && self.client.documents_sent() != sent_before
+        {
+            let (again, _, _) = octocode_engine::lsp::client::asked_again(get_spelled_locations(
+                self.client,
+                self.snippet_policy,
+                self.cancel,
+                LocationRequest::References {
+                    include_declaration,
+                },
+                (self.path, self.line, self.character),
+            ))
+            .await?;
+            let listed = found.iter().map(snippet_identity).collect::<HashSet<_>>();
+            found.extend(
+                again
+                    .into_iter()
+                    .filter(|snippet| !listed.contains(&snippet_identity(snippet))),
+            );
+            known_files = self::known_files(&found, &recovered);
+            importers.anchors.retain(|anchor| {
+                !known_files.contains(&super::super::scope::canonical(&anchor.path))
+            });
         }
         // The server drops the declaration under the spelling it knows; a
         // symlinked twin and every importer's answer still carry it.
@@ -227,6 +258,7 @@ impl Operation<'_, '_> {
             found.extend(extra.into_iter().filter(|snippet| {
                 let site = site_start(snippet);
                 importers.owns(&site.0)
+                    && !importers.mirrors_source(&site.0)
                     && importers.lists_on_this_page(&site.0)
                     && declared.is_none_or(|declared| !declared.contains(&site))
                     && !importers.binds_elsewhere(&site)

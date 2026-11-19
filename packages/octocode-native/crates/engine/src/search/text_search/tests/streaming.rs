@@ -52,6 +52,7 @@ pub(super) fn page_after(
             seen += 1;
             seen > files
         }),
+        prepare: None,
     };
     search_stream(o.clone(), filter, &|| false, stream).expect("stream")
 }

@@ -45,8 +45,10 @@ fn match_rows_without_unread_pages_are_complete() {
 fn census_notices_are_static_and_a_caller_limit_draws_no_narrowing_advice() {
     let root = Fixture::new();
     root.write("notes.ts.in", "call(1)\n");
-    root.write("a.ts", "call(1);\n");
-    root.write("b.ts", "call(2);\n");
+    // One file holds both matches, so one window holds the whole set and
+    // its count is final: only the caller's limit could draw the advice.
+    root.write("a.ts", "call(1);\ncall(2);\n");
+    root.write("b.ts", "other(2);\n");
     let out = run(
         &root.0,
         json!({"operation":"match","path":root.0,"rule":{"pattern":"call($$$A)"},"limit":1}),

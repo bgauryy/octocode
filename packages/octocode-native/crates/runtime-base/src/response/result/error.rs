@@ -31,6 +31,26 @@ impl ToolError {
         }
     }
 
+    /// An engine error as a tool error, by its typed kind (never by message
+    /// text): the one mapping every local tool shares; a tool words only its
+    /// own cases (a missing path's sentence, a held-past-budget refusal)
+    /// before it.
+    pub fn engine(error: &octocode_engine::error::Error) -> Self {
+        use octocode_engine::error::ErrorKind;
+        let code = match error.kind() {
+            ErrorKind::NotFound => ErrorCode::NotFound,
+            ErrorKind::PermissionDenied => ErrorCode::PermissionDenied,
+            ErrorKind::InvalidPattern => ErrorCode::InvalidPattern,
+            ErrorKind::InvalidGlob => ErrorCode::InvalidGlob,
+            ErrorKind::InvalidInput => ErrorCode::InvalidInput,
+            ErrorKind::Timeout => ErrorCode::Timeout,
+            ErrorKind::Cancelled => ErrorCode::Cancelled,
+            ErrorKind::SourceCorrespondence(error) => return Self::source(*error.clone()),
+            _ => ErrorCode::ExecutionFailed,
+        };
+        Self::new(code, error.to_string())
+    }
+
     /// A failed graph-facts scan: the engine's typed refusals keep their
     /// declared codes, and a walk stopped by `cancel` is a cancellation.
     pub fn graph_scan(
@@ -62,7 +82,7 @@ impl ToolError {
     }
 
     /// A continuation whose snapshot no longer describes the source:
-    /// `restart` (usually [`restart_query`]) is `next.restart`. The `error`
+    /// `restart` (usually [`restart_query`](super::restart_query)) is `next.restart`. The `error`
     /// text is the one shared sentence ([`STALE_SNAPSHOT_ERROR`]), and the
     /// runtime requires the restart of every such row
     /// (`response::rows::require_restart`); a tool never words it.

@@ -171,3 +171,36 @@ fn a_listed_count_judges_only_files_whose_bytes_match() {
     // One judgment per file whose bytes some matcher matched.
     assert_eq!(judged.load(Ordering::Relaxed), 3);
 }
+
+/// Terms joined as groups without case (`(?i:a)|(?i:b)`, how several terms
+/// searched without case run) gate as one term does: their prefixes are
+/// read with case and compared without it, where spelling every case would
+/// cut them mid-character (`k` folds to the Kelvin sign). A hidden value
+/// still never matches, and a group that can take written text still judges
+/// every file.
+#[test]
+fn terms_joined_without_case_judge_only_files_whose_bytes_match() {
+    let root = root();
+    root.write("upper.txt", "ALPHA BETA\n");
+    let regex = |options: &mut TextSearchOptions| options.syntax = PatternSyntax::Regex;
+    assert_eq!(
+        run(
+            &root,
+            "(?i:walkSkipLedger)|(?i:walk_skip_ledger)|(?i:skip ledger)",
+            regex
+        ),
+        (vec![], 0)
+    );
+    let (files, judged) = run(&root, "(?i:alpha)|(?i:missing-kelvin)", regex);
+    assert_eq!(files, vec!["plain.txt".to_owned(), "upper.txt".to_owned()]);
+    assert_eq!(judged, 2);
+    let (files, judged) = run(&root, "(?i:secret123)|(?i:missing)", regex);
+    assert!(files.is_empty(), "{files:?}");
+    assert_eq!(judged, 2);
+    let (files, judged) = run(&root, "(?i:hid)|(?i:missing)", regex);
+    assert_eq!(
+        files,
+        vec!["hidden.txt".to_owned(), "joined.txt".to_owned()]
+    );
+    assert_eq!(judged, 5);
+}

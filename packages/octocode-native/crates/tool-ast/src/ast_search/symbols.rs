@@ -17,8 +17,10 @@ mod select;
 use super::judged_rows::NamePlaces;
 use continuation::Continuation;
 #[cfg(test)]
+pub(super) use directory::WALKS;
+#[cfg(test)]
 pub(super) use directory::outline_directory;
-use directory::{mapped_files, outline_walked, walk_directory};
+use directory::{outline_walked, walk_directory};
 use empty_outline::note_skipped;
 use outline::outline_file;
 #[cfg(test)]
@@ -88,10 +90,27 @@ pub(crate) fn execute_symbols(
     cancel: &dyn CancellationCheck,
     response_window: Option<usize>,
 ) -> Result<(Value, NamePlaces), ToolError> {
-    run_symbols(q, paths, cancel, response_window).map(|(page, places)| {
+    execute_symbols_proven(q, paths, cancel, response_window, &|| false)
+        .map(|(page, places, _)| (page, places))
+}
+
+/// [`execute_symbols`], with, when `proven` asks for it once the page is
+/// built, what proves the page current to a request asking for the same page while it is built
+/// ([`continuation::Continuation::proof`]): a directory outline's whole
+/// scan, outside a `testCode` scope. A file's page, a scan the time budget
+/// cut and a filtering scope have none.
+pub(crate) fn execute_symbols_proven(
+    q: &AstSearchQuerySymbols,
+    paths: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+    response_window: Option<usize>,
+    proven: &dyn Fn() -> bool,
+) -> Result<(Value, NamePlaces, Option<octocode_engine::stamp::Proof>), ToolError> {
+    run_symbols(q, paths, cancel, response_window, proven).map(|(page, places, proof)| {
         (
             octocode_runtime_base::response::result::finished(page),
             places,
+            proof,
         )
     })
 }
@@ -101,7 +120,8 @@ fn run_symbols(
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
     response_window: Option<usize>,
-) -> Result<(Value, NamePlaces), ToolError> {
+    proven: &dyn Fn() -> bool,
+) -> Result<(Value, NamePlaces, Option<octocode_engine::stamp::Proof>), ToolError> {
     cancel.check().map_err(ToolError::cancelled)?;
     if let Some(unknown) = q
         .symbol_kinds
@@ -123,13 +143,15 @@ fn run_symbols(
         .map_err(|error| super::errors::io_error(q.path.as_str(), error))?;
     check_language_scope(q, &p.canonical, meta.is_file())?;
     if meta.is_file() {
-        return file_page(q, paths, &p.canonical, response_window, cancel);
+        return file_page(q, paths, &p.canonical, response_window, cancel)
+            .map(|(page, places)| (page, places, None));
     }
     let row_paths = super::RowPaths::new(paths, &p.canonical, false);
-    let mapped = mapped_files(q, &p.canonical)?;
     let scoped = octocode_tools_shared::test_code::Scoped::of(q.test_code, paths);
     let started = octocode_engine::stamp::settle_clock();
-    let walk = walk_directory(q, &p.canonical, (paths, scoped.as_ref()), cancel)?;
+    let mut walk = walk_directory(q, &p.canonical, (paths, scoped.as_ref()), cancel)?;
+    let walked = walk.skipped.clone();
+    let dirs = std::mem::take(&mut walk.dirs);
     let continuation = Continuation::of(q, paths, &p.canonical, &walk, started);
     // A window past the first: the files before it are the ones the windows
     // before it outlined, or its `scanOffset` counts other files.
@@ -146,25 +168,32 @@ fn run_symbols(
                 ),
             ),
             NamePlaces::default(),
+            None,
         ));
     }
     let stored = continuation.stored(q);
+    let stop = || cancel.check().is_err();
     let set = match &stored {
         Some(set) => Arc::clone(set),
-        None => {
+        None => continuation.first_or_outline(q, &stop, || {
             let outline = outline_walked(q, &p.canonical, (walk, scoped.as_ref()), cancel)?;
             let mut set = select(q, &p.canonical, outline, row_paths, cancel)?;
             continuation.bind(&mut set, before.as_deref());
-            Arc::new(set)
-        }
+            Ok::<_, ToolError>(Arc::new(set))
+        })?,
     };
     let (mut page, places) = render_page(q, &set, row_paths, response_window, cancel)?;
     if stored.is_none() && page["calls"]["nextPage"].is_object() {
         continuation.remember(q, &set);
     }
-    note_skipped(q, &p.canonical, mapped.as_ref(), paths, cancel, &mut page);
+    note_skipped(q, &walked, &mut page);
     note_directory_parser(q, &mut page);
-    Ok((page, places))
+    let proof = (!set.truncated
+        && octocode_tools_shared::test_code::Keep::of(q.test_code).is_none()
+        && proven())
+    .then(|| continuation.proof(paths, &dirs))
+    .flatten();
+    Ok((page, places, proof))
 }
 
 /// One page of a single file's outline; the first page that has more stores

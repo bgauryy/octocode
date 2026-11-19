@@ -95,7 +95,7 @@ pub(super) type RuntimeKey = (PathBuf, Surface, String);
 /// directories and environments it serves.
 pub(super) struct Daemon {
     /// The socket this server answers on; its modification time is when it
-    /// was last asked ([`touch`]), readable by anything that lists the
+    /// was last asked ([`touch`](super::sockets::touch)), readable by anything that lists the
     /// socket directory.
     pub(super) socket: PathBuf,
     pub(super) lsp_pool: std::sync::Arc<octocode_engine::lsp::pool::LspClientPool>,

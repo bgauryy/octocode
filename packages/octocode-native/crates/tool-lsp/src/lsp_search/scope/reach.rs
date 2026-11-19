@@ -7,7 +7,11 @@
 //! its inherent container's (a method of a `pub(super)` type), and by crate:
 //! the defining package, or one that depends on it ([`rust`]); a file no
 //! Cargo package compiles (a scratch copy) joins the defining crate only
-//! where it places that file by `#[path]` or `include!`. TS/JS reach
+//! where it places that file by `#[path]` or `include!`. A Rust reach
+//! bounded to a module, a crate or a binding also bounds the text check
+//! itself ([`Reach::searched`]): it reads only where the declaration
+//! reaches, with what the crate places outside its directory, and every
+//! other file of the scope counts as out of reach unread. TS/JS reach
 //! is the importer pre-filter (`importers::reach`): a file whose imports
 //! name only other modules is set aside as checked there. Other languages,
 //! an anchor that does not start a declaration, trait items, macros and
@@ -22,9 +26,9 @@ pub(in super::super) use cargo::{depends_on, local_packages, package_name, packa
 /// The module files of `relocated` (declaring file, module file) that
 /// belong to `territory`: declared from one of its files, or from a module
 /// already placed in it.
-fn placed_in(territory: &Path, relocated: Vec<(PathBuf, PathBuf)>) -> Vec<PathBuf> {
+fn placed_in(territory: &Path, relocated: &[cargo::Relocated]) -> Vec<PathBuf> {
     let mut placed: Vec<PathBuf> = Vec::new();
-    let mut pending = relocated;
+    let mut pending = relocated.to_vec();
     loop {
         let (inside, rest): (Vec<_>, Vec<_>) = pending.into_iter().partition(|(declarer, _)| {
             rust::in_territory(declarer, territory)
@@ -115,6 +119,25 @@ impl Reach {
         }
     }
 
+    /// Where a text check of the name needs to look ([`Searched`]): every
+    /// file this reach admits lies there, so a file of the scope outside it
+    /// is out of reach unread. `None` when the reach spans crates, the anchor
+    /// is no Rust file, or what a crate places outside its directory could
+    /// not be read (`stopped`): then the whole scope is searched.
+    pub(super) fn searched(&self, stopped: &dyn Fn() -> bool) -> Option<Searched> {
+        match self {
+            Self::Local { file, .. } => Path::new(file)
+                .extension()
+                .is_some_and(|ext| ext == "rs")
+                .then(|| Searched {
+                    under: Vec::new(),
+                    files: vec![PathBuf::from(file)],
+                    modules: Vec::new(),
+                }),
+            Self::Item(item) => item.searched(stopped),
+        }
+    }
+
     /// The bound as a reader checks it, paths relative to `root`.
     pub(super) fn describe(&self, root: &str) -> String {
         match self {
@@ -129,6 +152,30 @@ impl Reach {
             ),
             Self::Item(item) => item.describe(root),
         }
+    }
+}
+
+/// Where every file a bounded reach admits lies ([`Reach::searched`]): under
+/// one of `under`, one of `files`, or one of `modules` (a module file placed
+/// by `#[path]`) or a child module of it. It holds whatever [`Reach::reaches`]
+/// admits, and more (a nested package under the directory, say), so the
+/// files a text check skips by it are out of reach, never a missed site.
+#[derive(Debug)]
+pub(super) struct Searched {
+    under: Vec<PathBuf>,
+    files: Vec<PathBuf>,
+    modules: Vec<PathBuf>,
+}
+
+impl Searched {
+    /// Whether a text check reads `file` (canonical).
+    pub(super) fn holds(&self, file: &Path) -> bool {
+        self.under.iter().any(|dir| file.starts_with(dir))
+            || self.files.iter().any(|own| own == file)
+            || self
+                .modules
+                .iter()
+                .any(|module| rust::in_module(file, module))
     }
 }
 
@@ -207,14 +254,65 @@ impl ItemReach {
     /// a module belongs to the module that declares it, wherever its file
     /// sits (a build script's `#[path]` module stays the build script's).
     fn relocated(&self, file: &Path, territory: &Path, stopped: &dyn Fn() -> bool) -> bool {
-        let targets = match self.relocated.get() {
-            Some(targets) => targets,
-            None => match cargo::relocated_modules(&self.package, stopped) {
-                Some(found) => self.relocated.get_or_init(|| placed_in(territory, found)),
-                None => return true,
-            },
+        self.relocated_targets(territory, stopped)
+            .is_none_or(|targets| targets.iter().any(|target| rust::in_module(file, target)))
+    }
+
+    /// The module files a file of `territory`, or a module already placed in
+    /// it, declares by `#[path]`; `None` when `stopped` ended the read.
+    fn relocated_targets(
+        &self,
+        territory: &Path,
+        stopped: &dyn Fn() -> bool,
+    ) -> Option<&[PathBuf]> {
+        if let Some(targets) = self.relocated.get() {
+            return Some(targets);
+        }
+        let found = cargo::relocated_modules(&self.package, stopped)?;
+        Some(self.relocated.get_or_init(|| placed_in(territory, &found)))
+    }
+
+    /// The files outside its directory the package `include!`s (canonical);
+    /// `None` when the read stopped before it saw every source.
+    fn included_targets(&self, stopped: &dyn Fn() -> bool) -> Option<&[PathBuf]> {
+        if let Some(included) = self.included.get() {
+            return Some(included);
+        }
+        let includes = octocode_engine::lsp::workspace::cargo_package_includes(
+            &self.package.join("Cargo.toml"),
+            stopped,
+        )
+        .filter(|includes| !includes.has_more)?;
+        Some(self.included.get_or_init(|| {
+            includes
+                .outside
+                .iter()
+                .map(|target| std::fs::canonicalize(target).unwrap_or(target.clone()))
+                .collect()
+        }))
+    }
+
+    /// See [`Reach::searched`]: the territory's directory and file, or the
+    /// crate's directory, with what the crate places outside it (its
+    /// `#[path]` modules and the files it `include!`s); `None` for a public
+    /// item or a read `stopped` cut.
+    fn searched(&self, stopped: &dyn Fn() -> bool) -> Option<Searched> {
+        let (under, mut files, territory) = match &self.bound {
+            rust::Bound::Territory(territory) => (
+                territory.clone(),
+                vec![territory.with_extension("rs")],
+                territory,
+            ),
+            rust::Bound::Crate => (self.package.clone(), Vec::new(), &self.package),
+            rust::Bound::Public => return None,
         };
-        targets.iter().any(|target| rust::in_module(file, target))
+        let modules = self.relocated_targets(territory, stopped)?.to_vec();
+        files.extend(self.included_targets(stopped)?.iter().cloned());
+        Some(Searched {
+            under: vec![under],
+            files,
+            modules,
+        })
     }
 
     /// Whether `file`, outside every Cargo package, is source the defining
@@ -226,25 +324,8 @@ impl ItemReach {
         if self.relocated(file, territory, stopped) {
             return true;
         }
-        let included = match self.included.get() {
-            Some(included) => included,
-            None => match octocode_engine::lsp::workspace::cargo_package_includes(
-                &self.package.join("Cargo.toml"),
-                stopped,
-            )
-            .filter(|includes| !includes.has_more)
-            {
-                Some(includes) => self.included.get_or_init(|| {
-                    includes
-                        .outside
-                        .iter()
-                        .map(|target| std::fs::canonicalize(target).unwrap_or(target.clone()))
-                        .collect()
-                }),
-                None => return true,
-            },
-        };
-        included.iter().any(|target| target == file)
+        self.included_targets(stopped)
+            .is_none_or(|included| included.iter().any(|target| target == file))
     }
 
     fn depends(&self, package: &Path) -> bool {

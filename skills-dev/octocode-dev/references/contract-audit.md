@@ -1,32 +1,31 @@
-Load when judging a tool's input schema, descriptions, MCP/CLI instructions, configuration knobs, or documentation truth. Agents see only this text; a wrong or bloated word misroutes every call.
+Load when judging a tool's schema, descriptions, instructions, config knobs or documentation truth.
 
-# Contract, config, and docs audit
+# Contract, config and docs audit
 
 ## Input schema
-- Every field has one job. Flag two fields with the same intent (`limit` vs `pageSize`, `maxResults` vs `maxFiles`), aliases kept after a rename, and booleans that should be one enum.
-- Defaults live once: schema `default` and native `defaults`/rules agree. Flag a default re-applied in Rust.
+- One job per field: flag duplicate intents (`limit` vs `pageSize`), aliases kept after a rename, booleans that should be one enum.
+- Defaults live once: schema `default` and native rules agree; flag a default re-applied in Rust.
 - Every `maximum`/`maxItems` maps to a runtime or provider limit. A bound the runtime never hits is noise; a runtime cap with no schema bound is a silent clamp.
-- Discriminators (`operation`, `type`, …) reject cross-variant fields. A field valid in one branch must not appear in the shared shape.
-- Required vs optional matches what execution needs; anything the runtime infers stays optional.
-- Names match the domain and sibling tools (`path`, `limit`, `cursor`, `responseChars`). Flag one-off spellings.
+- Discriminators (`operation`, `type`) reject cross-variant fields.
+- Required matches execution needs; inferred fields are optional.
+- Names match sibling tools (`path`, `limit`, `cursor`, `responseChars`); flag one-offs.
 
 ## Descriptions and instructions
-- The description is `<when>…</when><workflow>…</workflow>`: `<when>` names the triggers and when a sibling fits better; `<workflow>` says which outputs feed it, where results go, and what an empty result means. No `next.*` names.
-- A field description adds what the name cannot: unit, default effect, interaction. Delete descriptions that restate the name; add one only where the inventory flags an ambiguous undescribed field.
-- No claim the implementation cannot back (languages, views, limits). Verify each against code or a live call.
-- Instructions are one core base (`MCP_INSTRUCTIONS`) plus a block per optional tool (`MCP_TOOL_INSTRUCTIONS`), served when that tool is available; the native CLI appends its own `<cli>` notes. Flag tool guidance hand-written in `packages/octocode-mcp` or `packages/octocode`.
-- Each sentence changes an agent decision. Keep a rule at its narrowest owner, not in both instructions and descriptions. Rewrites go through `octocode-agentic`; measure context cost with core `publishedSurfaceBudget.test.ts`.
+- Description is `<when>…</when><workflow>…</workflow>`: `<when>` names triggers and when a sibling fits better; `<workflow>` says which outputs feed it, where results go and what empty means. No `next.*` names.
+- A field description adds what the name cannot (unit, default effect, interaction). Delete ones that restate the name; add one only where the inventory flags an ambiguous undescribed field.
+- No claim the implementation cannot back (languages, views, limits); verify in code or a live call.
+- Instructions are one core base (`MCP_INSTRUCTIONS`) plus a block per optional tool (`MCP_TOOL_INSTRUCTIONS`); the native CLI appends its `<cli>` notes. Flag tool guidance hand-written in `packages/octocode-mcp` or `packages/octocode`.
+- Each sentence changes an agent decision; keep a rule at its narrowest owner. Rewrites go through `octocode-agentic`; context cost: core `publishedSurfaceBudget.test.ts`.
 
 ## Config and docs
-Config source of truth: the Zod declaration in `packages/octocode-config/scripts/config-contract/declaration/` (emits `config-contract.json`); contributor rules: `docs/ADDING_CONFIG.md`.
-- List every knob the tool reads: native config accessors in the tool module and `crates/runtime-base/src/config/`, plus `std::env::var` reads anywhere in the tool path.
-- Each knob is declared in that declaration, generated into `src/config/contract.generated.ts` and the native struct (`crates/runtime-base/build.rs`), listed in `<repo>/docs/CONFIGURATION.md`, and honored identically via env, `.octocoderc`, CLI, and MCP.
-- Flag env reads that bypass the contract, declared knobs never read, TS and Rust resolvers that differ, and protected-key drift. Check each surface against its own availability policy: MCP exposure settings (clone, beta, local tools and tool lists) do not remove CLI commands. Shared capability requirements, such as the classification key, apply to both. Verify these rules through `$OCTO schema` and the MCP tool list.
-- Check with `$OCTO config --json` and one MCP session per relevant setting. Generated drift: `yarn workspace @octocodeai/config check:config-contract`.
-- Tool facts (fields, defaults, views, limits, tool and enabled-by-default counts) in each doc of the `references/surface-map.md` Docs row match live `schema` output and code. After every rename, search docs for the old name.
-- Keep one owner section per fact and link to it; keep `##`/`###` anchors stable. Example calls in `skills/*/` still validate against the live schema.
-- Gate: `node skills-dev/octocode-dev/scripts/dev.mjs docs:verify`. Doc repair beyond a fact fix → `octocode-documentation`.
+Source of truth: the Zod declaration in `packages/octocode-config/scripts/config-contract/declaration/` (emits `config-contract.json`); rules in `docs/ADDING_CONFIG.md`.
+- List every knob the tool reads: native config accessors in the tool module and `crates/runtime-base/src/config/`, plus `std::env::var` reads in the tool path.
+- Each knob is declared there, generated into `src/config/contract.generated.ts` and the native struct (`crates/runtime-base/build.rs`), listed in `<repo>/docs/CONFIGURATION.md`, and honored identically via env, `.octocoderc`, CLI and MCP.
+- Flag env reads that bypass the contract, declared knobs never read, differing TS and Rust resolvers, and protected-key drift. Each surface follows its own availability policy: MCP exposure settings (clone, beta, local tools, tool lists) do not remove CLI commands; shared capability requirements (the classification key) apply to both. Verify via `$OCTO schema` and the MCP tool list.
+- Check with `$OCTO config --json` and one MCP session per setting. Drift: `yarn workspace @octocodeai/config check:config-contract`.
+- Tool facts in the surface-map Docs row match live `schema` output; after a rename, search docs for the old name. One owner section per fact; keep anchors stable; `skills/*/` example calls validate against the live schema.
+- Gate: `node skills-dev/octocode-dev/scripts/dev.mjs docs:verify`. Larger doc repair: `octocode-documentation`.
 
 Record per finding: layer, field or sentence, evidence (core `file:line` + live `schema` output), proposed change, owner repo.
 
-Next: load `references/implementation-audit.md` to prove each field against code.
+Next: `references/implementation-audit.md`.

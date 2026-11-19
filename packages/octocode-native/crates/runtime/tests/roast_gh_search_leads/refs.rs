@@ -61,7 +61,14 @@ fn names(data: &Value, list: &str) -> Vec<String> {
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(|row| row["name"].as_str().map(str::to_owned))
+        .map(|row| {
+            let (name, sha) = row
+                .as_str()
+                .and_then(|row| row.split_once(' '))
+                .unwrap_or_else(|| panic!("a \"name sha\" ref row: {row}"));
+            assert!(octocode_github::is_full_sha(sha), "{row}");
+            name.to_owned()
+        })
         .collect()
 }
 
@@ -88,16 +95,18 @@ async fn limit_counts_each_list_and_every_ref_is_listed_once() {
     assert_eq!(names(data, "tags").len(), 3, "{data}");
     assert_eq!(names(data, "branches").len(), 3, "{data}");
     assert_eq!(data["pagination"]["hasMore"], true, "{data}");
+    // Each ref is one `"name sha"` string: the name, a space, its commit.
     for row in data["tags"]
         .as_array()
         .into_iter()
         .flatten()
         .chain(data["branches"].as_array().into_iter().flatten())
     {
-        assert!(
-            row.get("commitSha").is_some() && row.get("sha").is_none(),
-            "{row}"
-        );
+        let (_, sha) = row
+            .as_str()
+            .and_then(|row| row.split_once(' '))
+            .unwrap_or_else(|| panic!("{row}"));
+        assert!(octocode_github::is_full_sha(sha), "{row}");
     }
     let (mut tags, mut branches) = (names(data, "tags"), names(data, "branches"));
     let mut next = data["next"]["nextPage"]["input"].clone();

@@ -19,7 +19,7 @@ use serde_json::Value;
 /// A row states that column only when it tells two rows apart, so the page
 /// hands every row's here, beside its rows, to the judging of their names
 /// ([`judge_symbol`]): no row carries it.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct NamePlaces(std::collections::VecDeque<(usize, usize)>);
 
 impl NamePlaces {
@@ -51,9 +51,60 @@ const CLIP: &str = " …";
 
 /// Judge every text of `data`'s rows against the source its row names;
 /// `places` names where its declaration rows were named.
-pub(super) fn judge_rows(data: &mut Value, sources: &RowSources<'_>, mut places: NamePlaces) {
-    visit(data, sources, &mut places);
+pub(super) fn judge_rows(data: &mut Value, sources: &RowSources<'_>, places: NamePlaces) {
+    judge_rows_with(data, sources, places, &Known::default());
+}
+
+/// [`judge_rows`], each judged source taken from `known` when it holds the
+/// row's file, else read and judged now and kept in `known`.
+pub(super) fn judge_rows_with(
+    data: &mut Value,
+    sources: &RowSources<'_>,
+    mut places: NamePlaces,
+    known: &Known,
+) {
+    visit(data, &Judging { sources, known }, &mut places);
     sources.warn(data);
+}
+
+/// The judged sources one page's rows were cut from, by the path each row
+/// shows: what another request handed the same page judges its rows by
+/// ([`super::shared_rows`]), instead of reading and judging each file again.
+/// A file the read policy refused, or that could not be read, is kept as
+/// `None`, as [`RowSources::source`] answers it.
+#[derive(Clone, Default)]
+pub(super) struct Known(
+    std::sync::Arc<
+        std::sync::Mutex<std::collections::HashMap<String, Option<std::sync::Arc<JudgedText>>>>,
+    >,
+);
+
+impl Known {
+    /// The judged source of the file a row shows as `shown`.
+    fn source(&self, shown: &str, sources: &RowSources<'_>) -> Option<std::sync::Arc<JudgedText>> {
+        let held = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(shown)
+            .cloned();
+        if let Some(held) = held {
+            return held;
+        }
+        let judged = sources.source(shown);
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(shown.to_owned(), judged.clone());
+        judged
+    }
+}
+
+/// A page's judging: its request's sources, and the judged sources known
+/// already.
+struct Judging<'a, 'b> {
+    sources: &'a RowSources<'b>,
+    known: &'a Known,
 }
 
 /// Drop what only the judging above reads from a lean match row: its start
@@ -87,17 +138,18 @@ pub(super) fn drop_judging_positions(value: &mut Value) {
     }
 }
 
-fn visit(value: &mut Value, sources: &RowSources<'_>, places: &mut NamePlaces) {
+fn visit(value: &mut Value, judging: &Judging<'_, '_>, places: &mut NamePlaces) {
+    let sources = judging.sources;
     match value {
         Value::Array(items) => items
             .iter_mut()
-            .for_each(|item| visit(item, sources, places)),
+            .for_each(|item| visit(item, judging, places)),
         Value::Object(fields) => {
             let source = fields
                 .get("path")
                 .and_then(Value::as_str)
                 .filter(|_| fields.contains_key("matches") || fields.contains_key("symbols"))
-                .and_then(|shown| sources.source(shown));
+                .and_then(|shown| judging.known.source(shown, sources));
             if let Some(source) = &source {
                 for row in rows(fields.get_mut("matches")) {
                     judge_match(row, source, sources);
@@ -110,7 +162,7 @@ fn visit(value: &mut Value, sources: &RowSources<'_>, places: &mut NamePlaces) {
             }
             for (key, field) in fields.iter_mut() {
                 if key != "symbols" && (source.is_none() || key != "matches") {
-                    visit(field, sources, places);
+                    visit(field, judging, places);
                 }
             }
         }

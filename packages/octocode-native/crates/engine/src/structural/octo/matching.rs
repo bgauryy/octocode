@@ -117,10 +117,20 @@ pub(in crate::structural) struct Found<'a> {
     recovered_bodies: Vec<crate::structural::types::RecoveredBody>,
     /// Which 1-based start lines a scope keeps; `None` keeps every match.
     keep_line: Option<&'a (dyn Fn(u32) -> bool + Sync)>,
+    /// The share this source's tree is parsed through, the source's path
+    /// and the scan's stop ([`Self::parse`]).
+    trees: Option<SharedTrees<'a>>,
     /// Every match pushed, kept or not: what the prefilter audit reads.
     #[cfg(test)]
     pushed: u32,
 }
+
+/// Where a source's tree is parsed once for the scans beside this one.
+type SharedTrees<'a> = (
+    &'a crate::structural::files::TreeShare,
+    &'a std::path::Path,
+    &'a crate::search::walk::Stop<'a>,
+);
 
 /// Each kept match or price with its node's [`SourceOrder`].
 enum Kept<'a> {
@@ -151,8 +161,10 @@ impl<'a> Found<'a> {
     pub(in crate::structural) fn new(demand: StructuralDemand<'a>) -> Self {
         let kept = match demand {
             StructuralDemand::Matches => Kept::Matches(Vec::new()),
-            StructuralDemand::Count => Kept::Counted(0),
-            StructuralDemand::Priced(price) => Kept::Priced(price, Vec::new()),
+            StructuralDemand::Count | StructuralDemand::Exists => Kept::Counted(0),
+            StructuralDemand::Priced(price) | StructuralDemand::Paged(price, _) => {
+                Kept::Priced(price, Vec::new())
+            }
         };
         Self {
             kept,
@@ -161,8 +173,37 @@ impl<'a> Found<'a> {
             recovered: false,
             recovered_bodies: Vec::new(),
             keep_line: None,
+            trees: None,
             #[cfg(test)]
             pushed: 0,
+        }
+    }
+
+    /// Parse the source at `path` through `trees`: once for every scan
+    /// beside this one that matches the same text ([`Self::parse`]).
+    pub(in crate::structural) fn share_trees(
+        &mut self,
+        trees: &'a crate::structural::files::TreeShare,
+        path: &'a std::path::Path,
+        stop: &'a crate::search::walk::Stop<'a>,
+    ) {
+        self.trees = Some((trees, path, stop));
+    }
+
+    /// The tree of `content` by `language`, as
+    /// [`parse_tree_with_deadline`] parses it by `deadline`: from the
+    /// share the source's tree is parsed through when this file has one,
+    /// whose tree is that same parse of the same text.
+    pub(in crate::structural) fn parse(
+        &self,
+        language: &Language,
+        content: &str,
+        deadline: super::Deadline,
+    ) -> Result<tree_sitter::Tree, ExecutionError> {
+        let parse = || parse_tree_with_deadline(language, content, deadline.parse_by());
+        match self.trees {
+            Some((trees, path, stop)) => trees.tree((path, language, content), stop, parse),
+            None => parse(),
         }
     }
 

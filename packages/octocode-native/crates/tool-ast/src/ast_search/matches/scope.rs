@@ -204,16 +204,14 @@ impl Inapplicable {
 /// The one grammar a directory scan without `parser` read, from the
 /// census of its own walk (no second walk): `None` when it read several (or
 /// one the query does not compile in). A first window whose files are all
-/// of no supported grammar is `languageRequired`, unless source files sit
-/// behind the paths the walk skipped: then the empty answer names them and
+/// of no supported grammar is `languageRequired`, unless the walk skipped
+/// paths, where source files may sit: then the empty answer names them and
 /// leads to the walk that reads them.
 pub(super) fn infer_grammar(
     q: MatchQuery<'_>,
     scope: &Scope,
     scan: &Scan,
     grammars: &[GrammarCompile],
-    paths: &PathPolicy,
-    cancel: &dyn CancellationCheck,
 ) -> Result<Option<String>, ToolError> {
     if scope.is_file || scope.language.is_some() {
         return Ok(None);
@@ -236,8 +234,9 @@ pub(super) fn infer_grammar(
         GrammarChoice::Absent
             if q.scan_offset() == 0
                 && scan.unparsed.files.count > 0
-                && scan.withheld.total() == 0
-                && super::gaps::skipped_walk(q, scope, paths, true, cancel).is_none() =>
+                && scan.skipped.withheld.total() == 0
+                && octocode_tools_shared::leads::skipped::skipped_causes(&scan.skipped)
+                    .is_empty() =>
         {
             Err(ToolError::new(
                 ErrorCode::LanguageRequired,

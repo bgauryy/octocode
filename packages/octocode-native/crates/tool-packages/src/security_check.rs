@@ -58,6 +58,9 @@ pub struct SecurityCall<'a> {
     pub github: Option<&'a dyn RepositoryRead>,
     /// OSV's API base (`RuntimeLimits::osv_api`).
     pub osv_api: &'a str,
+    /// What the rows of this call share ([`crate::artifact::CallShare`]); `None`: the
+    /// row shares with no other.
+    pub share: Option<&'a crate::artifact::CallShare>,
 }
 
 /// The network a row runs on: one transport, budget and set of kept answers.
@@ -70,6 +73,9 @@ pub(super) struct Net<'a> {
     pub github: Option<&'a dyn RepositoryRead>,
     /// OSV's API base, with no trailing slash.
     pub osv_api: &'a str,
+    /// What the row shares with the other rows of its call: reads made once,
+    /// and one bound on OSV requests in flight.
+    pub share: &'a crate::artifact::CallShare,
 }
 
 pub async fn execute(
@@ -80,6 +86,14 @@ pub async fn execute(
     let budget = RequestBudget::new(call.deadline, call.cancellation, PROVIDER_BODY_BYTES)
         .with_stall(call.timeout);
     let reused = ReusedSince::default();
+    let alone;
+    let share = match call.share {
+        Some(share) => share,
+        None => {
+            alone = crate::artifact::CallShare::new();
+            &alone
+        }
+    };
     let net = Net {
         http: &http,
         budget: &budget,
@@ -88,6 +102,7 @@ pub async fn execute(
         config: call.config,
         github: call.github,
         osv_api: call.osv_api,
+        share,
     };
     let mut data = run(&query, &net).await?;
     if let Some(observed) = reused.get() {

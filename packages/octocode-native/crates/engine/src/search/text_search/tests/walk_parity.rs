@@ -143,6 +143,7 @@ fn the_search_walks_exactly_what_the_ignore_walker_walks() {
                         pin: None,
                         anchor: Anchor::START,
                         enough: Box::new(|_| false),
+                        prepare: None,
                     },
                 )
                 .expect("stream") else {

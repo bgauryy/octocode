@@ -233,6 +233,18 @@ fn prefer_guidance(
         return Err(guidance);
     }
     for check in guidance.issues {
+        // A selector of the checked object that does not match (`type`
+        // const or enum) says the value is another branch's: this branch's
+        // guidance is not its to explain, and hiding the mismatch would
+        // make this branch look like the closest.
+        let other_branch = issues.iter().any(|issue| {
+            matches!(issue.rule_id.as_str(), "schema.const" | "schema.enum")
+                && issue.path.len() == check.path.len() + 1
+                && issue.path.starts_with(&check.path)
+        });
+        if other_branch {
+            continue;
+        }
         let before = issues.len();
         issues.retain(|issue| {
             !issue.path.starts_with(&check.path)

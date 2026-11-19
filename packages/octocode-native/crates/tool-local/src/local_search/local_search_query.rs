@@ -95,7 +95,7 @@ pub(crate) fn scan_offset(q: &LocalSearchQuery) -> Option<u32> {
     )
 }
 /// Candidates, in walk order, before the first file a streamed page has not
-/// shown whole (see [`super::streamed`]).
+/// shown whole (see [`super::streamed`](super::executor::streamed)).
 pub(crate) fn walk_offset(q: &LocalSearchQuery) -> Option<u32> {
     common!(
         q,
@@ -176,6 +176,21 @@ pub(crate) fn view(q: &LocalSearchQuery) -> View {
             LocalSearchQueryFilesView::CountMatches => View::CountMatches,
         },
     }
+}
+/// The value a matchOnly row leaves out of its spans: the query's one
+/// `matchString` term, so a span equal to it states only where it is and a
+/// reader takes the text from the request. `None` for another view, several
+/// terms, or a term the output gate would not serve as written (a span
+/// showing it would be redacted, never the term).
+pub(crate) fn derived_value(q: &LocalSearchQuery) -> Option<&str> {
+    let [term] = patterns(q).0.as_slice() else {
+        return None;
+    };
+    (view(q) == View::MatchOnly
+        && octocode_runtime_base::security::ContentSecurity::new()
+            .sanitize_leaf(term.as_str())
+            .is_none())
+    .then_some(term.as_str())
 }
 pub(crate) fn multiline(q: &LocalSearchQuery) -> Multiline {
     common!(q, multiline, *multiline)

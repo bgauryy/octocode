@@ -136,6 +136,7 @@ pub(super) fn walk_exactly_once_with(
         };
         let text = read.content.clone().expect("content");
         assert!(!text.is_empty(), "every page makes progress: {page:?}");
+        let mark = placed.len();
         // A selection's byte page names source bytes (its offset and its gap
         // markers alike): one line's shift from the view's.
         let shift = page.placed.map_or(0, |(source, _)| source - page.offset);
@@ -159,6 +160,14 @@ pub(super) fn walk_exactly_once_with(
         // The wire states the walk: `hasMore` exactly when a next call
         // exists.
         let wire = serde_json::to_value(&read).expect("row");
+        // Q4: a page showing every match of the view's last long line leaves
+        // the rest of that line to an optional read of the whole line.
+        let rest = read
+            .warnings
+            .iter()
+            .any(|warning| warning.starts_with("Every match in line"))
+            .then(|| read.next.as_ref().and_then(|next| next.read.clone()))
+            .flatten();
         let next = read.next.and_then(|next| next.continue_window);
         assert_eq!(page.has_more, next.is_some(), "hasMore has its call");
         assert_eq!(
@@ -169,7 +178,42 @@ pub(super) fn walk_exactly_once_with(
         );
         pages.push((at, text));
         assert!(pages.len() < 2_000, "the walk ends");
-        let Some(next) = next else { break };
+        let Some(next) = next else {
+            if let Some(rest) = rest {
+                // The read ends on the line: what came before it was walked
+                // once, and the line's read walks the line once, this page's
+                // windows again among it.
+                let shown = placed.split_off(mark);
+                let first = shown.iter().map(|(at, _)| *at).min().expect("a window");
+                let line_start = view[..first].rfind('\n').map_or(0, |at| at + 1);
+                assert!(
+                    shown
+                        .iter()
+                        .all(|(at, len)| *at >= line_start && at + len <= view.len()),
+                    "the windows lie in the last line"
+                );
+                assert!(
+                    !view[line_start..view.len() - 1].contains('\n'),
+                    "the line is the view's last"
+                );
+                placed.sort_unstable();
+                let mut end = 0;
+                for (at, len) in placed {
+                    assert_eq!(at, end, "no gap and no byte twice before the line");
+                    end = at + len;
+                }
+                assert_eq!(end, line_start, "every byte before the line once");
+                pages.extend(walk_exactly_once_with(
+                    &rest.query,
+                    paths,
+                    scan,
+                    window,
+                    &view[line_start..],
+                ));
+                return pages;
+            }
+            break;
+        };
         query = next.query;
     }
     placed.sort_unstable();

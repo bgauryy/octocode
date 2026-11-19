@@ -801,3 +801,44 @@ fn a_cursor_beside_queries_is_answered_of_the_request() {
         );
     }
 }
+
+/// A value outside its enum whose message names the one literal it means
+/// (`sort.by: "modified"`, `use "modifiedAt"`) is repaired in the example,
+/// not dropped: the example still asks what the row did, here a sorted
+/// listing, and runs as shown.
+#[test]
+fn the_example_takes_the_literal_a_near_miss_means() {
+    for (tool, row, field, expected) in [
+        (
+            "structureSearch",
+            json!({"operation": "files", "path": "src", "entryType": "file", "view": "details",
+                "sort": {"by": "modified", "order": "desc"}, "limit": 5}),
+            "sort",
+            json!({"by": "modifiedAt", "order": "desc"}),
+        ),
+        (
+            "localSearch",
+            json!({"path": "src", "matchString": ["needle"], "caseMode": "insensitiv"}),
+            "caseMode",
+            json!("insensitive"),
+        ),
+    ] {
+        let sent = json!({"queries": [row]});
+        let error = match prepare_rows(tool, sent.clone()) {
+            Err(error) => error,
+            Ok(rows) => rows.into_iter().find_map(Result::err).expect("rejected"),
+        };
+        let envelope = format_input_error(tool, &error, &[], &sent);
+        let shown = envelope["details"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .find_map(|line| line.strip_prefix("Example: "))
+            .map(|line| serde_json::from_str::<Value>(line).expect("request"))
+            .unwrap_or_else(|| panic!("{tool}: an example in {envelope}"));
+        assert_eq!(shown["queries"][0][field], expected, "{tool}: {shown}");
+        crate::contracts::validate(tool, shown.clone())
+            .unwrap_or_else(|error| panic!("{tool}: {shown} is rejected: {error}"));
+    }
+}

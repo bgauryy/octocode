@@ -111,10 +111,10 @@ fn an_empty_name_search_does_not_blame_files_it_scanned() {
     assert!(out["next"].get("includeSkipped").is_none(), "{out}");
 }
 
-/// Files behind a hidden directory are counted by themselves, not with the
-/// files the scan reached.
+/// A hidden directory is named by itself, apart from the files the scan
+/// reached.
 #[test]
-fn an_empty_name_search_counts_only_the_hidden_files() {
+fn an_empty_name_search_names_only_the_hidden_paths() {
     let root = Fixture::new();
     files(&root.0, 5);
     std::fs::create_dir_all(root.0.join(".cfg")).expect("dir");
@@ -125,8 +125,8 @@ fn an_empty_name_search_counts_only_the_hidden_files() {
     );
     assert_eq!(out["status"], "empty", "{out}");
     let hints = out["warnings"].to_string();
-    assert!(hints.contains("1 outlinable file"), "{hints}");
-    assert!(hints.contains("hidden .cfg/"), "{hints}");
+    assert!(hints.contains("Skipped paths (1 hidden)"), "{hints}");
+    assert!(out["skippedPaths"].to_string().contains(".cfg"), "{out}");
 }
 
 /// A trait's required method (no body) is a declaration a name search

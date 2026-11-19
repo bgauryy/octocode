@@ -471,3 +471,251 @@ async fn a_dependency_on_a_same_named_crate_elsewhere_is_out_of_reach() {
     // The copy's `alpha` and `beta`, and the dangling dependent.
     assert_eq!(scope.out_of_reach("shared").map(|out| out.files), Some(3));
 }
+
+/// [`checked`] as a request runs it (TE11): the anchor first, so the text
+/// check reads only where the declaration reaches.
+async fn checked_in_reach(
+    root: &Path,
+    symbol: &str,
+    anchor: (&Path, u32, u32),
+    answered: &[&Path],
+) -> Scope {
+    let scope = Scope::new(shown(root), vec!["*.rs".into()]);
+    let cancel = octocode_runtime_base::execution::cancel::NeverCancel;
+    scope.anchor_site(&shown(anchor.0), anchor.1, anchor.2);
+    scope
+        .text_files_in_reach(symbol, &workspace_policy(root), &cancel)
+        .await
+        .expect("scan")
+        .expect("files");
+    scope.answer(answered.iter().map(|path| shown(path)));
+    scope
+        .check_code_uses(symbol, &cancel)
+        .await
+        .expect("checked");
+    scope
+}
+
+/// The bounded check of `symbol` against the whole one: the same missed
+/// sites; every file it left unread is out of reach by the declaration's
+/// own rule and counted apart (`unsearched`), while `files` keeps its
+/// meaning, the out-of-reach files it read that spell the name; and it
+/// reads `unread` files fewer. Returns its (`files`, `unsearched`).
+async fn bounded_agrees(
+    root: &Path,
+    symbol: &str,
+    anchor: (&Path, u32, u32),
+    answered: &[&Path],
+    unread: usize,
+) -> (usize, usize) {
+    let whole = checked(root, symbol, anchor, answered).await;
+    let bounded = checked_in_reach(root, symbol, anchor, answered).await;
+    let sorted = |scope: &Scope| {
+        let mut files = scope.text_only_files(symbol).expect("checked");
+        files.sort();
+        files
+    };
+    assert_eq!(sorted(&bounded), sorted(&whole), "the same missed sites");
+    let left = bounded.unsearched_files(symbol);
+    assert_eq!(left.len(), unread, "{left:?}");
+    for file in &left {
+        assert!(
+            !whole.may_reach(symbol, &shown(file)),
+            "{} is in reach",
+            file.display()
+        );
+    }
+    assert!(whole.unsearched_files(symbol).is_empty());
+    let count = |scope: &Scope| scope.out_of_reach(symbol).map_or(0, |out| out.files);
+    let read_out = whole
+        .scanned_files(symbol)
+        .expect("scanned")
+        .iter()
+        .filter(|file| {
+            bounded
+                .scanned_files(symbol)
+                .expect("scanned")
+                .contains(*file)
+                && !whole.in_reach(symbol, file)
+        })
+        .count();
+    assert_eq!(count(&bounded), read_out);
+    let unsearched = bounded.out_of_reach(symbol).map_or(0, |out| out.unsearched);
+    assert_eq!(unsearched, unread);
+    assert_eq!(
+        whole.out_of_reach(symbol).map_or(0, |out| out.unsearched),
+        0
+    );
+    (count(&bounded), unsearched)
+}
+
+/// A `pub(super)` function is checked only in its module: the same-named
+/// functions of other modules and crates are left unread, and counted out
+/// of reach with every other file of the scope.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bounded_check_reads_only_the_module_and_counts_the_rest() {
+    let (_dir, root) = fixture();
+    workspace(&root);
+    write(
+        &root.join("alpha/src/lib.rs"),
+        "pub mod search;\nmod other;\n",
+    );
+    write(
+        &root.join("alpha/src/search.rs"),
+        "mod executor;\nmod run;\nmod extra;\n",
+    );
+    let anchor = root.join("alpha/src/search/executor.rs");
+    write(&anchor, "pub(super) fn page_of() {}\n");
+    let run = root.join("alpha/src/search/run.rs");
+    write(&run, "fn go() {\n    super::executor::page_of();\n}\n");
+    write(
+        &root.join("alpha/src/search/extra.rs"),
+        "fn z() {\n    super::executor::page_of();\n}\n",
+    );
+    write(
+        &root.join("alpha/src/other.rs"),
+        "fn page_of() {}\nfn x() {\n    page_of();\n}\n",
+    );
+    write(
+        &root.join("beta/src/lib.rs"),
+        "fn page_of() {}\nfn y() {\n    page_of();\n}\n",
+    );
+    write(&root.join("delta/src/lib.rs"), "fn d() {}\n");
+    // Unread: alpha's lib.rs and other.rs, beta's and delta's lib.rs.
+    let out = bounded_agrees(&root, "page_of", (&anchor, 0, 14), &[&anchor, &run], 4).await;
+    assert_eq!(out, (0, 4));
+    // The row keeps `outOfReachFiles` for what it read and counts the
+    // unread files apart, with the bound in its notice.
+    let scope = checked_in_reach(&root, "page_of", (&anchor, 0, 14), &[&anchor, &run]).await;
+    let mut row = json_fixture(r#"{"operation": "callers"}"#);
+    crate::lsp_search::failure::record_text_only(&mut row, &scope, "page_of", 1);
+    assert!(row["coverage"].get("outOfReachFiles").is_none(), "{row}");
+    assert_eq!(row["coverage"]["unreadOutOfReach"], 4, "{row}");
+    assert!(
+        row.to_string()
+            .contains("coverage.unreadOutOfReach counts files outside its reach (pub(super) reaches only module"),
+        "{row}"
+    );
+}
+
+/// What a crate places outside the bounded directory stays read: a module
+/// a `#[path]` puts outside the territory, one outside every package, and
+/// a file it `include!`s; a build script's `#[path]` module and a scratch
+/// copy no package compiles are left unread.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bounded_check_reads_what_the_crate_places_outside_it() {
+    let (_dir, root) = fixture();
+    workspace(&root);
+    write(&root.join("alpha/src/lib.rs"), "mod search;\nmod other;\n");
+    write(
+        &root.join("alpha/src/search.rs"),
+        "mod executor;\n#[path = \"../relocated.rs\"]\nmod relocated;\n#[path = \"../../shared/placed.rs\"]\nmod placed;\n",
+    );
+    let anchor = root.join("alpha/src/search/executor.rs");
+    write(
+        &anchor,
+        "pub(super) fn page_of() {}\npub(crate) fn crate_of() {}\n",
+    );
+    let relocated = root.join("alpha/relocated.rs");
+    write(&relocated, "fn r() {\n    super::executor::page_of();\n}\n");
+    let placed = root.join("shared/placed.rs");
+    write(&placed, "fn p() {\n    super::executor::page_of();\n}\n");
+    write(
+        &root.join("alpha/build.rs"),
+        "#[path = \"embedded/embed.rs\"]\nmod embed;\nfn main() {}\n",
+    );
+    write(
+        &root.join("alpha/embedded/embed.rs"),
+        "fn page_of() {}\nfn e() {\n    page_of();\n    crate_of();\n}\n",
+    );
+    write(
+        &root.join("alpha/src/other.rs"),
+        "fn o() {\n    include!(\"../../shared/included.rs\");\n}\n",
+    );
+    let included = root.join("shared/included.rs");
+    write(
+        &included,
+        "crate::search::executor::crate_of();\ncrate::search::executor::page_of();\n",
+    );
+    write(
+        &root.join("scratch/executor.rs"),
+        "pub(super) fn page_of() {}\nfn c() {\n    page_of();\n    crate_of();\n}\n",
+    );
+
+    // page_of: read the module, its `#[path]` modules and the include.
+    // Unread: lib.rs, other.rs, build.rs, embed.rs, the scratch copy.
+    let out = bounded_agrees(&root, "page_of", (&anchor, 0, 14), &[&anchor], 5).await;
+    assert_eq!(out, (0, 5));
+    // crate_of: the whole crate directory, the placed module and the
+    // include; unread: the scratch copy alone.
+    let out = bounded_agrees(&root, "crate_of", (&anchor, 1, 14), &[&anchor], 1).await;
+    assert_eq!(out, (0, 1));
+}
+
+/// A local binding is checked in its own file only.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bounded_check_of_a_local_binding_reads_its_file_only() {
+    let (_dir, root) = fixture();
+    workspace(&root);
+    write(&root.join("alpha/src/lib.rs"), "mod num;\nmod other;\n");
+    let anchor = root.join("alpha/src/num.rs");
+    write(
+        &anchor,
+        "pub fn saturating_u32(value: impl TryInto<u32>) -> u32 {\n    value.try_into().unwrap_or(u32::MAX)\n}\n",
+    );
+    write(
+        &root.join("alpha/src/other.rs"),
+        "fn f(value: u32) -> u32 {\n    value\n}\n",
+    );
+    bounded_agrees(&root, "value", (&anchor, 0, 22), &[&anchor], 2).await;
+}
+
+/// A public item reaches every dependent crate: nothing bounds the check,
+/// which reads the whole scope as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_public_item_is_checked_over_the_whole_scope() {
+    let (_dir, root) = fixture();
+    workspace(&root);
+    let lib = root.join("alpha/src/lib.rs");
+    write(&lib, "pub fn shared() {}\n");
+    write(
+        &root.join("beta/src/lib.rs"),
+        "fn b() {\n    alpha::shared();\n}\n",
+    );
+    write(
+        &root.join("delta/src/lib.rs"),
+        "fn shared() {}\nfn d() {\n    shared();\n}\n",
+    );
+    bounded_agrees(&root, "shared", (&lib, 0, 7), &[&lib], 0).await;
+    let scope = checked_in_reach(&root, "shared", (&lib, 0, 7), &[&lib]).await;
+    assert_eq!(scope.out_of_reach("shared").map(|out| out.files), Some(1));
+}
+
+/// Over a kept listing, the bounded check opens no file outside its bound.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bounded_check_over_a_kept_listing_opens_nothing_outside() {
+    let (_dir, root) = fixture();
+    workspace(&root);
+    std::fs::create_dir_all(root.join(".git")).expect("git");
+    write(&root.join("alpha/src/lib.rs"), "mod engine;\n");
+    write(&root.join("alpha/src/engine.rs"), "mod cursors;\n");
+    let anchor = root.join("alpha/src/engine/cursors.rs");
+    write(&anchor, "fn page_of() {}\nfn c() {\n    page_of();\n}\n");
+    let far = root.join("delta/src/lib.rs");
+    write(&far, "fn page_of() {}\nfn d() {\n    page_of();\n}\n");
+    octocode_engine::stamp::settle_written_so_far();
+    // A first scan keeps the listing.
+    checked(&root, "unrelated", (&anchor, 0, 3), &[&anchor]).await;
+    let before = crate::lsp_search::scope::spelling_index::READS.of(&far);
+    let scope = checked_in_reach(&root, "page_of", (&anchor, 0, 3), &[&anchor]).await;
+    assert_eq!(
+        crate::lsp_search::scope::spelling_index::READS.of(&far),
+        before
+    );
+    assert!(scope.unsearched_files("page_of").contains(&far));
+    // alpha's lib.rs and engine.rs, delta's lib.rs.
+    assert_eq!(
+        scope.out_of_reach("page_of").map(|out| out.unsearched),
+        Some(3)
+    );
+}

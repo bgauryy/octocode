@@ -34,7 +34,7 @@ impl Rebuilt {
 }
 
 /// The matches of one file a [`search_files`](super::search_files) scan evaluated, rebuilt for
-/// the page that shows them (a [`StructuralDemand::Priced`] scan kept only
+/// the page that shows them (a [`StructuralDemand::Priced`](crate::structural::StructuralDemand::Priced) scan kept only
 /// their prices): the file is read through the scan's bounded reader and
 /// matched with the same query under `extension`'s grammar, so the matches
 /// are the scan's own, in its order.

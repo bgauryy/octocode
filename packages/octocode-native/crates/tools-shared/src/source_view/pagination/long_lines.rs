@@ -261,6 +261,10 @@ impl MatchFirst {
         // them, which later pages show.
         let mut shown = end - at;
         let windows = self.walk.windows();
+        // The windows after the first one this page holds, each with the
+        // bytes it skips to reach it.
+        let mut joined: Vec<((usize, usize), &str)> = Vec::new();
+        let mut every_window = false;
         if end == run_end
             && let Some(held) = self.walk.window_at(at)
         {
@@ -276,17 +280,37 @@ impl MatchFirst {
                     break;
                 }
                 left -= cost;
-                text.push_str(&marker);
-                text.push_str(window);
+                joined.push(((self.named(last), self.named(from)), window));
                 shown += to - from;
                 (last, taken) = (to, taken + 1);
             }
             next = self.walk.after_windows(taken);
+            every_window = held == 0 && taken == windows.len();
+        }
+        // The first page of the walk holds every match window of the view's
+        // last line: the rest of that line answers nothing asked, so it is an
+        // optional read of the whole line, not a page every reader must take.
+        let rest_of_line = every_window
+            && at == self.walk.first()
+            && self.walk.line.end >= content.len()
+            && next.is_some();
+        for ((from, to), window) in joined {
+            if rest_of_line {
+                text.push_str(&unshown_marker(from, to));
+            } else {
+                text.push_str(&gap_marker(from, to));
+            }
+            text.push_str(window);
+        }
+        if rest_of_line {
+            next = None;
         }
         let line = octocode_engine::text::line_containing(content, at);
         let (next_offset, resume_line) = match next {
             Some(byte) => (Some(byte), None),
-            None if self.walk.line.end < content.len() => (Some(self.walk.line.end), Some(line)),
+            None if !rest_of_line && self.walk.line.end < content.len() => {
+                (Some(self.walk.line.end), Some(line))
+            }
             None => (None, None),
         };
         Page {
@@ -305,6 +329,7 @@ impl MatchFirst {
             },
             view_lines: (line, line),
             out_of_range: false,
+            rest_of_line,
         }
     }
 }
@@ -315,6 +340,13 @@ impl MatchFirst {
 /// It sits on a line of its own, so the windows around it stay verbatim.
 pub(crate) fn gap_marker(start: usize, end: usize) -> String {
     format!("\n... [bytes {start}-{end} on later pages] ...\n")
+}
+
+/// [`gap_marker`] on a page whose line's rest is an optional read: the bytes
+/// between two windows are not on a later page of this read. Never longer
+/// than the gap marker the page was sized with.
+fn unshown_marker(start: usize, end: usize) -> String {
+    format!("\n... [bytes {start}-{end} not shown] ...\n")
 }
 
 /// A byte page at view byte `at` as the view bytes it shows: its text split
@@ -333,17 +365,21 @@ pub(crate) fn gap_marker(start: usize, end: usize) -> String {
 )]
 pub fn placed_pieces(at: usize, text: &str) -> Vec<(usize, &str)> {
     const OPEN: &str = "\n... [bytes ";
-    const CLOSE: &str = " on later pages] ...\n";
+    const CLOSES: [&str; 2] = [" on later pages] ...\n", " not shown] ...\n"];
     let (mut pieces, mut place, mut rest) = (Vec::new(), at, text);
     while let Some(open) = rest.find(OPEN) {
         let after = &rest[open + OPEN.len()..];
-        let close = after.find(CLOSE).expect("a whole marker");
+        let (close, closer) = CLOSES
+            .iter()
+            .filter_map(|closer| after.find(closer).map(|close| (close, closer.len())))
+            .min()
+            .expect("a whole marker");
         let (from, to) = after[..close].split_once('-').expect("a byte span");
         let from: usize = from.parse().expect("a byte");
         assert_eq!(place + open, from, "the marker starts where its piece ends");
         pieces.push((place, &rest[..open]));
         place = to.parse().expect("a byte");
-        rest = &after[close + CLOSE.len()..];
+        rest = &after[close + closer..];
     }
     pieces.push((place, rest));
     pieces
@@ -392,6 +428,7 @@ pub(super) fn filled_page(
         },
         view_lines: (first + 1, first + taken + 1),
         out_of_range: false,
+        rest_of_line: false,
     })
 }
 

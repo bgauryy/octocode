@@ -137,9 +137,11 @@ fn a_match_discloses_files_whose_recovered_parse_could_hide_a_match() {
     for name in ["a", "b", "c", "d"] {
         root.write(&format!("pkg/lib/{name}.cpp"), GARBLED_CPP);
     }
+    // Two matches: page 1 holds one, so the page after it is the same
+    // window's, which read the same files.
     root.write(
         "pkg/lib/clean.cpp",
-        "int f() { JSON_ASSERT(1); return 2; }\n",
+        "int f() { JSON_ASSERT(1); JSON_ASSERT(2); return 2; }\n",
     );
     root.write("pkg/lib/local.cpp", LOCAL_ERROR_CPP);
     let row = json!({"operation":"match","path":root.0.join("pkg/lib"),"parser":"cpp","rule":{"pattern":"JSON_ASSERT($$$A)"}});
@@ -176,7 +178,7 @@ fn a_match_discloses_files_whose_recovered_parse_could_hide_a_match() {
         "{warning}"
     );
     assert!(first.get("coverage").is_none(), "{first}");
-    // Every page states the same coverage.
+    // Every page of the window states the same coverage.
     let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
     let second = run_window(&root.0, next, 1).expect("second page");
     assert_eq!(second["warnings"], first["warnings"], "{second}");

@@ -307,28 +307,6 @@ fn link_calls(
     }
 }
 
-/// The module references of a file (its imports, re-exports and CommonJS
-/// loads) from one parse, by the lightest extraction that holds them all:
-/// the scope build that proves loads only when the file's tokens can spell a
-/// CommonJS loader ([`js_oxc_commonjs::may_contain_loader`]), else its
-/// declarations, whose imports and re-exports are the same and which hold no
-/// load to miss. Calls, arguments and reference counts are never read.
-pub(crate) fn extract_module_references(
-    content: &str,
-    file_path: &str,
-) -> Option<GraphFactsDocument> {
-    on_oxc_worker(content, file_path, None, move |content, file_path| {
-        with_js_program::<true, _>(content, file_path, None, |ext, parser_ret| {
-            if js_oxc_commonjs::may_contain_loader(&parser_ret.tokens, content) {
-                graph_facts_of(ext, parser_ret, content, file_path, false)
-                    .map(|extraction| extraction.facts)
-            } else {
-                declarations_of(ext, parser_ret, content, file_path)
-            }
-        })
-    })
-}
-
 /// Declarations (with exports and containment) only: the calls, CommonJS
 /// loads, and value-reference counts a dependency graph needs are skipped. An
 /// outline of a large file otherwise pays for a full semantic pass and a

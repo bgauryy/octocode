@@ -12,6 +12,11 @@ pub struct ResponsePageOptions {
     pub response_snapshot: Option<String>,
     #[serde(skip)]
     pub paging: bool,
+    /// The caller measured the envelope it stages, as it is, and it fits one
+    /// page ([`Self::pages`] was false): [`Self::auto_paginate`] does not
+    /// measure it again.
+    #[serde(skip)]
+    pub fits_page: bool,
     #[serde(skip)]
     pub saved: Option<SavedResponse>,
     /// The identity of the build that serves the call, which every content
@@ -45,7 +50,7 @@ impl ResponsePageOptions {
                 })
     }
     pub(crate) fn auto_paginate(&mut self, structured: &Value, auto_page: usize) {
-        if self.paging {
+        if self.paging || self.fits_page {
             return;
         }
         if self.pages(structured, auto_page) {

@@ -444,3 +444,38 @@ fn a_commit_pinned_ref_drops_only_a_file_reads_commit_sha() {
     drop_echoes(false, &mut commit, &queries, &[0]);
     assert_eq!(commit["results"][0]["data"]["commitSha"], sha);
 }
+
+/// TC0b: what the response states once (`shared.data`) is an echo when every
+/// row's query states it, so a fresh response drops it as each row would;
+/// a value one query does not state stays, and the commit a pinned read
+/// resolved to is its `ref`.
+#[test]
+fn a_shared_value_every_query_stated_is_an_echo_too() {
+    let sha = "8a6a9492d0bc897ebb455fc1ab6916fb34e7b55a";
+    let queries = [
+        json!({"owner": "o", "repo": "r", "path": "a.md"}),
+        json!({"owner": "o", "repo": "r", "path": "b.md"}),
+    ];
+    let mut read = json!({
+        "results": [{"index": 0, "data": {"content": "1"}}, {"index": 1, "data": {"content": "2"}}],
+        "shared": {"data": {"owner": "o", "repo": "r", "commitSha": sha}},
+    });
+    drop_echoes(true, &mut read, &queries, &[0, 1]);
+    assert_eq!(read["shared"], json!({"data": {"commitSha": sha}}));
+    let pinned = [
+        json!({"owner": "o", "repo": "r", "path": "a.md", "ref": sha}),
+        json!({"owner": "o", "repo": "r", "path": "b.md", "ref": sha}),
+    ];
+    drop_echoes(true, &mut read, &pinned, &[0, 1]);
+    assert!(read.get("shared").is_none(), "{read}");
+    let mixed = [
+        json!({"owner": "o", "repo": "r", "path": "a.md"}),
+        json!({"owner": "p", "repo": "r", "path": "b.md"}),
+    ];
+    let mut both = json!({
+        "results": [{"index": 0, "data": {}}, {"index": 1, "data": {}}],
+        "shared": {"data": {"owner": "o"}},
+    });
+    drop_echoes(false, &mut both, &mixed, &[0, 1]);
+    assert_eq!(both["shared"], json!({"data": {"owner": "o"}}));
+}

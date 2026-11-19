@@ -1,5 +1,27 @@
 use super::{one_line, words};
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
+
+/// Each hit a row states as one numbered line (`"N\ttext"`, ghSearchCode's
+/// `files[].matches`) as the object every other hit is, `{line, value}`, so
+/// the text prints it as it printed the object; any other item as it is.
+pub(super) fn hit_objects(structured: &mut Value) {
+    let rows = structured.get_mut("results").and_then(Value::as_array_mut);
+    for row in rows.into_iter().flatten() {
+        let files = row.pointer_mut("/data/files").and_then(Value::as_array_mut);
+        for file in files.into_iter().flatten() {
+            let hits = file.get_mut("matches").and_then(Value::as_array_mut);
+            for hit in hits.into_iter().flatten() {
+                let object = hit.as_str().and_then(|item| {
+                    let (line, text) = item.split_once('\t')?;
+                    Some(json!({"line": line.parse::<u64>().ok()?, "value": text}))
+                });
+                if let Some(object) = object {
+                    *hit = object;
+                }
+            }
+        }
+    }
+}
 
 /// A hit value's lines with their numbers: numbered source when the query
 /// asked for context (`None` when the value is not, such as a clipped

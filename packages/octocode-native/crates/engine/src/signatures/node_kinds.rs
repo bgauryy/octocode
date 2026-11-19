@@ -31,7 +31,7 @@ pub(crate) fn is_annotation_kind(kind: &str) -> bool {
 /// Every node kind name of each grammar, by kind id, built once per grammar.
 /// `Node::kind` reads the name through `ts_node_type`, a `strlen` and a UTF-8
 /// check on every call; a node walk asks it several times per node, so the
-/// walk reads this table by [`Node::kind_id`] instead.
+/// walk reads this table by [`Node::kind_id`](tree_sitter::Node::kind_id) instead.
 static KIND_TABLES: std::sync::Mutex<Vec<(tree_sitter::Language, &'static [&'static str])>> =
     std::sync::Mutex::new(Vec::new());
 

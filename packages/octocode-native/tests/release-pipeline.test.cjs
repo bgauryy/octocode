@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } = require('node:fs');
+const { mkdirSync, mkdtempSync, rmSync, writeFileSync } = require('node:fs');
 const path = require('node:path');
 const { tmpdir } = require('node:os');
 const { PLATFORMS, platformPackageName } = require('../bin/platform.cjs');
@@ -122,15 +122,6 @@ test('the release matrix builds every platform once and verifies it on its own O
     if (target.libc === 'gnu') assert.deepEqual(entries.map(entry => entry.glibc), [null, require('../scripts/build-native.cjs').GLIBC_FLOOR], platform);
     else assert.equal(entries.length, 1, platform);
   }
-});
-
-test('the release workflow derives its matrices and never publishes', () => {
-  const workflow = readFileSync(path.join(__dirname, '..', '..', '..', '.github', 'workflows', 'release.yml'), 'utf8');
-  assert.match(workflow, /^ {2}workflow_dispatch:$/m);
-  assert.match(workflow, /scripts\/release-matrix\.cjs/);
-  assert.match(workflow, /config --manage/);
-  assert.match(workflow, /scripts\/pack-release\.cjs/);
-  assert.doesNotMatch(workflow, /npm publish|secrets\.|git push|NODE_AUTH_TOKEN|id-token: write/);
 });
 
 test('a launcher packs only when its bin is the Node stub and out/ holds no half-written bin', t => {

@@ -82,12 +82,12 @@ async fn refs_list_every_branch_and_tag_once_with_the_default_branch() {
     assert!(data.get("commitSha").is_none(), "{data}");
     assert_eq!(
         data["branches"],
-        json!([{"name":"dev","commitSha":sha(1)},{"name":"main","commitSha":sha(2)}]),
+        json!([format!("dev {}", sha(1)), format!("main {}", sha(2))]),
         "{data}"
     );
     assert_eq!(
         data["tags"],
-        json!([{"name":"v1.0.0","commitSha":sha(4)}]),
+        json!([format!("v1.0.0 {}", sha(4))]),
         "{data}"
     );
     let next = data["next"]["nextPage"]["input"].clone();
@@ -98,7 +98,7 @@ async fn refs_list_every_branch_and_tag_once_with_the_default_branch() {
     let data = row_data(&second);
     assert_eq!(
         data["branches"],
-        json!([{"name":"release","commitSha":sha(3)}]),
+        json!([format!("release {}", sha(3))]),
         "{data}"
     );
     assert_eq!(data["tags"], json!([]), "{data}");
@@ -114,9 +114,10 @@ async fn refs_list_every_branch_and_tag_once_with_the_default_branch() {
 
 /// A branch name is data, never a JSON key: a branch whose name ends in
 /// `-token-refresh` keeps its commit SHA verbatim through the output
-/// secret gate, with no redaction (the tester's bgauryy/octocode branch).
+/// secret gate in its `"name sha"` row, with no redaction (the tester's
+/// bgauryy/octocode branch).
 #[tokio::test]
-async fn a_credential_worded_branch_keeps_its_commit_sha() {
+async fn a_credential_worded_branch_keeps_its_commit_sha_in_its_name_sha_row() {
     let server = MockServer::builder().start().await;
     mount_default_branch(&server).await;
     let head = "df5e4353e6dbef3b8a6e70441e7322092dbe110b";
@@ -150,7 +151,7 @@ async fn a_credential_worded_branch_keeps_its_commit_sha() {
     let data = row_data(&out);
     assert_eq!(
         data["branches"],
-        json!([{"name":name,"commitSha":head}]),
+        json!([format!("{name} {head}")]),
         "{}",
         out.structured_content
     );
@@ -159,6 +160,70 @@ async fn a_credential_worded_branch_keeps_its_commit_sha() {
         "{}",
         out.structured_content
     );
+    runtime.close().await;
+}
+
+/// A branch whose name holds a value only the context detector finds
+/// (`password=<value>`: no token shape) never shows the value in its
+/// `"name sha"` row, on the first listing or on its saved-answer repeat.
+#[tokio::test]
+async fn a_context_secret_in_a_branch_name_is_never_served_in_its_name_sha_row() {
+    use octocode_runtime_base::security::scan::ContentScan as _;
+    const VALUE: &str = "Kx9mVb2Qp7Lr4Tz8Wn3";
+    // A ref name holds no space: the first of these spellings the detector
+    // fires on, by context, not by a token shape.
+    let security = octocode_runtime_base::security::ContentSecurity::new();
+    let name = [
+        format!("password=\"{VALUE}\""),
+        format!("ops/password=\"{VALUE}\""),
+        format!("db_password=\"{VALUE}\""),
+        format!("password={VALUE}"),
+    ]
+    .into_iter()
+    .find(|name| {
+        security
+            .sanitize(name, std::path::Path::new("branches"))
+            .is_ok_and(|(bare, _)| !bare.contains(VALUE))
+    })
+    .expect("the context detector fires on a ref-name spelling");
+    let server = MockServer::builder().start().await;
+    mount_default_branch(&server).await;
+    let head = "df5e4353e6dbef3b8a6e70441e7322092dbe110b";
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/HEAD"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(SHA))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/branches"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("cache-control", "private, max-age=60")
+                .set_body_json(json!([{"name":name,"commit":{"sha":head}}])),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/git/matching-refs/tags"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = github(&workspace, &server);
+    for round in ["first", "repeat"] {
+        let out = call(
+            &runtime,
+            "ghStructure",
+            json_fixture(r#"{"owner": "a", "repo": "b", "operation": "refs"}"#),
+        )
+        .await
+        .expect("refs");
+        assert!(
+            !out.structured_content.to_string().contains(VALUE),
+            "{round}: the value is served: {}",
+            out.structured_content
+        );
+    }
     runtime.close().await;
 }
 
@@ -217,10 +282,11 @@ async fn refs_with_ref_resolves_one_ref() {
 }
 
 /// In a batch whose rows all fail with the same `notFound`, every row names
-/// its own ref and carries its own related[] leads; the generic recovery hint
-/// is stated once, on the first row (static notes once).
+/// its own ref; the rows' refs-listing recoveries are one envelope `related`
+/// call holding each row's query (hoist K-3), and no row keeps a copy; the
+/// generic recovery hint is stated once, on the first row (static notes once).
 #[tokio::test]
-async fn every_not_found_row_of_a_batch_carries_its_own_recovery_hint() {
+async fn the_not_found_rows_of_a_batch_share_one_recovery_call() {
     let server = MockServer::builder().start().await;
     mount_default_branch(&server).await;
     Mock::given(method("GET"))
@@ -263,13 +329,37 @@ async fn every_not_found_row_of_a_batch_carries_its_own_recovery_hint() {
             })
         };
         assert_eq!(retry(row), at == 0, "hint once, on the first row: {row}");
-        let related = row["data"]["related"].as_array().expect("row related");
-        assert!(
-            related
-                .iter()
-                .any(|lead| lead["input"]["queries"][0]["operation"] == "refs"),
-            "{row}"
-        );
+        let row_refs = row["data"]["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|lead| lead["input"]["queries"][0]["operation"] == "refs")
+            .count();
+        assert_eq!(row_refs, 0, "no row keeps a copy of the shared call: {row}");
     }
+    // The one envelope call holds the rows' recovery reads once each: the
+    // repository's refs listing (each row's ref is no ref of it) beside the
+    // default branch's tree.
+    let shared = outcome.structured_content["related"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|call| call["tool"] == "ghStructure")
+        .unwrap_or_else(|| panic!("an envelope refs call: {}", outcome.structured_content));
+    let queries = shared["input"]["queries"].as_array().expect("queries");
+    assert!(
+        queries
+            .iter()
+            .all(|query| query["owner"] == "a" && query["repo"] == "b"),
+        "{shared}"
+    );
+    assert_eq!(
+        queries
+            .iter()
+            .filter(|query| query["operation"] == "refs")
+            .count(),
+        1,
+        "the refs listing once: {shared}"
+    );
     runtime.close().await;
 }

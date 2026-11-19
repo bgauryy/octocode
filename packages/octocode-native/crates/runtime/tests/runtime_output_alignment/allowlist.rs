@@ -11,7 +11,6 @@ const WAVE_2: &[&str] = &[
     "B4 echo | artifactSearch | artifacts[].version <- request version",
     "B4 echo | ghGetHistoryItem | commitSha <- request ref",
     "B4 echo | ghGetHistoryItem | pullRequests[].number <- request number",
-    "B4 echo | ghSearchRepo | repositories[].owner <- request owner",
     "B4 echo | ghSearchRepo | repositories[].repo <- request repo",
     "B4 echo | graphBuild | root <- request path",
     "B4 echo | securityCheck | advisories[].id <- request id",
@@ -44,8 +43,6 @@ const WAVE_4: &[&str] = &[
 /// pull request is open; every fixture edge has one source occurrence). The wave that extends `STATED_ONCE_GROUPS` decides
 /// each.
 const UNRANKED: &[&str] = &[
-    "B5 stated once | astSearch | files[].symbols[].exported",
-    "B5 stated once | astSearch | files[].symbols[].kind",
     "B5 stated once | ghSearchHistory | pullRequests[].state",
     "B5 stated once | graphQuery | rows[].sites",
 ];

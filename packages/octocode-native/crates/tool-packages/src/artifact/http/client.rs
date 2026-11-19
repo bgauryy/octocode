@@ -2,6 +2,7 @@
 use super::super::util::invalid;
 use super::super::{ArtifactError, ReleaseTags};
 use super::{ArtifactHttp, ArtifactHttpRequest, ArtifactHttpResponse, BodySink, DnsPin};
+use crate::artifact::CallShare;
 use crate::artifact::query::artifact_type;
 use octocode_contract_types::ArtifactType;
 use octocode_github::{
@@ -19,6 +20,8 @@ pub(crate) struct RegistryClient<'a> {
     /// Answers kept across calls, under the registry and exact credential.
     pub answers: Option<&'a dyn SavedAnswers>,
     pub reused: &'a ReusedSince,
+    /// The reads this call's rows share ([`CallShare`]); `None` shares none.
+    pub share: Option<&'a CallShare>,
 }
 
 #[cfg(test)]
@@ -33,6 +36,7 @@ impl<'a> RegistryClient<'a> {
             tags: None,
             answers: None,
             reused: &NOT_REUSED,
+            share: None,
         }
     }
 }
@@ -126,7 +130,21 @@ impl RegistryClient<'_> {
         }
         let scope = request_scope(&request);
         let identity = request_identity(&request);
-        let response = self.http.get(request, self.budget).await?;
+        let response = match self.share {
+            Some(share) => {
+                let validator = request
+                    .validator
+                    .as_ref()
+                    .map(|(name, value)| format!("{name}: {value}"))
+                    .unwrap_or_default();
+                let key = format!("{scope}\n{identity}\n{validator}");
+                share
+                    .requests
+                    .once(key, self.http.get(request, self.budget))
+                    .await?
+            }
+            None => self.http.get(request, self.budget).await?,
+        };
         let status = response.status;
         if status == 304
             && let Some(mut kept) = kept
@@ -243,7 +261,15 @@ impl RegistryClient<'_> {
         if let Some(kept) = kept {
             return Some(kept.answer.body.as_str().to_owned());
         }
-        let fact = derive.await?;
+        let fact = match self.share {
+            Some(share) => {
+                share
+                    .facts
+                    .once(format!("{scope}\n{identity}"), derive)
+                    .await?
+            }
+            None => derive.await?,
+        };
         if let Some(store) = self.answers {
             store.save(
                 &scope,

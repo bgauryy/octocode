@@ -331,7 +331,7 @@ impl Recorder {
     }
 
     /// A walked directory's ignore inputs
-    /// ([`octocode_tools_shared::page_memo::directory_ignore_inputs`]).
+    /// ([`octocode_tools_shared::page_memo::directory_ignore_inputs_with`]).
     fn directory_inputs(&self, dir: &Path) -> DirectoryInputs {
         #[cfg(test)]
         self.input_reads.fetch_add(1, Ordering::Relaxed);

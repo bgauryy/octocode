@@ -35,6 +35,19 @@ impl NativeLspClient {
         self.sync_document(&file_path, content).await
     }
 
+    /// Document contents this client has sent the server (every `didOpen`
+    /// and `didChange`, and each file event), a count that only grows: an answer asked before
+    /// the count last moved may predate text the server now holds, such as
+    /// files a project load reads only once they are open.
+    #[must_use]
+    pub fn documents_sent(&self) -> u64 {
+        self.inner
+            .open_docs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .sends()
+    }
+
     /// [`Self::open_document`], then — once per open document: at its first
     /// `didOpen`, or at the first call here for a document
     /// [`Self::open_document`] opened without the wait — wait for any project
@@ -91,13 +104,11 @@ impl NativeLspClient {
             self.settle_ms(u64::from(settle_ms.unwrap_or(OPEN_SETTLE_MS)))
         };
         let timeout_ms = u64::from(timeout_ms.unwrap_or(OPEN_READY_TIMEOUT_MS));
-        let waiting_since = self.inner.clock.now();
         let readiness = self
             .inner
             .progress
             .wait_until_idle_after(observed, settle_ms, timeout_ms)
             .await;
-        self.record_wait(super::waits::WaitKind::Indexing, waiting_since);
         if let Some(pending) = pending {
             pending.finish(readiness);
         }

@@ -596,5 +596,73 @@ pub(super) fn outline_for_cut(
         .collect())
 }
 
+/// The price [`outline_for_cut`] gives the names of a fresh scan's `file`,
+/// outlined now on this thread: a traversal stream prices each file it
+/// commits by it, so its page fills where the cut ends
+/// ([`super::layout::page_fill`]). A file the policy denies or that cannot
+/// be read is unread, as there; the outline is kept by the digest of its
+/// text, so the cut that follows prices the file without parsing it again.
+pub(super) fn stream_price(
+    paths: &octocode_runtime_base::policy::path::PathPolicy,
+    output_root: &std::path::Path,
+    security: &ContentSecurity,
+    file: &octocode_engine::types::TextSearchFile,
+) -> FilePrice {
+    match fresh_outline(paths, &output_root.join(&file.path), security) {
+        FreshRead::Read(outline) => FilePrice::of(file, outline.as_ref()),
+        FreshRead::Unread => FilePrice::Unread,
+    }
+}
+
+/// Outlines the fresh scan's file at `path` (as the stream names it) ahead
+/// of its commit, on the thread that searched it, so [`stream_price`] finds
+/// the outline kept and the commit, which runs in walk order, parses
+/// nothing. Only a file of an outlined language is read.
+pub(super) fn prepare_outline(
+    paths: &octocode_runtime_base::policy::path::PathPolicy,
+    output_root: &std::path::Path,
+    security: &ContentSecurity,
+    path: &str,
+) {
+    let source = output_root.join(path);
+    if super::enclosing::outlined_language(&source) {
+        fresh_outline(paths, &source, security);
+    }
+}
+
+/// A fresh scan's file as a page cut reads it for its outline.
+enum FreshRead {
+    /// The policy denies it or it cannot be read: its rows reserve.
+    Unread,
+    /// [`outline_of`](super::enclosing::outline_of)'s outline (kept by text
+    /// digest), or none: a language without one, an oversized file, or a
+    /// parse that panicked, whose rows keep no enclosing names.
+    Read(Option<super::enclosing::Outline>),
+}
+
+/// The outline of a fresh scan's file at `source`, read within the parse cap
+/// once the read policy passes it.
+fn fresh_outline(
+    paths: &octocode_runtime_base::policy::path::PathPolicy,
+    source: &std::path::Path,
+    security: &ContentSecurity,
+) -> FreshRead {
+    if validate_matched(paths, source).is_err() {
+        return FreshRead::Unread;
+    }
+    let Some(bytes) = super::sources::read_entry(
+        source,
+        octocode_runtime_base::security::SourceLimits::REAL.whole_source,
+    ) else {
+        return FreshRead::Unread;
+    };
+    FreshRead::Read(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            super::enclosing::outline_of(&bytes, source, security)
+        }))
+        .unwrap_or(None),
+    )
+}
+
 /// Outlines a page cut parsed, by file index (see [`outline_for_cut`]).
 pub(super) type CutOutlines = std::collections::HashMap<usize, Option<super::enclosing::Outline>>;

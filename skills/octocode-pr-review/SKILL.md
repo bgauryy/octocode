@@ -1,6 +1,6 @@
 ---
 name: octocode-pr-review
-description: "Load this skill first to review a GitHub pull request, and only a pull request, given by number, URL or its branch, and reach an APPROVE, COMMENT or REQUEST_CHANGES verdict from verified findings and affected consumers. Not for general code review, critique or uncommitted edits; octocode-roast handles requested critique."
+description: "Load first to review a GitHub pull request, only a pull request, by number, URL or branch, reaching an APPROVE, COMMENT or REQUEST_CHANGES verdict from verified findings and affected consumers. Not general code review, critique or uncommitted edits (critique: octocode-roast)."
 ---
 
 # Octocode PR Review

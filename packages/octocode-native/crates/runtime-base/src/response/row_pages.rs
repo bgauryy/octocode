@@ -95,8 +95,11 @@ pub(super) fn paginate_rows(
 /// smaller finished envelope; earlier rows retain the ordinary allowance.
 /// The envelope key of every tool's result rows.
 const ROWS_KEY: &str = "results";
-/// The envelope members that note the whole answer, stated by its first page.
-const ENVELOPE_NOTICES: [&str; 2] = ["warnings", "hints"];
+/// The envelope members that note the whole answer, stated by its first
+/// page: its warnings and the related calls its rows offer together. What
+/// a row reads back by the reading rule (the hoisted `shared` and `hints`,
+/// `response::hoist`) rides every page, so each page reads alone.
+const ENVELOPE_NOTICES: [&str; 2] = ["warnings", "related"];
 const RESPONSE_PAGINATION: &str = "responsePagination";
 
 pub(super) struct RowSource {

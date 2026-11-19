@@ -43,7 +43,7 @@
 //! the structured result only, never from rendered text, so fetched content
 //! that looks like a call is never rewritten.
 //!
-//! Every value prints as data ([`printable`]): its control characters
+//! Every value prints as data ([`printable`](fn@printable)): its control characters
 //! visible, and a line break in a value only where the layout puts its lines
 //! (indented under its key, or behind their line numbers), so no value
 //! prints a line of the renderer's own.
@@ -55,7 +55,7 @@ mod outline;
 mod printable;
 mod table;
 use follow::{field_notes, split_stated, stated_notes};
-use hits::{annotation, hits, value_lines};
+use hits::{annotation, hit_objects, hits, value_lines};
 use listing::{is_working_directory, listing, locations, outline_rows, words};
 use octocode_runtime_base::id::ToolId;
 use printable::{one_line, printable};
@@ -121,7 +121,8 @@ pub(super) fn render(
         query.clone(),
     ));
     let (display, calls) = follow::separate_calls(tool, structured)?;
-    let display = rounded(printable(display));
+    let mut display = rounded(printable(display));
+    hit_objects(&mut display);
     let rows = display.get("results")?.as_array()?;
     let batch = is_batch(rows, query);
     let (mut envelope, envelope_notes) = envelope_tail(&display, cwd);
@@ -138,6 +139,11 @@ pub(super) fn render(
             .and_then(|index| query["queries"].get(usize::try_from(index).ok()?))
             .map_or_else(|| query.clone(), |asked| json!({"queries": [asked]}))
     };
+    // What the response states once for every row (`shared.data`, the
+    // reading rule's step after a row's own data) prints once, first.
+    if let Some(Value::Object(stated)) = display.pointer("/shared/data") {
+        outline::object(stated, "", &mut out);
+    }
     let whole = once::with_batch_facts(tool, rows);
     let mut shared = once::shared_fields(&whole, |row| {
         render_data(tool, row, &asked_by(row)).is_none()
@@ -360,22 +366,50 @@ fn render_data(tool: ToolId, row: &Map<String, Value>, query: &Value) -> Option<
         None => return None,
     };
     let numbered = tool == ToolId::LocalSearch && context_requested(query);
+    let term = (tool == ToolId::LocalSearch)
+        .then(|| one_term(query))
+        .flatten();
     if let Some(mut counts) = table::count_table(&files) {
         body.append(&mut counts);
     } else {
         for file in &files {
-            file_rows(tool, file.as_object()?, numbered, &mut body)?;
+            file_rows(tool, file.as_object()?, (numbered, term), &mut body)?;
         }
     }
     Some(rooted(tail(query, row, rest, marks, body)))
 }
 
+/// The query's one `matchString` term, which a localSearch span equal to it
+/// leaves out of its `value`; `None` for several terms or none.
+fn one_term(query: &Value) -> Option<&str> {
+    match &query["queries"][0]["matchString"] {
+        Value::String(term) => Some(term),
+        Value::Array(terms) if terms.len() == 1 => terms[0].as_str(),
+        _ => None,
+    }
+}
+
+/// `matches` with each span that left out its `value` (a localSearch span
+/// equal to the query's one term) holding that term, so it prints as the
+/// others do.
+fn with_term(mut matches: Option<Value>, term: Option<&str>) -> Option<Value> {
+    if let (Some(Value::Array(items)), Some(term)) = (matches.as_mut(), term) {
+        for item in items.iter_mut().filter_map(Value::as_object_mut) {
+            if item.get("value").is_none() && item.get("column").is_some() {
+                item.insert("value".into(), term.into());
+            }
+        }
+    }
+    matches
+}
+
 /// One file of a search result: its hits, declarations or sites under its
 /// path, or the path alone; its other fields follow the path in `[ … ]`.
+/// `term` is the value a localSearch span without one holds ([`one_term`]).
 fn file_rows(
     tool: ToolId,
     file: &Map<String, Value>,
-    numbered: bool,
+    (numbered, term): (bool, Option<&str>),
     out: &mut Vec<String>,
 ) -> Option<()> {
     let path = file.get("path")?.as_str()?;
@@ -385,7 +419,7 @@ fn file_rows(
         return outline_rows(path, &symbols, annotation(&rest).as_deref(), out);
     }
     let declarations_of_file = rest.shift_remove("declarations");
-    match rest.shift_remove("matches") {
+    match with_term(rest.shift_remove("matches"), term) {
         Some(Value::Array(matches)) if matches.iter().all(|item| item.get("value").is_some()) => {
             let Value::Array(matches) =
                 with_declarations(Value::Array(matches), declarations_of_file.as_ref())
@@ -519,7 +553,7 @@ fn envelope_tail(structured: &Value, cwd: Option<&std::path::Path>) -> (Vec<Stri
         .as_object()
         .into_iter()
         .flatten()
-        .filter(|(key, _)| !matches!(key.as_str(), "results" | "root"))
+        .filter(|(key, _)| !matches!(key.as_str(), "results" | "root" | "shared"))
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
     let (stated, info) = split_stated(rest);

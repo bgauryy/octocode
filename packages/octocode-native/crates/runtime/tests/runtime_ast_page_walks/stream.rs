@@ -1,9 +1,11 @@
 //! The match stream walked through the runtime's response pager, as a reader
 //! walks it: each response page first (`responsePagination.next`, row parts
 //! joined), then the row's `next.nextPage`. Pages count matches, not files:
-//! each query page starts where the last ended, the walk ends at the stated
-//! `total` matches and reads each once, and a match larger than a page arrives in row parts that join
-//! back to its exact source text.
+//! each query page starts where the last ended, across the windows a walk
+//! order cuts at its pages (TE3, whose pages state a floor of the total,
+//! `countScope: loaded`), the walk ends at the exact `total` the last window
+//! states and reads each match once, and a match larger than a page arrives
+//! in row parts that join back to its exact source text.
 
 use super::call;
 use crate::support::Workspace;
@@ -26,7 +28,12 @@ struct Read {
     page_offset: u64,
     /// Matches read when the walk ended.
     end: u64,
+    /// The exact total the pages stated.
     total_items: Option<u64>,
+    /// Pages that stated a floor of it (`countScope: loaded`).
+    floors: usize,
+    /// Whether the last page read said more remains.
+    more: bool,
     continued: usize,
 }
 
@@ -77,7 +84,16 @@ async fn walk(runtime: &ToolRuntime, mcp: bool, first: Value, chars: u64) -> Rea
                 read.page_offset = offset;
             }
             let items = pagination["total"].as_u64().expect("total");
-            assert_eq!(*read.total_items.get_or_insert(items), items, "mcp={mcp}");
+            if pagination.get("countScope").is_some() {
+                assert_eq!(
+                    pagination["countScope"], "loaded",
+                    "mcp={mcp}: {pagination}"
+                );
+                read.floors += 1;
+            } else {
+                assert_eq!(*read.total_items.get_or_insert(items), items, "mcp={mcp}");
+            }
+            read.more = pagination["hasMore"] == true;
         }
         join(&mut read, row, mcp);
         read.end = read.values.len() as u64;
@@ -117,7 +133,7 @@ fn fixture(workspace: &Workspace, big: Option<&str>) -> String {
 const MATCHES: usize = FILES * FUNCTIONS_PER_FILE;
 
 #[tokio::test]
-async fn a_match_walk_through_the_response_pager_reads_each_match_once_page_after_page() {
+async fn a_match_walk_through_the_response_pager_reads_each_match_once_across_windows() {
     let workspace = Workspace::new();
     let root = fixture(&workspace, None);
     let runtime = workspace.runtime(&[]);
@@ -126,6 +142,8 @@ async fn a_match_walk_through_the_response_pager_reads_each_match_once_page_afte
             "rule": {"kind": "function_declaration"}, "includeCaptures": true, "limit": 7});
         let read = walk(&runtime, mcp, first, 6000).await;
         assert!(read.query_pages > 1, "mcp={mcp}: several pages");
+        assert!(read.floors > 0, "mcp={mcp}: the walk crossed windows");
+        assert!(!read.more, "mcp={mcp}: the walk ends with hasMore false");
         assert_eq!(
             Some(read.end),
             read.total_items,
@@ -152,6 +170,7 @@ async fn a_match_larger_than_a_page_joins_back_from_its_row_parts() {
             "rule": {"kind": "function_declaration"}, "includeCaptures": true, "limit": 7});
         let read = walk(&runtime, mcp, first, 6000).await;
         assert!(read.continued > 0, "mcp={mcp}: the big match was split");
+        assert!(!read.more, "mcp={mcp}: the walk ends with hasMore false");
         assert_eq!(read.total_items, Some(MATCHES as u64 + 1), "mcp={mcp}");
         assert_eq!(
             read.values.len(),

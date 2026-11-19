@@ -1,7 +1,7 @@
 //! A published crate's packaging commit: `.cargo_vcs_info.json` read from
 //! the `.crate` archive as it streams in.
 use crate::artifact::http::RegistryClient;
-use crate::artifact::util::{commit_sha, encode_component, parse_url, string};
+use crate::artifact::util::{commit_sha, encode_component, parse_url};
 use octocode_contract_types::ArtifactType;
 use octocode_engine::num::saturating_u64;
 use serde_json::Value;
@@ -16,9 +16,9 @@ const MAX_ENTRY_BYTES: u64 = 64 * 1024;
 
 /// The commit cargo recorded when it packaged `name@version`
 /// (`.cargo_vcs_info.json` inside the `.crate` archive) and the crate's
-/// directory inside its repository (`path_in_vcs`, empty at the root). A
-/// published version never changes, so what the archive said is kept and a
-/// repeat reads no archive.
+/// directory inside its repository (`path_in_vcs`: empty at the root, `None`
+/// when cargo recorded none, as before 1.56). A published version never
+/// changes, so what the archive said is kept and a repeat reads no archive.
 pub(super) async fn crate_vcs(
     name: &str,
     version: &str,
@@ -37,7 +37,11 @@ pub(super) async fn crate_vcs(
         .await?;
     let info: Value = serde_json::from_str(&info).ok()?;
     let sha = commit_sha(info.pointer("/git/sha1"))?;
-    Some((sha, string(info.get("path_in_vcs"))))
+    let directory = info
+        .get("path_in_vcs")
+        .and_then(Value::as_str)
+        .map(|directory| directory.trim().trim_matches('/').to_owned());
+    Some((sha, directory))
 }
 
 /// `.cargo_vcs_info.json` of `name@version` (`{}` when the archive has

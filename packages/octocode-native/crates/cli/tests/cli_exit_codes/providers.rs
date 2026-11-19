@@ -138,7 +138,7 @@ fn rows(inputs: Vec<Value>) -> Value {
 }
 
 #[tokio::test]
-async fn clasify_exits_by_worst_row_outcome() {
+async fn clasify_exits_by_worst_row_outcome_and_states_its_ceiling() {
     let server = classification_provider(std::time::Duration::ZERO).await;
     let workspace = Workspace::new();
     let persistent = workspace.persistent_cli();
@@ -189,8 +189,14 @@ async fn clasify_exits_by_worst_row_outcome() {
     let answered = json_output(&memory);
     let data = &answered["results"][0]["data"];
     assert_eq!(data["answers"]["q"]["noul"], 0.8, "{answered}");
-    // A summary leaves the token counts to the details view.
-    assert!(data.get("usage").is_none(), "{answered}");
+    // A summary leaves the token counts to the details view and states the
+    // request ceiling: the one request and the row's 3 shared transient
+    // retries (the CLI's default retry count).
+    assert_eq!(
+        data["usage"],
+        serde_json::json!({"requestsCeiling": 4}),
+        "{answered}"
+    );
     assert!(data.get("related").is_none(), "{answered}");
     assert!(data.get("next").is_none(), "{answered}");
     assert!(!answered.to_string().contains("cursor"), "{answered}");

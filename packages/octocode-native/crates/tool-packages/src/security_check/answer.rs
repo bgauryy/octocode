@@ -27,6 +27,10 @@ pub(super) struct Facts<'a> {
     pub upgrade_note: Option<&'a str>,
     /// Runtime dependencies the target pins to one exact version.
     pub pinned_dependencies: usize,
+    /// A version the registry does not hold (unpublished, removed for
+    /// malware) and the advisories whose records list it by name: they do
+    /// affect it, whatever the registry says.
+    pub unregistered: Option<(&'a str, Vec<String>)>,
     /// No registry reads this ecosystem: the name and version went to OSV as given.
     pub registry_unconfirmed: bool,
     /// OSV cannot order this ecosystem's versions, so the version was compared here
@@ -112,6 +116,7 @@ impl Facts<'_> {
             upgrade_to: None,
             upgrade_note: None,
             pinned_dependencies: 0,
+            unregistered: None,
         }
     }
 }
@@ -181,12 +186,21 @@ fn evaluation_clause(facts: &Facts<'_>) -> String {
             ));
         }
     }
-    if facts.registry_unconfirmed && facts.release_named {
-        clause.push_str(" Not registry-confirmed: no registry reads this ecosystem, so the version went to OSV as given; the name is one OSV lists in this release.");
-    } else if facts.registry_unconfirmed {
-        clause.push_str(" Not registry-confirmed: no registry reads this ecosystem, so the name and version went to OSV as given, and a misspelt name reads as none known.");
-    }
     clause
+}
+
+/// The warning of a row no registry confirmed: the name and version went to
+/// OSV as given. It names no package, so the rows of one call that share it
+/// state it once.
+pub(super) fn unconfirmed_warning(facts: &Facts<'_>) -> Option<String> {
+    if !facts.registry_unconfirmed {
+        return None;
+    }
+    Some(if facts.release_named {
+        "Not registry-confirmed: no registry reads this ecosystem, so the version went to OSV as given; the name is one OSV lists in this release.".to_owned()
+    } else {
+        "Not registry-confirmed: no registry reads this ecosystem, so the name and version went to OSV as given, and a misspelt name reads as none known.".to_owned()
+    })
 }
 
 const STOPPED: &str =
@@ -217,10 +231,17 @@ pub(super) fn lead(target: &str, facts: &Facts<'_>) -> Value {
             format!("{target}: none known to OSV for any version.")
         }
         (true, false, true) => format!("{target} is affected: {}.", counted(facts.matched)),
-        (true, false, false) => format!(
-            "{target}: the requested version is not on the registry, so it was not evaluated. OSV has {} for this package at other versions.",
-            counted(facts.count)
-        ),
+        (true, false, false) => match &facts.unregistered {
+            Some((version, listed)) if !listed.is_empty() => format!(
+                "{target}: version {} is not on the registry (unpublished or removed), and OSV lists it as affected by {}.",
+                typed(version),
+                ids_clause(listed)
+            ),
+            _ => format!(
+                "{target}: the requested version is not on the registry, so it was not evaluated. OSV has {} for this package, none listing this version by name (their ranges were not compared).",
+                counted(facts.count)
+            ),
+        },
         (false, false, true) if facts.release_named => format!(
             "{target}: none known to OSV at this version. OSV answered the version with nothing, and asked by name it lists this package in the release, so that empty answer is a real one."
         ),
@@ -261,6 +282,14 @@ pub(super) fn lead(target: &str, facts: &Facts<'_>) -> Value {
         ));
     }
     let mut data = json!({ "answer": sentence });
+    if facts
+        .unregistered
+        .as_ref()
+        .is_some_and(|(_, listed)| !listed.is_empty())
+        && !facts.stopped
+    {
+        data["affected"] = json!(true);
+    }
     if facts.version_evaluated
         && (facts.matched > 0 || facts.count == 0 || !facts.compared_here)
         && !facts.stopped

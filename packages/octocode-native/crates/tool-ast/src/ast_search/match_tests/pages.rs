@@ -48,7 +48,9 @@ fn match_continuation_rejects_stale_snapshot() {
     )
     .expect("page1");
     let next = page1["next"]["nextPage"]["input"].clone();
-    root.write("e.rs", "pub fn source() {}\n");
+    // A file written before the candidates the next page pinned: page 1's
+    // window ends at its page, so the next page is the next window's.
+    root.write("0.rs", "pub fn source() {}\n");
     let page2 = run_window(&root.0, next, 1).expect("page2");
     assert_eq!(page2["errorCode"], json!("staleSnapshot"), "got {page2}");
     // Never a dead end: the restart is the same query from its first page
@@ -317,11 +319,11 @@ fn a_cut_scan_with_no_resume_position_is_an_error_not_a_dead_end() {
     assert!(error.message.contains("continuation"), "{error:?}");
 }
 
-/// The skipped walks are named once, beside the scan's first page: no later
-/// page or scan window repeats the hint or its lead, and every hit is still
-/// reached.
+/// A scan with hits counts its skipped paths once, in the first page's
+/// `skippedPaths`: no page offers the lead over them (hits already answer),
+/// and every hit is still reached.
 #[test]
-fn only_the_first_page_of_a_scan_names_the_skipped_walks() {
+fn a_scan_with_hits_counts_its_skipped_paths_and_offers_no_lead() {
     let root = Fixture::new();
     root.write("a.ts", "hit(1);\nhit(2);\n");
     root.write("b.ts", "hit(3);\n");
@@ -337,7 +339,11 @@ fn only_the_first_page_of_a_scan_names_the_skipped_walks() {
     let mut paged = row.clone();
     paged["limit"] = json!(1);
     let first = run(&root.0, paged).expect("page 1");
-    assert!(names_them(&first), "{first}");
+    assert!(!names_them(&first), "{first}");
+    assert!(
+        first["skippedPaths"].to_string().contains("dist"),
+        "{first}"
+    );
     let mut reached = hits(&first);
     let mut next = first["next"]["nextPage"]["input"]["queries"][0].clone();
     assert!(next.is_object(), "{first}");
@@ -351,7 +357,7 @@ fn only_the_first_page_of_a_scan_names_the_skipped_walks() {
 
     let _window = crate::ast_search::scan_window::test_window(1);
     let first = run(&root.0, row).expect("first window");
-    assert!(names_them(&first), "{first}");
+    assert!(!names_them(&first), "{first}");
     let expand = first["next"]["expandScan"]["input"]["queries"][0].clone();
     assert!(expand.is_object(), "{first}");
     let window = run(&root.0, expand).expect("next window");

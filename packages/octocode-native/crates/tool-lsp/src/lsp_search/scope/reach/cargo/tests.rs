@@ -14,7 +14,7 @@ fn modules_of(package: &Path) -> Option<Vec<(PathBuf, PathBuf)>> {
     let package = package.to_path_buf();
     let (sender, receiver) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let _ = sender.send(relocated_modules(&package, &|| false));
+        let _ = sender.send(relocated_modules(&package, &|| false).map(|found| found.to_vec()));
     });
     receiver
         .recv_timeout(std::time::Duration::from_secs(20))

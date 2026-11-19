@@ -155,7 +155,7 @@ pub const HEARTBEAT: Duration = Duration::from_secs(10);
 /// seconds, and a shorter one is spacing between requests, not a pause.
 pub const REPORTED_FROM: Duration = Duration::from_secs(1);
 
-/// [`pause`] that tells the call's host about the wait ([`notice::progress_sink`]):
+/// [`pause`] that tells the call's host about the wait ([`notice::progress_sink`](crate::notice::progress_sink)):
 /// `line(remaining)` when it starts and again every [`HEARTBEAT`] while it
 /// lasts. A wait the deadline refuses is refused before it is announced, and
 /// a call nobody listens to, or a wait under [`REPORTED_FROM`], pauses

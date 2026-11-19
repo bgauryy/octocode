@@ -2,6 +2,13 @@
 use super::{Input, Row, Target};
 use serde_json::Value;
 
+/// The evaluate field that sends each search hit in its own request.
+pub(super) const PER_HIT: &str = "perHit";
+
+/// The private field of a units row's `next.retry`: the unit keys it asks
+/// again.
+pub(super) const RETRY_UNITS: &str = "retryUnits";
+
 /// A row contract validation admitted. The provider receives the validated
 /// row's own values: a typed form would reorder choice labels and map keys,
 /// which are semantic input (the contract tests keep the shapes aligned).
@@ -35,6 +42,15 @@ fn parse(row: &Value) -> Row {
         details: row["view"] == "details",
         per_item: row["perItem"] == true,
         source_progress: row["sourceProgress"].as_object().cloned(),
+        max_requests: row["maxRequests"].as_u64(),
+        per_hit: row[PER_HIT] == true,
+        retry_units: row[RETRY_UNITS].as_array().map(|keys| {
+            keys.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        }),
+        query: row.clone(),
     }
 }
 

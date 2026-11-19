@@ -71,8 +71,7 @@ fails when one drifts.
 ### Homebrew (not available yet)
 
 The `bgauryy/octocode` tap still ships the old Node-based 2.0.0 formula, not this
-binary. Use npm until the native formula is published
-([release guide](../../skills-dev/octocode-dev/docs/RELEASE.md), row 7).
+binary. Use npm until the native formula is published.
 
 ### From source (requires Rust)
 

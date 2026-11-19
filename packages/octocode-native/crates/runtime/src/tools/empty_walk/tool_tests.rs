@@ -74,10 +74,6 @@ struct Tool {
     found: fn(&Value) -> bool,
     /// How the tool's lead lifts `cause` for `scenario`, if it does.
     lifts: fn(&Value, Cause, &Path, &Scenario) -> bool,
-    /// The tool probes the skipped paths of an empty result to lift only the
-    /// causes that hold a match (astSearch). One that does not reads nothing
-    /// behind them: its lead lifts every cause its walk skipped by.
-    probes: bool,
 }
 
 /// A lead that spells walk flags as fields lifts `cause` by setting its flag.
@@ -122,7 +118,6 @@ fn local_search() -> Tool {
         },
         found: |out| non_empty(out, "files"),
         lifts: by_flag,
-        probes: false,
     }
 }
 
@@ -145,7 +140,6 @@ fn ast_match() -> Tool {
         run: |root, query| run_ast(root, query),
         found: |out| out["matchCount"].as_u64().is_some_and(|count| count > 0),
         lifts: by_flag,
-        probes: true,
     }
 }
 
@@ -184,7 +178,6 @@ fn ast_symbols() -> Tool {
         run: |root, query| run_ast(root, query),
         found: |out| non_empty(out, "files"),
         lifts: by_flag,
-        probes: true,
     }
 }
 
@@ -219,7 +212,6 @@ fn structure(operation: &'static str, skips: &'static [Cause]) -> Tool {
         },
         found: |out| non_empty(out, "files"),
         lifts: by_flag,
-        probes: false,
     }
 }
 

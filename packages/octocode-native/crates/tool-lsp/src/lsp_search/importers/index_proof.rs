@@ -123,6 +123,7 @@ pub(super) fn file_verdict(file: String, sites: Vec<(Spot, SiteState)>) -> FileV
         file,
         anchors,
         unresolved,
+        output: false,
         elsewhere,
     }
 }

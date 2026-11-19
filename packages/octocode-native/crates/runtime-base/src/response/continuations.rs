@@ -11,11 +11,27 @@ pub struct Scope<'a> {
     pub is_available: &'a dyn Fn(&str) -> bool,
 }
 
+/// [`checked_input`], or a caller's copy of it that reads back what it
+/// checked before.
+pub type Check<'a> = &'a dyn Fn(ToolId, bool, &Value) -> Result<Value, ContractValidationError>;
+
 /// Validate related requests and retain complete normalized continuation requests before exposing handles.
 pub fn finalize(
     structured: &mut Value,
     tool: ToolId,
     scope: &Scope<'_>,
+    seal: &mut dyn FnMut(ToolId, Value, Option<usize>) -> Option<String>,
+) -> Result<(), ContractValidationError> {
+    finalize_with(structured, tool, scope, &checked_input, seal)
+}
+
+/// [`finalize`], each call checked by `check`: the runtime passes one that
+/// reads back a call it checked on an earlier request.
+pub fn finalize_with(
+    structured: &mut Value,
+    tool: ToolId,
+    scope: &Scope<'_>,
+    check: Check<'_>,
     seal: &mut dyn FnMut(ToolId, Value, Option<usize>) -> Option<String>,
 ) -> Result<(), ContractValidationError> {
     let mut positions = Vec::new();
@@ -40,7 +56,7 @@ pub fn finalize(
         let Some(call) = structured.pointer_mut(&pointer) else {
             continue;
         };
-        match publish(call, scope, seal, origin) {
+        match publish(call, scope, check, seal, origin) {
             Ok(true) => {}
             Ok(false) => remove_at(structured, &path),
             Err(error) => issues.extend(error.issues.into_iter().map(|mut issue| {
@@ -59,6 +75,7 @@ pub fn finalize(
 fn publish(
     call: &mut Value,
     scope: &Scope<'_>,
+    check: Check<'_>,
     seal: &mut dyn FnMut(ToolId, Value, Option<usize>) -> Option<String>,
     origin: Option<usize>,
 ) -> Result<bool, ContractValidationError> {
@@ -77,7 +94,7 @@ fn publish(
             ))
         };
     }
-    let input = checked_input(target, related, &call["input"])?;
+    let input = check(target, related, &call["input"])?;
     if related {
         return Ok(true);
     }
@@ -90,7 +107,8 @@ fn publish(
 /// The contract check every call passes before it is published: a related
 /// call's input validates as a fresh request, continued work's as a saved
 /// request with its private progress. `Ok` holds the validated input; for
-/// continued work that is what its cursor saves.
+/// continued work that is what its cursor saves. A pure function of the
+/// contract, the target, the kind and the input.
 pub fn checked_input(
     target: ToolId,
     related: bool,

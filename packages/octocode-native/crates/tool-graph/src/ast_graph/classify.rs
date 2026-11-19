@@ -9,7 +9,7 @@ use super::js_paths::{BUNDLED_OUTPUT_DIRS, DECLARATION_EXTENSIONS, TYPE_STUB_EXT
 use std::io::Read;
 use std::path::Path;
 
-/// A node's role and flag bits ([`super::store::format::NodeRec::flags`]).
+/// A node's role and flag bits (`super::store::format::NodeRec::flags`).
 pub(crate) type Roles = u16;
 
 /// Found but not parsed (over the per-file size bound): a file node with
@@ -276,7 +276,7 @@ fn head_roles(head: &[u8]) -> Roles {
 
 /// What a file's scanned source says about it, read once while it is
 /// parsed: its content roles and the entrypoint markers of
-/// [`super::store::workspace`].
+/// `super::store::workspace`.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct SourceMarks {
     /// [`file_roles`] from the first 8 KiB (generated, bundled).

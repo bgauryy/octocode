@@ -34,6 +34,7 @@ async fn failed_split_evaluation_counts_all_completed_usage() {
                 assets: None,
                 long_context: crate::judgment::LongContext::Never,
                 companions: 0,
+                cap: None,
             },
             None,
             &evaluation_budget(&evaluator),
@@ -96,6 +97,7 @@ async fn concurrent_failed_evaluations_count_each_independent_attempt() {
         assets: Some(&assets),
         long_context: crate::judgment::LongContext::Never,
         companions: 0,
+        cap: None,
     };
     let (first, second) = tokio::join!(
         evaluator.evaluate_prepared(input, None, &budget, &gate),

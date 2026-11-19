@@ -44,7 +44,7 @@ impl Paging {
         self.weighted_windows(sizes, None)
     }
 
-    /// [`Self::windows`] where item `i` counts `rows[i]` rows against the
+    /// `Self::windows` where item `i` counts `rows[i]` rows against the
     /// row limit (a file entry holding several match rows). An item heavier
     /// than the limit still takes a page alone, so a walk always moves.
     pub(crate) fn weighted_windows(

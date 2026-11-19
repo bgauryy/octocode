@@ -159,8 +159,11 @@ fn span_rows_and_lines_that_fit_a_row_are_unchanged() {
         &text,
         json_fixture(r#"{"matchString": ["needle"], "view": "matchOnly"}"#),
     );
+    // Each span is the request's one term: it states only where it is.
     for row in rows(&spans) {
-        assert_eq!(row["value"], "needle", "{spans}");
+        assert!(row.get("value").is_none(), "{spans}");
+        assert_eq!(read_value(&row, "needle"), "needle", "{spans}");
+        assert!(row.get("column").is_some(), "{spans}");
     }
 }
 

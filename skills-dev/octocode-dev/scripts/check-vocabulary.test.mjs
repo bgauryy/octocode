@@ -3,8 +3,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { checkVocabulary, loadVocabulary } from './check-vocabulary.mjs';
-import { contractVocabulary, proseFindings } from './lib/contract-vocabulary.mjs';
+import { checkVocabulary, loadVocabulary, nativeHintFiles } from './check-vocabulary.mjs';
+import { contractVocabulary, proseFindings, rustFindings, rustStringLiterals } from './lib/contract-vocabulary.mjs';
 
 const vocabulary = loadVocabulary();
 const findingsIn = (text, extensions) => proseFindings(text, vocabulary, extensions).map(finding => finding.token);
@@ -94,4 +94,33 @@ test('an exception that matches no finding fails as stale', () => {
 test('every listed exception still matches a finding in the repository', () => {
   const stale = checkVocabulary().findings.filter(finding => finding.message.startsWith('stale exception'));
   assert.deepEqual(stale, []);
+});
+
+test('reads Rust string literals, plain and raw, past comments and char literals', () => {
+  const source = [
+    'let a = "next.nextPage";',
+    "let quote = '\"'; // \"in.comment\"",
+    '/* "in.block" */ let raw = r#"say "hi" to data.files"#;',
+    "fn f<'a>(x: &'a str) -> &'a str { \"tail\\\" quoted\" }",
+  ].join('\n');
+  assert.deepEqual(rustStringLiterals(source), [
+    { line: 1, value: 'next.nextPage' },
+    { line: 3, value: 'say "hi" to data.files' },
+    { line: 4, value: 'tail\\" quoted' },
+  ]);
+});
+
+test('a native hint naming an undeclared child of a contract field is a finding', () => {
+  const vocabulary = loadVocabulary();
+  const source = 'fn hint() -> String { format!("run next.nextPage, then next.nextPgae; see Cargo.toml and osv.dev") }';
+  assert.deepEqual(rustFindings(source, vocabulary, new Set(['toml'])), [
+    { line: 1, token: 'next.nextPgae', message: '`nextPgae` is not a field of `next` in the tool or config contract' },
+  ]);
+});
+
+test('the native scan covers lead, hint, warning and notice modules, never tests', () => {
+  const files = nativeHintFiles();
+  assert.ok(files.includes('packages/octocode-native/crates/tools-shared/src/leads/skipped.rs'), files.join('\n'));
+  assert.ok(files.includes('packages/octocode-native/crates/runtime-base/src/response/notices.rs'));
+  assert.ok(files.every(file => !/(^|\/|_)tests?(\/|\.rs$)/.test(file)), files.join('\n'));
 });

@@ -1,6 +1,7 @@
 //! Contents, blobs, independent requests and commit identity.
 use super::*;
 
+mod batch;
 mod blobs;
 mod flight;
 mod fresh;

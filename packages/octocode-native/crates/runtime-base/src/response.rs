@@ -10,6 +10,8 @@ pub mod continuations;
 pub mod cursor;
 pub mod cut;
 pub mod exit;
+pub mod groups;
+pub mod hoist;
 pub mod key_order;
 pub mod notices;
 pub mod numbered;

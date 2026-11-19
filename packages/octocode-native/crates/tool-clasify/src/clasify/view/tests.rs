@@ -265,6 +265,30 @@ fn a_summary_names_the_quiet_units_it_leaves_out() {
     assert!(summary_of(&loud).get("warnings").is_none());
 }
 
+/// The quiet list names each file once, its lines ascending (flowD1: 51
+/// keys of three files cut the summary from 2,184 to 1,262 chars); every
+/// key stays recoverable, a second hit on one line and keys that name no
+/// line included.
+#[test]
+fn the_quiet_list_names_each_file_once() {
+    let keys = [
+        "docs/handoffs.md:84",
+        "docs/ref/handoff_filters.md:3",
+        "docs/handoffs.md:7",
+        "docs/handoffs.md:125#2",
+        "docs/handoffs.md:125",
+        "o/r",
+        "42:1",
+        "42:src/x.rs",
+        "17",
+    ]
+    .map(str::to_owned);
+    assert_eq!(
+        super::named(&keys),
+        "docs/handoffs.md:{7,84,125,125#2}, docs/ref/handoff_filters.md:3, o/r, 42:1, 42:src/x.rs, 17"
+    );
+}
+
 /// Usage that says more than its spend (unreported requests, an estimate
 /// of the rest) is kept whole.
 #[test]
@@ -392,4 +416,72 @@ fn a_details_continuation_stays_in_details() {
             .get("view")
             .is_none()
     );
+}
+
+/// Each resource of a row bills its own request: with several, every one
+/// states its `calls`, so the summary shows what the call spent.
+#[test]
+fn several_resources_each_state_their_calls() {
+    let resource = |noul: f64| {
+        json!({
+            "model": "jev-1",
+            "answers": {"q": {"noul": noul}},
+            "usage": {"calls": 1, "inputTokens": 90, "outputTokens": 4}
+        })
+    };
+    let details = json!({"resources": {"a.md": resource(0.9), "b.md": resource(0.1)}});
+    let summary = summary_of(&details);
+    for name in ["a.md", "b.md"] {
+        assert_eq!(
+            summary["resources"][name]["usage"],
+            json!({"calls": 1}),
+            "{summary}"
+        );
+    }
+    let one = json!({"resources": {"a.md": resource(0.9)}});
+    assert!(summary_of(&one)["resources"]["a.md"].get("usage").is_none());
+}
+
+/// A summary of a row whose hits sit under their files: quiet hits leave
+/// (named `path:line` in the warning), a file left empty leaves, answers
+/// lose their distribution, and the plan that came true is the request
+/// count itself.
+#[test]
+fn a_files_rows_summary_leaves_quiet_hits_out_by_path_and_line() {
+    let details = json_fixture(
+        r#"{
+            "files": {
+                "a.rs": {
+                    "9": {"q": {"noul": 0.9}, "kind": {"choice": "a", "confidence": 0.8, "probabilities": {"a": 0.8, "b": 0.2}}},
+                    "3": {"q": {"noul": 0.2}, "kind": {"choice": "b", "confidence": 0.6, "probabilities": {"a": 0.4, "b": 0.6}}}
+                },
+                "b.rs": {"1": {"q": {"noul": 0.1}}}
+            },
+            "units": {"o/r": {"q": {"status": "error", "error": {"errorCode": "timeout", "error": "late"}}}},
+            "coverage": {"totalUnits": 4, "answered": 3, "quiet": 1, "error": 1},
+            "usage": {"calls": 2, "requestsPlanned": 2, "requestsCeiling": 4, "inputTokens": 9, "outputTokens": 3}
+        }"#,
+    );
+    let summary = summary_of(&details);
+    assert_eq!(
+        summary["files"],
+        json_fixture(
+            r#"{"a.rs": {
+                "9": {"q": {"noul": 0.9}, "kind": {"choice": "a"}},
+                "3": {"q": {"noul": 0.2}, "kind": {"choice": "b"}}
+            }}"#
+        )
+    );
+    assert_eq!(summary["units"], details["units"]);
+    let warning = summary["warnings"][0].as_str().expect("a warning");
+    assert!(
+        warning.contains("b.rs:1") && !warning.contains("a.rs"),
+        "{warning}"
+    );
+    assert_eq!(summary["usage"], json!({"calls": 2, "requestsCeiling": 4}));
+    // Every hit quiet: the summary states no files.
+    let quiet = json_fixture(
+        r#"{"files": {"b.rs": {"1": {"q": {"noul": 0.1}}}}, "coverage": {"totalUnits": 1, "answered": 1, "quiet": 1}}"#,
+    );
+    assert!(summary_of(&quiet).get("files").is_none());
 }

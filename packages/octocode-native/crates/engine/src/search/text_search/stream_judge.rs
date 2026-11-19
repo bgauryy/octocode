@@ -1,9 +1,9 @@
-//! The rules of a stream's walk ([`OrderedWalk`]): which entries the walk
+//! The rules of a stream's walk ([`OrderedWalk`](crate::search::walk::OrderedWalk)): which entries the walk
 //! leaves out, silently or reported to the path filter, which files it hands
 //! to the search, and when it must stop. They are the rules the `ignore`
 //! walker applied together with the search's own: the walker's globs and
-//! `language` type drop an entry first ([`Selection`]), then the ignore and
-//! dot rules ([`EntryRule`]), then the path filter.
+//! `language` type drop an entry first ([`Selection`](super::walk_rule::Selection)), then the ignore and
+//! dot rules ([`EntryRule`](super::walk_rule::EntryRule)), then the path filter.
 
 use super::TextSearchPathFilter;
 use super::state::CollectState;

@@ -214,22 +214,49 @@ pub fn drop_echoes(
     queries: &[Value],
     row_indices: &[usize],
 ) {
-    let Some(rows) = structured.get_mut("results").and_then(Value::as_array_mut) else {
-        return;
-    };
-    for row in rows {
-        let Some(index) = row["index"]
+    let query_of = |row: &Value| {
+        let index = row["index"]
             .as_u64()
-            .map(octocode_engine::num::saturating_usize)
-        else {
-            continue;
-        };
-        let Some(query) = row_indices
+            .map(octocode_engine::num::saturating_usize)?;
+        row_indices
             .iter()
             .position(|original| *original == index)
             .and_then(|position| queries.get(position))
             .and_then(Value::as_object)
-        else {
+    };
+    // What the response states once for every row (`shared.data`) echoes
+    // the request when every row's query states it: each row reads it from
+    // its query, the reading rule's last step.
+    let asked = structured["results"]
+        .as_array()
+        .map(|rows| rows.iter().map(query_of).collect::<Option<Vec<_>>>())
+        .unwrap_or_default()
+        .filter(|asked| !asked.is_empty());
+    if let Some(asked) = asked
+        && let Some(shared) = structured
+            .pointer_mut("/shared/data")
+            .and_then(Value::as_object_mut)
+    {
+        shared.retain(|key, value| {
+            let echoed = |query: &&serde_json::Map<String, Value>| {
+                query.get(key) == Some(value)
+                    || (pinned_commit_is_echo
+                        && key == "commitSha"
+                        && query.get("ref") == Some(value))
+            };
+            !asked.iter().all(echoed)
+        });
+        if shared.is_empty()
+            && let Some(envelope) = structured.as_object_mut()
+        {
+            envelope.shift_remove("shared");
+        }
+    }
+    let Some(rows) = structured.get_mut("results").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for row in rows {
+        let Some(query) = query_of(&*row) else {
             continue;
         };
         if let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) {

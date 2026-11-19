@@ -111,9 +111,29 @@ pub(super) fn attach_match_continuations(
             with(Move::Page(page + 1))?,
         );
     }
-    if let Some(offset) = expand_scan.filter(|_| !more) {
-        insert_expand_scan(q, out, Some(offset), cut.pin)?;
-        super::super::scan_window::mark_resumed(out);
+    match expand_scan.filter(|_| !more) {
+        // A window its page filled is the walk's next page: the same listing
+        // goes on in the next window, counted as loaded until it ends.
+        Some(offset) if cut.filled => {
+            let next =
+                continuation_with(q, Move::ScanWindow(offset), cut.pin).ok_or_else(|| {
+                    ToolError::new(
+                        ErrorCode::OutputContractViolation,
+                        "astSearch could not build the next window's page",
+                    )
+                })?;
+            out["calls"] = octocode_runtime_base::response::collection::walk_calls(
+                ToolId::AstSearch,
+                None,
+                next,
+            );
+            super::super::scan_window::mark_resumed(out);
+        }
+        Some(offset) => {
+            insert_expand_scan(q, out, Some(offset), cut.pin)?;
+            super::super::scan_window::mark_resumed(out);
+        }
+        None => {}
     }
     // The lean structural representation may withhold a body or captures.
     // Expanding that chosen representation returns their complete text:

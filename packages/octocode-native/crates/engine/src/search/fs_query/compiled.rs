@@ -261,7 +261,7 @@ impl CompiledQuery {
             return Verdict::Left;
         }
         if !self.show_hidden && dot {
-            return Verdict::Left;
+            return Verdict::Hidden;
         }
         if is_dir
             && self
@@ -278,7 +278,12 @@ impl CompiledQuery {
 /// [`CompiledQuery::verdict`]: whether an entry is matched and entered, or
 /// left out (and how a live walk counts it).
 pub(super) enum Verdict {
-    Ignored { counted: bool },
+    Ignored {
+        counted: bool,
+    },
+    /// A dot entry without `include_hidden`, after the policy callback
+    /// admitted it.
+    Hidden,
     Pruned,
     Left,
     Enters,

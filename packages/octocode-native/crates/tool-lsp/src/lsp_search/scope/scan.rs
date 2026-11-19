@@ -1,22 +1,33 @@
 //! The text scan behind the scope.
 use super::*;
 
+/// What one text scan found.
+pub(super) struct Scanned {
+    /// The files that spell the name (canonical).
+    pub(super) found: BTreeSet<String>,
+    /// Every file the scan listed, read or not.
+    pub(super) listed: Arc<[PathBuf]>,
+    /// The listed files a bounded reach left unread ([`reach::Searched`]),
+    /// when one bounded the scan: out of reach.
+    pub(super) unsearched: Option<Arc<[PathBuf]>>,
+}
+
 /// Word-bounded files-only scan of `root` (family `include`, read policy,
 /// ignore rules and the default directory prune honored, an include naming
 /// a pruned directory lifting it), observing `cancel`: over the kept listing
 /// of the scope while its proof holds ([`listing`]), else by a walk that
-/// keeps one.
+/// keeps one. With `searched`, the files outside it are listed but not read.
 /// The scan covers the whole scope: only the request stops it (its
 /// cancellation or its deadline), and a stopped scan keeps nothing. `None`
-/// when the scan failed; else the files that spell `symbol` and every file
-/// the scan listed.
+/// when the scan failed.
 pub(super) async fn scan_text(
     root: &str,
     include: &[String],
     symbol: &str,
     policy: &PathPolicy,
+    searched: Option<Arc<reach::Searched>>,
     cancel: &dyn CancellationCheck,
-) -> Result<Option<(BTreeSet<String>, Arc<[PathBuf]>)>, LspFailure> {
+) -> Result<Option<Scanned>, LspFailure> {
     if symbol.trim().is_empty() {
         return Ok(None);
     }
@@ -38,8 +49,20 @@ pub(super) async fn scan_text(
         let word = symbol.to_owned();
         let clock = octocode_engine::stamp::settle_clock();
         return Ok(blocking_cancellable(cancel, move |stopped| {
-            let spelling = listing::spelling(&files, &word, clock, stopped)?;
-            Some((spelling, files))
+            let (read, unsearched) = match &searched {
+                Some(searched) => {
+                    let (read, left): (Vec<_>, Vec<_>) =
+                        files.iter().cloned().partition(|file| searched.holds(file));
+                    (std::borrow::Cow::Owned(read), Some(left.into()))
+                }
+                None => (std::borrow::Cow::Borrowed(&files[..]), None),
+            };
+            let found = listing::spelling(&read, &word, clock, stopped)?;
+            Some(Scanned {
+                found,
+                listed: files,
+                unsearched,
+            })
         })
         .await?
         .flatten());
@@ -61,7 +84,12 @@ pub(super) async fn scan_text(
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
     let scanned = blocking_cancellable(cancel, move |stopped| {
-        let recorder = Arc::new(listing::Recorder::new(&walk_policy, &base, &walk_include));
+        let recorder = Arc::new(listing::Recorder::new(
+            &walk_policy,
+            &base,
+            &walk_include,
+            searched.clone(),
+        ));
         let filter: Arc<dyn octocode_engine::search::text_search::TextSearchPathFilter> =
             recorder.clone();
         let parsed = search_cancellable(options, filter, stopped).ok()?;
@@ -73,8 +101,18 @@ pub(super) async fn scan_text(
             return None;
         }
         let listed = recorder.keep(&walk_include, started);
-        Some((
-            parsed
+        // The next request searches this listing by its entries: built
+        // while the agent reads this answer.
+        spelling_index::build_after_answer(Arc::clone(&listed));
+        let unsearched = searched.map(|searched| {
+            listed
+                .iter()
+                .filter(|file| !searched.holds(file))
+                .cloned()
+                .collect()
+        });
+        Some(Scanned {
+            found: parsed
                 .files
                 .into_iter()
                 .map(|file| {
@@ -87,7 +125,8 @@ pub(super) async fn scan_text(
                 })
                 .collect::<BTreeSet<_>>(),
             listed,
-        ))
+            unsearched,
+        })
     })
     .await?
     .flatten();

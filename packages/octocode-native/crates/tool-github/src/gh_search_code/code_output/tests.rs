@@ -180,10 +180,7 @@ fn shaped_files_retain_repository_and_commit_identity() {
                 assert_eq!(row["path"], path);
                 if resolved {
                     assert_eq!(row["commitSha"], sha);
-                    assert_eq!(
-                        row["matches"],
-                        json_fixture(r#"[{"line": 1, "value": "needle"}]"#)
-                    );
+                    assert_eq!(row["matches"], json!(["1\tneedle"]));
                 } else {
                     assert!(row.get("commitSha").is_none());
                 }

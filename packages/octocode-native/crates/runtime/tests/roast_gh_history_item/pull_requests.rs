@@ -147,7 +147,8 @@ fn ids(rows: &Value) -> Vec<Value> {
 /// With its inline comments in the same read, the body-less review is not
 /// listed again: each comment names it (`reviewId`) and keeps its author,
 /// time and commit. The approval and the review whose comments are not in
-/// this read stay.
+/// this read stay. A comment's commit equal to the PR's `headCommitSha` is
+/// omitted and read from it (hoist H2).
 #[tokio::test]
 async fn a_review_folded_into_its_comments_is_not_listed_again() {
     let server = MockServer::builder().start().await;
@@ -160,7 +161,11 @@ async fn a_review_folded_into_its_comments_is_not_listed_again() {
     for comment in comments {
         assert_eq!(comment["reviewId"], "2", "{served}");
         assert_eq!(comment["author"], "rev", "{served}");
-        assert_eq!(comment["commitSha"], HEAD, "{served}");
+        assert!(comment.get("commitSha").is_none(), "{served}");
+        assert_eq!(
+            row["headCommitSha"], HEAD,
+            "the commit reads from the PR: {served}"
+        );
         assert!(comment["createdAt"].is_string(), "{served}");
     }
 }

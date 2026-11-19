@@ -24,6 +24,7 @@ astSearch invalidPattern: names the pattern/rule shape and the syntaxTree check
 astSearch languageUnsupported: names when parser applies, beside the text fallbacks
 astSearch symbolsUnsupported: routes documents to localFetch view:symbols
 ghGetFileContent languageUnsupported: the shared hint names local tools; the related[] plain read is the recovery
+ghGetFileContent largeSourceWindowOnly: the shared hint names localSearch and localFetch, which cannot read a GitHub file; the message names the matchString read
 ghGetFileContent symbolsUnsupported: the shared hint names local tools; the related[] plain read is the recovery
 localFetch fileAccessFailed: a read names one path: list it as a file first
 localFetch invalidPagination: the message names the bad offset

@@ -18,7 +18,6 @@
       "crates/tool-local/src/structure_search/rows/line_counts.rs": 1
     },
     "tools-shared": {
-      "crates/tools-shared/src/empty_walk/tagged.rs": 1,
       "crates/tools-shared/src/large_source/held.rs": 3
     }
   },
@@ -317,7 +316,7 @@
     "cli": {
       "crates/cli/src/cli/config_view/lifecycle.rs": 3,
       "crates/cli/src/cli/lsp_provision/download.rs": 1,
-      "crates/cli/src/cli/lsp_provision/upstream.rs": 2,
+      "crates/cli/src/cli/lsp_provision/upstream.rs": 1,
       "crates/cli/src/cli/mcp_server.rs": 2,
       "crates/cli/src/cli/serve/unix/client.rs": 1
     },

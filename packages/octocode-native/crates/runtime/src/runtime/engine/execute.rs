@@ -109,7 +109,7 @@ impl ToolRuntime {
             !panic_tests::INJECTED.get(),
             "injected panic before the rows run"
         );
-        let (mut input, mut repairs) = contracts::normalized_input(&tool, input);
+        let (mut input, mut repairs) = super::admission::checked::normalized_input(&tool, input);
         let id = match self.admit_tool(&tool, mcp) {
             Ok(id) => id,
             // A setting the call lacks is reported after its input: an

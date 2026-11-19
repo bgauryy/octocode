@@ -54,6 +54,15 @@ impl Importers {
         self.elsewhere.contains(site)
     }
 
+    /// Whether `file` (canonical) is a declaration the anchor package's
+    /// build emitted: its locations mirror the anchor's own sources, which
+    /// the anchor's answer lists.
+    pub(in super::super) fn mirrors_source(&self, file: &str) -> bool {
+        self.output
+            .as_ref()
+            .is_some_and(|output| output.holds(Path::new(file)))
+    }
+
     /// The candidate digest, salted into this request's location snapshot so
     /// a changed candidate list stales the window's later location pages.
     pub(in super::super) fn digest(&self) -> Option<&str> {
@@ -68,6 +77,7 @@ impl Importers {
             .unverified
             .iter()
             .chain(&self.too_large)
+            .chain(&self.package)
             .collect::<HashSet<_>>();
         self.window
             .as_ref()
@@ -252,6 +262,9 @@ impl Importers {
             if scope.narrowed {
                 coverage["importerScanRoot"] = json!("workspaceRoot");
             }
+            if !self.package.is_empty() {
+                coverage["packageImporters"] = json!(self.package.len());
+            }
         }
         if let Some(window) = &self.window {
             self.settle_silent_page(row, query, window);
@@ -263,6 +276,18 @@ impl Importers {
                 query,
                 crate::lsp_search::inferred_project::FAILED_REASON,
                 Some(&warning),
+                scope,
+            );
+        }
+        // Files bound to the package's own build output, which no source
+        // declaration mirrors, are importers the scan could not verify: what
+        // `importUnresolved` means is core's; the lead reads them.
+        if !self.package.is_empty() {
+            flag_partial(
+                row,
+                query,
+                crate::lsp_search::server_coverage::UNRESOLVED_IMPORT_REASON,
+                None,
                 scope,
             );
         }

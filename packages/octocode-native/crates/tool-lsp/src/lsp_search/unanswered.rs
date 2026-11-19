@@ -63,7 +63,9 @@ pub(super) async fn check(
             return Ok(());
         }
     }
-    scope.text_files(name, paths, cancel).await?;
+    // A declaration whose reach is bounded is checked only where it reaches
+    // (TE11): the rest of the scope is out of reach unread.
+    scope.text_files_in_reach(name, paths, cancel).await?;
     // A server with no signal of its own indexed its whole project, and a project
     // that does not depend on it cannot use the name: a file of either that the
     // answer leaves out holds no use.

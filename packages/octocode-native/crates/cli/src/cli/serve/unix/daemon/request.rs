@@ -54,7 +54,7 @@ pub(in crate::cli::serve::unix) async fn attended<T>(
 /// client's directory and environment in the client's output mode, and
 /// write the printed call back. A request this server cannot answer as the
 /// client would run it gets a `fallback` reply, so the client runs it in
-/// process. A [`STOP`](super::sockets::STOP) request stops the server.
+/// process. A [`STOP`](super::super::sockets::STOP) request stops the server.
 /// `asked` runs once the request line is read. Whether the client asked
 /// anything: `false` for a connection that closed without a request line,
 /// or sent none before the server began to leave.

@@ -164,6 +164,69 @@ fn keep(net: &Net<'_>, fetched: &FetchedRecord, listed: Option<&str>) {
     );
 }
 
+fn by_id_identity(id: &str) -> String {
+    format!("OSV record {id}")
+}
+
+/// The record kept for a read of `id` by id within the search window: OSV
+/// sends records with no lifetime a reader can trust (measured: the same as
+/// its lists), so a kept one stands for a repeat only that long, and its
+/// reuse is recorded so the row discloses when it was observed.
+pub(super) fn by_id_kept(net: &Net<'_>, id: &str) -> Option<Value> {
+    let saved = net.answers?.load(&scope(net)?, &by_id_identity(id))?;
+    let reused = match saved.reuse(
+        false,
+        Some(octocode_github::SEARCH_REUSE_WINDOW),
+        now_millis(),
+    ) {
+        Reuse::Fresh => None,
+        Reuse::Window => Some(saved.observed_ms),
+        _ => return None,
+    };
+    let record = serde_json::from_slice::<Value>(saved.answer.body.as_bytes()).ok()?;
+    if record.get("id")?.as_str()? != id {
+        return None;
+    }
+    if let Some(observed) = reused {
+        net.reused.record(observed);
+    }
+    Some(record)
+}
+
+/// Keeps a record read by `id` for [`by_id_kept`], and under its own stamp for
+/// any walk that lists it.
+pub(super) fn keep_by_id(net: &Net<'_>, id: &str, fetched: &FetchedRecord) {
+    keep(net, fetched, None);
+    let (Some(store), Some(scope)) = (net.answers, scope(net)) else {
+        return;
+    };
+    let identity = by_id_identity(id);
+    if !octocode_github::worth_keeping(
+        &fetched.headers,
+        false,
+        Some(octocode_github::SEARCH_REUSE_WINDOW),
+    ) {
+        store.forget(&scope, &identity);
+        return;
+    }
+    store.save(
+        &scope,
+        &identity,
+        SavedAnswer {
+            answer: ProviderAnswer {
+                request: identity.clone(),
+                status: fetched.status,
+                headers: fetched.headers.clone(),
+                body: fetched.record.to_string().into(),
+                next: None,
+                not_found: None,
+            },
+            observed_ms: now_millis(),
+            redirected: false,
+        },
+    );
+}
+
 #[cfg(test)]
 #[path = "hydrate_tests.rs"]
 mod tests;

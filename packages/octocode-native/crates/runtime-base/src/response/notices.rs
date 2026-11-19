@@ -7,8 +7,8 @@
 //! guidance goes). A notice two or more rows with evidence carry is a
 //! warning those rows share: the envelope's `warnings` state it once, so
 //! every row has it and none repeats it. No `notices` key reaches a caller.
-//! A warning every row of a response states is said once for the call
-//! ([`state_shared_warnings`]).
+//! A warning every row of a response states is said once for the call by
+//! the hoist stage ([`super::hoist`]).
 //!
 //! A `partialReasons` code is a fact of its row; what the code means is
 //! static, so no response says it: core authors each meaning once and the
@@ -89,48 +89,6 @@ fn shared_by_evidence(rows: &[Value]) -> Vec<Value> {
         }
     }
     shared
-}
-
-/// A warning every row of a response states word for word is a fact of the
-/// call, not of one row: it is said once, in the envelope's `warnings`, and
-/// each row keeps the warnings that are its own. Nothing is dropped: a
-/// warning some rows lack stays on the rows that state it, and a one-row
-/// response repeats nothing.
-pub(crate) fn state_shared_warnings(structured: &mut Value, rows_key: &str) {
-    let Some(rows) = structured.get(rows_key).and_then(Value::as_array) else {
-        return;
-    };
-    let warnings = |row: &Value| {
-        row.pointer("/data/warnings")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default()
-    };
-    let Some((first, rest)) = rows.split_first().filter(|(_, rest)| !rest.is_empty()) else {
-        return;
-    };
-    let mut shared = warnings(first);
-    for row in rest {
-        let stated = warnings(row);
-        shared.retain(|warning| stated.contains(warning));
-    }
-    if shared.is_empty() {
-        return;
-    }
-    for row in structured[rows_key].as_array_mut().into_iter().flatten() {
-        let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) else {
-            continue;
-        };
-        if let Some(Value::Array(own)) = data.get_mut("warnings") {
-            own.retain(|warning| !shared.contains(warning));
-            if own.is_empty() {
-                data.remove("warnings");
-            }
-        }
-    }
-    if let Some(envelope) = structured.as_object_mut() {
-        append(envelope, "warnings", shared);
-    }
 }
 
 /// States `notes`, facts of the call that answers with `envelope`, in its

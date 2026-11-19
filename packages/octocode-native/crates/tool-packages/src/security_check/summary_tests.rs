@@ -77,13 +77,20 @@ fn only_a_source_that_leaves_the_row_incomplete_is_named() {
 }
 
 /// A withdrawn advisory is listed and never counted; the most severe counted
-/// one gives the severity and the link, whatever the list's order.
+/// one gives the severity and the link, whatever the list's order. The ids
+/// name each counted advisory once, in the list's order (two sources'
+/// records of one advisory share an id).
 #[test]
 fn the_indication_counts_live_advisories_and_links_the_most_severe() {
     let row = json_fixture(
         r#"{
             "affected": true,
             "advisories": [
+                {
+                    "id": "LOW",
+                    "severity": "low",
+                    "source": "https://github.com/advisories/LOW"
+                },
                 {
                     "id": "GONE",
                     "severity": "critical",
@@ -110,7 +117,12 @@ fn the_indication_counts_live_advisories_and_links_the_most_severe() {
     let mut target = target(package());
     target.unfixed_in_major = 2;
     let lean = apply(SecurityCheckView::Summary, row, target);
-    assert_eq!(lean["advisoryCount"], 3, "{lean}");
+    assert_eq!(lean["advisoryCount"], 4, "{lean}");
+    assert_eq!(
+        lean["advisoryIds"],
+        json!(["LOW", "WORDLESS", "HIGH"]),
+        "{lean}"
+    );
     assert_eq!(lean["highestSeverity"], "high");
     assert_eq!(lean["unfixedInMajorCount"], 2);
     assert_eq!(lean["link"], "https://osv.dev/vulnerability/HIGH");
@@ -122,7 +134,12 @@ fn the_indication_counts_live_advisories_and_links_the_most_severe() {
         self::target(package()),
     );
     assert_eq!(none["advisoryCount"], 0, "{none}");
-    for absent in ["highestSeverity", "link", "unfixedInMajorCount"] {
+    for absent in [
+        "advisoryIds",
+        "highestSeverity",
+        "link",
+        "unfixedInMajorCount",
+    ] {
         assert!(none.get(absent).is_none(), "{absent}: {none}");
     }
     // A list not finished is not counted.
@@ -132,6 +149,7 @@ fn the_indication_counts_live_advisories_and_links_the_most_severe() {
         self::target(package()),
     );
     assert!(unfinished.get("advisoryCount").is_none(), "{unfinished}");
+    assert!(unfinished.get("advisoryIds").is_none(), "{unfinished}");
 }
 
 /// The sentence stays only where no field says it: a row with no verdict,
@@ -185,7 +203,8 @@ fn the_answer_and_the_coordinates_stay_only_when_they_say_something_new() {
     );
     assert_eq!(lean["version"], "4.17.20", "{lean}");
     assert_eq!(lean["packageName"], "lodash", "{lean}");
-    // A row that gives no verdict by design keeps no sentence.
+    // A row that gives no verdict by design keeps its sentence: its count is
+    // of its own records, and only the sentence says so.
     let mut repository = target(json_fixture(
         r#"{"operation": "repository", "repo": "o/r"}"#,
     ));
@@ -195,7 +214,7 @@ fn the_answer_and_the_coordinates_stay_only_when_they_say_something_new() {
         json_fixture(r#"{"answer": "o/r: 5 stars.", "advisories": []}"#),
         repository,
     );
-    assert!(lean.get("answer").is_none(), "{lean}");
+    assert_eq!(lean["answer"], "o/r: 5 stars.", "{lean}");
 }
 
 /// The checks of pinned dependencies stay, as no field of the row counts

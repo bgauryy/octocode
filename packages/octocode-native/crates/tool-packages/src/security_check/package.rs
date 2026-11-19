@@ -934,6 +934,7 @@ fn context<'a>(net: &'a Net<'a>) -> ArtifactProviderContext<'a> {
         answers: net.answers,
         reused: net.reused,
         tags: None,
+        share: Some(net.share),
     }
 }
 
@@ -1092,6 +1093,45 @@ fn pinned_calls(data: &mut Value, package: &Package<'_>, pins: &[Pin]) {
     }
 }
 
+/// The advisories the sources listed, as the answer counts them.
+fn facts_count(results: &[SourceResult]) -> usize {
+    answer::Facts::of(results).count
+}
+
+/// A requested version that is a range (`^4.17.0`, `>=1, <2`, `4.x`) resolves
+/// to one version, its newest match: the rest of the range was not checked,
+/// and the answer says only that version's verdict.
+fn range_warning(requested: Option<&str>, resolved: Option<&str>) -> Option<String> {
+    let (requested, resolved) = (requested?, resolved?);
+    let ranged = requested != resolved
+        && (requested.contains(['^', '~', '<', '>', '*', '|', ',', ' '])
+            || requested
+                .split('.')
+                .any(|part| part.eq_ignore_ascii_case("x")));
+    ranged.then(|| {
+        format!(
+            "version {requested} is a range: only {resolved}, its newest match, was checked; lower versions in the range were not. Name one exact version to check it."
+        )
+    })
+}
+
+/// The ids of the advisories whose records list `version` by name in an
+/// `affected` entry, each once, in source order.
+fn listing_version(results: &[SourceResult], version: &str) -> Vec<String> {
+    let mut ids: Vec<String> = Vec::new();
+    for advisory in results.iter().flat_map(|result| &result.advisories) {
+        let listed = advisory.affected.iter().any(|entry| {
+            entry["versions"]
+                .as_array()
+                .is_some_and(|versions| versions.iter().any(|listed| listed == version))
+        });
+        if listed && !ids.contains(&advisory.id) {
+            ids.push(advisory.id.clone());
+        }
+    }
+    ids
+}
+
 /// A row whose empty answer proves nothing: each source says it did not cover
 /// this target, never `noneKnown`.
 fn not_evaluated(data: &mut Value, why: &str) {
@@ -1125,6 +1165,13 @@ fn respond(
         needs_release && confirmed.release.is_none() && version.is_some() && facts.count == 0;
     facts.pinned_dependencies = notes.pinned.len();
     facts.registry_unconfirmed = notes.unconfirmed;
+    // A version the registry does not hold is still named in the records
+    // OSV returned for the package: one listing it does affect it.
+    if version.is_none()
+        && let Some(requested) = package.version
+    {
+        facts.unregistered = Some((requested, listing_version(results, requested)));
+    }
     let mut data = answer::lead(&target, &facts);
     data["packageName"] = json!(name);
     match version {
@@ -1155,6 +1202,20 @@ fn respond(
     answer::read_disputing(&mut data, results, &package.brief);
     pinned_calls(&mut data, package, &notes.pinned);
     paging::push_warnings(&mut data, notes.prerelease_warning);
+    // Stated once per call however many rows it holds for.
+    paging::push_warnings(&mut data, answer::unconfirmed_warning(&facts));
+    paging::push_warnings(&mut data, range_warning(package.version, version));
+    // A distribution matches versions per release: with none given, OSV's
+    // answer counts what every release lists for the version.
+    if confirmed.release.is_none()
+        && ecosystem::takes_release(package.ecosystem).unwrap_or(false)
+        && facts_count(results) > 0
+    {
+        paging::push_warnings(
+            &mut data,
+            ["No release was given, so the advisories every release of this distribution lists are counted together, including ones fixed in yours: pass release (forms: 12, 22.04:LTS, v3.18) for one release's verdict.".to_owned()],
+        );
+    }
     if let Some(unread) = &notes.latest_unread {
         registry_failed(&mut data, unread);
     }

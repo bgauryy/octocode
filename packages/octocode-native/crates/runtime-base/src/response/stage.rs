@@ -72,13 +72,13 @@ fn settle_value(
     super::answered_leads::drop_answered_leads(tool, structured, response_query);
     super::workflow_lead::retain_guidance(tool, structured, response_query);
     super::notices::place(structured, "results");
-    super::notices::state_shared_warnings(structured, "results");
     // Hosts show agents this JSON: source reads carry their line numbers in
     // `content` itself. Numbering precedes validation so an unpaged
     // response is exactly what was checked.
     crate::response::numbered::number_read_rows(tool, structured);
-    super::pages::state_shared_identity(tool, structured);
-    super::pages::state_once_per_batch(tool, structured);
+    // What the rows repeat is stated once, as the contract plans it, before
+    // validation checks the hoisted shape and paging cuts it.
+    super::hoist::apply(tool, structured);
     super::pages::publish_rows(structured);
     super::key_order::order_rows(tool, structured);
     // Validate the complete, sanitized rows before deriving error state or a

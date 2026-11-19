@@ -3,8 +3,10 @@
 use super::util::github_slug;
 use super::{ArtifactItem, RepositoryStatus, http::RegistryClient};
 mod listing;
+mod shared;
 pub(crate) use listing::TagSearch;
 pub use listing::{TreeFiles, TreeFilesFuture};
+pub(crate) use shared::{SharedTags, TagShare};
 
 /// What GitHub says of a commit (or `HEAD`) of a repository.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -212,7 +214,10 @@ pub(crate) async fn pin_release_tag(
         artifact.repository_directory.as_deref(),
         package,
         version,
-        declared,
+        Lookup {
+            declared,
+            commit: None,
+        },
         client,
     )
     .await;
@@ -328,7 +333,7 @@ pub(crate) async fn check_commit_against_tag(
     commit: &str,
     client: &RegistryClient<'_>,
 ) {
-    let Some(search) = release_tag_search(artifact, package, version, client).await else {
+    let Some(search) = release_tag_search(artifact, package, version, commit, client).await else {
         return;
     };
     settle_commit_against_tag(artifact, version, commit, &search);
@@ -336,11 +341,14 @@ pub(crate) async fn check_commit_against_tag(
 
 /// The release tag lookup [`check_commit_against_tag`] settles, for a row
 /// whose repository is known: a caller that has the commit to check may run
-/// it beside that commit's own existence check instead of after it.
+/// it beside that commit's own existence check instead of after it. The
+/// registry's `commit` decides whether a plain tag is a monorepo package's
+/// release ([`github_release_tag`]).
 pub(crate) async fn release_tag_search(
     artifact: &ArtifactItem,
     package: &str,
     version: &str,
+    commit: &str,
     client: &RegistryClient<'_>,
 ) -> Option<TagSearch> {
     let repository = artifact.repository.as_deref()?;
@@ -350,7 +358,10 @@ pub(crate) async fn release_tag_search(
             artifact.repository_directory.as_deref(),
             package,
             version,
-            None,
+            Lookup {
+                declared: None,
+                commit: Some(commit),
+            },
             client,
         )
         .await,
@@ -401,12 +412,26 @@ pub struct ReleaseTag {
     pub commit: String,
 }
 
+/// What a release-tag lookup knows besides the package: a release tag the
+/// package's metadata declares (a Maven `<scm><tag>`), and the commit the
+/// registry recorded for the release (npm `gitHead`, cargo's VCS info).
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Lookup<'a> {
+    pub declared: Option<&'a str>,
+    pub commit: Option<&'a str>,
+}
+
 /// The release tag of `version` in a GitHub repository, when one exists
-/// upstream: `v<version>`, `<version>`, then the shapes a monorepo uses for
-/// one package's releases ([`tag_candidates`]); a leading `v` of `version` is
-/// the same release, and a tag the package's metadata declares is asked
-/// first. When no candidate names it (or a check fails), the repository's
-/// own tag list decides by what each tag's prefix names
+/// upstream ([`tag_candidates`]); a leading `v` of `version` is the same
+/// release. A package that is its repository is tagged `v<version>` or
+/// `<version>`. A package inside a repository that releases others (a
+/// monorepo, a workspace crate) asks its own shapes first: a plain tag there
+/// may be another package's release of the same number (ripgrep's `0.1.6`
+/// beside `grep-searcher-0.1.6`). With the registry's commit known, the plain
+/// tags go first and one counts only when it names that commit; without it,
+/// they come after the package's own. A tag the package's metadata declares
+/// is asked first. When no candidate names it (or a check fails), the
+/// repository's own tag list decides by what each tag's prefix names
 /// ([`listing::listed_release_tag`]); a lookup cut short is
 /// [`TagSearch::Unlisted`] with its cause and whether the candidates were
 /// checked at all. Each lookup checks current tags; neither matches nor
@@ -416,32 +441,69 @@ async fn github_release_tag(
     directory: Option<&str>,
     package: &str,
     version: &str,
-    declared: Option<&str>,
+    lookup: Lookup<'_>,
     client: &RegistryClient<'_>,
 ) -> TagSearch {
     let (Some(tags), Some((owner, repo))) = (client.tags, github_slug(repository)) else {
         return TagSearch::Unchecked;
     };
     let bare = bare_version(version);
-    let mut candidates = tag_candidates(&repo, package, directory, bare);
-    let named = declared
+    let Candidates { mut own, mut plain } = tag_candidates(&repo, package, directory, bare);
+    let shared = !own.is_empty();
+    if let Some(tag) = lookup
+        .declared
         .and_then(|tag| declared_candidate(tag, bare))
-        .filter(|tag| !candidates.contains(tag))
-        .map(|tag| candidates.insert(0, tag))
-        .is_some();
-    // Two rounds: the plain tags most releases carry (and the one the
-    // package declares), then a monorepo package's own shapes, each round's
-    // checks together.
-    let (plain, own) = candidates.split_at(candidates.len().min(2 + usize::from(named)));
+        .filter(|tag| !own.contains(tag) && !plain.contains(tag))
+    {
+        if shared {
+            own.insert(0, tag);
+        } else {
+            plain.insert(0, tag);
+        }
+    }
+    // Each round's checks run together; `true` marks the plain round of a
+    // package that shares its repository, whose tag needs the registry's
+    // commit.
+    let rounds: [(&[String], bool); 2] = match (shared, lookup.commit) {
+        (false, _) => [(&plain, false), (&[], false)],
+        (true, Some(_)) => [(&plain, true), (&own, false)],
+        (true, None) => [(&own, false), (&plain, false)],
+    };
     // A failed candidate check is kept: a claim about the shapes checked
     // holds only when they were.
-    let shapes_checked = match first_existing_tag(tags, &owner, &repo, &[plain, own]).await {
-        Ok(Some(release)) => return TagSearch::Found(release),
-        Ok(None) => true,
-        Err(_) => false,
-    };
+    let mut shapes_checked = true;
+    // A plain tag naming the version at another commit than the registry's:
+    // the tag list decides, and this stays the answer when it cannot.
+    let mut passed_over = None;
+    for (round, needs_commit) in rounds {
+        if round.is_empty() {
+            continue;
+        }
+        match first_existing_tag(tags, &owner, &repo, &[round]).await {
+            Ok(Some(release))
+                if needs_commit
+                    && !lookup
+                        .commit
+                        .is_some_and(|commit| commit.eq_ignore_ascii_case(&release.commit)) =>
+            {
+                passed_over = Some(release);
+            }
+            Ok(Some(release)) => return TagSearch::Found(release),
+            Ok(None) => {}
+            Err(_) => {
+                shapes_checked = false;
+                break;
+            }
+        }
+    }
     let own = listing::OwnNames::new(&repo, package, directory);
-    listing::listed_release_tag(tags, &owner, &repo, bare, &own, shapes_checked).await
+    match (
+        listing::listed_release_tag(tags, &owner, &repo, bare, &own, shapes_checked).await,
+        passed_over,
+    ) {
+        (TagSearch::Unlisted { .. }, Some(release)) => TagSearch::Found(release),
+        (search, _) => search,
+    }
 }
 
 /// Whether `tag` names release `version`: it ends with the version, and the
@@ -528,27 +590,34 @@ async fn first_existing_tag(
     Ok(None)
 }
 
-/// Tags a package's release may carry, most common first: `v<version>` and
-/// `<version>`, then `<stem>-v<version>` and `<stem>@<version>` for each name
-/// the package goes by inside its repository: the package name (scoped or
-/// not), its directory, and either without the repository name's prefix
-/// (`pydantic_core` in `pydantic` is tagged `core-v2.50.1`). A package that
-/// is its repository, with no directory of its own, is tagged without a stem.
-fn tag_candidates(
-    repo: &str,
-    package: &str,
-    directory: Option<&str>,
-    version: &str,
-) -> Vec<String> {
-    let mut tags = vec![format!("v{version}"), version.to_owned()];
+/// Tags a package's release may carry: its own shapes, `<stem>-v<version>`,
+/// `<stem>-<version>` and `<stem>@<version>` for each name the package goes
+/// by inside its repository (the package name, scoped or not, its directory,
+/// and either without the repository name's prefix: `pydantic_core` in
+/// `pydantic` is tagged `core-v2.50.1`, `grep-searcher` in `ripgrep`
+/// `grep-searcher-0.1.6`); and the plain ones, `v<version>` and `<version>`.
+/// A package that is its repository, with no directory of its own, has no
+/// own shapes.
+struct Candidates {
+    own: Vec<String>,
+    plain: Vec<String>,
+}
+
+fn tag_candidates(repo: &str, package: &str, directory: Option<&str>, version: &str) -> Candidates {
+    let plain = vec![format!("v{version}"), version.to_owned()];
+    let mut own: Vec<String> = Vec::new();
     for stem in tag_stems(repo, package, directory) {
-        for tag in [format!("{stem}-v{version}"), format!("{stem}@{version}")] {
-            if !tags.contains(&tag) {
-                tags.push(tag);
+        for tag in [
+            format!("{stem}-v{version}"),
+            format!("{stem}-{version}"),
+            format!("{stem}@{version}"),
+        ] {
+            if !own.contains(&tag) && !plain.contains(&tag) {
+                own.push(tag);
             }
         }
     }
-    tags
+    Candidates { own, plain }
 }
 
 fn tag_stems(repo: &str, package: &str, directory: Option<&str>) -> Vec<String> {

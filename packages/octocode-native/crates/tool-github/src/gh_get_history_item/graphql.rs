@@ -58,14 +58,17 @@ pub(super) struct GraphqlWants {
 impl GraphqlWants {
     pub(super) fn of(query: &HistoryItemRequest) -> Self {
         let wants = query.sections();
+        // A filtered discussion (`matchString`, `bots:false`) is scanned
+        // from its first REST batch.
         let unmatched = super::text::needle(query).is_none();
+        let everyone = gh_get_history_item_query::bots(query);
         Self {
             body: wants.has(Section::Body),
             files: wants.lists_files()
                 && unmatched
                 && !gh_get_history_item_query::has_file_filter(&query.query),
-            discussion: wants.has(Section::Comments) && unmatched,
-            reviews: wants.has(Section::Reviews) && unmatched,
+            discussion: wants.has(Section::Comments) && unmatched && everyone,
+            reviews: wants.has(Section::Reviews) && unmatched && everyone,
             commits: wants.lists_commits(),
         }
     }
@@ -93,6 +96,166 @@ pub(super) fn graphql_complete_collection_eligible(query: &HistoryItemRequest) -
     GraphqlWants::of(query).count() > 0
 }
 
+/// The GraphQL document and variables of `query`'s first-page read: what
+/// [`graphql_pull_request`] sends, and what a batch's warm-up answers for it
+/// ([`warm_pull_requests`]). `None` without a pull-request number.
+fn first_page_read(query: &HistoryItemRequest) -> Option<(String, Value)> {
+    let number = gh_get_history_item_query::number(query)?;
+    let (document, bound) = pull_request_document(&GraphqlWants::of(query));
+    let mut variables = json!({
+        "owner": gh_get_history_item_query::owner(query),
+        "repo": gh_get_history_item_query::repo(query),
+        "number": number
+    });
+    for (variable, first) in bound {
+        variables[variable] = json!(first);
+    }
+    Some((document, variables))
+}
+
+/// The GraphQL document and variables of `query`'s whole comment count
+/// (a summary read's `commentsCount`). `None` without a pull-request number.
+pub(super) fn whole_count_read(query: &HistoryItemRequest) -> Option<(String, Value)> {
+    let number = gh_get_history_item_query::number(query)?;
+    Some((
+        document::WHOLE_COUNT_DOCUMENT.to_owned(),
+        json!({
+            "owner": gh_get_history_item_query::owner(query),
+            "repo": gh_get_history_item_query::repo(query),
+            "number": number,
+        }),
+    ))
+}
+
+/// A batch row GraphQL can serve: what its own read would send, and what
+/// the batch's aliased read selects for it (a first page, or with no
+/// `wants` a summary's whole comment count).
+pub struct PullRequestWarm {
+    wants: Option<GraphqlWants>,
+    owner: String,
+    repo: String,
+    number: u64,
+    document: String,
+    variables: Value,
+}
+
+impl PullRequestWarm {
+    /// The row of `query` (a validated `ghGetHistoryItem` row) when it reads
+    /// a pull request's first page by GraphQL ([`graphql_complete_collection_eligible`]).
+    pub fn of(query: &Value) -> Option<Self> {
+        let query = HistoryItemRequest::from_row(query).ok()?;
+        let summary = gh_get_history_item_query::operation(&query) == ItemOperation::PullRequest
+            && query.sections().is_empty();
+        let (wants, (document, variables)) = if graphql_complete_collection_eligible(&query) {
+            (Some(GraphqlWants::of(&query)), first_page_read(&query)?)
+        } else if summary {
+            (None, whole_count_read(&query)?)
+        } else {
+            return None;
+        };
+        Some(Self {
+            wants,
+            owner: gh_get_history_item_query::owner(&query).to_owned(),
+            repo: gh_get_history_item_query::repo(&query).to_owned(),
+            number: gh_get_history_item_query::number(&query)?,
+            document,
+            variables,
+        })
+    }
+
+    /// Whether `other` sends the same read.
+    pub fn same_read(&self, other: &Self) -> bool {
+        self.document == other.document && self.variables == other.variables
+    }
+}
+
+/// Reads every row's first page in one aliased GraphQL request and records
+/// each alias's part in `memo` as that row's own read's answer: what its
+/// [`graphql_pull_request`] then receives with nothing sent. An error
+/// naming an alias goes to that row's answer, as its own read would get it
+/// (the row then leaves what it names to REST); an error naming no alias,
+/// or a failed request, records nothing and each row asks for itself.
+pub async fn warm_pull_requests(
+    transport: &octocode_github::GitHubTransport,
+    rows: &[PullRequestWarm],
+    memo: &octocode_github::RefMemo,
+    context: &RequestContext,
+) {
+    if rows.len() < 2
+        || context.resolved_credential().is_none()
+        || !transport.graphql_available(context)
+    {
+        return;
+    }
+    let wants = rows.iter().map(|row| row.wants).collect::<Vec<_>>();
+    let document = document::pull_requests_document(&wants);
+    let mut variables = json!({});
+    for (at, row) in rows.iter().enumerate() {
+        variables[format!("owner{at}")] = json!(row.owner);
+        variables[format!("repo{at}")] = json!(row.repo);
+        variables[format!("number{at}")] = json!(row.number);
+        if let Some(wants) = &row.wants {
+            for (variable, first) in document::pull_request_document(wants).1 {
+                variables[format!("{variable}{at}")] = json!(first);
+            }
+        }
+    }
+    let Ok(page) = transport
+        .execute_graphql(&document, variables, context)
+        .await
+    else {
+        return;
+    };
+    let alias_of = |error: &GraphQlError| {
+        error
+            .path
+            .first()
+            .and_then(Value::as_str)
+            .and_then(|alias| alias.strip_prefix('r'))
+            .and_then(|at| at.parse::<usize>().ok())
+            .filter(|at| *at < rows.len())
+    };
+    if page.errors.iter().any(|error| alias_of(error).is_none()) {
+        return;
+    }
+    let mut data = page.data.unwrap_or(Value::Null);
+    for (at, row) in rows.iter().enumerate() {
+        let errors = page
+            .errors
+            .iter()
+            .filter(|error| alias_of(error) == Some(at))
+            .map(|error| {
+                let mut path = error.path.clone();
+                path[0] = json!("repository");
+                json!({
+                    "message": error.message,
+                    "type": error.error_type,
+                    "path": path,
+                    "extensions": error.extensions,
+                })
+            })
+            .collect::<Vec<_>>();
+        let repository = data
+            .get_mut(format!("r{at}"))
+            .map(Value::take)
+            .unwrap_or(Value::Null);
+        let mut answer = json!({ "data": { "repository": repository } });
+        if !errors.is_empty() {
+            answer["errors"] = json!(errors);
+        }
+        memo.record_pull_request(
+            &json!({ "query": row.document, "variables": row.variables }),
+            octocode_github::ResponsePage {
+                status: 200,
+                headers: Default::default(),
+                body: answer.to_string().into(),
+                next: None,
+                redirected: false,
+            },
+        );
+    }
+}
+
 /// Fetch the PR and its wanted collections in one GraphQL request, then
 /// read on from each connection's end cursor until its first page is held.
 /// `None` leaves the whole read to REST: GraphQL is unavailable for this
@@ -107,19 +270,10 @@ pub(super) async fn graphql_pull_request(
     if !source.graphql_available(context) {
         return Ok(None);
     }
-    let Some(number) = gh_get_history_item_query::number(query) else {
+    let Some((document, variables)) = first_page_read(query) else {
         return Ok(None);
     };
     let wants = GraphqlWants::of(query);
-    let (document, bound) = pull_request_document(&wants);
-    let mut variables = json!({
-        "owner": gh_get_history_item_query::owner(query),
-        "repo": gh_get_history_item_query::repo(query),
-        "number": number
-    });
-    for (variable, first) in bound {
-        variables[variable] = json!(first);
-    }
     let mut page = source
         .execute_pull_request_graphql(&document, variables.clone(), context)
         .await?;

@@ -30,12 +30,13 @@ fn next_query(out: &Value, name: &str) -> Value {
 #[test]
 fn continuation_pages_reuse_the_settled_scan_with_identical_output() {
     let root = Fixture::new();
-    for (name, calls) in [("a.ts", 2), ("b.ts", 1), ("c.ts", 2)] {
-        let body = (0..calls)
-            .map(|i| format!("console.log({i});\n"))
-            .collect::<String>();
-        std::fs::write(root.0.join(name), body).expect("file");
-    }
+    // One file holds every match, so the scan's one window holds every page
+    // (a window ends before the next file with a match its page 1 does not
+    // need).
+    let body = (0..4)
+        .map(|i| format!("console.log({i});\n"))
+        .collect::<String>();
+    std::fs::write(root.0.join("a.ts"), body).expect("file");
     std::fs::write(root.0.join("d.ts"), "other();\n").expect("prefilter skip");
     let (paths, security) = simple_policy(&root.0);
     octocode_engine::stamp::settle_written_so_far();
@@ -71,7 +72,7 @@ fn continuation_pages_reuse_the_settled_scan_with_identical_output() {
         offering = fresh;
     }
     // An edit drops the stored scan: the page restarts from page 1.
-    std::fs::write(root.0.join("c.ts"), "console.log(9);\n").expect("edit");
+    std::fs::write(root.0.join("a.ts"), "console.log(9);\n").expect("edit");
     let page = run_row(&last_query, &paths, &security);
     assert_eq!(page["errorCode"], "staleSnapshot", "{page}");
     assert!(!SCANS.holds(&snapshot));

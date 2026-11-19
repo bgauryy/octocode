@@ -1,6 +1,7 @@
 //! The importer search: verified anchors from candidate files whose imports
 //! name the symbol.
 use super::*;
+use crate::lsp_search::build_output::BuildOutput;
 
 pub(in super::super) const SCAN_COMPLETE: &str = "complete";
 
@@ -144,11 +145,25 @@ pub(in super::super) async fn verified_anchors(
         return Ok(no_candidates(request.page > 1, true));
     };
     let CandidateList {
-        candidates,
-        unreached,
+        mut candidates,
+        mut unreached,
         module,
         renamed,
     } = listed;
+    // A workspace package imported by name binds its emitted declarations,
+    // which mirror the anchor package's sources: never candidates themselves.
+    let output = reads_imports
+        .then(|| BuildOutput::of_source(Path::new(&anchor_file), sources.policy()))
+        .flatten();
+    if let Some(output) = &output {
+        let (mirrors, sources): (Vec<_>, Vec<_>) = candidates
+            .into_iter()
+            .partition(|file| output.holds(Path::new(file)));
+        candidates = sources;
+        // Checked, and no use of their own: the anchor's answer lists the
+        // sources they mirror.
+        unreached.extend(mirrors);
+    }
     let mut window = match Window::cut(candidates, request) {
         Cut::Window(window) => window,
         Cut::Stale => {
@@ -184,6 +199,7 @@ pub(in super::super) async fn verified_anchors(
     };
     let started = std::time::Instant::now();
     let mut anchors = Vec::new();
+    let mut package = Vec::new();
     let mut rejected = unreached;
     let mut unverified = Vec::new();
     let mut unopened = Vec::<String>::new();
@@ -207,6 +223,7 @@ pub(in super::super) async fn verified_anchors(
             WindowProof {
                 proof,
                 declaration: &declaration,
+                output: output.as_ref(),
                 reads_imports,
                 anchor: Position {
                     path: anchor_path,
@@ -219,6 +236,7 @@ pub(in super::super) async fn verified_anchors(
         .await?;
         anchors.extend(verified.anchors);
         rejected.extend(verified.rejected);
+        package.extend(verified.package);
         unopened.extend(open_failed.iter().cloned());
         unverified.extend(verified.unverified.into_iter().chain(open_failed));
         elsewhere.extend(verified.elsewhere);
@@ -259,6 +277,8 @@ pub(in super::super) async fn verified_anchors(
         unopened,
         too_large,
         elsewhere,
+        package,
+        output,
     })
 }
 
@@ -393,6 +413,9 @@ async fn anchor_declaration(
 struct WindowProof<'a> {
     proof: SiteProof,
     declaration: &'a HashSet<String>,
+    /// The anchor package's build output, whose declarations stand for its
+    /// sources.
+    output: Option<&'a BuildOutput>,
     reads_imports: bool,
     anchor: Position<'a>,
     symbol: &'a str,
@@ -416,7 +439,7 @@ async fn verify_window(
                 snippet_policy,
                 cancel,
                 opened,
-                how.declaration,
+                (how.declaration, how.output),
                 !how.reads_imports,
             )
             .await
@@ -450,7 +473,7 @@ async fn anchor_module(
     Some(Arc::new(module.in_scope(scope, symbol, sources.policy())))
 }
 
-/// Whether the parsed `content` imports `symbol` (see [`check_imports`]).
+/// Whether the parsed `content` imports `symbol`.
 pub(in super::super) fn imports_name(
     facts: &octocode_engine::graph::GraphFactsDocument,
     content: &str,

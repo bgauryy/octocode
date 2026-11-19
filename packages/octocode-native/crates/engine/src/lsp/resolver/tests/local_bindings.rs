@@ -33,6 +33,23 @@ fn a_let_binding_is_scoped_to_its_block() {
     );
 }
 
+/// A `let` anchored on its own name is that binding, as a use of it is;
+/// its initializer still names the outer one it shadows.
+#[test]
+fn a_let_anchored_on_its_own_name_is_local() {
+    let source = "fn outer() {\n    let total = 1;\n    use_it(total);\n}\nfn total() {}\n";
+    assert_eq!(
+        local_binding_lines("a.rs", source, "total", 1, 8),
+        Some((0, 3))
+    );
+    let shadow = "fn f(x: u32) -> u32 {\n    let x = x + 1;\n    x\n}\n";
+    assert_eq!(local_binding_lines("a.rs", shadow, "x", 1, 8), Some((0, 3)));
+    assert_eq!(
+        local_binding_lines("a.rs", shadow, "x", 1, 12),
+        Some((0, 3))
+    );
+}
+
 #[test]
 fn items_fields_and_module_names_are_not_local() {
     let source = "pub struct Entry {\n    pub value: u32,\n}\nfn read(entry: Entry) -> u32 {\n    entry.value\n}\n";

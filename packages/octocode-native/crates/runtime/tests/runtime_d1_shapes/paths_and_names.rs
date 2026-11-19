@@ -207,7 +207,19 @@ async fn history_reviews_and_issue_comments_name_author_and_commit_sha() {
         "{} {seen:?}",
         reviews.structured_content
     );
-    assert_eq!(review["commitSha"], HEAD, "{}", reviews.structured_content);
+    // A review's commit equal to the PR's `headCommitSha` is omitted and read
+    // from it (hoist H2).
+    assert!(
+        review.get("commitSha").is_none(),
+        "{}",
+        reviews.structured_content
+    );
+    assert_eq!(
+        reviews.data()["pullRequests"][0]["headCommitSha"],
+        HEAD,
+        "{}",
+        reviews.structured_content
+    );
     let comments = support::run(
         &runtime,
         "ghGetHistoryItem",

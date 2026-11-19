@@ -923,8 +923,11 @@ fn match_only_rows_name_no_enclosing_declaration() {
     };
     assert_eq!(row("content")["enclosing"], 0);
     let hit = row("matchOnly");
-    assert_eq!(hit["value"], "needle");
+    // The span is the request's one term: it states only where it is.
+    assert!(hit.get("value").is_none(), "{hit}");
+    assert_eq!(read_value(&hit, "needle"), "needle");
     assert_eq!(hit["line"], 2);
+    assert_eq!(hit["column"], 5);
     assert!(hit.get("enclosing").is_none(), "{hit}");
 }
 

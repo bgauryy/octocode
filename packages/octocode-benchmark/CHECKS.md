@@ -20,7 +20,7 @@ lean](briefs/check-github.md), and the [local flows benchmark](local/FLOWS.md).
 | **Core tools** (first) | the 8-dimension review, end to end, per tool, workflows | this file: [Core tools](#core-tools) |
 | **Security** | behavior under secrets, credentials, paths, providers and hostile text | this file: [Security](#security) |
 | **Skills** | activation, steps, tool use, output, links | this file: [Skills](#skills); `dev skills:check` is the mechanical gate |
-| **Release gates** | lint, typecheck, tests, docs, skills, packaging | [release guide](../../skills-dev/octocode-dev/docs/RELEASE.md) |
+| **Release gates** | lint, typecheck, tests, docs, skills, packaging | [AGENTS.md](../../AGENTS.md) |
 | **Benchmark** | version against version and against stored baselines | [METHOD.md](METHOD.md), [local flows](local/FLOWS.md) |
 | Acceptance criteria per tool | what "passes" means for schema, output, pagination, efficiency | [tool quality](../../skills-dev/octocode-dev/docs/TOOL_QUALITY.md) |
 | Credentials, packaged | auth flows on the packaged binary | [packaged auth checks](../octocode-native/docs/GITHUB_AUTH_TESTS.md#packaged-checks) |

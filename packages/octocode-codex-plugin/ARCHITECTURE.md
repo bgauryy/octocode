@@ -30,7 +30,7 @@ Before broad release, test the published pin on each supported operating system,
 
 ## Release
 
-1. Complete the repository release gates and publish compatible runtime packages in the order in `skills-dev/octocode-dev/docs/RELEASE.md`.
+1. Complete the repository release gates and publish compatible runtime packages in the order in `AGENTS.md` ("Release and environment").
 2. Set the plugin version in this package and the same exact version in `.agents/plugins/marketplace.json`.
 3. Build and verify this package (`yarn verify`), and confirm both pinned runtime packages exist on npm.
 4. From this package directory, run `npm pack` and inspect the archive. After owner approval, run `npm publish`.

@@ -2,6 +2,7 @@
 use super::{Input, Row, Target, recovery};
 use octocode_contract_types::ErrorCode;
 use octocode_engine::num::saturating_i64;
+use octocode_runtime_base::id::ToolId;
 use octocode_runtime_base::response::result::ErrorClass;
 use octocode_tools_shared::judgment::{ClassificationError, Judged};
 use octocode_tools_shared::source_capture::Captured;
@@ -110,8 +111,179 @@ pub(super) fn evaluation_usage(
         output_tokens: Some(count(output_tokens)),
         calls: Some(count(calls)),
         refused: std::num::NonZeroU64::new(refused),
+        requests_planned: None,
+        requests_ceiling: None,
+        input_tokens_at_most: None,
     })
     .unwrap_or(Value::Null)
+}
+
+/// What a row's requests were planned at before any was sent: the first
+/// round, and the most its refusals, re-asks and the transient retries it
+/// shares can send (`None`: unbounded, a source over one window may be
+/// judged in sections).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Price {
+    pub planned: u64,
+    pub ceiling: Option<u64>,
+    /// Of `ceiling`, the transient retries the row shares.
+    pub room: u64,
+}
+
+/// A row whose ceiling is over its `maxRequests`, priced before anything
+/// was sent: how many units it holds, its price, the input tokens its first
+/// round costs at most, and the cap.
+#[derive(Clone, Copy, Debug)]
+pub struct OverBudget {
+    pub units: usize,
+    pub price: Price,
+    pub input_tokens_at_most: u64,
+    pub max: u64,
+    /// The transient retries the row's ceiling counts.
+    pub room: u64,
+}
+
+/// The usage fields of `price` as the contract types them; nothing for
+/// `None`.
+fn price_fields(price: Price, input_tokens_at_most: Option<u64>) -> Map<String, Value> {
+    let count = |value| saturating_i64(value);
+    let typed = octocode_contract_types::ClasifyEvaluationUsage {
+        input_tokens: None,
+        output_tokens: None,
+        calls: None,
+        refused: None,
+        requests_planned: Some(count(price.planned)),
+        requests_ceiling: price.ceiling.map(count),
+        input_tokens_at_most: input_tokens_at_most.map(count),
+    };
+    match serde_json::to_value(typed) {
+        Ok(Value::Object(fields)) => fields
+            .into_iter()
+            .filter(|(_, value)| !value.is_null())
+            .collect(),
+        _ => Map::new(),
+    }
+}
+
+/// States `price` in the row's `usage`, when the row sent a request, and
+/// says so when it sent more than its ceiling ([`past_ceiling`]).
+pub(super) fn priced(row: &mut Value, price: Option<Price>) {
+    let (Some(price), Some(usage)) = (price, row.get_mut("usage").and_then(Value::as_object_mut))
+    else {
+        return;
+    };
+    usage.extend(price_fields(price, None));
+    let calls = usage.get("calls").and_then(Value::as_u64).unwrap_or(0);
+    if let Some(notice) = price
+        .ceiling
+        .and_then(|ceiling| past_ceiling(calls, ceiling))
+    {
+        octocode_runtime_base::response::paging::push_warnings(row, [notice]);
+    }
+}
+
+/// What a row without `maxRequests` that sent `calls` requests past its
+/// `ceiling` says: the provider refused a request its stated window holds,
+/// and the refusal's retry was sent anyway
+/// ([`octocode_tools_shared::judgment::RequestCap::implicit`]).
+pub(super) fn past_ceiling(calls: u64, ceiling: u64) -> Option<String> {
+    let past = calls.checked_sub(ceiling).filter(|past| *past > 0)?;
+    Some(format!(
+        "{} past requestsCeiling: the provider refused a request its stated window holds, and the refusal's retry was sent.",
+        octocode_engine::text::counted(past, "request", "requests")
+    ))
+}
+
+/// A row refused before anything was sent: its ceiling is over
+/// `maxRequests`. It states the price and offers the same row with
+/// `maxRequests` raised to the ceiling (`next.confirm`, billed).
+pub(super) fn over_budget(row: &Row, over: &OverBudget, can_resume: bool) -> Value {
+    let ceiling = over.price.ceiling.unwrap_or(over.price.planned);
+    let what = if over.units == 1 {
+        "This source".to_owned()
+    } else {
+        format!("These {} units", over.units)
+    };
+    let retries = match over.room {
+        0 => String::new(),
+        1 => " and the 1 transient retry it shares".to_owned(),
+        room => format!(" and the {room} transient retries it shares"),
+    };
+    let mut failure = json!({
+        "errorCode": ErrorCode::ClassificationOverBudget,
+        "error": format!(
+            "{what} would send {} provider {}, at most {ceiling} with every re-ask and split a refusal can add{retries}; maxRequests is {}, so nothing was sent.",
+            over.price.planned,
+            if over.price.planned == 1 { "request" } else { "requests" },
+            over.max
+        ),
+    });
+    let mut usage = Map::new();
+    usage.insert("calls".into(), json!(0));
+    usage.extend(price_fields(over.price, Some(over.input_tokens_at_most)));
+    failure["usage"] = Value::Object(usage);
+    octocode_runtime_base::response::result::add_hints(
+        &mut failure,
+        vec!["next.confirm runs the same row with maxRequests at the ceiling (billed); or narrow the source: fewer files, hits or resources.".to_owned()],
+    );
+    if let Some(mut query) = row.query.as_object().cloned() {
+        query.insert("maxRequests".into(), json!(ceiling));
+        let query = Value::Object(query);
+        let call = if can_resume {
+            octocode_runtime_base::response::result::Continuation::continued(ToolId::Clasify, query)
+        } else {
+            octocode_runtime_base::response::result::Continuation::related(ToolId::Clasify, query)
+        };
+        octocode_runtime_base::response::result::attach_calls(
+            &mut failure,
+            json!({"confirm": call.build()}),
+        );
+    }
+    failure
+}
+
+/// Whether a retry of the same request can get past `error`: a transient
+/// failure, never a cancelled call.
+pub(super) fn transient(error: &ClassificationError) -> bool {
+    error.code != ErrorCode::Cancelled
+        && octocode_runtime_base::id::error_codes::class(error.code) == ErrorClass::Transient
+}
+
+/// The row as the caller sent it, its `maxRequests` at `ceiling` when one is
+/// stated: the call that asks it again at its price.
+pub(super) fn priced_query(row: &Row, ceiling: Option<u64>) -> Option<Value> {
+    let mut query = row.query.as_object()?.clone();
+    if let Some(ceiling) = ceiling {
+        query.insert("maxRequests".into(), json!(ceiling));
+    }
+    Some(Value::Object(query))
+}
+
+/// Offers `query` after a transient failure: `next.retry` in a runtime that
+/// keeps saved work, else a related call. Nothing when the row already
+/// offers a retry (a source read's own) or the call would not pass the
+/// contract.
+pub(super) fn offer_retry(data: &mut Value, query: Value, can_resume: bool) {
+    if data["next"].get("retry").is_some()
+        || octocode_runtime_base::contracts::validate_built_query(
+            ToolId::Clasify.as_str(),
+            query.clone(),
+        )
+        .is_err()
+    {
+        return;
+    }
+    if can_resume {
+        let call = octocode_runtime_base::response::result::Continuation::continued(
+            ToolId::Clasify,
+            query,
+        );
+        octocode_runtime_base::response::result::attach_calls(data, json!({"retry": call.build()}));
+    } else {
+        let call =
+            octocode_runtime_base::response::result::Continuation::related(ToolId::Clasify, query);
+        octocode_runtime_base::response::result::attach_related(data, call.build());
+    }
 }
 
 pub(super) fn error_kind(error: &ClassificationError) -> ErrorClass {
@@ -161,14 +333,19 @@ pub(super) fn resources_answered(
     let mut out = json!({"resources":{}});
     let mut model = None;
     let mut related = Vec::new();
+    // The resources a transient failure left unjudged, and their price.
+    let mut again = Map::new();
+    let mut again_ceiling = Some(0_u64);
+    let mut room = 0;
     for resource in resources {
-        let (judged, captured, assets) = match resource.outcome {
+        let (judged, captured, assets, price) = match resource.outcome {
             super::RowOutcome::Judgment {
                 judged,
                 captured,
                 assets,
+                price,
                 ..
-            } => (judged, captured, assets),
+            } => (judged, captured, assets, price),
             // A resource over the window, answered from its sections: its
             // row is whole already.
             super::RowOutcome::Combined(combined) => {
@@ -193,6 +370,19 @@ pub(super) fn resources_answered(
             }
             _ => continue,
         };
+        if let (Err(error), Some(source)) = (&judged, &resource.source)
+            && transient(error)
+        {
+            again.insert(resource.key.clone(), source.clone());
+            // The resources share the row's retries once.
+            again_ceiling = again_ceiling
+                .zip(price.and_then(|price| price.ceiling))
+                .map(|(sum, ceiling)| {
+                    let room_of = price.map_or(0, |price| price.room);
+                    room = room.max(room_of);
+                    sum.saturating_add(ceiling.saturating_sub(room_of))
+                });
+        }
         let mut value = match judged {
             Ok(judged) => {
                 model.get_or_insert_with(|| judged.model.clone());
@@ -227,6 +417,7 @@ pub(super) fn resources_answered(
                 }
             },
         };
+        priced(&mut value, price);
         if let Some(fields) = value.as_object_mut() {
             // The row states the model once; a resource another model
             // answered names its own.
@@ -259,6 +450,14 @@ pub(super) fn resources_answered(
     for call in related {
         octocode_runtime_base::response::result::attach_related(&mut out, call);
     }
+    // The same row over only the resources left unjudged, at their price.
+    if !again.is_empty()
+        && let Some(mut query) =
+            priced_query(row, again_ceiling.map(|sum| sum.saturating_add(room)))
+    {
+        query["resources"] = Value::Object(again);
+        offer_retry(&mut out, query, can_resume);
+    }
     out
 }
 
@@ -276,5 +475,9 @@ fn view(row: &Row, target: Target) -> Row {
         per_item: row.per_item,
         // A resource is a file read: no tool walk has progress here.
         source_progress: None,
+        max_requests: row.max_requests,
+        per_hit: row.per_hit,
+        retry_units: None,
+        query: row.query.clone(),
     }
 }

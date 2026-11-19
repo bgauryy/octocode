@@ -154,3 +154,55 @@ export function proseFindings(text, vocabulary, extensions) {
   }
   return findings;
 }
+
+/** String literals of Rust source (plain, byte and raw), with 1-based start lines; comments and char literals skipped. */
+export function rustStringLiterals(text) {
+  const literals = [];
+  let line = 1;
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index];
+    if (char === '\n') line++;
+    else if (char === '/' && text[index + 1] === '/') {
+      while (index < text.length && text[index] !== '\n') index++;
+      line++;
+    } else if (char === '/' && text[index + 1] === '*') {
+      const end = text.indexOf('*/', index + 2);
+      const stop = end < 0 ? text.length : end + 1;
+      line += (text.slice(index, stop).match(/\n/g) ?? []).length;
+      index = stop;
+    } else if (char === "'") {
+      // A char literal ('a', '\n', '"') is skipped whole; a lifetime ('a) has no closing quote.
+      const close = text[index + 1] === '\\' ? text.indexOf("'", index + 2) : index + 2;
+      if (text[close] === "'" && close - index <= 12) index = close;
+    } else if (char === 'r' && /^r#*"/.test(text.slice(index, index + 260)) && !/\w/.test(text[index - 1] ?? '')) {
+      const hashes = text.slice(index + 1).match(/^#*/)[0];
+      const start = index + 2 + hashes.length;
+      const end = text.indexOf(`"${hashes}`, start);
+      const stop = end < 0 ? text.length : end;
+      literals.push({ line, value: text.slice(start, stop) });
+      line += (text.slice(index, stop).match(/\n/g) ?? []).length;
+      index = stop + hashes.length;
+    } else if (char === '"') {
+      let end = index + 1;
+      while (end < text.length && text[end] !== '"') end += text[end] === '\\' ? 2 : 1;
+      literals.push({ line, value: text.slice(index + 1, end) });
+      line += (text.slice(index, end).match(/\n/g) ?? []).length;
+      index = end;
+    }
+  }
+  return literals;
+}
+
+const PATH_IN_TEXT = /(?<![\w./{])[A-Za-z_]\w*(?:\[\])?(?:\.[A-Za-z_]\w*(?:\[\])?)+(?![\w({])/g;
+
+/** Dotted field paths that Rust hint, warning and lead strings name where the contract knows the parent but not the child. */
+export function rustFindings(text, vocabulary, extensions) {
+  const findings = [];
+  for (const { line, value } of rustStringLiterals(text)) {
+    for (const [token] of value.matchAll(PATH_IN_TEXT)) {
+      const unknown = unknownPathSegment(token, vocabulary, extensions);
+      if (unknown) findings.push({ line, token, message: `\`${unknown.segment}\` is not a field of \`${unknown.parent}\` in the tool or config contract` });
+    }
+  }
+  return findings;
+}

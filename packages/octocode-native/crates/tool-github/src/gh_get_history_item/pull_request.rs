@@ -45,16 +45,30 @@ pub(super) async fn pull_request(
                 InlineWindow::Pending,
             )
         };
-    let loads = load_pr(
-        source,
-        query,
-        context,
-        &wants,
-        &plan,
-        graphql.as_ref(),
-        inline,
-    )
-    .await?;
+    // A summary states GitHub's whole comment count, as ghSearchHistory
+    // does: read beside the REST pull request, not after it.
+    let summary = wants.is_empty();
+    let (mut loads, whole_comments) = tokio::try_join!(
+        load_pr(
+            source,
+            query,
+            context,
+            &wants,
+            &plan,
+            graphql.as_ref(),
+            inline,
+        ),
+        async {
+            if summary {
+                whole_comment_count(source, query, context).await
+            } else {
+                Ok(None)
+            }
+        },
+    )?;
+    if let Some(count) = whole_comments {
+        loads.raw["comments"] = json!(count);
+    }
     let head = str_at(&loads.raw, "/head/sha").map(str::to_owned);
     // A pin names the head by its SHA or an abbreviation of it.
     if let Some(pinned) = gh_get_history_item_query::head_sha(&query.query)
@@ -72,6 +86,12 @@ pub(super) async fn pull_request(
     }
     let shaped = shape_pr(source, query, context, &wants, &plan, loads).await?;
     let mut data = finish_pr(query, &wants, &plan, shaped);
+    if summary && whole_comments.is_none() {
+        octocode_runtime_base::response::paging::push_warnings(
+            &mut data.data,
+            [octocode_tools_shared::gh_shared::history::CONVERSATION_ONLY.to_owned()],
+        );
+    }
     if let (Some(head), Some(number)) = (head, gh_get_history_item_query::number(query)) {
         pin_head_pages(&mut data.data, &head, number);
     }
@@ -118,6 +138,36 @@ fn pin_head_pages(value: &mut Value, head: &str, number: u64) {
     }
 }
 
+/// GitHub's whole comment count of the pull request (`totalCommentsCount`:
+/// conversation, inline review comments and review bodies), the count
+/// ghSearchHistory states and sorts by. `None` when GraphQL is unavailable
+/// or does not answer it; a cancelled or expired request fails the read.
+async fn whole_comment_count(
+    source: &Source<'_>,
+    query: &HistoryItemRequest,
+    context: &RequestContext,
+) -> Result<Option<u64>, ProviderError> {
+    let Some((document, variables)) = super::graphql::whole_count_read(query) else {
+        return Ok(None);
+    };
+    // GitHub answers GraphQL to a credential only.
+    if context.resolved_credential().is_none() || !source.graphql_available(context) {
+        return Ok(None);
+    }
+    match source
+        .execute_pull_request_graphql(&document, variables, context)
+        .await
+    {
+        Ok(page) => Ok(page
+            .data
+            .as_ref()
+            .and_then(|data| data.pointer("/repository/pullRequest/totalCommentsCount"))
+            .and_then(Value::as_u64)),
+        Err(error) if error.is_cancelled_or_timed_out() => Err(error),
+        Err(_) => Ok(None),
+    }
+}
+
 /// The GraphQL fast path. REST serves whatever GraphQL could not, a failed
 /// fast path included; a cancelled or expired request stops here.
 async fn fast_path(
@@ -141,6 +191,8 @@ pub(super) struct PrPlan {
     number: String,
     pub(super) needle: Option<std::sync::Arc<super::matcher::Matcher>>,
     pub(super) scope: Option<FileScope>,
+    /// `bots:false`: the discussion keeps the entries a person wrote.
+    pub(super) humans: bool,
 }
 
 impl PrPlan {
@@ -153,7 +205,20 @@ impl PrPlan {
             number,
             needle: needle(query),
             scope,
+            humans: !gh_get_history_item_query::bots(query),
         })
+    }
+
+    /// Whether the discussion sections keep only some entries (a
+    /// `matchString`, `bots:false`): each is then scanned from its first
+    /// batch, and shaping drops the rest before paging.
+    pub(super) fn filters_discussion(&self) -> bool {
+        self.needle.is_some() || self.humans
+    }
+
+    /// Whether the discussion keeps `entry` ([`super::body_match::keeps`]).
+    pub(super) fn keeps(&self, entry: &Value) -> bool {
+        super::body_match::keeps(self.needle.as_deref(), self.humans, entry)
     }
     fn file_filter(&self) -> FileFilter<'_> {
         FileFilter {

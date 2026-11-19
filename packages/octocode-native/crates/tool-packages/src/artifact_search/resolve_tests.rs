@@ -28,6 +28,7 @@ async fn served(
             answers: None,
             reused: &reused,
             tags: tags.map(|tags| tags as &dyn ReleaseTags),
+            share: None,
         },
     )
     .await

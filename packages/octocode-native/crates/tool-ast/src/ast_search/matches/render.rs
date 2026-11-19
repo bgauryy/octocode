@@ -34,7 +34,7 @@ pub(super) fn scan_diagnostics(
         }));
     }
     diagnostics.extend(scan.diagnostics.iter().map(diag));
-    if scan.truncated {
+    if budget_cut(scan) {
         let message =
             "Candidate scan stopped at its time budget; files beyond it were not evaluated.";
         diagnostics.push(json!({
@@ -46,6 +46,13 @@ pub(super) fn scan_diagnostics(
         }));
     }
     diagnostics
+}
+
+/// The scan stopped at its time budget before its scope ended, not because
+/// its page filled: files past it are a coverage gap until a window reads
+/// them.
+fn budget_cut(scan: &Scan) -> bool {
+    scan.truncated && !scan.filled
 }
 
 pub(super) fn render_match_page(
@@ -60,20 +67,30 @@ pub(super) fn render_match_page(
 ) -> Result<Value, octocode_runtime_base::response::result::ToolError> {
     let (page, row_paths) = presentation;
     let truncated = scan.truncated;
+    let cut = budget_cut(scan);
     let diagnostics = octocode_tools_shared::ast_rule::group_diagnostics(merge_diagnostics(
         std::mem::take(&mut grouped.diagnostics),
         scan_diagnostics(scope, scan, q.page(), grouped.total_matches > 0),
     ));
     let groups = std::mem::take(&mut grouped.groups);
-    // A caller who set `limit` chose the page size: advice to read fewer is noise.
-    let narrow = q
-        .limit()
-        .is_none()
+    // A window that ends before its scope does (its page filled, or its
+    // time ran out) has no final count: `pagination.total` is a floor
+    // (`countScope: loaded`), as a text search's traversal states it. The
+    // window that ends the scope counts every window's rows.
+    let floor = scan.truncated;
+    let before = super::snapshot::listed_before(q);
+    // A caller who set `limit` chose the page size: advice to read fewer is
+    // noise; the windows before this one are counted, not paged here.
+    let narrow = (q.limit().is_none() && !floor && before == 0)
         .then(|| narrowing_notice(grouped.total_matches, groups.len(), page))
         .flatten();
     let page_groups = &groups[page.window.clone()];
     let more = page.more;
-    let mut out = json!({"matchCount":grouped.total_matches});
+    let mut out = if floor {
+        json!({})
+    } else {
+        json!({"matchCount": grouped.total_matches.saturating_add(before)})
+    };
     if let Some(inferred) = &scope.inferred {
         out["inferredLanguage"] = json!(inferred);
     }
@@ -83,6 +100,9 @@ pub(super) fn render_match_page(
     if !groups.is_empty() {
         out["files"] = Value::Array(listed_rows(page_groups, row_paths));
         out["pagination"] = page.pagination.clone();
+        if floor {
+            out["pagination"]["countScope"] = json!("loaded");
+        }
     }
     if !diagnostics.is_empty() {
         out["diagnostics"] = json!(diagnostics);
@@ -93,33 +113,29 @@ pub(super) fn render_match_page(
         out["calls"]["narrowSearch"] = first;
         out["calls"]["narrowRest"] = rest;
     }
-    // What no flag lifts (withheld entries, read errors) is disclosed once,
-    // on page 1, in `skippedPaths`, like localSearch's walk.
-    let root = scope.canonical.to_string_lossy();
+    // What the walk left out is disclosed once, on page 1, in
+    // `skippedPaths`, like localSearch's walk: what its ignore, dot and
+    // default-exclude rules skipped, and what no flag lifts (withheld
+    // entries, read errors).
     let errors = &scan.walk_errors;
-    let skips = octocode_tools_shared::leads::skipped::under(
+    let skips = octocode_tools_shared::leads::skipped::ledger_entries(
         &scope.canonical,
-        octocode_contract_types::SkippedPathCause::OctocodeArtifact,
-        &scan.artifacts,
-    )
-    .chain(octocode_tools_shared::leads::skipped::unlifted(
-        &root,
-        &scan.withheld,
+        &scan.skipped,
         errors.into(),
-    ));
+    );
     // The grammars this scan reads decide which files no grammar parses
     // leave absence unproven: the census warning counts them, and each is
     // its own `unparsed` entry beside the causes above.
     let read = octocode_tools_shared::leads::unparsed::SourceTypes::read_by(
         scope.language.as_deref().or(scope.inferred.as_deref()),
     );
-    if q.page() == 1 {
-        let grouped =
-            octocode_tools_shared::leads::skipped::skipped_paths(skips, false, truncated)?;
-        let unparsed = octocode_tools_shared::leads::skipped::skipped_paths(
+    // Once per scan: its first page of its first window (every window
+    // walks from the first candidate, so a later one would repeat it).
+    if q.page() == 1 && q.scan_offset() == 0 {
+        let grouped = octocode_tools_shared::leads::skipped::skipped_paths(skips, false, cut)?;
+        let unparsed = octocode_tools_shared::leads::skipped::unparsed_paths(
             scan.unparsed.skipped(Some(&read)),
-            true,
-            truncated,
+            cut,
         )?;
         if let Some(paths) = octocode_tools_shared::leads::skipped::appended(grouped, unparsed) {
             out["skippedPaths"] = serde_json::to_value(paths).unwrap_or_default();
@@ -185,9 +201,19 @@ pub(super) fn render_match_page(
     // The scan saw its whole scope: the row's later pages are pagination of
     // a complete result (the same on every page), and its expansions and
     // reads are drill-downs, not unread rest.
-    if !groups.is_empty() && !incomplete && scan.withheld.total() == 0 {
+    if !groups.is_empty() && !incomplete && !truncated && scan.skipped.withheld.total() == 0 {
         out["coverage"] = json!({"state": "complete"});
     }
+    // The next window counts on after this one's rows.
+    let listed = if super::file_list(q) {
+        groups.len() as u64
+    } else {
+        grouped.total_matches
+    };
+    let pin = super::snapshot::counted(
+        scan.listed_through.clone().unwrap_or_default(),
+        before.saturating_add(listed),
+    );
     attach_match_continuations(
         q,
         scope,
@@ -195,8 +221,9 @@ pub(super) fn render_match_page(
         page_groups,
         ScanCut {
             truncated,
+            filled: scan.filled,
             resume: scan.scan_resume,
-            pin: scan.listed_through.as_deref().unwrap_or_default(),
+            pin: &pin,
         },
         more,
         snapshot,
@@ -254,7 +281,7 @@ fn mark_coverage_cuts(out: &mut Value, scan: &Scan, grouped: &Grouped) -> bool {
         || grouped.skipped_files > 0
         || scan.walk_errors.skipped > 0;
     let recovered = grouped.recovered.count > 0 || grouped.recovered_bodies.count > 0;
-    let incomplete = scan.truncated || skipped || recovered || grouped.unevaluated_files > 0;
+    let incomplete = budget_cut(scan) || skipped || recovered || grouped.unevaluated_files > 0;
     let unproven = octocode_tools_shared::test_code::unread_note(&scan.test_code_unread);
     let incomplete = incomplete || unproven.is_some();
     if let Some(note) = unproven {
@@ -265,7 +292,7 @@ fn mark_coverage_cuts(out: &mut Value, scan: &Scan, grouped: &Grouped) -> bool {
         );
     }
     for (cut, reason) in [
-        (scan.truncated, super::super::scan_window::CUT_REASON),
+        (budget_cut(scan), super::super::scan_window::CUT_REASON),
         (skipped, PartialReason::FilesSkipped),
         (recovered, PartialReason::ParseRecovered),
         (
@@ -470,11 +497,12 @@ pub(super) fn explain_empty(
         // only names what the scan skipped.
         out["filesScanned"] = json!(facts.scanned);
     }
-    if let Some(skipped) = gaps.skipped {
-        skipped.attach(out);
-    }
-    // The grammars the scope does hold, each a query that runs.
+    // The grammars the scope does hold, each a query that runs: the direct
+    // fix, ahead of lifting what the walk skipped.
     if unparsed && let Some(repair) = gaps.repair {
         out["calls"]["repair"] = repair;
+    }
+    if let Some(skipped) = gaps.skipped {
+        skipped.attach(out);
     }
 }

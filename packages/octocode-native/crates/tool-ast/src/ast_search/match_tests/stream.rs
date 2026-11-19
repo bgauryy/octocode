@@ -18,13 +18,28 @@ fn streamed_fixture() -> (Fixture, usize) {
     (root, counts.iter().sum())
 }
 
+/// A page's total: every match of the scope, or, on a window that ends
+/// before the scope does or follows another (`countScope: loaded`), a
+/// floor of it.
+fn assert_total(pagination: &Value, total: usize) {
+    let stated = pagination["total"].as_u64().expect("a total") as usize;
+    match pagination.get("countScope") {
+        Some(scope) => {
+            assert_eq!(scope, "loaded", "{pagination}");
+            assert!(stated <= total, "{pagination}");
+        }
+        None => assert_eq!(stated, total, "{pagination}"),
+    }
+}
+
 fn query(root: &Fixture, limit: usize) -> Value {
     json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"hit($A)"},"limit":limit})
 }
 
 /// `limit` matches per page whichever files hold them: the walk takes
-/// `ceil(matches / limit)` calls, every page states that many pages and the
-/// matches as its items, and no match repeats.
+/// `ceil(matches / limit)` calls, every page states the matches as its
+/// items (all of them, or a floor its `countScope` marks while windows
+/// remain), and no match repeats.
 #[test]
 fn a_match_walk_takes_one_call_per_limit_of_matches() {
     let (root, total) = streamed_fixture();
@@ -40,7 +55,7 @@ fn a_match_walk_takes_one_call_per_limit_of_matches() {
                     .is_some_and(|length| length as usize <= limit),
                 "limit {limit}: {page}"
             );
-            assert_eq!(pagination["total"], total, "limit {limit}: {page}");
+            assert_total(pagination, total);
             assert_eq!(pagination["unit"], "matches", "limit {limit}: {page}");
             let shown = page["files"]
                 .as_array()
@@ -88,7 +103,7 @@ fn a_page_over_its_budget_states_no_page_count_and_each_match_comes_once() {
         let out = run_window(&root.0, query, 400).expect("tiny window");
         calls += 1;
         assert!(calls <= 12, "nonterminating walk: {out}");
-        assert_eq!(out["pagination"]["total"], 6, "{out}");
+        assert_total(&out["pagination"], 6);
         for file in out["files"].as_array().into_iter().flatten() {
             for row in file["matches"].as_array().into_iter().flatten() {
                 let span = (file["path"].to_string(), row["line"].to_string());

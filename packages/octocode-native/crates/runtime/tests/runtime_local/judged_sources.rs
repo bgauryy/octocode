@@ -459,6 +459,31 @@ fn multiline_pieces(extension: &str, seed: u64) -> Vec<MultilinePiece> {
 }
 
 /// Every string a response holds under `key`.
+/// `value` with each outline list (line-first strings the hoist stage forms,
+/// Q5) read back as the declaration objects it states.
+fn declarations_as_objects(value: &Value) -> Value {
+    match value {
+        Value::Array(items) => Value::Array(items.iter().map(declarations_as_objects).collect()),
+        Value::Object(fields) => Value::Object(
+            fields
+                .iter()
+                .map(|(name, field)| {
+                    let read = matches!(name.as_str(), "symbols" | "declarations")
+                        .then(|| field.as_array())
+                        .flatten()
+                        .filter(|items| !items.is_empty() && items.iter().all(Value::is_string))
+                        .and_then(|items| {
+                            octocode_runtime_base::response::symbol_outline::rows_of_lines(items)
+                        });
+                    let field = read.map_or_else(|| declarations_as_objects(field), Value::Array);
+                    (name.clone(), field)
+                })
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
 fn multiline_strings(value: &Value, key: &str, out: &mut Vec<String>) {
     match value {
         Value::Array(items) => items
@@ -686,7 +711,7 @@ async fn multiline_redactions_keep_names_and_one_placeholder_per_value() {
             )
             .await;
             let mut names = Vec::new();
-            multiline_strings(&output, "symbolName", &mut names);
+            multiline_strings(&declarations_as_objects(&output), "symbolName", &mut names);
             for piece in &pieces {
                 for name in &piece.names {
                     if !names.iter().any(|shown| shown == name) {

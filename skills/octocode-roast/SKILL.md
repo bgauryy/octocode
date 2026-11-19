@@ -1,6 +1,6 @@
 ---
 name: octocode-roast
-description: "Load this skill first when, and only when, the user explicitly asks for a roast, brutal teardown or harsh critique of code or a design. Returns ranked, evidenced defects with repairs; octocode-pr-review owns pull request verdicts."
+description: "Load first only when the user explicitly asks for a roast, brutal teardown or harsh critique of code or a design; returns ranked, evidenced defects with repairs."
 ---
 
 # Octocode Roast

@@ -1,6 +1,7 @@
 //! File freshness proof: a source's size and change times, the settle
-//! window after which they can stand in for its bytes, and the one [`Proof`]
-//! that what a kept result read has not changed.
+//! window after which they can stand in for its bytes, the one [`Proof`]
+//! that what a kept result read has not changed, and one request's held
+//! proofs ([`observing`]), so a path one of them stamped costs no second stat.
 //!
 //! The settle window is twice the granularity of the clock behind a stamp's
 //! last write, at least twice [`SourceStamp::COARSE_CLOCK_TICK`]; a stamp of
@@ -20,7 +21,9 @@
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+mod observed;
 mod proof;
+pub use observed::{Held, Observed, held, observation, observing};
 #[cfg(any(test, feature = "test-hooks"))]
 pub use proof::stamp_stats;
 pub use proof::{Checked, Link, Proof, cache_stamp, exists};
@@ -206,7 +209,7 @@ fn wall_clock() -> SystemTime {
 }
 
 /// The time a settle check compares against: the system clock. On a test
-/// thread that called [`settle_written_so_far`], at least that call's time
+/// thread that called `settle_written_so_far`, at least that call's time
 /// plus [`SourceStamp::SETTLE`] (the longest window any stamp needs), so every file written before the call is
 /// settled on any file system, exactly as if the thread had slept through
 /// the window. A file written later settles within that window too, so a test

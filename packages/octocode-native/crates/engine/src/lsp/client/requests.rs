@@ -323,6 +323,11 @@ impl NativeLspClient {
             .to_string()
             .as_bytes(),
         );
+        let reuse = if super::ASKING_AGAIN.try_with(|()| ()).is_ok() {
+            Reuse::Fresh
+        } else {
+            reuse
+        };
         if reuse == Reuse::Recorded
             && let Some(value) = answers.as_ref().and_then(|answers| {
                 answers

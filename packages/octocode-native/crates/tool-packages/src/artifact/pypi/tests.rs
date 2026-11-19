@@ -349,3 +349,80 @@ async fn a_missing_version_names_which_nearest_releases_are_yanked() {
     assert!(missing.missing_version, "{missing:?}");
     assert_eq!(missing.yanked, ["2.32.0"], "{missing:?}");
 }
+
+/// A release whose own metadata names no repository (requests 2.19.1 names
+/// only its homepage) takes the one its project's latest release names, pins
+/// its release tag there, and says where the repository came from. A
+/// project whose latest release names none either keeps none, with one read
+/// more.
+#[tokio::test]
+async fn a_release_naming_no_repository_takes_the_latest_release_s() {
+    let mut old = pypi_release("2.19.1");
+    old["info"]["project_urls"] = json!({"Homepage": "http://python-requests.org"});
+    let http = RouteHttp::routes(vec![
+        ("/pypi/requests/json", pypi_project()),
+        ("/pypi/requests/2.19.1/json", old.clone()),
+        ("/pypi/requests/2.32.3/json", pypi_release("2.32.3")),
+    ]);
+    let tags = KnownTags::new(vec!["psf/requests@v2.19.1=883caaf"]);
+    let b = test_budget();
+    let client = RegistryClient {
+        tags: Some(&tags),
+        ..RegistryClient::new(&http, &b)
+    };
+    let page = pypi(
+        &versioned(ArtifactType::Pypi, "requests", "2.19.1"),
+        &client,
+    )
+    .await
+    .expect("exact");
+    let row = &page.artifacts[0];
+    assert_eq!(
+        row.repository.as_deref(),
+        Some("https://github.com/psf/requests")
+    );
+    assert_eq!(row.source_ref.as_deref(), Some("883caaf"));
+    assert_eq!(row.release_tag.as_deref(), Some("v2.19.1"));
+    assert!(row.source_tag);
+    assert!(
+        row.disclosures
+            .iter()
+            .any(|said| said.starts_with("requests 2.19.1:")
+                && said.contains("latest release, 2.32.3")),
+        "{:?}",
+        row.disclosures
+    );
+    // The latest release itself names its own repository: nothing more is read.
+    let latest = pypi(
+        &versioned(ArtifactType::Pypi, "requests", "2.32.3"),
+        &client,
+    )
+    .await
+    .expect("latest");
+    assert!(latest.artifacts[0].disclosures.is_empty());
+    let mut bare = pypi_project();
+    bare["info"]["project_urls"] = json!({});
+    let http = RouteHttp::routes(vec![
+        ("/pypi/requests/json", bare),
+        ("/pypi/requests/2.19.1/json", old),
+    ]);
+    let client = RegistryClient {
+        tags: Some(&tags),
+        ..RegistryClient::new(&http, &b)
+    };
+    let page = pypi(
+        &versioned(ArtifactType::Pypi, "requests", "2.19.1"),
+        &client,
+    )
+    .await
+    .expect("exact");
+    assert_eq!(page.artifacts[0].repository, None);
+    assert!(page.artifacts[0].disclosures.is_empty());
+    assert_eq!(
+        http.targets()
+            .iter()
+            .filter(|path| path.starts_with("/pypi/"))
+            .count(),
+        2
+    );
+}

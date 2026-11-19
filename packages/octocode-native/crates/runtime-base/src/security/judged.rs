@@ -10,7 +10,7 @@
 //! still has that digest; a leaf changed after it was judged (a page cut, a
 //! hint, a transformed view) is judged by the full gate again. A marked leaf
 //! still passes the patterns the whole pass did not apply
-//! ([`octocode_engine::security::sanitizer::sanitize_judged_leaf`]).
+//! ([`octocode_engine::security::sanitizer::sanitize_judged_leaf`](super::ContentSecurity::sanitize_judged_leaf)).
 //!
 //! A tool that shows many fragments of the sources it judged
 //! ([`JudgedText`]) marks them by text instead: the digests of the texts it

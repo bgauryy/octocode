@@ -79,13 +79,13 @@ pub(super) async fn issue(
     // The discussion's first comment batch depends only on the page asked
     // for, so it loads beside the issue too (wasted only when the number
     // names a pull request).
-    // A `matchString` scans every batch instead ([`issue_comments`]).
+    // A `matchString` or `bots:false` scans every batch instead ([`issue_comments`]).
     let first_batch = query
         .sections()
         .has(Section::Comments)
         .then(|| first_comment_batch(query))
         .flatten()
-        .filter(|_| query.matcher.is_none());
+        .filter(|_| query.matcher.is_none() && gh_get_history_item_query::bots(query));
     let (fetched, closed_by, prefetched) = tokio::join!(
         fetch(source, &issue_path, &[], context),
         async {

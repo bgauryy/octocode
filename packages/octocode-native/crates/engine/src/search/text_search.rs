@@ -33,7 +33,7 @@ mod state;
 mod stream;
 mod stream_judge;
 mod visit;
-mod walk_rule;
+pub(crate) mod walk_rule;
 mod window;
 
 #[cfg(any(test, feature = "test-hooks"))]
@@ -43,7 +43,7 @@ pub(crate) use pcre2::{
     ACTIVE_PCRE2_WORKERS, MAX_ACTIVE_PCRE2_WORKERS, Pcre2WorkerSlot, pcre2_builder,
     release_worker_slot, try_acquire_worker_slot,
 };
-pub use stream::{Anchor, Landmark, Pin, Stream, Streamed, Streaming};
+pub use stream::{Anchor, Landmark, Pin, Prepare, Stream, Streamed, Streaming};
 pub use window::{Clock, Earlier, Pause, Resume, SearchWindow, Searched, Windowed};
 
 pub trait TextSearchPathFilter: Send + Sync {

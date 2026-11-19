@@ -42,7 +42,7 @@ fn max_entries() -> usize {
 /// Wall time one listing walk may spend: the budget every unbounded local
 /// scan shares. A filter that matches little makes the walk visit the whole
 /// tree, which no entry count bounds; past this budget the walk stops at its
-/// next entry and the page says where ([`Cut::time_cut`]).
+/// next entry and the page says where ([`Cut::time_cut`](cut::Cut::time_cut)).
 const WALK_BUDGET: std::time::Duration = octocode_engine::scan_budget::SCAN_TIME_BUDGET;
 
 use octocode_runtime_base::response::result::ToolError;
@@ -102,26 +102,16 @@ fn walk_error(
     requested: &str,
     cancel: &dyn octocode_runtime_base::execution::cancel::CancellationCheck,
 ) -> ToolError {
-    use octocode_engine::error::ErrorKind;
     if let Err(message) = cancel.check() {
         return ToolError::cancelled(message);
     }
-    let code = match error.kind() {
-        ErrorKind::NotFound => {
-            return ToolError::new(
-                ErrorCode::NotFound,
-                format!("Path does not exist: {requested}"),
-            );
-        }
-        ErrorKind::PermissionDenied => ErrorCode::PermissionDenied,
-        ErrorKind::InvalidPattern => ErrorCode::InvalidPattern,
-        ErrorKind::InvalidGlob => ErrorCode::InvalidGlob,
-        // A malformed filter value (`size`, ...) is rejected before the
-        // walk: caller input, like the typed time-filter checks.
-        ErrorKind::InvalidInput => ErrorCode::InvalidInput,
-        _ => ErrorCode::ExecutionFailed,
-    };
-    ToolError::new(code, error.to_string())
+    if matches!(error.kind(), octocode_engine::error::ErrorKind::NotFound) {
+        return ToolError::new(
+            ErrorCode::NotFound,
+            format!("Path does not exist: {requested}"),
+        );
+    }
+    ToolError::engine(&error)
 }
 
 /// The row kind a listing shows for an entry: anything that is neither a

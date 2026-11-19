@@ -79,9 +79,10 @@ fn sites(q: MatchQuery<'_>, rule: &Value) -> Vec<Site> {
 /// ([`pattern_qualifiers`]): its skeleton matched over every file the scan
 /// evaluated, and each spelling that qualifies some of the names counted by
 /// the matches it adds to the rule's. A file the literal prefilter skipped
-/// holds no such match, which spells every literal of the pattern. `None`
-/// when no pattern has such a name, the scan or a probe did not finish, or
-/// no file holds one.
+/// holds no such match, which spells every literal of the pattern. A window
+/// its page filled probes the files it read, and its count is a floor.
+/// `None` when no pattern has such a name, the scan or a probe did not
+/// finish, or no file holds one.
 pub(super) fn qualified_miss(
     q: MatchQuery<'_>,
     scope: &Scope,
@@ -89,7 +90,7 @@ pub(super) fn qualified_miss(
     (paths, row_paths): (&PathPolicy, RowPaths<'_>),
     cancel: &dyn CancellationCheck,
 ) -> Option<QualifiedMiss> {
-    if q.page() != 1 || q.scan_offset() != 0 || scan.truncated {
+    if q.page() != 1 || q.scan_offset() != 0 || (scan.truncated && !scan.filled) {
         return None;
     }
     let rule = q.rule()?;
@@ -131,11 +132,12 @@ pub(super) fn qualified_miss(
             }
         }
     }
-    let floor = grammars.values().any(|spelled| {
-        spelled
-            .iter()
-            .any(|(a, ..)| spelled.iter().any(|(b, ..)| a != b && conjoined(a, b)))
-    });
+    let floor = scan.filled
+        || grammars.values().any(|spelled| {
+            spelled
+                .iter()
+                .any(|(a, ..)| spelled.iter().any(|(b, ..)| a != b && conjoined(a, b)))
+        });
     let pinned = grammars.len() > 1;
     let queries = grammars
         .iter()
@@ -430,7 +432,12 @@ fn file_probe(
     let path = scope.canonical.to_string_lossy();
     let text = source_text(&scope.canonical);
     let matches = |rule: &Value| {
-        let scan = rule_scan(&with_rule(q, scope, rule.clone())?, paths, cancel)?;
+        let scan = rule_scan(
+            &with_rule(q, scope, rule.clone())?,
+            paths,
+            cancel,
+            super::scan::Keeps::Page(None),
+        )?;
         let file = scan.files.into_iter().find(|file| file.status == "ok")?;
         Some(match file.matches {
             FileMatches::Held(matches) => matches,
@@ -479,22 +486,25 @@ fn directory_probe(
         workers,
         |(_, source, digest, extension)| {
             let qualifiers = grammars.get(extension.as_str())?;
-            let limit = octocode_runtime_base::security::SourceLimits::REAL.whole_source as u64;
-            let text = source_text(source);
-            let judge = super::super::source::judge();
-            let matches = |rule: &Value| match octocode_engine::structural::file_matches(
-                source,
-                extension,
-                None,
-                Some(rule),
-                digest,
-                (limit, Some(&judge)),
-                &stop,
-            ) {
-                Ok(Rebuilt::Matches(matches)) => Some(matches),
-                _ => None,
+            let probe = || {
+                let limit = octocode_runtime_base::security::SourceLimits::REAL.whole_source as u64;
+                let text = source_text(source);
+                let judge = super::super::source::judge();
+                let matches = |rule: &Value| match octocode_engine::structural::file_matches(
+                    source,
+                    extension,
+                    None,
+                    Some(rule),
+                    digest,
+                    (limit, Some(&judge)),
+                    &stop,
+                ) {
+                    Ok(Rebuilt::Matches(matches)) => Some(matches),
+                    _ => None,
+                };
+                file_spellings(rule, qualifiers, text.as_deref(), matches)
             };
-            file_spellings(rule, qualifiers, text.as_deref(), matches)
+            kept_spellings((source, digest, extension), rule, &stop, probe)
         },
     );
     for ((file, _, _, extension), outcome) in probed.iter().zip(found) {
@@ -504,6 +514,42 @@ fn directory_probe(
         }
     }
     Some(probe)
+}
+
+/// Each probed file's longer spellings, kept by the digest of the bytes the
+/// scan matched, its path and parser, and the rule (its qualifiers follow
+/// from the rule and the parser): a repeat of the query, or its first page
+/// again, probes only files whose bytes moved. A probe that did not finish
+/// is not kept.
+static SPELLINGS: octocode_tools_shared::page_memo::PageMemo<Option<FileSpellings>> =
+    octocode_tools_shared::page_memo::PageMemo::new();
+
+/// [`file_spellings`] of the file at `source` (`digest`, read as
+/// `extension`) under `rule`: the kept answer, else `probe`'s.
+fn kept_spellings(
+    (source, digest, extension): (&std::path::Path, &str, &str),
+    rule: &Value,
+    stop: &dyn Fn() -> bool,
+    probe: impl FnOnce() -> Option<FileSpellings>,
+) -> Option<FileSpellings> {
+    let path = source.to_string_lossy();
+    let rule = rule.to_string();
+    let key = format!(
+        "{digest}:{}:{extension}:{}:{path}:{rule}",
+        extension.len(),
+        path.len()
+    );
+    SPELLINGS.get_or_compute(key, "", stop, || {
+        let value = probe();
+        let keep = value.as_ref().map(|found| {
+            128 + found
+                .iter()
+                .flatten()
+                .map(|(names, spans)| 32 + names.len() * 8 + spans.len() * 24)
+                .sum::<usize>()
+        });
+        octocode_tools_shared::page_memo::Computed { value, keep }
+    })
 }
 
 /// Where a [`QualifiedMiss`] note sends its reader. The empty page's hint

@@ -142,3 +142,37 @@ async fn default_references_preserve_full_location_geometry_and_content() {
     octocode_runtime_base::contracts::validate_output("lspSearch", &public_row(&result))
         .expect("full evidence contract");
 }
+
+/// The files view is grouped by directory only as a judged row is served
+/// (`render::served_forms`, whose proof only `server_text::judge` gives), and
+/// only where shorter; rows that list matches per file keep their paths.
+#[test]
+fn a_judged_files_view_is_served_grouped_by_directory_where_shorter() {
+    let judged = super::super::server_text::judged_for_tests();
+    let mut row = serde_json::json!({"files": [
+        {"path": "/repo/packages/mcp-host/src/octocode/mcp.service.ts", "matchedLines": [16, 180]},
+        {"path": "/repo/packages/mcp-host/src/octocode/routes.ts", "matchedLines": [3]},
+        {"path": "/repo/packages/mcp-host/src/octocode/server.ts", "matchedLines": [9, 12]}
+    ]});
+    super::super::render::served_forms(&mut row, &judged);
+    assert_eq!(
+        row["files"][0]["dir"], "/repo/packages/mcp-host/src/octocode",
+        "{row}"
+    );
+    assert_eq!(
+        row["files"][0]["files"][0]["name"], "mcp.service.ts",
+        "{row}"
+    );
+    assert_eq!(
+        row["files"][0]["files"][0]["matchedLines"],
+        serde_json::json!([16, 180]),
+        "{row}"
+    );
+    let callers = serde_json::json!({"files": [
+        {"path": "/repo/a/x.ts", "matches": [{"symbolName": "f", "line": 1}]},
+        {"path": "/repo/a/y.ts", "matches": [{"symbolName": "g", "line": 2}]}
+    ]});
+    let mut kept = callers.clone();
+    super::super::render::served_forms(&mut kept, &judged);
+    assert_eq!(kept, callers);
+}

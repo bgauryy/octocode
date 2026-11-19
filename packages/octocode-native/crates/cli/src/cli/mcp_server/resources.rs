@@ -12,8 +12,17 @@ struct Reference {
     uri: &'static str,
     name: &'static str,
     title: &'static str,
-    description: &'static str,
     text: &'static str,
+}
+
+/// A reference's description: core's text, by the reference's name
+/// (`agentText.resources` in the embedded presentation).
+fn description(name: &str) -> String {
+    octocode_runtime_base::contracts::cli_presentation()
+        .ok()
+        .and_then(|presentation| presentation["agentText"]["resources"][name].as_str())
+        .unwrap_or_default()
+        .to_owned()
 }
 
 macro_rules! reference_file {
@@ -35,38 +44,36 @@ const REFERENCES: [Reference; 5] = [
         uri: TOOL_FLOW_URI,
         name: "tool-flow",
         title: "Octocode research tool flow",
-        description: "Read when the next call is unclear: which tool, how little to ask for, when to judge instead of read, how to carry evidence across, recovery and measured cost.",
         text: TOOL_FLOW,
     },
     Reference {
         uri: "octocode://research/octocode-usage.md",
         name: "octocode-usage",
         title: "Octocode shared usage",
-        description: "Envelopes, paging and absence rules shared by every tool.",
         text: reference_file!("octocode-usage.md"),
     },
     Reference {
         uri: "octocode://research/evidence.md",
         name: "evidence",
         title: "Octocode evidence rules",
-        description: "What counts as proof for a research claim.",
         text: reference_file!("evidence.md"),
     },
     Reference {
         uri: "octocode://research/protocol-catalog.md",
         name: "protocol-catalog",
         title: "Octocode protocol catalog",
-        description: "Communication protocols rated by fit.",
         text: reference_file!("protocol-catalog.md"),
     },
     Reference {
         uri: "octocode://research/configuration.md",
         name: "configuration",
         title: "Octocode configuration",
-        description: "Home, environment and workspace configuration for research tools.",
         text: reference_file!("configuration.md"),
     },
 ];
+
+#[cfg(test)]
+mod tests;
 
 /// One tool's output view (`schema <tool> --view output`) as a resource.
 const OUTPUT_VIEW: &str = "octocode://contract/output/";
@@ -77,7 +84,7 @@ pub(super) fn list<'a>(tools: impl Iterator<Item = &'a str>) -> Vec<Resource> {
     let references = REFERENCES.iter().map(|reference| {
         Resource::new(reference.uri, reference.name)
             .with_title(reference.title)
-            .with_description(reference.description)
+            .with_description(description(reference.name))
             .with_mime_type(MARKDOWN)
     });
     let output_views = tools.map(|tool| {

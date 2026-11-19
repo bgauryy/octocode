@@ -3,8 +3,9 @@
 //! the version they end with. What a tag's prefix names decides whose
 //! release it is: `<name>@` names one package, this one or another;
 //! `<name>-v`, `<name>_v` and `<dir>/<dir>/v` name another package only when
-//! the repository holds a package of that name; any other prefix (`rel/`,
-//! `release-`, `log4j-`) names none.
+//! the repository holds a package of that name; this package's own name
+//! before a `-` or `_` names it; any other prefix (`rel/`, `release-`,
+//! `log4j-`) names none.
 use super::{ArtifactItem, CheckFailure, ReleaseTag, ReleaseTags, names_version};
 use crate::artifact::TagAbsence;
 use octocode_github::TagRef;
@@ -177,7 +178,9 @@ enum Scope {
 
 /// The package-scoped shapes are those a package's own candidate tags take
 /// (`<name>@`, `<name>-v`) and a module path's (`<dir>/<dir>/v`, a path of
-/// more than one segment); any other prefix names no package.
+/// more than one segment); one of this package's names before a `-` or `_`
+/// (`grep-searcher-`, `ignore_`) is its own too. Any other prefix
+/// (`release-`, `rel/`) names no package.
 fn scope_of(prefix: &str, own: &OwnNames) -> Scope {
     if let Some(name) = prefix.strip_suffix('@').filter(|name| !name.is_empty()) {
         return if own.owns(name) {
@@ -185,6 +188,12 @@ fn scope_of(prefix: &str, own: &OwnNames) -> Scope {
         } else {
             Scope::Foreign
         };
+    }
+    if prefix
+        .strip_suffix(['-', '_'])
+        .is_some_and(|name| !name.is_empty() && own.owns(name))
+    {
+        return Scope::Own;
     }
     let stem = prefix
         .strip_suffix("-v")

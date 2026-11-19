@@ -1,6 +1,6 @@
 ---
 name: octocode-messages-proxy
-description: "Load this skill first when relaying a message to another agent (Claude Code, Codex CLI or an A2A agent) through a small-model proxy and returning its reply, including cross-vendor exchanges."
+description: "Load first to relay a message to another agent (Claude Code, Codex CLI, A2A agent) through a small-model proxy and return its reply, including cross-vendor exchanges."
 ---
 
 # Octocode messages proxy

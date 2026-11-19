@@ -4,6 +4,14 @@ use octocode_test_support::json_fixture;
 
 /// An empty code search for `row` against `a/b`: no index hit, a live repo.
 async fn run_empty(row: serde_json::Value) -> octocode_runtime_base::response::result::ToolData {
+    run_empty_in(row, false).await
+}
+
+/// [`run_empty`] against a repository that is `archived` or not.
+async fn run_empty_in(
+    row: serde_json::Value,
+    archived: bool,
+) -> octocode_runtime_base::response::result::ToolData {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
@@ -14,13 +22,11 @@ async fn run_empty(row: serde_json::Value) -> octocode_runtime_base::response::r
         .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
-            r#"{
-                "full_name": "a/b",
-                "default_branch": "main",
-                "archived": false
-            }"#,
-        )))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "full_name": "a/b",
+            "default_branch": "main",
+            "archived": archived
+        })))
         .mount(&server)
         .await;
     let provider = one_shot_provider(&server);
@@ -535,5 +541,35 @@ async fn a_scoped_empty_search_does_not_restate_the_description() {
         .is_some(),
         "{}",
         out.data
+    );
+}
+
+/// GitHub's index holds nothing of an archived repository: its empty search
+/// is partial coverage with the reason, never `complete`, and a live
+/// repository's empty search says what `complete` covers.
+#[tokio::test]
+async fn an_empty_search_of_an_archived_repo_proves_no_absence() {
+    let row = json_fixture(r#"{"owner": "a", "repo": "b", "keywords": ["zzqq"]}"#);
+    let archived = run_empty_in(row.clone(), true).await;
+    assert_eq!(
+        archived.data["coverage"]["state"], "partial",
+        "{}",
+        archived.data
+    );
+    assert!(
+        archived.data["coverage"]["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("archived")),
+        "{}",
+        archived.data
+    );
+    let live = run_empty(row).await;
+    assert_eq!(live.data["coverage"]["state"], "complete", "{}", live.data);
+    assert!(
+        live.data["coverage"]["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("does not index")),
+        "{}",
+        live.data
     );
 }

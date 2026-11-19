@@ -15,6 +15,7 @@ use crate::text::Refusal;
 use crate::text::analysis::{AdmittedSource, MapBudget, MapLimits};
 
 /// How one candidate file counts toward the scan totals.
+#[derive(Clone, Copy)]
 pub(super) enum Tally {
     None,
     PreFilter,
@@ -46,6 +47,11 @@ pub(super) struct FileScan<'a> {
     pub(super) keep_line: Option<&'a crate::structural::types::KeepLine<'a>>,
     /// What each source is matched as ([`crate::structural::JudgeText`]).
     pub(super) judge: Option<&'a crate::structural::TextJudge>,
+    /// The outcomes kept across scans of this query ([`super::kept`]);
+    /// `None` keeps nothing.
+    pub(super) kept: Option<super::kept::Kept>,
+    /// The trees of the sources the scans beside this one parse.
+    pub(super) trees: Option<&'a super::TreeShare>,
 }
 
 impl FileScan<'_> {
@@ -64,11 +70,17 @@ impl FileScan<'_> {
         let metadata = std::fs::symlink_metadata(file_path).ok();
         let stamp = metadata.as_ref().and_then(crate::stamp::SourceStamp::of);
         let kind = metadata.map(|metadata| metadata.file_type());
-        Ok((stamp, self.judged(file_path, kind)?))
+        Ok((stamp, self.judged(file_path, (kind, stamp))?))
     }
 
-    /// [`Self::file`] of a candidate that is `kind` now.
-    fn judged(&self, file_path: &Path, kind: Option<std::fs::FileType>) -> Result<FileOutcome> {
+    /// [`Self::file`] of a candidate that is `kind` now, stamped `stamp`
+    /// before anything was read: a file unchanged since a scan of the same
+    /// query kept its outcome ([`super::kept`]) is that outcome, unread.
+    fn judged(
+        &self,
+        file_path: &Path,
+        (kind, stamp): (Option<std::fs::FileType>, Option<crate::stamp::SourceStamp>),
+    ) -> Result<FileOutcome> {
         if !(self.admit)(file_path, kind) {
             return Ok(None);
         }
@@ -79,6 +91,27 @@ impl FileScan<'_> {
         if let Some(failure) = self.compile_failure(&path_string, &ext) {
             return Ok(Some(failure));
         }
+        let kept = self.kept.as_ref().zip(stamp);
+        if let Some((kept, stamp)) = &kept
+            && let Some(outcome) = kept.get(&path_string, &ext, *stamp)
+        {
+            return Ok(Some(outcome));
+        }
+        let (tally, file) = self.read_and_match(file_path, path_string, &ext)?;
+        if let Some((kept, stamp)) = &kept {
+            kept.keep(&ext, *stamp, &tally, &file);
+        }
+        Ok(Some((tally, file)))
+    }
+
+    /// [`Self::judged`] of a file no kept outcome answers: its read, anchor
+    /// check, parse and match.
+    fn read_and_match(
+        &self,
+        file_path: &Path,
+        path_string: String,
+        ext: &str,
+    ) -> Result<FileTally> {
         // One read serves both the anchor check and the parse.
         let prefiltered = self
             .anchors
@@ -98,11 +131,11 @@ impl FileScan<'_> {
                 .with_recovery("Remove the literal prefilter by using a rule with no safe anchor if every file must be parsed."),
             );
             file.source_sha256 = source_sha256.clone();
-            return Ok(Some((Tally::PreFilter, file)));
+            return Ok((Tally::PreFilter, file));
         }
 
-        let Some(entry) = languages::find_entry(&ext) else {
-            return Ok(Some((
+        let Some(entry) = languages::find_entry(ext) else {
+            return Ok((
                 Tally::Unsupported,
                 skipped_file(
                     path_string.clone(),
@@ -110,7 +143,7 @@ impl FileScan<'_> {
                     "unsupportedExtension",
                     unsupported_language(&path_string),
                 ),
-            )));
+            ));
         };
 
         let bytes = match prefiltered {
@@ -122,11 +155,7 @@ impl FileScan<'_> {
         let bytes = match bytes {
             Ok(bytes) => bytes,
             Err(skip) => {
-                return Ok(Some(source_skipped(
-                    path_string,
-                    &skip,
-                    self.max_file_bytes,
-                )));
+                return Ok(source_skipped(path_string, &skip, self.max_file_bytes));
             }
         };
         // A parse's memory follows its tokens, not its bytes: a source whose
@@ -136,7 +165,7 @@ impl FileScan<'_> {
         let cost = crate::structural::parse_cost(&bytes);
         let budget = self.parse_budget;
         if cost > budget {
-            return Ok(Some(source_skipped(
+            return Ok(source_skipped(
                 path_string,
                 &SourceSkip::Costly {
                     len: bytes.len() as u64,
@@ -144,7 +173,7 @@ impl FileScan<'_> {
                     budget,
                 },
                 self.max_file_bytes,
-            )));
+            ));
         }
         let Some(_admitted) = crate::memory::WHOLE_FILES.acquire(cost, &|| (self.stop)()) else {
             return Err(Error::cancelled());
@@ -159,14 +188,14 @@ impl FileScan<'_> {
         let source = match AdmittedSource::from_bytes(&bytes, &path_string, &mut budget) {
             Ok(source) => source,
             Err(crate::text::analysis::SourceError::Refused(refusal)) => {
-                return Ok(Some(source_skipped(
+                return Ok(source_skipped(
                     path_string,
                     &SourceSkip::Refused(refusal),
                     self.max_file_bytes,
-                )));
+                ));
             }
             Err(crate::text::analysis::SourceError::LimitExceeded(limit)) => {
-                return Ok(Some(over_limit(path_string, limit)));
+                return Ok(over_limit(path_string, limit));
             }
             Err(error) => return Err(error.into()),
         };
@@ -174,7 +203,7 @@ impl FileScan<'_> {
         let mut source_error = None;
         let (tally, mut file) = self.match_source(
             path_string,
-            &ext,
+            ext,
             entry.language_id,
             &source,
             &mut source_error,
@@ -187,7 +216,7 @@ impl FileScan<'_> {
             crate::structural::restore_texts(matches, source.text(), shown);
         }
         file.source_sha256 = Some(crate::digest::sha256(&bytes));
-        Ok(Some((tally, file)))
+        Ok((tally, file))
     }
 
     /// The outcome of a file whose parser the query did not compile for.
@@ -249,6 +278,10 @@ impl FileScan<'_> {
             admitted, budget,
         ));
         let file = std::path::PathBuf::from(&path_string);
+        let parsed_as = file.clone();
+        if let Some(trees) = self.trees {
+            found.share_trees(trees, &parsed_as, self.stop);
+        }
         let keep_here = self
             .keep_line
             .map(|keep| move |line: u32| keep(&file, line));
@@ -426,19 +459,19 @@ pub(super) enum SourceSkip {
     Metadata(std::io::Error),
     Large(u64),
     /// Within the byte limit, but its parse is estimated to need more
-    /// memory than the budget ([`crate::structural::parse_cost`]).
+    /// memory than the budget ([`fn@crate::structural::parse_cost`]).
     Costly {
         len: u64,
         cost: usize,
         budget: usize,
     },
     Unreadable(std::io::Error),
-    /// The bytes are not admitted as text ([`admit`]).
+    /// The bytes are not admitted as text (`admit`).
     Refused(Refusal),
 }
 
 /// A candidate's bytes through the one bounded reader: an oversized file is
-/// refused from its handle's size, never read whole. [`admit`] turns them
+/// refused from its handle's size, never read whole. `admit` turns them
 /// into the text a parse sees.
 pub(super) fn read_source(
     path: &Path,

@@ -12,7 +12,6 @@ use octocode_runtime_base::policy::path::PathPolicy;
 use octocode_runtime_base::policy::prune::DefaultsFlag;
 use octocode_runtime_base::response::result::{Continuation, ToolError};
 use octocode_tools_shared::empty_walk::Cause;
-use octocode_tools_shared::leads::skipped::under;
 use serde_json::{Value, json};
 
 mod reads;
@@ -135,28 +134,27 @@ impl Found<'_> {
             ));
             add("broadenSearch".into(), unfiltered_terms_lead(query)?);
         }
-        let unsearched = if self.empty
-            && self.walk_complete
-            && first_disclosure
-            && !self.root.is_file()
-            && !names_nothing(self.skipped)
-        {
+        let skipped_paths = if first_disclosure {
+            self.skipped_paths()?
+        } else {
+            None
+        };
+        let unsearched = if self.discloses_skipped() {
+            let scoped = match &skipped_paths {
+                Some(skipped) => skipped::scoped_leads(query, self.root, skipped)?,
+                None => Vec::new(),
+            };
             disclose_skipped(
                 query,
                 &Skipped {
                     walk: self.skipped,
                     causes: self.skipped_causes(),
                 },
-                next,
-                hints,
+                scoped,
+                (next, hints),
             )
         } else {
             Unsearched::default()
-        };
-        let skipped_paths = if first_disclosure {
-            self.skipped_paths()?
-        } else {
-            None
         };
         Ok(Disclosed {
             skipped_match: unsearched.may_hold_matches,

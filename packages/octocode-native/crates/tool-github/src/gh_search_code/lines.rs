@@ -12,11 +12,13 @@ use std::path::Path;
 
 mod blob;
 mod budget;
+mod kept;
 mod scoring;
 
 pub(super) use blob::Window;
 use blob::{Blob, Hit, hit_declarations};
 use budget::{SCANS, fan_out, scan_weight};
+use kept::{KeptKey, scan_keeping};
 
 /// Blobs larger than this keep their index fragments. A read stops at this
 /// many bytes: a larger body is never downloaded whole ([`resolve_files`]).
@@ -41,7 +43,7 @@ pub(super) enum FileHits {
         matched: Vec<u32>,
         first: u32,
         last: u32,
-        /// The hit that best fits the goal ([`hit_score`]).
+        /// The hit that best fits the goal ([`hit_score`](scoring::hit_score)).
         best: u32,
         total: usize,
         line_count: usize,
@@ -197,18 +199,38 @@ fn scan_all(
     // This scan computes on this host: it counts toward the process's CPU
     // budget while it runs and fans out to its share of the cores.
     let _computing = octocode_engine::cpu::host().enter();
-    let cores = octocode_tools_shared::workers::workers(files.len(), None);
-    Ok(fan_out(
+    // A blob scanned the same way before is answered here; only the others
+    // fan out (a repeated page starts no thread).
+    let mut out = Vec::with_capacity(files.len());
+    let mut unkept = Vec::new();
+    for (at, &(bytes, path)) in files.iter().enumerate() {
+        let key = KeptKey::of(bytes, path, keywords, goal, window, security);
+        match key.as_ref().and_then(KeptKey::kept) {
+            Some(hits) => out.push(Some(hits)),
+            None => {
+                out.push(None);
+                unkept.push((at, bytes, path, key));
+            }
+        }
+    }
+    let cores = octocode_tools_shared::workers::workers(unkept.len(), None);
+    let scanned = fan_out(
         &SCANS,
         context,
         cores,
-        files,
-        |&(bytes, _)| scan_weight(bytes),
-        |&(bytes, path)| scan(bytes, path, keywords, goal, window, security),
-    )?
-    .into_iter()
-    .map(|hits| hits.unwrap_or(FileHits::Panicked))
-    .collect())
+        &unkept,
+        |&(_, bytes, _, _)| scan_weight(bytes),
+        |(_, bytes, path, key)| {
+            scan_keeping(bytes, path, keywords, goal, window, security, key.clone())
+        },
+    )?;
+    for ((at, ..), hits) in unkept.iter().zip(scanned) {
+        out[*at] = Some(hits.unwrap_or(FileHits::Panicked));
+    }
+    Ok(out
+        .into_iter()
+        .map(|hits| hits.unwrap_or(FileHits::Panicked))
+        .collect())
 }
 
 /// Case-insensitive keyword lines of one blob with `window` lines of
@@ -259,8 +281,22 @@ pub(super) fn scan(
         // The view's lines would not number the source's: show none.
         return FileHits::Unavailable;
     }
-    let outline = octocode_tools_shared::declarations::file_document(&text, path);
-    blob.declared = hit_declarations(outline.as_deref(), &found);
+    // Only declarations named on keyword lines are read: a walk of the nodes
+    // touching those lines finds them as the whole outline would; the whole
+    // outline only when that walk cannot tell.
+    let found_lines = found.iter().map(|&(index, _, _)| index).collect::<Vec<_>>();
+    let near =
+        octocode_engine::signatures::graph_facts::declarations_on_lines(&text, path, &found_lines);
+    let outline = near
+        .is_none()
+        .then(|| octocode_tools_shared::declarations::file_document(&text, path))
+        .flatten();
+    let declarations = match (&near, &outline) {
+        (Some(near), _) => near.as_slice(),
+        (None, Some(outline)) => outline.declarations.as_slice(),
+        (None, None) => &[],
+    };
+    blob.declared = hit_declarations(declarations, &found);
     let hits = blob.hits(found, &needles, goal);
     let anchor = blob.anchor(&hits, &needles);
     let lines = blob.listing(&hits, window);

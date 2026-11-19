@@ -111,7 +111,7 @@ fn leased(dir: &Path) -> bool {
 
 /// The name [`remove_unless_leased`] claims a snapshot under. Its claims
 /// are the only entries the temp sweep of [`prune_with`] removes; staging
-/// directories go through [`super::ingest`]'s marker-checked cleanup.
+/// directories go through [`super::ingest`](mod@super::ingest)'s marker-checked cleanup.
 const CLAIM_PREFIX: &str = ".tmp-removing-";
 
 /// Removes snapshot `id` unless a reader holds its lease, deciding at the

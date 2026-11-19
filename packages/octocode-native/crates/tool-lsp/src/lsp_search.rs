@@ -11,7 +11,7 @@
 //! - [`recovery`]: definition chains and alias-aware references
 //! - [`walk`]: breadth-first call/type-hierarchy walks
 //! - [`locations`]: public coordinates, pagination, snapshots
-//! - [`failure`]: typed failures, empty/partial rows, `next.*`
+//! - [`failure`](mod@failure): typed failures, empty/partial rows, `next.*`
 //! - [`receipt`]: provider capabilities, Rust context, failure receipts
 //!
 //! Public coordinates, input and output, are one-based lines and one-based
@@ -34,6 +34,8 @@ use std::path::Path;
 
 mod analysis_context;
 mod anchor;
+mod answer_memo;
+mod build_output;
 mod call_sites;
 pub mod continuations;
 pub mod failure;
@@ -47,6 +49,7 @@ mod inferred_project;
 mod ladder;
 mod level;
 pub mod locations;
+mod observation;
 mod ops;
 pub mod output;
 mod page;
@@ -254,12 +257,13 @@ pub(super) async fn blocking_cancellable<T: Send + 'static>(
     }
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let _stop_worker = StopOnDrop(std::sync::Arc::clone(&stop));
-    // A deep-stack parse the work waits on stops with it.
-    let run = worker_clock::carried(move || {
+    // A deep-stack parse the work waits on stops with it. The work reads
+    // through the request's observation: one stat per path per request.
+    let run = observation::carried(worker_clock::carried(move || {
         octocode_engine::deep_stack::while_stoppable(&stop, || {
             work(&|| stop.load(std::sync::atomic::Ordering::Relaxed))
         })
-    });
+    }));
     let worker = tokio::task::spawn_blocking(run);
     Ok(cancellable(cancel, worker).await?.ok())
 }
@@ -299,7 +303,7 @@ pub(crate) async fn execute(
     .await
 }
 
-/// [`execute`] whose rows show their sources as `judged` judges them whole:
+/// `execute` whose rows show their sources as `judged` judges them whole:
 /// the texts shown are its leaves, for the output gate.
 pub async fn execute_judged(
     query: LspSearchQuery,
@@ -313,12 +317,14 @@ pub async fn execute_judged(
     response_window: Option<usize>,
     answers: &ContinuationAnswers,
 ) -> Result<Value, LspFailure> {
+    // A background build of spelling entries yields while a request runs.
+    let _in_flight = scope::in_flight();
     let (query, scope) = answers.open(query)?;
     let work = octocode_engine::lsp::client::RESPONSE_SCOPE.scope(
         std::cell::RefCell::new(scope),
         scope::with_judged_files(
             judged,
-            scope::with_canonical_memo(async {
+            observation::with_observation(scope::with_canonical_memo(async {
                 let mut row = execute_page(
                     query,
                     cancel,
@@ -336,7 +342,7 @@ pub async fn execute_judged(
                     octocode_runtime_base::execution::cancel::deadline_of(cancel),
                 )?;
                 Ok(row)
-            }),
+            })),
         ),
     );
     Box::pin(work).await

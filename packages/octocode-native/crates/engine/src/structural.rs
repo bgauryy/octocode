@@ -16,7 +16,10 @@ mod syntax_errors;
 mod syntax_tree;
 mod types;
 
-pub use files::{Rebuilt, file_matches, search_files};
+pub use files::{
+    Rebuilt, ScanShare, TreeShare, Walk, WalkRecord, file_matches, search_files,
+    search_files_shared,
+};
 pub use octo::{
     COMPILE_FAILED, EXAMPLE_RULE, LiteralSigil, MATCH_DEADLINE, PARSE_INTERRUPTED,
     PatternDeclaration, QualifiedPattern, RULE_INVALID, SigilForm, SigilRepair, WrittenPattern,
@@ -28,9 +31,10 @@ pub use syntax_tree::{
     SyntaxTreeInspectOptions, SyntaxTreeInspectResult, SyntaxTreeNode, inspect_with_extension,
 };
 pub use types::{
-    FileMatches, JudgeText, KeepLine, RecoveredBody, StructuralDemand, StructuralDetailedMatch,
-    StructuralDiagnostic, StructuralSearchDetailedResult, StructuralSearchFilesDetailedResult,
-    StructuralSearchFilesOptions, TextJudge, WalkErrors,
+    FileMatches, JudgeText, KeepLine, PageFilled, RecoveredBody, StructuralDemand,
+    StructuralDetailedMatch, StructuralDiagnostic, StructuralSearchDetailedFileResult,
+    StructuralSearchDetailedResult, StructuralSearchFilesDetailedResult,
+    StructuralSearchFilesOptions, TextJudge, WalkErrors, WalkSkipped,
 };
 
 use crate::security::MAX_CONTENT_SIZE;

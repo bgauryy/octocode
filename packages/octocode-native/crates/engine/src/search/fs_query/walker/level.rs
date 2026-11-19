@@ -183,6 +183,17 @@ pub(super) fn walk_level(
                 }
                 continue;
             }
+            Verdict::Hidden => {
+                if !replaying {
+                    let relative = path.strip_prefix(&query.root).unwrap_or(&path);
+                    let mut relative = crate::text::slash_path(relative);
+                    if is_directory {
+                        relative.push('/');
+                    }
+                    state.tally.hidden(state.position, relative);
+                }
+                continue;
+            }
             Verdict::Pruned => {
                 if !replaying {
                     let relative = path.strip_prefix(&query.root).unwrap_or(&path);

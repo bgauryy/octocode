@@ -57,7 +57,8 @@ fn fixture(workspace: &Workspace) -> String {
     root
 }
 
-/// Each row of a page as `path key`, `key` naming a row within its file.
+/// Each row of a page as `path key`, `key` naming a row within its file; an
+/// outline line (Q5, `"<line>\t<kind> <name> …"`) names its own row.
 fn rows(data: &Value, list: &str, key: &str) -> Vec<String> {
     data["files"]
         .as_array()
@@ -69,17 +70,23 @@ fn rows(data: &Value, list: &str, key: &str) -> Vec<String> {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .map(move |row| format!("{path} {}", row[key]))
+                .map(move |row| match row.as_str() {
+                    Some(line) => format!("{path} {line}"),
+                    None => format!("{path} {}", row[key]),
+                })
         })
         .collect()
 }
 
 /// What a walk read: each page's rows in order (a page split into row parts
-/// is one page), the `pagination.total` each page stated, and how many row parts
-/// past the first the response pager split pages into.
+/// is one page), the exact `pagination.total` each page stated, how many
+/// pages stated a floor of it instead (`countScope: loaded`, a match window
+/// that ends before its scope does), and how many row parts past the first
+/// the response pager split pages into.
 struct Walk {
     pages: Vec<Vec<String>>,
     totals: BTreeSet<u64>,
+    floors: usize,
     splits: usize,
 }
 
@@ -116,6 +123,7 @@ async fn walk_input(
     let mut walk = Walk {
         pages: Vec::new(),
         totals: BTreeSet::new(),
+        floors: 0,
         splits: 0,
     };
     let mut calls = 0;
@@ -139,14 +147,22 @@ async fn walk_input(
                 let offset = pagination["offset"].as_u64().expect("query offset");
                 let total = pagination["total"].as_u64().expect("query total");
                 assert_eq!(offset, page_start, "query pages advance");
-                assert_eq!(
-                    *query_total.get_or_insert(total),
-                    total,
-                    "query total is stable"
-                );
-                walk.totals.insert(total);
+                // A floor counts the rows read so far; only an exact total
+                // must hold on every page that states one.
+                let floor = pagination.get("countScope").is_some();
+                if floor {
+                    assert_eq!(pagination["countScope"], "loaded", "{pagination}");
+                    walk.floors += 1;
+                } else {
+                    assert_eq!(
+                        *query_total.get_or_insert(total),
+                        total,
+                        "query total is stable"
+                    );
+                    walk.totals.insert(total);
+                }
                 has_more = Some(pagination["hasMore"] == true);
-                stated = Some((offset, total));
+                stated = Some((offset, total, floor));
             }
             rows.extend(page_rows(data));
             if let Some(next) = data["next"].get("nextPage") {
@@ -171,11 +187,17 @@ async fn walk_input(
             next_page = response.get("next").cloned().or(next_page);
             break;
         }
-        // The rows listed are the page: it ends where its rows end.
-        let (offset, total) = stated.expect("every page states pagination");
+        // The rows listed are the page: it ends where its rows end. A page
+        // whose total is a floor is never the last: the window that ends
+        // the scope states the exact total.
+        let (offset, total, floor) = stated.expect("every page states pagination");
         let page_end = offset + rows.len() as u64;
         assert!(page_end <= total, "query page is within the declared walk");
-        assert_eq!(has_more == Some(true), page_end < total);
+        if floor {
+            assert_eq!(has_more, Some(true), "mcp={mcp}: a floor page leads on");
+        } else {
+            assert_eq!(has_more == Some(true), page_end < total);
+        }
         walk.pages.push(rows);
         page_start = page_end;
         if has_more.expect("every page states pagination") {
@@ -238,8 +260,12 @@ async fn a_directory_outline_states_its_remaining_pages_and_walks_every_symbol_o
 /// spelling-dependent budget would add to page 2, so any drift moves a cut.
 const SMALL_FILES: usize = 500;
 
+/// A walk-order match walk crosses windows that each end once their page is
+/// full (TE3): those pages state floors (`countScope: loaded`), the last
+/// window the exact total, and the walk reads each match a full scan (a
+/// ranked order, which reads the whole scope first) lists, once.
 #[tokio::test]
-async fn a_directory_match_walk_from_an_absolute_path_reaches_every_match_once() {
+async fn a_directory_match_walk_from_an_absolute_path_reaches_every_match_once_across_windows() {
     let workspace = Workspace::new();
     let mut root = None;
     for file in 0..SMALL_FILES {
@@ -255,14 +281,22 @@ async fn a_directory_match_walk_from_an_absolute_path_reaches_every_match_once()
         let first = json!({"operation": "match",
             "rule": {"pattern": "export function $NAME(): number { $$$BODY }"},
             "parser": "typescript", "path": root});
+        let mut full = first.clone();
         let walked = walk(&runtime, mcp, first, |data| rows(data, "matches", "line")).await;
         assert_each_once(&walked.rows(), SMALL_FILES, &format!("match mcp={mcp}"));
-        // Match pages count files.
+        assert!(walked.floors > 0, "mcp={mcp}: the walk crossed windows");
+        // The last window states the exact total.
         assert_eq!(
             walked.totals,
             BTreeSet::from([SMALL_FILES as u64]),
             "mcp={mcp}"
         );
+        full["sort"] = json!({"by": "path", "order": "desc"});
+        let ranked = walk(&runtime, mcp, full, |data| rows(data, "matches", "line")).await;
+        let (mut read, mut scanned) = (walked.rows(), ranked.rows());
+        read.sort();
+        scanned.sort();
+        assert_eq!(read, scanned, "mcp={mcp}: the rows a full scan lists");
     }
     runtime.close().await;
 }

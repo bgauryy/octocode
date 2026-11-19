@@ -11,24 +11,22 @@ use wiremock::{Mock, MockServer, Request, ResponseTemplate, matchers::method};
 /// model is its own: the windows an endpoint taught are kept per endpoint and
 /// model for the process, and a mock server's port is reused by a later test.
 pub(super) fn evaluator(key: &str, base_url: String) -> Evaluator {
-    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    let model = format!(
-        "jev-test-{}",
-        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    );
-    evaluator_of(key, base_url, &model)
+    evaluator_of(
+        key,
+        base_url,
+        &crate::judgment::test_identity::unique("jev-test"),
+    )
 }
 
 /// The same, as a model of its own: what an endpoint's windows have taught
 /// is kept per endpoint and model, and a mock server's port can be reused.
-/// Each evaluator's credential is its own (`key` plus a counter): the gate
-/// remembers a refused credential per endpoint and credential digest.
+/// Each evaluator's credential is its own, unique in the process
+/// ([`crate::judgment::test_identity`]): the gate remembers a refused
+/// credential, a quota and an open circuit per endpoint and credential
+/// digest, and a counter of this module alone minted keys another module's
+/// evaluators also minted.
 pub(super) fn evaluator_of(key: &str, base_url: String, model: &str) -> Evaluator {
-    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    let key = format!(
-        "{key}-{}",
-        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    );
+    let key = crate::judgment::test_identity::unique(key);
     Evaluator::new(
         Some(secrecy::SecretString::from(key)),
         base_url,
@@ -362,6 +360,58 @@ fn a_shared_state_holds_every_hits_own_line() {
             "90\tdone();",
         ],
         "every target line and every window line, once each"
+    );
+}
+
+/// A filter page states its price: the requests its first round sends and
+/// the most its refusals can add (W2). Three hits of one small file are one
+/// request the window cannot refuse.
+#[test]
+fn a_filter_page_states_its_price() {
+    let executor = tokio::runtime::Runtime::new().expect("runtime");
+    let server = executor.block_on(MockServer::start());
+    executor.block_on(
+        Mock::given(method("POST"))
+            .respond_with(direct_answers)
+            .mount(&server),
+    );
+    let evaluator = evaluator("test-key", server.uri());
+    let hit = |line: u64| {
+        Candidate::new(Some(json!({
+            "path":"a.ts", "target":{"line":line,"text":format!("call{line}()")},
+        })))
+    };
+    let candidates = [hit(1), hit(5), hit(9)];
+    let context = context(Duration::from_secs(10));
+    let mut usage = ClassificationUsage::default();
+    evaluator
+        .select(JudgeCall {
+            failures: &mut Vec::new(),
+            candidates: &candidates,
+            admitted: &[0, 1, 2],
+            predicates: &["Does this discard the error?".to_owned()],
+            research_context: None,
+            long_context: crate::judgment::LongContext::Never,
+            handle: executor.handle(),
+            context: &context,
+            usage: &mut usage,
+        })
+        .expect("judged");
+    assert_eq!(
+        executor
+            .block_on(server.received_requests())
+            .expect("requests")
+            .len(),
+        1
+    );
+    assert_eq!(
+        (usage.requests_planned, usage.requests_ceiling),
+        (Some(1), Some(1))
+    );
+    let output = serde_json::to_value(usage.output()).expect("usage");
+    assert_eq!(
+        (&output["requestsPlanned"], &output["requestsCeiling"]),
+        (&json!(1), &json!(1))
     );
 }
 

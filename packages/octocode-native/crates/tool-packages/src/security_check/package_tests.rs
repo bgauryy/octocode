@@ -101,6 +101,7 @@ async fn answer_viewed(
             config: &crate::security_check::tests::default_config(),
             github: None,
             osv_api: octocode_runtime_base::execution::RuntimeLimits::DEFAULT.osv_api,
+            share: &crate::artifact::CallShare::new(),
         },
     )
     .await
@@ -253,6 +254,62 @@ async fn an_unpublished_version_is_never_sent() {
     assert_eq!(data["status"], "error", "{data}");
     assert_eq!(data["errorCode"], "notFound", "{data}");
     assert_eq!(data["versionEvaluated"], false);
+}
+
+/// A version the registry no longer holds (unpublished, removed for
+/// malware) is still named by the records OSV returns for the package: one
+/// listing it affects it, and the row says so rather than "other versions".
+#[tokio::test]
+async fn an_unpublished_version_a_record_lists_is_affected() {
+    let mut listed = record("MAL-1");
+    listed["affected"] = json!([{
+        "package": {"name": "lodash", "ecosystem": "npm"},
+        "versions": ["4.17.999-internal"]
+    }]);
+    let http = registry().osv_pages(vec![(200, json!({"vulns": [listed, record("GHSA-2")]}))]);
+    let data = answer(&http, Some("4.17.999-internal"), None)
+        .await
+        .expect("row");
+    assert_eq!(data["versionEvaluated"], false);
+    let said = data.to_string();
+    assert!(said.contains("OSV lists it as affected by MAL-1"), "{data}");
+    assert!(!said.contains("at other versions"), "{data}");
+    assert_eq!(data["affected"], true, "{data}");
+    let mut listed = record("MAL-1");
+    listed["affected"] = json!([{
+        "package": {"name": "lodash", "ecosystem": "npm"},
+        "versions": ["4.17.999-internal"]
+    }]);
+    let http = registry().osv_pages(vec![(200, json!({"vulns": [listed]}))]);
+    let summary = answer_in(
+        &http,
+        Some("4.17.999-internal"),
+        octocode_contract_types::SecurityCheckView::Summary,
+    )
+    .await
+    .expect("row");
+    // The summary of the failed row states the verdict and the record.
+    assert_eq!(summary["affected"], true, "{summary}");
+    assert_eq!(
+        summary["link"], "https://osv.dev/vulnerability/MAL-1",
+        "{summary}"
+    );
+    assert!(
+        !summary.to_string().contains("at other versions"),
+        "{summary}"
+    );
+}
+
+/// A range is checked at its newest match only, and says so.
+#[test]
+fn a_range_says_only_its_newest_match_was_checked() {
+    let said = range_warning(Some("^4.17.0"), Some("4.18.1")).expect("warned");
+    assert!(said.contains("only 4.18.1"), "{said}");
+    assert!(range_warning(Some("4.x"), Some("4.18.1")).is_some());
+    assert!(range_warning(Some(">=4, <5"), Some("4.18.1")).is_some());
+    assert_eq!(range_warning(Some("4.18.1"), Some("4.18.1")), None);
+    assert_eq!(range_warning(Some("v1.2.3"), Some("1.2.3")), None);
+    assert_eq!(range_warning(None, Some("4.18.1")), None);
 }
 
 /// OSV keys Go by module: a package path resolves to its module first.
@@ -666,6 +723,7 @@ async fn the_latest_read_runs_alongside_osv() {
         config: &config,
         github: None,
         osv_api: octocode_runtime_base::execution::RuntimeLimits::DEFAULT.osv_api,
+        share: &crate::artifact::CallShare::new(),
     };
     let row = run(&package, &net);
     let data = tokio::time::timeout(std::time::Duration::from_secs(10), row)

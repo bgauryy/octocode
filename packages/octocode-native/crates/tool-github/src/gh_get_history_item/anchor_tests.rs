@@ -14,6 +14,7 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 mod batches;
+mod bots;
 mod commit;
 mod commit_match;
 mod compare;

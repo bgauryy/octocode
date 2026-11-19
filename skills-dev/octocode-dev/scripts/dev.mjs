@@ -56,8 +56,10 @@ const TASKS = {
   'clean:cache': ['Drop stale native build copies; compiled dependencies stay warm', [yarn('workspace', '@octocodeai/octocode-native', 'clean:cache')]],
   'prune:rust': ['Delete native target/ outputs no build:dev, test:rust or lint:rust run of the last 7 days used, and copied binaries; refuses while cargo runs ([--dry-run] [--days N])', [['node', [path.join(NATIVE, 'scripts', 'target-hygiene.cjs'), 'prune']]]],
   'docs:verify': ['Docs links, catalog, config keys, publishing contracts', [script('docs-verify.mjs')]],
+  // Every intra-doc link in the native crates resolves; private items are documented, so links to them count too.
+  'docs:rust': ['Native rustdoc with broken intra-doc links denied (cargo doc --no-deps --document-private-items, in a build slot)', () => [slotted(['cargo', ['doc', '--locked', '--no-deps', '--document-private-items', '--workspace']], { cwd: NATIVE, env: { ...process.env, RUSTDOCFLAGS: [process.env.RUSTDOCFLAGS, '-D rustdoc::broken_intra_doc_links'].filter(Boolean).join(' ') } })]],
   'deps:dedupe': ['One version range per external dependency (--fix rewrites)', [script('dedupe-deps.mjs')]],
-  'contracts:regen': ['Build sibling core, refresh its copy (yarn install), then regenerate the tool contract', [script('core-build.mjs'), yarn('install'), yarn('workspace', '@octocodeai/config', 'generate:tool-contract')]],
+  'contracts:regen': ['Build sibling core, refresh its copy (yarn install), regenerate the tool contract, then the tool-flow route table', [script('core-build.mjs'), yarn('install'), yarn('workspace', '@octocodeai/config', 'generate:tool-contract'), skill('common/tool-flow.mjs')]],
   setup: ['Local dev resolutions (--dry-run, --install, --reset); then yarn install', [script('dev-setup.mjs')]],
   prepublish: ['Local-resolution check (--fix strips local resolutions, --dry-run previews)', [script('prepublish.mjs')]],
   'brew:formula': ['Render the Homebrew formula from the published native npm packages ([version] [--out FILE])', [script('brew-formula.mjs')]],

@@ -79,7 +79,7 @@ pub(super) fn summarize(row: &mut Value, shared: bool) {
         return;
     }
     fields.shift_remove("model");
-    if fields.contains_key("units") {
+    if fields.contains_key("units") || fields.contains_key("files") {
         units(fields, shared);
     } else if fields.contains_key("answers") {
         evaluation(fields, shared);
@@ -87,12 +87,15 @@ pub(super) fn summarize(row: &mut Value, shared: bool) {
         let sectioned = resources
             .values()
             .any(|resource| resource.get("sections").is_some());
+        // Several resources bill a request each: every one states its
+        // `calls`, as sibling rows do, so the summary shows the spend.
+        let several = resources.len() > 1;
         for resource in resources.values_mut().filter_map(Value::as_object_mut) {
             if sectioned {
                 resource_sections(resource);
             } else if resource.contains_key("answers") {
                 resource.shift_remove("model");
-                evaluation(resource, shared);
+                evaluation(resource, shared || several);
             }
         }
         if sectioned {
@@ -136,7 +139,8 @@ fn answer(answer: &mut Value, sectioned: bool) {
 }
 
 /// A summary states the billing facts that change a decision: `calls` when
-/// more than one request billed or a sibling row shared it, and `refused`. The token counts are the
+/// more than one request billed or a sibling row shared it, `refused`, the
+/// ceiling, and the plan when it differs from what was sent. The token counts are the
 /// `details` view's, and one request is the common case: its count says
 /// nothing.
 fn usage(fields: &mut Map<String, Value>, shared: bool) {
@@ -145,6 +149,11 @@ fn usage(fields: &mut Map<String, Value>, shared: bool) {
     };
     usage.shift_remove("inputTokens");
     usage.shift_remove("outputTokens");
+    // The plan that came true is the request count itself.
+    if usage.get("requestsPlanned").is_some() && usage.get("requestsPlanned") == usage.get("calls")
+    {
+        usage.shift_remove("requestsPlanned");
+    }
     if !shared && usage.get("calls") == Some(&json!(1)) {
         usage.shift_remove("calls");
     }
@@ -239,7 +248,9 @@ fn resource_sections(resource: &mut Map<String, Value>) {
 }
 
 /// A plan's spend as an evaluation states it, when every request reported
-/// its usage and nothing else is said: the requests; tokens are `details`.
+/// its usage and nothing else is said: the requests and the page's ceiling,
+/// with its first round only when it differs from them; tokens are
+/// `details`.
 fn plan_usage(fields: &mut Map<String, Value>) {
     let Some(usage) = fields.get_mut("usage").and_then(Value::as_object_mut) else {
         return;
@@ -249,38 +260,43 @@ fn plan_usage(fields: &mut Map<String, Value>) {
             .keys()
             .all(|field| PLAN_USAGE.contains(&field.as_str()));
     if complete {
-        usage.retain(|field, _| field == "calls");
+        let planned_is_calls = usage.get("requestsPlanned") == usage.get("calls");
+        usage.retain(|field, _| {
+            field == "calls"
+                || field == "requestsCeiling"
+                || (field == "requestsPlanned" && !planned_is_calls)
+        });
     }
 }
 
-/// What a plan's usage holds when it says no more than its spend.
-const PLAN_USAGE: [&str; 6] = [
+/// What a plan's usage holds when it says no more than its spend and price.
+const PLAN_USAGE: [&str; 8] = [
     "calls",
     "inputTokens",
     "outputTokens",
     "knownUsageCalls",
     "unknownUsageCalls",
     "models",
+    "requestsPlanned",
+    "requestsCeiling",
 ];
 
 /// A units row: quiet units leave (they stay counted), cells unwrap.
 fn units(fields: &mut Map<String, Value>, shared: bool) {
     let mut left_out = Vec::new();
-    if let Some(Value::Object(units)) = fields.get_mut("units") {
-        units.retain(|key, cells| {
-            let quiet = super::units::is_quiet(cells);
-            if quiet {
-                left_out.push(key.clone());
+    if let Some(Value::Object(files)) = fields.get_mut("files") {
+        for (path, lines) in files.iter_mut() {
+            if let Some(lines) = lines.as_object_mut() {
+                shown_units(lines, &mut left_out, |line| format!("{path}:{line}"));
             }
-            !quiet
-        });
-        for value in units
-            .values_mut()
-            .filter_map(Value::as_object_mut)
-            .flat_map(|cells| cells.values_mut())
-        {
-            cell(value);
         }
+        files.retain(|_, lines| lines.as_object().is_some_and(|lines| !lines.is_empty()));
+        if files.is_empty() {
+            fields.shift_remove("files");
+        }
+    }
+    if let Some(Value::Object(units)) = fields.get_mut("units") {
+        shown_units(units, &mut left_out, str::to_owned);
     }
     if !left_out.is_empty() {
         octocode_runtime_base::response::paging::push_warnings(
@@ -289,11 +305,85 @@ fn units(fields: &mut Map<String, Value>, shared: bool) {
                 "{} quiet {} left out of this summary (every answer below the quiet threshold): {}; view:\"details\" repeats the call and lists them.",
                 left_out.len(),
                 if left_out.len() == 1 { "unit" } else { "units" },
-                left_out.join(", "),
+                named(&left_out),
             )],
         );
     }
     usage(fields, shared);
+}
+
+/// Keeps the units of `units` a summary shows, naming each quiet one it
+/// leaves out (by `key`) in `left_out`, and cuts each cell to its summary.
+fn shown_units(
+    units: &mut Map<String, Value>,
+    left_out: &mut Vec<String>,
+    key: impl Fn(&str) -> String,
+) {
+    units.retain(|name, cells| {
+        let quiet = super::units::is_quiet(cells);
+        if quiet {
+            left_out.push(key(name));
+        }
+        !quiet
+    });
+    for value in units
+        .values_mut()
+        .filter_map(Value::as_object_mut)
+        .flat_map(|cells| cells.values_mut())
+    {
+        if value.get("status").is_none() {
+            answer(value, false);
+        } else {
+            cell(value);
+        }
+    }
+}
+
+/// Unit keys as a list that names each file once: the `<path>:<line>` keys
+/// of one path as `<path>:{3,7,12}` (lines ascending), every other key as it
+/// is, in the order each path or key first appears.
+fn named(keys: &[String]) -> String {
+    /// `<path>:<line>` or `<path>:<line>#<n>`: the path and the line part.
+    fn split(key: &str) -> Option<(&str, &str)> {
+        let (path, line) = key.rsplit_once(':')?;
+        let digits = line.split_once('#').map_or(line, |(digits, _)| digits);
+        (!path.is_empty() && !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit()))
+            .then_some((path, line))
+    }
+    let mut groups: Vec<(&str, Vec<&str>)> = Vec::new();
+    for key in keys {
+        let (path, line) =
+            split(key).map_or((key.as_str(), None), |(path, line)| (path, Some(line)));
+        match (
+            line,
+            groups
+                .iter_mut()
+                .find(|(known, lines)| *known == path && !lines.is_empty()),
+        ) {
+            (Some(line), Some((_, lines))) => lines.push(line),
+            (Some(line), None) => groups.push((path, vec![line])),
+            (None, _) => groups.push((path, Vec::new())),
+        }
+    }
+    groups
+        .into_iter()
+        .map(|(path, mut lines)| {
+            let order = |line: &&str| {
+                let (digits, ordinal) = line.split_once('#').unwrap_or((line, "0"));
+                (
+                    digits.parse::<u64>().unwrap_or(u64::MAX),
+                    ordinal.parse::<u64>().unwrap_or(0),
+                )
+            };
+            lines.sort_by_key(order);
+            match lines.as_slice() {
+                [] => path.to_owned(),
+                [line] => format!("{path}:{line}"),
+                _ => format!("{path}:{{{}}}", lines.join(",")),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[cfg(test)]

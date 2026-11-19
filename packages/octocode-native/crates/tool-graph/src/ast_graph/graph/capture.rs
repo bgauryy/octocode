@@ -29,7 +29,7 @@ impl CapturedSource {
 }
 
 /// Whether the file's source correspondence fits `limits` with nothing else
-/// held: what [`capture`] would hold, priced one projection at a time
+/// held: what [`capture`](fn@capture) would hold, priced one projection at a time
 /// ([`octocode_engine::text::analysis::BoundSource::projected_bytes`]), so
 /// pricing never holds more than one. Decides a file that cannot be held
 /// beside the files kept so far: one that fits alone is the scope's

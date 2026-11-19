@@ -59,21 +59,88 @@ impl serde::ser::Error for SizeError {
     }
 }
 
-/// A serializer whose output is the byte count of the compact JSON that
-/// `serde_json::to_vec` writes for the same value.
-struct Size(usize);
+/// A serializer whose output is the size of the compact JSON that
+/// `serde_json::to_vec` writes for the same value: its bytes, or with
+/// `utf16` its UTF-16 code units (what a JavaScript reader's `length` counts).
+struct Size {
+    total: usize,
+    utf16: bool,
+}
 
-/// Bytes of `text` as a JSON string, quotes and escapes included.
-fn string_bytes(text: &str) -> usize {
-    2 + text
-        .as_bytes()
-        .iter()
-        .map(|&byte| match byte {
-            b'"' | b'\\' | b'\n' | b'\r' | b'\t' | 0x08 | 0x0c => 2,
+/// What each byte of a string adds to its JSON form, by [`Size::utf16`]: an
+/// escaped byte its escape (`\n` 2, `\u0001` 6), any other ASCII byte 1. In
+/// bytes every other byte is 1; in UTF-16 units a scalar's lead byte is 1 (2
+/// for a four-byte scalar, a surrogate pair) and a continuation byte 0. An
+/// escape is ASCII, so the two measures differ only on non-ASCII bytes.
+const fn string_weights(utf16: bool) -> [u8; 256] {
+    let mut weights = [1; 256];
+    let mut byte = 0;
+    while byte < 256 {
+        weights[byte] = match byte {
+            0x08 | 0x09 | 0x0a | 0x0c | 0x0d | 0x22 | 0x5c => 2,
             0..0x20 => 6,
+            0x80..0xc0 if utf16 => 0,
+            0xf0.. if utf16 => 2,
             _ => 1,
-        })
-        .sum::<usize>()
+        };
+        byte += 1;
+    }
+    weights
+}
+
+static BYTE_WEIGHTS: [u8; 256] = string_weights(false);
+static UTF16_WEIGHTS: [u8; 256] = string_weights(true);
+
+/// What each byte of raw UTF-8 text adds to its UTF-16 length: a scalar's
+/// lead byte 1 (2 for a four-byte scalar), a continuation byte 0.
+static RAW_UTF16_WEIGHTS: [u8; 256] = {
+    let mut weights = [1; 256];
+    let mut byte = 0x80;
+    while byte < 256 {
+        weights[byte] = match byte {
+            0x80..0xc0 => 0,
+            0xf0.. => 2,
+            _ => 1,
+        };
+        byte += 1;
+    }
+    weights
+};
+
+/// The size of `text` as a JSON string, quotes and escapes included: what
+/// `serde_json` writes for it, in bytes or UTF-16 units.
+fn string_size(text: &str, utf16: bool) -> usize {
+    2 + weigh(
+        text.as_bytes(),
+        if utf16 { &UTF16_WEIGHTS } else { &BYTE_WEIGHTS },
+    )
+}
+
+/// The sum of each byte's weight. A table lookup per byte, eight bytes
+/// summed per step: the one loop under every response measure, written with
+/// plain indexing and casts (no iterator adapters, closures or `From` calls)
+/// so an unoptimized build runs it about as fast as the table allows.
+fn weigh(bytes: &[u8], weights: &[u8; 256]) -> usize {
+    let mut total = 0;
+    let mut at = 0;
+    while at + 8 <= bytes.len() {
+        let chunk = &bytes[at..at + 8];
+        // Eight weights of at most 6 each fit a byte.
+        total += (weights[chunk[0] as usize]
+            + weights[chunk[1] as usize]
+            + weights[chunk[2] as usize]
+            + weights[chunk[3] as usize]
+            + weights[chunk[4] as usize]
+            + weights[chunk[5] as usize]
+            + weights[chunk[6] as usize]
+            + weights[chunk[7] as usize]) as usize;
+        at += 8;
+    }
+    while at < bytes.len() {
+        total += weights[bytes[at] as usize] as usize;
+        at += 1;
+    }
+    total
 }
 
 /// Decimal digits of `value`.
@@ -93,7 +160,7 @@ struct Body<'a> {
 impl Body<'_> {
     fn comma(&mut self) {
         if !std::mem::replace(&mut self.first, false) {
-            self.size.0 += 1;
+            self.size.total += 1;
         }
     }
 
@@ -104,12 +171,12 @@ impl Body<'_> {
 
     fn field<T: ?Sized + Serialize>(&mut self, key: &str, value: &T) -> Result<(), SizeError> {
         self.comma();
-        self.size.0 += string_bytes(key) + 1;
+        self.size.total += string_size(key, self.size.utf16) + 1;
         value.serialize(&mut *self.size)
     }
 
     fn close(self) -> Result<(), SizeError> {
-        self.size.0 += self.close;
+        self.size.total += self.close;
         Ok(())
     }
 }
@@ -117,7 +184,7 @@ impl Body<'_> {
 macro_rules! signed {
     ($($method:ident: $ty:ty),*) => {$(
         fn $method(self, value: $ty) -> Result<(), SizeError> {
-            self.0 += digits(u128::from(value.unsigned_abs())) + usize::from(value < 0);
+            self.total += digits(u128::from(value.unsigned_abs())) + usize::from(value < 0);
             Ok(())
         }
     )*};
@@ -126,7 +193,7 @@ macro_rules! signed {
 macro_rules! unsigned {
     ($($method:ident: $ty:ty),*) => {$(
         fn $method(self, value: $ty) -> Result<(), SizeError> {
-            self.0 += digits(u128::from(value));
+            self.total += digits(u128::from(value));
             Ok(())
         }
     )*};
@@ -147,29 +214,29 @@ impl<'a> serde::Serializer for &'a mut Size {
     unsigned!(serialize_u8: u8, serialize_u16: u16, serialize_u32: u32, serialize_u64: u64);
 
     fn serialize_i128(self, value: i128) -> Result<(), SizeError> {
-        self.0 += digits(value.unsigned_abs()) + usize::from(value < 0);
+        self.total += digits(value.unsigned_abs()) + usize::from(value < 0);
         Ok(())
     }
 
     fn serialize_u128(self, value: u128) -> Result<(), SizeError> {
-        self.0 += digits(value);
+        self.total += digits(value);
         Ok(())
     }
 
     fn serialize_bool(self, value: bool) -> Result<(), SizeError> {
-        self.0 += if value { 4 } else { 5 };
+        self.total += if value { 4 } else { 5 };
         Ok(())
     }
 
     // Floats are formatted by `serde_json` (shortest round trip, `null` for a
     // non-finite one); asking it keeps the size exact.
     fn serialize_f32(self, value: f32) -> Result<(), SizeError> {
-        self.0 += count(&value, false).ok_or(SizeError::Failed)?;
+        self.total += count(&value, false).ok_or(SizeError::Failed)?;
         Ok(())
     }
 
     fn serialize_f64(self, value: f64) -> Result<(), SizeError> {
-        self.0 += count(&value, false).ok_or(SizeError::Failed)?;
+        self.total += count(&value, false).ok_or(SizeError::Failed)?;
         Ok(())
     }
 
@@ -178,14 +245,14 @@ impl<'a> serde::Serializer for &'a mut Size {
     }
 
     fn serialize_str(self, value: &str) -> Result<(), SizeError> {
-        self.0 += string_bytes(value);
+        self.total += string_size(value, self.utf16);
         Ok(())
     }
 
     fn serialize_bytes(self, value: &[u8]) -> Result<(), SizeError> {
         // An array of numbers, as `serde_json` writes bytes.
-        self.0 += 2 + value.len().saturating_sub(1);
-        self.0 += value
+        self.total += 2 + value.len().saturating_sub(1);
+        self.total += value
             .iter()
             .map(|&byte| digits(u128::from(byte)))
             .sum::<usize>();
@@ -201,7 +268,7 @@ impl<'a> serde::Serializer for &'a mut Size {
     }
 
     fn serialize_unit(self) -> Result<(), SizeError> {
-        self.0 += 4;
+        self.total += 4;
         Ok(())
     }
 
@@ -234,14 +301,14 @@ impl<'a> serde::Serializer for &'a mut Size {
         value: &T,
     ) -> Result<(), SizeError> {
         // {"variant":value}
-        self.0 += 1 + string_bytes(variant) + 1;
+        self.total += 1 + string_size(variant, self.utf16) + 1;
         value.serialize(&mut *self)?;
-        self.0 += 1;
+        self.total += 1;
         Ok(())
     }
 
     fn serialize_seq(self, _: Option<usize>) -> Result<Body<'a>, SizeError> {
-        self.0 += 1;
+        self.total += 1;
         Ok(Body {
             size: self,
             first: true,
@@ -265,7 +332,7 @@ impl<'a> serde::Serializer for &'a mut Size {
         _: usize,
     ) -> Result<Body<'a>, SizeError> {
         // {"variant":[ ... ]}
-        self.0 += 1 + string_bytes(variant) + 1 + 1;
+        self.total += 1 + string_size(variant, self.utf16) + 1 + 1;
         Ok(Body {
             size: self,
             first: true,
@@ -274,7 +341,7 @@ impl<'a> serde::Serializer for &'a mut Size {
     }
 
     fn serialize_map(self, _: Option<usize>) -> Result<Body<'a>, SizeError> {
-        self.0 += 1;
+        self.total += 1;
         Ok(Body {
             size: self,
             first: true,
@@ -299,7 +366,7 @@ impl<'a> serde::Serializer for &'a mut Size {
         _: usize,
     ) -> Result<Body<'a>, SizeError> {
         // {"variant":{ ... }}
-        self.0 += 1 + string_bytes(variant) + 1 + 1;
+        self.total += 1 + string_size(variant, self.utf16) + 1 + 1;
         Ok(Body {
             size: self,
             first: true,
@@ -360,7 +427,7 @@ impl serde::ser::SerializeMap for Body<'_> {
     type Error = SizeError;
     fn serialize_key<T: ?Sized + Serialize>(&mut self, key: &T) -> Result<(), SizeError> {
         self.comma();
-        self.size.0 += key.serialize(StringKey)? + 1;
+        self.size.total += key.serialize(StringKey(self.size.utf16))? + 1;
         Ok(())
     }
     fn serialize_value<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), SizeError> {
@@ -373,7 +440,7 @@ impl serde::ser::SerializeMap for Body<'_> {
 
 /// A map key: the bytes of a string key. Any other key (`serde_json` writes
 /// numbers quoted and refuses the rest) is left to the rendering path.
-struct StringKey;
+struct StringKey(bool);
 
 macro_rules! other_key {
     ($($method:ident($($arg:ty),*))*) => {$(
@@ -403,7 +470,7 @@ impl serde::Serializer for StringKey {
     type SerializeStructVariant = serde::ser::Impossible<usize, SizeError>;
 
     fn serialize_str(self, value: &str) -> Result<usize, SizeError> {
-        Ok(string_bytes(value))
+        Ok(string_size(value, self.0))
     }
 
     other_key! {
@@ -446,7 +513,7 @@ impl serde::Serializer for StringKey {
     }
 
     fn collect_str<T: ?Sized + std::fmt::Display>(self, value: &T) -> Result<usize, SizeError> {
-        Ok(string_bytes(&value.to_string()))
+        Ok(string_size(&value.to_string(), self.0))
     }
 }
 
@@ -454,10 +521,7 @@ impl serde::Serializer for StringKey {
 /// each four-byte scalar (a surrogate pair). Exact for any chunk that splits
 /// at scalar boundaries or inside one: continuation bytes count nothing.
 pub fn utf16_units_of_utf8(bytes: &[u8]) -> usize {
-    bytes
-        .iter()
-        .map(|&byte| usize::from(byte & 0xc0 != 0x80) + usize::from(byte >= 0xf0))
-        .sum()
+    weigh(bytes, &RAW_UTF16_WEIGHTS)
 }
 
 impl Write for Counter {
@@ -480,23 +544,27 @@ fn count(value: &(impl Serialize + ?Sized), utf16: bool) -> Option<usize> {
     Some(counter.size)
 }
 
-/// JSON bytes, or `None` if serialization failed; a partial document has no size.
-///
-/// Sized by a serializer that adds up what `serde_json` would write without
-/// writing it: no escape buffers, no per-token `write_all`. A value it cannot
-/// size exactly (a map key that is not a string) is serialized and counted.
-pub fn bytes(value: &(impl Serialize + ?Sized)) -> Option<usize> {
-    let mut size = Size(0);
+/// The compact JSON size of `value`, in bytes or UTF-16 units: added up by
+/// [`Size`] without writing it (no escape buffers, no per-token
+/// `write_all`). A value it cannot size exactly (a map key that is not a
+/// string) is serialized and counted.
+fn size(value: &(impl Serialize + ?Sized), utf16: bool) -> Option<usize> {
+    let mut size = Size { total: 0, utf16 };
     match value.serialize(&mut size) {
-        Ok(()) => Some(size.0),
-        Err(SizeError::Fallback) => count(value, false),
+        Ok(()) => Some(size.total),
+        Err(SizeError::Fallback) => count(value, utf16),
         Err(SizeError::Failed) => None,
     }
 }
 
+/// JSON bytes, or `None` if serialization failed; a partial document has no size.
+pub fn bytes(value: &(impl Serialize + ?Sized)) -> Option<usize> {
+    size(value, false)
+}
+
 /// JSON UTF-16 units, including escaping, or `None` if serialization failed.
 pub fn utf16_units(value: &(impl Serialize + ?Sized)) -> Option<usize> {
-    count(value, true)
+    size(value, true)
 }
 
 /// [`bytes`], or `fallback` when serialization failed: the one failure
@@ -514,7 +582,7 @@ pub fn utf16_units_or(value: &(impl Serialize + ?Sized), fallback: usize) -> usi
 /// UTF-16 units of `text` as a JSON string body: escaped, unquoted. A string
 /// always serializes, so there is no failure to price.
 pub fn string_body_units(text: &str) -> usize {
-    utf16_units_or(text, 2).saturating_sub(2)
+    string_size(text, true) - 2
 }
 
 #[cfg(test)]

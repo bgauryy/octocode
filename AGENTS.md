@@ -1,204 +1,149 @@
 # AGENTS.md — Octocode monorepo
 
-Octocode gives AI agents and developers evidence-first code research: search, exact reads, AST
-and LSP navigation, GitHub history, and package lookup over local code, GitHub, and package
-registries. One Rust engine runs every tool; an MCP server and the `octocode` CLI expose it.
-Editor and agent integrations (VS Code, Claude Code, Codex) install and configure it.
+Octocode gives AI agents evidence-first code research over local code, GitHub and package registries. One
+Rust engine runs every tool; the MCP server and the `octocode` CLI expose it; editor and agent plugins install it.
 
-Each package's `README.md`, `ARCHITECTURE.md` and `docs/` own its details;
-[docs/README.md](docs/README.md) indexes the user docs, one owner doc per topic. Load the
-[octocode-dev skill](skills-dev/octocode-dev/SKILL.md) before development work: it owns the task
-runner, tool audits and the developer docs
-([development](skills-dev/octocode-dev/docs/DEVELOPMENT.md),
-[release](skills-dev/octocode-dev/docs/RELEASE.md),
+Before development work, load the [octocode-dev skill](skills-dev/octocode-dev/SKILL.md): it owns the task
+runner and the developer docs ([development](skills-dev/octocode-dev/docs/DEVELOPMENT.md),
 [tool quality](skills-dev/octocode-dev/docs/TOOL_QUALITY.md),
 [config changes](skills-dev/octocode-dev/docs/ADDING_CONFIG.md),
-[scraping scripts](skills-dev/octocode-dev/docs/SCRAPING_MAINTENANCE.md)). Load any other local skill that
-fits the task (e.g. `rust-best-practices`). Edit source docs, never build copies or generated ones.
+[scraping scripts](skills-dev/octocode-dev/docs/SCRAPING_MAINTENANCE.md)). Load any other local skill that fits
+(e.g. `rust-best-practices`). Each package's `README.md`, `ARCHITECTURE.md` and `docs/` own its details;
+[docs/README.md](docs/README.md) indexes the user docs. Edit sources, never build copies or generated files.
 
 ## How it fits together
 
 ```mermaid
 flowchart LR
-  core["@octocodeai/octocode-core in ../octocode-mcp-host: tool schemas, descriptions, instructions, limits"]
-  config["@octocodeai/config (private): generates the tool contract"]
-  native["Native runtime: embeds the contract; validates, executes, secures and shapes every tool"]
+  core["octocode-core (../octocode-mcp-host): schemas, descriptions, instructions, limits"]
+  config["@octocodeai/config: generates the tool contract"]
+  native["octocode-native: embeds the contract; validates, runs, secures, shapes every tool"]
   core --> config --> native
-  native -- "octocode mcp" --> mcp[MCP launcher]
-  native -- octocode binary --> cli[CLI launcher]
+  native -- "octocode mcp" --> mcp["octocode-mcp launcher"]
+  native -- "octocode binary" --> cli["octocode CLI launcher"]
 ```
 
-The MCP launcher, CLI launcher and VS Code extension are thin adapters with no tool logic.
-
-## Working rules
-
-- Understand the change and its context first, including every layer above that it touches.
-- Write clean code with clean architecture, and never break the layering: schemas and
-  descriptions go in core, implementation goes here.
-- The CLI stays aligned with the MCP tools: same tools, fields and behavior.
-- Fix the root cause, not the symptom: reproduce it, find the code that produces the wrong
-  result, and fix it there with a test that failed first. If the fix needs a special case, the
-  diagnosis is not finished.
-- No rigid implementations and no handpicked solutions: solve the general case instead of
-  special-casing inputs, names or test fixtures. No fixed timeouts, size caps or quotas that kill
-  or truncate valid work: let the owning layer's limit or its explicit refusal decide (for
-  example, split on `scopeTooBroad`, not at a guessed file count). Tests assert the invariant,
-  such as the constant itself or a lower bound, never a copied literal that every bump breaks.
-- Tests share a process: `yarn test:rust` runs each test binary under libtest, so a test keeps
-  no process-global state (a hook is thread-local or a guard that restores it, a store key is
-  the test's own temp workspace), asserts on work counts or a frozen clock rather than wall
-  time, and removes what it creates (RAII temp dirs, warm servers through `persistent_cli`).
-  Only tests that start real child processes run one per process, under nextest.
-- No legacy paths, compatibility shims or extra complexity unless the task asks for them.
-- No aliases or duplication in any layer: one name and one source for each tool, field, setting
-  and piece of logic.
-- Don't run `git commit` (a background process runs `git add -A` and a person owns commits) or
-  `git stash` (it hides other sessions' work; compare with `git show <rev>:<path>`).
-- Stop processes by PID or task ID, never by pattern (`pkill -f`), even for your own run: another
-  session may run the same command.
-- Clean up after yourself before you report: stop the processes you started (by PID), remove
-  your scratch files and pinned test binaries, and keep only the evidence a report cites. Never
-  remove a worktree with uncommitted changes. Build, test and lint Rust only through `dev.mjs
-  build:dev`, `yarn test:rust` or `dev.mjs test:dev -- <filter>`, and `dev.mjs lint:rust` or
-  `lint:own`, in the repo's `target/`: never a bare `cargo build`, `cargo test`, `cargo clippy`
-  or `cargo nextest`, `CARGO_INCREMENTAL=1`, a private `CARGO_TARGET_DIR`, or a binary copied
-  into `target/`. Another selection leaves build outputs nothing removes, and a bare cargo
-  command skips the build slots: at most two Rust builds run on the machine at once, across
-  sessions and isolated copies, because each wrapper holds one of two slots
-  (`packages/octocode-native/scripts/build-slot.cjs`) for its whole run and otherwise waits,
-  printing who holds them. Run any other cargo build as `node
-  packages/octocode-native/scripts/build-slot.cjs -- cargo …`. In a multi-agent round one owner
-  runs full builds and suites and, at the end, `dev.mjs prune:rust` and `df -h .`; fixers run
-  focused tests only, and their builds queue for the same two slots.
-- Don't use `facebook/react` as a live GitHub check target: it was renamed, and the GitHub API
-  blocks or refuses some repositories, so a failure there says nothing about our tools. Check on
-  other public repositories, and on more than one before calling a GitHub result a defect.
-- Several sessions may share this tree and one cargo lock. Apply a change with all its callers in
-  one step and keep tests compiling; a break in a file you touched is your first job. Retry a
-  blocked build at most every 3 minutes, and report it after 20. Don't run `cargo clean` or
-  `cargo fmt --all` while others are building.
-- Communicate in known protocols: issues and tasks in 5W2H, results BLUF with claim–evidence,
-  blockers as SBAR, delegation as a task contract with a Definition of Done. Separate facts,
-  assumptions and unknowns; never present a guess as a fact. The rest, rated by fit:
-  [protocol catalog](skills/common/references/protocol-catalog.md#catalog).
+Launchers, plugins and the VS Code extension are thin adapters with no tool logic.
 
 ## Packages
 
 | Path | npm name | What it is |
 |---|---|---|
-| `packages/octocode-native` | `@octocodeai/octocode-native` (private) | The Rust engine: every tool, the native `octocode` binary (CLI commands and the stdio MCP server, `octocode mcp`). One published platform package per `bin/platform.cjs` entry under `npm/<platform>` carries the binaries |
-| `packages/octocode-mcp` | `octocode-mcp` | Thin launcher (`npx octocode-mcp`): runs `octocode mcp` from the native binary over the same stdio; native serves both MCP protocol eras |
-| `packages/octocode` | `octocode` | Node CLI launcher (`npx octocode`): forwards unchanged arguments and stdio to the native binary; native owns all commands |
-| `packages/octocode-config` | `@octocodeai/config` (private) | The only tool-contract generator, plus configuration loading (home, `.env`, `.octocoderc`). Bundled into the MCP server and CLI |
-| `packages/octocode-vscode` | `octocode-mcp-vscode` | VS Code extension: GitHub sign-in, token sync, MCP install across editors. Runs no research tools |
-| `packages/octocode-claude-plugin` | `@octocodeai/claude-plugin` | Claude Code plugin: MCP launch config, public skills, onboarding |
-| `packages/octocode-codex-plugin` | `@octocodeai/codex-plugin` | Codex plugin: MCP launch config, public skills, onboarding |
-| `packages/octocode-agents-communication` | `@octocodeai/octocode-agents-communication` | MCP server and CLI for cross-agent coordination: session identity, path leases, messages |
-| `packages/octocode-chrome-devtools` | `@octocodeai/octocode-chrome-devtools` | Chrome DevTools MCP server and CLI for live-browser work |
-| `packages/octocode-mcp-cli` | `octocode-mcp-cli` (private) | Library that maps MCP tools and instructions to a Zod CLI and back |
-| `packages/octocode-benchmark` | none (docs, not a workspace) | The one home of checks and benchmarks, as behavioral docs: tool, security and skill checks, Octocode against rg, ast-grep, gh and lean gh, registries and compressors, a per-round readiness scorecard and the version timeline |
+| `packages/octocode-native` | `@octocodeai/octocode-native` (private) | Rust engine and the `octocode` binary (CLI + stdio MCP server); platform binaries ship under `npm/<platform>` |
+| `packages/octocode-mcp` | `octocode-mcp` | `npx octocode-mcp`: runs `octocode mcp` over the same stdio |
+| `packages/octocode` | `octocode` | `npx octocode`: forwards arguments and stdio to the native binary |
+| `packages/octocode-config` | `@octocodeai/config` (private) | The only tool-contract generator; config loading (home, `.env`, `.octocoderc`) |
+| `../octocode-mcp-host/packages/octocode-core` | `@octocodeai/octocode-core` | Sibling repo: owns every agent-facing sentence and schema (tools, instructions, limits) |
+| `packages/octocode-vscode` | `octocode-mcp-vscode` | VS Code extension: GitHub sign-in, token sync, MCP install; runs no tools |
+| `packages/octocode-claude-plugin`, `packages/octocode-codex-plugin` | `@octocodeai/claude-plugin`, `@octocodeai/codex-plugin` | Plugins: MCP launch config, public skills, onboarding |
+| `packages/octocode-agents-communication` | `@octocodeai/octocode-agents-communication` | MCP server + CLI for cross-agent messages, identity and path leases |
+| `packages/octocode-chrome-devtools` | `@octocodeai/octocode-chrome-devtools` | Chrome DevTools MCP server + CLI for live-browser work |
+| `packages/octocode-mcp-cli` | `octocode-mcp-cli` (private) | Library mapping MCP tools and instructions to a Zod CLI and back |
+| `packages/octocode-benchmark` | none (docs) | Checks and benchmarks as behavioral docs: tool, security and skill checks, comparisons, scorecards |
 
-Package versions are independent; the release line is listed under Release.
+Other folders: `skills/` public Agent Skills; `skills-dev/` skills for this repo (`.agents/skills/` symlinks to
+both: edit the canonical folder); `.claude-plugin/`, `.agents/plugins/` marketplace entries; `releases/` packed
+plugins; `test-utils/` shared fixtures and recorded provider answers; `assets/` images; `MANIFEST.md` the vision.
+Package versions are independent.
 
-## Other folders
+## Work locally
 
-- `skills/`: public Agent Skills (`octocode skill install`); `skills-dev/`: skills for working
-  on this repo. `.agents/skills/` entries are symlinks
-  to those folders: edit the canonical folder.
-- `.claude-plugin/`, `.agents/plugins/`: plugin marketplace entries. `releases/`: packed plugin
-  archives. `test-utils/`: shared test helpers, fixtures and recorded provider answers. `assets/`: images. `MANIFEST.md`: the
-  research-driven-development vision.
-
-## Setup, run, develop
-
-Prerequisites: Node `^24.15.0`, Yarn 4.9.1 (`corepack enable`), and Rust 1.99.1 (pinned by
-`packages/octocode-native/rust-toolchain.toml`). Contract changes also need the sibling checkout
-`../octocode-mcp-host` and `cargo install cargo-typify --version 0.8.0 --locked`.
+Prerequisites: Node `^24.15.0`, Yarn 4.9.1 (`corepack enable`), Rust 1.99.1 (`packages/octocode-native/rust-toolchain.toml`).
+Contract changes also need `../octocode-mcp-host` and `cargo install cargo-typify --version 0.8.0 --locked`.
 
 ```bash
-DEV='node skills-dev/octocode-dev/scripts/dev.mjs'   # repo tasks; $DEV --help lists them
-OCTO='node packages/octocode/out/octocode.js'        # the local CLI
-corepack enable
-$DEV setup && yarn install       # local resolutions: workspace packages, sibling core
-$DEV build:dev                   # local build; native targets this machine only
-$OCTO auth status                # GitHub tools need a token: `auth login` or `gh auth login`
-$OCTO schema [<tool> --view query]
-$OCTO <tool> '{"queries":[…]}'
-$DEV verify                      # dedupe, docs, and each package's verify
+DEV='node skills-dev/octocode-dev/scripts/dev.mjs'   # repo tasks: $DEV --help
+OCTO='node packages/octocode/out/octocode.js'        # local CLI
+corepack enable && $DEV setup && yarn install        # workspace packages + sibling core
+$DEV build:dev                                       # this machine's native target only
+$OCTO auth status                                    # GitHub tools need `auth login` or `gh auth login`
+$OCTO schema [<tool> --view query]; $OCTO <tool> '{"queries":[…]}'
+$DEV test:dev --crate <crate> [-- <filter>]          # focused Rust tests
+$DEV lint:rust; $DEV verify                          # clippy ratchet; full verify
 ```
 
-For local development, checks and tests, build only the current host's native binary
-(on macOS, only the current Mac architecture) and the affected launchers. Use `build:dev`;
-when release-mode behavior matters, the native package's `build` also targets only the host.
-Reserve `--all`, `build:all` and `build:publish` for explicitly requested release or
-cross-platform work.
+- Build only the host target (`build:dev`); `--all`, `build:all`, `build:publish` are for requested release work.
+- Local MCP server: `node packages/octocode-mcp/dist/index.js` (stdio). Restart it after a native rebuild: it
+  serves the contract it started with.
+- Without `setup`, core resolves from npm at the version pinned in `packages/octocode-config/package.json`.
+- Full checks without native: `$DEV lint:ci`, `$DEV typecheck:ci`, `$DEV test:ci`; run `$DEV skills:check` after
+  editing `skills/`.
+- End-to-end checks are agent prompts: [tool checks](packages/octocode-benchmark/CHECKS.md).
 
-Without `setup`, `@octocodeai/octocode-core` resolves from npm at the version pinned in
-`packages/octocode-config/package.json`. The local MCP server is the stdio command
-`node packages/octocode-mcp/dist/index.js`. Sanity and end-to-end checks are agent prompts, not
-scripts: [tool checks](packages/octocode-benchmark/CHECKS.md). CI runs `$DEV lint:ci`, `$DEV typecheck:ci` and `$DEV test:ci` (which starts with the skill checks; run `$DEV skills:check` after editing anything under `skills/`).
+**Change flow:** core change → build core → `$DEV contracts:regen` → rebuild native → rebuild consumers.
+Native change → rebuild native and the affected interface → restart MCP → exercise `$OCTO config --json`,
+`$OCTO schema` and real tool calls. Details: [contract pipeline](skills-dev/octocode-dev/docs/DEVELOPMENT.md#contract-pipeline).
 
-Change rules:
+- Never hand-edit `packages/octocode-config/contract/` or hand-write wire types (Zod/TS copies, serde structs).
+- After `contracts:regen`, confirm new text arrived in `packages/octocode-config/contract/cli-presentation.json`:
+  tests still pass on old text.
+- Declare each new field's effect in `crates/runtime-base/src/contracts/field-effect-coverage.json`.
+- Configuration flows only through `@octocodeai/config`. Never lower coverage floors.
 
-```mermaid
-flowchart LR
-  C[Core change] --> B[Build core] --> R["node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen here"] --> N[Rebuild native] --> U[Rebuild consumers]
-  X[Native change] --> N2["Rebuild native and the affected interface"] --> S["Restart any running MCP server: it serves the old contract"] --> E["Exercise $OCTO config --json, $OCTO schema, real tool calls"]
-```
+## Best practices
 
-- Core pipeline details: [contract pipeline](skills-dev/octocode-dev/docs/DEVELOPMENT.md#contract-pipeline).
-  Declare each new field's effect in
-  `packages/octocode-native/crates/runtime-base/src/contracts/field-effect-coverage.json`, or confirm it
-  inherits its nearest declared ancestor's effect; `tests/field_effect_coverage.rs` fails on an
-  unresolved path or a key that names no schema path.
-- `contracts:regen` builds a stale core first. Afterward, confirm new text arrived by searching
-  `packages/octocode-config/contract/` for it (descriptions and instructions are in
-  `cli-presentation.json`): tests still pass on old text.
-- Don't hand-edit `packages/octocode-config/contract/`, and don't
-  hand-write wire types (Zod/TypeScript copies or serde query/result structs).
-- The binary embeds the contract it serves, so a stale one means regenerate and rebuild native;
-  there is no runtime override.
-- Configuration flows through `@octocodeai/config`; don't duplicate home, env or dotenv handling.
-- Never lower coverage floors.
+**Design**
+- Understand the change and every layer above it first. Schemas and descriptions live in core; implementation here.
+- The CLI matches the MCP tools: same tools, fields, behavior.
+- Fix the root cause with a test that failed first; a special case means the diagnosis is not done.
+- Solve the general case: no handpicked inputs, guessed caps, fixed timeouts or quotas that cut valid work; let
+  the owning layer's limit or refusal decide (split on `scopeTooBroad`).
+- One name and one source for each tool, field, setting and piece of logic: no aliases, shims or legacy paths.
+
+**Tests**
+- Assert invariants (the constant, a bound), never copied literals.
+- Tests share a process: no process-global state, work counts or a frozen clock instead of wall time, RAII
+  cleanup. Only tests that start real child processes run one per process (nextest).
+
+**Shared tree, builds and processes**
+- Several sessions share this tree and one cargo lock. Apply a change with all its callers in one step, compile
+  right after, and fix a break in your files first.
+- Build, test and lint Rust only through `$DEV build:dev`, `yarn test:rust`, `$DEV test:dev`, `$DEV lint:rust`
+  in the repo's `target/`; any other cargo run goes through `node packages/octocode-native/scripts/build-slot.cjs
+  -- cargo …` (two build slots machine-wide). No bare cargo, private `CARGO_TARGET_DIR`, `CARGO_INCREMENTAL=1`,
+  `cargo clean` or `cargo fmt --all` while others build. Retry a blocked build at most every 3 minutes; report
+  after 20.
+- In a multi-agent round one owner runs full builds and suites, then `$DEV prune:rust` and `df -h .`; others run
+  focused tests.
+- Stop processes by PID or task ID, never by pattern (`pkill -f`). Before reporting, stop what you started and
+  remove your scratch files; never remove a worktree with uncommitted changes.
+
+**Git**
+- No `git commit` (a background `git add -A` runs; a person owns commits) and no `git stash` (it hides other
+  sessions' work; compare with `git show <rev>:<path>`).
+
+**GitHub checks**
+- Don't use `facebook/react` as a live target (renamed; the API refuses some repositories). Confirm a GitHub defect
+  on more than one public repository.
 
 ## Tool output keeps all the evidence
 
-Pagination comes first: never truncate, drop, summarize or replace requested evidence with
-ellipses to meet a byte, token or `responseChars` target. Return complete pieces with executable
-`responsePagination.next` or `next.*` calls that reach every remaining row, line, file or patch.
-Finish response pages before advancing tool-level continuations; copy each emitted call unchanged.
-`hasMore:true` without a reachable continuation is a defect.
-
-Keep an indivisible value whole and disclose it as oversized. A response-size target must never
-become a terminal evidence cap. If an upstream or resource limit makes evidence unreachable,
-disclose the terminal limit and unread scope; never claim completeness. Explicit views and required
-security redaction define the selected representation, not permission for further silent loss.
-Size reductions may remove only duplication or metadata that carries no evidence.
-
-Verify that walking every required page reconstructs the selected evidence exactly once, with no
-gaps or duplicates, on CLI and MCP. Cover tiny windows, Unicode, long values, mixed batches and
-transformed views. Treat truncated tool output as unread: retrieve the missing pages or narrower
-source slices before relying on it. Details: [tool quality](skills-dev/octocode-dev/docs/TOOL_QUALITY.md)
-and [continuation contract](docs/TOOL_DATA_CONTRACT.md#executable-continuations).
+Never truncate, summarize or drop requested evidence to meet a size target: return whole pieces plus executable
+`responsePagination.next` / `next.*` calls that reach every remaining row, line, file or patch. An indivisible
+value stays whole and is disclosed as oversized. An unreachable remainder is disclosed with its limit and unread
+scope; never claim completeness. Size cuts may remove only duplication or metadata that carries no evidence, and
+every hoisted or joined form is built from redacted values. Walking every page must rebuild the evidence exactly
+once on CLI and MCP. Details: [tool quality](skills-dev/octocode-dev/docs/TOOL_QUALITY.md),
+[continuation contract](docs/TOOL_DATA_CONTRACT.md#executable-continuations).
 
 ## Use Octocode on this repo
 
-Dogfood the local CLI, MCP server and skills, and turn what you learn into improvements. Prefer
-them over shell reads: `localSearch` instead of `rg`/`grep`, `localFetch` instead of `cat`/`sed`,
-`structureSearch` instead of `ls`/`find`, and `astSearch`/`lspSearch` for symbols. Follow every
-`next.*` page or name what stays unread; `related[]` calls are optional. Graph and AST edges are
-candidates: confirm callers with `lspSearch` before claiming code is unused. When a tool has a bad
-default, a misleading hint or a missing continuation, report it to the user in 5W2H instead of working around it silently; write "unknown" for any
-slot you have not verified.
+Prefer the tools over shell reads: `localSearch` (not `rg`), `localFetch` (not `cat`), `structureSearch` (not
+`ls`/`find`), `astSearch`/`lspSearch` for symbols. Finish every `next.*` page or name what stays unread;
+`related[]` is optional. Confirm callers with `lspSearch` before calling code unused. Report a bad default,
+misleading hint or missing continuation to the user in 5W2H instead of working around it.
 
-## Release
+## Report to the user
 
-Publishing is owner-triggered and never runs from CI or an agent session. One release line ships
-at one version: the native platform packages, `octocode-mcp` and `octocode`. Core publishes first at its own version; the Claude and Codex plugins, Homebrew
-formula and VS Code extension follow. Agents-communication and Chrome DevTools
-packages have their own cadence. Details: [release guide](skills-dev/octocode-dev/docs/RELEASE.md).
+Visual and concise: lead with the result, then a table or diagram of what changed (before → after numbers),
+then only what the user must decide or do. Minimal words for maximal information: no probe logs, tool metadata,
+internal ids, file dumps or narration of steps. Separate facts from assumptions and unknowns; never present a
+guess as a fact. For handoffs and delegation use the
+[protocol catalog](skills/common/references/protocol-catalog.md#catalog) (BLUF, SBAR, task contract).
 
-## Environment
+## Release and environment
 
-Use `npx -y` to avoid prompts. Bound slow calls with a deadline; on macOS use `gtimeout` or
-`perl -e 'alarm N; exec @ARGV' -- cmd`.
+Publishing is owner-triggered, never from CI or an agent. One release line ships the native platform packages,
+`octocode-mcp` and `octocode` at one version; core publishes first; plugins, Homebrew and the VS Code extension
+follow; agents-communication and Chrome DevTools have their own cadence. Use `npx -y`; bound slow calls (`gtimeout`, or
+`perl -e 'alarm N; exec @ARGV' -- cmd` on macOS).

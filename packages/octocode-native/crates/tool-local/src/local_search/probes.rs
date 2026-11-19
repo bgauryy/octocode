@@ -39,23 +39,37 @@ pub(super) struct Unsearched {
 pub(super) fn disclose_skipped(
     query: &LocalSearchQuery,
     skipped: &Skipped<'_>,
-    next: &mut Option<Value>,
-    hints: &mut Vec<String>,
+    scoped: Vec<Value>,
+    (next, hints): (&mut Option<Value>, &mut Vec<String>),
 ) -> Unsearched {
     let named = skipped.walk.counts();
     if skipped.causes.is_empty() || named.is_empty() {
         return Unsearched::default();
     }
+    let aimed = !scoped.is_empty();
     if let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut() {
+        // Each search of one skipped directory first, then the one over
+        // everything skipped.
+        for (index, lead) in scoped.into_iter().enumerate() {
+            map.insert(
+                octocode_runtime_base::id::numbered("searchSkipped", index),
+                lead,
+            );
+        }
         map.insert(
             "includeSkipped".into(),
             lead(ToolId::LocalSearch, query, &skipped.causes),
         );
     }
+    let aimed = if aimed {
+        "The related[] searches at one skippedPaths path search only there. "
+    } else {
+        ""
+    };
     hints.insert(
         0,
         format!(
-            "Skipped paths ({named}) were not searched, so absence there is unproven. {}",
+            "Skipped paths ({named}) were not searched, so absence there is unproven. {aimed}{}",
             walks_all_skipped(&skipped.causes)
         ),
     );

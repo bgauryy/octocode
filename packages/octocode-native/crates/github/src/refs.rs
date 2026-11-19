@@ -307,12 +307,13 @@ impl GitHubTransport {
         context: &RequestContext,
     ) -> Result<std::collections::HashMap<String, String>, ProviderError> {
         let mut peeled = std::collections::HashMap::new();
-        let mut seen = objects
+        let mut seen = std::collections::HashSet::new();
+        // In the listing's order, each object once: the read names the same
+        // objects in the same order every time, so its kept answer serves a
+        // repeated listing (a set's order would change the request).
+        let mut pending = objects
             .iter()
-            .cloned()
-            .collect::<std::collections::HashSet<_>>();
-        let mut pending = seen
-            .iter()
+            .filter(|object| seen.insert((*object).clone()))
             .map(|object| (object.clone(), object.clone()))
             .collect::<Vec<_>>();
         while !pending.is_empty() {
@@ -358,9 +359,24 @@ impl GitHubTransport {
                 for (at, object) in batch.iter().enumerate() {
                     variables[format!("t{at}")] = serde_json::json!(object);
                 }
-                // A failed read leaves its objects to REST, which answers the same.
+                // A failed read leaves its objects to REST, which answers the
+                // same. Tag objects cannot change: an answer naming each is
+                // kept, so a repeated refs listing sends nothing.
+                let named_each = |page: &crate::GraphQlPage| {
+                    let repository = page.data.as_ref().and_then(|data| data.get("repository"));
+                    (0..batch.len()).all(|at| {
+                        repository
+                            .and_then(|repository| repository.get(format!("t{at}")))
+                            .is_some_and(serde_json::Value::is_object)
+                    })
+                };
                 let Ok(page) = self
-                    .execute_graphql(&tag_targets_document(batch.len()), variables, context)
+                    .execute_object_graphql(
+                        &tag_targets_document(batch.len()),
+                        variables,
+                        context,
+                        named_each,
+                    )
                     .await
                 else {
                     continue;

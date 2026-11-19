@@ -999,13 +999,15 @@ async fn tool_text(
 }
 
 /// Owner rule (round 14, item 3): a key block's armor names the block and
-/// holds none of it, so every view shows the armor lines as written, a
+/// holds none of it, so every view serves the armor lines as written, a
 /// literal's closing quote too, and no view shows a byte of the body: a
 /// read, the compact view, a search's content and matchOnly rows, the
 /// symbols outline, and a byte page of a source over the whole-file
-/// ceiling. A block with no END still hides its body.
+/// ceiling. A matchOnly span equal to the request's one term states only
+/// where it is (its value is that term). A block with no END still hides
+/// its body.
 #[tokio::test]
-async fn every_view_shows_a_key_blocks_armor_and_none_of_its_body() {
+async fn every_view_serves_a_key_blocks_armor_and_none_of_its_body() {
     const BEGIN: &str = "-----BEGIN RSA PRIVATE KEY-----";
     const END: &str = "-----END RSA PRIVATE KEY-----";
     let bodies = [
@@ -1063,7 +1065,7 @@ async fn every_view_shows_a_key_blocks_armor_and_none_of_its_body() {
         (
             "localSearch",
             json!({"path": workspace.workspace, "matchString": ["PRIVATE KEY"], "view": "matchOnly"}),
-            Some("PRIVATE KEY"),
+            None,
         ),
         (
             "localSearch",
@@ -1101,6 +1103,36 @@ async fn every_view_shows_a_key_blocks_armor_and_none_of_its_body() {
                 shown.contains(armor),
                 "{tool} {query}: the armor is shown: {shown}"
             );
+        }
+    }
+    // Each armor span is the request's one term: it is served, never
+    // redacted, and states only where it is.
+    let spans: Value = serde_json::from_str(
+        &tool_text(
+            &runtime,
+            "localSearch",
+            json!({"path": workspace.workspace, "matchString": ["PRIVATE KEY"], "view": "matchOnly"}),
+        )
+        .await,
+    )
+    .expect("json");
+    let files = spans["results"][0]["data"]["files"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{spans}"));
+    for name in ["keys.txt", "open.txt", "pem.ts"] {
+        let file = files
+            .iter()
+            .find(|file| {
+                file["path"]
+                    .as_str()
+                    .is_some_and(|path| path.ends_with(name))
+            })
+            .unwrap_or_else(|| panic!("{name}: {spans}"));
+        let matches = file["matches"].as_array().expect("spans");
+        assert!(!matches.is_empty(), "{name}: {spans}");
+        for span in matches {
+            assert!(span.get("value").is_none(), "{name}: {spans}");
+            assert!(span["column"].is_u64(), "{name}: {spans}");
         }
     }
     let read = tool_text(&runtime, "localFetch", json!({"path": text})).await;

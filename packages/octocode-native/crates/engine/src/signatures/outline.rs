@@ -60,7 +60,7 @@ pub fn declarations_outline(
         });
     };
     let lines: Vec<&str> = content.lines().collect();
-    let rows = outline_rows(&lines, document, entry.comment_style);
+    let rows = outline_rows(&lines, document, Body::of(entry));
     if rows.is_empty() {
         // A parse that gave no tree says so; its empty document proves no
         // absence of declarations.
@@ -91,12 +91,29 @@ pub fn declarations_outline(
     Ok(out)
 }
 
-/// The outline's `(0-based row, text)` pairs in source order.
-fn outline_rows(
-    lines: &[&str],
-    document: &GraphFactsDocument,
+/// What a grammar's member-listing body holds besides members: its
+/// comments, and in Python the string statements that document a class and
+/// its attributes (PEP 257 and 224). A docstring sits below what it
+/// documents; an outline lists the members, and `docStartLine`-style doc
+/// rows are not members.
+#[derive(Clone, Copy)]
+struct Body {
     comments: languages::CommentStyle,
-) -> Vec<(usize, String)> {
+    docstrings: bool,
+}
+
+impl Body {
+    fn of(entry: &languages::LanguageEntry) -> Self {
+        Self {
+            comments: entry.comment_style,
+            docstrings: entry.language_id == Some("python"),
+        }
+    }
+}
+
+/// The outline's `(0-based row, text)` pairs in source order.
+fn outline_rows(lines: &[&str], document: &GraphFactsDocument, body: Body) -> Vec<(usize, String)> {
+    let comments = body.comments;
     let n = lines.len();
     if n == 0 {
         return Vec::new();
@@ -140,15 +157,35 @@ fn outline_rows(
     }
     let (mut in_members, mut in_covered) = (0i64, 0i64);
     let mut shown = vec![false; n];
+    // The triple quote a docstring of a member body left open.
+    let mut open_string: Option<&str> = None;
     for row in 0..n {
         in_members += members[row];
         in_covered += covered[row];
+        let member = in_members > 0 && in_covered == 0 && !fragments[row];
+        let docstring = body.docstrings
+            && member
+            && match open_string {
+                Some(quote) => {
+                    if closing(lines[row], quote).is_some() {
+                        open_string = None;
+                    }
+                    true
+                }
+                None => string_statement(lines[row].trim()).is_some_and(|statement| {
+                    open_string = match statement {
+                        StringStatement::Closed => None,
+                        StringStatement::Open(quote) => Some(quote),
+                    };
+                    true
+                }),
+            };
+        if !member {
+            open_string = None;
+        }
         shown[row] = !heads[row].is_empty()
             || openers[row].is_some()
-            || (in_members > 0
-                && in_covered == 0
-                && !fragments[row]
-                && member_row(lines[row], comments));
+            || (member && !docstring && member_row(lines[row], comments));
     }
     let imports = import_rows(document, n);
     let mut rows = Vec::new();
@@ -387,6 +424,60 @@ fn unquoted(line: &str, quotes: &[char]) -> (Vec<(char, char)>, bool) {
 /// body (covered whole) never shows.
 fn holds_statements(kind: &str) -> bool {
     matches!(kind, "module" | "namespace")
+}
+
+/// A Python string statement a row starts.
+enum StringStatement {
+    /// It ends on the row.
+    Closed,
+    /// It goes on past the row, until this triple quote closes it.
+    Open(&'static str),
+}
+
+/// Whether the trimmed row `text` is a Python string statement (a string
+/// literal, its prefix at most `r`, `b`, `u`, `f` twice, with nothing after
+/// it but a comment), and whether it goes on past the row. A string that only
+/// starts the row (`'k': 1,`, an implicit concatenation) is no statement.
+fn string_statement(text: &str) -> Option<StringStatement> {
+    let (prefix, literal) = text.split_at(text.find(['"', '\''])?);
+    if prefix.len() > 2
+        || !prefix
+            .chars()
+            .all(|c| matches!(c.to_ascii_lowercase(), 'r' | 'b' | 'u' | 'f'))
+    {
+        return None;
+    }
+    let (quote, body) = ["\"\"\"", "'''", "\"", "'"]
+        .into_iter()
+        .find_map(|quote| Some((quote, literal.strip_prefix(quote)?)))?;
+    match closing(body, quote) {
+        Some(end) => {
+            let after = body
+                .get(end + quote.len()..)
+                .unwrap_or_default()
+                .trim_start();
+            (after.is_empty() || after.starts_with('#')).then_some(StringStatement::Closed)
+        }
+        None if quote.len() == 3 => Some(StringStatement::Open(quote)),
+        None => None,
+    }
+}
+
+/// The byte where `quote` closes `body` (the text after its opening quote),
+/// a backslash keeping the character after it from closing it (raw strings
+/// too); `None` when it closes on a later row.
+fn closing(body: &str, quote: &str) -> Option<usize> {
+    let mut escaped = false;
+    for (at, ch) in body.char_indices() {
+        if escaped {
+            escaped = false;
+        } else if ch == '\\' {
+            escaped = true;
+        } else if body.get(at..).is_some_and(|rest| rest.starts_with(quote)) {
+            return Some(at);
+        }
+    }
+    None
 }
 
 /// Whether a row of a member-listing body says something an outline lists:

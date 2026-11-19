@@ -22,6 +22,24 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
+/// What the rows of one batch share ([`DomainDispatcher::plan_warm`]): the
+/// GitHub warm-up of what they name, and a package tool's call share.
+pub(crate) struct RowsShare {
+    github: Option<github::BatchWarm>,
+    packages: Option<octocode_tool_packages::CallShare>,
+}
+
+impl RowsShare {
+    /// The GitHub warm-up's memo, for tests that watch what it leaves.
+    #[cfg(test)]
+    pub(crate) fn memo(&self) -> &Arc<octocode_github::RefMemo> {
+        match &self.github {
+            Some(github) => github.memo(),
+            None => panic!("these rows share no GitHub warm-up"),
+        }
+    }
+}
+
 pub(crate) struct DomainDispatcher {
     pub paths: Arc<PathPolicy>,
     /// [`Self::paths`] with credential file names withheld whatever the setting.
@@ -114,24 +132,30 @@ impl DomainDispatcher {
         tool: ToolId,
         query: &CheckedQuery,
         context: &ExecutionContext,
-        warm: Option<&github::BatchWarm>,
+        warm: Option<&RowsShare>,
     ) -> Result<DomainResult, ExecutionError> {
         self.execute_row_under(tool, query, context, false, warm)
     }
 
-    /// Warms what the rows of one batch share before they run, or `None`
-    /// when no row has anything to warm. Run [`Self::run_warm`] beside the
-    /// rows; they wait for it only where they read what it warms.
-    pub(crate) fn plan_warm(
-        &self,
-        tool: ToolId,
-        queries: &[CheckedQuery],
-    ) -> Option<github::BatchWarm> {
-        github::BatchWarm::plan(tool, queries, &self.paths)
+    /// What the rows of one batch share, made before they run, or `None` when
+    /// they share nothing: GitHub reads to warm, and for a package tool's
+    /// rows the call share that makes each upstream read once
+    /// ([`octocode_tool_packages::CallShare`]). Run [`Self::run_warm`] beside
+    /// the rows; they wait for it only where they read what it warms.
+    pub(crate) fn plan_warm(&self, tool: ToolId, queries: &[CheckedQuery]) -> Option<RowsShare> {
+        let github = github::BatchWarm::plan(tool, queries, &self.paths);
+        let packages = (matches!(tool, ToolId::ArtifactSearch | ToolId::SecurityCheck)
+            && queries.len() > 1)
+            .then(octocode_tool_packages::CallShare::new);
+        (github.is_some() || packages.is_some()).then_some(RowsShare { github, packages })
     }
 
-    /// The warm-up of [`Self::plan_warm`], to completion.
-    pub(crate) fn run_warm(&self, warm: &github::BatchWarm, context: &ExecutionContext) {
+    /// The GitHub warm-up of [`Self::plan_warm`], to completion; nothing when
+    /// the rows share no GitHub read.
+    pub(crate) fn run_warm(&self, warm: &RowsShare, context: &ExecutionContext) {
+        let Some(warm) = &warm.github else {
+            return;
+        };
         let _enter = self.handle.enter();
         let _settle = warm.settling();
         let Ok(services) = self.github_services() else {
@@ -159,10 +183,12 @@ impl DomainDispatcher {
         query: &CheckedQuery,
         context: &ExecutionContext,
         egress: bool,
-        warm: Option<&github::BatchWarm>,
+        warm: Option<&RowsShare>,
     ) -> Result<DomainResult, ExecutionError> {
         let _enter = self.handle.enter();
         context.check()?;
+        let packages = warm.and_then(|warm| warm.packages.as_ref());
+        let warm = warm.and_then(|warm| warm.github.as_ref());
         let mut result = execute_row(|| match tool.family() {
             ToolFamily::GitHub => self.execute_github(tool, query, context, egress, warm),
             ToolFamily::Local if tool == ToolId::LspSearch => {
@@ -172,9 +198,9 @@ impl DomainDispatcher {
             // Clasify runs its own batch, never a domain row.
             ToolFamily::Remote if tool.is_clasify() => Err(ExecutionError::UnroutedTool),
             ToolFamily::Remote if tool == ToolId::SecurityCheck => {
-                self.execute_security_check(query, context)
+                self.execute_security_check(query, context, packages)
             }
-            ToolFamily::Remote => self.execute_artifact(query, context),
+            ToolFamily::Remote => self.execute_artifact(query, context, packages),
         })?;
         if matches!(tool.family(), ToolFamily::Local) {
             // A graph names its own rows from its snapshot root.

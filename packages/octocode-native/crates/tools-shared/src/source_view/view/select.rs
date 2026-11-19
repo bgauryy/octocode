@@ -6,19 +6,76 @@ use super::{View, compact};
 use octocode_contract_types::{LocalFetchQuery, ReadView};
 use octocode_runtime_base::execution::cancel::CancellationCheck;
 
+/// Why no view of the selected text stands in for the one requested.
+pub(super) enum Refused {
+    /// No outline, and no compact view stands in for it: the reason.
+    NoOutline(String),
+    /// The selected text is minified ([`minified`]).
+    Minified(Minified),
+}
+
+/// Selected text this long or longer is judged by its lines ([`minified`]).
+const MINIFIED_BYTES: usize = 8 * 1024;
+
+/// An average line this long is minified or generated text: no formatter
+/// writes lines this long, so an outline of it lists minifier names and a
+/// compact layout has no whitespace left to drop.
+const MINIFIED_LINE_BYTES: usize = 1_000;
+
+/// Minified text's lines and the bytes per line they average.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Minified {
+    pub(super) lines: usize,
+    pub(super) average: usize,
+}
+
+/// Source bytes per word at most in minified code: a minifier leaves an
+/// identifier, keyword or number every few bytes, while a long comment or
+/// string literal is one word, and deep nesting (`((((`) none.
+const MINIFIED_BYTES_PER_WORD: usize = 20;
+
+/// Whether `text`, read at `path`, is minified code: a grammar parses its
+/// format (only then would an outline or a compact layout parse it), it is
+/// at least [`MINIFIED_BYTES`] long with lines averaging
+/// [`MINIFIED_LINE_BYTES`] or more, and those lines are dense with words
+/// ([`MINIFIED_BYTES_PER_WORD`]). One long line among many short ones is
+/// not, nor is a long comment, a string literal or a deeply nested line.
+pub(super) fn minified(text: &str, path: &str) -> Option<Minified> {
+    if text.len() < MINIFIED_BYTES {
+        return None;
+    }
+    let lines = super::super::extraction::line_count(text).max(1);
+    let average = text.len() / lines;
+    if average < MINIFIED_LINE_BYTES {
+        return None;
+    }
+    let extension = octocode_engine::text::extension_of(path, true, "");
+    octocode_engine::signatures::languages::find_entry(&extension)?;
+    // Runs of word bytes, as a lexer cuts identifiers and numbers.
+    let (mut words, mut in_word) = (0usize, false);
+    for &byte in text.as_bytes() {
+        let word = byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'$' || byte >= 0x80;
+        words += usize::from(word && !in_word);
+        in_word = word;
+    }
+    (words.saturating_mul(MINIFIED_BYTES_PER_WORD) >= text.len())
+        .then_some(Minified { lines, average })
+}
+
 /// Apply the requested `view` to the extracted text. A match read
 /// stays verbatim evidence; an outline the file cannot give falls back to
 /// the compact view when compaction reads the file's grammar, else is the
 /// reason (`Err`) no view stands in for it: a whitespace-only compact is
 /// near-raw text, not a smaller view of the code, and a source too large to
 /// parse is neither outlined nor compacted. A compact view of such a source
-/// is its content view, with the reason.
+/// is its content view, with the reason. Minified text gets neither view
+/// and is not parsed for one: matchString selects from it.
 pub(super) fn select_view(
     q: &LocalFetchQuery,
     ext: &mut super::super::extraction::Extraction,
     full_source: &str,
     cancel: &impl CancellationCheck,
-) -> Result<View, String> {
+) -> Result<View, Refused> {
     let requested = local_fetch_query::view(q);
     let selected = std::mem::take(&mut ext.text);
     // matchString reads are verbatim source; the tool description says so,
@@ -113,6 +170,11 @@ pub(super) fn select_view(
             ..view(text, mode)
         }
     };
+    if requested != ReadView::Content
+        && let Some(minified) = minified(&selected, local_fetch_query::path(q))
+    {
+        return Err(Refused::Minified(minified));
+    }
     Ok(match requested {
         ReadView::Content => view(selected, None),
         ReadView::Compact => compact_view(selected, ReadView::Compact, None),
@@ -138,12 +200,12 @@ pub(super) fn select_view(
                     // budget was not parsed for its outline, and compacting
                     // it would lex it: no view stands in for it.
                     if compact::too_large(&selected) {
-                        return Err(compact::TOO_LARGE.to_owned());
+                        return Err(Refused::NoOutline(compact::TOO_LARGE.to_owned()));
                     }
                     let compact = compact_view(selected, ReadView::Symbols, Some(reason.as_str()));
                     match compact.fallback {
                         Some(fallback) if fallback.reason != reason.as_str() => {
-                            return Err(fallback.reason);
+                            return Err(Refused::NoOutline(fallback.reason));
                         }
                         fallback => View {
                             fallback,

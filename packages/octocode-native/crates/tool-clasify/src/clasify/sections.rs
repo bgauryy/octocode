@@ -44,6 +44,10 @@ struct Unit {
     chars: usize,
     cells: Vec<Option<Value>>,
     emitted: bool,
+    /// The questions a transient failure left pending once: the next batch
+    /// asks them again, and a second such failure is their error.
+    #[serde(default)]
+    deferred: std::collections::BTreeSet<usize>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -440,10 +444,12 @@ pub(super) fn whole(
     dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
     gate: &GateLease,
-) -> Result<Whole, WholeFailed> {
+) -> Result<Whole, Box<WholeFailed>> {
     let mut usage = ClassificationUsage::default();
-    whole_billed(row, source, dispatcher, context, gate, &mut usage).map_err(|_| WholeFailed {
-        usage: std::mem::take(&mut usage),
+    whole_billed(row, source, dispatcher, context, gate, &mut usage).map_err(|_| {
+        Box::new(WholeFailed {
+            usage: std::mem::take(&mut usage),
+        })
     })
 }
 
@@ -607,8 +613,16 @@ fn judge_pending(
                 .collect()
         })
         .collect();
-    let results = assess::judge_units(session, &admitted, &pending, dispatcher, context, gate);
-    assess::apply_results(session, &admitted, pending, results.into_iter(), usage);
+    let inputs = assess::inputs(session, &admitted, &pending);
+    let results = assess::judge_units(session, &inputs, dispatcher, context, gate, None);
+    assess::apply_results(
+        session,
+        &admitted,
+        pending,
+        results.into_iter(),
+        usage,
+        false,
+    );
 }
 
 fn new_id(input: &Value) -> String {

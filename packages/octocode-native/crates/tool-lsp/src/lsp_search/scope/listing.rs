@@ -58,11 +58,19 @@ pub(super) struct Recorder {
     prune: Option<octocode_engine::search::walk::RootedPrune>,
     policy: PathPolicy,
     root: PathBuf,
+    /// A bounded reach: the walk lists every file, the search reads only
+    /// these ([`super::reach::Searched`]).
+    searched: Option<Arc<super::reach::Searched>>,
     seen: Mutex<Seen>,
 }
 
 impl Recorder {
-    pub(super) fn new(policy: &PathPolicy, root: &str, include: &[String]) -> Self {
+    pub(super) fn new(
+        policy: &PathPolicy,
+        root: &str,
+        include: &[String],
+        searched: Option<Arc<super::reach::Searched>>,
+    ) -> Self {
         let root = PathBuf::from(root);
         let recorder = Self {
             walk: DiscoveryWalk::owned(policy.clone()),
@@ -74,6 +82,7 @@ impl Recorder {
             ),
             policy: policy.clone(),
             root,
+            searched,
             seen: Mutex::default(),
         };
         recorder.record_dir(&recorder.root);
@@ -168,6 +177,11 @@ impl TextSearchPathFilter for Recorder {
                 }
             } else if file_type.is_some_and(|kind| kind.is_file()) {
                 self.seen().files.push(path.to_path_buf());
+                // Listed whatever the reach; read only within it.
+                return self
+                    .searched
+                    .as_ref()
+                    .is_none_or(|searched| searched.holds(path));
             }
         }
         allowed

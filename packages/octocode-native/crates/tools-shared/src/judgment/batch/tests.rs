@@ -13,6 +13,7 @@ fn text_input<'a>(state: &'a Value, questions: &'a [Value]) -> EvaluationInput<'
         assets: None,
         long_context: crate::judgment::LongContext::Never,
         companions: 0,
+        cap: None,
     }
 }
 

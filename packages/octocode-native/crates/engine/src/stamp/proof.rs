@@ -1,4 +1,5 @@
 //! The one proof that what a kept result read has not changed.
+use super::observed::{Held, Shown};
 use super::{SourceStamp, epoch_nanos};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -15,7 +16,7 @@ pub fn cache_stamp(meta: &std::fs::Metadata) -> Option<SourceStamp> {
     provable(SourceStamp::of(meta)?)
 }
 
-fn provable(stamp: SourceStamp) -> Option<SourceStamp> {
+pub(super) fn provable(stamp: SourceStamp) -> Option<SourceStamp> {
     (cfg!(not(unix)) || stamp.changed_ns != 0).then_some(stamp)
 }
 
@@ -70,14 +71,33 @@ enum Seen {
 }
 
 impl Seen {
-    /// Whether `path` is still as seen; a stamp read is counted in `read`.
-    fn holds(self, path: &Path, read: &AtomicUsize) -> bool {
+    /// Whether `path` is still as seen: shown so by a proof that held in
+    /// this request ([`super::observing`]), else read; a stamp read is
+    /// counted in `read`.
+    fn holds(self, path: &Path, held: &Held, read: &AtomicUsize) -> bool {
+        if !held.is_empty() {
+            let shown = match self {
+                Self::Stamp(link, Some(stamp)) => held.proves(path, link, stamp),
+                Self::Stamp(link, None) => held.absent(path, link),
+                Self::Presence(was) => held.presence(path) == Some(was),
+            };
+            if shown {
+                return true;
+            }
+        }
         match self {
             Self::Stamp(link, stamp) => {
                 read.fetch_add(1, Ordering::Relaxed);
                 stamp_of(path, link, None) == stamp
             }
             Self::Presence(was) => exists(path) == was,
+        }
+    }
+
+    fn shown(self) -> Shown {
+        match self {
+            Self::Stamp(link, stamp) => Shown::Stamp(link, stamp),
+            Self::Presence(present) => Shown::Presence(present),
         }
     }
 }
@@ -90,6 +110,9 @@ pub struct Proof {
     seen: Arc<Vec<(PathBuf, Seen)>>,
     /// Stamps read from the file system to build it.
     stamps_read: usize,
+    /// `seen` ordered by path bytes, built on the first lookup
+    /// ([`Self::shown`]) and shared by the clones of an unchanged proof.
+    index: Arc<std::sync::OnceLock<Box<[u32]>>>,
 }
 
 /// What [`Proof::check`] found.
@@ -104,7 +127,40 @@ pub struct Checked {
 
 impl Proof {
     fn add(&mut self, path: PathBuf, seen: Seen) {
-        Arc::make_mut(&mut self.seen).push((path, seen));
+        self.changed().push((path, seen));
+    }
+
+    /// `seen` to change: the lookup index no longer stands for it.
+    fn changed(&mut self) -> &mut Vec<(PathBuf, Seen)> {
+        self.index = Arc::default();
+        Arc::make_mut(&mut self.seen)
+    }
+
+    /// Whether `other` is this proof, or a clone of it.
+    pub(super) fn is_same(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.seen, &other.seen)
+    }
+
+    /// What this proof saw of `path`, found by its index.
+    pub(super) fn shown(&self, path: &Path) -> Option<Shown> {
+        let bytes = |index: u32| {
+            usize::try_from(index)
+                .ok()
+                .and_then(|at| self.seen.get(at))
+                .map_or(&[][..], |(path, _)| path.as_os_str().as_encoded_bytes())
+        };
+        let index = self.index.get_or_init(|| {
+            let mut order =
+                (0..u32::try_from(self.seen.len()).unwrap_or(u32::MAX)).collect::<Vec<_>>();
+            order.sort_by(|left, right| bytes(*left).cmp(bytes(*right)));
+            order.into_boxed_slice()
+        });
+        let wanted = path.as_os_str().as_encoded_bytes();
+        let at = index
+            .binary_search_by(|probe| bytes(*probe).cmp(wanted))
+            .ok()?;
+        let seen = usize::try_from(index[at]).ok()?;
+        self.seen.get(seen).map(|(_, seen)| seen.shown())
     }
 
     /// Stamp what `path` points at (absent counts).
@@ -173,6 +229,7 @@ impl Proof {
                     .collect(),
             ),
             stamps_read: read.into_inner(),
+            index: Arc::default(),
         })
     }
 
@@ -180,7 +237,7 @@ impl Proof {
     /// how), which need no stat of their own.
     #[must_use]
     pub fn with_taken(mut self, link: Link, taken: Vec<(PathBuf, SourceStamp)>) -> Self {
-        Arc::make_mut(&mut self.seen).extend(
+        self.changed().extend(
             taken
                 .into_iter()
                 .filter(|(_, stamp)| provable(*stamp).is_some())
@@ -192,7 +249,7 @@ impl Proof {
     /// This proof with each path's presence, as already observed.
     #[must_use]
     pub fn with_presence(mut self, seen: Vec<(PathBuf, bool)>) -> Self {
-        Arc::make_mut(&mut self.seen).extend(
+        self.changed().extend(
             seen.into_iter()
                 .map(|(path, present)| (path, Seen::Presence(present))),
         );
@@ -203,7 +260,7 @@ impl Proof {
     /// to build it).
     #[must_use]
     pub fn with(mut self, other: &Self) -> Self {
-        Arc::make_mut(&mut self.seen).extend(other.seen.iter().cloned());
+        self.changed().extend(other.seen.iter().cloned());
         self.stamps_read += other.stamps_read;
         self
     }
@@ -229,12 +286,18 @@ impl Proof {
     /// Whether every path is still as it was added, and the stamps that
     /// took reading.
     #[must_use]
+    ///
+    /// Inside [`super::observing`], a path a proof that already held in the
+    /// request shows unchanged costs no stat, and this proof, once it holds,
+    /// joins those proofs ([`super::Held`]).
     pub fn check(&self) -> Checked {
         let changed = AtomicBool::new(false);
         let read = AtomicUsize::new(0);
+        let observed = super::observation();
+        let held = super::held();
         let holds = in_chunks(&self.seen[..], |chunk| {
             chunk.iter().all(|(path, seen)| {
-                let same = !changed.load(Ordering::Relaxed) && seen.holds(path, &read);
+                let same = !changed.load(Ordering::Relaxed) && seen.holds(path, &held, &read);
                 if !same {
                     changed.store(true, Ordering::Relaxed);
                 }
@@ -243,10 +306,14 @@ impl Proof {
         })
         .into_iter()
         .all(|same| same);
-        Checked {
-            holds,
-            stamps_read: read.into_inner(),
+        let stamps_read = read.into_inner();
+        if let Some(observed) = observed {
+            observed.count_stats(stamps_read);
+            if holds {
+                observed.hold(self);
+            }
         }
+        Checked { holds, stamps_read }
     }
 
     /// About how many bytes this proof holds.

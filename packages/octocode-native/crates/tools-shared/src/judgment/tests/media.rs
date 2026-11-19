@@ -44,6 +44,7 @@ async fn prepared_media_batches_headers_and_fresh_reads_without_exposing_assets(
         assets: Some(&assets),
         long_context: crate::judgment::LongContext::Never,
         companions: 0,
+        cap: None,
     };
     let (first, concurrent) = tokio::join!(
         evaluator.evaluate_prepared(input, None, &budget, &gate),
@@ -220,6 +221,7 @@ async fn split_media_requests_keep_only_assets_referenced_by_each_question() {
                     assets: Some(&assets),
                     long_context: crate::judgment::LongContext::Never,
                     companions: 0,
+                    cap: None,
                 },
                 None,
                 &evaluation_budget(&evaluator),
@@ -282,6 +284,7 @@ async fn invalid_box_is_not_cached_and_retries_preserve_media_payload() {
         assets: Some(&assets),
         long_context: crate::judgment::LongContext::Always,
         companions: 0,
+        cap: None,
     };
     for calls in [2, 1] {
         let error = evaluator
@@ -357,6 +360,7 @@ async fn a_media_group_the_provider_window_rejects_is_split_until_each_part_fits
                     assets: Some(&assets),
                     long_context: crate::judgment::LongContext::Never,
                     companions: 0,
+                    cap: None,
                 },
                 None,
                 &budget,
@@ -397,6 +401,7 @@ async fn a_media_group_the_provider_window_rejects_is_split_until_each_part_fits
                 assets: Some(&assets),
                 long_context: crate::judgment::LongContext::Never,
                 companions: 0,
+                cap: None,
             },
             None,
             &budget,
@@ -473,6 +478,7 @@ async fn a_refused_image_group_is_answered_per_question_in_the_default_window() 
                 assets: Some(&assets),
                 long_context: crate::judgment::LongContext::OnRefusal,
                 companions: 0,
+                cap: None,
             },
             None,
             &budget,

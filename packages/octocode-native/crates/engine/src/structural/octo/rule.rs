@@ -353,5 +353,15 @@ pub(super) struct Document<'a, 't> {
     pub(super) deadline: super::Deadline,
     /// The tree every relation reads, macro bodies expanded.
     pub(super) tree: &'t ExpandedTree<'t>,
-    pub(super) line_index: &'a crate::text::LineIndex,
+    /// The content's line index, built when a column is first needed: most
+    /// parsed files hold no match and need none.
+    pub(super) line_index: &'a std::cell::OnceCell<crate::text::LineIndex>,
+}
+
+impl Document<'_, '_> {
+    /// The content's line index ([`Self::line_index`]), built on first use.
+    pub(super) fn lines(&self) -> &crate::text::LineIndex {
+        self.line_index
+            .get_or_init(|| crate::text::LineIndex::tree_sitter(self.content))
+    }
 }

@@ -182,3 +182,30 @@ async fn a_gem_without_a_release_ref_is_pinned_to_its_upstream_tag() {
         assert!(item.source_tag, "{version:?}");
     }
 }
+
+/// A search summary states no directory, so a row's source link below a ref
+/// asks GitHub nothing (rack's `…/tree/main` link was one commit check per
+/// search page): the registry's one request is the call's. The details view
+/// still places the directory.
+#[tokio::test]
+async fn a_search_summary_asks_github_nothing_for_a_link_directory() {
+    let row = json!([{"name": "rack", "version": "3.1.8",
+        "source_code_uri": "https://github.com/rack/rack/tree/main/lib"}]);
+    let http = RouteHttp::new().json("/api/v1/search.json?query=json&page=1", row);
+    let tags = super::super::test_http::KnownTags::new(vec!["rack/rack@main"]);
+    let summary = discovery(ArtifactType::Rubygems, json!({}));
+    let page = super::super::test_http::execute(&http, &summary, Some(&tags))
+        .await
+        .expect("summary page");
+    assert_eq!(page.artifacts.len(), 1);
+    assert!(tags.seen().is_empty(), "{:?}", tags.seen());
+    let details = discovery(ArtifactType::Rubygems, json!({"view": "details"}));
+    let page = super::super::test_http::execute(&http, &details, Some(&tags))
+        .await
+        .expect("details page");
+    assert_eq!(
+        page.artifacts[0].repository_directory.as_deref(),
+        Some("lib")
+    );
+    assert_eq!(tags.seen(), ["rack/rack@main"]);
+}

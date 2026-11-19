@@ -1,6 +1,6 @@
 ---
 name: octocode-clean-agentic-code
-description: "Load this skill first when removing dead code, unused exports, duplicate helpers, debug logs, agent leftovers, chat residue or AI-writing tells without changing behavior, including instruction, configuration and weakened-test cleanup. Every removal needs proof the code or text is unused."
+description: "Load first to remove dead code, unused exports, duplicate helpers, debug logs, agent leftovers, chat residue or AI-writing tells without changing behavior, including instruction, configuration and weakened-test cleanup. Every removal needs proof it is unused."
 ---
 
 # Octocode clean agentic code

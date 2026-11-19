@@ -1,79 +1,81 @@
-# Octocode home, storage and limits
+# Storage and limits
 
-The CLI and MCP use the same Octocode home and default to `storage.mode: "persistent"`. Change the mode to control what survives between calls. Run `octocode config get storage.mode` in the workspace to see the effective value. [Configuration](CONFIGURATION.md)
+The CLI and MCP server share one Octocode home. Its default storage mode is `persistent`, which keeps results between calls. Use `memory` to keep nothing on disk.
 
-## Where everything lives
+```bash
+octocode config get storage.mode
+```
 
-The home defaults to `~/.octocode` on macOS and Linux or `%USERPROFILE%\.octocode` on Windows. Set `OCTOCODE_HOME` to an absolute directory in each CLI, editor, or MCP environment to move it. Give each user a separate home on a shared host. Local tools can read checkouts and materialized outputs from that user's home.
+## Where files live
 
-| Location | What you will find |
+The home is `~/.octocode` on macOS and Linux, or `%USERPROFILE%\.octocode` on Windows. Set `OCTOCODE_HOME` to an absolute path to move it. On a shared host, give each user a separate home.
+
+| Path | Contents |
 |---|---|
-| Home `.octocoderc` and `.env` | User-wide settings and trusted environment fallbacks. The project equivalents live in `.octocode/` under the process working directory. [Configuration precedence](CONFIGURATION.md#where-every-value-comes-from) |
-| Home `credentials.json` and `.key` | Encrypted Octocode GitHub login and its encryption key. Use `octocode auth logout` to remove the stored login. [Authentication](AUTHENTICATION.md) |
-| Home `skills/` | Skills installed by `octocode skill install` and linked into selected agent hosts |
-| Home `clones/` and `clone-store/` | `ghCloneRepo` checkouts and the Git stores that back them. A clean checkout at the resolved commit can be reused after an access check. If it has local changes, Octocode refuses reuse and preserves the worktree. Keep its backing store while using a checkout. |
-| Home `cache/provider-answers-v3/` | Reusable GitHub and package registry responses, separated by origin and credential |
-| Home `tmp/` | Saved response pages, continuation handles, section assessments, LSP answers, graph query rows, GitHub rate-limit state, and clone staging |
-| Home `tmp/materialize-git/` | Throwaway git stores for one `ghStructure` materialize call. [Lifecycle](#materialize-git-store) |
-| Home `tmp/materialize/` (one folder per storage format) and `tmp/capture/url/` | Commit-pinned GitHub files and captured URL or image evidence, respectively. Use the inspection path the tool returns. |
-| Workspace `.octocode/graph/` | Published graph snapshots and `.facts`, each scope's per-file extraction (deflate-compressed, about a tenth of the facts' JSON), kept after a build so the next build of the scope extracts only the files that changed and links all of them again; it lives with the scope's snapshots. Set `local.graphHome` to use `octocode-graph/` under a different directory. |
+| `~/.octocode/.octocoderc` and `.env` | User-wide settings and environment values. A project's equivalents live in `.octocode/` in the working directory. [Where every value comes from](CONFIGURATION.md#where-every-value-comes-from) |
+| `credentials.json` and `.key` | Your encrypted GitHub sign-in and its key. `octocode auth logout` removes them. [Authentication](AUTHENTICATION.md) |
+| `skills/` | Skills from `octocode skill install` |
+| `clones/` and `clone-store/` | Checkouts from `ghCloneRepo` and the Git stores behind them. Keep the store while you use a checkout |
+| `cache/provider-answers-v3/` | Reusable GitHub and registry responses, kept apart by origin and credential |
+| `tmp/` | Saved response pages and continuations, section assessments, LSP answers and graph query rows |
+| `tmp/materialize-git/` | Temporary Git stores for one `ghStructure` materialize call |
+| `.octocode/graph/` in the workspace | Published graph snapshots. Set `local.graphHome` to use another directory |
+
+Captured URL and image evidence and materialized GitHub files are written under the home. Use the path the tool returns.
+
+## Materialize git store
+
+A `ghStructure` materialize call that reads bytes through Git uses a temporary store under `tmp/materialize-git/`. It removes the store when the call finishes, fails or is cancelled. If the process is killed, the next materialize call removes stores whose process is no longer running. [How materialize reads bytes](OCTOCODE_TOOLS.md#ghstructure)
 
 ## Cache storage and lifecycle
 
 | Behavior | `persistent` (default) | `memory` |
 |---|---|---|
-| Response pages, provider answers, and section plans | Saved under the configured home. An eligible cursor can resume from a later process. | Held in the current runtime. Paths and GitHub files can still be read directly. Use a running MCP server for multi-call section plans. |
-| GitHub checkouts and materialized files | `ghCloneRepo` and `ghStructure` can write local outputs. | A request requiring materialization returns `persistentStorageDisabled`. An ordinary file read returns content without a materialized `location.path`. |
-| URL and image captures | Inspectable captures are retained for 24 hours. A fresh URL request fetches again. | Capture requiring persistent storage is unavailable. |
-| Explicit graph builds | Publish snapshots, checkpoint interrupted extraction and keep each file's extraction for the next build. | Publish requested snapshots, with extraction intermediates held in RAM. |
-| Maintenance | A runtime startup checks whether a daily cleanup is due. | Automatic cleanup and disk rate-limit mirrors are disabled. |
+| Response pages, provider answers and section plans | Saved under the home. A later process can resume a cursor | Held in the running process. Multi-call section plans need one running MCP server |
+| GitHub checkouts and materialized files | `ghCloneRepo` and `ghStructure` write local outputs | Materialize requests fail with `persistentStorageDisabled`. A plain file read still returns content, without a `location.path` |
+| URL and image captures | Kept for 24 hours. A new URL request fetches again | Unavailable |
+| Graph builds | Publish snapshots and keep each file's extraction for the next build | Publish requested snapshots. Intermediate data stays in RAM |
 
-To use memory mode for one workspace, put this in its `.octocode/.octocoderc` and restart MCP. To select it for one shell invocation, prefix the command with `OCTOCODE_STORAGE_MODE=memory`. Existing files, installed language servers, and login credentials have their own lifecycle.
+To use memory mode for one workspace, put this in `.octocode/.octocoderc` and restart MCP:
 
 ```json
 {"storage": {"mode": "memory"}}
 ```
 
-### What a repeated request does
+To use it for one command, prefix it with `OCTOCODE_STORAGE_MODE=memory`.
 
-| Evidence | Reuse and freshness |
+## How repeated requests are reused
+
+| Evidence | Reuse |
 |---|---|
-| Local file, AST, or LSP | The runtime can reuse in-memory outlines, parsed declarations, and name mentions when the content matches. Cursor reads refer to the saved snapshot. |
-| GitHub or registry response | An immutable SHA or an unexpired origin-supplied `max-age` can be reused directly. When an entry expires, a validator such as an ETag lets the origin confirm it. An unused answer expires after seven days. |
-| GitHub search or rename | With no origin lifetime, search results and renamed repository routes may be reused for five minutes. `data.observedAt` identifies when a reused result was observed. A multi-section pull request can reuse the lifetime learned from a REST pull-request read for that credential. |
-| GitHub file missing at a commit | A path missing at a verified immutable commit can be cached. A missing repository, ref, or path on a moving branch is checked again. |
-| Sensitive response or advisory | Provider answers containing detected secrets stay in RAM. GitHub applies the configured path policy. OSV sends no lifetime with its advisory lists, so the list for one exact query may be reused for five minutes, like a GitHub search, and `data.observedAt` identifies when a reused list was observed. The records a list names are kept under their id and `modified` time, so a changed record is read again. [Security](SECURITY.md) |
-| Classification | A fresh judgment can cost provider tokens even when the source is cached. Saved result pages replay completed work. [Classification and costs](OCTOCODE_CLASIFY.md#availability) |
+| Local file, syntax tree or LSP answer | Reused while the file content is unchanged |
+| GitHub or registry response | An immutable SHA, or an unexpired `max-age` from the origin, is reused directly. Expired entries are checked with the origin's validator, such as an ETag |
+| Unused saved answer | Expires after 7 days without use |
+| Sensitive response | Answers with detected secrets stay in RAM only |
+| Classification | Each new judgment costs provider tokens, even when the source is cached. Saved result pages replay finished work. [Classification and costs](OCTOCODE_CLASIFY.md#availability) |
+
+`data.observedAt` in a reused result shows when it was first observed.
 
 ### Clear cached work
 
-Stop separate MCP processes, run the following command from the workspace whose graph checkpoints you want to clear, then restart those MCP processes.
+Stop any separate MCP processes first. Then run this from the workspace whose graph checkpoints you want to clear, and restart MCP:
 
 ```bash
 octocode cache clear --json
 ```
 
-The command drains warm CLI servers. Its receipt lists the directories removed from the configured home, including saved pages, provider answers, captures, and materialized files, plus this workspace's extraction checkpoints. Previously issued cursors may expire. Clones and their backing stores, published graphs, credentials, and installed servers survive a cache clear. [CLI cache command](OCTOCODE_CLI.md#clear-tool-caches)
-
-In persistent mode, startup checks for expired entries at most once per 24 hours when the temporary directory exists. It removes aged materialized files under their snapshot locks, old captures, and expired saved work. Clone outputs have no automatic expiry.
-
-## Materialize git store
-
-Each `ghStructure` materialize call that reads bytes through git creates a bare repository at `tmp/materialize-git/<pid>-<nonce>` in the home, fetches the listed blobs into it, and reads them back into the snapshot. The call removes the directory when it succeeds, fails or is cancelled. A killed process can leave one behind; the next materialize call that opens a store removes directories whose process id no longer runs and leaves live ones. The store holds only blobs, is never reused across calls, and is not part of the snapshot. [How materialize reads bytes](OCTOCODE_TOOLS.md#ghstructure)
+The command removes saved pages, provider answers, captures and materialized files in the home, plus this workspace's graph checkpoints. Cursors issued before the clear may expire. Clones, their Git stores, published graphs, credentials and installed language servers survive. [CLI cache command](OCTOCODE_CLI.md#clear-tool-caches)
 
 ## Fixed internal limits
 
-| Resource | Default behavior |
+| Limit | Value |
 |---|---|
-| Response page | The automatic target is 20,000 characters. Set a positive integer `responseChars` on a fresh request to change the target. Follow `responsePagination.next` before tool-level continuations. Indivisible values may exceed the target. [Data contract](TOOL_DATA_CONTRACT.md#executable-continuations) |
-| GitHub and registry HTTP | A connection or read can stall for 30 seconds. A flowing body can take longer. Retryable failures have up to three retries. |
-| Git clone and fetch | Git ends a transfer below one byte per second for 30 seconds. A caller deadline or cancellation can also stop it. |
-| Provider classification and URL capture | No default whole-call time budget. A silent connection can time out after 300 seconds without incoming bytes. |
-| Classification concurrency | Up to 10 in-flight requests to a provider endpoint per process, shared across calls. Throttling reduces concurrency and a provider's `Retry-After` pauses new requests. |
-| Classification page or section batch | About 131,000 characters of evidence and questions, with at least one unit admitted. The next batch covers the remaining units. |
-| Retained work | The RAM budget is one eighth of known host memory, capped at 2 GiB; when host memory cannot be read, it defaults to 512 MiB. Each persistent store directory has a separate byte budget of the same size. |
-| Language-server memory | The default per-server cap is one quarter of host RAM, bounded to 4,096–8,192 MiB. Override with the server's `maxMemoryMb`. |
+| Response page | 20,000 characters by default. Set a positive integer `responseChars` on a new request to change it. Follow `responsePagination.next` before any tool-level continuation. A single value larger than the target can exceed it. [Continuations](TOOL_DATA_CONTRACT.md#executable-continuations) |
+| Network stall | A GitHub or registry request, or a Git transfer, ends after 30 seconds without progress. Git also ends a transfer that stays below one byte per second for 30 seconds |
+| Retries | Up to 3 retries for retryable GitHub and registry failures. Retry-After values are honored |
+| Classification concurrency | Up to 10 requests in flight per process, shared across calls. Throttling lowers this. A provider's `Retry-After` pauses new requests |
+| Classification batch | About 131,000 characters of evidence and questions per batch. Each batch admits at least one unit. The next batch covers the rest |
+| Cancellation | Ctrl-C in the CLI, or an MCP cancellation notification, stops a call |
+| GitHub rate limit | When the core or GraphQL quota is spent, the tool returns `rateLimited` with the reset time and a retry route |
 
-A CLI or MCP tool call has no default wall-clock deadline. A caller can cancel it with CLI Ctrl-C or an MCP cancellation notification. For GitHub, a spent core or GraphQL quota returns `rateLimited` with its reset and retry route. Search quotas and secondary limits can wait until reset or `Retry-After`, subject to the caller's deadline. During long waits, terminal CLI clients get progress on stderr and MCP clients with a progress token receive notifications.
-
-[Documentation hub](README.md)
+Long waits print progress on stderr in the CLI. MCP clients that send a progress token get progress notifications.

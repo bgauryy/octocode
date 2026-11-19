@@ -131,8 +131,8 @@ thread_local! {
 }
 
 /// The time a walk's budget is read by on this thread: the monotonic clock
-/// (or the instant a test froze it at, [`freeze_walk_clock`]), ahead by
-/// whatever a test advanced it ([`advance_walk_clock`]).
+/// (or the instant a test froze it at, `freeze_walk_clock`), ahead by
+/// whatever a test advanced it (`advance_walk_clock`).
 #[must_use]
 pub fn walk_now() -> std::time::Instant {
     let now = std::time::Instant::now();

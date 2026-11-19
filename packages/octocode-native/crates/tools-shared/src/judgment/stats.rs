@@ -26,6 +26,12 @@ pub struct ClassificationUsage {
     /// read's, and the notice says so.
     #[serde(default)]
     pub replay: bool,
+    /// The requests the page's first round was planned as, and the most its
+    /// refusals and re-asks could send, when a planner priced it.
+    #[serde(default)]
+    pub requests_planned: Option<u64>,
+    #[serde(default)]
+    pub requests_ceiling: Option<u64>,
 }
 
 impl ClassificationUsage {
@@ -59,6 +65,8 @@ impl ClassificationUsage {
                 .filter_map(|model| model.parse().ok())
                 .collect(),
             replayed: self.replay.then_some(true),
+            requests_planned: self.requests_planned.map(count),
+            requests_ceiling: self.requests_ceiling.map(count),
         }
     }
 

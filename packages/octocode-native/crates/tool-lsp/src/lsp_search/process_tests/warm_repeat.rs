@@ -55,9 +55,11 @@ process.stdin.on('data', (d) => {
 
 /// A fresh repeat of an incoming TS operation asks the server again, authorizes and reads each snippet
 /// file once per request (however many responses name it), and answers
-/// exactly what the cold call did.
+/// exactly what the cold call did. The cold call opened `c.ts` for importer
+/// recovery, so it asked the anchor once more (TB11: an answer must not
+/// depend on what the server had loaded); the repeat finds it open.
 #[test]
-fn repeated_references_ask_again_and_read_each_file_once() {
+fn repeated_references_ask_again_without_the_cold_retry_and_read_each_file_once() {
     use crate::lsp_search::ops::Operation;
     use crate::lsp_search::source::SourceCache;
     use octocode_engine::lsp::client::{RESPONSE_SCOPE, ResponseScope, SnippetReadPolicy};
@@ -169,9 +171,9 @@ fn repeated_references_ask_again_and_read_each_file_once() {
         let warm = request().await;
         assert_eq!(warm, cold);
         assert_eq!(
-            requests(),
-            2 * cold_requests,
-            "a fresh repeat executes the same provider requests"
+            requests() - cold_requests,
+            cold_requests - 1,
+            "a fresh repeat executes the same provider requests but the cold call's retry"
         );
         assert_eq!(authorized.load(Ordering::SeqCst), 3);
         client.stop().await.expect("fixture server closed");

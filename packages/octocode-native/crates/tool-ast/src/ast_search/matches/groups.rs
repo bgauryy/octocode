@@ -141,13 +141,19 @@ pub(super) fn listed_file(
 fn matched_group(path: String, sizes: Vec<usize>, row_paths: RowPaths<'_>) -> Group {
     Group {
         source_descriptors: Vec::new(),
-        chars: row_paths.chars(&path) + 32,
+        chars: header_chars(&path, row_paths),
         sizes,
         held: None,
         row: json!({"path": path}),
         truncated_captures: false,
         priced: None,
     }
+}
+
+/// What the header of the file shown as `path` adds to each page its
+/// matches are on: its path as delivered and its row's wrapper.
+pub(super) fn header_chars(path: &str, row_paths: RowPaths<'_>) -> usize {
+    row_paths.chars(path) + 32
 }
 
 /// A priced file changed after the scan priced it: its rows can no longer

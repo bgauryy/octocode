@@ -108,7 +108,11 @@ async fn crate_vcs_info_stops_the_download_at_its_entry() {
         let client = RegistryClient::new(&http, &budget);
         assert_eq!(
             crate_vcs(name, "1.0.0", &client).await,
-            Some(("b6a77c4413f902523646be0d7f5520631df53ff6".to_owned(), None))
+            // An empty `path_in_vcs` is the repository's root, stated.
+            Some((
+                "b6a77c4413f902523646be0d7f5520631df53ff6".to_owned(),
+                Some(String::new())
+            ))
         );
         if first {
             assert!(

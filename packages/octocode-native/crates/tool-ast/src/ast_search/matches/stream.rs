@@ -29,32 +29,132 @@ pub(super) struct StreamPage {
     pub(super) pagination: Value,
 }
 
+impl StreamPage {
+    /// This page as a later window's: its offset and total count on after
+    /// the `before` rows the windows before it listed.
+    pub(super) fn count_from(&mut self, before: u64) {
+        let Some(block) = self.pagination.as_object_mut().filter(|_| before > 0) else {
+            return;
+        };
+        for key in ["offset", "total"] {
+            if let Some(count) = block.get(key).and_then(Value::as_u64) {
+                block.insert(key.to_owned(), Value::from(count.saturating_add(before)));
+            }
+        }
+    }
+}
+
 /// A place in the stream: a file's group and a match in it.
 type At = (usize, usize);
+
+/// The page cut, fed one match at a time in stream order: a page closes
+/// before the match that would pass `limit` matches or the `budget`. A
+/// file's header is charged on each page its matches are on.
+struct Cutter {
+    limit: usize,
+    budget: usize,
+    /// Every closed page's first match and the place after its last.
+    pages: Vec<(At, At)>,
+    /// A page spent more than the budget (one match alone outgrows it).
+    oversized: bool,
+    start: At,
+    used: usize,
+    count: usize,
+    /// The file the open page's last match is in.
+    open: Option<usize>,
+}
+
+impl Cutter {
+    fn new(limit: usize, budget: usize) -> Self {
+        Self {
+            limit,
+            budget,
+            pages: Vec::new(),
+            oversized: false,
+            start: (0, 0),
+            used: 0,
+            count: 0,
+            open: None,
+        }
+    }
+
+    /// Match `index` of file `file`, of `size`, whose file's header is
+    /// `header`.
+    fn push(&mut self, (file, index): At, header: usize, size: usize) {
+        let header_on = |open: Option<usize>| if open == Some(file) { 0 } else { header };
+        if self.count > 0
+            && (self.count >= self.limit
+                || self.used.saturating_add(size + header_on(self.open)) > self.budget)
+        {
+            self.pages.push((self.start, (file, index)));
+            self.oversized |= self.used > self.budget;
+            (self.start, self.used, self.count, self.open) = ((file, index), 0, 0, None);
+        }
+        self.used = self.used.saturating_add(size + header_on(self.open));
+        self.count += 1;
+        self.open = Some(file);
+    }
+
+    /// Every page, the open one closed at `end`, the place after the last
+    /// file.
+    fn finish(mut self, end: usize) -> (Vec<(At, At)>, bool) {
+        if self.count > 0 {
+            self.pages.push((self.start, (end, 0)));
+            self.oversized |= self.used > self.budget;
+        }
+        (self.pages, self.oversized)
+    }
+}
 
 /// Every page's first match and the place after its last, and whether a
 /// page spends more than `budget` (one match alone outgrows it).
 fn cut(groups: &[Group], limit: usize, budget: usize) -> (Vec<(At, At)>, bool) {
-    let (mut pages, mut oversized) = (Vec::new(), false);
-    let (mut start, mut used, mut count, mut open) = ((0, 0), 0usize, 0usize, None);
+    let mut cutter = Cutter::new(limit, budget);
     for (file, group) in groups.iter().enumerate() {
         for (index, size) in group.sizes.iter().enumerate() {
-            let header = |open: Option<usize>| if open == Some(file) { 0 } else { group.chars };
-            if count > 0 && (count >= limit || used.saturating_add(size + header(open)) > budget) {
-                pages.push((start, (file, index)));
-                oversized |= used > budget;
-                (start, used, count, open) = ((file, index), 0, 0, None);
-            }
-            used = used.saturating_add(size + header(open));
-            count += 1;
-            open = Some(file);
+            cutter.push((file, index), group.chars, *size);
         }
     }
-    if count > 0 {
-        pages.push((start, (groups.len(), 0)));
-        oversized |= used > budget;
+    cutter.finish(groups.len())
+}
+
+/// The match limit a content page holds (`limit`, else no count bound).
+fn page_limit(q: MatchQuery<'_>) -> usize {
+    q.limit().map_or(usize::MAX, |limit| limit.max(1))
+}
+
+/// What fills a walk-order content page: the cut every page takes
+/// ([`stream_page`]). A scan in walk order lists its files in stream order,
+/// so the files it evaluated so far fill page 1 once a match after page 1's
+/// last exists: the scan can stop there and the files past it are another
+/// window's ([`octocode_engine::structural::StructuralDemand::Paged`]).
+pub(super) struct PageFill {
+    cutter: Cutter,
+    files: usize,
+}
+
+impl PageFill {
+    pub(super) fn of(q: MatchQuery<'_>, budget: usize) -> Self {
+        Self {
+            cutter: Cutter::new(page_limit(q), budget.max(1)),
+            files: 0,
+        }
     }
-    (pages, oversized)
+
+    /// Add the next file with matches: its header and its matches' sizes.
+    pub(super) fn add(&mut self, header: usize, sizes: impl IntoIterator<Item = usize>) {
+        for (index, size) in sizes.into_iter().enumerate() {
+            self.cutter.push((self.files, index), header, size);
+        }
+        self.files += 1;
+    }
+
+    /// Once page 1 is whole and a match follows it: whether that match is
+    /// the first of the file just added, so page 1 needs only the files
+    /// before it.
+    pub(super) fn filled(&self) -> Option<bool> {
+        self.cutter.pages.first().map(|(_, (_, index))| *index == 0)
+    }
 }
 
 /// Page `q.page()` of the matches `groups` hold (of their files, in the file
@@ -75,8 +175,7 @@ pub(super) fn stream_page(q: MatchQuery<'_>, groups: &[Group], budget: usize) ->
             pagination: cut.facts.with_unit("files").to_value(),
         };
     }
-    let limit = q.limit().map_or(usize::MAX, |limit| limit.max(1));
-    let (cuts, oversized) = cut(groups, limit, budget.max(1));
+    let (cuts, oversized) = cut(groups, page_limit(q), budget.max(1));
     let pages = cuts.len().max(1);
     let total = groups.iter().map(|group| group.sizes.len()).sum::<usize>();
     let more = page < pages;

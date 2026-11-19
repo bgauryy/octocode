@@ -51,6 +51,7 @@ async fn answer(http: &RouteHttp, query: Value) -> Result<Value, ArtifactError> 
             config: &default_config(),
             github: None,
             osv_api: octocode_runtime_base::execution::RuntimeLimits::DEFAULT.osv_api,
+            share: &crate::artifact::CallShare::new(),
         },
     )
     .await
@@ -876,6 +877,39 @@ async fn a_release_is_sent_as_the_ecosystem_and_the_rows_keep_only_that_release(
     assert_eq!(data["registryConfirmed"], false);
 }
 
+/// Without `release`, OSV's answer for a distribution counts what every
+/// release lists for the version: the row warns and names the field that
+/// narrows it to one release. With a release, no such warning.
+#[tokio::test]
+async fn a_distribution_check_without_release_warns_that_releases_are_mixed() {
+    let http = RouteHttp::new().osv_pages(vec![(
+        200,
+        json!({"vulns": [debian_record("DSA-1", &["12", "11"])]}),
+    )]);
+    let data = answer(&http, debian(None, Some("3.0.8-1")))
+        .await
+        .expect("row");
+    assert!(
+        data["warnings"]
+            .to_string()
+            .contains("No release was given"),
+        "{data}"
+    );
+    let http = RouteHttp::new().osv_pages(vec![(
+        200,
+        json!({"vulns": [debian_record("DSA-1", &["12"])]}),
+    )]);
+    let data = answer(&http, debian(Some("12"), Some("3.0.8-1")))
+        .await
+        .expect("row");
+    assert!(
+        !data["warnings"]
+            .to_string()
+            .contains("No release was given"),
+        "{data}"
+    );
+}
+
 #[tokio::test]
 async fn a_release_osv_does_not_know_is_disclosed_not_none_known() {
     let http = RouteHttp::new().osv_pages(vec![(200, json!({}))]);
@@ -1361,7 +1395,12 @@ async fn a_github_actions_version_is_compared_with_the_records_ranges() {
     );
     let said = data["answer"].as_str().expect("answer");
     assert!(said.contains("compared with the version here"), "{said}");
-    assert!(said.contains("Not registry-confirmed"), "{said}");
+    assert!(
+        data["warnings"]
+            .to_string()
+            .contains("Not registry-confirmed"),
+        "{data}"
+    );
     let (data, _) = actions("45.0.0", records()).await;
     assert_eq!(
         data["advisories"].as_array().expect("list").len(),
@@ -1392,10 +1431,11 @@ async fn a_record_that_cannot_be_compared_is_listed_not_claimed() {
     assert!(data.get("cves").is_none(), "{data}");
 }
 
-/// No registry reads this ecosystem: the answer says the name was not confirmed,
-/// whether or not anything was found.
+/// No registry reads this ecosystem: a warning says the name was not
+/// confirmed, whether or not anything was found. It names no package, so a
+/// batch of such rows states it once; the answer leaves it to the warning.
 #[tokio::test]
-async fn an_unconfirmed_name_is_said_in_the_answer() {
+async fn an_unconfirmed_name_is_said_in_a_warning() {
     for vulns in [json!([]), json_fixture(r#"[{"id": "GHSA-1"}]"#)] {
         let http = RouteHttp::new().osv_pages(vec![(200, json!({ "vulns": vulns }))]);
         let data = answer(
@@ -1413,7 +1453,16 @@ async fn an_unconfirmed_name_is_said_in_the_answer() {
         .expect("row");
         assert_eq!(data["registryConfirmed"], false);
         let said = data["answer"].as_str().expect("answer");
-        assert!(said.contains("Not registry-confirmed"), "{said}");
+        assert!(!said.contains("Not registry-confirmed"), "{said}");
+        let warned = data["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .filter(|warning| warning.starts_with("Not registry-confirmed"))
+            .collect::<Vec<_>>();
+        assert_eq!(warned.len(), 1, "{data}");
+        assert!(!warned[0].contains("phoenix"), "{data}");
     }
 }
 

@@ -309,10 +309,11 @@ async fn handle_progress(mut params: Value, shared: &Shared, progress: &Progress
     }
 }
 
-/// Record whether the server (un)registered for
-/// `workspace/didChangeWatchedFiles`: the client then sends file events
-/// for files the server has not opened (see
-/// `NativeLspClient::sync_watched_files`).
+/// Record the server's `workspace/didChangeWatchedFiles` registrations by
+/// id: while any is live the client sends file events for files the server
+/// has not opened (see `NativeLspClient::sync_watched_files`). A server may
+/// hold several and drop one (`client/unregisterCapability` names its id;
+/// the field is spelled `unregisterations` in the protocol).
 fn note_watch_registration(method: &str, params: Option<&Value>, shared: &Shared) {
     const WATCHED_FILES: &str = "workspace/didChangeWatchedFiles";
     let (key, registers) = match method {
@@ -320,15 +321,27 @@ fn note_watch_registration(method: &str, params: Option<&Value>, shared: &Shared
         "client/unregisterCapability" => ("unregisterations", false),
         _ => return,
     };
-    let named = params
+    let ids = params
         .and_then(|params| params.get(key))
         .and_then(Value::as_array)
-        .is_some_and(|items| {
-            items
-                .iter()
-                .any(|item| item.get("method").and_then(Value::as_str) == Some(WATCHED_FILES))
+        .into_iter()
+        .flatten()
+        .filter(|item| item.get("method").and_then(Value::as_str) == Some(WATCHED_FILES))
+        .map(|item| {
+            item.get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned()
         });
-    if named {
-        shared.watches_files.store(registers, Ordering::Release);
+    let mut watches = shared
+        .file_watches
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    for id in ids {
+        if registers {
+            watches.insert(id);
+        } else {
+            watches.remove(&id);
+        }
     }
 }

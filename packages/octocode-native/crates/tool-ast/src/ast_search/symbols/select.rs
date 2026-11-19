@@ -4,7 +4,6 @@ use super::names::{NameFilter, names_match, row_names};
 use super::outline::{Outline, OutlineFile};
 use super::rows::row_sizes;
 use octocode_contract_types::AstSearchQuerySymbols;
-use octocode_contract_types::SkippedPathCause;
 use octocode_engine::graph::{GraphFactCode, GraphFactDiagnostic};
 use octocode_runtime_base::execution::cancel::CancellationCheck;
 use octocode_runtime_base::id::ToolId;
@@ -28,9 +27,7 @@ pub(super) fn select(
         scan_resume,
         skipped,
         mut diagnostics,
-        withheld,
-        artifacts,
-        pruned,
+        walk_skips,
         walk_errors,
         test_code_excluded,
         test_code_unread,
@@ -149,17 +146,7 @@ pub(super) fn select(
         recovered,
         // One counted entry per cause and rule, as every local walk states it.
         skipped_paths: skipped::skipped_paths(
-            skipped::under(canonical, SkippedPathCause::DefaultExcluded, &pruned)
-                .chain(skipped::under(
-                    canonical,
-                    SkippedPathCause::OctocodeArtifact,
-                    &artifacts,
-                ))
-                .chain(skipped::unlifted(
-                    &canonical.to_string_lossy(),
-                    &withheld,
-                    walk_errors.into(),
-                )),
+            skipped::ledger_entries(canonical, &walk_skips, walk_errors.into()),
             false,
             truncated,
         )?,

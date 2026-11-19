@@ -5,7 +5,9 @@ use crate::runtime::row_indices::RowOrigin;
 use octocode_runtime_base::contracts;
 use octocode_runtime_base::execution::{ExecutionContext, ExecutionError};
 use octocode_runtime_base::response::pager::continuing_block_chars as page_block_chars;
-use octocode_runtime_base::response::{continuations, cursor::Cursor, outcome::ToolOutcome};
+use octocode_runtime_base::response::{
+    continuations, cursor::Cursor, outcome::ToolOutcome, read_share,
+};
 use octocode_runtime_base::security::Sanitized;
 use octocode_tools_shared::selection::{RecoveryLead, recovery_lead};
 use serde_json::{Value, json};
@@ -119,10 +121,11 @@ impl ChannelRun {
         pending: &mut Pending,
     ) -> Result<(), contracts::ContractValidationError> {
         self.settle_unsaved_leads(structured)?;
-        continuations::finalize(
+        continuations::finalize_with(
             structured,
             self.id,
             scope,
+            &crate::runtime::engine::admission::checked::checked_input,
             &mut |target, mut input, origin| {
                 if input.get("responseChars").is_none()
                     && let Some(chars) = self.response_query.get("responseChars")
@@ -184,25 +187,36 @@ impl ChannelRun {
     /// response) moves too, with every other walk. A section's own walk
     /// (`next.<section>`) continues that section alone: it stays on its row,
     /// and a split row places it on the row's last part (`row_pages`,
-    /// `take_enclosing_walks`).
+    /// `take_enclosing_walks`). Rows that fill the response page together
+    /// ([`read_share::fill_together`]) continue together: when two or more
+    /// of them read on, one call continues them all and fills its page
+    /// again, so the rest of a batch never costs a call per row.
+    ///
+    /// `true` when it measured the envelope and left it as it is because it
+    /// fits one page, so the stage need not measure it again
+    /// ([`octocode_runtime_base::response::page_model::ResponsePageOptions::fits_page`]).
     pub(super) fn hoist_walks(
         &self,
         structured: &mut Sanitized,
         pending: &mut Pending,
         continues_page: bool,
-    ) -> Result<(), contracts::ContractValidationError> {
+    ) -> Result<bool, contracts::ContractValidationError> {
         let mut walks = continuations::linear_walks(self.id, structured)?;
         walks.retain(|walk| {
             walk.last()
                 .is_some_and(|name| name == continuations::LINEAR_WALK)
         });
-        if !continues_page {
+        let together = read_share::fill_together(self.id) && walks.len() > 1;
+        if !continues_page && !together {
             let budget = self
                 .options
                 .response_chars
                 .unwrap_or(self.output.auto_page_chars);
-            if budget == 0 || !self.options.pages(structured, self.output.auto_page_chars) {
-                return Ok(());
+            if budget == 0 {
+                return Ok(false);
+            }
+            if !self.options.pages(structured, self.output.auto_page_chars) {
+                return Ok(true);
             }
             let split = split_rows(structured, budget.saturating_sub(page_block_chars(self.id)));
             walks.retain(|walk| {
@@ -213,15 +227,15 @@ impl ChannelRun {
         }
         let handles = continuations::walk_handles(structured, &walks);
         if handles.is_empty() {
-            return Ok(());
+            return Ok(false);
         }
         let Some(token) = pending.walk_handle(self.id, &handles) else {
-            return Ok(());
+            return Ok(false);
         };
         structured.edit(|output| {
             continuations::hoist(output, &walks, self.id, &token);
         });
-        Ok(())
+        Ok(false)
     }
 
     /// Every read of a section plan restarts its idle lifetime: a page read
@@ -318,7 +332,8 @@ fn fresh_whole_read(call: &Value) -> Option<Value> {
     for row in input.get_mut("queries")?.as_array_mut()? {
         *row = octocode_runtime_base::response::result::fresh_query_row(target, row);
     }
-    let mut checked = continuations::checked_input(target, true, &input).ok()?;
+    let mut checked =
+        crate::runtime::engine::admission::checked::checked_input(target, true, &input).ok()?;
     // Validation fills in the contract defaults; a call states none.
     for row in checked.get_mut("queries")?.as_array_mut()? {
         octocode_runtime_base::response::result::canonical_row(target, row);

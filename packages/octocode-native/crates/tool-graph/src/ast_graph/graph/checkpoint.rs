@@ -511,7 +511,7 @@ pub(in crate::ast_graph) fn prune_jobs(base: &Path, published: Published<'_>) ->
     prune_jobs_of(base, published, None)
 }
 
-/// [`prune_jobs`], counting the bytes kept only of the jobs that extract
+/// `prune_jobs`, counting the bytes kept only of the jobs that extract
 /// `root` when it is given: the home holds the jobs of every root built
 /// there, and one build's receipt states its own.
 pub(in crate::ast_graph) fn prune_jobs_of(
@@ -548,7 +548,7 @@ pub(in crate::ast_graph) fn prune_jobs_of(
     kept
 }
 
-/// [`prune_jobs`] for the job at `dir`: the unfinished bytes it keeps, 0
+/// `prune_jobs` for the job at `dir`: the unfinished bytes it keeps, 0
 /// once removed or when it is a settled cache.
 fn prune_job(dir: &Path, published: Published<'_>) -> u64 {
     let bytes = std::fs::read_dir(dir)

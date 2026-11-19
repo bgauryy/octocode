@@ -1,6 +1,6 @@
 ---
 name: octocode-agentic
-description: "Load this skill first when designing, reviewing, debugging or evaluating an AI agent or LLM system: prompts, context and memory, tool and MCP contracts, model choice, delegation, guardrails, evals or skill activation tests. Includes communication setup; use octocode-orchestrator to coordinate agents during a task."
+description: "Load first to design, review, debug or evaluate AI agents or LLM systems: prompts, context, memory, tool and MCP contracts, model choice, delegation, guardrails, evals, skill activation tests, communication setup. Live coordination: octocode-orchestrator."
 metadata:
   excluded-hosts: "octocode-code"
 ---

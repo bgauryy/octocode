@@ -19,6 +19,40 @@ pub(super) fn holds(needle: Option<&Matcher>, entry: &Value) -> bool {
     })
 }
 
+/// Whether a read keeps a provider entry: its body holds the needle, and,
+/// when the read leaves bots out (`bots:false`), a person wrote it.
+pub(super) fn keeps(needle: Option<&Matcher>, humans: bool, entry: &Value) -> bool {
+    holds(needle, entry) && !(humans && super::util::is_bot(entry))
+}
+
+/// The entries of one load a person wrote, when the read leaves bots out
+/// (`humans`); the disclosure of those it left out joins `warnings`. A scan
+/// that stopped early counts only the entries it listed.
+pub(super) fn humans_only(
+    entries: Vec<Value>,
+    humans: bool,
+    exhausted: bool,
+    noun: &str,
+    warnings: &mut Vec<String>,
+) -> Vec<Value> {
+    if !humans {
+        return entries;
+    }
+    let listed = entries.len();
+    let kept = entries
+        .into_iter()
+        .filter(|entry| !super::util::is_bot(entry))
+        .collect::<Vec<_>>();
+    let dropped = listed - kept.len();
+    if dropped > 0 {
+        let scanned = if exhausted { "" } else { " scanned so far" };
+        warnings.push(format!(
+            "bots:false left out {dropped} of {listed} {noun}{scanned} that a bot or app wrote."
+        ));
+    }
+    kept
+}
+
 /// What a `matchString` left of the entries one load listed.
 pub(super) struct Kept {
     pub(super) entries: Vec<Value>,
@@ -73,10 +107,18 @@ impl Kept {
 pub(super) fn keep_loaded(
     loaded: Option<Loaded>,
     needle: Option<&Matcher>,
+    humans: bool,
     noun: &str,
     warnings: &mut Vec<String>,
 ) -> Option<Loaded> {
     let mut loaded = loaded?;
+    loaded.items = humans_only(
+        std::mem::take(&mut loaded.items),
+        humans,
+        loaded.state.exhausted,
+        noun,
+        warnings,
+    );
     if needle.is_none() {
         return Some(loaded);
     }

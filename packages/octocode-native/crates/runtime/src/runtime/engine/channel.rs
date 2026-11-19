@@ -260,9 +260,10 @@ impl ChannelRun {
         }
         let call_notes = said.take();
         structured.edit(|output| crate::runtime::row_indices::inherit(output, &self.origin));
-        if let Err(error) = self.hoist_walks(&mut structured, &mut pending, continues_page) {
-            return Ok(Rows::Answered(Err(error)));
-        }
+        let fits_page = match self.hoist_walks(&mut structured, &mut pending, continues_page) {
+            Ok(fits_page) => fits_page,
+            Err(error) => return Ok(Rows::Answered(Err(error))),
+        };
         if let Some(cursor) = &self.pinned
             && octocode_runtime_base::response::pager::content_snapshot(
                 &structured,
@@ -277,7 +278,10 @@ impl ChannelRun {
             failure,
         };
         let mut rejected_rows = Vec::new();
-        if !rejected_at.is_empty() && self.options.pages(&structured, self.output.auto_page_chars) {
+        if !rejected_at.is_empty()
+            && !fits_page
+            && self.options.pages(&structured, self.output.auto_page_chars)
+        {
             rejected_rows = structured.edit(|structured| {
                 crate::runtime::row_indices::split_rejected(structured, &rejected_at)
             });
@@ -289,7 +293,7 @@ impl ChannelRun {
                 paging,
             },
             seed,
-        ) = self.respond_settled(&settled, structured, context)?;
+        ) = self.respond_settled(&settled, structured, fits_page, context)?;
         if let Ok(outcome) = &mut finished {
             if let Some(seed) = seed {
                 self.remember_page(outcome, &mut next, seed, !pending.is_empty(), context)?;
@@ -356,19 +360,22 @@ impl ChannelRun {
     }
 
     /// Respond over a settled envelope; the stage keeps a copy of it (the
-    /// replay seed) only when the response windows.
+    /// replay seed) only when the response windows. `fits_page`: the
+    /// envelope was measured as it is and fits one page.
     fn respond_settled(
         &self,
         settled: &Settled<'_>,
         structured: Sanitized,
+        fits_page: bool,
         context: &ExecutionContext,
     ) -> Result<(stage::Staged, Option<PageReplay>), ExecutionError> {
         let pages = octocode_runtime_base::response::pager::SavedPages::default();
         let mut kept = None;
-        let stage = stage::StageInput {
+        let mut stage = stage::StageInput {
             failure: settled.failure,
             ..self.stage(structured, true)
         };
+        stage.options.fits_page = fits_page;
         let finished = stage::respond(stage, Some(&mut kept), context)?;
         let seed = kept.map(|structured| PageReplay {
             access: self.access,

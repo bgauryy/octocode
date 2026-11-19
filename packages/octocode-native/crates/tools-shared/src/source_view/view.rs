@@ -17,7 +17,7 @@ mod warnings;
 
 use classified::{SelectionInput, refused_selection_input, select_no_match, select_view_chunks};
 use page::{cut_page, page_result};
-use select::select_view;
+use select::{Minified, Refused, select_view};
 
 pub use classified::unsupported_selection;
 
@@ -136,7 +136,10 @@ pub fn process_fetched_content_selected<S: ContentScan>(
     }
     let mut view = match select_view(q, &mut ext, &source.text, cancel) {
         Ok(view) => view,
-        Err(reason) => return no_outline(q, reason, source.total_lines),
+        Err(Refused::NoOutline(reason)) => return no_outline(q, reason, source.total_lines),
+        Err(Refused::Minified(minified)) => {
+            return minified_text(q, minified, source.total_lines);
+        }
     };
     let selection_outcome = match select_view_chunks(
         &selection_input,
@@ -318,6 +321,27 @@ fn no_outline(q: &LocalFetchQuery, reason: String, total_lines: usize) -> LocalF
         read: Some(FetchCall::related(read)),
         ..NextCalls::default()
     });
+    result
+}
+
+/// The row of a compact or symbols read of minified text: neither view is
+/// made (an outline would list minifier names, a compact layout keeps
+/// nearly every byte, and both cost a parse), and the read that answers is
+/// a `matchString` selection, each match with its window.
+fn minified_text(q: &LocalFetchQuery, minified: Minified, total_lines: usize) -> LocalFetchResult {
+    let view = match local_fetch_query::view(q) {
+        ReadView::Symbols => "symbols",
+        _ => "compact",
+    };
+    let Minified { lines, average } = minified;
+    let mut result = LocalFetchResult::error(
+        local_fetch_query::path(q).to_owned(),
+        ErrorCode::LargeSourceWindowOnly,
+        format!(
+            "Minified text: {lines} line(s) averaging {average} bytes, so no {view} view is made. Select what you need with matchString, which returns each match with its window."
+        ),
+    );
+    result.total_lines = Some(total_lines);
     result
 }
 

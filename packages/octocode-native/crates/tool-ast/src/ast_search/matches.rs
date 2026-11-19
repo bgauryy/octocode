@@ -23,7 +23,18 @@ fn file_list(q: MatchQuery<'_>) -> bool {
 
 /// The size a match's row adds to its page.
 fn row_chars(row: &MatchRow) -> usize {
-    octocode_engine::json_size::utf16_units(&row.value).unwrap_or(0) + 1
+    stated_chars(row.value.clone())
+}
+
+/// The size of a match row `value` as the response states it: without the
+/// values the hoist stage omits ([`octocode_runtime_base::response::hoist::apply_at`]).
+fn stated_chars(mut value: Value) -> usize {
+    octocode_runtime_base::response::hoist::apply_at(
+        ToolId::AstSearch,
+        "/data/files/*/matches/*",
+        &mut value,
+    );
+    octocode_engine::json_size::utf16_units(&value).unwrap_or(0) + 1
 }
 
 /// A match's row under `q`'s row shape.
@@ -41,20 +52,22 @@ fn match_price(
     m: &StructuralDetailedMatch,
     cancel: &dyn CancellationCheck,
 ) -> Result<u32, ToolError> {
-    Ok(saturating_u32(row_chars(&match_row(q, m, cancel)?)))
+    Ok(saturating_u32(stated_chars(match_row(q, m, cancel)?.value)))
 }
 
 /// What a directory scan keeps of each match: a file view needs only the
 /// counts; a match view prices every row (pages are cut from the prices)
-/// and rebuilds only the rows of the page it shows.
+/// and rebuilds only the rows of the page it shows, and with `filled` stops
+/// once its page fills ([`scan::Keeps::Page`]).
 fn demand<'a>(
     q: MatchQuery<'_>,
     price: &'a (dyn Fn(&StructuralDetailedMatch) -> u32 + Sync),
+    filled: Option<&'a octocode_engine::structural::PageFilled<'a>>,
 ) -> StructuralDemand<'a> {
-    if file_list(q) {
-        StructuralDemand::Count
-    } else {
-        StructuralDemand::Priced(price)
+    match filled {
+        _ if file_list(q) => StructuralDemand::Count,
+        Some(filled) => StructuralDemand::Paged(price, filled),
+        None => StructuralDemand::Priced(price),
     }
 }
 
@@ -72,8 +85,9 @@ pub fn execute_match(
 /// A window past the first whose candidates before it are not the ones the
 /// windows before it evaluated: its `scanOffset` counts other files.
 fn window_moved(q: MatchQuery<'_>, scan: &types::Scan) -> bool {
-    q.snapshot()
-        .is_some_and(|pin| q.scan_offset() > 0 && scan.listed_before.as_ref() != Some(&pin))
+    q.snapshot().is_some_and(|pin| {
+        q.scan_offset() > 0 && scan.listed_before.as_deref() != Some(snapshot::uncounted(&pin).0)
+    })
 }
 
 /// What a fresh scan of a row's window answers.
@@ -97,13 +111,13 @@ fn fresh_window(
     scope: &types::Scope,
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
-    continues: bool,
+    (continues, budget): (bool, usize),
 ) -> Result<Fresh, ToolError> {
     let ranked = !scope.is_file && standing::ranks_whole_scope(q);
     let (mut scan, mut started) = if continues && ranked {
         standing::rescan(q, scope, paths, cancel)?
     } else {
-        fresh_scan(q, scope, paths, cancel)?
+        fresh_scan(q, scope, paths, cancel, budget)?
     };
     let moved = || {
         Fresh::Answered(octocode_runtime_base::response::result::stale_snapshot(
@@ -146,6 +160,7 @@ fn run_match_under(
     cancel.check().map_err(ToolError::cancelled)?;
     let scope = resolve_scope(q, paths, cancel)?;
     let continues = q.page() > 1;
+    let budget = octocode_runtime_base::response::page_windows::page_budget(response_window);
     let key = scan_key(q, paths);
     // A continuation page reuses the scan its first page stored when nothing
     // it read changed; the snapshot below still decides whether it serves.
@@ -158,7 +173,7 @@ fn run_match_under(
     let from_start;
     let (q, scan, started) = match stored {
         Some(scan) => (q, scan, octocode_engine::stamp::settle_clock()),
-        None => match fresh_window(q, &scope, paths, cancel, continues)? {
+        None => match fresh_window(q, &scope, paths, cancel, (continues, budget))? {
             Fresh::Answered(out) => return Ok(out),
             Fresh::Scanned(whole, scan, started) => {
                 from_start = whole;
@@ -169,7 +184,7 @@ fn run_match_under(
     };
     let mut scope = scope;
     let grammars = compile_in_grammars(q, &scope, &scan);
-    scope.inferred = infer_grammar(q, &scope, &scan, &grammars, paths, cancel)?;
+    scope.inferred = infer_grammar(q, &scope, &scan, &grammars)?;
     // The parsers the walk read files with, in a grammar the query compiles in.
     scope.compiled = scan
         .census
@@ -182,7 +197,10 @@ fn run_match_under(
         .cloned()
         .collect();
     let inapplicable = Inapplicable::of(q, &scan);
-    let snapshot = match_snapshot_under(build, q, &scope, &scan);
+    // A later window's pages carry the rows before it, so they count on
+    // from there.
+    let before = snapshot::listed_before(q);
+    let snapshot = snapshot::counted(match_snapshot_under(build, q, &scope, &scan), before);
     // A page number without a snapshot asks for that page of a fresh scan;
     // only a snapshot that no longer matches is stale.
     if continues && q.snapshot().is_some_and(|given| given != snapshot) {
@@ -205,7 +223,6 @@ fn run_match_under(
             ),
         ));
     }
-    let budget = octocode_runtime_base::response::page_windows::page_budget(response_window);
     let row_paths = super::RowPaths::new(paths, &scope.canonical, scope.is_file);
     let mut grouped = group_files(q, &scan.files, row_paths, cancel)?;
     grouped.skipped_grammars = inapplicable.counts();
@@ -217,7 +234,8 @@ fn run_match_under(
     grouped.recovered_bodies = grouped
         .recovered_bodies
         .respelled(|shown| row_paths.delivered(shown));
-    let page = stream::stream_page(q, &grouped.groups, budget);
+    let mut page = stream::stream_page(q, &grouped.groups, budget);
+    page.count_from(before);
     let rows = page_rows::PageRows {
         snapshot: &snapshot,
         key: &key,
@@ -256,16 +274,19 @@ fn run_match_under(
     // A window with no rows and no continuation states absence, so it names the
     // skipped walks though the scan's first page already did.
     let states_absence = grouped.groups.is_empty() && !scan.truncated;
-    let gaps = if scope.is_file {
+    // Only an empty scan offers what lies beyond it: a page with matches
+    // already answers, and its skipped paths stay counted in `skippedPaths`.
+    let gaps = if scope.is_file || grouped.total_matches > 0 {
         ScopeGaps::default()
-    } else if grouped.total_matches == 0 && grouped.parsed_files == 0 && q.language().is_some() {
-        ScopeGaps::of(q, &scope, &scan, paths, states_absence, cancel)
     } else {
-        // Files of the grammar behind skipped paths are still a reason,
-        // beside the pattern's shape or the matches found: whether or not
-        // the scan parsed any, and whether one language or each file's own
-        // grammar selected them.
-        ScopeGaps::beside_parsed(q, &scope, paths, states_absence, cancel)
+        let other_language = grouped.parsed_files == 0 && q.language().is_some();
+        ScopeGaps::of(
+            q,
+            (&scope, &scan),
+            paths,
+            (states_absence, other_language),
+            cancel,
+        )
     };
     let qualified = qualified_miss(q, &scope, &scan, (paths, row_paths), cancel);
     let exact_miss_scope = grouped.total_matches == 0
@@ -380,6 +401,7 @@ mod render;
 mod rows;
 mod scan;
 mod scope;
+mod shared_scope;
 mod snapshot;
 mod standing;
 mod stream;
@@ -414,6 +436,9 @@ mod demand_tests;
 
 #[cfg(test)]
 mod page_rows_tests;
+
+#[cfg(test)]
+mod paged_window_tests;
 
 #[cfg(test)]
 mod unsaid_tests;

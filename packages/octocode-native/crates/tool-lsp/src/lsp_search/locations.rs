@@ -262,6 +262,8 @@ async fn location_page(
     // Placeholders the judged sources put in this page's quoted lines.
     let mut redacted = 0;
     let (key, rows) = if grouped {
+        // Grouped by directory once the row is judged (`render::served_forms`);
+        // a page counts its file summaries.
         ("files", json!(page))
     } else {
         // Context lines are read for this page only, not the whole set.

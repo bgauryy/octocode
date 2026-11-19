@@ -225,6 +225,8 @@ pub(super) fn net<'a>(
         config,
         github: Some(github),
         osv_api: octocode_runtime_base::execution::RuntimeLimits::DEFAULT.osv_api,
+        // Each net is a row of its own call.
+        share: Box::leak(Box::new(crate::artifact::CallShare::new())),
     }
 }
 

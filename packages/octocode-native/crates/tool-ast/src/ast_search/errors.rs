@@ -34,25 +34,13 @@ fn path_not_found(path: &str) -> ToolError {
 /// An engine error as a tool error: the engine's typed kind names its code
 /// (never the message text).
 pub(super) fn native_error(error: octocode_engine::error::Error) -> ToolError {
-    use octocode_engine::error::ErrorKind;
-    let message = error.to_string();
-    let code = match error.kind() {
-        ErrorKind::NotFound => {
-            return ToolError::new(
-                ErrorCode::NotFound,
-                format!("Path does not exist ({message})"),
-            );
-        }
-        ErrorKind::PermissionDenied => ErrorCode::PermissionDenied,
-        ErrorKind::InvalidPattern => ErrorCode::InvalidPattern,
-        ErrorKind::InvalidGlob => ErrorCode::InvalidGlob,
-        ErrorKind::InvalidInput => ErrorCode::InvalidInput,
-        ErrorKind::Timeout => ErrorCode::Timeout,
-        ErrorKind::Cancelled => ErrorCode::Cancelled,
-        ErrorKind::SourceCorrespondence(error) => return ToolError::source(*error.clone()),
-        _ => ErrorCode::ExecutionFailed,
-    };
-    ToolError::new(code, message)
+    if matches!(error.kind(), octocode_engine::error::ErrorKind::NotFound) {
+        return ToolError::new(
+            ErrorCode::NotFound,
+            format!("Path does not exist ({error})"),
+        );
+    }
+    ToolError::engine(&error)
 }
 
 /// The declared `errorCode` of an engine diagnostic code (`structural.…` or

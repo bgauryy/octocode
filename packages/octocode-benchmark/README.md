@@ -196,7 +196,22 @@ Raw data: `results/github30-v20-2026-10-29/timing/v18-vs-v20.json` and `v18-vs-v
 
 ### Classification
 
-Main-agent token savings per task are owned by the [classification guide](../../docs/OCTOCODE_CLASIFY.md#main-agent-tokens-with-and-without-jev).
+#### Main-agent tokens with and without Jev
+
+These historical single runs on November 3, 2026 estimated main-agent tokens from response characters divided by four. Jev tokens came from provider usage. The comparison measured returned context, with no end-to-end latency or price measurement.
+
+| Task | Baseline main-agent tokens | With Jev | Jev tokens |
+|---|---:|---:|---:|
+| Filter three questions over 28 local guides | 6.8k, exact search hits | 4.0k, inline selection | 23k |
+| Filter three questions over 30 Vite files | 4.7k, GitHub search | 2.4k, inline selection | 12k |
+| Filter three questions over 100 Java files | 26.8k, exact hits, or 2.2k for filenames alone | 4.1k, inline selection | 131k |
+| Locate passages across 30 Vite files | 98.6k, read every file | 15.6k, `sections` | 134k |
+| Locate passages across 100 Java files | 137.8k, read every file | 36.8k, `sections` | 156k |
+| Check one literal in a small file | 0.09k, direct read | 0.07k, `evaluate` | 3.2k |
+
+The Java corpus had 26 known matching files. Section assessment found 25 with two extra candidates. Filtering just the search hits found 14. Exact filename search used the least context when only filenames were needed.
+
+A row for one named fact in a large document was withdrawn: its source document has changed since, and a later re-check found that the reported `evaluate` size came from four questions, not one. To measure it again, sum the response characters of every page of a whole read (`octocode localFetch '{"queries":[{"path":"<document>"}]}'`, following `responsePagination.next`) and compare them with the response characters of one `evaluate` question on the same `localFetch` source, as in the [classification guide](../../docs/OCTOCODE_CLASIFY.md); take Jev tokens from that call's provider usage. Each `evaluate` is billed.
 
 Offering it is not the same as using it. In a paired run over 40 local and 30 GitHub questions (2026-10-13, `gpt-5.6-terra`), agents made no `clasify` or goal calls in the enabled arm, so no general saving appeared: enabled ÷ disabled character ratios were 1.009 (95% CI 0.885–1.137) locally and 1.041 (0.923–1.179) on GitHub.
 

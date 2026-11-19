@@ -4,7 +4,8 @@ use super::{Row, RowOutcome, Target};
 use octocode_contract_types::ErrorCode;
 use octocode_runtime_base::execution::ExecutionContext;
 use octocode_tools_shared::judgment::{
-    ClassificationError, EvaluationInput, Evaluator, Judged, LongContext, shared::Evaluations,
+    ClassificationError, EvaluationInput, Evaluator, Judged, LongContext, RequestCap,
+    shared::Evaluations,
 };
 use octocode_tools_shared::source_capture::{self, Captured, SourceReader};
 
@@ -14,6 +15,7 @@ fn rejected(error: ClassificationError, captured: Option<Box<Captured>>) -> RowO
         captured,
         assets: None,
         identity: None,
+        price: None,
     }
 }
 
@@ -48,6 +50,7 @@ pub(super) fn evaluate_row(
                 dispatcher,
                 context,
                 gate,
+                can_resume,
             );
         }
         Target::Source(source) => {
@@ -67,10 +70,136 @@ pub(super) fn evaluate_row(
         }
         Target::Content(_) => {}
     }
-    let (state, mut captured) = match judged_state(target, dispatcher, context, can_resume) {
-        Ok(judged) => judged,
-        Err(error) => return rejected(error, None),
+    let prepared = match prepare(row, target, dispatcher, context, can_resume) {
+        Ok(prepared) => prepared,
+        Err(outcome) => return *outcome,
     };
+    let (price, at_most) = prepared.price(evaluator, row);
+    let room = evaluator.retry_room();
+    if let Some(max) = row.max_requests
+        && RequestCap::ceiling(at_most, room) > max
+    {
+        return RowOutcome::OverBudget(Box::new(super::reply::OverBudget {
+            units: 1,
+            price,
+            input_tokens_at_most: prepared.tokens_at_most(evaluator, row),
+            max,
+            room,
+        }));
+    }
+    // Every finite ceiling is held, capped or not; an uncapped source that
+    // may be judged in sections states none and has none.
+    let cap = price.ceiling.map(|_| held(row, at_most, room));
+    judge_prepared(
+        evaluator,
+        evaluations,
+        row,
+        target,
+        prepared,
+        cap.as_ref(),
+        price,
+        dispatcher,
+        context,
+        gate,
+        can_resume,
+    )
+}
+
+/// The cap a row of `at_most` requests sharing `room` transient retries is
+/// held to: its `maxRequests` admitted it, else its stated ceiling rests on
+/// the provider's windows ([`RequestCap::implicit`]).
+pub(super) fn held(row: &Row, at_most: u64, room: u64) -> RequestCap {
+    if row.max_requests.is_some() {
+        RequestCap::held(at_most, room)
+    } else {
+        RequestCap::implicit(at_most, room)
+    }
+}
+
+/// A row's state, captured and ready to judge: its capture, its assets,
+/// where its answers sit, and the questions as they are sent.
+pub(super) struct Prepared {
+    state: serde_json::Value,
+    captured: Option<Box<Captured>>,
+    assets: Option<source_capture::assets::CapturedAssets>,
+    located: Option<super::locate::Located>,
+    questions: Vec<serde_json::Value>,
+}
+
+impl Prepared {
+    /// The judged state with the row's task context.
+    fn sent<'a>(&'a self, row: &Row) -> std::borrow::Cow<'a, serde_json::Value> {
+        super::rows::contextual_state(
+            self.located
+                .as_ref()
+                .map_or(&self.state, |located| &located.state),
+            row.context.as_deref(),
+        )
+    }
+
+    /// The evaluation sent, over `sent`.
+    fn input<'a>(
+        &'a self,
+        row: &Row,
+        sent: &'a serde_json::Value,
+        cap: Option<&'a octocode_tools_shared::judgment::RequestCap>,
+    ) -> EvaluationInput<'a> {
+        EvaluationInput {
+            state: sent,
+            questions: &self.questions,
+            assets: self.assets.as_ref().map(|assets| &assets.provider),
+            long_context: LongContext::from_field(row.long_context),
+            companions: self
+                .located
+                .as_ref()
+                .map_or(0, |located| located.companions.len()),
+            cap,
+        }
+    }
+
+    /// Its price, and the most requests its evaluation sends without
+    /// transient retries: a capped row is never judged in sections, so its
+    /// evaluation bounds it; an uncapped one whose last window may refuse it
+    /// may be, and is unbounded. The stated ceiling adds the transient
+    /// retries the row shares ([`RequestCap::held`]).
+    pub(super) fn price(&self, evaluator: &Evaluator, row: &Row) -> (super::reply::Price, u64) {
+        let sent = self.sent(row);
+        let sends = evaluator.sends(self.input(row, &sent, None), row.model.as_deref());
+        let sectioned = sends.refusable && row.max_requests.is_none();
+        (
+            super::reply::Price {
+                planned: sends.first,
+                ceiling: (!sectioned)
+                    .then(|| RequestCap::ceiling(sends.at_most, evaluator.retry_room())),
+                room: evaluator.retry_room(),
+            },
+            sends.at_most,
+        )
+    }
+
+    /// The input tokens its first round costs at most.
+    pub(super) fn tokens_at_most(&self, evaluator: &Evaluator, row: &Row) -> u64 {
+        let sent = self.sent(row);
+        let sends = evaluator.sends(self.input(row, &sent, None), row.model.as_deref());
+        evaluator.tokens_at_most(
+            row.model.as_deref(),
+            row.long_context == Some(true),
+            sends.bytes,
+        )
+    }
+}
+
+/// Capture `target`'s state and assets and locate its answers; a capture
+/// that fails is the row's outcome.
+pub(super) fn prepare(
+    row: &Row,
+    target: &Target,
+    dispatcher: &dyn SourceReader,
+    context: &ExecutionContext,
+    can_resume: bool,
+) -> Result<Prepared, Box<RowOutcome>> {
+    let (state, captured) = judged_state(target, dispatcher, context, can_resume)
+        .map_err(|error| Box::new(rejected(error, None)))?;
     let assets = match row
         .assets
         .as_ref()
@@ -88,7 +217,7 @@ pub(super) fn evaluate_row(
         .transpose()
     {
         Ok(assets) => assets,
-        Err(error) => return rejected(error, captured),
+        Err(error) => return Err(Box::new(rejected(error, captured))),
     };
     // A text judged whole says where its answers sit
     // ([`super::locate`]); images point with their own boxes.
@@ -105,30 +234,50 @@ pub(super) fn evaluate_row(
             )
         })
         .flatten();
-    let questions = super::locate::questions(located.as_ref(), &row.questions);
-    let sent = super::rows::contextual_state(
-        located.as_ref().map_or(&state, |located| &located.state),
-        row.context.as_deref(),
-    );
+    let questions = super::locate::questions(located.as_ref(), &row.questions).into_owned();
+    Ok(Prepared {
+        state,
+        captured,
+        assets,
+        located,
+        questions,
+    })
+}
+
+/// Judge a prepared row: one evaluation, and for an uncapped text source
+/// the window refuses, its sections.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one row's evaluation: its runtime, its capture and its cap"
+)]
+pub(super) fn judge_prepared(
+    evaluator: &Evaluator,
+    evaluations: &Evaluations,
+    row: &Row,
+    target: &Target,
+    prepared: Prepared,
+    cap: Option<&octocode_tools_shared::judgment::RequestCap>,
+    price: super::reply::Price,
+    dispatcher: &dyn SourceReader,
+    context: &ExecutionContext,
+    gate: &octocode_runtime_base::providers::classification::gate::GateLease,
+    can_resume: bool,
+) -> RowOutcome {
+    let sent = prepared.sent(row);
+    let input = prepared.input(row, &sent, cap);
     // One request's time starts when it runs, after the capture.
     let budget = evaluator.budget(
         octocode_runtime_base::execution::cancel::deadline_of(context),
         context.cancellation.clone(),
     );
-    let input = EvaluationInput {
-        state: &sent,
-        questions: &questions,
-        assets: assets.as_ref().map(|assets| &assets.provider),
-        long_context: LongContext::from_field(row.long_context),
-        companions: located
-            .as_ref()
-            .map_or(0, |located| located.companions.len()),
-    };
     // A source the provider is known to refuse at this size is not uploaded
     // whole to be refused again: it goes straight to its sections. When they
     // cannot answer, the provider is asked after all, and its answer stands.
+    // A capped row is never judged in sections: their requests are not
+    // priced before they are sent.
     let mut sectioned = None;
     if let Target::Source(source) = target
+        && cap.is_none()
         && evaluator.known_refused(input, row.model.as_deref())
     {
         match super::combined::judge(row, source, 0, gate, dispatcher, context, can_resume) {
@@ -143,6 +292,14 @@ pub(super) fn evaluate_row(
         &budget,
         gate,
     ));
+    drop(sent);
+    let Prepared {
+        state,
+        mut captured,
+        assets,
+        located,
+        ..
+    } = prepared;
     // Jev's boxes are fractions of the fitted canvas; callers also get them
     // on the original image.
     if let (Ok(judged), Some(assets)) = (&mut judged, &assets) {
@@ -168,7 +325,8 @@ pub(super) fn evaluate_row(
         // Its sections were tried before the provider was asked: the row
         // counts their requests, and they are not sent twice.
         settle_sections(&mut judged, *failed);
-    } else if let (Err(refusal), Target::Source(source), None) = (&mut judged, target, &assets)
+    } else if let (Err(refusal), Target::Source(source), None, None) =
+        (&mut judged, target, &assets, cap)
         && refusal.code == ErrorCode::ClassificationStateTooLarge
     {
         match super::combined::judge(
@@ -190,6 +348,7 @@ pub(super) fn evaluate_row(
         captured,
         assets: assets.map(|assets| assets.provenance),
         identity,
+        price: Some(price),
     }
 }
 
@@ -274,7 +433,9 @@ pub struct ResourceOutcome {
 /// An `evaluate` row with `resources`: every glob expanded
 /// ([`source_capture::glob`]), then each resource judged whole with all the
 /// row's questions, as a `source` is: one grouped request per resource, run
-/// in parallel under the gate.
+/// in parallel under the gate. A row with `maxRequests` captures and prices
+/// every resource first: a total ceiling over the cap sends nothing, and the
+/// resources' sends share the one cap.
 pub(super) fn resources_row(
     evaluator: &Evaluator,
     evaluations: &Evaluations,
@@ -292,18 +453,103 @@ pub(super) fn resources_row(
     // wait for it.
     let width =
         octocode_runtime_base::providers::classification::gate::call_cap(evaluator.max_concurrency);
-    let resources = each_resource(expanded.resources, width, |source| {
+    let Some(max) = row.max_requests else {
+        let resources = each_resource(expanded.resources, width, |source| {
+            let _enter = dispatcher.handle().enter();
+            evaluate_row(
+                evaluator,
+                evaluations,
+                row,
+                &Target::Source(source.clone()),
+                dispatcher,
+                context,
+                gate,
+                can_resume,
+            )
+        });
+        return RowOutcome::Resources {
+            resources,
+            notices: expanded.notices,
+            related: expanded.related,
+        };
+    };
+    // Capture and price every resource before any is sent.
+    let prepared = each(expanded.resources, width, |(key, entry)| {
         let _enter = dispatcher.handle().enter();
-        evaluate_row(
-            evaluator,
-            evaluations,
-            row,
-            &Target::Source(source.clone()),
-            dispatcher,
-            context,
-            gate,
-            can_resume,
-        )
+        let prepared = entry.map(|source| {
+            let prepared = prepare(
+                row,
+                &Target::Source(source.clone()),
+                dispatcher,
+                context,
+                can_resume,
+            );
+            (source, prepared)
+        });
+        (key, prepared)
+    });
+    // The resources share one cap, and the row's transient retries once.
+    let room = evaluator.retry_room();
+    let (mut planned, mut at_most, mut tokens, mut units) = (0_u64, 0_u64, 0_u64, 0_usize);
+    for (_, entry) in &prepared {
+        if let Ok((_, Ok(prepared))) = entry {
+            let (price, most) = prepared.price(evaluator, row);
+            planned = planned.saturating_add(price.planned);
+            at_most = at_most.saturating_add(most);
+            tokens = tokens.saturating_add(prepared.tokens_at_most(evaluator, row));
+            units += 1;
+        }
+    }
+    let ceiling = RequestCap::ceiling(at_most, room);
+    if ceiling > max {
+        return RowOutcome::OverBudget(Box::new(super::reply::OverBudget {
+            units,
+            price: super::reply::Price {
+                planned,
+                ceiling: Some(ceiling),
+                room,
+            },
+            input_tokens_at_most: tokens,
+            max,
+            room,
+        }));
+    }
+    let cap = RequestCap::held(at_most, room);
+    let resources = each(prepared, width, |(key, entry)| {
+        let _enter = dispatcher.handle().enter();
+        match entry {
+            Ok((source, Ok(prepared))) => {
+                let (price, _) = prepared.price(evaluator, row);
+                let target = Target::Source(source.clone());
+                ResourceOutcome {
+                    key,
+                    outcome: judge_prepared(
+                        evaluator,
+                        evaluations,
+                        row,
+                        &target,
+                        prepared,
+                        Some(&cap),
+                        price,
+                        dispatcher,
+                        context,
+                        gate,
+                        can_resume,
+                    ),
+                    source: Some(source),
+                }
+            }
+            Ok((source, Err(outcome))) => ResourceOutcome {
+                key,
+                outcome: *outcome,
+                source: Some(source),
+            },
+            Err(error) => ResourceOutcome {
+                key,
+                source: None,
+                outcome: rejected(error, None),
+            },
+        }
     });
     RowOutcome::Resources {
         resources,
@@ -319,16 +565,32 @@ pub(super) fn each_resource(
     width: usize,
     judge: impl Fn(&serde_json::Value) -> RowOutcome + Sync,
 ) -> Vec<ResourceOutcome> {
-    let width = width.clamp(1, resources.len().max(1));
-    // Each resource is taken once, by whichever worker reaches it first, and
+    each(resources, width, |(key, entry)| match entry {
+        Ok(source) => ResourceOutcome {
+            key,
+            outcome: judge(&source),
+            source: Some(source),
+        },
+        Err(error) => ResourceOutcome {
+            key,
+            source: None,
+            outcome: rejected(error, None),
+        },
+    })
+}
+
+/// `work` over every item, `width` at a time, in input order.
+fn each<T: Send, U: Send>(items: Vec<T>, width: usize, work: impl Fn(T) -> U + Sync) -> Vec<U> {
+    let width = width.clamp(1, items.len().max(1));
+    // Each item is taken once, by whichever worker reaches it first, and
     // leaves exactly one outcome with its input position.
-    let queue = resources
+    let queue = items
         .into_iter()
-        .map(|resource| std::sync::Mutex::new(Some(resource)))
+        .map(|item| std::sync::Mutex::new(Some(item)))
         .collect::<Vec<_>>();
     let next = std::sync::atomic::AtomicUsize::new(0);
-    let (queue, next, judge) = (&queue, &next, &judge);
-    let mut judged = std::thread::scope(|scope| {
+    let (queue, next, work) = (&queue, &next, &work);
+    let mut done = std::thread::scope(|scope| {
         let workers = (0..width)
             .map(|_| {
                 scope.spawn(octocode_io::notice::carried(move || {
@@ -342,22 +604,10 @@ pub(super) fn each_resource(
                             .lock()
                             .unwrap_or_else(std::sync::PoisonError::into_inner)
                             .take();
-                        let Some((key, entry)) = taken else {
+                        let Some(item) = taken else {
                             continue;
                         };
-                        let outcome = match entry {
-                            Ok(source) => ResourceOutcome {
-                                key,
-                                outcome: judge(&source),
-                                source: Some(source),
-                            },
-                            Err(error) => ResourceOutcome {
-                                key,
-                                source: None,
-                                outcome: rejected(error, None),
-                            },
-                        };
-                        done.push((index, outcome));
+                        done.push((index, work(item)));
                     }
                 }))
             })
@@ -372,6 +622,6 @@ pub(super) fn each_resource(
             })
             .collect::<Vec<_>>()
     });
-    judged.sort_unstable_by_key(|(index, _)| *index);
-    judged.into_iter().map(|(_, outcome)| outcome).collect()
+    done.sort_unstable_by_key(|(index, _)| *index);
+    done.into_iter().map(|(_, outcome)| outcome).collect()
 }

@@ -1,32 +1,49 @@
 //! Release-tag candidates, current upstream checks, and repository status.
-use super::{RegistryClient, TagSearch, github_release_tag, tag_candidates};
+use super::{Lookup, RegistryClient, TagSearch, github_release_tag, tag_candidates};
 
 #[test]
 fn a_monorepo_package_is_tagged_by_the_names_it_goes_by() {
     // pydantic-core is released from pydantic/pydantic as `core-v<version>`.
     let tags = tag_candidates("pydantic", "pydantic_core", Some("pydantic-core"), "2.50.1");
-    assert_eq!(&tags[..2], ["v2.50.1", "2.50.1"]);
-    assert!(tags.contains(&"core-v2.50.1".to_owned()), "{tags:?}");
+    assert_eq!(tags.plain, ["v2.50.1", "2.50.1"]);
     assert!(
-        tags.contains(&"pydantic-core-v2.50.1".to_owned()),
-        "{tags:?}"
+        tags.own.contains(&"core-v2.50.1".to_owned()),
+        "{:?}",
+        tags.own
+    );
+    assert!(
+        tags.own.contains(&"pydantic-core-v2.50.1".to_owned()),
+        "{:?}",
+        tags.own
+    );
+    // A workspace crate of ripgrep is tagged `<name>-<version>`.
+    let tags = tag_candidates("ripgrep", "grep-searcher", None, "0.1.6");
+    assert!(
+        tags.own.contains(&"grep-searcher-0.1.6".to_owned()),
+        "{:?}",
+        tags.own
     );
     // A scoped package keeps its scope in the `@` form changesets writes.
     let tags = tag_candidates("changesets", "@changesets/cli", None, "2.29.0");
     assert!(
-        tags.contains(&"@changesets/cli@2.29.0".to_owned()),
-        "{tags:?}"
+        tags.own.contains(&"@changesets/cli@2.29.0".to_owned()),
+        "{:?}",
+        tags.own
     );
-    assert!(tags.contains(&"cli@2.29.0".to_owned()), "{tags:?}");
+    assert!(
+        tags.own.contains(&"cli@2.29.0".to_owned()),
+        "{:?}",
+        tags.own
+    );
     // A package that is its repository takes only the plain tags.
-    assert_eq!(
-        tag_candidates("requests", "requests", None, "2.32.3"),
-        ["v2.32.3", "2.32.3"]
-    );
-    assert_eq!(
-        tag_candidates("serde_json", "serde-json", None, "1.0.1"),
-        ["v1.0.1", "1.0.1"]
-    );
+    for (repo, package, version) in [
+        ("requests", "requests", "2.32.3"),
+        ("serde_json", "serde-json", "1.0.1"),
+    ] {
+        let tags = tag_candidates(repo, package, None, version);
+        assert!(tags.own.is_empty(), "{:?}", tags.own);
+        assert_eq!(tags.plain, [format!("v{version}"), version.to_owned()]);
+    }
 }
 
 fn tag_client<'a>(
@@ -56,7 +73,7 @@ async fn each_release_lookup_checks_current_upstream_tags() {
                 Some("packages/widget"),
                 "widget",
                 "1.0.0",
-                None,
+                Lookup::default(),
                 &client
             )
             .await,
@@ -69,7 +86,7 @@ async fn each_release_lookup_checks_current_upstream_tags() {
     let candidates = tag_candidates("monorepo", "widget", Some("packages/widget"), "1.0.0");
     assert_eq!(
         tags.seen().len(),
-        (candidates.len() + 1) * 2,
+        (candidates.own.len() + candidates.plain.len() + 1) * 2,
         "{:?}",
         tags.seen()
     );
@@ -83,24 +100,40 @@ async fn each_release_lookup_checks_current_upstream_tags() {
     let client = tag_client(&http, &budget, &failing);
     for _ in 0..2 {
         assert_eq!(
-            github_release_tag(repository, None, "other", "2.0.0", None, &client).await,
+            github_release_tag(
+                repository,
+                None,
+                "other",
+                "2.0.0",
+                Lookup::default(),
+                &client
+            )
+            .await,
             TagSearch::Unlisted {
                 cause: super::CheckFailure::Request,
                 shapes_checked: false
             }
         );
     }
-    // The first round's two checks fail, then the tag list is asked.
-    assert_eq!(failing.seen().len(), 6, "{:?}", failing.seen());
+    // The first round's checks (the package's own shapes) fail, then the
+    // tag list is asked.
+    let own = tag_candidates("monorepo", "other", None, "2.0.0").own;
+    assert_eq!(
+        failing.seen().len(),
+        (own.len() + 1) * 2,
+        "{:?}",
+        failing.seen()
+    );
 }
 
-/// The plain tags are asked first; a monorepo package's own tags are
-/// asked together after them, and the earliest candidate that exists
+/// A monorepo package with no registry commit asks its own tags first and
+/// the plain ones after them; the earliest candidate of a round that exists
 /// wins whatever order the answers arrive in.
 #[tokio::test]
-async fn release_tags_are_asked_in_two_rounds_and_the_first_candidate_wins() {
+async fn a_monorepo_package_asks_its_own_tags_before_the_plain_ones() {
     let http = super::super::test_http::RouteHttp::new();
     let budget = super::super::test_http::test_budget();
+    let candidates = tag_candidates("widget", "core", Some("packages/core"), "1.0.0");
     let plain = super::super::test_http::KnownTags::new(vec!["acme/widget@v1.0.0"]);
     let client = tag_client(&http, &budget, &plain);
     assert_eq!(
@@ -109,7 +142,7 @@ async fn release_tags_are_asked_in_two_rounds_and_the_first_candidate_wins() {
             Some("packages/core"),
             "core",
             "1.0.0",
-            None,
+            Lookup::default(),
             &client
         )
         .await
@@ -118,10 +151,17 @@ async fn release_tags_are_asked_in_two_rounds_and_the_first_candidate_wins() {
         .as_deref(),
         Some("v1.0.0")
     );
-    assert_eq!(plain.seen(), ["acme/widget@v1.0.0", "acme/widget@1.0.0"]);
+    let asked = candidates
+        .own
+        .iter()
+        .chain(&candidates.plain)
+        .map(|tag| format!("acme/widget@{tag}"))
+        .collect::<Vec<_>>();
+    assert_eq!(plain.seen(), asked);
     let stems = super::super::test_http::KnownTags::new(vec![
         "acme/widget@core@1.0.0",
         "acme/widget@core-v1.0.0",
+        "acme/widget@v1.0.0",
     ]);
     let client = tag_client(&http, &budget, &stems);
     assert_eq!(
@@ -130,7 +170,7 @@ async fn release_tags_are_asked_in_two_rounds_and_the_first_candidate_wins() {
             Some("packages/core"),
             "core",
             "1.0.0",
-            None,
+            Lookup::default(),
             &client
         )
         .await
@@ -139,9 +179,131 @@ async fn release_tags_are_asked_in_two_rounds_and_the_first_candidate_wins() {
         .as_deref(),
         Some("core-v1.0.0")
     );
+    assert_eq!(stems.seen().len(), candidates.own.len());
+}
+
+/// grep-searcher 0.1.6 lives in ripgrep, whose own `0.1.6` is another
+/// release: with the registry's commit, the plain tag naming another commit
+/// does not count and the crate's own `grep-searcher-0.1.6` proves the
+/// commit (no "commit differs" warning); without it, the own tag is still
+/// asked first and pinned.
+#[tokio::test]
+async fn a_workspace_crate_takes_its_own_tag_over_the_repository_release_of_its_number() {
+    use super::{check_commit_against_tag, pin_release_tag};
+    let http = super::super::test_http::RouteHttp::new();
+    let budget = super::super::test_http::test_budget();
+    let known = || {
+        super::super::test_http::KnownTags::new(vec![
+            "BurntSushi/ripgrep@0.1.6=9e2f10b",
+            "BurntSushi/ripgrep@grep-searcher-0.1.6=0972c6e",
+        ])
+    };
+    let tags = known();
+    let client = tag_client(&http, &budget, &tags);
+    let mut item = unpinned("https://github.com/BurntSushi/ripgrep");
+    item.package_name = "grep-searcher".into();
+    item.source_ref = Some("0972c6e".into());
+    check_commit_against_tag(&mut item, "grep-searcher", "0.1.6", "0972c6e", &client).await;
+    assert!(item.source_tag, "{:?}", tags.seen());
+    assert_eq!(item.release_tag.as_deref(), Some("grep-searcher-0.1.6"));
+    assert_eq!(item.tag_differs, None);
+    assert!(item.disclosures.is_empty(), "{:?}", item.disclosures);
+    // The plain tags (one naming another commit), then the own ones: no tag
+    // list is read.
+    assert!(
+        !tags.seen().iter().any(|seen| seen.ends_with("#tags")),
+        "{:?}",
+        tags.seen()
+    );
+    let tags = known();
+    let client = tag_client(&http, &budget, &tags);
+    let mut item = unpinned("https://github.com/BurntSushi/ripgrep");
+    item.package_name = "grep-searcher".into();
+    pin_release_tag(&mut item, "grep-searcher", "0.1.6", None, &client).await;
+    assert_eq!(item.source_ref.as_deref(), Some("0972c6e"));
+    assert_eq!(item.release_tag.as_deref(), Some("grep-searcher-0.1.6"));
     assert_eq!(
-        stems.seen().len(),
-        tag_candidates("widget", "core", Some("packages/core"), "1.0.0").len()
+        tags.seen().first().map(String::as_str),
+        Some("BurntSushi/ripgrep@grep-searcher-v0.1.6"),
+        "the own shapes are asked first: {:?}",
+        tags.seen()
+    );
+}
+
+/// With the registry's commit known, a plain tag naming it is the release
+/// of a monorepo package too (a repository released in lockstep): its two
+/// checks settle it. One naming another commit leaves the tag list to
+/// decide, and stays the answer when the list cannot be read.
+#[tokio::test]
+async fn a_plain_tag_counts_for_a_monorepo_package_only_at_the_registry_commit() {
+    let http = super::super::test_http::RouteHttp::new();
+    let budget = super::super::test_http::test_budget();
+    let lockstep = super::super::test_http::KnownTags::new(vec!["babel/babel@v7.24.0=abc"]);
+    let client = tag_client(&http, &budget, &lockstep);
+    let lookup = Lookup {
+        declared: None,
+        commit: Some("ABC"),
+    };
+    let search = github_release_tag(
+        "https://github.com/babel/babel",
+        Some("packages/babel-core"),
+        "@babel/core",
+        "7.24.0",
+        lookup,
+        &client,
+    )
+    .await;
+    assert_eq!(
+        search.found().map(|release| release.tag).as_deref(),
+        Some("v7.24.0")
+    );
+    assert_eq!(lockstep.seen().len(), 2, "{:?}", lockstep.seen());
+    let unread = super::super::test_http::KnownTags::new(vec!["o/mono@1.0.0=other"])
+        .with_listing_failure(super::CheckFailure::Request);
+    let client = tag_client(&http, &budget, &unread);
+    let search = github_release_tag(
+        "https://github.com/o/mono",
+        None,
+        "widget",
+        "1.0.0",
+        Lookup {
+            declared: None,
+            commit: Some("registry"),
+        },
+        &client,
+    )
+    .await;
+    assert_eq!(
+        search.found().map(|release| release.commit).as_deref(),
+        Some("other"),
+        "{:?}",
+        unread.seen()
+    );
+    assert!(
+        unread.seen().iter().any(|seen| seen == "o/mono#tags"),
+        "{:?}",
+        unread.seen()
+    );
+}
+
+/// In the tag list, this package's name before a `-` is its own tag: ignore
+/// 0.4.7's `ignore-0.4.7` wins over a repository release `0.4.7` at another
+/// commit instead of the two being stated as ambiguous.
+#[tokio::test]
+async fn a_listed_tag_led_by_the_package_name_is_its_own() {
+    use super::ReleaseTag;
+    let tags = super::super::test_http::KnownTags::new(vec![
+        "BurntSushi/ripgrep@0.4.7=aaa",
+        "BurntSushi/ripgrep@ignore-0.4.7=bbb",
+    ]);
+    let own = super::listing::OwnNames::new("ripgrep", "ignore", None);
+    assert_eq!(
+        super::listing::listed_release_tag(&tags, "BurntSushi", "ripgrep", "0.4.7", &own, true)
+            .await,
+        TagSearch::Found(ReleaseTag {
+            tag: "ignore-0.4.7".into(),
+            commit: "bbb".into()
+        })
     );
 }
 
@@ -174,7 +336,7 @@ async fn a_release_tag_of_any_prefix_is_found_in_the_repository_tag_list() {
             None,
             "widget-core",
             "1.4.0",
-            None,
+            Lookup::default(),
             &client,
         )
         .await
@@ -200,7 +362,15 @@ async fn listed_tags_name_one_release_or_are_stated_as_ambiguous() {
         super::super::test_http::KnownTags::new(vec!["o/r@release-1.2.6=abc", "o/r@rel/1.2.6=ABC"]);
     let client = tag_client(&http, &budget, &same);
     assert_eq!(
-        github_release_tag("https://github.com/o/r", None, "r", "1.2.6", None, &client).await,
+        github_release_tag(
+            "https://github.com/o/r",
+            None,
+            "r",
+            "1.2.6",
+            Lookup::default(),
+            &client
+        )
+        .await,
         TagSearch::Found(ReleaseTag {
             tag: "rel/1.2.6".into(),
             commit: "ABC".into()
@@ -261,9 +431,16 @@ async fn a_listed_lightweight_tag_needs_no_further_read() {
     let budget = super::super::test_http::test_budget();
     let tags = super::super::test_http::KnownTags::new(vec!["o/r@rel/1.2.1=abc"]);
     let client = tag_client(&http, &budget, &tags);
-    let found = github_release_tag("https://github.com/o/r", None, "r", "1.2.1", None, &client)
-        .await
-        .found();
+    let found = github_release_tag(
+        "https://github.com/o/r",
+        None,
+        "r",
+        "1.2.1",
+        Lookup::default(),
+        &client,
+    )
+    .await
+    .found();
     assert_eq!(found.map(|release| release.commit).as_deref(), Some("abc"));
     assert!(
         !tags.seen().iter().any(|seen| seen == "o/r@rel/1.2.1"),
@@ -287,7 +464,15 @@ async fn a_tree_is_read_only_when_a_stem_decides_the_release() {
     ]);
     let client = tag_client(&http, &budget, &same);
     assert_eq!(
-        github_release_tag("https://github.com/o/r", None, "r", "1.2.1", None, &client).await,
+        github_release_tag(
+            "https://github.com/o/r",
+            None,
+            "r",
+            "1.2.1",
+            Lookup::default(),
+            &client
+        )
+        .await,
         TagSearch::Found(ReleaseTag {
             tag: "rel/1.2.1".into(),
             commit: "abc".into()
@@ -303,8 +488,15 @@ async fn a_tree_is_read_only_when_a_stem_decides_the_release() {
         "o/r@release-v1.2.1=def",
     ]);
     let client = tag_client(&http, &budget, &split);
-    let search =
-        github_release_tag("https://github.com/o/r", None, "r", "1.2.1", None, &client).await;
+    let search = github_release_tag(
+        "https://github.com/o/r",
+        None,
+        "r",
+        "1.2.1",
+        Lookup::default(),
+        &client,
+    )
+    .await;
     assert!(search.ambiguous(), "{search:?}: {:?}", split.seen());
     assert!(
         split.seen().iter().any(|seen| seen == "o/r^tree@def"),

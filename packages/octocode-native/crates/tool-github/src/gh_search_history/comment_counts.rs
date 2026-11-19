@@ -5,15 +5,13 @@
 //! own order.
 use super::{HistoryOperation, HistorySearch, gh_search_history_query};
 use octocode_github::{GitHubTransport, ProviderError, RequestContext};
+use octocode_tools_shared::gh_shared::history::CONVERSATION_ONLY;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
 /// Each pull request's whole comment count, by node id.
 const DOCUMENT: &str =
     "query($ids: [ID!]!) { nodes(ids: $ids) { ... on PullRequest { id totalCommentsCount } } }";
-
-/// The note of a page whose rows keep GitHub's conversation count.
-const CONVERSATION_ONLY: &str = "commentsCount counts conversation comments only: GitHub's whole count, which its sort and filters use, could not be read (GraphQL).";
 
 /// Whether this page's rows state `commentsCount`: a pull-request search
 /// sorted by it, or a `fields` pick that names it.

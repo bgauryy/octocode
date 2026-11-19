@@ -626,7 +626,7 @@ pub fn key_line_lead<'a>(head: &'a [u8], shape: &LineShapeScan) -> &'a [u8] {
     &head[..blanks]
 }
 
-/// [`private_key_block_line_ranges`] fed one line at a time, so a caller can
+/// [`private_key_block_line_ranges`](super::private_key_block_line_ranges) fed one line at a time, so a caller can
 /// stream a source without retaining it. Lines are pushed in order without
 /// terminators; [`KeyBlockTracker::finish`] closes an open block at its last
 /// key line. Past [`MAX_KEY_BLOCK_RANGES`] blocks the last range is

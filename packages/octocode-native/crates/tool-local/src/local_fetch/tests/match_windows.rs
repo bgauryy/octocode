@@ -180,9 +180,22 @@ fn long_line_matches_preserve_every_byte_and_explicit_context() {
         );
         let view = if context == 0 { &line } else { &source };
         let pages = walk_exactly_once(&request, &paths, Some(1000), view);
-        let hits: usize = pages
+        // The window pages: up to the one that leaves the rest of its line
+        // to the line's read (Q4), else the pages before the rest.
+        let windows = pages
             .iter()
-            .take_while(|(_, text)| text.len() < 1_000)
+            .position(|(_, text)| text.contains(" not shown] ..."))
+            .map_or_else(
+                || {
+                    pages
+                        .iter()
+                        .take_while(|(_, text)| text.len() < 1_000)
+                        .count()
+                },
+                |at| at + 1,
+            );
+        let hits: usize = pages[..windows]
+            .iter()
             .map(|(_, text)| text.matches("needle").count())
             .sum();
         assert_eq!(hits, 2, "context {context}: both windows before the rest");

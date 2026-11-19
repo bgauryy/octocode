@@ -13,7 +13,7 @@ pub(super) const SCAN_BUDGET_BYTES: usize = 8 * 1024 * 1024;
 /// long-lived server runs at once, shares it.
 pub(super) static SCANS: ScanBudget = ScanBudget::new(SCAN_BUDGET_BYTES);
 
-/// The bytes [`scan`] holds for a blob: none for one it refuses unread.
+/// The bytes [`scan`](super::scan) holds for a blob: none for one it refuses unread.
 pub(super) fn scan_weight(bytes: &[u8]) -> usize {
     if bytes.len() > MAX_SCAN_BYTES {
         0

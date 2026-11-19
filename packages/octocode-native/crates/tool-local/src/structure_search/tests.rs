@@ -201,19 +201,29 @@ fn listed_entry(dir: &str, entry: &str) -> Value {
         ("", name) => name.to_owned(),
         (dir, name) => format!("{dir}/{name}"),
     });
+    // Positional fields: the bytes, then the line count, each an integer;
+    // the time is the one ISO instant. A paths view's one sort value stands
+    // alone, and the request's `sort.by` names it: it is read as both.
+    if let [only] = fields.as_slice()
+        && let Ok(value) = only.parse::<u64>()
+    {
+        row["size"] = json!(value);
+        row["totalLines"] = json!(value);
+        return row;
+    }
     for field in fields {
         if field == "symlink" {
             row["type"] = json!("symlink");
         } else if matches!(field, "binary" | "unreadable") {
             row["totalLines"] = json!(field);
-        } else if let Some(lines) = field.strip_prefix("totalLines=") {
-            row["totalLines"] = json!(lines.parse::<u64>().expect("totalLines"));
-        } else if let Some(modified) = field.strip_prefix("modified=") {
-            row["modifiedMs"] = json!(
-                octocode_runtime_base::civil_date::rfc3339_millis(modified).expect("modified")
-            );
-        } else {
+        } else if let Some(modified) = octocode_runtime_base::civil_date::rfc3339_millis(field)
+            .filter(|_| field.ends_with('Z'))
+        {
+            row["modifiedMs"] = json!(modified);
+        } else if row.get("size").is_none() && row["type"] != "directory" {
             row["size"] = json!(field.parse::<i64>().expect("size"));
+        } else {
+            row["totalLines"] = json!(field.parse::<u64>().expect("totalLines"));
         }
     }
     row

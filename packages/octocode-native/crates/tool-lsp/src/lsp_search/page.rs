@@ -120,10 +120,11 @@ pub(super) async fn execute_page(
     let security = &execution_config.security;
     match answered {
         Ok(mut row) | Err(Exit::Row(mut row)) => {
-            Box::pin(server_text::judge(
+            let judged = Box::pin(server_text::judge(
                 &mut row, &path, about, paths, security, cancel,
             ))
             .await?;
+            render::served_forms(&mut row, &judged);
             failure::stamp_coverage(&mut row);
             level::stamp(&mut row);
             level::omit_healthy_receipt(&mut row);
@@ -238,6 +239,19 @@ pub(super) async fn run_target(
         && let Some(walked) = sync_watched_files(&scope, &session.client, cancel).await?
     {
         scope.remember_walk(walked);
+    }
+    // An identical request of this server over unchanged files repeats its
+    // answer (see `answer_memo`): the scope's fingerprint, which the file
+    // events just walked, decides it. A server with no file events walks no
+    // fingerprint for it.
+    let memo = if answer_memo::AnswerKey::wanted(query) && scope.is_walked() {
+        let walked = scope.walked(started, cancel).await?;
+        answer_memo::AnswerKey::of(query, target, &scope, Some(&walked), paths)
+    } else {
+        None
+    };
+    if let Some(row) = memo.as_ref().and_then(|key| key.kept(&session.client)) {
+        return Ok(row);
     }
     // One request reads each snippet file once, however many responses
     // name it.
@@ -370,6 +384,9 @@ pub(super) async fn run_target(
         && continuations::declares_continuation(&mut row)?
     {
         seal_scope_revision(query, &scope, document.as_deref(), started, cancel).await?;
+    }
+    if let Some(key) = memo {
+        key.keep(&row, &session.client, cancel);
     }
     Ok(row)
 }

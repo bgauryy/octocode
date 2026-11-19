@@ -128,6 +128,7 @@ pub fn query_file_system(
         permission_denied: totals.permission_denied,
         denied_dirs: totals.denied_dirs,
         ignored: totals.ignored,
+        hidden: totals.hidden,
         pruned_dirs: totals.pruned_dirs,
         time_cut: state.time_cut,
         walk_position: state.position,

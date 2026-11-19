@@ -65,19 +65,6 @@ test('pins name each tool at its manifest version for CI installs', () => {
   assert.throws(() => pinSpec(pins, []), /at least one/);
 });
 
-test('CI installs Rust dev tools only through the dev-tools.json pins', () => {
-  const workflows = path.join(ROOT, '.github', 'workflows');
-  for (const file of readdirSync(workflows).filter(name => name.endsWith('.yml'))) {
-    const text = readFileSync(path.join(workflows, file), 'utf8');
-    for (const [, value] of text.matchAll(/^\s*tool:\s*(.+)$/gm)) {
-      assert.match(value, /^\$\{\{ steps\.\w+\.outputs\.\w+ \}\}$/, `${file}: install-action tool "${value}" bypasses rust-quality.mjs pins`);
-    }
-    for (const [line] of text.matchAll(/cargo (?:b?install)\b.*$/gm)) {
-      assert.match(line, /\$\{\{ steps\.\w+\.outputs\.\w+ \}\}/, `${file}: "${line}" bypasses rust-quality.mjs pins`);
-    }
-  }
-});
-
 test('a fuzz run selects the pinned nightly, its own build directory and a time bound', () => {
   const { command, args } = fuzzInvocation(manifest, { target: 'utf8_offsets', seconds: 30, targetDir: '/tmp/fz' });
   assert.equal(command, 'cargo');

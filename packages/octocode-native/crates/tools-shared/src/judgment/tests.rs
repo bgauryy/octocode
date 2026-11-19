@@ -9,21 +9,22 @@ use wiremock::{
     matchers::{method, path},
 };
 
-/// An evaluator with a credential of its own. The gate remembers a refused
+/// An evaluator with a credential of its own, unique in the process
+/// ([`crate::judgment::test_identity`]): the gate remembers a refused
 /// credential per endpoint and credential, and a mock server's port is
 /// reused across tests, so tests sharing one key would inherit each other's
 /// memoized 401 or 402.
 fn evaluator(server: &MockServer) -> Evaluator {
-    static NEXT: AtomicUsize = AtomicUsize::new(0);
-    let key = format!("test-key-{}", NEXT.fetch_add(1, Ordering::Relaxed));
-    evaluator_with_key(server, &key)
+    evaluator_with_key(server, &crate::judgment::test_identity::unique("test-key"))
 }
 
 fn evaluator_with_key(server: &MockServer, key: &str) -> Evaluator {
     Evaluator::new(
         Some(SecretString::from(key.to_owned())),
         server.uri(),
-        "jev-test".into(),
+        // A model of its own: what an endpoint's windows taught is kept per
+        // endpoint and model for the process.
+        crate::judgment::test_identity::unique("jev-test"),
         &octocode_runtime_base::providers::classification::jev::JEV,
         Some(Duration::from_secs(10)),
         1,
@@ -105,6 +106,7 @@ async fn a_long_context_retry_is_disclosed_with_its_billed_tokens() {
                 assets: None,
                 long_context: LongContext::OnRefusal,
                 companions: 0,
+                cap: None,
             },
             None,
             &budget,
@@ -179,6 +181,7 @@ async fn a_refused_text_group_retries_whole_in_the_long_window_without_splitting
                 assets: None,
                 long_context: LongContext::OnRefusal,
                 companions: 0,
+                cap: None,
             },
             None,
             &budget,
@@ -299,6 +302,7 @@ async fn noncanonical_provider_answers_are_not_cached() {
             assets: None,
             long_context: crate::judgment::LongContext::Never,
             companions: 0,
+            cap: None,
         };
         for _ in 0..2 {
             let error = evaluator
@@ -402,6 +406,7 @@ async fn companions_are_never_sent_alone() {
                 assets: None,
                 long_context: LongContext::OnRefusal,
                 companions: 1,
+                cap: None,
             },
             None,
             &budget,
@@ -466,6 +471,7 @@ async fn a_malformed_companion_answer_fails_nothing() {
                 assets: None,
                 long_context: LongContext::Never,
                 companions: 1,
+                cap: None,
             },
             None,
             &budget,

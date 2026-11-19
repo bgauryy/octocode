@@ -70,7 +70,7 @@ impl ModuleSources {
         });
     }
 
-    /// Ordinary modules use a stem directory; roots, mod.rs and #[path]
+    /// Ordinary modules use a stem directory; roots, mod.rs and #\[path\]
     /// contexts use the parent. A source may be loaded in both contexts.
     /// Each context is visited once, without rereading any scanned source.
     pub(super) fn declared_by(&self, anchor: &Path, targets: &TargetRoots) -> Vec<PathBuf> {

@@ -2,7 +2,7 @@
 //! to the response page.
 use crate::gh_get_history_item::Source;
 use crate::gh_get_history_item::axis::Axis;
-use crate::gh_get_history_item::body_match::{Kept, holds};
+use crate::gh_get_history_item::body_match::{Kept, humans_only, keeps};
 use crate::gh_get_history_item::gh_get_history_item_query;
 use crate::gh_get_history_item::remaining::{BodyWindows, Remainder};
 use crate::gh_get_history_item::text::{delivered_earlier, shape_comment};
@@ -139,10 +139,13 @@ pub(super) async fn issue_comments(
     let mut provider_more = false;
     let mut total = at.total;
     let mut dropped = None;
-    if let Some(needle) = query.matcher.as_deref() {
-        // A `matchString` keeps the comments whose body holds it: the
-        // matches lie anywhere, so the scan reads the batches from the
-        // first, in concurrent waves, until the page's matches are in.
+    let needle = query.matcher.as_deref();
+    let humans = !gh_get_history_item_query::bots(query);
+    if needle.is_some() || humans {
+        // A `matchString` keeps the comments whose body holds it, and
+        // `bots:false` those a person wrote: the kept ones lie anywhere, so
+        // the scan reads the batches from the first, in concurrent waves,
+        // until the page's are in.
         let spec = WindowSpec {
             batch_size: MAX_PER_PAGE,
             max_batches: MAX_COLLECTION_BATCHES,
@@ -157,13 +160,22 @@ pub(super) async fn issue_comments(
             source,
             &path,
             spec,
-            |comment| holds(Some(needle), comment),
+            |comment| keeps(needle, humans, comment),
             context,
         )
         .await?;
-        let kept = Kept::of(loaded.items, Some(needle), loaded.state.exhausted);
+        let mut left_out = Vec::new();
+        let people = humans_only(
+            loaded.items,
+            humans,
+            loaded.state.exhausted,
+            "comments",
+            &mut left_out,
+        );
+        let kept = Kept::of(people, needle, loaded.state.exhausted);
         // The disclosure and the total state the list the page walks.
-        dropped = kept.warning("comments").filter(|_| start == 0);
+        left_out.extend(kept.warning("comments"));
+        dropped = (!left_out.is_empty() && start == 0).then(|| left_out.join(" "));
         total = kept.exhausted.then_some(kept.entries.len() as u64);
         provider_more = !kept.exhausted;
         raw_comments = kept.entries.into_iter().skip(start).collect();

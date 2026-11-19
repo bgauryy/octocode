@@ -34,7 +34,7 @@ pub(super) struct PageWindow<'a> {
 
 /// Cut the page from its view. Every view is cut from a source redacted whole
 /// before any view was built (a streamed window from its sealed view,
-/// [`ByteOrigin`]), so the page is never scanned again, and only the
+/// [`ByteOrigin`](super::types::ByteOrigin)), so the page is never scanned again, and only the
 /// placeholders it shows count.
 pub(super) fn page_of(cut: &PageWindow<'_>) -> ScannedPage {
     let PageWindow {

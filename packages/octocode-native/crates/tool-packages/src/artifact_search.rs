@@ -39,6 +39,9 @@ pub struct ArtifactCall<'a> {
     /// The runtime's resolved environment: the npm userconfig and its
     /// `${NAME}` credential values come from it, never from the process.
     pub env: &'a std::collections::BTreeMap<String, String>,
+    /// What the rows of this call share ([`crate::artifact::CallShare`]);
+    /// `None` shares nothing.
+    pub share: Option<&'a crate::artifact::CallShare>,
 }
 
 pub async fn execute(
@@ -60,6 +63,7 @@ pub async fn execute(
             answers: call.answers,
             reused: &reused,
             tags: call.tags,
+            share: call.share,
         },
     )
     .await
@@ -305,6 +309,7 @@ fn call(deadline: Instant, allow_private_registry: bool) -> ArtifactCall<'static
         answers: None,
         tags: None,
         env: &NO_ENV,
+        share: None,
     }
 }
 

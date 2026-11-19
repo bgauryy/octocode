@@ -184,7 +184,7 @@ fn label((start, end): (usize, usize)) -> String {
 
 /// The response characters a line read takes as it renders: its JSON text
 /// and its gutter, as the reader counts a page
-/// ([`octocode_tools_shared::source_view::pagination::LineBudget`]).
+/// (`octocode_tools_shared::source_view::pagination::LineBudget`).
 fn rendered(line: &str, gutter: usize) -> usize {
     octocode_engine::json_size::string_body_units(line) + gutter
 }

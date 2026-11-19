@@ -1,10 +1,10 @@
 # Tool data and continuations
 
-Octocode uses the same JSON input and indexed results on the CLI and MCP. Use `--json` for a script. In MCP, parse the JSON in the tool result's text block.
+The CLI and MCP take the same JSON input and return the same indexed results. Use `--json` in scripts; in MCP, parse the JSON in the tool result's text block.
 
-## Requests and result rows
+## Requests
 
-Send `queries` for new work. Each row is independent and belongs to the same tool. Most tools accept up to five rows. Check the tool's schema for its batch limit and fields.
+Send `{"queries": [...]}`. Each row is one independent query to one tool; most tools take up to five rows, and `graphBuild` takes one. Each result row's `index` is its position in `queries`; resumed work keeps it. Fields and operations come from `octocode schema <tool> --view query` (add `--select operation=<value>` for one operation; `--view variants` shows an example, `--view output` what each result field means).
 
 ### Example: a localFetch request
 
@@ -12,83 +12,85 @@ Send `queries` for new work. Each row is independent and belongs to the same too
 {"queries":[{"path":"README.md","ranges":[{"startLine":1,"endLine":1}]}]}
 ```
 
-For a two-line README starting with `# Example project`, the response is
+**Input repairs.** The validator fixes unambiguous input, runs the repaired call and adds one warning per repair (for example `read matchString: "x" as matchString: ["x"]`). Ambiguous input fails with a field error. An invalid envelope fails before any row runs. Exit codes: [CLI exit codes](OCTOCODE_CLI.md#exit-codes).
 
-```json
-{"results":[{"index":0,"data":{"content":"1\t# Example project\n","totalLines":2}}]}
-```
+## Result rows
 
-### Result rows
-
-| Result | Meaning |
+| `status` | Meaning |
 |---|---|
-| `index` | Zero-based position in the original `queries` array. Resumed work keeps that index, including when a query expands into several reads. |
-| `data` with no `status` | The query returned evidence. Check for pagination and coverage warnings. |
-| `status: "empty"` | The query found nothing in its stated scope. |
-| `status: "outOfRange"` | The requested page is beyond the available collection. A file range that starts beyond the end instead reports invalid input. |
-| `status: "error"` | Read `data.errorCode`, `data.errorClass`, `data.error`, hints and any recovery calls. Valid siblings in a mixed batch can still succeed. |
+| none (`data` only) | Evidence. Check pagination and coverage warnings. |
+| `empty` | Nothing in the stated scope. Read `hints`. |
+| `outOfRange` | The page is past the end. `pagination.total` gives the size. A range that starts past the end is an `error` (`invalidInput`) instead. |
+| `error` | Read `data.errorCode`, `data.errorClass`, `data.error`, `hints` and recovery calls. Valid sibling rows still succeed. |
 
-Use `octocode schema <tool> --view variants` for examples, `--select operation=<value>` to narrow a schema, and `--view output` for result fields. Native validation accepts some unambiguous input repairs. Each repaired call runs, and one warning per repair states the field and form that ran, such as a common field mapped to a declared one or `"matchString":"x"` read as `["x"]`. Correct ambiguous input using the reported field error. An invalid envelope can fail before producing rows. [CLI exit codes](OCTOCODE_CLI.md#exit-codes)
+## Text and structure forms
 
-### Numbered source content
+| Form | Where | Example |
+|---|---|---|
+| Numbered source: `N`, tab, text. One-based; ranges include both ends | `localFetch` `content` | `"1\t# Title\n"` |
+| Hit line: `N`, tab, text | `ghSearchCode` `files[].matches[]` | `"12\tconst x = 1"` |
+| Ref: `name sha` (7 to 64 hex characters) | `ghStructure` `branches[]`, `tags[]` | `"main 3f2a9c1"` |
+| Outline: `N`, tab, indent (two spaces per depth), kind, name, optional tags | `localSearch`, `astSearch`, `lspSearch` | `"12\tfunction run (exported)"` |
 
-Numbered `content` uses a one-based line number, a tab, then the source text. Ranges include both endpoints. A `matchString` read can include context. When present, `matchedLines` lists the actual hits on that page, including an empty list for a context-only page. When omitted from a matched read, every returned line is a hit.
+A `matchString` read's `matchedLines` lists the page's real hits; an empty list means context only. Without it, every returned line is a hit. Search results group matches by `files[].path`. Relative paths resolve against the configured workspace; allowed external paths stay absolute.
 
-### Search result shapes
+## Shared facts
 
-Text, AST and many LSP results group matches by `files[].path`. Locations carry their own line and, where supported, a one-based UTF-16 column. A text hit's `enclosing` indexes its file's `declarations`. Structure listings group names by directory. Resolve workspace-relative paths against the configured workspace. Allowed external paths remain absolute.
+A response states each repeated fact once. To read a field a row lacks, look in this order: the nearest holder (the object that holds the row's list), the row's `data`, `shared.data`, then the request. For example, `shared.data.coverage` describes every row. Warnings shared by all rows appear once at the top level, hints shared by every empty or failed row once in `hints`, and related calls of one tool merge into one `related` call.
 
-### Minimal by default
-
-A fresh response can omit an identity already supplied in the request. Read it from the element, then the row's `data`, then the request. A cursor page restates the identity it needs. Warnings shared across rows can appear once at the top level.
-
-Choose a view to match the claim. A compact read changes formatting, and a symbols view gives an outline. Use source lines for direct quotes. Where available, `includeProvenance: true` adds byte spans and source identity. A default result still discloses nontrivial source transformations and incomplete parses.
+Paths, lines and executable calls never move: a `{tool, input}` call, `next`, `related` and a cursor run unchanged. Use `includeProvenance: true` (where a tool offers it) for byte spans and source identity. A default result still discloses source transformations, such as redaction, and incomplete parses.
 
 ## Executable continuations
 
-```mermaid
-flowchart TD
-    accTitle: Read response pages before tool pages
-    P["Read every row on this page"] --> R{"responsePagination.next?"}
-    R -->|Yes| C["Call the named tool with its input unchanged"]
-    R -->|No| T{"next.nextPage?"}
-    T -->|Yes| C
-    C --> P
-    T -->|No| B["Check other next calls and coverage for the claim"]
-```
+Finish response pages before tool pages: call `responsePagination.next`, then `next.nextPage`, until the rows on each page are read.
 
 | Channel | What to do |
 |---|---|
-| `responsePagination.next` | Finish the response pages first. A single continuation can carry several rows or sections forward. |
-| `next.nextPage` | Read the next tool page if the response has no continuation of its own. |
-| Other `next` entries | Continue the indicated branch when your claim depends on it, such as a patch, unfiltered results or an exact source read. |
-| `related[]` | Start optional fresh work with the supplied queries. The scope may differ. Empty and failed rows retain recovery calls. A nonempty success retains a call only when it carries an otherwise unstated identity, a warning names it, or the output reference states it as the recovery of a diagnostic code on the row; routine next-step advice is omitted. Required pagination uses `next`, never `related`. |
+| `responsePagination.next` | Finish response pages first. One continuation can carry several rows or sections. |
+| `next.nextPage` | The next tool page of this row's walk. |
+| Other `next.*` | Follow the branch your claim depends on: `next.unfiltered` (classification left out), `next.nextCandidatePage` (billed), `next.readHits`, `next.restart`, and similar. |
+| `related[]` | Optional fresh work; its scope may differ. Required paging uses `next`, never `related`. |
 | `hints[]` | Guidance for an empty result or an error. |
-| `warnings[]` | Evidence and coverage disclosures, including on successful rows. Resource-specific warnings remain with that resource. |
+| `warnings[]` | Evidence and coverage disclosures, including on successful rows. |
 
-A continuation has this shape. Pass **only its complete `input`** to its `tool`. Use the cursor the tool issued.
+Pass only the complete `input` of a continuation to its `tool`:
 
 ```json
 {"tool":"localFetch","input":{"cursor":"<issued cursor>"}}
 ```
 
-Cursors are bound to the tool, configuration, access context and saved state. Replaying a retained page can return historical usage. Follow a returned restart call on `staleSnapshot` and start the evidence walk again. A memory-only CLI invocation needing a saved continuation reports a failure. Use persistent storage that permits saving the result or keep an MCP session open. [Storage and limits](STORAGE_AND_LIMITS.md)
+Cursors are bound to the tool, configuration, access context and saved state. Replaying a saved page can show historical usage; expired saved work fails explicitly. In memory storage mode a CLI call cannot use a saved continuation: use persistent storage or keep the MCP session open ([storage and limits](STORAGE_AND_LIMITS.md)).
 
-## Paging
+## Errors and recovery
 
-`responseChars` is an optional per-call page-size target. Large responses split at row boundaries where possible, then inside long strings (`rowPart`). A line over 4 KB is read in byte windows, each served whole on its own page, sized in escaped JSON characters (the unit of `responseChars`): one row's windows follow the target, so a narrow target reads the line in many small pages and a wide one (`responseChars` has no maximum) in a few; a row of a batch keeps windows of at least 4,096 characters, so a narrow share of the target never reads a long line in slivers. A shorter line, and the window around a match, is never cut across byte windows. A page can exceed the target by its fixed parts: the envelope, the `responsePagination` block and the context each row part repeats. Provider metadata and rejected input rows can also add to the first page. A page states `oversized: true` only when it holds one value longer than the target that no page can split: an identity such as a path, a bounded value or a ready call. Other free text longer than a page is split into parts instead. An unpaged operation serves strings whole, so a string longer than the explicit target is also disclosed as oversized; this adds no replay or continuation.
-
-| Field | How to consume it |
+| `errorClass` | Do this |
 |---|---|
-| `pagination` | Read `unit`, zero-based `offset`, `length`, `hasMore`, and `total` when known. A one-page result can omit this object. Each section can have its own paging state. |
-| `countScope` | `loaded`, `partial` and `capped` qualify the reported total. For a capped result, only the reachable portion is counted. |
-| Byte windows | Reassemble by `offset`. A matched window on a long line can arrive before its preceding bytes. Offsets count the decoded, redacted representation as served. |
-| `rowPart` | Join parts in order for the same result. Keep repeated identities and required scalar values once. Append new list elements. Use `rowPart.continues` to merge a resumed array element, and append resumed text at the JSON pointer in `rowPart.text`. Missing prior text or an empty list on a later part preserves the earlier evidence. |
+| `correctInput` | Fix the input the error names, then retry. |
+| `refused` | Stop. A policy, permission, auth or quota limit blocks the call. |
+| `unservable` | Use another tool or source. |
+| `transient` | Retry when `retryable` is true. |
+| `restart` | Drop the pages you hold and follow `next.restart`. The source changed (`staleSnapshot`) or the saved answer expired. |
 
-Programmatic consumers can read `collectionPaths` and, when present, recursive `collectionRefs` from `octocode schema <tool> --view output --json` or the tool's MCP output-reference resource. These routes come from the embedded contract: append declared collections, retain repeated context arrays once, and reconstruct each `rowPart` before treating it as a complete row. A response continuation can also carry later complete rows with the same query index; consume every row before advancing its remaining tool continuations.
+`ssoUrl` on a 403 is a GitHub SAML authorization link: open it, authorize the token, then retry.
+
+## Pages and size
+
+`responseChars` is an optional page-size target (default 20,000 characters). It sizes reads (`localFetch`, `graphQuery`) and remote pages (the GitHub tools, `clasify`, `artifactSearch`, `securityCheck`). Local walks (`localSearch`, `structureSearch`, `astSearch`, `lspSearch`) use an automatic window shared by their pages; there it sizes only the split parts of `responsePagination`. A line over 4 KB is served in byte windows, reassembled by `offset`; a matched window can arrive before the bytes before it. `oversized: true` appears only when one indivisible value is longer than the target. Large responses split at row boundaries where possible, then inside long strings (`rowPart`); a page can exceed the target by its fixed parts (envelope, `responsePagination`, repeated context).
+
+| Field | How to read it |
+|---|---|
+| `pagination` | `unit`, zero-based `offset`, `length`, `hasMore`, `total` when known. A one-page result can omit it. |
+| `countScope` | `loaded`, `partial` or `capped`. Before the last page, or when capped, the total is a floor. |
+| `rowPart` | Join parts in order. Keep repeated identities and scalars once; append array elements. Append `rowPart.text` at its JSON pointer, not as the pointer text. |
+
+Programmatic readers take `collectionPaths` from `octocode schema <tool> --view output --json` (plus `collectionRefs` where present). Append each declared collection, keep repeated context once, and rebuild each `rowPart` before you treat it as a complete row. Consume every row of a response continuation before you advance tool continuations.
 
 ## Evidence boundaries
 
-A complete page can belong to a partial search. Inspect `isPartial`, `partialReasons`, skipped paths, unassessed candidates, warnings and terminal provider limits before reporting a total or absence. GitHub code search covers its index. A classification result covers assessed candidates. An empty `securityCheck` result means the advisory lookup found no known match for the supplied target. A failed check is a separate error.
+A complete page can belong to a partial search. Before you report a total or an absence, check `isPartial`, `partialReasons`, skipped paths, unassessed candidates, warnings and terminal limits.
 
-Use the exact revision, path, lines or package version returned for the claim. If a source or page is unreachable, name the missing scope. [Examples of agent research workflows](OCTOCODE_PROTOCOL.md)
+- `ghSearchCode` covers the default branch's index. A row with `atRef: false` is not at the requested ref.
+- A `clasify` result covers the candidates it assessed.
+- An empty `securityCheck` result means no known advisory matched. A failed check is a separate error.
+
+Cite the exact revision, path, lines or package version a result returned. If a source is unreachable, name the missing scope. Agent workflows: [protocol](OCTOCODE_PROTOCOL.md).

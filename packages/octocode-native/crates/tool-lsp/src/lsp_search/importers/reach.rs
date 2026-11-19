@@ -65,6 +65,10 @@ pub(super) struct AnchorModule {
     /// without it a bare specifier that binds the name stays a candidate.
     /// A relay of this module's export ([`Self::relay`]) shares it.
     project: Option<Arc<Project>>,
+    /// The anchor package's build output: a specifier that resolves to one
+    /// of its declarations (the package imported by name) names the source
+    /// that declaration was compiled from.
+    output: Option<Arc<crate::lsp_search::build_output::BuildOutput>>,
 }
 
 /// Graph facts of a parsed file (CommonJS loads included; parsed once per
@@ -166,6 +170,7 @@ impl AnchorModule {
             path: PathBuf::from(canonical(path)),
             symbol: symbol.to_owned(),
             project: None,
+            output: None,
         })
     }
 
@@ -174,6 +179,8 @@ impl AnchorModule {
     /// specifier is then placed as the project resolves it.
     pub(super) fn within(mut self, root: &Path, listed: &[PathBuf], policy: &PathPolicy) -> Self {
         self.project = Some(Arc::new(Project::new(root, listed, &self.path, policy)));
+        self.output = crate::lsp_search::build_output::BuildOutput::of_source(&self.path, policy)
+            .map(Arc::new);
         self
     }
 
@@ -194,6 +201,7 @@ impl AnchorModule {
             path: PathBuf::from(relay),
             symbol: alias,
             project: self.project.clone(),
+            output: self.output.clone(),
         }
     }
 
@@ -426,6 +434,12 @@ impl AnchorModule {
             }
         };
         let target = std::fs::canonicalize(&target).unwrap_or(target);
+        // The package's own build output stands for the source it mirrors.
+        let target = self
+            .output
+            .as_ref()
+            .and_then(|output| output.source_of(&target))
+            .unwrap_or(target);
         if target == self.path {
             return true;
         }

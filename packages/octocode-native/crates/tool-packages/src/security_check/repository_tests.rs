@@ -115,6 +115,7 @@ async fn row(read: RepoRead, repo: &str) -> Result<Value, ArtifactError> {
             config: &config,
             github: Some(&fake),
             osv_api: octocode_runtime_base::execution::RuntimeLimits::DEFAULT.osv_api,
+            share: &crate::artifact::CallShare::new(),
         },
     )
     .await
@@ -246,6 +247,7 @@ async fn a_github_transport_that_could_not_be_built_says_why_on_the_row() {
             config: &config,
             github: Some(&failed),
             osv_api: octocode_runtime_base::execution::RuntimeLimits::DEFAULT.osv_api,
+            share: &crate::artifact::CallShare::new(),
         },
     )
     .await
@@ -448,10 +450,18 @@ async fn a_repository_summary_counts_and_links_and_details_lists() {
         .expect("a counted advisory");
     assert_eq!(summary["highestSeverity"], worst["severity"], "{summary}");
     assert_eq!(summary["link"], worst["link"], "{summary}");
-    for detail in ["answer", "advisories", "repository", "sources"] {
+    for detail in ["advisories", "repository", "sources"] {
         assert!(details.get(detail).is_some(), "{detail}: {details}");
         assert!(summary.get(detail).is_none(), "{detail}: {summary}");
     }
+    // The sentence stays: it says the count is the repository's own
+    // published advisories, not the package's.
+    assert!(
+        summary["answer"]
+            .as_str()
+            .is_some_and(|answer| answer.contains("published repository advisories")),
+        "{summary}"
+    );
     assert!(summary.get("related").is_none(), "{summary}");
     octocode_runtime_base::test_support::assert_row_contract(ToolId::SecurityCheck, &summary);
     // Cautions and a source that did not answer stay in the summary.

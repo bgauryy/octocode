@@ -478,6 +478,7 @@ async fn the_advisories_are_asked_of_osv_together_not_one_after_another() {
         config: &config,
         github: Some(&github),
         osv_api: octocode_runtime_base::execution::RuntimeLimits::DEFAULT.osv_api,
+        share: &crate::artifact::CallShare::new(),
     };
     let data = crate::security_check::repository::run(
         "lodash/lodash",

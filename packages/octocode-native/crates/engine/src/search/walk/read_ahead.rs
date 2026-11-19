@@ -59,7 +59,7 @@ pub(crate) fn read_listing(base: &Path) -> Listing {
     read_listing_with(base, Detail::Stamped)
 }
 
-/// [`read_listing`] of the `detail` a caller needs.
+/// `read_listing` of the `detail` a caller needs.
 pub(crate) fn read_listing_with(base: &Path, detail: Detail) -> Listing {
     read_listing_until(base, None, detail).unwrap_or_else(|| Listing {
         read_at: None,
@@ -72,7 +72,7 @@ pub(crate) fn read_listing_with(base: &Path, detail: Detail) -> Listing {
 /// costs about what reading one entry does.
 const ENTRIES_PER_DEADLINE_CHECK: usize = 64;
 
-/// [`read_listing`], given up once the walk's `deadline` (an instant on its
+/// `read_listing`, given up once the walk's `deadline` (an instant on its
 /// clock) passes during it (`None`): a directory too large to list within
 /// the walk's time budget is left for the window that resumes the walk,
 /// which lists it whole.

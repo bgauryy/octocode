@@ -152,7 +152,7 @@ fn a_selection_that_keeps_no_judged_hit_is_not_absence() {
     assert_eq!((receipt.selected_items, receipt.unknown_items), (0, 0));
     assert!(
         result.warnings.iter().any(|note| note.contains(
-            "classification kept 0 of 2 hits that pass the classifiers. An empty classified result is not absence: next.unfiltered lists them all."
+            "classification passed 0 of 2 hits. An empty classified result is not absence: next.unfiltered lists them all."
         )),
         "{:?}",
         result.warnings

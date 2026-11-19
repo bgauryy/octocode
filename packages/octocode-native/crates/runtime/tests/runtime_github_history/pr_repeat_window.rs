@@ -51,13 +51,18 @@ async fn server(graphql: Value, cache_control: &str) -> MockServer {
     server
 }
 
+/// The GraphQL reads of the pull request's sections: a summary read's own
+/// whole-comment-count read (`totalCommentsCount`, TB6) is not one of them.
 async fn graphql_sent(server: &MockServer) -> usize {
     server
         .received_requests()
         .await
         .expect("recorded")
         .iter()
-        .filter(|request| request.url.path() == "/api/graphql")
+        .filter(|request| {
+            request.url.path() == "/api/graphql"
+                && !String::from_utf8_lossy(&request.body).contains("totalCommentsCount")
+        })
         .count()
 }
 

@@ -62,11 +62,12 @@ async fn github_reads_and_searches_judge_each_hit() {
         .as_array()
         .expect("kept matches");
     assert_eq!(matches.len(), 3, "{data}");
+    // Each kept hit is a `"<line>\t<text>"` entry: a line number, a tab, the line.
     assert!(
-        matches.iter().all(|hit| hit["line"].is_u64()
-            && hit["value"]
-                .as_str()
-                .is_some_and(|value| value.contains("KEEP"))),
+        matches.iter().all(|hit| hit
+            .as_str()
+            .and_then(|hit| hit.split_once('\t'))
+            .is_some_and(|(line, text)| line.parse::<u64>().is_ok() && text.contains("KEEP"))),
         "{data}"
     );
     runtime.close().await;

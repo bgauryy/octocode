@@ -20,8 +20,12 @@ pub(super) fn files_spelling<'a, T: AsRef<Path> + Sync>(
 ) -> (Vec<&'a T>, bool) {
     let mut items = files.iter().collect::<Vec<_>>();
     let workers = octocode_tools_shared::workers::workers(items.len() / FILES_PER_WORKER, None);
+    // Each worker reads through the caller's observation of the file system.
+    let observed = octocode_engine::stamp::observation();
     let answers = octocode_tools_shared::workers::each_parallel(&mut items, workers, |file| {
-        (!stopped()).then(|| spells((*file).as_ref()))
+        (!stopped()).then(|| {
+            octocode_engine::stamp::observing(observed.clone(), || spells((*file).as_ref()))
+        })
     });
     let read_all = answers.iter().all(Option::is_some);
     let found = files

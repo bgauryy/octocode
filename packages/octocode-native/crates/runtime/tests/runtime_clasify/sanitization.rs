@@ -286,7 +286,9 @@ async fn a_key_file_shows_one_placeholder_form_in_every_view() {
     }
     // A search reads what a read shows: a content row's lines around each
     // block are the read's lines, and a matchOnly search for the placeholder
-    // finds it on exactly the lines a read shows it, one per line.
+    // finds it on exactly the lines a read shows it, one per line. Each span
+    // is the request's one term, so it states only where it is: its value is
+    // the placeholder the request names, and no key text is served.
     let search = |query: Value| {
         let runtime = &runtime;
         async move {
@@ -332,11 +334,15 @@ async fn a_key_file_shows_one_placeholder_form_in_every_view() {
     let found_lines: Vec<usize> = hits
         .iter()
         .map(|hit| {
-            assert_eq!(hit["value"], placeholder, "{found}");
+            assert!(hit.get("value").is_none(), "{found}");
+            assert!(hit["column"].is_u64(), "{found}");
             usize::try_from(hit["line"].as_u64().expect("line")).expect("small")
         })
         .collect();
     assert_eq!(found_lines, shown, "{found}");
+    for key in [&private, &pgp, &rsa] {
+        assert!(!found.to_string().contains(key.as_str()), "{found}");
+    }
     let result = clasify(
         &runtime,
         vec![json!({

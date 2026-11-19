@@ -25,6 +25,11 @@ fn builtin_rust_route_runs_rust_analyzer_headless_by_default() {
         Some(&json!("client")),
         "file changes must reach the server before a semantic request, including unopened files"
     );
+    assert_eq!(
+        options.pointer("/workspace/symbol/search/kind"),
+        Some(&json!("all_symbols")),
+        "a workspaceSymbol of a function name finds functions, not only types"
+    );
 }
 
 #[test]

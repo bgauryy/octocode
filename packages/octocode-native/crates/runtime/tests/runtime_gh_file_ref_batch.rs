@@ -50,10 +50,12 @@ async fn read_batch(server: &MockServer, owner: &str, repo: &str, files: &[&str]
     outcome.structured_content.into_value()
 }
 
-/// Three rows at one ref: one resolution, then the three contents reads and
-/// nothing else. No row states its file's last change or leads to it.
+/// Three rows at one ref: one resolution, one GraphQL read of the three files
+/// together (TE6; this server answers no GraphQL, so each file is then read by
+/// REST as before), then the three contents reads and nothing else. No row
+/// states its file's last change or leads to it.
 #[tokio::test]
-async fn three_rows_resolve_their_ref_once_and_read_only_the_files() {
+async fn three_rows_resolve_their_ref_once_and_ask_only_for_their_files() {
     let server = server("a", "b").await;
     let files = ["a.txt", "b.txt", "c.txt"];
     let out = read_batch(&server, "a", "b", &files).await;
@@ -78,10 +80,16 @@ async fn three_rows_resolve_their_ref_once_and_read_only_the_files() {
         3,
         "{paths:?}"
     );
+    // The batch's one read of its files together.
+    assert_eq!(
+        paths.iter().filter(|path| *path == "/api/graphql").count(),
+        1,
+        "{paths:?}"
+    );
     // The tree read that says a path is no link is no last-commit request.
     let asked = paths
         .iter()
-        .filter(|path| !path.contains("/git/trees/"))
+        .filter(|path| !path.contains("/git/trees/") && *path != "/api/graphql")
         .count();
     assert_eq!(asked, 4, "no last-commit request: {paths:?}");
     for (index, file) in files.iter().enumerate() {
@@ -110,6 +118,13 @@ async fn the_resolution_keeps_the_rows_spelling_and_withheld_paths_send_nothing(
         requests
             .iter()
             .all(|request| !request.url.path().contains(".env")),
+        "{requests:?}"
+    );
+    // Nor does the batch's GraphQL read of its files name it.
+    assert!(
+        requests
+            .iter()
+            .all(|request| !String::from_utf8_lossy(&request.body).contains(".env")),
         "{requests:?}"
     );
     assert_eq!(

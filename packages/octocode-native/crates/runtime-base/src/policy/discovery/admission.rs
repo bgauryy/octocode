@@ -283,6 +283,62 @@ impl<'a> WalkAdmission<'a> {
         Some((shown, excluded))
     }
 
+    /// Record a dot entry a walk left out without `includeHidden`.
+    pub fn record_hidden(&self, path: &Path, is_dir: bool) {
+        if let Some((shown, excluded)) = self.skipped_entry(path, is_dir) {
+            self.note(|skips| {
+                skips.hidden.insert(shown);
+                skips.hidden_excluded |= excluded;
+            });
+        }
+    }
+
+    /// Record an entry an ignore rule left out without `includeIgnored`.
+    pub fn record_ignored(&self, path: &Path, is_dir: bool) {
+        if let Some((shown, excluded)) = self.skipped_entry(path, is_dir) {
+            let hidden = path
+                .file_name()
+                .is_some_and(|name| name.as_encoded_bytes().first() == Some(&b'.'));
+            self.note(|skips| {
+                skips.ignored.insert(shown);
+                skips.ignored_excluded |= excluded;
+                skips.ignored_hidden |= hidden;
+            });
+        }
+    }
+
+    /// Record what an engine walk's own rules left out of `root`'s walk, each
+    /// entry root-relative (a directory's with a trailing `/`; every `pruned`
+    /// entry is a directory): its ignored and dot entries, and the
+    /// directories its default prune skipped ([`WalkRules::engine_prunes`]).
+    /// A file counts only when `relevant` says the walk would have read it.
+    pub fn record_left_out(
+        &self,
+        (ignored, hidden, pruned): (&[String], &[String], &[String]),
+        relevant: impl Fn(&Path) -> bool,
+    ) {
+        let entry = |relative: &String| {
+            let is_dir = relative.ends_with('/');
+            let path = self.root.join(relative.trim_end_matches('/'));
+            (is_dir || relevant(&path)).then_some((path, is_dir))
+        };
+        for (path, is_dir) in ignored.iter().filter_map(entry) {
+            self.record_ignored(&path, is_dir);
+        }
+        for (path, is_dir) in hidden.iter().filter_map(entry) {
+            self.record_hidden(&path, is_dir);
+        }
+        for relative in pruned {
+            let path = self.root.join(relative.trim_end_matches('/'));
+            if self.permits(&path, None) && self.in_scope(&path, true) {
+                let shown = self.shown(&path);
+                self.note(|skips| {
+                    skips.pruned.insert(shown);
+                });
+            }
+        }
+    }
+
     /// Whether a skipped `path` could hold a path the include globs match.
     fn in_scope(&self, path: &Path, is_dir: bool) -> bool {
         self.scope
@@ -337,25 +393,11 @@ impl octocode_engine::search::text_search::TextSearchPathFilter for WalkAdmissio
     }
 
     fn skipped_hidden(&self, path: &Path, is_dir: bool) {
-        if let Some((shown, excluded)) = self.skipped_entry(path, is_dir) {
-            self.note(|skips| {
-                skips.hidden.insert(shown);
-                skips.hidden_excluded |= excluded;
-            });
-        }
+        self.record_hidden(path, is_dir);
     }
 
     fn skipped_ignored(&self, path: &Path, is_dir: bool) {
-        if let Some((shown, excluded)) = self.skipped_entry(path, is_dir) {
-            let hidden = path
-                .file_name()
-                .is_some_and(|name| name.as_encoded_bytes().first() == Some(&b'.'));
-            self.note(|skips| {
-                skips.ignored.insert(shown);
-                skips.ignored_excluded |= excluded;
-                skips.ignored_hidden |= hidden;
-            });
-        }
+        self.record_ignored(path, is_dir);
     }
 
     fn skipped_symlink(&self, path: &Path) {

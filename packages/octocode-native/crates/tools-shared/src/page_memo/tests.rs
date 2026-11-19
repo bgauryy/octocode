@@ -207,3 +207,289 @@ fn an_expired_value_is_not_served() {
     std::thread::sleep(Duration::from_millis(40));
     assert_eq!(memo.get("s", "a", |()| ()), None);
 }
+
+/// A gate a computation waits at until the test opens it.
+#[derive(Default)]
+struct Gate {
+    open: std::sync::Mutex<bool>,
+    signal: std::sync::Condvar,
+}
+
+impl Gate {
+    fn wait(&self) {
+        let mut open = self.open.lock().expect("gate");
+        while !*open {
+            open = self.signal.wait(open).expect("gate");
+        }
+    }
+
+    fn open(&self) {
+        *self.open.lock().expect("gate") = true;
+        self.signal.notify_all();
+    }
+}
+
+/// Concurrent requests for one key compute it once: the rest wait for the
+/// one computing it and read what it kept.
+#[test]
+fn concurrent_requests_for_one_key_compute_it_once() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let memo = PageMemo::<usize>::new();
+    let (computed, started, gate) = (AtomicUsize::new(0), AtomicUsize::new(0), Gate::default());
+    let requests = 6;
+    let values = std::thread::scope(|scope| {
+        let tasks = (0..requests)
+            .map(|_| {
+                scope.spawn(|| {
+                    started.fetch_add(1, Ordering::SeqCst);
+                    memo.get_or_compute("one flight".into(), "p", &|| false, || {
+                        computed.fetch_add(1, Ordering::SeqCst);
+                        gate.wait();
+                        Computed {
+                            value: 7,
+                            keep: Some(1),
+                        }
+                    })
+                })
+            })
+            .collect::<Vec<_>>();
+        // Every request is under way before the computation may finish.
+        while started.load(Ordering::SeqCst) < requests {
+            std::thread::yield_now();
+        }
+        gate.open();
+        tasks
+            .into_iter()
+            .map(|task| task.join().expect("request"))
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(values, vec![7; requests]);
+    assert_eq!(computed.load(Ordering::SeqCst), 1);
+    memo.evict("one flight");
+}
+
+/// A computation that keeps nothing (it stopped) is no answer for anyone
+/// else: each waiter computes in turn, and nothing is kept.
+#[test]
+fn a_flight_that_keeps_nothing_leaves_each_waiter_to_compute() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let memo = PageMemo::<usize>::new();
+    let computed = AtomicUsize::new(0);
+    let requests = 4;
+    std::thread::scope(|scope| {
+        for _ in 0..requests {
+            scope.spawn(|| {
+                memo.get_or_compute("unkept".into(), "p", &|| false, || {
+                    computed.fetch_add(1, Ordering::SeqCst);
+                    Computed {
+                        value: 1,
+                        keep: None,
+                    }
+                })
+            });
+        }
+    });
+    assert_eq!(computed.load(Ordering::SeqCst), requests);
+    assert_eq!(memo.get("unkept", "p", |value| *value), None);
+}
+
+/// A waiter whose own request was stopped does not wait out the flight: it
+/// computes for itself at once.
+#[test]
+fn a_stopped_waiter_does_not_wait_for_the_flight() {
+    let memo = PageMemo::<usize>::new();
+    let (leading, gate) = (Gate::default(), Gate::default());
+    std::thread::scope(|scope| {
+        let leader = scope.spawn(|| {
+            memo.get_or_compute("stopped".into(), "p", &|| false, || {
+                leading.open();
+                gate.wait();
+                Computed {
+                    value: 1,
+                    keep: Some(1),
+                }
+            })
+        });
+        leading.wait();
+        let own = memo.get_or_compute("stopped".into(), "p", &|| true, || Computed {
+            value: 2,
+            keep: None,
+        });
+        assert_eq!(own, 2, "the stopped waiter answered for itself");
+        gate.open();
+        assert_eq!(leader.join().expect("leader"), 1);
+    });
+    memo.evict("stopped");
+}
+
+/// `requests` asks for one key at once while the first computes it.
+fn shared_by(
+    shared: &Shared<u32>,
+    requests: usize,
+    take: impl Fn(&u32) -> Option<u32> + Sync,
+) -> (Vec<u32>, usize) {
+    let computed = std::sync::atomic::AtomicUsize::new(0);
+    let led = std::sync::atomic::AtomicBool::new(false);
+    let answers = std::thread::scope(|scope| {
+        let ask = || {
+            shared.share(
+                "key".to_owned(),
+                &|| false,
+                |_| {
+                    let n = computed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    // The first computation waits until every other request
+                    // waits on it.
+                    if !led.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                        while shared.waiting("key") < requests - 1 {
+                            std::thread::yield_now();
+                        }
+                    }
+                    (100 + u32::try_from(n).expect("small"), Some(7))
+                },
+                &take,
+            )
+        };
+        let tasks = (0..requests).map(|_| scope.spawn(ask)).collect::<Vec<_>>();
+        tasks
+            .into_iter()
+            .map(|task| task.join().expect("request"))
+            .collect::<Vec<_>>()
+    });
+    (answers, computed.into_inner())
+}
+
+#[test]
+fn requests_that_ask_at_once_share_one_computation() {
+    let shared = Shared::new();
+    let (mut answers, computed) = shared_by(&shared, 5, |handed| Some(*handed * 10));
+    answers.sort_unstable();
+    assert_eq!(computed, 1);
+    assert_eq!(answers, vec![70, 70, 70, 70, 100]);
+    // Nothing outlives the flight: a later request computes.
+    assert_eq!(
+        shared.share("key".to_owned(), &|| false, |_| (1, None), |_| Some(2)),
+        1
+    );
+}
+
+#[test]
+fn a_leader_learns_whether_any_request_waits_on_it() {
+    let shared = Shared::<u32>::new();
+    let alone = shared.share(
+        "key".to_owned(),
+        &|| false,
+        |waited| (u32::from(waited()), None),
+        |_| None,
+    );
+    assert_eq!(alone, 0);
+    let seen = std::sync::atomic::AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        let leader = scope.spawn(|| {
+            shared.share(
+                "key".to_owned(),
+                &|| false,
+                |waited| {
+                    while shared.waiting("key") < 1 {
+                        std::thread::yield_now();
+                    }
+                    seen.store(waited(), std::sync::atomic::Ordering::SeqCst);
+                    (1, Some(9))
+                },
+                |_| None,
+            )
+        });
+        while shared.in_flight_keys() == 0 {
+            std::thread::yield_now();
+        }
+        assert_eq!(
+            shared.share(
+                "key".to_owned(),
+                &|| false,
+                |_| (2, None),
+                |handed| Some(*handed)
+            ),
+            9
+        );
+        assert_eq!(leader.join().expect("joined"), 1);
+    });
+    assert!(seen.into_inner());
+}
+
+#[test]
+fn a_waiter_that_refuses_what_was_handed_computes_for_itself() {
+    let shared = Shared::new();
+    let (answers, computed) = shared_by(&shared, 3, |_| None);
+    assert_eq!(computed, 3);
+    assert!(answers.iter().all(|answer| *answer >= 100), "{answers:?}");
+}
+
+#[test]
+fn a_leader_that_unwinds_or_hands_nothing_leaves_each_waiter_to_compute() {
+    let shared = Shared::<u32>::new();
+    let computed = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        let leader = scope.spawn(|| {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                shared.share(
+                    "key".to_owned(),
+                    &|| false,
+                    |_| {
+                        while shared.waiting("key") < 1 {
+                            std::thread::yield_now();
+                        }
+                        panic!("the leader unwinds");
+                    },
+                    |_| Some(0),
+                )
+            }))
+        });
+        // Joins the leader's flight (the leader waits for it), then computes.
+        while shared.in_flight_keys() == 0 {
+            std::thread::yield_now();
+        }
+        let waiter = shared.share(
+            "key".to_owned(),
+            &|| false,
+            |_| {
+                computed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                (5, None)
+            },
+            |_| Some(0),
+        );
+        assert!(leader.join().expect("joined").is_err());
+        assert_eq!(waiter, 5);
+    });
+    assert_eq!(computed.into_inner(), 1);
+    assert_eq!(shared.in_flight_keys(), 0);
+}
+
+#[test]
+fn a_stopped_waiter_computes_without_waiting_for_the_leader() {
+    let shared = Shared::<u32>::new();
+    let release = std::sync::atomic::AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        let leader = scope.spawn(|| {
+            shared.share(
+                "key".to_owned(),
+                &|| false,
+                |_| {
+                    while !release.load(std::sync::atomic::Ordering::SeqCst) {
+                        std::thread::yield_now();
+                    }
+                    (1, Some(1))
+                },
+                |_| Some(0),
+            )
+        });
+        while shared.in_flight_keys() == 0 {
+            std::thread::yield_now();
+        }
+        // Stopped: it does not wait for the leader, which waits for it.
+        assert_eq!(
+            shared.share("key".to_owned(), &|| true, |_| (2, None), |_| Some(0)),
+            2
+        );
+        release.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(leader.join().expect("joined"), 1);
+    });
+}

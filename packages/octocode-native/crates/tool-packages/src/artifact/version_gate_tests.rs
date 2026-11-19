@@ -20,6 +20,7 @@ async fn an_exact_only_ecosystem_refuses_a_version_range() {
         answers: None,
         reused: &reused,
         tags: None,
+        share: None,
     };
     for (ecosystem, name, range) in [
         (ArtifactType::Maven, "com.google.guava:guava", "[30.0,32.0)"),

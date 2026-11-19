@@ -14,7 +14,7 @@ const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 const API: &str = "/api/v3/repos/a/b";
 
 #[derive(Default)]
-struct Held(Mutex<HashMap<(String, String), crate::SavedAnswer>>);
+pub(super) struct Held(Mutex<HashMap<(String, String), crate::SavedAnswer>>);
 
 impl crate::SavedAnswers for Held {
     fn load(&self, scope: &str, request: &str) -> Option<crate::SavedAnswer> {
@@ -44,7 +44,7 @@ impl Held {
     }
 }
 
-async fn keeping_provider(server: &MockServer) -> (GitHubProvider, Arc<Held>) {
+pub(super) async fn keeping_provider(server: &MockServer) -> (GitHubProvider, Arc<Held>) {
     let mut transport = GitHubTransport::new(
         mock_endpoint(server),
         RetryPolicy {

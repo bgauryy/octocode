@@ -3,12 +3,35 @@
 //! when no tree of it answers.
 use super::*;
 
+/// Folder and subtree reads one listing spends at most. A call has no wall
+/// deadline, and every read draws on the caller's shared core quota: without
+/// a bound, an `include` over a repository the size of Linux spent over 2,000
+/// requests before answering. Past it the walk stops and says how many
+/// folders it left unread ([`Traversal::unwalked`]): a disclosed cut, never a
+/// silent one.
+pub(in crate::gh_structure) const MAX_WALK_READS: usize = 300;
+
+/// [`MAX_WALK_READS`], or a test's own on this thread.
+fn walk_reads() -> usize {
+    #[cfg(test)]
+    if let Some(reads) = TEST_WALK_READS.with(std::cell::Cell::get) {
+        return reads;
+    }
+    MAX_WALK_READS
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: a read budget smaller than any real tree needs.
+    pub(in crate::gh_structure) static TEST_WALK_READS: std::cell::Cell<Option<usize>> =
+        const { std::cell::Cell::new(None) };
+}
+
 /// The folder-by-folder walk, level by level with up to [`read_concurrency`]
-/// folder reads in flight; no read count ends it: GitHub sets no such rule,
-/// and its rate limits and the request deadline are typed failures, never a
-/// silent cut. After a truncated recursive tree (`split`), a folder with more
-/// than one level left to list is read whole from its own recursive subtree,
-/// so a large repository costs one read per subtree instead of per folder.
+/// folder reads in flight, within [`MAX_WALK_READS`]. After a truncated
+/// recursive tree (`split`), a folder with more than one level left to list
+/// is read whole from its own recursive subtree, so a large repository costs
+/// one read per subtree instead of per folder.
 pub(in crate::gh_structure) async fn walk_contents(
     provider: &GitHubProvider,
     listing: &Listing<'_>,
@@ -22,8 +45,27 @@ pub(in crate::gh_structure) async fn walk_contents(
     let mut level = vec![at.root.to_owned()];
     let mut visited = HashSet::new();
     let mut depth = 1usize;
+    let mut spent = 0usize;
     while !level.is_empty() {
         level.retain(|path| visited.insert(path.clone()));
+        let room = walk_reads().saturating_sub(spent);
+        if level.len() > room {
+            traversal.unwalked += level.len() - room;
+            #[cfg_attr(
+                octocode_clippy_ratchet,
+                expect(
+                    clippy::disallowed_methods,
+                    reason = "The folders past the read budget are counted in `unwalked`, which the listing discloses as partial"
+                )
+            )]
+            {
+                level.truncate(room);
+            }
+        }
+        if level.is_empty() {
+            break;
+        }
+        spent += level.len();
         let required = depth == 1;
         let reads = futures_util::stream::iter(
             level
@@ -58,6 +100,21 @@ pub(in crate::gh_structure) async fn walk_contents(
         // Folders with two or more levels left read whole from their own
         // recursive subtree; a subtree that is truncated too (or
         // unreadable) is walked like any folder.
+        let room = walk_reads().saturating_sub(spent);
+        if subtrees.len() > room {
+            traversal.unwalked += subtrees.len() - room;
+            #[cfg_attr(
+                octocode_clippy_ratchet,
+                expect(
+                    clippy::disallowed_methods,
+                    reason = "The subtrees past the read budget are counted in `unwalked`, which the listing discloses as partial"
+                )
+            )]
+            {
+                subtrees.truncate(room);
+            }
+        }
+        spent += subtrees.len();
         let trees = futures_util::stream::iter(
             subtrees
                 .iter()

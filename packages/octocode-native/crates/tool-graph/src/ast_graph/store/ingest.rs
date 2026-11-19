@@ -48,7 +48,7 @@ pub fn ingest(
     )
 }
 
-/// [`ingest`] with the parser registry and the snapshot bounds it builds
+/// [`ingest`](fn@ingest) with the parser registry and the snapshot bounds it builds
 /// under (tests lower them).
 pub(super) fn ingest_with_registry(
     options: &IngestOptions,

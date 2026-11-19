@@ -6,7 +6,7 @@
 //! a stamp that differs is read again. No entry holds text, and none reaches
 //! disk.
 use super::Question;
-use octocode_engine::stamp::{SourceStamp, cache_stamp, settle_clock};
+use octocode_engine::stamp::{Link, SourceStamp, cache_stamp, settle_clock};
 use octocode_tools_shared::page_memo::PageMemo;
 use std::path::Path;
 
@@ -23,13 +23,20 @@ const ANY_POLICY: &str = "";
 
 /// The kept answer for `file` while its stamp holds, else `read`'s, kept when
 /// the file was settled before the read and unchanged after it. `read` is
-/// `None` when it could not read the file, which is not kept.
+/// `None` when it could not read the file, which is not kept. A kept stamp a
+/// proof that held in this request shows current needs no stat.
 pub(super) fn kept_or_read(
     symbol: &str,
     file: &str,
     question: Question,
     read: impl FnOnce() -> Option<bool>,
 ) -> Option<bool> {
+    let key = format!("{file}\0{question:?}\0{symbol}");
+    if let Some((stamp, uses)) = USES.get(&key, ANY_POLICY, |kept| (kept.stamp, kept.uses))
+        && octocode_engine::stamp::held().proves(Path::new(file), Link::Follow, stamp)
+    {
+        return Some(uses);
+    }
     let clock = settle_clock();
     let stat = || {
         std::fs::metadata(Path::new(file))
@@ -38,7 +45,6 @@ pub(super) fn kept_or_read(
     };
     let meta = stat();
     let stamp = meta.as_ref().and_then(cache_stamp);
-    let key = format!("{file}\0{question:?}\0{symbol}");
     if let Some(stamp) = stamp {
         let kept = USES.get(&key, ANY_POLICY, |kept| {
             (kept.stamp == stamp).then_some(kept.uses)

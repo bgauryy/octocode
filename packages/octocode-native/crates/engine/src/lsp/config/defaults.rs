@@ -32,7 +32,12 @@ pub fn rust_analyzer_headless_options() -> Value {
         // The client snapshots source changes before semantic requests. A
         // server-side filesystem watcher can otherwise answer from its old
         // index while the tool reads snippets from the newly written files.
-        "files": { "watcher": "client" }
+        "files": { "watcher": "client" },
+        // rust-analyzer searches types only by default and falls back to
+        // every symbol only when no type matches: a `workspaceSymbol` of a
+        // function name (`flush`, `new`) would return the one struct that
+        // fuzzy-matches it and none of the functions.
+        "workspace": { "symbol": { "search": { "kind": "all_symbols" } } }
     })
 }
 

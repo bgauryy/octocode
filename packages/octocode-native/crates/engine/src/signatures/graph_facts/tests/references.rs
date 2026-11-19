@@ -33,6 +33,22 @@ fn rust_paths_outside_calls_and_uses_are_facts() {
     );
 }
 
+/// A restricted visibility names where an item is visible, not a use of
+/// that module: `pub(in crate::local_search)` records no path.
+#[test]
+fn a_restricted_visibility_path_is_no_reference() {
+    let source = "pub(in crate::local_search) enum Proof { A }\npub(in crate::local_search) fn f() -> crate::types::Out { todo!() }\n";
+    let facts = extract_graph_facts_with_metadata(source, "src/guard.rs")
+        .expect("graph facts")
+        .facts;
+    let paths = facts
+        .paths
+        .iter()
+        .map(|p| p.path.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(paths, ["crate::types::Out"]);
+}
+
 #[test]
 fn rust_comments_and_strings_are_not_references() {
     let source = "/// `helper` is documented; see helper.\npub fn helper() {}\n// helper\n/* helper */\npub fn caller() -> &'static str { \"helper\" }\n";

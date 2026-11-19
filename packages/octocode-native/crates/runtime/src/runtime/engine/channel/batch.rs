@@ -1,5 +1,6 @@
 use octocode_runtime_base::execution::{ExecutionContext, ExecutionError};
 use octocode_runtime_base::id::{ToolFamily, ToolId};
+use octocode_runtime_base::response::outcome::DomainResult;
 use octocode_runtime_base::response::read_share;
 use octocode_runtime_base::security::CheckedQuery;
 
@@ -29,14 +30,15 @@ pub(super) fn execute_ordinary_queries(
     response_page: Option<usize>,
     dispatcher: &crate::runtime::domain_dispatch::DomainDispatcher,
     context: &ExecutionContext,
-) -> Result<Vec<octocode_runtime_base::response::outcome::DomainResult>, ExecutionError> {
+) -> Result<Vec<DomainResult>, ExecutionError> {
+    let page = response_page.filter(|page| *page > 0);
     // Each row's share of the response page its output must fit.
-    let context = &ExecutionContext {
-        response_window: response_page
-            .filter(|page| *page > 0)
-            .map(|page| read_share::row_window(tool, page, queries.len())),
+    let share = page.map(|page| read_share::row_window(tool, page, queries.len()));
+    let within = |share: Option<usize>| ExecutionContext {
+        response_window: share,
         ..context.clone()
     };
+    let context = &within(share);
     // Each local row running at once computes on this host: it counts toward
     // the process budget before any fan-out (here or in the row) is sized.
     let width = batch_width(tool, queries.len());
@@ -57,10 +59,71 @@ pub(super) fn execute_ordinary_queries(
                 dispatcher.run_warm(warm, context);
             }));
         }
-        run_batch(width, queries, |query| {
+        let execute = |query: &CheckedQuery, context: &ExecutionContext| {
             dispatcher.execute(tool, query, context, warm.as_ref())
-        })
+        };
+        let rows = run_batch(width, queries, |query| execute(query, context))?;
+        match (page, share) {
+            (Some(page), Some(share)) if read_share::fill_together(tool) && queries.len() > 1 => {
+                let room = read_share::rows_room(tool, page, queries.len());
+                fill_page(rows, queries, (room, share), |open, share| {
+                    let context = &within(Some(share));
+                    run_batch(batch_width(tool, open.len()), open, |query| {
+                        execute(query, context)
+                    })
+                })
+            }
+            _ => Ok(rows),
+        }
     })
+}
+
+/// Fills the `room` the rows of one call share like water, from `rows` read
+/// with an equal `share` each: while the rows that finished leave room
+/// ([`read_share::widened`]), the rows still reading are read again with the
+/// wider share (`read`, which cuts each again from its kept view). Each round
+/// either finishes a row or ends the fill, so it reads each row at most once
+/// per row of the batch.
+fn fill_page<R>(
+    mut rows: Vec<DomainResult>,
+    queries: &[CheckedQuery],
+    (room, mut share): (usize, usize),
+    read: R,
+) -> Result<Vec<DomainResult>, ExecutionError>
+where
+    R: Fn(&[&CheckedQuery], usize) -> Result<Vec<DomainResult>, ExecutionError>,
+{
+    loop {
+        let filled = rows
+            .iter()
+            .zip(queries)
+            .map(|(row, query)| read_share::Filled {
+                chars: read_share::published_chars(&row.data).row,
+                open: read_share::reads_on(&row.data) && read_share::reads_again(query),
+            })
+            .collect::<Vec<_>>();
+        let Some(wider) = read_share::widened(room, share, &filled) else {
+            return Ok(rows);
+        };
+        let open = filled
+            .iter()
+            .enumerate()
+            .filter_map(|(at, row)| row.open.then_some(at))
+            .collect::<Vec<_>>();
+        let again = read(
+            &open.iter().map(|at| &queries[*at]).collect::<Vec<_>>(),
+            wider,
+        )?;
+        let mut finished = false;
+        for (at, row) in open.into_iter().zip(again) {
+            finished |= !read_share::reads_on(&row.data);
+            rows[at] = row;
+        }
+        if !finished {
+            return Ok(rows);
+        }
+        share = wider;
+    }
 }
 
 /// Runs every query of a batch, `width` at once; the rows come back in query
@@ -87,5 +150,7 @@ fn run_batch<Q: Sync, R: Send>(
     }
 }
 
+#[cfg(test)]
+mod fill_tests;
 #[cfg(test)]
 mod order_tests;

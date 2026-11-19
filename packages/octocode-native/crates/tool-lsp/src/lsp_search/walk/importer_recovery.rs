@@ -85,6 +85,9 @@ pub(super) struct IncomingRecovery<'r, 'a> {
     pub(super) scope: &'a Scope,
     pub(super) recovery: &'r ImporterRecovery<'a>,
     pub(super) depth: u32,
+    /// [`NativeLspClient::documents_sent`] before the anchor's own level 1
+    /// was asked.
+    pub(super) sent_before: u64,
 }
 
 /// What importer recovery added to an incoming walk.
@@ -131,6 +134,47 @@ impl IncomingRecovery<'_, '_> {
         .await?;
         if importers.stale {
             return Ok(None);
+        }
+        let mut importers = importers;
+        // Callers must not depend on what the server had loaded: once this
+        // request opened files, the anchor's level 1 is asked again, so a
+        // first call lists what its identical repeat would. Its importer
+        // anchors in files that answer then covers are the server's own.
+        if self.recovery.proof == SiteProof::DefinitionChain
+            && self.recovery.window.page <= 1
+            && client.documents_sent() != self.sent_before
+        {
+            // Asked of the server again, not read from this response's
+            // recorded answers, and prepared again: an item prepared before
+            // the opens can stand for the projects the server held then.
+            octocode_engine::lsp::client::asked_again(async {
+                let prepared = cancellable(
+                    cancel,
+                    client.prepare_call_hierarchy(
+                        self.anchor.path.to_owned(),
+                        self.anchor.line,
+                        self.anchor.character,
+                    ),
+                )
+                .await?
+                .map(into_items)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|root| item_uri_is_authorized(root, paths))
+                .collect::<Vec<_>>();
+                let roots = if prepared.is_empty() {
+                    self.roots
+                } else {
+                    &prepared
+                };
+                walk.reask_roots(client, roots, cancel).await
+            })
+            .await?;
+            let covered = walk.answered_files();
+            importers.anchors.retain(|anchor| {
+                !covered.contains(&crate::lsp_search::scope::canonical(&anchor.path))
+            });
+            answered.extend(covered);
         }
         let mut foreign = importers
             .window

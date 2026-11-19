@@ -1,5 +1,5 @@
-//! What a directory scan can still offer beside its answer: the other
-//! grammars the scope holds and the skipped walks, each with its repair.
+//! What an empty directory scan can still offer: the other grammars the
+//! scope holds and the skipped walks, each with its repair.
 use super::query::MatchQuery;
 use super::types::{Scan, Scope};
 use octocode_runtime_base::execution::cancel::CancellationCheck;
@@ -8,23 +8,22 @@ use octocode_runtime_base::policy::path::PathPolicy;
 use octocode_runtime_base::policy::prune;
 use octocode_runtime_base::response::result::ToolError;
 use octocode_tools_shared::ast_rule::{
-    GlobParsers, GrammarChoice, choose_grammar, compile_check, has_extension_in, present_grammars,
-    rank_grammars,
+    GlobParsers, GrammarChoice, choose_grammar, compile_check, present_grammars, rank_grammars,
 };
-use octocode_tools_shared::empty_walk::{FileProbe, Globs, Walk, diagnose};
+use octocode_tools_shared::empty_walk::{Globs, Walk};
 use serde_json::{Value, json};
 
-/// What a directory scan can still offer beside its answer: the other
-/// grammars the scope holds (an empty scan only), and the walk flags that
-/// were off while files of the requested grammar sat behind them.
+/// What an empty directory scan can still offer: the other grammars the
+/// scope holds, and the paths its walk skipped, each with its repair.
 #[derive(Default)]
 pub(super) struct ScopeGaps {
     pub(super) repair: Option<Value>,
     pub(super) skipped: Option<SkippedWalk>,
 }
 
-/// What the skipped walks hold of the requested grammar, as every local
-/// tool discloses it ([`octocode_tools_shared::leads::skipped`]), with its lead.
+/// What the walk skipped (ignore rules, dot entries, default-excluded
+/// directories), as every local tool discloses it
+/// ([`octocode_tools_shared::leads::skipped`]), with its lead.
 pub(super) struct SkippedWalk {
     pub(super) disclosure: octocode_tools_shared::leads::skipped::Disclosure,
     pub(super) lead: Value,
@@ -38,101 +37,39 @@ impl SkippedWalk {
 }
 
 impl ScopeGaps {
+    /// The gaps of an empty scan: the other grammars when `other_language`
+    /// (no file of the requested one was parsed), and the skipped paths.
     pub(super) fn of(
         q: MatchQuery<'_>,
-        scope: &Scope,
-        scan: &Scan,
+        (scope, scan): (&Scope, &Scan),
         paths: &PathPolicy,
-        states_absence: bool,
+        (states_absence, other_language): (bool, bool),
         cancel: &dyn CancellationCheck,
     ) -> Self {
         Self {
-            repair: other_language_repair(q, scope, scan, paths, cancel),
-            skipped: skipped_walk(q, scope, paths, states_absence, cancel),
-        }
-    }
-
-    /// A scan with no other language to offer (it found matches, it parsed
-    /// files, or no `parser` was set): only the skipped walks, no repair.
-    pub(super) fn beside_parsed(
-        q: MatchQuery<'_>,
-        scope: &Scope,
-        paths: &PathPolicy,
-        states_absence: bool,
-        cancel: &dyn CancellationCheck,
-    ) -> Self {
-        Self {
-            repair: None,
-            skipped: skipped_walk(q, scope, paths, states_absence, cancel),
+            repair: other_language
+                .then(|| other_language_repair(q, scope, scan, paths, cancel))
+                .flatten(),
+            skipped: skipped_walk(q, scan, states_absence),
         }
     }
 }
 
-/// Asks which of the walks the request left off (ignore files, hidden
-/// entries, default-excluded directories) hold files of the requested
-/// grammar; the lead lifts exactly those. The first page of a scan says so,
-/// and a later page only when it `states_absence`: absence needs the disclosure
-/// on the answer that claims it, and a page with rows repeats nothing.
+/// The paths an empty scan's walk skipped, from its own ledger: none of
+/// them was read, so absence there is unproven, and the lead lifts exactly
+/// the causes that skipped them. Nothing behind them is read, as ripgrep
+/// leaves `-u` to its user. The first page of a scan says so, and a later
+/// page only when it `states_absence`.
 pub(super) fn skipped_walk(
     q: MatchQuery<'_>,
-    scope: &Scope,
-    paths: &PathPolicy,
+    scan: &Scan,
     states_absence: bool,
-    cancel: &dyn CancellationCheck,
 ) -> Option<SkippedWalk> {
     let later = q.page() > 1 || q.scan_offset() > 0;
     if later && !states_absence {
         return None;
     }
-    let extensions = scope.extensions.as_ref()?;
-    let walk = Walk {
-        ignored: q.include_ignored().unwrap_or(false),
-        hidden: q.include_hidden().unwrap_or(false),
-        default_excludes: q.default_excludes(),
-        global: paths.global_ignore(),
-    };
-    let (include, exclude) = (
-        q.include().unwrap_or_default(),
-        q.exclude().unwrap_or_default(),
-    );
-    let discovery = paths.discovery_walk();
-    let permits = |path: &std::path::Path, kind: Option<std::fs::FileType>| {
-        discovery.permits_entry(path, kind)
-    };
-    let stop = || cancel.check().is_err();
-    let keep = |path: &std::path::Path| {
-        has_extension_in(path, extensions) || scope.parsers.extension(path).is_some()
-    };
-    let probe = FileProbe::new(&scope.canonical, &permits, &keep)
-        .under(paths.global_ignore())
-        .within(Globs {
-            include: &include,
-            exclude: &exclude,
-        })
-        .stopping(&stop)
-        .beyond(walk);
-    let verdict = diagnose(&scope.canonical, walk, |relaxed| probe.find(relaxed)).ok()?;
-    let language = scope.language.as_deref().or(scope.inferred.as_deref());
-    let subject = language.map_or_else(
-        || ["file".to_owned(), "files".to_owned()],
-        |name| [format!("{name} file"), format!("{name} files")],
-    );
-    // A check cut before it found anything proved nothing: every cause the
-    // walk skipped by is unproven.
-    let skipping = walk.skipping();
-    let named = skipping
-        .iter()
-        .map(|cause| cause.label())
-        .collect::<Vec<_>>()
-        .join(", ");
-    let disclosure = octocode_tools_shared::leads::skipped::disclose(
-        &verdict,
-        [subject[0].as_str(), subject[1].as_str()],
-        octocode_tools_shared::leads::skipped::Unchecked {
-            causes: &skipping,
-            named: &named,
-        },
-    )?;
+    let disclosure = octocode_tools_shared::leads::skipped::unsearched_ledger(&scan.skipped)?;
     let lead = octocode_tools_shared::leads::skipped::lead(
         ToolId::AstSearch,
         &q.to_value(),

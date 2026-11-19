@@ -21,8 +21,9 @@ pub(super) fn expand_scan(truncated: bool, resume: Option<u32>) -> Option<ScanWi
     resume.map(|scan_offset| ScanWindow { scan_offset })
 }
 
-/// A page whose `next.expandScan` reads more of the same listing: its
-/// `pagination` never says the listing ended, and counts only what this
+/// A page whose next window reads more of the same listing
+/// (`next.expandScan`, or the `next.nextPage` of a window its page filled):
+/// its `pagination` never says the listing ended, and counts only what this
 /// window loaded.
 pub(super) fn mark_resumed(out: &mut serde_json::Value) {
     if let Some(pagination) = out
@@ -35,7 +36,7 @@ pub(super) fn mark_resumed(out: &mut serde_json::Value) {
 }
 
 /// The engine's file window of a scan resuming at `scan_offset`: none (the
-/// time budget alone cuts it). A test narrows it ([`test_window`]) to
+/// time budget alone cuts it). A test narrows it (`test_window`) to
 /// produce the cuts a large tree produces. It stays the one seam both scans
 /// (`symbols/directory.rs`, `matches/scan.rs`) read their `max_files` through:
 /// the engine option is live (`through`, `fact_scan`), only this window is

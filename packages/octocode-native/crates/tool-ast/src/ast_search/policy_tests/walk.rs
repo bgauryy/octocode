@@ -211,9 +211,9 @@ fn an_empty_match_over_ignored_and_hidden_files_leads_to_them() {
             empty["warnings"]
                 .to_string()
                 .contains(if flag == "includeIgnored" {
-                    ".gitignore"
+                    "Skipped paths (1 ignored)"
                 } else {
-                    "hidden"
+                    "Skipped paths (1 hidden)"
                 }),
             "{dir}: {empty}"
         );
@@ -223,8 +223,8 @@ fn an_empty_match_over_ignored_and_hidden_files_leads_to_them() {
 }
 
 /// Without `language` each file selects its grammar, so an empty scan that
-/// parsed nothing still probes the skipped walks: the source behind an ignore
-/// rule or a hidden directory is named, with the query that lifts it.
+/// parsed nothing still names the paths its walk skipped: an ignored or a
+/// hidden directory, with the query that lifts it.
 #[test]
 fn an_empty_match_without_language_leads_to_skipped_files() {
     for (dir, flag) in [("gen", "includeIgnored"), (".cfg", "includeHidden")] {
@@ -246,9 +246,9 @@ fn an_empty_match_without_language_leads_to_skipped_files() {
     }
 }
 
-/// An empty match that did parse files still names the ignored files of its
-/// grammar it left out, and leads to the same query with them on: the hint
-/// about the pattern's shape is not the only explanation.
+/// An empty match that did parse files still names the ignored paths it left
+/// out, and leads to the same query with them on: the hint about the
+/// pattern's shape is not the only explanation.
 #[test]
 fn an_empty_match_beside_parsed_files_names_the_ignored_ones() {
     let root = Fixture::new();
@@ -262,7 +262,8 @@ fn an_empty_match_beside_parsed_files_names_the_ignored_ones() {
     assert_eq!(empty["status"], "empty", "{empty}");
     assert_eq!(empty["filesScanned"], json!(1), "{empty}");
     let hints = empty["warnings"].to_string();
-    assert!(hints.contains(".gitignore:1 'gen/'"), "{hints}");
+    assert!(hints.contains("Skipped paths (1 ignored)"), "{hints}");
+    assert!(empty["skippedPaths"].to_string().contains("gen"), "{empty}");
     let retry = &super::super::test_rows::skipped_call(&empty)
         .unwrap_or_else(|| panic!("missing skipped-scope lead: {empty}"))["input"]["queries"][0];
     assert_eq!(retry["includeIgnored"], true, "{empty}");
@@ -330,6 +331,8 @@ fn the_other_grammars_of_an_unparsed_directory_come_from_the_scan_walk() {
     root.write("node_modules/f/g.rb", "x = 1\n");
     #[cfg(unix)]
     std::os::unix::fs::symlink(root.0.join("src/a.rs"), root.0.join("link.cs")).expect("link");
+    // The repair is the related call over the other grammars, ahead of the
+    // lead over what the walk skipped.
     let languages = |out: &serde_json::Value| {
         out["related"][0]["input"]["queries"]
             .as_array()

@@ -28,7 +28,7 @@ pub(super) struct ScannedFile {
     /// The parser extension the file was read with (empty for a single file,
     /// which no grammar census covers).
     pub(super) parser: String,
-    /// What the scan kept of its matches (see [`demand`]).
+    /// What the scan kept of its matches (see [`super::demand`]).
     pub(super) matches: FileMatches,
     pub(super) diagnostics: Vec<StructuralDiagnostic>,
     /// The engine status.
@@ -47,8 +47,14 @@ pub(super) struct ScannedFile {
 #[derive(Default)]
 pub(super) struct Scan {
     pub(super) files: Vec<ScannedFile>,
+    /// The window did not reach the end of the scope: its time budget cut
+    /// it, or its page filled (`filled`).
     pub(super) truncated: bool,
-    /// Where a time-budget cut resumes (`scanOffset`), in walk order.
+    /// The window stopped because its rows filled more than page 1
+    /// ([`super::scan::Keeps::Page`]): what it left is pagination (its
+    /// totals are floors), not a coverage gap.
+    pub(super) filled: bool,
+    /// Where a cut resumes (`scanOffset`), in walk order.
     pub(super) scan_resume: Option<u32>,
     /// What the candidates before this window are now, and through its cut
     /// ([`octocode_engine::digest::ListedFiles`]).
@@ -77,10 +83,11 @@ pub(super) struct Scan {
     /// Ignore files take part in the walk: keeping the scan watches those of
     /// its directories too.
     pub(super) watches_ignore_files: bool,
-    /// Candidate entries the security path policy withheld from the walk.
-    pub(super) withheld: octocode_runtime_base::policy::discovery::Withheld,
-    /// Octocode's own store directories the walk skipped, root-relative.
-    pub(super) artifacts: std::collections::BTreeSet<String>,
+    /// What the walk left out: what its ignore, dot and default-exclude
+    /// rules skipped of what the scan reads (nothing behind them was read),
+    /// the entries the security path policy withheld, and Octocode's own
+    /// store directories.
+    pub(super) skipped: octocode_runtime_base::policy::discovery::WalkSkips,
     /// Files the walk passed over because no grammar parses their names.
     pub(super) unparsed: Unparsed,
     /// Without `parser`: the files the walk admitted, by parser extension
@@ -201,6 +208,9 @@ pub(super) struct Group {
 #[derive(Clone, Copy)]
 pub(super) struct ScanCut<'a> {
     pub(super) truncated: bool,
+    /// The window ended because its page filled ([`Scan::filled`]): the
+    /// next window is the walk's next page.
+    pub(super) filled: bool,
     pub(super) resume: Option<u32>,
     /// What the resume pins of the files through the cut.
     pub(super) pin: &'a str,

@@ -232,8 +232,8 @@ fn only_declarations_named_on_hit_lines_are_kept() {
     let outline =
         octocode_tools_shared::declarations::file_document(&text, &path).expect("outline");
     assert_eq!(outline.declarations.len(), 2_001);
-    let kept = hit_declarations(Some(&outline), &[(4_000, 4, 11)]);
+    let kept = hit_declarations(&outline.declarations, &[(4_000, 4, 11)]);
     let names: Vec<&str> = kept.iter().map(|declared| declared.name.as_str()).collect();
     assert_eq!(names, ["target_name"]);
-    assert!(hit_declarations(None, &[(4_000, 4, 11)]).is_empty());
+    assert!(hit_declarations(&[], &[(4_000, 4, 11)]).is_empty());
 }

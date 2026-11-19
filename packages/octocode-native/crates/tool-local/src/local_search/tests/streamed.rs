@@ -510,3 +510,98 @@ fn a_walk_that_fills_its_last_page_exactly_offers_no_page_after_it() {
         }
     }
 }
+
+/// A page cut before the last file its walk searched (the page priced
+/// fuller than it shows, or ends inside a file) leaves files without a hit
+/// past its cut, which the next page searches again: each page counts only
+/// the files before its cut, so the last page states every file searched
+/// once, at the default window and at narrow ones, in each streamed view.
+#[test]
+fn the_last_page_counts_each_searched_file_once() {
+    let root = tempfile::tempdir().expect("fixture");
+    let total = 720usize;
+    for file in 0..total {
+        let dir = root.path().join(format!("d{}", file % 6));
+        fs::create_dir_all(&dir).expect("dir");
+        // One file in eight holds hits inside declarations; the others
+        // hold none, so most candidates past any cut lack a hit.
+        let text = if file % 8 == 0 {
+            (0..12)
+                .map(|hit| {
+                    format!("export function f{file}_{hit}() {{\n  return needle({hit});\n}}\n")
+                })
+                .collect::<String>()
+        } else {
+            format!("export const plain{file} = {file};\n")
+        };
+        fs::write(dir.join(format!("f{file:04}.ts")), text).expect("file");
+    }
+    for window in [None, Some(4_000), Some(9_000)] {
+        for view in ["content", "matchOnly", "files", "filesWithout"] {
+            let (_, pages) = walk_search(root.path(), start(root.path(), view), window);
+            if matches!(view, "content" | "matchOnly") {
+                assert!(pages.len() > 1, "{view} {window:?}: one page");
+            }
+            let last = pages.last().expect("a page");
+            assert_eq!(
+                last["filesScanned"],
+                total,
+                "{view} {window:?} over {} pages",
+                pages.len()
+            );
+        }
+    }
+}
+
+/// A page fills where its cut ends: the stream prices each committed file's
+/// enclosing names (from its outline) and per-file paging as the cut does,
+/// so the next page starts at the file the stream stopped on and searches
+/// only that file again, never the files without a hit past the cut. Each
+/// streamed view, at the default window and at narrow ones: the files a
+/// whole walk searches are the scope plus at most one per page after the
+/// first.
+#[test]
+fn a_walk_searches_again_only_the_file_each_cut_stands_in() {
+    let root = tempfile::tempdir().expect("fixture");
+    let total = 720u64;
+    for file in 0..total {
+        let dir = root.path().join(format!("d{}", file % 6));
+        fs::create_dir_all(&dir).expect("dir");
+        // One file in eight holds hits inside declarations (each row names
+        // its function); the others hold none.
+        let text = if file % 8 == 0 {
+            (0..12)
+                .map(|hit| {
+                    format!(
+                        "export function handler_{file}_{hit}_with_a_long_name() {{\n  return needle({hit});\n}}\n"
+                    )
+                })
+                .collect::<String>()
+        } else {
+            format!("export const plain{file} = {file};\n")
+        };
+        fs::write(dir.join(format!("f{file:04}.ts")), text).expect("file");
+    }
+    for window in [None, Some(4_000), Some(9_000)] {
+        for view in ["content", "matchOnly", "files", "filesWithout"] {
+            let before = crate::local_search::executor::streamed::searched_on_this_thread();
+            let (_, pages) = walk_search(root.path(), start(root.path(), view), window);
+            let searched =
+                crate::local_search::executor::streamed::searched_on_this_thread() - before;
+            let case = format!("{view} {window:?} over {} pages", pages.len());
+            if matches!(view, "content" | "matchOnly") {
+                assert!(pages.len() > 1, "{case}: one page");
+            }
+            assert_eq!(
+                pages.last().expect("a page")["filesScanned"],
+                total,
+                "{case}"
+            );
+            let again = pages.len() as u64 - 1;
+            assert!(
+                searched <= total + again,
+                "{case}: the walk searched {searched} files for {total}"
+            );
+        }
+    }
+}

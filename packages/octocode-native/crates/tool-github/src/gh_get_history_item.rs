@@ -70,6 +70,7 @@ pub(crate) const DEFAULT_PAGE_SIZE: usize =
 const DEFAULT_TEXT_WINDOW: usize =
     octocode_runtime_base::id::gh_get_history_item_policy::TEXT_WINDOW_CHARS;
 
+pub use graphql::{PullRequestWarm, warm_pull_requests};
 use octocode_contract_types::GhGetHistoryItemQuery;
 pub use output::Output;
 use sections::Section;

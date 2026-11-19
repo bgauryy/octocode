@@ -70,6 +70,10 @@ pub struct RequestSpec {
     /// stands, the lifetime GitHub states for that pull request's REST read
     /// ([`GitHubTransport::reuse_window`]).
     reads_pull_request: bool,
+    /// A GraphQL read of git objects named by their ids, which cannot
+    /// change: its answer, once its caller found every object in it, is kept
+    /// pinned like a REST read at a commit ([`GitHubTransport::execute_object_graphql`]).
+    reads_objects: bool,
     /// The caller stores the answer's body itself: no saved answer keeps it
     /// a second time ([`GitHubTransport::keep`]), and no continuation's
     /// evidence does either (`Journal::record_page`).
@@ -84,6 +88,7 @@ impl RequestSpec {
             headers: HeaderMap::new(),
             file: None,
             reads_pull_request: false,
+            reads_objects: false,
             kept_by_caller: false,
         }
     }
@@ -95,6 +100,7 @@ impl RequestSpec {
             headers: HeaderMap::new(),
             file: None,
             reads_pull_request: false,
+            reads_objects: false,
             kept_by_caller: false,
         }
     }
@@ -118,6 +124,12 @@ impl RequestSpec {
         self
     }
 
+    /// This query reads git objects by their ids.
+    pub(crate) fn reading_objects(mut self) -> Self {
+        self.reads_objects = true;
+        self
+    }
+
     /// This request reads the repository file at `path`.
     pub(crate) fn reading_file(mut self, path: &str) -> Self {
         self.file = Some(path.to_owned());
@@ -134,7 +146,7 @@ impl RequestSpec {
 
     /// Whether the answer to this request can never change.
     pub(crate) fn is_pinned(&self) -> bool {
-        matches!(self.method, HttpMethod::Get) && names_commit(&self.url)
+        (matches!(self.method, HttpMethod::Get) && names_commit(&self.url)) || self.reads_objects
     }
 }
 
@@ -279,7 +291,7 @@ pub struct GitHubTransport {
     budget: Arc<GitHubBudget>,
     state_dir: Option<PathBuf>,
     answers: Option<Arc<dyn SavedAnswers>>,
-    fills: Arc<octocode_io::flight::KeyedFlight<execute::FillKey, bool>>,
+    fills: Arc<octocode_io::flight::KeyedFlight<execute::FillKey, execute::Fill>>,
 }
 impl GitHubTransport {
     /// A transport admitting its requests through `budget`: production

@@ -103,7 +103,9 @@ fn a_page_showing_all_it_kept_states_the_counts_once_in_the_receipt() {
         let total = receipt["totalItems"].as_i64().expect("totalItems");
         assert!(0 < kept && kept < total, "{data}");
         assert!(
-            !data["warnings"].to_string().contains("classification kept"),
+            !data["warnings"]
+                .to_string()
+                .contains("classification passed"),
             "{data}"
         );
     }
@@ -152,7 +154,7 @@ fn a_page_that_keeps_nothing_says_an_empty_result_is_not_absence() {
     );
     for data in [history, listing, code] {
         let warnings = data["warnings"].to_string();
-        assert!(warnings.contains("classification kept 0 of"), "{data}");
+        assert!(warnings.contains("classification passed 0 of"), "{data}");
         assert!(
             warnings.contains("An empty classified result is not absence"),
             "{data}"

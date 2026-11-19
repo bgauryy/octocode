@@ -254,7 +254,7 @@ async fn refs_pages_continue_at_the_read_size_and_lead_from_page_one() {
     // Newest first: the 31st tag (the oldest) is page 2's one tag.
     assert_eq!(
         second.data["tags"],
-        json!([{"name": "v1", "commitSha": SHA}]),
+        json!([format!("v1 {SHA}")]),
         "{}",
         second.data
     );
@@ -481,7 +481,7 @@ async fn a_glob_ref_lists_only_the_matching_tags_and_branches() {
     .expect("refs");
     assert_eq!(
         branches.data["branches"],
-        json!([{"name": "release/4.x", "commitSha": SHA}]),
+        json!([format!("release/4.x {SHA}")]),
         "{}",
         branches.data
     );
@@ -588,9 +588,9 @@ async fn tag_rows_name_the_commit_each_tag_points_at() {
     .expect("refs");
     let mut expected = annotated
         .iter()
-        .map(|name| json!({"name": name, "commitSha": commit(name)}))
+        .map(|name| json!(format!("{name} {}", commit(name))))
         .collect::<Vec<_>>();
-    expected.push(json!({"name": "v1.0.0", "commitSha": SHA}));
+    expected.push(json!(format!("v1.0.0 {SHA}")));
     assert_eq!(out.data["tags"], json!(expected), "{}", out.data);
     let asked = server.received_requests().await.expect("requests");
     let graphql = asked

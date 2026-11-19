@@ -292,7 +292,7 @@ pub struct TextSearchOptions {
 
     /// Per-file byte ceiling: a file larger than this is skipped before it is
     /// searched (surfaced as a `fileTooLarge` cap reason). `None` uses
-    /// [`DEFAULT_MAX_SEARCH_FILE_BYTES`]. Guards against OOM on pathological
+    /// [`DEFAULT_MAX_SEARCH_FILE_BYTES`](crate::search::text_search::DEFAULT_MAX_SEARCH_FILE_BYTES). Guards against OOM on pathological
     /// multi-GB single-line files.
     pub max_file_bytes: Option<u32>,
     /// The bytes the search's collected evidence may hold before it is

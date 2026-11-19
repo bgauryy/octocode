@@ -9,6 +9,7 @@ impl DomainDispatcher {
         &self,
         query: &Value,
         context: &ExecutionContext,
+        share: Option<&octocode_tool_packages::CallShare>,
     ) -> Result<DomainResult, ExecutionError> {
         let row_query = query;
         let query = match dispatch::parse_query(query) {
@@ -36,6 +37,7 @@ impl DomainDispatcher {
             answers: Some(&*self.provider_answers),
             tags: Some(&*tags),
             env: &env,
+            share,
         };
         self.handle.block_on(async {
             Ok(registry_row(
@@ -50,6 +52,7 @@ impl DomainDispatcher {
         &self,
         query: &Value,
         context: &ExecutionContext,
+        share: Option<&octocode_tool_packages::CallShare>,
     ) -> Result<DomainResult, ExecutionError> {
         let row_query = query;
         let query = match dispatch::parse_query(query) {
@@ -77,6 +80,7 @@ impl DomainDispatcher {
             config: &self.config.resolved,
             github: Some(&*reader),
             osv_api: self.limits.osv_api,
+            share,
         };
         self.handle.block_on(async {
             Ok(registry_row(

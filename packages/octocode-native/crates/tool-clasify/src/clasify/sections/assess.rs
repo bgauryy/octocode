@@ -11,7 +11,9 @@ use octocode_runtime_base::execution::ExecutionContext;
 use octocode_runtime_base::providers::classification::gate::{GateLease, call_cap};
 use octocode_runtime_base::response::result::{Continuation, insert_next};
 use octocode_tools_shared::judgment::stats::ClassificationUsage;
-use octocode_tools_shared::judgment::{ClassificationError, EvaluationInput, QuestionOutcomes};
+use octocode_tools_shared::judgment::{
+    ClassificationError, EvaluationInput, QuestionOutcomes, RequestCap,
+};
 use octocode_tools_shared::source_capture::SourceReader;
 use serde_json::json;
 
@@ -74,8 +76,33 @@ pub(super) fn assess_and_save(
                 .collect()
         })
         .collect();
-    let results = judge_units(session, &admitted, &pending, dispatcher, context, gate);
-    let settled = apply_results(session, &admitted, pending, results.into_iter(), &mut usage);
+    // The page's price, and the ceiling it is held to.
+    let inputs = inputs(session, &admitted, &pending);
+    let evaluator = dispatcher.evaluator();
+    let (planned, at_most) = inputs
+        .iter()
+        .fold((0_u64, 0_u64), |(planned, at_most), input| {
+            let sends = evaluator.sends(input.evaluation(session, None), session.model.as_deref());
+            (
+                planned.saturating_add(sends.first),
+                at_most.saturating_add(sends.at_most),
+            )
+        });
+    let room = evaluator.retry_room();
+    // A sections page takes no maxRequests: its ceiling rests on the
+    // provider's windows ([`RequestCap::implicit`]).
+    let cap = RequestCap::implicit(at_most, room);
+    usage.requests_planned = Some(planned);
+    usage.requests_ceiling = Some(RequestCap::ceiling(at_most, room));
+    let results = judge_units(session, &inputs, dispatcher, context, gate, Some(&cap));
+    let (settled, deferred) = apply_results(
+        session,
+        &admitted,
+        pending,
+        results.into_iter(),
+        &mut usage,
+        runtime.can_resume,
+    );
     session.active.clear();
     let (remaining, remaining_chars) = pending_chars(session);
     usage.estimate_rest(judged_chars, remaining_chars);
@@ -93,6 +120,25 @@ pub(super) fn assess_and_save(
         ));
     }
     let mut output = emit(session, &usage, None);
+    if let Some(notice) =
+        super::super::reply::past_ceiling(usage.calls, usage.requests_ceiling.unwrap_or(u64::MAX))
+    {
+        octocode_runtime_base::response::paging::push_warnings(&mut output, [notice]);
+    }
+    if deferred > 0 {
+        octocode_runtime_base::response::paging::push_warnings(
+            &mut output,
+            [format!(
+                "{} left unanswered by a transient failure: next.nextPage asks {} again, once.",
+                octocode_engine::text::counted(
+                    u64::try_from(deferred).unwrap_or(u64::MAX),
+                    "section answer",
+                    "section answers"
+                ),
+                if deferred == 1 { "it" } else { "them" },
+            )],
+        );
+    }
     let held = if runtime.can_resume {
         let held = attach_continuations(&mut output, session, remaining == 0);
         // The kept page in view details, replayed without inference.
@@ -180,34 +226,67 @@ pub(super) fn assess_and_save(
     Ok(Outcome { output })
 }
 
-/// Every admitted unit's `pending` questions, judged concurrently under the
-/// call's budget and gate; the answers come in admitted order.
-pub(super) fn judge_units(
+/// One admitted unit's evaluation: its scoped state and its pending
+/// questions.
+pub(super) struct Input {
+    state: serde_json::Value,
+    questions: Vec<serde_json::Value>,
+}
+
+impl Input {
+    /// The evaluation it is sent as, counted against `cap`.
+    pub(super) fn evaluation<'a>(
+        &'a self,
+        session: &Session,
+        cap: Option<&'a RequestCap>,
+    ) -> EvaluationInput<'a> {
+        EvaluationInput {
+            state: &self.state,
+            questions: &self.questions,
+            assets: None,
+            long_context: session.long_context,
+            companions: 0,
+            cap,
+        }
+    }
+}
+
+/// Every admitted unit's evaluation of its `pending` questions.
+pub(super) fn inputs(
     session: &Session,
     admitted: &[[usize; 2]],
     pending: &[Vec<usize>],
+) -> Vec<Input> {
+    admitted
+        .iter()
+        .zip(pending)
+        .map(|(&[resource, unit], pending)| Input {
+            state: super::super::rows::scoped(super::super::rows::contextual_state(
+                &session.resources[resource].units[unit].state,
+                session.context.as_deref(),
+            )),
+            questions: pending
+                .iter()
+                .map(|&index| session.questions[&session.keys[index]].clone())
+                .collect(),
+        })
+        .collect()
+}
+
+/// Every input judged concurrently under the call's budget and gate, its
+/// sends counted against `cap`; the answers come in input order.
+pub(super) fn judge_units(
+    session: &Session,
+    inputs: &[Input],
     dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
     gate: &GateLease,
+    cap: Option<&RequestCap>,
 ) -> Vec<QuestionOutcomes> {
     let evaluator = dispatcher.evaluator();
-    let questions: Vec<_> = session
-        .keys
-        .iter()
-        .map(|key| session.questions[key].clone())
-        .collect();
-    let questions = &questions;
     let mut results = dispatcher.handle().block_on(
-        stream::iter(admitted.iter().zip(pending).enumerate())
-            .map(|(position, (&[resource, unit], pending))| async move {
-                let remaining: Vec<_> = pending
-                    .iter()
-                    .map(|&index| questions[index].clone())
-                    .collect();
-                let state = super::super::rows::scoped(super::super::rows::contextual_state(
-                    &session.resources[resource].units[unit].state,
-                    session.context.as_deref(),
-                ));
+        stream::iter(inputs.iter().enumerate())
+            .map(|(position, input)| async move {
                 // One request's time starts when it runs; the call's
                 // deadline bounds them all.
                 let budget = evaluator.budget(
@@ -216,13 +295,7 @@ pub(super) fn judge_units(
                 );
                 let result = evaluator
                     .evaluate_questions(
-                        EvaluationInput {
-                            state: &state,
-                            questions: &remaining,
-                            assets: None,
-                            long_context: session.long_context,
-                            companions: 0,
-                        },
+                        input.evaluation(session, cap),
                         session.model.as_deref(),
                         &budget,
                         gate,
@@ -259,15 +332,19 @@ fn admit_units(session: &Session, shared: &Budget, whole: bool) -> (Vec<[usize; 
 
 /// Apply each admitted unit's answers, in admitted order, to its pending
 /// cells; an answer from a model other than the session's pinned one is
-/// refused. Returns how many cells settled.
+/// refused. With `defer` (a plan a later batch continues), a cell a
+/// transient failure left unanswered stays pending once, for the next batch
+/// to ask again. Returns how many cells settled, the deferred ones
+/// included, and how many were deferred.
 pub(super) fn apply_results(
     session: &mut Session,
     admitted: &[[usize; 2]],
     pending: Vec<Vec<usize>>,
     results: impl Iterator<Item = QuestionOutcomes>,
     usage: &mut ClassificationUsage,
-) -> usize {
-    let mut settled = 0;
+    defer: bool,
+) -> (usize, usize) {
+    let (mut settled, mut deferred) = (0, 0);
     for ((&[resource, unit], pending), result) in admitted.iter().zip(pending).zip(results) {
         let unit = &mut session.resources[resource].units[unit];
         usage.add(&result.complete);
@@ -296,6 +373,14 @@ pub(super) fn apply_results(
                 Err(error)
                     if matches!(error.code, ErrorCode::Timeout | ErrorCode::Cancelled)
                         && error.provider_calls == 0 => {}
+                Err(error)
+                    if defer
+                        && super::super::reply::transient(&error)
+                        && unit.deferred.insert(index) =>
+                {
+                    deferred += 1;
+                    settled += 1;
+                }
                 Err(error) => {
                     unit.cells[index] =
                         Some(json!({"status":"error", "error":error_value(&error)}));
@@ -304,7 +389,7 @@ pub(super) fn apply_results(
             }
         }
     }
-    settled
+    (settled, deferred)
 }
 
 #[cfg(test)]

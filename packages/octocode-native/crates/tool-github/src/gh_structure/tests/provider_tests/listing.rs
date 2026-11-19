@@ -167,6 +167,47 @@ async fn a_truncated_tree_is_read_by_subtree_and_pages_without_overlap() {
     );
 }
 
+/// A walk that reaches its read budget stops there: the folders it left
+/// unread are counted, the listing is partial, and the warning names the
+/// cheaper routes. No call spends the caller's quota without bound.
+#[tokio::test]
+async fn a_walk_past_its_read_budget_is_partial_and_says_so() {
+    let server = server().await;
+    mount_json(
+        &server,
+        format!("/api/v3/repos/a/b/git/trees/{SHA}"),
+        200,
+        json!({"sha":SHA,"truncated":true,"tree":[]}),
+    )
+    .await;
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b/contents",
+        200,
+        json!([
+            {"name":"README.md","path":"README.md","type":"file","size":1},
+            {"name":"src","path":"src","type":"dir","sha":"d".repeat(40)}
+        ]),
+    )
+    .await;
+    let row = json_fixture(
+        r#"{"operation": "tree", "owner": "a", "repo": "b", "ref": "main", "include": ["**/*.rs"]}"#,
+    );
+    super::super::traverse::contents::TEST_WALK_READS.with(|reads| reads.set(Some(1)));
+    let out = list(&server, row).await;
+    super::super::traverse::contents::TEST_WALK_READS.with(|reads| reads.set(None));
+    let data = out.expect("listing").data;
+    assert_eq!(
+        data["partialReasons"],
+        json_fixture(r#"["partialTreeFailures"]"#),
+        "{data}"
+    );
+    assert!(
+        data["warnings"].to_string().contains("read budget"),
+        "{data}"
+    );
+}
+
 /// A directory past the Contents API's 1,000-entry cap is listed
 /// whole from its own git tree (the root's is the commit's; a scoped
 /// directory's SHA comes from its parent listing) and paged like any

@@ -257,31 +257,6 @@ function validatePackageReadmes() {
   return failures;
 }
 
-function validateWorkflowReadme() {
-  const workflowDir = path.join(ROOT, '.github', 'workflows');
-  const workflowReadmePath = path.join(workflowDir, 'README.md');
-  const workflowContent = fs.readFileSync(workflowReadmePath, 'utf8');
-  const failures = [];
-  const referencedWorkflowFiles = new Set();
-  const workflowReferencePattern = /`([A-Za-z0-9._-]+\.ya?ml)`/g;
-  let match;
-
-  while ((match = workflowReferencePattern.exec(workflowContent)) !== null) {
-    referencedWorkflowFiles.add(match[1]);
-  }
-
-  for (const workflowFile of referencedWorkflowFiles) {
-    const absoluteWorkflowPath = path.join(workflowDir, workflowFile);
-    if (!fs.existsSync(absoluteWorkflowPath)) {
-      failures.push(
-        `.github/workflows/README.md references missing workflow "${workflowFile}"`
-      );
-    }
-  }
-
-  return failures;
-}
-
 // The one sentence that lists the tools taking inline `classification`; other docs link to it.
 const CLASSIFICATION_OWNER = { file: 'docs/OCTOCODE_TOOLS.md', lead: '`classification` is supported by ' };
 
@@ -339,7 +314,6 @@ function main() {
   const failures = [
     ...validateDocsLinks(),
     ...validatePackageReadmes(),
-    ...validateWorkflowReadme(),
     ...validateToolCatalog(),
     ...validateClassificationTools(),
     ...validateToolExamples(),

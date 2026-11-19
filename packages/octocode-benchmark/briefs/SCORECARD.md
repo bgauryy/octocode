@@ -103,7 +103,7 @@ Ratings 1–5 ([checks](../CHECKS.md#skills)). Activation: own requests hit / to
 | Tests | `… test:ci` | … | … |
 | Docs | `… docs:verify` | … | … |
 | Skills | `… skills:check` | … | … |
-| Native | the native package's checks per the [release guide](../../../skills-dev/octocode-dev/docs/RELEASE.md) | … | … |
+| Native | the native package's checks per [PUBLISHING.md](../../../packages/octocode-native/docs/PUBLISHING.md) | … | … |
 | Areas owned elsewhere | browser, graph battery, agents communication, packaged credentials ([Areas](../CHECKS.md#areas)) | … | … |
 
 ## Benchmark

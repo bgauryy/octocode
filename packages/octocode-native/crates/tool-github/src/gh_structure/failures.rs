@@ -54,6 +54,7 @@ pub(super) fn file_failure(error: ProviderError, at: &RepoPath<'_>) -> GhFailure
 pub(super) fn path_failure(
     error: ProviderError,
     at: &RepoPath<'_>,
+    asked: Option<&str>,
     max_depth: Option<std::num::NonZeroU64>,
     found: Option<PathRecovery>,
 ) -> GhFailure {
@@ -61,7 +62,9 @@ pub(super) fn path_failure(
     let requested = at.path;
     let (directory, hint) = match &found {
         Some(found) => {
-            failure.message = format!("Path not found in {}/{}: {requested}", at.owner, at.repo);
+            // As a file read states it: a 404 at one ref says nothing of
+            // another, so the message names the ref it was asked at.
+            failure.message = at.not_found_message(asked);
             let directory = if found.directory.is_empty() {
                 ".".to_owned()
             } else {

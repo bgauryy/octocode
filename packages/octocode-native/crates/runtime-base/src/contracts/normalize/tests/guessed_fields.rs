@@ -1039,9 +1039,9 @@ fn near_miss_names_run_as_the_declared_field_and_say_it() {
     assert!(shown.is_some_and(|shown| shown.contains("sort")));
 }
 
-/// A size sort has one key, the file's size in bytes: `size` and the other
-/// name of it run as the one the contract declares (`bytes`, or `sizeBytes`
-/// in a contract that still names it so), and the call says it once.
+/// A size sort has one key, the file's size in bytes: `size` and the former
+/// name `sizeBytes` run as the one the contract declares (`bytes`), and the
+/// call says it once.
 #[test]
 fn a_size_sort_key_runs_as_the_one_the_contract_declares() {
     for (tool, row) in [

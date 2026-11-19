@@ -277,9 +277,11 @@ pub(super) async fn sync_watched_files(
                 };
                 let entries = std::sync::Arc::clone(&fingerprint.1);
                 let root = std::path::PathBuf::from(&scope.root);
+                let covered = scope.fingerprint_roots();
                 let update = blocking_cancellable(cancel, move |stopped| {
                     octocode_engine::lsp::client::WatchedFileUpdate::new(
                         &root,
+                        &covered,
                         previous.as_ref(),
                         std::sync::Arc::unwrap_or_clone(entries),
                         |relative, before, after| {

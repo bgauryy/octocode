@@ -77,6 +77,24 @@ fn a_page_rereads_only_the_files_it_shows() {
     );
 }
 
+/// Every match value of `body` as its reader takes it ([`read_value`]): a
+/// span without one is `request`'s one term.
+fn read_values(body: &serde_json::Value, request: &LocalSearchQuery) -> String {
+    let asked = serde_json::to_value(request).expect("query");
+    let term = match asked["matchString"].as_array().map(Vec::as_slice) {
+        Some([term]) => term.as_str().unwrap_or_default().to_owned(),
+        _ => String::new(),
+    };
+    body["files"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|f| f["matches"].as_array().cloned().unwrap_or_default())
+        .map(|m| read_value(&m, &term))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn all_values(body: &serde_json::Value) -> String {
     body["files"]
         .as_array()
@@ -113,8 +131,8 @@ fn selected_spans_never_leak_partial_secrets() {
         ),
     ];
     for (index, request) in cases.into_iter().enumerate() {
-        let body = search_fixture(&[("sec.txt", &file)], request);
-        let values = all_values(&body);
+        let body = search_fixture(&[("sec.txt", &file)], request.clone());
+        let values = read_values(&body, &request);
         // A read shows the line as `token: [REDACTED-…] end`: a pattern
         // inside the hidden token is no hit; the others show rows.
         assert_eq!(values.is_empty(), index == 0, "{body}");
@@ -123,14 +141,15 @@ fn selected_spans_never_leak_partial_secrets() {
         }
     }
     // Clean lines in the same file keep their exact values.
+    let request = ls_query(
+        serde_json::json!({"matchString": ["needle".to_string()], "view": "matchOnly"}),
+        None,
+    );
     let body = search_fixture(
         &[("sec.txt", &format!("{file}plain needle line\n"))],
-        ls_query(
-            serde_json::json!({"matchString": ["needle".to_string()], "view": "matchOnly"}),
-            None,
-        ),
+        request.clone(),
     );
-    assert_eq!(all_values(&body), "needle");
+    assert_eq!(read_values(&body, &request), "needle");
 }
 
 #[test]
@@ -152,14 +171,12 @@ fn short_spans_inside_private_key_bodies_are_redacted() {
 #[test]
 fn code_after_a_literal_key_marker_stays_readable() {
     let literal = "const PEM = \"-----BEGIN RSA PRIVATE KEY-----\";\nlet needle_one = compute();\nfn needle_two() {}\n";
-    let body = search_fixture(
-        &[("src.rs", literal)],
-        ls_query(
-            json_fixture(r#"{"matchString": ["needle_"], "view": "matchOnly"}"#),
-            None,
-        ),
+    let request = ls_query(
+        json_fixture(r#"{"matchString": ["needle_"], "view": "matchOnly"}"#),
+        None,
     );
-    assert_eq!(all_values(&body), "needle_\nneedle_", "{body}");
+    let body = search_fixture(&[("src.rs", literal)], request.clone());
+    assert_eq!(read_values(&body, &request), "needle_\nneedle_", "{body}");
     assert!(!all_values(&body).contains("REDACTED"), "{body}");
     let key = "-----BEGIN OPENSSH PRIVATE KEY-----\nMIIEpQIBAAKCAQEAinteriorKeyBodyQWERTYAAAAAAAAAAAAAAAAAAAAAAAAAAAA\nfn needle_after() {}\n";
     let body = search_fixture(

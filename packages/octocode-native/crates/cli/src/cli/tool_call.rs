@@ -173,7 +173,7 @@ pub(in crate::cli) async fn drain_after_interrupt<T>(
 }
 
 /// Execute one tool call and print its result. Exits with the code of the
-/// runtime's [`ExitClass`].
+/// runtime's [`ExitClass`](octocode_runtime_base::response::exit::ExitClass).
 async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, mode: OutputMode) -> u8 {
     const REQUEST: &str = "cli-1";
     let admission = match runtime.admit(REQUEST.into()) {

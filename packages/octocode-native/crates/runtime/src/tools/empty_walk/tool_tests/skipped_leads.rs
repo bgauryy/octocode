@@ -1,17 +1,12 @@
-//! The scenario table: a match behind a skipped path is named and led to;
-//! nothing behind the skipped paths leads nowhere.
+//! The scenario table: a skipped path is named and led to, whatever it
+//! holds, and the lead reaches a match behind it. No tool reads behind a
+//! skipped path to decide.
 use serde_json::json;
 
 use super::*;
-/// These judge what a finished probe found; `scope.rs` covers one that ran out.
-use octocode_tools_shared::empty_walk::{FINISHES, with_probe_limits};
 
 #[test]
-fn a_match_behind_a_skipped_path_is_named_and_its_lead_lifts_only_that() {
-    with_probe_limits(FINISHES, a_match_is_named_on_every_scenario);
-}
-
-fn a_match_is_named_on_every_scenario() {
+fn a_match_behind_a_skipped_path_is_named_and_its_lead_reaches_it() {
     for tool in tools() {
         for scenario in SCENARIOS {
             let label = describe(&tool, scenario);
@@ -48,13 +43,7 @@ fn a_match_is_named_on_every_scenario() {
                 .filter(|cause| tool.skips.contains(cause))
             {
                 let lifted = (tool.lifts)(&lead, cause, &root.0, scenario);
-                if tool.probes {
-                    assert_eq!(
-                        lifted,
-                        effective.contains(&cause),
-                        "{label}: lead should lift exactly {effective:?}: {lead}"
-                    );
-                } else if effective.contains(&cause) {
+                if effective.contains(&cause) {
                     assert!(lifted, "{label}: lead should lift {effective:?}: {lead}");
                 }
             }
@@ -71,23 +60,27 @@ fn a_match_is_named_on_every_scenario() {
     }
 }
 
-/// A probing tool offers no lead when its probe found nothing behind the
-/// skipped paths; one that reads nothing behind them always offers it.
+/// Nothing is read behind a skipped path, so what it holds changes nothing:
+/// an empty answer over a skipped directory names it and offers the lead.
 #[test]
-fn nothing_behind_the_skipped_paths_leads_nowhere() {
-    with_probe_limits(FINISHES, || {
-        for tool in tools().into_iter().filter(|tool| tool.probes) {
-            for scenario in SCENARIOS {
-                let label = describe(&tool, scenario);
-                let root = repo(scenario, "other.md", "nothing to find\n");
-                let query = (tool.query)(&root.0);
-                let out = (tool.run)(&root.0, &query);
-                assert!(!(tool.found)(&out), "{label}: {out}");
-                assert!(
-                    skipped_query(&out).is_none(),
-                    "{label}: unneeded skipped-scope search: {out}"
-                );
+fn a_skipped_path_is_led_to_whatever_it_holds() {
+    for tool in tools() {
+        for scenario in SCENARIOS {
+            let label = describe(&tool, scenario);
+            let effective = FLAGGED
+                .into_iter()
+                .any(|cause| scenario.causes.contains(&cause) && tool.skips.contains(&cause));
+            if !effective {
+                continue;
             }
+            let root = repo(scenario, "other.md", "nothing to find\n");
+            let query = (tool.query)(&root.0);
+            let out = (tool.run)(&root.0, &query);
+            assert!(!(tool.found)(&out), "{label}: {out}");
+            assert!(
+                skipped_query(&out).is_some(),
+                "{label}: no lead over the skipped paths: {out}"
+            );
         }
-    });
+    }
 }

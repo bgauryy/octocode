@@ -261,7 +261,7 @@ fn compile_matcher_here(
         (Some(pattern), None) if is_document_probe(pattern) => {
             Ok(Box::new(move |content, found| {
                 let deadline = Deadline::UNBOUNDED;
-                let tree = parse_tree_with_deadline(&language, content, deadline.parse_by())?;
+                let tree = found.parse(&language, content, deadline)?;
                 let root = tree.root_node();
                 found.push(root, || {
                     to_structural_match(root, content, HashMap::new(), HashMap::new())
@@ -277,8 +277,7 @@ fn compile_matcher_here(
                     return compiled.find_special_matches(content, deadline, &recovery, found);
                 }
 
-                let tree =
-                    parse_tree_with_deadline(compiled.language(), content, deadline.parse_by())?;
+                let tree = found.parse(compiled.language(), content, deadline)?;
                 if recovery.hides_match(&tree, content) {
                     found.mark_recovered();
                 }
@@ -323,7 +322,7 @@ fn compile_matcher_here(
             if let Some(kind) = compiled.simple_kind().map(str::to_owned) {
                 return Ok(Box::new(move |content, found| {
                     let deadline = Deadline::UNBOUNDED;
-                    let tree = parse_tree_with_deadline(&language, content, deadline.parse_by())?;
+                    let tree = found.parse(&language, content, deadline)?;
                     if recovery.hides_match(&tree, content) {
                         found.mark_recovered();
                     }
@@ -340,7 +339,7 @@ fn compile_matcher_here(
             }
             Ok(Box::new(move |content, found| {
                 let deadline = Deadline::UNBOUNDED;
-                let tree = parse_tree_with_deadline(&language, content, deadline.parse_by())?;
+                let tree = found.parse(&language, content, deadline)?;
                 if recovery.hides_match(&tree, content) {
                     found.mark_recovered();
                 }
@@ -352,7 +351,8 @@ fn compile_matcher_here(
                     deadline,
                 )?;
                 expanded.name_hiding_bodies(found);
-                let line_index = LineIndex::tree_sitter(content);
+                // Built on the first match: most parsed files have none.
+                let line_index = std::cell::OnceCell::new();
                 let memo = RelationMemo::default();
                 let document = Document {
                     memo: Some(&memo),
@@ -377,7 +377,7 @@ fn compile_matcher_here(
                                 &source,
                                 candidate,
                                 content,
-                                &line_index,
+                                document.lines(),
                                 values,
                                 ranges,
                             )

@@ -5,7 +5,7 @@ use super::*;
 
 /// What `symbol` binds on each of `files`' zero-based lines (in the order
 /// given), by the definition chain of every occurrence on the line, judged
-/// against the anchor's declaration ([`binding`]). A line binds the anchor
+/// against the anchor's declaration ([`binding`](fn@binding)). A line binds the anchor
 /// when an occurrence on it does; it binds another declaration when every
 /// occurrence the server placed does; an occurrence the server names no
 /// declaration for (a comment after code, code it does not analyze) says

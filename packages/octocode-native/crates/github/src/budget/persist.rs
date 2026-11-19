@@ -45,7 +45,7 @@ type Write = futures_util::future::Shared<
 >;
 
 /// A tracked write and, in tests, the key state that started it
-/// ([`KeyState::has_running_write`]).
+/// (`KeyState::has_running_write`).
 struct Tracked {
     write: Write,
     #[cfg(test)]

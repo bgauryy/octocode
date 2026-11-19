@@ -83,6 +83,52 @@ async fn a_missing_path_is_classified_as_missing_and_located_from_its_parent_lis
     );
 }
 
+/// A missing path asked at a ref names that ref, as a file read does: a 404
+/// at one ref says nothing of another (a full SHA by its short form).
+#[tokio::test]
+async fn a_missing_path_at_a_ref_names_the_ref() {
+    let server = server().await;
+    // The commit exists: the path, not the ref, is missing.
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v3/repos/a/b/commits/{SHA}")))
+        .respond_with(ResponseTemplate::new(200).set_body_string(SHA))
+        .mount(&server)
+        .await;
+    mount_json(
+        &server,
+        &format!("/api/v3/repos/a/b/git/trees/{SHA}"),
+        200,
+        json!({"sha": SHA, "truncated": false, "tree": [
+            {"path":"README.md","type":"blob","mode":"100644","size":3},
+            {"path":"docs","type":"tree","mode":"040000"}
+        ]}),
+    )
+    .await;
+    let provider = mock_provider(&server, RetryPolicy::default());
+    let context = default_context();
+    let home = tempfile::tempdir().expect("home");
+    let failure = run(
+        &provider,
+        &query(json!({
+            "operation": "tree",
+            "owner": "a",
+            "repo": "b",
+            "path": "crates/searcher",
+            "ref": SHA,
+        })),
+        Ok(&context),
+        home.path(),
+        None,
+    )
+    .await
+    .expect_err("missing path");
+    assert_eq!(failure.error.kind, ProviderErrorKind::NotFound);
+    assert_eq!(
+        failure.message,
+        format!("Path not found in a/b at {}: crates/searcher", &SHA[..7])
+    );
+}
+
 /// A missing path whose parent's git tree GitHub truncated may sit past the
 /// cut, and the failure says so beside its listing lead.
 #[tokio::test]

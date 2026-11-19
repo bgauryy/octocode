@@ -1,6 +1,8 @@
 //! Opening candidate files and verifying each occurrence's identity with
 //! the server, concurrently and in order.
+use super::output::through_output;
 use super::*;
+use crate::lsp_search::build_output::BuildOutput;
 use crate::lsp_search::call_sites::classify_sites;
 use crate::lsp_search::source::Source;
 use octocode_engine::graph::GraphPosition;
@@ -162,17 +164,20 @@ pub(super) struct Verified {
     /// Occurrences that bind another declaration ([`Binding::Other`]): no
     /// answer lists them as references.
     pub(super) elsewhere: HashSet<Site>,
+    /// Files without an anchor whose sites bind the anchor package's build
+    /// output where no source declaration mirrors it ([`through_output`]).
+    pub(super) package: Vec<String>,
 }
 
 /// Classify each occurrence by what its definition chain reaches (see
-/// [`binding`]).
+/// [`binding`](fn@binding)).
 pub(super) async fn verify_occurrences(
     client: &NativeLspClient,
     sources: &mut SourceCache<'_>,
     snippet_policy: &SnippetReadPolicy,
     cancel: &dyn CancellationCheck,
     opened: Vec<OpenedFile>,
-    declaration: &HashSet<String>,
+    (declaration, output): (&HashSet<String>, Option<&BuildOutput>),
     empty_is_unknown: bool,
 ) -> Result<Verified, LspFailure> {
     let policy = sources.policy();
@@ -191,7 +196,7 @@ pub(super) async fn verify_occurrences(
                 snippet_policy,
                 cancel,
                 file,
-                declaration,
+                (declaration, output),
                 &missing,
                 empty_is_unknown,
             )
@@ -208,7 +213,7 @@ pub(super) async fn verify_occurrences(
                     snippet_policy,
                     cancel,
                     file,
-                    declaration,
+                    (declaration, output),
                     &missing,
                     empty_is_unknown,
                 )
@@ -227,6 +232,8 @@ pub(super) async fn verify_occurrences(
         );
         if !verdict.anchors.is_empty() {
             verified.anchors.extend(verdict.anchors);
+        } else if verdict.output {
+            verified.package.push(verdict.file);
         } else if verdict.unresolved {
             verified.unverified.push(verdict.file);
         } else {
@@ -263,6 +270,10 @@ pub(super) struct FileVerdict {
     /// A site was undecided ([`Binding::Undecided`]), so without an anchor
     /// the file stays unverified rather than rejected.
     pub(super) unresolved: bool,
+    /// A site bound the anchor package's build output that no source
+    /// declaration mirrors: without an anchor the file is a package
+    /// importer, neither rejected nor verified.
+    pub(super) output: bool,
     /// Zero-based `(line, character)` of sites that bind another declaration.
     pub(super) elsewhere: Vec<(u32, u32)>,
 }
@@ -273,7 +284,7 @@ pub(super) async fn verify_file(
     snippet_policy: &SnippetReadPolicy,
     cancel: &dyn CancellationCheck,
     (file, spots): OpenedFile,
-    declaration: &HashSet<String>,
+    (declaration, build): (&HashSet<String>, Option<&BuildOutput>),
     missing: &(impl Fn(&Path) -> bool + Sync),
     empty_is_unknown: bool,
 ) -> Result<FileVerdict, LspFailure> {
@@ -283,6 +294,7 @@ pub(super) async fn verify_file(
     };
     let mut anchors = Vec::new();
     let mut unresolved = false;
+    let mut output = false;
     let mut elsewhere = Vec::new();
     // One verified anchor answers for the whole file's program; keep
     // checking only until a verified call site is found as well.
@@ -321,6 +333,14 @@ pub(super) async fn verify_file(
                     unresolved = true;
                     continue;
                 };
+                // A package imported by name binds its build output: the
+                // anchor's source stands for the declaration compiled from it.
+                let translated = through_output(resolved, build, declaration, sources).await;
+                let resolved = translated.resolved;
+                if translated.unmapped && resolved.is_empty() {
+                    output = true;
+                    continue;
+                }
                 // A server with no project behind a file answers nothing: that
                 // is no other declaration. A comment says nothing either way.
                 if empty_is_unknown && resolved.is_empty() {
@@ -361,6 +381,7 @@ pub(super) async fn verify_file(
         file,
         anchors,
         unresolved,
+        output,
         elsewhere,
     })
 }

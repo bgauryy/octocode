@@ -87,7 +87,6 @@ impl NativeLspClient {
     ) -> EmptyAnswer {
         let progress = &self.inner.progress;
         let clock = &self.inner.clock;
-        let began = clock.now();
         let _activity = self.lease();
         // Shown idle when asked, with nothing open now: whatever began since
         // has ended, and a server may wrap a request in its own progress
@@ -110,7 +109,7 @@ impl NativeLspClient {
             if progress.has_active() {
                 worked = true;
                 if !self.outwait_load(&connection, deadline).await {
-                    return self.still_loading(began);
+                    return EmptyAnswer::StillLoading;
                 }
             }
             let begins = progress.begins();
@@ -131,15 +130,14 @@ impl NativeLspClient {
             }
             worked = true;
             if past(deadline, clock.now()) {
-                return self.still_loading(began);
+                return EmptyAnswer::StillLoading;
             }
         }
-        self.record_wait(super::waits::WaitKind::Indexing, began);
         if !worked {
             return EmptyAnswer::Stands;
         }
         if past(deadline, clock.now()) {
-            return self.still_loading(began);
+            return EmptyAnswer::StillLoading;
         }
         let _ = RESPONSE_SCOPE.try_with(|scope| {
             if let Some(answers) = &scope.borrow().answers {
@@ -162,13 +160,11 @@ impl NativeLspClient {
         if self.readiness() != Some(Readiness::Timeout) {
             return self.readiness();
         }
-        let began = self.inner.clock.now();
         let _activity = self.lease();
         let Ok(connection) = self.connection_handle().await else {
             return self.readiness();
         };
         let ended = self.outwait_load(&connection, deadline).await;
-        self.record_wait(super::waits::WaitKind::Indexing, began);
         if ended {
             *self
                 .inner
@@ -207,13 +203,5 @@ impl NativeLspClient {
             }
         }
         true
-    }
-
-    /// The load outlasted the wait. The readiness state stays as it is: a
-    /// server with a long-lived token still answers what it can, and only an
-    /// answer with no use in it waits.
-    fn still_loading(&self, began: Instant) -> EmptyAnswer {
-        self.record_wait(super::waits::WaitKind::Indexing, began);
-        EmptyAnswer::StillLoading
     }
 }

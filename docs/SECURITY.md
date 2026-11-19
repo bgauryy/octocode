@@ -1,60 +1,60 @@
 # Security
 
-The CLI and MCP server use the same path, credential and content rules. When you use an agent, the results it requests become part of that client's conversation. Which other service receives data depends on the tool you call.
+Octocode runs on your machine. The CLI and MCP server share one set of path, credential and content rules. Returned text is scanned before it becomes part of the calling agent's conversation. To report a vulnerability, use the repository's [private security advisory channel](https://github.com/bgauryy/octocode/security/advisories/new).
 
-| Action | Destination | Data sent |
-|---|---|---|
-| Local text, syntax or graph research | Local runtime | Reads files in the allowed scope. Graph builds also write snapshots. |
-| GitHub search, read, history or clone | GitHub or your configured Enterprise host | Repository and query details, with the credential selected for that host when available. |
-| Package lookup | The applicable registry and, for source verification, the source host | Package name, requested version or search terms. Private npm registries use matching npm credentials. |
-| Known-advisory lookup | OSV, GitHub and applicable public registries | Identifiers depend on the operation. [Advisory egress](#advisory-egress) |
-| Classification | The configured classification provider | Questions, context and selected evidence. [Classification egress](#classification-egress) |
+## What leaves your machine
 
-## Filesystem policy
-
-Relative paths resolve against the workspace root, which defaults to the process working directory. Set `local.workspaceRoot` to change it or `local.allowedPaths` to admit another directory. Octocode also admits its managed outputs, such as clone worktrees. It checks canonical paths and restricts sensitive locations even inside an allowed root. An outside-root error shows the allowed roots for that process.
-
-| Default | Effect |
+| Action | Sent to |
 |---|---|
-| `security.credentialFiles: "withhold"` | Discovery and reads withhold the known credential files and their backups (`.bak`, `.old`, `~`): the dotenv family (`.env`, `.env.*`, `.envrc`, `*.env`), private keys and keystores (`id_rsa*`, `*.pem`, `*.key`, `*.p12`, `*.jks`), and named credential stores (`.netrc`, `.npmrc`, `.pgpass`, `.git-credentials`, `credentials.json`, `kubeconfig`, Terraform state and variables, Octocode, Claude and Codex logins). Credential directories (`.ssh`, `.aws`, `.azure`, `.kube`, `.docker`, `.gnupg`, `.password-store`, `.config/gh`, `.config/gcloud`) are withheld whole. Every other file, such as `~/.zshrc` or a shell history, is readable. |
-| `output.redactEmails: false` | Email addresses, such as commit authors, can appear in GitHub tool results. Enable the setting to mask them in those results; local source email addresses stay readable. |
-| `output.redactUuid: false` | UUIDs can appear in results. Enable the setting to mask every UUID in a tool result. |
-| `lsp.trustProjectConfig: false` | A project's custom server configuration requires trust before it can launch an executable. |
-| `lsp.trustFetchedCode: false` | Language servers cannot start against checkouts, materializations or URL captures acquired by Octocode. Text and syntax tools can inspect admitted files. |
-| `lsp.allowBuildScripts: false` | Rust queries asking to enable Cargo build scripts or procedural macros receive a policy error. |
+| Local research, graph builds | Nowhere. Snapshots stay under your home or workspace |
+| GitHub search, read, history, clone | GitHub or your Enterprise host, with that host's credential |
+| Package lookup | The package registry and its source host |
+| `securityCheck` | OSV, GitHub, public registries. [Advisory egress](#advisory-egress) |
+| `clasify`, `classification` | The provider. [Classification egress](#classification-egress) |
 
-A trusted home or process setting can set `security.credentialFiles` to `allow` for local reads and searches. Sensitive directories, Octocode's credentials and protected locations in your OS home stay restricted. Graphs and classification continue to withhold credential-named files. Allowing these reads keeps saved local results in memory. [All settings and workspace permissions](CONFIGURATION.md#all-settings-and-defaults)
+## Files and credentials
 
-## Content sanitization
+Relative paths resolve against `local.workspaceRoot`; `local.allowedPaths` adds roots. Sensitive directories stay restricted.
 
-The runtime redacts known secret formats from text evidence, including file reads, search results and provider output. One list of known patterns decides: provider token formats (GitHub, GitLab, AWS, Google, Slack, Stripe, OpenAI, Anthropic, npm and others), private-key armors, JSON Web Tokens, connection strings that carry a password, and well-known credential keys with a fixed value shape (`aws_secret_access_key = <40 characters>`). A key labelled `password`, `passwd`, `pwd` (quoted), `secret`, `client_secret`, `secret_key`, `private_key`, `token`, `api_key` or `apikey` that is assigned a literal, in source, JSON, YAML, `.ini` or `.properties`, has only its value replaced (`passwordAssignment`, `secretAssignment`, `tokenAssignment`); a URL query value is a literal and is replaced in code too, but only behind a known secret key: the bare label or one of a closed list of prefixes (`access_token`, `refresh_token`, `id_token`, `session_token`, `x-api-key`, `x-amz-security-token`, `client_secret`, `password`), so a paging or sync token (`page_token`, `next_token`, `sync_token`) and a CSRF token read as written. A stored (saved) answer or leaf is judged by the file it is about: a config file's bare values are hidden, a code file's identifiers stay. A bare value after such a key (`password: hunter2`, `password: letmein`) is replaced only in a config file (`.env`-like, `.properties`, `.ini`, `.yaml`, `.toml`, `.conf`, `.cfg`, and their `.bak`/`.old` copies); in code it is an identifier and stays. An interpolation with a literal default (`${MYSQL_PASS:petclinic}`) has only the default replaced. A template or placeholder (`${X}`, `$X`, `{{x}}`, `<x>`, `%s`, `changeme`, `${X:changeme}`, a lookup such as `${env:HOME}`), a boolean, `void`, a short value of fewer than four characters, a path, a YAML alias (`*x`), `!0` and a Rust path (`token::Brace`) are no value. The crates.io registry token (`cio` and 32 letters and digits, `cratesIoToken`) and the Terraform Cloud API token (`<14 characters>.atlasv1.<60-70 characters>`, `terraformApiToken`) are known formats, beside the credential files that hold them (`credentials.toml`, `credentials.tfrc.json`). A dotenv value that opens a quote and closes it on a later line is replaced as one value, and every line keeps its number. Only the matched secret is replaced, by a `[REDACTED-<PATTERN>]` placeholder; the text around it stays as written, and a multi-line key keeps its line count. A dotenv file (`.env`, `.env.*`, `*.env`) is a known credential store, so wherever its text is shown, in a read under `allow`, a GitHub read or a commit or pull-request patch, every `KEY=value` value is replaced and each name stays. No value is judged by its length or look: a secret in no known format and under no such label can appear in results, and ordinary code that names a credential stays readable. `output.redactEmails` masks email addresses in GitHub tool results; `output.redactUuid` masks UUIDs in all tool results. Both settings default to off. Returned markers and warnings identify affected evidence. Treat an explicit image as disclosed when you send it for classification.
+`security.credentialFiles` defaults to `withhold`, which skips dotenv files (`.env`, `.env.*`, `.envrc`), keys and keystores (`id_rsa*`, `*.pem`, `*.key`, `*.p12`, `*.jks`), named stores (`.netrc`, `.npmrc`, `.pypirc`, `.pgpass`, `.git-credentials`, `credentials.json`, `kubeconfig`, `terraform.tfstate`, `terraform.tfvars`), their backups (`.bak`, `.old`, `~`), and whole directories (`.ssh`, `.aws`, `.azure`, `.kube`, `.docker`, `.gnupg`, `.password-store`). Other files, such as `~/.zshrc`, stay readable. Allow with `security.credentialFiles: allow` or `OCTOCODE_CREDENTIAL_FILES=allow` in a trusted setting. Graphs and classification always withhold them, and allowed reads keep saved local results in memory. [All settings](CONFIGURATION.md#all-settings-and-defaults)
 
-### Classification egress
+## Secrets in results
 
-Catalog discovery makes no classification request. A call to `clasify` or a tool with `classification` sends the questions or predicates, optional context and the selected evidence to the configured provider. File and tool sources pass their access and text-redaction checks first. Inline classification judges the requested results. A `clasify` URL capture fetches a public HTTPS resource without a stored credential for that origin.
+Known secret formats become `[REDACTED-<PATTERN>]`: only the matched secret is replaced, and line numbers do not change. Formats include provider tokens (GitHub, GitLab, AWS, Google, Slack, Stripe, OpenAI, Anthropic, npm and others), private-key armor, JSON Web Tokens, connection strings with a password, known credential keys with a fixed shape (`aws_secret_access_key`), and crates.io and Terraform Cloud tokens.
 
-Explicit PNG/JPEG assets can be resized or padded before transmission. Their pixels and metadata have no text-redaction guarantee. The default provider is Jev at `https://api.typesafe.ai`. The process or home configuration controls the host and key. Restart an MCP server after adding or removing the key. [Classification guide](OCTOCODE_CLASIFY.md)
+A key named `password`, `passwd`, `pwd`, `secret`, `client_secret`, `secret_key`, `private_key`, `token`, `api_key` or `apikey` loses a literal value in source, JSON, YAML, `.ini` or `.properties`; a bare value is redacted only in config files. A URL query value is redacted only behind a secret key such as `access_token`; paging tokens (`page_token`, `next_token`) read as written. Any dotenv file has every value replaced. Placeholders (`${X}`, `changeme`, `<x>`), booleans, values under four characters and paths are not secrets. Redaction is pattern-based, so an unlisted format can still appear.
 
-### Advisory egress
+`output.redactEmails` (commit-author emails in GitHub results) and `output.redactUuid` (every UUID) are both `false`. Enable them with `config set` or `OCTOCODE_REDACT_EMAILS` and `OCTOCODE_REDACT_UUID`.
 
-`securityCheck` is available by default on the CLI and opt-in on MCP. OSV can receive package names and versions, advisory IDs or commit hashes. A commit lookup can disclose a private commit's hash. GitHub can receive the repository and the identifiers needed for its advisory lookup. Retain each record's source attribution when sharing results. [Data sent by each advisory operation](OCTOCODE_TOOLS.md#securitycheck)
+## Trust for project code
 
-## External processes
+| Setting | Default | Effect |
+|---|---|---|
+| `lsp.trustProjectConfig` | `false` | A project's language-server config cannot launch an executable until trusted |
+| `lsp.trustFetchedCode` | `false` | No language server on fetched checkouts, materialized files or URL captures |
+| `lsp.allowBuildScripts` | `false` | Rust build scripts and proc macros return a policy error |
 
-`ghCloneRepo` runs system Git to acquire a checkout under the Octocode home. Git receives host-scoped credentials through its askpass helper. Worktrees and their backing stores share a lifecycle. [Storage](STORAGE_AND_LIMITS.md)
+Language servers can run project code, so use them only on projects you trust. Check routing with `octocode lsp-server status <file>`.
 
-A language server or IDE provider can load project configuration and execute project code. Use language services on projects you trust. Inspect a file's effective route with `octocode lsp-server status <file>`. Managed downloads are checked against pinned digests before installation. [Language-server setup and trust](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md)
+## Classification egress
+
+Listing catalog tools sends nothing. A `clasify` call, or a tool with `classification`, sends questions, context and selected evidence to the provider, after access and redaction checks. The default provider is Jev at `https://api.typesafe.ai`; set `OCTOCODE_CLASSIFICATION_API_HOST` and `OCTOCODE_CLASSIFICATION_API` in home or process configuration, then restart MCP. URL captures fetch a public HTTPS page with no stored credential. PNG and JPEG pixels are not text-redacted: treat a sent image as disclosed. [Classification guide](OCTOCODE_CLASIFY.md)
+
+## Advisory egress
+
+`securityCheck` is on by default in the CLI and opt-in over MCP ([availability](OCTOCODE_TOOLS.md#securitycheck)).
+
+| Operation | What is sent |
+|---|---|
+| `package` | OSV gets the name and any listed version; GitHub can get coordinates and repository. Other ecosystems send name and version to OSV directly |
+| `repository` | GitHub gets `owner/name`; OSV gets advisory IDs only after GitHub identifies the repository as public |
+| `commit` | OSV gets the full hash, even for private commits. With `repo`, GitHub gets both |
+| `advisory` | OSV gets the ID; for a GHSA, GitHub also gets the ID and any repository given |
 
 ## GitHub credentials
 
-Tool queries take repository identifiers, never access tokens. Set a token in a supported environment source, sign in with Octocode, or use GitHub CLI. The configured API host controls where Octocode sends the GitHub credential. [Credential selection for each request](AUTHENTICATION.md#github-token-resolution)
+Tool queries take identifiers, never tokens. A token comes from a supported environment variable, an Octocode sign-in or the GitHub CLI, in that order, and the configured API host decides where it is sent. [Token resolution](AUTHENTICATION.md#github-token-resolution)
 
-`auth login` encrypts `credentials.json` with AES-256-GCM. The decryption key lives beside it in `.key`. Both files use owner-only permissions on Unix. Someone with access to both can decrypt the login. Keys saved with `config set` go into a local plaintext `.env` file. [Where configuration is stored](CONFIGURATION.md#set-a-value)
+`credentials.json` and its `.key` in the Octocode home hold your sign-in, AES-256-GCM encrypted (owner-only on Unix; both files together decrypt it). `.env` in the home or workspace `.octocode/` holds `config set` keys in plain text.
 
-## Input validation
-
-The runtime validates tool fields and operation combinations before execution, then applies access policy and scans returned text. A cursor is tied to its tool and access context. An invalid or expired cursor returns an error. Mixed batches report per-row failures. [Tool data contract](TOOL_DATA_CONTRACT.md)
-
-## Reporting vulnerabilities
-
-Report a suspected vulnerability through the repository's private security advisory channel. [Report a vulnerability](https://github.com/bgauryy/octocode/security/advisories/new)
+Remove the sign-in with `octocode auth logout`. `ghCloneRepo` runs system Git with host-scoped credentials through an askpass helper. Language servers download only after their pinned digest matches.

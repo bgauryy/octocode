@@ -259,6 +259,11 @@ pub struct LocalSearchResult {
     pub skipped_paths: Option<octocode_contract_types::SkippedPaths>,
     #[serde(skip)]
     pub source_snapshot: Option<String>,
+    /// The query's one term a span equal to it leaves out of its `value`
+    /// ([`super::local_search_query::derived_value`]); [`Self::to_row`]
+    /// omits it there.
+    #[serde(skip)]
+    pub(crate) derived_value: Option<String>,
 }
 
 impl LocalSearchResult {
@@ -305,10 +310,32 @@ impl LocalSearchResult {
                 level(file);
             }
         }
+        if let Some(term) = self.derived_value.as_deref() {
+            omit_derived_values(&mut row, term);
+        }
         for reason in &self.stats.partial_reasons {
             octocode_runtime_base::response::paging::mark_partial(&mut row, *reason, &[]);
         }
         Ok(row)
+    }
+}
+
+/// Leaves `value` out of each match of `row` whose value is `term`, the
+/// request's one term: the reader takes it from there. Any other value,
+/// redacted or spelled otherwise, stays.
+fn omit_derived_values(row: &mut serde_json::Value, term: &str) {
+    let matches = row
+        .get_mut("files")
+        .and_then(serde_json::Value::as_array_mut)
+        .into_iter()
+        .flatten()
+        .filter_map(|file| file.get_mut("matches")?.as_array_mut())
+        .flatten()
+        .filter_map(serde_json::Value::as_object_mut);
+    for matched in matches {
+        if matched.get("value").and_then(serde_json::Value::as_str) == Some(term) {
+            matched.shift_remove("value");
+        }
     }
 }
 

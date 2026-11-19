@@ -108,7 +108,8 @@ pub(in crate::structural::octo) fn collect_kind_matches(
     deadline: super::Deadline,
     found: &mut Found<'_>,
 ) -> Result<(), ExecutionError> {
-    let line_index = LineIndex::tree_sitter(content);
+    // Built on the first match: most parsed files have none.
+    let line_index = std::cell::OnceCell::new();
     tree.visit_nodes(deadline, &mut |candidate, _, seen| {
         if candidate.kind() != kind {
             return Ok(());
@@ -126,7 +127,7 @@ pub(in crate::structural::octo) fn collect_kind_matches(
                     &source,
                     candidate,
                     content,
-                    &line_index,
+                    line_index.get_or_init(|| LineIndex::tree_sitter(content)),
                     HashMap::new(),
                     HashMap::new(),
                 )

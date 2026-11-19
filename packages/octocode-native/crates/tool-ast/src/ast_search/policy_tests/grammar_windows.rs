@@ -119,7 +119,9 @@ fn capped_incompatible_grammar_preserves_partial_coverage_and_reaches_later_gram
     // later grammar it does not compile in is outside what it applies to.
     let query = json!({"operation":"match","path":root.0,"rule":{"pattern":"def $F():\n    $$$"}});
     let first = run(&root.0, query).expect("bounded pattern coverage");
-    assert_eq!(first["matchCount"], 1, "{first}");
+    // A window cut before its scope ends counts what it read, a floor.
+    assert_eq!(first["pagination"]["total"], 1, "{first}");
+    assert_eq!(first["pagination"]["countScope"], "loaded", "{first}");
     assert_eq!(first["isPartial"], true, "{first}");
     let next = first["next"]["expandScan"]["input"]["queries"][0].clone();
     assert!(next.is_object(), "{first}");
@@ -165,7 +167,9 @@ fn a_final_window_of_an_inapplicable_grammar_is_whole_and_names_it() {
         json!({"operation":"match","path":root.0,"rule":{"kind":"function_declaration"}}),
     )
     .expect("first compatible grammar");
-    assert_eq!(first["matchCount"], 1, "{first}");
+    // A window cut before its scope ends counts what it read, a floor.
+    assert_eq!(first["pagination"]["total"], 1, "{first}");
+    assert_eq!(first["pagination"]["countScope"], "loaded", "{first}");
     let next = first["next"]["expandScan"]["input"]["queries"][0].clone();
     assert!(next.is_object(), "{first}");
     let last = run(&root.0, next).expect("last grammar cannot invalidate earlier hits");
@@ -280,7 +284,11 @@ fn a_scope_whose_only_source_is_default_excluded_names_it_instead_of_asking_for_
     assert!(
         out["warnings"]
             .to_string()
-            .contains("behind skipped paths (*.min.js)"),
+            .contains("Skipped paths (1 default-excluded) were not searched"),
+        "{out}"
+    );
+    assert!(
+        out["skippedPaths"].to_string().contains("*.min.js"),
         "{out}"
     );
     let lead = &crate::ast_search::test_rows::skipped_call(&out)
@@ -292,9 +300,11 @@ fn a_scope_whose_only_source_is_default_excluded_names_it_instead_of_asking_for_
 #[test]
 fn directory_match_infers_the_only_grammar_present() {
     let root = Fixture::new();
-    root.write("a.rs", "fn a() { hit(1); }\n");
+    // One file holds both matches: the scan's one window holds the whole
+    // scope, and its second page is that window's.
+    root.write("a.rs", "fn a() { hit(1); hit(2); }\n");
     std::fs::create_dir(root.0.join("nested")).expect("nested");
-    root.write("nested/b.rs", "fn b() { hit(2); }\n");
+    root.write("nested/b.rs", "fn b() { other(2); }\n");
     root.write("README.md", "hit(3)\n");
     let out = crate::ast_search::test_rows::run_window(
         &root.0,

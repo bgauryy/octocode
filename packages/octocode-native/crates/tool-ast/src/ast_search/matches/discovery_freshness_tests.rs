@@ -8,7 +8,9 @@ fn settled_match_memo_observes_empty_directories_and_ignore_edits() {
         let root = Fixture::new();
         let nested = root.0.join("nested");
         std::fs::create_dir(&nested).expect("nested directory");
-        std::fs::write(root.0.join("a.ts"), "target(\"one\");\ntarget(\"two\");\n")
+        // The source sorts after `nested/`: a source found there lands in
+        // the first window, the one the stored scan answers for.
+        std::fs::write(root.0.join("z.ts"), "target(\"one\");\ntarget(\"two\");\n")
             .expect("source");
         if let Some(name) = ignore_name {
             if name == ".gitignore" {

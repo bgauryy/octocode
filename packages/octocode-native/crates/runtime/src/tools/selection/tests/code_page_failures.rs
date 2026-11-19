@@ -97,7 +97,7 @@ fn empty_selection_preserves_provider_page_and_unfiltered_recovery() {
         data["warnings"],
         json_fixture(
             r#"[
-                "classification kept 0 of 1 hit that pass the classifiers. An empty classified result is not absence: next.unfiltered lists them all."
+                "classification passed 0 of 1 hit. An empty classified result is not absence: next.unfiltered lists them all."
             ]"#
         ),
         "{data}"

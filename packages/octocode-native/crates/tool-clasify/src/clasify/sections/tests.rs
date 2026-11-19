@@ -53,6 +53,7 @@ pub(super) fn session() -> Session {
                     None,
                 ],
                 emitted: false,
+                deferred: std::collections::BTreeSet::new(),
             }],
         }],
         github_identity: None,

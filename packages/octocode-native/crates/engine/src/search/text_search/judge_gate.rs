@@ -53,22 +53,41 @@ impl JudgeGate {
             return None;
         }
         let multiline = opts.multiline.unwrap_or(false);
-        let hir = regex_syntax::ParserBuilder::new()
+        let mut ast = regex_syntax::ast::parse::Parser::new()
+            .parse(spelled)
+            .ok()?;
+        // The prefixes are read with case, and compared without it wherever
+        // the pattern compares without it: a group without case (as several
+        // terms searched without case are joined, `(?i:a)|(?i:b)`) spells
+        // each literal in every case, which the extractor cuts to a few
+        // bytes, mid-character at a `k` (the Kelvin sign) or an `s`.
+        let caseless_groups = with_case(&mut ast);
+        let hir = regex_syntax::hir::translate::TranslatorBuilder::new()
             .multi_line(true)
             .dot_matches_new_line(multiline && opts.multiline_dotall.unwrap_or(false))
             .utf8(false)
             .build()
-            .parse(spelled)
+            .translate(spelled, &ast)
             .ok()?;
         let seq = Extractor::new().kind(ExtractKind::Prefix).extract(&hir);
         let literals = seq.literals()?;
         // A smart-case search compares without case when its pattern has no
         // capital; comparing without case here only judges more.
-        let fold = opts.case != CaseRule::Sensitive;
+        let fold = opts.case != CaseRule::Sensitive || caseless_groups;
         let mut alternates = Vec::with_capacity(literals.len());
         let mut reach = 0;
+        let mut cut = false;
         for literal in literals {
-            let text = std::str::from_utf8(literal.as_bytes()).ok()?;
+            // A literal the extractor cut inside a character is a prefix
+            // through its last whole character.
+            let bytes = literal.as_bytes();
+            let text = match std::str::from_utf8(bytes) {
+                Ok(text) => text,
+                Err(error) => {
+                    cut = true;
+                    std::str::from_utf8(&bytes[..error.valid_up_to()]).ok()?
+                }
+            };
             if text.is_empty() || (judge.writes)(text, fold) {
                 return None;
             }
@@ -80,7 +99,8 @@ impl JudgeGate {
             .case_insensitive(fold)
             .build()
             .ok()?;
-        let exact = seq.is_exact()
+        let exact = !cut
+            && seq.is_exact()
             && hir.properties().look_set().is_empty()
             && !opts.whole_word.unwrap_or(false);
         Some(Self::Gated {
@@ -119,6 +139,56 @@ impl JudgeGate {
     /// Whether some file of the search may skip its judge.
     pub(super) fn gates(&self) -> bool {
         matches!(self, Self::Gated { .. })
+    }
+}
+
+/// `ast` with every case flag (`i`, `-i`) dropped, so each group compares
+/// with case; whether it held one. Every match of the pattern spells, one
+/// character at a time ignoring case, a match of the pattern with case, so
+/// the prefixes of the one with case, compared without case, are each
+/// match's.
+fn with_case(ast: &mut regex_syntax::ast::Ast) -> bool {
+    use regex_syntax::ast::{Ast, Flag, Flags, FlagsItemKind, GroupKind};
+    fn drop_case(flags: &mut Flags) -> bool {
+        let before = flags.items.len();
+        flags
+            .items
+            .retain(|item| item.kind != FlagsItemKind::Flag(Flag::CaseInsensitive));
+        // A negation with no flag after it negates nothing.
+        if flags
+            .items
+            .last()
+            .is_some_and(|item| item.kind == FlagsItemKind::Negation)
+        {
+            flags.items.pop();
+        }
+        flags.items.len() != before
+    }
+    match ast {
+        Ast::Flags(set) => drop_case(&mut set.flags),
+        Ast::Group(group) => {
+            let flagged = match &mut group.kind {
+                GroupKind::NonCapturing(flags) => drop_case(flags),
+                GroupKind::CaptureIndex(_) | GroupKind::CaptureName { .. } => false,
+            };
+            with_case(&mut group.ast) | flagged
+        }
+        Ast::Repetition(repetition) => with_case(&mut repetition.ast),
+        Ast::Alternation(alternation) => alternation
+            .asts
+            .iter_mut()
+            .fold(false, |held, ast| with_case(ast) | held),
+        Ast::Concat(concat) => concat
+            .asts
+            .iter_mut()
+            .fold(false, |held, ast| with_case(ast) | held),
+        Ast::Empty(_)
+        | Ast::Literal(_)
+        | Ast::Dot(_)
+        | Ast::Assertion(_)
+        | Ast::ClassUnicode(_)
+        | Ast::ClassPerl(_)
+        | Ast::ClassBracketed(_) => false,
     }
 }
 

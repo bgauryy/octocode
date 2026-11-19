@@ -4,8 +4,11 @@
 //! change, so its answer needs no question. A `Cache-Control: max-age` is the
 //! origin's own statement of how long an answer stands. Past that, a validator
 //! (`ETag`, `Last-Modified`) asks whether it still stands: GitHub answers 304
-//! without charging its rate limit. Only an answer with none of these (GitHub
-//! search, a GraphQL read) falls back to a short window the caller names. That reuse, and any
+//! without charging its rate limit. Only an answer with none of these and no
+//! `no-cache` (a GraphQL read, a code search) falls back to a short window the
+//! caller names ([`super::SEARCH_REUSE_WINDOW`] for searches); repository
+//! search states `no-cache` and no validator, so it is always asked again.
+//! That reuse, and any
 //! answer served because the origin rate-limited the asking, are each disclosed
 //! by the time the answer was observed; reuse within the origin's own `max-age`
 //! is not, since the origin stands behind it.
@@ -32,6 +35,18 @@ pub struct SavedAnswer {
 /// Everything may decline: a miss costs one more request.
 pub trait SavedAnswers: Send + Sync {
     fn load(&self, scope: &str, request: &str) -> Option<SavedAnswer>;
+    /// What [`Self::load`] would answer, for deciding whether it could serve
+    /// ([`SavedAnswer::reuse`] reads no body): the answer, its body perhaps
+    /// left out, and the body's length in bytes when the store knows it
+    /// without reading it. Nothing is served from it: only a load serves,
+    /// and checks the body. A body a load then finds gone or changed costs
+    /// that request a question. A store that cannot tell more cheaply loads.
+    fn probe(&self, scope: &str, request: &str) -> Option<(SavedAnswer, Option<usize>)> {
+        self.load(scope, request).map(|saved| {
+            let length = saved.answer.body.len();
+            (saved, Some(length))
+        })
+    }
     fn save(&self, scope: &str, request: &str, saved: SavedAnswer);
     fn forget(&self, scope: &str, request: &str);
     /// The origin refused `scope`'s credential (a 401): none of the answers

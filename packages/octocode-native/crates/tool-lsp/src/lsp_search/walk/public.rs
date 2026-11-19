@@ -81,7 +81,7 @@ pub(super) fn public_via(node: &Value) -> Value {
 }
 
 /// The public row of one walk edge. `narrowed` is the incoming edge's
-/// class caller narrowed by [`ClassFacts::narrow`](super::ClassFacts::narrow); the walk itself keeps
+/// class caller narrowed by [`ClassFacts::narrow`](super::caller_names::ClassFacts::narrow); the walk itself keeps
 /// the server's item.
 pub(in crate::lsp_search) fn public_edge(
     expansion: Expansion,

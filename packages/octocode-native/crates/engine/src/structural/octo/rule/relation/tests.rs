@@ -178,7 +178,7 @@ fn accepted_keeping(
     let language = lang.tree_sitter_language();
     let tree = parse_tree(&language, source).expect("parses");
     let rule = CompiledRule::new(&lang, rule).expect("rule");
-    let line_index = crate::text::LineIndex::tree_sitter(source);
+    let line_index = std::cell::OnceCell::new();
     let memo = RelationMemo::default();
     let expanded = ExpandedTree::new(
         tree.root_node(),

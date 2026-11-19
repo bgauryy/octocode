@@ -878,6 +878,7 @@ fn every_numeric_query_property_is_classified() {
         "materializeOffset",
         "max",
         "maxDepth",
+        "maxRequests",
         "min",
         "minChanges",
         "minDepth",

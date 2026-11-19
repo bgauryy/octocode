@@ -10,7 +10,7 @@
 //! other line a key's. A chunk is committed only up to a clean edge, one
 //! no redaction crosses; a redaction that reaches the chunk's end may continue, so
 //! the edge waits behind it until it ends, however long it is. Every window of the
-//! source is then sealed from those edits ([`apply`]) and its pages are cut from
+//! source is then sealed from those edits (`apply`) and its pages are cut from
 //! the sealed text, never scanned again, so no secret depends on how far a page
 //! looks back.
 

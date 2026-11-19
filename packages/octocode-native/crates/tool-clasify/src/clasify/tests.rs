@@ -84,6 +84,10 @@ fn each_resource_is_judged_whole_and_a_failure_stays_with_it() {
         details: true,
         per_item: false,
         source_progress: None,
+        max_requests: None,
+        per_hit: false,
+        retry_units: None,
+        query: Value::Null,
     };
     let local = |path: &str| json!({"tool":"localFetch","query":{"path":path}});
     let missing = octocode_tools_shared::judgment::ClassificationError::new(
@@ -129,6 +133,7 @@ fn each_resource_is_judged_whole_and_a_failure_stays_with_it() {
                 captured: None,
                 assets: None,
                 identity: None,
+                price: None,
             }
         },
     );
@@ -166,6 +171,10 @@ fn resources_row(resources: Value) -> Row {
         details: true,
         per_item: false,
         source_progress: None,
+        max_requests: None,
+        per_hit: false,
+        retry_units: None,
+        query: Value::Null,
     }
 }
 
@@ -187,6 +196,7 @@ fn answered_by(model: &str, noul: f64) -> RowOutcome {
         captured: None,
         assets: None,
         identity: None,
+        price: None,
     }
 }
 
@@ -196,6 +206,7 @@ pub fn failed_with(error: octocode_tools_shared::judgment::ClassificationError) 
         captured: None,
         assets: None,
         identity: None,
+        price: None,
     }
 }
 
@@ -456,4 +467,69 @@ fn classification_disclosures_keep_resource_coverage_and_failed_resource_recover
             .any(|hint| hint == "Check the provider response."),
         "{output}"
     );
+}
+
+/// A row whose ceiling is over its `maxRequests` sends nothing: it states
+/// the price (no request sent, the first round, the ceiling, the input
+/// tokens at most) and offers the same row at the ceiling as `next.confirm`.
+#[test]
+fn an_over_budget_row_states_its_price_and_offers_the_confirm_call() {
+    let rows = super::rows::parse_rows(&[json!({
+        "operation": "evaluate",
+        "source": {"tool": "ghSearchCode", "query": {"owner": "o", "repo": "r", "keywords": ["x"]}},
+        "questions": {"q": {"type": "noul", "instructions": "Is it?"}},
+        "maxRequests": 2
+    })]);
+    let over = reply::OverBudget {
+        units: 63,
+        price: reply::Price {
+            planned: 3,
+            ceiling: Some(6),
+            room: 3,
+        },
+        input_tokens_at_most: 21_400,
+        max: 2,
+        room: 3,
+    };
+    let out = reply::over_budget(&rows[0], &over, true);
+    assert_eq!(out["errorCode"], "classificationOverBudget", "{out:#}");
+    assert_eq!(
+        out["usage"],
+        json!({"calls":0,"requestsPlanned":3,"requestsCeiling":6,"inputTokensAtMost":21400})
+    );
+    let error = out["error"].as_str().expect("error");
+    assert!(
+        error.contains("63 units")
+            && error.contains("the 3 transient retries it shares")
+            && error.contains("maxRequests is 2"),
+        "{error}"
+    );
+    let confirm = &out["next"]["confirm"];
+    assert_eq!(confirm["tool"], "clasify", "{out:#}");
+    let query = &confirm["input"]["queries"][0];
+    assert_eq!(query["maxRequests"], 6, "{out:#}");
+    assert_eq!(query["source"], rows[0].query["source"], "{out:#}");
+    // A runtime that keeps nothing offers it as a related call.
+    let fresh = reply::over_budget(&rows[0], &over, false);
+    assert!(fresh["next"].get("confirm").is_none(), "{fresh:#}");
+    assert_eq!(fresh["related"][0]["input"]["queries"][0]["maxRequests"], 6);
+}
+
+/// A price is stated in the usage of a row that sent a request.
+#[test]
+fn a_rows_price_is_stated_in_its_usage() {
+    let mut row = json!({"usage": {"calls": 1}});
+    let price = reply::Price {
+        planned: 1,
+        ceiling: Some(3),
+        room: 0,
+    };
+    reply::priced(&mut row, Some(price));
+    assert_eq!(
+        row["usage"],
+        json!({"calls":1,"requestsPlanned":1,"requestsCeiling":3})
+    );
+    let mut unsent = json!({"errorCode": "notFound"});
+    reply::priced(&mut unsent, Some(price));
+    assert!(unsent.get("usage").is_none());
 }

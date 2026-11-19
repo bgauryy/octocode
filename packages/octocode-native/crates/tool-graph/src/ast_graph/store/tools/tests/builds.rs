@@ -256,7 +256,7 @@ fn a_build_of_only_skipped_files_says_why_it_is_empty() {
         let built = call(&dir.0, ToolId::GraphBuild, json!({"path": path}));
         assert_eq!(built["counts"]["nodes"], 0, "{built}");
         let hints = built["warnings"].to_string();
-        assert!(hints.contains("behind skipped paths"), "{path}: {built}");
+        assert!(hints.contains("were not searched"), "{path}: {built}");
         assert!(
             !hints.contains("has no includeIgnored"),
             "{path}: graphBuild has the flag now: {built}"

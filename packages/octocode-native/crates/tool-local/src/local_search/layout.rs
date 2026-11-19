@@ -12,7 +12,7 @@ pub(super) use costs::priced_on_this_thread;
 pub(super) use costs::{FilePrice, NamePricing};
 use costs::{PageCosts, RowName};
 pub(super) use entries::{file_pagination, row_chars};
-use entries::{fits_whole, listed_file_chars};
+use entries::{fits_whole, listed_file_chars, pagination_chars};
 use octocode_contract_types::LocalSearchQuery;
 use octocode_engine::num::saturating_u32;
 use octocode_engine::types::SearchContext;
@@ -33,7 +33,7 @@ pub(super) fn list_view(view: View) -> bool {
 /// same pages from the same scan (see [`Layout::stream`]), so the stored
 /// scan keeps them once cut: a continuation takes its page instead of
 /// pricing every row of the scan again. Once the scan is stored, a cut is
-/// charged to the store ([`Billing`]) and kept only when the charge holds.
+/// charged to the store ([`Billing`](super::manifest::Billing)) and kept only when the charge holds.
 #[derive(Default)]
 pub(super) struct StreamCuts(
     std::sync::Mutex<Option<std::sync::Arc<Vec<PageRows>>>>,
@@ -91,7 +91,7 @@ impl StreamCuts {
     }
 }
 
-/// A page cut from the files a traversal stream read ([`super::streamed`]):
+/// A page cut from the files a traversal stream read ([`super::streamed`](super::executor::streamed)):
 /// the first file's rows an earlier page showed are skipped, and nothing
 /// shows whole while the walk goes on.
 pub(super) struct Walking {
@@ -100,21 +100,31 @@ pub(super) struct Walking {
     pub(super) ended: bool,
 }
 
+/// Prices one streamed file's enclosing names as a page cut does: the
+/// file's [`FilePrice`], read and outlined when the stream commits it.
+pub(super) type StreamPricer =
+    Box<dyn FnMut(&octocode_engine::types::TextSearchFile) -> FilePrice + Send>;
+
 /// The test a traversal stream ends by: `true` for the file that makes its
 /// page overflow, so the page is full and the rows past it are the next
-/// page's. It prices the page as the cut does (each file's path named from
-/// the root, as the page shows it), less the enclosing names and the
-/// per-file paging (which cost more), so a page it calls full is full
-/// whatever the cut charges: it never ends a stream early on a file the page
-/// then shows whole, and may read a file or two beyond the exact cut. Files are given in walk order; the
-/// first one's rows before `start_row` were shown by an earlier page.
+/// page's. It prices the page as the cut does: each file's path named from
+/// the root, as the page shows it, each hit row's enclosing name by the
+/// file's outline (`price`, called only for a file of an outlined language
+/// with rows on this page, as the cut outlines its page's files), and the
+/// per-file paging of a file with more than one row. So the stream ends on
+/// the file the cut ends in or before, and the next page searches only that
+/// file again, not the files past the cut. Only text the redaction changes
+/// or withholds after the walk prices otherwise. Files are given in walk
+/// order; the first one's rows before `start_row` were shown by an earlier
+/// page.
 pub(super) fn page_fill(
     query: &LocalSearchQuery,
     paths: &PathPolicy,
     output_root: &std::path::Path,
     (budget, start_row): (usize, usize),
+    mut price: StreamPricer,
 ) -> impl FnMut(&octocode_engine::types::TextSearchFile) -> bool + Send + use<> {
-    let costs = PageCosts::new(query, paths, output_root);
+    let mut costs = PageCosts::new(query, paths, output_root);
     let view = local_search_query::view(query);
     let list = list_view(view);
     let limit = local_search_query::limit(query)
@@ -132,7 +142,14 @@ pub(super) fn page_fill(
         } else {
             let rows = &file.matches[skipped..];
             (
-                costs.file(file) + rows.iter().map(|row| costs.row(row)).sum::<usize>(),
+                costs.file(file)
+                    + rows.iter().map(|row| costs.row(row)).sum::<usize>()
+                    + streamed_names(&mut costs, &mut price, file, rows)
+                    + if rows.len() > 1 {
+                        pagination_chars(file)
+                    } else {
+                        0
+                    },
                 rows.len().max(1),
             )
         };
@@ -142,6 +159,33 @@ pub(super) fn page_fill(
         entries = entries.saturating_add(count);
         overflows
     }
+}
+
+/// What the enclosing names of `rows` (a streamed file's rows on its page)
+/// add, priced by [`PageCosts::name`] from the file's outline as the cut
+/// prices its page's files. A file the page shows no name for (another
+/// view, no row, a language without an outline) is not read.
+fn streamed_names(
+    costs: &mut PageCosts,
+    price: &mut StreamPricer,
+    file: &octocode_engine::types::TextSearchFile,
+    rows: &[octocode_engine::types::TextSearchMatch],
+) -> usize {
+    // The one file being priced, under a key no cut index takes.
+    const PRICED: usize = usize::MAX;
+    if !costs.shows_names
+        || rows.is_empty()
+        || !super::enclosing::outlined_language(std::path::Path::new(&file.path))
+    {
+        return 0;
+    }
+    costs.owners.insert(PRICED, price(file));
+    let chars = rows
+        .iter()
+        .map(|row| costs.name(PRICED, file, row).chars())
+        .sum();
+    costs.owners.remove(&PRICED);
+    chars
 }
 
 /// What a streamed page says of the pages around it.

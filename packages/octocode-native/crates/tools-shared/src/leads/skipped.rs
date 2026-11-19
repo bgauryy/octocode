@@ -1,13 +1,13 @@
 //! The one disclosure of what a local walk skipped (`localSearch`,
-//! `structureSearch`, `astSearch` symbols and match): the typed
+//! `structureSearch`, `astSearch` symbols and match, `graphBuild`): the typed
 //! `skippedPaths` record of the paths themselves ([`SkippedEntry`],
-//! [`skipped_paths`]), the sentence that says what sits behind them, the
-//! `includeSkipped` lead that lifts exactly those causes, and the partial
-//! policy when the check of them spent its work budget. Each tool supplies only its
-//! subject (what it looks for) and its query; the diagnosis is `empty_walk`'s,
-//! fed by the walk's admission ledger (`policy::discovery::WalkAdmission`).
+//! [`skipped_paths`]), the sentence an empty answer says of them
+//! ([`unsearched`]), and the `includeSkipped` lead that lifts exactly their
+//! causes. Each tool's own walk records what it left out, in the admission
+//! ledger (`policy::discovery::WalkAdmission`); nothing behind a skipped
+//! path is read to say so.
 
-use crate::empty_walk::{Cause, Verdict, lift};
+use crate::empty_walk::{Cause, lift};
 use octocode_contract_types::{ErrorCode, SkippedPath, SkippedPathCause, SkippedPaths};
 use octocode_engine::num::saturating_i64;
 use octocode_runtime_base::id::ToolId;
@@ -113,13 +113,30 @@ pub fn skipped_causes(skipped: &octocode_runtime_base::policy::discovery::WalkSk
     .collect()
 }
 
-/// A walk's skip cause as `skippedPaths` names it.
-pub fn skipped_cause(cause: Cause) -> SkippedPathCause {
-    match cause {
-        Cause::Ignored => SkippedPathCause::Ignored,
-        Cause::Hidden => SkippedPathCause::Hidden,
-        Cause::DefaultExcluded => SkippedPathCause::DefaultExcluded,
-    }
+/// The `skippedPaths` entries of a walk's ledger under `root`: what a flag
+/// lifts (ignored, default-excluded and hidden paths, grouped per cause and
+/// rule by [`skipped_paths`]), then what no flag lifts (Octocode's store
+/// directories, what the path policy withheld, and the walk's read
+/// `errors`).
+pub fn ledger_entries<'a>(
+    root: &'a std::path::Path,
+    skipped: &'a octocode_runtime_base::policy::discovery::WalkSkips,
+    errors: WalkErrors,
+) -> impl Iterator<Item = SkippedEntry> + 'a {
+    use SkippedPathCause::{Hidden, Ignored, OctocodeArtifact};
+    under(root, Ignored, &skipped.ignored)
+        .chain(default_excluded(root, &skipped.pruned, &skipped.generated))
+        .chain(under(root, Hidden, &skipped.hidden))
+        .chain(under(root, OctocodeArtifact, &skipped.artifacts))
+        .chain(unlifted(&root.to_string_lossy(), &skipped.withheld, errors))
+}
+
+/// [`unsearched`] of a walk's ledger: the causes it skipped paths by
+/// ([`skipped_causes`]), named by their counts (`2 ignored, 1 hidden`).
+pub fn unsearched_ledger(
+    skipped: &octocode_runtime_base::policy::discovery::WalkSkips,
+) -> Option<Disclosure> {
+    unsearched(&skipped_causes(skipped), &skipped.counts())
 }
 
 /// What the path policy withheld from a walk of `root`: each policy
@@ -350,6 +367,224 @@ pub fn grouped(
     })
 }
 
+/// Skipped entries a scoped disclosure names at most ([`scoped_paths`]): the
+/// ones holding the most files; the rest are counted, per cause, at the
+/// walk's root.
+pub const NAMED_TOP: usize = 8;
+
+/// Files counted behind one named entry at most: past it an entry ranks by
+/// walk order among the others past it.
+const COUNTED_FILES: usize = 1_000;
+
+/// The `skippedPaths` of a walk of `root`'s ledger ([`ledger_entries`]), each
+/// cause and rule grouped per directory at the top of the walk
+/// ([`scoped_paths`]). An ignored directory the default prune names too
+/// (`node_modules/`) is `ignored-default-excluded`: lifting either flag
+/// alone does not reach it.
+pub fn scoped_ledger(
+    root: &std::path::Path,
+    skipped: &octocode_runtime_base::policy::discovery::WalkSkips,
+    errors: WalkErrors,
+    incomplete: bool,
+) -> Result<Option<SkippedPaths>, ToolError> {
+    let pruned = octocode_runtime_base::policy::prune::walk_names(true, &[]);
+    let pruned_dirs = skipped
+        .ignored
+        .iter()
+        .filter_map(|path| path.strip_suffix('/'))
+        .filter(|path| {
+            std::path::Path::new(path)
+                .file_name()
+                .is_some_and(|name| pruned.iter().any(|pruned| name == pruned.as_str()))
+        })
+        .map(|path| root.join(path).to_string_lossy().into_owned())
+        .collect::<std::collections::HashSet<_>>();
+    let entries = both_causes(ledger_entries(root, skipped, errors))
+        .into_iter()
+        .map(|mut entry| {
+            if entry.cause == SkippedPathCause::Ignored
+                && entry.count == 1
+                && pruned_dirs.contains(&entry.path)
+            {
+                entry.cause = SkippedPathCause::IgnoredDefaultExcluded;
+                entry.reason = entry
+                    .reason
+                    .or_else(|| file_name(&entry.path).map(|name| format!("{name}/")));
+            }
+            entry
+        });
+    scoped_paths(root, entries, incomplete)
+}
+
+/// The `skippedPaths` of `skips`, a walk of `root`'s, naming where a lead
+/// could find a match. Each cause a flag lifts is grouped per directory at
+/// the top of the walk (the deepest directory holding that group's paths,
+/// with their summed count; a rule shared by every path of a group is its
+/// reason): grouped into the one directory holding them all, a cause spread
+/// across the walk would name only its root. Of those groups, only ones
+/// holding a file can hold a match: at most [`NAMED_TOP`] are named, those
+/// holding the most files first (counted up to [`COUNTED_FILES`] each, links
+/// not followed), and every other skipped path of a cause is counted in one
+/// entry at the root. What no flag lifts (withheld, unreadable, Octocode's
+/// own store) is grouped per cause and rule as [`skipped_paths`] does. A path
+/// skipped both as ignored and as default-excluded is one entry
+/// ([`both_causes`]). `sampled` when the walk did not finish; `None` when it
+/// skipped nothing.
+pub fn scoped_paths(
+    root: &std::path::Path,
+    skips: impl IntoIterator<Item = SkippedEntry>,
+    incomplete: bool,
+) -> Result<Option<SkippedPaths>, ToolError> {
+    use SkippedPathCause::{DefaultExcluded, Hidden, Ignored, IgnoredDefaultExcluded};
+    struct Group {
+        top: Option<std::ffi::OsString>,
+        entry: SkippedEntry,
+        members: Vec<String>,
+    }
+    let top = |path: &str| {
+        std::path::Path::new(path)
+            .strip_prefix(root)
+            .ok()
+            .and_then(|below| below.components().next())
+            .map(|first| first.as_os_str().to_owned())
+    };
+    let (mut lifted, mut kept): (Vec<Group>, Vec<SkippedEntry>) = (Vec::new(), Vec::new());
+    for skip in both_causes(skips) {
+        if !matches!(
+            skip.cause,
+            Ignored | Hidden | DefaultExcluded | IgnoredDefaultExcluded
+        ) {
+            kept.push(skip);
+            continue;
+        }
+        let at = top(&skip.path);
+        match lifted
+            .iter_mut()
+            .find(|group| group.top == at && group.entry.cause == skip.cause)
+        {
+            Some(group) => {
+                if group.entry.path != skip.path {
+                    group.entry.path = shared_dir(&group.entry.path, &skip.path);
+                }
+                if group.entry.reason != skip.reason {
+                    group.entry.reason = None;
+                }
+                group.entry.count += skip.count;
+                group.members.push(skip.path);
+            }
+            None => lifted.push(Group {
+                top: at,
+                members: vec![skip.path.clone()],
+                entry: skip,
+            }),
+        }
+    }
+    // The groups that hold a file, the fullest first: those are named.
+    let mut ranked = lifted
+        .iter()
+        .enumerate()
+        .filter(|(_, group)| group.top.is_some())
+        .map(|(index, group)| (index, counted_files(&group.members)))
+        .filter(|(_, files)| *files > 0)
+        .collect::<Vec<_>>();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    let named = ranked
+        .iter()
+        .take(NAMED_TOP)
+        .map(|(index, _)| *index)
+        .collect::<Vec<_>>();
+    let mut entries: Vec<SkippedEntry> = named
+        .iter()
+        .map(|index| lifted[*index].entry.clone())
+        .collect();
+    // Every other path of a cause: one counted entry at the root.
+    let mut rest: Vec<SkippedEntry> = Vec::new();
+    for (index, group) in lifted.into_iter().enumerate() {
+        if named.contains(&index) {
+            continue;
+        }
+        match rest.iter_mut().find(|held| held.cause == group.entry.cause) {
+            Some(held) => {
+                held.count += group.entry.count;
+                if held.reason != group.entry.reason {
+                    held.reason = None;
+                }
+            }
+            None => rest.push(SkippedEntry {
+                path: root.to_string_lossy().into_owned(),
+                ..group.entry
+            }),
+        }
+    }
+    entries.extend(rest);
+    let mut shown = entries
+        .into_iter()
+        .map(|skip| {
+            Ok(SkippedPath {
+                path: skip.path.try_into().map_err(skipped_path_error)?,
+                cause: skip.cause,
+                count: (skip.count > 1).then(|| saturating_i64(skip.count)),
+                reason: skip.reason,
+            })
+        })
+        .collect::<Result<Vec<_>, ToolError>>()?;
+    if let Some(unlifted) = skipped_paths(kept, false, false)? {
+        shown.extend(unlifted.entries);
+    }
+    Ok((!shown.is_empty()).then_some(SkippedPaths {
+        entries: shown,
+        sampled: incomplete.then_some(true),
+    }))
+}
+
+/// The files under `paths` (each a skipped file or directory), counted up
+/// to [`COUNTED_FILES`]; links are not followed and an unreadable directory
+/// holds none that can be read.
+fn counted_files(paths: &[String]) -> usize {
+    let mut files = 0;
+    let mut dirs = Vec::new();
+    for path in paths {
+        match std::fs::symlink_metadata(path) {
+            Ok(meta) if meta.is_dir() => dirs.push(std::path::PathBuf::from(path)),
+            Ok(meta) if meta.is_file() => files += 1,
+            _ => {}
+        }
+    }
+    while files < COUNTED_FILES
+        && let Some(dir) = dirs.pop()
+    {
+        let Ok(listing) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in listing.flatten() {
+            match entry.file_type() {
+                Ok(kind) if kind.is_dir() => dirs.push(entry.path()),
+                Ok(kind) if kind.is_file() => files += 1,
+                _ => {}
+            }
+            if files >= COUNTED_FILES {
+                break;
+            }
+        }
+    }
+    files.min(COUNTED_FILES)
+}
+
+/// Unparsed files named one by one up to this many; past it they group by
+/// type (and directory), as every other cause does, so a scope of thousands
+/// of data files states a few counted entries, not one per file.
+pub const NAMED_UNPARSED: usize = 20;
+
+/// The `skippedPaths` of a walk's unparsed files ([`skipped_paths`]): each
+/// named while there are at most [`NAMED_UNPARSED`], else grouped.
+pub fn unparsed_paths(
+    entries: Vec<SkippedEntry>,
+    incomplete: bool,
+) -> Result<Option<SkippedPaths>, ToolError> {
+    let every_path = entries.len() <= NAMED_UNPARSED;
+    skipped_paths(entries, every_path, incomplete)
+}
+
 /// `first`'s entries followed by `then`'s, as one `skippedPaths`: causes
 /// grouped by rule beside causes listed path by path ([`skipped_paths`]).
 /// `sampled` when either walk did not finish.
@@ -384,32 +619,19 @@ pub fn skipped_path_error(error: impl std::fmt::Display) -> ToolError {
     )
 }
 
-/// What one walk's skipped paths hold, as every local tool states it.
+/// What an empty answer says of the paths its walk skipped.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Disclosure {
     /// The causes the lead lifts.
     pub causes: Vec<Cause>,
-    /// The sentence: what the check found, or that it was cut.
+    /// The sentence: the skipped paths were not searched.
     pub text: String,
-    /// The check spent its work budget first, so the skipped paths stay
-    /// unsearched.
-    pub unchecked: bool,
 }
 
-/// What the walk skipped, for a check cut before it found anything: the
-/// causes it skipped paths by (what the lead lifts) and how the sentence
-/// names them (`2 ignored, 1 hidden`, `node_modules/`).
-#[derive(Clone, Copy, Debug)]
-pub struct Unchecked<'a> {
-    pub causes: &'a [Cause],
-    pub named: &'a str,
-}
-
-/// What a lead built from a cut probe costs: the probe proved a prefix of
-/// the skipped paths at most, so the lead lifts the causes for the whole
-/// scope (narrowing to the sampled entries would drop matches past them).
-/// The sentence names the lead as the agent finds it: the `related[]`
-/// request that sets exactly the flags lifting `causes` ([`lead`]).
+/// What the `includeSkipped` lead costs: it lifts the causes for the whole
+/// scope, so it walks everything they hide. The sentence names the lead as
+/// the agent finds it: the `related[]` request that sets exactly the flags
+/// lifting `causes` ([`lead`]).
 pub fn walks_all_skipped(causes: &[Cause]) -> String {
     let flags = causes
         .iter()
@@ -424,42 +646,6 @@ pub fn walks_all_skipped(causes: &[Cause]) -> String {
     )
 }
 
-/// The disclosure of `verdict` about what `subject` (the noun phrase for
-/// one and for several: `["entry", "entries"]`, `["file that matches",
-/// "files that match"]`) the skipped paths hold; `unchecked` is what a cut
-/// check leaves unproven. `None` when they hold nothing, or the check was
-/// cut and the walk skipped nothing.
-pub fn disclose(
-    verdict: &Verdict,
-    subject: [&str; 2],
-    unchecked: Unchecked<'_>,
-) -> Option<Disclosure> {
-    match verdict {
-        Verdict::Absent => None,
-        Verdict::Skipped(diagnosis) => {
-            let found = diagnosis.found();
-            let say = |why: &str| {
-                format!(
-                    "{}{} {} behind skipped paths ({why}).",
-                    if found.cut { "At least " } else { "" },
-                    found.count,
-                    subject[usize::from(found.count != 1)],
-                )
-            };
-            let mut text = say(&diagnosis.because());
-            if found.cut {
-                text = format!("{text} {}", walks_all_skipped(diagnosis.causes()));
-            }
-            Some(Disclosure {
-                causes: diagnosis.causes().to_vec(),
-                text,
-                unchecked: false,
-            })
-        }
-        Verdict::Unproven => unsearched(unchecked.causes, unchecked.named),
-    }
-}
-
 /// An empty answer's word on the paths its walk skipped by `causes` (`named`
 /// as the sentence names them: `2 ignored, 1 hidden`, `node_modules/`):
 /// they were not searched, so absence there is unproven, and the lead
@@ -472,7 +658,6 @@ pub fn unsearched(causes: &[Cause], named: &str) -> Option<Disclosure> {
             "Skipped paths ({named}) were not searched, so absence there is unproven. {}",
             walks_all_skipped(causes)
         ),
-        unchecked: true,
     })
 }
 
@@ -491,9 +676,8 @@ pub fn lead(tool: ToolId, query: &impl serde::Serialize, causes: &[Cause]) -> Va
 }
 
 /// Place `disclosure` on an internal result: the explicit related call in
-/// its call bundle and the sentence as a warning. The requested scope was walked
-/// whole, so what a check of the skipped paths left unchecked leaves it
-/// complete.
+/// its call bundle and the sentence as a warning. The requested scope was
+/// walked whole, so the skipped paths leave it complete.
 pub fn attach(out: &mut Value, disclosure: &Disclosure, lead: Value) {
     out["calls"]["includeSkipped"] = lead;
     octocode_runtime_base::response::paging::push_warnings(out, [disclosure.text.clone()]);

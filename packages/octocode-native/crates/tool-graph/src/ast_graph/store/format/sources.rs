@@ -94,7 +94,7 @@ impl SourceTable {
         Ok(output)
     }
 
-    /// [`Self::from_origins`] over each file's packed origins and the
+    /// `Self::from_origins` over each file's packed origins and the
     /// descriptors they were packed with, in order.
     pub(crate) fn from_packed<'a>(
         descriptors: SourceDescriptors,

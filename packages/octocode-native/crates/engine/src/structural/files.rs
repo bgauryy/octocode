@@ -8,7 +8,7 @@ use super::octo::{CompileError, OctoCompiledMatcher, compile_matcher};
 use super::query::{StructuralQuery, invalid_query_diagnostic, invalid_query_explanation};
 use super::types::{
     KeepLine, StructuralDemand, StructuralDiagnostic, StructuralSearchFilesDetailedResult,
-    StructuralSearchFilesOptions, WalkErrors,
+    StructuralSearchFilesOptions, WalkErrors, WalkSkipped,
 };
 use crate::digest::{ListedFiles, stamp_of};
 use crate::error::{Error, Result};
@@ -20,13 +20,16 @@ use crate::text::extension_of;
 pub(super) mod anchors;
 mod counts;
 mod file_scan;
+mod kept;
 mod rebuild;
+mod shared;
 mod walk;
 
 use anchors::AnchorFilter;
 use counts::ScanCounts;
 use file_scan::{FileOutcome, FileScan};
 pub use rebuild::{Rebuilt, file_matches};
+pub use shared::{TreeShare, Walk, WalkRecord};
 use walk::{Walked, check_root_exists, collect_files};
 
 /// Test helper: [`search_files`] with no path policy and each file's own
@@ -98,13 +101,46 @@ pub fn search_files(
     stop: &Stop<'_>,
     keep_line: Option<&KeepLine>,
 ) -> Result<StructuralSearchFilesDetailedResult> {
+    search_files_shared(
+        options,
+        demand,
+        (admit, keep_line),
+        select_extension,
+        stop,
+        ScanShare::default(),
+    )
+}
+
+/// What a scan shares with the scans of the same scope that run beside it
+/// ([`search_files_shared`]).
+#[derive(Clone, Copy, Default)]
+pub struct ScanShare<'a> {
+    /// How it walks: afresh, recording its walk, or replaying a recorded
+    /// walk of the same walk inputs.
+    pub walk: Walk<'a>,
+    /// The trees of the sources the scans beside it parse.
+    pub trees: Option<&'a TreeShare>,
+}
+
+/// [`search_files`] sharing `share`: a replayed walk calls `admit` as a
+/// walk of the same entries would, and a shared tree is the parse a scan
+/// of its own would make of the same text, so the result is the one
+/// [`search_files`] gives over the same files.
+pub fn search_files_shared(
+    options: StructuralSearchFilesOptions,
+    demand: StructuralDemand<'_>,
+    (admit, keep_line): (&Admit<'_>, Option<&KeepLine>),
+    select_extension: &(dyn Fn(&Path) -> String + Sync),
+    stop: &Stop<'_>,
+    share: ScanShare<'_>,
+) -> Result<StructuralSearchFilesDetailedResult> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         search_files_with_budget(
             options,
             demand,
             (admit, keep_line),
             select_extension,
-            stop,
+            (stop, share),
             Some(crate::scan_budget::SCAN_TIME_BUDGET),
         )
     }))
@@ -124,7 +160,7 @@ pub(crate) fn search_files_with_budget(
     demand: StructuralDemand<'_>,
     (admit, keep_line): (&Admit<'_>, Option<&KeepLine>),
     select_extension: &(dyn Fn(&Path) -> String + Sync),
-    stop: &Stop<'_>,
+    (stop, share): (&Stop<'_>, ScanShare<'_>),
     budget: Option<std::time::Duration>,
 ) -> Result<StructuralSearchFilesDetailedResult> {
     let StructuralSearchFilesOptions {
@@ -141,6 +177,7 @@ pub(crate) fn search_files_with_budget(
         max_file_bytes,
         judge,
         global_ignore,
+        kept,
     } = options;
     let pattern_ref = pattern.as_deref();
     let rule_ref = rule.as_ref();
@@ -175,7 +212,7 @@ pub(crate) fn search_files_with_budget(
         &include.unwrap_or_default(),
         &exclude.unwrap_or_default(),
     )?;
-    let (mut candidate_files, walk_errors) = collect_files(
+    let (mut candidate_files, walk_errors, walk_skipped) = collect_files(
         &root,
         &Walked {
             globs: &globs,
@@ -186,7 +223,7 @@ pub(crate) fn search_files_with_budget(
             max_depth,
             max_files: max_files.saturating_add(1),
         },
-        admit,
+        (admit, share.walk),
         stop,
     )?;
     let scan_truncated = candidate_files.len() > max_files;
@@ -212,6 +249,22 @@ pub(crate) fn search_files_with_budget(
     // Compile one matcher per extension up front (cheap, serial), then read,
     // prefilter, parse and match files in parallel. `collect` keeps candidate
     // order, and the serial fold below rebuilds the same counters.
+    let parse_budget = crate::structural::parse_budget();
+    // A line scope's verdicts read other files: only a scan without one
+    // keeps each file's outcome.
+    let kept = kept.filter(|_| keep_line.is_none()).and_then(|caller| {
+        kept::Kept::new(
+            &caller,
+            &demand,
+            &kept::Inputs {
+                pattern: pattern_ref,
+                rule: rule_ref,
+                max_file_bytes,
+                parse_budget,
+                judged: judge.is_some(),
+            },
+        )
+    });
     let scan = FileScan {
         admit,
         stop,
@@ -219,16 +272,19 @@ pub(crate) fn search_files_with_budget(
         anchors: AnchorFilter::new(&prefilter).map_err(Error::new)?,
         matchers: compile_matchers(&candidate_files, select_extension, &query),
         max_file_bytes,
-        parse_budget: crate::structural::parse_budget(),
+        parse_budget,
         demand,
         keep_line,
         judge: judge.as_ref(),
+        kept,
+        trees: share.trees,
     };
     let pacer = crate::scan_budget::ScanPacer::new(
         budget.filter(|_| timed),
         crate::scan_budget::WalkClock::default(),
     );
-    let (outcomes, mut scan_resume) = scan_in_chunks(&scan, &candidate_files, skip, pacer)?;
+    let (outcomes, mut scan_resume, page_filled) =
+        scan_in_chunks(&scan, &candidate_files, skip, pacer)?;
     let scan_truncated = scan_truncated || scan_resume.is_some();
     // Every cut resumes where it stopped: the walk cap of an unset
     // `max_files`, and a caller's file window.
@@ -260,6 +316,7 @@ pub(crate) fn search_files_with_budget(
         .collect();
     Ok(StructuralSearchFilesDetailedResult {
         scan_truncated,
+        page_filled,
         scan_resume,
         listed_before,
         listed_through,
@@ -272,6 +329,7 @@ pub(crate) fn search_files_with_budget(
         skipped_unreadable: counts.skipped_unreadable,
         skipped_large: counts.skipped_large,
         walk_errors,
+        walk_skipped,
         status: status.to_owned(),
         query: query_explanation,
         diagnostics,
@@ -279,29 +337,47 @@ pub(crate) fn search_files_with_budget(
     })
 }
 
-/// What [`scan_in_chunks`] evaluated: each candidate's stamp and outcome, and
-/// where the scan resumes.
-type ScannedChunks = (Vec<(Option<SourceStamp>, FileOutcome)>, Option<u32>);
+/// What [`scan_in_chunks`] evaluated: each candidate's stamp and outcome,
+/// where the scan resumes, and whether it stopped because its page filled.
+type ScannedChunks = (Vec<(Option<SourceStamp>, FileOutcome)>, Option<u32>, bool);
 
 /// Evaluates `candidates` in the pacer's chunks, in order, and stops at the
-/// first chunk boundary the pacer calls spent. The outcomes are those of the
-/// candidates evaluated; the resume offset (`skip` + how many ran) is set only
-/// when candidates remain.
+/// first chunk boundary the pacer calls spent, or, under
+/// [`StructuralDemand::Paged`], after the window's last file
+/// ([`paged_end`]). The outcomes are those of the candidates the window
+/// keeps; the resume offset (`skip` + how many it keeps) is set only when
+/// candidates remain, and so is the page stop.
 fn scan_in_chunks(
     scan: &FileScan<'_>,
     candidates: &[PathBuf],
     skip: usize,
     mut pacer: crate::scan_budget::ScanPacer,
 ) -> Result<ScannedChunks> {
+    let filled = match scan.demand {
+        StructuralDemand::Paged(_, filled) => Some(filled),
+        _ => None,
+    };
+    // A paged scan's chunks start at the threads the call computes on, so
+    // every worker is busy, and double: the window evaluates at most about
+    // twice the files it keeps.
+    let mut page_chunk = filled.map(|_| crate::cpu::host().share().max(1));
+    // How many of the outcomes page 1 needs, once it is filled.
+    let mut filled_at = None;
     let mut outcomes = Vec::with_capacity(candidates.len());
     let mut resume = None;
+    let mut page_stop = false;
     let mut rest = candidates;
     while !rest.is_empty() {
         if pacer.spent() {
+            // A window whose page is whole stops as its page; else this is
+            // the time cut.
+            page_stop = filled_at.is_some();
             resume = Some(u32::try_from(skip + outcomes.len()).unwrap_or(u32::MAX));
             break;
         }
-        let (chunk, tail) = rest.split_at(pacer.next_chunk().min(rest.len()));
+        let size =
+            page_chunk.map_or_else(|| pacer.next_chunk(), |chunk| chunk.min(pacer.next_chunk()));
+        let (chunk, tail) = rest.split_at(size.min(rest.len()));
         rest = tail;
         // Matching recurses with the pattern, so the chunk runs on the
         // large-stack pool and each file's matcher runs inline there
@@ -313,10 +389,81 @@ fn scan_in_chunks(
                 .map(|file_path| scan.file(file_path))
                 .collect::<Result<Vec<_>>>()
         };
-        outcomes.extend(super::octo::on_deep_stack(run).unwrap_or_else(run)?);
+        let scanned = super::octo::on_deep_stack(run).unwrap_or_else(run)?;
+        let found = matches!(scan.demand, StructuralDemand::Exists)
+            && scanned.iter().any(|(_, outcome)| {
+                outcome
+                    .as_ref()
+                    .is_some_and(|(_, file)| !file.matches.is_empty())
+            });
+        if let (Some(filled), None) = (filled, filled_at) {
+            let (positions, files): (Vec<usize>, Vec<_>) = scanned
+                .iter()
+                .enumerate()
+                .filter_map(|(at, (_, outcome))| outcome.as_ref().map(|(_, file)| (at, file)))
+                .unzip();
+            filled_at = filled(&files).map(|needs| {
+                outcomes.len() + positions.get(needs).copied().unwrap_or(scanned.len())
+            });
+        }
+        outcomes.extend(scanned);
         pacer.record(chunk.len());
+        if let Some(end) = filled_at.map(|at| paged_end(at, skip))
+            && outcomes.len() >= end
+        {
+            // The window ends before the next file that holds a match, so
+            // the window after it is never empty; with none, it ends with
+            // the scope.
+            let next = outcomes[end..]
+                .iter()
+                .position(|(_, outcome)| {
+                    outcome
+                        .as_ref()
+                        .is_some_and(|(_, file)| !file.matches.is_empty())
+                })
+                .map(|at| end + at);
+            if let Some(next) = next {
+                // The files from `next` on were evaluated with this chunk but
+                // are the next window's: it reads them again (from the kept
+                // outcomes), so dropping them here loses nothing.
+                #[cfg_attr(
+                    octocode_clippy_ratchet,
+                    expect(
+                        clippy::disallowed_methods,
+                        reason = "the dropped outcomes are the next window's, which evaluates them again"
+                    )
+                )]
+                outcomes.truncate(next);
+                resume = Some(u32::try_from(skip + next).unwrap_or(u32::MAX));
+                page_stop = true;
+                break;
+            }
+            if rest.is_empty() {
+                break;
+            }
+        }
+        if found {
+            if !rest.is_empty() {
+                resume = Some(u32::try_from(skip + outcomes.len()).unwrap_or(u32::MAX));
+            }
+            break;
+        }
+        page_chunk = page_chunk.map(|chunk| chunk.saturating_mul(2));
     }
-    Ok((outcomes, resume))
+    Ok((outcomes, resume, page_stop))
+}
+
+/// The fewest candidates a paged window keeps when page 1 needs its first
+/// `filled_at` and `skip` candidates came before it: those, and no fewer
+/// than the windows before it evaluated; it then keeps the files without a
+/// match up to the next that holds one. The first window is its page; each
+/// later one at least doubles what was read, so a walk through every window
+/// takes a number of windows logarithmic in the scope. Each is a fact of the
+/// files, not of the chunks: the same window ends at the same file however
+/// its chunks were cut, so a continuation rescans the window its first page
+/// did.
+fn paged_end(filled_at: usize, skip: usize) -> usize {
+    filled_at.max(skip).max(1)
 }
 
 type CompiledMatchers = BTreeMap<String, std::result::Result<OctoCompiledMatcher, CompileError>>;
@@ -330,6 +477,7 @@ fn invalid_query_result(
     let diagnostic = invalid_query_diagnostic(message.clone()).with_path(path);
     StructuralSearchFilesDetailedResult {
         scan_truncated: false,
+        page_filled: false,
         scan_resume: None,
         listed_before: None,
         listed_through: None,
@@ -342,6 +490,7 @@ fn invalid_query_result(
         skipped_unreadable: 0,
         skipped_large: 0,
         walk_errors: WalkErrors::default(),
+        walk_skipped: WalkSkipped::default(),
         status: "parserFailed".to_owned(),
         query: invalid_query_explanation(pattern, rule, &message),
         diagnostics: vec![diagnostic],

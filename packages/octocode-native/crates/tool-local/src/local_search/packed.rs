@@ -20,7 +20,7 @@
 //! ## Page-entry frame
 //!
 //! One frame holds one file entry of one page, raw bytes in the packed
-//! encoding ([`write`]: LEB128 numbers, length-prefixed values):
+//! encoding ([`write`](mod@write): LEB128 numbers, length-prefixed values):
 //!
 //! 1. the file as [`write::Writer::file`] writes it (path, counts, source
 //!    stamps, line count and digest), holding only the entry's rows, in rank order;
@@ -35,7 +35,7 @@
 //! and Unicode is never cut. The frame layout is local to localSearch; a
 //! tool that pages a cursor snapshot the same way can reuse it.
 //!
-//! The encoding itself is written by [`write`] and read back by [`read`].
+//! The encoding itself is written by [`write`](mod@write) and read back by [`read`].
 
 mod read;
 mod write;
@@ -99,7 +99,7 @@ pub(super) struct Encoded {
     seek: Option<(Vec<FrameEnd>, PageIndex)>,
 }
 
-/// Writes a seekable scan's frames ([`Encoded::frames`]).
+/// Writes a seekable scan's frames (`Encoded::frames`).
 pub(super) struct FrameWriter {
     out: Writer<Vec<u8>>,
     ends: Vec<FrameEnd>,

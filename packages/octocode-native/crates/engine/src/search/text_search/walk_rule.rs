@@ -99,7 +99,7 @@ impl Selection {
 
 /// Why the walk leaves an entry out on its own (see [`EntryRule`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Skipped {
+pub(crate) enum Skipped {
     Ignored,
     Hidden,
 }
@@ -113,7 +113,7 @@ pub(super) enum Skipped {
 /// path); else a `language` type or an ignore-file `!` re-include selecting
 /// it admits it; else a dot entry below the root (on Windows also one with
 /// the hidden attribute) is hidden.
-pub(super) struct EntryRule {
+pub(crate) struct EntryRule {
     pub(super) overrides: Option<Override>,
     pub(super) types: Option<Types>,
     /// Dot entries are left out (no `includeHidden`).
@@ -123,6 +123,24 @@ pub(super) struct EntryRule {
 }
 
 impl EntryRule {
+    /// The rule of a walk of `root` under `policy` and `global` that the
+    /// walker admits by `overrides` alone (no `language` type); `None` when
+    /// the policy lifts both the ignore and the dot rule.
+    pub(crate) fn of(
+        root: &Path,
+        policy: IgnorePolicy,
+        global: crate::search::walk::GlobalIgnore,
+        overrides: Option<Override>,
+    ) -> Option<Self> {
+        let rule = Self {
+            overrides: overrides.filter(|overrides| !overrides.is_empty()),
+            types: None,
+            hidden: !policy.include_hidden,
+            ignored: (!policy.include_ignored).then(|| IgnoreRules::with_global(root, global)),
+        };
+        (rule.hidden || rule.ignored.is_some()).then_some(rule)
+    }
+
     /// The ignore files the walk met that exist but could not be read: they
     /// applied no rules, so the entries they would leave out were searched.
     pub(super) fn unreadable_ignore_files(&self) -> Vec<crate::search::walk::UnreadableRule> {
@@ -141,7 +159,7 @@ impl EntryRule {
     /// Whether the rules leave `entry` out, and which. With `rules` (its
     /// directory's, [`Self::enter`]) the decision has no cache lookup; both
     /// decide the same, and neither has an effect.
-    pub(super) fn skips(
+    pub(crate) fn skips(
         &self,
         rules: Option<&DirRules>,
         entry: Probe<'_>,

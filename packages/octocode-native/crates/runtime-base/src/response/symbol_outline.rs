@@ -12,6 +12,9 @@
 
 use serde_json::Value;
 
+mod lines;
+pub use lines::{outline_lines, outline_row, rows_of_lines};
+
 // Private identities survive paging and filtering without entering the public outline.
 pub const DECLARATION_INDEX: &str = "_declarationIndex";
 pub const PARENT_INDEX: &str = "_parentIndex";

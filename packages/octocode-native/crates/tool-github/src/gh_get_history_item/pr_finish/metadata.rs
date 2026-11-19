@@ -91,7 +91,12 @@ pub(in crate::gh_get_history_item) fn pr_metadata(
         // Only a merged PR has a real merge commit (open PRs expose GitHub's
         // test-merge SHA, which is not on the base branch).
         "mergeCommitSha": merged.then(|| str_at(raw,"/merge_commit_sha")).flatten().filter(|v|!v.is_empty()),
+        // GitHub's whole count (conversation, inline review comments and
+        // review bodies) once the read has it (`whole_comment_count`), the
+        // count ghSearchHistory states; else REST's conversation count.
         "commentsCount": nonzero(raw.get("comments")),
+        // REST's inline review comments, part of the whole count.
+        "reviewCommentsCount": nonzero(raw.get("review_comments")),
         "commitCount": nonzero(raw.get("commits")),
         // Review threads (GraphQL only): REST counts review comments, a
         // different unit, so a REST read leaves this out.

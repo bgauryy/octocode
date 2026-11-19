@@ -38,6 +38,34 @@ fn drift_answers_within_the_output_contract() {
     );
 }
 
+/// A baseline built for another scope compares other files: drift refuses
+/// it, naming the scope it was built for, as it refuses such a head.
+#[test]
+fn a_baseline_of_another_scope_is_refused() {
+    let dir = Fixture::new();
+    dir.write("app/a.ts", "export const a = 1;\n");
+    dir.write("lib/b.ts", "export const b = 1;\n");
+    let other = call(
+        &dir.0,
+        ToolId::GraphBuild,
+        json_fixture(r#"{"path": "lib"}"#),
+    );
+    let other_id = other["id"].as_str().expect("id").to_owned();
+    call(
+        &dir.0,
+        ToolId::GraphBuild,
+        json_fixture(r#"{"path": "app"}"#),
+    );
+    let drift = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json!({"operation": "drift", "path": "app", "baseline": other_id}),
+    );
+    let said = drift.to_string();
+    assert!(said.contains("was built for"), "{drift}");
+    assert!(drift.get("rows").is_none(), "{drift}");
+}
+
 /// A drift whose head was never rebuilt after an edit compares the baseline
 /// with itself and finds nothing: the empty answer states the head is stale,
 /// says why it may be empty, and leads to the graphBuild that sees the edit.

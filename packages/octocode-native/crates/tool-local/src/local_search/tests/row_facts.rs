@@ -36,15 +36,29 @@ fn data(out: &Value) -> &Value {
 /// around each hit join them into one window.
 const THREE_FNS: &str = "fn alpha() {\n    let a = ZETA;\n}\n\n\nfn beta() {\n    let b = ZETA;\n}\n\n\nfn gamma() {\n    let c = ZETA;\n}\n";
 
+/// A declaration's name: the served row states it as an object or, once the
+/// response stage forms it (Q5), as its line-first outline string.
+fn declaration_name(declaration: &Value) -> String {
+    let row = match declaration.as_str() {
+        Some(text) => {
+            octocode_runtime_base::response::symbol_outline::outline_row(text)
+                .expect("an outline line")
+                .1
+        }
+        None => declaration.clone(),
+    };
+    row["symbolName"]
+        .as_str()
+        .expect("a declaration")
+        .to_owned()
+}
+
 /// The declaration names a row's hits name, in the order of its matched
 /// lines.
 fn owners(file: &Value, row: &Value) -> Vec<String> {
     let name = |index: &Value| {
         let index = usize::try_from(index.as_u64().expect("an index")).expect("index");
-        file["declarations"][index]["symbolName"]
-            .as_str()
-            .expect("a declaration")
-            .to_owned()
+        declaration_name(&file["declarations"][index])
     };
     match &row["enclosing"] {
         Value::Array(indexes) => indexes.iter().map(name).collect(),
@@ -96,7 +110,7 @@ fn a_merged_window_names_the_declaration_of_every_hit_it_holds() {
             .as_array()
             .expect("declarations")
             .iter()
-            .map(|declaration| declaration["symbolName"].as_str().expect("name").to_owned())
+            .map(declaration_name)
             .collect::<Vec<_>>();
         assert_eq!(listed, expected, "{out}");
     }

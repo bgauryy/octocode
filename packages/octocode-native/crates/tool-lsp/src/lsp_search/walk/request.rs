@@ -153,6 +153,7 @@ pub(in crate::lsp_search) async fn hierarchy(
     let mut class_facts = ClassFacts::default();
     for &expansion in expansions {
         let mut walk = Walk::new(paths, &roots, expansion, depth);
+        let sent_before = client.documents_sent();
         walk.step(client, cancel).await?;
         let mut derived_items = Vec::new();
         if expansion == Expansion::IncomingCalls
@@ -164,6 +165,7 @@ pub(in crate::lsp_search) async fn hierarchy(
                 scope,
                 recovery,
                 depth,
+                sent_before,
             };
             let Some(recovered) = incoming
                 .run(client, sources, cancel, &mut walk, &mut class_facts)
@@ -271,9 +273,15 @@ pub(in crate::lsp_search) fn scope_callers(
 /// Order callers level by level, production before test code by the one
 /// test-code rule ([`octocode_tools_shared::test_code::TestCodeIndex`]: path, test-only
 /// mount, `#[cfg(test)]` item), keeping the walk's order within each: every
-/// edge stays, and the first page leads with the callers that ship.
+/// edge stays, and the first page leads with the callers that ship. The
+/// verdicts are kept for the next request while what they read is unchanged.
 fn production_first(items: &mut [Value], paths: &PathPolicy) {
-    let index = octocode_tools_shared::test_code::TestCodeIndex::new(paths);
+    // The verdicts' proof reads through the request's observation.
+    crate::lsp_search::observation::within(|| production_first_observed(items, paths));
+}
+
+fn production_first_observed(items: &mut [Value], paths: &PathPolicy) {
+    let index = octocode_tools_shared::test_code::KeptTestCode::open(paths);
     items.sort_by_cached_key(|item| {
         let level = item.get("level").and_then(Value::as_u64).unwrap_or(1);
         let file = [
@@ -295,6 +303,7 @@ fn production_first(items: &mut [Value], paths: &PathPolicy) {
         let test = index.test_file(file) || line.is_some_and(|line| index.is_test_line(file, line));
         (level, test)
     });
+    index.keep();
 }
 
 /// Every file a walk's answer covers: the anchor, each listed node and call

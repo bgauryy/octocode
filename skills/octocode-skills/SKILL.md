@@ -1,6 +1,6 @@
 ---
 name: octocode-skills
-description: "Load this skill first when finding, creating, improving, validating, installing or syncing Agent Skills (SKILL.md files): trigger descriptions, instructions, references and packaging. Use octocode-agentic for measured activation tests."
+description: "Load first to find, create, improve, validate, install or sync Agent Skills (SKILL.md files): trigger descriptions, instructions, references, packaging. Measured activation tests: octocode-agentic."
 ---
 
 # Octocode Skills

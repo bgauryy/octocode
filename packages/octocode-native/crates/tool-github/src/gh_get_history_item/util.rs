@@ -62,7 +62,7 @@ pub(super) fn map_comments(values: Vec<Value>) -> Vec<Value> {
 
 /// Whether a GitHub App or bot account wrote a provider comment: GitHub
 /// types its user `Bot`, and an app's login ends in `[bot]`.
-fn is_bot(comment: &Value) -> bool {
+pub(super) fn is_bot(comment: &Value) -> bool {
     str_at(comment, "/user/type") == Some("Bot")
         || str_at(comment, "/user/login").is_some_and(|login| login.ends_with("[bot]"))
 }

@@ -486,3 +486,155 @@ fn an_empty_page_offers_its_skipped_paths_and_reads_none_of_them() {
         "nothing behind it is named: {body}"
     );
 }
+
+/// An empty page whose walk skipped paths across the whole scope names each
+/// top directory it skipped and offers a search of one of them, with only
+/// the flags its cause needs, before the one over everything skipped: a
+/// dependency directory the default prune names first. That scoped search
+/// finds what the whole-scope lift would, reading only that directory.
+#[test]
+fn an_empty_page_offers_a_search_of_each_skipped_top_directory() {
+    let dir = tempfile::tempdir().expect("fixture");
+    let root = dir.path().canonicalize().expect("real root");
+    fs::create_dir_all(root.join(".git")).expect("git dir");
+    fs::write(
+        root.join(".gitignore"),
+        "node_modules/\nreleases/\npackages/*/dist/\n",
+    )
+    .expect("fixture");
+    fs::write(root.join("visible.txt"), "nothing\n").expect("file");
+    for (path, text) in [
+        (
+            "node_modules/pkce/index.js",
+            "export function verifyChallenge() {}\n",
+        ),
+        ("releases/notes.txt", "nothing\n"),
+        ("packages/a/dist/out.js", "nothing\n"),
+        ("packages/b/dist/out.js", "nothing\n"),
+        ("packages/a/src.txt", "nothing\n"),
+    ] {
+        let at = root.join(path);
+        fs::create_dir_all(at.parent().expect("parent")).expect("dir");
+        fs::write(at, text).expect("file");
+    }
+    let (policy, security) = policy_for(&root);
+    let query = ls_query(
+        serde_json::json!({"path": root, "matchString": ["verifyChallenge"]}),
+        None,
+    );
+    let body = search_in(&query, &policy, &security, None)
+        .expect("search")
+        .to_row()
+        .expect("result");
+    assert!(paths(&body).is_empty(), "an empty page: {body}");
+    let skipped = body["skippedPaths"]["entries"].to_string();
+    assert!(
+        skipped.contains("node_modules") && skipped.contains("ignored-default-excluded"),
+        "{body}"
+    );
+    let related = body["related"].as_array().expect("related");
+    let scoped = |call: &serde_json::Value| {
+        let row = &call["input"]["queries"][0];
+        row["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("node_modules"))
+            .then(|| row.clone())
+    };
+    let (at, lead) = related
+        .iter()
+        .enumerate()
+        .find_map(|(at, call)| scoped(call).map(|row| (at, row)))
+        .unwrap_or_else(|| panic!("a node_modules search: {body}"));
+    assert_eq!(lead["includeIgnored"], true, "{lead}");
+    assert_eq!(lead["defaultExcludes"], false, "{lead}");
+    assert!(lead.get("includeHidden").is_none(), "{lead}");
+    // The search over everything skipped: the scope's own path, every
+    // cause lifted.
+    let everything = related
+        .iter()
+        .position(|call| {
+            let row = &call["input"]["queries"][0];
+            row["path"] == serde_json::json!(root) && row["includeIgnored"] == true
+        })
+        .unwrap_or_else(|| panic!("the search over everything skipped: {body}"));
+    assert!(at < everything, "the scoped search comes first: {body}");
+    let found = search_in(
+        &serde_json::from_value(lead.clone()).expect("lead query"),
+        &policy,
+        &security,
+        None,
+    )
+    .expect("scoped search")
+    .to_row()
+    .expect("result");
+    assert_eq!(
+        found["filesScanned"], 1,
+        "only node_modules is read: {found}"
+    );
+    assert!(found.to_string().contains("index.js"), "{found}");
+}
+
+/// TE1: a skipped directory named with a secret is never served as written:
+/// the scoped `skippedPaths` and the leads that name it pass the output gate
+/// like every other path, so the served answer shows its placeholder.
+#[test]
+fn a_secret_named_skipped_directory_is_served_redacted() {
+    let token = format!("ghp_{}", "a1B2c3D4".repeat(5));
+    let dir = tempfile::tempdir().expect("fixture");
+    let root = dir.path().canonicalize().expect("real root");
+    fs::create_dir_all(root.join(".git")).expect("git dir");
+    fs::write(
+        root.join(".gitignore"),
+        format!("{token}/\nnode_modules/\n"),
+    )
+    .expect("fixture");
+    fs::write(root.join("visible.txt"), "nothing\n").expect("file");
+    for path in [
+        format!("{token}/dep.txt"),
+        "node_modules/pkg/index.js".to_owned(),
+    ] {
+        let at = root.join(path);
+        fs::create_dir_all(at.parent().expect("parent")).expect("dir");
+        fs::write(at, "nothing\n").expect("file");
+    }
+    let (policy, security) = policy_for(&root);
+    let query = ls_query(
+        serde_json::json!({"path": root, "matchString": ["absentEverywhere"]}),
+        None,
+    );
+    let body = search_in(&query, &policy, &security, None)
+        .expect("search")
+        .to_row()
+        .expect("result");
+    assert!(body.to_string().contains("skippedPaths"), "{body}");
+    let served = ContentSecurity::new()
+        .seal_output(
+            octocode_runtime_base::test_support::published(
+                octocode_runtime_base::id::ToolId::LocalSearch,
+                &body,
+            ),
+            false,
+            || Ok::<(), ()>(()),
+        )
+        .expect("sealed")
+        .into_value();
+    assert!(!served.to_string().contains(&token), "{served}");
+    // No lead aims at a path the gate redacts: it could not run as served.
+    let related = body["related"].as_array().expect("related");
+    assert!(
+        related
+            .iter()
+            .all(|call| !call["input"]["queries"][0]["path"]
+                .as_str()
+                .is_some_and(|path| path.contains("ghp_"))),
+        "{body}"
+    );
+    assert!(
+        related
+            .iter()
+            .any(|call| call["input"]["queries"][0]["path"]
+                .as_str()
+                .is_some_and(|path| path.ends_with("node_modules"))),
+        "{body}"
+    );
+}

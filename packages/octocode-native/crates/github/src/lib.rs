@@ -36,7 +36,8 @@ pub const MAX_PER_PAGE: usize = 100;
 
 pub use budget::{AuthAdmission, GitHubBudget, GitHubPacing, GitLimiter, LimiterKey};
 pub use content::{
-    ContentRequest, ContentResponse, GitHubProvider, Submodule, decode_content, is_full_sha,
+    ContentRequest, ContentResponse, FilesAtCommit, GitHubProvider, Submodule, decode_content,
+    is_full_sha,
 };
 pub use credentials::{CredentialSource, ResolvedCredential};
 pub use endpoint::{

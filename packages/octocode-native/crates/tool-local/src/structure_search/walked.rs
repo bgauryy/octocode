@@ -307,7 +307,7 @@ impl Walked {
         }
     }
 
-    /// [`Self::rows_digest`]: the digest of each row's [`Sourced::shown`],
+    /// [`Self::rows_digest`]: the digest of each row's [`Sourced::shown`](Row::shown),
     /// in listing order.
     pub(super) fn rows_digest(&self) -> &str {
         self.rows_digest.get_or_init(|| {

@@ -55,6 +55,7 @@ mod reach;
 pub(super) use reach::{local_packages, package_name, package_of};
 mod scan;
 mod spelling_index;
+pub(super) use spelling_index::in_flight;
 mod text;
 use fingerprint::{Fingerprint, fingerprint};
 pub(super) use fingerprint::{same_file, written_since};
@@ -110,6 +111,10 @@ struct TextScan {
     /// Every file the scan listed ([`Scope::listed_files`]); `None` when it
     /// failed.
     listed: Option<Arc<[PathBuf]>>,
+    /// The listed files the anchor declaration's bounded reach left unread
+    /// ([`Scope::text_files_in_reach`]): out of reach. `None` for a scan of
+    /// the whole scope.
+    unsearched: Option<Arc<[PathBuf]>>,
 }
 
 pub struct Scope {
@@ -301,6 +306,11 @@ impl Scope {
                 .fetch_add(found.1.len(), std::sync::atomic::Ordering::Relaxed);
         }
         Ok(found)
+    }
+
+    /// The directories the fingerprint walk covers whole.
+    pub(super) fn fingerprint_roots(&self) -> Vec<PathBuf> {
+        fingerprint::walked_roots(Path::new(&self.root), self.server_root.as_deref())
     }
 
     /// The owned inputs of the fingerprint walk, for a blocking worker.

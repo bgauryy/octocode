@@ -66,7 +66,7 @@ pub fn failure(
         ProviderErrorKind::NotFound if repository_not_found(&error) => {
             repository_not_found_message(owner, repo)
         }
-        ProviderErrorKind::NotFound if found.is_some() => path_not_found(&at, at.reference),
+        ProviderErrorKind::NotFound if found.is_some() => at.not_found_message(at.reference),
         // Provider-local validation (no HTTP status) carries a specific,
         // actionable message (directory/symlink/submodule path, bad name).
         ProviderErrorKind::Validation if error.status.is_none() => error.message.to_string(),
@@ -108,23 +108,6 @@ pub fn failure(
     }
     failure.calls = next.map(Box::new);
     identity(failure)
-}
-
-/// The missing-path message, naming the ref the caller asked for and,
-/// when that named a branch or tag, the commit it resolved to (`at`'s
-/// ref, which the recovery leads pin).
-pub(super) fn path_not_found(at: &RepoPath<'_>, asked: Option<&str>) -> String {
-    let (owner, repo, path) = (at.owner, at.repo, at.path);
-    let Some(asked) = asked.filter(|value| !value.is_empty()) else {
-        return format!("Path not found in {owner}/{repo}: {path}");
-    };
-    match at.reference.filter(|commit| *commit != asked) {
-        Some(commit) => {
-            let short = commit.get(..7).unwrap_or(commit);
-            format!("Path not found in {owner}/{repo} at {asked} ({short}): {path}")
-        }
-        None => format!("Path not found in {owner}/{repo} at {asked}: {path}"),
-    }
 }
 
 /// The hint of a read that answered not found for a path the tree lists

@@ -120,6 +120,36 @@ impl LinePlan {
             goal: "",
             window: self.window,
         };
+        // One GraphQL request reads a page's worth of these files, whatever
+        // their repositories, with their folders' trees, and keeps each file
+        // it vouches for as the answer its read below then finds: a page of
+        // N files in K folders costs one request, not N + K. A file it does
+        // not keep is read by REST as before.
+        let readable = self
+            .groups
+            .iter()
+            .zip(&wanted)
+            .map(|(group, files)| {
+                files
+                    .iter()
+                    .map(|&file| group.paths[file].clone())
+                    .filter(|path| !withholds(path))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        let warm = self
+            .groups
+            .iter()
+            .zip(&readable)
+            .filter(|(_, paths)| !paths.is_empty())
+            .map(|(group, paths)| octocode_github::FilesAtCommit {
+                owner: &group.key.0,
+                repo: &group.key.1,
+                commit: &group.key.2,
+                paths,
+            })
+            .collect::<Vec<_>>();
+        provider.warm_files_at_commits(&warm, context).await;
         let batches = self
             .groups
             .iter()

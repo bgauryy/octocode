@@ -257,3 +257,64 @@ fn a_location_row_hides_the_source_lines_only_the_file_can_judge() {
         }
     }
 }
+
+/// The rows as served (the whole request: its judgment, the served forms
+/// and the output gate), not the operation's own row: a form that packs a
+/// server-written name into a longer string (a line-first outline) must be
+/// built where the gate still finds a secret in it. documentSymbols names
+/// carry the text whole; every listed form shows none of its secrets.
+#[test]
+fn served_rows_show_no_secret_the_server_returns() {
+    if !require_node() {
+        return;
+    }
+    for (text, secret) in texts() {
+        let (_dir, root, script) = fixture();
+        crate::lsp_search::tests::write_executable(&script, server(&text));
+        std::fs::write(
+            root.join("lsp-servers.json"),
+            json!({"languageServers": {".ts": {
+                "command": script.to_string_lossy(), "args": [], "languageId": "typescript"
+            }}})
+            .to_string(),
+        )
+        .expect("server config");
+        let execution = crate::lsp_search::LspExecutionConfig {
+            octocode_home: Some(root.clone()),
+            ..crate::lsp_search::LspExecutionConfig::with_path()
+        };
+        let paths = octocode_runtime_base::test_support::workspace_policy(&root);
+        let pool = crate::lsp_search::tests::fake_server_pool();
+        let path = root.join("a.ts").to_string_lossy().into_owned();
+        let runtime = tokio::runtime::Runtime::new().expect("rt");
+        for (name, input) in [
+            (
+                "documentSymbols",
+                json!({"operation":"documentSymbols","path":path}),
+            ),
+            (
+                "hover",
+                json!({"operation":"hover","path":path,"symbolName":"a","line":1}),
+            ),
+            (
+                "workspaceSymbol",
+                json!({"operation":"workspaceSymbol","path":path,"symbolFuzzy":"a"}),
+            ),
+        ] {
+            let query: LspSearchQuery = serde_json::from_value(input).expect("query");
+            let row = runtime
+                .block_on(crate::lsp_search::execute(
+                    query,
+                    &NeverCancel,
+                    &pool,
+                    &paths,
+                    &execution,
+                    None,
+                    crate::lsp_search::test_answers(),
+                ))
+                .expect("row");
+            let shown = Sanitized::sealed(row).into_value().to_string();
+            assert!(!shown.contains(secret), "{name} {secret}: {shown}");
+        }
+    }
+}

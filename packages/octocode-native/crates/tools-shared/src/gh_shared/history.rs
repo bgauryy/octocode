@@ -3,6 +3,12 @@
 use super::{GhFailure, provider_hint, provider_message, validation_message};
 use octocode_github::{ProviderError, ProviderErrorKind, ProviderErrorReason};
 
+/// The note of a pull-request row whose `commentsCount` is GitHub's
+/// conversation count: GitHub's whole count (conversation, inline review
+/// comments and review bodies), which its search sorts and filters by and
+/// both history tools state, could not be read (GraphQL).
+pub const CONVERSATION_ONLY: &str = "commentsCount counts conversation comments only: GitHub's whole count, which its sort and filters use, could not be read (GraphQL).";
+
 /// The message and the optional hint for a history failure. `search`
 /// distinguishes ghSearchHistory from the direct-fetch ghGetHistoryItem: a
 /// search 422 names the query. (The transport types a bogus commit SHA,

@@ -472,16 +472,15 @@ async fn paths_into_the_scans_own_module_file_are_outside_the_root() {
     )
     .await;
     let named = outside.to_string();
-    for spec in [
-        "crate::tools::ls::Status",
-        "super::*",
-        "\\\"crate::tools::ls\\\"",
-    ] {
+    for spec in ["crate::tools::ls::Status", "super::*"] {
         assert!(
             named.contains(spec),
             "{spec} is not outside-root: {outside}"
         );
     }
+    // `pub(in crate::tools::ls)` names where an item is visible, not a use
+    // of that module: no reference, so no diagnostic either.
+    assert!(!named.contains("\\\"crate::tools::ls\\\""), "{outside}");
     // A path into a module the scan holds links.
     assert!(!named.contains("executor::run"), "{outside}");
     assert!(

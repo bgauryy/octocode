@@ -92,6 +92,9 @@ enum Counted {
     /// An entry the ignore rules left out: its root-relative path, a
     /// directory's with a trailing `/`.
     Ignored(String),
+    /// A dot entry left out without `include_hidden`: its root-relative
+    /// path, a directory's with a trailing `/`.
+    Hidden(String),
     /// A directory the prune skipped, root-relative.
     Pruned(String),
 }
@@ -111,6 +114,7 @@ pub(crate) struct Totals {
     /// Directories whose listing was denied, absolute, in walk order.
     pub(crate) denied_dirs: Vec<String>,
     pub(crate) ignored: Vec<String>,
+    pub(crate) hidden: Vec<String>,
     pub(crate) pruned_dirs: Vec<String>,
 }
 
@@ -137,6 +141,12 @@ impl WalkTally {
         self.events.push((position, Counted::Ignored(relative)));
     }
 
+    /// `relative`: the dot entry's root-relative path, a directory's with a
+    /// trailing `/`.
+    pub(crate) fn hidden(&mut self, position: u32, relative: String) {
+        self.events.push((position, Counted::Hidden(relative)));
+    }
+
     pub(crate) fn pruned(&mut self, position: u32, relative: String) {
         self.events.push((position, Counted::Pruned(relative)));
     }
@@ -157,6 +167,7 @@ impl WalkTally {
                     }
                 }
                 Counted::Ignored(relative) => totals.ignored.push(relative.clone()),
+                Counted::Hidden(relative) => totals.hidden.push(relative.clone()),
                 Counted::Pruned(relative) => totals.pruned_dirs.push(relative.clone()),
             }
         }

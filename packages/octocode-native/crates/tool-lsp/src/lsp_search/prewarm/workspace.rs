@@ -3,7 +3,7 @@
 //!
 //! A bounded walk of the workspace (ignore rules honored, default prunes)
 //! counts source files per server: one representative file per directory
-//! and extension is planned as [`schedule`] plans a lead's file, and the
+//! and extension is planned as [`schedule`](super::schedule) plans a lead's file, and the
 //! files of that directory count toward its server. Per language family,
 //! the server with the most files is warmed, families ranked by file count,
 //! at most [`MAX_PREWARM_KEYS`]; a workspace with no supported file starts
@@ -34,7 +34,7 @@ const PLANNED_GROUPS: usize = 256;
 
 /// Start the language servers of the workspace at `root` in the background
 /// (see the module docs). Nothing waits: the walk runs on a blocking
-/// worker, and each start is a [`schedule`]-style warm.
+/// worker, and each start is a [`schedule`](super::schedule)-style warm.
 pub fn schedule_workspace(
     handle: &tokio::runtime::Handle,
     pool: &Arc<LspClientPool>,

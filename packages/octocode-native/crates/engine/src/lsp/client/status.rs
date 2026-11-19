@@ -18,13 +18,11 @@ impl NativeLspClient {
     /// from one that never reported progress or is still busy.
     pub(crate) async fn wait_for_ready(&self, timeout_ms: Option<u32>) -> Result<Readiness> {
         let timeout_ms = u64::from(timeout_ms.unwrap_or(45_000));
-        let began = self.inner.clock.now();
         let readiness = self
             .inner
             .progress
             .wait_until_idle(timeout_ms, self.settle_ms(self.startup_settle_ms()))
             .await;
-        self.record_wait(super::waits::WaitKind::Indexing, began);
         {
             let mut slot = self
                 .inner
@@ -73,6 +71,25 @@ impl NativeLspClient {
     pub fn is_indexing(&self) -> bool {
         crate::lsp::clangd_database::indexes_project(&self.inner.config)
             && self.inner.progress.has_active()
+    }
+
+    /// What an answer of this server depends on beyond the files it reads:
+    /// the server (this client, never reused), the document text it holds
+    /// ([`Self::documents_sent`]) and the work it began. `None` while any work
+    /// is open (indexing, a load): an answer then may change with no edit.
+    /// An equal state later means the same server holds the same documents
+    /// and began no work since.
+    #[must_use]
+    pub fn answer_state(&self) -> Option<String> {
+        if self.inner.progress.has_active() {
+            return None;
+        }
+        Some(format!(
+            "{}:{}:{}",
+            self.inner.instance,
+            self.documents_sent(),
+            self.inner.progress.begins()
+        ))
     }
 
     /// What the server says is wrong with it right now: while it does, what it
@@ -182,7 +199,7 @@ impl NativeLspClient {
         }
     }
 
-    /// `settle` bounded by [`LspClientOptions::settle_cap`].
+    /// `settle` bounded by [`LspClientOptions::settle_cap`](crate::lsp::client::LspClientOptions::settle_cap).
     pub(super) fn settle(&self, settle: Duration) -> Duration {
         self.inner
             .options

@@ -57,7 +57,18 @@ pub struct Stream {
     /// overflows the page, which ends the stream after it (its rows past the
     /// page are the next page's).
     pub enough: Box<dyn FnMut(&TextSearchFile) -> bool + Send>,
+    /// Called on the worker thread that searched a file, before its commit,
+    /// with the path of each result file it found there (as
+    /// [`TextSearchFile::path`] names it): what `enough` reads of a file
+    /// (its outline) is made here, in parallel, so the commit, which runs
+    /// in walk order and holds the page, never waits on it. `None`: nothing
+    /// to prepare.
+    pub prepare: Option<Prepare>,
 }
+
+/// Work a stream's workers do on a result file, by its path, before its
+/// commit ([`Stream::prepare`]).
+pub type Prepare = Box<dyn Fn(&str) + Send + Sync>;
 
 /// The digest of the bind and of the paths and stamps of the candidates from
 /// the anchor's index to `covers`.
@@ -75,6 +86,9 @@ pub struct Landmark {
     pub before: String,
     /// The pin over the page's candidates through it.
     pub after: String,
+    /// The files the page searched before it: a page that continues at
+    /// this file searches it and every candidate after it again.
+    pub searched: u32,
 }
 
 /// Where a page began, for the page that continues it: the walk starts just
@@ -259,7 +273,9 @@ pub(super) fn run<M: Matcher + Sync>(
         pin,
         anchor,
         enough,
+        prepare,
     } = stream;
+    let prepare = prepare.as_deref();
     let from = saturating_usize(from);
     let first = saturating_usize(anchor.index);
     if first > from {
@@ -368,7 +384,13 @@ pub(super) fn run<M: Matcher + Sync>(
                         };
                         scope_ref.search_entry(&one, &path, &mut searcher, &mut recs);
                     }
-                    let finished = Finished::new(path, stamp, one.snapshot());
+                    let found = one.snapshot();
+                    if let Some(prepare) = prepare.filter(|_| !state_ref.stopped()) {
+                        for rec in &found.recs {
+                            prepare(&rec.path);
+                        }
+                    }
+                    let finished = Finished::new(path, stamp, found);
                     commit_files(
                         opts,
                         mode,
@@ -712,6 +734,7 @@ fn commit_files(
     while let Some(finished) = commit.pending.remove(&commit.next) {
         let (path, stamp, mut result) = finished.into_parts();
         let before = (!result.recs.is_empty()).then(|| commit.listed.hex());
+        let searched = saturating_u32(commit.done.files_searched);
         commit.listed.add(&path, stamp);
         let recs = std::mem::take(&mut result.recs);
         commit.done = std::mem::take(&mut commit.done).merge(result);
@@ -728,6 +751,7 @@ fn commit_files(
                 position: saturating_u32(commit.next),
                 before: before.clone().unwrap_or_default(),
                 after: commit.listed.hex(),
+                searched,
             };
             commit.files.push((landmark, file));
         }

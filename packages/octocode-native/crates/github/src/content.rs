@@ -3,12 +3,14 @@ use bytes::Bytes;
 
 use super::GitHubTransport;
 
+mod batch;
 mod file;
 mod links;
 mod listing;
 mod payload;
 mod reference;
 
+pub use batch::FilesAtCommit;
 pub use payload::decode_content;
 
 #[derive(Clone, Debug)]

@@ -369,10 +369,13 @@ pub(super) fn collect_rust_paths(
                     .iter()
                     .any(|field| parent.child_by_field_name(field) == Some(node))
             });
+            // A `use` names what it imports itself, and the path of a
+            // restricted visibility (`pub(in crate::local_search)`) names
+            // the module an item is visible in: neither references it.
             if prefix_or_callee
-                || ancestors
-                    .iter()
-                    .any(|ancestor| kind_of(ancestor) == "use_declaration")
+                || ancestors.iter().any(|ancestor| {
+                    matches!(kind_of(ancestor), "use_declaration" | "visibility_modifier")
+                })
             {
                 return;
             }

@@ -151,16 +151,12 @@ fn holds_file_of(
     if include.is_empty() {
         return true;
     }
-    let mut globs = globset::GlobSetBuilder::new();
-    for glob in include {
-        match globset::Glob::new(glob) {
-            Ok(glob) => {
-                globs.add(glob);
-            }
-            Err(_) => return true,
-        }
-    }
-    let Ok(globs) = globs.build() else {
+    // The include globs in the one dialect every local walk reads them in
+    // (gitignore rules rooted at `dir`); one that does not compile asks
+    // nothing of the project.
+    let Ok(Some(globs)) =
+        octocode_engine::search::glob::set(dir, include.iter().map(String::as_str), "include")
+    else {
         return true;
     };
     octocode_tools_shared::pruned_walk(dir, [], global)
@@ -169,28 +165,14 @@ fn holds_file_of(
         .filter_map(Result::ok)
         .any(|entry| {
             entry.file_type().is_some_and(|kind| kind.is_file())
-                && entry
-                    .file_name()
-                    .to_str()
-                    .is_some_and(|file| globs.is_match(file))
-                && name.is_none_or(|name| spells_word(entry.path(), name))
+                && octocode_engine::search::glob::matches(&globs, entry.path(), false)
+                && name.is_none_or(|name| {
+                    // A file that cannot be read whole counts as spelling it:
+                    // nothing says it does not.
+                    crate::lsp_search::words::file_spells(entry.path(), name.as_bytes(), None)
+                        .unwrap_or(true)
+                })
         })
-}
-
-/// Whether the file at `path` spells `name` as a word. A file that cannot be
-/// read whole counts as spelling it: nothing says it does not.
-fn spells_word(path: &Path, name: &str) -> bool {
-    let Ok(bytes) = octocode_tools_shared::source::read_bounded(
-        path,
-        octocode_runtime_base::security::SourceLimits::REAL.whole_source,
-    ) else {
-        return true;
-    };
-    let text = String::from_utf8_lossy(&bytes);
-    let word = |byte: Option<&u8>| byte.is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_');
-    text.match_indices(name).any(|(at, _)| {
-        !word(text.as_bytes()[..at].last()) && !word(text.as_bytes().get(at + name.len()))
-    })
 }
 
 /// The scope root: VCS root, else outermost workspace manifest, else the

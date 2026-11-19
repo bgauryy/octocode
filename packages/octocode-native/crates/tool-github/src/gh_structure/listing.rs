@@ -141,6 +141,16 @@ pub(super) fn disclose_limits(traversal: &Traversal, page: &ListingPage<'_>, val
             ["One or more repository subdirectories could not be read; retry the same page or narrow the path/depth.".to_owned()],
         );
     }
+    if traversal.unwalked > 0 {
+        octocode_runtime_base::response::paging::push_warnings(
+            value,
+            [format!(
+                "The walk stopped at its read budget ({} folder reads): {} folder(s) were not read, so nothing below them is listed. Narrow path to a subdirectory, find a file by name with ghSearchCode nameContains, or list the whole tree locally with ghCloneRepo.",
+                super::traverse::MAX_WALK_READS,
+                traversal.unwalked
+            )],
+        );
+    }
     if traversal.unchecked > 0 {
         octocode_runtime_base::response::paging::push_warnings(
             value,
@@ -178,30 +188,43 @@ pub(super) fn ranks_by_size(query: &GhStructureQueryTree) -> bool {
 /// opens them): a file its size in bytes; a folder is named `"<name>/"`.
 /// Names sort within each row.
 pub(super) fn build_structure(entries: &[TreeEntry], targets: &LinkTargets) -> Vec<Value> {
-    let mut dirs = std::collections::BTreeMap::<&str, Vec<(&str, String)>>::new();
-    for entry in entries {
-        let path = entry.path.as_str();
-        let (parent, name) = path.rsplit_once('/').unwrap_or((".", path));
-        let text = entry_line(entry, name, targets);
-        dirs.entry(parent).or_default().push((name, text));
-    }
-    let listed = |mut names: Vec<(&str, String)>| {
-        names.sort_by(|left, right| left.0.cmp(right.0));
-        Value::Array(
-            names
-                .into_iter()
-                .map(|(_, text)| Value::String(text))
-                .collect(),
-        )
-    };
-    let mut rows = dirs.into_iter().collect::<Vec<_>>();
-    // The root leads; the other directories follow in path order.
-    rows.sort_by(|(left, _), (right, _)| {
-        (*left != ".").cmp(&(*right != ".")).then(left.cmp(right))
+    let mut named = entries
+        .iter()
+        .map(|entry| {
+            let path = entry.path.as_str();
+            let (parent, name) = path.rsplit_once('/').unwrap_or((".", path));
+            (parent, name, entry_line(entry, name, targets))
+        })
+        .collect::<Vec<_>>();
+    // The root leads; the other directories follow in path order, and names
+    // sort within each.
+    named.sort_by(|left, right| {
+        (left.0 != ".")
+            .cmp(&(right.0 != "."))
+            .then(left.0.cmp(right.0))
+            .then(left.1.cmp(right.1))
     });
-    rows.into_iter()
-        .map(|(dir, row)| json!({"dir": dir, "files": listed(row)}))
-        .collect()
+    response_groups(
+        named.into_iter().map(|(dir, _, text)| (dir, text)),
+        octocode_runtime_base::response::groups::Order::Merged,
+    )
+}
+
+/// The `{dir, files}` groups of `(dir, entry text)` pairs in `order`: the
+/// shared grouping every listing view uses.
+fn response_groups<'a>(
+    entries: impl IntoIterator<Item = (&'a str, String)>,
+    order: octocode_runtime_base::response::groups::Order,
+) -> Vec<Value> {
+    octocode_runtime_base::response::groups::groups(
+        entries.into_iter().map(
+            |(dir, text)| octocode_runtime_base::response::groups::Entry {
+                dir: dir.to_owned(),
+                item: Value::String(text),
+            },
+        ),
+        order,
+    )
 }
 
 /// The target path of each listed symlink, by the link's repository path.
@@ -333,21 +356,14 @@ pub(super) fn rank(
 /// rank returns to opens a new one, as structureSearch lists a metric rank.
 /// Entries keep the [`build_structure`] text.
 pub(super) fn ranked_structure(entries: &[TreeEntry], targets: &LinkTargets) -> Vec<Value> {
-    let mut rows: Vec<Value> = Vec::new();
-    for entry in entries {
-        let path = entry.path.as_str();
-        let (parent, name) = path.rsplit_once('/').unwrap_or((".", path));
-        let text = Value::String(entry_line(entry, name, targets));
-        match rows.last_mut().filter(|row| row["dir"] == parent) {
-            Some(row) => {
-                if let Some(files) = row["files"].as_array_mut() {
-                    files.push(text);
-                }
-            }
-            None => rows.push(json!({"dir": parent, "files": [text]})),
-        }
-    }
-    rows
+    response_groups(
+        entries.iter().map(|entry| {
+            let path = entry.path.as_str();
+            let (parent, name) = path.rsplit_once('/').unwrap_or((".", path));
+            (parent, entry_line(entry, name, targets))
+        }),
+        octocode_runtime_base::response::groups::Order::Runs,
+    )
 }
 
 pub(super) fn relative(path: &str, root: &str) -> String {

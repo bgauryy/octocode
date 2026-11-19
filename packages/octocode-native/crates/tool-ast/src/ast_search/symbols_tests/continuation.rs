@@ -65,15 +65,17 @@ fn second_page(
 fn the_pages_of_a_directory_outline_are_the_whole_pass_and_parse_once() {
     let root = Fixture::new();
     settled_files(&root.0);
-    let whole = names(&empty_outline(&root.0, json!({})));
-    assert_eq!(whole.len(), FILES * 2, "{whole:?}");
-
     let before = parses(&root.0);
     let pages = walk(
         &root.0,
         json!({"operation":"symbols","path":root.0,"limit":3}),
         names,
     );
+    // The whole pass, after the walk: a first page's outline is kept for
+    // the requests after it (whatever their limit), so asked first it would
+    // have been the one that parsed.
+    let whole = names(&empty_outline(&root.0, json!({})));
+    assert_eq!(whole.len(), FILES * 2, "{whole:?}");
     assert!(pages.len() > 2, "the result spans several pages");
     let walked = pages.iter().flat_map(names).collect::<Vec<_>>();
     assert_eq!(
@@ -380,10 +382,19 @@ fn stored_pages_equal_fresh_pages_at_every_window() {
             let before = parses(&root.0);
             let stored = walk_within(&root.0, row, symbol_rows, window);
             assert!(stored.len() > 1, "the result spans several pages");
-            assert_eq!(parses(&root.0) - before, files, "only page 1 parses");
+            // Only page 1 parses, and not even it when the fresh walk kept
+            // its outline (a first page's set is kept for the requests after
+            // it once its files settle, which real time may already allow).
+            let parsed = parses(&root.0) - before;
+            assert!(
+                parsed == files || parsed == 0,
+                "only page 1 parses: {parsed} of {files}"
+            );
             assert_eq!(stored, fresh, "window {window}, directory {directory}");
             for (index, page) in stored.iter().enumerate() {
-                let chars = octocode_engine::json_size::utf16_units(page).unwrap_or(0);
+                // As the hoist stage publishes it, the form pages are priced in.
+                let page = crate::ast_search::paging_tests::stated(page);
+                let chars = octocode_engine::json_size::utf16_units(&page).unwrap_or(0);
                 assert!(chars <= window, "page {index} is {chars} chars");
             }
         }

@@ -165,6 +165,26 @@ async fn execute_within(
     withholds: Withholds<'_>,
     window: Option<usize>,
 ) -> Result<ToolData, ProviderError> {
+    // A page judges each path several times (its rows' shaping and
+    // measuring, its reads and their links): the policy answers once per
+    // path in this call, under the settings the call runs with.
+    let judged = std::sync::Mutex::new(std::collections::HashMap::<String, bool>::new());
+    let judge = |path: &str| {
+        let known = judged
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(path)
+            .copied();
+        known.unwrap_or_else(|| {
+            let withheld = withholds(path);
+            judged
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .insert(path.to_owned(), withheld);
+            withheld
+        })
+    };
+    let withholds: Withholds<'_> = &judge;
     let current = saturating_usize(query.page.get());
     let per = limit(query);
     SearchWindow::PageEnd.reject(current, per_search(query, per))?;

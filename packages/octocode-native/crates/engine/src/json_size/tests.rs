@@ -189,3 +189,112 @@ fn a_string_body_counts_escapes_and_utf16_units_as_rendered() {
     assert_eq!(string_body_units(""), 0);
     assert_eq!(string_body_units("tab\t"), 5);
 }
+
+/// Scalars at every edge the sizer weighs apart: every ASCII byte (each
+/// control character `serde_json` escapes, `"`, `\`, `/` and DEL, which it
+/// does not), the UTF-8 length boundaries, the code points around the
+/// surrogate range, the line and paragraph separators, BMP and astral text.
+fn edge_scalars() -> Vec<char> {
+    let mut scalars: Vec<char> = (0u8..0x80).map(char::from).collect();
+    scalars.extend([
+        '\u{80}',
+        '\u{7ff}',
+        '\u{800}',
+        '\u{d7ff}',
+        '\u{e000}',
+        '\u{feff}',
+        '\u{fffd}',
+        '\u{ffff}',
+        '\u{10000}',
+        '\u{10ffff}',
+        '\u{2028}',
+        '\u{2029}',
+        'é',
+        '中',
+        '😀',
+    ]);
+    scalars
+}
+
+fn edge_string() -> impl proptest::strategy::Strategy<Value = String> {
+    use proptest::prelude::*;
+    let scalars = edge_scalars();
+    let short = proptest::collection::vec(proptest::sample::select(scalars.clone()), 0..40)
+        .prop_map(|chars| chars.into_iter().collect::<String>());
+    // Long strings cross the sizer's eight-byte steps at every alignment.
+    let long = (
+        proptest::collection::vec(proptest::sample::select(scalars), 1..12),
+        1usize..400,
+    )
+        .prop_map(|(chars, times)| chars.into_iter().collect::<String>().repeat(times));
+    prop_oneof![4 => short, 1 => long]
+}
+
+fn edge_value() -> impl proptest::strategy::Strategy<Value = serde_json::Value> {
+    use proptest::prelude::*;
+    use serde_json::Value;
+    let leaf = prop_oneof![
+        Just(Value::Null),
+        any::<bool>().prop_map(Value::Bool),
+        any::<i64>().prop_map(Value::from),
+        any::<u64>().prop_map(Value::from),
+        any::<f64>().prop_map(Value::from),
+        edge_string().prop_map(Value::String),
+    ];
+    leaf.prop_recursive(4, 64, 6, |inner| {
+        prop_oneof![
+            proptest::collection::vec(inner.clone(), 0..6).prop_map(Value::Array),
+            proptest::collection::vec((edge_string(), inner), 0..6)
+                .prop_map(|fields| Value::Object(fields.into_iter().collect())),
+        ]
+    })
+}
+
+proptest::proptest! {
+    #![proptest_config(proptest::prelude::ProptestConfig::with_cases(512))]
+
+    /// The direct sizer is exact: on every generated value it equals the
+    /// writer-based count (`serde_json` rendering into a counter, the sizer
+    /// `utf16_units` used before), and both equal the rendered text, in UTF-16
+    /// units and in bytes.
+    #[test]
+    fn the_direct_sizer_equals_the_rendered_count(value in edge_value()) {
+        let rendered = serde_json::to_string(&value).unwrap();
+        proptest::prop_assert_eq!(utf16_units(&value), count(&value, true));
+        proptest::prop_assert_eq!(utf16_units(&value), Some(rendered.encode_utf16().count()));
+        proptest::prop_assert_eq!(bytes(&value), count(&value, false));
+        proptest::prop_assert_eq!(bytes(&value), Some(rendered.len()));
+    }
+
+    /// A string body and raw UTF-8 text are weighed alike: escaped and
+    /// unquoted, or as their UTF-16 length.
+    #[test]
+    fn string_bodies_and_raw_text_count_as_rendered(text in edge_string()) {
+        let rendered = serde_json::to_string(&text).unwrap();
+        proptest::prop_assert_eq!(string_body_units(&text), rendered.encode_utf16().count() - 2);
+        proptest::prop_assert_eq!(utf16_units_of_utf8(text.as_bytes()), text.encode_utf16().count());
+    }
+}
+
+/// Every single scalar, alone and at each offset of an eight-byte step,
+/// sizes as it renders.
+#[test]
+fn every_edge_scalar_at_every_alignment_sizes_as_rendered() {
+    for scalar in edge_scalars() {
+        for pad in 0..16 {
+            let text = format!("{}{scalar}{}", "a".repeat(pad), "b".repeat(15 - pad));
+            let value = serde_json::json!({ text.clone(): [text.clone()] });
+            let rendered = serde_json::to_string(&value).unwrap();
+            assert_eq!(
+                utf16_units(&value),
+                Some(rendered.encode_utf16().count()),
+                "{scalar:?} at {pad}"
+            );
+            assert_eq!(bytes(&value), Some(rendered.len()), "{scalar:?} at {pad}");
+            assert_eq!(
+                utf16_units_of_utf8(text.as_bytes()),
+                text.encode_utf16().count()
+            );
+        }
+    }
+}

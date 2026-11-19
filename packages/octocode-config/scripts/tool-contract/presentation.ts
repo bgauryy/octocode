@@ -3,7 +3,7 @@
 // `<tool> --help` without Node. Every schema view is a core Zod schema emitted
 // once as JSON: `query` is the row MCP lists, and each
 // `--select operation=X` that operation's row. Execution takes one canonical JSON envelope.
-import { MCP_INSTRUCTION_PARTS } from '@octocodeai/octocode-core/mcp';
+import { AGENT_TEXT, MCP_INSTRUCTION_PARTS } from '@octocodeai/octocode-core/mcp';
 import {
   buildOutputPresentationSchemas,
   continuationMeanings,
@@ -54,7 +54,7 @@ export function toolHelpSection(definition: Definition): string {
   lines.push('Examples:');
   for (const example of jsonExamples)
     lines.push(`  octocode ${name} ${shellQuote(exampleJson({ queries: [example] }))}`);
-  lines.push('', 'Input: {"queries":[…]} for fresh calls, optionally with "responseChars" (page size target; the rest pages, nothing dropped); copy {"cursor":"…"} from a continuation.');
+  lines.push('', AGENT_TEXT.helpInput);
   const [only] = variants;
   if (only && variants.length === 1) {
     lines.push(
@@ -191,6 +191,8 @@ export function buildCliPresentation(): Json {
     // MCP `initialize` and the CLI catalog serve these parts, composed for the enabled tools:
     // head, the routes whose `needs` are all enabled, body, then the enabled tools' blocks.
     instructions: MCP_INSTRUCTION_PARTS,
+    // Core's other agent text: the CLI catalog's notes and the MCP resource descriptions.
+    agentText: { cliNotes: AGENT_TEXT.cliNotes, resources: AGENT_TEXT.resources },
     tools: DIRECT_TOOL_DEFINITIONS.map(definition => {
       const { name } = definition;
       const outputSchema = outputSchemas[name];

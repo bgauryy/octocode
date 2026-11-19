@@ -457,3 +457,166 @@ async fn a_missing_version_names_which_nearest_versions_are_yanked() {
         "the yanked release stays among the nearest: {missing:?}"
     );
 }
+
+/// A crate's link is its newest release's: an old release packaged before
+/// cargo recorded `path_in_vcs` is placed in the tree at its own commit, not
+/// at the link's directory. ripgrep's `ignore` 0.4.7 sits in `ignore/` and
+/// `grep-searcher` 0.1.6 in `grep-searcher/`, where today's links say
+/// `crates/ignore` and `crates/searcher`; the link's branch is never asked.
+/// A tree holding none of them leaves the row without a directory, said.
+#[tokio::test]
+async fn an_old_crate_release_is_placed_where_its_own_tree_holds_it() {
+    const SHA: &str = "8e8215aa65ac392c31003b62c7989d00e8666304";
+    let document = |name: &str, link: &str| {
+        json!({
+            "crate": {"name": name, "max_stable_version": "1.0.0", "repository": link},
+            "versions": [{"num": "1.0.0"}, {"num": "0.4.7", "created_at": "2019-04-15T00:00:00Z"}]
+        })
+    };
+    let info = format!(r#"{{"git":{{"sha1":"{SHA}"}}}}"#);
+    let lookup = |name: &'static str, link: &'static str, tree: Vec<&'static str>| {
+        let info = info.clone();
+        async move {
+            let http = RouteHttp::routes(vec![(
+                &format!("/api/v1/crates/{name}"),
+                document(name, link),
+            )])
+            .bytes(
+                &format!("/crates/{name}/{name}-0.4.7.crate"),
+                super::vcs::test_archive(&[(
+                    &format!("{name}-0.4.7/.cargo_vcs_info.json"),
+                    info.as_bytes(),
+                    b'0',
+                )]),
+            );
+            let tags = KnownTags::new(vec![]).with_tree(SHA, tree);
+            let b = test_budget();
+            let client = RegistryClient {
+                tags: Some(&tags),
+                ..RegistryClient::new(&http, &b)
+            };
+            let row = crates(
+                &versioned(ArtifactType::Crates, name, "0.4.7"),
+                &ArtifactProviderState::default(),
+                &client,
+            )
+            .await
+            .expect("row")
+            .artifacts
+            .remove(0);
+            (row, tags.seen())
+        }
+    };
+    let ripgrep = vec![
+        "Cargo.toml",
+        "ignore/Cargo.toml",
+        "grep-searcher/Cargo.toml",
+    ];
+    let (ignore, seen) = lookup(
+        "ignore",
+        "https://github.com/BurntSushi/ripgrep/tree/master/crates/ignore",
+        ripgrep.clone(),
+    )
+    .await;
+    assert_eq!(ignore.source_ref.as_deref(), Some(SHA));
+    assert_eq!(ignore.repository_directory.as_deref(), Some("ignore"));
+    assert!(ignore.link_below_ref.is_none());
+    assert!(
+        !seen.iter().any(|seen| seen.ends_with("@master")),
+        "the link's branch is not asked: {seen:?}"
+    );
+    assert_eq!(
+        seen.iter().filter(|seen| seen.contains("^tree@")).count(),
+        1,
+        "{seen:?}"
+    );
+    let (searcher, _) = lookup(
+        "grep-searcher",
+        "https://github.com/BurntSushi/ripgrep/tree/master/crates/searcher",
+        ripgrep,
+    )
+    .await;
+    assert_eq!(
+        searcher.repository_directory.as_deref(),
+        Some("grep-searcher")
+    );
+    // Where the tree holds the link's own directory, that is it.
+    let (current, _) = lookup(
+        "ignore",
+        "https://github.com/BurntSushi/ripgrep/tree/master/crates/ignore",
+        vec!["crates/ignore/Cargo.toml", "ignore/Cargo.toml"],
+    )
+    .await;
+    assert_eq!(
+        current.repository_directory.as_deref(),
+        Some("crates/ignore")
+    );
+    let (unplaced, _) = lookup(
+        "ignore",
+        "https://github.com/BurntSushi/ripgrep/tree/master/crates/ignore",
+        vec!["Cargo.toml", "src/lib.rs"],
+    )
+    .await;
+    assert_eq!(unplaced.repository_directory, None);
+    assert!(
+        unplaced.disclosures.iter().any(|said| said.contains(SHA)
+            && said.contains("crates/ignore/, ignore/")
+            && said.contains("is not given")),
+        "{:?}",
+        unplaced.disclosures
+    );
+}
+
+/// A release whose VCS info names its directory keeps it, whatever the
+/// crate's link says; a crate at its repository's root (`path_in_vcs` empty)
+/// takes no directory from the link either.
+#[tokio::test]
+async fn a_recorded_crate_directory_overrides_the_link() {
+    for (path_in_vcs, directory) in [("\"grep-searcher\"", Some("grep-searcher")), ("\"\"", None)] {
+        let info = format!(
+            r#"{{"git":{{"sha1":"0972c6e7c7434aeef16c06aec059c327aca3dc37"}},"path_in_vcs":{path_in_vcs}}}"#
+        );
+        let http = RouteHttp::routes(vec![(
+            "/api/v1/crates/grep-searcher",
+            json!({
+                "crate": {"name": "grep-searcher", "max_stable_version": "0.1.14",
+                    "repository": "https://github.com/BurntSushi/ripgrep/tree/master/crates/searcher"},
+                "versions": [{"num": "0.1.6"}]
+            }),
+        )])
+        .bytes(
+            "/crates/grep-searcher/grep-searcher-0.1.6.crate",
+            super::vcs::test_archive(&[(
+                "grep-searcher-0.1.6/.cargo_vcs_info.json",
+                info.as_bytes(),
+                b'0',
+            )]),
+        );
+        let tags = KnownTags::new(vec![]);
+        let b = test_budget();
+        let client = RegistryClient {
+            tags: Some(&tags),
+            ..RegistryClient::new(&http, &b)
+        };
+        let row = crates(
+            &versioned(ArtifactType::Crates, "grep-searcher", "0.1.6"),
+            &ArtifactProviderState::default(),
+            &client,
+        )
+        .await
+        .expect("row")
+        .artifacts
+        .remove(0);
+        assert_eq!(
+            row.repository_directory.as_deref(),
+            directory,
+            "{path_in_vcs}"
+        );
+        assert!(row.link_below_ref.is_none(), "{path_in_vcs}");
+        assert!(
+            !tags.seen().iter().any(|seen| seen.contains("^tree@")),
+            "{:?}",
+            tags.seen()
+        );
+    }
+}

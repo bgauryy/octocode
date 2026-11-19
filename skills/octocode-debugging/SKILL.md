@@ -1,6 +1,6 @@
 ---
 name: octocode-debugging
-description: "Load this skill first, before running or editing anything, when something fails or is slow at runtime: crashes, wrong results, hangs, leaks, memory growth, slowness, flaky tests, tracebacks, dumps or profiles. It finds the first divergence or the measured cost with debuggers and profilers. Use octocode-research for source-only questions."
+description: "Load first, before running or editing anything, when something fails or is slow at runtime: crashes, wrong results, hangs, leaks, memory growth, flaky tests, tracebacks, dumps, profiles. Finds the first divergence or measured cost with debuggers and profilers."
 ---
 
 # Octocode Debugging

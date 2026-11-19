@@ -42,6 +42,20 @@
 [alias]
 dev-test = "test --locked -p octocode-native -p octocode-runtime-base -p octocode-tools-shared -p octocode-tool-graph -p octocode-tool-lsp -p octocode-tool-github -p octocode-tool-local -p octocode-tool-ast -p octocode-tool-packages -p octocode-tool-clasify -p octocode-github -p octocode-io -p octocode-cli -p octocode-engine -p octocode-contract-types -p octocode-test-support --features octocode-native/dev-unify --config=target.'cfg(all())'.runner=\"scripts/test-watchdog.cjs\""
 
+# ── aws-lc: OS entropy, not CPU jitter ────────────────────────────────────────
+# rustls' crypto provider (aws-lc-rs over aws-lc-sys) seeds its random generator
+# on a process's first random draw: its first TLS connection. With CPU-jitter
+# entropy built in (aws-lc-sys's default, always compiled at -O0 so the timing
+# jitter it measures is real) that seeding was 67% of the CPU of a first
+# artifactSearch call (samply, 2026-11-19), paid by every process: each one-shot
+# CLI call, each MCP server and the warm daemon. AWS-LC's opt-out configuration
+# (`DISABLE_CPU_JITTER_ENTROPY`, `crypto/fipsmodule/rand/entropy/entropy_sources.c`)
+# seeds from the OS source (getentropy) and draws its personalization from the
+# CPU's RNG (RNDR, RDRAND) when present, else the OS; ring and BoringSSL seed
+# from the OS alone. Not a FIPS build, which has no jitter source anyway.
+[env]
+AWS_LC_SYS_NO_JITTER_ENTROPY = "1"
+
 # ── sccache: cache rustc invocations across branches / clean builds ───────────
 # 60–80% faster on a warm cache. Tradeoff: sccache disables incremental
 # compilation, so it HELPS clean builds and branch switches but can HURT a tight

@@ -8,7 +8,7 @@
 //! the grammars and extractors, so no version outlives the process. Eviction
 //! or expiry only costs a parse; a document whose parse stopped early is not
 //! kept.
-use crate::page_memo::PageMemo;
+use crate::page_memo::{Computed, PageMemo};
 use octocode_engine::graph::{GraphFactCode, GraphFactsDocument};
 use std::sync::Arc;
 
@@ -46,8 +46,6 @@ enum Analysis<'a> {
     Declarations(Option<&'a str>),
     /// The whole graph facts.
     GraphFacts,
-    /// Imports, re-exports and CommonJS loads only.
-    ModuleReferences,
     /// The declarations whose `extends` / `implements` clause names this
     /// type, read from the parts of the file that spell it.
     NamedHeritage(&'a str),
@@ -62,7 +60,6 @@ impl Analysis<'_> {
             }
             Self::Declarations(None) => engine::extract_declarations_document(source, path),
             Self::GraphFacts => engine::extract_graph_facts(source, path),
-            Self::ModuleReferences => engine::extract_module_references(source, path),
             Self::NamedHeritage(name) => engine::extract_named_heritage(source, path, name),
         }
     }
@@ -72,7 +69,6 @@ impl Analysis<'_> {
         match self {
             Self::Declarations(parser) => ("declarations", parser.unwrap_or_default()),
             Self::GraphFacts => ("graphFacts", ""),
-            Self::ModuleReferences => ("moduleReferences", ""),
             Self::NamedHeritage(name) => ("namedHeritage", *name),
         }
     }
@@ -90,37 +86,39 @@ impl Analysis<'_> {
     }
 
     /// The kept document of `source` read from `path`, extracted first when
-    /// none is kept.
+    /// none is kept. Concurrent requests for one document (the rows of one
+    /// batch) extract it once ([`PageMemo::get_or_compute`]).
     fn of(&self, source: &str, path: &str) -> Option<Arc<GraphFactsDocument>> {
-        let key = self.key(source, path);
-        if let Some(kept) = DOCUMENTS.get(&key, "", Clone::clone) {
-            return kept;
-        }
-        #[cfg(any(test, feature = "test-support"))]
-        parses::note(self.name().0, path);
-        let document = self.extract(source, path).map(Arc::new);
-        let stopped = document.as_ref().is_some_and(|document| {
-            document
-                .diagnostics
-                .iter()
-                .any(|note| note.code == GraphFactCode::ParseDeadline)
-        });
-        // Cancellation is represented by `None`, just like an unsupported
-        // grammar. Only the latter is a fact about this source that another
-        // live request can reuse.
-        let cancelled = octocode_engine::deep_stack::current_stop()
-            .is_some_and(|stop| stop.load(std::sync::atomic::Ordering::Relaxed));
-        if !stopped && !cancelled {
-            // A document that cannot be measured is not kept: it may not be
-            // small.
-            let bytes = document.as_deref().map_or(0, |document| {
-                octocode_engine::json_size::bytes_or(document, usize::MAX)
+        let stopped = || {
+            octocode_engine::deep_stack::current_stop()
+                .is_some_and(|stop| stop.load(std::sync::atomic::Ordering::Relaxed))
+        };
+        DOCUMENTS.get_or_compute(self.key(source, path), "", &stopped, || {
+            #[cfg(any(test, feature = "test-support"))]
+            parses::note(self.name().0, path);
+            let document = self.extract(source, path).map(Arc::new);
+            let deadline = document.as_ref().is_some_and(|document| {
+                document
+                    .diagnostics
+                    .iter()
+                    .any(|note| note.code == GraphFactCode::ParseDeadline)
             });
-            if bytes != usize::MAX {
-                DOCUMENTS.put(key, String::new(), bytes, document.clone());
+            // Cancellation is represented by `None`, just like an unsupported
+            // grammar. Only the latter is a fact about this source that another
+            // live request can reuse. A document that cannot be measured is
+            // not kept: it may not be small.
+            let keep = (!deadline && !stopped())
+                .then(|| {
+                    document.as_deref().map_or(0, |document| {
+                        octocode_engine::json_size::bytes_or(document, usize::MAX)
+                    })
+                })
+                .filter(|bytes| *bytes != usize::MAX);
+            Computed {
+                value: document,
+                keep,
             }
-        }
-        document
+        })
     }
 }
 
@@ -134,15 +132,6 @@ pub fn file_document(source: &str, path: &str) -> Option<Arc<GraphFactsDocument>
 
 pub fn graph_facts(source: &str, path: &str) -> Option<Arc<GraphFactsDocument>> {
     Analysis::GraphFacts.of(source, path)
-}
-
-/// The module references of `source` (imports, re-exports, CommonJS loads and
-/// the parse's cleanliness), kept like the other documents
-/// ([`octocode_engine::signatures::extract_module_references`]): what an
-/// import check reads, without the whole facts' calls and arguments. Read
-/// nothing else from it.
-pub fn module_references(source: &str, path: &str) -> Option<Arc<GraphFactsDocument>> {
-    Analysis::ModuleReferences.of(source, path)
 }
 
 /// The declarations of `source` whose `extends` / `implements` clause names

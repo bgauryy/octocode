@@ -83,6 +83,7 @@ fn detailed_file_search_explains_prefilter_and_unsupported_files() {
         max_file_bytes: None,
         judge: None,
         global_ignore: Default::default(),
+        kept: None,
     })
     .expect("detailed file search");
 
@@ -355,4 +356,76 @@ fn a_line_scope_keeps_admitted_matches_and_counts_the_rest() {
         assert_eq!(result.files[0].matches.len(), 1);
     }
     assert_eq!(refused.into_inner(), 2);
+}
+
+/// A scan under a caller's key keeps each file's outcome (TE4): its repeat
+/// matches no file whose stamp held still, and returns what the first scan
+/// did; a file written since is read and matched again, and a file written
+/// within its settle window is not kept.
+#[test]
+fn a_kept_outcome_answers_an_unchanged_file_unread() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let root = TmpDir::new();
+    fs::write(root.join("a.rs"), "fn a() { hit(1); hit(2); }\n").unwrap();
+    fs::write(root.join("b.rs"), "fn b() { hit(3); }\n").unwrap();
+    fs::write(root.join("c.rs"), "fn c() { other(); }\n").unwrap();
+    crate::stamp::settle_written_so_far();
+    let priced = AtomicUsize::new(0);
+    let price = |m: &StructuralDetailedMatch| {
+        priced.fetch_add(1, Ordering::SeqCst);
+        u32::try_from(m.text.len()).unwrap()
+    };
+    let scan = || {
+        search_files(
+            StructuralSearchFilesOptions {
+                kept: Some(root.to_string_lossy().into_owned()),
+                ..scan_options(&root, 0)
+            },
+            StructuralDemand::Priced(&price),
+            &|_, _| true,
+            &|_| "rs".to_owned(),
+            &|| false,
+            None,
+        )
+        .expect("scan")
+    };
+    let prices = |result: &StructuralSearchFilesDetailedResult| {
+        result
+            .files
+            .iter()
+            .map(|file| {
+                let FileMatches::Priced(prices) = &file.matches else {
+                    return (file.path.clone(), file.status.clone(), Vec::new());
+                };
+                (file.path.clone(), file.status.clone(), prices.clone())
+            })
+            .collect::<Vec<_>>()
+    };
+    let first = scan();
+    assert_eq!(first.total_matches, 3);
+    assert_eq!(priced.swap(0, Ordering::SeqCst), 3);
+    let again = scan();
+    assert_eq!(priced.swap(0, Ordering::SeqCst), 0, "no file matched again");
+    assert_eq!(prices(&again), prices(&first));
+    assert_eq!(again.total_matches, first.total_matches);
+    assert_eq!(again.skipped_by_pre_filter, first.skipped_by_pre_filter);
+    // An edit moves the stamp: that file alone is matched again, and its
+    // new outcome, not settled (dated ahead), is not kept.
+    fs::write(root.join("b.rs"), "fn b() { hit(3); hit(4); }\n").unwrap();
+    fs::File::options()
+        .write(true)
+        .open(root.join("b.rs"))
+        .and_then(|file| {
+            file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(3600))
+        })
+        .expect("dated ahead");
+    let edited = scan();
+    assert_eq!(edited.total_matches, 4);
+    assert_eq!(priced.swap(0, Ordering::SeqCst), 2);
+    scan();
+    assert_eq!(
+        priced.swap(0, Ordering::SeqCst),
+        2,
+        "an unsettled outcome is not kept"
+    );
 }

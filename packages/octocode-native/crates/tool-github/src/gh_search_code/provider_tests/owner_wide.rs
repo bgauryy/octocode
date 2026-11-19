@@ -63,7 +63,7 @@ async fn owner_wide_rows_list_numbered_lines_at_the_indexed_commit() {
     for row in files {
         assert_eq!(
             row["matches"],
-            json_fixture(r#"[{"line": 3, "value": "class HTTPAdapter(BaseAdapter):"}]"#),
+            json!(["3\tclass HTTPAdapter(BaseAdapter):"]),
             "{}",
             out.data
         );
@@ -172,7 +172,7 @@ async fn a_repo_scoped_row_is_path_and_numbered_lines_at_one_commit() {
     assert_eq!(out.data["files"][0]["repo"], "b", "{}", out.data);
     assert_eq!(
         out.data["files"][0]["matches"],
-        json_fixture(r#"[{"line": 2, "value": "fn wrap_app() {}"}]"#),
+        json!(["2\tfn wrap_app() {}"]),
         "{}",
         out.data
     );

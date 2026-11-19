@@ -206,12 +206,8 @@ pub(crate) struct Outline {
     pub(super) scan_resume: Option<u32>,
     pub(super) skipped: u32,
     pub(super) diagnostics: Vec<Value>,
-    /// Candidate entries the security path policy withheld from the walk.
-    pub(super) withheld: octocode_runtime_base::policy::discovery::Withheld,
-    /// Octocode's own store directories the walk skipped, root-relative.
-    pub(super) artifacts: std::collections::BTreeSet<String>,
-    /// Root-relative directories the default excludes pruned unseen.
-    pub(super) pruned: Vec<String>,
+    /// What the walk left out ([`super::directory::DirectoryWalk::skipped`]).
+    pub(super) walk_skips: octocode_runtime_base::policy::discovery::WalkSkips,
     /// Entries the walk could not read, and how many for want of
     /// permission: absence below them is unproven.
     pub(super) walk_errors: (u32, u32),
@@ -338,9 +334,7 @@ pub(super) fn outline_file(
         scan_resume: None,
         skipped,
         diagnostics,
-        withheld: Default::default(),
-        artifacts: Default::default(),
-        pruned: Vec::new(),
+        walk_skips: Default::default(),
         walk_errors: (0, 0),
         test_code_excluded: scoped
             .map(octocode_tools_shared::test_code::Scoped::excluded)

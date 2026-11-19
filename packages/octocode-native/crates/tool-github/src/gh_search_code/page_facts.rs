@@ -19,10 +19,21 @@ use serde_json::json;
 /// host's differs from github.com's (the tool description states that
 /// one), since a larger file is absent from every search without a trace.
 pub(super) fn disclose_coverage(output: &mut ToolData, endpoint: &octocode_github::GitHubEndpoint) {
+    // A scope the index does not cover at all already says so.
+    if output.data["coverage"]["state"].is_string() {
+        return;
+    }
     let partial =
         output.data["isPartial"] == true || !output.diagnostics.partial_reasons.is_empty();
     let empty = output.status == Some("empty");
-    if let Some(coverage) = coverage(partial, partial || empty, endpoint) {
+    if let Some(mut coverage) = coverage(partial, partial || empty, endpoint) {
+        // An empty search is complete over what GitHub indexes, never over
+        // every file: an unindexed one was not searched.
+        if empty && !partial {
+            coverage["reason"] = json!(
+                "complete over GitHub's default-branch code index; a file it does not index was not searched"
+            );
+        }
         output.data["coverage"] = coverage;
     }
 }
@@ -67,7 +78,7 @@ pub(super) fn index_max_file_bytes(endpoint: &octocode_github::GitHubEndpoint) -
 
 /// `query` carrying the walk through `data`'s page, for `next.nextPage`:
 /// every file listed so far (`within`: the walk state of a page only part of
-/// which is shown, [`listed::Listed::state_within`]), the match count GitHub
+/// which is shown, [`listed::Listed::state_within`](super::listed::Listed::state_within)), the match count GitHub
 /// stated and the index head a ref search read, private state the issued
 /// continuation carries across independent requests.
 pub(super) fn walked(

@@ -1,6 +1,6 @@
 # Octocode dev audit — <tool|all> — <YYYY-MM-DD>
 
-Scope: <tools> · Mode: audit | audit+fix · Core rev: <sha> (dirty?) · Contract fingerprint: <12 chars> · Config: <non-default settings, disabled tools>
+Scope: <tools> · Mode: audit | audit+fix · Core rev: <sha> (dirty?) · Contract fingerprint: <12 chars> · Config: <non-default settings>
 
 ## Summary
 

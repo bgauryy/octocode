@@ -68,12 +68,17 @@ impl LongWindow {
     }
 }
 
-/// A retry-free evaluator against `server`.
+/// A retry-free evaluator against `server`, with a credential and a model
+/// unique in the process ([`crate::judgment::test_identity`]): the refusals
+/// this fake teaches are kept per endpoint and model, the gate's memos per
+/// endpoint and credential, and a mock server's port is reused.
 pub fn evaluator(server: &MockServer) -> Evaluator {
     Evaluator::new(
-        Some(secrecy::SecretString::from("test-key".to_owned())),
+        Some(secrecy::SecretString::from(
+            crate::judgment::test_identity::unique("test-key"),
+        )),
         server.uri(),
-        "jev-test".into(),
+        crate::judgment::test_identity::unique("jev-test"),
         &octocode_runtime_base::providers::classification::jev::JEV,
         Some(Duration::from_secs(10)),
         0,

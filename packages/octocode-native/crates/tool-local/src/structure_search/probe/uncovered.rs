@@ -17,21 +17,6 @@ pub(in crate::structure_search) struct Uncovered {
 }
 
 impl Uncovered {
-    /// The distinct names of the default-pruned directories, sorted.
-    pub(in crate::structure_search) fn pruned_names(&self) -> Option<Vec<String>> {
-        if self.pruned.is_empty() {
-            return None;
-        }
-        let mut names = self
-            .pruned
-            .iter()
-            .map(|dir| dir.rsplit('/').next().unwrap_or(dir).to_owned())
-            .collect::<Vec<_>>();
-        names.sort_unstable();
-        names.dedup();
-        Some(names)
-    }
-
     /// Whether the walk skipped anything a relaxed walk could list.
     pub(in crate::structure_search) fn saw_skips(&self) -> bool {
         !self.ignored.is_empty() || !self.hidden.is_empty() || !self.pruned.is_empty()
@@ -47,6 +32,21 @@ impl Uncovered {
                 Cause::DefaultExcluded => !self.pruned.is_empty(),
             })
             .collect()
+    }
+
+    /// The distinct names of the default-pruned directories, sorted.
+    pub(in crate::structure_search) fn pruned_names(&self) -> Option<Vec<String>> {
+        if self.pruned.is_empty() {
+            return None;
+        }
+        let mut names = self
+            .pruned
+            .iter()
+            .map(|dir| dir.rsplit('/').next().unwrap_or(dir).to_owned())
+            .collect::<Vec<_>>();
+        names.sort_unstable();
+        names.dedup();
+        Some(names)
     }
 
     /// The causes a lead must lift to reach what this walk skipped:

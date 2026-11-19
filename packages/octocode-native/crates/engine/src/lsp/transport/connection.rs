@@ -48,7 +48,7 @@ use crate::lsp::clock::LspClock;
 use serde_json::{Value, json};
 use shared::{CancelOnDrop, FailOnExit, Outbound, Shared, cancel_message};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use tasks::{read_loop, write_loop};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
@@ -140,7 +140,7 @@ impl JsonRpcConnection {
             unparseable_frames: AtomicU64::new(0),
             consecutive_timeouts: AtomicU32::new(0),
             activity: ServerActivity::new(cpu_clock, Arc::clone(&progress), clock.clone()),
-            watches_files: AtomicBool::new(false),
+            file_watches: std::sync::Mutex::default(),
             clock,
             written_bytes: AtomicU64::new(0),
         });
@@ -229,7 +229,12 @@ impl JsonRpcConnection {
     /// Whether the server registered for `workspace/didChangeWatchedFiles`
     /// (a `client/registerCapability` it sent after `initialize`).
     pub(crate) fn watches_files(&self) -> bool {
-        self.shared.watches_files.load(Ordering::Acquire)
+        !self
+            .shared
+            .file_watches
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_empty()
     }
 
     /// The reports of `documents` (`uri`, minimum version), waiting while any

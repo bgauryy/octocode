@@ -23,7 +23,6 @@ mod request_outcomes;
 mod snippet_reads;
 mod start_budget;
 mod stderr_ring;
-mod waits;
 
 fn ts_config() -> LspLanguageServerConfig {
     LspLanguageServerConfig {

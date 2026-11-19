@@ -1,87 +1,52 @@
 # Octocode tools reference
 
-The catalog has 17 tools. Agents call them by name over [MCP](OCTOCODE_MCP.md). In the [CLI](OCTOCODE_CLI.md), run `octocode <tool> '<JSON input>'` and add `--json` for structured output. Run `octocode schema` to see your CLI catalog. An MCP client discovers its enabled tools with `tools/list`. [Configuration and defaults](CONFIGURATION.md#tool-availability-cli-and-mcp)
+The catalog has 17 tools. Agents call them over [MCP](OCTOCODE_MCP.md), or run them in the [CLI](OCTOCODE_CLI.md) with `octocode <tool> '<JSON input>'` (add `--json` for structured output). Which tools are enabled depends on [configuration](CONFIGURATION.md#tool-availability-cli-and-mcp); an MCP client lists its enabled tools with `tools/list`.
 
 | Start with | What the agent can find |
 |---|---|
-| [A local checkout](#local-code-tools-reference) | Matching files, exact lines, declarations, callers and repository-wide dependencies |
-| [A GitHub repository](#github-tools-reference) | Files at a revision, commits, pull requests, discussions and patches |
-| [A package name or lockfile](#package-and-advisory-tools) | The published version, source revision and known advisories |
-| [A question about unread evidence](#semantic-assessment-reference) | Files or sections worth opening, using a configured classification provider |
+| [A local checkout](#local-code-tools-reference) | Files, exact lines, declarations, callers and repository-wide dependencies |
+| [A GitHub repository](#github-tools-reference) | Files at a revision, commits, pull requests, issues and patches |
+| [A package name or lockfile](#package-and-advisory-tools) | The published version, its source revision and known advisories |
+| [Unread evidence](#semantic-assessment-reference) | Files or sections worth opening, using a configured classification provider |
 
-Which tool answers a question first. The MCP server's instructions give agents the same routing.
+## How a call works
 
-```mermaid
-flowchart LR
-  accTitle: Which tool answers a question first
-  Q{"Question"} -->|"layout, names, sizes, dates"| ST["structureSearch"]
-  Q -->|"text, spelling, counts"| LS["localSearch"]
-  Q -->|"code shape"| AS["astSearch"]
-  Q -->|"definition, every caller"| LSP["lspSearch"]
-  Q -->|"importers, cycles, impact"| GB["graphBuild"] --> GQ["graphQuery"]
-  LS --> LF["localFetch<br/>Read the deciding lines"]
-  AS --> LF
-  Q -->|"another repository"| GR["ghSearchRepo"] --> GS["ghStructure or ghSearchCode"] --> GF["ghGetFileContent"]
-  Q -->|"why, when, who"| GH["ghSearchHistory"] --> GI["ghGetHistoryItem"]
-  Q -->|"package version"| AR["artifactSearch"]
-  Q -->|"known vulnerabilities"| SC["securityCheck"]
-  Q -->|"too many hits to read"| CL["clasify"]
-```
-
-## How every tool call works
-
-Start with `{"queries":[…]}`. Each row in `results` has an `index` pointing back to its query. For a tool's fields, allowed combinations and defaults, ask the installed version. For example, this command shows the inputs for resolving a package.
-
-```sh
-octocode schema artifactSearch --view query --select operation=resolve
-```
-
-### Results, evidence, partial failures, and continuations
-
-Read each row's status, coverage and warnings. When the response has `responsePagination.next`, call its named tool with its exact `input` first. Otherwise follow the relevant `next.*` calls, including `next.nextPage`, until the requested evidence is complete. `related[]` offers optional new queries. If the provider reaches a terminal limit or a source fails, report what remains unknown. [Rows, split results and executable continuations](TOOL_DATA_CONTRACT.md#executable-continuations)
-
-```mermaid
-flowchart LR
-  accTitle: Read a result until its evidence is complete
-  C["Call with queries"] --> R["Read each row: status, coverage, warnings"]
-  R -->|"responsePagination.next"| P["Call it unchanged"] --> R
-  R -->|"next.nextPage or another next.*"| N["Follow it"] --> R
-  R -->|"complete, or a terminal limit"| D["Cite the evidence; name what stays unknown"]
-```
-
-## Local code tools reference
-
-**“Where does the CLI call `runCLI`, and what would a change affect?”** In the Octocode checkout, a text search finds the declaration and the invocation. An agent can then resolve references across the project and read the relevant lines.
-
-```mermaid
-flowchart LR
-  accTitle: Verify local call sites
-  F["structureSearch<br/>Locate files"] --> S["localSearch<br/>Find runCLI"]
-  S --> R["lspSearch<br/>Resolve references"]
-  R --> L["localFetch<br/>Read the call sites"]
-  A["astSearch<br/>Find a call shape"] --> L
-```
+Send `{"queries":[…]}`, up to 5 queries per call. Fields and defaults: `octocode schema <tool> --view query`. Read every row, then follow its continuations: [executable continuations](TOOL_DATA_CONTRACT.md#executable-continuations).
 
 <a id="text-ast-graph-and-lsp-choose-the-evidence-you-need"></a>
 
-### Choose the evidence you need
+## Choose the evidence you need
 
 | Question | Start with | What the result establishes |
 |---|---|---|
 | Where does this text occur? | `localSearch` | Matches within the searched scope |
-| Which calls have this shape? | `astSearch` | Parsed syntax at each source location |
+| Which calls have this shape? | `astSearch` | Parsed syntax at each source location, not identity |
 | Which files might this change affect? | `graphBuild` → `graphQuery` | Candidates from a snapshot's import and call edges |
-| Which symbol does this name resolve to? | `lspSearch` | The editor or server's answer when available. Check coverage and fallback before drawing conclusions. |
+| Which symbol does this name resolve to? | `lspSearch` | The editor or language server's answer, when one is available. Check `lsp.level`. |
+
+## Local code tools reference
+
+Chain for a call site: `localSearch` finds the text, `lspSearch` resolves the symbol, `localFetch` reads the call sites. `structureSearch` locates files first; `astSearch` finds a call shape.
 
 ### `structureSearch`
 
-List a directory tree, find a half-known path, or rank files by size, line count or date. The default `view:"paths"` gives names and the value used for a size, line or date sort. Use `view:"details"` for metadata. Check skipped paths when the answer depends on coverage.
+Lists files and directories, finds a half-known path, or ranks files by size, lines or date.
+
+- `operation:"tree"` lists a directory. `operation:"files"` is needed for sorts and filters on size, date or name.
+- `view:"paths"` gives names. `view:"details"` adds bytes, lines and modified time, and reads each file to count lines.
+- Check skipped paths when the answer depends on coverage.
+
+```json
+{"queries":[{"operation":"files","path":".","entryType":"file","sort":{"by":"bytes","order":"desc"},"limit":1}]}
+```
 
 ### `localSearch`
 
-Find text or patterns, list matching files, or count occurrences and matching lines. Matching is literal by default. Long lines show a window around the match and its column. Read the original line with `localFetch`.
+Finds text, lists the files that have or lack it, or counts occurrences.
 
-The default `sort:{"by":"traversal"}` walks the tree in name order, depth first, like `rg --sort path`: a page returns as soon as it fills and `next.nextPage` continues the walk, so a common term answers fast. Until the last page, `pagination.total` is a floor (`countScope:"loaded"`) and `matchCount`, `matchedLineCount` and `matchedFiles` are absent. For exact totals use `view:"countMatches"` or `view:"countLines"`, or `sort:{"by":"matchCount","order":"desc"}`; these and the other sorts scan the whole scope before page 1. Nothing is ranked: for where a name is defined, use `lspSearch` or `astSearch`.
+- Only `view:"content"` returns source. Read a long match's original line with `localFetch`.
+- Nothing is ranked. To find where a name is defined, use `lspSearch` or `astSearch`.
+- The default traversal returns pages in file-name order. Until the last page, `pagination.total` is a floor, and `matchCount`, `matchedLineCount` and `matchedFiles` are absent. For exact totals use `view:"countMatches"`, `view:"countLines"` or `sort:{"by":"matchCount","order":"desc"}`. These scan the whole scope before page 1.
 
 ```json
 {"queries":[{"path":"packages/octocode/src","matchString":["runCLI"]}]}
@@ -89,85 +54,117 @@ The default `sort:{"by":"traversal"}` walks the tree in name order, depth first,
 
 ### `localFetch`
 
-Read a known file. Use `ranges` for inclusive, 1-based lines, or `matchString` with `block:true` for the enclosing declaration. The default `content` view preserves source text after redaction. `symbols` gives an outline and `compact` can remove comments and spare whitespace. Check `viewFallback` if a requested view could not be served. GitHub file reads use the same views.
+Reads a known file.
+
+- `ranges` takes up to 100 inclusive, 1-based ranges; past the end they clip with a warning. Without `ranges` or `matchString`, the whole file is read, paged.
+- `matchString` with `block:true` reads the enclosing declaration. For a signature only, use `contextLines`.
+- `viewFallback` names the view that was served when the requested one could not be.
+
+| `view` | Use |
+|---|---|
+| `content` | Source after redaction. Quote it. |
+| `symbols` | Outline. Doc comments sit above each entry, so quote from the line above. |
+| `compact` | Comments and extra whitespace removed. Read it; do not quote it. |
 
 ### `astSearch`
 
-Match a syntax pattern, list declarations, or inspect a syntax tree. For example, `{"pattern":"runCLI()"}` as the `rule` for `operation:"match"` finds calls with that syntax. Use a semantic reference query to confirm which declaration a call reaches. [Supported parsers](../packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md)
+Matches code shape, not spelling: calls, imports, inheritance, declarations, and a file's syntax tree.
 
-### `graphBuild`
+| `operation` | Use |
+|---|---|
+| `match` | Nodes that fit a `rule` |
+| `syntaxTree` | Node kinds of one file, to write a rule |
+| `symbols` | Declarations by name and kind; `symbolFilter` narrows them |
 
-Build or reuse a syntax graph of the smallest directory containing both ends of a relationship. Snapshots go under the workspace's `.octocode/graph` by default. Set `local.graphHome` to write outside the checkout and build from another authorized directory, including a clone. A paused build supplies `next.expandScan`. [Graph settings](CONFIGURATION.md#all-settings-and-defaults)
+- Rules use metavariables: `$X` matches one node, `$$$ARGS` zero or more.
+- Supported grammars: TypeScript, TSX, JavaScript, Python, Go, Rust, Java, C, Assembly, Scala, C++, CUDA and C#. A parser does not imply a language server or cross-file linking. AST matches are candidates until `lspSearch` or the source confirms them.
 
-### `graphQuery`
+```json
+{"queries":[{"operation":"match","path":"packages/octocode/src","rule":{"pattern":"runCLI()"}}]}
+```
 
-Query the same path as the build to find importers, hubs, cycles, paths, change impact or Git co-change. Check freshness and examine the source for the reported edges. For symbol-level impact or unused-code claims, verify the candidates with references and source reads. [Code graph guide](OCTOCODE_GRAPH.md)
+### `graphBuild` and `graphQuery`
+
+`graphBuild` builds a syntax graph of a path; `graphQuery` answers structural questions from it. The questions, options and how to read answers are in the [code graph guide](OCTOCODE_GRAPH.md).
+
+- Use the same `path` for build and query. Check `stale` before you trust edges. Verify symbol-level impact or unused-code candidates with `lspSearch`.
+- Snapshots go to `.octocode/graph` in the workspace. `local.graphHome` moves them, including for a clone from `ghCloneRepo`. [Graph settings](CONFIGURATION.md#all-settings-and-defaults)
+- A long build pauses and returns `next.expandScan`. Run it to resume.
 
 ### `lspSearch`
 
-Resolve definitions, references, callers, callees or type hierarchies. Start with the symbol name, path and line returned by a search. For the example above, the references result includes the CLI entry point and its tests.
+Resolves definitions, references, callers, callees and type hierarchies at a symbol.
 
 ```json
 {"queries":[{"operation":"references","path":"packages/octocode/src/cli/index.ts","symbolName":"runCLI","line":7,"view":"files"}]}
 ```
 
-| `lsp.level` | How to interpret the answer |
-|---|---|
-| `ide` | The editor's language features resolved the query through the VS Code extension's bridge. |
-| `server` | A language server answered. A successful server result can omit the entire `lsp` receipt. |
-| `syntax` | A grammar produced candidates by name or shape. Diagnostics at this level report parse errors. |
-| `text` | No structural answer was available. Use the text-search or source-read leads. |
+- Check `lsp.level` (below) before you use a result to establish identity. When present, `lsp.fellBackFrom` names the source that failed.
+- Read `partialReasons` and any continuations before you claim every reference. Octocode infers the project root from the file; set `workspaceRoot` if it misses neighboring code. If workspace-symbol results hit a server's cap, narrow `symbolFuzzy`.
 
-When present, `lsp.fellBackFrom` explains which source failed. Read `partialReasons` and the remaining continuations before claiming all references. Octocode infers the project root from the file. Set `workspaceRoot` to a directory containing the file if the inferred project misses neighboring code. If workspace-symbol results reach a server's cap, narrow `symbolFuzzy`.
+| `lsp.level` | What it means |
+|---|---|
+| `ide` | The editor's language features answered, through the VS Code extension's bridge. |
+| `server` | A language server answered. A successful server result can omit the `lsp` receipt. |
+| `syntax` | A grammar produced candidates by name or shape. Diagnostics at this level report parse errors. |
+| `text` | No structural answer. Use the text-search or source-read leads. |
 
 #### Subtypes and implementations without an answer in time
 
-For implementations and subtype queries, the engine can also find candidates by scanning inheritance declarations. Rows labeled `native-graph-facts` need verification in source. Follow any hierarchy continuations to finish the requested depth.
+Rows labeled `native-graph-facts` are candidates from a scan of inheritance declarations; check them in source. Follow any hierarchy continuation to reach the requested depth.
 
 #### Language servers
 
-Run `octocode lsp-server status` to see which servers Octocode finds. Rust and C/C++ support managed installs. To add or replace a server, configure `lsp-servers.json`. Rust build scripts and proc macros require the host's `lsp.allowBuildScripts` opt-in and a query that requests them. [Language support](../packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md) · [Custom servers and Rust build context](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md)
+| Need | Use |
+|---|---|
+| See which servers Octocode finds | `octocode lsp-server status` |
+| Managed install | `rust-analyzer` and `clangd` ([CLI reference](OCTOCODE_CLI.md)) |
+| Add or replace a server | `lsp-servers.json`. An explicit entry takes priority. |
 
 #### TypeScript backends
 
-An explicit `lsp-servers.json` entry takes priority. For TypeScript, Octocode prefers `tsgo` from a trusted project's install or its bundled installation. If unavailable or unable to start, it uses `typescript-language-server`. JavaScript uses `typescript-language-server`. [Server discovery](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md#resolution)
+For TypeScript, Octocode prefers `tsgo` from a trusted project's install or the bundled copy, then falls back to `typescript-language-server`. JavaScript uses `typescript-language-server`.
+
+**Rust build scripts and proc macros** run only when `lsp.allowBuildScripts` is set and the query's `rustContext` asks for them. [Settings](CONFIGURATION.md#all-settings-and-defaults)
 
 #### Fetched code
 
-By default Octocode refuses to start a language server on its clones, materialized GitHub files or URL captures, including a workspace root that contains fetched code. Use text and AST tools there. To run a language server on that code, set `lsp.trustFetchedCode` in the home settings or process environment. A server can execute code from the project it opens. [External processes](SECURITY.md#external-processes)
+No language server starts on clones, materialized GitHub files or URL captures. Text and AST tools still read them. To allow it, set `lsp.trustFetchedCode` in home settings or the process environment. [Trust for project code](SECURITY.md#trust-for-project-code)
 
 ## GitHub tools reference
 
-**“Which commit changed this file, and what changed?”** Give the agent an owner, repository and path. In `octocat/Hello-World`, the history of `README` contains a commit that adds a final newline. Its patch shows exactly which line changed. [GitHub login and tokens](AUTHENTICATION.md)
-
-```mermaid
-flowchart LR
-  accTitle: Trace a GitHub file change
-  H["ghSearchHistory<br/>Find commits for README"] -->|"commitSha"| P["ghGetHistoryItem<br/>Read the patch"]
-  P -->|"path and commit"| F["ghGetFileContent<br/>Read the file at that revision"]
-```
+Chain for a change: `ghSearchHistory` finds the commit, `ghGetHistoryItem` reads its patch, and `ghGetFileContent` reads the file at that commit. Example: in `octocat/Hello-World`, the history of `README` includes a commit that adds a final newline, and its patch shows the changed line.
 
 ### `ghSearchRepo`
 
-Search repositories by keyword or filter, list an owner's repositories, or get one known repository. Carry the returned `owner` and `repo` into tree, code and history calls.
+Finds repositories by keyword or filter, lists an owner's repositories, or gets one.
+
+- Archived repositories are excluded unless `filters.archive` says otherwise.
+- Carry the returned `owner` and `repo` into later calls.
 
 ### `ghSearchCode`
 
-Find text, paths or filenames in GitHub's default-branch code index. A `ref` re-reads hits at that revision. For files unique to another branch, start with its tree. GitHub omits some files, forks and repositories from its index, so an empty search leaves those unexamined.
+Finds a term, path or file name in GitHub's code index.
+
+- `ref` re-reads hit lines at that revision, but which files match is still decided on the default branch. For a file that exists only on another branch, start with `ghStructure`.
+- The index may not cover every file. An empty search does not prove absence.
 
 ### `ghStructure`
 
-Browse a tree, list tags and branches, resolve a ref to a commit, or get repository languages. A tree defaults to one level. Use `materialize:true` to save selected files for repeated local reads. Keep the returned commit and check materialization coverage.
+Browses a tree, lists refs, or reports languages.
 
-`materialize` reads file bytes through git. The REST tree listing names each file's blob id. For each wave of files (listed sizes up to the call's read limit, at least one file) one `git fetch` of those ids from the repository's git URL fills a temporary store, and the files are written from it. The listing, the withheld, oversized and kept outcomes, the manifest and the layout do not depend on how bytes were read. A blob larger than the read limit is reported oversized. Git authenticates as `ghCloneRepo` does, and the token never appears in a command line or URL. When git is missing, the host has no git URL, the server refuses the fetch, or a blob is absent, those files are read one by one over REST instead, without an error. Git reads need no per-file contents requests: `golang/go` `src/net/http` took 9.7 s and 198 contents requests before, and about 1.4 s with none. [Temporary store](STORAGE_AND_LIMITS.md#materialize-git-store)
+- Use `ref` for another branch, tag or commit. The result names the commit; keep it with your findings.
+- `materialize:true` downloads the selected files for local tools. `location` reports coverage and skipped files. Use it when a few paths need many searches. [Materialized store](STORAGE_AND_LIMITS.md#materialize-git-store)
 
 ### `ghGetFileContent`
 
-Read a path at a branch, tag or commit. Supply the returned commit SHA for a reproducible citation and `ranges` or `matchString` to narrow the read. [File views](#localfetch)
+Reads part of a file at a known path. Pass `ref` as the commit SHA from earlier results to cite a fixed revision. Views match [`localFetch`](#localfetch).
 
 ### `ghSearchHistory`
 
-Search pull requests, issues or commits. A commit query with a path and no keywords lists changes to that path. The returned commit SHA or issue/PR number identifies what to open next.
+Finds pull requests, issues or commits, for why, when or who questions.
+
+- A `commit` query with `path` and no keywords lists that path's changes. Open the returned commit SHA or PR/issue number next.
 
 ```json
 {"queries":[{"operation":"commit","owner":"octocat","repo":"Hello-World","path":"README"}]}
@@ -175,55 +172,58 @@ Search pull requests, issues or commits. A commit query with a path and no keywo
 
 ### `ghGetHistoryItem`
 
-Read one pull request, issue or commit, or compare two revisions. Omit `sections` for the summary. For one file's diff, request `sections:["patches"]` with `include`. Section reads retain a short header, including `headCommitSha` for a pull request or `commitSha` for a commit. A paged section appears in `sectionPagination` and has a matching `next.<section>` call.
+Reads one pull request, issue or commit, or compares two refs.
+
+- Omit `sections` for the summary. Up to 8 sections per call.
+- One file's diff: `sections:["patches"]` with `include` (a root-anchored glob).
+- A paged section appears in `sectionPagination`, with a matching `next.<section>` call.
 
 ### `ghCloneRepo`
 
-Create a checkout at the requested revision for repeated local analysis. Optional `paths` select a sparse checkout. Use the returned `location.path` and keep its commit and path scope with your findings. Octocode preserves existing checkouts with local changes. Clone requires Git, repository access and persistent storage. [Clone opt-in](CONFIGURATION.md#tool-availability-cli-and-mcp) · [Storage](STORAGE_AND_LIMITS.md#cache-storage-and-lifecycle) · [LSP on fetched code](#fetched-code)
+Creates a local checkout at a revision, for repeated analysis with the local tools.
+
+- `paths` makes a sparse checkout (up to 100 subtrees); completeness then covers only those paths.
+- Use `location.path` and keep the commit and path scope with your findings. An existing checkout with local changes is kept.
+- Needs Git and persistent storage. [Clone opt-in](CONFIGURATION.md#tool-availability-cli-and-mcp) · [Storage](STORAGE_AND_LIMITS.md#cache-storage-and-lifecycle). No language server starts on the clone; see [fetched code](#fetched-code).
 
 ## Package and advisory tools
 
-**“Which source revision matches my dependency, and are there known advisories for that version?”** Read the resolved version from the lockfile and use it for both lookups.
-
-```mermaid
-flowchart LR
-  accTitle: Check a locked package release
-  V["Package name and locked version"] --> A["artifactSearch<br/>Resolve release"]
-  A -->|"verified ref"| T["ghStructure<br/>Find source path"]
-  T --> F["ghGetFileContent<br/>Read release source"]
-  V --> S["securityCheck<br/>Check advisories"]
-```
+Use the locked version from the lockfile for both lookups. Source: `artifactSearch`, then `ghStructure` and `ghGetFileContent` at the verified ref. Advisories: `securityCheck`.
 
 ### `artifactSearch`
 
-Resolve a package version on npm, PyPI, crates.io, Maven, NuGet, Go, Packagist or RubyGems. All except PyPI also accept keyword searches. Without a version, resolution normally selects the latest stable release (npm uses the `latest` tag). The default `summary` gives version and available source coordinates. Ask for `view:"details"` for metadata such as dependencies and license.
+Resolves a package version to its source, or searches package names.
+
+- Ecosystems: `npm`, `pypi`, `crates`, `maven`, `nuget`, `go`, `packagist`, `rubygems`. Keyword `search` works for all except `pypi`.
+- Without `version` (or with `latest`), the newest stable release is used; npm uses its `latest` dist-tag. That may not be your project's version, so pass the locked one.
+- `view:"details"` adds dependencies and license. Only `pypi` and `nuget` list advisories here; an empty list elsewhere says nothing.
+- `verification`: `provenance` and `tag` are checked; `registryRef` is an unchecked registry claim. `registryUrl` applies only to a private npm registry.
+- To compare two versions, use `ghGetHistoryItem` with `operation:"compare"`.
 
 ```json
 {"queries":[{"operation":"resolve","ecosystem":"npm","packageName":"zod","version":"3.22.4"}]}
 ```
 
-For this release, `verification:"tag"` links the version to a commit in `colinhacks/zod`. `provenance` also ties source to a release. A `registryRef` is an unchecked registry claim, and `defaultBranch` identifies the current project. Only PyPI and NuGet return registry advisory data on this tool.
-
 ### `securityCheck`
 
-Check known advisories and published fixes using OSV and GitHub. The CLI offers this tool by default. To expose it over MCP, enable `tools.enableSecurityCheck` in the home settings or set `OCTOCODE_SECURITY_CHECKS=true` in the process environment, then restart MCP. [Advisory egress](SECURITY.md#advisory-egress)
+Checks known advisories and published fixes for a package version, purl, URL, advisory ID, commit or GitHub repository, using OSV and GitHub.
 
-| Operation | What leaves the machine |
-|---|---|
-| `package` | For the eight registries above, the public registry receives the lookup first. OSV receives the confirmed name and, if listed, its version. GitHub can receive the coordinates and claimed repository. Other supported ecosystems send the supplied name and version directly to OSV. |
-| `repository` | GitHub receives `owner/name`. OSV receives published advisory IDs only after GitHub identifies the repository as public. The result describes repository facts and cautions. |
-| `commit` | OSV receives the full hash, including for private commits. If supplied, `repo` and the hash also go to GitHub. |
-| `advisory` | OSV receives the advisory ID. For a GHSA, GitHub also receives the ID and any supplied repository. |
-| `url` | A supported package URL, purl or GitHub URL uses the matching operation above. |
-
-The default summary reports `affected`, `upgradeTo` and `advisoryCount` when established. Request `view:"details"` for records, sources and affected ranges. Each provider's selected record stands alone, including references and affected entries; fields are never inherited from another record with the same id. Affected entries retain the package ecosystem and `purl` when supplied, including distribution releases and URL qualifiers. Names can identify different packages across ecosystems. An omitted collection means no selected items stated in that record; this representation does not distinguish an absent upstream field from an empty array. It does not establish that a package is unaffected. An empty completed lookup means the source knows of no matching advisory. `versionEvaluated:false`, a failed source or incomplete coverage leaves the corresponding version or source unchecked.
+- The summary gives `affected`, `upgradeTo` and `advisoryCount` when established. `advisoryCount` 0 means no known advisory, not proof of safety. `error` means not checked. `view:"details"` gives records, sources and affected ranges.
+- Without `version`, the latest stable release is checked where the registry is read; otherwise every version is.
+- **Availability:** the CLI offers it by default. Over MCP it is off until you set `tools.enableSecurityCheck` (or `OCTOCODE_SECURITY_CHECKS=true`) and restart. [Settings](CONFIGURATION.md#all-settings-and-defaults)
+- What each operation sends: [Advisory egress](SECURITY.md#advisory-egress).
 
 ## Semantic assessment reference
 
 ### `clasify`
 
-With a classification key, use `evaluate` to ask typed questions about supplied content or an unread source. Use `sections` to locate relevant passages across files and `models` to discover available models. An agent can then follow `next.read` to verify the deciding lines. Fresh evaluations send evidence to the configured provider and incur usage. [Classification setup, examples and costs](OCTOCODE_CLASIFY.md)
+Judges content that exact search cannot split, such as long documents, logs or many files, using a classification key and a configured provider.
+
+- Fresh evaluations send evidence to the provider and cost usage.
+- A row's `next.read` leads to the supporting lines. Cite those lines, not the classification.
+- Before you claim absence after a classification, check `next.nextCandidatePage` (billed), `next.unfilteredUnknown` and `next.unfiltered`.
+- [Setup, examples and costs](OCTOCODE_CLASIFY.md)
 
 ### Context selection
 
-`classification` is supported by `localSearch`, `localFetch`, `ghSearchCode`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem` and `structureSearch`. Use a predicate to filter hits, source chunks, paths or discussion rows before reading them. Check the receipt for excluded and unknown units. Follow the unfiltered continuation before drawing a conclusion about absence. [Classification guide](OCTOCODE_CLASIFY.md)
+`classification` is supported by `localSearch`, `localFetch`, `ghSearchCode`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem` and `structureSearch`. Use a predicate to filter hits, source chunks, paths or discussion rows before you read them. Check the receipt for excluded and unknown units. [Classification guide](OCTOCODE_CLASIFY.md)

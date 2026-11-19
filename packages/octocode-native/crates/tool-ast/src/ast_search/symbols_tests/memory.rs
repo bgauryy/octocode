@@ -242,3 +242,50 @@ fn a_tuple_hashes_as_the_array_of_its_fields() {
         ])),
     );
 }
+
+/// Rows of one batch asking at once for one directory outline outline it
+/// once, and a repeat reads the set its first page kept: every answer is
+/// the one a lone request gives (perf P13).
+#[test]
+fn concurrent_and_repeated_first_pages_share_one_outline() {
+    let root = Fixture::new();
+    for index in 0..8 {
+        root.write(
+            &format!("src/m{index}.rs"),
+            format!("pub fn f{index}() {{}}\npub struct S{index};\n"),
+        );
+    }
+    octocode_engine::stamp::settle_written_so_far();
+    let (paths, security) = octocode_runtime_base::test_support::simple_policy(&root.0);
+    let row = json!({"operation":"symbols","path":root.0.join("src")});
+    let run = || {
+        crate::ast_search::test_rows::execute_row(
+            row.clone(),
+            &paths,
+            &security,
+            &octocode_runtime_base::execution::cancel::NeverCancel,
+        )
+        .expect("outline")
+    };
+    let lone = run();
+    let batch = std::thread::scope(|scope| {
+        let rows = (0..4).map(|_| scope.spawn(run)).collect::<Vec<_>>();
+        rows.into_iter()
+            .map(|row| row.join().expect("row"))
+            .collect::<Vec<_>>()
+    });
+    for out in &batch {
+        assert_eq!(out, &lone);
+    }
+    // Only the lone request read the files: the batch's rows and the
+    // repeat read the set its first page kept.
+    let root_text = root.0.canonicalize().expect("canonical root");
+    let root_text = root_text.to_string_lossy();
+    let parsed = crate::ast_search::symbols::PARSED_FILES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .filter(|path| path.contains(root_text.as_ref()))
+        .count();
+    assert_eq!(parsed, 8);
+}

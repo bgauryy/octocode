@@ -4,7 +4,7 @@
 //!
 //! A fresh page builds it from the whole scan once the page is cut
 //! ([`PageView::dense`]); a continuation of a seekable stored scan reads it
-//! from the page's frames alone ([`super::packed::Packed::page`]). Every
+//! from the page's frames alone (`super::packed::Packed::page`). Every
 //! later stage (verification, projection, cursor, settle) reads only the
 //! view, so a stored page and the fresh page of the same call are one code
 //! path and show the same row.

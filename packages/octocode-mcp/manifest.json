@@ -75,7 +75,7 @@
     },
     {
       "name": "ghCloneRepo",
-      "description": "Clone / Fetch GitHub Repository Locally"
+      "description": "GitHub Clone"
     },
     {
       "name": "localSearch",

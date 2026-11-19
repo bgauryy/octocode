@@ -18,6 +18,126 @@ use octocode_runtime_base::cache::CONTINUATION_IDLE;
 /// Values by snapshot, each stored with the policy that produced it.
 pub struct PageMemo<V> {
     memo: Memo<String, (String, V)>,
+    /// The keys a request computes now ([`PageMemo::get_or_compute`]).
+    flights: Flights,
+}
+
+/// What a computation of [`PageMemo::get_or_compute`] gives: its value, and
+/// the bytes it is kept at, `None` when it is not kept (it stopped early, or
+/// cannot be measured).
+pub struct Computed<V> {
+    pub value: V,
+    pub keep: Option<usize>,
+}
+
+/// A request's turn at computing a key ([`PageMemo::turn`]).
+pub enum Turn<'a> {
+    /// This request computes it; dropping the hold lands the flight.
+    Lead(Leading<'a>),
+    /// Another computed it and is done: read what it kept.
+    Landed,
+    /// This request was stopped while another computed it: it computes for
+    /// itself.
+    Stopped,
+}
+
+/// The keys being computed, each with the signal its waiters wait on.
+struct Flights(std::sync::Mutex<std::collections::BTreeMap<String, Arc<Flight>>>);
+
+/// One key's computation: it lands when its request finishes, keeping its
+/// value or not, or unwinds.
+#[derive(Default)]
+struct Flight {
+    landed: std::sync::Mutex<bool>,
+    signal: std::sync::Condvar,
+}
+
+/// How often a waiter reads its own stop while it waits: it never outwaits
+/// its own cancellation or deadline by more than this.
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::disallowed_methods,
+        reason = "how often a waiter reads its own stop, not a work budget: no limit or deadline derives it"
+    )
+)]
+const STOP_POLL: std::time::Duration = std::time::Duration::from_millis(10);
+
+impl Flight {
+    /// Wait until the flight lands (`true`), or until `stop` says this
+    /// waiter was stopped (`false`).
+    fn wait(&self, stop: &dyn Fn() -> bool) -> bool {
+        let mut landed = self
+            .landed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        while !*landed {
+            if stop() {
+                return false;
+            }
+            landed = self
+                .signal
+                .wait_timeout(landed, STOP_POLL)
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .0;
+        }
+        true
+    }
+}
+
+/// The computing request's hold on its key: dropping it (done, or
+/// unwinding) lands the flight and wakes its waiters.
+pub struct Leading<'a> {
+    flights: &'a Flights,
+    key: String,
+    flight: Arc<Flight>,
+}
+
+impl Drop for Leading<'_> {
+    fn drop(&mut self) {
+        let mut flights = self
+            .flights
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if flights
+            .get(&self.key)
+            .is_some_and(|flight| Arc::ptr_eq(flight, &self.flight))
+        {
+            flights.remove(&self.key);
+        }
+        drop(flights);
+        *self
+            .flight
+            .landed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+        self.flight.signal.notify_all();
+    }
+}
+
+impl Flights {
+    const fn new() -> Self {
+        Self(std::sync::Mutex::new(std::collections::BTreeMap::new()))
+    }
+
+    /// Lead the computation of `key`, or the flight another request leads.
+    fn join(&self, key: &str) -> Result<Leading<'_>, Arc<Flight>> {
+        let mut flights = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(flight) = flights.get(key) {
+            return Err(Arc::clone(flight));
+        }
+        let flight = Arc::new(Flight::default());
+        flights.insert(key.to_owned(), Arc::clone(&flight));
+        Ok(Leading {
+            flights: self,
+            key: key.to_owned(),
+            flight,
+        })
+    }
 }
 
 impl<V: Send + Sync + 'static> Default for PageMemo<V> {
@@ -33,6 +153,7 @@ impl<V: Send + Sync + 'static> PageMemo<V> {
     pub const fn new() -> Self {
         Self {
             memo: Memo::new(&octocode_engine::memory::MEMORY),
+            flights: Flights::new(),
         }
     }
 
@@ -46,6 +167,59 @@ impl<V: Send + Sync + 'static> PageMemo<V> {
         }
         self.memo.touch(snapshot, CONTINUATION_IDLE);
         Some(read(value))
+    }
+
+    /// The value kept for `key` under `policy`, else the one the request
+    /// computing it now keeps, else `compute`'s, kept when it says so.
+    /// Concurrent requests for one key compute it once: the others wait for
+    /// the one computing it. A waiter computes itself when that one keeps
+    /// nothing (it stopped, or it unwound), or when `stop` says the waiter
+    /// itself was stopped, so no request waits past its own cancellation or
+    /// deadline, and nothing a stopped request computed is kept unless it
+    /// says so. `compute` must not ask this store for `key` again.
+    pub fn get_or_compute(
+        &self,
+        key: String,
+        policy: &str,
+        stop: &dyn Fn() -> bool,
+        compute: impl FnOnce() -> Computed<V>,
+    ) -> V
+    where
+        V: Clone,
+    {
+        loop {
+            if let Some(kept) = self.get(&key, policy, Clone::clone) {
+                return kept;
+            }
+            let leading = match self.turn(&key, stop) {
+                // What it kept is read on the next turn; when it kept
+                // nothing this request leads the next flight.
+                Turn::Landed => continue,
+                Turn::Lead(leading) => Some(leading),
+                Turn::Stopped => None,
+            };
+            let Computed { value, keep } = compute();
+            if let Some(bytes) = keep {
+                self.put(key, policy.to_owned(), bytes, value.clone());
+            }
+            drop(leading);
+            return value;
+        }
+    }
+
+    /// This request's turn at computing `key`: lead it ([`Turn::Lead`],
+    /// whose drop lands the flight), or wait for the request computing it
+    /// until it lands ([`Turn::Landed`]: read what it kept, and take a turn
+    /// again when it kept nothing), or compute for itself at once when `stop`
+    /// says it was stopped while it waited ([`Turn::Stopped`]), so no
+    /// request waits past its own cancellation or deadline. The computation
+    /// must not ask for `key` again.
+    pub fn turn(&self, key: &str, stop: &dyn Fn() -> bool) -> Turn<'_> {
+        match self.flights.join(key) {
+            Ok(leading) => Turn::Lead(leading),
+            Err(flight) if flight.wait(stop) => Turn::Landed,
+            Err(_) => Turn::Stopped,
+        }
     }
 
     /// The hit stored for `snapshot` under `policy` while it is current:
@@ -110,6 +284,188 @@ impl<V: Send + Sync + 'static> PageMemo<V> {
                 self.memo.remove(&snapshot);
             }
         }
+    }
+}
+
+/// Concurrent identical requests that share one computation's result: the
+/// first to ask for a key leads and computes, and hands what it computed to
+/// every request that asked for the same key while it computed. Nothing
+/// outlives the flight: a request that asks after it landed computes
+/// afresh, so only requests that ran at once share, and each decides by
+/// its own check whether the handed result still holds.
+pub struct Shared<V> {
+    flights: std::sync::Mutex<std::collections::BTreeMap<String, Arc<Handoff<V>>>>,
+}
+
+/// One key's flight: what its leader hands its waiters, once it lands.
+struct Handoff<V> {
+    landed: std::sync::Mutex<Flown<V>>,
+    signal: std::sync::Condvar,
+}
+
+/// Where a flight stands, or what a waiter got of it.
+enum Flown<V> {
+    /// Its leader computes.
+    Computing,
+    /// It landed handing this to its waiters.
+    Handed(Arc<V>),
+    /// It landed handing nothing: its leader failed, unwound, or made
+    /// nothing that holds for another request.
+    Nothing,
+    /// The waiter was stopped before it landed.
+    Stopped,
+}
+
+impl<V> Handoff<V> {
+    /// What the flight handed, once it lands; [`Flown::Stopped`] when
+    /// `stop` says this waiter was stopped first.
+    fn wait(&self, stop: &dyn Fn() -> bool) -> Flown<V> {
+        let mut landed = self
+            .landed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        loop {
+            match &*landed {
+                Flown::Handed(handed) => return Flown::Handed(Arc::clone(handed)),
+                Flown::Nothing | Flown::Stopped => return Flown::Nothing,
+                Flown::Computing => {}
+            }
+            if stop() {
+                return Flown::Stopped;
+            }
+            landed = self
+                .signal
+                .wait_timeout(landed, STOP_POLL)
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .0;
+        }
+    }
+}
+
+/// The leader's hold on its flight: dropping it lands the flight with what
+/// it hands (nothing, when it unwound) and wakes the waiters.
+struct Leads<'a, V> {
+    shared: &'a Shared<V>,
+    key: String,
+    handoff: Arc<Handoff<V>>,
+    handed: Option<Arc<V>>,
+}
+
+impl<V> Drop for Leads<'_, V> {
+    fn drop(&mut self) {
+        let mut flights = self
+            .shared
+            .flights
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if flights
+            .get(&self.key)
+            .is_some_and(|flight| Arc::ptr_eq(flight, &self.handoff))
+        {
+            flights.remove(&self.key);
+        }
+        drop(flights);
+        *self
+            .handoff
+            .landed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            self.handed.take().map_or(Flown::Nothing, Flown::Handed);
+        self.handoff.signal.notify_all();
+    }
+}
+
+impl<V> Default for Shared<V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<V> Shared<V> {
+    pub const fn new() -> Self {
+        Self {
+            flights: std::sync::Mutex::new(std::collections::BTreeMap::new()),
+        }
+    }
+
+    /// The result of this request for `key`. A request that asks while
+    /// another computes `key` waits for it and makes its result from what
+    /// that one handed (`take`); it computes for itself (`compute`) when the
+    /// leader handed nothing, when `take` refuses what it handed (it no
+    /// longer holds), or when `stop` says this request was stopped while
+    /// it waited, so no request waits past its own cancellation or
+    /// deadline. Otherwise it leads: `compute` gives its own result and
+    /// what it hands the requests waiting on it, and may ask (its argument)
+    /// whether any request waits on it yet, to make nothing to hand when
+    /// none does. `compute` must not ask for `key` again.
+    pub fn share<T>(
+        &self,
+        key: String,
+        stop: &dyn Fn() -> bool,
+        compute: impl FnOnce(&dyn Fn() -> bool) -> (T, Option<V>),
+        take: impl FnOnce(&V) -> Option<T>,
+    ) -> T {
+        let joined = {
+            let mut flights = self
+                .flights
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            match flights.get(&key) {
+                Some(flight) => Err(Arc::clone(flight)),
+                None => {
+                    let handoff = Arc::new(Handoff {
+                        landed: std::sync::Mutex::new(Flown::Computing),
+                        signal: std::sync::Condvar::new(),
+                    });
+                    flights.insert(key.clone(), Arc::clone(&handoff));
+                    Ok(handoff)
+                }
+            }
+        };
+        match joined {
+            Ok(handoff) => {
+                let mut leads = Leads {
+                    shared: self,
+                    key,
+                    handoff,
+                    handed: None,
+                };
+                // The map and this leader hold the flight besides its waiters.
+                let waited = || Arc::strong_count(&leads.handoff) > 2;
+                let (own, handed) = compute(&waited);
+                leads.handed = handed.map(Arc::new);
+                drop(leads);
+                own
+            }
+            Err(flight) => {
+                if let Flown::Handed(handed) = flight.wait(stop)
+                    && let Some(own) = take(&handed)
+                {
+                    return own;
+                }
+                compute(&|| false).0
+            }
+        }
+    }
+
+    /// How many keys are being computed now, for tests.
+    #[cfg(test)]
+    fn in_flight_keys(&self) -> usize {
+        self.flights
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .len()
+    }
+
+    /// The requests waiting on the flight computing `key` now, for tests.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn waiting(&self, key: &str) -> usize {
+        self.flights
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(key)
+            // The map and the leader hold it besides the waiters.
+            .map_or(0, |flight| Arc::strong_count(flight).saturating_sub(2))
     }
 }
 

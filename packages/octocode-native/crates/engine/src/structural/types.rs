@@ -97,7 +97,29 @@ pub enum StructuralDemand<'a> {
     /// in match order, and a page rebuilds the matches it shows
     /// ([`super::file_matches`]).
     Priced(&'a (dyn Fn(&StructuralDetailedMatch) -> u32 + Sync)),
+    /// [`Self::Priced`], and the window ends after the files the caller's
+    /// page 1 needs ([`PageFilled`]), or later to read at least as many
+    /// candidates as the windows before it, resuming after it
+    /// ([`super::search_files`]'s `scan_resume`, with `page_filled`): a
+    /// window bounded by the page it shows, not by its scope.
+    Paged(
+        &'a (dyn Fn(&StructuralDetailedMatch) -> u32 + Sync),
+        &'a PageFilled<'a>,
+    ),
+    /// Whether the scope holds any match: each file's count, as
+    /// [`Self::Count`], and the scan ends at the first chunk that holds a
+    /// match, resuming after it ([`super::search_files`]'s `scan_resume`).
+    Exists,
 }
+
+/// Where the files a [`StructuralDemand::Paged`] scan evaluated fill its
+/// caller's page 1: called once per chunk, serially, with that chunk's
+/// evaluated files in candidate order (a caller keeps what earlier chunks
+/// held, so it sees every file once, in walk order), until it names how many
+/// of the chunk's files page 1 needs, once a match after page 1's last
+/// exists: the files after them start page 2.
+pub type PageFilled<'a> =
+    dyn Fn(&[&StructuralSearchDetailedFileResult]) -> Option<usize> + Sync + 'a;
 
 /// What a file search kept of one file's matches, by its
 /// [`StructuralDemand`].
@@ -163,6 +185,10 @@ pub struct StructuralSearchFilesOptions {
     /// The global ignore rules of the call, which the walk applies per
     /// repository.
     pub global_ignore: crate::search::walk::GlobalIgnore,
+    /// The caller's key for keeping each file's outcome across scans: its
+    /// demand's price is a function of the match and this key alone. `None`
+    /// keeps nothing.
+    pub kept: Option<String>,
 }
 
 /// What a structural search hides of a source whose admitted text is
@@ -228,6 +254,9 @@ pub struct StructuralSearchDetailedFileResult {
 
 pub struct StructuralSearchFilesDetailedResult {
     pub scan_truncated: bool,
+    /// The scan stopped because a [`StructuralDemand::Paged`] page filled,
+    /// not at its time budget: what it skipped is pagination, not a gap.
+    pub page_filled: bool,
     /// Where a truncated scan resumes: the walk-order index of the first
     /// unevaluated candidate (pass it back as `skip_files`). `None` when the
     /// scan is complete, or was cut by an explicit `max_files`.
@@ -250,6 +279,9 @@ pub struct StructuralSearchFilesDetailedResult {
     /// entries it could not stat), through the last candidate it collected:
     /// absence below them is unproven.
     pub walk_errors: WalkErrors,
+    /// What the walk's own rules left out, through the last candidate it
+    /// collected: nothing behind them was read.
+    pub walk_skipped: WalkSkipped,
     pub status: String,
     pub query: StructuralQueryExplanation,
     pub diagnostics: Vec<StructuralDiagnostic>,
@@ -258,6 +290,27 @@ pub struct StructuralSearchFilesDetailedResult {
 
 /// Which matches a line scope keeps, by file and 1-based start line.
 pub type KeepLine<'a> = dyn Fn(&std::path::Path, u32) -> bool + Sync + 'a;
+
+/// What a structural walk's own rules left out, each entry by its path under
+/// the walk root with `/` separators, a directory's with a trailing `/` (its
+/// contents were never walked), in walk order: an ignore rule's entries
+/// (`.gitignore`, `.ignore`, git excludes, global rules), dot entries without
+/// `includeHidden`, and the directories the default prune skipped. The
+/// topmost skipped entry of each subtree is named, never what it holds.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WalkSkipped {
+    pub ignored: Vec<String>,
+    pub hidden: Vec<String>,
+    pub pruned: Vec<String>,
+}
+
+impl WalkSkipped {
+    /// Whether the walk's rules left nothing out.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.ignored.is_empty() && self.hidden.is_empty() && self.pruned.is_empty()
+    }
+}
 
 /// What a structural walk could not read: the count (`skipped` and
 /// `permission_denied`, as every other walk counts them, so one disclosure
@@ -274,15 +327,25 @@ const WALK_ERROR_SAMPLE: usize = 3;
 
 impl WalkErrors {
     pub(super) fn record(&mut self, error: &ignore::Error) {
-        self.skipped = self.skipped.saturating_add(1);
-        if error
+        self.note(Self::denied(error), &error.to_string());
+    }
+
+    /// Whether `error` is a denied permission.
+    pub(super) fn denied(error: &ignore::Error) -> bool {
+        error
             .io_error()
             .is_some_and(|io| io.kind() == std::io::ErrorKind::PermissionDenied)
-        {
+    }
+
+    /// Count one entry the walk could not read, as [`Self::record`] counts
+    /// an error that `denied` permission or not and reads as `message`.
+    pub(super) fn note(&mut self, denied: bool, message: &str) {
+        self.skipped = self.skipped.saturating_add(1);
+        if denied {
             self.permission_denied = self.permission_denied.saturating_add(1);
         }
         if self.sample.len() < WALK_ERROR_SAMPLE {
-            self.sample.push(error.to_string());
+            self.sample.push(message.to_owned());
         }
     }
 }

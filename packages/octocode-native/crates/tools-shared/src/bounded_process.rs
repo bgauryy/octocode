@@ -46,7 +46,7 @@ pub struct BoundedOutput {
     pub stdout: Vec<u8>,
     /// The first [`STDERR_BYTES`] of stderr, for an error message. When
     /// stderr was cut short, a closing `[stderr …]` line says so (see
-    /// [`capture::with_cut_note`]), so any message that quotes it carries the note.
+    /// `capture::with_cut_note`), so any message that quotes it carries the note.
     pub stderr: Vec<u8>,
 }
 
@@ -283,7 +283,7 @@ pub(crate) fn run_bounded_chunks(
 /// command already wrote (at most one pipe buffer) are pending by then; a
 /// detached descendant that keeps writing past this bound fails a read. That
 /// fails the command when it is stdout; stderr ends there and says so (see
-/// [`capture::with_cut_note`]).
+/// `capture::with_cut_note`).
 const DRAIN_GRACE: Duration = Duration::from_secs(1);
 
 #[cfg(all(test, unix))]

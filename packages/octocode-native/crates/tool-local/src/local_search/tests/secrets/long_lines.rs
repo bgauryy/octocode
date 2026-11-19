@@ -124,7 +124,10 @@ fn a_span_keeps_what_is_not_the_secret() {
             }"#,
         ),
     );
-    let value = first_value(&found);
+    // The span is the request's one term, so it states only where it is.
+    let span = &found["files"][0]["matches"][0];
+    assert!(span.get("value").is_none(), "{found}");
+    let value = read_value(span, "needle-[REDACTED-");
     assert!(!value.contains("ghp_aB3d"), "{value}");
     assert!(value.starts_with("needle-[REDACTED-"), "{value}");
 }

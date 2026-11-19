@@ -410,7 +410,7 @@ pub(super) fn remove_dir(path: &Path) {
 /// stays clean, and it travels with the stage when published.
 const COMPLETED_AT_FILE: &str = "octocode-cloned-at";
 
-/// Where `checkout` keeps its git data ([`checkout_git_dir`]).
+/// Where `checkout` keeps its git data ([`checkout_git_dir`](octocode_engine::search::walk::checkout_git_dir)).
 fn git_dir(checkout: &Path) -> Option<PathBuf> {
     octocode_engine::search::walk::checkout_git_dir(checkout)
 }

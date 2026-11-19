@@ -23,6 +23,7 @@ reqwest = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha1 = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["macros", "sync", "time"] }
 url = { workspace = true }

@@ -57,37 +57,7 @@ pub(crate) async fn pypi(
     let links = info.get("project_urls").and_then(Value::as_object);
     artifact.homepage = safe_url(info.get("home_page"))
         .or_else(|| links.and_then(|value| safe_url(value.get("Homepage"))));
-    // A labeled source link first; else the first project link or the
-    // homepage that names a GitHub repository (attrs labels it "GitHub",
-    // rich and six give only a GitHub homepage).
-    let source = links
-        .and_then(|links| {
-            links.iter().find_map(|(label, value)| {
-                matches!(
-                    label.to_ascii_lowercase().as_str(),
-                    "source"
-                        | "source code"
-                        | "sourcecode"
-                        | "repository"
-                        | "repo"
-                        | "code"
-                        | "github"
-                        | "gitlab"
-                )
-                .then(|| repository_url(Some(value)))
-                .flatten()
-            })
-        })
-        .or_else(|| {
-            links
-                .into_iter()
-                .flat_map(|links| links.values())
-                .chain(info.get("home_page"))
-                .filter_map(Value::as_str)
-                .find(|link| github_slug(link).is_some())
-                .map(str::to_owned)
-        });
-    if let Some(link) = source {
+    if let Some(link) = source_link(info) {
         artifact.set_source_link(&link);
     }
     artifact.published_at = body
@@ -115,12 +85,88 @@ pub(crate) async fn pypi(
         .partition(|requirement| names_an_extra(requirement));
     artifact.dependencies = Some(required);
     artifact.optional_dependencies = (!optional.is_empty()).then_some(optional);
+    // A release whose metadata names no repository (older releases often
+    // name only a homepage) takes the one its project's latest release names.
+    let latest = match artifact_search_query::version(query) {
+        Some(_) if artifact.repository.is_none() => latest_source(&mut artifact, client).await,
+        _ => None,
+    };
     // PyPI names no commit; an upstream tag for this release pins the lead.
     if let Some(version) = artifact.version.clone() {
         let name = artifact.package_name.clone();
         super::release_ref::pin_release_tag(&mut artifact, &name, &version, None, client).await;
     }
+    if let Some(latest) = latest {
+        super::link_directory::place_at_pinned_ref(&mut artifact, PYPI_MANIFESTS, client).await;
+        let package = match artifact.version.as_deref() {
+            Some(version) => format!("{} {version}", artifact.package_name),
+            None => artifact.package_name.clone(),
+        };
+        artifact.disclosures.push(format!(
+            "{package}: its own metadata names no source repository; the repository is the one its latest release, {latest}, names."
+        ));
+    }
     Ok(ArtifactProviderPage::single(artifact))
+}
+
+/// The files a Python project's directory is built from, in any release.
+const PYPI_MANIFESTS: &[&str] = &["pyproject.toml", "setup.py", "setup.cfg"];
+
+/// The source link of a PyPI release's `info`: a labeled source link first;
+/// else the first project link or the homepage that names a GitHub
+/// repository (attrs labels it "GitHub", rich and six give only a GitHub
+/// homepage).
+fn source_link(info: &serde_json::Map<String, Value>) -> Option<String> {
+    let links = info.get("project_urls").and_then(Value::as_object);
+    links
+        .and_then(|links| {
+            links.iter().find_map(|(label, value)| {
+                matches!(
+                    label.to_ascii_lowercase().as_str(),
+                    "source"
+                        | "source code"
+                        | "sourcecode"
+                        | "repository"
+                        | "repo"
+                        | "code"
+                        | "github"
+                        | "gitlab"
+                )
+                .then(|| repository_url(Some(value)))
+                .flatten()
+            })
+        })
+        .or_else(|| {
+            links
+                .into_iter()
+                .flat_map(|links| links.values())
+                .chain(info.get("home_page"))
+                .filter_map(Value::as_str)
+                .find(|link| github_slug(link).is_some())
+                .map(str::to_owned)
+        })
+}
+
+/// Sets `artifact`'s source to the one the project's latest release names,
+/// when that release is another one and names one; the latest version, when
+/// it did. A failed read leaves the row as its own metadata left it.
+async fn latest_source(artifact: &mut ArtifactItem, client: &RegistryClient<'_>) -> Option<String> {
+    let url = parse_url(&format!(
+        "https://pypi.org/pypi/{}/json",
+        super::util::encode_component(&artifact.package_name)
+    ))
+    .ok()?;
+    let project = client
+        .json(ArtifactType::Pypi, url, true, None, None, JSON)
+        .await
+        .ok()??;
+    let info = project.get("info").and_then(Value::as_object)?;
+    let latest = string(info.get("version"))?;
+    if artifact.version.as_deref() == Some(latest.as_str()) {
+        return None;
+    }
+    artifact.set_source_link(&source_link(info)?);
+    Some(latest)
 }
 
 /// One entry of a PyPI release's `vulnerabilities`: its ids, link and fixes

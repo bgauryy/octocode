@@ -295,6 +295,7 @@ fn prepare(
                 state,
                 cells,
                 emitted: false,
+                deferred: std::collections::BTreeSet::new(),
             };
             let bytes = unit_weight(&unit);
             if retained_bytes.saturating_add(bytes) > remaining_bytes {

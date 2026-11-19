@@ -16,7 +16,7 @@ use std::sync::Arc;
 pub(super) const MAX_OPEN_DOCUMENTS: usize = 64;
 
 /// What the last successful sync of a document sent: the file it was read
-/// from, the digest of its text, and, once [`NativeLspClient::sync_open_documents`]
+/// from, the digest of its text, and, once [`NativeLspClient::sync_open_documents`](super::NativeLspClient::sync_open_documents)
 /// has proven that text is still the file's, the file's settled stamp.
 #[derive(Clone, Debug)]
 pub(super) struct Synced {
@@ -103,12 +103,15 @@ pub(super) struct OpenDocuments {
     /// the next request names it, and an `unchanged` answer returns it.
     diagnostics: HashMap<String, Arc<Value>>,
     /// Open documents whose open a caller already waited after (see
-    /// [`NativeLspClient::open_document_and_wait`]); one opened without the
+    /// [`NativeLspClient::open_document_and_wait`](super::NativeLspClient::open_document_and_wait)); one opened without the
     /// wait still owes it.
     waited: HashSet<String>,
     /// Recency order, least-recently-synced at the front.
     lru: VecDeque<String>,
     cap: usize,
+    /// Document contents sent so far (opens and changes), never reset: a
+    /// later count says the server holds text it did not before.
+    sends: u64,
 }
 
 impl OpenDocuments {
@@ -120,7 +123,19 @@ impl OpenDocuments {
             waited: HashSet::new(),
             lru: VecDeque::new(),
             cap: cap.max(1),
+            sends: 0,
         }
+    }
+
+    /// Document contents sent so far ([`Self::record`]), and file events.
+    pub(super) fn sends(&self) -> u64 {
+        self.sends
+    }
+
+    /// Count a change the server was told of beside a document sync (a
+    /// file event): what it answers may differ from then on.
+    pub(super) fn note_sent(&mut self) {
+        self.sends += 1;
     }
 
     pub(super) fn clear(&mut self) {
@@ -212,6 +227,7 @@ impl OpenDocuments {
 
     /// Remember what a sync of `version` sent: `path`'s text with `digest`.
     pub(super) fn record(&mut self, uri: &str, version: i32, path: &str, digest: u64) {
+        self.sends += 1;
         if self.version(uri) == Some(version) {
             self.synced.insert(
                 uri.to_owned(),

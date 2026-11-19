@@ -11,7 +11,7 @@ pub(super) enum Reuse {
     Fresh,
 }
 
-/// Which location request [`NativeLspClient::get_locations`] sends.
+/// Which location request [`NativeLspClient::get_locations`](crate::lsp::client::NativeLspClient::get_locations) sends.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LocationRequest {
     Definition,

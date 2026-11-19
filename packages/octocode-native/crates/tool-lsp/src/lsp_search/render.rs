@@ -96,6 +96,39 @@ pub(super) fn document_symbol_rows(page: &[Value], all: &[Value]) -> Vec<Value> 
     octocode_runtime_base::response::symbol_outline::declaration_rows(&objects)
 }
 
+/// The forms a judged row is served in: a references files view grouped by
+/// directory where shorter (TC4, [`group_file_summaries`]). A form that packs
+/// fields the judgment reads one by one (each `path`) is built only once it
+/// ran: `judged` is its proof. Outline strings (Q5) are not formed here: the
+/// output gate reads a server-written name line by line, and inside a
+/// `"<line>\t<kind> <name>"` string a secret keyed at a line start is no
+/// longer found (`process_tests::server_text`).
+pub(super) fn served_forms(row: &mut Value, _judged: &super::server_text::Judged) {
+    group_file_summaries(row);
+}
+
+/// A files view's per-file summaries (`path` and `matchedLines`, no
+/// `matches`) as `{dir, files}` groups where that is shorter.
+fn group_file_summaries(row: &mut Value) {
+    let Some(files) = row.get("files").and_then(Value::as_array) else {
+        return;
+    };
+    let summaries = files.iter().all(|file| {
+        file.get("matchedLines").is_some()
+            && file.get("matches").is_none()
+            && file.get("path").and_then(Value::as_str).is_some()
+    });
+    if !summaries {
+        return;
+    }
+    if let Some(groups) = octocode_runtime_base::response::groups::group_rows(
+        files,
+        octocode_runtime_base::response::groups::Order::Merged,
+    ) {
+        row["files"] = Value::Array(groups);
+    }
+}
+
 /// The name a query anchors on in a server's label, and the label when it
 /// says more: jdtls labels a method with its signature (`useIt(Port) : String`).
 /// Any other label is its own name.

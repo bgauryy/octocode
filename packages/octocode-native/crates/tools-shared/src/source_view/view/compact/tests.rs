@@ -10,13 +10,14 @@ use octocode_test_support::json_fixture;
 use serde_json::json;
 use std::path::Path;
 
-/// A one-line minified script just past the parse budget, and the path it
-/// is read at.
+/// A script just past the parse budget, one short call per line (minified
+/// text is refused before any parse estimate: see
+/// `minified_text_gets_neither_view`), and the path it is read at.
 fn dense() -> (String, &'static str) {
     let budget = octocode_engine::structural::parse_budget();
     let calls = budget / octocode_engine::structural::BYTES_PER_TOKEN / 5 + 1000;
     (
-        format!("var a=[{}eval(zzz)];\n", "f(1),".repeat(calls)),
+        format!("var a=[{}eval(zzz)];\n", "f(1),\n".repeat(calls)),
         "/fixture/dense.js",
     )
 }
@@ -92,4 +93,66 @@ fn a_source_within_the_budget_is_still_compacted_and_outlined() {
     assert_eq!(row["view"], json!("compact"), "{:.600}", row.to_string());
     let row = served(&source, "/fixture/plain.js", "symbols");
     assert_eq!(row["view"], json!("symbols"), "{:.600}", row.to_string());
+}
+
+/// Minified text gets neither a compact view nor an outline, and is not
+/// parsed for one: the row is a short notice that routes to matchString,
+/// which still serves each match with its window. A source with one long
+/// line among many short ones is still outlined.
+#[test]
+fn minified_text_gets_neither_view() {
+    let bundle = format!(
+        "!function(){{{}}}();\n",
+        (0..4_000)
+            .map(|at| format!("var a{at}=b{at}(c,d);"))
+            .collect::<String>()
+    );
+    let path = "/fixture/bundle.min.js";
+    for view in ["compact", "symbols"] {
+        let row = served(&bundle, path, view);
+        assert_eq!(
+            row["errorCode"],
+            json!(ErrorCode::LargeSourceWindowOnly),
+            "{view}: {:.600}",
+            row.to_string()
+        );
+        let error = row["error"].as_str().expect("error");
+        assert!(
+            error.contains("Minified") && error.contains("matchString"),
+            "{view}: {error}"
+        );
+        assert!(
+            row.get("content").is_none(),
+            "{view}: {:.300}",
+            row.to_string()
+        );
+        assert!(
+            row.to_string().len() < 1_000,
+            "{view}: {}",
+            row.to_string().len()
+        );
+    }
+    let query: LocalFetchQuery =
+        serde_json::from_value(json!({"path": path, "matchString": ["a3999=b3999"]}))
+            .expect("query");
+    let row = serde_json::to_value(process_fetched_content(
+        &query,
+        bundle.as_bytes(),
+        Path::new(path),
+        &SourceFacts::default(),
+        &ContentSecurity::new(),
+        &NeverCancel,
+    ))
+    .expect("serialize");
+    assert!(
+        row["content"]
+            .as_str()
+            .is_some_and(|content| content.contains("a3999=b3999")),
+        "{:.600}",
+        row.to_string()
+    );
+    let mut code = "function run() {\n  return 1;\n}\n".repeat(400);
+    code.push_str(&format!("const blob = \"{}\";\n", "x".repeat(20_000)));
+    let row = served(&code, "/fixture/one_long_line.js", "symbols");
+    assert_eq!(row["view"], "symbols", "{:.600}", row.to_string());
 }

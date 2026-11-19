@@ -21,7 +21,7 @@ pub(super) struct Manifest {
     pub(super) registry_identity: String,
     pub(super) stage: Stage,
     /// The canonical scope root the job extracts: a job whose root is gone
-    /// can never be resumed ([`super::prune_jobs`]).
+    /// can never be resumed (`super::prune_jobs`).
     pub(super) root: String,
 }
 

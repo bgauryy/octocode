@@ -27,7 +27,7 @@ fn skipped_dirs() -> impl Iterator<Item = String> {
 pub(super) type Mentions = BTreeMap<String, Vec<String>>;
 
 /// The mention scan's hits: file stems in path-like tokens, and export
-/// names split by kind ([`scan_mentions`]).
+/// names split by kind (`scan_mentions`).
 #[derive(Default)]
 pub(super) struct MentionHits {
     /// Stem keys ([`super::mention_tokens::path_key`]) in path-like tokens

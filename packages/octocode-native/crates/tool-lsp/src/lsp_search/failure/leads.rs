@@ -234,12 +234,32 @@ pub fn record_text_only(
     let coverage = payload.entry("coverage").or_insert_with(|| json!({}));
     coverage["textOnlyFiles"] = json!(files);
     if let Some(out) = out {
-        coverage["outOfReachFiles"] = json!(out.files);
+        // The files read that spell the name keep their count; the files a
+        // bounded check left unread are counted apart, never dropped.
+        if out.files > 0 {
+            coverage["outOfReachFiles"] = json!(out.files);
+        }
+        if out.unsearched > 0 {
+            coverage["unreadOutOfReach"] = json!(out.unsearched);
+        }
+        let counted = match (out.files > 0, out.unsearched > 0) {
+            (true, false) => format!(
+                "coverage.outOfReachFiles counts files that spell `{name}` outside its reach ({})",
+                out.bound
+            ),
+            (false, _) => format!(
+                "coverage.unreadOutOfReach counts files outside its reach ({}), which the text check did not read",
+                out.bound
+            ),
+            (true, true) => format!(
+                "coverage.outOfReachFiles counts files that spell `{name}` outside its reach ({}), and coverage.unreadOutOfReach the files outside it the text check did not read",
+                out.bound
+            ),
+        };
         octocode_runtime_base::response::paging::push_notice(
             row,
             format!(
-                "coverage.outOfReachFiles counts files that spell `{name}` outside its reach ({}): they cannot reference it, so they are neither missed sites nor leads.",
-                out.bound
+                "{counted}: they cannot reference it, so they are neither missed sites nor leads."
             ),
         );
     }

@@ -78,7 +78,7 @@ Octocode tools: edit `@octocodeai/octocode-core`, which owns tool names, schemas
 ## Instructions, descriptions, names
 
 - Hosts may shorten loaded instructions or descriptions. Put routing and trust boundaries first and inspect what the target host actually serves; consult current documentation for its limits.
-- Instructions reach MCP agents only. Deferred tool loading and CLI agents skip them, so a field an agent must fill keeps its own note, and CLI help carries its own routing.
+- Instructions reach MCP agents only, from the first turn even where tool schemas load deferred; CLI agents and hosts that drop instructions skip them, so a field an agent must fill keeps its own note, and CLI help carries its own routing.
 - Server instructions explain dependencies and what the agent cannot infer (refusals, approvals, what empty proves). Include routing only when it resolves a cross-tool decision; do not repeat the tool catalog.
 - Descriptions give a capable new hire the selection or behavior information missing from the name and schema. A simple tool may need one sentence; add an example or next step only when it prevents ambiguity.
 - Names express the capability or action (`messages`, `repo_search_code`, `issue_get`); `search` filters, `get` takes a known ID, `list` browses bounded sets, mutation verbs change state. No near-synonyms unless evals show agents distinguish them.

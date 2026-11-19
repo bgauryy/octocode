@@ -81,6 +81,12 @@ pub(crate) fn number(query: &Q) -> Option<u64> {
     variant_field!(query, each [Q::PullRequest0, Q::PullRequestMatchString, Q::Issue2, Q::IssueMatchString]
         q => Some(q.number.get()), else => None)
 }
+/// Whether the read keeps the discussion entries a bot or app wrote
+/// (`bots`, default true).
+pub(crate) fn bots(query: &Q) -> bool {
+    variant_field!(query, each [Q::PullRequest0, Q::PullRequestMatchString, Q::Issue2, Q::IssueMatchString]
+        q => q.bots != Some(false), else => true)
+}
 pub(crate) fn reference(query: &Q) -> Option<&str> {
     variant_field!(query, each [Q::Commit4, Q::CommitMatchString]
         q => Some(q.ref_.as_str()), else => None)

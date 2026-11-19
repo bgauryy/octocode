@@ -1,8 +1,8 @@
 //! The tree walk: the recursive git tree, else a folder-by-folder walk.
 use super::*;
-mod contents;
+pub(super) mod contents;
 mod entries;
-pub(super) use contents::walk_contents;
+pub(super) use contents::{MAX_WALK_READS, walk_contents};
 pub(super) use entries::{entry_kind, missing_ref, not_a_directory, traversal_from_git_tree};
 use entries::{file_oid, git_kind, note_unlisted, unlisted_kind};
 

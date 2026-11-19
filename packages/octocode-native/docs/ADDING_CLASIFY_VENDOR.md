@@ -34,7 +34,7 @@ Add an integration test that runs `clasify` against a mock of the vendor API; `c
 |---|---|
 | HTTP transport, retries, budget, error codes | `providers/classification/transport.rs` |
 | Question batching | `crates/tools-shared/src/judgment/batch.rs` |
-| Judgment cache | `crates/tools-shared/src/judgment/cache.rs` |
+| Request-owned dedupe of identical evaluations | `crates/tools-shared/src/judgment/shared.rs` |
 | Per-endpoint concurrency gate | `providers/classification/gate.rs` |
 | Source capture (files, GitHub, URLs, images) | `crates/tools-shared/src/source_capture/` |
 | The `clasify` tool | `crates/tool-clasify/src/clasify.rs` |

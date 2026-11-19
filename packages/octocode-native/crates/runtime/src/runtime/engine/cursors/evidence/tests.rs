@@ -186,3 +186,41 @@ fn held_answers_never_reach_the_persistent_store() {
         assert!(!text.contains("ghp_"), "{}", entry.path().display());
     }
 }
+
+/// A call that observes the same saved answers as an earlier one (their
+/// bodies the same shared buffers) names its evidence without hashing the
+/// bodies again, and names it exactly as a fresh digest does. Equal text in
+/// another buffer, or other text of the same length, is digested anew.
+#[test]
+fn the_same_answers_are_digested_once_and_name_the_same_evidence() {
+    let computed = || COMPUTED.with(std::cell::Cell::get);
+    let body = format!("fn digest_once() {{}} // {}\n", "x".repeat(4096));
+    let observed = ProviderEvidence {
+        answers: vec![answer("GET /once", body.clone())],
+        notes: [("fact".to_owned(), "kept".to_owned())].into(),
+    };
+    let fresh = octocode_runtime_base::digest::json_sha256(&observed);
+    let before = computed();
+    let first = owned(observed.clone()).expect("owned").digest;
+    let repeat = owned(observed.clone()).expect("owned").digest;
+    assert_eq!(
+        (first.as_str(), repeat.as_str()),
+        (fresh.as_str(), fresh.as_str())
+    );
+    assert_eq!(computed() - before, 1, "the repeat read the kept digest");
+    // The same text in a new buffer: a new identity, the same digest.
+    let copied = ProviderEvidence {
+        answers: vec![answer("GET /once", body.clone())],
+        notes: observed.notes.clone(),
+    };
+    assert_eq!(owned(copied).expect("owned").digest, fresh);
+    assert_eq!(computed() - before, 2);
+    // Other text of the same length is digested as itself.
+    let other = ProviderEvidence {
+        answers: vec![answer("GET /once", body.replace("once", "twic"))],
+        notes: observed.notes.clone(),
+    };
+    let changed = owned(other.clone()).expect("owned").digest;
+    assert_eq!(changed, octocode_runtime_base::digest::json_sha256(&other));
+    assert_ne!(changed, fresh);
+}

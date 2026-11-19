@@ -205,7 +205,7 @@ pub(super) struct ExactRange {
 /// The 1-based UTF-16 column a match row prints for `point`: the same
 /// conversion `line_index_support` applies to every match it emits.
 fn printed_column(point: tree_sitter::Point, document: &Document<'_, '_>) -> usize {
-    let column = document.line_index.row_col_to_utf16_column(
+    let column = document.lines().row_col_to_utf16_column(
         document.content,
         saturating_u32(point.row),
         saturating_u32(point.column),

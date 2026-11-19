@@ -81,7 +81,9 @@ pub(crate) mod receiver_fields;
 /// Scala; a JS/TS bare callee oxc binds to a listed declaration names it
 /// (`boundDeclaration`); a pattern's written type (`x: T`, `Wrapper(x)`) and
 /// a block-scope C/C++ function prototype bind no local value.
-pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 33;
+/// v34: the path of a restricted visibility (`pub(in crate::x)`) is no
+/// path reference, so it links no import of that module.
+pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 34;
 
 /// The declaration kinds an `extends`/`implements` clause can name or
 /// declare: the nodes of a type hierarchy. One list for the graph's linking
@@ -290,26 +292,6 @@ pub fn extract_graph_facts(
     extract_graph_facts_with_metadata_inner(content, file_path).map(|extraction| extraction.facts)
 }
 
-/// The module references of `content`: its imports, re-exports and CommonJS
-/// loads, as [`extract_graph_facts`] records them, with the cleanliness
-/// diagnostics of the same parse. For JS/TS the extraction is the lightest
-/// that holds them all (`js_oxc::extract_module_references`); the document's
-/// other facts (calls, arguments, declared types) may be absent, so read
-/// nothing else from it. Other languages get their whole facts.
-#[must_use]
-pub fn extract_module_references(
-    content: &str,
-    file_path: &str,
-) -> Option<crate::graph::GraphFactsDocument> {
-    js_oxc::extract_module_references(content, file_path).or_else(|| {
-        unless_stopped(|| tree_sitter_graph_facts(content, file_path))
-            .map(|extraction| extraction.facts)
-    })
-}
-
-/// The grammar [`extract_graph_facts`] reads a file with when tree-sitter
-/// reads it, with the extension that grammar goes by; `None` when oxc owns
-/// the file or no grammar does.
 /// The declarations of `content` whose `extends`/`implements` clause names
 /// `name`, with those edges, as [`extract_graph_facts`] records them, reading
 /// only the parts of the file that spell `name`; `None` when only the whole
@@ -365,6 +347,9 @@ pub(crate) fn local_binding_scope(
     arguments::binding::Bindings::collect(root, adapter, content, deadline).local_scope(name, at)
 }
 
+/// The grammar [`extract_graph_facts`] reads a file with when tree-sitter
+/// reads it, with the extension that grammar goes by; `None` when oxc owns
+/// the file or no grammar does.
 pub(crate) fn graph_facts_grammar(
     content: &str,
     file_path: &str,

@@ -28,7 +28,7 @@ pub(crate) async fn run_code(server: &MockServer, query: Value) -> Result<ToolDa
     .await
 }
 
-/// A ghSearchCode row's `matches` as `<line>\t<text>` entries, one per
+/// A ghSearchCode row's `matches`: its `<line>\t<text>` entries, one per
 /// listed line; `null` when the row lists none.
 pub(crate) fn listing(row: &Value) -> Value {
     row.get("matches")
@@ -37,11 +37,8 @@ pub(crate) fn listing(row: &Value) -> Value {
             matches
                 .iter()
                 .map(|entry| {
-                    json!(format!(
-                        "{}\t{}",
-                        entry["line"],
-                        entry["value"].as_str().unwrap_or("")
-                    ))
+                    assert!(entry.is_string(), "a numbered-line entry: {entry}");
+                    entry.clone()
                 })
                 .collect()
         })

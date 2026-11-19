@@ -2,9 +2,10 @@ use super::scan::DIRECTORY_SCANS;
 use octocode_runtime_base::test_support::Fixture;
 use serde_json::json;
 
-/// Identical match requests running at once are independent: each walks,
-/// reads and parses the directory itself, and both answer alike. No scan or
-/// result is shared across requests.
+/// Identical match requests running at once are independent: each scans
+/// the directory itself, reading and matching every file, and both answer
+/// alike. No scan or result is shared across requests; only the walk and
+/// the parses are ([`super::shared_scope`]).
 #[test]
 fn identical_concurrent_requests_each_perform_their_own_scan() {
     let root = Fixture::new();

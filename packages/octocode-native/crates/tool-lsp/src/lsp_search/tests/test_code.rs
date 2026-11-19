@@ -65,21 +65,37 @@ async fn reference_files(test_code: Option<&str>) -> (serde_json::Value, std::pa
     (row, root)
 }
 
-/// Each listed file with its 1-based lines, relative to `root`.
+/// Each listed file with its 1-based lines, relative to `root`: a
+/// `{dir, files}` group names its entries `dir/name`.
 fn listed(row: &serde_json::Value, root: &std::path::Path) -> Vec<(String, serde_json::Value)> {
     row["files"]
         .as_array()
         .expect("files view")
         .iter()
-        .map(|file| {
-            let path = file["path"].as_str().expect("path");
-            let relative = std::path::Path::new(path)
+        .flat_map(
+            |file| match file.get("dir").and_then(serde_json::Value::as_str) {
+                Some(dir) => file["files"]
+                    .as_array()
+                    .expect("group entries")
+                    .iter()
+                    .map(|entry| {
+                        (
+                            format!("{dir}/{}", entry["name"].as_str().expect("name")),
+                            entry["matchedLines"].clone(),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+                None => vec![(
+                    file["path"].as_str().expect("path").to_owned(),
+                    file["matchedLines"].clone(),
+                )],
+            },
+        )
+        .map(|(path, lines)| {
+            let relative = std::path::Path::new(&path)
                 .strip_prefix(root)
                 .expect("under root");
-            (
-                relative.to_string_lossy().into_owned(),
-                file["matchedLines"].clone(),
-            )
+            (relative.to_string_lossy().into_owned(), lines)
         })
         .collect()
 }

@@ -21,6 +21,10 @@ fn source_row() -> Row {
         details: true,
         per_item: false,
         source_progress: None,
+        max_requests: None,
+        per_hit: false,
+        retry_units: None,
+        query: Value::Null,
     }
 }
 

@@ -73,6 +73,32 @@ pub(super) fn interrupted_rescan(q: MatchQuery<'_>, scan: &Scan) -> Option<ToolE
     Some(error)
 }
 
+/// A later window's cursor state: its pin or snapshot, then after `~` the
+/// rows the windows before it listed, so its pages count from where the
+/// walk stands (`pagination.offset` advances across windows).
+pub(super) fn counted(snapshot: String, before: u64) -> String {
+    if before == 0 {
+        snapshot
+    } else {
+        format!("{snapshot}~{before}")
+    }
+}
+
+/// [`counted`]'s pin or snapshot, and the rows before its window.
+pub(super) fn uncounted(snapshot: &str) -> (&str, u64) {
+    snapshot
+        .rsplit_once('~')
+        .and_then(|(bare, before)| Some((bare, before.parse().ok()?)))
+        .unwrap_or((snapshot, 0))
+}
+
+/// The rows the windows before `q`'s listed ([`counted`]).
+pub(super) fn listed_before(q: MatchQuery<'_>) -> u64 {
+    q.snapshot()
+        .filter(|_| q.scan_offset() > 0)
+        .map_or(0, |snapshot| uncounted(&snapshot).1)
+}
+
 /// Fingerprint over the query shape, ordered result set and scanned source bytes.
 /// Continuation cursors (page>1) that
 /// carry a stale snapshot are rejected with `staleSnapshot`. Fields the

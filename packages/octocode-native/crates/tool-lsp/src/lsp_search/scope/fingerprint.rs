@@ -44,7 +44,7 @@ pub(super) struct FingerprintScope<'a> {
 /// so a fresh walk would give the same lines: the kept fingerprint is
 /// served without walking only at or after its captured observation. A pinned
 /// earlier instant may still need content hashes. A scope written within the settle window before
-/// the walk began is not kept ([`Watch::capture`]).
+/// the walk began is not kept ([`Watch::capture`](octocode_tools_shared::page_memo::Watch::capture)).
 pub(super) fn fingerprint(
     scope: &FingerprintScope<'_>,
     observed: SystemTime,
@@ -151,6 +151,13 @@ impl Read {
         self.untracked |= inputs.untracked;
     }
 
+    /// Add what another walker thread read.
+    fn absorb(&mut self, other: Self) {
+        self.watched.extend(other.watched);
+        self.rules.extend(other.rules);
+        self.untracked |= other.untracked;
+    }
+
     fn proof(self, root: &Path, started: SystemTime) -> Option<octocode_engine::stamp::Proof> {
         if self.untracked {
             return None;
@@ -192,7 +199,17 @@ fn build_script_outputs(server: &Path) -> Vec<std::path::PathBuf> {
 #[cfg(test)]
 pub(super) static WALKS: super::path_counter::PathCounter = super::path_counter::PathCounter::new();
 
-/// [`fingerprint`] by walking, recording what the walks read in `read`.
+/// The directories a fingerprint walk covers whole: the server's root when
+/// the scope sits inside it, else the scope's root and the server's.
+pub(in super::super) fn walked_roots(root: &Path, server: Option<&Path>) -> Vec<PathBuf> {
+    match server {
+        Some(server) if root.starts_with(server) => vec![server.to_path_buf()],
+        Some(server) => vec![root.to_path_buf(), server.to_path_buf()],
+        None => vec![root.to_path_buf()],
+    }
+}
+
+/// [`fingerprint`](fn@fingerprint) by walking, recording what the walks read in `read`.
 fn walked_fingerprint(
     scope: &FingerprintScope<'_>,
     observed: SystemTime,
@@ -207,14 +224,10 @@ fn walked_fingerprint(
     // repository's dependency and build trees on every request costs more
     // than the request.
     let honored = octocode_engine::types::IgnorePolicy::default();
-    let mut walks = match scope.server_root {
-        Some(server) if scope.root.starts_with(server) => vec![(server.to_path_buf(), honored)],
-        Some(server) => vec![
-            (scope.root.to_path_buf(), honored),
-            (server.to_path_buf(), honored),
-        ],
-        None => vec![(scope.root.to_path_buf(), honored)],
-    };
+    let mut walks = walked_roots(scope.root, scope.server_root)
+        .into_iter()
+        .map(|dir| (dir, honored))
+        .collect::<Vec<_>>();
     if let Some(server) = scope.server_root.filter(|_| !scope.cargo_caches_unloaded) {
         let lifted = octocode_engine::types::IgnorePolicy::ALL;
         walks.extend(
@@ -328,7 +341,7 @@ fn source_digest(
 /// from this walk cannot prove the page's rows. A file's last write is the
 /// later of its mtime and ctime. A timestamp of whole seconds comes from a
 /// coarse clock, where a write after `started` can carry a time before it:
-/// the write must then be its [`SourceStamp::settle_for`] window older than
+/// the write must then be its [`SourceStamp::settle_for`](octocode_engine::stamp::SourceStamp::settle_for) window older than
 /// `started`, as for any settled stamp. A stamp that does not parse proves nothing.
 pub(in super::super) fn written_since(
     entries: &BTreeMap<String, String>,
@@ -378,7 +391,6 @@ fn walk_lines(
     read: &Mutex<Read>,
 ) -> bool {
     use std::sync::atomic::{AtomicBool, Ordering};
-    let root = scope.root;
     let extensions = scope
         .include
         .iter()
@@ -388,71 +400,27 @@ fn walk_lines(
     let unloaded = (scope.cargo_caches_unloaded && scope.server_root == Some(dir))
         .then(|| octocode_engine::lsp::workspace::UnloadedCargoCaches::of(dir))
         .flatten();
-    // One digest line per family or project file: relative path, length,
-    // mtime, and the content hash of a file modified near `observed`.
-    let line = |entry: &ignore::DirEntry| -> Option<String> {
-        if entry.file_type().is_some_and(|kind| kind.is_dir()) {
-            match read.lock() {
-                Ok(mut read) => read.enter(entry.path(), dir, scope.global_ignore),
-                Err(_) => abandoned.store(true, Ordering::Relaxed),
-            }
-            return None;
-        }
-        if !entry.file_type().is_some_and(|kind| kind.is_file()) {
-            return None;
-        }
-        let path = entry.path();
-        let name = path.file_name().map(|name| name.to_string_lossy());
-        let family = path.extension().is_some_and(|extension| {
-            extensions.is_empty() || extensions.contains(&extension.to_string_lossy().as_ref())
-        });
-        if !family && !name.is_some_and(|name| PROJECT_FILES.contains(&name.as_ref())) {
-            return None;
-        }
-        let Ok(meta) = entry.metadata() else {
-            abandoned.store(true, Ordering::Relaxed);
-            return None;
-        };
-        let Some(stamp) = octocode_engine::stamp::cache_stamp(&meta) else {
-            abandoned.store(true, Ordering::Relaxed);
-            return None;
-        };
-        let modified = meta.modified().ok();
-        let fresh = modified.is_none_or(|time| {
-            !observed
-                .duration_since(time)
-                .is_ok_and(|age| age >= FRESH_MTIME)
-        });
-        let content = if fresh {
-            match source_digest(path, Some(stamp), stopped) {
-                Some(hash) => hash,
-                None => {
-                    abandoned.store(true, Ordering::Relaxed);
-                    return None;
-                }
-            }
-        } else {
-            String::new()
-        };
-        match read.lock() {
-            Ok(mut read) => read.watched.push(path.to_path_buf()),
-            Err(_) => abandoned.store(true, Ordering::Relaxed),
-        }
-        let relative = path.strip_prefix(root).unwrap_or(path);
-        Some(format!(
-            "{}\u{0}{}\u{0}{}\u{0}{}\u{0}{}\u{0}{content}",
-            relative.to_string_lossy(),
-            stamp.size,
-            stamp.modified_ns,
-            stamp.changed_ns,
-            stamp.inode,
-        ))
+    let stamp = Stamp {
+        scope,
+        dir,
+        extensions: &extensions,
+        observed,
+        stopped,
     };
     // Both walks keep the default prune and the credential exclusions.
     octocode_tools_shared::pruned_walk_under(dir, true, [], (policy, scope.global_ignore))
         .build_parallel()
         .run(|| {
-            Box::new(|entry| {
+            // Each walker thread keeps its own lines and reads, merged once
+            // when it ends: an entry takes no lock.
+            let mut local = Local {
+                lines: Vec::new(),
+                read: Read::default(),
+                into: (lines, read),
+                abandoned: &abandoned,
+            };
+            let (stamp, unloaded, abandoned) = (&stamp, &unloaded, &abandoned);
+            Box::new(move |entry| {
                 if abandoned.load(Ordering::Relaxed) {
                     return ignore::WalkState::Quit;
                 }
@@ -470,32 +438,108 @@ fn walk_lines(
                         .as_ref()
                         .is_some_and(|unloaded| unloaded.contains(entry.path()))
                 {
-                    let tag = entry
-                        .path()
-                        .join(octocode_engine::lsp::workspace::CACHEDIR_TAG);
-                    return match read.lock() {
-                        Ok(mut read) => {
-                            read.watched.push(tag);
-                            ignore::WalkState::Skip
-                        }
-                        Err(_) => {
-                            abandoned.store(true, Ordering::Relaxed);
-                            ignore::WalkState::Quit
-                        }
-                    };
+                    local.read.watched.push(
+                        entry
+                            .path()
+                            .join(octocode_engine::lsp::workspace::CACHEDIR_TAG),
+                    );
+                    return ignore::WalkState::Skip;
                 }
-                let Some(line) = line(&entry) else {
-                    return ignore::WalkState::Continue;
-                };
-                let Ok(mut entries) = lines.lock() else {
-                    abandoned.store(true, Ordering::Relaxed);
-                    return ignore::WalkState::Quit;
-                };
-                entries.push(line);
+                match stamp.line(&entry, &mut local.read) {
+                    Ok(Some(line)) => local.lines.push(line),
+                    Ok(None) => {}
+                    Err(()) => {
+                        abandoned.store(true, Ordering::Relaxed);
+                        return ignore::WalkState::Quit;
+                    }
+                }
                 ignore::WalkState::Continue
             })
         });
     !abandoned.load(Ordering::Relaxed)
+}
+
+/// One walker thread's lines and reads, added to the walk's shared ones when
+/// the thread's visitor is dropped.
+struct Local<'a> {
+    lines: Vec<String>,
+    read: Read,
+    into: (&'a Mutex<Vec<String>>, &'a Mutex<Read>),
+    abandoned: &'a std::sync::atomic::AtomicBool,
+}
+
+impl Drop for Local<'_> {
+    fn drop(&mut self) {
+        let (lines, read) = self.into;
+        match (lines.lock(), read.lock()) {
+            (Ok(mut lines), Ok(mut read)) => {
+                lines.append(&mut self.lines);
+                read.absorb(std::mem::take(&mut self.read));
+            }
+            _ => self
+                .abandoned
+                .store(true, std::sync::atomic::Ordering::Relaxed),
+        }
+    }
+}
+
+/// How a fingerprint walk of `dir` stamps its entries.
+struct Stamp<'a> {
+    scope: &'a FingerprintScope<'a>,
+    dir: &'a Path,
+    extensions: &'a [&'a str],
+    observed: SystemTime,
+    stopped: &'a (dyn Fn() -> bool + Sync),
+}
+
+impl Stamp<'_> {
+    /// One digest line per family or project file: relative path, length,
+    /// mtime, and the content hash of a file modified near `observed`; an
+    /// entered directory is recorded in `read`. `Err` when a file could not
+    /// be stamped: the fingerprint is abandoned.
+    fn line(&self, entry: &ignore::DirEntry, read: &mut Read) -> Result<Option<String>, ()> {
+        if entry.file_type().is_some_and(|kind| kind.is_dir()) {
+            read.enter(entry.path(), self.dir, self.scope.global_ignore);
+            return Ok(None);
+        }
+        if !entry.file_type().is_some_and(|kind| kind.is_file()) {
+            return Ok(None);
+        }
+        let path = entry.path();
+        let name = path.file_name().map(|name| name.to_string_lossy());
+        let family = path.extension().is_some_and(|extension| {
+            self.extensions.is_empty()
+                || self
+                    .extensions
+                    .contains(&extension.to_string_lossy().as_ref())
+        });
+        if !family && !name.is_some_and(|name| PROJECT_FILES.contains(&name.as_ref())) {
+            return Ok(None);
+        }
+        let meta = entry.metadata().map_err(|_| ())?;
+        let stamp = octocode_engine::stamp::cache_stamp(&meta).ok_or(())?;
+        let fresh = meta.modified().ok().is_none_or(|time| {
+            !self
+                .observed
+                .duration_since(time)
+                .is_ok_and(|age| age >= FRESH_MTIME)
+        });
+        let content = if fresh {
+            source_digest(path, Some(stamp), self.stopped).ok_or(())?
+        } else {
+            String::new()
+        };
+        read.watched.push(path.to_path_buf());
+        let relative = path.strip_prefix(self.scope.root).unwrap_or(path);
+        Ok(Some(format!(
+            "{}\u{0}{}\u{0}{}\u{0}{}\u{0}{}\u{0}{content}",
+            relative.to_string_lossy(),
+            stamp.size,
+            stamp.modified_ns,
+            stamp.changed_ns,
+            stamp.inode,
+        )))
+    }
 }
 
 #[cfg(test)]

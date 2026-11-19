@@ -42,7 +42,7 @@ async fn sent(server: &MockServer) -> usize {
 }
 
 #[tokio::test]
-async fn a_missing_repository_leads_to_a_repository_search() {
+async fn a_missing_repository_leads_to_a_repository_search_beside_a_summary_count_read() {
     for row in [
         json_fixture(
             r#"{
@@ -99,8 +99,13 @@ async fn a_missing_repository_leads_to_a_repository_search() {
             "the ghSearchRepo leads are labelled"
         );
         // The item read, its probe as the other kind of numbered item (a
-        // commit has none), and the repository read.
-        let limit = if row["operation"] == "commit" { 2 } else { 3 };
+        // commit has none), and the repository read; a pull-request summary
+        // also asks its whole comment count beside the item read (TB6).
+        let limit = match row["operation"].as_str() {
+            Some("commit") => 2,
+            Some("pullRequest") => 4,
+            _ => 3,
+        };
         assert!(
             sent(&server).await == limit,
             "{row}: {} requests",
@@ -110,7 +115,7 @@ async fn a_missing_repository_leads_to_a_repository_search() {
 }
 
 #[tokio::test]
-async fn an_existing_repository_keeps_the_item_failure() {
+async fn an_existing_repository_keeps_the_item_failure_after_a_summary_count_read() {
     let server = server(Some(json_fixture(
         r#"{
             "default_branch": "main",
@@ -147,7 +152,9 @@ async fn an_existing_repository_keeps_the_item_failure() {
         calls["findPullRequest"]["tool"], "ghSearchHistory",
         "{calls}"
     );
-    assert_eq!(sent(&server).await, 3);
+    // The item read, the issue probe, the repository read, and the summary's
+    // whole comment count read beside the item read (TB6).
+    assert_eq!(sent(&server).await, 4);
     assert!(
         !failure.message.contains(OR_REPOSITORY),
         "the repository read proved it exists: {}",

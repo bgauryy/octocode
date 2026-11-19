@@ -10,19 +10,28 @@
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-/// The context lines the query that listed a page asked around each hit.
+/// What the query that listed a page says of its hits: the context lines
+/// it asked around each, and its one `matchString` term, which a localSearch
+/// span equal to it leaves out of its `value`.
 #[derive(Clone, Copy)]
-pub(super) struct Reach {
+pub(super) struct Reach<'q> {
     before: u64,
     after: u64,
+    term: Option<&'q str>,
 }
 
-impl Reach {
-    pub(super) fn of(query: &Value) -> Self {
+impl<'q> Reach<'q> {
+    pub(super) fn of(query: &'q Value) -> Self {
         let lines = |side: &str| query["contextLines"][side].as_u64().unwrap_or(0);
+        let term = match &query["matchString"] {
+            Value::String(term) => Some(term.as_str()),
+            Value::Array(terms) if terms.len() == 1 => terms[0].as_str(),
+            _ => None,
+        };
         Self {
             before: lines("before"),
             after: lines("after"),
+            term,
         }
     }
 
@@ -48,12 +57,23 @@ fn numbered(record: &str) -> Option<(u64, &str)> {
     Some((digits.parse().ok()?, text))
 }
 
-/// The source lines an entry's `value` lists: a numbered window (two or more
-/// `<line>\t<text>` records in order, the entry's `line` among them), else
-/// the value's own lines from the entry's `line` on. `None`: not a hit entry.
-fn listed(entry: &Value) -> Option<Vec<(u64, String)>> {
-    let line = entry["line"].as_u64()?;
-    let value = entry["value"].as_str()?;
+/// An entry's line and the source lines its `value` lists: a numbered
+/// window (two or more `<line>\t<text>` records in order, the entry's `line`
+/// among them), else the value's own lines from the entry's `line` on. A
+/// GitHub code hit may be one `"<line>\t<text>"` string instead of
+/// `{line, value}`; a localSearch span without `value` is the query's one
+/// term (`term`). `None`: not a hit entry.
+fn listed<'e>(entry: &'e Value, term: Option<&'e str>) -> Option<(u64, Vec<(u64, String)>)> {
+    let (line, value) = match entry.as_str() {
+        Some(record) => numbered(record)?,
+        None => (
+            entry["line"].as_u64()?,
+            entry["value"].as_str().or_else(|| {
+                // Only a span states its column; a row without one is no hit.
+                entry.get("column").and(term)
+            })?,
+        ),
+    };
     let records = value.split('\n').collect::<Vec<_>>();
     let window = records
         .iter()
@@ -65,7 +85,7 @@ fn listed(entry: &Value) -> Option<Vec<(u64, String)>> {
                 && window.windows(2).all(|pair| pair[0].0 < pair[1].0)
                 && window.iter().any(|(number, _)| *number == line)
         });
-    Some(match window {
+    let lines = match window {
         Some(window) => window
             .into_iter()
             .map(|(number, text)| (number, text.to_owned()))
@@ -74,7 +94,8 @@ fn listed(entry: &Value) -> Option<Vec<(u64, String)>> {
             .zip(records)
             .map(|(number, text)| (number, text.to_owned()))
             .collect(),
-    })
+    };
+    Some((line, lines))
 }
 
 fn line_numbers(value: &Value) -> Vec<u64> {
@@ -87,14 +108,18 @@ fn line_numbers(value: &Value) -> Vec<u64> {
 }
 
 /// The hits of `row`, in page order; `None` when its `matches` are not hit
-/// entries (each with a numeric `line` and a text `value`).
-fn hits(row: &Value, reach: Reach) -> Option<Vec<Hit>> {
+/// entries (each with a numeric `line` and a text `value`, a span whose
+/// value is the query's one term, or one `"<line>\t<text>"` string).
+fn hits(row: &Value, reach: Reach<'_>) -> Option<Vec<Hit>> {
     let entries = row["matches"]
         .as_array()
         .filter(|entries| !entries.is_empty())?;
     let listed = entries
         .iter()
-        .map(|entry| Some((entry, listed(entry)?)))
+        .map(|entry| {
+            let (line, lines) = listed(entry, reach.term)?;
+            Some((entry, line, lines))
+        })
         .collect::<Option<Vec<_>>>()?;
     let named = line_numbers(&row["matchedLines"]);
     if !named.is_empty()
@@ -105,7 +130,7 @@ fn hits(row: &Value, reach: Reach) -> Option<Vec<Hit>> {
         // One entry per shown line; the row names which are hits.
         let lines = listed
             .into_iter()
-            .flat_map(|(_, lines)| lines)
+            .flat_map(|(_, _, lines)| lines)
             .collect::<BTreeMap<_, _>>();
         return Some(
             named
@@ -119,8 +144,7 @@ fn hits(row: &Value, reach: Reach) -> Option<Vec<Hit>> {
         );
     }
     let mut hits = Vec::new();
-    for (entry, lines) in listed {
-        let line = entry["line"].as_u64()?;
+    for (entry, line, lines) in listed {
         let matched = line_numbers(&entry["matchedLines"]);
         if !matched.is_empty() {
             // Windows joined into one entry: each hit keeps its own.
@@ -142,7 +166,7 @@ fn hits(row: &Value, reach: Reach) -> Option<Vec<Hit>> {
     Some(hits)
 }
 
-fn within(lines: &BTreeMap<u64, String>, reach: Reach, span: (u64, u64)) -> Vec<(u64, String)> {
+fn within(lines: &BTreeMap<u64, String>, reach: Reach<'_>, span: (u64, u64)) -> Vec<(u64, String)> {
     lines
         .iter()
         .filter(|(line, _)| reach.holds(span, **line))
@@ -150,12 +174,18 @@ fn within(lines: &BTreeMap<u64, String>, reach: Reach, span: (u64, u64)) -> Vec<
         .collect()
 }
 
-/// The innermost of `row`'s declarations holding `line`.
-fn enclosing(row: &Value, line: u64) -> Option<&Value> {
+/// The innermost of `row`'s declarations holding `line`. A declaration may
+/// be its object or its line-first outline string
+/// (`"<line>\t<indent><kind> <name> (end N, …)"`), read back as the object.
+fn enclosing(row: &Value, line: u64) -> Option<Value> {
     row["declarations"]
         .as_array()?
         .iter()
         .filter_map(|declared| {
+            let declared = match declared.as_str() {
+                Some(text) => octocode_runtime_base::response::symbol_outline::outline_row(text)?.1,
+                None => declared.clone(),
+            };
             let first = declared["line"].as_u64()?;
             let last = declared["endLine"].as_u64().unwrap_or(first);
             (first <= line && line <= last).then(|| (last - first, declared))
@@ -183,7 +213,7 @@ fn state(row: &Value, path: &str, hit: &Hit) -> Value {
         target["text"] = json!(text.join("\n"));
     }
     if let Some(declared) = enclosing(row, hit.line) {
-        target["enclosing"] = declared.clone();
+        target["enclosing"] = declared;
     }
     if let Some(key) = row["matchKeys"]
         .as_array()
@@ -208,7 +238,7 @@ fn state(row: &Value, path: &str, hit: &Hit) -> Value {
 /// Each hit of the search row `row` named `own`: its key `<own>:<line>` and
 /// what the judge reads of it. `None` when `row` names no path or lists no
 /// hit entries.
-pub(super) fn units(row: &Value, own: &str, reach: Reach) -> Option<Vec<(String, Value)>> {
+pub(super) fn units(row: &Value, own: &str, reach: Reach<'_>) -> Option<Vec<(String, Value)>> {
     let path = row["path"].as_str()?;
     Some(
         hits(row, reach)?

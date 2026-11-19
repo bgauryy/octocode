@@ -85,6 +85,8 @@ pub fn execute_local_search(
     .map_err(written)?;
     alternates.offer_regex_reading(&mut row);
     alternates.offer_dead_terms(&mut row);
+    // Spans that are the caller's one term state only where they are.
+    row.derived_value = local_search_query::derived_value(query).map(str::to_owned);
     if let Some(next) = row.next.as_mut() {
         local_search_query::as_written(next, query, joined);
     }

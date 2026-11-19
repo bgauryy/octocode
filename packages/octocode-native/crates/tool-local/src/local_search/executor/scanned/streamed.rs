@@ -14,7 +14,7 @@
 //! skip or repeat a row. A file after the cut shows its current text.
 use super::{ScanOutput, engine_error};
 use crate::local_search::cursor::{SNAPSHOT_SCHEME, stale_snapshot};
-use crate::local_search::layout::{PageRows, page_fill};
+use crate::local_search::layout::{PageRows, StreamPricer, page_fill};
 use crate::local_search::local_search_query;
 use crate::local_search::tally;
 use octocode_contract_types::{ErrorCode, LocalSearchQuery, RegexEngine};
@@ -278,6 +278,7 @@ pub(super) fn scan_stream(
     options: TextSearchOptions,
     cancel: &impl CancellationCheck,
     (query_key, output_root, page_budget): (&str, &std::path::Path, usize),
+    limits: octocode_runtime_base::security::SourceLimits,
 ) -> Result<ScanOutput, ToolError> {
     let resume = resume_of(build, query)?;
     let root = std::path::PathBuf::from(&options.path);
@@ -303,7 +304,14 @@ pub(super) fn scan_stream(
         from: resume.from,
         pin: resume.pin.map(|hex| Pin { covers, hex }),
         anchor: resume.anchor,
-        enough: Box::new(page_fill(query, paths, output_root, (page_budget, start))),
+        enough: Box::new(page_fill(
+            query,
+            paths,
+            output_root,
+            (page_budget, start),
+            stream_pricer(paths, output_root, limits),
+        )),
+        prepare: stream_preparer(query, paths, output_root, limits),
     };
     let streamed = search_stream(
         options,
@@ -315,6 +323,10 @@ pub(super) fn scan_stream(
     let Streaming::Streamed(streamed) = streamed else {
         return Err(stale_snapshot(query));
     };
+    #[cfg(test)]
+    SEARCHED.with(|searched| {
+        searched.set(searched.get() + u64::from(streamed.result.stats.files_searched.unwrap_or(0)));
+    });
     let Streamed {
         result,
         landmarks,
@@ -348,6 +360,52 @@ pub(super) fn scan_stream(
     })
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Files this thread's streamed pages searched, each page's whole scan,
+    /// for tests that pin how much a walk searches again.
+    static SEARCHED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Files streamed pages searched on this thread so far.
+#[cfg(test)]
+pub(crate) fn searched_on_this_thread() -> u64 {
+    SEARCHED.with(std::cell::Cell::get)
+}
+
+/// What prices the enclosing names of each file the stream commits, as the
+/// page cut will ([`crate::local_search::verify::stream_price`]).
+fn stream_pricer(
+    paths: &PathPolicy,
+    output_root: &std::path::Path,
+    limits: octocode_runtime_base::security::SourceLimits,
+) -> StreamPricer {
+    let (paths, output_root) = (paths.clone(), output_root.to_path_buf());
+    let security = octocode_runtime_base::security::ContentSecurity::with_limits(limits);
+    Box::new(move |file| {
+        crate::local_search::verify::stream_price(&paths, &output_root, &security, file)
+    })
+}
+
+/// What outlines each result file on the thread that searched it, ahead of
+/// the pricer ([`crate::local_search::verify::prepare_outline`]): only a page
+/// whose rows name their enclosing declarations needs outlines.
+fn stream_preparer(
+    query: &LocalSearchQuery,
+    paths: &PathPolicy,
+    output_root: &std::path::Path,
+    limits: octocode_runtime_base::security::SourceLimits,
+) -> Option<octocode_engine::search::text_search::Prepare> {
+    if local_search_query::view(query) != local_search_query::View::Content {
+        return None;
+    }
+    let (paths, output_root) = (paths.clone(), output_root.to_path_buf());
+    let security = octocode_runtime_base::security::ContentSecurity::with_limits(limits);
+    Some(Box::new(move |path| {
+        crate::local_search::verify::prepare_outline(&paths, &output_root, &security, path);
+    }))
+}
+
 /// Where the page after a streamed one continues, as the cursor names it.
 pub(crate) struct WalkCut {
     /// Candidates before the first file with rows left to show.
@@ -365,21 +423,32 @@ pub(crate) struct WalkCut {
     /// What each returned file from the cut on counted: the next page
     /// searches them again.
     again: Vec<octocode_engine::types::FileCounts>,
+    /// The files this page searched before the cut, when the cut is at a
+    /// file it returned: the next page searches that file and every
+    /// candidate after it again, those without a hit included.
+    searched: Option<u32>,
 }
 
 impl WalkCut {
     /// What the pages through this one counted up to the cut: `before` (the
     /// pages before it) and `scanned` (its own scan, as verified), less the
-    /// file at the cut, which the next page searches again.
+    /// files from the cut on, which the next page searches again.
     pub(crate) fn count(
         &mut self,
         before: Counted,
         scanned: &octocode_engine::types::TextSearchStats,
     ) {
-        self.carried.counted = self
+        let counted = self
             .again
             .iter()
             .fold(before.with(scanned), |counted, file| counted.without(*file));
+        self.carried.counted = match self.searched {
+            Some(searched) => Counted {
+                files: before.files.saturating_add(searched),
+                ..counted
+            },
+            None => counted,
+        };
     }
 }
 
@@ -406,6 +475,7 @@ pub(crate) fn walk_cut(
                     ..Carried::default()
                 },
                 again: files[*index..].iter().map(|file| file.counted).collect(),
+                searched: Some(landmark.searched),
             });
         }
         if let Some(landmark) = facts.landmarks.get(index + 1) {
@@ -419,6 +489,7 @@ pub(crate) fn walk_cut(
                     ..Carried::default()
                 },
                 again: files[index + 1..].iter().map(|file| file.counted).collect(),
+                searched: Some(landmark.searched),
             });
         }
     }
@@ -429,5 +500,6 @@ pub(crate) fn walk_cut(
         anchor: facts.anchor.clone(),
         carried: Carried::default(),
         again: Vec::new(),
+        searched: None,
     })
 }

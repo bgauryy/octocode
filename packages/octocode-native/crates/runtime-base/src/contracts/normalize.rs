@@ -654,7 +654,7 @@ fn repair_tool_query(input: &mut Value, issue: &ValidationIssue) -> Option<Vec<N
 }
 
 /// Apply each issue's repair at its path, adding its note, or its path when
-/// the value was read in its field's shape ([`reshaped_notes`] says those
+/// the value was read in its field's shape ([`reshaped`] says those
 /// once the call is final); whether any applied.
 fn repair_values(
     tool_name: &str,

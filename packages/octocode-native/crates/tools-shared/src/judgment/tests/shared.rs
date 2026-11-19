@@ -16,6 +16,7 @@ fn input<'a>(state: &'a Value, questions: &'a [Value]) -> EvaluationInput<'a> {
         assets: None,
         long_context: crate::judgment::LongContext::Never,
         companions: 0,
+        cap: None,
     }
 }
 
@@ -160,8 +161,16 @@ async fn a_later_request_reaches_the_provider_again() {
 #[tokio::test]
 async fn a_rejected_key_is_refused_without_refusing_another_key_of_the_endpoint() {
     let server = MockServer::start().await;
+    // Keys of this test alone: the gate's memo outlives it, for its port.
+    let (key_a, key_b) = (
+        crate::judgment::test_identity::unique("key-a"),
+        crate::judgment::test_identity::unique("key-b"),
+    );
     Mock::given(method("POST"))
-        .and(wiremock::matchers::header("authorization", "Bearer key-a"))
+        .and(wiremock::matchers::header(
+            "authorization",
+            format!("Bearer {key_a}").as_str(),
+        ))
         .respond_with(ResponseTemplate::new(401))
         .mount(&server)
         .await;
@@ -179,14 +188,14 @@ async fn a_rejected_key_is_refused_without_refusing_another_key_of_the_endpoint(
         }
     };
     let (a, b) = (
-        evaluator_with_key(&server, "key-a"),
-        evaluator_with_key(&server, "key-b"),
+        evaluator_with_key(&server, &key_a),
+        evaluator_with_key(&server, &key_b),
     );
     assert_ne!(a.partition().identity(), b.partition().identity());
     let first = ask(a).await.unwrap_err();
     assert_eq!(first.provider_calls, 1);
     // Key A stays refused within the window, without a request.
-    let again = ask(evaluator_with_key(&server, "key-a")).await.unwrap_err();
+    let again = ask(evaluator_with_key(&server, &key_a)).await.unwrap_err();
     assert_eq!(again.provider_calls, 0);
     // Key B is another credential: it reaches the provider and is answered.
     ask(b).await.expect("another key is not refused");

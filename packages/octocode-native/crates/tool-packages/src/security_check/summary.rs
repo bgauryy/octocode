@@ -89,9 +89,12 @@ fn summary(row: Value, target: Target<'_>) -> Value {
     }
     // The sentence stays where no field says what it does: a row that owes a
     // verdict and gives none (a finished empty list too: a count of 0 there
-    // proves nothing, and only the sentence says so), or one with no
-    // finished list.
-    let no_verdict = (target.gives_verdict && lean.get("affected").is_none())
+    // proves nothing, and only the sentence says so), one with no finished
+    // list, and a row that owes no verdict (a repository's or a commit's),
+    // whose count is of its own records only: without the sentence its
+    // `advisoryCount` reads as the package's.
+    let no_verdict = !target.gives_verdict
+        || lean.get("affected").is_none()
         || fields.get("advisories").is_none();
     let echoes = |field: &str, asked: Option<&str>, fields: &Map<String, Value>| {
         asked.is_some() && fields.get(field).and_then(Value::as_str) == asked
@@ -164,14 +167,25 @@ pub(super) fn advisory(row: Value) -> Value {
     Value::Object(fields)
 }
 
-/// `advisoryCount`, `highestSeverity`, `unfixedInMajorCount` and `link` of a
-/// finished list: a withdrawn advisory is listed and never counted.
+/// `advisoryCount`, `advisoryIds`, `highestSeverity`, `unfixedInMajorCount`
+/// and `link` of a finished list: a withdrawn advisory is listed and never
+/// counted. The ids name each counted advisory once, in the list's order, so
+/// a reader reaches any of them by an `advisory` call without the details.
 fn indication(lean: &mut Map<String, Value>, listed: &[Value], unfixed_in_major: usize) {
     let counted = listed
         .iter()
         .filter(|row| row.get("withdrawn").is_none())
         .collect::<Vec<_>>();
     lean.insert("advisoryCount".to_owned(), json!(counted.len()));
+    let mut ids: Vec<&str> = Vec::new();
+    for id in counted.iter().filter_map(|row| row["id"].as_str()) {
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    if !ids.is_empty() {
+        lean.insert("advisoryIds".to_owned(), json!(ids));
+    }
     // The first of the most severe: rows keep the order their list gave them.
     let Some(worst) = counted
         .iter()

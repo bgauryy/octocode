@@ -20,27 +20,46 @@ const DELETED: u8 = 3;
 /// A source snapshot and the events that bring the server to that snapshot.
 /// Build this from freshly captured files inside `sync_watched_files`' callback;
 /// callers may perform capture and content comparison on their blocking worker.
+/// The snapshot is keyed by absolute path, so requests rooted elsewhere in the
+/// same server compare the same files.
 pub struct WatchedFileUpdate {
     current: BTreeMap<String, String>,
     changes: Vec<Value>,
 }
 
 impl WatchedFileUpdate {
+    /// The update from `previous` to `current`, whose keys are relative to
+    /// `root` (or absolute): `covered` are the directories the capture walked
+    /// whole, so only a previous file under one of them that `current` lacks
+    /// was deleted. A previous file outside them stays in the snapshot,
+    /// unjudged. `unchanged` is called with absolute paths.
     pub fn new(
         root: &Path,
+        covered: &[std::path::PathBuf],
         previous: Option<&BTreeMap<String, String>>,
         current: BTreeMap<String, String>,
         unchanged: impl Fn(&str, &str, &str) -> bool,
     ) -> Result<Self> {
+        let mut current = current
+            .into_iter()
+            .map(|(path, stamp)| (root.join(path).to_string_lossy().into_owned(), stamp))
+            .collect::<BTreeMap<_, _>>();
+        let walked = |path: &str| covered.iter().any(|dir| Path::new(path).starts_with(dir));
         let changes = previous
-            .map(|previous| changed_files(previous, &current, unchanged))
+            .map(|previous| changed_files(previous, &current, &walked, unchanged))
             .unwrap_or_default()
             .into_iter()
-            .map(|(relative, kind)| {
-                crate::lsp::uri::path_to_uri(&root.join(relative).to_string_lossy())
-                    .map(|uri| json!({ "uri": uri, "type": kind }))
+            .map(|(path, kind)| {
+                crate::lsp::uri::path_to_uri(&path).map(|uri| json!({ "uri": uri, "type": kind }))
             })
             .collect::<Result<Vec<Value>>>()?;
+        if let Some(previous) = previous {
+            for (path, stamp) in previous {
+                if !walked(path) {
+                    current.entry(path.clone()).or_insert_with(|| stamp.clone());
+                }
+            }
+        }
         Ok(Self { current, changes })
     }
 }
@@ -97,6 +116,11 @@ impl NativeLspClient {
                 )
                 .await
                 .map_err(E::from)?;
+            self.inner
+                .open_docs
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .note_sent();
         }
         *self
             .inner
@@ -123,6 +147,7 @@ impl Drop for InitialSnapshot<'_> {
 fn changed_files(
     previous: &BTreeMap<String, String>,
     current: &BTreeMap<String, String>,
+    walked: &dyn Fn(&str) -> bool,
     unchanged: impl Fn(&str, &str, &str) -> bool,
 ) -> Vec<(String, u8)> {
     let mut changes = Vec::new();
@@ -136,7 +161,7 @@ fn changed_files(
         }
     }
     for path in previous.keys() {
-        if !current.contains_key(path) {
+        if walked(path) && !current.contains_key(path) {
             changes.push((path.clone(), DELETED));
         }
     }

@@ -202,6 +202,7 @@ fn stream_walk(
             pin: None,
             anchor: Anchor::START,
             enough: Box::new(|_| false),
+            prepare: None,
         },
     )
     .expect("stream") else {
@@ -508,6 +509,7 @@ fn a_walker_blocked_on_a_full_window_ends_when_the_caller_cancels() {
                         std::thread::sleep(std::time::Duration::from_millis(20));
                         false
                     }),
+                    prepare: None,
                 };
                 let streamed = search_stream(
                     o,

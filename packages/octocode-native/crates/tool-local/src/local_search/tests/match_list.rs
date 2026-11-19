@@ -71,7 +71,8 @@ fn an_empty_case_sensitive_search_offers_case_mode() {
     ] {
         let out = run(&files, fields.clone());
         assert_eq!(
-            out.to_string().contains("next.asInsensitive"),
+            out.to_string()
+                .contains("caseMode \\\"insensitive\\\" runs the same search"),
             offered,
             "{fields}: {out}"
         );

@@ -36,6 +36,7 @@ async fn on(
         config: &config,
         github: None,
         osv_api: octocode_runtime_base::execution::RuntimeLimits::DEFAULT.osv_api,
+        share: &crate::artifact::CallShare::new(),
     };
     // The selection a package row asks with, as `ask` builds it.
     let names;
@@ -365,6 +366,7 @@ async fn an_advisory_reads_by_id_and_a_withdrawn_one_keeps_the_field() {
         config: &config,
         github: None,
         osv_api: octocode_runtime_base::execution::RuntimeLimits::DEFAULT.osv_api,
+        share: &crate::artifact::CallShare::new(),
     };
     let found = check_advisory(&net, "GHSA-8rfx-6mr3-5jh3")
         .await
@@ -595,6 +597,8 @@ mod batch_walk {
             config,
             github: None,
             osv_api: octocode_runtime_base::execution::RuntimeLimits::DEFAULT.osv_api,
+            // Each net is a row of its own call.
+            share: Box::leak(Box::new(crate::artifact::CallShare::new())),
         }
     }
 
@@ -692,9 +696,11 @@ mod batch_walk {
                 ReusedSince::default(),
                 crate::security_check::tests::default_config(),
             );
-            let net = net_of(&http, &budget, &reused, &config, Some(&store));
             let ask = package(ArtifactType::Npm, "lodash", Some("1.0.0"));
             for (id, token) in [("FIRST", "first-page"), ("SECOND", "second-page")] {
+                // Each ask is its own call: a repeat within one call is its
+                // share's, never the origin's to refuse.
+                let net = net_of(&http, &budget, &reused, &config, Some(&store));
                 let page = batch::pages(
                     &net,
                     &[batch::PageQuery {
@@ -741,9 +747,10 @@ mod batch_walk {
                 ReusedSince::default(),
                 crate::security_check::tests::default_config(),
             );
-            let net = net_of(&http, &budget, &reused, &config, Some(&store));
             let ask = package(ArtifactType::Npm, "lodash", Some("1.0.0"));
             for _ in 0..2 {
+                // Each ask is its own call.
+                let net = net_of(&http, &budget, &reused, &config, Some(&store));
                 let page = batch::pages(
                     &net,
                     &[batch::PageQuery {
@@ -1359,6 +1366,7 @@ mod batch_walk {
             config: &config,
             github: None,
             osv_api: octocode_runtime_base::execution::RuntimeLimits::DEFAULT.osv_api,
+            share: &crate::artifact::CallShare::new(),
         };
         let started = std::time::Instant::now();
         let walked = walk::walk_one(&net, &lodash("1.0.0"), None)
@@ -1371,5 +1379,224 @@ mod batch_walk {
             started.elapsed(),
             ids.len()
         );
+    }
+
+    /// Counts the requests in flight at once, each held for `latency`.
+    struct Counting {
+        inner: RouteHttp,
+        latency: std::time::Duration,
+        now: std::sync::atomic::AtomicUsize,
+        peak: std::sync::atomic::AtomicUsize,
+    }
+
+    impl Counting {
+        fn new(inner: RouteHttp) -> Self {
+            Self {
+                inner,
+                latency: std::time::Duration::from_millis(20),
+                now: std::sync::atomic::AtomicUsize::new(0),
+                peak: std::sync::atomic::AtomicUsize::new(0),
+            }
+        }
+
+        async fn held<T>(&self, answer: impl std::future::Future<Output = T>) -> T {
+            use std::sync::atomic::Ordering;
+            let now = self.now.fetch_add(1, Ordering::SeqCst) + 1;
+            self.peak.fetch_max(now, Ordering::SeqCst);
+            tokio::time::sleep(self.latency).await;
+            let answer = answer.await;
+            self.now.fetch_sub(1, Ordering::SeqCst);
+            answer
+        }
+
+        fn peak(&self) -> usize {
+            self.peak.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    impl crate::artifact::ArtifactHttp for Counting {
+        fn get<'a>(
+            &'a self,
+            request: crate::artifact::ArtifactHttpRequest,
+            budget: &'a octocode_io::budget::RequestBudget,
+        ) -> crate::artifact::ArtifactHttpFuture<'a> {
+            Box::pin(self.held(self.inner.get(request, budget)))
+        }
+
+        fn post<'a>(
+            &'a self,
+            request: crate::artifact::ArtifactHttpRequest,
+            body: Vec<u8>,
+            budget: &'a octocode_io::budget::RequestBudget,
+        ) -> crate::artifact::ArtifactHttpFuture<'a> {
+            Box::pin(self.held(self.inner.post(request, body, budget)))
+        }
+    }
+
+    /// A row of the call `share` belongs to.
+    fn row_of<'a>(
+        http: &'a dyn crate::artifact::ArtifactHttp,
+        budget: &'a octocode_io::budget::RequestBudget,
+        reused: &'a ReusedSince,
+        config: &'a octocode_runtime_base::config::ResolvedConfig,
+        share: &'a crate::artifact::CallShare,
+    ) -> Net<'a> {
+        Net {
+            http,
+            budget,
+            answers: None,
+            reused,
+            config,
+            github: None,
+            osv_api: octocode_runtime_base::execution::RuntimeLimits::DEFAULT.osv_api,
+            share,
+        }
+    }
+
+    /// Walks lodash at 4.17.20, 4.17.15 and 4.17.20 again as three rows, the
+    /// `n`th on `shares[n]`; each reads `records` records.
+    async fn three_rows(
+        http: &RouteHttp,
+        shares: [&crate::artifact::CallShare; 3],
+        records: usize,
+    ) {
+        let (budget, config) = (
+            test_budget(),
+            crate::security_check::tests::default_config(),
+        );
+        let reused = [(); 3].map(|()| ReusedSince::default());
+        let nets = [0, 1, 2].map(|row| row_of(http, &budget, &reused[row], &config, shares[row]));
+        let asks = [lodash("4.17.20"), lodash("4.17.15"), lodash("4.17.20")];
+        let (first, second, third) = tokio::join!(
+            walk::walk_one(&nets[0], &asks[0], None),
+            walk::walk_one(&nets[1], &asks[1], None),
+            walk::walk_one(&nets[2], &asks[2], None),
+        );
+        for walked in [first, second, third] {
+            assert_eq!(walked.expect("walk").read.len(), records);
+        }
+    }
+
+    /// Rows of one call that list the same records read each once, and rows
+    /// that send the same query body send it once (hoist X12: two versions of
+    /// one package, and the same package twice). Rows of separate calls read
+    /// alone, as before.
+    #[tokio::test]
+    async fn rows_of_one_call_read_each_record_and_each_list_once() {
+        let ids = ["A", "B", "C"];
+        let routes = || {
+            let mut http = RouteHttp::new();
+            for id in ids {
+                http = http.json(&format!("/v1/vulns/{id}"), stamped(id));
+            }
+            let listing =
+                json!({"vulns": ids.iter().map(|id| listed(id, "m")).collect::<Vec<_>>()});
+            http.post_sequence(vec![(200, batch(vec![listing])); 3])
+        };
+        let shared = routes();
+        let call = crate::artifact::CallShare::new();
+        three_rows(&shared, [&call; 3], ids.len()).await;
+        assert_eq!(shared.post_bodies().len(), 2, "two distinct bodies");
+        for id in ids {
+            assert_eq!(gets(&shared, id), 1, "{id}");
+        }
+        let apart = routes();
+        let calls = [(); 3].map(|()| crate::artifact::CallShare::new());
+        three_rows(&apart, [&calls[0], &calls[1], &calls[2]], ids.len()).await;
+        assert_eq!(apart.post_bodies().len(), 3);
+        for id in ids {
+            assert_eq!(gets(&apart, id), 3, "{id}");
+        }
+    }
+
+    /// The bound on OSV requests in flight is the call's, not each row's:
+    /// three rows of six records each never have more than
+    /// [`CONCURRENT_READS`] requests out at once.
+    #[tokio::test]
+    async fn one_bound_holds_every_row_of_a_call() {
+        let rows: [Vec<String>; 3] =
+            [0, 1, 2].map(|row| (0..6).map(|n| format!("R{row}-{n}")).collect());
+        let mut inner = RouteHttp::new();
+        for id in rows.iter().flatten() {
+            inner = inner.json(&format!("/v1/vulns/{id}"), stamped(id));
+        }
+        // Each row's query names its own package, so no list is shared;
+        // the sequence answers them in whatever order they arrive, so each
+        // answer lists one row's records and each row reads what it was told.
+        let answers = rows
+            .iter()
+            .map(|ids| {
+                (
+                    200,
+                    batch(vec![
+                        json!({"vulns": ids.iter().map(|id| listed(id, "m")).collect::<Vec<_>>()}),
+                    ]),
+                )
+            })
+            .collect();
+        let http = Counting::new(inner.post_sequence(answers));
+        let (budget, config) = (
+            test_budget(),
+            crate::security_check::tests::default_config(),
+        );
+        let reused = [(); 3].map(|()| ReusedSince::default());
+        let share = crate::artifact::CallShare::new();
+        let nets = [0, 1, 2].map(|row| row_of(&http, &budget, &reused[row], &config, &share));
+        let asks = [lodash("1.0.0"), lodash("2.0.0"), lodash("3.0.0")];
+        let (first, second, third) = tokio::join!(
+            walk::walk_one(&nets[0], &asks[0], None),
+            walk::walk_one(&nets[1], &asks[1], None),
+            walk::walk_one(&nets[2], &asks[2], None),
+        );
+        let read = [first, second, third]
+            .into_iter()
+            .map(|walked| walked.expect("walk").read.len())
+            .sum::<usize>();
+        assert_eq!(read, 18);
+        assert!(
+            http.peak() <= CONCURRENT_READS,
+            "{} requests in flight at once",
+            http.peak()
+        );
+        assert!(http.peak() > 1, "the rows still read together");
+    }
+
+    /// A record read by id (the advisory and repository operations) names no
+    /// stamp to keep it by, so it is kept as a search answer: a repeat within
+    /// the window reads nothing and says when the record was observed (perf
+    /// P16: axios/axios read its 51 records again on every call).
+    #[tokio::test]
+    async fn a_record_read_by_id_is_kept_for_the_search_window() {
+        let store = KeptAnswers::new(None);
+        let http = RouteHttp::new().json("/v1/vulns/GHSA-1", stamped("GHSA-1"));
+        let (budget, config) = (
+            test_budget(),
+            crate::security_check::tests::default_config(),
+        );
+        let first = ReusedSince::default();
+        let net = net_of(&http, &budget, &first, &config, Some(&store));
+        check_advisory(&net, "GHSA-1").await.expect("first read");
+        assert_eq!(first.get(), None);
+        let repeat = ReusedSince::default();
+        let net = net_of(&http, &budget, &repeat, &config, Some(&store));
+        let again = check_advisory(&net, "GHSA-1").await.expect("repeat");
+        assert_eq!(ids(&again), ["GHSA-1"]);
+        assert_eq!(gets(&http, "GHSA-1"), 1);
+        assert!(repeat.get().is_some(), "the reuse is disclosed");
+        // Past the window it is read again.
+        let (scope, _) = super::batch::list_key(&net, &json!({})).expect("scope");
+        let identity = "OSV record GHSA-1";
+        let mut saved =
+            octocode_github::SavedAnswers::load(&store, &scope, identity).expect("kept");
+        saved.observed_ms = saved.observed_ms.saturating_sub(
+            u64::try_from(octocode_github::SEARCH_REUSE_WINDOW.as_millis()).unwrap_or(u64::MAX) + 1,
+        );
+        octocode_github::SavedAnswers::save(&store, &scope, identity, saved);
+        let later = ReusedSince::default();
+        let net = net_of(&http, &budget, &later, &config, Some(&store));
+        check_advisory(&net, "GHSA-1")
+            .await
+            .expect("past the window");
+        assert_eq!(gets(&http, "GHSA-1"), 2);
     }
 }

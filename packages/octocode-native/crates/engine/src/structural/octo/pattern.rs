@@ -420,7 +420,8 @@ impl CompiledPattern {
 
         // One match per node span.
         let mut seen = HashSet::new();
-        let line_index = LineIndex::tree_sitter(content);
+        // Built on the first match: most parsed files have none.
+        let line_index = std::cell::OnceCell::new();
         let source = SourceContext::root(tree.root_node(), content);
         visit_named(tree.root_node(), deadline, &mut |candidate| {
             if !self.matches_candidate(candidate) {
@@ -437,7 +438,7 @@ impl CompiledPattern {
                         &source,
                         candidate,
                         content,
-                        &line_index,
+                        line_index.get_or_init(|| LineIndex::tree_sitter(content)),
                         metavars,
                         metavar_ranges_raw,
                     )

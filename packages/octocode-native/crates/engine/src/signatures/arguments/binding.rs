@@ -28,6 +28,14 @@ struct Binding {
     called_value: bool,
 }
 
+impl Binding {
+    /// Whether byte `at` lies in this binding's own name.
+    fn names_at(&self, at: usize) -> bool {
+        let range = self.name_range.range;
+        (range.start_byte as usize..range.end_byte as usize).contains(&at)
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Bindings {
     names: HashMap<String, Vec<Binding>>,
@@ -192,7 +200,12 @@ impl Bindings {
             .get(name)
             .into_iter()
             .flatten()
-            .filter(|binding| binding.scope.contains(&at) && binding.visible_from <= at)
+            // A binding is visible after its declaration, and at its own
+            // name: `let x` anchored on `x` is that binding, though its
+            // initializer still sees the outer one.
+            .filter(|binding| {
+                binding.scope.contains(&at) && (binding.visible_from <= at || binding.names_at(at))
+            })
             .min_by_key(|binding| (binding.scope.len(), std::cmp::Reverse(binding.visible_from)))
             .map_or(Resolved::Unbound, Resolved::Bound)
     }

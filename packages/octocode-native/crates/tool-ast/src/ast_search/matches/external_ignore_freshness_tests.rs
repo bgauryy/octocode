@@ -4,10 +4,18 @@ use octocode_test_support::json_fixture;
 use serde_json::Value;
 use serde_json::json;
 
+/// `hidden/b.ts` (one match) and `z.ts` (three), in walk order: with
+/// pages of two matches ([`query`]), page 1 needs both files whether or not
+/// `hidden/` is ignored, so one window holds the whole scope and its pages
+/// after the first are served from the stored scan.
 fn sources(root: &std::path::Path) -> std::path::PathBuf {
     let scope = root.join("scope");
     std::fs::create_dir_all(scope.join("hidden")).expect("scope");
-    std::fs::write(scope.join("a.ts"), "target(\"one\");\ntarget(\"two\");\n").expect("source");
+    std::fs::write(
+        scope.join("z.ts"),
+        "target(\"one\");\ntarget(\"two\");\ntarget(\"three\");\n",
+    )
+    .expect("source");
     std::fs::write(scope.join("hidden/b.ts"), "target(\"hidden\");\n").expect("hidden source");
     scope
 }
@@ -17,7 +25,7 @@ fn settle() {
 }
 
 fn query(scope: &std::path::Path, include_ignored: bool) -> Value {
-    json!({"operation":"match","path":scope,"rule":{"pattern":"target($A)"},"includeCaptures":true,"includeIgnored":include_ignored})
+    json!({"operation":"match","path":scope,"rule":{"pattern":"target($A)"},"includeCaptures":true,"includeIgnored":include_ignored,"limit":2})
 }
 
 #[test]
@@ -28,13 +36,13 @@ fn held_memo_is_evicted_when_an_external_ignore_dependency_appears() {
         let (paths, security) = simple_policy(&root.0);
         settle();
         let first = run_row(&query(&scope, false), &paths, &security);
-        assert_eq!(first["matchCount"], 3, "{first}");
+        assert_eq!(first["matchCount"], 4, "{first}");
         let snapshot = octocode_runtime_base::test_support::pinned_snapshot(&first)
             .as_str()
             .expect("snapshot");
         assert!(SCANS.holds(snapshot), "exercise a held no-repository memo");
         let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
-        assert_eq!(run_row(&next, &paths, &security)["matchCount"], 3);
+        assert_eq!(run_row(&next, &paths, &security)["matchCount"], 4);
         assert!(
             SCANS.holds(snapshot),
             "unchanged continuation really reuses"
@@ -56,7 +64,7 @@ fn held_memo_is_evicted_when_an_external_ignore_dependency_appears() {
         );
         assert_eq!(
             run_row(&query(&scope, false), &paths, &security)["matchCount"],
-            2
+            3
         );
     }
 }
@@ -115,14 +123,14 @@ fn repository_rules_keep_the_memo_and_an_edit_drops_it() {
     settle();
     for (kind, _root, scope, rules, paths, security) in fixtures {
         let first = run_row(&query(&scope, false), &paths, &security);
-        assert_eq!(first["matchCount"], 2, "{kind}: {first}");
+        assert_eq!(first["matchCount"], 3, "{kind}: {first}");
         let snapshot = octocode_runtime_base::test_support::pinned_snapshot(&first)
             .as_str()
             .expect("snapshot");
         assert!(SCANS.holds(snapshot), "a repository scan is stored: {kind}");
         let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
         let unchanged = run_row(&next, &paths, &security);
-        assert_eq!(unchanged["matchCount"], 2, "{kind}: {unchanged}");
+        assert_eq!(unchanged["matchCount"], 3, "{kind}: {unchanged}");
         assert!(SCANS.holds(snapshot), "the continuation reuses it: {kind}");
         SCANS.evict(snapshot);
         assert_eq!(
@@ -136,7 +144,7 @@ fn repository_rules_keep_the_memo_and_an_edit_drops_it() {
         assert_eq!(changed["errorCode"], "staleSnapshot", "{kind}: {changed}");
         assert_eq!(
             run_row(&query(&scope, false), &paths, &security)["matchCount"],
-            3
+            4
         );
     }
 }
@@ -151,7 +159,7 @@ fn include_ignored_keeps_settled_repository_memo_reuse() {
     let (paths, security) = simple_policy(&root.0);
     settle();
     let first = run_row(&query(&scope, true), &paths, &security);
-    assert_eq!(first["matchCount"], 3, "{first}");
+    assert_eq!(first["matchCount"], 4, "{first}");
     let snapshot = octocode_runtime_base::test_support::pinned_snapshot(&first)
         .as_str()
         .expect("snapshot");
@@ -184,7 +192,7 @@ fn ignore_symlinks_never_reuse_unobserved_rules() {
         let first = run_row(&query(&scope, include_ignored), &paths, &security);
         assert_eq!(
             first["matchCount"],
-            if include_ignored { 3 } else { 2 },
+            if include_ignored { 4 } else { 3 },
             "{first}"
         );
         let snapshot = octocode_runtime_base::test_support::pinned_snapshot(&first)
@@ -216,7 +224,7 @@ fn ignore_symlinks_never_reuse_unobserved_rules() {
             assert!(!SCANS.holds(snapshot));
             assert_eq!(
                 run_row(&query(&scope, false), &paths, &security)["matchCount"],
-                3
+                4
             );
         }
     }
@@ -232,7 +240,7 @@ fn broken_ignore_symlinks_do_not_pin_absent_external_rules() {
     let (paths, security) = simple_policy(&scope);
     settle();
     let first = run_row(&query(&scope, false), &paths, &security);
-    assert_eq!(first["matchCount"], 3, "{first}");
+    assert_eq!(first["matchCount"], 4, "{first}");
     let snapshot = octocode_runtime_base::test_support::pinned_snapshot(&first)
         .as_str()
         .expect("snapshot");
@@ -241,13 +249,13 @@ fn broken_ignore_symlinks_do_not_pin_absent_external_rules() {
         "an unobservable rule is not cacheable"
     );
     let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
-    assert_eq!(run_row(&next, &paths, &security)["matchCount"], 3);
+    assert_eq!(run_row(&next, &paths, &security)["matchCount"], 4);
     std::fs::write(&rules, "hidden/\n").expect("create external rules");
     let changed = run_row(&next, &paths, &security);
     assert_eq!(changed["errorCode"], "staleSnapshot", "{changed}");
     assert_eq!(
         run_row(&query(&scope, false), &paths, &security)["matchCount"],
-        2
+        3
     );
 }
 
@@ -265,14 +273,14 @@ fn implicit_grammar_filters_do_not_override_file_ignore_rules() {
                 row["parser"] = json!(language);
             }
             let filtered = run_row(&row, &paths, &security);
-            assert_eq!(filtered["matchCount"], 2, "{name}/{language:?}: {filtered}");
+            assert_eq!(filtered["matchCount"], 3, "{name}/{language:?}: {filtered}");
             row["includeIgnored"] = json!(true);
-            assert_eq!(run_row(&row, &paths, &security)["matchCount"], 3);
+            assert_eq!(run_row(&row, &paths, &security)["matchCount"], 4);
             row["includeIgnored"] = json!(false);
             row["include"] = json_fixture(r#"["**/*.ts"]"#);
             assert_eq!(
                 run_row(&row, &paths, &security)["matchCount"],
-                3,
+                4,
                 "the caller's explicit include override keeps its existing semantics"
             );
         }
@@ -291,7 +299,7 @@ fn run_row(
         paths,
         security,
         &octocode_runtime_base::execution::cancel::NeverCancel,
-        Some(1),
+        None,
     )
-    .expect("budgeted source page")
+    .expect("source page")
 }

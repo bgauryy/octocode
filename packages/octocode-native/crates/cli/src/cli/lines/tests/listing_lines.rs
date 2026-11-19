@@ -740,3 +740,49 @@ fn a_directory_holding_one_directory_keeps_its_heading() {
         assert_eq!(unique.len(), headings.len(), "{}", lines.out);
     }
 }
+
+/// TC7: ghStructure refs as `"name sha"` strings print one ref per line,
+/// each commit beside its name, as the objects they stand for did.
+#[test]
+fn refs_as_name_and_commit_strings_print_one_per_line() {
+    let refs = [
+        "v14.1.1 4649aa9f0b2c7d1e",
+        "v14.1.0 0a1b2c3d4e5f6a7b",
+        "main 9f8e7d6c5b4a3f2e",
+    ];
+    let output = json!({"results": [{"index": 0, "data": {
+        "tags": [refs[0], refs[1]], "branches": [refs[2]]}}]});
+    let query = json!({"queries": [{"operation": "refs", "owner": "o", "repo": "r"}]});
+    let lines = render(ToolId::GhStructure, &output, &query, None).expect("lines");
+    for name in refs {
+        assert!(
+            lines
+                .out
+                .lines()
+                .any(|line| line.trim_start().trim_start_matches("- ").ends_with(name)),
+            "{name}: {}",
+            lines.out
+        );
+    }
+    eprintln!("{}", lines.out);
+}
+
+/// Q5: an outline of line-first strings prints as the declarations they
+/// state, members under their parent, exactly as the objects did.
+#[test]
+fn an_outline_of_line_first_strings_prints_as_its_declarations() {
+    let symbols = json!([
+        {"symbolName": "Pager", "kind": "struct", "line": 70, "endLine": 120, "members": [
+            {"symbolName": "new", "kind": "method", "line": 74, "endLine": 80}]},
+        {"symbolName": "drop", "kind": "function", "line": 130, "docStartLine": 128},
+    ]);
+    let lines = octocode_runtime_base::response::symbol_outline::outline_lines(
+        symbols.as_array().expect("symbols"),
+    );
+    let output = |symbols: Value| json!({"results": [{"index": 0, "data": {"files": [{"path": "src/pager.rs", "symbols": symbols}]}}]});
+    let query = json!({"queries": [{"path": "src", "operation": "symbols"}]});
+    let objects = render(ToolId::AstSearch, &output(symbols), &query, None).expect("lines");
+    let strings = render(ToolId::AstSearch, &output(json!(lines)), &query, None).expect("lines");
+    assert_eq!(strings.out, objects.out);
+    assert_eq!(strings.notes, objects.notes);
+}

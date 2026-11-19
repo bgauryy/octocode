@@ -283,10 +283,10 @@ fn ast_search_admits_a_source_the_same_as_a_file_and_in_a_directory() {
     }
 }
 
-/// Skipped paths remain disclosed even when a bounded probe cannot prove
-/// whether they contain a match. The related search lifts that scope.
+/// Skipped paths are disclosed as not searched, and the related search
+/// lifts that scope; the requested scope was walked whole.
 #[test]
-fn every_tool_discloses_unchecked_scope_and_offers_an_executable_related_search() {
+fn every_tool_discloses_skipped_scope_and_offers_an_executable_related_search() {
     let scenario = &SCENARIOS[2];
     for tool in tools() {
         let label = describe(&tool, scenario);
@@ -297,10 +297,6 @@ fn every_tool_discloses_unchecked_scope_and_offers_an_executable_related_search(
             out["skippedPaths"].to_string().contains("node_modules")
                 || prose(&out).contains("node_modules"),
             "{label}: skipped directory undisclosed: {out}"
-        );
-        let out = octocode_tools_shared::empty_walk::with_probe_limits(
-            octocode_tools_shared::empty_walk::CUT_AT_ONCE,
-            || (tool.run)(&root.0, &query),
         );
         assert!(
             out.get("partialReasons").is_none() && out["isPartial"] != json!(true),

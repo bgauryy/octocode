@@ -1,19 +1,31 @@
 #!/usr/bin/env node
-/** Offline gate: dotted field paths in skill and doc prose against the generated tool contract and the config contract. */
+/** Offline gate: dotted field paths in skill and doc prose, and in native hint, warning and lead strings, against the generated tool contract and the config contract. */
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { isMainModule } from './lib/entrypoint.mjs';
-import { contractVocabulary, proseFindings } from './lib/contract-vocabulary.mjs';
+import { contractVocabulary, proseFindings, rustFindings } from './lib/contract-vocabulary.mjs';
 import { guidanceFiles } from './lib/guidance-files.mjs';
 import { ROOT } from './lib/workspaces.mjs';
 
 const TOOL_CONTRACT = 'packages/octocode-config/contract/tool-contract.json';
 const CONFIG_CONTRACT = 'packages/octocode-config/config-contract.json';
 const EXCEPTIONS = new URL('./vocabulary-exceptions.json', import.meta.url);
+const NATIVE_HINTS = 'packages/octocode-native/crates/*/src: files or folders named for leads, hints, warnings or notices, tests excluded';
+/** A native source file whose path names a hint, warning, lead or notice producer, outside test code. */
+const NATIVE_HINT_FILE = /^packages\/octocode-native\/crates\/[^/]+\/src\/(?:.*\/)?[^/]*(?:lead|hint|warning|notice)[^/]*(?:\/.*)?\.rs$/i;
+const TEST_FILE = /(?:^|\/|_)tests?(?:\/|\.rs$)/;
+
+/** Tracked native hint, warning and lead modules (see {@link NATIVE_HINTS}). */
+export function nativeHintFiles(root = ROOT) {
+  const listed = spawnSync('git', ['ls-files', '-z', '--', 'packages/octocode-native/crates'], { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  if (listed.status !== 0) return [];
+  return listed.stdout.split('\0').filter(path => NATIVE_HINT_FILE.test(path) && !TEST_FILE.test(path)).sort();
+}
 const HELP = `Usage: node skills-dev/octocode-dev/scripts/check-vocabulary.mjs [--json]
 
-Checks every \`parent.child\` field path in inline code across skills, docs and package docs: when the tool contract
+Checks every \`parent.child\` field path in inline code across skills, docs and package docs, and in the string
+literals of native hint, warning and lead modules (${NATIVE_HINTS}): when the tool contract
 (${TOOL_CONTRACT}) or config contract (${CONFIG_CONTRACT}) declares \`parent\` but no such child,
 the prose names a retired or invented field. Fenced code, file names and unknown parents are not checked.
 A path that is right in another vocabulary is listed with its reason in vocabulary-exceptions.json; an entry
@@ -53,10 +65,15 @@ function applyExceptions(findings, exceptions) {
 export function checkVocabulary({ root = ROOT, vocabulary = loadVocabulary(root), exceptions = readExceptions() } = {}) {
   const extensions = trackedExtensions(root);
   const files = guidanceFiles(root);
-  const raw = files.flatMap(file => proseFindings(readFileSync(join(root, file), 'utf8'), vocabulary, extensions)
-    .map(finding => ({ file, ...finding })));
+  const hints = nativeHintFiles(root);
+  const raw = [
+    ...files.flatMap(file => proseFindings(readFileSync(join(root, file), 'utf8'), vocabulary, extensions)
+      .map(finding => ({ file, ...finding }))),
+    ...hints.flatMap(file => rustFindings(readFileSync(join(root, file), 'utf8'), vocabulary, extensions)
+      .map(finding => ({ file, ...finding }))),
+  ];
   const findings = applyExceptions(raw, exceptions);
-  return { pass: findings.length === 0, files: files.length, findings };
+  return { pass: findings.length === 0, files: files.length + hints.length, findings };
 }
 
 if (isMainModule(import.meta.url)) {

@@ -233,7 +233,7 @@ pub(in crate::local_search) fn materialize(
     Ok(materialize_noting(scope, file, rows)?.rows)
 }
 
-/// [`materialize`] stating which withheld rows show a replaced span.
+/// `materialize` stating which withheld rows show a replaced span.
 pub(in crate::local_search) fn materialize_noting(
     scope: &PageScope<'_, impl CancellationCheck>,
     file: &mut octocode_engine::types::TextSearchFile,

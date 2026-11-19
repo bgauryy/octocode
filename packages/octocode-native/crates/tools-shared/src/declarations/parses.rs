@@ -13,7 +13,7 @@ pub(super) fn note(analysis: &'static str, path: &str) {
 }
 
 /// Extractions of `path` by the analysis named `analysis`
-/// (`declarations`, `graphFacts`, `moduleReferences`, `namedHeritage`).
+/// (`declarations`, `graphFacts`, `namedHeritage`).
 pub fn of(analysis: &'static str, path: &str) -> usize {
     PARSES
         .lock()

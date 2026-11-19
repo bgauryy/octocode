@@ -257,5 +257,5 @@ export async function pathChecks(ctx) {
   await globalPhase(ctx, run);
   await rollbackChecks(ctx, { ...run, daemonDelta });
   await omitChecks(ctx, run);
-  await ctx.step('brew', 'Homebrew formula (RELEASE.md row 7)', () => ({ skip: true, note: 'not shipped: the tap still serves the Node-based 2.0.0 formula' }));
+  await ctx.step('brew', 'Homebrew formula', () => ({ skip: true, note: 'not shipped: the tap still serves the Node-based 2.0.0 formula' }));
 }

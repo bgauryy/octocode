@@ -42,6 +42,23 @@ fn a_settled_file_is_opened_only_for_a_name_it_may_spell() {
     assert_eq!(READS.of(&file), 2, "a hit is confirmed by the file");
 }
 
+/// An entry built after an answer (no name asked) answers the next
+/// request's absent names unread, and a current entry is not built twice.
+#[test]
+fn an_entry_built_after_an_answer_rules_out_absent_names_unread() {
+    let (_dir, root) = fixture();
+    let file = root.join("b.ts");
+    std::fs::write(&file, "export const built = 1;\n").expect("write");
+    settle_written_so_far();
+    build_entry(&file, settle_clock());
+    assert_eq!(READS.of(&file), 1, "the build reads the file once");
+    assert_eq!(kept_tokens(&file), Some(4));
+    build_entry(&file, settle_clock());
+    assert_eq!(READS.of(&file), 1, "a current entry is kept as it is");
+    assert_eq!(spells("absent", &file), Some(false));
+    assert_eq!(READS.of(&file), 1, "the next request reads nothing");
+}
+
 /// A hash hit is only a candidate: the file itself decides, so a collision
 /// can cost a read and never a false claim.
 #[test]

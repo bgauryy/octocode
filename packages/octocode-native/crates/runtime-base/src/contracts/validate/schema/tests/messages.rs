@@ -490,4 +490,15 @@ fn a_malformed_clasify_row_names_its_rule_and_fix() {
         let shown = first_error("clasify", row.clone());
         assert!(shown.contains(expected), "{row}: {shown}");
     }
+    // A malformed choice question is a choice's to explain: the noul
+    // branch's guidance does not stand in for it.
+    let choice = json_fixture(
+        r#"{
+            "operation": "evaluate",
+            "content": "text",
+            "questions": {"q": {"type": "choice", "criteria": {"only": "one label"}}}
+        }"#,
+    );
+    let shown = first_error("clasify", choice.clone());
+    assert!(!shown.contains("A noul question"), "{choice}: {shown}");
 }

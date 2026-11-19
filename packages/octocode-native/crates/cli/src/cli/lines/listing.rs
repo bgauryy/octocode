@@ -72,6 +72,15 @@ pub(super) fn outline_rows(
     file_note: Option<&str>,
     out: &mut Vec<String>,
 ) -> Option<()> {
+    // Line-first outline strings (`"15\tfunction name (end 67)"`) print as
+    // the declarations they state.
+    let read;
+    let symbols = if !symbols.is_empty() && symbols.iter().all(Value::is_string) {
+        read = octocode_runtime_base::response::symbol_outline::rows_of_lines(symbols)?;
+        read.as_slice()
+    } else {
+        symbols
+    };
     let nests = |symbol: &Value| {
         symbol
             .get("members")

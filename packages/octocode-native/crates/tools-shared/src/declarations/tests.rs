@@ -132,3 +132,28 @@ fn concurrent_requests_have_equal_documents() {
         assert_eq!(document, &documents[0]);
     }
 }
+
+/// The rows of one batch asking at once for one document parse it once:
+/// the rest read what the first kept (perf P13).
+#[test]
+fn concurrent_requests_for_one_document_parse_it_once() {
+    let source = (0..200)
+        .map(|n| format!("pub fn f{n}(value: usize) -> usize {{\n    value + {n}\n}}\n"))
+        .collect::<String>();
+    let path = format!("/store-concurrent-{}/lib.rs", std::process::id());
+    let documents = std::thread::scope(|scope| {
+        let tasks = (0..6)
+            .map(|_| scope.spawn(|| file_document(&source, &path).expect("document")))
+            .collect::<Vec<_>>();
+        tasks
+            .into_iter()
+            .map(|task| task.join().expect("request"))
+            .collect::<Vec<_>>()
+    });
+    assert!(
+        documents
+            .iter()
+            .all(|document| Arc::ptr_eq(document, &documents[0]))
+    );
+    assert_eq!(parses::of("declarations", &path), 1);
+}

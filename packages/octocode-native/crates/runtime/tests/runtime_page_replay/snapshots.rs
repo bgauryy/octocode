@@ -112,6 +112,7 @@ async fn symbol_fragments_preserve_every_alias_and_member_once() {
     let mut seen_aliases = Vec::new();
     let mut seen_members = Vec::new();
     let mut pages = 0;
+    let mut oversized = false;
     while let Some(input) = pending.take() {
         assert!(pages < 200, "finite symbol fragments");
         let output = runtime
@@ -120,19 +121,28 @@ async fn symbol_fragments_preserve_every_alias_and_member_once() {
             .expect("symbol fragment")
             .structured_content;
         support::checks::assert_output_contract("astSearch", &output);
+        oversized |= output.get("oversized").is_some();
+        // Each declaration is a line-first outline string (Q5, formed by the
+        // hoist stage); a member follows its parent one depth deeper, so a
+        // later part that holds only members still names each one.
         for row in output["results"].as_array().expect("rows") {
-            for symbol in row["data"]["symbols"]
+            for line in row["data"]["symbols"]
                 .as_array()
                 .unwrap_or_else(|| panic!("symbols: {output}"))
             {
-                assert_eq!(symbol["symbolName"], "Container");
-                for alias in symbol["exportedAs"].as_array().into_iter().flatten() {
-                    seen_aliases.push(alias.as_str().unwrap().to_owned());
-                }
-                for member in symbol["members"].as_array().into_iter().flatten() {
+                let (depth, symbol) = line
+                    .as_str()
+                    .and_then(octocode_runtime_base::response::symbol_outline::outline_row)
+                    .unwrap_or_else(|| panic!("an outline line: {line}"));
+                if depth == 0 {
+                    assert_eq!(symbol["symbolName"], "Container");
+                    for alias in symbol["exportedAs"].as_array().into_iter().flatten() {
+                        seen_aliases.push(alias.as_str().unwrap().to_owned());
+                    }
+                } else {
                     seen_members.push((
-                        member["symbolName"].as_str().unwrap().to_owned(),
-                        member["line"].as_u64().unwrap(),
+                        symbol["symbolName"].as_str().unwrap().to_owned(),
+                        symbol["line"].as_u64().unwrap(),
                     ));
                 }
             }
@@ -140,7 +150,14 @@ async fn symbol_fragments_preserve_every_alias_and_member_once() {
         pending = output.pointer("/responsePagination/next/input").cloned();
         pages += 1;
     }
-    assert!(pages > 2);
+    // Q5: the declaration's outline string, every alias in it, is one
+    // indivisible value: it rides a page alone and that page states it
+    // oversized; its members page after it.
+    assert!(pages > 1, "the members page after the declaration");
+    assert!(
+        oversized,
+        "the indivisible outline string is disclosed as oversized"
+    );
     let mut expected = aliases;
     expected.push("Container".into());
     assert_eq!(seen_aliases, expected);

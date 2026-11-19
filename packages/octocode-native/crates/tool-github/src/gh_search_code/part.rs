@@ -2,7 +2,7 @@
 //! rank order until the window is full, so a page that shows a few rows reads
 //! a few files. The rest of the page is the next part: the same page's
 //! continuation lists it from the same code-search answer ([`super::listed`]).
-use super::code_output::{LinePlan, Resolution, shape_files, withheld_path};
+use super::code_output::{LinePlan, Resolution, shape_rows, withheld_path};
 use super::{CODE_ROW_ID, GhSearchCodeQuery, Withholds};
 use octocode_engine::json_size::utf16_units;
 use octocode_github::{GitHubProvider, ProviderError, RequestContext};
@@ -140,7 +140,7 @@ pub(super) async fn read(
 /// The chars one shaped row takes: `full` as the row states its own
 /// identity, `moved` once the page states it, and the page-level fields a
 /// page of this row alone would state
-/// ([`octocode_runtime_base::response::pages::state_shared_identity_on`]).
+/// ([`octocode_runtime_base::response::hoist::apply_on`]).
 struct Measured {
     full: usize,
     moved: usize,
@@ -213,19 +213,16 @@ fn row_chars(
         reference,
         hits: vec![hit],
     };
-    let reads = shape_files(&mut rows, query, withholds, Some(resolution));
+    // Only the page's first row adds the page's top read lead.
+    let reads = shape_rows(&mut rows, query, withholds, Some(resolution), first);
     let mut page = json!({ "files": rows });
     pick_rows(&mut page, "files", CODE_ROW_ID, &field_names(&query.fields));
     let lead = |read: &Value| utf16_units(read).unwrap_or(0) + 1;
-    let leads = reads.hits.iter().map(lead).sum::<usize>()
-        + reads.top.as_ref().filter(|_| first).map_or(0, lead);
+    let leads = reads.hits.iter().map(lead).sum::<usize>() + reads.top.as_ref().map_or(0, lead);
     let full = utf16_units(&page["files"][0]).unwrap_or(0) + 1 + leads;
     let mut data = Map::new();
     data.insert("files".into(), page["files"].take());
-    octocode_runtime_base::response::pages::state_shared_identity_on(
-        ToolId::GhSearchCode,
-        &mut data,
-    );
+    octocode_runtime_base::response::hoist::apply_on(ToolId::GhSearchCode, &mut data);
     let moved = utf16_units(&data["files"][0]).unwrap_or(0) + 1 + leads;
     data.remove("files");
     Measured {

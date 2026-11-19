@@ -1,13 +1,16 @@
 //! The scan of one file or a directory, and the order of its files.
 use super::super::scan_window::window_files;
 use super::continuations::tree_repair;
+use super::groups::header_chars;
 use super::query::MatchQuery;
 use super::rows::{diagnostic_error, error_diagnostic};
 use super::snapshot::directory_source_digest;
+use super::stream::PageFill;
 use super::types::{Scan, ScannedFile, Scope};
-use super::{demand, match_price};
+use super::{demand, file_list, match_price};
 use octocode_engine::structural::{
-    FileMatches, StructuralDetailedMatch, StructuralDiagnostic, StructuralSearchFilesOptions,
+    FileMatches, PageFilled, StructuralDetailedMatch, StructuralDiagnostic,
+    StructuralSearchDetailedFileResult, StructuralSearchFilesOptions,
 };
 use octocode_runtime_base::execution::cancel::CancellationCheck;
 use octocode_runtime_base::policy::path::PathPolicy;
@@ -160,6 +163,35 @@ pub(super) fn scan_directory(
     cancel: &dyn CancellationCheck,
     through: Option<u32>,
 ) -> Result<Scan, ToolError> {
+    scan_directory_keeping(q, scope, paths, cancel, through, Keeps::Page(None))
+}
+
+/// What a directory scan keeps of its matches: what the page shows, or a
+/// census's counts, or whether any match exists at all.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Keeps {
+    /// The page's own demand ([`demand`]): its rows are priced. With the
+    /// page's budget, a content window in walk order ends after the file
+    /// that fills its page 1 ([`super::stream::PageFill`], and
+    /// [`octocode_engine::structural::StructuralDemand::Paged`]): its later
+    /// pages are its rows past page 1, then the next window's.
+    Page(Option<usize>),
+    /// Each file's match count: a census that states how many.
+    Counts,
+    /// Counts until a chunk of files holds a match: a census that asks
+    /// only whether the scope holds any.
+    First,
+}
+
+/// [`scan_directory`] keeping what `keeps` asks for.
+pub(super) fn scan_directory_keeping(
+    q: MatchQuery<'_>,
+    scope: &Scope,
+    paths: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+    through: Option<u32>,
+    keeps: Keeps,
+) -> Result<Scan, ToolError> {
     #[cfg(test)]
     DIRECTORY_SCANS
         .lock()
@@ -178,6 +210,41 @@ pub(super) fn scan_directory(
     );
     let ignore_rules = q.include_ignored() != Some(true);
     let log = WalkLog::new(scope, paths, &admission, q.include_hidden() == Some(true));
+    // Only a walk-order content window is cut by its page: a file view
+    // lists every file's count, a ranked order needs every file, and an
+    // explicit window is the caller's.
+    let page_budget = match keeps {
+        Keeps::Page(budget) if through.is_none() && !file_list(q) && !ranks_whole_scope(q) => {
+            budget
+        }
+        _ => None,
+    };
+    let row_paths = super::super::RowPaths::new(paths, &scope.canonical, scope.is_file);
+    let fill = page_budget.map(|budget| std::sync::Mutex::new(PageFill::of(q, budget)));
+    let filled = |files: &[&StructuralSearchDetailedFileResult]| {
+        let fill = fill.as_ref()?;
+        let mut fill = fill
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        files.iter().enumerate().find_map(|(at, file)| {
+            if let FileMatches::Priced(prices) = &file.matches
+                && !prices.is_empty()
+            {
+                let shown = super::super::rooted_display(
+                    &scope.canonical,
+                    std::path::Path::new(&file.path),
+                );
+                fill.add(
+                    header_chars(&shown, row_paths),
+                    prices.iter().map(|price| *price as usize),
+                );
+            }
+            // Page 1 needs the files before the one its next page starts
+            // at, and that file too when page 1 holds some of its matches.
+            fill.filled()
+                .map(|at_start| if at_start { at } else { at + 1 })
+        })
+    };
     let projection_failure = std::sync::Mutex::new(None);
     let price = |m: &StructuralDetailedMatch| match match_price(q, m, cancel) {
         Ok(price) => price,
@@ -198,48 +265,70 @@ pub(super) fn scan_directory(
             .as_ref()
             .is_none_or(|scoped| scoped.keeps(path, line))
     };
-    let r = octocode_engine::structural::search_files(
-        StructuralSearchFilesOptions {
-            path: scope.canonical.to_string_lossy().into_owned(),
-            pattern: None,
-            rule: q.rule(),
-            include: q.include(),
-            exclude: q.exclude(),
-            default_exclude_dir: Some(prune::walk_names(q.default_excludes(), &include)),
-            ignore: octocode_engine::types::IgnorePolicy::new(
-                q.include_ignored(),
-                q.include_hidden(),
-            ),
-            max_depth: q.max_depth(),
-            max_files: through.or_else(|| window_files(q.scan_offset())),
-            skip_files: Some(through.map_or(q.scan_offset(), |_| 0)),
-            max_file_bytes: u32::try_from(
-                octocode_runtime_base::security::SourceLimits::REAL.whole_source,
+    let options = StructuralSearchFilesOptions {
+        path: scope.canonical.to_string_lossy().into_owned(),
+        pattern: None,
+        rule: q.rule(),
+        include: q.include(),
+        exclude: q.exclude(),
+        default_exclude_dir: Some(prune::walk_names(q.default_excludes(), &include)),
+        ignore: octocode_engine::types::IgnorePolicy::new(q.include_ignored(), q.include_hidden()),
+        max_depth: q.max_depth(),
+        max_files: through.or_else(|| window_files(q.scan_offset())),
+        skip_files: Some(through.map_or(q.scan_offset(), |_| 0)),
+        max_file_bytes: u32::try_from(
+            octocode_runtime_base::security::SourceLimits::REAL.whole_source,
+        )
+        .ok(),
+        judge: Some(super::super::source::judge()),
+        global_ignore: paths.global_ignore(),
+        // Each file's outcome is kept across scans of this query: the
+        // row price's inputs are the scan key's.
+        kept: Some(super::memo::scan_key(q, paths)),
+    };
+    let admit = |path: &std::path::Path, file_type: Option<std::fs::FileType>| {
+        // Only a file the scan parses is one the scope leaves unread.
+        log.admit(path, file_type)
+            && scoped.as_ref().is_none_or(|scoped| {
+                let is_dir = file_type.map_or_else(|| path.is_dir(), |kind| kind.is_dir());
+                (!is_dir && !parses(scope, path)) || scoped.reads(path, is_dir)
+            })
+    };
+    let stop = || {
+        cancel.check().is_err()
+            || projection_failure
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .is_some()
+    };
+    // The scans of this scope beside this one share its walk and its parses
+    // ([`super::shared_scope`]).
+    let walk = super::shared_scope::walk_key(paths, &scope.canonical, &options);
+    let r = super::shared_scope::scan(
+        &walk,
+        (&scope.canonical, paths),
+        &|| cancel.check().is_err(),
+        |share| {
+            octocode_engine::structural::search_files_shared(
+                options,
+                match keeps {
+                    Keeps::Page(_) => {
+                        demand(q, &price, page_budget.map(|_| &filled as &PageFilled<'_>))
+                    }
+                    Keeps::Counts => octocode_engine::structural::StructuralDemand::Count,
+                    Keeps::First => octocode_engine::structural::StructuralDemand::Exists,
+                },
+                (
+                    &admit,
+                    scoped
+                        .as_ref()
+                        .map(|_| &keep_line as &octocode_engine::structural::KeepLine),
+                ),
+                &|path| parser_extension(scope, path),
+                &stop,
+                share,
             )
-            .ok(),
-            judge: Some(super::super::source::judge()),
-            global_ignore: paths.global_ignore(),
         },
-        demand(q, &price),
-        &|path, file_type| {
-            // Only a file the scan parses is one the scope leaves unread.
-            log.admit(path, file_type)
-                && scoped.as_ref().is_none_or(|scoped| {
-                    let is_dir = file_type.map_or_else(|| path.is_dir(), |kind| kind.is_dir());
-                    (!is_dir && !parses(scope, path)) || scoped.reads(path, is_dir)
-                })
-        },
-        &|path| parser_extension(scope, path),
-        &|| {
-            cancel.check().is_err()
-                || projection_failure
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .is_some()
-        },
-        scoped
-            .as_ref()
-            .map(|_| &keep_line as &octocode_engine::structural::KeepLine),
     );
     if let Some(error) = projection_failure
         .into_inner()
@@ -261,6 +350,13 @@ pub(super) fn scan_directory(
         r.files
             .iter()
             .map(|file| (file.path.as_str(), file.source_sha256.as_deref())),
+    );
+    // What the walk's own rules left out joins the admission's ledger, as
+    // a text search's walk records it: a file only when the scan reads it.
+    let left_out = &r.walk_skipped;
+    admission.record_left_out(
+        (&left_out.ignored, &left_out.hidden, &left_out.pruned),
+        |path| log.reads(path),
     );
     let logged = log.finish();
     let mut rules = if ignore_rules {
@@ -305,6 +401,7 @@ pub(super) fn scan_directory(
             })
             .collect(),
         truncated: r.scan_truncated,
+        filled: r.page_filled,
         scan_resume: r.scan_resume,
         listed_before: r.listed_before,
         listed_through: r.listed_through,
@@ -313,8 +410,7 @@ pub(super) fn scan_directory(
         skips: (r.skipped_unsupported, r.skipped_unreadable, r.skipped_large),
         walk_errors: r.walk_errors,
         skipped_by_prefilter: r.skipped_by_pre_filter,
-        withheld: admission.skipped().withheld,
-        artifacts: admission.skipped().artifacts,
+        skipped: admission.skipped(),
         unparsed: logged.unparsed,
         census: logged.census,
         present: logged.present,

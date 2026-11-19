@@ -45,10 +45,32 @@ pub(super) fn row_sizes(
             } else {
                 declaration_rows(rows)
             };
-            // Each row is one array element: its text and a separator.
-            let mut chars = rendered
-                .iter()
-                .map(|row| octocode_engine::json_size::utf16_units(row).unwrap_or(0) + 1)
+            // A top-level row as the hoist stage publishes it: without the
+            // values it omits, as one line-first string per declaration
+            // (Q5), each a string of the array and a separator. Pricing
+            // only: the page serves the rows as objects, which the stage
+            // turns into strings after the output gate.
+            let at = if directory.is_some() {
+                FILE_ROWS
+            } else {
+                PAGE_ROWS
+            };
+            let stated = rendered
+                .into_iter()
+                .map(|mut row| {
+                    octocode_runtime_base::response::hoist::apply_at(
+                        octocode_runtime_base::id::ToolId::AstSearch,
+                        at,
+                        &mut row,
+                    );
+                    row
+                })
+                .collect::<Vec<_>>();
+            let mut chars = octocode_runtime_base::response::symbol_outline::outline_lines(&stated)
+                .into_iter()
+                .map(|line| {
+                    octocode_engine::json_size::utf16_units(&Value::String(line)).unwrap_or(0) + 1
+                })
                 .sum::<usize>();
             if let Some(row_paths) = directory {
                 let path = declarations[span.start]["path"].as_str();
@@ -61,6 +83,11 @@ pub(super) fn row_sizes(
         })
         .collect()
 }
+
+/// Where a page's outline rows sit: under each file of a directory page, or
+/// on the page itself.
+const FILE_ROWS: &str = "/data/files/*/symbols/*";
+const PAGE_ROWS: &str = "/data/symbols/*";
 
 /// The `{"path":,"symbols":[]},` around one file's rows on a directory page.
 const FILE_WRAPPER_CHARS: usize = 24;

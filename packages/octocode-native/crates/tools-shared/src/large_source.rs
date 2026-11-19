@@ -252,7 +252,7 @@ pub struct ServedLines {
 /// The lines of each of `wants` (1-based, inclusive) of `source`, a file
 /// larger than a source judged whole, as a read of exactly those lines
 /// serves them: cut from the one streamed judgment of the whole source
-/// ([`sealed`], [`masks`]), then through the read's own pipeline. Another tool that
+/// ([`sealed`], `masks`), then through the read's own pipeline. Another tool that
 /// shows lines of such a source shows these, so its row is the read's line.
 /// `known` names the digest of bytes an earlier pass may still hold
 /// ([`kept`]): their windows are then read without streaming the source again.

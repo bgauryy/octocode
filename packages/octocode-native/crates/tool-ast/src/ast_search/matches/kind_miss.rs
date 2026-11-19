@@ -78,7 +78,7 @@ pub(super) fn attach_kind_miss(
     let Some(query) = with_rule(q, scope, rule) else {
         return false;
     };
-    let Some(scan) = rule_scan(&query, paths, cancel) else {
+    let Some(scan) = rule_scan(&query, paths, cancel, super::scan::Keeps::Counts) else {
         return false;
     };
     let matched = || scan.files.iter().filter(|file| !file.matches.is_empty());

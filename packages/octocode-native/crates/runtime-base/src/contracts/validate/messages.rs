@@ -136,14 +136,18 @@ fn call_reference(tool_name: &str, rejected: Option<&Rejected<'_>>) -> Vec<Strin
 /// fault, no field the row did not send that the request runs without, and
 /// each other field the row sent without an issue (a graphQuery `hubs` keeps
 /// its `path`), apart from its brief ([`crate::contracts::BRIEF_FIELDS`]) and page position
-/// (its state fields), which describe the call rather than its form. Each
-/// change is kept only while the request validates, so the example stays one
-/// the tool accepts. A row at fault as a whole keeps the example.
+/// (its state fields), which describe the call rather than its form. A
+/// field at fault only by a value its message names the meaning of (`sort`
+/// with `by: "modified"`, which means `modifiedAt`) is the row's own with
+/// that value, so the example still asks what the row did. Each change is
+/// kept only while the request validates, so the example stays one the tool
+/// accepts. A row at fault as a whole keeps the example.
 fn in_row_terms(tool_name: &str, example: &Value, rejected: Option<&Rejected<'_>>) -> Value {
     let (
         Some(Rejected {
             row,
             faulted: Some(faulted),
+            meant,
         }),
         Some(fields),
     ) = (rejected, example.as_object())
@@ -177,6 +181,25 @@ fn in_row_terms(tool_name: &str, example: &Value, rejected: Option<&Rejected<'_>
         let of_the_call = crate::contracts::BRIEF_FIELDS.contains(&field.as_str())
             || state.is_some_and(|state| state.contains(field));
         if of_the_call || shown.contains_key(field) || faulted.contains(field) {
+            continue;
+        }
+        let mut candidate = shown.clone();
+        candidate.insert(field.clone(), value.clone());
+        if accepted(&candidate) {
+            shown = candidate;
+        }
+    }
+    // A field at fault by values whose meaning the messages name: the
+    // row's own, each such value replaced by the literal it means.
+    let mut repaired = Value::Object((*row).clone());
+    for (path, literal) in meant {
+        repaired = with_literal(repaired.clone(), path, literal).unwrap_or(repaired);
+    }
+    for field in faulted {
+        let Some(value) = repaired.get(field) else {
+            continue;
+        };
+        if !meant.iter().any(|(path, _)| path.first() == Some(field)) {
             continue;
         }
         let mut candidate = shown.clone();
@@ -236,6 +259,36 @@ struct Rejected<'a> {
     /// `None`: an issue of the row as a whole, so no field of it is known
     /// to be sound.
     faulted: Option<Vec<String>>,
+    /// Each value outside its enum whose message names the one literal it
+    /// means (`use "modifiedAt"`): its path under the row, and that literal.
+    meant: Vec<(Vec<String>, Value)>,
+}
+
+/// The one literal an enum issue's message says its value means
+/// ([`super::literals::enum_message`]: `…; use "<literal>"; allowed: …`);
+/// `None` for any other issue, or a choice of several.
+fn meant_literal(issue: &ValidationIssue) -> Option<Value> {
+    if issue.rule_id != "schema.enum" {
+        return None;
+    }
+    let (_, after) = issue.message.split_once("; use \"")?;
+    let (literal, _) = after.split_once("\"; allowed: ")?;
+    (!literal.contains('"')).then(|| Value::String(literal.to_owned()))
+}
+
+/// `value` with `literal` at `path` under it (object keys, array indexes);
+/// `None` when the path is not there.
+fn with_literal(mut value: Value, path: &[String], literal: &Value) -> Option<Value> {
+    let mut at = &mut value;
+    for segment in path {
+        at = match at {
+            Value::Object(fields) => fields.get_mut(segment)?,
+            Value::Array(items) => items.get_mut(segment.parse::<usize>().ok()?)?,
+            _ => return None,
+        };
+    }
+    *at = literal.clone();
+    Some(value)
 }
 
 /// The first rejected row of `sent`, read at the row index its first issue's
@@ -254,9 +307,13 @@ fn sent_row<'a>(error: &ContractValidationError, sent: &'a Value) -> Option<Reje
         .get(index.parse::<usize>().ok()?)?
         .as_object()?;
     let mut faulted = Some(Vec::new());
+    let mut meant = Vec::new();
     for issue in &error.issues {
         match issue.path.as_slice() {
             [queries, at, field, ..] if queries == "queries" && at == index => {
+                if let Some(literal) = meant_literal(issue) {
+                    meant.push((issue.path[2..].to_vec(), literal));
+                }
                 let field = field.split(['.', '[']).next().unwrap_or(field);
                 if let Some(faulted) = &mut faulted {
                     faulted.push(field.to_owned());
@@ -266,7 +323,11 @@ fn sent_row<'a>(error: &ContractValidationError, sent: &'a Value) -> Option<Reje
             _ => {}
         }
     }
-    Some(Rejected { row, faulted })
+    Some(Rejected {
+        row,
+        faulted,
+        meant,
+    })
 }
 
 /// What an unknown field's message reads of the row holding it.

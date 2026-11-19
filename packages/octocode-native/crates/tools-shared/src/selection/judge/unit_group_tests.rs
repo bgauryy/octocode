@@ -104,11 +104,7 @@ fn judge_at(
             .respond_with(respond)
             .mount(&server),
     );
-    static MODELS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    let model = format!(
-        "unit-group-{}",
-        MODELS.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    );
+    let model = crate::judgment::test_identity::unique("unit-group");
     let evaluator = evaluator_of("test-key", server.uri(), &model);
     let candidates = states
         .iter()

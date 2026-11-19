@@ -1,8 +1,8 @@
 //! Absence needs a disclosure the agent can see: a window that states it, on a
-//! scan its budget cut, names what the skipped walks left unproven.
+//! scan its budget cut, names the paths its walk skipped, which were not
+//! searched.
 use super::*;
 use octocode_test_support::json_fixture;
-use octocode_tools_shared::empty_walk::{CUT_AT_ONCE, with_probe_limits};
 use serde_json::Value;
 
 const UNCHECKED: &str = "were not searched";
@@ -29,32 +29,26 @@ fn windows(root: &std::path::Path, row: Value) -> Vec<Value> {
     }
 }
 
-/// The scan needs more than one window and its probe is cut: every window that
-/// says `empty` carries the disclosure, and so does the first one.
+/// The scan needs more than one window: the window that states absence (the
+/// last, empty, with nothing left to scan) names what its walk skipped.
 #[test]
-fn a_cut_scan_with_a_cut_probe_never_states_absence_undisclosed() {
+fn a_cut_scan_never_states_absence_undisclosed() {
     let root = Fixture::new();
     for name in ["a.rs", "b.rs", "c.rs", "dist/late.rs"] {
         root.write(name, "pub fn source() {}\n");
     }
     let _window = crate::ast_search::scan_window::test_window(1);
-    let walked = with_probe_limits(CUT_AT_ONCE, || windows(&root.0, no_hit_row(&root.0)));
+    let walked = windows(&root.0, no_hit_row(&root.0));
     assert!(walked.len() > 1, "{walked:?}");
     let last = walked.last().expect("a window");
     assert_eq!(last["status"], "empty", "{walked:?}");
     assert!(discloses(last), "{last}");
-    assert!(discloses(&walked[0]), "{}", walked[0]);
-    for window in &walked {
-        if window["status"] == "empty" {
-            assert!(discloses(window), "{window}");
-        }
-    }
 }
 
-/// A later window with rows states no absence: it repeats nothing, though the
-/// first window was cut with the check unfinished and said so there.
+/// A window with rows already answers: it names no skipped path, first or
+/// later.
 #[test]
-fn a_cut_first_window_with_hits_says_the_check_was_cut_and_later_hits_do_not() {
+fn a_window_with_hits_names_no_skipped_path() {
     let root = Fixture::new();
     for name in ["a.rs", "b.rs", "dist/late.rs"] {
         root.write(name, "pub fn source() {}\n");
@@ -62,17 +56,24 @@ fn a_cut_first_window_with_hits_says_the_check_was_cut_and_later_hits_do_not() {
     let row =
         json!({"operation":"match","path":root.0,"parser":"rust","rule":{"kind":"function_item"}});
     let _window = crate::ast_search::scan_window::test_window(1);
-    let walked = with_probe_limits(CUT_AT_ONCE, || windows(&root.0, row));
-    assert_eq!(walked[0]["matchCount"], 1, "{walked:?}");
-    assert!(discloses(&walked[0]), "{}", walked[0]);
-    assert_eq!(walked[1]["matchCount"], 1, "{walked:?}");
+    let walked = windows(&root.0, row);
+    // A window cut before the scope ends counts what it read, a floor; the
+    // window that ends the scope counts every window's rows.
+    assert_eq!(walked[0]["pagination"]["total"], 1, "{walked:?}");
+    assert_eq!(
+        walked[0]["pagination"]["countScope"], "loaded",
+        "{walked:?}"
+    );
+    assert!(!discloses(&walked[0]), "{}", walked[0]);
+    assert_eq!(walked[1]["matchCount"], 2, "{walked:?}");
+    assert_eq!(walked[1]["pagination"]["offset"], 1, "{walked:?}");
     assert!(!discloses(&walked[1]), "{}", walked[1]);
 }
 
-/// A probe that finished states what it found on the last window too, when
-/// that window states absence: its count, not an unchecked claim.
+/// The last window states absence by what its walk skipped, counted by cause,
+/// with the lead that lifts it; nothing behind it was read.
 #[test]
-fn an_empty_last_window_names_what_a_finished_probe_found() {
+fn an_empty_last_window_names_its_skipped_paths() {
     let root = Fixture::new();
     for name in ["a.rs", "b.rs", "dist/late.rs"] {
         root.write(name, "pub fn source() {}\n");
@@ -84,24 +85,22 @@ fn an_empty_last_window_names_what_a_finished_probe_found() {
     assert!(
         last["warnings"]
             .to_string()
-            .contains("1 rust file behind skipped paths (dist/)"),
+            .contains("Skipped paths (1 default-excluded) were not searched"),
         "{last}"
     );
     assert!(skipped_call(last).is_some(), "{last}");
 }
 
-/// A scan window cut before it parsed anything still names the skipped walks:
-/// its own cut diagnostic does not stand in for them.
+/// A scan window cut before it parsed anything still names the paths its walk
+/// skipped: its own cut diagnostic does not stand in for them.
 #[test]
-fn a_first_window_that_parsed_nothing_still_discloses_a_cut_probe() {
+fn a_first_window_that_parsed_nothing_still_discloses_its_skipped_paths() {
     let root = Fixture::new();
     std::fs::write(root.0.join("a.rs"), b"\0\xff binary \0").expect("binary");
     root.write("dist/late.rs", "pub fn source() {}\n");
     root.write("z.rs", "pub fn source() {}\n");
     let _window = crate::ast_search::scan_window::test_window(1);
-    let first = with_probe_limits(CUT_AT_ONCE, || {
-        run(&root.0, no_hit_row(&root.0)).expect("first window")
-    });
+    let first = run(&root.0, no_hit_row(&root.0)).expect("first window");
     assert!(first["next"]["expandScan"].is_object(), "{first}");
     assert!(discloses(&first), "{first}");
 }
@@ -119,11 +118,11 @@ fn a_later_window_does_not_claim_the_scope_holds_no_file() {
     assert!(!out["hints"].to_string().contains("was parsed"), "{out}");
 }
 
-/// The same result answers `coverage` the same on each of its pages, an
-/// unchecked probe or not: the requested scope was walked whole, and the hint
-/// names what the check of the skipped paths left open.
+/// The same result answers `coverage` the same on each of its pages: the
+/// requested scope was walked whole. Its skipped paths are counted on page 1,
+/// never offered beside the matches.
 #[test]
-fn every_match_page_states_the_same_coverage_after_an_unchecked_probe() {
+fn every_match_page_states_the_same_coverage() {
     let root = Fixture::new();
     let body = (0..2000)
         .map(|n| format!("fn function_{n}() {{}}\n"))
@@ -132,15 +131,16 @@ fn every_match_page_states_the_same_coverage_after_an_unchecked_probe() {
     root.write("dist/late.rs", "pub fn source() {}\n");
     let row =
         json!({"operation":"match","path":root.0,"parser":"rust","rule":{"kind":"function_item"}});
-    let (first, later) = with_probe_limits(CUT_AT_ONCE, || {
-        let first = run(&root.0, row).expect("page 1");
-        let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
-        assert_eq!(next["page"], 2, "{first}");
-        let later = run(&root.0, next).expect("page 2");
-        (first, later)
-    });
-    assert!(discloses(&first), "{first}");
+    let first = run(&root.0, row).expect("page 1");
+    let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
+    assert_eq!(next["page"], 2, "{first}");
+    let later = run(&root.0, next).expect("page 2");
+    assert!(!discloses(&first), "{first}");
     assert!(!discloses(&later), "{later}");
+    assert!(
+        first["skippedPaths"].to_string().contains("dist"),
+        "{first}"
+    );
     assert_eq!(first["coverage"]["state"], "complete", "{first}");
     assert_eq!(first["coverage"], later["coverage"], "{first}\n{later}");
 }

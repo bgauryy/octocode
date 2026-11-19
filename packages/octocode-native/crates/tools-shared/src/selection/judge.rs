@@ -10,6 +10,9 @@ use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 
 mod requests;
+mod units;
+
+pub use units::{Plan, Spend, Unit, UnitAnswers, UnitCall};
 
 const CONTROL_FIELDS: [&str; 8] = [
     "next",
@@ -281,9 +284,32 @@ impl Evaluator {
                 .bytes
                 .min(body),
             group_units,
+            hit_windows: false,
         };
         let requests = requests::requests(&call, caps)
             .ok_or(JudgeFailure::from("invalidClassificationRequest"))?;
+        // The page's price before any request is sent: each request's first
+        // round and the most its refusals can add ([`Self::sends`]).
+        let (planned, ceiling) =
+            requests
+                .iter()
+                .fold((0_u64, 0_u64), |(planned, ceiling), request| {
+                    let sends = self.sends(
+                        EvaluationInput {
+                            state: &request.state,
+                            questions: &request.questions,
+                            assets: None,
+                            long_context: call.long_context,
+                            companions: 0,
+                            cap: None,
+                        },
+                        None,
+                    );
+                    (
+                        planned.saturating_add(sends.first),
+                        ceiling.saturating_add(sends.at_most),
+                    )
+                });
         let gate = self.gate();
         let long_context = call.long_context;
         let context = call.context;
@@ -306,6 +332,7 @@ impl Evaluator {
                                     assets: None,
                                     long_context,
                                     companions: 0,
+                                    cap: None,
                                 },
                                 None,
                                 &budget,
@@ -372,6 +399,8 @@ impl Evaluator {
                 }
             }
         }
+        usage.requests_planned = Some(planned);
+        usage.requests_ceiling = Some(ceiling);
         *call.usage = usage;
         // A provider that failed every candidate gave no answer at all: its
         // typed error (credential, quota, transport, too slow) is the row's
@@ -391,8 +420,12 @@ impl Evaluator {
 }
 
 #[cfg(test)]
+mod ceiling_tests;
+#[cfg(test)]
 mod provider_tests;
 #[cfg(test)]
 mod question_tests;
 #[cfg(test)]
 mod unit_group_tests;
+#[cfg(test)]
+mod units_tests;

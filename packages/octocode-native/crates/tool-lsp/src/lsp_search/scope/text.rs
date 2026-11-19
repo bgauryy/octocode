@@ -12,27 +12,72 @@ impl Scope {
         policy: &PathPolicy,
         cancel: &dyn CancellationCheck,
     ) -> Result<Option<Arc<BTreeSet<String>>>, LspFailure> {
+        self.scanned_text(symbol, policy, false, cancel).await
+    }
+
+    /// [`Self::text_files`] for the text check of a Rust declaration's uses
+    /// (TE11): when the anchor's declaration bounds its reach to one module,
+    /// one crate or one binding ([`reach::Reach::searched`]), only the files
+    /// that bound admits are read, with what the crate places outside its
+    /// directory (its `#[path]` modules, the files it `include!`s). Every
+    /// other listed file is out of reach unread, and
+    /// [`Self::out_of_reach`] counts it. A public item, a reach that is not
+    /// known, or one whose placements could not be read is scanned whole.
+    pub(in super::super) async fn text_files_in_reach(
+        &self,
+        symbol: &str,
+        policy: &PathPolicy,
+        cancel: &dyn CancellationCheck,
+    ) -> Result<Option<Arc<BTreeSet<String>>>, LspFailure> {
+        self.scanned_text(symbol, policy, true, cancel).await
+    }
+
+    async fn scanned_text(
+        &self,
+        symbol: &str,
+        policy: &PathPolicy,
+        in_reach: bool,
+        cancel: &dyn CancellationCheck,
+    ) -> Result<Option<Arc<BTreeSet<String>>>, LspFailure> {
+        // A whole scan serves a bounded one; a bounded one serves only its
+        // own kind.
         if let Some(scan) = self
             .text
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .as_ref()
-            .filter(|scan| scan.symbol == symbol)
+            .filter(|scan| scan.symbol == symbol && (in_reach || scan.unsearched.is_none()))
             .map(|scan| scan.files.clone())
         {
             return Ok(scan);
         }
+        let searched = if in_reach && self.markup.is_empty() {
+            let (site, slot, symbol) = (self.site(), Arc::clone(&self.reach), symbol.to_owned());
+            blocking_cancellable(cancel, move |stopped| {
+                reach_in(&slot, site.as_ref(), &symbol, stopped)
+                    .and_then(|reach| reach.searched(stopped))
+                    .map(Arc::new)
+            })
+            .await?
+            .flatten()
+        } else {
+            None
+        };
         // One walk reads the family and the markup beside it.
         let include = [self.include.as_slice(), self.markup.as_slice()].concat();
-        let scanned = scan_text(&self.root, &include, symbol, policy, cancel).await?;
-        let (markup, files, listed) = match scanned {
-            Some((found, listed)) => {
+        let scanned = scan_text(&self.root, &include, symbol, policy, searched, cancel).await?;
+        let (markup, files, listed, unsearched) = match scanned {
+            Some(scan::Scanned {
+                found,
+                listed,
+                unsearched,
+            }) => {
                 let (markup, family) = found
                     .into_iter()
                     .partition(|file| !self.markup.is_empty() && paths::is_markup(file));
-                (markup, Some(Arc::new(family)), Some(listed))
+                (markup, Some(Arc::new(family)), Some(listed), unsearched)
             }
-            None => (BTreeSet::new(), None, None),
+            None => (BTreeSet::new(), None, None, None),
         };
         *self
             .text
@@ -42,6 +87,7 @@ impl Scope {
             files: files.clone(),
             markup: Arc::new(markup),
             listed,
+            unsearched,
         });
         Ok(files)
     }
@@ -58,9 +104,10 @@ impl Scope {
         cancel: &dyn CancellationCheck,
     ) -> Result<Option<BTreeSet<String>>, LspFailure> {
         let include = [self.include.as_slice(), self.markup.as_slice()].concat();
-        let scanned = scan_text(&self.root, &include, name, policy, cancel).await?;
-        Ok(scanned.map(|(found, _)| {
-            found
+        let scanned = scan_text(&self.root, &include, name, policy, None, cancel).await?;
+        Ok(scanned.map(|scanned| {
+            scanned
+                .found
                 .into_iter()
                 .filter(|file| self.markup.is_empty() || !paths::is_markup(file))
                 .collect()
@@ -127,20 +174,60 @@ impl Scope {
         )
     }
 
-    /// The scanned files the answer does not cover that lie outside the
-    /// anchor declaration's reach, with that reach as a reader checks it;
-    /// `None` when there are none or no bound is known.
+    /// The files the answer does not cover that lie outside the anchor
+    /// declaration's reach: the scanned ones that spell the name (`files`),
+    /// and apart from them every listed one a bounded scan left unread
+    /// (`unsearched`, [`Self::text_files_in_reach`]), with that reach as a
+    /// reader checks it; `None` when there are none or no bound is known.
     pub(in super::super) fn out_of_reach(&self, symbol: &str) -> Option<OutOfReach> {
         let files = self
             .unanswered(symbol)?
             .iter()
             .filter(|file| self.code_use(symbol, file) == Use::OutOfReach)
             .count();
+        let unsearched = self.unsearched(symbol);
         let reach = self.reach_of(symbol, &|| false)?;
-        (files > 0).then(|| OutOfReach {
+        (files + unsearched > 0).then(|| OutOfReach {
             files,
+            unsearched,
             bound: reach.describe(&self.root),
         })
+    }
+
+    /// The listed files the bounded scan of `symbol` left unread; empty for
+    /// a whole scan.
+    #[cfg(test)]
+    pub(super) fn unsearched_files(&self, symbol: &str) -> Vec<PathBuf> {
+        self.text
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .filter(|scan| scan.symbol == symbol)
+            .and_then(|scan| scan.unsearched.as_deref().map(<[PathBuf]>::to_vec))
+            .unwrap_or_default()
+    }
+
+    /// The listed files the bounded scan of `symbol` left unread that the
+    /// answer does not cover.
+    fn unsearched(&self, symbol: &str) -> usize {
+        let unsearched = self
+            .text
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .filter(|scan| scan.symbol == symbol)
+            .and_then(|scan| scan.unsearched.clone());
+        let Some(unsearched) = unsearched else {
+            return 0;
+        };
+        let answered = self
+            .answered
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        unsearched
+            .iter()
+            .filter(|file| !answered.contains(file.to_string_lossy().as_ref()))
+            .count()
     }
 
     /// The one path (canonical) the anchor's declaration of `symbol` is
@@ -303,11 +390,15 @@ pub(super) enum Use {
     OutOfReach,
 }
 
-/// Scanned files outside the anchor declaration's reach: no missed site,
-/// no lead, and so no partial reason.
+/// Files outside the anchor declaration's reach: no missed site, no lead,
+/// and so no partial reason.
 #[derive(Debug)]
 pub(in super::super) struct OutOfReach {
+    /// Read files that spell the name.
     pub(in super::super) files: usize,
+    /// Listed files a bounded scan did not read: outside the reach, so
+    /// unread, and counted apart from `files`.
+    pub(in super::super) unsearched: usize,
     /// The reach as a reader checks it (`pub(super) reaches only module …`).
     pub(in super::super) bound: String,
 }

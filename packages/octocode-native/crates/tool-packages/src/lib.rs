@@ -17,3 +17,5 @@
 pub mod artifact;
 pub mod artifact_search;
 pub mod security_check;
+
+pub use artifact::CallShare;

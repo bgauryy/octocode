@@ -26,6 +26,9 @@ pub(super) struct PageCosts {
     pub(super) shows_names: bool,
     /// The names of each file the cut priced, by file index.
     pub(super) owners: HashMap<usize, FilePrice>,
+    /// The term a span equal to it leaves out of its row
+    /// ([`local_search_query::derived_value`]): such a row costs no `value`.
+    derived: Option<String>,
 }
 
 /// The enclosing names one file's hit rows carry, as a page cut prices
@@ -43,7 +46,7 @@ pub(crate) enum FilePrice {
 
 impl FilePrice {
     /// The names of `file`'s hit rows by its `outline` (`None`: it has
-    /// none). A row's owner is the one [`annotate_enclosing`] names it by,
+    /// none). A row's owner is the one [`annotate_enclosing`](crate::local_search::enclosing::annotate_enclosing) names it by,
     /// except that a declaration search names only its declaring rows (and
     /// a merged context block lists each owner once, with one index per
     /// hit): charging every hit row its owner whole bounds those pages from
@@ -88,7 +91,7 @@ pub(crate) type Outliner<'p> = dyn FnMut(
 
 /// The enclosing names a page cut charges, priced on demand: a file is
 /// outlined only once a cut must charge its rows exactly (see
-/// [`Layout::cut`]); every other file of an outlined language reserves.
+/// [`Layout::cut`](super::Layout::cut)); every other file of an outlined language reserves.
 pub(crate) struct NamePricing<'p> {
     /// The prices known so far, by file index: a stored scan's, then the
     /// ones this cut outlined.
@@ -183,6 +186,7 @@ impl PageCosts {
                 !list_view(view) && view != local_search_query::View::MatchOnly
             },
             owners: HashMap::new(),
+            derived: local_search_query::derived_value(query).map(str::to_owned),
         }
     }
 
@@ -224,9 +228,20 @@ impl PageCosts {
     pub(super) fn row(&self, matched: &octocode_engine::types::TextSearchMatch) -> usize {
         #[cfg(test)]
         PRICED.with(|priced| priced.set(priced.get() + 1));
-        row_chars(matched, self.span_columns)
+        let chars = row_chars(matched, self.span_columns);
+        match self.derived.as_deref() {
+            // The row as published: `,"value":"<term>"` left out.
+            Some(term) if matched.deferred.is_none() && matched.value == term => chars
+                .saturating_sub(
+                    VALUE_FIELD_CHARS + octocode_engine::json_size::string_body_units(term),
+                ),
+            _ => chars,
+        }
     }
 }
+
+/// Serialized chars of a row's empty `value` field with its separator.
+const VALUE_FIELD_CHARS: usize = ",\"value\":\"\"".len();
 
 #[cfg(test)]
 thread_local! {

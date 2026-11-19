@@ -7,8 +7,9 @@ use octocode_runtime_base::test_support::assert_row_contract;
 use octocode_test_support::json_fixture;
 
 /// The fields a summary computes from the list it leaves to `details`.
-const SUMMARY_ONLY: [&str; 4] = [
+const SUMMARY_ONLY: [&str; 5] = [
     "advisoryCount",
+    "advisoryIds",
     "highestSeverity",
     "unfixedInMajorCount",
     "link",
@@ -310,6 +311,7 @@ async fn a_commit_summary_counts_and_links_and_details_lists() {
             r#"{
                 "affected": true,
                 "advisoryCount": 2,
+                "advisoryIds": ["CVE-2023-1", "OSV-2020-1"],
                 "highestSeverity": "high",
                 "link": "https://osv.dev/vulnerability/CVE-2023-1"
             }"#
@@ -636,5 +638,54 @@ async fn details_states_nothing_its_other_fields_derive() {
     assert_eq!(
         summary["link"], "https://osv.dev/vulnerability/GHSA-HIGHER",
         "{summary}"
+    );
+}
+
+/// Advisory text is third-party text: after the summary's ids, the distro
+/// clause stated once and the call share, every served leaf still passes the
+/// output gate. A secret-shaped string in an OSV record's id, summary,
+/// details and reference is redacted in both views of a served batch, and
+/// in a distribution row with its once-stated warning.
+#[tokio::test]
+async fn a_secret_in_advisory_text_is_redacted_in_both_views() {
+    let secret = format!("ghp_{}", "a1B2c3D4e5".repeat(4));
+    let leaky = || {
+        let mut record = fixed(&format!("GHSA-{secret}"), "HIGH", &["4.17.21"]);
+        record["summary"] = json!(format!("token {secret} in one line"));
+        record["details"] = json!(format!("Set GITHUB_TOKEN={secret} to reproduce."));
+        record["references"] =
+            json!([{"type": "WEB", "url": format!("https://example.test/{secret}")}]);
+        registry_with_latest().osv_pages(vec![(200, json!({"vulns": [record]})), (200, json!({}))])
+    };
+    let summary = answer(&leaky(), package_query("summary"))
+        .await
+        .expect("summary");
+    let details = answer(&leaky(), package_query("details"))
+        .await
+        .expect("details");
+    assert!(
+        summary.to_string().contains(&secret) && summary.get("advisoryIds").is_some(),
+        "the executor row holds the record as OSV gave it: {summary}"
+    );
+    let distro = answer(
+        &RouteHttp::new().osv_pages(vec![(
+            200,
+            json!({"vulns": [{"id": "DSA-1", "summary": format!("key {secret}"), "affected": [
+                {"package": {"name": "zlib", "ecosystem": "Debian:12"}}]}]}),
+        )]),
+        json!({"operation": "package", "ecosystem": "Debian", "packageName": "zlib", "release": "12"}),
+    )
+    .await
+    .expect("distro");
+    let served = octocode_runtime_base::test_support::staged_response(
+        ToolId::SecurityCheck,
+        vec![summary, details, distro],
+    );
+    let text = served.to_string();
+    assert!(!text.contains(&secret), "{served}");
+    assert!(text.contains("REDACTED"), "{served}");
+    assert!(
+        served["results"][0]["data"]["advisoryIds"].is_array(),
+        "{served}"
     );
 }

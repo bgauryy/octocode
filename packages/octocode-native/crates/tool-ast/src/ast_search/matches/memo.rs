@@ -1,5 +1,5 @@
 use super::MatchQuery;
-use super::scan::{scan_directory, scan_file};
+use super::scan::{Keeps, scan_directory_keeping, scan_file};
 use super::snapshot::memo_source_unchanged;
 use super::types::{Scan, Scope};
 use octocode_engine::structural::{FileMatches, StructuralDiagnostic};
@@ -119,19 +119,23 @@ pub(super) fn stored_scan(
 }
 
 /// A fresh scan of the row's scope (its files in walk order, unsorted: see
-/// [`super::scan::sort_files`]) and when it started. Every request owns its
-/// scan: identical concurrent requests do not share one.
+/// [`super::scan::sort_files`]) and when it started; a walk-order content
+/// window stops once it fills a page of `budget` ([`Keeps::Page`]). Every
+/// request owns its scan, which reads and matches its files itself:
+/// requests share only the walk of a scope and, while they run at once,
+/// the parse of each source ([`super::shared_scope`]).
 pub(super) fn fresh_scan(
     q: MatchQuery<'_>,
     scope: &Scope,
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
+    budget: usize,
 ) -> Result<(Scan, std::time::SystemTime), ToolError> {
     let started = octocode_engine::stamp::settle_clock();
     let scan = if scope.is_file {
         scan_file(q, scope, paths, cancel)?
     } else {
-        scan_directory(q, scope, paths, cancel, None)?
+        scan_directory_keeping(q, scope, paths, cancel, None, Keeps::Page(Some(budget)))?
     };
     cancel.check().map_err(ToolError::cancelled)?;
     Ok((scan, started))

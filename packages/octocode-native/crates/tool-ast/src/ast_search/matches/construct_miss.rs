@@ -32,7 +32,7 @@ pub(super) fn attach_construct_miss(
     let Some(query) = with_rule(q, scope, json!({ "kind": kind })) else {
         return false;
     };
-    let Some(scan) = rule_scan(&query, paths, cancel) else {
+    let Some(scan) = rule_scan(&query, paths, cancel, super::scan::Keeps::First) else {
         return false;
     };
     let complete =

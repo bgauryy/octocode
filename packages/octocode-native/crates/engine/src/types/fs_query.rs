@@ -234,6 +234,11 @@ pub struct FileSystemQueryResult {
     /// trailing `/` (a caller's own prune may name some of them too); a dot
     /// entry out of view is not counted.
     pub ignored: Vec<String>,
+    /// Root-relative paths of the dot entries left out without
+    /// `include_hidden` (the topmost of each subtree), in walk order, a
+    /// directory's with a trailing `/`; one the policy callback refused is
+    /// not counted.
+    pub hidden: Vec<String>,
     /// Root-relative paths of the directories `default_exclude_dir` pruned, in walk
     /// order: what a listing or an empty result did not cover.
     pub pruned_dirs: Vec<String>,
@@ -281,6 +286,7 @@ impl FileSystemQueryResult {
         self.permission_denied = totals.permission_denied;
         self.denied_dirs = totals.denied_dirs;
         self.ignored = totals.ignored;
+        self.hidden = totals.hidden;
         self.pruned_dirs = totals.pruned_dirs;
         self.walk_position = position;
         let window = self.window_cursor.take();

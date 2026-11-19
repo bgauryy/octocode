@@ -420,6 +420,7 @@ fn options(
         max_file_bytes: None,
         judge: None,
         global_ignore: Default::default(),
+        kept: None,
     }
 }
 

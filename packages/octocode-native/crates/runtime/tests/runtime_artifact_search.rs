@@ -457,9 +457,11 @@ async fn a_tag_check_stopped_by_a_spent_quota_states_its_reset() {
         warnings.contains("rate limit") && warnings.contains("2100-01-01T00:00:00Z"),
         "the warning states when the quota resets: {data}"
     );
-    // GitHub received exactly the first round's two tag probes, sent
-    // together before either answered; every later check (the tag list, the
-    // repository) was refused unsent on the spent quota.
+    // GitHub received exactly the first round's tag probes, sent together
+    // before any answered; every later check (the plain tags, the tag list,
+    // the repository) was refused unsent on the spent quota. left-pad lives
+    // in a repository named otherwise and the registry names no commit, so
+    // its own tag shapes are the first round.
     let mut asked: Vec<String> = server
         .received_requests()
         .await
@@ -472,8 +474,9 @@ async fn a_tag_check_stopped_by_a_spent_quota_states_its_reset() {
     assert_eq!(
         asked,
         [
-            "/api/v3/repos/a/b/git/ref/tags/1.3.0",
-            "/api/v3/repos/a/b/git/ref/tags/v1.3.0"
+            "/api/v3/repos/a/b/git/ref/tags/left-pad-1.3.0",
+            "/api/v3/repos/a/b/git/ref/tags/left-pad-v1.3.0",
+            "/api/v3/repos/a/b/git/ref/tags/left-pad@1.3.0"
         ],
         "{data}"
     );

@@ -81,9 +81,10 @@ pub(super) async fn shape_pr(
     let patches = wants.has(Section::Patches);
     let needle = plan.needle.as_deref();
     let mut body_drops = Vec::new();
-    let inline = keep_loaded(inline, needle, "review comments", &mut body_drops);
-    let discussion = keep_loaded(discussion, needle, "comments", &mut body_drops);
-    let reviews = keep_loaded(reviews, needle, "reviews", &mut body_drops);
+    let humans = plan.humans;
+    let inline = keep_loaded(inline, needle, humans, "review comments", &mut body_drops);
+    let discussion = keep_loaded(discussion, needle, humans, "comments", &mut body_drops);
+    let reviews = keep_loaded(reviews, needle, humans, "reviews", &mut body_drops);
     let mut row = pr_metadata(&raw, query);
     let mut pagination = Map::new();
     if wants.has(Section::Body) {
@@ -195,9 +196,11 @@ fn shape_comment_sections(
 ) -> Vec<Value> {
     let mut bodies = BodyWindows::default();
     let mut reads = Vec::new();
+    // The conversation first: it holds why a change was made, and an inline
+    // review's many comments would otherwise fill the first parts before it.
     for (section, loaded) in [
-        (CommentSection::ReviewInline, inline),
         (CommentSection::Discussion, discussion),
+        (CommentSection::ReviewInline, inline),
     ] {
         let Some(loaded) = loaded else { continue };
         reads.extend(shape_pr_comments(

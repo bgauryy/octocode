@@ -15,15 +15,26 @@ use octocode_runtime_base::security::scan::ContentScan;
 use octocode_tools_shared::gh_shared::{GhFailure, locate_path, missing_path};
 use shape::{Fetched, shape};
 
-/// The ref a first-page read of one file resolves before it reads: where
-/// the batch-wide ref warm-up starts.
+/// The ref and path a first-page read of one file reads: where the
+/// batch-wide warm-up starts.
+#[derive(Clone)]
 pub struct WarmTarget {
     pub owner: String,
     pub repo: String,
     pub reference: Option<String>,
+    /// The repository path the row reads.
+    pub path: String,
 }
 
 impl WarmTarget {
+    /// Whether the ref needs a request to resolve (a full SHA does not).
+    pub fn resolves(&self) -> bool {
+        !self
+            .reference
+            .as_deref()
+            .is_some_and(octocode_github::is_full_sha)
+    }
+
     /// Whether `other` names the same repository ref (owner and repository
     /// case-insensitively, the ref as spelled).
     pub fn same_ref(&self, other: &Self) -> bool {
@@ -33,16 +44,13 @@ impl WarmTarget {
     }
 }
 
-/// The ref `query` resolves ([`execute`]), when it resolves one: a valid
-/// first-page read of a path inside the repository at a branch, tag, short
-/// SHA or the default branch (a full SHA needs no request). `None` for
-/// anything else (a path the policy withholds included), which the row
-/// handles itself.
+/// The ref and path `query` reads ([`execute`]), when it reads one: a valid
+/// first-page read of a path inside the repository at a branch, tag, SHA or
+/// the default branch. `None` for anything else (a path the policy withholds
+/// included), which the row handles itself.
 pub fn warm_target(query: &Value, withholds: impl Fn(&str) -> bool) -> Option<WarmTarget> {
     let query: GhGetFileContentQuery = serde_json::from_value(query.clone()).ok()?;
-    if access::progress(&query).is_some_and(|progress| progress.offset != 0)
-        || access::reference(&query).is_some_and(octocode_github::is_full_sha)
-    {
+    if access::progress(&query).is_some_and(|progress| progress.offset != 0) {
         return None;
     }
     let path = octocode_tools_shared::gh_shared::listing_path(access::path(&query)).ok()?;
@@ -51,6 +59,7 @@ pub fn warm_target(query: &Value, withholds: impl Fn(&str) -> bool) -> Option<Wa
         owner: access::owner(&query).to_owned(),
         repo: access::repo(&query).to_owned(),
         reference: access::reference(&query).map(str::to_owned),
+        path,
     })
 }
 
@@ -179,7 +188,7 @@ pub async fn run<S: ContentScan + Clone + Send + Sync + 'static>(
     let mut failure = errors::failure(error, query, commit, found);
     // The message names the ref as asked; the leads pin its commit.
     if named {
-        failure.message = errors::path_not_found(&at, asked.as_deref());
+        failure.message = at.not_found_message(asked.as_deref());
     }
     Err(octocode_tools_shared::gh_shared::with_read_recovery(
         provider,
@@ -294,16 +303,32 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
     // Plain and ranked reads both decode, scan and shape source text. Keep
     // that synchronous work off the async worker that serves other requests.
     let worker_query = query.clone();
-    let result = tokio::task::spawn_blocking(octocode_io::notice::carried(move || {
-        shape(
-            &worker_query,
-            acquired,
-            fetched,
-            &shaping.security,
-            &shaping.context,
-            access::classified(&worker_query).then_some(&shaping.selection),
-        )
-    }))
+    let result = tokio::task::spawn_blocking(octocode_io::notice::carried(
+        move || -> Result<GhGetFileContentResult, ProviderError> {
+            let kept = shaped_key(&worker_query, &acquired, &fetched, &shaping.security);
+            if let Some((key, policy)) = &kept
+                && let Some(shaped) = SHAPED.get(key, policy, Clone::clone)
+            {
+                return Ok(shaped);
+            }
+            let weight = acquired.bytes.len().saturating_mul(2);
+            let shaped = shape(
+                &worker_query,
+                acquired,
+                fetched,
+                &shaping.security,
+                &shaping.context,
+                access::classified(&worker_query).then_some(&shaping.selection),
+            )?;
+            // Work a deadline or cancellation may have cut is never kept.
+            if let Some((key, policy)) = kept
+                && shaping.context.check().is_ok()
+            {
+                SHAPED.put(key, policy, weight, shaped.clone());
+            }
+            Ok(shaped)
+        },
+    ))
     .await
     .map_err(|_| {
         ProviderError::new(
@@ -317,6 +342,40 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
     Ok(Ok(result))
 }
 
+/// Reads as shaped, by everything shaping reads: the bytes (by digest), the
+/// commit and blob they were read at, the query, the response window and the
+/// read's notes, under the scanner's limits. A repeated read of the same file
+/// (a saved answer served it) is answered as shaped before, not scanned and
+/// cut again. Only the process's own scanner's work is kept, and never a
+/// ranked read (its judge answers may differ).
+static SHAPED: octocode_tools_shared::page_memo::PageMemo<GhGetFileContentResult> =
+    octocode_tools_shared::page_memo::PageMemo::new();
+
+/// The [`SHAPED`] key and policy of this read; `None` when it is not kept.
+fn shaped_key(
+    query: &GhGetFileContentQuery,
+    acquired: &octocode_github::ContentResponse,
+    fetched: &shape::Fetched,
+    security: &impl ContentScan,
+) -> Option<(String, String)> {
+    let scanner = security.kept()?;
+    if access::classified(query) {
+        return None;
+    }
+    let query = serde_json::to_string(query).ok()?;
+    let key = format!(
+        "{}\n{}\n{}\n{}\n{query}\n{:?}\n{:?}\n{:?}",
+        octocode_engine::digest::sha256(&acquired.bytes),
+        acquired.resolved_ref,
+        acquired.blob.as_deref().unwrap_or_default(),
+        acquired.raw_response_bytes,
+        fetched.window,
+        fetched.renamed_warning,
+        fetched.symlink_target,
+    );
+    Some((key, format!("{:?}", scanner.limits())))
+}
+
 /// This tool's recovery for the shared response stages.
 pub struct Output;
 impl octocode_runtime_base::response::output::ToolOutput for Output {
@@ -325,11 +384,14 @@ impl octocode_runtime_base::response::output::ToolOutput for Output {
         // symbols read no outline can serve carries the plain read as its
         // related lead; the shared hint names the local filesystem tools,
         // which cannot read this file.
+        // A minified file's message names its own route (matchString): the
+        // shared hint names local tools, which cannot read this file.
         matches!(
             code,
             ErrorCode::InvalidPattern
                 | ErrorCode::SymbolsUnsupported
                 | ErrorCode::LanguageUnsupported
+                | ErrorCode::LargeSourceWindowOnly
         )
         .then_some(octocode_runtime_base::response::output::NO_HINT)
     }

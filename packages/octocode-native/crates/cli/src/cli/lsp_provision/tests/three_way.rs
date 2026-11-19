@@ -307,6 +307,45 @@ async fn the_token_goes_to_the_api_host_and_never_to_a_download_host() {
     assert!(download_requests.lock().expect("requests").is_empty());
 }
 
+/// The release JSON is read under the provider body bound: an answer past it
+/// is refused as unchecked, even one that names the asset's digest, and the
+/// read stops there instead of buffering whatever the server sends.
+#[tokio::test(flavor = "current_thread")]
+async fn a_release_json_past_the_provider_body_bound_is_not_read() {
+    let limit = octocode_io::budget::PROVIDER_BODY_BYTES;
+    let sha = "a".repeat(64);
+    let oversized = serde_json::json!({
+        "tag_name": "x",
+        "body": "x".repeat(limit),
+        "assets": [{ "name": "asset.gz", "digest": format!("sha256:{sha}") }],
+    })
+    .to_string();
+    assert!(oversized.len() > limit);
+    let github = GitHub {
+        api_base: serve(200, oversized),
+        ..GitHub::new(None)
+    };
+    let live = github
+        .live_digest("rust-lang/rust-analyzer", "x", "asset.gz")
+        .await;
+    let reason = live.expect_err("an oversized release JSON is not read");
+    assert!(
+        reason.contains(&format!("exceeds the {limit}-byte limit")),
+        "{reason}"
+    );
+
+    let within = GitHub {
+        api_base: serve(200, release_json("asset.gz", &sha)),
+        ..GitHub::new(None)
+    };
+    assert_eq!(
+        within
+            .live_digest("rust-lang/rust-analyzer", "x", "asset.gz")
+            .await,
+        Ok(Some(sha))
+    );
+}
+
 #[test]
 fn the_api_host_is_not_a_download_host() {
     assert!(!host_allowed(

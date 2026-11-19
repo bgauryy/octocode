@@ -133,7 +133,10 @@ async fn crate_default_release(
 /// The commit a GitHub-hosted crate version was packaged from (cargo's VCS
 /// info, with the crate's directory in the repository), checked against the
 /// version's upstream release tag as npm's recorded commit is; else that
-/// release tag.
+/// release tag. A crate's link is its newest release's, so with no directory
+/// in the VCS info (cargo before 1.56 wrote none) the link's directory is
+/// placed in the tree at the pinned commit
+/// ([`super::link_directory::place_at_pinned_ref`]).
 async fn crate_source_ref(artifact: &mut ArtifactItem, client: &RegistryClient<'_>) {
     let (Some(repository), Some(version)) = (artifact.repository.clone(), artifact.version.clone())
     else {
@@ -145,11 +148,22 @@ async fn crate_source_ref(artifact: &mut ArtifactItem, client: &RegistryClient<'
     let name = artifact.package_name.clone();
     if let Some((sha, directory)) = vcs::crate_vcs(&artifact.package_name, &version, client).await {
         artifact.source_ref = Some(sha.clone());
-        artifact.repository_directory = directory.filter(|directory| !directory.is_empty());
+        match directory {
+            // The release's own directory (empty: the root) decides; the
+            // crate's link does not.
+            Some(directory) => {
+                artifact.repository_directory = (!directory.is_empty()).then_some(directory);
+                artifact.link_below_ref = None;
+            }
+            None => {
+                super::link_directory::place_at_pinned_ref(artifact, &["Cargo.toml"], client).await;
+            }
+        }
         super::release_ref::check_commit_against_tag(artifact, &name, &version, &sha, client).await;
         return;
     }
     super::release_ref::pin_release_tag(artifact, &name, &version, None, client).await;
+    super::link_directory::place_at_pinned_ref(artifact, &["Cargo.toml"], client).await;
 }
 
 /// A crate version's normal dependencies as `name req`, plus `; target`

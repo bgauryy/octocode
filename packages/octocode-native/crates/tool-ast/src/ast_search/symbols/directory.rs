@@ -51,18 +51,22 @@ pub(crate) fn outline_directory(
     outline_walked(q, canonical, (walk, scoped.as_ref()), cancel)
 }
 
-/// The candidate files a directory outline scans, in walk order, and the
-/// entries the path policy withheld from that walk.
+/// The candidate files a directory outline scans, in walk order, and what
+/// that walk left out.
 pub(super) struct DirectoryWalk {
     pub(super) files: octocode_engine::types::FileSystemQueryResult,
-    withheld: octocode_runtime_base::policy::discovery::Withheld,
-    /// Octocode's own store directories the walk skipped, root-relative.
-    artifacts: std::collections::BTreeSet<String>,
+    /// What the walk left out: the ignored, dot and default-excluded paths
+    /// that could hold an outlinable file, what the path policy withheld,
+    /// and Octocode's own store directories.
+    pub(super) skipped: octocode_runtime_base::policy::discovery::WalkSkips,
     /// Entries the walk could not read, and how many for want of
     /// permission.
     pub(super) walk_errors: (u32, u32),
     /// The global ignore rules of the call that walked.
     global_ignore: octocode_engine::search::walk::GlobalIgnore,
+    /// The directories the walk admitted, in no order: an entry added or
+    /// removed in one changes its stamp ([`super::continuation::Continuation::proof`]).
+    pub(super) dirs: Vec<std::path::PathBuf>,
 }
 
 /// Walk a directory outline's candidates once; the page scans that walk
@@ -76,8 +80,14 @@ pub(super) fn walk_directory(
     ),
     cancel: &dyn CancellationCheck,
 ) -> Result<DirectoryWalk, ToolError> {
+    #[cfg(test)]
+    WALKS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(canonical.to_path_buf());
     let outlined = octocode_engine::signatures::languages::RegistryView::installed()
         .extensions(octocode_engine::text::analysis::AnalysisOperation::Declarations);
+    let mapped = mapped_files(q, canonical)?;
     let admission = octocode_runtime_base::policy::discovery::WalkAdmission::new(
         paths.discovery_walk(),
         canonical,
@@ -88,36 +98,57 @@ pub(super) fn walk_directory(
             engine_prunes: true,
         },
     );
+    let dirs = std::sync::Mutex::new(Vec::new());
     let files = octocode_engine::fact_scan::walk_graph_fact_files(
         &directory_scan_options(q, canonical, paths.global_ignore()),
         &|path, file_type| {
             // The entry's extension is read once, however many checks ask.
             let verdict = std::cell::OnceCell::new();
-            let is_outlinable = || *verdict.get_or_init(|| outlinable(&outlined, None, path));
+            let is_outlinable =
+                || *verdict.get_or_init(|| outlinable(&outlined, mapped.as_ref(), path));
             // Only a directory or an outlinable file leaves absence unproven
             // when the policy withholds it or it is a link (the walk follows
             // none). The outline walk hides dot entries unless
             // `includeHidden`: one out of view is not disclosed.
-            admission.admit(path, file_type, |is_dir| {
+            let admitted = admission.admit(path, file_type, |is_dir| {
                 (q.include_hidden == Some(true) || !crate::ast_search::is_dot_entry(path))
                     && (is_dir || is_outlinable())
             }) && scoped.is_none_or(|scoped| {
                 // Only an outlinable file is one the scope leaves unread.
                 let is_dir = file_type.map_or_else(|| path.is_dir(), |kind| kind.is_dir());
                 (!is_dir && !is_outlinable()) || scoped.reads(path, is_dir)
-            })
+            });
+            if admitted && file_type.is_some_and(|kind| kind.is_dir()) {
+                dirs.lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push(path.to_path_buf());
+            }
+            admitted
         },
         &|| cancel.check().is_err(),
     )
     .map_err(|error| ToolError::graph_scan(&error, cancel))?;
+    // What the walk's own rules left out joins the admission's ledger: a
+    // file only when it is outlinable.
+    admission.record_left_out(
+        (&files.ignored, &files.hidden, &files.pruned_dirs),
+        |path| outlinable(&outlined, mapped.as_ref(), path),
+    );
     Ok(DirectoryWalk {
         walk_errors: (files.skipped, files.permission_denied),
         global_ignore: paths.global_ignore(),
         files,
-        withheld: admission.skipped().withheld,
-        artifacts: admission.skipped().artifacts,
+        skipped: admission.skipped(),
+        dirs: dirs
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
     })
 }
+
+/// Every directory outline walk's root, for the tests that count walks.
+#[cfg(test)]
+pub(crate) static WALKS: std::sync::Mutex<Vec<std::path::PathBuf>> =
+    std::sync::Mutex::new(Vec::new());
 
 /// The declarations of a walked directory's files. A name filter is a byte
 /// prefilter first: a file that never spells any filter text cannot declare
@@ -229,9 +260,7 @@ pub(super) fn outline_walked(
         scan_resume: scan.scan_resume,
         skipped: scan.files_skipped,
         diagnostics,
-        withheld: walk.withheld,
-        artifacts: walk.artifacts,
-        pruned: scan.pruned_dirs,
+        walk_skips: walk.skipped,
         walk_errors: walk.walk_errors,
         test_code_excluded: scoped
             .map(octocode_tools_shared::test_code::Scoped::excluded)
@@ -245,7 +274,7 @@ pub(super) fn outline_walked(
 /// The files a directory query's `parserGlobs` map to a grammar, compiled
 /// against the scanned root in the one local glob dialect the outline scan
 /// uses; `None` without globs. A glob that does not compile is `invalidGlob`.
-pub(super) fn mapped_files(
+fn mapped_files(
     q: &AstSearchQuerySymbols,
     root: &std::path::Path,
 ) -> Result<Option<Gitignore>, ToolError> {

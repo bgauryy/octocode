@@ -50,5 +50,3 @@ export const PLAN = [
   { id: 'github/item-pull', tool: 'ghGetHistoryItem', query: { operation: 'pullRequest', ...repo, number: 1, sections: ['files'] }, github: true },
   { id: 'github/item-pull-summary', tool: 'ghGetHistoryItem', query: { operation: 'pullRequest', ...repo, number: 1 }, github: true },
 ];
-
-export const planOf = id => PLAN.find(entry => entry.id === id);

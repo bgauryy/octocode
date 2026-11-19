@@ -284,3 +284,83 @@ async fn each_caller_keeps_its_body_limit_after_a_successful_or_failed_fill() {
         assert_eq!(requests(&server).await.len(), 2);
     }
 }
+
+/// Identical searches asked together share the answer GitHub gave the first,
+/// though `no-cache` forbids keeping it for later: they were asked at once,
+/// so it is their answer too (a batch with a duplicate search row sends one).
+/// A later search asks again.
+#[tokio::test]
+async fn identical_no_cache_searches_asked_together_share_one_answer() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/v3/search/repositories"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("cache-control", "no-cache")
+                .set_body_string("{\"items\":[]}")
+                .set_delay(Duration::from_millis(200)),
+        )
+        .mount(&server)
+        .await;
+    let (transport, endpoint, _) = keeping(&server);
+    let spec = RequestSpec::get(endpoint.rest(&["search", "repositories"]).unwrap());
+    let contexts = (0..3).map(|_| request("same-token")).collect::<Vec<_>>();
+    let pages = futures_util::future::join_all(
+        contexts
+            .iter()
+            .map(|context| transport.execute(spec.clone(), context)),
+    )
+    .await;
+    for (page, context) in pages.into_iter().zip(&contexts) {
+        assert_eq!(page.expect("answer").body.as_ref(), b"{\"items\":[]}");
+        assert_eq!(
+            context.evidence().answers.len(),
+            1,
+            "each caller's evidence"
+        );
+    }
+    assert_eq!(
+        requests(&server).await.len(),
+        1,
+        "asked together, sent once"
+    );
+    transport
+        .execute(spec, &request("same-token"))
+        .await
+        .expect("later search");
+    assert_eq!(
+        requests(&server).await.len(),
+        2,
+        "a later search asks again"
+    );
+}
+
+/// Identical GraphQL reads of one pull request asked together send once.
+#[tokio::test]
+async fn identical_pull_request_graphql_reads_asked_together_send_once() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("{\"data\":{\"repository\":{\"pullRequest\":{\"number\":7}}}}")
+                .set_delay(Duration::from_millis(200)),
+        )
+        .mount(&server)
+        .await;
+    let (transport, _, _) = keeping(&server);
+    let query =
+        "query($n:Int!){ repository(owner:\"a\",name:\"b\"){ pullRequest(number:$n){ number } } }";
+    let contexts = (0..2).map(|_| request("same-token")).collect::<Vec<_>>();
+    let pages = futures_util::future::join_all(contexts.iter().map(|context| {
+        transport.execute_pull_request_graphql(query, serde_json::json!({"n": 7}), context)
+    }))
+    .await;
+    for page in pages {
+        let page = page.expect("answer");
+        assert_eq!(
+            page.data.expect("data")["repository"]["pullRequest"]["number"],
+            7
+        );
+    }
+    assert_eq!(requests(&server).await.len(), 1);
+}

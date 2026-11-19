@@ -248,7 +248,7 @@ fn a_scan_past_its_time_budget_resumes_exactly_once() {
             StructuralDemand::Matches,
             (&|_, _| true, None),
             &|_| "ts".to_owned(),
-            &|| false,
+            (&|| false, files::ScanShare::default()),
             Some(std::time::Duration::ZERO),
         )
         .expect("scan");
@@ -293,6 +293,7 @@ fn only_an_explicit_max_files_caps_the_file_walk() {
         max_file_bytes: None,
         judge: None,
         global_ignore: Default::default(),
+        kept: None,
     };
     let capped = search_files_detailed(options(Some(4))).expect("search");
     assert!(capped.scan_truncated);

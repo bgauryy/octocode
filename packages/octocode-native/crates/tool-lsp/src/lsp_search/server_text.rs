@@ -53,6 +53,14 @@ pub(super) fn is_about(path: String) {
     let _ = ABOUT.try_with(|about| about.borrow_mut().push(path));
 }
 
+/// The files this page noted with [`is_about`] so far: what a kept answer
+/// notes again when it is served ([`super::answer_memo`]).
+pub(super) fn noted() -> Vec<String> {
+    ABOUT
+        .try_with(|about| about.borrow().clone())
+        .unwrap_or_default()
+}
+
 /// [`is_about`] for every file a location answer names (`uri` or `path`).
 pub(super) fn is_about_answer(answer: &Value) {
     let mut files = Vec::new();
@@ -394,7 +402,7 @@ pub(super) async fn judge(
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
-) -> Result<(), LspFailure> {
+) -> Result<Judged, LspFailure> {
     let mut files = vec![anchor.to_owned()];
     files.extend(about);
     named_files(row, None, &mut files);
@@ -434,7 +442,19 @@ pub(super) async fn judge(
     if done.replaced > 0 || done.withheld > 0 || unescaped {
         octocode_runtime_base::security::mark_redacted(row);
     }
-    Ok(())
+    Ok(Judged(()))
+}
+
+/// Proof that a row's server text was judged ([`judge`]): the forms a row is
+/// served in that pack its fields into other strings or groups
+/// ([`super::render::served_forms`]) are built only from a judged row, so no
+/// reorder can pack a value the judgment would have replaced.
+pub(super) struct Judged(());
+
+/// A [`Judged`] for tests of the served forms alone.
+#[cfg(test)]
+pub(super) fn judged_for_tests() -> Judged {
+    Judged(())
 }
 
 #[cfg(test)]

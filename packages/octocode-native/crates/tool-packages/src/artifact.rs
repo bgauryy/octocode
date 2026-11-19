@@ -12,6 +12,7 @@ mod pypi;
 pub mod query;
 mod release_ref;
 mod rubygems;
+mod share;
 #[cfg(test)]
 pub mod test_http;
 pub mod types;
@@ -44,6 +45,7 @@ pub use util::{github_repository, github_slug};
 
 use http::RegistryClient;
 use octocode_io::budget::RequestBudget;
+pub use share::CallShare;
 use versions::is_range;
 pub use versions::suggested;
 #[cfg(test)]
@@ -62,18 +64,33 @@ pub struct ArtifactProviderContext<'a> {
     pub reused: &'a octocode_runtime_base::providers::saved_answers::ReusedSince,
     /// Upstream release-tag checks through the GitHub API; `None` reads no tags.
     pub tags: Option<&'a dyn ReleaseTags>,
+    /// What the rows of this call share; `None` shares nothing.
+    pub share: Option<&'a CallShare>,
 }
 
 pub async fn execute_artifact(
     query: &ArtifactSearchQuery,
     context: &ArtifactProviderContext<'_>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
+    // Rows of one call check each release tag once.
+    let shared;
+    let tags = match (context.tags, context.share) {
+        (Some(inner), Some(share)) => {
+            shared = release_ref::SharedTags {
+                inner,
+                share: &share.tags,
+            };
+            Some(&shared as &dyn ReleaseTags)
+        }
+        (tags, _) => tags,
+    };
     let client = RegistryClient {
         http: context.http,
         budget: context.budget,
-        tags: context.tags,
+        tags,
         answers: context.answers,
         reused: context.reused,
+        share: context.share,
     };
     let state = page_state(query);
     validate_cursor_state(
@@ -123,8 +140,19 @@ pub async fn execute_artifact(
         ArtifactType::Maven => maven::maven(query, &state, &client).await,
         ArtifactType::Nuget => nuget::nuget(query, &state, &client).await,
     }?;
-    // A source link below a ref names its directory only once the ref's end is known.
-    link_directory::settle(&mut page.artifacts, &client).await?;
+    // A source link below a ref names its directory only once the ref's end
+    // is known. A search summary states no directory, so it asks nothing for
+    // one.
+    let search_summary = artifact_search_query::package_name(query).is_none()
+        && artifact_search_query::view(query)
+            == octocode_contract_types::ArtifactSearchView::Summary;
+    if search_summary {
+        for artifact in &mut page.artifacts {
+            artifact.link_below_ref = None;
+        }
+    } else {
+        link_directory::settle(&mut page.artifacts, &client).await?;
+    }
     Ok(page)
 }
 

@@ -17,10 +17,10 @@ pub(crate) enum Lines {
 }
 
 impl Lines {
-    /// The entry field: `totalLines=N`, or the reason there is none.
+    /// The entry field: the count, or the reason there is none.
     pub(super) fn field(self) -> String {
         match self {
-            Self::Counted(lines) => format!("totalLines={lines}"),
+            Self::Counted(lines) => lines.to_string(),
             Self::Binary => "binary".to_owned(),
             Self::Unreadable => "unreadable".to_owned(),
         }

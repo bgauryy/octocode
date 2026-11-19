@@ -52,14 +52,25 @@ fn copied_origin(unit: &str, snapshot: &str, start: usize, end: usize) -> Value 
 
 // ---------- location rows are objects named like tool inputs ----------
 
+/// A declaration as the response states it: a line-first outline string
+/// (Q5, formed by the hoist stage), read back as its object.
+fn declared(value: &serde_json::Value) -> serde_json::Value {
+    value
+        .as_str()
+        .and_then(octocode_runtime_base::response::symbol_outline::outline_row)
+        .map_or_else(|| value.clone(), |(_, row)| row)
+}
+
 #[tokio::test]
 async fn location_rows_are_objects_named_like_tool_inputs() {
     let workspace = Workspace::new();
     workspace.write("pkg/src/lib.rs", RUST_SOURCE);
     workspace.write("pkg/a.txt", "x\n");
     let runtime = workspace.runtime(&[]);
-    // The enclosing declaration is an object an lspSearch/localFetch
-    // call takes as is, listed once on the file and named by index.
+    // The enclosing declaration is listed once on the file and named by
+    // index, as a line-first outline string the hoist stage forms from the
+    // sealed object (Q5); it reads back as the object an lspSearch/localFetch
+    // call takes.
     let hits = support::run(
         &runtime,
         "localSearch",
@@ -69,22 +80,26 @@ async fn location_rows_are_objects_named_like_tool_inputs() {
     let file = &hits.data()["files"][0];
     let first = &file["matches"][0];
     let owner = first["enclosing"].as_u64().expect("enclosing index");
+    let declaration = file["declarations"][usize::try_from(owner).expect("index")]
+        .as_str()
+        .and_then(octocode_runtime_base::response::symbol_outline::outline_row)
+        .map(|(_, row)| row);
     assert_eq!(
-        file["declarations"][usize::try_from(owner).expect("index")],
-        json_fixture(
+        declaration,
+        Some(json_fixture(
             r#"{
                 "symbolName": "run",
                 "kind": "function",
                 "line": 1,
                 "endLine": 4
             }"#
-        ),
+        )),
         "{}",
         hits.structured_content
     );
     assert!(first.get("in").is_none(), "{first}");
-    // A declaration without members is an object too; per-symbol
-    // provenance only on request.
+    // A declaration without members is an outline string too, read back
+    // as its object; per-symbol provenance only on request.
     let compact = support::run(
         &runtime,
         "astSearch",
@@ -92,7 +107,7 @@ async fn location_rows_are_objects_named_like_tool_inputs() {
     )
     .await;
     assert_eq!(
-        compact.data()["files"][0]["symbols"][0],
+        declared(&compact.data()["files"][0]["symbols"][0]),
         json_fixture(
             r#"{
                 "symbolName": "run",
@@ -118,14 +133,15 @@ async fn location_rows_are_objects_named_like_tool_inputs() {
         ),
     )
     .await;
-    let occurrence_id = identity(&outline.data()["files"][0]["symbols"][0]["occurrenceId"]);
+    let first_symbol = declared(&outline.data()["files"][0]["symbols"][0]);
+    let occurrence_id = identity(&first_symbol["occurrenceId"]);
     let (unit, snapshot) = source_ids(
         outline.data(),
         "declarations",
         ("tree-sitter-facts:rs", "6"),
     );
     assert_eq!(
-        outline.data()["files"][0]["symbols"][0],
+        declared(&outline.data()["files"][0]["symbols"][0]),
         json!({
             "symbolName":"run","kind":"function","line":1,"endLine":4,"exported":true,
             "occurrenceId":occurrence_id,
@@ -216,13 +232,16 @@ async fn location_rows_are_objects_named_like_tool_inputs() {
         ),
     )
     .await;
+    // A capture on its match's line omits that line (hoist C-8): it reads
+    // the row's `line`.
     let row = &lean.data()["files"][0]["matches"][0];
     assert_eq!(
         row["metavarRanges"]["A"][0],
-        json_fixture(r#"{"line": 2, "column": 9, "endColumn": 10}"#),
+        json_fixture(r#"{"column": 9, "endColumn": 10}"#),
         "{}",
         lean.structured_content
     );
+    assert_eq!(row["line"], 2, "{}", lean.structured_content);
     for key in ["sourceDigest", "sourceRange", "sourceOrigin"] {
         assert!(row.get(key).is_none(), "{row}");
     }

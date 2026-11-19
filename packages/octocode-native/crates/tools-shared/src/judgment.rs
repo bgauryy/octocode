@@ -6,9 +6,14 @@
 //! identical evaluations inside one request share one provider request
 //! ([`shared`]), and nothing outlives the request.
 pub(crate) mod batch;
+pub mod cap;
 pub mod shared;
 pub mod stats;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_identity;
 pub mod windows;
+pub use batch::Sends;
+pub use cap::RequestCap;
 pub(crate) use windows::RequestFit;
 
 #[cfg(test)]
@@ -41,6 +46,8 @@ pub struct EvaluationInput<'a> {
     /// A dropped or malformed companion has no answer (`null`); it never
     /// fails the evaluation.
     pub companions: usize,
+    /// The row's `maxRequests`, counted at each send; `None`: uncapped.
+    pub cap: Option<&'a RequestCap>,
 }
 
 /// The provider's long-context window, which it documents as slower and less
@@ -328,6 +335,35 @@ impl Evaluator {
         budget: &RequestBudget,
         gate: &GateLease,
     ) -> Result<QuestionOutcomes, ClassificationError> {
+        let (connection, model) = self.connection(model)?;
+        transport::check_budget(budget)?;
+        Ok(batch::answer_questions(input, model, &connection, budget, gate).await)
+    }
+
+    /// Every question over the state as one request, sent once: the
+    /// questions are about several units, so a refusal is the caller's to
+    /// split by unit ([`batch::answer_group`]).
+    pub(crate) async fn evaluate_group(
+        &self,
+        input: EvaluationInput<'_>,
+        model: Option<&str>,
+        budget: &RequestBudget,
+        gate: &GateLease,
+    ) -> QuestionOutcomes {
+        match self.connection(model) {
+            Ok((connection, model)) => {
+                batch::answer_group(input, model, &connection, budget, gate).await
+            }
+            Err(error) => QuestionOutcomes::from_complete(Err(error), input.asked().len()),
+        }
+    }
+
+    /// Where requests for `model` (else the configured one) are sent, once
+    /// the credential and the model name are known to be sendable.
+    fn connection<'a>(
+        &'a self,
+        model: Option<&'a str>,
+    ) -> Result<(batch::Connection<'a>, &'a str), ClassificationError> {
         let key = self.credential()?;
         let model = model.unwrap_or(&self.model);
         if octocode_runtime_base::security::ContentSecurity::new()
@@ -340,14 +376,46 @@ impl Evaluator {
                 "Set a model identifier without credentials.",
             ));
         }
-        transport::check_budget(budget)?;
-        let connection = batch::Connection {
-            key,
-            base_url: &self.base_url,
-            provider: self.provider,
-            retries: self.retries,
-        };
-        Ok(batch::answer_questions(input, model, &connection, budget, gate).await)
+        Ok((
+            batch::Connection {
+                key,
+                base_url: &self.base_url,
+                provider: self.provider,
+                retries: self.retries,
+            },
+            model,
+        ))
+    }
+
+    /// The transient retries one row's requests share: the runtime's retry
+    /// count for one request, counted once in the row's stated ceiling
+    /// ([`RequestCap::held`]).
+    pub fn retry_room(&self) -> u64 {
+        u64::from(self.retries)
+    }
+
+    /// Input tokens a request of `bytes` is priced at before it is sent: the
+    /// densest tokens per byte this endpoint reported for the model and
+    /// window, else one token per byte (a token covers at least one byte of
+    /// text, so this bounds it from above).
+    pub fn tokens_at_most(&self, model: Option<&str>, long: bool, bytes: usize) -> u64 {
+        let bytes = u64::try_from(bytes).unwrap_or(u64::MAX);
+        match windows::tokens_per_byte(&self.base_url, model.unwrap_or(&self.model), long) {
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                clippy::cast_precision_loss,
+                reason = "a positive token count well inside u64, rounded up"
+            )]
+            Some(density) => ((bytes as f64) * density).ceil() as u64,
+            None => bytes,
+        }
+    }
+
+    /// The requests `input` sends first and at most ([`Sends`]), before any
+    /// is sent.
+    pub fn sends(&self, input: EvaluationInput<'_>, model: Option<&str>) -> Sends {
+        batch::sends(input, model.unwrap_or(&self.model), self.provider)
     }
 
     /// The model catalog (clasify `models` output shape), read through the

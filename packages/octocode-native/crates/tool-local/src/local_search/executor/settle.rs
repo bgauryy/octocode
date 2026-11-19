@@ -210,6 +210,7 @@ pub(super) fn settle_row(
         skipped_paths: disclosed.skipped_paths,
         source_snapshot: None,
         selection: None,
+        derived_value: None,
     })
 }
 

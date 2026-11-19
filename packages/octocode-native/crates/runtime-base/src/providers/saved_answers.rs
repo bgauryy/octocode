@@ -24,7 +24,7 @@ use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{LazyLock, Mutex, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::Duration;
 
 /// An answer unused this long is dropped: a later request reads it again. This
@@ -104,12 +104,34 @@ pub struct KeptAnswers {
     /// revocation leaves the earlier ones unreachable ([`SavedAnswers::revoked`]).
     epochs: Store<u64>,
     security: ContentSecurity,
+    /// Bodies are read from disk: a probe reads none.
+    on_disk: bool,
+    /// The memory store's bodies already found to hold their digest, by
+    /// digest. That store hands out the one immutable value it keeps, so the
+    /// same value is not hashed again; a disk read is a new value, hashed
+    /// each time. An entry holds no body: its weak reference keeps the
+    /// value's allocation, so no other value can take its address while it
+    /// is listed.
+    verified: Mutex<Verified>,
+}
+
+/// [`KeptAnswers::verified`]'s entries, and how many were alive at the last
+/// sweep: one runs when the map doubles past that, so it stays within twice
+/// the bodies the store still holds.
+#[derive(Default)]
+struct Verified {
+    bodies: std::collections::HashMap<String, std::sync::Weak<AnswerBody>>,
+    alive: usize,
+    /// Bodies hashed to check their digest, for tests.
+    #[cfg(test)]
+    hashed: usize,
 }
 
 impl KeptAnswers {
     /// `disk: None` keeps everything in this runtime (`storage.mode` memory).
     pub fn new(disk: Option<PathBuf>) -> Self {
         Self {
+            on_disk: disk.is_some(),
             sealed: Store::new(CacheConfig::derived(), disk.clone()),
             bodies: Store::new(CacheConfig::derived(), disk.clone()),
             references: Store::new(CacheConfig::derived(), disk.clone()),
@@ -117,6 +139,7 @@ impl KeptAnswers {
             held: Store::new(CacheConfig::derived(), None),
             epochs: Store::new(CacheConfig::derived(), disk),
             security: ContentSecurity::new(),
+            verified: Mutex::default(),
         }
     }
 
@@ -147,15 +170,53 @@ impl KeptAnswers {
         }
     }
 
-    /// The body named `digest`, exactly: a file that no longer holds it is gone.
+    /// The body named `digest`, exactly: a file that no longer holds it is
+    /// gone. A memory store's value checked before is the same immutable
+    /// bytes ([`Self::verified`]); any other value is hashed.
     fn body(&self, digest: &str) -> Option<AnswerBody> {
         let key = body_key(digest);
         let body = self.bodies.get(&key)?.value;
-        if body_digest(&body) != digest {
-            self.bodies.remove(&key);
-            return None;
+        let verified = || self.verified.lock().unwrap_or_else(PoisonError::into_inner);
+        let known = !self.on_disk
+            && verified()
+                .bodies
+                .get(digest)
+                .is_some_and(|checked| std::ptr::eq(checked.as_ptr(), Arc::as_ptr(&body)));
+        if !known {
+            #[cfg(test)]
+            {
+                verified().hashed += 1;
+            }
+            if body_digest(&body) != digest {
+                verified().bodies.remove(digest);
+                self.bodies.remove(&key);
+                return None;
+            }
+            if !self.on_disk {
+                verified().remember(digest, &body);
+            }
         }
         Some((*body).clone())
+    }
+
+    /// The answer kept for `request`, without reading a sealed answer's body
+    /// from disk ([`SavedAnswers::probe`]): a memory store's body is at hand,
+    /// so it states the body's length, and an answer whose body is gone is
+    /// none.
+    fn probed(&self, scope: &str, request: &str) -> Option<(SavedAnswer, Option<usize>)> {
+        let scope = &self.current_scope(scope);
+        let key = Self::key(scope, request);
+        if let Some(kept) = self.held.get(&key) {
+            let length = kept.value.answer.body.len();
+            return Some(((*kept.value).clone(), Some(length)));
+        }
+        let kept = self.sealed.get(&key)?.value;
+        let length = if self.on_disk {
+            None
+        } else {
+            Some(self.bodies.get(&body_key(&kept.body))?.value.len())
+        };
+        Some((kept.saved.clone(), length))
     }
 
     /// Run `update` while no other writer changes `digest`'s references.
@@ -246,6 +307,10 @@ impl SavedAnswers for KeptAnswers {
         Some(saved)
     }
 
+    fn probe(&self, scope: &str, request: &str) -> Option<(SavedAnswer, Option<usize>)> {
+        self.probed(scope, request)
+    }
+
     fn save(&self, scope: &str, request: &str, mut saved: SavedAnswer) {
         let scope = &self.current_scope(scope);
         let key = Self::key(scope, request);
@@ -325,6 +390,17 @@ impl SavedAnswers for KeptAnswers {
         self.sealed.remove(&key);
         if let Some(previous) = previous {
             self.release(&previous, &reference(scope, request));
+        }
+    }
+}
+
+impl Verified {
+    /// List `body` as holding `digest`.
+    fn remember(&mut self, digest: &str, body: &Arc<AnswerBody>) {
+        self.bodies.insert(digest.to_owned(), Arc::downgrade(body));
+        if self.bodies.len() >= self.alive.max(1).saturating_mul(2) {
+            self.bodies.retain(|_, checked| checked.strong_count() > 0);
+            self.alive = self.bodies.len();
         }
     }
 }

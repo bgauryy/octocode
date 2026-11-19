@@ -146,15 +146,101 @@ impl Continuation {
         SETS.get(ast_search_query_symbols::snapshot(q)?, &self.key)
     }
 
+    /// The set a first page of the same outline kept, while nothing it read
+    /// changed: a repeat of the request, or a row of the same batch, reads it
+    /// instead of outlining again ([`Self::first_or_outline`]).
+    fn first(&self) -> Option<Arc<SymbolSet>> {
+        SETS.get(&self.first_key(), &self.key)
+    }
+
+    /// The store key of a first page's set: the outline's inputs, with the
+    /// walk, stand in for the snapshot no first page carries yet.
+    fn first_key(&self) -> String {
+        format!("first:{}", self.key)
+    }
+
+    /// A first page's set: the one kept for these inputs, else `outline`'s,
+    /// kept for the requests after it. Concurrent requests for one outline
+    /// (the rows of one batch) outline it once ([`ScanMemo::turn`]); a
+    /// request stopped while it waits outlines for itself.
+    pub(super) fn first_or_outline<E>(
+        &self,
+        q: &AstSearchQuerySymbols,
+        stop: &dyn Fn() -> bool,
+        outline: impl FnOnce() -> Result<Arc<SymbolSet>, E>,
+    ) -> Result<Arc<SymbolSet>, E> {
+        use octocode_tools_shared::page_memo::Turn;
+        let key = self.first_key();
+        loop {
+            if let Some(set) = self.first() {
+                return Ok(set);
+            }
+            let leading = match SETS.turn(&key, stop) {
+                Turn::Landed => continue,
+                Turn::Lead(leading) => Some(leading),
+                Turn::Stopped => None,
+            };
+            let set = outline()?;
+            self.keep(q, key, &set);
+            drop(leading);
+            return Ok(set);
+        }
+    }
+
+    /// What proves a page of this outline current to a request that asked
+    /// for the same page while it was built ([`crate::ast_search::shared_rows`]):
+    /// the root, every file the walk listed, every directory it admitted
+    /// (`dirs`) with their ignore files, the ignore rules outside the walk
+    /// and the repository markers above it, as a kept scan is watched.
+    /// `None` when one of them was written within the settle window before
+    /// the outline started, or is gone, or an ignore file cannot be watched.
+    pub(super) fn proof(
+        &self,
+        paths: &PathPolicy,
+        dirs: &[PathBuf],
+    ) -> Option<octocode_engine::stamp::Proof> {
+        use octocode_tools_shared::page_memo::{
+            Watch, directory_ignore_inputs_with, repository_markers,
+        };
+        let global = paths.global_ignore();
+        let discovery = paths.discovery_walk();
+        let mut sources = self.sources.clone();
+        sources.extend(dirs.iter().cloned());
+        let mut rules =
+            octocode_engine::search::walk::external_ignore_inputs_with(&self.root, global);
+        for dir in std::iter::once(&self.root).chain(dirs) {
+            let inputs = directory_ignore_inputs_with(dir, &self.root, global, |ignore| {
+                discovery.permits_entry(ignore, None)
+            });
+            if inputs.untracked {
+                return None;
+            }
+            sources.extend(inputs.files);
+            rules.extend(inputs.external);
+        }
+        Watch {
+            root: &self.root,
+            sources: &sources,
+            rules: &rules,
+            markers: &repository_markers(&self.root),
+        }
+        .capture(octocode_engine::stamp::Link::Follow, Some(self.started))
+    }
+
     /// Keep `set` for the pages after the one being served, when `q` lets a
     /// result be kept: a filtering scope's walk asks its verdicts again on
     /// every page anyway, for the key.
     pub(super) fn remember(&self, q: &AstSearchQuerySymbols, set: &Arc<SymbolSet>) {
+        self.keep(q, set.snapshot.clone(), set);
+    }
+
+    /// Keep `set` under `snapshot`, watched by every file it read.
+    fn keep(&self, q: &AstSearchQuerySymbols, snapshot: String, set: &Arc<SymbolSet>) {
         if octocode_tools_shared::test_code::Keep::of(q.test_code).is_some() {
             return;
         }
         SETS.put(
-            (set.snapshot.clone(), self.key.clone()),
+            (snapshot, self.key.clone()),
             octocode_tools_shared::page_memo::Watch {
                 root: &self.root,
                 sources: &self.sources,

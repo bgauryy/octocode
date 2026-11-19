@@ -82,6 +82,10 @@ impl GitHubProvider {
             ));
         }
         let resolved_ref = self.resolve_commit(request, context).await?;
+        // A batch reading its rows' files ahead keeps what this read finds.
+        if let Some(memo) = context.ref_memo() {
+            memo.files_warmed().await;
+        }
         let (at, target, unlisted) = match self
             .resolve_links(request, &resolved_ref, context, links)
             .await?
@@ -157,7 +161,7 @@ impl GitHubProvider {
     /// media type: a file (up to 100 MB) comes back as its own bytes, with
     /// no base64 body and no second blob read; a directory, symlink entry,
     /// or submodule still comes back as JSON, which types it.
-    fn contents_spec(
+    pub(super) fn contents_spec(
         &self,
         request: &ContentRequest,
         resolved_ref: &str,

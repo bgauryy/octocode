@@ -29,8 +29,8 @@ fn names(prefix: &str) -> Vec<Value> {
         .collect()
 }
 
-/// Named rows (`{name, <value>}`): branches, tags and engines, whose names are data
-/// and never JSON keys.
+/// Named rows (`{name, <value>}`): engines, whose names are data and never
+/// JSON keys.
 fn named(prefix: &str, value: &str) -> Vec<Value> {
     (0..80)
         .map(|index| format!("{prefix}-{index}"))
@@ -57,10 +57,25 @@ fn clone_symlinks_are_each_paged_once() {
     assert_eq!(seen, symlinks);
 }
 
+/// Refs as the contract states them: `"<name> <commitSha>"` (ref names hold
+/// no space; hoist G-H2).
+fn refs(prefix: &str) -> Vec<Value> {
+    (0..80)
+        .map(|index| format!("{prefix}-{index}"))
+        .chain(["feature/a~b".to_owned(), "0".to_owned()])
+        .map(|name| {
+            json!(format!(
+                "{name} {}",
+                "0123456789abcdef0123456789abcdef01234567"
+            ))
+        })
+        .collect()
+}
+
 #[test]
-fn structure_branch_records_and_tags_are_each_delivered_once() {
-    let branches = named("branch", "commitSha");
-    let tags = named("tag", "commitSha");
+fn structure_branches_and_tags_are_each_delivered_once() {
+    let branches = refs("branch");
+    let tags = refs("tag");
     let data = json!({"defaultBranch":"main","commitSha":"fixed","branches":branches,"tags":tags});
     let (mut seen_branches, mut seen_tags) = (Vec::new(), Vec::new());
     for row in pages(ToolId::GhStructure, data) {

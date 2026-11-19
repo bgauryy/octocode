@@ -50,6 +50,7 @@ impl Standing {
         let Scan {
             files,
             truncated,
+            filled,
             scan_resume,
             listed_before,
             listed_through,
@@ -64,8 +65,7 @@ impl Standing {
             ignore_rules,
             repository_markers,
             watches_ignore_files,
-            withheld,
-            artifacts,
+            skipped,
             unparsed,
             census,
             present,
@@ -103,6 +103,7 @@ impl Standing {
         union(&mut kept.ignore_rules, ignore_rules);
         union(&mut kept.test_code_unread, test_code_unread);
         kept.truncated = truncated;
+        kept.filled = filled;
         kept.scan_resume = scan_resume;
         kept.listed_before = listed_before;
         kept.listed_through = listed_through;
@@ -110,8 +111,9 @@ impl Standing {
         kept.discovery_sources = discovery_sources;
         kept.repository_markers = repository_markers;
         kept.watches_ignore_files = watches_ignore_files;
-        kept.withheld = withheld;
-        kept.artifacts.extend(artifacts);
+        let artifacts = std::mem::take(&mut kept.skipped.artifacts);
+        kept.skipped = skipped;
+        kept.skipped.artifacts.extend(artifacts);
         kept.unparsed = unparsed;
         kept.census = census;
         kept.present = present;

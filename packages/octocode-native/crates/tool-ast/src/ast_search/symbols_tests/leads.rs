@@ -1,11 +1,12 @@
 //! The `includeSkipped` leads of an outline: each keeps the scope and its
-//! filters and lifts exactly the walk flags that reach the skipped files.
+//! filters and lifts the walk flags of every cause its walk skipped paths
+//! by; nothing behind them is read to choose.
 
 use super::*;
 use octocode_test_support::json_fixture;
 
 /// The hidden-path lead keeps the scope, so a root-anchored `exclude` keeps
-/// its meaning: the lead finds what the hint counted.
+/// its meaning: the lead finds what the excluded walk can reach.
 #[test]
 fn the_hidden_lead_keeps_the_exclude_anchored_to_the_scan_root() {
     let root = Fixture::new();
@@ -28,7 +29,7 @@ fn the_hidden_lead_keeps_the_exclude_anchored_to_the_scan_root() {
             .as_array()
             .is_some_and(|hints| hints.iter().any(|hint| hint
                 .as_str()
-                .is_some_and(|h| h.contains("1 outlinable file")))),
+                .is_some_and(|h| h.contains("Skipped paths (1 hidden)")))),
         "{out}"
     );
     let lead = skipped_lead(&out);
@@ -153,10 +154,10 @@ fn skipped_workspace(hidden_name: &str, ignored_name: &str) -> Fixture {
 }
 
 /// A name that sits only in the ignored `build/` leads to the same scope
-/// with the walk flags that reach it, and not `includeHidden`: the hidden
-/// directory holds another symbol.
+/// with every flag the walk skipped by lifted, `includeHidden` too: nothing
+/// behind the skipped paths is read to tell which of them holds it.
 #[test]
-fn an_ignored_symbol_leads_to_its_own_scope_with_the_ignore_flags_lifted() {
+fn an_ignored_symbol_leads_to_its_own_scope_with_the_skipped_flags_lifted() {
     let root = skipped_workspace("hiddenSym", "ignoredSym");
     let out = empty_outline(
         &root.0,
@@ -165,28 +166,32 @@ fn an_ignored_symbol_leads_to_its_own_scope_with_the_ignore_flags_lifted() {
     assert_eq!(out["status"], "empty", "{out}");
     assert!(out["next"].get("narrowScope").is_none(), "{out}");
     let hints = out["warnings"].to_string();
-    assert!(hints.contains("1 outlinable file"), "{hints}");
-    checks::assert_absent(&out["warnings"], ".hidden");
+    assert!(
+        hints.contains("Skipped paths (1 ignored, 1 hidden)"),
+        "{hints}"
+    );
     let lead = skipped_lead(&out);
     assert_eq!(lead["path"], json!(root.0.to_string_lossy()), "{out}");
     assert_eq!(lead["includeIgnored"], json!(true), "{out}");
+    assert_eq!(lead["includeHidden"], json!(true), "{out}");
     assert_eq!(lead["defaultExcludes"], json!(false), "{out}");
-    assert!(lead.get("includeHidden").is_none(), "{out}");
     let found = run_lead(&root.0, lead);
     assert_eq!(found_files(&found).len(), 1, "{found}");
     assert!(declares(&found, "ignoredSym"), "{found}");
 }
 
-/// An empty outline's lead lifts exactly the walk flags that reach the
-/// name's files (only `includeHidden` for a hidden directory), never one the
-/// request already set, and running it finds the name.
+/// An empty outline's lead lifts the flags of what its walk still skipped
+/// (with `includeIgnored` set, the ignore rules skip nothing more), keeps the
+/// ones the request set, and running it finds the name.
 #[test]
-fn a_symbol_lead_lifts_exactly_the_flags_left_to_reach_it() {
+fn a_symbol_lead_lifts_the_flags_left_to_reach_it() {
     let root = skipped_workspace("hiddenSym", "ignoredSym");
     for (request, lifted) in [
         (
             json_fixture(r#"{"symbolFilter": {"terms": ["hiddenSym"]}}"#),
-            json_fixture(r#"{"includeHidden": true}"#),
+            json_fixture(
+                r#"{"includeHidden": true, "includeIgnored": true, "defaultExcludes": false}"#,
+            ),
         ),
         (
             json_fixture(
@@ -195,7 +200,9 @@ fn a_symbol_lead_lifts_exactly_the_flags_left_to_reach_it() {
                     "includeIgnored": true
                 }"#,
             ),
-            json_fixture(r#"{"includeHidden": true, "includeIgnored": true}"#),
+            json_fixture(
+                r#"{"includeHidden": true, "includeIgnored": true, "defaultExcludes": false}"#,
+            ),
         ),
     ] {
         let out = empty_outline(&root.0, request.clone());
@@ -230,8 +237,15 @@ fn a_symbol_behind_hidden_and_ignored_paths_gets_one_lead_lifting_both() {
         "{out}"
     );
     let hints = out["warnings"].to_string();
-    assert!(hints.contains("hidden .hidden/"), "{hints}");
-    assert!(hints.contains(".gitignore:1 'build/'"), "{hints}");
+    assert!(
+        hints.contains("Skipped paths (1 ignored, 1 hidden)"),
+        "{hints}"
+    );
+    let skipped = out["skippedPaths"].to_string();
+    assert!(
+        skipped.contains(".hidden") && skipped.contains("build"),
+        "{out}"
+    );
     let lead = skipped_lead(&out);
     assert_eq!(lead["path"], json!(root.0.to_string_lossy()), "{out}");
     assert_eq!(lead["includeIgnored"], json!(true), "{out}");
@@ -288,7 +302,8 @@ fn an_outline_leaves_out_gitignored_files_and_leads_to_them() {
     );
     assert_eq!(out["status"], "empty", "{out}");
     let hints = out["warnings"].to_string();
-    assert!(hints.contains(".gitignore:1 'gen/'"), "{hints}");
+    assert!(hints.contains("Skipped paths (1 ignored)"), "{hints}");
+    assert!(out["skippedPaths"].to_string().contains("gen"), "{out}");
     let lead = super::super::test_rows::skipped_call(&out)
         .unwrap_or_else(|| panic!("missing skipped-scope lead: {out}"))["input"]["queries"][0]
         .clone();

@@ -91,6 +91,32 @@ pub struct RepoPath<'a> {
     pub reference: Option<&'a str>,
 }
 
+impl RepoPath<'_> {
+    /// The missing-path message both file tools state, naming the ref the
+    /// caller asked for and, when that named a branch or tag, the commit it
+    /// resolved to (this place's ref, which the recovery leads pin). A full
+    /// SHA asked is named by its short form: the leads carry it whole. A 404
+    /// at one ref says nothing of another, so an asked ref is always named.
+    pub fn not_found_message(&self, asked: Option<&str>) -> String {
+        let (owner, repo, path) = (self.owner, self.repo, self.path);
+        let Some(asked) = asked.filter(|value| !value.is_empty()) else {
+            return format!("Path not found in {owner}/{repo}: {path}");
+        };
+        let short = |sha: &str| sha.get(..7).unwrap_or(sha).to_owned();
+        match self.reference.filter(|commit| *commit != asked) {
+            Some(commit) => {
+                let short = short(commit);
+                format!("Path not found in {owner}/{repo} at {asked} ({short}): {path}")
+            }
+            None if octocode_github::is_full_sha(asked) => {
+                let short = short(asked);
+                format!("Path not found in {owner}/{repo} at {short}: {path}")
+            }
+            None => format!("Path not found in {owner}/{repo} at {asked}: {path}"),
+        }
+    }
+}
+
 impl<'a> RepoPath<'a> {
     /// The repository's root on its default branch.
     pub fn root(owner: &'a str, repo: &'a str) -> Self {

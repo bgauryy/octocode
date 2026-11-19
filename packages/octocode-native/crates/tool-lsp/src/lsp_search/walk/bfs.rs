@@ -143,6 +143,25 @@ impl<'a> Walk<'a> {
         Ok(())
     }
 
+    /// Ask for `roots` (the walk's own, already expanded at level 1) again:
+    /// an answer asked before the request opened its importer candidates
+    /// can miss callers the server finds once it holds them, which an
+    /// identical later request would list. New results join level 1 (and
+    /// expand at the next level); repeated ones merge their call sites.
+    pub(in crate::lsp_search) async fn reask_roots(
+        &mut self,
+        source: &impl HierarchySource,
+        roots: &[Value],
+        cancel: &dyn CancellationCheck,
+    ) -> Result<(), LspFailure> {
+        if roots.is_empty() {
+            return Ok(());
+        }
+        let next = self.expand_level(source, roots.to_vec(), 1, cancel).await?;
+        self.frontier.extend(next);
+        Ok(())
+    }
+
     /// Canonical files of the level-1 results: the files the server's own
     /// answer covers.
     pub(in crate::lsp_search) fn answered_files(&self) -> HashSet<String> {

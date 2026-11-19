@@ -126,6 +126,14 @@ pub(super) fn symbol_rows(out: &Value) -> Vec<String> {
     }
 }
 
+/// A raw page as the hoist stage publishes it
+/// ([`octocode_runtime_base::response::hoist::apply_on`]).
+pub(super) fn stated(out: &Value) -> Value {
+    let mut data = out.as_object().cloned().unwrap_or_default();
+    octocode_runtime_base::response::hoist::apply_on(ToolId::AstSearch, &mut data);
+    Value::Object(data)
+}
+
 #[test]
 fn symbol_pages_fill_the_window_and_walk_every_symbol_once() {
     let root = Fixture::new();
@@ -137,13 +145,16 @@ fn symbol_pages_fill_the_window_and_walk_every_symbol_once() {
     );
     let mut all = Vec::new();
     for (index, out) in outputs.iter().enumerate() {
-        let chars = octocode_engine::json_size::utf16_units(out).unwrap_or(0);
+        // The page as the hoist stage publishes it: its outline as strings
+        // (Q5), the form its rows are priced in.
+        let published = stated(out);
+        let chars = octocode_engine::json_size::utf16_units(&published).unwrap_or(0);
         assert!(chars <= WINDOW, "page {index} is {chars} chars");
         // Symbol evidence fills every page but the last. Measure the payload,
         // so wrapper metadata cannot disguise an underfilled page and added
         // provenance does not impose an obsolete fixed row-count assumption.
         if out["pagination"]["hasMore"] == true {
-            let evidence_chars = out["symbols"]
+            let evidence_chars = published["symbols"]
                 .as_array()
                 .expect("symbol evidence")
                 .iter()
@@ -255,8 +266,11 @@ fn a_file_of_three_thousand_matches_pages_by_bytes_and_reaches_each_once() {
     }
 }
 
+/// Pages of many one-match files fill the window, and each states the
+/// scope's total, or a floor of it (`countScope: loaded`) on a window that
+/// ends before the scope does or follows another.
 #[test]
-fn many_files_page_by_bytes_with_one_total() {
+fn many_files_page_by_bytes_each_with_its_total_or_a_floor() {
     let root = Fixture::new();
     for index in 0..300 {
         root.write(
@@ -277,11 +291,14 @@ fn many_files_page_by_bytes_with_one_total() {
     }
     assert_eq!(cells.iter().collect::<BTreeSet<_>>().len(), 300);
     assert_eq!(cells.len(), 300);
-    let totals = outputs
-        .iter()
-        .filter_map(|out| out["pagination"]["total"].as_u64())
-        .collect::<BTreeSet<_>>();
-    assert_eq!(totals.len(), 1, "{totals:?}");
+    for out in &outputs {
+        let pagination = &out["pagination"];
+        let total = pagination["total"].as_u64().expect("a total");
+        match pagination.get("countScope") {
+            Some(scope) => assert!(scope == "loaded" && total <= 300, "{pagination}"),
+            None => assert_eq!(total, 300, "{pagination}"),
+        }
+    }
     for out in &outputs[..outputs.len() - 1] {
         let chars = octocode_engine::json_size::utf16_units(out).unwrap_or(0);
         assert!(

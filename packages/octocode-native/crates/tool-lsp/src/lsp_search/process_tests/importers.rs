@@ -4,11 +4,13 @@
 use super::*;
 
 mod answer_gaps;
+mod build_output;
 mod c_family;
 mod call_sites;
 mod commonjs;
 mod identity;
 mod importer_root;
+mod loaded;
 mod local_binding;
 mod markup;
 mod oversize;

@@ -28,7 +28,7 @@ Rust owns Clap parsing, catalog presentation, validation, config and authenticat
 - `scripts/stage-skills.mjs` stages canonical public skills for the npm package and native build. The native binary embeds the same publishable skill directories.
 - The build rejects undeclared external runtime imports.
 
-Publishing order and checks: [release guide](../../skills-dev/octocode-dev/docs/RELEASE.md).
+Publishing order and checks: [AGENTS.md "Release and environment"](../../AGENTS.md).
 
 ## Invariants
 

@@ -34,8 +34,9 @@ fn rust_rows_flag_feature_gated_mentions_and_offer_an_all_features_rerun() {
         },
         &scope,
     );
-    // Gated files found: the rerun page and one reason, no prose.
+    // Gated files found: the rerun page, one reason and their count, no prose.
     assert_eq!(row["partialReasons"], json!([CFG_REASON]), "{row}");
+    assert_eq!(row["coverage"]["cfgGatedFiles"], 1, "{row}");
     assert!(
         row.get("coverage")
             .is_none_or(|c| c.get("reason").is_none()),

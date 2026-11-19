@@ -58,6 +58,15 @@ pub(super) struct FillKey {
     request: String,
 }
 
+/// One concurrent wave's fill of a request: whether its first asker has
+/// started, and the answer GitHub gave it just now when that answer stands
+/// for every identical request asked with it ([`GitHubTransport::shares_in_flight`]).
+#[derive(Default)]
+pub(super) struct Fill {
+    pub(super) started: bool,
+    pub(super) answer: Option<ResponsePage>,
+}
+
 /// Whether GitHub said this answer lacks results: `incomplete_results` on a
 /// search, or organizations SAML enforcement withheld. A non-search body is
 /// source data: its own JSON fields have no provider-envelope meaning.
@@ -91,6 +100,20 @@ fn names_pull_request(url: &Url) -> bool {
     )
 }
 
+/// `page`, the answer GitHub just gave an identical request of this wave
+/// (or a batch's read of this one), as this request's own: recorded in its
+/// evidence, with what it proves of the repository and commit it reads.
+pub(super) fn joined(
+    spec: &RequestSpec,
+    page: ResponsePage,
+    context: &RequestContext,
+) -> ResponsePage {
+    context.journal.record_page(spec, &page);
+    context.record_proven(&spec.url);
+    context.record_answered(&spec.url);
+    page
+}
+
 impl GitHubTransport {
     /// One logical request: its attempts count one failure toward the
     /// circuit breaker, however many retries it took.
@@ -101,24 +124,37 @@ impl GitHubTransport {
     ) -> Result<ResponsePage, ProviderError> {
         if let Some(key) = self.fill_key(&spec, context) {
             let ticket = self.fills.join(key);
-            let mut started = context.budget.wait(ticket.turn()).await?;
-            if !*started {
-                *started = true;
+            let mut fill = context.budget.wait(ticket.turn()).await?;
+            if let Some(page) = fill.answer.clone() {
+                drop(fill);
+                return Ok(joined(&spec, page, context));
+            }
+            if !fill.started {
+                fill.started = true;
                 // Hold the first turn through the cache write. On cancellation,
                 // dropping the future releases it just as completion does.
-                let result = self.execute_uncoordinated(spec, context).await;
-                drop(started);
-                return result;
+                let result = self.execute_uncoordinated(spec.clone(), context).await;
+                if let Ok((page, true)) = &result
+                    && self.shares_in_flight(&spec, page)
+                {
+                    fill.answer = Some(page.clone());
+                }
+                drop(fill);
+                return result.map(|(page, _)| page);
             }
             // Wait only once for this wave's fill. When it failed or could not
             // be cached, followers send independently, never in a network convoy.
         }
-        self.execute_uncoordinated(spec, context).await
+        self.execute_uncoordinated(spec, context)
+            .await
+            .map(|(page, _)| page)
     }
 
-    fn fill_key(&self, spec: &RequestSpec, context: &RequestContext) -> Option<FillKey> {
+    /// The fill a request may join: a GET, or a GraphQL read of one pull
+    /// request, with nothing its own continuation already answers.
+    pub(super) fn fill_key(&self, spec: &RequestSpec, context: &RequestContext) -> Option<FillKey> {
         if self.answers.is_none()
-            || !matches!(spec.method, HttpMethod::Get)
+            || !(matches!(spec.method, HttpMethod::Get) || spec.reads_pull_request)
             || spec.kept_by_caller
             || context.journal_answers(spec)
         {
@@ -130,11 +166,37 @@ impl GitHubTransport {
         })
     }
 
+    /// Whether the answer GitHub just gave a fill's first asker answers the
+    /// identical requests that waited on it, though it may not be kept for
+    /// later ones: a search GitHub marks `no-cache`, or a pull request read
+    /// by GraphQL. They were asked together, so it is their answer too, not
+    /// a reuse in time. An answer the origin forbids anyone to keep
+    /// (`no-store`, `Vary: *`) is asked again by each.
+    pub(super) fn shares_in_flight(&self, spec: &RequestSpec, page: &ResponsePage) -> bool {
+        let headers = page
+            .headers
+            .iter()
+            .filter_map(|(name, value)| {
+                Some((name.as_str().to_owned(), value.to_str().ok()?.to_owned()))
+            })
+            .collect::<Vec<_>>();
+        page.status == 200
+            && !page.redirected
+            && !super::saved::forbids_reuse(&headers)
+            && (spec.reads_pull_request
+                || matches!(
+                    self.endpoint.resource(&spec.url),
+                    GitHubResource::Search | GitHubResource::CodeSearch
+                ))
+    }
+
+    /// One request outside any fill, and whether GitHub answered it just
+    /// now without a redirect (an answer a waiting identical request shares).
     async fn execute_uncoordinated(
         &self,
         spec: RequestSpec,
         context: &RequestContext,
-    ) -> Result<ResponsePage, ProviderError> {
+    ) -> Result<(ResponsePage, bool), ProviderError> {
         let mut followed = Vec::new();
         let mut route = self.route(&spec, context);
         let mut sent = route
@@ -217,7 +279,8 @@ impl GitHubTransport {
             self.learn_pull_request_lifetime(&sent, &page, context);
         }
         page.redirected |= route.is_some();
-        Ok(page)
+        let answered_now = asked && !page.redirected;
+        Ok((page, answered_now))
     }
 
     /// Route `spec` through its saved rename, returning the store key and observed time.
@@ -558,7 +621,10 @@ impl GitHubTransport {
     /// Load this credential's answer and reuse policy; oversized bodies require a new read.
     fn saved(&self, spec: &RequestSpec, context: &RequestContext) -> Option<Saved> {
         let store = self.answers.as_ref()?;
-        if !matches!(spec.method, HttpMethod::Get) && !spec.reads_pull_request {
+        if !matches!(spec.method, HttpMethod::Get)
+            && !spec.reads_pull_request
+            && !spec.reads_objects
+        {
             return None;
         }
         let scope = self.answer_scope(context)?;
@@ -577,12 +643,58 @@ impl GitHubTransport {
     }
 
     /// Whether `spec` would be answered with nothing sent: a resumed
-    /// continuation's journal or a saved answer that needs no asking.
+    /// continuation's journal or a saved answer that needs no asking. The
+    /// saved answer is probed, not loaded ([`super::SavedAnswers::probe`]): the
+    /// question reads no body.
     pub(crate) fn answers_unasked(&self, spec: &RequestSpec, context: &RequestContext) -> bool {
-        context.journal_answers(spec)
-            || self.saved(spec, context).is_some_and(|saved| {
-                matches!(saved.reuse, Reuse::Pinned | Reuse::Fresh | Reuse::Window)
-            })
+        context.journal_answers(spec) || self.saved_unasked(spec, context)
+    }
+
+    /// Whether [`Self::saved`] would find a saved answer that needs no
+    /// asking, from the store's probe of it.
+    fn saved_unasked(&self, spec: &RequestSpec, context: &RequestContext) -> bool {
+        let Some(store) = self.answers.as_ref() else {
+            return false;
+        };
+        if !matches!(spec.method, HttpMethod::Get)
+            && !spec.reads_pull_request
+            && !spec.reads_objects
+        {
+            return false;
+        }
+        let Some(scope) = self.answer_scope(context) else {
+            return false;
+        };
+        let Some((saved, length)) = store.probe(&scope, &request_key(spec)) else {
+            return false;
+        };
+        if length.is_some_and(|length| length > context.budget.max_body_bytes) {
+            return false;
+        }
+        matches!(
+            saved.reuse(spec.is_pinned(), self.reuse_window(spec, context), now_ms()),
+            Reuse::Pinned | Reuse::Fresh | Reuse::Window
+        )
+    }
+
+    /// Whether this transport keeps answers at all: what makes a read
+    /// another request proved worth seeding ([`Self::seed`]).
+    pub(crate) fn keeps_answers(&self) -> bool {
+        self.answers.is_some()
+    }
+
+    /// Keeps `page` as the answer to `spec`, which another request of this
+    /// credential proved to be what GitHub answers it byte for byte (a
+    /// GraphQL read of the same immutable object), as if `spec` had been
+    /// sent; whether it now answers `spec` with nothing sent.
+    pub(crate) fn seed(
+        &self,
+        spec: &RequestSpec,
+        page: &ResponsePage,
+        context: &RequestContext,
+    ) -> bool {
+        self.keep(spec, page, context);
+        self.answers_unasked(spec, context)
     }
 
     /// Keep reusable origin answers. Partial or SAML-withheld answers are not cached.

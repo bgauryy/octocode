@@ -183,7 +183,7 @@ impl std::fmt::Display for ToolId {
 }
 
 /// The name of the `index`th (from 0) continuation of `kind` on one row:
-/// `kind` itself, then `kind2`, `kind3`, …; [`kind`] is its inverse.
+/// `kind` itself, then `kind2`, `kind3`, …; `kind` is its inverse.
 pub fn numbered(kind: &str, index: usize) -> String {
     match index {
         0 => kind.to_owned(),

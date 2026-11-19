@@ -322,7 +322,7 @@ async fn a_classified_read_warns_what_it_kept_and_that_empty_is_not_absence() {
     let empty = read(&none).await;
     let warnings = empty["warnings"].to_string();
     assert!(
-        warnings.contains("classification kept 0 of 2 hits")
+        warnings.contains("classification passed 0 of 2 hits")
             && warnings.contains("not absence")
             && empty["next"]["unfiltered"].is_object(),
         "{empty}"
@@ -350,7 +350,7 @@ async fn a_classified_read_keeping_no_chunk_is_empty_and_not_absence() {
     assert_eq!(data["selection"]["selectedItems"], 0, "{data}");
     let warnings = data["warnings"].to_string();
     assert!(
-        warnings.contains("classification kept 0 of")
+        warnings.contains("classification passed 0 of")
             && warnings.contains("chunk")
             && warnings.contains("not absence"),
         "{data}"

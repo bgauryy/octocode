@@ -54,20 +54,6 @@ async fn walk(
     }
 }
 
-/// `pages` of byte pages placed by their offsets: the text they cover, with
-/// no gap and no byte twice.
-fn joined_by_offset(pages: &[(ReadProgressUnit, usize, String)]) -> String {
-    let mut placed: Vec<&(ReadProgressUnit, usize, String)> = pages.iter().collect();
-    placed.sort_by_key(|(_, at, _)| *at);
-    let mut joined = String::new();
-    for (unit, at, text) in placed {
-        assert_eq!(*unit, ReadProgressUnit::Bytes);
-        assert_eq!(*at, joined.len(), "no gap and no byte twice");
-        joined.push_str(text);
-    }
-    joined
-}
-
 /// `block` on a declaration longer than a page reads it from its first
 /// line: page 1 is as full as a plain read's, and `next.nextPage` alone
 /// reaches its last line.
@@ -111,10 +97,11 @@ async fn a_long_block_fills_its_first_page_and_pages_to_its_end() {
 }
 
 /// A match inside a line too long for a page is on page 1 with the bytes
-/// around it, at the byte offset the page states; the required pages then
-/// hold the rest of the line, every byte once.
+/// around it, at the byte offset the page states. When page 1 holds every
+/// match of the file's last line, the rest of that line is no required page
+/// (Q4): the row ends there and offers the whole line as a related read.
 #[tokio::test]
-async fn a_match_in_a_long_line_is_on_page_one_and_the_line_is_walked_once() {
+async fn a_match_in_a_long_last_line_is_on_page_one_and_the_rest_is_a_related_read() {
     let server = MockServer::builder().start().await;
     let filler: String = (0..12_000).map(|at| format!("f{at:06};")).collect();
     let line = format!(
@@ -143,9 +130,27 @@ async fn a_match_in_a_long_line_is_on_page_one_and_the_line_is_walked_once() {
         "{page:?}"
     );
     assert_eq!(view.get(page.offset..page.offset + page.length), Some(text));
+    // No required page follows; the whole line is one optional read.
     let pages = walk(&provider, query).await;
-    assert_eq!(pages[1].1, 0, "the rest starts at the line's first byte");
-    assert_eq!(joined_by_offset(&pages), view);
+    assert_eq!(pages.len(), 1, "{pages:?}");
+    let calls = first.file.calls.as_ref().expect("calls");
+    assert!(calls.get("nextPage").is_none(), "{calls}");
+    let read = calls
+        .as_object()
+        .into_iter()
+        .flatten()
+        .find_map(|(_, call)| {
+            (call["tool"] == "ghGetFileContent" && call["kind"] == "related").then_some(call)
+        })
+        .unwrap_or_else(|| panic!("a related whole-line read: {calls}"));
+    let input = &read["input"]["queries"][0];
+    assert_eq!(input["path"], "lib.min.js", "{read}");
+    assert_eq!(
+        input["ranges"],
+        json!([{"startLine": 2, "endLine": 2}]),
+        "{read}"
+    );
+    assert!(input.get("matchString").is_none(), "{read}");
 }
 
 /// A plain read whose first line is short and whose second is too long

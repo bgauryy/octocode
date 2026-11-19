@@ -28,7 +28,7 @@ Install behavior is an agent check, not a script: the plugins item of [tool chec
 
 ## Publish the npm package and marketplace
 
-1. Follow `<repo>/skills-dev/octocode-dev/docs/RELEASE.md` to publish compatible native, MCP, and CLI packages first. Do not change runtime pins to an older version without compatibility testing.
+1. Follow the order in `<repo>/AGENTS.md` ("Release and environment") to publish compatible native, MCP, and CLI packages first. Do not change runtime pins to an older version without compatibility testing.
 2. Set the next plugin version in `package.json` and the catalog's npm source. Run the checks above (`yarn verify && yarn validate`) and confirm both pinned runtime packages exist on npm.
 3. Inspect the archive with `npm pack --dry-run` in this package. From this package directory, run `npm publish --access public`.
 4. After npm publication succeeds, publish the matching catalog to the default branch of `bgauryy/octocode`. Do not expose a catalog version before its package exists.

@@ -224,6 +224,14 @@ pub(super) fn page_result(
         Ok(next) => next,
         Err(error) => return super::classified::invalid_continuation(q, error),
     };
+    if pg.rest_of_line
+        && let Some(line) = page_source_ranges(ext.source_lines.as_deref(), pg.view_lines).first()
+    {
+        warnings.push(format!(
+            "Every match in line {} is shown with its window; the rest of the line is not. The related read returns the whole line.",
+            line.start
+        ));
+    }
     // The read's first page states what every page shares.
     let first_page = pg.pagination.offset == 0 || local_fetch_query::read_progress(asked).is_none();
     if first_page {
@@ -423,6 +431,18 @@ fn continue_calls(
     ext: &super::super::extraction::Extraction,
 ) -> Result<Option<NextCalls>, String> {
     let mut next = page_next(q, pg);
+    // Every match of a long last line shown: its whole line is a lead.
+    if pg.rest_of_line
+        && let Some(line) = line_read(
+            q,
+            &page_source_ranges(ext.source_lines.as_deref(), pg.view_lines),
+        )
+    {
+        let next = next.get_or_insert_with(NextCalls::default);
+        if next.read.is_none() {
+            next.read = Some(FetchCall::related(line));
+        }
+    }
     if let Some(token) = token
         && let Some(read) = next.as_mut().and_then(|next| next.continue_window.as_mut())
     {

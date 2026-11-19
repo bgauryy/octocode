@@ -81,16 +81,10 @@ fn picks(query: &GhSearchCodeQuery, field: &str) -> bool {
 /// listed.
 pub(super) const FRAGMENTS: &str = "fragments";
 
-/// A resolved listing (`<line>\t<text>` entries) as the row's `matches`:
-/// one `{line, value}` per listed line.
+/// A resolved listing as the row's `matches`: each listed line in the
+/// numbered-line form `"<line>\t<text>"`, as the scan holds it.
 fn numbered_matches(lines: &[String]) -> Vec<Value> {
-    lines
-        .iter()
-        .filter_map(|entry| {
-            let (line, value) = entry.split_once('\t')?;
-            Some(json!({"line": line.parse::<u64>().ok()?, "value": value}))
-        })
-        .collect()
+    lines.iter().cloned().map(Value::String).collect()
 }
 
 pub(super) fn shape_files(
@@ -98,6 +92,19 @@ pub(super) fn shape_files(
     query: &GhSearchCodeQuery,
     withholds: Withholds<'_>,
     resolution: Option<Resolution>,
+) -> PageReads {
+    shape_rows(items, query, withholds, resolution, true)
+}
+
+/// [`shape_files`], with the page's top read lead only when `top_lead`: a
+/// row shaped alone to be measured ([`super::part`]) needs it only as the
+/// page's first row, and building a lead is most of a row's shaping.
+pub(super) fn shape_rows(
+    items: &mut [Value],
+    query: &GhSearchCodeQuery,
+    withholds: Withholds<'_>,
+    resolution: Option<Resolution>,
+    top_lead: bool,
 ) -> PageReads {
     let mut hit_reads = Vec::new();
     let mut redacted = 0;
@@ -107,8 +114,12 @@ pub(super) fn shape_files(
     let mut oversized = 0;
     let mut panicked = 0;
     let mut unanchored = 0;
-    for row in items.iter_mut() {
-        let unread = withheld_row(query, withholds, row);
+    // Each row's path is judged once; shaping never changes a path.
+    let unread = items
+        .iter()
+        .map(|row| withheld_row(query, withholds, row))
+        .collect::<Vec<_>>();
+    for (row, &unread) in items.iter_mut().zip(&unread) {
         let Some(row) = row.as_object_mut() else {
             continue;
         };
@@ -128,12 +139,11 @@ pub(super) fn shape_files(
     // a withheld file's.
     let fragment = items
         .first()
-        .filter(|row| !withheld_row(query, withholds, row))
+        .filter(|_| top_lead && unread.first() == Some(&false))
         .cloned();
     let mut top = None;
     if let Some(resolution) = &resolution {
-        for (row, (sha, hits)) in items.iter_mut().zip(&resolution.hits) {
-            let unread = withheld_row(query, withholds, row);
+        for ((row, (sha, hits)), &unread) in items.iter_mut().zip(&resolution.hits).zip(&unread) {
             let Some(row) = row.as_object_mut() else {
                 continue;
             };
@@ -166,7 +176,7 @@ pub(super) fn shape_files(
                     if picks(query, "matchCount") {
                         row.insert("matchCount".into(), json!(total));
                     }
-                    if top.is_none() {
+                    if top_lead && top.is_none() {
                         top = Some(match declaration {
                             Some(head) => declaration_read(query, row, head, sha),
                             None => line_read(query, row, (*first, *last, *best), *line_count, sha),
@@ -209,9 +219,11 @@ pub(super) fn shape_files(
     for row in items.iter_mut().filter_map(Value::as_object_mut) {
         row.shift_remove(FRAGMENTS);
     }
-    let top = top
-        .flatten()
-        .or_else(|| scoped_fragment_read(fragment.as_ref(), query, resolution.as_ref()));
+    let top = top.flatten().or_else(|| {
+        top_lead
+            .then(|| scoped_fragment_read(fragment.as_ref(), query, resolution.as_ref()))
+            .flatten()
+    });
     PageReads {
         top,
         hits: hit_reads,
@@ -225,21 +237,38 @@ pub(super) fn shape_files(
 
 /// Rows whose listed evidence (everything but `path`) is identical, such as
 /// the same README in several packages, are listed once: the first keeps the
-/// evidence and names every other path in `alsoAt`, in page order.
+/// evidence and names every other path in `alsoAt`, in page order. Identical
+/// evidence needs identical `matches`, so a row's evidence is rendered only
+/// once an earlier row lists the same `matches`, and a kept row's as it was
+/// first listed, before any `alsoAt`.
 pub(super) fn merge_identical(items: &mut Vec<Value>) {
-    let mut first_of = std::collections::HashMap::new();
+    // The rows that may take others' paths: each one's index in `kept`, and
+    // its evidence once rendered.
+    let mut takers: Vec<(usize, Option<String>)> = Vec::new();
     let mut kept: Vec<Value> = Vec::with_capacity(items.len());
     for item in items.drain(..) {
-        let evidence = item
+        let listed = item
             .as_object()
-            .filter(|row| row.contains_key("matches") && row.contains_key("path"))
-            .and_then(|row| serde_json::to_string(&Evidence(row)).ok());
-        let Some(evidence) = evidence else {
+            .is_some_and(|row| row.contains_key("matches") && row.contains_key("path"));
+        if !listed {
             kept.push(item);
             continue;
-        };
-        match first_of.get(&evidence) {
-            Some(&index) => {
+        }
+        let mut own = None;
+        let mut taker = None;
+        for (index, theirs) in &mut takers {
+            if kept[*index].get("matches") != item.get("matches") {
+                continue;
+            }
+            let theirs = theirs.get_or_insert_with(|| evidence(&kept[*index]).unwrap_or_default());
+            let own = own.get_or_insert_with(|| evidence(&item));
+            if own.as_deref() == Some(theirs.as_str()) {
+                taker = Some(*index);
+                break;
+            }
+        }
+        match taker {
+            Some(index) => {
                 let row: &mut Value = &mut kept[index];
                 let path = item["path"].clone();
                 match row.get_mut("alsoAt").and_then(Value::as_array_mut) {
@@ -256,12 +285,21 @@ pub(super) fn merge_identical(items: &mut Vec<Value>) {
                 }
             }
             None => {
-                first_of.insert(evidence, kept.len());
+                // A row whose evidence does not render takes no other.
+                if own.as_ref().is_none_or(Option::is_some) {
+                    takers.push((kept.len(), own.flatten()));
+                }
                 kept.push(item);
             }
         }
     }
     *items = kept;
+}
+
+/// A listed row's evidence, rendered ([`Evidence`]).
+fn evidence(row: &Value) -> Option<String> {
+    row.as_object()
+        .and_then(|row| serde_json::to_string(&Evidence(row)).ok())
 }
 
 /// A row's listed evidence: its fields but `path`, rendered exactly as the

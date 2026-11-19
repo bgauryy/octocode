@@ -62,11 +62,46 @@ fn note_name_token(acc: &mut GraphAccumulator, node: Node<'_>, path: &[Node<'_>]
     }
 }
 
-/// Whether a walk that reads only one spelling's spans goes into `child`.
+/// Whether a walk that reads only one spelling's spans, or only the nodes
+/// touching some byte spans, goes into `child`.
 fn entered(acc: &GraphAccumulator, child: Node<'_>) -> bool {
     acc.only_spelling
         .as_ref()
         .is_none_or(|spelled| spelled.within(child.start_byte(), child.end_byte()))
+        && acc
+            .only_spans
+            .as_ref()
+            .is_none_or(|spans| spans.touches(child.start_byte(), child.end_byte()))
+}
+
+/// Byte spans a narrowed walk enters ([`GraphAccumulator::only_spans`]): a
+/// node is entered when its bytes touch one, end points included, so a node
+/// that holds a byte of a span, or starts or ends at its edge, is read.
+pub(super) struct Spans(Vec<(usize, usize)>);
+
+impl Spans {
+    /// `spans` as `(start, end)` byte pairs, merged where they touch.
+    pub(super) fn new(mut spans: Vec<(usize, usize)>) -> Self {
+        spans.sort_unstable();
+        let mut merged: Vec<(usize, usize)> = Vec::with_capacity(spans.len());
+        for (start, end) in spans {
+            match merged.last_mut() {
+                Some(last) if start <= last.1 => last.1 = last.1.max(end),
+                _ => merged.push((start, end)),
+            }
+        }
+        Self(merged)
+    }
+
+    /// Whether bytes `start..=end` touch a span. Merged spans are disjoint and
+    /// sorted, so their ends ascend: the first span ending at or past `start`
+    /// is the only one that can.
+    pub(super) fn touches(&self, start: usize, end: usize) -> bool {
+        let next = self.0.partition_point(|&(_, span_end)| span_end < start);
+        self.0
+            .get(next)
+            .is_some_and(|&(span_start, _)| span_start <= end)
+    }
 }
 
 pub(super) fn visit_node(

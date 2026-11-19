@@ -193,7 +193,7 @@ fn no_local_refs(context: &GitContext<'_>, directory: &Path) -> Result<bool, Git
 }
 
 /// Repo-relative paths of the repository symlinks (index mode `120000`) the
-/// working tree holds: [`HARDENING_ARGS`] checks each out as a plain file
+/// working tree holds: `HARDENING_ARGS` checks each out as a plain file
 /// holding the link target, and a sparse checkout holds only its scope.
 pub(super) fn symlinks(
     context: &GitContext<'_>,

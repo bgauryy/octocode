@@ -1,6 +1,6 @@
 ---
 name: octocode-documentation
-description: "Load this skill first, before drafting, when writing, rewriting, shortening or reviewing documentation people read: READMEs, guides, runbooks, tutorials, docstrings or code comments. It sets structure and style and checks facts, commands and links. Use octocode-rfc-generator for proposals and octocode-skills for skill files."
+description: "Load first, before drafting, to write, rewrite, shorten or review documentation people read: READMEs, guides, runbooks, tutorials, docstrings, code comments. Sets structure and style, checks facts, commands, links. Proposals: octocode-rfc-generator; skill files: octocode-skills."
 ---
 
 # Octocode Documentation

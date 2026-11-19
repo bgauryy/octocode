@@ -14,7 +14,7 @@ pub(super) enum Move {
         snapshot: String,
     },
     /// The window after one a row limit cut, past the rows already listed,
-    /// bound to what those windows listed ([`windows`]).
+    /// bound to what those windows listed ([`windows`](super::windows)).
     Window {
         scan_offset: Option<std::num::NonZeroU64>,
         snapshot: Option<String>,
@@ -28,16 +28,9 @@ pub(super) enum Move {
     },
 }
 
-/// Serialized chars one row adds to a page: `entry` always, plus `header`
-/// when the row opens a group: it starts the page, or `continues` is false
-/// (it follows a row of another group). A page repeats the header of a group
-/// it continues, so every page reads on its own.
-#[derive(Clone, Copy, Debug)]
-pub(super) struct RowCost {
-    pub(super) entry: usize,
-    pub(super) header: usize,
-    pub(super) continues: bool,
-}
+/// Serialized chars one row adds to a page: the one pricer of grouped
+/// listings ([`octocode_runtime_base::response::groups::Cost`]).
+pub(super) use octocode_runtime_base::response::groups::Cost as RowCost;
 
 /// Row ranges of each page: as many rows as fit `budget` serialized chars,
 /// and at most `limit` rows when set (at least one per page). Costs come

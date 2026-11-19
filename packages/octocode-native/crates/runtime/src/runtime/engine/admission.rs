@@ -12,6 +12,8 @@ use octocode_runtime_base::security::{CheckedQuery, InputPolicy};
 
 use serde_json::{Value, json};
 
+pub(super) mod checked;
+
 fn rejected_row(
     tool: ToolId,
     index: usize,
@@ -81,7 +83,7 @@ impl ToolRuntime {
         if self.selection_available {
             Vec::new()
         } else {
-            contracts::selection_only_fields(tool)
+            checked::selection_only_fields(tool)
         }
     }
 
@@ -280,12 +282,8 @@ fn prepare_queries(
     saved: bool,
     unpublished: &[String],
 ) -> Result<PreparedRows, RuntimeError> {
-    let rows = if saved {
-        contracts::prepare_saved_rows(tool, input.clone())
-    } else {
-        contracts::prepare_rows(tool, input.clone())
-    }
-    .map_err(|error| invalid_input_error(tool, error, unpublished, input))?;
+    let rows = checked::prepared_rows(tool, input, saved)
+        .map_err(|error| invalid_input_error(tool, error, unpublished, input))?;
     let mut prepared = PreparedRows {
         valid: Vec::with_capacity(rows.len()),
         invalid: Vec::new(),

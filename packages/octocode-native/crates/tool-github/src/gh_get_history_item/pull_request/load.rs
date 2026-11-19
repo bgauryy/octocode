@@ -2,7 +2,6 @@
 //! collections (GraphQL first page or REST windows), concurrently.
 use super::PrPlan;
 use crate::gh_get_history_item::Source;
-use crate::gh_get_history_item::body_match::holds;
 use crate::gh_get_history_item::gh_get_history_item_query;
 use crate::gh_get_history_item::graphql::{
     GraphqlCollection, GraphqlPr, map_graphql_comments, map_graphql_commits, map_graphql_files,
@@ -154,11 +153,11 @@ pub(super) async fn load_inline(
             max_batches: MAX_COLLECTION_BATCHES,
             page: gh_get_history_item_query::page(query).unwrap_or(1),
             page_size: gh_get_history_item_query::collection_page_size(query),
-            filtered: plan.needle.is_some(),
+            filtered: plan.filters_discussion(),
             provider_total,
             prefetched: None,
         },
-        |entry| holds(plan.needle.as_deref(), entry),
+        |entry| plan.keeps(entry),
         context,
     )
     .await
@@ -185,11 +184,12 @@ pub(super) async fn load_pr(
 ) -> Result<PrLoads, ProviderError> {
     let file_filter = plan.file_filter();
     let page_size = gh_get_history_item_query::collection_page_size(query);
-    // A `matchString` keeps the discussion entries whose body holds it: such
-    // a section is scanned from its first batch (REST, never a GraphQL
-    // prefix), and shaping drops the rest before paging.
-    let by_body = plan.needle.is_some();
-    let holds_needle = |entry: &Value| holds(plan.needle.as_deref(), entry);
+    // A `matchString` keeps the discussion entries whose body holds it, and
+    // `bots:false` those a person wrote: such a section is scanned from its
+    // first batch (REST, never a GraphQL prefix), and shaping drops the rest
+    // before paging.
+    let by_body = plan.filters_discussion();
+    let holds_needle = |entry: &Value| plan.keeps(entry);
     let spec = |max_batches, page: Option<usize>, filtered| WindowSpec {
         batch_size: MAX_PER_PAGE,
         max_batches,

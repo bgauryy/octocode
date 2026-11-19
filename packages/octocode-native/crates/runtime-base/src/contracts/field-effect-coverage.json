@@ -77,11 +77,17 @@
         "longContext": [
           "selection"
         ],
+        "maxRequests": [
+          "execution"
+        ],
         "model": [
           "selection"
         ],
         "operation": [
           "dispatch"
+        ],
+        "perHit": [
+          "execution"
         ],
         "perItem": [
           "selection"
@@ -369,6 +375,9 @@
         ],
         "baseRef": [
           "navigation"
+        ],
+        "bots": [
+          "filter"
         ],
         "caseMode": [
           "matcher"

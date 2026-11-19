@@ -135,6 +135,14 @@ pub(in crate::gh_search_code) async fn empty_scope(
         diagnostics.hint(&hint);
         octocode_runtime_base::response::result::add_hints(value, [hint]);
     }
+    // The index holds nothing of an archived repository: its empty answer
+    // proves no absence, whatever the search itself completed.
+    if code == "ghRepoArchived" {
+        value["coverage"] = json!({
+            "state": "partial",
+            "reason": "GitHub's code search does not index archived repositories"
+        });
+    }
     value["calls"][name] = Continuation::related(tool, next_query).build();
     Ok(default_branch)
 }

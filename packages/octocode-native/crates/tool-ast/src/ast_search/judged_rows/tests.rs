@@ -300,6 +300,8 @@ fn a_name_the_pass_replaced_is_hidden_and_no_other() {
     let read = judged.lines(2, 1).expect("line 2").into_owned();
     assert!(!read.contains(&token), "fixture no longer hidden: {read}");
     let symbols = run(&file, json_fixture(r#"{"operation": "symbols"}"#), &policy);
+    // No served field spells the secret.
+    assert!(!symbols.to_string().contains(&token[..12]), "{symbols}");
     let mut rows = Vec::new();
     stating(&symbols, "symbolName", &mut rows);
     let names: Vec<&str> = rows

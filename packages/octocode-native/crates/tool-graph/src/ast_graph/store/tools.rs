@@ -375,10 +375,14 @@ fn options(
         root: &root,
         path: row["path"].as_str().unwrap_or("."),
     };
-    let graph = snapshots.exact(&id)?;
-    let built_for = read_snapshot_metadata(Path::new(&graph)).and_then(|m| m.root);
-    if built_for.as_deref() != Some(root.to_string_lossy().as_ref()) {
-        return Err(failure(match built_for {
+    // The graph and a drift baseline answer for this path only: a snapshot
+    // of another scope compares other files.
+    let built_for_this = |id: &str, snapshot: &str| -> Result<(), GraphOutput> {
+        let built_for = read_snapshot_metadata(Path::new(snapshot)).and_then(|m| m.root);
+        if built_for.as_deref() == Some(root.to_string_lossy().as_ref()) {
+            return Ok(());
+        }
+        Err(failure(match built_for {
             Some(original) => {
                 let original = paths.shown(Path::new(&original));
                 format!(
@@ -386,12 +390,18 @@ fn options(
                 )
             }
             None => format!("snapshot {id} has no readable scope; rebuild it with graphBuild"),
-        }));
-    }
-    let baseline = row["baseline"]
-        .as_str()
-        .map(|id| snapshots.exact(id))
-        .transpose()?;
+        }))
+    };
+    let graph = snapshots.exact(&id)?;
+    built_for_this(&id, &graph)?;
+    let baseline = match row["baseline"].as_str() {
+        Some(baseline_id) => {
+            let baseline = snapshots.exact(baseline_id)?;
+            built_for_this(baseline_id, &baseline)?;
+            Some(baseline)
+        }
+        None => None,
+    };
     Ok(QueryOptions {
         op: text(row, "operation").unwrap_or_default(),
         path: Some(row["path"].as_str().unwrap_or(".").to_owned()),

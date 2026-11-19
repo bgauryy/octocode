@@ -33,6 +33,8 @@ memchr = "2"
 regex = "1"
 url = "2"
 sha2 = "0.11"
+# Git object ids (SHA-1): a GraphQL blob text is kept only when it hashes to its oid.
+sha1 = "0.11"
 hex = "0.4"
 tokio = { version = "1" }
 libc = "0.2"
@@ -40,7 +42,9 @@ windows-sys = { version = "0.61" }
 # http2 is intentionally omitted: it links the `h2` stack (HPACK tables, ~0.2 MB)
 # and no code path relies on HTTP/2 semantics — GitHub's REST/raw endpoints all
 # serve over HTTP/1.1. Re-add "http2" if a future endpoint requires h2.
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "gzip", "json", "stream", "query", "system-proxy"] }
+# No `query` either: no request calls `RequestBuilder::query`, so `serde_urlencoded`
+# stays out of the graph.
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "gzip", "json", "stream", "system-proxy"] }
 tokio-util = { version = "0.7", default-features = false }
 futures-util = "0.3"
 bytes = "1"
@@ -74,6 +78,9 @@ private_bounds = "deny"
 # A `pub` item no other crate can reach is `pub(crate)`: the crate split widened 1,002
 # items so the move would compile, and this keeps the widening from staying or returning.
 unreachable_pub = "warn"
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
 
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }

@@ -138,7 +138,7 @@ pub fn provider_hint(error: &ProviderError) -> Option<&'static str> {
 
 /// The failure of a search tool (ghSearchRepo, ghSearchCode, ghStructure).
 /// A page past the search window takes its repair lead from
-/// [`with_search_repair`], not a hint.
+/// [`with_search_repair`](super::search::with_search_repair), not a hint.
 pub fn search_failure(error: ProviderError) -> GhFailure {
     let message = match error.kind {
         // A typed missing ref names the ref it could not resolve.

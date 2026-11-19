@@ -1,7 +1,8 @@
 //! The refs one batch resolved before its rows ran: a batch of file reads
 //! resolves each repository ref once, and every row reads the answer
 //! through its request context instead of asking again.
-use super::{ProviderError, RequestContext};
+use super::{ProviderError, RequestContext, ResponsePage};
+use serde_json::Value;
 use std::{
     collections::HashMap,
     sync::{Mutex, PoisonError},
@@ -28,6 +29,15 @@ pub struct RefMemo {
     /// The request that resolved the refs: what it observed of each
     /// repository is what a row that reads its answer would have observed.
     observed: Mutex<Option<RequestContext>>,
+    /// The batch also reads its rows' files ahead
+    /// ([`crate::GitHubProvider::warm_files_at_commits`]): a row's file read
+    /// waits for that before it asks for itself.
+    warms_files: bool,
+    /// The batch also reads its rows' pull requests in one GraphQL request:
+    /// each row's own first-page read, by its document and variables (the
+    /// request body), answered from it ([`Self::record_pull_request`]).
+    warms_pull_requests: bool,
+    pull_requests: Mutex<HashMap<String, ResponsePage>>,
 }
 
 impl Default for RefMemo {
@@ -43,7 +53,58 @@ impl RefMemo {
             known: watch::channel(false).0,
             refs: Mutex::default(),
             observed: Mutex::default(),
+            warms_files: false,
+            warms_pull_requests: false,
+            pull_requests: Mutex::default(),
         }
+    }
+
+    /// A memo whose batch also reads its rows' files ahead: a row's file
+    /// read waits until the warm-up is done ([`Self::files_warmed`]).
+    #[must_use]
+    pub fn warming_files(mut self) -> Self {
+        self.warms_files = true;
+        self
+    }
+
+    /// A memo whose batch also reads its rows' pull requests ahead
+    /// ([`Self::pull_request`]).
+    #[must_use]
+    pub fn warming_pull_requests(mut self) -> Self {
+        self.warms_pull_requests = true;
+        self
+    }
+
+    /// Waits until the batch's warm-up is done when it reads files ahead,
+    /// so a row's read finds what it kept instead of racing it.
+    pub(crate) async fn files_warmed(&self) {
+        if self.warms_files {
+            let _ = self.known.subscribe().wait_for(|known| *known).await;
+        }
+    }
+
+    /// The answer the batch's aliased read gave a row's own pull-request
+    /// read whose request body is `body`, once the warm-up is done; `None`
+    /// when the batch did not read it, and the row asks for itself.
+    pub(crate) async fn pull_request(&self, body: &str) -> Option<ResponsePage> {
+        if !self.warms_pull_requests {
+            return None;
+        }
+        let _ = self.known.subscribe().wait_for(|known| *known).await;
+        self.pull_requests
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(body)
+            .cloned()
+    }
+
+    /// Records `page` as the answer to the pull-request read whose request
+    /// body (`{"query", "variables"}`) is `body`.
+    pub fn record_pull_request(&self, body: &Value, page: ResponsePage) {
+        self.pull_requests
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(body.to_string(), page);
     }
 
     fn reference_key(owner: &str, repo: &str, reference: Option<&str>) -> RefKey {

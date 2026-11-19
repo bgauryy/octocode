@@ -220,25 +220,24 @@ fn an_unchanged_scan_lists_every_file_once() {
 #[test]
 fn an_edit_of_an_earlier_window_restarts_a_later_page() {
     let root = Fixture::new();
-    for name in ["b", "c", "d", "e"] {
-        root.write(&format!("{name}.rs"), SOURCE);
-    }
+    // `c.rs` holds two matches: the second window (its page 1 needs it)
+    // has two pages.
+    root.write("b.rs", SOURCE);
+    root.write("c.rs", format!("{SOURCE}{SOURCE}"));
+    root.write("d.rs", SOURCE);
     let row = json!({"operation":"match","path":root.0,"parser":"rust","limit":1,"rule":{"pattern":"pub fn source() {}"}});
     let _window = super::test_window(2);
-    let mut next = row;
-    // First window: both its pages.
-    let first = run(&root.0, next.clone()).expect("page 1");
-    next = first["next"]["nextPage"]["input"]["queries"][0].clone();
-    let second = run(&root.0, next).expect("page 2");
-    next = second["next"]["expandScan"]["input"]["queries"][0].clone();
-    assert!(next.is_object(), "{second}");
+    // First window: `b.rs`, its one page; the next page is the next window's.
+    let first = run(&root.0, row).expect("page 1");
+    let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
+    assert!(next.get("scanOffset").is_some(), "{first}");
     // Second window, first page.
-    let third = run(&root.0, next).expect("window 2 page 1");
-    assert!(!is_stale(&third), "{third}");
-    next = third["next"]["nextPage"]["input"]["queries"][0].clone();
-    assert!(next.is_object(), "{third}");
+    let second = run(&root.0, next).expect("window 2 page 1");
+    assert!(!is_stale(&second), "{second}");
+    let next = second["next"]["nextPage"]["input"]["queries"][0].clone();
+    assert!(next.is_object(), "{second}");
     std::thread::sleep(Duration::from_millis(20));
     root.write("b.rs", "pub fn source() {}\npub fn other() {}\n");
-    let fourth = run(&root.0, next).expect("window 2 page 2");
-    assert!(is_stale(&fourth), "{fourth}");
+    let third = run(&root.0, next).expect("window 2 page 2");
+    assert!(is_stale(&third), "{third}");
 }

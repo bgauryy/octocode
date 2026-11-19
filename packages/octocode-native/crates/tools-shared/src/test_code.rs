@@ -496,6 +496,124 @@ fn declaration_parses() -> usize {
 static FACTS: crate::page_memo::PageMemo<Arc<rust_scan::Scanned>> =
     crate::page_memo::PageMemo::new();
 
+/// Test spans kept across requests under the proof of every path the
+/// verdicts read (each file, parent, `#[path]` declarer, crate manifest and
+/// listed directory): while it holds, a file asked again is answered
+/// without reading anything. The proof is kept beside the spans too, so a
+/// later request's verdicts join them under both.
+struct KeptSpans {
+    proof: Proof,
+    spans: HashMap<PathBuf, Arc<Vec<[u32; 2]>>>,
+}
+
+/// Kept spans by policy, against the one process budget.
+static KEPT_SPANS: crate::page_memo::PageMemo<crate::page_memo::Proven<KeptSpans>> =
+    crate::page_memo::PageMemo::new();
+
+/// Kept spans need no second key: the policy is the key.
+const KEPT_KEY: &str = "test-code spans";
+
+/// The test code of the files one request asks about ([`TestCodeIndex`]),
+/// answered from what earlier requests under the same policy kept
+/// ([`Self::keep`]) while their proof holds. A repeat of a request reads
+/// no file; it checks the stamps its answers were read under.
+pub struct KeptTestCode {
+    key: String,
+    started: SystemTime,
+    kept: std::sync::OnceLock<Option<Arc<KeptSpans>>>,
+    index: TestCodeIndex,
+    asked: Mutex<HashMap<PathBuf, Arc<Vec<[u32; 2]>>>>,
+}
+
+impl KeptTestCode {
+    pub fn open(paths: &PathPolicy) -> Self {
+        Self {
+            key: format!("{}\u{0}{:?}", paths.identity(), paths.global_ignore()),
+            // Before any read the verdicts make: a file written after it is
+            // not proven by them.
+            started: octocode_engine::stamp::settle_clock(),
+            kept: std::sync::OnceLock::new(),
+            index: TestCodeIndex::new(paths),
+            asked: Mutex::default(),
+        }
+    }
+
+    /// The kept spans whose proof holds now, checked once a request.
+    fn kept(&self) -> Option<&KeptSpans> {
+        self.kept
+            .get_or_init(|| KEPT_SPANS.current(KEPT_KEY, &self.key))
+            .as_deref()
+    }
+
+    /// [`TestCodeIndex::spans`], kept or read now.
+    fn spans(&self, path: &Path) -> Arc<Vec<[u32; 2]>> {
+        if let Some(known) = self.kept().and_then(|kept| kept.spans.get(path)) {
+            return Arc::clone(known);
+        }
+        let spans = self.index.spans(path);
+        lock(&self.asked).insert(path.to_path_buf(), Arc::clone(&spans));
+        spans
+    }
+
+    /// [`TestCodeIndex::test_file`].
+    pub fn test_file(&self, path: &Path) -> bool {
+        self.spans(path).as_slice() == [WHOLE_FILE]
+    }
+
+    /// [`TestCodeIndex::is_test_line`].
+    pub fn is_test_line(&self, path: &Path, line: u32) -> bool {
+        in_spans(&self.spans(path), line)
+    }
+
+    /// Keep what this request read for the next ones, with the proof of
+    /// every path it read. A request whose reads cannot be proven (a file
+    /// written within the settle window before it began, or one it could not
+    /// read) keeps nothing new.
+    pub fn keep(self) {
+        let asked = self
+            .asked
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if asked.is_empty() || !self.index.unread().is_empty() {
+            return;
+        }
+        let Some(proof) = self.index.proof(self.started) else {
+            return;
+        };
+        let kept = self.kept.into_inner().flatten();
+        let merged = match kept {
+            Some(kept) => {
+                let mut spans = kept.spans.clone();
+                spans.extend(asked);
+                KeptSpans {
+                    proof: kept.proof.clone().with(&proof),
+                    spans,
+                }
+            }
+            None => KeptSpans {
+                proof,
+                spans: asked,
+            },
+        };
+        let bytes = merged.proof.weight()
+            + merged
+                .spans
+                .iter()
+                .map(|(path, spans)| {
+                    path.as_os_str().len() + std::mem::size_of_val(spans.as_slice())
+                })
+                .sum::<usize>();
+        let proof = merged.proof.clone();
+        KEPT_SPANS.put_proven(
+            KEPT_KEY.to_owned(),
+            self.key,
+            bytes,
+            proof,
+            Arc::new(merged),
+        );
+    }
+}
+
 /// Says what a verdict lost to the files it could not read, if any.
 pub fn unread_note(unread: &[PathBuf]) -> Option<String> {
     unread.first().map(|first| {
@@ -521,3 +639,59 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod kept_tests {
+    use super::*;
+    use octocode_runtime_base::policy::path::PathPolicyConfig;
+
+    fn crate_at(root: &Path) -> (PathPolicy, PathBuf, PathBuf) {
+        std::fs::create_dir_all(root.join("src")).expect("dirs");
+        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"k\"\n").expect("manifest");
+        std::fs::write(
+            root.join("src/lib.rs"),
+            "pub fn f() {}\n#[cfg(test)]\nmod tests;\n",
+        )
+        .expect("lib");
+        std::fs::write(root.join("src/tests.rs"), "fn t() {}\n").expect("tests");
+        let root = std::fs::canonicalize(root).expect("canonical");
+        let paths = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.clone()),
+            ..PathPolicyConfig::default()
+        })
+        .expect("policy");
+        (paths, root.join("src/lib.rs"), root.join("src/tests.rs"))
+    }
+
+    #[test]
+    fn a_repeat_reads_no_file_while_what_the_verdicts_read_is_unchanged() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (paths, lib, tests) = crate_at(dir.path());
+        octocode_engine::stamp::settle_written_so_far();
+        let first = KeptTestCode::open(&paths);
+        assert!(
+            first.test_file(&tests),
+            "a module mounted under cfg(test) is test code"
+        );
+        assert!(!first.test_file(&lib));
+        assert!(first.is_test_line(&lib, 2));
+        assert!(!lock(&first.index.disk_reads).is_empty());
+        first.keep();
+
+        let repeat = KeptTestCode::open(&paths);
+        assert!(repeat.test_file(&tests) && !repeat.test_file(&lib));
+        assert!(repeat.is_test_line(&lib, 2));
+        assert!(
+            lock(&repeat.index.disk_reads).is_empty(),
+            "the repeat reads nothing"
+        );
+        repeat.keep();
+
+        // An edit stales every kept verdict: the next request reads again.
+        std::fs::write(&lib, "pub fn f() {}\nmod tests;\n").expect("edit");
+        octocode_engine::stamp::settle_written_so_far();
+        let edited = KeptTestCode::open(&paths);
+        assert!(!edited.test_file(&tests), "now mounted in production");
+        assert!(!lock(&edited.index.disk_reads).is_empty());
+    }
+}

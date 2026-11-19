@@ -589,7 +589,9 @@ async fn a_declared_tag_naming_the_release_is_asked_first() {
 }
 
 /// A tag declared by an ancestor of another version says nothing about this
-/// one, and `HEAD` is no tag: the probe falls back to the plain tags.
+/// one, and `HEAD` is no tag: the probe falls back to the shapes the
+/// package's names give (asked first, as for any package of a repository
+/// that releases others) and the plain tags.
 #[tokio::test]
 async fn a_declared_tag_of_another_version_or_head_is_not_a_candidate() {
     let parent = "<project><version>2.14.0</version>\
@@ -618,7 +620,20 @@ async fn a_declared_tag_of_another_version_or_head_is_not_a_candidate() {
         .bytes(PARENT_POM, head);
     let tags = KnownTags::new(vec![]);
     resolve(&http, Some(&tags)).await;
-    assert_eq!(tags.seen()[0], "apache/logging-log4j2@v2.14.1");
+    let seen = tags.seen();
+    // Every tag asked comes before the tag list; the repository's own `HEAD`
+    // check, once no tag names the release, comes after it.
+    let asked = seen
+        .iter()
+        .take_while(|seen| !seen.ends_with("#tags"))
+        .collect::<Vec<_>>();
+    assert!(!asked.iter().any(|tag| tag.ends_with("@HEAD")), "{seen:?}");
+    assert!(
+        asked
+            .iter()
+            .any(|tag| *tag == "apache/logging-log4j2@v2.14.1"),
+        "{seen:?}"
+    );
 }
 
 /// The walk goes up while no POM names a source, reads each POM once, and

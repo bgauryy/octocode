@@ -343,8 +343,11 @@ pub(super) fn workspace_symbols(
         octocode_runtime_base::response::result::attach_related(row, lead.build());
     }
     // This is an optional lead, moved to hints by continuation shaping;
-    // it is not a page that recovers an exhaustive workspace result.
+    // it is not a page that recovers an exhaustive workspace result. An
+    // empty answer has no declaration the anchor's outline could show: its
+    // file only picked the project.
     if let Some(path) = anchor
+        && row.get("status").and_then(Value::as_str) != Some("empty")
         && let Some(outline) = lsp_search_query::document_lead(
             octocode_contract_types::LspDocumentOperation::DocumentSymbols,
             path,

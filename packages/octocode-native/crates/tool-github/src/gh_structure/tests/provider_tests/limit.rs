@@ -162,10 +162,7 @@ async fn a_small_refs_limit_walk_lists_every_ref_once() {
         listed_tags.extend(tags);
         if let Some(page) = data["branches"].as_array() {
             assert!(page.len() <= 2, "{data}");
-            listed_branches.extend(
-                page.iter()
-                    .map(|branch| branch["name"].as_str().unwrap_or_default().to_owned()),
-            );
+            listed_branches.extend(page.iter().map(|branch| super::ref_name(branch).to_owned()));
         }
         let Some(next) = data.pointer("/next/nextPage/input/queries/0") else {
             break;

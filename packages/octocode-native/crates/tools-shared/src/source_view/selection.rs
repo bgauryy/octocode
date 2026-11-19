@@ -189,7 +189,7 @@ impl Chosen {
     ///
     /// `display_continues`: the read has more display pages, which own its
     /// progress, so `next.nextCandidatePage` is not on this row yet
-    /// ([`super::view::classified::attach_unfiltered`]); the note then says
+    /// (`super::view::classified::attach_unfiltered`); the note then says
     /// the candidates are judged from the last page.
     pub(super) fn disclosure(&self, display_continues: bool) -> Vec<String> {
         if let Some(error) = &self.provider {

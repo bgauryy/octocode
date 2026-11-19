@@ -94,7 +94,7 @@ pub fn directory_languages(directory: &str, workspace_root: &str) -> Vec<&'stati
 
 /// The languages of the source files at the first level of `directory`'s
 /// tree that holds any, most files first (ties in [`SOURCE_FAMILIES`]
-/// order). The walk skips the directories [`first_source_under`] skips and
+/// order). The walk skips the directories `first_source_under` skips and
 /// ends at that level, so its cost is the tree above the first sources.
 fn file_languages(directory: &Path) -> Vec<&'static str> {
     let mut level = vec![directory.to_path_buf()];

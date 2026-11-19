@@ -51,6 +51,7 @@ mod freshen;
 mod index_proof;
 mod markup;
 mod occurrences;
+mod output;
 mod reach;
 mod search;
 mod sites;
@@ -148,6 +149,14 @@ pub(super) struct Importers {
     /// binding of their own file, which shadows the anchor's): never a
     /// reference, whichever importer's answer lists them.
     pub(super) elsewhere: HashSet<Site>,
+    /// Candidates whose sites bind the anchor package's build output (an
+    /// `outDir` `.d.ts`) that no source declaration of the anchor's file
+    /// mirrors: neither verified nor rejected, so they stay text-only and the
+    /// row counts them (`coverage.packageImporters`).
+    pub(super) package: Vec<String>,
+    /// The anchor package's build output: its declarations mirror the
+    /// anchor's sources, so a location there is no use of its own.
+    pub(super) output: Option<super::build_output::BuildOutput>,
 }
 
 /// Which importer window a request verifies (`importerPage`, one-based),

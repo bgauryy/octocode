@@ -33,7 +33,7 @@ pub(crate) struct Scanned {
     pub(crate) identity: String,
     /// The query key `identity` was derived from.
     pub(crate) query_key: String,
-    /// A stored scan's redaction to replay (see [`redact_scan`]).
+    /// A stored scan's redaction to replay (see [`redact_scan`](crate::local_search::verify::redact_scan)).
     pub(crate) stored_redaction: Option<Arc<Redaction>>,
     /// What a stored scan's pages learned, or a fresh scan's empty set.
     pub(crate) learned: Arc<super::super::manifest::Learned>,
@@ -130,6 +130,7 @@ pub(crate) fn scan_resumed(
             options,
             cancel,
             (&query_key, output_root, page_budget),
+            limits,
         )?;
         if let Some(verdicts) = verdicts.as_ref() {
             disclose_unread(&mut parsed.stats, &verdicts.unread());
@@ -306,7 +307,7 @@ pub(crate) fn scan(
     )
 }
 
-/// [`scan`] in `window`: a fresh PCRE2 walk may pause at its end.
+/// `scan` in `window`: a fresh PCRE2 walk may pause at its end.
 pub(crate) fn scan_in(
     query: &LocalSearchQuery,
     paths: &PathPolicy,
@@ -415,15 +416,13 @@ pub(crate) fn engine_error(
     error: &octocode_engine::error::Error,
     one_file: bool,
 ) -> ToolError {
-    let code = match error.kind() {
-        octocode_engine::error::ErrorKind::InvalidInput => ErrorCode::InvalidInput,
-        octocode_engine::error::ErrorKind::InvalidGlob => ErrorCode::InvalidGlob,
-        octocode_engine::error::ErrorKind::ResourceExhausted => {
-            return held_past_budget(query, error, one_file);
-        }
-        _ => ErrorCode::ExecutionFailed,
-    };
-    ToolError::new(code, error.to_string())
+    if matches!(
+        error.kind(),
+        octocode_engine::error::ErrorKind::ResourceExhausted
+    ) {
+        return held_past_budget(query, error, one_file);
+    }
+    ToolError::engine(error)
 }
 
 /// Whether a stored scan can serve `query`'s page. A whole scan is cut

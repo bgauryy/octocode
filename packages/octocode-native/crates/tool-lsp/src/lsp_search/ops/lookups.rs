@@ -78,7 +78,7 @@ pub(super) fn site_start(
 }
 
 impl Operation<'_, '_> {
-    pub(super) async fn definition(self) -> Result<Value, LspFailure> {
+    pub(super) async fn definition(mut self) -> Result<Value, LspFailure> {
         let query = self.query;
         let (found, warnings, withheld) = resolve_definition_chain(
             self.client,
@@ -90,6 +90,7 @@ impl Operation<'_, '_> {
             self.character,
         )
         .await?;
+        let source = self.source_definition(&found).await;
         let mut row = if found.is_empty() && withheld > 0 {
             super::super::locations::withheld(query, withheld)
         } else {
@@ -103,7 +104,65 @@ impl Operation<'_, '_> {
                 &warnings,
             );
         }
+        if let Some(read) = source {
+            octocode_runtime_base::response::result::insert_next(
+                &mut row["next"],
+                octocode_contract_types::LspSearchChannel::SourceDefinition,
+                octocode_runtime_base::response::result::Continuation::continued_query(read),
+            );
+        }
         Ok(row)
+    }
+
+    /// A definition the server found in a package's build output (an
+    /// `outDir` `.d.ts`; no declaration map leads back) offers the source it
+    /// was compiled from: the declaration of the same name there, read whole
+    /// (`next.sourceDefinition`).
+    async fn source_definition(
+        &mut self,
+        found: &[octocode_engine::lsp::types::LspCodeSnippet],
+    ) -> Option<octocode_contract_types::LocalFetchQuery> {
+        use super::super::build_output::{
+            BuildOutput, declaration_lines, identifier_at, is_declaration_file,
+        };
+        let policy = self.sources.policy();
+        for snippet in found {
+            let file = uri_to_path(&snippet.uri);
+            let path = std::path::Path::new(&file);
+            if !is_declaration_file(path) {
+                continue;
+            }
+            let Some(source) =
+                BuildOutput::containing(path, policy).and_then(|output| output.source_of(path))
+            else {
+                continue;
+            };
+            let Some(name) = self.sources.get(&file).await.and_then(|emitted| {
+                identifier_at(
+                    &emitted.content,
+                    snippet.range.start.line,
+                    snippet.range.start.character,
+                )
+            }) else {
+                continue;
+            };
+            let source = source.to_string_lossy().into_owned();
+            let Some(lines) = self
+                .sources
+                .get(&source)
+                .await
+                .and_then(|text| declaration_lines(&text.content, &source, &name))
+            else {
+                continue;
+            };
+            if let Some(read) = octocode_tools_shared::source_view::local_fetch_query::ranges_lead(
+                &source,
+                &[lines],
+            ) {
+                return Some(read);
+            }
+        }
+        None
     }
 
     pub(super) async fn hover(self) -> Result<Value, LspFailure> {

@@ -1,36 +1,5 @@
 use super::*;
-use crate::empty_walk::Walk;
 use octocode_test_support::json_fixture;
-
-const ENTRIES: [&str; 2] = ["entry", "entries"];
-
-fn verdict(lifted: &[Cause], count: usize) -> Verdict {
-    let root = std::path::Path::new("/w");
-    crate::empty_walk::diagnose(
-        root,
-        Walk {
-            ignored: false,
-            hidden: false,
-            default_excludes: true,
-            global: Default::default(),
-        },
-        |walk| {
-            let reached = lifted.iter().all(|cause| !walk.skipping().contains(cause));
-            Ok::<_, ()>(crate::empty_walk::Hits {
-                count: if reached { count } else { 0 },
-                sample: if reached {
-                    (0..count)
-                        .map(|index| root.join(format!(".h/{index}.rs")))
-                        .collect()
-                } else {
-                    Vec::new()
-                },
-                cut: false,
-            })
-        },
-    )
-    .expect("diagnosis")
-}
 
 /// A lead is the query's search, not the caller's words about it: the
 /// brief fields are the caller's to restate for the new call.
@@ -52,36 +21,25 @@ fn a_lead_repeats_the_search_without_the_callers_brief() {
     assert!(row.get("reasoning").is_none(), "{lead}");
 }
 
-/// One sentence shape whatever the tool: the count, the subject and the
-/// reasons (the lead sits in `next`); a cut check is a warning that leaves the
-/// result partial and lifts every cause the walk skipped by.
+/// One sentence shape whatever the tool: the skipped paths by name were not
+/// searched, and the lead (in the call bundle) lifts exactly their causes,
+/// from the first page. The requested walk was whole, so nothing is partial.
 #[test]
 fn every_tool_discloses_skipped_paths_in_one_shape() {
-    let none = Unchecked {
-        causes: &[],
-        named: "",
-    };
-    let found = disclose(&verdict(&[Cause::Hidden], 2), ENTRIES, none).expect("found");
-    assert_eq!(found.causes, [Cause::Hidden]);
-    assert_eq!(found.text, "2 entries behind skipped paths (hidden .h/).");
-    assert!(!found.unchecked);
-    assert_eq!(disclose(&Verdict::Absent, ENTRIES, none), None);
-    assert_eq!(disclose(&Verdict::Unproven, ENTRIES, none), None);
-    let cut = disclose(
-        &Verdict::Unproven,
-        ENTRIES,
-        Unchecked {
-            causes: &[Cause::Ignored, Cause::DefaultExcluded],
-            named: "3 ignored",
-        },
-    )
-    .expect("cut");
-    assert!(cut.unchecked);
-    assert_eq!(cut.causes, [Cause::Ignored, Cause::DefaultExcluded]);
+    assert_eq!(unsearched(&[], ""), None);
+    let said = unsearched(&[Cause::Ignored, Cause::DefaultExcluded], "3 ignored").expect("said");
+    assert_eq!(said.causes, [Cause::Ignored, Cause::DefaultExcluded]);
+    assert!(
+        said.text.starts_with(
+            "Skipped paths (3 ignored) were not searched, so absence there is unproven."
+        ),
+        "{}",
+        said.text
+    );
     let mut out = serde_json::json!({});
     attach(
         &mut out,
-        &cut,
+        &said,
         lead(
             ToolId::StructureSearch,
             &json_fixture(
@@ -92,7 +50,7 @@ fn every_tool_discloses_skipped_paths_in_one_shape() {
                     "snapshot": "x"
                 }"#,
             ),
-            &cut.causes,
+            &said.causes,
         ),
     );
     assert!(
@@ -112,6 +70,28 @@ fn every_tool_discloses_skipped_paths_in_one_shape() {
     assert!(
         row.get("page").is_none() && row.get("snapshot").is_none(),
         "{row}"
+    );
+}
+
+/// A walk's ledger names its causes by count, and lifts the default excludes
+/// too for an ignored entry they would also leave out.
+#[test]
+fn a_ledger_is_disclosed_by_its_counts() {
+    let mut walked = octocode_runtime_base::policy::discovery::WalkSkips::default();
+    assert_eq!(unsearched_ledger(&walked), None);
+    walked.ignored.insert("target/".to_owned());
+    walked.ignored_excluded = true;
+    walked.hidden.insert(".notes/".to_owned());
+    let said = unsearched_ledger(&walked).expect("said");
+    assert_eq!(
+        said.causes,
+        [Cause::Ignored, Cause::Hidden, Cause::DefaultExcluded]
+    );
+    assert!(
+        said.text
+            .starts_with("Skipped paths (1 ignored, 1 hidden) were not searched"),
+        "{}",
+        said.text
     );
 }
 
@@ -328,4 +308,166 @@ fn default_excluded_entries_name_their_rule() {
             ("/w/blob.bin", "*.bin", None),
         ]
     );
+}
+
+/// A few unparsed files are named one by one; past [`NAMED_UNPARSED`] they
+/// group by type under the directory holding them, with their count.
+#[test]
+fn many_unparsed_files_group_by_type() {
+    let entries = |count: usize| {
+        (0..count)
+            .map(|n| {
+                SkippedEntry::path(format!("/w/data/item{n}.entry"), SkippedPathCause::Unparsed)
+                    .because("entry")
+            })
+            .collect::<Vec<_>>()
+    };
+    let few = unparsed_paths(entries(3), false)
+        .expect("paths")
+        .expect("some");
+    assert_eq!(few.entries.len(), 3);
+    let many = unparsed_paths(entries(NAMED_UNPARSED + 5), false)
+        .expect("paths")
+        .expect("some");
+    assert_eq!(many.entries.len(), 1, "{:?}", many.entries);
+    assert_eq!(many.entries[0].count, Some(25));
+    assert_eq!(many.entries[0].path.as_str(), "/w/data");
+}
+
+/// Files at `paths` under `root`, each written with one line.
+fn files(root: &std::path::Path, paths: &[&str]) {
+    for path in paths {
+        let at = root.join(path);
+        std::fs::create_dir_all(at.parent().expect("parent")).expect("dir");
+        std::fs::write(at, "x\n").expect("file");
+    }
+}
+
+/// A cause whose paths spread across a walk is named per top directory of
+/// the walk, never only as its root: an ignored `node_modules/` at the root
+/// and the ignored `dist/` output of several packages are separate entries,
+/// each `ignored-default-excluded` (lifting one flag alone does not reach
+/// it), apart from the other ignored files there. An entry holding no file
+/// cannot hold a match: it is not named, only counted at the root.
+#[test]
+fn a_spread_cause_is_named_per_top_directory() {
+    let dir = tempfile::tempdir().expect("root");
+    let root = dir.path();
+    let deps = (0..30)
+        .map(|n| format!("node_modules/p{n}/index.js"))
+        .collect::<Vec<_>>();
+    files(root, &deps.iter().map(String::as_str).collect::<Vec<_>>());
+    files(
+        root,
+        &[
+            "packages/a/dist/out.js",
+            "packages/b/dist/out.js",
+            "packages/c/out.log",
+            ".cache/f",
+        ],
+    );
+    std::fs::create_dir_all(root.join("releases")).expect("empty dir");
+    let mut walked = octocode_runtime_base::policy::discovery::WalkSkips::default();
+    for path in [
+        "node_modules/",
+        "packages/a/dist/",
+        "packages/b/dist/",
+        "packages/c/out.log",
+        "releases/",
+    ] {
+        walked.ignored.insert(path.to_owned());
+    }
+    walked.ignored_excluded = true;
+    walked.hidden.insert(".cache/".to_owned());
+    let shown = scoped_ledger(root, &walked, WalkErrors::default(), false)
+        .expect("valid")
+        .expect("entries");
+    let at = |path: &str| root.join(path).to_string_lossy().into_owned();
+    let entries = shown
+        .entries
+        .iter()
+        .map(|entry| {
+            (
+                entry.path.as_str().to_owned(),
+                entry.cause,
+                entry.count.unwrap_or(1),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        entries,
+        [
+            (
+                at("node_modules"),
+                SkippedPathCause::IgnoredDefaultExcluded,
+                1
+            ),
+            (at("packages"), SkippedPathCause::IgnoredDefaultExcluded, 2),
+            (at("packages/c/out.log"), SkippedPathCause::Ignored, 1),
+            (at(".cache"), SkippedPathCause::Hidden, 1),
+            // The empty `releases/`, counted at the root.
+            (
+                root.to_string_lossy().into_owned(),
+                SkippedPathCause::Ignored,
+                1
+            ),
+        ],
+        "{shown:?}"
+    );
+    assert_eq!(shown.entries[0].reason.as_deref(), Some("node_modules/"));
+    assert_eq!(shown.entries[1].reason.as_deref(), Some("dist/"));
+    // The same ledger grouped per cause names only the root.
+    let flat = skipped_paths(
+        ledger_entries(root, &walked, WalkErrors::default()),
+        false,
+        false,
+    )
+    .expect("valid")
+    .expect("entries");
+    assert_eq!(
+        flat.entries[0].path.as_str(),
+        root.to_string_lossy(),
+        "{flat:?}"
+    );
+}
+
+/// At most [`NAMED_TOP`] entries are named, those holding the most files
+/// first; every other one is counted at the root, so a walk that skipped
+/// many places states a few entries.
+#[test]
+fn a_scoped_disclosure_names_the_fullest_entries_up_to_its_cap() {
+    let dir = tempfile::tempdir().expect("root");
+    let root = dir.path();
+    let tops = NAMED_TOP + 4;
+    let mut walked = octocode_runtime_base::policy::discovery::WalkSkips::default();
+    for top in 0..tops {
+        std::fs::create_dir_all(root.join(format!(".t{top:02}"))).expect("dir");
+        let held = (0..top)
+            .map(|file| format!(".t{top:02}/f{file}"))
+            .collect::<Vec<_>>();
+        files(root, &held.iter().map(String::as_str).collect::<Vec<_>>());
+        walked.hidden.insert(format!(".t{top:02}/"));
+    }
+    let shown = scoped_ledger(root, &walked, WalkErrors::default(), false)
+        .expect("valid")
+        .expect("entries");
+    assert_eq!(shown.entries.len(), NAMED_TOP + 1, "{shown:?}");
+    let named = shown.entries[..NAMED_TOP]
+        .iter()
+        .map(|entry| {
+            std::path::Path::new(entry.path.as_str())
+                .file_name()
+                .expect("name")
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect::<Vec<_>>();
+    let fullest = (tops - NAMED_TOP..tops)
+        .rev()
+        .map(|top| format!(".t{top:02}"))
+        .collect::<Vec<_>>();
+    assert_eq!(named, fullest, "{shown:?}");
+    let rest = &shown.entries[NAMED_TOP];
+    assert_eq!(rest.path.as_str(), root.to_string_lossy());
+    assert_eq!(rest.count, Some(4), "{shown:?}");
 }

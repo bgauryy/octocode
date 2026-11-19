@@ -302,27 +302,14 @@ pub(super) fn group(rows: &mut [Row], sort: &StructureSearchSort) {
 /// entries of one directory is a group and a directory the rank returns to
 /// opens a new one. [`costs`] prices the same groups.
 pub(super) fn dir_groups(rows: &[(String, String)], prefix: &str, merge: bool) -> Vec<Value> {
-    let mut out: Vec<Value> = Vec::new();
-    let mut at = std::collections::HashMap::<String, usize>::new();
-    for (dir, entry) in rows {
-        let dir = super::group_dir(prefix, dir);
-        let adjacent = out
-            .len()
-            .checked_sub(1)
-            .filter(|&last| out[last]["dir"] == dir.as_str());
-        let index = match adjacent.or_else(|| merge.then(|| at.get(&dir).copied()).flatten()) {
-            Some(index) => index,
-            None => {
-                out.push(json!({"dir": dir, "files": []}));
-                at.insert(dir, out.len() - 1);
-                out.len() - 1
-            }
-        };
-        if let Some(items) = out[index]["files"].as_array_mut() {
-            items.push(json!(entry));
-        }
-    }
-    out
+    use octocode_runtime_base::response::groups::{Entry, Order, groups};
+    groups(
+        rows.iter().map(|(dir, entry)| Entry {
+            dir: super::group_dir(prefix, dir),
+            item: json!(entry),
+        }),
+        if merge { Order::Merged } else { Order::Runs },
+    )
 }
 
 /// A row costs its serialized entry, plus its group's header with the
@@ -336,42 +323,38 @@ pub(super) fn costs(
     view: StructureSearchView,
     deferred_detail: bool,
 ) -> Vec<RowCost> {
-    let mut headers = std::collections::HashMap::<&str, usize>::new();
-    rows.iter()
-        .enumerate()
-        .map(|(index, row)| {
-            let header = *headers.entry(row.dir.as_str()).or_insert_with(|| {
-                octocode_engine::json_size::utf16_units(
-                    &json!({"dir":super::group_dir(prefix, &row.dir),"files":[]}),
-                )
-                .unwrap_or(0)
-                    + 1
-            });
-            let entry = octocode_engine::json_size::utf16_units(row.shown_as(view)).unwrap_or(0);
-            RowCost {
-                // Reserve the deferred detail fields before paging so
-                // they cannot overflow the window.
-                entry: entry
-                    + 1
-                    + usize::from(deferred_detail && row.kind != EntryKind::Directory)
-                        * DETAIL_FIELDS_RESERVE,
-                header,
-                continues: index > 0 && rows[index - 1].dir == row.dir,
-            }
-        })
-        .collect()
+    let dirs = rows
+        .iter()
+        .map(|row| super::group_dir(prefix, &row.dir))
+        .collect::<Vec<_>>();
+    octocode_runtime_base::response::groups::costs(dirs.iter().zip(rows).map(|(dir, row)| {
+        let entry = octocode_engine::json_size::utf16_units(row.shown_as(view)).unwrap_or(0);
+        // Reserve the deferred detail fields before paging so they cannot
+        // overflow the window.
+        (
+            dir.as_str(),
+            entry
+                + usize::from(deferred_detail && row.kind != EntryKind::Directory)
+                    * DETAIL_FIELDS_RESERVE,
+        )
+    }))
 }
 
 /// Characters the deferred detail fields add to one entry at most:
-/// `, totalLines=<usize>` (33) and `, modified=<ISO 8601 instant>` (31 for
-/// a five-digit year).
-const DETAIL_FIELDS_RESERVE: usize = 64;
+/// `, <usize>` lines (22) and `, <ISO 8601 instant>` (23 for a five-digit
+/// year).
+const DETAIL_FIELDS_RESERVE: usize = 45;
 
 /// One listed entry inside its directory group: the name, `/` after a
-/// directory, then ` (<fields>)` naming the size in bytes (every non-directory
-/// entry), `symlink`, the line count ([`Lines::field`]) and
-/// `modified=<YYYY-MM-DDTHH:MM:SSZ>` (UTC) as they apply. The fields never contain ` (`, so the last ` (` of an entry
-/// ending in `)` opens them, whatever the name holds.
+/// directory, then ` (<fields>)` naming, in this order and as they apply,
+/// the size in bytes (every non-directory entry), `symlink`, the line count
+/// ([`Lines::field`]) and the modification time `<YYYY-MM-DDTHH:MM:SSZ>`
+/// (UTC). Each field says what it is by its place and form: the bytes come
+/// first, a line count is the integer after them (or `binary`,
+/// `unreadable`), the time is the one ISO instant; a paths view's one sort
+/// value is the field its `sort.by` names. The fields never contain ` (`, so
+/// the last ` (` of an entry ending in `)` opens them, whatever the name
+/// holds.
 pub(super) fn entry_text(
     name: &str,
     kind: EntryKind,
@@ -392,9 +375,8 @@ pub(super) fn entry_text(
     if let Some(modified) = modified_ms {
         // To the second, as every timestamp a tool states: a listing dates a
         // file, and `sort` ranks by the full time.
-        fields.push(format!(
-            "modified={}",
-            octocode_runtime_base::civil_date::iso8601_secs(modified.div_euclid(1_000))
+        fields.push(octocode_runtime_base::civil_date::iso8601_secs(
+            modified.div_euclid(1_000),
         ));
     }
     octocode_tools_shared::root_read::entry_text(name, kind == EntryKind::Directory, &fields)

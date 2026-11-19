@@ -13,6 +13,7 @@ mod directives;
 mod flight;
 mod header_identity;
 mod known_misses;
+mod probes;
 mod proven_commits;
 mod repository_proof;
 mod vary;
@@ -20,7 +21,7 @@ mod what_is_kept;
 
 /// One process's view of a store that outlives requests.
 #[derive(Default)]
-struct Memory(Mutex<HashMap<(String, String), SavedAnswer>>);
+pub(super) struct Memory(Mutex<HashMap<(String, String), SavedAnswer>>);
 
 impl SavedAnswers for Memory {
     fn load(&self, scope: &str, request: &str) -> Option<SavedAnswer> {

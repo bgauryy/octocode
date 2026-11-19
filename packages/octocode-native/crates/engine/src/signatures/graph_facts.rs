@@ -138,6 +138,8 @@ struct GraphAccumulator {
     declarations_only: bool,
     /// When set, the walk enters only the nodes that spell this word.
     only_spelling: Option<crate::signatures::spelled::Spelled>,
+    /// When set, the walk enters only the nodes touching these byte spans.
+    only_spans: Option<walk::Spans>,
     test_context: test_adapter::TestContext,
     /// Python: the file's names for `typing.TYPE_CHECKING`.
     typing: python::TypingBindings,
@@ -195,6 +197,7 @@ impl GraphAccumulator {
             name_tokens: None,
             declarations_only: false,
             only_spelling: None,
+            only_spans: None,
             test_context: test_adapter::TestContext::default(),
             typing: python::TypingBindings::default(),
             diagnostics: vec![note(GraphFactCode::SyntaxOnly)],
@@ -203,6 +206,7 @@ impl GraphAccumulator {
 }
 
 pub use from_tree::NamedSites;
+pub use from_tree::declarations_on_lines;
 pub(crate) use from_tree::{named_heritage_from_tree, named_sites_from_tree};
 
 pub(crate) fn extract_graph_facts_with_metadata_with_extension(

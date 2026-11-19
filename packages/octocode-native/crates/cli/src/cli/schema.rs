@@ -48,8 +48,13 @@ fn enabled(machine: &Value, name: &str) -> bool {
 const QUERY_COMMAND: &str =
     "octocode schema <tool> --view query [--select operation=VALUE[,FIELD=VALUE]]";
 
-/// The CLI's own notes, after the shared instructions in the full catalog.
-const CLI_INSTRUCTIONS: &str = "<cli>Listed tools are available; execution checks credentials and prerequisites. Fields: schema <name> --view query; output fields: schema <name> --view output. A next.* page still exits 0.</cli>";
+/// The CLI's own notes, after the shared instructions in the full catalog:
+/// core's text (`agentText.cliNotes` in the embedded presentation).
+fn cli_notes(presentation: &Value) -> &str {
+    presentation["agentText"]["cliNotes"]
+        .as_str()
+        .unwrap_or_default()
+}
 
 /// Core's instructions (embedded through config) composed for the tools
 /// `available` says exist: the routes whose tools are all there, then each such
@@ -109,8 +114,9 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
             },
         },
         "instructions": format!(
-            "{}\n{CLI_INSTRUCTIONS}",
-            instructions(presentation, |name| enabled(machine, name))
+            "{}\n{}",
+            instructions(presentation, |name| enabled(machine, name)),
+            cli_notes(presentation)
         ),
     });
     if let Some(grammars) = grammar_instruction(&machine["grammarCapabilities"]) {

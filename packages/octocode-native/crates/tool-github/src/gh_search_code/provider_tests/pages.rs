@@ -60,7 +60,7 @@ async fn a_complete_page_keeps_every_hit_without_partial_disclosures() {
         out.data["files"][0]["matches"],
         json!(
             (1..=8)
-                .map(|n| json!({"line": n, "value": "wrap_app();"}))
+                .map(|n| json!(format!("{n}\twrap_app();")))
                 .collect::<Vec<_>>()
         )
     );
@@ -140,7 +140,7 @@ async fn a_page_counts_files_and_retains_every_hit_of_each_file() {
         busy["matches"],
         json!(
             (1..=8)
-                .map(|n| json!({"line": n, "value": "wrap_app();"}))
+                .map(|n| json!(format!("{n}\twrap_app();")))
                 .collect::<Vec<_>>()
         )
     );

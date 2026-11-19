@@ -1,6 +1,6 @@
 //! One scanned blob: its keyword hits, their anchor, the listed lines and the declaration a hit names.
 use super::scoring::{covering_window, goal_terms, hit_score};
-use octocode_engine::graph::{GraphFactDeclaration, GraphFactsDocument};
+use octocode_engine::graph::GraphFactDeclaration;
 use octocode_engine::num::saturating_u32;
 
 /// Bound an optional matchString anchor; hit evidence itself remains complete.
@@ -57,17 +57,16 @@ pub(super) struct Blob<'a> {
     pub(super) declared: Vec<&'a GraphFactDeclaration>,
 }
 
-/// The declarations of `outline` whose name line is a `found` keyword line
-/// (the only lines a hit is scored or anchored on), by name line, outline
-/// order within one line. They borrow the shared parse: the rest of the
-/// outline is never copied.
+/// The declarations of an outline (`declarations`, in outline order) whose
+/// name line is a `found` keyword line (the only lines a hit is scored or
+/// anchored on), by name line, outline order within one line. They borrow
+/// the outline: the rest of it is never copied.
 pub(super) fn hit_declarations<'a>(
-    outline: Option<&'a GraphFactsDocument>,
+    declarations: &'a [GraphFactDeclaration],
     found: &[Found],
 ) -> Vec<&'a GraphFactDeclaration> {
-    let mut declared: Vec<&GraphFactDeclaration> = outline
-        .into_iter()
-        .flat_map(|outline| &outline.declarations)
+    let mut declared: Vec<&GraphFactDeclaration> = declarations
+        .iter()
         .filter(|declared| {
             found
                 .binary_search_by_key(&(name_line(declared) - 1), |&(index, _, _)| index)

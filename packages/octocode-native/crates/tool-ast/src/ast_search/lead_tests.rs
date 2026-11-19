@@ -153,7 +153,7 @@ fn every_lead_of_a_battery_of_calls_validates_and_runs() {
 fn leads_over_skipped_files_validate_and_find_them() {
     let root = Fixture::new();
     std::fs::create_dir_all(root.0.join(".git")).expect("git dir");
-    root.write(".gitignore", "gen/\n");
+    root.write(".gitignore", "gen/\nnode_modules/\n");
     for dir in ["gen", ".cfg", "node_modules/pkg"] {
         std::fs::create_dir_all(root.0.join(dir)).expect("dir");
         std::fs::write(
@@ -183,9 +183,10 @@ fn run(root: &std::path::Path, row: Value) -> Value {
     .expect("runs")
 }
 
-/// A diagnosis respects the query's `include`: `.spin/` holds python too, but
-/// the filter is `.github/**`, so the hint names `.github/` alone, and the
-/// repair does not offer languages that occur only outside the filter.
+/// What the walk skipped respects the query's `include`: `.spin/` holds
+/// python too, but the filter is `.github/**`, so only `.github/` is named,
+/// and the repair does not offer languages that occur only outside the
+/// filter.
 #[test]
 fn skipped_hint_respects_the_query_include() {
     let root = Fixture::new();
@@ -201,8 +202,10 @@ fn skipped_hint_respects_the_query_include() {
         json!({"operation":"match","path":root.0,"include":[".github/**"],"parser":"python","rule":{"pattern":"class $N(Exception): $$$B"}}),
     );
     let hint = out["warnings"].to_string();
-    assert!(hint.contains("hidden .github/"), "{hint}");
-    assert!(!hint.contains(".spin"), "{hint}");
+    assert!(hint.contains("Skipped paths (1 hidden)"), "{hint}");
+    let skipped = out["skippedPaths"].to_string();
+    assert!(skipped.contains(".github"), "{out}");
+    assert!(!skipped.contains(".spin"), "{out}");
     assert!(out["next"].get("repair").is_none(), "{out}");
     let lead = &super::test_rows::skipped_call(&out)
         .unwrap_or_else(|| panic!("missing skipped-scope lead: {out}"))["input"]["queries"][0];
@@ -320,30 +323,31 @@ fn an_empty_declaration_match_leads_to_a_tree_of_that_kind() {
     assert_eq!(tree["line"], 2, "{out}");
 }
 
-/// A match that found something still names the walks the defaults skipped
-/// for files of its grammar, with the lead that includes them: the matches
-/// listed are not the scope's matches.
+/// A match that found something already answers, as ripgrep's does: its
+/// skipped paths are counted in `skippedPaths` (by the rule that skipped
+/// them), never re-offered beside the matches. An empty match leads to them.
 #[test]
-fn a_match_with_hits_names_the_skipped_walks_and_leads_to_them() {
+fn a_match_with_hits_counts_its_skipped_paths_and_an_empty_one_leads_to_them() {
     let root = Fixture::new();
     root.write("a.ts", "hit(1);\n");
     root.write("dist/b.ts", "hit(2);\n");
     let request = json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"hit($A)"}});
     let out = run(&root.0, request);
     assert_eq!(out["matchCount"], json!(1), "{out}");
-    let hints = out["warnings"].to_string();
-    assert!(
-        hints.contains("1 typescript file behind skipped paths (dist/)"),
-        "{hints}"
+    assert!(super::test_rows::skipped_call(&out).is_none(), "{out}");
+    assert!(out["skippedPaths"].to_string().contains("dist/"), "{out}");
+    let empty = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"hit(2)"}}),
     );
-    let lead = &super::test_rows::skipped_call(&out)
-        .unwrap_or_else(|| panic!("missing skipped-scope lead: {out}"));
-    assert_eq!(lead["tool"], "astSearch", "{out}");
+    assert_eq!(empty["status"], "empty", "{empty}");
+    let lead = &super::test_rows::skipped_call(&empty)
+        .unwrap_or_else(|| panic!("missing skipped-scope lead: {empty}"));
+    assert_eq!(lead["tool"], "astSearch", "{empty}");
     let retry = &lead["input"]["queries"][0];
-    assert_eq!(retry["defaultExcludes"], json!(false), "{out}");
+    assert_eq!(retry["defaultExcludes"], json!(false), "{empty}");
     let found = run(&root.0, retry.clone());
-    assert_eq!(found["matchCount"], json!(2), "{found}");
-    assert!(found.get("warnings").is_none(), "{found}");
+    assert_eq!(found["matchCount"], json!(1), "{found}");
     assert!(super::test_rows::skipped_call(&found).is_none(), "{found}");
 }
 
@@ -433,20 +437,17 @@ fn a_bodiless_pattern_with_no_hit_hints_and_counts_the_fuller_declaration() {
     );
 }
 
-/// A cut probe proves a prefix of the skipped paths at most, so the lead is
-/// not narrowed to them; its disclosure says it walks all they hide.
+/// Nothing behind the skipped paths is read, so the lead is never narrowed
+/// to a part of them; its disclosure says it walks all they hide.
 #[test]
-fn a_cut_probe_discloses_that_its_lead_walks_everything_the_causes_hide() {
+fn an_empty_match_says_its_lead_walks_everything_the_causes_hide() {
     let root = Fixture::new();
-    root.write("a.ts", "hit(1);\n");
+    root.write("a.ts", "miss(1);\n");
     for index in 0..50 {
         root.write(&format!("dist/f{index}.ts"), "hit(2);\n");
     }
     let request = json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"hit($A)"}});
-    let out = octocode_tools_shared::empty_walk::with_probe_limits(
-        octocode_tools_shared::empty_walk::CUT_AT_ONCE,
-        || run(&root.0, request),
-    );
+    let out = run(&root.0, request);
     let warnings = out["warnings"].to_string();
     assert!(warnings.contains("were not searched"), "{out}");
     // The hint names the lead as the response carries it: the related[]

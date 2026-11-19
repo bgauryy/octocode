@@ -1,14 +1,14 @@
 # Octocode MCP server
 
-Connect an agent that supports stdio MCP to the same research tools as the [Octocode CLI](OCTOCODE_CLI.md). The npm launcher `octocode-mcp` requires Node.js 22 or later. With the standalone binary, configure the command as `octocode` with argument `mcp`.
+Connect an agent that supports stdio MCP to the same research tools as the [Octocode CLI](OCTOCODE_CLI.md). The `octocode-mcp` npm launcher needs Node.js 22 or later. With the standalone binary, set the command to `octocode` and the argument to `mcp`.
 
 ## Quick start
 
-1. From the project directory, run `npx -y octocode install --list` to see supported clients and config paths.
-2. Run `npx -y octocode install --ide cursor` (replace `cursor` with your client ID). Add `--dry-run` to preview the entry or `--scope workspace` for a supported project-level install.
-3. Restart the MCP client. In a project with a README, ask **“Use Octocode to read the first line of README.md.”** Confirm that the agent calls `localFetch` and returns that line.
+1. Run `npx -y octocode install --list` to see supported clients and their config paths.
+2. Run `npx -y octocode install --ide cursor`, replacing `cursor` with your client ID. Add `--dry-run` to preview the entry, or `--scope workspace` for a project-level config.
+3. Restart the client. In a project with a README, ask **“Use Octocode to read the first line of README.md.”** The agent should call `localFetch` and return that line.
 
-For a client that uses an `mcpServers` JSON object, this is the manual entry. Set `WORKSPACE_ROOT` in the entry's `env` if the client launches servers outside your project.
+For a client that takes an `mcpServers` JSON object, add this entry by hand. Set `WORKSPACE_ROOT` in `env` if the client starts servers outside your project.
 
 ```json
 {
@@ -21,34 +21,36 @@ For a client that uses an `mcpServers` JSON object, this is the manual entry. Se
 }
 ```
 
-## Tool catalog
+## Tools and opt-ins
 
-The contract has 17 tools. MCP lists 12 by default. Graph tools, cloning, advisory checks and classification have separate opt-ins. Use your client's tool list to see which tools this server actually exposes. A listed GitHub tool may still need an account with access to the requested repository. [Availability and opt-ins](CONFIGURATION.md#tool-availability-cli-and-mcp) · [GitHub sign-in](AUTHENTICATION.md)
+The contract has 17 tools. The MCP server starts with 12. Graph tools, cloning, `securityCheck` and classification need an opt-in. Your client's tool list shows what this server exposes. A listed GitHub tool still needs an account with access to the repository.
+
+[Availability and opt-ins](CONFIGURATION.md#tool-availability-cli-and-mcp) · [GitHub sign-in](AUTHENTICATION.md)
 
 | MCP operation | What the client gets |
 |---|---|
 | `tools/list` | Enabled tool names, descriptions and input schemas. |
-| `tools/call` | One text content block containing the JSON result. Check each indexed row for errors, empty results or remaining evidence. |
-| `resources/list` and `resources/read` | Research guides such as `octocode://research/tool-flow`, and output-field definitions at `octocode://contract/output/<tool>` for listed tools. |
+| `tools/call` | One text block with the JSON result. Check each row for errors, empty results and remaining evidence. |
+| `resources/list`, `resources/read` | Research guides such as `octocode://research/tool-flow`, and output-field definitions at `octocode://contract/output/<tool>`. |
 
 ### Example: a localFetch call
 
-Call `localFetch` with these **arguments**. The CLI accepts the identical JSON after the tool name.
+Pass these as the tool **arguments**. The CLI accepts the same JSON after the tool name.
 
 ```json
 {"queries":[{"path":"README.md","ranges":[{"startLine":1,"endLine":1}]}]}
 ```
 
-Pass an emitted continuation's complete `input` to the tool it names. An MCP session can retain cursors in memory for its lifetime. [Reading results and following continuations](TOOL_DATA_CONTRACT.md)
+To continue a paged result, pass the emitted continuation's `input` to the tool it names. [Reading results and continuations](TOOL_DATA_CONTRACT.md)
 
-## Startup and troubleshooting
+## Troubleshooting
 
 | Symptom | Check |
 |---|---|
-| Client cannot start the server | Verify that the client can run `npx` and that npm installed the native package for its platform. Startup errors appear in the client's MCP log. |
-| Client connects but a tool is missing | Inspect `tools/list`, the tool's opt-in and any include or disable lists. An allowlist containing only unrecognized names can leave the server with no tools and cause startup to fail. |
-| The agent reads a different project | Inspect the client's launch directory and `WORKSPACE_ROOT`. Relative paths use the effective workspace root. |
-| A key or setting changed | Restart the server to reload the process environment and configuration files. Stored GitHub logins and GitHub CLI accounts are resolved for requests. |
-| Some batch rows failed | Inspect each row's `status` and error. `isError` describes a failed call or a batch in which every row failed. A mixed batch can contain both evidence and errors. |
+| The client cannot start the server | Check that the client can run `npx` and that the native package for your platform installed. Startup errors appear in the client's MCP log. |
+| A tool is missing | Check `tools/list`, the tool's opt-in, `tools.enabled` and `tools.disabled`. [Availability](CONFIGURATION.md#tool-availability-cli-and-mcp) |
+| The agent reads a different project | Check the client's launch directory and `WORKSPACE_ROOT`. Relative paths resolve against the workspace root. |
+| A setting or key changed but has no effect | Restart the MCP server. |
+| Some batch rows failed | Read each row's `status` and error. `isError` is set when the call failed or every row failed. A mixed batch can hold both evidence and errors. |
 
-The native server supports the `initialize` handshake and the 2026-07-28 `server/discover` handshake on the same stdio command. The client manages the process and closes it when the session ends. [Configuration](CONFIGURATION.md) · [Security](SECURITY.md)
+The server accepts the `initialize` handshake and the `server/discover` handshake on the same stdio command. The client starts and stops the process. [Configuration](CONFIGURATION.md) · [Security](SECURITY.md)

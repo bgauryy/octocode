@@ -101,8 +101,36 @@ impl LinkEntry {
     }
 }
 
+/// The header that names a kept link proof's request apart from the read it
+/// proves: never sent, so no origin answer can stand under its key.
+const PROOF_HEADER: &str = "x-octocode-link-proof";
+
+/// The request under which a file's link proof is kept: its own contents
+/// read at the commit, named apart ([`PROOF_HEADER`]). A kept answer to it
+/// says a GraphQL read proved the path a regular file at that commit, with
+/// no symlink on it ([`super::batch`]).
+pub(super) fn proof_spec(contents: &RequestSpec) -> RequestSpec {
+    let mut proof = contents.clone();
+    proof.headers.insert(
+        reqwest::header::HeaderName::from_static(PROOF_HEADER),
+        HeaderValue::from_static("regular-file"),
+    );
+    proof
+}
+
+/// A link proof's kept answer: the blob it proved.
+pub(super) fn proof_page(blob: &str) -> crate::ResponsePage {
+    crate::ResponsePage {
+        status: 200,
+        headers: reqwest::header::HeaderMap::new(),
+        body: bytes::Bytes::copy_from_slice(blob.as_bytes()),
+        next: None,
+        redirected: false,
+    }
+}
+
 /// `path`'s parent directory (`""` at the root) and its last segment.
-fn split_parent(path: &str) -> (&str, &str) {
+pub(super) fn split_parent(path: &str) -> (&str, &str) {
     path.rsplit_once('/').unwrap_or(("", path))
 }
 
@@ -138,17 +166,21 @@ impl GitHubProvider {
         context: &RequestContext,
     ) {
         let mut folders = std::collections::HashSet::new();
+        let request_of = |path: &String| ContentRequest {
+            owner: owner.to_owned(),
+            repo: repo.to_owned(),
+            path: path.clone(),
+            reference: Some(commit.to_owned()),
+        };
+        let request_of = &request_of;
+        // A file a kept proof answers needs no check, and its folder none
+        // for it ([`super::batch`]).
         let checks = paths
             .iter()
+            .filter(|path| !self.proved_regular_file(&request_of(path), commit, context))
             .filter(|path| folders.insert(split_parent(path).0))
             .map(|path| async move {
-                let request = ContentRequest {
-                    owner: owner.to_owned(),
-                    repo: repo.to_owned(),
-                    path: path.clone(),
-                    reference: Some(commit.to_owned()),
-                };
-                let _ = self.link_on_path(&request, commit, context).await;
+                let _ = self.link_on_path(&request_of(path), commit, context).await;
             })
             .collect::<Vec<_>>();
         futures_util::future::join_all(checks).await;
@@ -166,7 +198,11 @@ impl GitHubProvider {
     ) -> Result<Checked, ProviderError> {
         let mut at = request.clone();
         let mut followed: Option<String> = None;
-        if matches!(links, Links::Listed) {
+        // A kept proof says the path is a regular file at this commit with
+        // no link on it: nothing to follow, refuse or withhold.
+        if matches!(links, Links::Listed)
+            || self.proved_regular_file(request, resolved_ref, context)
+        {
             return Ok(Checked::Read {
                 request: at,
                 followed,
@@ -209,6 +245,18 @@ impl GitHubProvider {
             MAX_LINK_HOPS,
             last_target.as_deref(),
         ))
+    }
+
+    /// Whether a kept link proof ([`proof_spec`]) answers `request.path` at
+    /// `resolved_ref` with nothing sent.
+    fn proved_regular_file(
+        &self,
+        request: &ContentRequest,
+        resolved_ref: &str,
+        context: &RequestContext,
+    ) -> bool {
+        self.contents_spec(request, resolved_ref)
+            .is_ok_and(|spec| self.transport.answers_unasked(&proof_spec(&spec), context))
     }
 
     /// The symlink on `request.path`, if any. A whole recursive tree this

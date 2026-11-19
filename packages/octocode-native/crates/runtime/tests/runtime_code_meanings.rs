@@ -23,11 +23,16 @@ async fn a_fired_reason_is_its_code_and_no_response_explains_it() {
         .await
         .expect("rows")
         .structured_content;
+    // Each row's reason is its own or, when every row of the batch states the
+    // same reasons, the response's `shared.data` (hoist F4) states it once.
     for result in fired["results"].as_array().expect("rows") {
+        let reasons = result["data"]
+            .get("partialReasons")
+            .or_else(|| fired.pointer("/shared/data/partialReasons"));
         assert_eq!(
-            result["data"]["partialReasons"],
-            json_fixture(r#"["parseRecovered"]"#),
-            "{result}"
+            reasons,
+            Some(&json_fixture(r#"["parseRecovered"]"#)),
+            "{fired}"
         );
     }
     assert_no_reason_meaning(&fired);

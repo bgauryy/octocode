@@ -1,7 +1,7 @@
 //! Public `clasify`: typed judgments and model discovery. Evaluation rows
 //! hold keyed `noul`/`choice`/`score`/`box` questions over
 //! exactly one input: the caller's literal `content`, a `source` captured
-//! completely through the authorized readers ([`source_capture`]), or
+//! completely through the authorized readers ([`source_capture`](octocode_tools_shared::source_capture)), or
 //! `resources`, each judged whole as a `source` is. The row
 //! returns the provider's validated answers, the answering model and usage,
 //! and source provenance; never a body. A source the provider window refuses
@@ -65,6 +65,19 @@ struct Row {
     /// `sourceProgress`: a tool source's private progress on a page after its
     /// first, which only an issued cursor carries ([`units`]).
     source_progress: Option<serde_json::Map<String, Value>>,
+    /// `maxRequests`: the provider requests the row may send, its ceiling
+    /// included ([`reply::OverBudget`]).
+    max_requests: Option<u64>,
+    /// Each search hit in its own request instead of its file's shared one
+    /// ([`rows::PER_HIT`]).
+    per_hit: bool,
+    /// `retryUnits`: the units of the source's page (or the content items)
+    /// a `next.retry` asks again; the others are neither judged nor shown.
+    /// Only an issued retry carries it ([`units`]).
+    retry_units: Option<Vec<String>>,
+    /// The row as the caller sent it: an over-budget row's confirm call is
+    /// it with `maxRequests` raised.
+    query: Value,
 }
 
 enum Input {
@@ -180,7 +193,9 @@ pub fn call(
     across.attach(&mut output, &parsed, can_resume);
     // A row whose twin paid for its request states calls:0; a reader of the
     // summary then needs every row's calls to see who paid.
-    let shared = output.iter().any(|data| data["usage"]["calls"] == json!(0));
+    let shared = output
+        .iter()
+        .any(|data| data["usage"]["calls"] == json!(0) && data.get("errorCode").is_none());
     for (row, data) in parsed.iter().zip(&mut output) {
         if row.details {
             view::carry_details(data);
@@ -207,10 +222,11 @@ fn shaped(
             judged,
             captured,
             assets,
+            price,
             ..
         } => {
             let kind = judged.as_ref().err().map(error_kind);
-            let value = match judged {
+            let mut value = match judged {
                 Ok(judged) => {
                     let source = match &row.input {
                         Input::Judge(Target::Source(source)) => Some(source),
@@ -219,10 +235,27 @@ fn shaped(
                     across.judged(index, row, source, None, &judged.answers);
                     answered(row, judged, captured, assets)
                 }
-                Err(error) => failed(row, &error, captured.as_deref(), can_resume),
+                Err(error) => {
+                    let mut value = failed(row, &error, captured.as_deref(), can_resume);
+                    // A transient failure is the same row again, at its price.
+                    if reply::transient(&error)
+                        && let Some(query) =
+                            reply::priced_query(row, price.and_then(|price| price.ceiling))
+                    {
+                        reply::offer_retry(&mut value, query, can_resume);
+                    }
+                    value
+                }
             };
+            reply::priced(&mut value, price);
             (value, kind)
         }
+        RowOutcome::OverBudget(over) => (
+            reply::over_budget(row, &over, can_resume),
+            Some(octocode_runtime_base::id::error_codes::class(
+                octocode_contract_types::ErrorCode::ClassificationOverBudget,
+            )),
+        ),
         RowOutcome::Combined(combined) => (combined.output, None),
         RowOutcome::Units(Ok(units)) => (units.finish(), None),
         RowOutcome::Units(Err(error)) => (
@@ -332,7 +365,11 @@ pub enum RowOutcome {
         assets: Option<Value>,
         /// The evaluation's identity: rows with one share one request.
         identity: Option<octocode_tools_shared::judgment::shared::Identity>,
+        /// What its requests were planned at before any was sent.
+        price: Option<reply::Price>,
     },
+    /// A row whose ceiling is over its `maxRequests`: nothing was sent.
+    OverBudget(Box<reply::OverBudget>),
     /// A source judged in sections and answered once per question.
     Combined(Box<combined::Combined>),
     /// A tool's rows or a content array's items, each judged as one unit.

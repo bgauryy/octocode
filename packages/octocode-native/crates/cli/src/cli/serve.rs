@@ -76,7 +76,7 @@
 //!
 //! [`PROCESS_ENV`]: octocode_engine::process_env::PROCESS_ENV
 //! [`NETWORK_ENV`]: octocode_io::http::NETWORK_ENV
-//! [`Printed`]: super::Printed
+//! [`Printed`]: super::output::Printed
 
 #[cfg(unix)]
 mod unix;

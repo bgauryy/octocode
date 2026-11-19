@@ -80,14 +80,7 @@ fn paths_under_a_metric_sort_state_that_one_metric() {
     let out = ranked("totalLines", "desc");
     // The ranking reads each file once; emitting the rows reads none.
     assert_eq!(super::super::rows::line_count_reads(&root.0) - before, 2);
-    assert_eq!(
-        entries(&out),
-        [
-            "z-long.rs (totalLines=3)",
-            "a-short.rs (totalLines=1)",
-            "dir/"
-        ]
-    );
+    assert_eq!(entries(&out), ["z-long.rs (3)", "a-short.rs (1)", "dir/"]);
     // A directory has no content size: it ranks last and states none.
     assert_eq!(
         entries(&ranked("bytes", "asc")),
@@ -102,8 +95,11 @@ fn paths_under_a_metric_sort_state_that_one_metric() {
     assert_eq!(rows.len(), 3, "{by_time}");
     for row in rows {
         let (_, fields) = row.split_once(" (").expect("one field");
+        let instant = fields.strip_suffix(')').expect("closed");
         assert!(
-            fields.starts_with("modified=") && !fields.contains(','),
+            octocode_runtime_base::civil_date::rfc3339_millis(instant).is_some()
+                && instant.ends_with('Z')
+                && !fields.contains(','),
             "{row}"
         );
     }
@@ -124,7 +120,7 @@ fn paths_under_a_metric_sort_state_that_one_metric() {
     let mut details = json!({"operation": "files", "path": root.0, "view": "details", "entryType": "file", "sort": {"by": "bytes", "order": "desc"}});
     let detailed = run(&root.0, details.take()).expect("details");
     assert!(
-        entries(&detailed)[0].starts_with("z-long.rs (14, totalLines=3, modified="),
+        entries(&detailed)[0].starts_with("z-long.rs (14, 3, 20"),
         "{detailed}"
     );
 }
@@ -210,4 +206,57 @@ fn changing_view_invalidates_a_continuation_even_with_identical_page_cuts() {
             assert_eq!(restart["view"], new, "{stale}");
         }
     }
+}
+
+/// TC6: details fields are positional, beside a name the listing redacts:
+/// a secret-looking file name is served as its placeholder, never as
+/// written, and its entry still states bytes, lines and time by place.
+#[test]
+fn details_fields_sit_beside_a_redacted_name() {
+    let token = format!("ghp_{}", "a1B2c3D4".repeat(5));
+    let root = Fixture::new();
+    root.write(&format!("{token}.rs"), "one\ntwo\n");
+    let out = run(
+        &root.0,
+        json!({"operation": "files", "path": root.0, "view": "details", "entryType": "file"}),
+    )
+    .expect("details");
+    assert!(!out.to_string().contains(&token), "{out}");
+    let listed = entries(&out);
+    let [entry] = listed.as_slice() else {
+        panic!("one entry: {out}");
+    };
+    let (_, fields) = entry.rsplit_once(" (").expect("fields");
+    assert!(fields.starts_with("8, 2, 20"), "{entry}");
+}
+
+/// TC6, a context detector: a name that holds a labelled secret
+/// (`password = "…"`) is redacted as a whole name before its positional
+/// fields are joined to it, so the served details entry never holds the
+/// value.
+#[test]
+fn details_fields_join_a_name_already_redacted_by_its_context() {
+    let security = octocode_runtime_base::security::ContentSecurity::new();
+    let named = [
+        "config.password = \"hunter2x!q\"",
+        "password=\"hunter2x!q\"",
+        "api_key = \"hunter2x!q\"",
+    ]
+    .into_iter()
+    .find(|name| security.sanitize_text(name, None).content != *name)
+    .expect("the context detector redacts one of these names");
+    let root = Fixture::new();
+    root.write(named, "one\ntwo\n");
+    let out = run(
+        &root.0,
+        json!({"operation": "files", "path": root.0, "view": "details", "entryType": "file"}),
+    )
+    .expect("details");
+    assert!(!out.to_string().contains("hunter2x!q"), "{out}");
+    let listed = entries(&out);
+    let [entry] = listed.as_slice() else {
+        panic!("one entry: {out}");
+    };
+    let (_, fields) = entry.rsplit_once(" (").expect("fields");
+    assert!(fields.starts_with("8, 2, 20"), "{entry}");
 }

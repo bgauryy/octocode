@@ -166,7 +166,7 @@ pub(super) async fn refs(
             .refs
             .iter()
             .zip(commits)
-            .filter_map(|(tag, sha)| Some(json!({ "name": tag.name, "commitSha": sha? })))
+            .filter_map(|(tag, sha)| Some(json!(named_ref(&tag.name, &sha?))))
             .collect::<Vec<_>>();
         listed_tags = rows.len();
         value["tags"] = Value::Array(rows);
@@ -185,7 +185,7 @@ pub(super) async fn refs(
         value["branches"] = branches
             .refs
             .iter()
-            .map(|named: &NamedRef| json!({ "name": named.name, "commitSha": named.sha }))
+            .map(|named: &NamedRef| json!(named_ref(&named.name, &named.sha)))
             .collect();
     }
     // The refs each list shows on this page, from the start of its provider
@@ -359,3 +359,11 @@ pub(super) async fn languages(
 
 #[cfg(test)]
 mod ref_list_tests;
+
+/// A ref as its list states it: `"<name> <commitSha>"`. A git ref name holds
+/// no space (git-check-ref-format), so the first space splits it back; the
+/// name stays a value, never a JSON key the output secret gate would read as
+/// an assignment.
+fn named_ref(name: &str, sha: &str) -> String {
+    format!("{name} {sha}")
+}

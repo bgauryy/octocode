@@ -466,3 +466,76 @@ fn rust_outer_attributes_show_above_their_top_level_item() {
     assert!(!outline.contains("#![allow"), "{outline}");
     assert!(!outline.contains("A point"), "{outline}");
 }
+
+/// A Python class body lists its fields and methods, not the string
+/// statements that document the class and each attribute (PEP 257, 224): a
+/// docstring sits below what it documents, on one row or many. A string that
+/// only starts a row (a dict entry, an implicit concatenation) is no
+/// statement and stays.
+#[test]
+fn a_python_member_body_lists_members_not_docstrings() {
+    let source = concat!(
+        "@dataclass\n",
+        "class Handoff(Generic[T]):\n",
+        "    \"\"\"A handoff is when an agent delegates a task.\n",
+        "\n",
+        "    It spans rows.\n",
+        "    \"\"\"\n",
+        "\n",
+        "    tool_name: str\n",
+        "    \"\"\"The name of the tool.\"\"\"\n",
+        "\n",
+        "    tool_description: str\n",
+        "    r'''The description,\n",
+        "    with an escaped \\''' quote.'''\n",
+        "\n",
+        "    input_filter: Filter | None = None\n",
+        "    \"Single-quoted docstring.\"  # its comment\n",
+        "    mapping = {\n",
+        "        'kept': 1,\n",
+        "    }\n",
+        "    pair = (\"a\"\n",
+        "        \"b\")\n",
+        "\n",
+        "    def run(self) -> None:\n",
+        "        \"\"\"Run it.\"\"\"\n",
+        "        return None\n",
+    );
+    let outline = extract_signatures_inner(source, "handoff.py").expect("outline");
+    for kept in [
+        "\tclass Handoff(Generic[T]):",
+        "\t    tool_name: str",
+        "\t    tool_description: str",
+        "\t    input_filter: Filter | None = None",
+        "\t    def run(self) -> None:",
+    ] {
+        assert!(outline.contains(kept), "{kept:?} in {outline}");
+    }
+    for dropped in [
+        "A handoff",
+        "It spans rows",
+        "The name of the tool",
+        "The description",
+        "escaped",
+        "Single-quoted",
+        "Run it",
+    ] {
+        assert!(!outline.contains(dropped), "{dropped:?} in {outline}");
+    }
+    assert!(
+        !outline
+            .lines()
+            .any(|row| row.trim_end().ends_with("\"\"\"")),
+        "{outline}"
+    );
+}
+
+/// Only Python's string statements are docstrings: a member body of another
+/// grammar keeps a row that starts with a string.
+#[test]
+fn a_string_row_of_another_grammars_member_body_stays() {
+    let source = "export interface Headers {\n  \"content-type\": string;\n  'x-id': number;\n}\nexport function f() {\n  return 1;\n}\n";
+    let outline = extract_signatures_inner(source, "headers.ts").expect("outline");
+    assert!(outline.contains("\"content-type\": string;"), "{outline}");
+    assert!(outline.contains("'x-id': number;"), "{outline}");
+}

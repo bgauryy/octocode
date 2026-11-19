@@ -259,6 +259,7 @@ fn a_server_that_registers_for_file_events_receives_them() {
             .sync_watched_files(|previous| {
                 std::future::ready(WatchedFileUpdate::new(
                     &root,
+                    &[root.to_path_buf()],
                     previous.as_ref(),
                     std::collections::BTreeMap::new(),
                     unchanged,
@@ -270,6 +271,7 @@ fn a_server_that_registers_for_file_events_receives_them() {
             .sync_watched_files(|previous| {
                 std::future::ready(WatchedFileUpdate::new(
                     &root,
+                    &[root.to_path_buf()],
                     previous.as_ref(),
                     std::collections::BTreeMap::from([("new.ts".to_owned(), "new".to_owned())]),
                     unchanged,
@@ -283,6 +285,40 @@ fn a_server_that_registers_for_file_events_receives_them() {
             event["params"]["changes"][0]["uri"],
             crate::lsp::uri::path_to_uri(&root.join("new.ts").to_string_lossy()).expect("uri")
         );
+    });
+}
+
+/// A server may hold several file-watch registrations: dropping one leaves
+/// the client sending events for the rest, until the last is dropped.
+#[test]
+fn one_unregistration_ends_only_its_own_file_watch() {
+    paused(|clock| async move {
+        use super::document_sync::{
+            client_with_fake_server_using, read_client_frame, send_server_frame,
+        };
+        let (client, mut reader, mut writer) =
+            client_with_fake_server_using(client_on(&clock, ts_config()), 64 * 1024).await;
+        let watch = |id: &str| {
+            json!({"id": id, "method": "workspace/didChangeWatchedFiles",
+                "registerOptions": {"watchers": [{"globPattern": "**/*.ts"}]}})
+        };
+        send_server_frame(
+            &mut writer,
+            json!({"jsonrpc":"2.0","id":"r","method":"client/registerCapability",
+                "params":{"registrations":[watch("a"), watch("b")]}}),
+        )
+        .await;
+        assert_eq!(read_client_frame(&mut reader).await["id"], "r");
+        let unregister = |request: &str, id: &str| {
+            json!({"jsonrpc":"2.0","id":request,"method":"client/unregisterCapability",
+                "params":{"unregisterations":[{"id":id,"method":"workspace/didChangeWatchedFiles"}]}})
+        };
+        send_server_frame(&mut writer, unregister("u1", "a")).await;
+        assert_eq!(read_client_frame(&mut reader).await["id"], "u1");
+        assert!(client.watches_files().await, "registration b is still live");
+        send_server_frame(&mut writer, unregister("u2", "b")).await;
+        assert_eq!(read_client_frame(&mut reader).await["id"], "u2");
+        assert!(!client.watches_files().await, "no registration is live");
     });
 }
 
@@ -306,6 +342,7 @@ fn watched_snapshots_are_captured_in_commit_order() {
             first_stage.store(2, Ordering::SeqCst);
             WatchedFileUpdate::new(
                 first_root,
+                &[first_root.to_path_buf()],
                 previous.as_ref(),
                 BTreeMap::from([("a.rs".to_owned(), "one".to_owned())]),
                 |_, before, after| before == after,
@@ -324,13 +361,16 @@ fn watched_snapshots_are_captured_in_commit_order() {
                 "capture is inside the lock"
             );
             assert_eq!(
-                previous.as_ref().and_then(|files| files.get("a.rs")),
+                previous
+                    .as_ref()
+                    .and_then(|files| files.get(&*root.join("a.rs").to_string_lossy())),
                 Some(&"one".to_owned()),
                 "the second capture compares with the committed first snapshot"
             );
             stage.store(3, Ordering::SeqCst);
             std::future::ready(WatchedFileUpdate::new(
                 &root,
+                &[root.to_path_buf()],
                 previous.as_ref(),
                 BTreeMap::from([
                     ("a.rs".to_owned(), "one".to_owned()),
@@ -378,6 +418,7 @@ fn a_failed_watched_event_write_preserves_the_committed_snapshot() {
             .sync_watched_files(|previous| {
                 std::future::ready(WatchedFileUpdate::new(
                     &root,
+                    &[root.to_path_buf()],
                     previous.as_ref(),
                     first.clone(),
                     |_, before, after| before == after,
@@ -392,6 +433,7 @@ fn a_failed_watched_event_write_preserves_the_committed_snapshot() {
                 prepared.store(true, Ordering::SeqCst);
                 std::future::ready(WatchedFileUpdate::new(
                     &root,
+                    &[root.to_path_buf()],
                     previous.as_ref(),
                     BTreeMap::from([("a.rs".to_owned(), "after".to_owned())]),
                     |_, before, after| before == after,
@@ -403,6 +445,11 @@ fn a_failed_watched_event_write_preserves_the_committed_snapshot() {
             "the write, not capture, failed"
         );
         assert!(result.is_err());
+        // The committed snapshot is the baseline, keyed by absolute path.
+        let committed = BTreeMap::from([(
+            root.join("a.rs").to_string_lossy().into_owned(),
+            "before".to_owned(),
+        )]);
         assert_eq!(
             client
                 .inner
@@ -410,7 +457,7 @@ fn a_failed_watched_event_write_preserves_the_committed_snapshot() {
                 .lock()
                 .expect("snapshot")
                 .as_ref(),
-            Some(&first)
+            Some(&committed)
         );
     });
 }
@@ -439,6 +486,7 @@ async fn a_failed_first_watched_capture_requires_a_fresh_session() {
         .sync_watched_files(|previous| {
             std::future::ready(WatchedFileUpdate::new(
                 &root,
+                &[root.to_path_buf()],
                 previous.as_ref(),
                 BTreeMap::new(),
                 |_, before, after| before == after,
@@ -462,6 +510,7 @@ async fn a_failed_first_watched_capture_requires_a_fresh_session() {
             assert!(previous.is_none());
             std::future::ready(WatchedFileUpdate::new(
                 &root,
+                &[root.to_path_buf()],
                 previous.as_ref(),
                 BTreeMap::new(),
                 |_, before, after| before == after,

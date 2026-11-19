@@ -37,8 +37,6 @@ futures-util = { workspace = true }
 hex = { workspace = true }
 # `.gitignore` matching for graphBuild scans (already in the tree via the engine).
 ignore = { workspace = true }
-# PR changed-file `include` globs (already in the tree via `ignore`).
-globset = { workspace = true }
 octocode-engine = { path = "../engine" }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros", "sync", "time", "signal", "process", "io-util"] }
 octocode-tools-shared = { path = "../tools-shared" }
