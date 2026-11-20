@@ -53,3 +53,20 @@ test('optional steps that failed before the stop are listed with the cause', () 
   assert.match(text, /^Failed: step 3: required control missing/);
   assert.match(text, /optional steps failed earlier: step 1: banner absent/);
 });
+
+test('the cause skips the sandbox banner and Node warnings and names the fatal line', () => {
+  const error = [
+    '[CDP_SANDBOX] sandboxed (node 26.4.0, fs scoped, net/dns loopback-only) — rerun with --verbose for full detail',
+    '(node:8662) ExperimentalWarning: The flag --allow-net is under experimental phase.',
+    '(Use `node --trace-warnings ...` to show where the warning was created)',
+    '[CDP_RUNNER_FATAL] Ambiguous target: 3 matches. Run targets and select --target <id>.',
+  ].join('\n');
+  assert.match(
+    failureSummary({ error, exitCode: 1 }),
+    /^Failed: \[CDP_RUNNER_FATAL\] Ambiguous target: 3 matches/
+  );
+  assert.match(
+    failureSummary({ error: 'only noise\n(node:1) ExperimentalWarning: x' }),
+    /^Failed: only noise/
+  );
+});

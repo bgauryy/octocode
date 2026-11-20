@@ -111,9 +111,9 @@ pub(super) fn settle_row(
     warnings.extend(rows.notes);
     // A sparse checkout holds only some of its repository: a miss here is
     // no absence from it.
-    warnings.extend(octocode_tools_shared::gh_git::sparse_miss::coverage(
-        page.root,
-    ));
+    let sparse = octocode_tools_shared::gh_git::sparse_miss::coverage(page.root);
+    let in_sparse_checkout = sparse.is_some();
+    warnings.extend(sparse);
     let capped = stats.capped.unwrap_or(false);
     let (status, settled_terminal) = settle(
         query,
@@ -124,6 +124,12 @@ pub(super) fn settle_row(
         continuation_missing,
     );
     let mut hints = coverage.empty_hints(empty);
+    // In a sparse checkout the warning above says what is on disk: the
+    // generic path and glob advice would send a caller after files the
+    // checkout does not hold.
+    if in_sparse_checkout {
+        Coverage::drop_generic_scope_hints(&mut hints);
+    }
     // A key path that left out every file in scope: the same search without
     // it reads them.
     if empty && coverage.key_path_miss.is_some() {
@@ -132,7 +138,9 @@ pub(super) fn settle_row(
     }
     if empty
         && stats.files_searched > 0
-        && let Some(hint) = page.alternates.case_hint(query)
+        && let Some(hint) = page
+            .alternates
+            .case_hint(query, stats.masked_spans.is_some_and(|spans| spans > 0))
     {
         hints.push(hint);
         // The hint's advice as a call: the same scope with case ignored.
@@ -198,6 +206,7 @@ pub(super) fn settle_row(
         let absence = coverage.absence(
             local_search_query::view(query),
             (stats.files_searched, stats.binary_skipped.unwrap_or(0)),
+            stats.masked_spans.is_some_and(|spans| spans > 0),
             beyond,
         );
         hints.insert(0, absence);
@@ -368,6 +377,7 @@ pub(crate) fn search_stats(
     SearchStats {
         total_occurrences: counted(scanned.match_count),
         matched_lines: counted(scanned.matched_lines),
+        masked_spans: scanned.masked_spans.filter(|spans| *spans > 0),
         matched_files: (shows_hits && whole_scan).then_some(files_matched),
         files_matched,
         files_searched: scanned.files_searched.unwrap_or(0),

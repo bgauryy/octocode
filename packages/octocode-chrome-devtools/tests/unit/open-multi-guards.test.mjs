@@ -3,9 +3,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync, statSync } from 'node:fs';
-import { createConnection, createServer } from 'node:net';
+import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { freePortText as freePort } from '../fixtures/free-port.mjs';
 
 const pkg = join(import.meta.dirname, '../..');
 const bin = join(pkg, 'bin/octocode-chrome-devtools.mjs');
@@ -20,13 +21,6 @@ const { chromeLaunchArgs, isNoSandboxFailure, NO_SANDBOX_HINT } = await import(
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'octo-open-multi-')));
 test.after(() => rmSync(root, { recursive: true, force: true }));
 
-const freePort = () =>
-  new Promise(resolve => {
-    const server = createServer().listen(0, '127.0.0.1', () => {
-      const { port } = server.address();
-      server.close(() => resolve(String(port)));
-    });
-  });
 const listening = port =>
   new Promise(resolve => {
     const socket = createConnection(Number(port), '127.0.0.1');

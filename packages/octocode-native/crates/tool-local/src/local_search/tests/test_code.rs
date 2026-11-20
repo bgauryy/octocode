@@ -520,8 +520,10 @@ fn the_lsp_lead_keeps_the_searchs_test_code() {
 /// out does not.
 #[test]
 fn an_emptied_scope_offers_all_code() {
-    let mixed: &[(&str, &str)] =
-        &[("src/lib.rs", "pub fn run() {}\n"), ("tests/it.rs", "fn it() { needle(); }\n")];
+    let mixed: &[(&str, &str)] = &[
+        ("src/lib.rs", "pub fn run() {}\n"),
+        ("tests/it.rs", "fn it() { needle(); }\n"),
+    ];
     let production: &[(&str, &str)] = &[("src/lib.rs", "pub fn run() {}\n")];
     for (files, test_code, pattern, offered) in [
         (mixed, "exclude", "needle", true),
@@ -542,7 +544,10 @@ fn an_emptied_scope_offers_all_code() {
             .find(|lead| lead["input"]["queries"][0]["testCode"] == "include");
         assert_eq!(lead.is_some(), offered, "{test_code} {pattern}: {body}");
         if let Some(lead) = lead {
-            assert_eq!(lead["input"]["queries"][0]["matchString"][0], pattern, "{body}");
+            assert_eq!(
+                lead["input"]["queries"][0]["matchString"][0], pattern,
+                "{body}"
+            );
             assert!(body["testCodeExcluded"].is_object(), "{body}");
         }
     }

@@ -145,7 +145,7 @@ impl<'a> CommitFacts<'a> {
 /// references live past the first line) and dates it (the author's login,
 /// else name, and date). Every read keeps the upstream parent SHAs: they
 /// identify the old source of a patch, including every parent of a merge.
-/// The committer and line counts are the summary read's.
+/// The line counts are the summary read's.
 fn commit_header(commit: &CommitFacts<'_>, reference: &str, summary: bool, listed: usize) -> Value {
     let raw = commit.raw;
     let author = identity(raw, "author");
@@ -160,7 +160,7 @@ fn commit_header(commit: &CommitFacts<'_>, reference: &str, summary: bool, liste
         "ref":reference,"commitSha":commit.sha,
         "message":commit.message,
         "author":if summary { person(&author, AUTHORED_AT) } else { dated(&author) },
-        "committer":committer.filter(|_| summary).map(|committer| person(&committer, COMMITTED_AT)),
+        "committer":committer.map(|committer| person(&committer, COMMITTED_AT)),
         "parentCommitShas":parents,
         // Top-level counts always describe the whole commit; a path scope's
         // own count is `sectionPagination.files.total`, and the file

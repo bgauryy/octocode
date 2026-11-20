@@ -6,7 +6,7 @@ use octocode_test_support::json_fixture;
 /// is read at both sides, whole, ahead of the most-changed patched
 /// file; a binary file or a GraphQL node (no blob sha) never is.
 #[test]
-fn change_reads_prefer_the_first_unpatched_text_file() {
+fn change_reads_prefer_unpatched_text_files() {
     let sides = ChangeSides {
         new_ref: Some("head"),
         old_ref: Some("base"),
@@ -71,7 +71,41 @@ fn change_reads_prefer_the_first_unpatched_text_file() {
     assert_eq!(reads[0].1["input"]["queries"][0]["path"], "src/big.rs");
     let mut graphql = files[2].clone();
     graphql.as_object_mut().map(|file| file.remove("sha"));
-    assert!(first_unpatched(&[graphql], |_| true).is_none());
+    assert!(unpatched(&[graphql], |_| true).is_empty());
+}
+
+/// Every file GitHub withheld the patch of gets its own required read at
+/// each side, however many there are: the calls stay within one call's
+/// queries limit and together name each file once per side.
+#[test]
+fn every_unpatched_file_is_read_at_each_side() {
+    let sides = ChangeSides {
+        new_ref: Some("head"),
+        old_ref: Some("base"),
+        needle: None,
+    };
+    let per_call = octocode_runtime_base::response::result::rows_per_call(ToolId::GhGetFileContent);
+    let count = per_call * 2 + 1;
+    let files = (0..count)
+        .map(|n| {
+            json!({"filename":format!("src/huge{n}.rs"),"status":"modified","additions":9000,
+            "deletions":0,"sha":"1111111111111111111111111111111111111111"})
+        })
+        .collect::<Vec<_>>();
+    let reads = change_reads("o", "r", &files, &sides, |_| true);
+    let mut seen = std::collections::HashSet::new();
+    let mut names = std::collections::HashSet::new();
+    for (name, call) in &reads {
+        assert!(names.insert(name.clone()), "duplicate lead name {name}");
+        assert_eq!(call["kind"], "continue", "{name}");
+        let rows = call["input"]["queries"].as_array().expect("queries");
+        assert!(rows.len() <= per_call, "{name} holds {} rows", rows.len());
+        for row in rows {
+            let key = (row["path"].clone(), row["ref"].clone());
+            assert!(seen.insert(key), "read twice: {row}");
+        }
+    }
+    assert_eq!(seen.len(), count * 2, "{reads:?}");
 }
 
 /// A `matchString` read offers the source of every file whose hunks hold it,

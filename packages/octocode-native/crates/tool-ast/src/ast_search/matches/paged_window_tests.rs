@@ -201,3 +201,39 @@ fn a_file_a_window_ended_inside_stays_pinned_for_the_next_window() {
     let moved = run(&root.0, next).expect("page 2 again");
     assert_eq!(moved["errorCode"], "staleSnapshot", "{moved}");
 }
+
+/// Every page but the walk's last fills the response window, the first one
+/// too when the scan's census rides it: a window's pages are cut where the
+/// census is charged, so no short page sits between full ones.
+#[test]
+fn budget_filled_pages_stay_full_across_windows_with_a_census() {
+    let root = hits(60, 4);
+    root.write("notes.toml", "key = 1\n");
+    root.write("app.py", "def f():\n    pass\n");
+    root.write(".hidden/skipped.rs", "fn g() { hit(0); }\n");
+    let mut shown = Vec::new();
+    let mut seen = Vec::new();
+    let mut next = query(&root, None);
+    loop {
+        let page = run_window(&root.0, next, 3000).expect("page");
+        let rows = ast_rows(std::slice::from_ref(&page));
+        shown.push(rows.len());
+        seen.extend(rows);
+        let Some(call) = page["next"]["nextPage"]["input"]["queries"].get(0) else {
+            break;
+        };
+        next = call.clone();
+    }
+    assert!(shown.len() >= 4, "{shown:?}");
+    let distinct = seen.iter().collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(seen.len(), 60 * 4, "{shown:?}");
+    assert_eq!(distinct.len(), seen.len(), "each match once");
+    let (_, rest) = shown.split_last().expect("pages");
+    let (_, middle) = rest.split_first().expect("pages");
+    let full = middle[0];
+    assert!(
+        middle.iter().all(|rows| rows.abs_diff(full) <= 1),
+        "a page between the first and last is full: {shown:?}"
+    );
+    assert!(shown[0] <= full + 1, "{shown:?}");
+}

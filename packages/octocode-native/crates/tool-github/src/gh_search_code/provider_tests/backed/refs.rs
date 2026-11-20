@@ -105,7 +105,7 @@ async fn a_non_default_ref_discloses_the_index_commit_and_leads_to_the_ref() {
         data["warnings"],
         json_fixture(
             r#"[
-                "Candidate files come from the default-branch index at fedcba9, not dev: a file that exists only at dev cannot appear; `matches` read at dev."
+                "Candidate files come from the default-branch index at fedcba9, not dev: a file whose keywords match only at dev (it exists only there, or its text changed since) cannot appear, so absence proves nothing; list the files at dev and read them with `matchString`; `matches` read at dev."
             ]"#
         ),
         "{data}"

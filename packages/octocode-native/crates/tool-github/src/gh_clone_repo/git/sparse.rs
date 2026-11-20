@@ -50,6 +50,13 @@ pub(super) fn sparse_set_args(
         args.extend(sparse_paths.iter().map(OsString::from));
         return Ok(args);
     }
+    // Directories alone keep what cone mode keeps: the root's own files
+    // (`/*` then `!/*/` leaves only files, the later `/dir/` re-adds each
+    // directory); only withheld files leave the exact patterns here.
+    let root_files = (!paths.iter().any(|path| is_file(path)))
+        .then(|| ["/*".to_owned(), "!/*/".to_owned()])
+        .into_iter()
+        .flatten();
     let includes = paths.iter().map(|path| {
         let mut pattern = file_pattern(path);
         if !is_file(path) {
@@ -57,7 +64,7 @@ pub(super) fn sparse_set_args(
         }
         pattern
     });
-    Ok(non_cone_args(target, includes, withheld))
+    Ok(non_cone_args(target, root_files.chain(includes), withheld))
 }
 
 /// `sparse-checkout set` arguments that check out everything except the

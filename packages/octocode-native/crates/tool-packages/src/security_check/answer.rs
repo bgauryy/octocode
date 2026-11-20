@@ -6,6 +6,16 @@ use octocode_runtime_base::id::ToolId;
 use octocode_runtime_base::response::result::Continuation;
 use serde_json::{Map, Value, json};
 
+/// The clause that explains the pinned-dependency checks in `related`.
+const PINNED_CHECKS_CLAUSE: &str = "related lists a check of each.";
+
+/// Whether a sentence explains the pinned-dependency checks that `related`
+/// carries: the summary keeps such a sentence, as no field says why those
+/// checks are there.
+pub(super) fn explains_pinned_checks(answer: &str) -> bool {
+    answer.ends_with(PINNED_CHECKS_CLAUSE)
+}
+
 /// What the sources' results and the target say, for the lead.
 #[derive(Default)]
 pub(super) struct Facts<'a> {
@@ -308,7 +318,7 @@ pub(super) fn lead(target: &str, facts: &Facts<'_>) -> Value {
     }
     if facts.pinned_dependencies > 0 && !facts.stopped {
         sentence.push_str(&format!(
-            " It pins {} to an exact version, and advisories filed against those are not in this answer: related lists a check of each.",
+            " It pins {} to an exact version, and advisories filed against those are not in this answer: {PINNED_CHECKS_CLAUSE}",
             match facts.pinned_dependencies {
                 1 => "1 runtime dependency".to_owned(),
                 count => format!("{count} runtime dependencies"),

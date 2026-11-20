@@ -176,6 +176,16 @@ fn page_limit(q: MatchQuery<'_>) -> usize {
     q.limit().map_or(usize::MAX, |limit| limit.max(1))
 }
 
+/// The characters a window that starts the scan reserves for the census its
+/// page 1 carries. The census is known only after the scan, but the window
+/// ends at a start of its pages: cutting the pages with the same reserve the
+/// page is shown with (`Census::page`) keeps
+/// the window's end where its pages end, so no short page sits between full
+/// ones. A census past it only moves page 1's own cut.
+pub(super) fn census_reserve(budget: usize) -> usize {
+    budget / 8
+}
+
 /// What fills a walk-order content window's pages: the cut every page takes
 /// ([`stream_page`]). A scan in walk order lists its files in stream order,
 /// so the files it evaluated so far say where its pages start: the scan can
@@ -183,6 +193,9 @@ fn page_limit(q: MatchQuery<'_>) -> usize {
 /// ([`octocode_engine::structural::PagedWindow`]).
 pub(super) struct PageFill {
     cutter: Cutter,
+    /// Characters the window's first match is charged for the census page 1
+    /// will carry ([`census_reserve`]); spent once.
+    reserve: usize,
     /// The matches of the window's first file the window before listed.
     carry: usize,
     /// Each added file's position from the window's first candidate.
@@ -195,6 +208,11 @@ impl PageFill {
     pub(super) fn of(q: MatchQuery<'_>, budget: usize, carry: usize) -> Self {
         Self {
             cutter: Cutter::new(page_limit(q), budget.max(1)),
+            reserve: if q.scan_offset() == 0 {
+                census_reserve(budget)
+            } else {
+                0
+            },
             carry,
             positions: Vec::new(),
             reported: 0,
@@ -213,6 +231,7 @@ impl PageFill {
         let from = if position == 0 { self.carry } else { 0 };
         let file = self.positions.len();
         for (index, size) in sizes.into_iter().enumerate().skip(from) {
+            let size = size.saturating_add(std::mem::take(&mut self.reserve));
             self.cutter.push((file, index), header, size);
         }
         self.positions.push(position);

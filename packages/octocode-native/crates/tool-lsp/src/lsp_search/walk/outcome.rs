@@ -328,13 +328,13 @@ fn note_omitted(row: &mut Value, walks: &[(Expansion, &HierarchyWalk)]) {
             String::new()
         } else {
             let names = named.iter().map(|name| name.as_str()).collect::<Vec<_>>();
-            format!(" (the source names {})", names.join(", "))
+            format!(" ({})", names.join(", "))
         };
         octocode_runtime_base::response::paging::mark_partial(
             row,
             octocode_runtime_base::response::paging::PartialReason::LocationsWithheld,
             &[format!(
-                "{out_of_policy} hierarchy items the path policy does not let this tool read were omitted{named}."
+                "{out_of_policy} hierarchy item(s) outside the read policy omitted{named}."
             )],
         );
     }

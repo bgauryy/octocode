@@ -611,7 +611,8 @@ pub(super) async fn run(
             data["advisories"] = Value::Array(rows);
         }
         if let Some(stopped) = stopped {
-            source["status"] = json!("partial");
+            // Nothing read is a source that did not answer, not a partial one.
+            source["status"] = json!(if read == 0 { "failed" } else { "partial" });
             source["errorCode"] = json!(stopped.code);
             let mut why = advisories::unread_why("Advisories", read, &stopped, reads_on.is_some());
             if read > 0 {

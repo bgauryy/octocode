@@ -448,12 +448,11 @@ fn a_markdown_block_is_its_heading_section() {
     }
 }
 
-/// A file no grammar outlines (Ruby) keeps the requested lines, says so,
-/// and leads on: the related read reads the same file from the first hit to its
-/// last line, which pages, so the method is read to its end.
+/// A file no grammar outlines (Ruby) widens to the indentation-derived edge
+/// of the block, and the warning says that edge is an estimate.
 #[test]
-fn a_block_with_no_outline_leads_to_the_rest_of_the_file() {
-    let rb = "class App\n  def route(verb)\n    verb\n  end\nend\n";
+fn a_block_with_no_outline_ends_where_the_indentation_does() {
+    let rb = "class App\n  def route(verb)\n    verb\n\n    other\n  end\n\n  def next_one\n  end\nend\n";
     let mut warnings = vec![];
     let mut next = NextCalls::default();
     let windows = widen_matches(
@@ -465,13 +464,35 @@ fn a_block_with_no_outline_leads_to_the_rest_of_the_file() {
         &mut vec![],
         &mut next,
     );
-    assert_eq!(windows, vec![LineRange { start: 2, end: 2 }]);
+    assert_eq!(windows, vec![LineRange { start: 2, end: 6 }]);
+    assert!(warnings[0].contains("indentation"), "{warnings:?}");
+    assert!(warnings[0].contains("estimate"), "{warnings:?}");
+    assert!(next.read.is_none());
+}
+
+/// With no later line at the head's indent or less the edge is unknown: the
+/// window stays and the related read reads to the file's last line, which pages.
+#[test]
+fn a_block_with_no_outline_and_no_edge_leads_to_the_rest_of_the_file() {
+    let rb = "  def route(verb)\n    verb\n    other\n";
+    let mut warnings = vec![];
+    let mut next = NextCalls::default();
+    let windows = widen_matches(
+        rb,
+        "lib/app.rb",
+        &[1],
+        vec![LineRange { start: 1, end: 1 }],
+        &mut warnings,
+        &mut vec![],
+        &mut next,
+    );
+    assert_eq!(windows, vec![LineRange { start: 1, end: 1 }]);
     assert!(warnings[0].contains("related read"), "{warnings:?}");
     let read = next.read.expect("a read on");
     assert_eq!(
         local_fetch_query::line_ranges(&read.query),
         vec![LineRange {
-            start: 2,
+            start: 1,
             end: rb.lines().count()
         }]
     );

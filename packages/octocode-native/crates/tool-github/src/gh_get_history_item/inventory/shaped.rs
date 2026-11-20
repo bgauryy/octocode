@@ -8,9 +8,9 @@ pub(in crate::gh_get_history_item) struct ShapedFiles {
     /// In-scope text files a `matchString` could not search because GitHub
     /// sent no patch for them, as compact `!reason path` rows.
     pub(in crate::gh_get_history_item) unsearched: Vec<String>,
-    /// The first of those paths (the source-read template), and whether
-    /// the change removed it (its text is at the base).
-    pub(in crate::gh_get_history_item) first_unsearched: Option<(String, bool)>,
+    /// Those paths a source read can search (not a withheld file), each
+    /// with whether the change removed it (its text is at the base).
+    pub(in crate::gh_get_history_item) leads_unsearched: Vec<(String, bool)>,
     /// `(dropped, listed)`: in-scope searched files a `matchString` dropped
     /// for holding no hit, beside files it kept; `None` when it dropped none
     /// or kept none (an unmatched literal is stated on its own).

@@ -79,8 +79,7 @@ pub struct UnitAnswers {
 
 /// The requests a call is planned as before any is sent, and their price:
 /// the request bodies' bytes and the input tokens they cost at most
-/// ([`Evaluator::tokens_at_most`]; `None` before any request was taken here,
-/// when nothing bounds the provider's own prompt). With no refusal and no
+/// ([`Evaluator::tokens_at_most`]). With no refusal and no
 /// missing answer, `requests` is the number sent; `requests_at_most` bounds
 /// what the refusals, splits and re-asks can add (transient retries aside).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -88,7 +87,7 @@ pub struct Plan {
     pub requests: usize,
     pub requests_at_most: u64,
     pub body_bytes: usize,
-    pub input_tokens_at_most: Option<u64>,
+    pub input_tokens_at_most: u64,
 }
 
 /// One request of a round.
@@ -204,7 +203,7 @@ impl Evaluator {
         let model = call.model.unwrap_or(&self.model);
         let mut body_bytes = 0_usize;
         let mut requests_at_most = 0_u64;
-        let mut tokens = Some(0_u64);
+        let mut tokens = 0_u64;
         let works = self.works(call, &judged_ordinals(call), group_units, false);
         for work in &works {
             let (bytes, at_most, at_most_tokens) = match work {
@@ -239,9 +238,7 @@ impl Evaluator {
             };
             body_bytes = body_bytes.saturating_add(bytes);
             requests_at_most = requests_at_most.saturating_add(at_most);
-            tokens = tokens
-                .zip(at_most_tokens)
-                .map(|(sum, more)| sum.saturating_add(more));
+            tokens = tokens.saturating_add(at_most_tokens);
         }
         Plan {
             requests: works.len(),

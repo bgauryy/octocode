@@ -16,9 +16,22 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
 const sandbox = readFileSync(join(scripts, 'cdp-sandbox.mjs'), 'utf8');
 const list = sandbox.match(/const SCRIPT_ENV_ALLOWLIST = \[([\s\S]*?)\];/);
 if (!list) throw new Error('SCRIPT_ENV_ALLOWLIST not found in cdp-sandbox.mjs');
-const forwarded = new Set(
-  [...list[1].matchAll(/["']([A-Z0-9_]+)["']/g)].map(match => match[1])
+// The sandbox also forwards every recipe option the contract declares (one source for new recipes).
+const { chromeRecipeOptionNames } = await import(
+  join(scripts, 'chrome-contract.mjs')
 );
+if (
+  !/\.\.\.new Set\(Object\.values\(chromeRecipeOptionNames\)\.flat\(\)\)/.test(
+    list[1]
+  )
+)
+  throw new Error(
+    'SCRIPT_ENV_ALLOWLIST no longer spreads the contract recipe options'
+  );
+const forwarded = new Set([
+  ...[...list[1].matchAll(/["']([A-Z0-9_]+)["']/g)].map(match => match[1]),
+  ...Object.values(chromeRecipeOptionNames).flat(),
+]);
 
 // Set by the sandbox itself for every child, so scripts may read them without an allowlist entry.
 const provided = new Set([

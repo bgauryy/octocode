@@ -126,6 +126,7 @@ pub(super) fn file_of(opts: &TextSearchOptions, mode: Mode, mut r: FileRec) -> T
     let counted = crate::types::FileCounts {
         occurrences: r.submatches,
         lines: r.matched_lines,
+        masked: r.masked,
     };
     // What each term held in the file, when the search counted terms: a
     // count view lists it, and any other view's caller reads which terms hit.
@@ -196,6 +197,7 @@ pub(super) fn build_stats(
     let CollectResult {
         recs: _,
         files_searched,
+        masked_spans,
         bytes_searched,
         files_matched,
         submatches,
@@ -242,6 +244,7 @@ pub(super) fn build_stats(
         matched_lines: Some(total_matched_lines),
         files_matched: Some(files_matched),
         files_searched: Some(saturating_u32(files_searched)),
+        masked_spans: opts.count_masked.then(|| saturating_u32(masked_spans)),
         bytes_searched,
         capped: Some(capped),
         cap_reasons,

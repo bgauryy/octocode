@@ -1,7 +1,7 @@
-//! A search judges only the files its matches could be in: a file whose own
-//! bytes hold no match serves a judged text without one, so it is not
-//! judged. A hidden value still makes no hit, and a placeholder is still
-//! found where a read shows it.
+//! A search judges every text file it reads: the count of masked spans it
+//! states (`maskedSpans`) must not depend on the pattern, so no file is
+//! skipped by its bytes. A hidden value still makes no hit, and a
+//! placeholder is still found where a read shows it.
 use super::*;
 use octocode_test_support::json_fixture;
 use serde_json::json;
@@ -66,22 +66,22 @@ fn only_files_whose_bytes_match_are_judged() {
     .expect("fixture");
     fs::write(root.join("blob.bin"), b"\0\x01\x02 needle\n").expect("fixture");
 
-    // No file's bytes hold it: none is judged.
+    // No file's bytes hold it: every text file is judged all the same.
     let (files, judged) = listed(&root, json_fixture(r#"{"matchString": ["defects-queue"]}"#));
     assert!(files.is_empty(), "{files:?}");
-    assert!(judged.is_empty(), "{judged:?}");
+    assert_eq!(judged, ["plain.txt", "tok.rs"], "{judged:?}");
 
-    // Only the file whose bytes match is judged, and it is listed.
+    // Only the file whose bytes match is listed; the judged files are the same.
     let (files, judged) = listed(&root, json_fixture(r#"{"matchString": ["needle"]}"#));
     assert_eq!(files, ["tok.rs"]);
-    assert_eq!(judged, ["tok.rs"]);
+    assert_eq!(judged, ["plain.txt", "tok.rs"]);
 
     // The hidden value, or a part of it, is no hit, though its bytes hold it.
     for needle in [token.as_str(), &token[4..14]] {
         let (files, judged) = listed(&root, json!({"matchString": [needle]}));
         assert!(files.is_empty(), "{needle}: {files:?}");
         assert!(judged.iter().any(|name| name == "tok.rs"), "{judged:?}");
-        assert!(!judged.iter().any(|name| name == "plain.txt"), "{judged:?}");
+        assert!(judged.iter().any(|name| name == "plain.txt"), "{judged:?}");
     }
 
     // A placeholder is text the read wrote, never found, though a read
@@ -132,9 +132,8 @@ fn the_written_text_a_match_could_take_is_every_placeholder() {
 }
 
 /// Several terms searched without case run as one alternation of
-/// case-folded groups: a file whose bytes hold none of them is not judged,
-/// as for one term, and a file whose bytes hold one in another case is
-/// judged and found.
+/// case-folded groups: a file whose bytes hold one in another case is
+/// found; every text file is judged, as for one term.
 #[test]
 fn several_terms_without_case_judge_only_files_whose_bytes_match() {
     let root = tempfile::tempdir().expect("fixture directory");
@@ -154,13 +153,13 @@ fn several_terms_without_case_judge_only_files_whose_bytes_match() {
         json!({"matchString": terms, "caseMode": "insensitive"}),
     );
     assert_eq!(files, ["held.rs"]);
-    assert_eq!(judged, ["held.rs"], "{judged:?}");
-    // Not one file's bytes hold any of them: none is judged.
+    assert_eq!(judged, ["held.rs", "other.rs", "plain.txt"], "{judged:?}");
+    // Not one file's bytes hold any of them: none is listed.
     fs::remove_file(root.join("held.rs")).expect("remove");
     let (files, judged) = listed(
         &root,
         json!({"matchString": terms, "caseMode": "insensitive"}),
     );
     assert!(files.is_empty(), "{files:?}");
-    assert!(judged.is_empty(), "{judged:?}");
+    assert_eq!(judged, ["other.rs", "plain.txt"], "{judged:?}");
 }

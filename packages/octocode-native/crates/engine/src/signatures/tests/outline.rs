@@ -539,3 +539,20 @@ fn a_string_row_of_another_grammars_member_body_stays() {
     assert!(outline.contains("\"content-type\": string;"), "{outline}");
     assert!(outline.contains("'x-id': number;"), "{outline}");
 }
+
+/// A macro call whose generated items are not read keeps a row of its own,
+/// marked left out, so its body is no silent gap in the outline.
+#[test]
+fn an_item_macro_call_with_an_unreadable_body_keeps_a_marked_row() {
+    let mut source = String::from(
+        "pub fn first() {}\n\nlisting_fields!(Query {\n    const LAYOUT: &'static str = \"x\";\n    fn sort(&self) {}\n});\n\n",
+    );
+    for i in 0..40 {
+        source.push_str(&format!("pub fn run{i}(value: usize) -> usize {{\n    value\n}}\n"));
+    }
+    let outline = extract_signatures_inner(&source, "lib.rs").expect("outline");
+    assert!(
+        outline.lines().any(|row| row == "3\tlisting_fields!(Query { …"),
+        "{outline}"
+    );
+}

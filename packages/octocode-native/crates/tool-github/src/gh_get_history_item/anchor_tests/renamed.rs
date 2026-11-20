@@ -59,7 +59,8 @@ async fn a_commit_of_a_renamed_repository_leads_canonically() {
 }
 
 /// A comparison read under the old name leads (the changed file's read,
-/// its commits) under the canonical one.
+/// its commits) under the canonical one. A file filter pages the commits
+/// apart, so the read has a commits lead to check.
 #[tokio::test]
 async fn a_comparison_of_a_renamed_repository_leads_canonically() {
     let server = MockServer::builder().start().await;
@@ -76,7 +77,8 @@ async fn a_comparison_of_a_renamed_repository_leads_canonically() {
     .await;
     let out = read_renamed(
         &server,
-        json!({"operation":"compare","owner":"a","repo":"b","baseRef":BASE,"headRef":HEAD}),
+        json!({"operation":"compare","owner":"a","repo":"b","baseRef":BASE,"headRef":HEAD,
+            "minChanges":1}),
     )
     .await;
     assert_eq!(out["headCommitSha"], HEAD, "{out}");

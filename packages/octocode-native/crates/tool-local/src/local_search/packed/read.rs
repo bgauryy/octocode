@@ -155,6 +155,7 @@ impl<'a> Reader<'a> {
         let counted = octocode_engine::types::FileCounts {
             occurrences: self.small()?,
             lines: self.small()?,
+            masked: self.small()?,
         };
         let sort_time = self.time()?;
         let source = match self.number()? {

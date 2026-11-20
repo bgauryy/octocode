@@ -3,6 +3,7 @@ import { readdirSync, statSync, rmSync, existsSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { flagArgs, validateFlags } from './cli-flags.mjs';
 import { errorMessage } from './error-message.mjs';
+import { RUN_DIR_MAX_AGE_DAYS } from './sandbox-staging.mjs';
 import { octocodeWorkspace, packageTmpDir } from './engine-io.mjs';
 
 type RunDir = { name: string; path: string; mtimeMs: number };
@@ -12,7 +13,7 @@ const { getArg, hasFlag } = flagArgs(argv);
 
 if (hasFlag('--help') || hasFlag('-h')) {
   console.log(
-    '[PRUNE] Usage: node prune-artifacts.mjs [--max-age-days 3] [--max-count 50] [--dry-run] [--base <dir>]'
+    `[PRUNE] Usage: node prune-artifacts.mjs [--max-age-days ${RUN_DIR_MAX_AGE_DAYS}] [--max-count 50] [--dry-run] [--base <dir>]`
   );
   process.exit(0);
 }
@@ -22,7 +23,9 @@ validateFlags(
   ['--max-age-days', '--max-count', '--base'],
   ['--help', '-h', '--dry-run']
 );
-const MAX_AGE_DAYS = Number(getArg('--max-age-days', '3'));
+const MAX_AGE_DAYS = Number(
+  getArg('--max-age-days', String(RUN_DIR_MAX_AGE_DAYS))
+);
 const MAX_COUNT = Number(getArg('--max-count', '50'));
 if (
   !Number.isFinite(MAX_AGE_DAYS) ||

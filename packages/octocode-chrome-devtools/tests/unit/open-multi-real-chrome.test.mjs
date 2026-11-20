@@ -4,9 +4,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
-import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
+import { freePortText as freePort } from '../fixtures/free-port.mjs';
 
 const pkg = join(import.meta.dirname, '../..');
 const bin = join(pkg, 'bin/octocode-chrome-devtools.mjs');
@@ -17,15 +17,6 @@ const chromeCandidates = [
   ),
 ];
 const skip = !chromeCandidates.some(existsSync) && 'no Chrome installed';
-
-const freePort = () =>
-  new Promise((resolve, reject) => {
-    const server = createServer().listen(0, '127.0.0.1', () => {
-      const { port } = server.address();
-      server.close(() => resolve(String(port)));
-    });
-    server.on('error', reject);
-  });
 
 const serverSource = `
 require('node:http').createServer((req, res) => {
@@ -173,6 +164,14 @@ test(
       await fetch(
         `http://127.0.0.1:${port}/json/close/${grouped.tabs[2].targetId}`
       );
+      // Chrome drops a closed target from /json/list asynchronously: wait for it, not for a delay.
+      for (let tries = 0; tries < 100; tries++) {
+        const stillListed = await (
+          await fetch(`http://127.0.0.1:${port}/json/list`)
+        ).json();
+        if (!stillListed.some(t => t.id === grouped.tabs[2].targetId)) break;
+        await new Promise(r => setTimeout(r, 50));
+      }
       const closed = engine(
         'snapshot',
         '--port',

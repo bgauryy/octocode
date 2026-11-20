@@ -30,7 +30,7 @@ For many ambiguous saved records or images, load `clasify-screen`: exact fields 
 - `page-snapshot` → `DOM_REF=eN` on `dom-operations-check`; prefer refs over guessed CSS. Input is trusted by default; `fill` replaces text, `type` sends keystrokes (key handlers, autocomplete), `press DOM_KEY=Enter` submits. Read `[VERIFY]`: `MISMATCH` or `NO_VISIBLE_EFFECT` means the step did not land. After a hover/click that opens UI, act on the printed `[NEW] [eN]` refs without re-snapshotting. Icon-only or visual layouts: `SHOT_ANNOTATE=1` screenshot maps boxes to refs.
 - A known multi-step sequence fits one `run(cdp)`.
 - One meaningful mutation per step; confirm with a targeted check, not a new full snapshot. Listeners miss past events, so re-read current state.
-- **WebMCP**: every fresh `open` launch enables it on Chrome 150+; a reused browser keeps its own flags. Before DOM clicks, run `webmcp-tools` with `WEBMCP_ACTION=list`, then `invoke` a suitable tool with `WEBMCP_TOOL` and `WEBMCP_INPUT`. `WEBMCP_NO_TOOLS` is common; fall back to DOM. Mutating tools need the same authorization as DOM actions.
+- **WebMCP**: every fresh `open` launch enables it on Chrome 150+; a reused browser keeps its own flags. Before DOM clicks, run `webmcp-tools` with `WEBMCP_ACTION=list`, then `invoke` a suitable tool with `WEBMCP_TOOL` and `WEBMCP_INPUT`. `WEBMCP_NO_TOOLS` is common; fall back to DOM. A fresh launch reports `WebMCP` in `enableFeaturesConfigured`; an unflagged reused browser reports `WEBMCP_NO_TOOLS` because its pages cannot register tools, so run `cleanup` or use another port. Mutating tools need the same authorization as DOM actions.
 - For an `octocode-scraping` corpus, CDP validates its graph actions and returns URLs/data to that corpus.
 
 ## Auth

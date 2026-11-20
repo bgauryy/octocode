@@ -264,6 +264,10 @@ fn list_tree(
         .map(|path| path.trim_end_matches('/'))
         .collect::<Vec<_>>();
     let mut present = vec![false; requested.len()];
+    // A directory-only scope keeps the root's own files, so a credential
+    // file there is in scope too; a scope naming a file keeps none.
+    let mut file_requested = false;
+    let mut root_withheld = Vec::new();
     // Blobs of the files a checkout of `rev` may write (not credential-named,
     // in any scope).
     let mut written = std::collections::HashSet::new();
@@ -287,6 +291,7 @@ fn list_tree(
             let mut meta = meta.split_whitespace();
             let mode = meta.next();
             let kind = meta.next();
+            file_requested |= kind == Some("blob") && requested.contains(&path);
             for (requested, present) in requested.iter().zip(present.iter_mut()) {
                 *present |= path == *requested
                     || path
@@ -310,15 +315,23 @@ fn list_tree(
             });
             if !is_sensitive_repository_file(path) {
                 written.insert(blob.to_owned());
-            } else if in_scope {
-                withheld.push(WithheldFile {
+            } else if in_scope || (scope.is_some() && !path.contains('/')) {
+                let file = WithheldFile {
                     path: path.to_owned(),
                     blob: blob.to_owned(),
                     shared: false,
-                });
+                };
+                if in_scope {
+                    withheld.push(file);
+                } else {
+                    root_withheld.push(file);
+                }
             }
             Ok(())
         })?;
+    if !file_requested {
+        withheld.append(&mut root_withheld);
+    }
     for file in &mut withheld {
         file.shared = written.contains(&file.blob);
     }

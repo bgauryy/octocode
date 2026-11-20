@@ -33,6 +33,7 @@ export type PlanStep = {
   fields?: string[];
   allowEmpty?: boolean;
   method?: string;
+  acknowledge?: boolean;
   params?: Record<string, unknown>;
   domain?: string;
   member?: string;

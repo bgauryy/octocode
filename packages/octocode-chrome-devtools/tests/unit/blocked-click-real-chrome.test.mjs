@@ -11,9 +11,9 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
+import { freePort } from '../fixtures/free-port.mjs';
 
 const bin = join(import.meta.dirname, '../../bin/octocode-chrome-devtools.mjs');
 const chromeCandidates = [
@@ -28,15 +28,6 @@ const page = `<button id=b style="position:absolute;left:20px;top:20px;width:120
   onclick="out.textContent=Number(out.textContent)+1">Go</button><output id=out>0</output>
   <div id=cover style="position:fixed;inset:0;background:rgba(0,0,0,.2)"></div>`;
 const url = `data:text/html,${encodeURIComponent(page)}`;
-
-const freePort = () =>
-  new Promise((resolve, reject) => {
-    const server = createServer().listen(0, '127.0.0.1', () => {
-      const { port } = server.address();
-      server.close(() => resolve(port));
-    });
-    server.on('error', reject);
-  });
 
 test(
   'an overlay-blocked click reports the blocker, leaves the counter at 0 and a later click counts once',

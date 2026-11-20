@@ -165,7 +165,7 @@ pub fn each_own_in<T: Searched + ?Sized, E>(
 const FILLER: u8 = 0x01;
 
 /// `bytes` with each byte of `hidden` made [`FILLER`].
-fn fill(bytes: &[u8], hidden: &[Range<usize>]) -> Vec<u8> {
+pub(super) fn fill(bytes: &[u8], hidden: &[Range<usize>]) -> Vec<u8> {
     let mut filled = bytes.to_vec();
     for range in hidden {
         if let Some(written) = filled.get_mut(range.clone()) {

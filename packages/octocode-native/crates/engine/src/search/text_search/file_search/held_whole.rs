@@ -89,7 +89,16 @@ impl<M: Matcher> FileSearcher<'_, M> {
             .inspect_deferred
             .as_ref()
             .map(|inspect| (inspect, path));
-        self.searcher.search_slice(self.matcher, bytes, &mut sink)?;
+        // An inverted search runs over the text with what the judge wrote made
+        // filler, so a line whose only match is a placeholder's spelling is
+        // no match; its lines are read from the served text.
+        let filled = (self.opts.invert_match.unwrap_or(false) && !written.is_empty())
+            .then(|| super::super::written::fill(bytes, written));
+        if filled.is_some() {
+            sink.inverted_over = Some(bytes);
+        }
+        self.searcher
+            .search_slice(self.matcher, filled.as_deref().unwrap_or(bytes), &mut sink)?;
         let binary_at = sink
             .binary_offset
             .filter(|offset| *offset != 0 && *offset <= MAX_BINARY_PREFIX_BYTES);
@@ -108,7 +117,17 @@ impl<M: Matcher> FileSearcher<'_, M> {
                 prefix_sink.written = written;
                 prefix_sink.source = Some(path);
                 prefix_sink.line_scope = self.opts.line_scope.as_ref().map(|scope| (scope, path));
-                prefix_searcher.search_slice(self.matcher, prefix, &mut prefix_sink)?;
+                let filled_prefix = filled
+                    .as_deref()
+                    .map(|filled| &filled[..prefix.len().min(filled.len())]);
+                if filled_prefix.is_some() {
+                    prefix_sink.inverted_over = Some(prefix);
+                }
+                prefix_searcher.search_slice(
+                    self.matcher,
+                    filled_prefix.unwrap_or(prefix),
+                    &mut prefix_sink,
+                )?;
                 let mut outcome = FileOutcome::from(prefix_sink);
                 outcome.binary = true;
                 outcome.opaque = is_leading_binary(prefix, outcome.matched_lines > 0);

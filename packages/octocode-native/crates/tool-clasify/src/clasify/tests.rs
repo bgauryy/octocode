@@ -502,8 +502,8 @@ fn an_over_budget_row_states_its_price_and_offers_the_confirm_call() {
             planned: 3,
             ceiling: Some(6),
             room: 3,
+            tokens: Some(21_400),
         },
-        input_tokens_at_most: Some(21_400),
         limit: reply::Limit::Max(2),
         room: 3,
         spent: 0,
@@ -538,19 +538,6 @@ fn an_over_budget_row_states_its_price_and_offers_the_confirm_call() {
     let fresh = reply::over_budget(&rows[0], &over, false);
     assert!(fresh["next"].get("confirm").is_none(), "{fresh:#}");
     assert_eq!(fresh["related"][0]["input"]["queries"][0]["maxRequests"], 6);
-    // Before the provider has answered a request here, nothing bounds its
-    // own prompt: the price states its requests, no token figure, and says
-    // why.
-    let unbounded = reply::OverBudget {
-        input_tokens_at_most: None,
-        ..over
-    };
-    let out = reply::over_budget(&rows[0], &unbounded, true);
-    assert_eq!(
-        out["usage"],
-        json!({"calls":0,"requestsPlanned":3,"requestsCeiling":6})
-    );
-    assert_eq!(out["warnings"], json!([reply::UNPRICED_TOKENS]), "{out:#}");
 }
 
 /// A price is stated in the usage of a row that sent a request.
@@ -561,6 +548,7 @@ fn a_rows_price_is_stated_in_its_usage() {
         planned: 1,
         ceiling: Some(3),
         room: 0,
+        tokens: Some(900),
     };
     reply::priced(&mut row, Some(price));
     assert_eq!(
@@ -587,7 +575,7 @@ fn a_row_is_admitted_by_its_first_round_within_its_cap_or_what_it_names() {
                 at_most,
                 bounded: true,
                 units: 1,
-                tokens: None,
+                tokens: 0,
             };
             let full = octocode_tools_shared::judgment::RequestCap::ceiling(at_most, retries);
             for max in 1..=12_u64 {
@@ -645,8 +633,8 @@ fn every_bound_refusal_is_a_row_the_output_contract_takes() {
             planned: 3,
             ceiling: Some(7),
             room: 3,
+            tokens: Some(0),
         },
-        input_tokens_at_most: None,
         limit,
         room: 3,
         spent,

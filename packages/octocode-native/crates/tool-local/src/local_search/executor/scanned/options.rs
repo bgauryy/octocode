@@ -139,6 +139,7 @@ pub(crate) fn search_options(
         // withholds make no hit, count or listing, nor does a placeholder
         // it writes in their place (see `judge`).
         judge: Some(judge(octocode_runtime_base::security::SourceLimits::REAL)),
+        count_masked: true,
     }
 }
 

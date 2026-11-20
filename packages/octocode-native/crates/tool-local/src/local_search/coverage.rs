@@ -257,6 +257,13 @@ impl Coverage {
         hints.retain(|hint| hint != SCOPE_MISS_HINT);
     }
 
+    /// Remove the path and glob advice of a search that found nothing to
+    /// walk or filter: it does not hold where the scope is a checkout of
+    /// some of its repository.
+    pub(super) fn drop_generic_scope_hints(hints: &mut Vec<String>) {
+        hints.retain(|hint| hint != SCOPE_MISS_HINT && hint != NOTHING_WALKED_HINT);
+    }
+
     /// An empty row's one per-call fact beyond `status` and `filesScanned`;
     /// unreadable paths and a binary cut are stated once, in `warnings`. A
     /// plain miss has none: the status and the scanned count already say it.
@@ -283,12 +290,14 @@ impl Coverage {
     /// not, as counts, and the `step` its lead takes. Entries the path policy
     /// withholds are counted, never hedged over: no setting lifts them, so no
     /// search could read them. Text a read masks as a secret is never
-    /// matched ([`MASKED_UNSEARCHED`]): the sentence says so on every empty
-    /// page, whatever was masked, so it tells nothing of what a mask hides.
+    /// matched ([`MASKED_UNSEARCHED`]): the sentence says so when the
+    /// searched files hold masked spans (`masked`), a count that does not
+    /// depend on the pattern, so it tells nothing of what a mask hides.
     pub(super) fn absence(
         &self,
         view: super::local_search_query::View,
         (files_searched, binary_skipped): (u32, u32),
+        masked: bool,
         step: Option<String>,
     ) -> String {
         use octocode_engine::text::counted;
@@ -319,8 +328,10 @@ impl Coverage {
             sentence.push_str("; not searched: ");
             sentence.push_str(&unsearched.join(", "));
         }
-        sentence.push_str("; ");
-        sentence.push_str(MASKED_UNSEARCHED);
+        if masked {
+            sentence.push_str("; ");
+            sentence.push_str(MASKED_UNSEARCHED);
+        }
         if let Some(step) = step {
             sentence.push_str("; ");
             sentence.push_str(&step);
@@ -330,7 +341,8 @@ impl Coverage {
     }
 }
 
-/// What no search matches, stated on every empty page: the text a read
+/// What no search matches, stated on an empty page whose files hold masked
+/// spans: the text a read
 /// masks as a secret, and the placeholders it shows there.
 pub(super) const MASKED_UNSEARCHED: &str = "masked secrets are not searched";
 

@@ -39,14 +39,22 @@ pub(super) async fn compare(
     let page = gh_get_history_item_query::page(query).unwrap_or(1);
     let per = gh_get_history_item_query::collection_page_size(query);
     // Named sections read what they name. Omitted sections answer with the
-    // range's files; its commits (counted by `aheadBy`) are paged apart, from
-    // their first page, by `sectionPagination.commits` or `sections:
-    // ["commits"]`. A patch window continues one file page's patches only.
+    // range's files and, unfiltered, its first commit page (GitHub answers
+    // both in one read). A file filter (`include`, `fileStatus`,
+    // `minChanges`, `matchString`) does not scope the commits: a filtered
+    // read pages them apart, from their first page, by
+    // `sectionPagination.commits` or `sections: ["commits"]`. A patch window
+    // continues one file page's patches only.
     let window = gh_get_history_item_query::char_offset(query).is_some_and(|offset| offset > 0);
     let sections = query.sections();
     let named = gh_get_history_item_query::has_sections(query);
     let files_asked = !named;
-    let wants_commits = !window && named && sections.has(Section::Commits);
+    let lists_first_commits = files_asked
+        && first_page(query)
+        && !gh_get_history_item_query::has_file_filter(query)
+        && gh_get_history_item_query::match_strings(query).is_none();
+    let wants_commits =
+        !window && ((named && sections.has(Section::Commits)) || lists_first_commits);
     let wants_files = !named || sections.lists_files();
     let Comparison {
         mut raw,
@@ -123,7 +131,8 @@ pub(super) async fn compare(
             )],
         );
     }
-    let commits = wants_commits.then(|| {
+    // A range with no commits lists no commit page.
+    let commits = (wants_commits && (named || total > 0)).then(|| {
         attach_commit_page(
             &mut out,
             &raw,
@@ -140,7 +149,13 @@ pub(super) async fn compare(
     // A file answer leaves the range's commits to their own pages: the
     // section states their count with none shown, and its page lists them
     // from the first. An empty file answer is the whole answer.
-    if files_asked && !window && first_page(query) && total > 0 && out["status"] != "empty" {
+    if files_asked
+        && !lists_first_commits
+        && !window
+        && first_page(query)
+        && total > 0
+        && out["status"] != "empty"
+    {
         out["sectionPagination"][Axis::Commits.key()] =
             octocode_runtime_base::response::pages::PageFacts::unshown(total).to_value();
         cursors.commit_page = Some(1);

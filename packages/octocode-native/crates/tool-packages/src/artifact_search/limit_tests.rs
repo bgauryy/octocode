@@ -135,3 +135,20 @@ fn admission_bounds_limit_by_the_smallest_registry_maximum() {
         .is_err()
     );
 }
+
+/// A Maven search of several words says what Central's whole-word matching
+/// leaves out; one word, or another registry, says nothing of it.
+#[test]
+fn only_a_multi_word_maven_search_names_the_whole_word_limit() {
+    use super::pages::matches_whole_name_words;
+    let search = |ecosystem: &str, keywords: serde_json::Value| {
+        crate::artifact::query::artifact_query(
+            serde_json::json!({"operation": "search", "ecosystem": ecosystem, "keywords": keywords}),
+            None,
+        )
+    };
+    assert!(matches_whole_name_words(&search("maven", serde_json::json!(["jackson", "yaml"]))));
+    assert!(matches_whole_name_words(&search("maven", serde_json::json!(["jackson yaml"]))));
+    assert!(!matches_whole_name_words(&search("maven", serde_json::json!(["guava"]))));
+    assert!(!matches_whole_name_words(&search("nuget", serde_json::json!(["jackson", "yaml"]))));
+}

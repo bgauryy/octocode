@@ -31,6 +31,10 @@ pub struct BlockLine {
     shape: LineShape,
     /// It holds a [`BODY_RUN`]: this is a key's text, not a line near a mention.
     long: bool,
+    /// A [`BODY_RUN`] of the line is no hash: it holds a base64 byte that no
+    /// hex digit is. A key's text is that with all but certainty; a SHA or a
+    /// commit id is not, so a line holding only one never proves a block.
+    key_run: bool,
     /// The run is all the line holds of a key: code or a label stands before
     /// it. Such a line is no key's own line; it never proves a block.
     labelled: bool,
@@ -57,7 +61,11 @@ pub struct LineShapeScan {
     escape: bool,
     run: usize,
     run_has_text: bool,
+    /// Every byte of the current run is a hex digit.
+    run_hex: bool,
     long_run: bool,
+    /// A run of at least [`BODY_RUN`] holds a byte that is no hex digit.
+    key_run: bool,
     /// Bytes fed so far, and where the line's first [`BODY_RUN`] starts.
     fed: usize,
     long_run_at: Option<usize>,
@@ -137,7 +145,9 @@ impl Default for LineShapeScan {
             escape: false,
             run: 0,
             run_has_text: false,
+            run_hex: true,
             long_run: false,
+            key_run: false,
             fed: 0,
             long_run_at: None,
             long_run_end: 0,
@@ -154,6 +164,12 @@ impl LineShapeScan {
             let base64 = byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'=');
             self.run = if base64 { self.run + 1 } else { 0 };
             self.run_has_text = base64 && (self.run_has_text || byte.is_ascii_alphanumeric());
+            self.run_hex = if base64 {
+                self.run_hex && byte.is_ascii_hexdigit()
+            } else {
+                true
+            };
+            self.key_run |= self.run >= BODY_RUN && self.run_has_text && !self.run_hex;
             self.fed += 1;
             if self.run >= BODY_RUN && self.run_has_text && !self.long_run {
                 self.long_run = true;
@@ -287,6 +303,7 @@ impl LineShapeScan {
         BlockLine {
             shape: self.shape(head),
             long: self.long_run,
+            key_run: self.key_run,
             labelled: self.labelled_by_code(head),
             keyish: self.core_keyish,
         }
@@ -411,6 +428,14 @@ impl KeyBlockState {
                 self.lapse = 0;
                 true
             }
+            // The line right after BEGIN holds a key's run beside a label or
+            // code: the block is proven all the same. Missing a key leaks it;
+            // hiding a line of code is disclosed as masked.
+            (BlockPhase::Opened, _) if line.key_run => {
+                self.phase = BlockPhase::Keyed;
+                self.lapse = 0;
+                true
+            }
             // A line that only holds a key's run beside code still reads as
             // key text one line past the body, no further.
             (BlockPhase::Keyed, LineShape::Body) if line.long => {
@@ -512,7 +537,7 @@ pub fn key_line_bytes(line: &str) -> Option<std::ops::Range<usize>> {
         let lead = key_line_lead(head, &shape).len();
         let end = shape
             .labelled_run_end()
-            .map_or(line.len(), |end| last_body_run_end(bytes, end));
+            .map_or(line.len(), |end| last_key_byte_end(bytes, end));
         // A cut body's ellipsis (`...`, `…`) is no key byte.
         let end = line
             .get(..end)
@@ -554,24 +579,15 @@ pub fn key_line_bytes(line: &str) -> Option<std::ops::Range<usize>> {
     ))
 }
 
-/// Where the last [`BODY_RUN`] of `bytes` at or after `from` ends; `from`
-/// when none follows: a line that holds a key's run after its first holds
-/// key text up to there (`"MIIE…", "MIIE…"`).
-fn last_body_run_end(bytes: &[u8], from: usize) -> usize {
-    let base64 = |byte: &u8| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'=');
-    let mut end = from;
-    let mut at = from;
-    for run in bytes
-        .get(from..)
-        .unwrap_or_default()
-        .split(|byte| !base64(byte))
-    {
-        if run.len() >= BODY_RUN && run.iter().any(u8::is_ascii_alphabetic) {
-            end = at + run.len();
-        }
-        at += run.len() + 1;
-    }
-    end
+/// Where the last base64 letter or digit of `bytes` ends; `from` when none
+/// follows it. A line that holds a key's run holds key text up to there,
+/// whatever the length of the runs after the first: the tail of a key is the
+/// short run its last line ends with (`"MIIE…\n" +` then `"…\n"`).
+fn last_key_byte_end(bytes: &[u8], from: usize) -> usize {
+    bytes
+        .iter()
+        .rposition(u8::is_ascii_alphanumeric)
+        .map_or(from, |at| (at + 1).max(from))
 }
 
 /// `span` of `bytes` narrowed to its key text, so what a key line writes

@@ -200,8 +200,10 @@ async fn a_refused_page_leaves_the_row_partial_with_the_reset_time_and_no_adviso
     )
     .await
     .expect("row");
-    assert_eq!(data["sources"][0]["status"], "partial", "{data}");
+    // No advisory was read, so the source did not answer; a rate limit may clear.
+    assert_eq!(data["sources"][0]["status"], "failed", "{data}");
     assert_eq!(data["sources"][0]["errorCode"], "rateLimited", "{data}");
+    assert_eq!(data["retryable"], true, "{data}");
     // The entry says what was left unread; the reset time is the rate
     // limit's, said once for the response.
     assert_eq!(data["sources"][0]["why"], "Advisories not read.", "{data}");

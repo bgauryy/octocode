@@ -12,9 +12,9 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
+import { freePort } from '../fixtures/free-port.mjs';
 
 const bin = join(import.meta.dirname, '../../bin/octocode-chrome-devtools.mjs');
 const chromeCandidates = [
@@ -31,15 +31,6 @@ const TYPED = 'typed-secret-8c41f7';
 const page = `<!doctype html><title>Fixture</title><h1>Login</h1>
 <form onsubmit="document.cookie='sid=abc123;path=/';out.textContent='Welcome';return false">
 <input aria-label=User><button>Sign in</button></form><p id=out></p>`;
-
-const freePort = () =>
-  new Promise((resolve, reject) => {
-    const server = createServer().listen(0, '127.0.0.1', () => {
-      const { port } = server.address();
-      server.close(() => resolve(port));
-    });
-    server.on('error', reject);
-  });
 
 test(
   'inline snapshot, login plan, confirmed cookie transfer and the sandbox network refusal work on real Chrome',

@@ -2,11 +2,69 @@
 
 Load when a task needs methods beyond a recipe, a new domain, or a different target. Why: choose methods from the running Chrome schema and preserve their evidence.
 
-## Discover before choosing
+## Discover and validate from the installed Chrome
 
-Run `octocode-chrome-devtools /raw protocol`, or call `await cdp.protocol()` in a custom flow. This saves the browser's full `/json/protocol` schema. Page it with `octocode-chrome-devtools /raw artifact --file <saved-schema-path> --format json --pointer /domains`; inspect a selected domain, command, event, type, parameter, or return schema by JSON pointer. Follow `$ref` definitions in that same schema. Experimental and deprecated markers describe the schema. Verify method availability on the selected target.
+The method list is not declared here: it is the live schema of the Chrome on the connected port (`/json/protocol`, loopback only), cached per browser version under `.octocode/octocode-chrome-devtools/tmp/protocol-cache/` (mode 0600). Reference for the latest protocol: <https://chromedevtools.github.io/devtools-protocol/> (domain pages, e.g. <https://chromedevtools.github.io/devtools-protocol/tot/DOM/>); the installed schema wins when they differ.
 
-`cdp.send(method, params, sessionId?)` has no domain or method allowlist. The browser decides support. A listed method may require a browser target, an enabled domain, launch flags, or a platform capability. Report protocol errors; change the target or parameters based on the error and schema. Never claim all methods were tested.
+- `protocol Domain`: one-line summary of every method and event with experimental/deprecated flags and policy.
+- `protocol Domain.member`: compact JSON inline (params with type, optional, enum, description; returns; flags; policy; `docsUrl`). No saved file.
+- `protocol --search <keyword>` (or `protocol Domain --search <keyword>`): ranked hits over names, parameter names and descriptions, 25 per page; `next.continue` runs the following page (`--offset`).
+- `protocol` alone saves the full schema; page it with `artifact --pointer /domains`. Follow `$ref` types in that schema.
+
+Every `cdp` call (tool, CLI, plan op) is checked before it is sent: policy first, then the schema. Invalid params, a missing required param, a wrong type, an enum miss or an unknown parameter are refused locally with the expected params, the docs link and, for a mistyped method, the nearest names. `$step` references are checked once resolved at run time. Experimental and deprecated methods print a `[WARNING]` line. If the schema cannot be read, the call is sent unvalidated with a `[NOTE]`. A listed method may still need a target, an enabled domain, launch flags or a platform capability: report the protocol error and adjust from it. Never claim all methods were tested.
+
+## Safety policy
+
+One table (`src/engine/cdp-policy.mts`) classifies methods; every unlisted method is free.
+
+**Blocked**: refused always, never sent.
+
+| Method | Why and instead |
+|---|---|
+| `Browser.close` | closes the whole browser and every tab in it. Use the cleanup command to close a browser the engine opened. |
+| `Browser.crash` | deliberately crashes the browser process. Use the cleanup command to close a browser the engine opened. |
+| `Browser.crashGpuProcess` | deliberately crashes the GPU process. Use the cleanup command to close a browser the engine opened. |
+| `Page.crash` | deliberately crashes the page process. Use goto or reload to reset a page. |
+| `Page.close` | closes the page without releasing engine state. Use --close-tab, or the cleanup command for a browser the engine opened. |
+| `Security.setIgnoreCertificateErrors` | turns off certificate validation for every page. Fix the certificate, or open the browser with the documented launch option. |
+| `Target.setRemoteLocations` | exposes the browser to remote debugging locations. Connect to the loopback port only. |
+| `Target.exposeDevToolsProtocol` | hands the DevTools protocol to page scripts. Send the method from the engine instead. |
+
+**Needs the user's permission**: refused unless the call carries `acknowledge: true` (CLI `--acknowledge`, plan step field `acknowledge`). Ask the user first; the flag records that they agreed.
+
+| Method | Why |
+|---|---|
+| `Browser.grantPermissions` | grants site permissions (camera, location, clipboard...) |
+| `Browser.setPermission` | changes a site permission |
+| `Browser.resetPermissions` | resets every site permission |
+| `Browser.setDownloadBehavior` | lets pages write files to disk |
+| `Network.setCookie` | writes a cookie into the profile |
+| `Network.setCookies` | writes cookies into the profile |
+| `Network.deleteCookies` | deletes cookies from the profile |
+| `Network.clearBrowserCookies` | deletes every cookie |
+| `Network.getAllCookies` | reads every cookie value, secrets included |
+| `Network.getCookies` | reads cookie values, secrets included |
+| `Network.setExtraHTTPHeaders` | adds headers to every request |
+| `Network.setRequestInterception` | intercepts and can alter requests |
+| `Storage.getCookies` | reads cookie values, secrets included |
+| `Storage.setCookies` | writes cookies into the profile |
+| `Storage.clearCookies` | deletes cookies from the profile |
+| `Storage.clearDataForOrigin` | erases stored site data |
+| `DOMStorage.setDOMStorageItem` | writes site storage |
+| `IndexedDB.clearObjectStore` | erases stored site data |
+| `IndexedDB.deleteDatabase` | erases a site database |
+| `CacheStorage.deleteCache` | erases a site cache |
+| `Page.setBypassCSP` | disables the page content security policy |
+| `Page.addScriptToEvaluateOnNewDocument` | runs a script in every later document of the page |
+| `Emulation.setGeolocationOverride` | changes the location sites see |
+| `WebAuthn.addVirtualAuthenticator` | adds a fake authenticator |
+| `WebAuthn.addCredential` | stores a credential |
+| `WebAuthn.getCredentials` | reads stored credentials |
+| `Fetch.fulfillRequest` | answers a request with a made-up reply |
+| `Fetch.continueRequest` | modifies traffic in flight |
+| `Fetch.failRequest` | drops traffic in flight |
+
+A plan is refused before any browser call when a literal method is blocked, or needs permission and has no `acknowledge`. Runner scripts (`script`) are raw by design: `cdp.send` refuses only the blocked methods; needsAck is not enforced there.
 
 ## Targets and lifecycle
 

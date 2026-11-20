@@ -260,3 +260,26 @@ fn a_clipped_label_list_is_disclosed_as_the_contract_field() {
         &json!({"pullRequests": [row]}),
     );
 }
+
+/// A merged pull request names who merged it (REST `merged_by`, GraphQL
+/// `mergedBy`); an unmerged one names no one. `mergedBy` is a new row field:
+/// the contract assert passes once core declares it and the contract is
+/// regenerated.
+#[test]
+fn a_merged_row_names_who_merged_it() {
+    let base = json_fixture(
+        r#"{"number": 1, "title": "t", "user": {"login": "a"}, "state": "closed",
+            "created_at": "2026-01-01T00:00:00Z", "merged_by": {"login": "maintainer"}}"#,
+    );
+    let open = summary(base.clone());
+    assert!(open.get("mergedBy").is_none(), "{open}");
+    let merged = summary(merge(
+        base,
+        json_fixture(r#"{"merged_at": "2026-01-04T00:00:00Z"}"#),
+    ));
+    assert_eq!(merged["mergedBy"], "maintainer", "{merged}");
+    octocode_runtime_base::test_support::assert_row_contract(
+        octocode_runtime_base::id::ToolId::GhGetHistoryItem,
+        &json!({"pullRequests": [merged]}),
+    );
+}

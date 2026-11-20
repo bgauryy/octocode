@@ -1,5 +1,8 @@
 // Built-in flows: one data file each; flow-core validates every one against the real plan validator.
 import type { FlowDefinition } from './flow-types.mjs';
+import { emulationFlows } from './emulation-flows.mjs';
+import { inspectionFlows } from './inspection-flows.mjs';
+import { windowFlows } from './window-flows.mjs';
 import consoleNetworkAudit from './console-network-audit.mjs';
 import extractLinks from './extract-links.mjs';
 import fillForm from './fill-form.mjs';
@@ -14,4 +17,7 @@ export const builtinFlows: FlowDefinition[] = [
   paginateList,
   fullPageScreenshot,
   consoleNetworkAudit,
+  ...emulationFlows,
+  ...inspectionFlows,
+  ...windowFlows,
 ];

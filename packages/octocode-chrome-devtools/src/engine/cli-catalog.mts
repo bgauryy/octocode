@@ -1,9 +1,9 @@
 import { chromeCommands, chromeRecipeOptionNames } from './chrome-contract.mjs';
 // Option names come from the typed recipe options in the shared contract.
-const recipe = (file: string, description: string) => ({
+const recipe = (file: string, description: string, name = file) => ({
   file: `cdp-checks/${file}.mjs`,
   description,
-  options: chromeRecipeOptionNames[file] ?? [],
+  options: chromeRecipeOptionNames[name] ?? [],
 });
 export const checks = {
   'page-snapshot': recipe(
@@ -16,7 +16,7 @@ export const checks = {
   ),
   'dom-operations-check': recipe(
     'dom-operations-check',
-    'Legacy DOM actions; prefer step or run plans'
+    'Legacy DOM actions; prefer run plans'
   ),
   'live-har-monitor': recipe(
     'live-har-monitor',
@@ -41,6 +41,50 @@ export const checks = {
   'webmcp-tools': recipe(
     'webmcp-tools',
     'Discover or invoke page-declared WebMCP tools'
+  ),
+  'script-sources': recipe(
+    'script-sources',
+    'Save every script a page parses, with its source'
+  ),
+  'source-map': recipe(
+    'source-map-check',
+    'Resolve a script source map and map positions to original sources',
+    'source-map'
+  ),
+  'storage-dump': recipe(
+    'storage-dump-check',
+    'Dump storage, cache and service worker inventories with values redacted',
+    'storage-dump'
+  ),
+  'network-events': recipe(
+    'network-events-check',
+    'Record WebSocket, SSE and HTTP events in a bounded window',
+    'network-events'
+  ),
+  'network-conditions': recipe(
+    'network-conditions-check',
+    'Load a page offline, throttled, blocked or mocked',
+    'network-conditions'
+  ),
+  coverage: recipe(
+    'coverage-check',
+    'Measure used and unused JS and CSS bytes',
+    'coverage'
+  ),
+  'trace-capture': recipe(
+    'trace-capture-check',
+    'Capture a Chrome trace to a file',
+    'trace-capture'
+  ),
+  'heap-snapshot': recipe(
+    'heap-snapshot-check',
+    'Stream a heap snapshot to a file',
+    'heap-snapshot'
+  ),
+  'page-pdf': recipe(
+    'page-pdf-check',
+    'Print the current page to a PDF file',
+    'page-pdf'
   ),
   'actionability-diagnostics': recipe(
     'actionability-diagnostics',
@@ -112,6 +156,9 @@ export const launchValues = [
   '--chromePath',
   '--windowSize',
   '--enableFeatures',
+  '--disableFeatures',
+  '--blinkFeatures',
+  '--chrome-flags',
   '--userAgent',
   '--proxyServer',
   '--proxyBypassList',
@@ -132,7 +179,6 @@ export const launchBooleans = [
 ];
 export const planInputs = {
   run: ['--plan', '--json'],
-  step: ['--json'],
   cdp: ['--params'],
   protocol: [],
 };

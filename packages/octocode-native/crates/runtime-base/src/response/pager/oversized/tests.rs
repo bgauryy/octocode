@@ -53,3 +53,31 @@ fn unflagging_rejudges_what_the_page_still_holds() {
     unflag_fitting(&mut over, ToolId::LocalSearch, 100, true);
     assert!(over.get("oversized").is_none());
 }
+
+/// A member of a declared collection that declares nothing below it travels
+/// whole: a file's many line answers wider than the target are indivisible
+/// and flag the page, while the same member within the target does not.
+#[test]
+fn a_whole_collection_member_wider_than_the_target_is_indivisible() {
+    let lines: Map<String, Value> = (1..=12)
+        .map(|line| (line.to_string(), json!({"keep": {"noul": 0.9}})))
+        .collect();
+    let hits = page(json!({"results": [{"index":0,
+        "data": {"files": {"dense.txt": lines}}}]}));
+    let width = octocode_engine::json_size::utf16_units(
+        &hits["results"][0]["data"]["files"]["dense.txt"],
+    )
+    .expect("width");
+    assert!(holds_value_over(&hits, ToolId::Clasify, width - 1));
+    assert!(!holds_value_over(&hits, ToolId::Clasify, width));
+}
+
+/// A member that declares a collection below it is split there, never flagged
+/// for its width.
+#[test]
+fn a_member_with_a_declared_collection_below_it_is_not_whole() {
+    let matches: Vec<Value> = (0..20).map(|line| json!({"line": line, "value": "v"})).collect();
+    let hit = page(json!({"results": [{"index":0,
+        "data": {"files":[{"path":"a","matches":matches}]}}]}));
+    assert!(!holds_value_over(&hit, ToolId::LocalSearch, 50));
+}

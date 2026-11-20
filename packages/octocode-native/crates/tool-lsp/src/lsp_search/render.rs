@@ -207,14 +207,29 @@ fn declares_type_alias(line: &str, name: &str) -> bool {
         })
 }
 
+/// The name a node's `kind` carries in a public row: a server's numeric
+/// `SymbolKind` by its LSP name, a syntax rung's kind by [`wire_kind`].
 pub(super) fn symbol_kind_name(kind: Option<&Value>) -> String {
     if let Some(kind) = kind.and_then(Value::as_str) {
-        return kind.to_owned();
+        return wire_kind(kind).to_owned();
     }
     kind.and_then(Value::as_u64)
         .and_then(symbol_kind::name)
         .unwrap_or("unknown")
         .to_owned()
+}
+
+/// The one table from a syntax declaration kind to the LSP `SymbolKind`
+/// vocabulary every rung speaks: a trait is an `interface`, a union a
+/// `struct`, a type alias `typeAlias` (LSP has no alias kind; `typeParameter`
+/// is its generics). `impl`, `macro` and `label` have no LSP kind and stay.
+pub(super) fn wire_kind(kind: &str) -> &str {
+    match kind {
+        "trait" => "interface",
+        "union" => "struct",
+        "type" => "typeAlias",
+        other => other,
+    }
 }
 
 /// Evidence rows cut by the character budget, pinned to one result digest.

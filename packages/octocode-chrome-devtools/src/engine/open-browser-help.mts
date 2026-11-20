@@ -26,6 +26,11 @@ Options:
   --chromePath <path>     Explicit Chrome executable
   --windowSize <WxH>      Browser window size
   --enableFeatures <csv>  More Chrome feature flags (a fresh launch always enables WebMCP)
+  --disableFeatures <csv> Chrome features to disable
+  --blinkFeatures <csv>   Blink features to enable (--enable-blink-features)
+  --chrome-flags <csv>    Extra Chrome flags, each --name or --name=value; flags that weaken
+                          isolation or that another option owns are refused; the reply lists
+                          appliedFlags
   --userAgent <ua>        User-Agent override
   --proxyServer <url>     Proxy (also --proxyBypassList, --proxyPacUrl)
   --config <path>         Proxy configuration file

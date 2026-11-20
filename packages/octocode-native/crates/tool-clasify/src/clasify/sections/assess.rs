@@ -347,7 +347,7 @@ pub(super) fn plan_of(
         at_most,
         bounded: true,
         units: units.len(),
-        tokens: None,
+        tokens: 0,
     }
 }
 

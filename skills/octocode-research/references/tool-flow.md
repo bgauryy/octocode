@@ -14,8 +14,9 @@ The routes the server instructions serve, generated from core (`node skills/comm
 | questions over too many hits, paths, commits or thread entries; huge file, log, command output, many files or docs, images → clasify → next.read | `clasify` |
 | web page or URL → clasify source.url → next.read | `clasify` |
 | command output, git state → shell (§5) | always |
-| repo or library not in this checkout → ghSearchRepo → ghStructure (tree, tags) or ghSearchCode → ghGetFileContent | `ghSearchRepo`, `ghStructure`, `ghSearchCode`, `ghGetFileContent` |
+| repo or library not in this checkout → ghSearchRepo → ghStructure (tree, refs) or ghSearchCode → ghGetFileContent | `ghSearchRepo`, `ghStructure`, `ghSearchCode`, `ghGetFileContent` |
 | why, when, who → ghSearchHistory → ghGetHistoryItem | `ghSearchHistory`, `ghGetHistoryItem` |
+| first release with a change → its commit or PR, ghStructure refs, ghGetHistoryItem compare | `ghSearchHistory`, `ghStructure`, `ghGetHistoryItem` |
 | package version → artifactSearch → ghStructure → ghGetFileContent at its repo and ref | `artifactSearch`, `ghStructure`, `ghGetFileContent` |
 | known vulnerabilities, or a package before fetching or trusting it → securityCheck | `securityCheck` |
 | importers, cycles, impact, dead code → graphBuild → graphQuery | `graphBuild`, `graphQuery` |

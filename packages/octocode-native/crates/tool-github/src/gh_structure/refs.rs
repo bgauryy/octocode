@@ -123,16 +123,33 @@ pub(super) async fn refs(
             Ok(None)
         }
     };
-    let (default_branch, branches, tags) = tokio::try_join!(
+    // The default branch's commit travels with an unfiltered listing: the
+    // branch page may not hold it, and every default-branch read lands there.
+    let default_sha = async {
+        if pattern.is_some() {
+            return Ok(None);
+        }
+        // An empty repository has no commit: the listing stays whole.
+        provider
+            .transport
+            .commit_sha(owner, repo, "HEAD", context)
+            .await
+            .map_or(Ok(None), |sha| Ok::<_, ProviderError>(Some(sha)))
+    };
+    let (default_branch, branches, tags, default_sha) = tokio::try_join!(
         default_branch(provider, owner, repo, context),
         branches,
         tags,
+        default_sha,
     )?;
     let mut value = json!({
         "owner": owner,
         "repo": repo,
         "defaultBranch": default_branch,
     });
+    if let Some(sha) = default_sha {
+        value["defaultBranchSha"] = Value::from(sha);
+    }
     // The default-branch read named the canonical repository: leads use it,
     // and the tag order knows the repository's own tags by its name.
     let (renamed_warning, canonical) = octocode_tools_shared::gh_shared::canonical_query(
@@ -218,8 +235,30 @@ pub(super) async fn refs(
         // The last page of a paged listing says it is the last.
         value["pagination"] = pages.to_value();
     }
+    let unmatched = pattern.is_some() && page == 1 && listed_tags == 0 && listed_branches == 0;
+    if unmatched && let Some(glob) = query.ref_.as_deref() {
+        push_warning_front(
+            &mut value,
+            format!(
+                "No branch or tag of {owner}/{repo} matches the glob {glob:?}: `calls.listRefs` lists the refs without it."
+            ),
+        );
+        let mut unfiltered = query_row(query, &["page"]);
+        if let Some(row) = unfiltered.as_object_mut() {
+            row.remove("ref");
+        }
+        value["calls"]["listRefs"] = octocode_runtime_base::response::result::Continuation::related(
+            ToolId::GhStructure,
+            unfiltered,
+        )
+        .build();
+    }
     octocode_runtime_base::response::result::finish_calls(&mut value);
-    Ok(ToolData::from(value))
+    let mut output = ToolData::from(value);
+    if unmatched {
+        output.status = Some("empty");
+    }
+    Ok(output)
 }
 
 /// A `ref` holding a glob character (`*`, `?`, `[`) names no ref (git's

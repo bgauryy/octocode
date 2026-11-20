@@ -3362,3 +3362,30 @@ async fn package_details_list_each_record_with_its_ranges_and_references() {
     .expect("row");
     assert_eq!(lean["advisoryCount"], 1, "{lean}");
 }
+
+/// Both GitHub reads fail for one cause: the entry states the cause once.
+#[tokio::test]
+async fn one_transport_failure_is_stated_once_on_the_github_entry() {
+    use crate::security_check::AdvisoryRead;
+    use crate::security_check::github_double::Double;
+    use crate::security_check::repository::{RepoFailure, RepoRead};
+    let cause = "GitHub did not answer (providerError); the transport failed.";
+    let failure = || RepoFailure {
+        code: octocode_contract_types::ErrorCode::ProviderError,
+        why: cause.into(),
+    };
+    let http = monorepo_registry().osv_pages(vec![(
+        200,
+        json_fixture(
+            r#"{"vulns": [{"id": "OSV-1", "aliases": [],
+                "affected": [{"package": {"name": "lodash", "ecosystem": "npm"}}]}]}"#,
+        ),
+    )]);
+    let github = Double::repo(RepoRead::Failed(failure()))
+        .page_read(None, AdvisoryRead::Failed(failure()))
+        .global_page(None, AdvisoryRead::Failed(failure()));
+    let data = monorepo_page(&http, &github, None).await;
+    let why = github_entry(&data)["why"].as_str().expect("why");
+    assert_eq!(why.matches(cause).count(), 1, "{why}");
+    assert!(why.contains("advisory database"), "both reads named: {why}");
+}

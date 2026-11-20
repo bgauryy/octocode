@@ -12,9 +12,9 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
+import { freePort } from '../fixtures/free-port.mjs';
 
 const bin = join(import.meta.dirname, '../../bin/octocode-chrome-devtools.mjs');
 const chromeCandidates = [
@@ -28,14 +28,6 @@ const secret = 'Pw-7f3k9-unique';
 const page = `<!doctype html><title>Fixture</title><h1>Login</h1>
 <form onsubmit="document.cookie='sid=abc123;path=/';out.textContent='Welcome '+pw.value.length;return false">
 <input aria-label=User><input type=password id=pw aria-label=Password><button>Sign in</button></form><p id=out></p>`;
-const freePort = () =>
-  new Promise((resolve, reject) => {
-    const server = createServer().listen(0, '127.0.0.1', () => {
-      const { port } = server.address();
-      server.close(() => resolve(port));
-    });
-    server.on('error', reject);
-  });
 const files = dir =>
   readdirSync(dir, { withFileTypes: true }).flatMap(entry =>
     entry.isDirectory() ? files(join(dir, entry.name)) : [join(dir, entry.name)]

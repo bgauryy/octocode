@@ -604,18 +604,19 @@ fn the_plan_matches_the_requests_sent() {
     assert_eq!(plan.requests, 3);
     assert_eq!(plan.requests, provider.bodies().len());
     assert_eq!(plan.body_bytes, provider.body_bytes());
-    // Before the provider answered here, nothing bounds its own prompt.
-    assert_eq!(plan.input_tokens_at_most, None);
+    // Before the provider answered here, only its window bounds a request.
+    assert!(plan.input_tokens_at_most > 0);
+    assert!(plan.input_tokens_at_most <= provider.evaluator.request_window(false) * plan.requests_at_most);
     let learned = provider
         .evaluator
         .plan_units_at(&call(&units, &questions), 1);
-    assert!(learned.input_tokens_at_most >= Some(learned.body_bytes as u64));
+    assert!(learned.input_tokens_at_most >= learned.body_bytes as u64);
 }
 
 /// A price's input tokens are a bound a real run cannot pass, small
 /// requests included, where the provider's own prompt outweighs the body:
-/// none is stated before the provider answered a request here; after one,
-/// every plan (one item, packed items, hits of several files; one question
+/// before the provider answered a request here the stated window bounds it;
+/// after one, every plan (one item, packed items, hits of several files; one question
 /// or three) states at most what its run then reports.
 #[test]
 fn a_planned_token_price_bounds_what_the_run_reports() {
@@ -640,12 +641,14 @@ fn a_planned_token_price_bounds_what_the_run_reports() {
         (&item, &three),
     ];
     let first = units(cases[0].0);
-    assert_eq!(
+    // Before any answer a request is bounded by the window alone, which a
+    // small request's real cost stays under.
+    assert!(
         provider
             .evaluator
             .plan_units(&call(&first, cases[0].1))
-            .input_tokens_at_most,
-        None
+            .input_tokens_at_most
+            > 0
     );
     provider.judge(&call(&first, cases[0].1), super::requests::GROUP_UNITS);
     for (states, questions) in cases {
@@ -657,7 +660,7 @@ fn a_planned_token_price_bounds_what_the_run_reports() {
             .iter()
             .map(|spend| spend.input_tokens)
             .sum::<u64>();
-        let bound = plan.input_tokens_at_most.expect("a request was taken");
+        let bound = plan.input_tokens_at_most;
         assert!(
             reported <= bound,
             "{} units, {} questions: reported {reported} over {bound}",

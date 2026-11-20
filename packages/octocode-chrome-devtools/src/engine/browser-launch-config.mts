@@ -1,6 +1,7 @@
 // How a fresh Chrome is launched: the proxy from flags or config files, and the command-line flags.
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { chromeFlagDenylist } from './chrome-contract.mjs';
 import { errorMessage } from './error-message.mjs';
 import { octocodeWorkspace } from './engine-io.mjs';
 import { getOctocodeHome } from './octocode-config.mjs';
@@ -146,6 +147,48 @@ export function launchFeatures(requested: string) {
   );
 }
 
+/** A comma-separated feature list as trimmed, non-empty, unique names. */
+const featureNames = (csv: string) => [
+  ...new Set(
+    csv
+      .split(',')
+      .map(name => name.trim())
+      .filter(Boolean)
+  ),
+];
+
+const CHROME_FLAG_SHAPE = /^--[a-z][a-z0-9-]*(=[^\s,]*)?$/;
+const flagName = (entry: string) => entry.split('=')[0] ?? entry;
+
+/** The refusal text for one typed chrome flag, or null when it is allowed (denylist from the shared contract). */
+export function chromeFlagRefusal(entry: string): string | null {
+  if (!CHROME_FLAG_SHAPE.test(entry))
+    return `${entry} is not a valid Chrome flag: use --name or --name=value, no spaces or commas`;
+  const name = flagName(entry);
+  const denied = chromeFlagDenylist.find(rule =>
+    rule.prefix ? name.startsWith(rule.flag) : name === rule.flag
+  );
+  return denied ? `${name} is refused: ${denied.reason}` : null;
+}
+
+/**
+ * The typed chrome flags as unique entries. Throws a message naming the flag and reason for a
+ * malformed or denylisted entry, or for one name given twice with different values.
+ */
+export function validateChromeFlags(flags: readonly string[]): string[] {
+  const seen = new Map<string, string>();
+  for (const entry of flags) {
+    const refusal = chromeFlagRefusal(entry);
+    if (refusal) throw new Error(refusal);
+    const name = flagName(entry);
+    const earlier = seen.get(name);
+    if (earlier !== undefined && earlier !== entry)
+      throw new Error(`${name} is given twice with different values`);
+    seen.set(name, entry);
+  }
+  return [...seen.values()];
+}
+
 /** What open-browser launches: the port, profile, display, options and proxy. */
 type LaunchOptions = {
   port: string;
@@ -160,8 +203,19 @@ type LaunchOptions = {
   enableFeatures: string;
   proxy: ProxySettings;
   url: string;
+  /** Features to disable (CSV); one --disable-features switch. */
+  disableFeatures?: string;
+  /** Blink features to enable (CSV); one --enable-blink-features switch. */
+  blinkFeatures?: string;
+  /** Extra flags appended after the managed ones; each validated, none may repeat a managed flag. */
+  chromeFlags?: readonly string[];
   /** Explicit opt-in to Chrome's --no-sandbox (also applied automatically for root on Linux). */
   noSandbox?: boolean;
+};
+
+const switchArg = (name: string, csv: string | undefined) => {
+  const names = featureNames(csv ?? '');
+  return names.length ? [`${name}=${names.join(',')}`] : [];
 };
 
 function optionArgs(launch: LaunchOptions) {
@@ -171,11 +225,27 @@ function optionArgs(launch: LaunchOptions) {
       ? [`--window-size=${launch.windowSize.replace('x', ',')}`]
       : []),
     `--enable-features=${launchFeatures(launch.enableFeatures)}`,
+    ...switchArg('--disable-features', launch.disableFeatures),
+    ...switchArg('--enable-blink-features', launch.blinkFeatures),
   ];
 }
 
 /** The Chrome command line for a fresh browser on launch.port. */
 export function chromeLaunchArgs(launch: LaunchOptions) {
+  const managed = managedLaunchArgs(launch);
+  const extra = validateChromeFlags(launch.chromeFlags ?? []);
+  const managedNames = new Set(managed.map(flagName));
+  for (const entry of extra)
+    if (managedNames.has(flagName(entry)))
+      throw new Error(
+        `${flagName(entry)} is refused: the launch already sets it`
+      );
+  // The launch URL stays last; the extra flags follow every managed flag.
+  const url = launch.url ? [launch.url] : [];
+  return [...managed, ...extra, ...url];
+}
+
+function managedLaunchArgs(launch: LaunchOptions) {
   return [
     `--remote-debugging-port=${launch.port}`,
     `--user-data-dir=${launch.userDataDir}`,
@@ -189,6 +259,37 @@ export function chromeLaunchArgs(launch: LaunchOptions) {
     ...sandboxArgs(launch.os, launch.noSandbox),
     ...optionArgs(launch),
     ...proxyArgs(launch.proxy),
-    ...(launch.url ? [launch.url] : []),
   ];
+}
+
+/**
+ * The extra launch flags a call actually asked for, for the open reply: chrome flags, feature
+ * lists, user agent, window size, and proxy presence only (never the server or its credentials).
+ */
+export function appliedLaunchFlags(launch: {
+  chromeFlags: readonly string[];
+  enableFeatures: string;
+  disableFeatures: string;
+  blinkFeatures: string;
+  userAgent: string;
+  windowSize: string;
+  proxyRequested: boolean;
+}): { appliedFlags: string[]; proxy?: true } {
+  const list = (name: string, csv: string) => {
+    const names = featureNames(csv);
+    return names.length ? [`${name}=${names.join(',')}`] : [];
+  };
+  return {
+    appliedFlags: [
+      ...list('--enable-features', launch.enableFeatures),
+      ...list('--disable-features', launch.disableFeatures),
+      ...list('--enable-blink-features', launch.blinkFeatures),
+      ...(launch.userAgent ? ['--user-agent'] : []),
+      ...(launch.windowSize
+        ? [`--window-size=${launch.windowSize.replace('x', ',')}`]
+        : []),
+      ...validateChromeFlags(launch.chromeFlags),
+    ],
+    ...(launch.proxyRequested ? { proxy: true as const } : {}),
+  };
 }

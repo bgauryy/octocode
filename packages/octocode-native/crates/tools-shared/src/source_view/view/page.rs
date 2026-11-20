@@ -313,6 +313,10 @@ pub(super) fn page_result(
         selected_match_count: selection_outcome
             .map(|chosen| chosen.outcome.selected.len())
             .or(ext.count),
+        // A match read searched the whole source: its masked spans do not
+        // depend on the match strings.
+        masked_spans: Some(source.redactions_total())
+            .filter(|spans| *spans > 0 && !local_fetch_query::match_strings(asked).is_empty()),
         returned_bytes: Some(ret_bytes),
         returned_lines: Some(ret_lines),
         pagination: Some(pg.pagination),

@@ -530,6 +530,30 @@ fn the_example_is_of_the_operation_the_row_sent() {
     );
 }
 
+/// A field at fault as a whole is shown as a visible placeholder beside the
+/// row's own values, never core's example value: core's owner beside the
+/// row's repository would name a repository that may not exist.
+#[test]
+fn a_field_at_fault_is_a_placeholder_beside_the_rows_own_values() {
+    let sent =
+        json_fixture(r#"{"queries": [{"owner": "a b", "repo": "bat", "path": "README.md"}]}"#);
+    let error = prepare_rows("ghGetFileContent", sent.clone())
+        .map(|rows| rows.into_iter().find_map(Result::err).expect("rejected"))
+        .unwrap_or_else(|error| error);
+    let example = format_input_error("ghGetFileContent", &error, &[], &sent)["details"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .find_map(|line| line.strip_prefix("Example: "))
+        .map(|example| serde_json::from_str::<Value>(example).expect("request"))
+        .expect("an example");
+    let row = &example["queries"][0];
+    assert_eq!(row["owner"], "OWNER", "{example}");
+    assert_eq!(row["repo"], "bat", "{example}");
+    assert_eq!(row["path"], "README.md", "{example}");
+}
+
 /// A value the input guard refused sits in a well-formed call: the cause
 /// names the whole repair, so no unrelated example or schema pointer
 /// follows it. Beside a shape issue the reference still comes.
@@ -841,6 +865,65 @@ fn a_nested_fault_keeps_the_rows_own_nested_value() {
         shown["source"],
         json_fixture(r#"{"tool": "structureSearch", "query": {"path": "."}}"#),
         "{shown}"
+    );
+}
+
+/// A nested query at fault by an unknown field and a missing one (clasify
+/// `source.query` with `pattern` for `matchString`) is shown the form the
+/// row sent: the tool it names, with the missing field a placeholder.
+#[test]
+fn a_nested_unknown_and_missing_field_keep_the_rows_tool_in_the_example() {
+    let shown = shown_example(
+        "clasify",
+        json_fixture(
+            r#"{"operation": "evaluate",
+                "questions": {"x": {"type": "noul", "instructions": "is it x"}},
+                "source": {"tool": "localSearch", "query": {"path": ".", "pattern": "x"}}}"#,
+        ),
+    );
+    assert_eq!(
+        shown["source"]["tool"], "localSearch",
+        "the example is the caller's own form: {shown}"
+    );
+    assert_eq!(shown["source"]["query"]["path"], ".", "{shown}");
+    assert!(shown["source"]["query"].get("pattern").is_none(), "{shown}");
+}
+
+/// An `http://` url (refused for its scheme) is shown as the caller's url
+/// form with the scheme the contract takes, not a tool-and-query source.
+#[test]
+fn a_refused_url_scheme_keeps_the_url_form_in_the_example() {
+    let shown = shown_example(
+        "clasify",
+        json_fixture(
+            r#"{"operation": "evaluate",
+                "questions": {"x": {"type": "noul", "instructions": "is it x"}},
+                "source": {"url": "http://example.com/a"}}"#,
+        ),
+    );
+    assert_eq!(
+        shown["source"],
+        json_fixture(r#"{"url": "https://example.com/a"}"#),
+        "{shown}"
+    );
+}
+
+/// An unknown field inside a nested query names the known field it most
+/// likely means, as a direct call to that tool does.
+#[test]
+fn a_nested_unknown_field_gets_the_name_suggestion_a_direct_call_gets() {
+    let sent = json_fixture(
+        r#"{"queries": [{"operation": "evaluate",
+            "questions": {"x": {"type": "noul", "instructions": "is it x"}},
+            "source": {"tool": "localSearch",
+                "query": {"path": ".", "matchString": ["x"], "contextLine": 2}}}]}"#,
+    );
+    let (_, lines) = answered("clasify", &sent);
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("contextLine") && line.contains("use 'contextLines'")),
+        "{lines:?}"
     );
 }
 

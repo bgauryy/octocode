@@ -17,7 +17,7 @@ For a research question, load `skill --topic web-research`. It connects source d
    - Targets: `targets` lists candidates. Pass an exact target ID to subsequent calls; ambiguity fails.
 3. Use `snapshot` for controls/refs and `protocol` for the installed CDP schema. CLI command `--help --json` or MCP tool schemas describe typed inputs.
 4. Choose the next action from observed state. Combine only known transitions into a plan; inspect new state after a menu, navigation or frame change.
-5. Execute `run` (or `step`, which needs `--mcp --preset full` or `/cli`); verify task readiness. Read the resulting complete artifacts and continuations.
+5. Execute `run` (a one-step plan covers a single action); verify task readiness. Read the resulting complete artifacts and continuations.
 6. Cleanup only the isolated session or new tabs whose lifecycle you own. `cleanup --port N` works from any cwd: without a local session it reads the profile of the Chrome on that port and stops it only when it is an isolated profile with a recorded session from some workspace (reported as `workspace`); other browsers stay running.
 
 ```sh
@@ -61,6 +61,9 @@ Use `skill --topic <name>` in the typed CLI, or MCP tool `skill` with `{ "topic"
 | [flows](docs/flows.md) | Named reusable plans: built-in login, form, links, pagination, screenshot and audit flows, and saving your own |
 | [tabs-and-policy](docs/tabs-and-policy.md) | Opening a group of tabs, attaching to a browser you started, origin allowlists and the sandbox opt-in |
 | [cdp-proxy](docs/cdp-proxy.md) | A loopback, token-protected CDP proxy for dynamic clients and method logs |
+| [scripts-and-sourcemaps](docs/scripts-and-sourcemaps.md) | Listing and saving every script's source, resolving source maps and mapping positions to original sources |
+| [storage-and-network](docs/storage-and-network.md) | localStorage, IndexedDB, CacheStorage and cookie dumps (values redacted), WebSocket and SSE events, offline, throttling, blocking and mocked responses |
+| [coverage-trace-flags](docs/coverage-trace-flags.md) | JS and CSS coverage, traces, heap snapshots, PDFs and typed Chrome launch flags |
 | [script-patterns](docs/script-patterns.md) | Custom `run(cdp)` logic |
 | [recovery](docs/recovery.md) | Failed targets, actions or waits |
 | [clasify-screen](docs/clasify-screen.md) | Selecting unread DOM/AX, HAR, large text and image evidence with Octocode and optional JEV |

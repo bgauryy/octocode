@@ -1,4 +1,5 @@
 // Core CLI option parsing: flags, JSON inputs, and the connection flags forwarded to the runner.
+import { FLAG_LIST_OPTIONS } from './cli-flags.mjs';
 
 /** Every CLI input error is thrown; the CLI prints it and exits 2. */
 export const fail = (message: string): never => {
@@ -45,7 +46,10 @@ export function parse(args: string[], values: string[], booleans: string[]) {
     if (Object.hasOwn(opts, key)) fail(`Duplicate option ${key}`);
     if (booleans.includes(key)) opts[key] = true;
     else {
-      if (!args[i + 1] || args[i + 1].startsWith('--'))
+      if (
+        !args[i + 1] ||
+        (args[i + 1].startsWith('--') && !FLAG_LIST_OPTIONS.includes(key))
+      )
         fail(`${key} needs a value`);
       opts[key] = args[++i];
     }

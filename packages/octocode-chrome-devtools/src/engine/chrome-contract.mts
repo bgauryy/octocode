@@ -10,4 +10,5 @@ export {
   chromeSessionStore,
   chromeDomActions,
   chromeRecipeOptionNames,
+  chromeFlagDenylist,
 } from '@octocodeai/config/chrome';

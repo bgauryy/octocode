@@ -85,15 +85,14 @@ pub(super) fn unretainable_source(row: &super::Row, can_resume: bool) -> Option<
 /// request its refusals, splits and re-asks can add (transient retries
 /// aside), and whether that bound holds (`false`: a capped source the last
 /// window may refuse, whose sections may follow within its cap); the units
-/// it judges and the input tokens its first round costs at most (`None`
-/// while nothing bounds the provider's own prompt).
+/// it judges and the input tokens its first round costs at most.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Plan {
     pub first: u64,
     pub at_most: u64,
     pub bounded: bool,
     pub units: usize,
-    pub tokens: Option<u64>,
+    pub tokens: u64,
 }
 
 /// How a planned row runs: under its cap (`None`: an unbounded plan, which
@@ -126,8 +125,8 @@ pub(super) fn admit(
                 planned: plan.first,
                 ceiling: Some(RequestCap::ceiling(plan.at_most, retries)),
                 room: retries,
+                tokens: Some(plan.tokens),
             },
-            input_tokens_at_most: plan.tokens,
             limit,
             room: retries,
             spent: 0,
@@ -159,6 +158,7 @@ pub(super) fn within(max: u64, plan: Plan, retries: u64) -> Admitted {
             planned: plan.first,
             ceiling: Some(RequestCap::ceiling(at_most, room)),
             room,
+            tokens: Some(plan.tokens),
         },
     }
 }
@@ -178,6 +178,7 @@ pub(super) fn own_ceiling(plan: Plan, retries: u64) -> Admitted {
                 .bounded
                 .then(|| RequestCap::ceiling(plan.at_most, retries)),
             room: retries,
+            tokens: plan.bounded.then_some(plan.tokens),
         },
     }
 }

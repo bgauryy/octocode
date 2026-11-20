@@ -35,14 +35,17 @@ const flowStdin = (cwd, stdin, ...args) =>
   });
 
 test('every built-in validates and its sample expansion passes the real plan validator', () => {
-  assert.deepEqual(builtinFlows.map(def => def.name).sort(), [
+  const names = builtinFlows.map(def => def.name);
+  assert.equal(new Set(names).size, names.length);
+  for (const name of [
     'console-network-audit',
     'extract-links',
     'fill-form',
     'full-page-screenshot',
     'login-form',
     'paginate-list',
-  ]);
+  ])
+    assert.ok(names.includes(name), name);
   for (const def of builtinFlows) {
     core.validateDefinition(def);
     const { values } = core.resolveParams(def, core.sampleParams(def));

@@ -1,3 +1,5 @@
+/** Options whose value is itself a list of `--flags`: their value may start with `--`. */
+export const FLAG_LIST_OPTIONS: readonly string[] = ['--chrome-flags'];
 // Strict noninteractive flag validation for saved-evidence readers.
 export function validateFlags(
   args: string[],
@@ -18,7 +20,10 @@ export function validateFlags(
     if (seen.has(flag)) throw new Error(`Duplicate option ${flag}`);
     seen.add(flag);
     if (values.includes(flag)) {
-      if (args[i + 1] === undefined || args[i + 1].startsWith('--'))
+      if (
+        args[i + 1] === undefined ||
+        (args[i + 1].startsWith('--') && !FLAG_LIST_OPTIONS.includes(flag))
+      )
         throw new Error(`${flag} needs a value`);
       i++;
     }

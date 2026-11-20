@@ -1,6 +1,7 @@
 import type { FlowDefinition } from './flow-types.mjs';
 const flow: FlowDefinition = {
   name: 'extract-links',
+  area: 'inspection',
   description:
     'Extract text and href of every element matching a selector (default: all links).',
   params: {

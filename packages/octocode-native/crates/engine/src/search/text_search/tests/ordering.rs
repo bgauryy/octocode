@@ -25,6 +25,7 @@ fn sorting_an_unordered_record_set_is_deterministic() {
             entry: FileEntry::new(),
             matched_lines: 1,
             submatches: 1,
+            masked: 0,
             om_matches: Vec::new(),
             sort_time: None,
             source: None,

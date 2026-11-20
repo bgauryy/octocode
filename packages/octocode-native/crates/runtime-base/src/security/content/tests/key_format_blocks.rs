@@ -152,22 +152,22 @@ fn secret_and_static_key_armors_open_a_block() {
 }
 
 /// Beside a marker that survives, a body line something cut off is still key
-/// text, and a line that only holds a long run beside code under a lone
-/// marker is no key's: it reads as written, in every reader alike. The armor
-/// itself is shown.
+/// text, and a line that holds a long run beside code right under a marker
+/// is key text too: the run is hidden, in every reader alike, and the code
+/// around it is shown. The armor itself is shown.
 #[test]
-fn a_cut_body_line_is_hidden_and_a_line_quoting_a_long_value_is_not() {
+fn a_cut_body_line_and_a_line_quoting_a_long_value_are_hidden() {
     const BODY: &str = "MIIEpAIBAAKCAQEAfakebodylinefakebodylinefakebodyline00000";
     let security = ContentSecurity::new();
     let cut = format!("const k = \"-----BEGIN RSA PRIVATE KEY-----\n{BODY}…\"\n");
     let shown = security.sanitize_leaf(&cut).expect("redacted");
     assert!(!shown.contains(BODY), "{shown}");
-    // Code that quotes a long value right under a lone marker is no key's
-    // body: nothing of it is hidden, in a leaf or a read alike.
     let quoted = format!("-----BEGIN RSA PRIVATE KEY-----\nconst sum = \"{BODY}\";\n");
-    assert_eq!(security.sanitize_leaf(&quoted), None);
+    let shown = security.sanitize_leaf(&quoted).expect("redacted");
+    assert!(!shown.contains(&BODY[..12]), "{shown}");
+    assert!(shown.contains("const sum = \""), "{shown}");
     let (whole, _) = super::redact_private_key_blocks(&quoted);
-    assert_eq!(whole, quoted);
+    assert_eq!(whole, shown);
 }
 
 /// What a read of a key file shows: each line of key text holds the fragment

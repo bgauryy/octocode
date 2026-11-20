@@ -132,6 +132,9 @@ impl WalkScope<'_> {
             .test_lines_excluded
             .fetch_add(u64::from(outcome.test_lines_excluded), Ordering::Relaxed);
         state.files_searched.fetch_add(1, Ordering::Relaxed);
+        state
+            .masked_spans
+            .fetch_add(u64::from(outcome.masked), Ordering::Relaxed);
         state.bytes_searched.fetch_add(file_len, Ordering::Relaxed);
         if outcome.opaque {
             // Binary from its leading bytes: outside a text search, so
@@ -184,6 +187,7 @@ impl WalkScope<'_> {
             path,
             entry: outcome.entry,
             matched_lines: outcome.matched_lines,
+            masked: outcome.masked,
             submatches: outcome.submatches,
             om_matches: outcome.om_matches,
             sort_time,

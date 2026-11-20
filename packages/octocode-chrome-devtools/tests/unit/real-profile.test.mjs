@@ -11,9 +11,9 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { freePortText as freePort } from '../fixtures/free-port.mjs';
 
 const skill = join(import.meta.dirname, '../..');
 const engine = join(skill, 'dist/engine');
@@ -131,14 +131,6 @@ test('planRealProfile never creates a profile or shares a held data dir', () => 
 });
 
 // open-browser end to end with a browser-free stand-in named like the real executable.
-const freePort = () =>
-  new Promise(resolve => {
-    const server = createServer().listen(0, () => {
-      const { port } = server.address();
-      server.close(() => resolve(String(port)));
-    });
-  });
-
 function fakeBrowser(name) {
   const bin = join(root, 'bin', name);
   mkdirSync(join(root, 'bin'), { recursive: true });

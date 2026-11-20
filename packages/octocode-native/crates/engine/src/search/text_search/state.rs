@@ -22,6 +22,8 @@ pub(super) struct FileRec {
     pub(super) matched_lines: u32,
     /// Number of individual matches (submatches) across all matched lines.
     pub(super) submatches: u32,
+    /// Masked spans of the text the file was searched as.
+    pub(super) masked: u32,
     /// only-matching spans (empty unless the output is spans).
     pub(super) om_matches: Vec<TextSearchMatch>,
     /// Metadata timestamp captured for non-path sort keys.
@@ -42,6 +44,7 @@ pub(super) struct FileRec {
 pub(super) struct CollectResult {
     pub(super) recs: Vec<FileRec>,
     pub(super) files_searched: u64,
+    pub(super) masked_spans: u64,
     pub(super) bytes_searched: u64,
     pub(super) files_matched: u64,
     pub(super) submatches: u64,
@@ -76,6 +79,7 @@ pub(super) struct CollectResult {
 pub(super) struct CollectState {
     pub(super) recs: Mutex<Vec<FileRec>>,
     pub(super) files_searched: AtomicU64,
+    pub(super) masked_spans: AtomicU64,
     pub(super) bytes_searched: AtomicU64,
     pub(super) files_matched: AtomicU64,
     pub(super) submatches: AtomicU64,
@@ -113,6 +117,7 @@ impl CollectState {
         Self {
             recs: Mutex::new(Vec::new()),
             files_searched: AtomicU64::new(0),
+            masked_spans: AtomicU64::new(0),
             bytes_searched: AtomicU64::new(0),
             files_matched: AtomicU64::new(0),
             submatches: AtomicU64::new(0),
@@ -233,6 +238,7 @@ impl CollectState {
         CollectResult {
             recs,
             files_searched: self.files_searched.load(Ordering::Relaxed),
+            masked_spans: self.masked_spans.load(Ordering::Relaxed),
             bytes_searched: self.bytes_searched.load(Ordering::Relaxed),
             files_matched: self.files_matched.load(Ordering::Relaxed),
             submatches: self.submatches.load(Ordering::Relaxed),
@@ -299,6 +305,7 @@ impl CollectResult {
     pub(super) fn merge(mut self, later: Self) -> Self {
         self.recs.extend(later.recs);
         self.files_searched += later.files_searched;
+        self.masked_spans += later.masked_spans;
         self.bytes_searched += later.bytes_searched;
         self.files_matched += later.files_matched;
         self.submatches += later.submatches;

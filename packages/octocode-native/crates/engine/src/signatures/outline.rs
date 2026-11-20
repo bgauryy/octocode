@@ -188,6 +188,7 @@ fn outline_rows(lines: &[&str], document: &GraphFactsDocument, body: Body) -> Ve
             || (member && !docstring && member_row(lines[row], comments));
     }
     let imports = import_rows(document, n);
+    let unread = unread_macro_rows(document, n);
     let mut rows = Vec::new();
     let mut at = 0;
     while at < n {
@@ -214,14 +215,33 @@ fn outline_rows(lines: &[&str], document: &GraphFactsDocument, body: Body) -> Ve
             at = last + 1;
             continue;
         }
-        if shown[at] {
+        if shown[at] || unread[at] {
             let mut text = row_text(lines[at], &heads[at]);
-            if heads[at].is_empty() && openers[at] == Some(true) && !text.ends_with(ELIDED) {
+            if unread[at] && !text.ends_with(ELIDED) {
+                // The items this macro call generates are not read: its row
+                // says its body is left out.
+                text.push_str(ELIDED);
+            } else if heads[at].is_empty() && openers[at] == Some(true) && !text.ends_with(ELIDED) {
                 text.push_str(ELIDED);
             }
             rows.push((at, text));
         }
         at += 1;
+    }
+    rows
+}
+
+/// Rows holding a macro call whose generated items the document does not
+/// read, by 0-based row.
+fn unread_macro_rows(document: &GraphFactsDocument, n: usize) -> Vec<bool> {
+    let mut rows = vec![false; n];
+    for note in &document.diagnostics {
+        if note.code == crate::graph::GraphFactCode::RustMacroExpansion
+            && let Some(row) = note.line.and_then(|line| line.checked_sub(1))
+            && let Some(flag) = rows.get_mut(row as usize)
+        {
+            *flag = true;
+        }
     }
     rows
 }

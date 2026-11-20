@@ -128,18 +128,19 @@ pub struct Price {
     pub ceiling: Option<u64>,
     /// Of `ceiling`, the transient retries the row shares.
     pub room: u64,
+    /// The input tokens the first round costs at most: a bound a real run
+    /// cannot pass, stated whenever the price is (`None` with no ceiling).
+    pub tokens: Option<u64>,
 }
 
 /// A row whose first round is past what bounds it
 /// ([`super::admission::admit`]), priced before anything was sent: how many
 /// units it holds, its price (its ceiling with every transient retry it
-/// shares), the input tokens its first round costs at most (`None` while
-/// nothing bounds them), and the bound.
+/// shares, and the input tokens its first round costs at most), and the bound.
 #[derive(Clone, Copy, Debug)]
 pub struct OverBudget {
     pub units: usize,
     pub price: Price,
-    pub input_tokens_at_most: Option<u64>,
     pub limit: Limit,
     /// The transient retries the row's ceiling counts.
     pub room: u64,
@@ -158,7 +159,7 @@ pub enum Limit {
 
 /// The usage fields of `price` as the contract types them; nothing for
 /// `None`.
-fn price_fields(price: Price, input_tokens_at_most: Option<u64>) -> Map<String, Value> {
+fn price_fields(price: Price, tokens: Option<u64>) -> Map<String, Value> {
     let count = |value| saturating_i64(value);
     let typed = octocode_contract_types::ClasifyEvaluationUsage {
         input_tokens: None,
@@ -167,7 +168,7 @@ fn price_fields(price: Price, input_tokens_at_most: Option<u64>) -> Map<String, 
         refused: None,
         requests_planned: Some(count(price.planned)),
         requests_ceiling: price.ceiling.map(count),
-        input_tokens_at_most: input_tokens_at_most.map(count),
+        input_tokens_at_most: tokens.map(count),
     };
     match serde_json::to_value(typed) {
         Ok(Value::Object(fields)) => fields
@@ -185,6 +186,7 @@ pub(super) fn priced(row: &mut Value, price: Option<Price>) {
     else {
         return;
     };
+    // A row that ran states its real tokens; the bound is for a price not yet paid.
     usage.extend(price_fields(price, None));
     let calls = usage.get("calls").and_then(Value::as_u64).unwrap_or(0);
     if let Some(notice) = price
@@ -206,11 +208,6 @@ pub(super) fn past_ceiling(calls: u64, ceiling: u64) -> Option<String> {
         octocode_engine::text::counted(past, "request", "requests")
     ))
 }
-
-/// Why a price states no `inputTokensAtMost`: the provider bills its own
-/// prompt beside each request body, and nothing bounds it before it has
-/// answered a request ([`octocode_tools_shared::judgment::Evaluator::tokens_at_most`]).
-pub(super) const UNPRICED_TOKENS: &str = "inputTokensAtMost is not stated: the provider bills its own prompt beside each request, and nothing bounds it until it has answered a request in this process; requestsPlanned and requestsCeiling still hold.";
 
 /// A row refused before anything was sent: its first round is past what
 /// bounds it ([`Limit`]). It states the price and offers the same row with
@@ -258,14 +255,8 @@ pub(super) fn over_budget(row: &Row, over: &OverBudget, can_resume: bool) -> Val
     });
     let mut usage = Map::new();
     usage.insert("calls".into(), json!(over.spent));
-    usage.extend(price_fields(over.price, over.input_tokens_at_most));
+    usage.extend(price_fields(over.price, over.price.tokens));
     failure["usage"] = Value::Object(usage);
-    if over.input_tokens_at_most.is_none() {
-        octocode_runtime_base::response::paging::push_warnings(
-            &mut failure,
-            [UNPRICED_TOKENS.to_owned()],
-        );
-    }
     octocode_runtime_base::response::result::add_hints(
         &mut failure,
         vec![format!(

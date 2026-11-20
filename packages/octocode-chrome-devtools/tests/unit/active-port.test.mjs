@@ -8,7 +8,6 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -19,19 +18,13 @@ import {
   resolvePort,
   stateDirFor,
 } from '../../dist/engine/session-registry.mjs';
+import { freePortText as freePort } from '../fixtures/free-port.mjs';
 
 const skill = join(import.meta.dirname, '../..');
 const FAKE = join(skill, 'tests/fixtures/fake-chrome.mjs');
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'octo-cdp-active-')));
 test.after(() => rmSync(root, { recursive: true, force: true }));
 
-const freePort = () =>
-  new Promise(resolve => {
-    const server = createServer().listen(0, () => {
-      const { port } = server.address();
-      server.close(() => resolve(String(port)));
-    });
-  });
 const cli = (cwd, args) =>
   spawnSync(process.execPath, [join(skill, 'dist/engine/cli.mjs'), ...args], {
     cwd,

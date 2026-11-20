@@ -106,6 +106,7 @@ pub(super) fn no_match(q: &LocalFetchQuery, source: &Source<'_>) -> LocalFetchRe
         warnings,
         total_lines: Some(source.total_lines),
         selected_match_count: Some(0),
+        masked_spans: Some(source.redactions_total()).filter(|spans| *spans > 0),
         returned_bytes: Some(0),
         returned_lines: Some(0),
         ..LocalFetchResult::blank(ReadStatus::Empty)

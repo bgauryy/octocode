@@ -68,3 +68,22 @@ fn history_uses_the_shared_matcher_for_every_match_variant() {
         }
     }
 }
+
+/// An invalid pattern is not a type error of the whole row: the row builds,
+/// and its validation error names the field and the engine's reason.
+#[test]
+fn an_invalid_pattern_names_the_field_and_the_reason() {
+    let row = json_fixture(
+        r#"{"operation": "pullRequest", "owner": "o", "repo": "r", "number": 1,
+            "matchString": ["(unclosed"], "regexEngine": "rust"}"#,
+    );
+    let request = crate::gh_get_history_item::HistoryItemRequest::from_row(row).expect("row");
+    let error = request
+        .matcher
+        .as_ref()
+        .expect("matcher")
+        .result()
+        .expect_err("invalid");
+    assert!(error.message.contains("matchString"), "{}", error.message);
+    assert!(error.message.len() > "Invalid `matchString`: ".len());
+}

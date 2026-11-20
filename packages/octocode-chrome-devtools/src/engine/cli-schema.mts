@@ -21,7 +21,7 @@ type PlanContract = { DOM_ACTIONS: readonly string[] };
 
 const SCHEMA_HELP =
   'Usage: octocode-cdp schema [command] [recipe|operation]\nExamples: schema run extract; schema check page-snapshot. No Chrome connection is made.';
-const PLAN_COMMANDS = ['run', 'step', 'cdp', 'protocol'];
+const PLAN_COMMANDS = ['run', 'cdp', 'protocol'];
 
 const EXTRACTION = {
   fields: chromeExtractionFields,
@@ -184,7 +184,7 @@ function schemaTarget(args: string[]) {
   if (args.length > 2) fail('Usage: schema [command] [recipe|operation]');
   const [name, detail] = args;
   const recipe = name === 'check' ? detail : undefined;
-  const operation = ['run', 'step'].includes(name) ? detail : undefined;
+  const operation = name === 'run' ? detail : undefined;
   if (name && !Object.hasOwn(chromeCommands, name))
     fail(`Unknown command ${name}`);
   if (recipe && (name !== 'check' || !Object.hasOwn(checks, recipe)))

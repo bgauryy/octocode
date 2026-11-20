@@ -7,6 +7,7 @@ import { jsonPointer } from './plan-validate.mjs';
 import { exceptionMessage, waitCondition } from './plan-condition.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { Handler, Payload } from '../cdp-connection.mjs';
+import { gateCdpCall } from '../cdp-schema.mjs';
 import { errorMessage } from '../error-message.mjs';
 import type { CheckSession } from '../cdp-runner-session.mjs';
 import type {
@@ -169,6 +170,12 @@ async function waitEvent(
   row.matched = stream.matched;
 }
 
+/** The runner's --port: the browser whose installed schema validates raw calls. */
+const portArgument = () => {
+  const at = process.argv.indexOf('--port');
+  return at < 0 ? undefined : process.argv[at + 1];
+};
+
 async function cdpCommand(
   state: PlanState,
   { step, index, timeout, row, target }: StepContext
@@ -177,6 +184,12 @@ async function cdpCommand(
   const params = state.resolveParams(step.params || {});
   if (typeof params !== 'object' || params === null)
     throw new Error('CDP params must resolve to an object');
+  const refusal = await gateCdpCall(
+    { method: step.method, params, acknowledge: step.acknowledge },
+    portArgument(),
+    state.log
+  );
+  if (refusal) throw new Error(refusal);
   const result = await target.send(step.method, params);
   const artifact = state.cdp.saveArtifact(`cdp-${index + 1}.json`, result).file;
   row.artifact = artifact;

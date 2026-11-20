@@ -166,7 +166,7 @@ pub(super) fn patch_needle(
 
 /// List the files a `matchString` could not search (`!reason path`, as on
 /// a pull request), mark the row partial, and lead to the literal search of
-/// the first one's source: at `old` for a removed file, else at `new`.
+/// every one's source: at `old` for a removed file, else at `new`.
 fn mark_unsearched(
     out: &mut Value,
     query: &HistoryItemRequest,
@@ -184,14 +184,18 @@ fn mark_unsearched(
     );
     // A withheld credential file is listed but is no lead and leaves the row
     // whole: the path policy refuses a read of it.
-    let Some((_, path, removed)) = unsearched
+    let reads = unsearched
         .iter()
-        .find(|(reason, ..)| *reason != super::inventory::WITHHELD)
-    else {
+        .filter(|(reason, ..)| *reason != super::inventory::WITHHELD)
+        .map(|(_, path, removed)| {
+            let sha = if *removed { old } else { new };
+            (path.clone(), sha.map(str::to_owned))
+        })
+        .collect::<Vec<_>>();
+    if reads.is_empty() {
         return;
-    };
-    let sha = if *removed { old } else { new };
-    super::pr_finish::attach_unsearched_read(out, query, path, sha);
+    }
+    super::pr_finish::attach_unsearched_reads(out, query, &reads);
 }
 
 /// The read of one commit at its default sections.

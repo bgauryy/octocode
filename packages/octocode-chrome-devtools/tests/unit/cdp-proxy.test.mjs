@@ -12,24 +12,16 @@ import {
 import { createServer as createHttp, request } from 'node:http';
 import { createServer, connect } from 'node:net';
 import { networkInterfaces, tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { WebSocketServer, WebSocket as WsClient } from 'ws';
+import { freePort } from '../fixtures/free-port.mjs';
 
 const run = promisify(execFile);
 const engine = join(import.meta.dirname, '../../dist/engine/cdp-proxy.mjs');
 const bin = join(import.meta.dirname, '../../bin/octocode-chrome-devtools.mjs');
 const LOOPBACK = ['127.0.0.1', '::1'];
 const SECRET_PARAM = 'cookie-value-that-must-never-be-logged';
-
-const freePort = () =>
-  new Promise((resolve, reject) => {
-    const server = createServer().listen(0, '127.0.0.1', () => {
-      const { port } = server.address();
-      server.close(() => resolve(port));
-    });
-    server.on('error', reject);
-  });
 
 /** A fake browser: /json/version plus a CDP socket that echoes the method and the session it saw. */
 async function fakeBrowser() {
@@ -376,6 +368,23 @@ test('--log appends one line per call with only the allowed fields: no params, n
   }
   assert.equal(status.json.logFile, started.logFile);
   assert.ok(status.json.messages >= lines.length);
+});
+
+test('cleanup --dry-run leaves a running proxy alone', async () => {
+  const dry = spawnSync(
+    process.execPath,
+    [
+      join(dirname(engine), 'open-browser.mjs'),
+      '--cleanup',
+      '--dry-run',
+      '--port',
+      String(browser.port),
+    ],
+    { cwd, encoding: 'utf8' }
+  );
+  assert.ok(dry.status === 0 || dry.status === 1, dry.stderr);
+  const status = await proxyCli(cwd, 'status', '--port', String(browser.port));
+  assert.equal(status.json.status, 'PROXY_RUNNING');
 });
 
 test('a second start for the same browser, a missing browser and a busy listen port fail clearly', async () => {

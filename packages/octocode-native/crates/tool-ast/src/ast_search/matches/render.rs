@@ -502,7 +502,17 @@ impl Census {
         (bounds, budget, start): (super::stream::Bounds, usize, WindowStart),
     ) -> StreamPage {
         let cut = |census| super::stream::stream_page(q, &grouped.groups, bounds, (budget, census));
-        let page = cut(self.chars(None));
+        // A window cut at a start of its pages was cut with the reserve:
+        // show its pages as cut.
+        let paged_window = scan.truncated && scan.filled && q.scan_offset() == 0;
+        let reserved = |census: usize| {
+            if paged_window {
+                census.max(super::stream::census_reserve(budget))
+            } else {
+                census
+            }
+        };
+        let page = cut(reserved(self.chars(None)));
         // A caller who set `limit` chose the page size: advice to read fewer
         // is noise; a window's pages count no final total, and the windows
         // before this one are counted, not paged here.

@@ -10,9 +10,9 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { freePortText as freePort } from '../fixtures/free-port.mjs';
 
 const run = promisify(execFile);
 const skill = join(import.meta.dirname, '../..');
@@ -22,13 +22,6 @@ const STATE = ['.octocode', 'octocode-chrome-devtools', 'tmp', 'browser-state'];
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'octo-cdp-cleanup-')));
 test.after(() => rmSync(root, { recursive: true, force: true }));
 
-const freePort = () =>
-  new Promise(resolve => {
-    const server = createServer().listen(0, () => {
-      const { port } = server.address();
-      server.close(() => resolve(String(port)));
-    });
-  });
 const alive = pid => {
   try {
     process.kill(pid, 0);

@@ -1,6 +1,7 @@
 import type { FlowDefinition } from './flow-types.mjs';
 const flow: FlowDefinition = {
   name: 'paginate-list',
+  area: 'input',
   description:
     'Extract a list, then up to maxPages-1 times click the next control (optional, so the last page ends cleanly) and extract again. After the last page the remaining clicks fail as skipped and the final page is extracted again.',
   params: {

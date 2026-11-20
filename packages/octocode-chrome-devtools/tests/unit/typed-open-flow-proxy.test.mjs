@@ -2,11 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { researchSpec, spec } from '../../dist/runtime.js';
+import { presets, researchSpec, spec } from '../../dist/runtime.js';
+
+const names = surface => surface.commands.map(c => c.name);
 
 const directory = mkdtempSync(join(tmpdir(), 'chrome-typed-open-flow-'));
 const outfile = join(directory, 'invocation.mjs');
@@ -188,8 +190,8 @@ test('the mapped argv reaches the real proxy and flow engines', () => {
   assert.equal(JSON.parse(proxy.stdout).status, 'PROXY_NOT_RUNNING');
   const flow = place('flow-command.mjs', argv('flow', { action: 'list' }).args);
   assert.equal(flow.status, 0, flow.stderr);
-  const names = JSON.parse(flow.stdout).flows.map(row => row.name);
-  assert.ok(names.includes('login-form'));
+  const flowNames = JSON.parse(flow.stdout).flows.map(row => row.name);
+  assert.ok(flowNames.includes('login-form'));
 });
 
 test('the engines refuse argv the typed schema never produces', () => {
@@ -214,9 +216,48 @@ test('the engines refuse argv the typed schema never produces', () => {
   }
 });
 
-test('flow is on the default surface and proxy only on the full one', () => {
-  const names = surface => surface.commands.map(c => c.name);
-  assert.ok(names(researchSpec).includes('flow'));
-  assert.ok(!names(researchSpec).includes('proxy'));
-  assert.ok(names(spec).includes('proxy'));
+test('presets nest (slim < default < full); the default holds flow, the full surface alone holds proxy and dev-check; cdp and protocol are in the default', () => {
+  const [slim, research, full] = [presets.slim, researchSpec, spec].map(names);
+  for (const [small, large] of [
+    [slim, research],
+    [research, full],
+  ]) {
+    assert.ok(small.length < large.length);
+    for (const name of small) assert.ok(large.includes(name), name);
+  }
+  assert.ok(research.includes('flow'));
+  for (const name of ['proxy', 'dev-check']) {
+    assert.ok(!research.includes(name), name);
+    assert.ok(full.includes(name), name);
+  }
+  for (const name of ['cdp', 'protocol']) {
+    assert.ok(research.includes(name), name);
+    assert.ok(!names(presets.slim).includes(name), name);
+  }
+});
+test('the skill quickstart and shared instructions name only tools the default surface holds', () => {
+  const skill = readFileSync(
+    new URL('../../skills/octocode-chrome-devtools/SKILL.md', import.meta.url),
+    'utf8'
+  );
+  const firstFlow = skill
+    .split('## Quickstart')[1]
+    .split('\n## ')[0]
+    .split('Run `schema')[0];
+  const research = names(researchSpec);
+  const named = (text, list) =>
+    list.filter(name => new RegExp(`(^|[^\\w-])${name}([^\\w-]|$)`).test(text));
+  for (const name of named(firstFlow, [
+    'open',
+    'run',
+    'snapshot',
+    'screenshot',
+  ]))
+    assert.ok(research.includes(name), name);
+  // Hyphenated names cannot be confused with ordinary words (step, check, script).
+  const outside = names(spec).filter(
+    name => !research.includes(name) && name.includes('-')
+  );
+  // The default preset's own instructions name no tool outside the default surface.
+  assert.deepEqual(named(researchSpec.instructions, outside), []);
 });

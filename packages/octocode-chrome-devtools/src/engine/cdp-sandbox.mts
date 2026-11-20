@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { chromeRecipeOptionNames } from './chrome-contract.mjs';
 import { spawn } from 'child_process';
 import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -186,6 +187,9 @@ const readPaths = [
     ...[
       'chrome-contract.mjs',
       'cli-flags.mjs',
+      // The one CDP policy and the live-schema gate the runner and plan steps apply.
+      'cdp-policy.mjs',
+      'cdp-schema.mjs',
       'engine-io.mjs',
       'error-message.mjs',
       // The runner's own modules, and the page-owner lookup it shares with browser plans.
@@ -228,6 +232,8 @@ const permFlags = [
 // Keep the sandbox hermetic: pass only documented knobs used by examples,
 // never the parent env where tokens/cookies may live.
 const SCRIPT_ENV_ALLOWLIST = [
+  // Every recipe option the contract declares: one source, so a new recipe's keys can never be dropped here.
+  ...new Set(Object.values(chromeRecipeOptionNames).flat()),
   'BROWSER_PLAN',
   'MONITOR_MS',
   'MONITOR_URL',

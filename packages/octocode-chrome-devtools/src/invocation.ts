@@ -70,11 +70,24 @@ type FailedResult = {
   exitCode?: number | null;
   next?: Record<string, { tool?: string; query?: unknown } | undefined>;
 };
+// Engine stderr opens with the sandbox banner and Node warnings; the cause is a later line.
+const NOISE =
+  /sandboxed \(node |ExperimentalWarning|--trace-warnings|^\[CDP_SANDBOX\]/;
+const CAUSE_MARK =
+  /FATAL|Refusing|blocked|Ambiguous|not found|No Chrome|Error:/i;
+/** The line of multi-line stderr that names the failure: a marked line, else the first non-noise one. */
+function causeLine(text: string) {
+  const lines = text
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line && !NOISE.test(line));
+  return lines.find(line => CAUSE_MARK.test(line)) ?? lines[0] ?? text;
+}
 export function failureSummary(result: FailedResult) {
   const failed = result.flow?.failure;
   const cause =
     typeof result.error === 'string' && result.error.trim()
-      ? oneLine(result.error)
+      ? oneLine(causeLine(result.error))
       : typeof failed?.error === 'string' && failed.error.trim()
         ? `step ${failed.step ?? '?'}: ${oneLine(failed.error)}`
         : result.timedOut
@@ -115,6 +128,44 @@ const isStringList = (value: unknown): value is string[] =>
   value.every(item => typeof item === 'string');
 /** Typed value flags that name their value list singularly; arrays travel as comma lists. */
 const listFlagNames: Record<string, string> = { allowOrigins: 'allowOrigin' };
+/** Typed `open` launch fields whose engine flag is not the kebab-case of the field name. */
+const launchFlagNames: Record<string, string> = {
+  enableFeatures: '--enableFeatures',
+  disableFeatures: '--disableFeatures',
+  blinkFeatures: '--blinkFeatures',
+  windowSize: '--windowSize',
+  userAgent: '--userAgent',
+  chromePath: '--chromePath',
+  chromeFlags: '--chrome-flags',
+};
+/** `proxy` object keys and the engine flags they travel as. */
+const proxyFlagNames: Record<string, string> = {
+  server: '--proxyServer',
+  bypassList: '--proxyBypassList',
+  pacUrl: '--proxyPacUrl',
+};
+/** Typed value flags of one `open` entry; the proxy object expands to its three engine flags. */
+const openEntryFlags = (key: string, value: unknown): string[] => {
+  if (key === 'proxy')
+    return Object.entries(value as Record<string, string>).flatMap(
+      ([name, text]) => [proxyFlagNames[name], text]
+    );
+  const flag =
+    launchFlagNames[key] ??
+    `--${(listFlagNames[key] ?? key).replace(/[A-Z]/g, c => `-${c.toLowerCase()}`)}`;
+  return [
+    flag,
+    ...(value === true
+      ? []
+      : [
+          isStringList(value)
+            ? value.join(',')
+            : typeof value === 'string'
+              ? value
+              : JSON.stringify(value),
+        ]),
+  ];
+};
 /** Engine argv of a typed `proxy` call: action, then the browser and listen ports. */
 export function proxyArgs(input: ChromeInvocation): string[] {
   return [
@@ -144,11 +195,8 @@ export function flowArgs(input: ChromeInvocation): string[] {
 export function engineArgs(command: string, input: ChromeInvocation) {
   let args = flags(input.connection),
     stdin: string | undefined;
-  if (command === 'run' || command === 'step') {
-    stdin = JSON.stringify(
-      command === 'run' ? input.plan : { steps: [input.step] }
-    );
-    command = 'run';
+  if (command === 'run') {
+    stdin = JSON.stringify(input.plan);
     args.push('--plan', '-');
   } else if (command === 'skill')
     args = [
@@ -157,9 +205,12 @@ export function engineArgs(command: string, input: ChromeInvocation) {
     ].filter(value => value !== undefined);
   else if (command === 'cdp') {
     args.unshift(input.method!, '--params', '-');
+    if (input.acknowledge) args.push('--acknowledge');
     stdin = JSON.stringify(input.params ?? {});
-  } else if (command === 'protocol' && input.member) args.unshift(input.member);
-  else if (command === 'check') args.unshift(input.recipe!);
+  } else if (command === 'protocol') {
+    if (input.member) args.unshift(input.member);
+    if (input.search) args.push('--search', input.search);
+  } else if (command === 'check') args.unshift(input.recipe!);
   else if (command === 'cookies') args = cookieArgs(input);
   else if (command === 'proxy') args = proxyArgs(input);
   else if (command === 'flow') {
@@ -176,20 +227,7 @@ export function engineArgs(command: string, input: ChromeInvocation) {
     const entries = Object.entries(typed).filter(
       ([, value]) => value !== undefined && value !== false
     );
-    args.push(
-      ...entries.flatMap(([key, value]) => [
-        `--${(listFlagNames[key] ?? key).replace(/[A-Z]/g, c => `-${c.toLowerCase()}`)}`,
-        ...(value === true
-          ? []
-          : [
-              isStringList(value)
-                ? value.join(',')
-                : typeof value === 'object'
-                  ? JSON.stringify(value)
-                  : String(value),
-            ]),
-      ])
-    );
+    args.push(...entries.flatMap(([key, value]) => openEntryFlags(key, value)));
   }
   if (input.options !== undefined)
     args.push('--options', JSON.stringify(input.options));

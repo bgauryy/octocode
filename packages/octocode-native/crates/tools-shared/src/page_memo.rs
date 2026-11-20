@@ -157,6 +157,28 @@ impl<V: Send + Sync + 'static> PageMemo<V> {
         }
     }
 
+    /// A store drawing on `budget` alone, for a test whose kept values must
+    /// not be evicted by other tests filling the process budget.
+    #[cfg(test)]
+    const fn with_budget(budget: &'static octocode_io::memo::MemoryBudget) -> Self {
+        Self {
+            memo: Memo::new(budget),
+            flights: Flights::new(),
+        }
+    }
+
+    /// The requests waiting on the flight computing `key` now, for tests.
+    #[cfg(test)]
+    fn waiting(&self, key: &str) -> usize {
+        self.flights
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(key)
+            // The map and the leader hold it besides the waiters.
+            .map_or(0, |flight| Arc::strong_count(flight).saturating_sub(2))
+    }
+
     /// `read` of the unexpired value stored for `snapshot` under `policy`;
     /// the read restarts its lifetime, so a cursor being paged stays served.
     pub fn get<T>(&self, snapshot: &str, policy: &str, read: impl FnOnce(&V) -> T) -> Option<T> {

@@ -236,10 +236,11 @@ fn a_line_that_only_holds_a_key_run_keeps_its_label() {
         hide_key_line(&format!("\t{BODY}")),
         format!("\t{placeholder}")
     );
-    // Only the run goes: what follows it on the line reads as written.
+    // Only key text goes: the delimiters past the line's last run read as
+    // written, and a word that is a run of base64 itself goes with the key.
     assert_eq!(
-        hide_key_line(&format!("logo2: {RUN}\"); next();")),
-        format!("logo2: {placeholder}\"); next();")
+        hide_key_line(&format!("logo2: {RUN}\");")),
+        format!("logo2: {placeholder}\");")
     );
     // A label longer than the head a streamed read keeps leaves the line a
     // body line, in every reader alike.
@@ -321,6 +322,71 @@ fn hiding_a_key_keeps_the_delimiters_around_it() {
         source.matches('"').count(),
         "{hidden}"
     );
+}
+
+/// A key line that holds a run of a key's text hides every later run of
+/// base64 on the line, however short: a key's last line is its shortest, and
+/// the delimiters before the first run and after the last stay.
+#[test]
+fn a_key_line_hides_a_short_run_after_a_long_one() {
+    const R: &str = "MIIEpQIBAAKCAQEA7Yn8xK2vJ9qLmN3pQrStWzHvuy3fEWJr5musirUr5JYe5CMp";
+    const T: &str = "fCmZ/a/lkyU81lSvTfrXFCegrrP+6S";
+    let ph = key_fragment_placeholder();
+    for (line, shown) in [
+        (format!("\"{R}\\n{T}\\n\" +"), format!("\"{ph}\" +")),
+        (format!("{R} {T}"), ph.clone()),
+        (format!("\"{R}\" \"{T}\""), format!("\"{ph}\"")),
+        (format!("{R}\\n{T}"), ph.clone()),
+        (format!("{R}\\r\\n{T}"), ph.clone()),
+        (format!("{R}/{T}"), ph.clone()),
+        (format!("  '{R}', '{T}',"), format!("  '{ph}',")),
+        (format!("    {R}\\n{T}\\n\","), format!("    {ph}\",")),
+    ] {
+        let hidden = hide_key_line(&line);
+        assert_eq!(hidden, shown, "{line}");
+        for key in [R, T] {
+            for piece in key.as_bytes().chunks(4) {
+                let piece = std::str::from_utf8(piece).unwrap_or_default();
+                assert!(!hidden.contains(piece), "key bytes {piece} shown: {hidden}");
+            }
+        }
+        assert_eq!(hide_key_line(&hidden), hidden, "not idempotent: {hidden}");
+    }
+}
+
+/// A line right after a BEGIN that holds a run of a key's length is key text
+/// whatever stands beside the run: a label, code, a second run.
+#[test]
+fn a_run_beside_a_label_right_after_begin_opens_the_block() {
+    const R: &str = "MIIEpQIBAAKCAQEA7Yn8xK2vJ9qLmN3pQrStWzHvuy3fEWJr5musirUr5JYe5CMp";
+    const R2: &str = "WzHvuy3fEWJr5musirUr5JYe5CMpm8DI2mKvqGsxgG5oDTudHZGh0Z7tcHL5kVeq";
+    for (line, lead) in [
+        (format!("k1: \"{R}\""), "k1: \""),
+        (format!("x {R} y"), "x "),
+        (format!("k = foo({R}) + bar({R2})"), "k = foo("),
+        (format!("logo: {R} {R2}"), "logo: "),
+    ] {
+        let source = format!(
+            "-----BEGIN RSA PRIVATE KEY-----\n{line}\n-----END RSA PRIVATE KEY-----\n"
+        );
+        assert_eq!(
+            private_key_block_line_ranges(&source),
+            vec![(1, 3)],
+            "{line}"
+        );
+        let (hidden, changed) = redact_private_key_blocks(&source);
+        assert!(changed, "{line}");
+        assert_eq!(hidden.lines().count(), source.lines().count(), "{line}");
+        for key in [R, R2] {
+            for piece in key.as_bytes().chunks(4) {
+                let piece = std::str::from_utf8(piece).unwrap_or_default();
+                assert!(!hidden.contains(piece), "key bytes {piece} shown: {hidden}");
+            }
+        }
+        let body = hidden.lines().nth(1).unwrap_or_default();
+        assert!(body.starts_with(lead), "label lost: {body}");
+        assert!(body.contains(&key_fragment_placeholder()), "{body}");
+    }
 }
 
 /// D3: a key block written inside one member of a minified document starts

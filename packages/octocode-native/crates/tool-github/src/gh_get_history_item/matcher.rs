@@ -22,11 +22,14 @@ impl Matcher {
         let local = serde_json::from_value(
             serde_json::json!({"path":"history.patch","matchString":terms,"caseMode":case_mode,"regexEngine":regex_engine,"wholeWord":whole_word}),
         )?;
-        octocode_tools_shared::source_view::match_spans(&local, "")
-            .map_err(|e| <serde_json::Error as serde::de::Error>::custom(e.detail))?;
+        // A pattern the engine rejects is the row's validation error, named
+        // with the field and the engine's reason ([`Self::result`]).
+        let failure = octocode_tools_shared::source_view::match_spans(&local, "")
+            .err()
+            .map(|error| format!("Invalid `matchString`: {}", error.detail));
         Ok(Some(Arc::new(Self {
             query: local,
-            failure: Mutex::new(None),
+            failure: Mutex::new(failure),
         })))
     }
     pub(super) fn matches(&self, text: &str) -> bool {

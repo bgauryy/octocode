@@ -224,7 +224,8 @@ fn call_edges_compact_to_per_file_call_rows() {
                             "line": 5,
                             "endLine": 9,
                             "sites": [{"line": 6, "column": 3}],
-                            "via": {"symbolName": "a", "line": 1}
+                            "via": {"symbolName": "a", "line": 1},
+                            "level": 2
                         }
                     ]
                 },
@@ -237,7 +238,8 @@ fn call_edges_compact_to_per_file_call_rows() {
                             "line": 40,
                             "endLine": 44,
                             "sites": [{"line": 41, "column": 2}],
-                            "via": {"symbolName": "walk", "line": 281, "path": "y.ts"}
+                            "via": {"symbolName": "walk", "line": 281, "path": "y.ts"},
+                            "level": 2
                         }
                     ]
                 },

@@ -135,9 +135,24 @@ pub(super) struct CollectSink<'a, M: Matcher> {
     /// ([`crate::types::ServedText::written`]): a match taking any of their
     /// bytes is no match (empty for a file searched as its own bytes).
     pub(super) written: &'a [std::ops::Range<usize>],
+    /// An inverted search of a judged text ran over the text with `written`
+    /// made filler, so a line whose only match is a placeholder's spelling
+    /// is no match: the whole text as served, from which each line reads.
+    pub(super) inverted_over: Option<&'a [u8]>,
 }
 
 impl<'a, M: Matcher> CollectSink<'a, M> {
+    /// The line the searcher read at `at`, as the text was served: an
+    /// inverted search read it with the judge's writes made filler.
+    fn served_line<'b>(&self, line: &'b [u8], at: usize) -> &'b [u8]
+    where
+        'a: 'b,
+    {
+        self.inverted_over
+            .and_then(|served| served.get(at..at.checked_add(line.len())?))
+            .unwrap_or(line)
+    }
+
     pub(super) fn new(
         matcher: &'a M,
         work: MatchWork,
@@ -156,6 +171,7 @@ impl<'a, M: Matcher> CollectSink<'a, M> {
             test_lines_excluded: 0,
             source: None,
             written: &[],
+            inverted_over: None,
             matcher,
             entry: FileEntry::new(),
             submatches: 0,
@@ -438,12 +454,16 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
             return Ok(false);
         }
         let line_number = saturating_u32(mat.line_number().unwrap_or(0));
-        let bytes = mat.bytes();
-        // What the judge wrote in this block: a block whose every match takes
-        // some of it holds no match of the source's text.
         let at = usize::try_from(mat.absolute_byte_offset()).unwrap_or(usize::MAX);
+        let bytes = self.served_line(mat.bytes(), at);
+        // What the judge wrote in this block: a block whose every match takes
+        // some of it holds no match of the source's text. An inverted search
+        // already left such lines out of its matches.
         let hidden = super::written::within(self.written, at..at.saturating_add(bytes.len()));
-        if !hidden.is_empty() && own_match(self.matcher, bytes, &hidden)? == Some(false) {
+        if self.inverted_over.is_none()
+            && !hidden.is_empty()
+            && own_match(self.matcher, bytes, &hidden)? == Some(false)
+        {
             return Ok(true);
         }
         if !self.keeps_line(line_number, bytes) {
@@ -516,10 +536,12 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
 
     fn context(&mut self, _searcher: &Searcher, ctx: &SinkContext<'_>) -> std::io::Result<bool> {
         let line_number = saturating_u32(ctx.line_number().unwrap_or(0));
-        let line_text = if long_line::is_long(ctx.bytes()) {
-            self.long_line_context(ctx.bytes())
+        let at = usize::try_from(ctx.absolute_byte_offset()).unwrap_or(usize::MAX);
+        let ctx_bytes = self.served_line(ctx.bytes(), at);
+        let line_text = if long_line::is_long(ctx_bytes) {
+            self.long_line_context(ctx_bytes)
         } else {
-            let (line_text, not_utf8) = block_text(ctx.bytes());
+            let (line_text, not_utf8) = block_text(ctx_bytes);
             self.not_utf8 |= not_utf8;
             strip_trailing_newline(line_text)
         };

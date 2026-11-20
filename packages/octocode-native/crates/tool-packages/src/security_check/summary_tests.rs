@@ -515,3 +515,17 @@ fn a_vector_only_advisory_ranks_by_its_cvss_rating() {
     let lean = apply(SecurityCheckView::Summary, worded, target(package()));
     assert_eq!(lean["highestSeverity"], "critical", "{lean}");
 }
+
+/// A sentence that explains the pinned-dependency checks in `related` stays:
+/// no other field says why those checks are listed.
+#[test]
+fn the_sentence_explaining_pinned_checks_stays_with_its_leads() {
+    let sentence = format!(
+        "No advisory. It pins 1 runtime dependency to an exact version: {}",
+        "related lists a check of each."
+    );
+    assert!(super::super::answer::explains_pinned_checks(&sentence));
+    assert!(!super::super::answer::explains_pinned_checks(
+        "No advisory is listed."
+    ));
+}

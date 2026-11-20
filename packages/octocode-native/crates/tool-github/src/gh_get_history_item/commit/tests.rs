@@ -49,6 +49,23 @@ fn a_commit_header_keeps_one_key_order() {
     );
 }
 
+/// A differing committer is stated on every read of the commit, a patches
+/// or files read included, not only on the summary.
+#[test]
+fn a_differing_committer_is_stated_on_every_read() {
+    let raw = json!({"sha":"a".repeat(40),
+        "commit":{"message":"m",
+            "author":{"name":"Ada","email":"ada@x.dev","date":"2024-01-01T00:00:00Z"},
+            "committer":{"name":"Bob","email":"bob@x.dev","date":"2024-02-02T00:00:00Z"}},
+        "author":{"login":"ada"},"committer":{"login":"bob"}});
+    let facts = CommitFacts::of(&raw);
+    for summary in [false, true] {
+        let header = commit_header(&facts, "main", summary, 1);
+        assert_eq!(header["committer"]["login"], "bob", "summary {summary}");
+        assert!(header["committer"]["committedAt"].is_string(), "summary {summary}");
+    }
+}
+
 /// Patch-only reads need every upstream parent identity to form exact
 /// source reads. Missing upstream parents stay unknown, not an invented
 /// first parent; a root commit's explicit empty array is known empty.

@@ -92,6 +92,8 @@ pub(in crate::gh_get_history_item) fn pr_metadata(
         "updatedAt": utc_value(updated),
         "closedAt": utc_value(closed_apart),
         "mergedAt": utc_value(raw.get("merged_at")),
+        // Who merged it (a bot's login included), where GitHub names one.
+        "mergedBy": merged.then(|| str_at(raw,"/merged_by/login")).flatten().filter(|v|!v.is_empty()),
         // Only a merged PR has a real merge commit (open PRs expose GitHub's
         // test-merge SHA, which is not on the base branch).
         "mergeCommitSha": merged.then(|| str_at(raw,"/merge_commit_sha")).flatten().filter(|v|!v.is_empty()),

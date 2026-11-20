@@ -296,6 +296,14 @@ impl<'a> Walker<'a> {
         }
         if !self.keys.authorized(result) {
             self.walk.out_of_policy += 1;
+            // The item's name is the server's own answer, not source read
+            // from outside the policy: naming it tells which item is
+            // missing, and where it lies stays unsaid.
+            if let Some(name) = node.get("name").and_then(Value::as_str)
+                && !self.walk.withheld_names.iter().any(|known| known == name)
+            {
+                self.walk.withheld_names.push(name.to_owned());
+            }
             return;
         }
         if level == 1

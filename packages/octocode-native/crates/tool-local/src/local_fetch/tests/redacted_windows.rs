@@ -239,3 +239,34 @@ fn compact_and_content_redact_the_same_secrets() {
         "{content}\n{compact}"
     );
 }
+
+/// A match read states how many masked spans its source holds, the same for
+/// any match string; a read without one, or of a source with none, states
+/// none. The row keeps the published output contract.
+#[test]
+fn a_match_read_states_the_masked_spans_whatever_it_matched() {
+    let fixture = Fixture::new();
+    let source = format!("fn one() {{}}\nlet a = \"{TOKEN}\";\nlet b = \"{TOKEN}\";\n");
+    let path = fixture.write("held.rs", &source);
+    let clean = fixture.write("clean.rs", "fn one() {}\n");
+    let paths = Paths(fixture.0.clone());
+    let spans = |path: &Path, fields: serde_json::Value| {
+        let row = real(&qj(path, fields), &paths);
+        assert_eq!(row.error_code, None, "{row:?}");
+        let wire = serde_json::to_value(&row).expect("row");
+        octocode_runtime_base::test_support::assert_row_contract(
+            octocode_runtime_base::id::ToolId::LocalFetch,
+            &wire,
+        );
+        wire.get("maskedSpans").cloned()
+    };
+    for pattern in ["fn one", "ghp_abcdef", "zz-not-anywhere"] {
+        assert_eq!(
+            spans(&path, serde_json::json!({"matchString": [pattern]})),
+            Some(serde_json::json!(2)),
+            "{pattern}"
+        );
+    }
+    assert_eq!(spans(&path, serde_json::json!({})), None);
+    assert_eq!(spans(&clean, serde_json::json!({"matchString": ["one"]})), None);
+}

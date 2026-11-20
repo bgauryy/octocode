@@ -50,6 +50,9 @@ pub(super) fn discovery_page(
         None => facts,
     };
     data["pagination"] = facts.to_value();
+    if current == 1 && matches_whole_name_words(query) {
+        paging::push_notice(data, WHOLE_NAME_WORDS_NOTICE);
+    }
     let capped_total = total.filter(|total| *total > reach);
     if let Some(limit) = unreachable {
         let warning = capped_total.map_or(limit.warning, |total| {
@@ -91,6 +94,16 @@ pub(super) fn discovery_page(
             ),
         );
     }
+}
+
+/// What a multi-word Maven search does not list.
+const WHOLE_NAME_WORDS_NOTICE: &str = "Central matches whole name words, so an artifactId with another word between yours (jackson-dataformat-yaml for \"jackson yaml\") is not listed; add the missing word, or resolve the exact groupId:artifactId.";
+
+/// Whether `query` is a Maven search of two or more words, which Central
+/// matches against whole name words only.
+pub(super) fn matches_whole_name_words(query: &ArtifactSearchQuery) -> bool {
+    artifact_search_query::artifact_type(query) == octocode_contract_types::ArtifactType::Maven
+        && artifact_search_query::terms(query).split_whitespace().count() > 1
 }
 
 /// The deepest discovery page `query`'s page size reaches: the last whose

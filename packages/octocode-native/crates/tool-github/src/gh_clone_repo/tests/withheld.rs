@@ -96,11 +96,15 @@ fn a_sparse_directory_clone_leaves_out_credential_named_files_in_scope() {
     .expect("sparse clone");
     let local = Path::new(&result.location.path);
     assert!(local.join("examples/auth0/app.js").is_file());
+    // A withheld file in the scope leaves the root's other files in place,
+    // as a directory scope without one keeps them.
+    assert!(local.join("README.md").is_file(), "root files were dropped");
     for secret in SECRETS {
         assert!(!local.join(secret).exists(), "{secret} was written");
     }
-    // Only the credential-named files inside the requested scope are listed.
-    assert_eq!(skipped(&result), ["examples/auth0/.env.local.example"]);
+    // The credential-named files inside the requested scope are listed, and
+    // so are those among the root files a directory scope keeps.
+    assert_eq!(skipped(&result), [".env", "examples/auth0/.env.local.example"]);
 }
 
 #[test]

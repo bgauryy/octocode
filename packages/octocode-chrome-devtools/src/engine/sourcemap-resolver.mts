@@ -18,7 +18,7 @@ type Segment = {
 };
 /** `Debugger.scriptParsed` event params the resolver reads. */
 type ScriptParsed = { scriptId: string; url: string; sourceMapURL?: string };
-type ParsedMap = {
+export type ParsedMap = {
   segments: Segment[];
   sources: (string | null)[];
   names: string[];
@@ -37,6 +37,8 @@ function decodeVLQList(str: string) {
       digit;
     do {
       digit = B64_MAP[str.charCodeAt(i++)];
+      if (digit === undefined || digit === 255)
+        throw new Error('Malformed source map: invalid VLQ character');
       value |= (digit & 31) << shift;
       shift += 5;
     } while (digit & 32);
@@ -46,8 +48,6 @@ function decodeVLQList(str: string) {
 }
 
 function parseMap(mapJson: SourceMapJson): ParsedMap {
-  delete mapJson.sourcesContent;
-
   const sources = mapJson.sources ?? [];
   const names = mapJson.names ?? [];
   const segments: Segment[] = [];
@@ -90,7 +90,8 @@ function parseMap(mapJson: SourceMapJson): ParsedMap {
   return { segments, sources, names };
 }
 
-function originalPositionFor(
+/** Original position for a 0-based generated line and column: source, 1-based line, 0-based column, name. */
+export function originalPositionFor(
   parsed: ParsedMap,
   genLine: number,
   genCol: number
@@ -163,15 +164,75 @@ async function fetchText(url: string, timeoutMs = 4000) {
   });
 }
 
-/** The map a script names: inline base64 data or a fetch relative to the script; null for inline non-base64 data. */
-async function readMapText(sourceMapURL: string, url: string) {
+/** Source map text to a decoder; throws a clear error for invalid JSON, missing mappings or an indexed map. */
+export function parseSourceMap(text: string): ParsedMap {
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new Error('Malformed source map: not valid JSON');
+  }
+  const map = json as SourceMapJson & { sections?: unknown };
+  if (!map || typeof map !== 'object')
+    throw new Error('Malformed source map: not an object');
+  if (map.sections !== undefined)
+    throw new Error('Malformed source map: indexed maps are not supported');
+  if (typeof map.mappings !== 'string' || !Array.isArray(map.sources))
+    throw new Error('Malformed source map: mappings or sources missing');
+  return parseMap(map);
+}
+
+/** The origin a URL is judged by: scheme and host with port. */
+function originOf(url: string) {
+  const u = new URL(url);
+  return `${u.protocol}//${u.host}`;
+}
+
+/**
+ * A script's map text: a data: URI decodes locally; an http(s) map is fetched through the sandbox
+ * exemption only when it shares the script's origin. A foreign origin, or a relative URL with no
+ * script URL, is refused so the recipe never widens network access.
+ */
+export async function readScriptMapText(
+  sourceMapURL: string,
+  scriptUrl: string
+): Promise<string> {
   if (sourceMapURL.startsWith('data:')) {
-    const b64start = sourceMapURL.indexOf('base64,');
-    if (b64start === -1) return null;
+    const text = decodeDataUri(sourceMapURL);
+    if (text === null) throw new Error('Malformed source map: bad data: URI');
+    return text;
+  }
+  if (!scriptUrl)
+    throw new Error('Refused: a relative source map needs a script URL');
+  const mapUrl = new URL(sourceMapURL, scriptUrl).href;
+  if (!/^https?:/.test(mapUrl))
+    throw new Error(`Refused: unsupported source map scheme ${mapUrl}`);
+  if (originOf(mapUrl) !== originOf(scriptUrl))
+    throw new Error(
+      `Refused: source map origin ${originOf(mapUrl)} differs from script origin ${originOf(scriptUrl)}`
+    );
+  return fetchText(mapUrl);
+}
+
+/** The text of a data: URI (base64 or percent-encoded); null when malformed. */
+function decodeDataUri(sourceMapURL: string): string | null {
+  const b64start = sourceMapURL.indexOf('base64,');
+  if (b64start !== -1)
     return Buffer.from(sourceMapURL.slice(b64start + 7), 'base64').toString(
       'utf8'
     );
+  const comma = sourceMapURL.indexOf(',');
+  if (comma === -1) return null;
+  try {
+    return decodeURIComponent(sourceMapURL.slice(comma + 1));
+  } catch {
+    return null;
   }
+}
+
+/** The map a script names: inline data or a fetch relative to the script; null for malformed inline data. */
+function readMapText(sourceMapURL: string, url: string) {
+  if (sourceMapURL.startsWith('data:')) return decodeDataUri(sourceMapURL);
   return fetchText(url ? new URL(sourceMapURL, url).href : sourceMapURL);
 }
 

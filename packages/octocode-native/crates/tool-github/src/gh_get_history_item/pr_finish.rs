@@ -14,6 +14,7 @@ use octocode_contract_types::{
     GhGetFileContentQuery, GhGetHistoryItemChannel, GhGetHistoryItemQuery,
 };
 use octocode_runtime_base::response::paging::{mark_partial, push_warnings};
+use octocode_runtime_base::id::ToolId;
 use octocode_runtime_base::response::result::wire_query;
 use octocode_runtime_base::response::result::{Continuation, ToolData, insert_next};
 use octocode_tools_shared::gh_shared::ensure_calls;
@@ -156,8 +157,8 @@ pub(super) fn finish_pr(
         ]);
     }
     attach_full_patch_continuation(&mut out, query);
-    if let Some((path, sha)) = &files.first_unsearched {
-        attach_unsearched_read(&mut out, query, path, sha.as_deref());
+    if !files.leads_unsearched.is_empty() {
+        attach_unsearched_reads(&mut out, query, &files.leads_unsearched);
     }
     attach_context_reads(&mut out, query, &files.clipped);
     // A patch read's next step is the code at either side of its numbered
@@ -213,41 +214,56 @@ fn lead_with_comment_reads(out: &mut Value, comment_reads: Vec<Value>) {
 
 /// A `matchString` search that skipped patchless files covers only part of
 /// the diff (a pull request's, a commit's or a comparison's): mark it
-/// partial and offer the literal search of the first skipped file's source
-/// at `sha` (the base for a removed file, else the head; a template for the
-/// rest).
-pub(super) fn attach_unsearched_read(
+/// partial and offer the literal search of every skipped file's source
+/// at its sha (the base for a removed file, else the head), as many calls
+/// as the queries limit needs.
+pub(super) fn attach_unsearched_reads(
     out: &mut Value,
     query: &HistoryItemRequest,
-    path: &str,
-    sha: Option<&str>,
+    files: &[(String, Option<String>)],
 ) {
     mark_partial(
         out,
         octocode_runtime_base::response::paging::PartialReason::PatchUnavailable,
         &[],
     );
-    let (Some(needle), Some(sha)) = (gh_get_history_item_query::match_strings(query), sha) else {
+    let Some(needle) = gh_get_history_item_query::match_strings(query) else {
         return;
     };
-    let Some(read) = wire_query::<GhGetFileContentQuery>(json!({
-        "owner": gh_get_history_item_query::owner(query),
-        "repo": gh_get_history_item_query::repo(query),
-        "path": path,
-        "ref": sha,
-        "matchString": needle,
-        "caseMode":gh_get_history_item_query::match_options(query).map(|o|o.0),
-        "regexEngine":gh_get_history_item_query::match_options(query).map(|o|o.1),
-        "wholeWord":gh_get_history_item_query::match_options(query).map(|o|o.2)}))
-    else {
+    let reads = files
+        .iter()
+        .filter_map(|(path, sha)| {
+            let sha = sha.as_deref()?;
+            wire_query::<GhGetFileContentQuery>(json!({
+                "owner": gh_get_history_item_query::owner(query),
+                "repo": gh_get_history_item_query::repo(query),
+                "path": path,
+                "ref": sha,
+                "matchString": needle,
+                "caseMode":gh_get_history_item_query::match_options(query).map(|o|o.0),
+                "regexEngine":gh_get_history_item_query::match_options(query).map(|o|o.1),
+                "wholeWord":gh_get_history_item_query::match_options(query).map(|o|o.2)}))
+        })
+        .collect::<Vec<_>>();
+    if reads.is_empty() {
         return;
-    };
+    }
     ensure_calls(out);
-    insert_next(
-        &mut out["calls"],
-        GhGetHistoryItemChannel::SearchUnpatchedFile,
-        Continuation::continued_query(read),
-    );
+    let per_call =
+        octocode_runtime_base::response::result::rows_per_call(ToolId::GhGetFileContent).max(1);
+    let channel = GhGetHistoryItemChannel::SearchUnpatchedFile;
+    for (index, chunk) in reads.chunks(per_call).enumerate() {
+        let rows = chunk
+            .iter()
+            .filter_map(|read| serde_json::to_value(read).ok())
+            .collect::<Vec<_>>();
+        let call = Continuation::continued_input(ToolId::GhGetFileContent, json!({"queries": rows}));
+        if index == 0 {
+            insert_next(&mut out["calls"], channel, call);
+        } else {
+            out["calls"][octocode_runtime_base::id::numbered(channel.key(), index)] = call.build();
+        }
+    }
 }
 
 /// `matchString` context the hunks cut short and the head text did not

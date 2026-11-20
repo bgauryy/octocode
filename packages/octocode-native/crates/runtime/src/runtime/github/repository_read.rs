@@ -19,8 +19,7 @@ pub(crate) struct RepositoryReader<'a> {
 }
 
 /// What a refused GitHub read says: its code, and when to ask again. A rate
-/// limit names its reset time; every refusal names the sign-in that raises the
-/// quota.
+/// limit names its reset time; a refused credential names the sign-in; other failures say to retry.
 fn failure_of(error: &ProviderError) -> RepoFailure {
     let code = error.code();
     let why = match (error.kind, error.rate_limit.as_deref()) {
@@ -43,9 +42,10 @@ fn failure_of(error: &ProviderError) -> RepoFailure {
                 ),
             }
         }
-        _ => format!(
-            "GitHub did not answer ({code}); retry later, or run `octocode auth login` for a higher quota."
+        (ProviderErrorKind::Authentication | ProviderErrorKind::Permission, _) => format!(
+            "GitHub did not answer ({code}); run `octocode auth login` to sign in with a token that can read it."
         ),
+        _ => format!("GitHub did not answer ({code}); retry later."),
     };
     RepoFailure { code, why }
 }

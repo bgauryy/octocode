@@ -274,7 +274,12 @@ pub(super) fn judge_prepared(
             Err(failed) => match failed.unadmitted {
                 Some(sections) => {
                     return RowOutcome::OverBudget(sections_over(
-                        row, sections, whole, 0, retries,
+                        row,
+                        sections,
+                        whole,
+                        0,
+                        retries,
+                        evaluator.request_window(true),
                     ));
                 }
                 None => sectioned = Some(failed),
@@ -346,6 +351,7 @@ pub(super) fn judge_prepared(
                         whole,
                         refusal.provider_calls,
                         retries,
+                        evaluator.request_window(true),
                     ));
                 }
                 // The sections' requests were sent too: the refusal counts them.
@@ -400,6 +406,7 @@ fn sections_over(
     whole: u64,
     spent: u64,
     retries: u64,
+    long_window: u64,
 ) -> Box<super::reply::OverBudget> {
     let at_most = sections.saturating_add(whole);
     Box::new(super::reply::OverBudget {
@@ -408,8 +415,9 @@ fn sections_over(
             planned: sections,
             ceiling: Some(RequestCap::ceiling(at_most, retries)),
             room: retries,
+            // Each request is taken at most as large as the long window.
+            tokens: Some(at_most.saturating_mul(long_window)),
         },
-        input_tokens_at_most: None,
         limit: row
             .max_requests
             .map_or(super::reply::Limit::Named(1), super::reply::Limit::Max),
@@ -544,7 +552,7 @@ pub(super) fn resources_row(
         at_most: 0,
         bounded: true,
         units: 0,
-        tokens: Some(0),
+        tokens: 0,
     };
     for (_, entry) in &prepared {
         if let Ok((_, Ok(prepared))) = entry {
@@ -552,10 +560,7 @@ pub(super) fn resources_row(
             plan.first = plan.first.saturating_add(one.first);
             plan.at_most = plan.at_most.saturating_add(one.at_most);
             plan.bounded &= one.bounded;
-            plan.tokens = plan
-                .tokens
-                .zip(one.tokens)
-                .map(|(sum, more)| sum.saturating_add(more));
+            plan.tokens = plan.tokens.saturating_add(one.tokens);
             plan.units += 1;
         }
     }
@@ -581,6 +586,7 @@ pub(super) fn resources_row(
                             planned: one.first,
                             ceiling: Some(RequestCap::ceiling(one.at_most, room)),
                             room,
+                            tokens: Some(one.tokens),
                         },
                     )
                 } else {

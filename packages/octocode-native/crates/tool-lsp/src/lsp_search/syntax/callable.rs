@@ -5,6 +5,7 @@
 //! (`references`) and its implementors (`implementation`).
 use super::super::*;
 use super::File;
+use crate::lsp_search::render::wire_kind;
 
 /// Declaration kinds of the graph facts that no call expression names.
 const NON_CALLABLE: &[&str] = &[
@@ -51,20 +52,23 @@ pub(in super::super) fn non_callable(query: &LspSearchQuery, path: &str) -> Opti
     // constructor in another declaration) leaves the server to decide.
     let anchored = named
         .iter()
-        .find(|declaration| declaration.selection_range.start.line + 1 == line)?;
-    if !named
-        .iter()
-        .all(|declaration| NON_CALLABLE.contains(&declaration.kind.as_str()))
+        .find(|declaration| {
+            declaration.kind != "impl" && declaration.selection_range.start.line + 1 == line
+        })?;
+    // An `impl` block names its type but is no callable either.
+    if !named.iter().all(|declaration| {
+        declaration.kind == "impl" || NON_CALLABLE.contains(&declaration.kind.as_str())
+    })
     {
         return None;
     }
     let mut row = failure::empty(
         query,
         "notCallable",
-        &reason(operation, &anchored.kind),
+        &reason(operation, wire_kind(&anchored.kind)),
         false,
     );
-    row["kind"] = json!(anchored.kind);
+    row["kind"] = json!(wire_kind(&anchored.kind));
     for lead in ["references", "implementation"] {
         // A related request is fresh: it drops the cursors itself.
         if let Ok(related) =

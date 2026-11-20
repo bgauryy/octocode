@@ -1,6 +1,7 @@
 import type { FlowDefinition } from './flow-types.mjs';
 const flow: FlowDefinition = {
   name: 'console-network-audit',
+  area: 'audits',
   description:
     'Load a page while recording its network requests, console calls and uncaught exceptions, then save a snapshot and a screenshot.',
   params: {

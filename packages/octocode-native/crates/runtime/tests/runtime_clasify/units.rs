@@ -627,15 +627,13 @@ async fn a_units_row_over_its_max_requests_sends_nothing_and_its_confirm_runs() 
     let ceiling = data["usage"]["requestsCeiling"].as_u64().expect("ceiling");
     assert!(ceiling >= 2, "{out}");
     assert_eq!(data["next"]["confirm"]["tool"], "clasify", "{out}");
-    // Nothing bounds the provider's own prompt before it answered here: no
-    // token figure, and the row says why.
-    assert!(data["usage"].get("inputTokensAtMost").is_none(), "{out}");
+    // The refusal always states a hard token bound, even before the
+    // provider answered a request here, and has nothing to explain.
     assert!(
-        data["warnings"][0]
-            .as_str()
-            .is_some_and(|warning| warning.contains("inputTokensAtMost is not stated")),
+        data["usage"]["inputTokensAtMost"].as_u64().is_some_and(|bound| bound > 0),
         "{out}"
     );
+    assert!(data.get("warnings").is_none(), "{out}");
     assert!(sent(&server).await.is_empty(), "nothing was sent");
     let run = |name: &str, call: &Value| {
         let (name, tool, input) = (

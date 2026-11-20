@@ -1,5 +1,6 @@
 // Flow logic without a browser: definitions, parameter checks, placeholder expansion, the
 // workspace store and secret scrubbing. Every expanded plan goes through the real plan validator.
+import { isRecord } from '../session-store.mjs';
 import {
   chmodSync,
   existsSync,
@@ -28,9 +29,6 @@ const PLACEHOLDER = /\{\{([A-Za-z][A-Za-z0-9_]*)\}\}/g;
 const TYPES: ParamType[] = ['string', 'number', 'boolean'];
 const SECRET_NAME = /pass(word)?|secret|token|api_?key|credential/i;
 export const REDACTED = '[REDACTED]';
-
-const isRecord = (value: unknown): value is Json =>
-  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
 export const flowsDir = (workspace: string) =>
   join(workspace, '.octocode', 'octocode-chrome-devtools', 'flows');
@@ -83,6 +81,42 @@ export function validateDefinition(
       throw new Error(`Secret param ${key} must be a string`);
     if (raw.required && raw.default !== undefined)
       throw new Error(`Param ${key} cannot be required and have a default`);
+    if (
+      (raw.min !== undefined || raw.max !== undefined) &&
+      (raw.type !== 'number' ||
+        (raw.min !== undefined && typeof raw.min !== 'number') ||
+        (raw.max !== undefined && typeof raw.max !== 'number') ||
+        (raw.min !== undefined && raw.max !== undefined && raw.min > raw.max))
+    )
+      throw new Error(
+        `Param ${key}: min and max are numbers on a number param`
+      );
+    if (
+      raw.enum !== undefined &&
+      (raw.type !== 'string' ||
+        !Array.isArray(raw.enum) ||
+        !raw.enum.length ||
+        !raw.enum.every(item => typeof item === 'string'))
+    )
+      throw new Error(
+        `Param ${key}: enum is a list of texts on a string param`
+      );
+    if (
+      raw.pattern !== undefined &&
+      (raw.type !== 'string' || typeof raw.pattern !== 'string')
+    )
+      throw new Error(
+        `Param ${key}: pattern is a regular expression text on a string param`
+      );
+    if (raw.default !== undefined)
+      checkValue(key, raw as ParamDefinition, raw.default);
+  }
+  if (def.sensitive) {
+    const ack = (def.params as Record<string, Json>).acknowledge;
+    if (!ack || ack.type !== 'boolean' || !ack.required)
+      throw new Error(
+        `${label} is sensitive: it needs a required boolean param acknowledge`
+      );
   }
   if (!isRecord(def.plan)) throw new Error(`${label} needs a plan object`);
   if (
@@ -114,6 +148,28 @@ export function validateDefinition(
   validatePlan(expandFlow(typed, sampleParams(typed)).plan);
 }
 
+/** A value inside the declared bounds or enum. */
+function checkValue(name: string, param: ParamDefinition, value: unknown) {
+  if (typeof value !== param.type)
+    throw new Error(`Param ${name} must be a ${param.type}`);
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value))
+      throw new Error(`Param ${name} must be finite`);
+    if (param.min !== undefined && value < param.min)
+      throw new Error(`Param ${name} must be at least ${param.min}`);
+    if (param.max !== undefined && value > param.max)
+      throw new Error(`Param ${name} must be at most ${param.max}`);
+  }
+  if (typeof value === 'string' && param.enum && !param.enum.includes(value))
+    throw new Error(`Param ${name} must be one of: ${param.enum.join(', ')}`);
+  if (
+    typeof value === 'string' &&
+    param.pattern &&
+    !new RegExp(param.pattern).test(value)
+  )
+    throw new Error(`Param ${name} must match ${param.pattern}`);
+}
+
 /** One valid value per param (default, else a type-shaped sample), so every step is expanded. */
 export function sampleParams(def: FlowDefinition) {
   const values: Record<string, ParamValue> = {};
@@ -121,12 +177,14 @@ export function sampleParams(def: FlowDefinition) {
     values[name] =
       param.default ??
       (param.type === 'number'
-        ? 2
+        ? Math.min(param.max ?? Infinity, Math.max(param.min ?? 2, 2))
         : param.type === 'boolean'
           ? true
-          : /url/i.test(name)
-            ? 'https://example.com/'
-            : 'sample');
+          : param.enum
+            ? param.enum[0]
+            : /url|origin/i.test(name)
+              ? 'https://example.com/'
+              : 'sample');
   return values;
 }
 
@@ -148,30 +206,39 @@ export function resolveParams(
   for (const [name, param] of Object.entries(def.params)) {
     const value = input[name];
     if (value !== undefined) {
-      if (typeof value !== param.type)
-        throw new Error(`Param ${name} must be a ${param.type}`);
+      checkValue(name, param, value);
       values[name] = value as ParamValue;
     } else if (param.default !== undefined) values[name] = param.default;
     else if (param.required) missing.push(name);
   }
   if (missing.length && !allowMissing)
     throw new Error(`Missing required param(s): ${missing.join(', ')}`);
+  if (def.sensitive && !allowMissing && values.acknowledge !== true)
+    throw new Error(
+      `Flow ${def.name} is sensitive: pass acknowledge: true to confirm`
+    );
   return { values, missing };
 }
 
+const whole = /^\{\{([A-Za-z][A-Za-z0-9_]*)\}\}$/;
 const substitute = (
   node: unknown,
   values: Record<string, ParamValue>,
   redact: Set<string>
 ): unknown => {
-  if (typeof node === 'string')
-    return node.replace(PLACEHOLDER, (whole, name: string) =>
+  if (typeof node === 'string') {
+    // A value that is exactly one placeholder takes the param's own type.
+    const only = whole.exec(node)?.[1];
+    if (only !== undefined && !redact.has(only) && Object.hasOwn(values, only))
+      return values[only];
+    return node.replace(PLACEHOLDER, (all, name: string) =>
       redact.has(name)
         ? `[secret:${name}]`
         : Object.hasOwn(values, name)
           ? String(values[name])
-          : whole
+          : all
     );
+  }
   if (Array.isArray(node))
     return node.map(item => substitute(item, values, redact));
   if (isRecord(node))
@@ -184,7 +251,55 @@ const substitute = (
   return node;
 };
 
-/** A step that names only absent optional params is dropped; a half-present step is an error. */
+/** Absent optional params drop the list items and object keys they stand alone in. */
+function prune(
+  def: FlowDefinition,
+  node: unknown,
+  values: Record<string, ParamValue>,
+  missing: string[]
+): unknown {
+  const absent = (name: string) =>
+    !Object.hasOwn(values, name) &&
+    !def.params[name].required &&
+    !missing.includes(name);
+  const alone = (value: unknown) => {
+    const name = typeof value === 'string' ? whole.exec(value)?.[1] : undefined;
+    return name !== undefined && absent(name);
+  };
+  if (Array.isArray(node))
+    return node
+      .filter(item => {
+        if (alone(item)) return false;
+        if (!isRecord(item)) return true;
+        const names = [...placeholders(item)];
+        return !(names.length && names.every(absent));
+      })
+      .map(item => prune(def, item, values, missing));
+  if (isRecord(node))
+    return Object.fromEntries(
+      Object.entries(node)
+        .filter(([, value]) => !alone(value))
+        .map(([key, value]) => [key, prune(def, value, values, missing)])
+    );
+  return node;
+}
+
+/** Params that stand alone as a value inside a step's params: absent, they drop only that key or list item. */
+function standalone(node: unknown, found = new Set<string>()) {
+  if (typeof node === 'string') {
+    const name = whole.exec(node)?.[1];
+    if (name) found.add(name);
+  } else if (Array.isArray(node))
+    for (const item of node) standalone(item, found);
+  else if (isRecord(node))
+    for (const value of Object.values(node)) standalone(value, found);
+  return found;
+}
+
+/**
+ * A step that names only absent optional params is dropped; a half-present step is an error,
+ * unless the absent param stands alone as a value in the step's params (that key is dropped).
+ */
 function usable(
   def: FlowDefinition,
   steps: unknown[],
@@ -201,9 +316,10 @@ function usable(
         !missing.includes(name)
     );
     if (names.length && absent.length === names.length) return;
-    if (absent.length)
+    const keys = standalone((step as Json | undefined)?.params);
+    if (absent.some(name => !keys.has(name)))
       throw new Error(
-        `Step ${index + 1} needs ${absent.join(', ')} together with ${names.filter(name => !absent.includes(name)).join(', ')}`
+        `Step ${index + 1} needs ${absent.filter(name => !keys.has(name)).join(', ')} together with ${names.filter(name => !absent.includes(name)).join(', ')}`
       );
     kept.push(step);
   });
@@ -238,7 +354,11 @@ export function expandFlow(
     const each = usable(def, def.repeat.steps, values, missing);
     for (let i = 0; i < count; i++) steps.push(...each);
   }
-  const plan = substitute({ ...base, steps }, values, secrets) as Json;
+  const plan = substitute(
+    prune(def, { ...base, steps }, values, missing),
+    values,
+    secrets
+  ) as Json;
   return { plan };
 }
 
@@ -281,6 +401,8 @@ export const describe = (
   name: def.name,
   description: def.description,
   source,
+  ...(def.area ? { area: def.area } : {}),
+  ...(def.sensitive ? { sensitive: true } : {}),
   params: def.params,
   expects: def.expects,
 });

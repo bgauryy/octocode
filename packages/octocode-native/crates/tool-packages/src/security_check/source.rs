@@ -309,10 +309,23 @@ pub(super) fn note_failure(entry: &mut Value, code: octocode_contract_types::Err
     }
     let joined = match entry.get("why").and_then(Value::as_str) {
         Some(stated) if stated.contains(why) => return,
-        Some(stated) => [stated, why].join(" "),
+        Some(stated) => [stated, &without_repeated_cause(stated, why)].join(" "),
         None => why.to_owned(),
     };
     entry["why"] = serde_json::json!(joined);
+}
+
+/// `why` with the cause `stated` already holds replaced by a back-reference:
+/// two reads that failed for one transport reason state it once. A reason is
+/// `<what was not read>: <cause>`; only the cause after the first `": "`
+/// is compared, and only when it is long enough to be a sentence of its own.
+fn without_repeated_cause(stated: &str, why: &str) -> String {
+    match why.split_once(": ") {
+        Some((unread, cause)) if cause.len() > 20 && stated.contains(cause) => {
+            format!("{unread}: same cause.")
+        }
+        _ => why.to_owned(),
+    }
 }
 
 /// Whether the rows of a response share `failure`'s words: GitHub's rate
@@ -339,6 +352,13 @@ pub(super) fn unread_because(unread: &str, failure: &RepoFailure) -> String {
 /// warnings when two or more rows with evidence carry it, else on the first
 /// row that carries it (in its hints on a failed row).
 pub(super) fn state_refusal(row: &mut Value, failure: &RepoFailure) {
+    // A transient refusal may clear on a later call; a refused credential or a
+    // missing record will not.
+    if octocode_runtime_base::id::error_codes::class(failure.code)
+        == octocode_runtime_base::id::error_codes::ErrorClass::Transient
+    {
+        row["retryable"] = serde_json::json!(true);
+    }
     if shared_refusal(failure) {
         octocode_runtime_base::response::paging::push_notice(row, failure.why.clone());
     }

@@ -4,7 +4,9 @@ use octocode_test_support::json_fixture;
 use serde_json::json;
 
 mod beside_cursor;
+mod duration_sign;
 mod failed_row_notes;
+mod github_location;
 mod guessed_fields;
 mod request_shapes;
 mod value_notes;

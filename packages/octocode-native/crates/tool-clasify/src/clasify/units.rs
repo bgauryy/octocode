@@ -1043,6 +1043,7 @@ fn shape(row: &Row, units: Vec<Unit>, judged: UnitAnswers) -> UnitsOutcome {
             planned: 0,
             ceiling: Some(0),
             room: 0,
+            tokens: Some(0),
         },
         retries: Vec::new(),
     }

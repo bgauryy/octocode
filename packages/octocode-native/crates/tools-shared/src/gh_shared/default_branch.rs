@@ -143,8 +143,89 @@ pub async fn with_default_branch(
         return failure;
     }
     let row = octocode_runtime_base::response::result::query_row(query, &[]);
+    if let Some(spelling) = tag_spelling_retry(provider, tool, &row, context).await {
+        spelling.apply(&mut failure);
+    }
     if let Some(retry) = default_branch_retry(provider, tool, row, &["ref"], context).await {
         retry.apply(&mut failure);
     }
     failure
+}
+
+/// A `ref` that exists under the other spelling of a version tag: with or
+/// without the `v` prefix (`v1.2.0` / `1.2.0`).
+pub struct TagSpellingRetry {
+    reference: String,
+    lead: Value,
+}
+
+impl TagSpellingRetry {
+    /// The failure's message names the spelling that resolves and its
+    /// recovery leads with the same call at it.
+    fn apply(self, failure: &mut GhFailure) {
+        failure.message = format!("{}; \"{}\" exists", failure.message, self.reference);
+        let next = failure.calls.get_or_insert_with(|| Box::new(Value::Null));
+        if !next.is_object() {
+            **next = serde_json::json!({});
+        }
+        next["atSpelledRef"] = self.lead;
+    }
+}
+
+/// The version-tag spelling of `reference` with the `v` prefix toggled:
+/// `v1.2` ↔ `1.2`. `None` when it is not a version (no digit after the
+/// optional `v`).
+fn other_tag_spelling(reference: &str) -> Option<String> {
+    let starts_digit = |text: &str| text.chars().next().is_some_and(|c| c.is_ascii_digit());
+    match reference.strip_prefix(['v', 'V']) {
+        Some(version) if starts_digit(version) => Some(version.to_owned()),
+        None if starts_digit(reference) => Some(format!("v{reference}")),
+        _ => None,
+    }
+}
+
+/// The same call at the other spelling of its version tag, when that ref
+/// resolves in `owner/repo` (one request). `None` for a non-version ref, a
+/// full SHA, or an alternate that does not resolve.
+pub async fn tag_spelling_retry(
+    provider: &GitHubProvider,
+    tool: ToolId,
+    row: &Value,
+    context: &RequestContext,
+) -> Option<TagSpellingRetry> {
+    let text = |name: &str| row.get(name).and_then(Value::as_str);
+    let (owner, repo, reference) = (text("owner")?, text("repo")?, text("ref")?);
+    if octocode_github::is_full_sha(reference) {
+        return None;
+    }
+    let other = other_tag_spelling(reference)?;
+    provider
+        .transport
+        .commit_sha(owner, repo, &other, context)
+        .await
+        .ok()?;
+    let mut row = row.clone();
+    row["ref"] = Value::from(other.clone());
+    Some(TagSpellingRetry {
+        lead: restart_query(tool, &row),
+        reference: other,
+    })
+}
+
+#[cfg(test)]
+mod spelling_tests {
+    use super::other_tag_spelling;
+
+    #[test]
+    fn the_v_prefix_of_a_version_toggles_and_other_refs_have_no_twin() {
+        for (given, twin) in [("v1.2.0", Some("1.2.0")), ("1.2.0", Some("v1.2.0")), ("V2", Some("2"))] {
+            assert_eq!(other_tag_spelling(given).as_deref(), twin, "{given}");
+            if let Some(twin) = twin {
+                assert!(other_tag_spelling(twin).is_some());
+            }
+        }
+        for given in ["main", "vendor", "v", "", "release/1.0"] {
+            assert_eq!(other_tag_spelling(given), None, "{given}");
+        }
+    }
 }

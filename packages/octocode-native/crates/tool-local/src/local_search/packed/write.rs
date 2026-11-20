@@ -98,6 +98,7 @@ impl<W: Write> Writer<W> {
         }
         self.number(u64::from(file.counted.occurrences))?;
         self.number(u64::from(file.counted.lines))?;
+        self.number(u64::from(file.counted.masked))?;
         // The time the sort ranked it by, a stamp like its source's: an
         // identity orders the files, and their times may move between reads.
         if stamps {

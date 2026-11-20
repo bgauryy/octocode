@@ -206,6 +206,12 @@ pub(super) fn shape(
             )],
         );
     }
+    if value["status"] == "empty" && !paging.past_end {
+        octocode_runtime_base::response::result::add_hints(
+            &mut value,
+            qualifier_keyword_hints(&gh_search_history_query::keywords(query)),
+        );
+    }
     disclose_provider_limits(&mut value, query, paging, narrow);
     // `effectiveQuery` is the request in GitHub's search syntax: it explains
     // an answer the rows do not (none matched, or GitHub capped or cut the
@@ -218,6 +224,41 @@ pub(super) fn shape(
         fields.remove("effectiveQuery");
     }
     value
+}
+
+/// The search qualifiers a keyword can spell, with the `filters` field that
+/// carries each: a keyword matches text, so `author:ada` finds nothing a
+/// filter would.
+const QUALIFIER_FILTERS: &[(&str, &str)] = &[
+    ("author", "author"),
+    ("committer", "committer"),
+    ("assignee", "assignee"),
+    ("mentions", "mentions"),
+    ("commenter", "commenter"),
+    ("reviewed-by", "reviewedBy"),
+    ("review-requested", "reviewRequested"),
+    ("label", "label"),
+    ("base", "base"),
+    ("head", "head"),
+];
+
+/// A hint per keyword spelled as a qualifier (`author:sharkdp`) that names
+/// the `filters` field carrying it.
+pub(super) fn qualifier_keyword_hints(keywords: &[&str]) -> Vec<String> {
+    keywords
+        .iter()
+        .filter_map(|keyword| {
+            let (key, value) = keyword.trim().split_once(':')?;
+            let (_, field) = QUALIFIER_FILTERS
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case(key))?;
+            (!value.is_empty()).then(|| {
+                format!(
+                    "Keyword `{keyword}` matches text, not the {key} qualifier: set `filters.{field}` to `{value}` and drop it from keywords."
+                )
+            })
+        })
+        .collect()
 }
 
 /// Whether a commit listing is narrowed by its path alone: no author,

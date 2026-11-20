@@ -144,8 +144,18 @@ export async function flowMain(args: string[], workspace = process.cwd()) {
   const { action, name, params } = parsed;
   if (action === 'list') {
     const { flows, invalid } = loadFlows(workspace);
+    const order = ['emulation', 'inspection', 'input', 'permissions', 'audits'];
+    const rank = (area?: string) =>
+      area === undefined ? order.length : order.indexOf(area);
+    const sorted = flows
+      .map(({ def, source }) => describe(def, source))
+      .sort((a, b) => rank(a.area) - rank(b.area));
+    const areas: Record<string, string[]> = {};
+    for (const item of sorted)
+      (areas[item.area ?? 'custom'] ??= []).push(item.name);
     print({
-      flows: flows.map(({ def, source }) => describe(def, source)),
+      areas,
+      flows: sorted,
       ...(invalid.length ? { invalid } : {}),
     });
     return 0;
@@ -179,6 +189,9 @@ export async function flowMain(args: string[], workspace = process.cwd()) {
       template: def.plan,
       missing,
       plan,
+      // Paste `steps` into a larger run plan; $step numbers count from the first step of that plan.
+      spliceable: true,
+      steps: (plan as { steps?: unknown }).steps,
       valid,
       ...(error ? { error } : {}),
     });

@@ -95,10 +95,14 @@ async fn compare_row_names_both_resolved_commits_and_each_commit_sha() {
         json_fixture(r#"["M +1 -1 src/a.rs"]"#),
         "{out}"
     );
-    // The summary counts the range's commits (`aheadBy`) and pages them
-    // apart; the commits section lists each by its SHA.
-    assert!(out.get("commits").is_none(), "{out}");
-    assert_eq!(out["sectionPagination"]["commits"]["length"], 0, "{out}");
+    // The unfiltered summary lists the range's first commit page beside its
+    // files; the commits section lists each by its SHA too.
+    assert_eq!(out["commits"][0]["commitSha"], HEAD, "{out}");
+    assert_eq!(out["sectionPagination"]["commits"]["length"], 1, "{out}");
+    assert_eq!(
+        out["sectionPagination"]["commits"]["hasMore"], false,
+        "{out}"
+    );
     let listed = read(
         &server,
         json_fixture(
@@ -200,7 +204,8 @@ async fn mount_long_compare(server: &MockServer, files: Value) {
 /// its file page, and the range's commits (not scoped by either filter)
 /// are not listed by default. Their section states the count, `unshown`
 /// with no page number, and `sectionPagination.commits.next.nextPage` lists them from the
-/// first page, losslessly. An unfiltered read still lists them.
+/// first page, losslessly. An unfiltered read lists the first commit page
+/// beside its files, and its continuation names the second.
 #[tokio::test]
 async fn compare_file_filters_page_the_commits_apart() {
     let server = MockServer::builder().start().await;
@@ -265,15 +270,32 @@ async fn compare_file_filters_page_the_commits_apart() {
         assert_eq!(listed["commits"].as_array().map(Vec::len), Some(100));
         assert_eq!(listed["sectionPagination"]["commits"]["offset"], 0);
     }
-    // The summary pages the commits apart too; the commits section lists them.
+    // The unfiltered summary lists the first commit page as the commits
+    // section does, and continues with the second.
     let summary = read(
         &server,
         json!({"operation":"compare","owner":"o","repo":"r","baseRef":BASE,"headRef":HEAD}),
     )
     .await;
-    assert!(summary.get("commits").is_none(), "{summary}");
+    assert_eq!(
+        summary["commits"].as_array().map(Vec::len),
+        Some(100),
+        "{summary}"
+    );
     assert_eq!(
         summary["sectionPagination"]["commits"]["total"], 337,
+        "{summary}"
+    );
+    assert_eq!(
+        summary["files"].as_array().map(Vec::len),
+        Some(2),
+        "{summary}"
+    );
+    let second = &summary["next"]["commits"]["input"]["queries"][0];
+    assert_eq!(second["page"], 2, "{summary}");
+    assert_eq!(
+        second["sections"],
+        json_fixture(r#"["commits"]"#),
         "{summary}"
     );
     let plain = read(

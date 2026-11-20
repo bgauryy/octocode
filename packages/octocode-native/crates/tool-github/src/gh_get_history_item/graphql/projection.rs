@@ -52,6 +52,7 @@ pub(super) fn map_graphql_pr_metadata(pr: &Value) -> Value {
         "state": str_at(pr, "/state").map(str::to_ascii_lowercase),
         "draft": pr.get("isDraft"),
         "merged_at": pr.get("mergedAt"),
+        "merged_by": str_at(pr, "/mergedBy/login").map(|login| json!({"login": login})),
         // REST 2026-03-10 drops merge_commit_sha; GraphQL keeps mergeCommit.
         "merge_commit_sha": pr.pointer("/mergeCommit/oid"),
         "user": { "login": str_at(pr, "/author/login").unwrap_or("") },

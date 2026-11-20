@@ -288,6 +288,7 @@ fn unanswered_units_past_the_array_bound_take_more_retries() {
             planned: 3,
             ceiling: Some(6),
             room: 3,
+            tokens: Some(0),
         },
         retries: vec![
             Retry {

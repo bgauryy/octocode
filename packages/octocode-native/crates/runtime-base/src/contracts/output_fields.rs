@@ -61,6 +61,20 @@ impl CollectionRoutes {
         states
     }
 
+    /// Whether `pointer` is a member of a declared collection that declares
+    /// nothing below it: no page can split the member, so it travels whole.
+    pub(crate) fn is_whole_member(&self, pointer: &str) -> bool {
+        let Some((parent, _)) = pointer.rsplit_once('/') else {
+            return false;
+        };
+        self.reach(parent)
+            .iter()
+            .any(|state| self.nodes[*state].collection)
+            && self.reach(pointer).iter().all(|state| {
+                !self.nodes[*state].collection && self.nodes[*state].children.is_empty()
+            })
+    }
+
     /// `states` and every node their reference edges lead to.
     fn with_references(&self, mut states: Vec<usize>) -> Vec<usize> {
         let mut index = 0;

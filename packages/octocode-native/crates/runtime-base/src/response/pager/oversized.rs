@@ -2,7 +2,8 @@
 //! page target alone that the response cannot split. Paged responses window
 //! free text across row parts (`rowPart.text`), so free text does not make
 //! them oversized. Unpaged responses keep all strings whole. Schema-bounded
-//! values, repeated identities and executable calls are always indivisible.
+//! values, repeated identities, executable calls and the members of a declared
+//! collection that declares nothing below them are always indivisible.
 //! A page wider only by its fixed
 //! parts (the envelope, the `responsePagination` block, the context each
 //! row part repeats) states nothing: `responseChars` is a target, and the
@@ -74,6 +75,15 @@ fn value_over(value: &Value, tool: ToolId, budget: usize, at: &str, paging: bool
         Value::Object(map) if executable_call(map) => {
             octocode_engine::json_size::utf16_units(value).is_some_and(|chars| chars > budget)
         }
+        Value::Object(_) | Value::Array(_)
+            if page_context_fields(tool).collection_routes.is_whole_member(at)
+                && octocode_engine::json_size::utf16_units(&without_free_text(
+                    value, tool, at, paging,
+                ))
+                .is_some_and(|chars| chars > budget) =>
+        {
+            true
+        }
         Value::Object(map) => map.iter().any(|(key, item)| {
             if at == "/data" && super::telemetry::is_volatile_data_field(key) {
                 return false;
@@ -86,6 +96,30 @@ fn value_over(value: &Value, tool: ToolId, budget: usize, at: &str, paging: bool
             .enumerate()
             .any(|(index, item)| value_over(item, tool, budget, &format!("{at}/{index}"), paging)),
         _ => false,
+    }
+}
+
+/// `value` at row pointer `at` with the free text a paged response windows
+/// emptied: what the value weighs however that text is cut.
+fn without_free_text(value: &Value, tool: ToolId, at: &str, paging: bool) -> Value {
+    match value {
+        Value::String(_) if paging && free_text_at(tool, at) => Value::String(String::new()),
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(key, item)| {
+                    let child = format!("{at}/{}", crate::json_pointer::escape(key));
+                    (key.clone(), without_free_text(item, tool, &child, paging))
+                })
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .enumerate()
+                .map(|(index, item)| without_free_text(item, tool, &format!("{at}/{index}"), paging))
+                .collect(),
+        ),
+        other => other.clone(),
     }
 }
 

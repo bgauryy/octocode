@@ -4,9 +4,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
-import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
+import { freePortText as freePort } from '../fixtures/free-port.mjs';
 
 const bin = join(import.meta.dirname, '../../bin/octocode-chrome-devtools.mjs');
 const chromeCandidates = [
@@ -16,15 +16,6 @@ const chromeCandidates = [
   ),
 ];
 const skip = !chromeCandidates.some(existsSync) && 'no Chrome installed';
-
-const freePort = () =>
-  new Promise((resolve, reject) => {
-    const server = createServer().listen(0, '127.0.0.1', () => {
-      const { port } = server.address();
-      server.close(() => resolve(String(port)));
-    });
-    server.on('error', reject);
-  });
 
 const serverSource = `
 require('node:http').createServer((req, res) => {

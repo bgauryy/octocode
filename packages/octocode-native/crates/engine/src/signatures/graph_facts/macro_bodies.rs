@@ -10,6 +10,7 @@ use super::positions::NodePositions;
 use super::rust_macro_args::{MacroArgs, foreign_use, shadowed};
 use super::walk::{push_macro_gap, visit_node};
 use crate::graph::GraphParseAssessment;
+use crate::num::saturating_u32;
 use tree_sitter::Node;
 
 /// A Rust macro body to re-read: its range, the enclosing `mod` names
@@ -37,6 +38,11 @@ pub(super) enum MacroBodyKind {
         args: MacroArgs,
         recovered: Option<GraphParseAssessment>,
     },
+}
+
+/// The 1-based line a macro body starts on.
+fn line_of(body: &MacroBody) -> u32 {
+    saturating_u32(body.range.start_point.row + 1)
 }
 
 /// Read recorded Rust macro bodies (nested bodies too), in the order the walk
@@ -72,7 +78,7 @@ pub(super) fn visit_macro_bodies(
             if items {
                 items_visited += 1;
                 if items_visited > MAX_ITEM_MACRO_BODIES {
-                    push_macro_gap(acc);
+                    push_macro_gap(acc, line_of(&body));
                     continue;
                 }
             }
@@ -169,7 +175,7 @@ fn visit_body(
             return None;
         }
         if chain.is_none() {
-            push_macro_gap(acc);
+            push_macro_gap(acc, line_of(body));
         }
         return Some(Vec::new());
     };
@@ -300,7 +306,7 @@ pub(super) fn record_macro_body(
         if expression.is_none() {
             // `make_imports!();` expands from its definition, which is not
             // visible here: the generated items stay an explicit gap.
-            push_macro_gap(acc);
+            push_macro_gap(acc, saturating_u32(node.start_position().row + 1));
         }
         return;
     };

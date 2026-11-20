@@ -80,3 +80,12 @@ fn a_secret_named_in_a_body_is_redacted_in_the_title_that_repeats_it() {
     assert_eq!(items[1]["title"], "unrelated");
     assert_eq!(items[0]["number"], 1);
 }
+
+/// A keyword spelled as a qualifier points to the `filters` field that
+/// carries it; plain keywords get no hint.
+#[test]
+fn a_qualifier_keyword_points_to_its_filter() {
+    let hints = super::shape::qualifier_keyword_hints(&["author:sharkdp", "parser", "url:x"]);
+    assert_eq!(hints.len(), 1, "{hints:?}");
+    assert!(hints[0].contains("filters.author"), "{hints:?}");
+}

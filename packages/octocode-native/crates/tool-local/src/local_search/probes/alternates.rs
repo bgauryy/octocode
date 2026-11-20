@@ -65,17 +65,38 @@ impl<'q> Alternates<'q> {
     /// uppercase letter; a list runs joined as one case-sensitive alternation
     /// whatever its terms say). `None` for a page that lists files without the
     /// term, whose page is empty because the term is there.
-    pub(in crate::local_search) fn case_hint(&self, query: &LocalSearchQuery) -> Option<String> {
+    ///
+    /// A page whose files hold masked spans (`masked`) and whose terms read a
+    /// placeholder's spelling gets none: the placeholders are never matched
+    /// in any case, so the case rule did not decide it.
+    pub(in crate::local_search) fn case_hint(
+        &self,
+        query: &LocalSearchQuery,
+        masked: bool,
+    ) -> Option<String> {
         let written = self.written;
+        let terms = &local_search_query::patterns(written).0;
         (local_search_query::view(query) != View::FilesWithout
-            && local_search_query::patterns(written)
-                .0
+            && terms
                 .iter()
-                .any(|term| local_search_query::case_sensitive(written, term)))
+                .any(|term| local_search_query::case_sensitive(written, term))
+            && !(masked && terms.iter().any(|term| self.reads_a_placeholder(term))))
         .then(|| {
             "No case-sensitive match; the related[] call with caseMode \"insensitive\" runs the same search with case ignored."
                 .to_owned()
         })
+    }
+
+    /// Whether `term`, as the request reads it, matches the spelling of a
+    /// placeholder a read shows in place of a secret.
+    fn reads_a_placeholder(&self, term: &str) -> bool {
+        const SPELLINGS: [&str; 2] = ["[REDACTED]", "[REDACTED-GITHUBTOKENS]"];
+        match local_search_query::regex_mode(self.written) {
+            RegexEngine::Literal => SPELLINGS.iter().any(|spelling| spelling.contains(term)),
+            RegexEngine::Rust => regex::Regex::new(term)
+                .is_ok_and(|regex| SPELLINGS.iter().any(|spelling| regex.is_match(spelling))),
+            _ => false,
+        }
     }
 
     /// Offer the regex reading of an empty literal search whose terms hold

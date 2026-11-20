@@ -137,7 +137,7 @@ fn pull_request_selection(
 ) -> (String, Vec<(&'static str, u32)>) {
     let mut selections: Vec<String> = [
         "number title url state isDraft author { login }",
-        "baseRefName baseRefOid headRefName headRefOid createdAt updatedAt closedAt mergedAt mergeCommit { oid }",
+        "baseRefName baseRefOid headRefName headRefOid createdAt updatedAt closedAt mergedAt mergedBy { login } mergeCommit { oid }",
         "comments { totalCount } changedFiles additions deletions",
         // Totals only: an alias keeps the count apart from a paged
         // `commits(first:)` selection of the same connection.

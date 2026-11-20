@@ -168,28 +168,29 @@ pub(super) struct ChangeSides<'a> {
     pub(super) needle: Option<&'a super::matcher::Matcher>,
 }
 
-/// The first selected file GitHub sent without a patch whose text is
-/// readable (`tooLarge` or `omitted`; not binary, not a pure rename). Only
-/// REST entries (with a blob `sha`) say anything about patches.
-pub(super) fn first_unpatched(
-    files: &[Value],
-    selected: impl Fn(&Value) -> bool,
-) -> Option<&Value> {
-    files.iter().find(|file| {
-        selected(file)
-            && file.get("patch").is_none()
-            && file.get("sha").is_some()
-            && matches!(
-                super::inventory::missing_patch_reason(file),
-                Some("tooLarge" | "omitted")
-            )
-    })
+/// The selected files GitHub sent without a patch whose text is readable
+/// (`tooLarge` or `omitted`; not binary, not a pure rename). Only REST
+/// entries (with a blob `sha`) say anything about patches.
+pub(super) fn unpatched(files: &[Value], selected: impl Fn(&Value) -> bool) -> Vec<&Value> {
+    files
+        .iter()
+        .filter(|file| {
+            selected(file)
+                && file.get("patch").is_none()
+                && file.get("sha").is_some()
+                && matches!(
+                    super::inventory::missing_patch_reason(file),
+                    Some("tooLarge" | "omitted")
+                )
+        })
+        .collect()
 }
 
 /// `readAtCommit` and `readParent` (related calls reading both sides when
-/// the patch was delivered, the first named for its first side): the first
+/// the patch was delivered, the first named for its first side): every
 /// file GitHub sent without a patch (its change is in no response, so both
-/// sides are read whole), else with a `matchString` every file whose hunks
+/// sides are read whole; each side's reads ride calls within one call's
+/// queries limit), else with a `matchString` every file whose hunks
 /// hold it (most hits first, as many calls as the queries limit needs), else
 /// the change's most-changed code file (a test, doc or other file only when
 /// no code file has a patch), read over its hunks' windows at each side: the
@@ -219,15 +220,15 @@ pub(super) fn change_reads(
         let code = classify_file_type(path) == Some(FileType::Code) && !is_test_path(path);
         (hits(file), code, churn(file))
     };
-    let missing_patch = first_unpatched(files, &selected);
+    let missing_patch: Vec<&Value> = unpatched(files, &selected);
     let patched =
         |file: &&Value| selected(file) && file.get("patch").and_then(Value::as_str).is_some();
-    // Source recovery reads the one file with no patch. Optional source
+    // Source recovery reads every file with no patch. Optional source
     // reads cover every file a `matchString` hit (its hunks at each side),
     // most hits first; with no literal, the one most-changed code file.
-    let picks: Vec<&Value> = match missing_patch {
-        Some(file) => vec![file],
-        None if sides.needle.is_some() && files.iter().filter(patched).any(|f| hits(f) > 0) => {
+    let picks: Vec<&Value> = match missing_patch.as_slice() {
+        [_, ..] => missing_patch.clone(),
+        [] if sides.needle.is_some() && files.iter().filter(patched).any(|f| hits(f) > 0) => {
             let mut hit_files: Vec<&Value> = files
                 .iter()
                 .filter(patched)
@@ -236,7 +237,7 @@ pub(super) fn change_reads(
             hit_files.sort_by_key(|file| std::cmp::Reverse(rank(file)));
             hit_files
         }
-        None => files
+        [] => files
             .iter()
             .filter(patched)
             .rev()
@@ -251,30 +252,40 @@ pub(super) fn change_reads(
             repo,
             file,
             sides,
-            missing_patch.is_some(),
+            !missing_patch.is_empty(),
         ));
     }
-    // Missing source is the rest of the evidence: each side its own
-    // continuation. Optional source is related calls reading both sides,
-    // so the one lead a complete row keeps names both commits; rows beyond
-    // one call's queries limit ride further calls.
-    if missing_patch.is_some() {
-        return rows
-            .into_iter()
-            .map(|(name, row)| {
-                (
-                    name.to_owned(),
-                    Continuation::continued(ToolId::GhGetFileContent, row).build(),
-                )
-            })
-            .collect();
+    // Missing source is the rest of the evidence: each side's reads are
+    // required continuations, as many calls as the queries limit needs.
+    let per_call =
+        octocode_runtime_base::response::result::rows_per_call(ToolId::GhGetFileContent).max(1);
+    if !missing_patch.is_empty() {
+        let mut calls = Vec::new();
+        for kind in ["readAtCommit", "readParent"] {
+            let side = rows
+                .iter()
+                .filter(|(name, _)| *name == kind)
+                .map(|(_, row)| row.clone())
+                .collect::<Vec<_>>();
+            for (index, chunk) in side.chunks(per_call).enumerate() {
+                calls.push((
+                    octocode_runtime_base::id::numbered(kind, index),
+                    Continuation::continued_input(
+                        ToolId::GhGetFileContent,
+                        json!({"queries": chunk}),
+                    )
+                    .build(),
+                ));
+            }
+        }
+        return calls;
     }
+    // Optional source is related calls reading both sides, so the one lead
+    // a complete row keeps names both commits.
     let Some((name, _)) = rows.first() else {
         return Vec::new();
     };
     let name = *name;
-    let per_call =
-        octocode_runtime_base::response::result::rows_per_call(ToolId::GhGetFileContent).max(1);
     let rows = rows.into_iter().map(|(_, row)| row).collect::<Vec<_>>();
     rows.chunks(per_call)
         .enumerate()

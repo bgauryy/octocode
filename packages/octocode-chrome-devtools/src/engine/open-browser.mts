@@ -52,10 +52,12 @@ import {
   recordActiveSession,
 } from './session-registry.mjs';
 import {
+  appliedLaunchFlags,
   chromeLaunchArgs,
   effectiveProxy,
   isNoSandboxFailure,
   launchFeatures,
+  validateChromeFlags,
   NO_SANDBOX_HINT,
   loadProxyConfig,
 } from './browser-launch-config.mjs';
@@ -79,6 +81,12 @@ const DRY_RUN = hasFlag('--dry-run');
 const CHROME_PATH = getArg('--chromePath', '');
 const WINDOW_SIZE = getArg('--windowSize', HEADLESS ? '1280x720' : '');
 const ENABLE_FEATURES = getArg('--enableFeatures', '');
+const DISABLE_FEATURES = getArg('--disableFeatures', '');
+const BLINK_FEATURES = getArg('--blinkFeatures', '');
+const CHROME_FLAGS = getArg('--chrome-flags', '')
+  .split(',')
+  .map(flag => flag.trim())
+  .filter(Boolean);
 const USER_AGENT = getArg('--userAgent', '');
 const PROXY_SERVER = getArg('--proxyServer', '');
 const PROXY_BYPASS_LIST = getArg('--proxyBypassList', '');
@@ -145,8 +153,8 @@ async function disposeGroupContexts(): Promise<number> {
 }
 
 async function cleanupSession() {
-  // A proxy forwards to this browser; it must not outlive it.
-  await stopProxyFor(PORT, CHROME_STATE_DIR);
+  // A proxy forwards to this browser; it must not outlive it. A dry run changes nothing.
+  if (!DRY_RUN) await stopProxyFor(PORT, CHROME_STATE_DIR);
   const disposedContexts = await disposeGroupContexts();
   let session = readSession(SESSION_FILE);
   let sessionFile = SESSION_FILE;
@@ -286,6 +294,19 @@ const proxy = effectiveProxy(
   })
 );
 const proxyRequested = Boolean(proxy.server || proxy.pacUrl);
+// Refused here too, so a denylisted flag fails even when the port already has a browser.
+try {
+  validateChromeFlags(CHROME_FLAGS);
+} catch (e) {
+  err(errorMessage(e));
+}
+if (hasFlag('--chrome-flags') && !CHROME_FLAGS.length)
+  err('--chrome-flags needs a comma-separated list of --name or --name=value');
+const typedLaunchFlags = [
+  CHROME_FLAGS.length && '--chrome-flags',
+  DISABLE_FEATURES && '--disableFeatures',
+  BLINK_FEATURES && '--blinkFeatures',
+].filter(Boolean);
 
 let allowOrigins: string[] | undefined;
 try {
@@ -311,6 +332,7 @@ if (ATTACH) {
     ENABLE_FEATURES && '--enableFeatures',
     USER_AGENT && '--userAgent',
     hasFlag('--windowSize') && '--windowSize',
+    ...typedLaunchFlags,
   ].filter(Boolean);
   if (launching.length)
     err(
@@ -457,6 +479,7 @@ if (existing) {
     USER_AGENT && '--userAgent',
     hasFlag('--windowSize') && '--windowSize',
     NO_SANDBOX && '--no-sandbox',
+    ...typedLaunchFlags,
   ].filter(Boolean);
   if (allowOrigins) updateSessionMeta(PORT, { allowOrigins }, WORKSPACE);
   // A reused browser keeps its tabs: the requested URL opens in a new tab that later commands
@@ -499,6 +522,7 @@ if (existing) {
     proxyConfigured: false,
     proxyRequested,
     enableFeaturesRequested: ENABLE_FEATURES || undefined,
+    ...(notApplied.length ? { launchFlagsIgnored: true } : {}),
     warning: notApplied.length
       ? `Existing Chrome was reused; ${notApplied.join(', ')} apply only when launching a fresh browser and were not applied. Run cleanup or use another port for a fresh session.`
       : undefined,
@@ -548,19 +572,39 @@ if (REAL_PROFILE) {
     );
 }
 
-const chromeArgs = chromeLaunchArgs({
-  port: PORT,
-  userDataDir,
-  isolated: usingIsolatedProfile,
-  profile: PROFILE,
-  headless: HEADLESS,
-  os: platform(),
-  userAgent: USER_AGENT,
-  windowSize: WINDOW_SIZE,
+let chromeArgs: string[];
+try {
+  chromeArgs = chromeLaunchArgs({
+    port: PORT,
+    userDataDir,
+    isolated: usingIsolatedProfile,
+    profile: PROFILE,
+    headless: HEADLESS,
+    os: platform(),
+    userAgent: USER_AGENT,
+    windowSize: WINDOW_SIZE,
+    enableFeatures: ENABLE_FEATURES,
+    disableFeatures: DISABLE_FEATURES,
+    blinkFeatures: BLINK_FEATURES,
+    chromeFlags: CHROME_FLAGS,
+    proxy,
+    url: URL_ARG,
+    noSandbox: NO_SANDBOX,
+  });
+} catch (e) {
+  if (usingIsolatedProfile)
+    rmSync(HEADLESS_PROFILE_DIR, { recursive: true, force: true });
+  err(errorMessage(e));
+}
+
+const launchedFlags = appliedLaunchFlags({
+  chromeFlags: CHROME_FLAGS,
   enableFeatures: ENABLE_FEATURES,
-  proxy,
-  url: URL_ARG,
-  noSandbox: NO_SANDBOX,
+  disableFeatures: DISABLE_FEATURES,
+  blinkFeatures: BLINK_FEATURES,
+  userAgent: USER_AGENT,
+  windowSize: hasFlag('--windowSize') ? WINDOW_SIZE : '',
+  proxyRequested,
 });
 
 const profileLabel = HEADLESS
@@ -628,6 +672,7 @@ while (attempts < 40) {
       proxyConfigured: proxyRequested,
       enableFeaturesConfigured: launchFeatures(ENABLE_FEATURES),
       windowSize: WINDOW_SIZE || undefined,
+      ...launchedFlags,
       ...(allowOrigins ? { allowOrigins } : {}),
       ...group,
     });

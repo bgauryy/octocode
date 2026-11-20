@@ -9,7 +9,7 @@ use super::{GraphAccumulator, NameToken, note, receiver};
 use crate::signatures::node_kinds::kind_of;
 use tree_sitter::Node;
 
-use crate::graph::GraphFactCode;
+use crate::graph::{GraphFactCode, GraphFactDiagnostic};
 
 use crate::signatures::nodes::{declaration_name, is_name_leaf};
 
@@ -32,14 +32,17 @@ pub(super) fn is_item_level(node: Node<'_>) -> bool {
     })
 }
 
-pub(super) fn push_macro_gap(acc: &mut GraphAccumulator) {
-    if !acc
-        .diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.code == GraphFactCode::RustMacroExpansion)
-    {
-        acc.diagnostics
-            .push(note(GraphFactCode::RustMacroExpansion));
+/// Record that the items a macro call at 1-based `line` generates are not
+/// read; one diagnostic per call, so a reader of the file's declarations can
+/// say where its outline is incomplete.
+pub(super) fn push_macro_gap(acc: &mut GraphAccumulator, line: u32) {
+    if !acc.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == GraphFactCode::RustMacroExpansion && diagnostic.line == Some(line)
+    }) {
+        acc.diagnostics.push(GraphFactDiagnostic {
+            line: Some(line),
+            ..note(GraphFactCode::RustMacroExpansion)
+        });
     }
 }
 

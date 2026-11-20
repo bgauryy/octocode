@@ -105,7 +105,7 @@ async fn an_ide_outline_names_a_typescript_alias_a_type() {
         .ask(json_fixture(r#"{"operation": "documentSymbols"}"#))
         .await;
     assert_eq!(row["lsp"]["level"], "ide", "{row}");
-    assert_eq!(row["symbols"][0]["kind"], "type", "{row}");
+    assert_eq!(row["symbols"][0]["kind"], "typeAlias", "{row}");
 }
 
 /// `implementation` on a type lists the heritage-scan declarations the

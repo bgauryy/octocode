@@ -130,34 +130,102 @@ fn innermost(spans: &[(usize, usize)], line: usize) -> Option<(usize, usize)> {
     declarations::innermost_by(spans, line, |&span| span).copied()
 }
 
+/// The columns of a line's leading whitespace (a tab counts as one).
+fn indent_of(line: &str) -> usize {
+    line.len() - line.trim_start().len()
+}
+
+/// Whether a line only closes a block: `end`, `}`, `)`, `]` (a closer may
+/// carry a trailing `;`, `,` or `.method`).
+fn closes_block(line: &str) -> bool {
+    let text = line.trim();
+    text.strip_prefix("end")
+        .is_some_and(|rest| !rest.starts_with(|c: char| c.is_alphanumeric() || c == '_'))
+        || text.starts_with(['}', ')', ']'])
+}
+
+/// The 1-based last line of the block that starts at line `start`, judged by
+/// indentation alone: the first later non-blank line indented no deeper than
+/// the head ends it (a closing `end`/`}` is included, any other line is not).
+/// `None` when no later line does, so the block's edge is unknown.
+fn indented_end(lines: &[&str], start: usize) -> Option<usize> {
+    let head = lines.get(start.checked_sub(1)?)?;
+    let depth = indent_of(head);
+    let (offset, edge) = lines[start..]
+        .iter()
+        .enumerate()
+        .find(|(_, line)| !line.trim().is_empty() && indent_of(line) <= depth)?;
+    let last = start + offset;
+    let end = if closes_block(edge) {
+        last + 1
+    } else {
+        // The block stops before the edge line and its blank lead-in.
+        (start..=last)
+            .rev()
+            .find(|line| !lines[line - 1].trim().is_empty())?
+    };
+    Some(end.max(start))
+}
+
 /// A block read of a file with no declaration outline (no grammar for its
-/// language): the requested lines, a warning, and the related read (the
-/// `read` slot, published in `related[]`), the same
-/// file from `first` through its last line, paged, so the declaration that
-/// starts there is read to its end whatever spells it.
+/// language). Each window whose start line has a later line at its indent or
+/// less is widened to that indentation-derived edge, and the warning says the
+/// edge is an estimate, not parsed. Windows with no such line stay as
+/// requested; for them the related read (the `read` slot, published in
+/// `related[]`) reads the same file from their first line through its last
+/// line, paged, so the declaration that starts there is read to its end
+/// whatever spells it.
 fn no_outline(
     content: &str,
     path: &str,
-    first: Option<usize>,
+    starts: &[usize],
+    mut windows: Vec<LineRange>,
     warnings: &mut Vec<String>,
     next: &mut NextCalls,
-) {
-    let last = content.lines().count();
-    let read = first
-        .filter(|first| *first <= last)
-        .and_then(|first| local_fetch_query::ranges_lead(path, &[(first as u64, last as u64)]));
-    warnings.push(format!(
-        "block: no declaration outline for {path}; returned the requested lines{}.{}",
-        if read.is_some() {
-            "; the related read reads on to the file's end"
-        } else {
-            ""
-        },
-        recovered_parse(content, path).unwrap_or_default()
-    ));
+) -> Vec<LineRange> {
+    let lines: Vec<&str> = content.lines().collect();
+    let last = lines.len();
+    let mut unbounded = vec![];
+    let mut estimated = vec![];
+    for (window, &start) in windows.iter_mut().zip(starts) {
+        match indented_end(&lines, start) {
+            Some(end) => {
+                window.end = window.end.max(end);
+                estimated.push((window.start, window.end));
+            }
+            None => unbounded.push(start),
+        }
+    }
+    let read = unbounded
+        .iter()
+        .min()
+        .filter(|first| **first <= last)
+        .and_then(|first| local_fetch_query::ranges_lead(path, &[(*first as u64, last as u64)]));
+    if !estimated.is_empty() {
+        let spans: Vec<String> = estimated
+            .iter()
+            .map(|(first, end)| format!("{first}-{end}"))
+            .collect();
+        warnings.push(format!(
+            "block: no declaration outline for {path}; the block edge is derived from indentation (an estimate, not parsed): lines {}.",
+            spans.join(", ")
+        ));
+    }
+    if !unbounded.is_empty() {
+        warnings.push(format!(
+            "block: no declaration outline for {path}; returned the requested lines{}.{}",
+            if read.is_some() {
+                "; the related read reads on to the file's end"
+            } else {
+                ""
+            },
+            recovered_parse(content, path).unwrap_or_default()
+        ));
+    }
     if let Some(read) = read {
         next.read = Some(FetchCall::related(read));
     }
+    windows
 }
 
 /// Widen each range to the innermost declaration containing its first line,
@@ -170,9 +238,8 @@ pub(super) fn widen_ranges(
     next: &mut NextCalls,
 ) -> Vec<LineRange> {
     let Some(blocks) = Blocks::of(content, path) else {
-        let first = ranges.iter().map(|range| range.start).min();
-        no_outline(content, path, first, warnings, next);
-        return ranges;
+        let starts: Vec<usize> = ranges.iter().map(|range| range.start).collect();
+        return no_outline(content, path, &starts, ranges, warnings, next);
     };
     let spans = block_spans(content, path, &blocks);
     let (mut unenclosed, mut one_line) = (vec![], vec![]);
@@ -235,8 +302,7 @@ pub(super) fn widen_matches(
     next: &mut NextCalls,
 ) -> Vec<LineRange> {
     let Some(outline) = Blocks::of(content, path) else {
-        no_outline(content, path, hits.iter().copied().min(), warnings, next);
-        return windows;
+        return no_outline(content, path, hits, windows, warnings, next);
     };
     let spans = outline.spans();
     let declared = &outline.declared;

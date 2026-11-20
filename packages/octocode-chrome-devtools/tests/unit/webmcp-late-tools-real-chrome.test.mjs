@@ -12,10 +12,10 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { createServer } from 'node:http';
-import { createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { promisify } from 'node:util';
+import { freePort } from '../fixtures/free-port.mjs';
 
 const bin = join(import.meta.dirname, '../../bin/octocode-chrome-devtools.mjs');
 const chromeCandidates = [
@@ -37,15 +37,6 @@ fetch('/slow').then(r => r.text()).then(() => document.modelContext.registerTool
   execute: async () => ({ content: [{ type: 'text', text: 'late ok' }] }),
 }));
 </script>`;
-
-const freePort = () =>
-  new Promise((resolve, reject) => {
-    const server = createNetServer().listen(0, '127.0.0.1', () => {
-      const { port } = server.address();
-      server.close(() => resolve(port));
-    });
-    server.on('error', reject);
-  });
 
 const pageServer = () =>
   new Promise(resolve => {

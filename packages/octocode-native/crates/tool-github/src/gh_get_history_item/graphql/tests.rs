@@ -531,3 +531,12 @@ fn a_nulled_connection_is_incomplete_not_empty() {
         super::GraphqlCollection::Complete
     );
 }
+
+/// GraphQL's `mergedBy` projects into the REST `merged_by` shape the row
+/// reads.
+#[test]
+fn graphql_projects_who_merged() {
+    let mapped = map_graphql_pr_metadata(&json!({
+        "mergedAt": "2026-01-04T00:00:00Z", "mergedBy": {"login": "maintainer"}}));
+    assert_eq!(mapped["merged_by"]["login"], "maintainer");
+}

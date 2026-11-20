@@ -7,6 +7,7 @@ import { validateHistory } from './plan-history-validate.mjs';
 import { DOM_ACTIONS, readDomConfig, readSteps } from './dom-config.mjs';
 import type { RawStep } from './dom-types.mjs';
 import type { Plan } from './plan-types.mjs';
+import { policyRefusal } from '../cdp-policy.mjs';
 import { originViolation } from '../session-meta.mjs';
 
 type Json = Record<string, unknown>;
@@ -340,6 +341,16 @@ function validateCdpFields(step: StepRecord) {
     (typeof step.method !== 'string' || !protocolMember.test(step.method))
   )
     throw new Error('cdp needs Domain.method');
+  if (step.acknowledge !== undefined && typeof step.acknowledge !== 'boolean')
+    throw new Error('acknowledge must be boolean');
+  if (step.op === 'cdp') {
+    // Literal methods are judged before any browser call; the schema check runs with the live browser.
+    const refusal = policyRefusal(
+      String(step.method),
+      step.acknowledge === true
+    );
+    if (refusal) throw new Error(refusal);
+  }
   if (step.params !== undefined && !isRecord(step.params))
     throw new Error('params must be an object');
   if (step.allowEmpty !== undefined && typeof step.allowEmpty !== 'boolean')

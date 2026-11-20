@@ -9,6 +9,7 @@ import {
   runCli,
   spec,
   researchSpec,
+  presets,
 } from '../../dist/runtime.js';
 import { chromeCommands } from '../../dist/engine/chrome-contract.mjs';
 import { fixture, data, typedCli } from './agent-fixture.mjs';
@@ -29,7 +30,7 @@ const listNames = async args => {
     throw error;
   }
 };
-test('default MCP surface is the research preset; --preset full exports the entire CLI registry', async () => {
+test('default MCP surface is the research preset; slim is a subset of it and --preset full exports the entire CLI registry', async () => {
   const research = await listNames([]);
   try {
     assert.deepEqual(
@@ -39,10 +40,23 @@ test('default MCP surface is the research preset; --preset full exports the enti
     assert(research.tools.length < Object.keys(chromeCommands).length);
     assert.match(
       research.client.getInstructions(),
-      /Plans stop at the first failing step/
+      /plans stop at the first failing step/
     );
   } finally {
     await research.client.close();
+  }
+  const slim = await listNames(['--mcp', '--preset', 'slim']);
+  try {
+    const names = slim.tools.map(tool => tool.name);
+    assert.deepEqual(
+      names,
+      presets.slim.commands.map(command => command.name)
+    );
+    const researchNames = researchSpec.commands.map(command => command.name);
+    assert(names.length < researchNames.length);
+    for (const name of names) assert(researchNames.includes(name), name);
+  } finally {
+    await slim.client.close();
   }
   const full = await listNames(['--preset', 'full']);
   try {
@@ -65,7 +79,7 @@ test('an unknown MCP preset is refused with usage text naming every preset', asy
   });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Usage/);
-  for (const preset of ['research', 'full'])
+  for (const preset of Object.keys(presets))
     assert.match(result.stderr, new RegExp(preset));
 });
 test('success text is one line naming the structuredContent keys; failure text leads with cause and next call', async () =>
@@ -90,6 +104,23 @@ test('success text is one line naming the structuredContent keys; failure text l
     assert.match(body.summary, /^Failed: .*earlier listener/);
     assert(body.summary.length < 700);
     assert.equal(Object.keys(body)[0], 'summary');
+  }));
+test('flow save takes an opaque plan and the engine validates it before writing anything', async () =>
+  fixture(async ({ client, cwd }) => {
+    const flow = (await client.listTools()).tools.find(t => t.name === 'flow');
+    assert.equal(flow.inputSchema.properties.plan.type, 'object');
+    assert.equal(flow.inputSchema.properties.plan.properties, undefined);
+    for (const plan of [{ steps: [] }, { steps: [{ op: 'nope' }] }]) {
+      const result = await client.callTool({
+        name: 'flow',
+        arguments: { action: 'save', name: 'junk', plan },
+      });
+      assert.equal(result.isError, true, JSON.stringify(plan));
+    }
+    assert.equal(
+      existsSync(join(cwd, '.octocode/octocode-chrome-devtools/flows')),
+      false
+    );
   }));
 test('typed CLI help is standalone and creates no workspace state', async () =>
   fixture(async ({ cwd, skill }) => {

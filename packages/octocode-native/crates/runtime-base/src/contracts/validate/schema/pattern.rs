@@ -26,6 +26,12 @@ pub(super) fn compiled_pattern(pattern: &str) -> Result<std::sync::Arc<Regex>, S
     compiled
 }
 
+/// Whether `text` matches the schema `pattern`, read as validation reads
+/// it; a pattern that does not compile matches nothing.
+pub(crate) fn pattern_matches(pattern: &str, text: &str) -> bool {
+    compiled_pattern(pattern).is_ok_and(|regex| regex.find(text).is_some())
+}
+
 /// The longest pattern an error quotes as the expected form.
 const READABLE_PATTERN_CHARS: usize = 40;
 

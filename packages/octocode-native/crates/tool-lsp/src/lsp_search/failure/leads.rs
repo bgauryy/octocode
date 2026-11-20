@@ -243,23 +243,15 @@ pub fn record_text_only(
             coverage["unreadOutOfReach"] = json!(out.unsearched);
         }
         let counted = match (out.files > 0, out.unsearched > 0) {
-            (true, false) => format!(
-                "coverage.outOfReachFiles counts files that spell `{name}` outside its reach ({})",
-                out.bound
-            ),
-            (false, _) => format!(
-                "coverage.unreadOutOfReach counts files outside its reach ({}), which the text check did not read",
-                out.bound
-            ),
-            (true, true) => format!(
-                "coverage.outOfReachFiles counts files that spell `{name}` outside its reach ({}), and coverage.unreadOutOfReach the files outside it the text check did not read",
-                out.bound
-            ),
+            (true, false) => "coverage.outOfReachFiles",
+            (false, _) => "coverage.unreadOutOfReach",
+            (true, true) => "coverage.outOfReachFiles and coverage.unreadOutOfReach",
         };
         octocode_runtime_base::response::paging::push_notice(
             row,
             format!(
-                "{counted}: they cannot reference it, so they are neither missed sites nor leads."
+                "{counted}: files outside the reach of `{name}` ({}); they cannot reference it.",
+                out.bound
             ),
         );
     }

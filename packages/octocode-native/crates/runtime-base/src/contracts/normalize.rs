@@ -11,6 +11,8 @@ use super::validate::{ValidationIssue, validate_batch};
 use crate::id::ToolId;
 
 mod beside_cursor;
+mod duration_sign;
+mod github_location;
 mod guesses;
 mod notes;
 pub use beside_cursor::{BesideCursor, read_beside_cursor};
@@ -690,6 +692,11 @@ fn repair_values(
         let note = match issue.rule_id.as_str() {
             "schema.required" => repair_operation(tool_name, input, issue, operations)
                 .map(|(index, note)| Note::Said(Some(index), note)),
+            "schema.pattern" => github_location::repair(input, issue)
+                .map(|(index, note)| Note::Said(Some(index), note))
+                .or_else(|| {
+                    duration_sign::repair(input, issue).map(|(index, note)| Note::Said(index, note))
+                }),
             "schema.enum" => repair_literal(input, issue).map(Note::Field).or_else(|| {
                 repair_returned(tool_name, input, issue)
                     .map(|(index, note)| Note::Said(Some(index), note))

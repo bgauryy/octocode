@@ -10,6 +10,7 @@ import {
   chromeSessionStore,
   chromeDomActions,
   chromeRecipeOptionNames,
+  chromeFlagDenylist,
 } from '@octocodeai/config/chrome';
 import { build } from 'esbuild';
 import {
@@ -82,6 +83,7 @@ files.set(
       chromeSessionStore,
       chromeDomActions,
       chromeRecipeOptionNames,
+      chromeFlagDenylist,
     })
       .map(
         ([name, value]) => `export const ${name} = ${JSON.stringify(value)};`

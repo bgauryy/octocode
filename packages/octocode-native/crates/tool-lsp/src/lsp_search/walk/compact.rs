@@ -75,7 +75,8 @@ fn names_a_place(word: &str, file_name: &str) -> bool {
 /// `line` for the next hop); `path` names the declaration's file when it
 /// differs from the row's; `sites` are the 1-based call sites in the row's
 /// file. An edge below level 1 names its parent as `via: {symbolName, line}`
-/// (with `path` when another listed node shares that name and line). A
+/// (with `path` when another listed node shares that name and line) and
+/// its `level`. A
 /// caller recovered from references carries its label as `source`. `all` is
 /// every edge of the walk (not only this page), for that disambiguation.
 pub(in crate::lsp_search) fn compact_calls(row: &mut Value, all: &[Value], paths: &PathPolicy) {
@@ -341,6 +342,10 @@ fn call_row(
             public["path"] = json!(display_path(paths, &node_path(via)));
         }
         row.insert("via".into(), public);
+        // A row below the first level states how deep it lies.
+        if let Some(level) = item.get("level").filter(|level| level.as_u64() > Some(1)) {
+            row.insert("level".into(), level.clone());
+        }
     }
     if let Some(label) = item.get("source").and_then(Value::as_str) {
         row.insert("source".into(), json!(label));

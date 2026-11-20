@@ -21,6 +21,7 @@ const step = (n: number) => ({
 });
 const flow: FlowDefinition = {
   name: 'fill-form',
+  area: 'input',
   description:
     'Fill up to six labelled textboxes (fieldNLabel/fieldNValue pairs; a pair needs both), optionally click submit and wait for a text.',
   params: {

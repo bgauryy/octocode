@@ -90,6 +90,33 @@ async fn a_missing_ref_names_the_default_branch_and_leads_to_it() {
     }
 }
 
+/// A version tag spelled with the `v` prefix its repository omits (or the
+/// reverse) leads to the call at the spelling that resolves.
+#[tokio::test]
+async fn a_version_tag_spelled_with_or_without_v_leads_to_the_spelling_that_exists() {
+    for (asked, exists) in [("v1.2.0", "1.2.0"), ("1.2.0", "v1.2.0")] {
+        let server = repository("master", asked).await;
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/a/b/commits/{exists}")))
+            .respond_with(ResponseTemplate::new(200).set_body_string("a".repeat(40)))
+            .mount(&server)
+            .await;
+        let workspace = Workspace::new();
+        let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+        for (tool, query) in calls(asked).into_iter().take(2) {
+            let outcome = call(&runtime, tool, query).await.expect("error row");
+            let data = row_data(&outcome);
+            let message = data["error"].as_str().unwrap_or_default();
+            assert!(message.contains(&format!("\"{exists}\" exists")), "{data}");
+            let lead = checks::related_call(data, tool, |input| {
+                input["queries"][0]["ref"] == exists
+            });
+            assert_eq!(lead["input"]["queries"][0]["owner"], "a", "{data}");
+        }
+        runtime.close().await;
+    }
+}
+
 /// A commit listing and a clone at a missing ref take the same lead.
 #[tokio::test]
 async fn history_listing_and_clone_lead_to_the_default_branch() {

@@ -57,7 +57,7 @@ pub(super) fn reuse_checkout(
         commit_sha: reference.to_ascii_lowercase(),
         size: storage::checked_out_size(clone_dir),
         symlinks: inspection.symlinks,
-        root_files: plan.root_files(clone_dir, &withheld),
+        root_files: plan.root_files(clone_dir),
         full_history: match storage::worktree_store(&context.config.home, clone_dir) {
             Some(store) if plan.depth > 1 => git::holds_whole_history(context, &store)?,
             _ => false,
@@ -166,7 +166,7 @@ fn publish_stage(
         commit_sha: commit_sha.to_owned(),
         size: storage::checked_out_size(stage),
         symlinks: git::present_symlinks(stage, staged.links),
-        root_files: plan.root_files(stage, &staged.withheld),
+        root_files: plan.root_files(stage),
         full_history: plan.depth > 1 && git::holds_whole_history(context, store)?,
         withheld: staged.withheld,
     };

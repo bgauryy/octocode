@@ -402,16 +402,18 @@ async fn syntax_callers_honor_test_code() {
 
 /// `callers` and `callees` anchored on a declaration no call names answer
 /// `notCallable` from the anchor's parse, before any server, and lead to
-/// `references` and `implementation`; a callable anchor still goes on.
+/// `references` and `implementation`, in the LSP kind vocabulary (a trait is an
+/// `interface`), though an `impl` block names the type too; a callable anchor
+/// still goes on.
 #[cfg(unix)]
 #[tokio::test(flavor = "current_thread")]
 async fn a_call_hierarchy_of_a_non_callable_declaration_leads_to_its_uses() {
-    let source = "pub enum Code { A }\n\npub trait Scan {\n    fn scan(&self);\n}\n\npub fn run() {}\n";
+    let source = "pub enum Code { A }\n\npub trait Scan {\n    fn scan(&self);\n}\n\npub fn run() {}\n\nimpl Code {\n    pub fn a(&self) {}\n}\n";
     let (_dirs, file, execution) = fixture("lib.rs", source, ".rs");
     let root = file.parent().expect("root").to_path_buf();
     for (operation, symbol, line, kind) in [
         ("callers", "Code", 1, "enum"),
-        ("callees", "Scan", 3, "trait"),
+        ("callees", "Scan", 3, "interface"),
     ] {
         let query = json!({
             "operation": operation, "path": file.to_string_lossy(),

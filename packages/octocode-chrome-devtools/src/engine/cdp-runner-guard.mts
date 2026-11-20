@@ -60,8 +60,7 @@ function connectHost(args: unknown[]): string | null {
 
 function isLocalhost(url: unknown) {
   try {
-    const h = new URL(String(url)).hostname;
-    return h === 'localhost' || h === '127.0.0.1' || h === '::1';
+    return isLoopbackHost(new URL(String(url)).hostname);
   } catch {
     return false;
   }

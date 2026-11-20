@@ -2,22 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
-import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { freePortText as freePort } from '../fixtures/free-port.mjs';
 
 const skill = join(import.meta.dirname, '../..');
 const FAKE = join(skill, 'tests/fixtures/fake-chrome.mjs');
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'octo-open-reuse-')));
 test.after(() => rmSync(root, { recursive: true, force: true }));
-
-const freePort = () =>
-  new Promise(resolve => {
-    const server = createServer().listen(0, () => {
-      const { port } = server.address();
-      server.close(() => resolve(String(port)));
-    });
-  });
 
 async function fakeBrowser(port) {
   const child = spawn(

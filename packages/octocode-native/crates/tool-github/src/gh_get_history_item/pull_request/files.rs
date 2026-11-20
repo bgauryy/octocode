@@ -18,7 +18,7 @@ pub(in crate::gh_get_history_item) struct FileOutcome {
     pub(in crate::gh_get_history_item) unsearched: Vec<String>,
     /// The first unsearched path and the commit holding its text (the
     /// base for a removed file, else the head).
-    pub(in crate::gh_get_history_item) first_unsearched: Option<(String, Option<String>)>,
+    pub(in crate::gh_get_history_item) leads_unsearched: Vec<(String, Option<String>)>,
     /// `(dropped, listed)` changed files of the `matchString` filter.
     pub(in crate::gh_get_history_item) match_dropped: Option<(usize, usize)>,
     pub(in crate::gh_get_history_item) scope_unmatched: bool,
@@ -116,11 +116,15 @@ pub(super) fn shape_files_section(
     FileOutcome {
         review: shaped.review,
         unsearched: shaped.unsearched,
-        first_unsearched: shaped.first_unsearched.map(|(path, removed)| {
-            let side = if removed { "/base/sha" } else { "/head/sha" };
-            let sha = str_at(raw, side).filter(|sha| !sha.is_empty());
-            (path, sha.map(str::to_owned))
-        }),
+        leads_unsearched: shaped
+            .leads_unsearched
+            .into_iter()
+            .map(|(path, removed)| {
+                let side = if removed { "/base/sha" } else { "/head/sha" };
+                let sha = str_at(raw, side).filter(|sha| !sha.is_empty());
+                (path, sha.map(str::to_owned))
+            })
+            .collect(),
         match_dropped: shaped.match_dropped,
         scope_unmatched,
         in_scope,

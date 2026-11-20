@@ -157,16 +157,16 @@ impl Plan<'_> {
     }
 
     /// Whether the root's own files are on disk in the checkout at `dir`:
-    /// always for a full checkout; beside a sparse scope only in cone mode,
-    /// which a file path or a withheld file turns off ([`super::git`]'s
-    /// `sparse_set_args`). A file path of the scope is a file on disk.
-    pub(super) fn root_files(&self, dir: &Path, withheld: &[String]) -> bool {
+    /// always for a full checkout; beside a sparse scope unless a file path
+    /// turns it off ([`super::git`]'s `sparse_set_args`; a withheld file
+    /// leaves the other root files in place). A file path of the scope is a
+    /// file on disk.
+    pub(super) fn root_files(&self, dir: &Path) -> bool {
         self.sparse.as_ref().is_none_or(|sparse| {
-            withheld.is_empty()
-                && !sparse
-                    .paths()
-                    .iter()
-                    .any(|path| dir.join(path.trim_end_matches('/')).is_file())
+            !sparse
+                .paths()
+                .iter()
+                .any(|path| dir.join(path.trim_end_matches('/')).is_file())
         })
     }
 

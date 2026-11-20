@@ -1,4 +1,4 @@
-use super::super::{ContractValidationError, internal, issue};
+use super::super::{ContractValidationError, ValidationIssue, internal, issue};
 use serde_json::Value;
 use std::cmp::Ordering;
 
@@ -111,18 +111,54 @@ fn validate_tool_query(
             .flat_map(|inner| {
                 let mut at = path.to_vec();
                 at.push(query_field.to_owned());
+                let message = nearest_known_field(&inner)
+                    .unwrap_or_else(|| inner.message.trim_end_matches('.').to_owned());
                 at.extend(inner.path);
                 issue(
                     id,
                     at,
-                    format!(
-                        "{}. query is the row a direct {tool} call takes.",
-                        inner.message.trim_end_matches('.')
-                    ),
+                    format!("{message}. query is the row a direct {tool} call takes."),
                 )
                 .issues
             })
             .collect(),
+    })
+}
+
+/// An unknown field's message with the known field it most likely means
+/// (`Unknown field: contextLine; use 'contextLines'`), as a direct call to
+/// the tool words it; `None` for any other issue or nothing near.
+fn nearest_known_field(inner: &ValidationIssue) -> Option<String> {
+    if inner.rule_id != "schema.unknown-field" {
+        return None;
+    }
+    let field = inner.path.last()?;
+    let names = |key: &str| {
+        inner
+            .schema
+            .as_ref()
+            .and_then(|schema| schema[key].as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+    };
+    let sent = names("sentFields");
+    let known = names("knownFields");
+    let near = super::super::repair::nearest(
+        field,
+        known.iter().copied().filter(|name| !sent.contains(name)),
+    );
+    let (last, rest) = near.split_last()?;
+    let rest = rest
+        .iter()
+        .map(|name| format!("'{name}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(if rest.is_empty() {
+        format!("Unknown field: {field}; use '{last}'")
+    } else {
+        format!("Unknown field: {field}; use {rest} or '{last}'")
     })
 }
 

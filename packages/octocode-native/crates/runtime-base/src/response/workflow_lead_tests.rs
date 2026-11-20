@@ -102,7 +102,11 @@ fn every_batch_of_the_selected_workflow_remains_reachable() {
 /// the answer, so every such optional batch disappears on success.
 #[test]
 fn batches_with_already_stated_identities_are_optional() {
-    for target in ToolId::ALL {
+    // A tool's promised self-link (`promised_links`) is kept by that promise.
+    for target in ToolId::ALL
+        .into_iter()
+        .filter(|tool| !tool.promised_links().contains(tool))
+    {
         let calls = ["src/first.rs", "src/second.rs", "src/third.rs"].map(|path| {
             json!({"kind": "related", "tool": target.as_str(),
                 "input": {"queries": [{"path": path}]}})
@@ -847,7 +851,18 @@ fn every_promised_link_is_named_by_the_producing_description() {
             names_word(description, to.as_str()) && names_word(description, "related"),
             "{from}'s description must name {to} and `related`"
         );
-        assert_ne!(from, to, "a promised link crosses tools");
+        if from == to {
+            // A self-link is the tool's own operation leads (a node's
+            // callers and callees): its description must name that operation
+            // and those leads, so no other tool gains one silently.
+            assert_eq!(from, ToolId::GraphQuery, "only graphQuery promises itself");
+            for word in ["node", "callers", "callees"] {
+                assert!(
+                    names_word(description, word),
+                    "{from}'s description must name its own lead `{word}`"
+                );
+            }
+        }
     }
 }
 
@@ -1060,4 +1075,26 @@ fn every_code_promising_a_lead_is_named_by_the_output_reference() {
             assert!(reference.contains(code), "{tool}: {code} in {reference}");
         }
     }
+}
+
+/// A node row's own-operation leads (callers, callees) answer it by the
+/// tool's promise, though they repeat the row's graph, path and target.
+#[test]
+fn a_graph_node_row_keeps_its_own_operation_leads() {
+    let lead = |operation: &str| {
+        json!({"kind": "related", "tool": "graphQuery", "input": {"queries": [
+            {"operation": operation, "graph": "g1", "path": "app", "target": "app/lib.ts#run"}
+        ]}})
+    };
+    let request = json!({"queries": [{"operation": "node", "path": "app", "target": "run"}]});
+    let mut output = json!({"results": [{"index": 0, "data": {
+        "graph": {"id": "g1"},
+        "node": {"id": "app/lib.ts#run", "symbolName": "run", "path": "app/lib.ts"},
+        "related": [lead("callers"), lead("callees"), json!({
+            "kind": "related", "tool": "lspSearch", "input": {"queries": [{"path": "app/lib.ts"}]}
+        })]
+    }}]});
+    retain_guidance(ToolId::GraphQuery, &mut output, &request);
+    let related = output["results"][0]["data"]["related"].as_array().expect("related");
+    assert_eq!(related.len(), 3, "{output}");
 }

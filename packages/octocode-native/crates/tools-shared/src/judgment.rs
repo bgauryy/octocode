@@ -299,7 +299,7 @@ impl Evaluator {
     }
 
     /// The provider's window for one whole request (`long`: the long one).
-    pub(crate) fn request_window(&self, long: bool) -> u64 {
+    pub fn request_window(&self, long: bool) -> u64 {
         self.provider.defaults().request_window(long)
     }
 
@@ -396,28 +396,32 @@ impl Evaluator {
 
     /// Input tokens a round of `requests` (each its body bytes and its
     /// question count) costs at most, priced before any is sent so a real run
-    /// cannot pass it: each request's body at one token per byte (a token
-    /// covers at least one byte of the text sent) and the provider's own
-    /// prompt, which no body shows, at most what the requests taken here
-    /// bound it to ([`windows::prompt_tokens_at_most`]). `None` before any
-    /// request of this model and window was taken: nothing bounds that
-    /// prompt yet.
+    /// cannot pass it. Each request costs at most the provider's stated
+    /// window ([`Self::request_window`]): a larger one is refused, not run.
+    /// Once a request of this model and window was taken, also at most its
+    /// body at one token per byte (a token covers at least one byte of the
+    /// text sent) and the provider's own prompt, which no body shows, at most
+    /// what the requests taken here bound it to
+    /// ([`windows::prompt_tokens_at_most`]); the lesser of the two.
     pub fn tokens_at_most(
         &self,
         model: Option<&str>,
         long: bool,
         requests: impl IntoIterator<Item = (usize, usize)>,
-    ) -> Option<u64> {
+    ) -> u64 {
         let model = model.unwrap_or(&self.model);
+        let window = self.request_window(long);
         requests
             .into_iter()
-            .try_fold(0_u64, |sum, (bytes, questions)| {
-                let prompt =
-                    windows::prompt_tokens_at_most(&self.base_url, model, long, questions)?;
-                Some(
-                    sum.saturating_add(u64::try_from(bytes).unwrap_or(u64::MAX))
-                        .saturating_add(prompt),
-                )
+            .fold(0_u64, |sum, (bytes, questions)| {
+                let each = windows::prompt_tokens_at_most(&self.base_url, model, long, questions)
+                    .map_or(window, |prompt| {
+                        u64::try_from(bytes)
+                            .unwrap_or(u64::MAX)
+                            .saturating_add(prompt)
+                            .min(window)
+                    });
+                sum.saturating_add(each)
             })
     }
 
@@ -430,7 +434,7 @@ impl Evaluator {
         long: bool,
         sends: &Sends,
         asked: usize,
-    ) -> Option<u64> {
+    ) -> u64 {
         let first = usize::try_from(sends.first).unwrap_or(usize::MAX).max(1);
         let each = (sends.bytes.div_ceil(first), asked.div_ceil(first).max(1));
         self.tokens_at_most(model, long, std::iter::repeat_n(each, first))

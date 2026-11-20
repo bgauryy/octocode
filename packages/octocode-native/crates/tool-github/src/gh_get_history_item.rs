@@ -384,6 +384,12 @@ pub async fn run(
     context: &RequestContext,
     security: &(impl ContentScan + Sync),
 ) -> Result<ToolData, octocode_tools_shared::gh_shared::GhFailure> {
+    // A `matchString` the engine rejects fails before any read.
+    if let Some(matcher) = &query.matcher
+        && let Err(error) = matcher.result()
+    {
+        return Err(recovery::recover(provider, row, error, context).await);
+    }
     match execute(provider, query, context, security).await {
         Ok(output) => Ok(output),
         Err(error) => Err(recovery::recover(provider, row, error, context).await),

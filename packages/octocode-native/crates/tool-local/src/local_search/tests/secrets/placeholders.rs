@@ -188,6 +188,31 @@ fn a_masked_value_finds_nothing_and_the_empty_row_says_masked_secrets_are_not_se
     }
     // The same sentence whether the pattern was in a masked value or nowhere.
     assert!(hints.windows(2).all(|pair| pair[0] == pair[1]), "{hints:?}");
+    // The row counts the masked spans of the files it searched, the same
+    // whatever the pattern, and a search of files with none states none.
+    let counts = [format!("ghp_{TAIL}"), "zz-not-anywhere".to_owned()].map(|pattern| {
+        run(
+            &files,
+            json!({"matchString": [pattern]}),
+            SourceLimits::REAL,
+        )
+    });
+    for rows in &counts {
+        assert_eq!(rows["maskedSpans"], 1, "{rows}");
+    }
+    let clean = run(
+        &[("clean.rs", "fn clean() {}\n".to_owned())],
+        json!({"matchString": ["zz-not-anywhere"]}),
+        SourceLimits::REAL,
+    );
+    assert!(clean.get("maskedSpans").is_none(), "{clean}");
+    assert!(
+        !clean["hints"][0]
+            .as_str()
+            .unwrap_or_default()
+            .contains(crate::local_search::coverage::MASKED_UNSEARCHED),
+        "{clean}"
+    );
     // A regex that needs the masked value's own bytes reaches none of them,
     // whatever else it holds: the probe over written text never reads them.
     for pattern in [
@@ -261,4 +286,58 @@ fn a_source_past_the_whole_file_ceiling_matches_no_placeholder() {
         limits,
     );
     assert_eq!(lines(&rows), 2, "{rows}");
+}
+
+/// An inverted search keeps the lines the source's own text does not match:
+/// a line whose only match is a placeholder's spelling is kept, and one that
+/// spells it itself is not.
+#[test]
+fn an_inverted_search_keeps_a_line_whose_only_match_is_a_placeholder() {
+    let files = files();
+    let rows = run(
+        &files,
+        json!({"matchString": ["REDACTED"], "invertMatch": true}),
+        SourceLimits::REAL,
+    );
+    let lines_of = |name: &str| -> Vec<u64> {
+        rows["files"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|file| {
+                file["path"]
+                    .as_str()
+                    .is_some_and(|path| path.ends_with(name))
+            })
+            .flat_map(|file| file["matches"].as_array().cloned().unwrap_or_default())
+            .filter_map(|hit| hit["line"].as_u64())
+            .collect()
+    };
+    // The masked line (2) holds no `REDACTED` of the source's own.
+    assert_eq!(lines_of("masked.rs"), [1_u64, 2], "{rows}");
+    // The spelled line (2) does.
+    assert!(!lines_of("spelled.rs").contains(&2), "{rows}");
+    assert!(!rows.to_string().contains(TAIL), "{rows}");
+}
+
+/// A search that reads only a placeholder's spelling is not decided by case:
+/// its empty row offers no case-insensitive rerun.
+#[test]
+fn a_placeholder_only_miss_offers_no_case_rerun() {
+    let files = files();
+    for fields in [
+        json!({"matchString": [r"\[[A-Z-]+\]"], "regexEngine": "rust"}),
+        json!({"matchString": ["REDACTED"]}),
+    ] {
+        let rows = run(&files[..1], fields, SourceLimits::REAL);
+        let text = rows.to_string();
+        assert!(!text.contains("No case-sensitive match"), "{rows}");
+        assert!(!text.contains("insensitive"), "{rows}");
+    }
+    let rows = run(
+        &files[..1],
+        json!({"matchString": ["CONST"]}),
+        SourceLimits::REAL,
+    );
+    assert!(rows.to_string().contains("insensitive"), "{rows}");
 }

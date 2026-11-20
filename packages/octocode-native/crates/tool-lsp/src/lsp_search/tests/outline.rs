@@ -385,3 +385,23 @@ fn capped_declaration_content_numbers_every_line() {
         "{content}"
     );
 }
+
+/// Every rung names kinds in the LSP `SymbolKind` vocabulary: a syntax kind
+/// the vocabulary has no name for maps onto one that has, and every mapped
+/// name is an LSP name or the documented `typeAlias` extension.
+#[test]
+fn syntax_kinds_speak_the_lsp_symbol_kind_vocabulary() {
+    use crate::lsp_search::render::{symbol_kind_name, wire_kind};
+    let lsp_names: Vec<&str> = (1..=26)
+        .filter_map(octocode_engine::symbol_kind::name)
+        .collect();
+    for syntax in ["trait", "union", "type", "class", "enumMember", "impl"] {
+        let named = symbol_kind_name(Some(&serde_json::json!(syntax)));
+        assert_eq!(named, wire_kind(syntax));
+        assert!(
+            lsp_names.contains(&named.as_str()) || matches!(named.as_str(), "typeAlias" | "impl"),
+            "{syntax} -> {named}"
+        );
+    }
+    assert_eq!(wire_kind("trait"), "interface");
+}

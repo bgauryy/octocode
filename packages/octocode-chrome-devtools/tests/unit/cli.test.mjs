@@ -38,7 +38,7 @@ test('help and schema discover generic operations without creating browser state
     assert(schema.plan.operations.listen);
     assert(schema.plan.operations.readStream);
     // Served through typed MCP/CLI: no raw flag names beside typed examples.
-    for (const name of ['run', 'step', 'cdp', 'snapshot']) {
+    for (const name of ['run', 'cdp', 'snapshot']) {
       const focused = JSON.parse(call(['schema', name]).stdout);
       assert.equal(focused.connection, undefined);
       assert.equal(focused.inputs, undefined);
@@ -68,8 +68,9 @@ test('all invalid plans and connection inputs fail before contacting Chrome', ()
         '--json',
         '{"steps":[{"op":"goto","url":"https://example.com"},{"op":"unknown"}]}',
       ],
-      ['step', '--json', '{"op":"act","action":"click"}'],
-      ['step', '--json', '{"op":"waitEvent","listener":"future"}'],
+      ['run', '--json', '{"steps":[{"op":"act","action":"click"}]}'],
+      ['run', '--json', '{"steps":[{"op":"waitEvent","listener":"future"}]}'],
+      ['step', '--json', '{"op":"wait","value":"Ready"}'],
       ['cdp', 'Runtime.evaluate', '--params', '[]'],
       ['cdp', 'bogus'],
       ['snapshot', '--options', '{"SECRET_TOKEN":"secret"}'],
@@ -83,9 +84,9 @@ test('all invalid plans and connection inputs fail before contacting Chrome', ()
       ['snapshot', '--stealth', '--no-stealth'],
       ['snapshot', '--', '--new-tab', 'about:blank'],
       [
-        'step',
+        'run',
         '--json',
-        '{"op":"act","selector":"#q","action":"press","key":"NonexistentKey"}',
+        '{"steps":[{"op":"act","selector":"#q","action":"press","key":"NonexistentKey"}]}',
       ],
       ['snapshot', '--typo'],
       ['snapshot', '--json', '{}'],
@@ -134,9 +135,9 @@ test('file, stdin and inline plans have identical validated execution', () =>
 test('single operation, raw CDP and recipe options use the same engines', () =>
   fixture(call => {
     const r = call([
-      'step',
+      'run',
       '--json',
-      '{"op":"extract","selector":"main a"}',
+      '{"steps":[{"op":"extract","selector":"main a"}]}',
       '--close-tab',
       '--dry-run',
     ]);
@@ -170,7 +171,12 @@ test('standalone copied package works from another cwd; evidence continuations r
     for (const args of [
       ['--help'],
       ['schema'],
-      ['step', '--json', '{"op":"wait","value":"Ready"}', '--dry-run'],
+      [
+        'run',
+        '--json',
+        '{"steps":[{"op":"wait","value":"Ready"}]}',
+        '--dry-run',
+      ],
     ]) {
       const r = cli(args);
       assert.equal(r.status, 0, r.stderr);

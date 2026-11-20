@@ -69,6 +69,8 @@ pub(crate) struct Counted {
     pub(crate) files: u32,
     pub(crate) occurrences: u32,
     pub(crate) lines: u32,
+    /// Masked secret spans in the searched files.
+    pub(crate) masked: u32,
     /// Files holding a hit.
     pub(crate) matched: u32,
     /// Some page missed content (a cap, an unreadable file): the count of
@@ -89,6 +91,9 @@ impl Counted {
             lines: self
                 .lines
                 .saturating_add(scanned.matched_lines.unwrap_or(0)),
+            masked: self
+                .masked
+                .saturating_add(scanned.masked_spans.unwrap_or(0)),
             matched: self
                 .matched
                 .saturating_add(scanned.files_matched.unwrap_or(0)),
@@ -104,6 +109,7 @@ impl Counted {
             files: self.files.saturating_sub(1),
             occurrences: self.occurrences.saturating_sub(file.occurrences),
             lines: self.lines.saturating_sub(file.lines),
+            masked: self.masked.saturating_sub(file.masked),
             matched: self.matched.saturating_sub(matched),
             gap: self.gap,
         }
@@ -122,16 +128,18 @@ impl Counted {
             match_count: scanned.match_count.map(|_| walked.occurrences),
             matched_lines: scanned.matched_lines.map(|_| walked.lines),
             files_matched: scanned.files_matched.map(|_| walked.matched),
+            masked_spans: scanned.masked_spans.map(|_| walked.masked),
             ..scanned.clone()
         }
     }
 
     fn encode(&self) -> String {
         format!(
-            "{}.{}.{}.{}.{}",
+            "{}.{}.{}.{}.{}.{}",
             self.files,
             self.occurrences,
             self.lines,
+            self.masked,
             self.matched,
             u8::from(self.gap)
         )
@@ -149,6 +157,7 @@ impl Counted {
             files: next()?,
             occurrences: next()?,
             lines: next()?,
+            masked: next()?,
             matched: next()?,
             gap: match next()? {
                 0 => false,

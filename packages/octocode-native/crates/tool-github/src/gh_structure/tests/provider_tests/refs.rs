@@ -496,6 +496,7 @@ async fn a_glob_ref_lists_only_the_matching_tags_and_branches() {
     );
     assert_eq!(line.data["branches"], json!([]), "{}", line.data);
     assert!(line.data.get("commitSha").is_none(), "{}", line.data);
+    assert!(line.data.get("defaultBranchSha").is_none(), "{}", line.data);
     // The glob's literal start is GitHub's to match: only refs under it are read.
     let asked = server.received_requests().await.expect("requests");
     let tag_reads = asked
@@ -534,6 +535,75 @@ async fn a_glob_ref_lists_only_the_matching_tags_and_branches() {
         "the second match is one page on: {}",
         branches.data
     );
+    // A glob that matches nothing is an empty result that says so and leads
+    // to the listing without it.
+    let none = list(
+        &server,
+        json_fixture(r#"{"owner": "a", "repo": "b", "operation": "refs", "ref": "v99.*"}"#),
+    )
+    .await
+    .expect("refs");
+    assert_eq!(none.status, Some("empty"), "{}", none.data);
+    assert!(
+        none.data["warnings"][0]
+            .as_str()
+            .is_some_and(|warning| warning.contains("v99.*")),
+        "{}",
+        none.data
+    );
+    let lead = &none.data["related"][0];
+    assert_eq!(lead["tool"], "ghStructure", "{}", none.data);
+    assert!(
+        lead["input"]["queries"][0].get("ref").is_none(),
+        "{}",
+        none.data
+    );
+    assert_eq!(
+        lead["input"]["queries"][0]["operation"], "refs",
+        "{}",
+        none.data
+    );
+}
+
+/// An unfiltered listing carries the default branch's commit; an unborn
+/// default branch (no commit to resolve) leaves the listing whole without it.
+#[tokio::test]
+async fn an_unfiltered_listing_names_the_default_branch_commit_when_it_resolves() {
+    for (head, expected) in [(200, Some(SHA)), (409, None)] {
+        let server = MockServer::builder().start().await;
+        let answer = if head == 200 {
+            ResponseTemplate::new(200).set_body_string(SHA)
+        } else {
+            ResponseTemplate::new(409)
+        };
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/a/b/commits/HEAD"))
+            .respond_with(answer)
+            .mount(&server)
+            .await;
+        mount_json(
+            &server,
+            "/api/v3/repos/a/b",
+            200,
+            json_fixture(r#"{"default_branch": "main", "full_name": "a/b"}"#),
+        )
+        .await;
+        mount_matching_refs(&server, &["v1.0.0"]).await;
+        mount_json(&server, "/api/v3/repos/a/b/branches", 200, json!([])).await;
+        let listing = list(
+            &server,
+            json_fixture(r#"{"owner": "a", "repo": "b", "operation": "refs"}"#),
+        )
+        .await
+        .expect("refs");
+        assert_eq!(
+            listing.data["defaultBranchSha"].as_str(),
+            expected,
+            "{}",
+            listing.data
+        );
+        assert_eq!(listing.data["defaultBranch"], "main", "{}", listing.data);
+    }
 }
 
 /// Mount `names` as repository `a/b`'s lightweight tags, answered as GitHub

@@ -206,40 +206,106 @@ fn placeholder(field: &str, value: &Value) -> Option<Value> {
     }
 }
 
-/// The row's own `value` of a field whose issues all lie inside it, each
-/// key at fault removed (`source.query.bogusField`); `None` when an issue
-/// names the field itself or a fault is not a removable object key.
-fn without_faults(value: &Value, faults: &[&[String]]) -> Option<Value> {
-    let mut value = value.clone();
+/// The row's own `value` of a field whose issues all lie inside it, as the
+/// candidates an example may show, the plainest first: each key at fault
+/// removed (`source.query.bogusField`); then with the keys the row lacks, filled with a visible placeholder
+/// ([`placeholder`]) as text or a list of text, and an `http://` value
+/// removed for its scheme spelled `https://`. Empty when an issue names the
+/// field itself or a fault is not an object key.
+fn without_faults(value: &Value, faults: &[&[String]]) -> Vec<Value> {
+    let mut plain = value.clone();
+    let mut missing = Vec::new();
+    let mut upgraded = Vec::new();
     for fault in faults {
-        let (leaf, parents) = fault.split_last()?;
+        let Some((leaf, parents)) = fault.split_last() else {
+            return Vec::new();
+        };
         if parents.is_empty() {
-            return None;
+            return Vec::new();
         }
-        let mut at = &mut value;
+        let mut at = &mut plain;
         for segment in &parents[1..] {
+            at = match at {
+                Value::Object(fields) => match fields.get_mut(segment) {
+                    Some(next) => next,
+                    None => return Vec::new(),
+                },
+                Value::Array(items) => match segment
+                    .parse::<usize>()
+                    .ok()
+                    .and_then(|index| items.get_mut(index))
+                {
+                    Some(next) => next,
+                    None => return Vec::new(),
+                },
+                _ => return Vec::new(),
+            };
+        }
+        let Some(fields) = at.as_object_mut() else {
+            return Vec::new();
+        };
+        let removed = fields.shift_remove(leaf);
+        if let Some(Value::String(text)) = &removed
+            && let Some(rest) = text.strip_prefix("http://")
+        {
+            upgraded.push((fault.to_vec(), Value::String(format!("https://{rest}"))));
+        }
+        if removed.is_none() {
+            missing.push(fault.to_vec());
+        }
+    }
+    let set = |base: &Value, path: &[String], leaf: Value| {
+        let mut value = base.clone();
+        let mut at = &mut value;
+        for segment in &path[1..path.len() - 1] {
             at = match at {
                 Value::Object(fields) => fields.get_mut(segment)?,
                 Value::Array(items) => items.get_mut(segment.parse::<usize>().ok()?)?,
                 _ => return None,
             };
         }
-        at.as_object_mut()?.shift_remove(leaf)?;
+        at.as_object_mut()?.insert(path.last()?.clone(), leaf);
+        Some(value)
+    };
+    let mut candidates = vec![plain.clone()];
+    let mut with_upgrades = plain.clone();
+    for (path, scheme) in &upgraded {
+        with_upgrades = set(&with_upgrades, path, scheme.clone()).unwrap_or(with_upgrades);
     }
-    Some(value)
+    if !upgraded.is_empty() {
+        candidates.push(with_upgrades);
+    }
+    for text in [true, false] {
+        let mut shown = plain.clone();
+        for path in &missing {
+            let name = path.last().map(String::as_str).unwrap_or_default();
+            let placeholder = if text {
+                placeholder(name, &Value::String(String::new()))
+            } else {
+                placeholder(name, &serde_json::json!([""]))
+            };
+            if let Some(next) = placeholder.and_then(|leaf| set(&shown, path, leaf)) {
+                shown = next;
+            }
+        }
+        candidates.push(shown);
+    }
+    candidates
 }
 
 /// `example` in the rejected row's own terms, so copying it runs what the
 /// row asked: the row's value of each field the example sets that the row
 /// sent without an issue (a graphBuild of `src` is shown a graphBuild of
-/// `src`, not of the whole workspace), the example's value of a field at
-/// fault, no field the row did not send that the request runs without, and
+/// `src`, not of the whole workspace), a placeholder or else the example's
+/// value of a field at fault, no field the row did not send that the request runs without, and
 /// each other field the row sent without an issue (a graphQuery `hubs` keeps
 /// its `path`), apart from its brief ([`crate::contracts::BRIEF_FIELDS`]) and page position
 /// (its state fields), which describe the call rather than its form. A
 /// field at fault only by a value its message names the meaning of (`sort`
 /// with `by: "modified"`, which means `modifiedAt`) is the row's own with
-/// that value, so the example still asks what the row did. Each change is
+/// that value, so the example still asks what the row did. A text field at
+/// fault as a whole shows a visible placeholder ([`placeholder`]), so the
+/// example never pairs core's values with the row's own. Each change is
 /// kept only while the request validates, so the example stays one the tool
 /// accepts. A row at fault as a whole (two forms mixed) names no field at
 /// fault: its own values stand wherever the request still validates, so a
@@ -274,7 +340,15 @@ fn in_row_terms(tool_name: &str, example: &Value, rejected: Option<&Rejected<'_>
                     .filter(|fault| fault.first() == Some(field))
                     .map(Vec::as_slice)
                     .collect::<Vec<_>>();
-                without_faults(own, &inside).into_iter().collect()
+                // A value at fault as a whole shows a placeholder before
+                // core's example value, which beside the row's own values
+                // could name something that does not exist (core's owner
+                // with the row's repository).
+                let mut candidates = without_faults(own, &inside);
+                if candidates.is_empty() {
+                    candidates.extend(placeholder(field, value));
+                }
+                candidates
             }
             // Left out, then a placeholder where the request needs it.
             None => std::iter::once(Value::Null)

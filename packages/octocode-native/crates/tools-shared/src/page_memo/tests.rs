@@ -287,14 +287,15 @@ impl Gate {
 #[test]
 fn concurrent_requests_for_one_key_compute_it_once() {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    let memo = PageMemo::<usize>::new();
-    let (computed, started, gate) = (AtomicUsize::new(0), AtomicUsize::new(0), Gate::default());
+    // Its own budget: a kept value the process budget evicts would make a
+    // waiter compute again, which is correct but not this test's case.
+    let memo = PageMemo::<usize>::with_budget(crate::test_budget!(1 << 20));
+    let (computed, gate) = (AtomicUsize::new(0), Gate::default());
     let requests = 6;
     let values = std::thread::scope(|scope| {
         let tasks = (0..requests)
             .map(|_| {
                 scope.spawn(|| {
-                    started.fetch_add(1, Ordering::SeqCst);
                     memo.get_or_compute("one flight".into(), "p", &|| false, || {
                         computed.fetch_add(1, Ordering::SeqCst);
                         gate.wait();
@@ -306,8 +307,9 @@ fn concurrent_requests_for_one_key_compute_it_once() {
                 })
             })
             .collect::<Vec<_>>();
-        // Every request is under way before the computation may finish.
-        while started.load(Ordering::SeqCst) < requests {
+        // Every other request waits on the flight before the computation may
+        // finish: one arriving after it landed would not test the wait.
+        while computed.load(Ordering::SeqCst) < 1 || memo.waiting("one flight") < requests - 1 {
             std::thread::yield_now();
         }
         gate.open();

@@ -86,6 +86,10 @@ pub struct FileCounts {
     pub occurrences: u32,
     /// Matched lines; a match spanning several lines counts each.
     pub lines: u32,
+    /// Masked secret spans in the text the file was searched as
+    /// ([`ServedText::masked_spans`]); counted for every searched file,
+    /// whatever the pattern.
+    pub masked: u32,
 }
 
 /// A searched file's identity, taken from the one read the search made.
@@ -105,6 +109,9 @@ pub struct SearchedSource {
 #[derive(Debug, Clone, Default)]
 pub struct TextSearchStats {
     pub match_count: Option<u32>,
+    /// Masked secret spans in every searched file's served text; present
+    /// only when the search asked for them ([`TextSearchOptions::count_masked`]).
+    pub masked_spans: Option<u32>,
     pub matched_lines: Option<u32>,
     pub files_matched: Option<u32>,
     pub files_searched: Option<u32>,
@@ -316,6 +323,10 @@ pub struct TextSearchOptions {
     /// file's bytes as they are. A file whose own bytes prove the text it
     /// serves holds no match is not judged ([`JudgeWrites`]).
     pub judge: Option<SourceJudge>,
+    /// Count the masked spans of every searched file
+    /// ([`TextSearchStats::masked_spans`]). The count must not depend on the
+    /// pattern, so no file is skipped by its pattern: every file is judged.
+    pub count_masked: bool,
 }
 
 /// The text a judge serves of one source in place of its bytes, line for
@@ -330,6 +341,22 @@ pub struct TextSearchOptions {
 pub struct ServedText {
     pub text: Vec<u8>,
     pub written: Vec<std::ops::Range<usize>>,
+}
+
+impl ServedText {
+    /// Masked spans in the text: the runs of touching written ranges.
+    #[must_use]
+    pub fn masked_spans(&self) -> u32 {
+        let mut spans = 0u32;
+        let mut end = None;
+        for range in &self.written {
+            if end != Some(range.start) {
+                spans = spans.saturating_add(1);
+            }
+            end = Some(range.end);
+        }
+        spans
+    }
 }
 
 /// What a search matches of one opened file: `Ok(Some(served))` when the
@@ -423,6 +450,7 @@ impl TextSearchOptions {
             sort: SearchSort::Path,
             values: SourceValues::Owned,
             inspect_deferred: None,
+            count_masked: false,
             ..self.clone()
         }
     }

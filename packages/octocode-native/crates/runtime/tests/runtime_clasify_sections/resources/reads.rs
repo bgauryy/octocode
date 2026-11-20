@@ -108,10 +108,11 @@ async fn next_read_reads_only_the_lines_of_the_yes_sections() {
     runtime.close().await;
 }
 
-/// When every section said yes, the resource's own `read` is the read of the
-/// selected lines: offering a `next.read` too repeats one call.
+/// When every section said yes, the resource still gets a top-level
+/// `next.read` of its selected lines: a page of many resources names each
+/// one to read without its rows being searched.
 #[tokio::test]
-async fn next_read_is_not_offered_when_every_section_is_a_yes() {
+async fn next_read_is_offered_when_every_section_is_a_yes() {
     let provider = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
@@ -146,6 +147,6 @@ async fn next_read_is_not_offered_when_every_section_is_a_yes() {
         resource["sections"].as_array().unwrap().len() > 1,
         "{out:#}"
     );
-    assert!(out["next"].get("read").is_none(), "{out:#}");
+    assert!(out["next"].get("read").is_some(), "{out:#}");
     runtime.close().await;
 }

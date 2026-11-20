@@ -65,7 +65,7 @@ pub(in crate::gh_search_code) async fn disclose_index_ref(
     // exists only at the ref is not a candidate, so its absence proves
     // nothing. `viewRepo` lists the ref's own files.
     let warning = format!(
-        "Candidate files come from the default-branch index{index}, not {reference}: a file that exists only at {reference} cannot appear{lines}."
+        "Candidate files come from the default-branch index{index}, not {reference}: a file whose keywords match only at {reference} (it exists only there, or its text changed since) cannot appear, so absence proves nothing; list the files at {reference} and read them with `matchString`{lines}."
     );
     push_warnings(value, [warning]);
     // Rows not at the ref were moved or renamed there: search their names

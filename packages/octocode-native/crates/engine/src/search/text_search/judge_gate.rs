@@ -44,6 +44,12 @@ impl JudgeGate {
 
     fn gated(opts: &TextSearchOptions, spelled: &str) -> Option<Self> {
         let judge = opts.judge.as_ref()?;
+        // A count of masked spans takes every file's judgment, whatever the
+        // pattern: a gated count would tell where the pattern's literals
+        // occur in a secret.
+        if opts.count_masked {
+            return None;
+        }
         // A files-without view or an inverted search shows the files and
         // lines that do not match: their text is the judge's.
         if opts.invert_match.unwrap_or(false)

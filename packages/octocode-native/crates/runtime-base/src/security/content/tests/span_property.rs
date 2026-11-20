@@ -43,7 +43,13 @@ fn ordinary(rng: &mut Rng) -> Vec<Piece> {
         "commit 3755d3a1c2b4e5f60718293a4b5c6d7e8f901234\n",
         "\n",
     ];
-    vec![plain(LINES[rng.below(LINES.len())])]
+    let line = LINES[rng.below(LINES.len())];
+    if line.contains("-----BEGIN") {
+        // A line holding a key's run right under a marker is read as key
+        // text: a marker literal is followed by code that holds none.
+        return vec![plain(line), plain("const a = compute(1);\n")];
+    }
+    vec![plain(line)]
 }
 
 fn key_line(rng: &mut Rng) -> String {

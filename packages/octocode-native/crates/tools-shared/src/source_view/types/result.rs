@@ -50,6 +50,9 @@ pub struct LocalFetchResult {
     /// The declarations a `block:true` match read widened hits to.
     pub blocks: Vec<DeclaredBlock>,
     pub selected_match_count: Option<usize>,
+    /// A match read: the masked secret spans of the source it searched, whatever
+    /// the match strings (`maskedSpans`); absent when none.
+    pub masked_spans: Option<usize>,
     pub returned_bytes: Option<usize>,
     pub returned_lines: Option<usize>,
     pub pagination: Option<Pagination>,
@@ -107,6 +110,7 @@ impl LocalFetchResult {
             match_keys: vec![],
             blocks: vec![],
             selected_match_count: None,
+            masked_spans: None,
             returned_bytes: None,
             returned_lines: None,
             pagination: None,
@@ -280,6 +284,7 @@ impl LocalFetchResult {
     /// only ([`Self::continued`]).
     fn serialize_anchors<M: serde::ser::SerializeMap>(&self, map: &mut M) -> Result<(), M::Error> {
         opt(map, "totalLines", &self.read_wide(self.total_lines))?;
+        opt(map, "maskedSpans", &self.read_wide(self.masked_spans))?;
         // Under a classifier the count is this page's kept matches; else it
         // counts the whole read, stated once.
         let selected = if self.selection.is_some() {

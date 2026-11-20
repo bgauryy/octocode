@@ -101,7 +101,11 @@ fn summary(row: Value, target: Target<'_>) -> Value {
     let echoes = |field: &str, asked: Option<&str>, fields: &Map<String, Value>| {
         asked.is_some() && fields.get(field).and_then(Value::as_str) == asked
     };
-    if !no_verdict {
+    let explains_leads = fields
+        .get("answer")
+        .and_then(Value::as_str)
+        .is_some_and(super::answer::explains_pinned_checks);
+    if !no_verdict && !explains_leads {
         fields.shift_remove("answer");
     }
     if echoes("packageName", target.asked_name, &fields) {

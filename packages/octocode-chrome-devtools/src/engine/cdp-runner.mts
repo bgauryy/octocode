@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { connectCDP, type Payload } from './cdp-connection.mjs';
+import { blockedRefusal } from './cdp-policy.mjs';
 import { errorMessage } from './error-message.mjs';
 
 import { isAbsolute, join, relative, resolve } from 'path';
@@ -267,6 +268,14 @@ async function main() {
     finalizeRun('interrupted', { signal });
   };
   cdp.outputDir = outputDir;
+  // Scripts are raw by design: only methods the policy blocks are refused; needsAck is not enforced here.
+  const sendRaw = cdp.send.bind(cdp);
+  cdp.send = (method, ...rest) => {
+    const refusal = blockedRefusal(method);
+    return refusal
+      ? Promise.reject(new Error(refusal))
+      : sendRaw(method, ...rest);
+  };
   if (VERBOSE) {
     console.error(`[CDP_RUNNER] Output dir: ${outputDir}`);
     console.error(`[CDP_RUNNER] Session meta dir: ${sessionMetaDir}`);

@@ -252,10 +252,11 @@ pub(super) fn shape_pr_files(
     .page(files, state, query, patches);
     // A withheld credential file is listed but is no lead: the path policy
     // refuses a read of it, and it leaves the row whole.
-    let first_unsearched = unsearched
+    let leads_unsearched = unsearched
         .iter()
-        .find(|(reason, ..)| *reason != WITHHELD)
-        .map(|(_, path, removed)| (path.clone(), *removed));
+        .filter(|(reason, ..)| *reason != WITHHELD)
+        .map(|(_, path, removed)| (path.clone(), *removed))
+        .collect::<Vec<_>>();
     let unsearched = unsearched
         .into_iter()
         .map(|(reason, path, _)| format!("!{reason} {path}"))
@@ -276,7 +277,7 @@ pub(super) fn shape_pr_files(
             review,
             shown: None,
             unsearched,
-            first_unsearched,
+            leads_unsearched,
             match_dropped,
             clipped: Vec::new(),
         };
@@ -335,7 +336,7 @@ pub(super) fn shape_pr_files(
         review,
         shown: Some(shown),
         unsearched,
-        first_unsearched,
+        leads_unsearched,
         match_dropped,
         clipped: patches.clipped,
     }

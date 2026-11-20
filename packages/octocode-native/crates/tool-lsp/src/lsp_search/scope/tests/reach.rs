@@ -590,7 +590,7 @@ async fn a_bounded_check_reads_only_the_module_and_counts_the_rest() {
     assert_eq!(row["coverage"]["unreadOutOfReach"], 4, "{row}");
     assert!(
         row.to_string()
-            .contains("coverage.unreadOutOfReach counts files outside its reach (pub(super) reaches only module"),
+            .contains("coverage.unreadOutOfReach: files outside the reach of `page_of` (pub(super) reaches only module"),
         "{row}"
     );
 }

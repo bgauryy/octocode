@@ -246,6 +246,8 @@ pub(super) struct FileOutcome {
     /// The values are of the text the search's judge served, which only the
     /// judge read of the file ([`FileSearcher::searched_source`]).
     pub(super) served: bool,
+    /// Masked spans of the text the file was searched as (0: its own bytes).
+    pub(super) masked: u32,
     /// Matched lines a test-code scope left out.
     pub(super) test_lines_excluded: u32,
     /// The file's test-only spans, when a hit read them.
@@ -267,6 +269,7 @@ impl<M: Matcher> From<CollectSink<'_, M>> for FileOutcome {
             utf8_bom: false,
             term_counts: sink.term_counts,
             served: false,
+            masked: 0,
             test_lines_excluded: sink.test_lines_excluded,
             test_spans: sink.test_spans,
         }
@@ -384,6 +387,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
                 let work = self.work_for(file)?;
                 let mut outcome = self.search_bytes((&served.served).into(), path, work)?;
                 outcome.served = true;
+                outcome.masked = served.served.masked_spans();
                 outcome
             }
             None => match own {
@@ -633,8 +637,17 @@ impl<M: Matcher> FileSearcher<'_, M> {
             CollectSink::new(self.matcher, self.work, (self.stop, self.held), self.terms);
         sink.cancelled = self.cancelled;
         sink.written = written;
+        // An inverted search keeps the lines the pattern does not match: over
+        // the text as served, a line whose only match is a placeholder's
+        // spelling would count as matching. It reads the text with what the
+        // judge wrote made filler, and its lines from the served text.
+        let inverted = self.opts.invert_match.unwrap_or(false) && !written.is_empty();
+        let filled = inverted.then(|| super::written::fill(bytes, written));
+        if inverted {
+            sink.inverted_over = Some(bytes);
+        }
         self.searcher
-            .search_reader(self.matcher, bytes, &mut sink)?;
+            .search_reader(self.matcher, filled.as_deref().unwrap_or(bytes), &mut sink)?;
         let offset = sink
             .binary_offset
             .filter(|offset| *offset != 0 && *offset <= MAX_BINARY_PREFIX_BYTES);
@@ -651,7 +664,17 @@ impl<M: Matcher> FileSearcher<'_, M> {
             CollectSink::new(self.matcher, self.work, (self.stop, self.held), self.terms);
         prefix_sink.cancelled = self.cancelled;
         prefix_sink.written = written;
-        prefix_searcher.search_slice(self.matcher, prefix, &mut prefix_sink)?;
+        let filled_prefix = filled
+            .as_deref()
+            .map(|filled| &filled[..prefix.len().min(filled.len())]);
+        if filled_prefix.is_some() {
+            prefix_sink.inverted_over = Some(prefix);
+        }
+        prefix_searcher.search_slice(
+            self.matcher,
+            filled_prefix.unwrap_or(prefix),
+            &mut prefix_sink,
+        )?;
         let mut outcome = FileOutcome::from(prefix_sink);
         outcome.binary = true;
         outcome.opaque = is_leading_binary(prefix, outcome.matched_lines > 0);

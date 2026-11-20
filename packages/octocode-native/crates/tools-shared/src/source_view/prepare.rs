@@ -42,6 +42,11 @@ impl Source<'_> {
         }
     }
 
+    /// Placeholders the source-wide redactions put anywhere in the source.
+    pub(super) fn redactions_total(&self) -> usize {
+        self.redacted_lines.iter().map(|(_, count)| count).sum()
+    }
+
     /// Placeholders the source-wide redactions put on `lines` (1-based).
     pub(super) fn redactions_on(&self, lines: impl IntoIterator<Item = usize>) -> usize {
         lines
