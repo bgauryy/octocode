@@ -42,6 +42,8 @@ gh, gh-lean, gh + RTK, gh + Headroom and the lean local shell; their briefs are 
 
 ## Isolation and fairness
 
+Setting up the agents, tool allowlists, Octocode home, clones and cleanup is in [TESTING_ENV.md](TESTING_ENV.md).
+
 - **Research rounds: one fresh agent per question and arm**, with only its brief, its arm and
   the question. No answer key, other arm's answer, project instructions, skills or memory. Seeking
   a hidden reference invalidates that research run. Capability rounds may use one checker with
@@ -132,7 +134,7 @@ comparisons use the same questions and the same per-question pairing.
    Refresh the relevant arms when required by the current question or the user's request, and
    keep the refreshed measurements distinct from stored numbers.
 4. **Per tool across versions.** Match tools by name; where a tool was renamed, use the
-   [v18 → v20 tool map](results/baselines/release-notes-v18-v20.json). A workflow must not need more calls
+   [v18 → v20 tool map](results/baselines/release-notes-v18-v20.md). A workflow must not need more calls
    than the previous round recorded.
 5. **Decide.** Better, same or worse per comparison, with the verdicts below. A new version that is less
    correct is a Regression whatever its characters.

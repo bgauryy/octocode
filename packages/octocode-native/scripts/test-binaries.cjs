@@ -28,7 +28,11 @@ function packageOf(id, manifestPath) {
     const at = fragment.lastIndexOf('@');
     return { name: fragment.slice(0, at), version: fragment.slice(at + 1) };
   }
-  if (fragment) return { name: path.basename(path.dirname(manifestPath)), version: fragment };
+  if (fragment)
+    return {
+      name: path.basename(path.dirname(manifestPath)),
+      version: fragment,
+    };
   const [name, version] = id.split(' ');
   return { name, version: version ?? '' };
 }
@@ -37,8 +41,16 @@ function packageOf(id, manifestPath) {
 function testExecutables(messages) {
   const found = new Map();
   for (const message of messages) {
-    if (message.reason !== 'compiler-artifact' || !message.executable || !message.profile?.test) continue;
-    const { name, version } = packageOf(message.package_id, message.manifest_path);
+    if (
+      message.reason !== 'compiler-artifact' ||
+      !message.executable ||
+      !message.profile?.test
+    )
+      continue;
+    const { name, version } = packageOf(
+      message.package_id,
+      message.manifest_path
+    );
     found.set(message.executable, {
       crate: name,
       version,
@@ -53,7 +65,9 @@ function testExecutables(messages) {
 
 /** `octocode-tool-github` for `tool-github` or `octocode-tool-github`; null when no crate has the name. */
 function crateNamed(name, crates) {
-  return [name, `octocode-${name}`].find(candidate => crates.has(candidate)) ?? null;
+  return (
+    [name, `octocode-${name}`].find(candidate => crates.has(candidate)) ?? null
+  );
 }
 
 const keyOf = binary => `${binary.crate}/${binary.kind}/${binary.target}`;
@@ -102,7 +116,18 @@ function countResults(text) {
  * threads` and `args` (libtest's filters and skips). Resolves the first failing status,
  * else 0, after every binary ran; records each binary's seconds in `durationsFile`.
  */
-function runBinaries(binaries, { args = [], threads, concurrency, env, children = new Set(), durationsFile, log = console.log }) {
+function runBinaries(
+  binaries,
+  {
+    args = [],
+    threads,
+    concurrency,
+    env,
+    children = new Set(),
+    durationsFile,
+    log = console.log,
+  }
+) {
   const durations = durationsFile ? readDurations(durationsFile) : {};
   const queue = slowestFirst(binaries, durations);
   const startedMs = Date.now();
@@ -112,17 +137,31 @@ function runBinaries(binaries, { args = [], threads, concurrency, env, children 
     const next = () => {
       if (queue.length === 0 && running === 0) return finish();
       // start() raises `running` by one, so this fills every free slot.
-      for (let free = concurrency - running; free > 0 && queue.length > 0; free -= 1) start(queue.shift());
+      for (
+        let free = concurrency - running;
+        free > 0 && queue.length > 0;
+        free -= 1
+      )
+        start(queue.shift());
     };
     const start = binary => {
       running += 1;
       const began = Date.now();
       const testArgs = [...args, '--test-threads', String(threads)];
-      const child = spawn(process.execPath, [WATCHDOG, binary.executable, ...testArgs], {
-        cwd: binary.dir,
-        env: { ...env, CARGO_MANIFEST_DIR: binary.dir, CARGO_PKG_NAME: binary.crate, CARGO_PKG_VERSION: binary.version },
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
+      const child = spawn(
+        process.execPath,
+        [WATCHDOG, binary.executable, ...testArgs],
+        {
+          cwd: binary.dir,
+          env: {
+            ...env,
+            CARGO_MANIFEST_DIR: binary.dir,
+            CARGO_PKG_NAME: binary.crate,
+            CARGO_PKG_VERSION: binary.version,
+          },
+          stdio: ['ignore', 'pipe', 'pipe'],
+        }
+      );
       children.add(child);
       const out = [];
       child.stdout.on('data', chunk => out.push(chunk));
@@ -134,7 +173,9 @@ function runBinaries(binaries, { args = [], threads, concurrency, env, children 
         const text = Buffer.concat(out).toString('utf8');
         const counts = countResults(text);
         results.push({ binary, code, seconds, ...counts });
-        log(`=== ${keyOf(binary)} (${seconds.toFixed(1)} s, ${counts.passed} passed, ${counts.failed} failed) ===\n${text.trimEnd()}`);
+        log(
+          `=== ${keyOf(binary)} (${seconds.toFixed(1)} s, ${counts.passed} passed, ${counts.failed} failed) ===\n${text.trimEnd()}`
+        );
         next();
       };
       child.on('error', error => {
@@ -145,16 +186,34 @@ function runBinaries(binaries, { args = [], threads, concurrency, env, children 
     };
     const finish = () => {
       const failed = results.filter(result => result.code !== 0);
-      const total = results.reduce((sum, result) => ({ passed: sum.passed + result.passed, failed: sum.failed + result.failed }), { passed: 0, failed: 0 });
-      const slowest = [...results].sort((a, b) => b.seconds - a.seconds).slice(0, 5);
-      log(`=== binaries: ${results.length} in ${((Date.now() - startedMs) / 1000).toFixed(1)} s (${concurrency} at once, ${threads} threads each); ${total.passed} passed, ${total.failed} failed ===`);
-      log(`slowest: ${slowest.map(result => `${keyOf(result.binary)} ${result.seconds.toFixed(1)} s`).join(', ')}`);
-      for (const result of failed) log(`FAILED: ${keyOf(result.binary)} (exit ${result.code})`);
+      const total = results.reduce(
+        (sum, result) => ({
+          passed: sum.passed + result.passed,
+          failed: sum.failed + result.failed,
+        }),
+        { passed: 0, failed: 0 }
+      );
+      const slowest = [...results]
+        .sort((a, b) => b.seconds - a.seconds)
+        .slice(0, 5);
+      log(
+        `=== binaries: ${results.length} in ${((Date.now() - startedMs) / 1000).toFixed(1)} s (${concurrency} at once, ${threads} threads each); ${total.passed} passed, ${total.failed} failed ===`
+      );
+      log(
+        `slowest: ${slowest.map(result => `${keyOf(result.binary)} ${result.seconds.toFixed(1)} s`).join(', ')}`
+      );
+      for (const result of failed)
+        log(`FAILED: ${keyOf(result.binary)} (exit ${result.code})`);
       if (durationsFile && results.length > 0) {
-        for (const result of results) durations[keyOf(result.binary)] = Math.round(result.seconds * 10) / 10;
+        for (const result of results)
+          durations[keyOf(result.binary)] =
+            Math.round(result.seconds * 10) / 10;
         try {
           fs.mkdirSync(path.dirname(durationsFile), { recursive: true });
-          fs.writeFileSync(durationsFile, `${JSON.stringify(durations, null, 1)}\n`);
+          fs.writeFileSync(
+            durationsFile,
+            `${JSON.stringify(durations, null, 1)}\n`
+          );
         } catch {
           // ordering is a speed hint only
         }
@@ -165,4 +224,12 @@ function runBinaries(binaries, { args = [], threads, concurrency, env, children 
   });
 }
 
-module.exports = { countResults, crateNamed, keyOf, packageOf, runBinaries, slowestFirst, testExecutables };
+module.exports = {
+  countResults,
+  crateNamed,
+  keyOf,
+  packageOf,
+  runBinaries,
+  slowestFirst,
+  testExecutables,
+};

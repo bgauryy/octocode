@@ -131,7 +131,8 @@ fn innermost(spans: &[(usize, usize)], line: usize) -> Option<(usize, usize)> {
 }
 
 /// A block read of a file with no declaration outline (no grammar for its
-/// language): the requested lines, a warning, and `next.read`, the same
+/// language): the requested lines, a warning, and the related read (the
+/// `read` slot, published in `related[]`), the same
 /// file from `first` through its last line, paged, so the declaration that
 /// starts there is read to its end whatever spells it.
 fn no_outline(
@@ -148,7 +149,7 @@ fn no_outline(
     warnings.push(format!(
         "block: no declaration outline for {path}; returned the requested lines{}.{}",
         if read.is_some() {
-            "; next.read reads on to the file's end"
+            "; the related read reads on to the file's end"
         } else {
             ""
         },

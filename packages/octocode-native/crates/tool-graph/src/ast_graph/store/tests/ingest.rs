@@ -241,7 +241,12 @@ fn authored_lib_javascript_keeps_its_symbols() {
     let ingested = ingest_fixture(dir.0.as_path(), None);
     assert_eq!(ingested.class, ExitClass::Success, "{}", ingested.value);
     let outline = ask(dir.0.as_path(), "symbols", Some("lib/math.js"), |_| {});
-    assert_eq!(ids(&outline), vec!["app/lib/math.js#add"], "{}", outline.value);
+    assert_eq!(
+        ids(&outline),
+        vec!["app/lib/math.js#add"],
+        "{}",
+        outline.value
+    );
 }
 
 /// `ingest --language-glob` picks a parser by root-relative glob, as for

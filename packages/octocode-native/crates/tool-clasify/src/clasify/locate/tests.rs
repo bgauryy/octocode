@@ -712,6 +712,47 @@ fn an_answer_names_its_part_by_the_sectioned_rule() {
     assert!(kept[0].get("lines").is_none());
 }
 
+/// An answer that rests on text in more than one part cites every part its
+/// companion rates above an even share of its labels, the chosen one
+/// included: the cited lines run from the first such part to the last, so
+/// the deciding line is never left out of them. Parts rated at or below an
+/// even share, and `unknown`, widen nothing.
+#[test]
+fn an_answer_cites_every_part_its_companion_rates_likely() {
+    let state = json!({"source":{"path":"out.log"},"text":log(10)});
+    let located = locate(&source(), &state, &[noul()], 1).expect("located");
+    let labels = located.parts.len() + 1;
+    let even = 1.0 / f64::from(u32::try_from(labels).expect("few labels"));
+    let spread = |rated: &[(usize, f64)]| {
+        let mut probabilities = serde_json::Map::new();
+        for &(line, probability) in rated {
+            probabilities.insert(label((line, line)), json!(probability));
+        }
+        probabilities.insert("unknown".into(), json!(0.0));
+        json!({"type":"choice","choice":label((rated[0].0, rated[0].0)),"probabilities":probabilities})
+    };
+    let cite = |companion: Value| {
+        let mut answers = vec![json_fixture(r#"{"type": "noul", "noul": 0.9}"#)];
+        located.attach(&mut answers, &[companion]);
+        answers[0]["lines"].clone()
+    };
+    // The chosen part holds a reference, a later part the value it names.
+    assert_eq!(
+        cite(spread(&[(3, 0.55), (8, 0.4), (5, 0.05)])),
+        json!({"startLine": 3, "endLine": 8})
+    );
+    // A part at an even share or below widens nothing.
+    assert_eq!(
+        cite(spread(&[(6, 1.0 - even), (2, even)])),
+        json!({"startLine": 6, "endLine": 6})
+    );
+    // Without probabilities, the chosen part alone.
+    assert_eq!(
+        cite(json!({"type":"choice","choice":label((4, 4))})),
+        json!({"startLine": 4, "endLine": 4})
+    );
+}
+
 /// A JSON manifest of `lines` lines whose every line but the braces is
 /// indented, the shape of a `package.json`: no block edge inside it.
 fn manifest(lines: usize) -> String {

@@ -406,7 +406,7 @@ impl Query<'_> {
             .filter_map(|candidate| candidate["id"].as_str())
             .map(|id| {
                 let mut row = query_row(self.options, &self.g.id);
-                naming(&mut row, reference, id);
+                naming(&mut row, reference, &self.g.shown_key(id));
                 octocode_runtime_base::response::result::Continuation::related(
                     octocode_runtime_base::id::ToolId::GraphQuery,
                     Value::Object(row),

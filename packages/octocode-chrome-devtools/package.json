@@ -9,7 +9,8 @@
     ".": "./dist/mcp.js",
     "./cli": "./dist/cli.js",
     "./runtime": "./dist/runtime.js",
-    "./skill": "./dist/skills/octocode-chrome-devtools/SKILL.md",
+    "./skill": "./skills/octocode-chrome-devtools/SKILL.md",
+    "./skills/*": "./skills/*",
     "./package.json": "./package.json"
   },
   "mcp": {
@@ -40,8 +41,9 @@
     "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
     "lint": "yarn lint:own && yarn lint:oxlint",
     "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
-    "test": "node --test tests/unit/*.test.mjs tests/*-self-test.mjs",
-    "verify:own": "yarn build && yarn lint:own && yarn typecheck && yarn test",
+    "test:run": "node --test tests/unit/*.test.mjs tests/*-self-test.mjs",
+    "test": "yarn build && yarn test:run",
+    "verify:own": "yarn build && yarn lint:own && yarn typecheck && yarn test:run",
     "verify": "yarn verify:own && yarn lint:oxlint",
     "prepack": "yarn build",
     "format": "prettier --write \"src/**/*.{ts,mts}\" \"tools/**/*.mjs\" \"tests/**/*.mjs\""
@@ -50,6 +52,7 @@
     "dist",
     "bin",
     "docs",
+    "skills",
     "OPERATING.md",
     "README.md",
     "ARCHITECTURE.md",

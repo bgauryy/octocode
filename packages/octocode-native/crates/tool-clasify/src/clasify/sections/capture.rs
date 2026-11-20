@@ -296,6 +296,7 @@ fn prepare(
                 state,
                 cells,
                 emitted: false,
+                emitted_in: 0,
                 deferred: std::collections::BTreeSet::new(),
             };
             let bytes = unit_weight(&unit);

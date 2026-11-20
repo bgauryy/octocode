@@ -113,7 +113,7 @@ pub fn process_fetched_content_selected<S: ContentScan>(
                 std::sync::Arc::new(super::extraction::LineOffsets::new(&source.text))
             })
             .clone();
-        super::extraction::extract_indexed(q, &source.text, &offsets)
+        super::extraction::extract_indexed(q, &source.text, &source.written(), &offsets)
     };
     let mut ext = match extracted {
         Ok(extraction) => extraction,
@@ -130,7 +130,7 @@ pub fn process_fetched_content_selected<S: ContentScan>(
     if ext.count == Some(0) {
         // A misremembered declaration head reads the file's one declaration
         // of its name, as that read of the declaration's own line.
-        if let Some((declared, warning)) = declared_read(q, &source.text) {
+        if let Some((declared, warning)) = declared_read(q, &source.text, &source.written()) {
             let mut read = process_fetched_content_selected(
                 &declared,
                 bytes,

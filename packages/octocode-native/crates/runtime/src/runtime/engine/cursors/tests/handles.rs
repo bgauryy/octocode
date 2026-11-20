@@ -64,10 +64,10 @@ fn an_identical_continuation_has_one_handle() {
 fn reissuing_work_under_another_policy_does_not_resurrect_old_tokens() {
     let disk = tempfile::tempdir().unwrap();
     let make = |policy: &str| {
-        Registry::new(
+        Registry::scoped(
             CacheConfig::derived(),
             Some(disk.path().into()),
-            policy.into(),
+            policy.to_owned().into(),
         )
     };
     let (old, current) = (make("old-policy"), make("current-policy"));

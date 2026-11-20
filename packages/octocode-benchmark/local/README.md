@@ -22,7 +22,7 @@ answers on that clone as not comparable with stored baselines. Runs reject a dir
 
 Sets: **core** = [local-core](../questions/local-core/README.md) (30), **goals** =
 [local-goals](../questions/local-goals/README.md) (40), **transfer** = local-transfer (12), **scenarios** =
-local-scenarios (30). Commits match the sets' `repositories.json` files.
+local-scenarios (30). The question files name clones by path; this table owns the commits.
 
 | Dir | Repository | Pinned commit | Language | Used by |
 |---|---|---|---|---|
@@ -49,9 +49,9 @@ local-scenarios (30). Commits match the sets' `repositories.json` files.
 | `huge-cpp` | https://github.com/pytorch/pytorch | `03943c7f9ea8c146348e5a12f9fc75e32ee21fdc` | C++ | large-repo flows (optional) |
 | `huge-c` | https://github.com/torvalds/linux | `fd179f8a05be3ccae366b9b96e176b51fbe54aab` | C | large-repo flows (optional) |
 
-For one set only, clone its rows; for a local research round on local-core, clone the 15 core rows. The
-local-goals and local-transfer runners also check a tracked-file digest per repository
-(`repositories.json`); a commit alone is not enough there.
+For one set only, clone its rows; for a local research round on local-core, clone the 15 core rows. Before a run, check
+`git -C DIR rev-parse HEAD` and `git -C DIR status --short`: a different commit or a dirty tracked tree makes
+answers not comparable with stored ones.
 
 ## Language notes
 

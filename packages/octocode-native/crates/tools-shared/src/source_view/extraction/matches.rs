@@ -94,7 +94,7 @@ fn context_windows(
 
 pub(super) fn match_extract(
     q: &LocalFetchQuery,
-    content: &str,
+    (content, written): (&str, &[std::ops::Range<usize>]),
     lines: &LineOffsets,
     patterns: &[&str],
 ) -> Result<Extraction, ExtractionError> {
@@ -103,7 +103,7 @@ pub(super) fn match_extract(
         truncated,
         held: _spans_held,
         missed,
-    } = match_spans(q, content, patterns)?;
+    } = match_spans(q, content, written, patterns)?;
     let regions = ranged_spans(q, lines, &mut spans)?;
     let hits = hit_lines(lines, &spans);
     // The last line the capped scan reached: matches after it went unseen.
@@ -131,7 +131,7 @@ pub(super) fn match_extract(
             unmatched: vec![],
         });
     }
-    let unmatched = unmatched_terms(q, content, patterns, (&missed, &regions))?;
+    let unmatched = unmatched_terms(q, (content, written), patterns, (&missed, &regions))?;
     let mut warnings = vec![];
     let windows = context_windows(q, lines, &hits, &regions);
     let mut blocks = vec![];
@@ -179,7 +179,7 @@ pub(super) fn match_extract(
 /// read, those whose every match lies outside the requested `regions`.
 fn unmatched_terms(
     q: &LocalFetchQuery,
-    content: &str,
+    (content, written): (&str, &[std::ops::Range<usize>]),
     patterns: &[&str],
     (missed, regions): (&[usize], &[Region]),
 ) -> Result<Vec<String>, ExtractionError> {
@@ -191,7 +191,7 @@ fn unmatched_terms(
         let selects = if missed.contains(&index) {
             false
         } else if local_fetch_query::has_ranges(q) {
-            match_spans(q, content, std::slice::from_ref(pattern))?
+            match_spans(q, content, written, std::slice::from_ref(pattern))?
                 .spans
                 .iter()
                 .any(|span| in_regions(regions, *span))

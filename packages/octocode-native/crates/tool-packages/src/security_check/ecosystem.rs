@@ -50,10 +50,15 @@ fn contract_failure(why: &str) -> ArtifactError {
     )
 }
 
-/// How `ecosystem`'s registry orders its versions, when a registry provider
-/// reads the ecosystem: the order its fixed versions compare in.
+/// How `ecosystem` orders its versions, when a registry provider reads the
+/// ecosystem or its package manager's order is known (dpkg, apk): the order
+/// its fixed versions compare in.
 pub(super) fn version_order(ecosystem: Ecosystem) -> Option<crate::artifact::VersionOrder> {
-    provider(ecosystem).map(crate::artifact::order_of)
+    match ecosystem {
+        Ecosystem::Debian | Ecosystem::Ubuntu => Some(super::distro_order::DPKG),
+        Ecosystem::Alpine => Some(super::distro_order::APK),
+        _ => provider(ecosystem).map(crate::artifact::order_of),
+    }
 }
 
 /// The registry that confirms this ecosystem's names, when the contract says

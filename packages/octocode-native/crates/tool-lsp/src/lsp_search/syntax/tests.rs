@@ -399,3 +399,41 @@ async fn syntax_callers_honor_test_code() {
         "{text}"
     );
 }
+
+/// `callers` and `callees` anchored on a declaration no call names answer
+/// `notCallable` from the anchor's parse, before any server, and lead to
+/// `references` and `implementation`; a callable anchor still goes on.
+#[cfg(unix)]
+#[tokio::test(flavor = "current_thread")]
+async fn a_call_hierarchy_of_a_non_callable_declaration_leads_to_its_uses() {
+    let source = "pub enum Code { A }\n\npub trait Scan {\n    fn scan(&self);\n}\n\npub fn run() {}\n";
+    let (_dirs, file, execution) = fixture("lib.rs", source, ".rs");
+    let root = file.parent().expect("root").to_path_buf();
+    for (operation, symbol, line, kind) in [
+        ("callers", "Code", 1, "enum"),
+        ("callees", "Scan", 3, "trait"),
+    ] {
+        let query = json!({
+            "operation": operation, "path": file.to_string_lossy(),
+            "symbolName": symbol, "line": line
+        });
+        let pages = walk(&root, &execution, query, None).await;
+        assert_eq!(pages.len(), 1, "{pages:?}");
+        let row = &pages[0];
+        assert_eq!(row["status"], "empty", "{row}");
+        assert_eq!(row["category"], "notCallable", "{row}");
+        assert_eq!(row["kind"], kind, "{row}");
+        let related = row["related"].to_string();
+        assert!(related.contains("\"references\""), "{row}");
+        assert!(related.contains("\"implementation\""), "{row}");
+    }
+    // A function anchor is callable: the server rung runs (here it is
+    // missing, so the syntax rung answers).
+    let query = json!({
+        "operation": "callers", "path": file.to_string_lossy(),
+        "symbolName": "run", "line": 7
+    });
+    let pages = walk(&root, &execution, query, None).await;
+    assert_ne!(pages[0]["category"], "notCallable", "{}", pages[0]);
+    assert_syntax(&pages[0]);
+}

@@ -18,34 +18,42 @@ import {
 import manifest from '../package.json' with { type: 'json' };
 import { invoke, stopEngine } from './invocation.js';
 export { connectStdio, cliFromMcp, runCli } from 'octocode-mcp-cli';
+export { call, chrome, closeChrome } from './functions.js';
+export type { ChromeCommandName, CallOptions } from './functions.js';
+// Commands that only read saved or declared data; the rest drive Chrome or write state.
+const READ_ONLY = new Set([
+  'skill',
+  'schema',
+  'protocol',
+  'targets',
+  'artifact',
+  'query',
+  'snapshot-query',
+  'measure-query',
+  'har-pager',
+  'corpus-query',
+]);
+
 export const spec = defineCli({
   name: 'octocode-chrome-devtools',
   version: manifest.version,
   instructions: chromeInstructions,
-  commands: Object.entries(chromeCommands).map(([name, description]) =>
-    defineCommand({
+  commands: Object.entries(chromeCommands).map(([name, description]) => {
+    const readOnly = READ_ONLY.has(name);
+    return defineCommand({
       name,
       description,
       schema: chromeSchemaFor(name),
       annotations: {
-        readOnlyHint: [
-          'skill',
-          'schema',
-          'protocol',
-          'targets',
-          'artifact',
-          'query',
-          'snapshot-query',
-          'measure-query',
-          'har-pager',
-          'corpus-query',
-        ].includes(name),
+        readOnlyHint: readOnly,
+        idempotentHint: readOnly,
         destructiveHint: [
           'cleanup',
           'prune',
           'cookies',
           'api-replay',
           'run',
+          'flow',
           'step',
           'cdp',
           'script',
@@ -67,19 +75,25 @@ export const spec = defineCli({
           chromeSchemaFor(name).parse(input),
           context?.signal
         );
-        return cliView(
-          result.ok ? 'OK' : 'Failed; inspect capture before retrying.',
-          { structuredContent: result }
-        );
+        // invoke() throws on failure (isError, text from failureSummary); only successes reach here.
+        const keys = Object.keys(result).join(', ');
+        return cliView(`OK; data in structuredContent: ${keys}`, {
+          structuredContent: result,
+        });
       },
-    })
-  ),
+    });
+  }),
 });
+
+// The skill's first flow ends in a screenshot and the shared instructions name dev-check; flow replays named plans; the default surface must hold every tool they name.
+const EXTRA_DEFAULT_COMMANDS = ['screenshot', 'dev-check', 'flow'];
 
 export const researchSpec = {
   ...spec,
   commands: spec.commands.filter(command =>
-    (chromeResearchCommands as readonly string[]).includes(command.name)
+    [...chromeResearchCommands, ...EXTRA_DEFAULT_COMMANDS].includes(
+      command.name
+    )
   ),
 };
 
@@ -132,14 +146,14 @@ export async function main(argv = process.argv.slice(2)) {
         : undefined
     );
   }
-  const selected =
-    argv.length === 3 && argv[1] === '--preset' && argv[2] === 'research'
-      ? researchSpec
-      : spec;
-  if (argv.length !== 1 && selected !== researchSpec)
+  const presets = { research: researchSpec, full: spec };
+  const preset =
+    argv.length === 3 && argv[1] === '--preset' ? argv[2] : undefined;
+  if (argv.length !== 1 && !(preset && Object.hasOwn(presets, preset)))
     throw Error(
-      'Usage: --mcp [--preset research]; start from the workspace cwd'
+      `Usage: --mcp [--preset ${Object.keys(presets).join('|')}] (default research); start from the workspace cwd`
     );
+  const selected = presets[(preset ?? 'research') as keyof typeof presets];
   const server = new McpServer(
     { name: spec.name, version: spec.version },
     mcpServerOptions(selected)

@@ -147,7 +147,7 @@ fn next_quiet_confirms_the_plans_github_identity_before_it_serves() {
     .output;
     assert_eq!(shown_ids(&last), ["s1"], "s0 is held back: {last:#}");
     assert!(last["next"].get("quiet").is_some(), "{last:#}");
-    let input = json!({"operation":"sections","assessment":quiet_token(&session.id)});
+    let input = last["next"]["quiet"]["input"]["queries"][0].clone();
     let row = super::super::super::Row {
         context: None,
         model: None,

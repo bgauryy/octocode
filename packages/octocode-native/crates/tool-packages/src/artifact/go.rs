@@ -127,8 +127,13 @@ async fn go_exact(
             tag_prefix.clone().filter(|directory| !directory.is_empty());
     }
     // A vanity module path (`go.opentelemetry.io/otel`) does not name its
-    // repository directory or tag; the module proxy records the commit
-    // the version was built from, and the directory inside the repo.
+    // repository directory or tag, and a package inside a module has no
+    // repository on pkg.go.dev; the module proxy records the repository, the
+    // commit the version was built from, the tag it read, and the directory
+    // inside the repo.
+    // The proxy's commit when it read a tag: that tag is checked upstream
+    // below, and the commit stays the registry's claim when it cannot be.
+    let mut proxy_tagged = None;
     if spelled.is_none()
         && let (Some(module), Some(version)) =
             (artifact.module_path.clone(), artifact.version.clone())
@@ -147,13 +152,27 @@ async fn go_exact(
             .as_ref()
             .and_then(|info| info.get("Origin"))
         {
-            artifact.source_ref = commit_sha(origin.get("Hash"));
+            if artifact.repository.is_none() {
+                artifact.repository = repository_url(origin.get("URL"));
+            }
+            let commit = commit_sha(origin.get("Hash"));
+            let tagged = origin
+                .get("Ref")
+                .and_then(Value::as_str)
+                .is_some_and(|reference| reference.starts_with("refs/tags/"));
+            if tagged && artifact.repository.is_some() {
+                proxy_tagged = commit;
+            } else {
+                artifact.source_ref = commit;
+            }
             if artifact.repository_directory.is_none() {
-                artifact.repository_directory =
-                    string(origin.get("Subdir")).filter(|dir| !dir.is_empty());
+                artifact.repository_directory = string(origin.get("Subdir"))
+                    .filter(|dir| !dir.is_empty())
+                    .or_else(|| go_module_directory(&artifact).filter(|dir| !dir.is_empty()));
             }
         }
     }
+    let tag_prefix = tag_prefix.or_else(|| go_module_directory(&artifact));
     // Neither the path nor the proxy named a ref: the upstream release tag of
     // the version pins the source, spelled the way the go command spells it
     // for the module's place in its repository.
@@ -168,10 +187,13 @@ async fn go_exact(
             &mut artifact,
             directory.as_deref(),
             &version,
-            spelled,
+            spelled.or_else(|| proxy_tagged.clone()),
             client,
         )
         .await;
+        if let Some(built) = proxy_tagged {
+            proxy_commit_against_tag(&mut artifact, &version, built);
+        }
     }
     // A `/vN` module may sit in its repository's `vN` directory rather than
     // at its tag prefix: the tree at the pinned ref says which, read beside
@@ -189,6 +211,9 @@ async fn go_exact(
         None => {}
     }
     artifact.dependencies = go_mod.as_deref().map(go_requirements);
+    if artifact.deprecated.is_none() {
+        artifact.deprecated = go_mod.as_deref().and_then(go_deprecation);
+    }
     // A module retracts versions in the `go.mod` of a later one: a version
     // the caller named may be one of them. The unversioned lookup answers
     // the latest release, which no retraction can name.
@@ -205,6 +230,59 @@ async fn go_exact(
     }
     drop_restated_go_paths(&mut artifact);
     Ok(ArtifactProviderPage::single(artifact))
+}
+
+/// Settles the module proxy's commit against the upstream tag check: no tag
+/// found keeps the proxy's commit as the registry's claim; a tag naming
+/// another commit is said on the row.
+fn proxy_commit_against_tag(artifact: &mut ArtifactItem, version: &str, built: String) {
+    if !artifact.source_tag {
+        if artifact.source_ref.is_none() {
+            artifact.source_ref = Some(built);
+        }
+        return;
+    }
+    if artifact.source_ref.as_deref() != Some(built.as_str()) {
+        artifact.disclosures.push(format!(
+            "{} {version}: the module proxy built this version from commit {built}, but tag {} names {}; the source is read at the tag.",
+            artifact.package_name,
+            artifact.release_tag.as_deref().unwrap_or_default(),
+            artifact.source_ref.as_deref().unwrap_or_default()
+        ));
+    }
+}
+
+/// The `// Deprecated:` paragraph of a `go.mod`'s module comment: the comment
+/// block right above the `module` directive, or the comment after it on its
+/// line, as the go command reads it.
+fn go_deprecation(go_mod: &str) -> Option<String> {
+    let lines = go_mod.lines().map(str::trim).collect::<Vec<_>>();
+    let at = lines
+        .iter()
+        .position(|line| line.starts_with("module ") || line.starts_with("module\t"))?;
+    let above = lines[..at]
+        .iter()
+        .rev()
+        .take_while(|line| line.starts_with("//"))
+        .collect::<Vec<_>>();
+    let trailing = lines[at].split_once("//").map(|(_, comment)| comment);
+    let comment = above
+        .into_iter()
+        .rev()
+        .map(|line| line.trim_start_matches('/').trim())
+        .chain(trailing.map(str::trim))
+        .collect::<Vec<_>>();
+    let start = comment
+        .iter()
+        .position(|line| line.starts_with("Deprecated:"))?;
+    let paragraph = comment[start..]
+        .iter()
+        .take_while(|line| !line.is_empty())
+        .copied()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let message = paragraph.trim_start_matches("Deprecated:").trim();
+    Some(if message.is_empty() { "Deprecated.".to_owned() } else { message.to_owned() })
 }
 
 /// `require` directives of a `go.mod` as `module version`, in file order:

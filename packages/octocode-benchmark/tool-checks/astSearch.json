@@ -1,7 +1,0 @@
-{"tool": "astSearch", "steps": [
- {"name": "symbols of a folder", "tool": "astSearch", "args": {"operation": "symbols", "path": "packages/octocode-native/crates/tools-shared/src/leads"}, "expect": {"min": {"data.files[]": 1}}},
- {"name": "call shape across crates", "tool": "astSearch", "args": {"operation": "match", "path": "packages/octocode-native/crates", "parser": "rust", "rule": {"pattern": "push_warnings($$$)"}, "limit": 3}, "expect": {"min": {"data.files[]": 1}}},
- {"name": "limit 1 stays cheap", "tool": "astSearch", "args": {"operation": "match", "path": "packages/octocode-native/crates", "parser": "rust", "rule": {"kind": "call_expression"}, "limit": 1}, "expect": {"maxChars": 20000}},
- {"name": "confirm identity with lspSearch", "tool": "lspSearch", "args": {"operation": "definition", "path": "packages/octocode-native/crates/runtime-base/src/response/paging.rs", "symbolName": "push_warnings", "line": 120}, "expect": {"contains": ["paging.rs"]}},
- {"name": "match without a rule", "tool": "astSearch", "args": {"operation": "match", "path": "packages/octocode-native/crates", "parser": "rust"}, "expect": {"error": "invalidInput"}}
-]}

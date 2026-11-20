@@ -76,7 +76,7 @@ fn argument_binding_premises_exclude_unrelated_members() {
         assert!(
             matches!(
                 row["to"].as_str(),
-                Some("scope.rs#handler" | "scope.rs#VALUE")
+                Some("app/scope.rs#handler" | "app/scope.rs#VALUE")
             ),
             "{row}"
         );
@@ -96,8 +96,8 @@ fn nearest_ordinary_lexical_scope_wins_for_argument_candidates() {
     });
     assert_eq!(rows.value["pagination"]["total"], 2, "{}", rows.value);
     for row in rows.value["rows"].as_array().unwrap() {
-        if row["from"] == "module.rs#outer" {
-            assert_eq!(row["to"], "module.rs#handler");
+        if row["from"] == "app/module.rs#outer" {
+            assert_eq!(row["to"], "app/module.rs#handler");
         } else {
             assert_eq!(row["to"], "app/module.rs#inner.handler", "{row}");
         }

@@ -42,9 +42,9 @@ fn find_matches_every_word_of_natural_text() {
     assert_eq!(
         ids(&out),
         vec![
-            "src/snapshot.ts#SnapshotReader",
-            "src/snapshot.ts#SnapshotReaderOptions",
-            "src/snapshot.ts#SnapshotReader.read",
+            "app/src/snapshot.ts#SnapshotReader",
+            "app/src/snapshot.ts#SnapshotReaderOptions",
+            "app/src/snapshot.ts#SnapshotReader.read",
         ],
         "{}",
         out.value
@@ -60,20 +60,20 @@ fn find_splits_case_separators_and_qualified_names() {
     let snake = find(&dir, "parse_config");
     assert_eq!(
         ids(&snake).first().map(String::as_str),
-        Some("src/config/loader.ts#parseConfig"),
+        Some("app/src/config/loader.ts#parseConfig"),
         "{}",
         snake.value
     );
     let member = find(&dir, "OriginPool read");
     assert_eq!(
         ids(&member).first().map(String::as_str),
-        Some("src/pool.ts#OriginPool.read"),
+        Some("app/src/pool.ts#OriginPool.read"),
         "{}",
         member.value
     );
     let loader = find(&dir, "parse config loader");
     assert!(
-        ids(&loader).contains(&"src/config/loader.ts#parseConfig".to_owned()),
+        ids(&loader).contains(&"app/src/config/loader.ts#parseConfig".to_owned()),
         "every word appears in the key: {}",
         loader.value
     );
@@ -85,7 +85,7 @@ fn find_without_a_full_match_returns_the_best_partial_coverage() {
     let out = find(&dir, "parse config yaml");
     assert_eq!(
         ids(&out).first().map(String::as_str),
-        Some("src/config/loader.ts#parseConfig"),
+        Some("app/src/config/loader.ts#parseConfig"),
         "{}",
         out.value
     );
@@ -121,8 +121,8 @@ fn find_single_word_keeps_its_population_and_ranks_exact_names_by_callers() {
     assert_eq!(
         ids(&out)[..2],
         [
-            "src/snapshot.ts#SnapshotReader.read",
-            "src/pool.ts#OriginPool.read"
+            "app/src/snapshot.ts#SnapshotReader.read",
+            "app/src/pool.ts#OriginPool.read"
         ]
     );
     // The population is still every name or key containing the text.
@@ -150,7 +150,7 @@ fn unknown_reference_suggests_ranked_find_matches() {
     let out = ask(dir.0.as_path(), "node", Some("Snapshot Reader"), |_| {});
     assert_eq!(out.value["errorCode"], "notFound", "{}", out.value);
     assert_eq!(
-        out.value["suggestions"][0], "src/snapshot.ts#SnapshotReader",
+        out.value["suggestions"][0], "app/src/snapshot.ts#SnapshotReader",
         "{}",
         out.value
     );
@@ -178,9 +178,9 @@ fn an_unknown_reference_suggests_only_near_names() {
     );
     let root = dir.0.as_path();
     for (reference, near) in [
-        ("runCLl", "src/cli.ts#runCLI"),
-        ("wrteJsonFle", "src/cli.ts#writeJson"),
-        ("zzqxSnapshotReader", "src/snapshot.ts#SnapshotReader"),
+        ("runCLl", "app/src/cli.ts#runCLI"),
+        ("wrteJsonFle", "app/src/cli.ts#writeJson"),
+        ("zzqxSnapshotReader", "app/src/snapshot.ts#SnapshotReader"),
     ] {
         let out = ask(root, "callers", Some(reference), |_| {});
         assert_eq!(out.value["errorCode"], "notFound", "{}", out.value);
@@ -249,7 +249,7 @@ fn find_ranks_underscore_names_below_equally_matched_public_names() {
     let out = find(&dir, "load");
     assert_eq!(
         ids(&out)[..2],
-        ["src/loads.ts#loadItem", "src/loads.ts#_loadUser"],
+        ["app/src/loads.ts#loadItem", "app/src/loads.ts#_loadUser"],
         "{}",
         out.value
     );
@@ -282,8 +282,8 @@ fn find_keeps_name_matches_that_path_words_outnumber() {
     let out = find(&dir, "parse helper");
     let found = ids(&out);
     let at = |id: &str| found.iter().position(|row| row == id);
-    let helper = at("src/util/parse.ts#helper").expect("helper");
-    let parse = at("src/util/parse.ts#parse").expect("parse matches a word by name");
+    let helper = at("app/src/util/parse.ts#helper").expect("helper");
+    let parse = at("app/src/util/parse.ts#parse").expect("parse matches a word by name");
     assert!(helper < parse, "{}", out.value);
     assert_eq!(
         out.value["rows"][parse]["matchedWords"],
@@ -301,7 +301,7 @@ fn find_labels_whole_name_prefixes() {
     let rows = out.value["rows"].as_array().expect("rows");
     let parse = rows
         .iter()
-        .find(|row| row["id"] == "src/util/parse.ts#parse")
+        .find(|row| row["id"] == "app/src/util/parse.ts#parse")
         .expect("parse");
     assert_eq!(parse["match"], "prefix", "{}", out.value);
 }

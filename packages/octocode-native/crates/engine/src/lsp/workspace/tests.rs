@@ -95,6 +95,37 @@ fn typescript_files_root_at_their_governing_tsconfig() {
     assert_eq!(resolve(bare.join("src").join("main.py")), bare);
 }
 
+/// A Python file without project files in a repository roots at the
+/// directory it imports from: a script directory alone, a package's file at
+/// the directory above its top package, a test beside packages at the
+/// directory holding them; never the repository of other languages.
+#[test]
+fn python_without_a_project_roots_at_its_import_root() {
+    let repository = TmpDir::new();
+    fs::create_dir_all(repository.join(".git")).expect("git");
+    fs::write(repository.join("package.json"), b"{}").expect("manifest");
+    let scripts = repository.join("skills").join("proxy").join("scripts");
+    fs::create_dir_all(&scripts).expect("scripts");
+    fs::write(scripts.join("relay.py"), b"import hosts\n").expect("relay");
+    let app = repository.join("apps").join("app");
+    let package = app.join("pkg").join("sub");
+    fs::create_dir_all(&package).expect("package");
+    fs::write(app.join("pkg").join("__init__.py"), b"").expect("init");
+    fs::write(package.join("__init__.py"), b"").expect("init");
+    fs::create_dir_all(app.join("tests")).expect("tests");
+    let resolve = |file: PathBuf| {
+        PathBuf::from(
+            resolve_workspace_root_for_file(file.to_string_lossy().into_owned()).expect("resolve"),
+        )
+    };
+    assert_eq!(resolve(scripts.join("relay.py")), scripts);
+    assert_eq!(resolve(package.join("mod.py")), app);
+    assert_eq!(resolve(app.join("tests").join("test_mod.py")), app);
+    // A project file still decides.
+    fs::write(repository.join("skills").join("pyproject.toml"), b"").expect("pyproject");
+    assert_eq!(resolve(scripts.join("relay.py")), repository.join("skills"));
+}
+
 /// A member crate's file roots the server at its Cargo workspace, so
 /// every member shares one rust-analyzer; a standalone package roots
 /// at itself, and a non-Rust file keeps the nearest marker.

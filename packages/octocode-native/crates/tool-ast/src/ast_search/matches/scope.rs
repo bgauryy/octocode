@@ -285,14 +285,20 @@ pub(super) fn resolve_scope(
     }
     let parsers = GlobParsers::compile(&p.canonical, q.language_globs().as_ref())
         .map_err(|error| ToolError::graph_scan(&error, cancel))?;
+    let named = requested.is_some();
     let extensions = requested.or_else(|| meta.is_dir().then(structural_extensions));
     // Validate against grammar capabilities, not the capped discovery prefix.
     // The literal prefilter may otherwise hide even a globally invalid query.
     if meta.is_dir()
         && let Some(extensions) = &extensions
+        && let Err(every) = compile_check(extensions, None, q.rule().as_ref())
     {
-        compile_check(extensions, None, q.rule().as_ref())
-            .map_err(|error| ToolError::new(error.code, error.message))?;
+        let error = if named {
+            every
+        } else {
+            super::gaps::scope_rejection(q, &p.canonical, &parsers, (paths, cancel), every)?
+        };
+        return Err(ToolError::new(error.code, error.message));
     }
     let language = q.language();
     Ok(Scope {

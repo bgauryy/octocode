@@ -136,6 +136,10 @@ async fn an_owner_wide_capped_search_leads_to_the_owners_repositories() {
         "ghSearchRepo",
         |input| input["queries"][0] == json!({"operation":"list","owner":"a"}),
     );
+    assert!(
+        owner_wide["warnings"].to_string().contains("ghSearchRepo"),
+        "the warning names the lead it promises: {owner_wide}"
+    );
     let one_repo =
         page(json!({"owner":"a","repo":"b","keywords":["needle"],"fields":["path"]})).await;
     let leads = one_repo

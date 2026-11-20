@@ -533,7 +533,7 @@ async fn bounded_agrees(
                 .scanned_files(symbol)
                 .expect("scanned")
                 .contains(*file)
-                && !whole.in_reach(symbol, file)
+                && !reaches(file)
         })
         .count();
     assert_eq!(count(&bounded), read_out);

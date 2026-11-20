@@ -41,7 +41,7 @@ Use `--all`, `build:all` and `build:publish` only for requested release or cross
 | A setting or credential changes | [Configuration changes](docs/ADDING_CONFIG.md) |
 | Maintaining a scraper or adding a vendor | [Scraping maintenance](docs/SCRAPING_MAINTENANCE.md) |
 | Checking tool evidence, pagination or continuations | [Tool quality](docs/TOOL_QUALITY.md) · [data contract](../../docs/TOOL_DATA_CONTRACT.md) |
-| Auditing one tool across core, CLI and MCP | [Tool audit](docs/TOOL_AUDIT.md) |
+| Auditing one tool across core, CLI and MCP | [Tool audit](docs/TOOL_QUALITY.md#audit-a-tool-end-to-end) |
 | Reporting results | [Output](output.md) |
 | Neighbor skills | `octocode-research` (code evidence), `rust-best-practices` (Rust design), `octocode-graph-dev` (graph engine, language battery), `octocode-documentation` (prose rewrites). |
 

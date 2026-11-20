@@ -12,9 +12,10 @@ pub(super) fn no_match(q: &LocalFetchQuery, source: &Source<'_>) -> LocalFetchRe
     // Every lead below counts lines of the redacted text, so it is the same
     // for a right and a wrong guess at a secret.
     let mut warnings = Vec::new();
+    let written = source.written();
     // A case-sensitive miss reruns as the same read, case-insensitive, only
     // when that read selects lines; the count is the fact beside the lead.
-    let insensitive = Some(insensitive_match_count(q, &source.text)).filter(|count| *count > 0);
+    let insensitive = Some(insensitive_match_count(q, &source.text, &written)).filter(|count| *count > 0);
     let ignore_case = insensitive.map(|count| {
         warnings.push(format!(
             "{count} {} ignoring case.",
@@ -35,7 +36,7 @@ pub(super) fn no_match(q: &LocalFetchQuery, source: &Source<'_>) -> LocalFetchRe
     let outside = local_fetch_query::has_ranges(q)
         .then(|| {
             let whole = local_fetch_query::updated(q, serde_json::json!({"ranges": null})).ok()?;
-            let count = super::extraction::extract(&whole, &source.text)
+            let count = super::extraction::extract(&whole, &source.text, &written)
                 .ok()
                 .and_then(|extraction| extraction.count)
                 .unwrap_or(0);
@@ -64,7 +65,7 @@ pub(super) fn no_match(q: &LocalFetchQuery, source: &Source<'_>) -> LocalFetchRe
         if ignore_case.is_some() {
             return None;
         }
-        if let Some((count, names, query)) = named_read(q, &source.text) {
+        if let Some((count, names, query)) = named_read(q, &source.text, &written) {
             warnings.push(format!(
                 "{count} {} `{names}`.",
                 if count == 1 {
@@ -120,11 +121,15 @@ pub(super) fn no_match(q: &LocalFetchQuery, source: &Source<'_>) -> LocalFetchRe
 /// unranged read would select lines (its own lead says so), no pattern is a
 /// head, or no line, or several, declare the names: the empty row's leads
 /// then stand.
-pub(super) fn declared_read(q: &LocalFetchQuery, text: &str) -> Option<(LocalFetchQuery, String)> {
+pub(super) fn declared_read(
+    q: &LocalFetchQuery,
+    text: &str,
+    written: &[std::ops::Range<usize>],
+) -> Option<(LocalFetchQuery, String)> {
     // The name read first: it rejects a regex or a pattern that is no head
     // without running a pattern.
-    let (_, names, _) = named_read(q, text)?;
-    if local_fetch_query::has_ranges(q) || insensitive_match_count(q, text) > 0 {
+    let (_, names, _) = named_read(q, text, written)?;
+    if local_fetch_query::has_ranges(q) || insensitive_match_count(q, text, written) > 0 {
         return None;
     }
     let names = names.split("`, `").collect::<Vec<_>>();
@@ -145,7 +150,7 @@ pub(super) fn declared_read(q: &LocalFetchQuery, text: &str) -> Option<(LocalFet
     .ok()?;
     // The read selects that one line, or the lead stands: the same text on
     // another line would make it a read of more than the declaration.
-    super::extraction::extract(&query, text)
+    super::extraction::extract(&query, text, written)
         .ok()
         .and_then(|extraction| extraction.count)
         .filter(|count| *count == 1)?;
@@ -166,7 +171,11 @@ pub(super) fn declared_read(q: &LocalFetchQuery, text: &str) -> Option<(LocalFet
 /// (`pub fn apply(` names `apply`), with the lines it selects and the names
 /// joined; `None` when no pattern is a head, the read is a regex, or the
 /// names select no line.
-fn named_read(q: &LocalFetchQuery, text: &str) -> Option<(usize, String, LocalFetchQuery)> {
+fn named_read(
+    q: &LocalFetchQuery,
+    text: &str,
+    written: &[std::ops::Range<usize>],
+) -> Option<(usize, String, LocalFetchQuery)> {
     if local_fetch_query::is_regex(q) {
         return None;
     }
@@ -186,7 +195,7 @@ fn named_read(q: &LocalFetchQuery, text: &str) -> Option<(usize, String, LocalFe
         serde_json::json!({ "matchString": names, "wholeWord": true }),
     )
     .ok()?;
-    let count = super::extraction::extract(&query, text)
+    let count = super::extraction::extract(&query, text, written)
         .ok()
         .and_then(|extraction| extraction.count)
         .filter(|count| *count > 0)?;
@@ -206,7 +215,11 @@ fn outlined(path: &str) -> bool {
 
 /// Lines the same read selects when every pattern matches case-insensitively;
 /// 0 when the patterns do not compile that way either, or already matched so.
-fn insensitive_match_count(q: &LocalFetchQuery, text: &str) -> usize {
+fn insensitive_match_count(
+    q: &LocalFetchQuery,
+    text: &str,
+    written: &[std::ops::Range<usize>],
+) -> usize {
     // A read that matched every pattern ignoring case already ran this one.
     if !local_fetch_query::match_strings(q)
         .iter()
@@ -218,7 +231,7 @@ fn insensitive_match_count(q: &LocalFetchQuery, text: &str) -> usize {
     if let Some(matched) = local_fetch_query::matched_mut(&mut insensitive) {
         matched.case_mode = CaseMode::Insensitive;
     }
-    super::extraction::extract(&insensitive, text)
+    super::extraction::extract(&insensitive, text, written)
         .ok()
         .and_then(|extraction| extraction.count)
         .unwrap_or(0)

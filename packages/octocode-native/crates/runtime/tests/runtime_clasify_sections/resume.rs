@@ -103,7 +103,7 @@ async fn sibling_section_rows_keep_continuations_until_every_section_is_answered
     let rows = [0, 1].map(|_| {
         json_fixture(
             r#"{
-                "operation": "sections",
+                "operation": "sections", "maxRequests": 1000,
                 "resources": {
                     "file": {"tool": "localFetch", "query": {"path": "many.rs"}}
                 },
@@ -235,7 +235,7 @@ async fn a_split_batch_is_first_delivered_unreplayed_and_a_repeat_is_replayed() 
     let workspace = Workspace::new();
     workspace.write("many.rs", super::separate_functions(70));
     let runtime = clasify_runtime(&workspace, &provider, &[]);
-    let row = |path: &str| json!({"operation":"sections","resources":{"file":{"tool":"localFetch","query":{"path":path}}},"questions":{"q":{"type":"noul","instructions":"Does this section say to restart?"}}});
+    let row = |path: &str| json!({"operation":"sections","maxRequests":crate::runtime_clasify::budget::EVERY_PAGE,"resources":{"file":{"tool":"localFetch","query":{"path":path}}},"questions":{"q":{"type":"noul","instructions":"Does this section say to restart?"}}});
     let mut page = runtime
         .run(
             "split-first".into(),
@@ -376,7 +376,7 @@ async fn a_replay_over_a_changed_source_is_stale_and_restarts_the_plan() {
     // The summary view, which offers `next.details`.
     let row = json_fixture(
         r#"{
-            "operation": "sections",
+            "operation": "sections", "maxRequests": 1000,
             "view": "summary",
             "resources": {
                 "file": {"tool": "localFetch", "query": {"path": "small.rs"}}

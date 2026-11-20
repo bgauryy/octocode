@@ -514,3 +514,36 @@ fn the_lsp_lead_keeps_the_searchs_test_code() {
     assert_eq!(lead["operation"], "callers", "{unset}");
     assert!(lead.get("testCode").is_none(), "{unset}");
 }
+
+/// An empty page whose test-code scope left code out offers the same search
+/// over all code, and says what it left out; one whose scope left nothing
+/// out does not.
+#[test]
+fn an_emptied_scope_offers_all_code() {
+    let mixed: &[(&str, &str)] =
+        &[("src/lib.rs", "pub fn run() {}\n"), ("tests/it.rs", "fn it() { needle(); }\n")];
+    let production: &[(&str, &str)] = &[("src/lib.rs", "pub fn run() {}\n")];
+    for (files, test_code, pattern, offered) in [
+        (mixed, "exclude", "needle", true),
+        (mixed, "only", "run", true),
+        (production, "exclude", "needle", false),
+    ] {
+        let body = search_fixture(
+            files,
+            ls_query(
+                serde_json::json!({"matchString":[pattern],"testCode":test_code}),
+                None,
+            ),
+        );
+        assert!(hits(&body).is_empty(), "{test_code} {pattern}: {body}");
+        let leads = body["related"].as_array().cloned().unwrap_or_default();
+        let lead = leads
+            .iter()
+            .find(|lead| lead["input"]["queries"][0]["testCode"] == "include");
+        assert_eq!(lead.is_some(), offered, "{test_code} {pattern}: {body}");
+        if let Some(lead) = lead {
+            assert_eq!(lead["input"]["queries"][0]["matchString"][0], pattern, "{body}");
+            assert!(body["testCodeExcluded"].is_object(), "{body}");
+        }
+    }
+}

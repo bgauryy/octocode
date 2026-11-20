@@ -41,6 +41,8 @@ The `answers` array holds your question key (`tests`). A `noul` answer is the pr
 
 Hits in a few files you would read anyway are cheaper to read directly.
 
+A search `source` over several files, a glob in `resources` and a `sections` plan send more requests than the row names. Set `maxRequests` on them, or run the `next.confirm` the refusal returns. See [Budget](#budget-maxrequests).
+
 ### What every call does
 
 ```mermaid
@@ -198,7 +200,7 @@ Behavior:
 
 - A row runs when its first round (`requestsPlanned`) fits `maxRequests`. Re-asks, splits and transient retries use only what the first round leaves, so `requestsCeiling` never passes the cap.
 - A first round above `maxRequests`, or above what an uncapped row names, is refused before anything is sent. The error is `classificationOverBudget`, with `usage.calls: 0`, the planned and ceiling counts, and `next.confirm`. `next.confirm` reruns the same row with `maxRequests` raised to the ceiling. That rerun is billed.
-- A source over the provider window is judged in sections only when its `maxRequests` still holds them. Otherwise the refusal names how many sections it would send, and `next.confirm` allows them.
+- A source over the provider window is judged in sections only when its `maxRequests` still holds them. Otherwise the refusal names how many sections it would send, its `usage.calls` counts the whole-source request already sent, and `next.confirm` allows them.
 - A `sections` page with `maxRequests` takes the sections whose first round fits the cap; `next.nextPage` takes the rest.
 - If the cap runs out during a run, the next send is not made: the unit, section or question it left is an `error` cell with `classificationOverBudget`.
 - A row without `maxRequests` is held to its ceiling too, except that a refusal's retries (long window or split) may pass it; they are counted and named in a warning. Transient retries never pass it.

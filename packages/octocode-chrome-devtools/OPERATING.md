@@ -2,17 +2,22 @@
 
 Use the package MCP tools or `octocode-chrome-devtools /cli` from the workspace cwd. Chrome and Node.js 24.15.0 or later in the 24.x line (`^24.15.0`) are required. The package owns all capture, action, protocol and reading logic; the separate skill contains guidance only.
 
-Agents: load the bundled `octocode-chrome-devtools` skill at `dist/skills/octocode-chrome-devtools/SKILL.md` relative to the package root before browser work, then read the relevant topics below. Keep its references and report scripts beside `SKILL.md`; see [skill installation](README.md#bundled-agent-skill) to register it with your agent. The `skill` tool serves this operating guide and topic guides; it does not install or automatically load the Agent Skill.
+Agents: load the bundled `octocode-chrome-devtools` skill before browser work, then read the relevant topics below. It is `skills/octocode-chrome-devtools/SKILL.md` relative to the package root, in a packed package and in a source checkout alike. Keep its references beside `SKILL.md`; see [skill installation](README.md#bundled-agent-skill) to register it with your agent.
 
 ## Discover, inspect, execute, read
 
 For a research question, load `skill --topic web-research`. It connects source discovery, page capture, local evidence search and citation. Browser plans execute the chosen transitions; the agent decides which sources answer the question.
 
 1. Read saved evidence first. Capture replies show the first artifact page (paths resolve against `root`); `next.artifacts` reaches remaining rows. Use Octocode `localSearch` on `search.paths` to find task anchors, then `localFetch` on exact hits. Use `query` to filter JSON/JSONL rows (`where` as `response.status=0 && request.url~login` or JSON predicates; paths dotted or JSON pointers) and `artifact` to page other captures. Each page `snapshot` also writes `page-nodes.txt`, one `ref role name frame` line per node beside `page-text.txt`, so `localSearch` on `search.paths` finds a ref by its text; the `snapshot-query` helper takes `--text` or `--regex` for the same lookup. When many plausible passages or images remain, load `clasify-screen` for optional JEV scouting by reference; keep exact reads ordinary and avoid repeating already sufficient evidence.
-2. Use `open` to launch isolated Chrome, or reuse an authorized browser. `isolated: true` means not the user's real profile: a visible launch (no `headless`) still keeps a persistent profile per port under the workspace until `cleanup` (`profileDir`, `profileNote` in the result). Every fresh launch enables Chrome's WebMCP feature, so the `webmcp-tools` check lists and invokes page-declared tools (`intents`). `open` with a `url` on an already running browser opens it in a new tab (blank first, stealth setup when enabled, then the URL), brings it to the front, returns its `targetId`, and makes it the default tab for later commands without a target while it exists; other tabs are untouched; `open` records the browser it made ready; a command without `connection.port` uses the newest live recorded session of this workspace and falls back to 9222, while an explicit `connection.port` always wins. Runs report the port and target they used, and a missing browser names its cause and the live recorded ports. `targets` lists candidates. Pass an exact target ID to subsequent calls; ambiguity fails.
+2. Use `open` to launch isolated Chrome, or reuse an authorized browser.
+   - Isolation: `isolated: true` means not the user's real profile. A visible launch (no `headless`) still keeps a persistent profile per port under the workspace until `cleanup` (`profileDir`, `profileNote` in the result). Every fresh launch enables Chrome's WebMCP feature, so the `webmcp-tools` check lists and invokes page-declared tools (`intents`).
+   - Session reuse: `open` records the browser it made ready. A command without `connection.port` uses the newest live recorded session of this workspace and falls back to 9222; an explicit `connection.port` always wins.
+   - Tab defaulting: `open` with a `url` on an already running browser opens it in a new tab (blank first, stealth setup when enabled, then the URL), brings it to the front, returns its `targetId`, and makes it the default tab for later commands without a target while it exists. Other tabs are untouched.
+   - Port fallback: runs report the port and target they used. A missing browser names its cause and the live recorded ports.
+   - Targets: `targets` lists candidates. Pass an exact target ID to subsequent calls; ambiguity fails.
 3. Use `snapshot` for controls/refs and `protocol` for the installed CDP schema. CLI command `--help --json` or MCP tool schemas describe typed inputs.
 4. Choose the next action from observed state. Combine only known transitions into a plan; inspect new state after a menu, navigation or frame change.
-5. Execute `run` or `step`; verify task readiness. Read the resulting complete artifacts and continuations.
+5. Execute `run` (or `step`, which needs `--mcp --preset full` or `/cli`); verify task readiness. Read the resulting complete artifacts and continuations.
 6. Cleanup only the isolated session or new tabs whose lifecycle you own. `cleanup --port N` works from any cwd: without a local session it reads the profile of the Chrome on that port and stops it only when it is an isolated profile with a recorded session from some workspace (reported as `workspace`); other browsers stay running.
 
 ```sh
@@ -39,7 +44,7 @@ A whole input file contains the tool input object, for example:
 - Retries follow [bounded retry](docs/recovery.md#bounded-retry): inspect state first, retry only after the cause changed. MCP cancellation aborts active execution and rejects queued calls before they start. Engine deadlines also bound the child; partial captures survive.
 - Calls retain tabs and attached state. Close only tabs/sessions you own. Emulation/stealth is opt-in.
 - Query before paging, preserve the original capture, and follow executable continuations unchanged before completeness claims. All matches and oversized values stay reachable. Observation starts at subscription; boundaries and iframe gaps remain explicit.
-- Captures stay under the workspace output root. Never print secrets. Custom code uses `cdp.saveArtifact` and preserves all event/stream chunks. The scoped Node sandbox has guarded fetch/WebSockets but does not form a complete network boundary.
+- Captures stay under the workspace output root. Never print secrets. Custom code uses `cdp.saveArtifact` and preserves all event/stream chunks. The scoped Node sandbox restricts fetch, WebSocket, TCP (node:net/http/https/tls), dns and dgram to loopback hosts (source-map fetches are exempt); child_process, native addons and in-process opt-outs are not covered, so it is not a complete network boundary.
 
 ## Detailed topics
 
@@ -53,6 +58,9 @@ Use `skill --topic <name>` in the typed CLI, or MCP tool `skill` with `{ "topic"
 | [cdp-checks](docs/cdp-checks.md) | Specialized captures and their options |
 | [intents](docs/intents.md) | Choosing which evidence answers the task |
 | [launch-stealth](docs/launch-stealth.md) | Launch settings and explicit emulation |
+| [flows](docs/flows.md) | Named reusable plans: built-in login, form, links, pagination, screenshot and audit flows, and saving your own |
+| [tabs-and-policy](docs/tabs-and-policy.md) | Opening a group of tabs, attaching to a browser you started, origin allowlists and the sandbox opt-in |
+| [cdp-proxy](docs/cdp-proxy.md) | A loopback, token-protected CDP proxy for dynamic clients and method logs |
 | [script-patterns](docs/script-patterns.md) | Custom `run(cdp)` logic |
 | [recovery](docs/recovery.md) | Failed targets, actions or waits |
 | [clasify-screen](docs/clasify-screen.md) | Selecting unread DOM/AX, HAR, large text and image evidence with Octocode and optional JEV |

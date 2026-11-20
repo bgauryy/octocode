@@ -85,7 +85,7 @@ fn long_line_match_candidates_keep_original_source_coordinates() {
         }"#,
     ))
     .unwrap();
-    let extracted = crate::source_view::extraction::extract(&query, &text)
+    let extracted = crate::source_view::extraction::extract(&query, &text, &[])
         .unwrap_or_else(|_| panic!("match extraction"));
     let source_lines = extracted.source_lines.as_ref().unwrap();
     assert_eq!(

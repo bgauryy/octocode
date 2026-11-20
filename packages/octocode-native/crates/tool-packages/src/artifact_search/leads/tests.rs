@@ -228,7 +228,7 @@ fn a_moved_repository_warning_names_the_redirect_target() {
 
 /// A moved repository whose release tag names another commit than the
 /// registry's states both: the redirect never hides the differing tag
-/// (LEFTOVERS P4, react 18.2.0).
+/// (react 18.2.0).
 #[test]
 fn a_moved_repository_still_names_a_release_tag_at_another_commit() {
     use crate::artifact::{ReleaseTag, RepositoryStatus};
@@ -446,4 +446,24 @@ fn a_retraction_reason_is_quoted_as_judged() {
         warning.ends_with("go.mod: published by mistake."),
         "{warning}"
     );
+}
+
+/// The advisory lead of an exact row names the ecosystem as securityCheck
+/// takes it, for every ecosystem artifactSearch takes: following it never
+/// meets the input repair's note.
+#[test]
+fn the_advisory_lead_spells_the_ecosystem_as_security_check_takes_it() {
+    use crate::test_spelling::{artifact_ecosystems, runs_as_sent};
+    for kind in artifact_ecosystems() {
+        let mut row = item(kind, "https://github.com/o/r");
+        row.package_name = match kind {
+            ArtifactType::Maven => "org.example:x".into(),
+            ArtifactType::Go => "github.com/o/r".into(),
+            ArtifactType::Packagist => "o/r".into(),
+            _ => "x".into(),
+        };
+        row.version = Some("1.0.0".into());
+        let lead = advisory_lead(&row).expect("lead");
+        runs_as_sent("securityCheck", &lead["input"]);
+    }
 }

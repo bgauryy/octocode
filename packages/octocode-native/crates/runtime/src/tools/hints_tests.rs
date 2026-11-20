@@ -26,6 +26,7 @@ astSearch symbolsUnsupported: routes documents to localFetch view:symbols
 ghGetFileContent languageUnsupported: the shared hint names local tools; the related[] plain read is the recovery
 ghGetFileContent largeSourceWindowOnly: the shared hint names localSearch and localFetch, which cannot read a GitHub file; the message names the matchString read
 ghGetFileContent symbolsUnsupported: the shared hint names local tools; the related[] plain read is the recovery
+ghGetHistoryItem notFound: a missing item is a number or ref, not a path: the shared path-listing hint does not apply
 localFetch fileAccessFailed: a read names one path: list it as a file first
 localFetch invalidPagination: the message names the bad offset
 localSearch fileAccessFailed: no file under the path was readable: broadening reads the same files

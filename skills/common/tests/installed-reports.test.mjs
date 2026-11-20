@@ -4,7 +4,7 @@ import { mkdtempSync, readdirSync, readFileSync, writeFileSync, mkdirSync, rmSyn
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { stageSkills } from '../../../packages/octocode/scripts/stage-skills.mjs';
+import { stageSkills, PACKAGE_SKILLS } from '../../../packages/octocode/scripts/stage-skills.mjs';
 
 test('every installed report skill renders, discovers and rejects invalid reports from an unrelated working directory', t => {
   const root = mkdtempSync(join(tmpdir(), 'installed-reports-'));
@@ -36,4 +36,20 @@ test('every installed report skill renders, discovers and rejects invalid report
     assert.equal(invoke([input, '--out', out, '--json', '--strict']).status, 2, name);
     assert.equal(readFileSync(out, 'utf8'), html, `${name}: invalid input overwrote valid HTML`);
   }
+});
+
+test('a package-owned skill stages beside the public ones, self-contained and without shared bundles', t => {
+  const root = mkdtempSync(join(tmpdir(), 'package-skill-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const installed = join(root, 'installed');
+  stageSkills(resolve(import.meta.dirname, '../..'), installed);
+  for (const dir of PACKAGE_SKILLS)
+    for (const name of readdirSync(resolve(import.meta.dirname, '../../..', dir))) {
+      const staged = join(installed, name);
+      assert.ok(existsSync(join(staged, 'SKILL.md')), `${name} is staged`);
+      assert.equal(existsSync(join(staged, 'scripts')), false, `${name} bundles no shared scripts`);
+      for (const file of readdirSync(staged, { recursive: true }).filter(f => f.endsWith('.md')))
+        for (const link of readFileSync(join(staged, file), 'utf8').matchAll(/\]\(((?!https?:|#)[^)#]+)/g))
+          assert.ok(existsSync(join(staged, file, '..', link[1])), `${name}/${file} links ${link[1]}`);
+    }
 });

@@ -270,11 +270,10 @@ fn a_recovered_parse_is_partial_once_and_no_terminal_limit() {
     assert_eq!(row.get("calls"), None, "{row}");
 }
 
-/// Across pages the recovery is stated where a page can be read alone for
-/// it: on the first page and on the last, which has no next page to explain
-/// why it is partial.
+/// Across pages every page names the recovery: a page read alone says why
+/// it is partial, and no page says `isPartial` without a reason.
 #[test]
-fn a_recovered_parse_over_several_pages_states_its_reason_on_the_first_and_last() {
+fn a_recovered_parse_over_several_pages_states_its_reason_on_every_page() {
     let text = format!("{}def broken(:\n", "value = 1\n".repeat(200));
     let pages = rendered_pages(&text, 2_000);
     assert!(pages.len() > 2, "{}", pages.len());
@@ -283,12 +282,9 @@ fn a_recovered_parse_over_several_pages_states_its_reason_on_the_first_and_last(
         assert_eq!(row["isPartial"], true, "page {at}: {row}");
         assert_eq!(row.get("terminalLimit"), None, "page {at}: {row}");
         assert_eq!(row.get("diagnostics"), None, "page {at}: {row}");
-        let stated = at == 0 || at == last;
         assert_eq!(
-            row.get("partialReasons"),
-            stated
-                .then(|| json_fixture(r#"["parseRecovered"]"#))
-                .as_ref(),
+            row["partialReasons"],
+            json_fixture(r#"["parseRecovered"]"#),
             "page {at}: {row}"
         );
         assert_eq!(row["calls"]["nextPage"].is_object(), at != last, "{row}");

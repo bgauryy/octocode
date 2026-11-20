@@ -7,9 +7,12 @@ return. This file is the whole method for checks; [METHOD.md](METHOD.md) owns be
 carries the answer, identity for the next call, one indication, and the way to get more; detail is one call
 away and nothing is lost.
 
-Run [tool-checks](tool-checks/README.md) first on the local build: one file per tool, its workflow into the related tools, scored on description, schema, results and offered follow-ups.
+Set up the checking agent and its environment as [TESTING_ENV.md](TESTING_ENV.md) says, then check each tool with its
+[questions](questions/tools/README.md): real research queries, the workflow into the tools it relates to, and one bad input.
+The agent reads the description and schema as an agent would, makes the calls, follows the follow-ups the response offers,
+and judges every answer by reading it.
 
-For a rating that is not anchored on those paths, run [independent raters](briefs/independent-raters.md): one fresh agent per tool group, fresh questions, every claim checked against ground truth, each tool scored on the [12-dimension rubric](RATINGS.md#agent-experience-rubric-12-dimensions).
+For a rating that does not depend on one author's questions, run [independent raters](briefs/independent-raters.md): one fresh agent per tool group, fresh questions, every claim checked against ground truth, each tool scored on the [12-dimension rubric](RATINGS.md#agent-experience-rubric-12-dimensions).
 
 A round fills in one [scorecard](briefs/SCORECARD.md), using the [1–10 rating rubric](RATINGS.md),
 so what is ready is visible at a glance. Every tool has [specific questions](questions/tools/README.md).
@@ -23,7 +26,7 @@ lean](briefs/check-github.md), and the [local flows benchmark](local/FLOWS.md).
 |---|---|---|
 | **Core tools** (first) | the 8-dimension review, end to end, per tool, workflows | this file: [Core tools](#core-tools) |
 | **Security** | behavior under secrets, credentials, paths, providers and hostile text | this file: [Security](#security) |
-| **Skills** | activation, steps, tool use, output, links | this file: [Skills](#skills); `dev skills:check` is the mechanical gate |
+| **Skills** | activation, steps, tool use, output, links, improvement loop | [SKILLS.md](SKILLS.md); `dev skills:check` is the mechanical gate |
 | **Release gates** | lint, typecheck, tests, docs, skills, packaging | [AGENTS.md](../../AGENTS.md) |
 | **Benchmark** | version against version and against stored baselines | [METHOD.md](METHOD.md), [local flows](local/FLOWS.md) |
 | Acceptance criteria per tool | what "passes" means for schema, output, pagination, efficiency | [tool quality](../../skills-dev/octocode-dev/docs/TOOL_QUALITY.md) |
@@ -371,22 +374,9 @@ MCP server. Pass means the behavior below; anything else is a defect with the ca
 
 ## Skills
 
-`node skills-dev/octocode-dev/scripts/dev.mjs skills:check` is the mechanical gate (lint, links, contracts,
-script tests). This section checks behavior: what an agent does with each public skill under `skills/`. How
-to review one skill is in [check skills](../../skills/octocode-skills/references/check-skills.md); how to test
-activation is in [skill activation](../../skills/octocode-agentic/references/skill-activation.md).
-For cleanup decisions, run the [clean-skill acceptance checks](briefs/check-cleanup.md): a disposable
-fixture with public/dynamic consumers, a shared generator, meaningful guards and an existing failure.
-
-| Check | How | Pass when |
-|---|---|---|
-| **Activation** | for each skill, a few ordinary requests for its job and a few for its nearest neighbour, through a real host | it activates for its own requests and not for the neighbour's; record hits and misses per skill |
-| **Its own steps** | run one ordinary task with the skill loaded | the agent follows the skill's first action and steps, asks for missing input the way the skill says, and stops where the skill says it is done |
-| **Tool use** | read the calls the agent made | it uses the Octocode CLI or MCP tools the skill names, with valid fields, and follows `next` leads instead of guessing |
-| **Output contract** | look at what it wrote | saved output lands under `.octocode/<skill-name>/` (or the path the user named); the result has the shape the skill promises, with evidence and unchecked scope stated |
-| **Links and references** | open every reference the run needed | each resolves and loads when its condition is met; nothing required is unreachable |
-
-Rate each skill on these five (1–5, one line of evidence each) in the scorecard.
+Behavior of each public skill (activation, steps, tool use, output, references, cost) and how to improve one are in
+[SKILLS.md](SKILLS.md), with the requests in [questions/skills/](questions/skills/README.md). The mechanical gate is
+`node skills-dev/octocode-dev/scripts/dev.mjs skills:check`. Rate each skill 1–5 in the scorecard.
 
 ## Report
 

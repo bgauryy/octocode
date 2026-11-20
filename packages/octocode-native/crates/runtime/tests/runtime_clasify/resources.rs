@@ -12,8 +12,10 @@ fn local(path: &str) -> Value {
     json!({"tool":"localFetch","query":{"path":path}})
 }
 
+/// A resources row bounded past every glob here: these tests check what its
+/// resources are, not what bounds them ([`super::budget`]).
 fn evaluate(resources: Value) -> Value {
-    json!({"operation":"evaluate","resources":resources,
+    json!({"operation":"evaluate","resources":resources,"maxRequests":super::budget::EVERY_PAGE,
         "questions":{"set":noul("Is a value set?")}})
 }
 
@@ -111,7 +113,7 @@ async fn a_glob_keys_each_file_on_sections_and_both_operations_disclose_its_skip
     let glob = json!({"d":local("docs/*.md")});
     let sections = clasify(
         &runtime,
-        vec![json!({"operation":"sections","resources":glob,
+        vec![json!({"operation":"sections","maxRequests":crate::runtime_clasify::budget::EVERY_PAGE,"resources":glob,
             "questions":{"set":noul("Is a value set?")}})],
     )
     .await;

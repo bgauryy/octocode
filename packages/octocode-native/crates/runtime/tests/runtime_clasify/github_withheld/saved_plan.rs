@@ -31,7 +31,7 @@ async fn first_page(runtime: &ToolRuntime, resources: Value) -> Value {
         .run(
             "plan".into(),
             "clasify".into(),
-            json!({"queries":[{"operation":"sections","resources":resources,
+            json!({"queries":[{"operation":"sections","maxRequests":crate::runtime_clasify::budget::EVERY_PAGE,"resources":resources,
                 "questions":{"q":noul("Does this section say to restart?")}}]}),
         )
         .await

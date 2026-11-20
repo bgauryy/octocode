@@ -15,6 +15,7 @@ fn matching_has_zero_default_context_and_keeps_both_explicit_sides() {
     let plain = extract(
         &query(json_fixture(r#"{"matchString": ["needle"]}"#)),
         source,
+        &[],
     )
     .expect("match");
     assert_eq!(plain.text, "needle\n");
@@ -26,6 +27,7 @@ fn matching_has_zero_default_context_and_keeps_both_explicit_sides() {
             }"#,
         )),
         source,
+        &[],
     )
     .expect("asymmetric match");
     assert_eq!(contextual.text, "before\nneedle\nafter\nlast\n");
@@ -44,6 +46,7 @@ fn typed_ranges_constrain_both_hits_and_their_context() {
             }"#,
         )),
         source,
+        &[],
     )
     .expect("range-scoped match");
     assert_eq!(result.count, Some(1));
@@ -57,6 +60,7 @@ fn matched_long_lines_keep_all_bytes_for_the_reader_pager() {
     let result = extract(
         &query(json_fixture(r#"{"matchString": ["needle"]}"#)),
         &source,
+        &[],
     )
     .expect("long line");
     assert_eq!(result.text, source);

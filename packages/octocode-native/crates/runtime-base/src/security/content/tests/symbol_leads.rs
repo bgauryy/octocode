@@ -38,16 +38,16 @@ fn key_behind(lead: &str) -> String {
 }
 
 /// A key behind any lead reads as a `# `-commented one does: its armor lines
-/// as written, each line of key text hidden from its indentation, in the
-/// whole-file pass, a read of a file, a leaf and the range a search reports.
+/// as written, each line of key text hidden behind its lead (no key byte, and
+/// a comment mark kept keeps a source's syntax), in the whole-file pass, a
+/// read of a file, a leaf and the range a search reports.
 #[test]
 fn a_key_behind_any_lead_is_hidden_as_a_commented_one_is() {
     let placeholder = key_fragment_placeholder();
     let security = ContentSecurity::new();
     for lead in LEADS {
         let text = key_behind(lead);
-        let indent: String = lead.chars().take_while(|ch| *ch == ' ').collect();
-        let hidden = format!("{indent}{placeholder}");
+        let hidden = format!("{lead}{placeholder}");
         let expected = format!(
             "intro\n{lead}-----BEGIN RSA PRIVATE KEY-----\n{hidden}\n{hidden}\n{hidden}\n{lead}-----END RSA PRIVATE KEY-----\ntail\n"
         );
@@ -90,7 +90,7 @@ fn bulleted_prose_and_a_file_tree_beside_a_key_read_as_written() {
     );
     let text = format!("{prose}{tree}{key}{prose}{tree}");
     let expected = format!(
-        "{prose}{tree}• -----BEGIN RSA PRIVATE KEY-----\n{placeholder}\n{placeholder}\n• -----END RSA PRIVATE KEY-----\n{prose}{tree}"
+        "{prose}{tree}• -----BEGIN RSA PRIVATE KEY-----\n• {placeholder}\n• {placeholder}\n• -----END RSA PRIVATE KEY-----\n{prose}{tree}"
     );
     assert_eq!(redact_private_key_blocks(&text).0, expected);
     let security = ContentSecurity::new();

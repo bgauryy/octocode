@@ -21,18 +21,23 @@ fn queries_answer_imports_calls_cycles_and_packages() {
     );
 
     let callers = ask(root, "callers", Some("greet"), |_| {});
-    assert_eq!(ids(&callers), vec!["app/src/main.ts#main"], "{}", callers.value);
+    assert_eq!(
+        ids(&callers),
+        vec!["app/src/main.ts#main"],
+        "{}",
+        callers.value
+    );
     assert_eq!(callers.value["rows"][0]["via"], "import");
     assert_eq!(callers.value["rows"][0]["confidence"], "high");
 
     let callees = ask(root, "callees", Some("app/src/lib.ts#greet"), |_| {});
-    assert_eq!(ids(&callees), vec!["src/lib.ts#shout"]);
+    assert_eq!(ids(&callees), vec!["app/src/lib.ts#shout"]);
     assert_eq!(callees.value["rows"][0]["via"], "local");
 
     let member = ask(root, "callees", Some("Box.open"), |_| {});
     assert_eq!(
         ids(&member),
-        vec!["src/lib.ts#Box.close"],
+        vec!["app/src/lib.ts#Box.close"],
         "{}",
         member.value
     );
@@ -58,10 +63,10 @@ fn queries_answer_imports_calls_cycles_and_packages() {
         ids(&outline),
         vec![
             "app/src/lib.ts#greet",
-            "src/lib.ts#shout",
+            "app/src/lib.ts#shout",
             "app/src/lib.ts#Box",
             "app/src/lib.ts#Box.open",
-            "src/lib.ts#Box.close"
+            "app/src/lib.ts#Box.close"
         ]
     );
 
@@ -127,7 +132,10 @@ fn list_operations_page_with_a_runnable_next_command() {
         o.limit = Some(2);
         o.offset = Some(2);
     });
-    assert_eq!(ids(&second), vec!["app/src/lib.ts#Box", "app/src/lib.ts#Box.open"]);
+    assert_eq!(
+        ids(&second),
+        vec!["app/src/lib.ts#Box", "app/src/lib.ts#Box.open"]
+    );
 }
 
 #[test]
@@ -173,12 +181,12 @@ fn heritage_and_jsx_become_inherits_and_renders_edges() {
     let renders = ask(
         dir.0.as_path(),
         "callers",
-        Some("src/view.tsx#Card"),
+        Some("app/src/view.tsx#Card"),
         |_| {},
     );
     assert_eq!(
         ids(&renders),
-        vec!["src/view.tsx#Page"],
+        vec!["app/src/view.tsx#Page"],
         "{}",
         renders.value
     );

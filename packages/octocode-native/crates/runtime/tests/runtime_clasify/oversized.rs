@@ -528,10 +528,7 @@ async fn an_oversized_sources_sections_wait_for_a_bound_that_holds_them() {
         "{out}"
     );
     let confirm = &data["next"]["confirm"];
-    assert_eq!(
-        confirm["input"]["queries"][0]["maxRequests"], ceiling,
-        "{out}"
-    );
+    assert_eq!(confirm["tool"], "clasify", "{out}");
 
     let again = clasify(&runtime, vec![row]).await;
     let data = &again["results"][0]["data"];

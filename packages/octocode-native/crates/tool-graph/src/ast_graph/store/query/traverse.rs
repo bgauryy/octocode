@@ -187,8 +187,13 @@ impl Query<'_> {
             extra.insert("coverage".into(), coverage);
         }
         // Argument coverage of the target's languages only: the snapshot's
-        // other languages concern none of these rows.
-        if filter.kinds.contains(&EdgeKind::Passes) {
+        // other languages concern none of these rows. It qualifies passes
+        // rows: stated when `passes` was asked by name (its absence is the
+        // question) or a row of the page was reached through one.
+        if filter.kinds.contains(&EdgeKind::Passes)
+            && (self.flags.edge_kinds.contains(&EdgeKind::Passes)
+                || page.rows.iter().any(|row| row["edge"] == "passes"))
+        {
             let sources = match &target {
                 TraversalTarget::Node(root) => vec![*root],
                 TraversalTarget::Directory { files, .. } => files.clone(),

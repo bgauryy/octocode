@@ -437,29 +437,23 @@ fn a_recovery_row_keeps_the_related_order_its_hint_names() {
         }
     }
     super::assert_recovers(&plan, &original, &stated);
-    // The same whole recovery on every row moves once, for all, only with
-    // the hints that name it; a row that keeps its hint keeps its list.
+    // The same whole recovery on every row moves once, for all: the
+    // envelope holds that one list in the order the hint names, whether or
+    // not the hints move too.
     let same = json!({"results": [miss(0, "func Execute"), miss(1, "func Execute")]});
-    let kept = super::hoisted(&plan, &same, &super::optional);
-    assert_eq!(
-        kept["results"][0]["data"]["related"], same["results"][0]["data"]["related"],
-        "{kept}"
-    );
-    let with_hints = batch_plan(&[], true, true);
-    let once = super::hoisted(&with_hints, &same, &super::optional);
-    for at in [0, 1] {
-        assert!(
-            once["results"][at]["data"].get("related").is_none(),
+    for hints in [false, true] {
+        let once = super::hoisted(&batch_plan(&[], hints, true), &same, &super::optional);
+        for at in [0, 1] {
+            assert!(
+                once["results"][at]["data"].get("related").is_none(),
+                "{once}"
+            );
+        }
+        assert_eq!(
+            once["related"], same["results"][0]["data"]["related"],
             "{once}"
         );
-        assert!(once["results"][at]["data"].get("hints").is_none(), "{once}");
     }
-    assert_eq!(once["related"].as_array().map(Vec::len), Some(3), "{once}");
-    assert_eq!(once["related"][0], symbols, "{once}");
-    assert!(
-        once["hints"].to_string().contains("related[] in order"),
-        "{once}"
-    );
 }
 
 /// VC2's merge case on the embedded contract (K-3): each artifactSearch row

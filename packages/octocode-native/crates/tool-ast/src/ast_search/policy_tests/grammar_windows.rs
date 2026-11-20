@@ -156,6 +156,36 @@ fn capped_incompatible_grammar_preserves_partial_coverage_and_reaches_later_gram
     assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
 }
 
+/// The files no grammar parses are the scope's: the first window says them
+/// and the final one says them whole; a window between does not repeat them.
+#[test]
+fn a_scopes_unparsed_files_are_not_repeated_on_a_middle_window() {
+    let root = Fixture::new();
+    let _window = crate::ast_search::scan_window::test_window(1);
+    root.write("a.ts", "export function a() { return 1; }\n");
+    root.write("b.ts", "export function b() { return 2; }\n");
+    root.write("c.ts", "export function c() { return 3; }\n");
+    root.write("0notes.unknownext", "plain\n");
+    let mut query =
+        json!({"operation":"match","path":root.0,"rule":{"kind":"function_declaration"}});
+    let mut windows = Vec::new();
+    loop {
+        let out = run(&root.0, query).expect("window");
+        let next = out["next"]["expandScan"]["input"]["queries"][0].clone();
+        windows.push(out);
+        if !next.is_object() {
+            break;
+        }
+        query = next;
+    }
+    assert!(windows.len() >= 3, "{windows:?}");
+    let names = |out: &serde_json::Value| out.to_string().contains("0notes.unknownext");
+    let last = windows.len() - 1;
+    for (at, out) in windows.iter().enumerate() {
+        assert_eq!(names(out), at == 0 || at == last, "window {at}: {out}");
+    }
+}
+
 #[test]
 fn a_final_window_of_an_inapplicable_grammar_is_whole_and_names_it() {
     let root = Fixture::new();

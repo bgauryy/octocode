@@ -147,7 +147,12 @@ fn macro_rules_arms_do_not_create_graph_declarations() {
     let asserted = ask(root, "callees", Some("app/src/a.rs#asserted"), |o| {
         o.confidence = Some("low".into());
     });
-    assert_eq!(ids(&asserted), vec!["app/src/a.rs#plain"], "{}", asserted.value);
+    assert_eq!(
+        ids(&asserted),
+        vec!["app/src/a.rs#plain"],
+        "{}",
+        asserted.value
+    );
 }
 
 #[test]

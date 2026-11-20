@@ -1,7 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { sharedAssets } from '../../../skills/common/build.mjs';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 function walk(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap(entry =>
@@ -10,24 +9,13 @@ function walk(directory) {
       : [join(directory, entry.name)]
   );
 }
-// The skill holds guidance only: shared assets byte-identical to their canonical source, and
-// its own Markdown, which names package commands rather than implementation paths.
-const skill = join(root, '../../skills/octocode-chrome-devtools');
-const canonical = sharedAssets(skill);
+// The skill is self-contained guidance: Markdown only, naming package commands rather than
+// implementation paths. Shared report assets belong to skills under skills/, not to this skill.
+const skill = join(root, 'skills/octocode-chrome-devtools');
 for (const file of walk(skill)) {
   const entry = relative(skill, file).replaceAll('\\', '/');
-  const expected = canonical.get(entry);
-  if (expected) {
-    if (!readFileSync(file).equals(expected))
-      throw Error(
-        `Chrome skill shared asset differs from its canonical source: ${entry}`
-      );
-    continue;
-  }
   if (!entry.endsWith('.md'))
-    throw Error(
-      `Chrome skill must contain guidance and canonical shared assets only: ${entry}`
-    );
+    throw Error(`Chrome skill must contain guidance Markdown only: ${entry}`);
   if (
     /packages\/octocode-chrome-devtools|\b(?:src|dist)\//.test(
       readFileSync(file, 'utf8')

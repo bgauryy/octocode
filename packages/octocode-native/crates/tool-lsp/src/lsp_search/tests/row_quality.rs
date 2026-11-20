@@ -415,6 +415,10 @@ fn a_site_missed_inside_test_code_is_no_gap_when_test_code_is_excluded() {
     assert_eq!(excluded["testCodeExcluded"]["lines"], 1, "{excluded}");
 }
 
+/// `references` of the method `Local::helper` from a package whose build
+/// output its server never loaded, with `use_site` in `src/b.rs`, which the
+/// server places nowhere. Only a method is reached through a receiver, whose
+/// type the unloaded output may define.
 fn generated_case(use_site: &str) -> Value {
     let mut case = Case::rust(
         vec![
@@ -427,15 +431,22 @@ fn generated_case(use_site: &str) -> Value {
             ),
             (
                 "src/a.rs",
-                "pub fn helper() {}\nfn used() { helper(); }\n".to_owned(),
+                "pub struct Local;\nimpl Local { pub fn helper(&self) {} }\nfn used(l: Local) { l.helper(); }\n"
+                    .to_owned(),
             ),
             ("src/b.rs", use_site.to_owned()),
         ],
         "src/a.rs",
     );
     // An answer naming no use stands only where every spelling is placed.
-    case.listed = vec![("src/a.rs", 0, 7)];
-    case.declaration = ("src/a.rs", 0, 7);
+    let method = (
+        "src/a.rs",
+        1,
+        u32::try_from("impl Local { pub fn ".len()).expect("column"),
+    );
+    case.listed = vec![method];
+    case.declaration = method;
+    case.query["line"] = json!(2);
     case.unresolved = vec!["src/b.rs"];
     case.row()
 }

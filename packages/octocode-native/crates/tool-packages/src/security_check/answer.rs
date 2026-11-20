@@ -31,7 +31,12 @@ pub(super) struct Facts<'a> {
     /// malware) and the advisories whose records list it by name: they do
     /// affect it, whatever the registry says.
     pub unregistered: Option<(&'a str, Vec<String>)>,
-    /// No registry reads this ecosystem: the name and version went to OSV as given.
+    /// OSV, asked at the `unregistered` version, lists none of its records at it.
+    pub unregistered_clear: bool,
+    /// The registry (`artifactSearch` ecosystem) that does not list the name:
+    /// it went to OSV as given.
+    pub unregistered_name: Option<&'static str>,
+    /// No registry confirmed the name: the name and version went to OSV as given.
     pub registry_unconfirmed: bool,
     /// OSV cannot order this ecosystem's versions, so the version was compared here
     /// against each record's ranges.
@@ -117,6 +122,8 @@ impl Facts<'_> {
             upgrade_note: None,
             pinned_dependencies: 0,
             unregistered: None,
+            unregistered_clear: false,
+            unregistered_name: None,
         }
     }
 }
@@ -196,7 +203,11 @@ pub(super) fn unconfirmed_warning(facts: &Facts<'_>) -> Option<String> {
     if !facts.registry_unconfirmed {
         return None;
     }
-    Some(if facts.release_named {
+    Some(if let Some(registry) = facts.unregistered_name {
+        format!(
+            "Not registry-confirmed: the public {registry} registry does not list this name (removed, as for malware, or never published), so the name and version went to OSV as given."
+        )
+    } else if facts.release_named {
         "Not registry-confirmed: no registry reads this ecosystem, so the version went to OSV as given; the name is one OSV lists in this release.".to_owned()
     } else {
         "Not registry-confirmed: no registry reads this ecosystem, so the name and version went to OSV as given, and a misspelt name reads as none known.".to_owned()
@@ -213,7 +224,7 @@ pub(super) fn unlisted_warning(name: &str, version: &str, ids: &[String]) -> Str
         format!("{} (advisoryIds)", counted(ids.len()))
     };
     format!(
-        "The registry does not list {} {} (unpublished or removed); OSV lists it as affected by {affected_by}: do not install it.",
+        "The registry does not list {} {} (yanked, unpublished or removed); OSV lists it as affected by {affected_by}: do not install it.",
         typed(name),
         typed(version)
     )
@@ -249,9 +260,14 @@ pub(super) fn lead(target: &str, facts: &Facts<'_>) -> Value {
         (true, false, true) => format!("{target} is affected: {}.", counted(facts.matched)),
         (true, false, false) => match &facts.unregistered {
             Some((version, listed)) if !listed.is_empty() => format!(
-                "{target}: version {} is not on the registry (unpublished or removed), and OSV lists it as affected by {}.",
+                "{target}: version {} is not on the registry (yanked, unpublished or removed), and OSV lists it as affected by {}.",
                 typed(version),
                 ids_clause(listed)
+            ),
+            Some((version, _)) if facts.unregistered_clear => format!(
+                "{target}: version {} is not on the registry (yanked, unpublished or removed). OSV has {} for this package, and asked at this version it lists none of them as affecting it.",
+                typed(version),
+                counted(facts.count)
             ),
             _ => format!(
                 "{target}: the requested version is not on the registry, so it was not evaluated. OSV has {} for this package, none listing this version by name (their ranges were not compared).",

@@ -253,7 +253,7 @@ pub(super) fn execute_prepared(
             return Ok(reused);
         }
         match fresh_clone(&plan, reference, &clone_dir)? {
-            Fresh::Published(result) => return Ok(result),
+            Fresh::Published(result) => return Ok(*result),
             Fresh::Narrowed { present, absent } if plan.absent.is_empty() => {
                 let sparse = Sparse { paths: present };
                 plan.sparse_key = Some(sparse.key());
@@ -273,7 +273,7 @@ pub(super) fn execute_prepared(
 /// What [`fresh_clone`] made of a plan.
 pub(super) enum Fresh {
     /// The checkout, published and verified.
-    Published(CloneResult),
+    Published(Box<CloneResult>),
     /// Some requested sparse paths are not in the commit: nothing was
     /// staged. `present` (request order) is the scope to check out instead;
     /// `absent` the paths its row names as missing.

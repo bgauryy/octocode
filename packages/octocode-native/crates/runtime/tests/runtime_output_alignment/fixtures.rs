@@ -525,7 +525,7 @@ pub(super) async fn judged() -> World {
             "clasify",
             "hit",
             json!({
-                "operation":"sections",
+                "operation":"sections","maxRequests":1000,
                 "resources":{"long":{"tool":"localFetch","query":{"path":"src/long.ts"}}},
                 "questions":questions.clone()
             }),

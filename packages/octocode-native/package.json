@@ -34,7 +34,7 @@
     "coverage:rust": "node scripts/rust-tests.cjs --coverage",
     "check:features": "node scripts/build-slot.cjs -- cargo hack check --locked --workspace --each-feature",
     "test:scripts": "node tests/platform.test.cjs && node scripts/platform-packages.cjs --check && node --test tests/build-publication.test.cjs tests/build-slot.test.cjs tests/fetch-binary.test.cjs tests/release-pipeline.test.cjs tests/rust-tests.test.cjs tests/target-hygiene.test.cjs tests/test-binaries.test.cjs tests/test-watchdog.test.cjs tests/upgrade-path.test.mjs",
-    "lint:own": "CARGO_BUILD_WARNINGS=deny node scripts/build-slot.cjs -- cargo clippy --locked --workspace --all-targets --all-features",
+    "lint:own": "node scripts/build-slot.cjs -- cargo clippy --config 'build.warnings=\"deny\"' --locked --workspace --all-targets --all-features",
     "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
     "lint": "yarn lint:oxlint && yarn lint:own",
     "format": "cargo fmt --all",

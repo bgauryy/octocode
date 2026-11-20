@@ -6,7 +6,7 @@ Load when a known flow needs multiple actions, waits, extraction, or frame scope
 octocode-chrome-devtools /raw run --port 9222 --target <id> --plan /absolute/plan.json
 ```
 
-`run --json` or `run --plan -` (stdin) can supply the same JSON. Prefer a file for large plans; execution stages a private file rather than putting the plan in process arguments or environment. The capture saves the complete plan. `run --dry-run` validates without contacting Chrome. Unknown fields, invalid actions and unsupported operations fail before any step. Each step resolves its current target, emits progress, saves results and stops the flow on failure. Diagnose failures before trying another plan. The executor never repeats a failed mutation automatically.
+`run --json` or `run --plan -` (stdin) can supply the same JSON. Prefer a file for large plans; execution stages a private file rather than putting the plan in process arguments or environment. The capture saves the complete plan. `run --dry-run` validates without contacting Chrome. Unknown fields, invalid actions and unsupported operations fail before any step. Each step resolves its current target, emits progress, saves results and stops the flow on failure, unless the step is `optional` (below). Diagnose failures before trying another plan. The executor never repeats a failed mutation automatically.
 
 ```json
 {
@@ -36,6 +36,13 @@ Use the page's observed labels and selectors; this example is a plan shape, not 
 | `listen` | Unique `id`, `event` as Domain.event, optional `where` mapping JSON pointers in the payload to scalar equality tests; streams every event into JSONL, counts matches separately. |
 | `waitEvent` | Earlier `listener` id, optional positive `count` (default 1); waits within the step readiness deadline. |
 | `protocol` | Installed `domain`, optional command/event `member`; selected definitions and domain types saved. |
+| `snapshot` | The `snapshot` recipe's default view on the plan's page (or `session`): refs for controls, saved to `page-snapshot.json`, which later `ref` targets of the same target use. No other fields; no `after` or `frame`. |
+| `screenshot` | The `screenshot` recipe's default viewport capture on the plan's page (or `session`), saved as an image with its manifest. No other fields; no `after` or `frame`. |
+
+A plan allows one `snapshot` and one `screenshot` step, since each writes fixed file names in the run folder. Use the standalone commands for full-page, element, scaled or annotated captures, or for a root, paging or text view of a snapshot.
+
+
+Every step accepts `optional: true` (boolean; anything else fails validation before connecting). When an optional step fails, its row stays `failed` with `optional: true` and its error, the plan continues, and its `after` is not evaluated. The result lists each one in `failedOptionalSteps` (the flow page repeats it, and a later required failure's summary names them) and counts only finished steps in `completedSteps`. A plan whose only failures are optional is `ok`. A required failure still stops the plan, and an optional step that times out may have changed the page: inspect before relying on it.
 
 All steps accept `timeoutMs`, overriding `waitMs` (default 8000) for the whole step, including readiness, target polling and protocol requests. Individual protocol requests use plan `commandMs` (default `waitMs` or 8000), capped by the runner's `--timeout` (default 60000); each request is also capped by the remaining step deadline. Progress continues during a slow request. Pointer input uses direct trusted events; `fill` inserts the full value, while `type` sends key events without artificial typing delays. `after` accepts nonempty `text`, `selector`, and/or exact `url`. Actions verify requested text in their target realm; selectors must be visible. Document readiness alone does not prove SPA content is ready. `settleMs` defaults to zero; choose content conditions instead of fixed sleeps. `traceEvents: true` records input-event trust and timing without keys/data.
 

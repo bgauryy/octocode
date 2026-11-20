@@ -544,10 +544,12 @@ impl JudgedText {
 /// on a line the pass left whole, are the file's. A hit is then never made by
 /// bytes a read withholds, nor by what is around them (a lookaround, a word
 /// boundary). Each byte the pass wrote on a served line (a placeholder, a
-/// blank a replaced line break folds to) is in `written`, which no match the
-/// search counts takes: a search for a placeholder finds only the source's
-/// own spelling of it. A search reads a file up to its first NUL: only that
-/// text is judged, and the bytes from it on follow unchanged.
+/// blank a replaced line break folds to) is in `written`: a match the search
+/// counts takes none of them, or holds whatever was written there
+/// ([`octocode_engine::types::ServedText`]), so a search for a placeholder
+/// finds only the source's own spelling of it. A search reads a file up to
+/// its first NUL: only that text is judged, and the bytes from it on follow
+/// unchanged.
 pub fn searched_text(
     bytes: &[u8],
     judge: impl FnOnce(&str) -> JudgedText,

@@ -119,7 +119,7 @@ pub(super) fn fresh_clone(
         .map_err(policy_denied)?;
     let mut result = plan.result(reference, clone_dir, checkout);
     result.location.cloned_at = storage::completed_at(clone_dir);
-    Ok(Fresh::Published(result))
+    Ok(Fresh::Published(Box::new(result)))
 }
 
 /// What [`checkout_stage`] made: a verified stage, or nothing for a scope

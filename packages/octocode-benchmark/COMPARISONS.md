@@ -32,7 +32,7 @@ each character count measures.
 
 Time the interface an agent actually uses. A fresh Node CLI client, a direct native client and
 a persistent MCP request have different startup costs even when they share a warm runtime.
-The [advanced round](results/rounds/20.2.0-2026-11-14-advanced/SCORECARD.md) measures them
+The advanced round (in git history, see [results/README.md](results/README.md#rounds-tracked)) measures them
 separately. Compare natural text and JSON before attributing extra characters to the engine;
 strip only shared benchmark environment bookkeeping from logical inputs, retaining setup once.
 
@@ -59,7 +59,7 @@ strip only shared benchmark environment bookkeeping from logical inputs, retaini
 | [Output compressors](#output-compressors) | RTK, Headroom | yes | August 2026 campaigns | measured (numbers only) |
 | [Version against version](#version-against-version) | the previous Octocode release | yes | v18 vs v20 timing | measured |
 
-The [2026-11-14 advanced round](results/rounds/20.2.0-2026-11-14-advanced/SCORECARD.md)
+The 2026-11-14 advanced round (in git history, see [results/README.md](results/README.md#rounds-tracked))
 rechecked rg 15.2.0, ast-grep 0.45.0 (`sg` is the same binary), gh 2.96.0, and the installed
 TypeScript language server 6.0.2 with TypeScript 6.0.3. It installed `graphifyy` 0.9.108 into an
 isolated temporary environment, without global agent hooks or a model backend. Earlier checks
@@ -140,7 +140,7 @@ matches. Omit `-m` and `head` when checking the complete evidence set. See the
 
 ### graphBuild and graphQuery
 
-The [advanced round](results/rounds/20.2.0-2026-11-14-advanced/SCORECARD.md) runs the official
+The advanced round (in git history, see [results/README.md](results/README.md#rounds-tracked)) runs the official
 [Graphify](https://github.com/Graphify-Labs/graphify) package (`graphifyy` 0.9.108), code-only,
 without clustering, on a frozen JavaScript fixture and pinned `pallets/itsdangerous` source.
 The earlier 2026-10-28 source-only comparison does not describe this measured round.

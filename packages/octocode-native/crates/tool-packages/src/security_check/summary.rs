@@ -77,21 +77,15 @@ fn summary(row: Value, target: Target<'_>) -> Value {
     }
     // The ids the row's advisories state: a read of one of them repeats the
     // details view, which the tool description names.
-    let mut on_row: Vec<String> = Vec::new();
+    let on_row = listed_ids(&fields);
     // A version not evaluated, with no verdict, has no advisory of its own:
     // the package's are not counted as its, and its sentence says what they are.
     let unevaluated = fields.get("versionEvaluated") == Some(&Value::Bool(false))
         && lean.get("affected").is_none();
-    if let Some(listed) = fields.get("advisories").and_then(Value::as_array) {
-        if !unevaluated {
-            indication(&mut lean, listed, target.unfixed_in_major);
-        }
-        for row in listed {
-            let ids = std::iter::once(&row["id"])
-                .chain(row["aliases"].as_array().into_iter().flatten())
-                .chain(row["cves"].as_array().into_iter().flatten());
-            on_row.extend(ids.filter_map(Value::as_str).map(str::to_owned));
-        }
+    if let Some(listed) = fields.get("advisories").and_then(Value::as_array)
+        && !unevaluated
+    {
+        indication(&mut lean, listed, target.unfixed_in_major);
     }
     // The sentence stays where no field says what it does: a row that owes a
     // verdict and gives none, a verdict of none known (a count of 0 proves
@@ -168,7 +162,13 @@ pub(super) fn advisory(row: Value) -> Value {
         return row;
     };
     let sources = fields.shift_remove("sources");
-    fields.shift_remove("related");
+    // A record the row does not list (an alias OSV could not answer) keeps
+    // the call that reads it, as a package row's summary keeps it.
+    let on_row = listed_ids(&fields);
+    let leads = leads(fields.shift_remove("related"), &on_row);
+    if leads.as_array().is_some_and(|calls| !calls.is_empty()) {
+        fields.insert("related".to_owned(), leads);
+    }
     if let Some(failed) = sources.as_ref().and_then(failed_sources) {
         fields.insert("sources".to_owned(), failed);
     }
@@ -235,6 +235,24 @@ fn failed_sources(sources: &Value) -> Option<Value> {
         })
         .collect::<Vec<_>>();
     (!failed.is_empty()).then_some(Value::Array(failed))
+}
+
+/// Every id the row's advisories state: each one's id, aliases and CVEs.
+fn listed_ids(fields: &Map<String, Value>) -> Vec<String> {
+    let listed = fields
+        .get("advisories")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten();
+    listed
+        .flat_map(|row| {
+            std::iter::once(&row["id"])
+                .chain(row["aliases"].as_array().into_iter().flatten())
+                .chain(row["cves"].as_array().into_iter().flatten())
+        })
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect()
 }
 
 /// The summary's leads: the package checks the row names, exactly pinned

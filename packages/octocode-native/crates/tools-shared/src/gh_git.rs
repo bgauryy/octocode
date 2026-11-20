@@ -10,6 +10,7 @@ pub mod blobs;
 pub mod clone_scope;
 pub mod endpoint;
 pub mod process;
+pub mod sparse_miss;
 pub mod step;
 
 use octocode_contract_types::ErrorCode;

@@ -22,7 +22,7 @@ pub(super) fn terminal_saved(
     session.active.clear();
     let mut outcome = terminal(session, reason, usage);
     if runtime.can_resume {
-        attach_continuations(&mut outcome.output, session, true);
+        attach_continuations(&mut outcome.output, session);
         let _ = session.push_batch(&outcome.output);
         let key = runtime.sessions.key(&runtime.access, &session.id);
         if !runtime.sessions.save(key.clone(), session.clone(), context) {
@@ -92,19 +92,16 @@ fn restore_all_quiet(output: &mut Value, session: &Session) {
 /// The continuations of a batch a later call can run (the plan is kept):
 /// the hits view, then reads of the yes-sections. Quiet sections leave the
 /// page, ranked by highest `noul` first, and are counted in
-/// `coverage.quiet`; the `last` batch offers `next.quiet`, which lists every
-/// one, so each section reaches the caller exactly once.
-pub(super) fn attach_continuations(output: &mut Value, session: &Session, last: bool) -> Held {
-    // Reads first, over every section this batch emitted: `hit_reads` skips a
-    // resource whose sections all said yes, which only the full list shows.
+/// `coverage.quiet`; a batch that held any back offers `next.quiet`, which
+/// lists exactly those, so each section reaches the caller exactly once and
+/// from the page that judged it.
+pub(super) fn attach_continuations(output: &mut Value, session: &Session) -> Held {
+    // Reads first, over every section this batch emitted, quiet ones too.
     attach_hit_reads(output, session);
     let held = hold_back_quiet(output, session);
-    let quiet = session
-        .resources
-        .iter()
-        .any(|resource| quiet_units(session, resource).next().is_some());
-    if last && quiet {
-        let Ok(assessment) = super::quiet_token(&session.id).try_into() else {
+    if !held.0.is_empty() {
+        let batch = session.batches.len();
+        let Ok(assessment) = super::quiet_token(&session.id, batch).try_into() else {
             unreachable!("a quiet token is a valid assessment token");
         };
         let query = ClasifyQuery {
@@ -154,12 +151,13 @@ fn hold_back_quiet(output: &mut Value, session: &Session) -> Held {
     held
 }
 
-/// `next.quiet`: every quiet section emitted so far, from the kept plan, with
-/// no provider call.
-pub(super) fn quiet_replay(session: &Session) -> Value {
+/// `next.quiet` of batch `batch`: the quiet sections it emitted, from the
+/// kept plan, with no provider call.
+pub(super) fn quiet_replay(session: &Session, batch: usize) -> Value {
     let mut resources = serde_json::Map::new();
     for resource in &session.resources {
         let sections: Vec<Value> = quiet_units(session, resource)
+            .filter(|unit| unit.emitted_in == batch)
             .map(|unit| section(unit, &session.keys))
             .collect();
         if sections.is_empty() {
@@ -266,6 +264,8 @@ pub(super) fn emit(
     terminal: Option<&str>,
 ) -> Value {
     let mut resources = serde_json::Map::new();
+    // The ordinal of the batch this output becomes.
+    let batch = session.batches.len();
     for resource in &mut session.resources {
         let mut metadata = resource.metadata.clone();
         let mut sections = Vec::new();
@@ -286,6 +286,7 @@ pub(super) fn emit(
             if complete && !unit.emitted {
                 sections.push(section(unit, &session.keys));
                 unit.emitted = true;
+                unit.emitted_in = batch;
             }
         }
         if metadata["status"] == "ready" {
@@ -410,17 +411,10 @@ fn hit_reads<'a>(
             if tool.is_none() && !capture {
                 return None;
             }
+            // Every resource with a yes section gets a top-level read, also
+            // one whose every section said yes: a page of many resources
+            // names each one to read without its rows being searched.
             let all = resource["sections"].as_array()?;
-            // Every section of a fully judged resource said yes: its own
-            // `read` is already exactly this read.
-            if resource["coverage"]["remainingSections"]
-                .as_u64()
-                .unwrap_or(0)
-                == 0
-                && all.iter().all(is_hit)
-            {
-                return None;
-            }
             let mut lines = all
                 .iter()
                 .filter(|section| is_hit(section))

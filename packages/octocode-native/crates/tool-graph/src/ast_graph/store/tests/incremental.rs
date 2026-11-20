@@ -103,7 +103,11 @@ fn unchanged_sources_are_rebound_when_resolution_configuration_changes() {
     .unwrap();
     assert_clean_equivalent(&dir.0);
     let out = ask(&dir.0, "callees", Some("app/main.ts#run"), |_| {});
-    assert_eq!(out.value["rows"][0]["id"], "app/right.ts#work", "{}", out.value);
+    assert_eq!(
+        out.value["rows"][0]["id"], "app/right.ts#work",
+        "{}",
+        out.value
+    );
 }
 
 /// A rebuild after an edit hands the secret scan only the strings that no

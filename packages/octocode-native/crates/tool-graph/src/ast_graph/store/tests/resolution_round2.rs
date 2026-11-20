@@ -44,10 +44,10 @@ fn inherited_calls_follow_bound_bases_and_overrides() {
         );
         assert_eq!(out.value["rows"][0]["via"], "inherited");
     }
-    let own = call_ids(dir.0.as_path(), "override.ts#Override.send", "high");
+    let own = call_ids(dir.0.as_path(), "app/override.ts#Override.send", "high");
     assert_eq!(
         ids(&own),
-        vec!["override.ts#Override.transaction"],
+        vec!["app/override.ts#Override.transaction"],
         "{}",
         own.value
     );
@@ -70,7 +70,11 @@ fn private_method_calls_link_to_their_declarations() {
     got.sort();
     assert_eq!(
         got,
-        vec!["src/a.ts#A.#opt", "src/a.ts#A.#priv", "app/src/a.ts#A.pub"],
+        vec![
+            "app/src/a.ts#A.#opt",
+            "app/src/a.ts#A.#priv",
+            "app/src/a.ts#A.pub"
+        ],
         "{}",
         out.value
     );
@@ -208,22 +212,27 @@ fn rust_glob_ambiguity_and_explicit_shadowing_are_distinct() {
         ExitClass::Success
     );
     let explicit = call_ids(dir.0.as_path(), "app/src/explicit.rs#run", "high");
-    assert_eq!(ids(&explicit), vec!["app/src/a.rs#route"], "{}", explicit.value);
-    let high = call_ids(dir.0.as_path(), "src/ambiguous.rs#run", "high");
+    assert_eq!(
+        ids(&explicit),
+        vec!["app/src/a.rs#route"],
+        "{}",
+        explicit.value
+    );
+    let high = call_ids(dir.0.as_path(), "app/src/ambiguous.rs#run", "high");
     assert!(ids(&high).is_empty(), "{}", high.value);
-    let medium = call_ids(dir.0.as_path(), "src/ambiguous.rs#run", "medium");
+    let medium = call_ids(dir.0.as_path(), "app/src/ambiguous.rs#run", "medium");
     let mut got = ids(&medium);
     got.sort();
     assert_eq!(
         got,
-        vec!["app/src/a.rs#route", "src/b.rs#route"],
+        vec!["app/src/a.rs#route", "app/src/b.rs#route"],
         "{}",
         medium.value
     );
-    let hidden = call_ids(dir.0.as_path(), "src/parent/child.rs#run", "high");
+    let hidden = call_ids(dir.0.as_path(), "app/src/parent/child.rs#run", "high");
     assert_eq!(
         ids(&hidden),
-        vec!["src/parent.rs#hidden"],
+        vec!["app/src/parent.rs#hidden"],
         "{}",
         hidden.value
     );
@@ -265,7 +274,12 @@ fn rust_glob_unknown_branches_cannot_claim_unique_identity() {
         high.value
     );
     let medium = call_ids(dir.0.as_path(), "app/src/api.rs#run", "medium");
-    assert_eq!(ids(&medium), vec!["app/src/known.rs#route"], "{}", medium.value);
+    assert_eq!(
+        ids(&medium),
+        vec!["app/src/known.rs#route"],
+        "{}",
+        medium.value
+    );
     let explicit = call_ids(dir.0.as_path(), "app/src/explicit.rs#run", "high");
     assert_eq!(
         ids(&explicit),
@@ -292,7 +306,12 @@ fn unresolved_base_cannot_claim_unique_inherited_implementation() {
         high.value
     );
     let medium = call_ids(dir.0.as_path(), "app/app.py#Child.send", "medium");
-    assert_eq!(ids(&medium), vec!["app/app.py#Known.route"], "{}", medium.value);
-    let own = call_ids(dir.0.as_path(), "app.py#Own.send", "high");
-    assert_eq!(ids(&own), vec!["app.py#Own.route"], "{}", own.value);
+    assert_eq!(
+        ids(&medium),
+        vec!["app/app.py#Known.route"],
+        "{}",
+        medium.value
+    );
+    let own = call_ids(dir.0.as_path(), "app/app.py#Own.send", "high");
+    assert_eq!(ids(&own), vec!["app/app.py#Own.route"], "{}", own.value);
 }

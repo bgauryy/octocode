@@ -109,14 +109,12 @@ pub(super) fn render_tree_page(
             .iter()
             .filter_map(|d| Some((d.code.as_str(), partial_reason(&d.code)?)))
         {
-            // A cut ends the listing where no page continues it. Any other
-            // reason describes a walk that finished: page 1 states it, and so
-            // does the last page, which no next page explains.
-            if is_walk_cut(code) {
-                if !*more {
-                    terminal_limit(&mut out, reason, &[]);
-                }
-            } else if first_page || !*more {
+            // A cut ends the listing where no page continues it; before
+            // there, and for any other reason, every page names the reason,
+            // so a page read alone says why it is partial.
+            if is_walk_cut(code) && !*more {
+                terminal_limit(&mut out, reason, &[]);
+            } else {
                 mark_partial(&mut out, reason, &[]);
             }
         }

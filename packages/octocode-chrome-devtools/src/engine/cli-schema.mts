@@ -1,7 +1,12 @@
 // `schema [command] [recipe|operation]`: the commands, recipes and plan contract, without connecting.
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
-import { checks, helpers, launchValues } from './cli-catalog.mjs';
+import {
+  checks,
+  helpers,
+  launchBooleans,
+  launchValues,
+} from './cli-catalog.mjs';
 import {
   chromeCommands,
   chromeExtractionFields,
@@ -32,13 +37,16 @@ const PLAN_SCOPES = {
   },
   common: {
     timeoutMs: 'Positive whole-step deadline',
+    optional:
+      'Boolean; a failure is recorded in failedOptionalSteps and the plan continues',
     after: 'Visible selector, text and/or exact url',
     frame: 'id, url substring or selector (supported ops only)',
     session:
       'Flattened session id or an earlier result/event reference; mutually exclusive with frame',
   },
   options: {
-    steps: 'Nonempty array, runs in order and stops on first failure',
+    steps:
+      'Nonempty array, runs in order and stops on the first failing step that is not optional',
     waitMs: 'Positive step deadline in ms',
     commandMs: 'Positive request deadline, capped by remaining step time',
     settleMs: 'Nonnegative delay; prefer content conditions',
@@ -62,6 +70,8 @@ const PLAN_SCOPES = {
     'cdp',
     'listen',
     'readStream',
+    'snapshot',
+    'screenshot',
   ],
 };
 const PLAN_REFERENCE = {
@@ -117,8 +127,7 @@ function inputExamples(name: string | undefined) {
 // Raw connection flags and plan inputs live in each command's --help;
 // typed callers follow inputExamples and the tool input schema.
 function commandOptions(name: string | undefined) {
-  if (name === 'open')
-    return { options: [...launchValues, '--headless', '--dry-run'] };
+  if (name === 'open') return { options: [...launchValues, ...launchBooleans] };
   if (name === 'cleanup') return { options: ['--port', '--dry-run'] };
   return {};
 }

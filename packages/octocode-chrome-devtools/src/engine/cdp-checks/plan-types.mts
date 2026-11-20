@@ -27,6 +27,7 @@ export type PlanStep = {
   toSelector?: string;
   after?: PageCondition;
   timeoutMs?: number;
+  optional?: boolean;
   frame?: FrameSelector;
   session?: string | ResultReference;
   fields?: string[];
@@ -75,6 +76,8 @@ export type StepRow = {
   index: number;
   op: string;
   status: string;
+  /** True on a step the plan marked optional; a failure of it did not stop the plan. */
+  optional?: boolean;
   startedAt: string;
   finishedAt?: string;
   targetId?: string;

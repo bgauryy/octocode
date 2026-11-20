@@ -131,7 +131,7 @@ pub(super) fn assess_and_save(
         );
     }
     let held = if runtime.can_resume {
-        let held = attach_continuations(&mut output, session, remaining == 0);
+        let held = attach_continuations(&mut output, session);
         // The kept page in view details, replayed without inference.
         let Ok(assessment) = token(&session.id, ordinal).try_into() else {
             unreachable!("a batch token is a valid assessment token");

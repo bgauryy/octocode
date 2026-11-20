@@ -209,8 +209,8 @@ fn key_block_tracker_streams_the_same_ranges_as_the_whole_file_scan() {
 
 /// A line of an open block that only holds a key's run keeps what precedes
 /// the run: a label or code is no key text. A body line as a whole (quoted,
-/// commented, indented) is hidden from its indentation, as before, and a
-/// line with no run that long is not hidden at all.
+/// commented, indented) hides its key text, its quoting read as written, and
+/// a line with no run that long is not hidden at all.
 #[test]
 fn a_line_that_only_holds_a_key_run_keeps_its_label() {
     const RUN: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
@@ -224,7 +224,7 @@ fn a_line_that_only_holds_a_key_run_keeps_its_label() {
     assert_eq!(
         hidden,
         format!(
-            "logo: {RUN}\n-----BEGIN OPENSSH PRIVATE KEY-----\n{placeholder}\n  {placeholder}\nordinary tail text\nlogo2: {placeholder}\n  k += b\"{placeholder}\"\nshort: abc123\nlast plain line\n"
+            "logo: {RUN}\n-----BEGIN OPENSSH PRIVATE KEY-----\n{placeholder}\n  \"{placeholder}\" +\nordinary tail text\nlogo2: {placeholder}\n  k += b\"{placeholder}\"\nshort: abc123\nlast plain line\n"
         )
     );
     // One rule for every reader of a line: the row a search shows of it.
@@ -245,6 +245,82 @@ fn a_line_that_only_holds_a_key_run_keeps_its_label() {
     // body line, in every reader alike.
     let long_label = "x ".repeat(KEY_LINE_HEAD_BYTES / 2);
     assert_eq!(hide_key_line(&format!("{long_label}: {RUN}")), placeholder);
+}
+
+/// Hiding a key keeps the source's syntax: a key line's quotes, separators,
+/// comment marks and concatenation read as written around the placeholder,
+/// so a parse of the shown text pairs the same delimiters the source does.
+/// No key byte shows: padding, escapes and base64 symbols beside the key go
+/// with it, and a line whose key text sits among code (`"MIIE…", "MIIE…"`)
+/// hides whole rather than unpair a delimiter.
+#[test]
+fn hiding_a_key_keeps_the_delimiters_around_it() {
+    const BODY: &str = "MIIEpQIBAAKCAQEA7Yn8xK2vJ9qLmN3pQrStWzHvuy3fEWJr5musirUr5JYe5CMp";
+    let ph = key_fragment_placeholder();
+    for (line, shown) in [
+        // A Rust string: a split key's BEGIN line (the round-3 repro).
+        (
+            format!("        \"config header line\\n-----BEGIN RSA PRIVATE KEY-----\\n{BODY}\","),
+            format!("        \"config header line\\n-----BEGIN RSA PRIVATE KEY-----{ph}\","),
+        ),
+        (format!("  \"{BODY}\\n\" +"), format!("  \"{ph}\" +")),
+        (format!("  + \"{BODY}\""), format!("  + \"{ph}\"")),
+        (format!("    '{BODY}==',"), format!("    '{ph}',")),
+        (format!("    \"{BODY}\\/+\","), format!("    \"{ph}\",")),
+        (format!("    `{BODY}`;"), format!("    `{ph}`;")),
+        (format!("/* {BODY} */"), format!("/* {ph} */")),
+        (format!("    ({BODY}),"), format!("    ({ph}),")),
+        ("        None,".to_owned(), format!("        {ph},")),
+        // Code before a key's run is its label, kept as written.
+        (format!("  foo(\"{BODY}"), format!("  foo(\"{ph}")),
+        // Two runs on a line: hidden from the first through the last, the
+        // code between them with them, never half a pair inside the key.
+        (
+            format!("    \"{BODY}\", \"{BODY}\","),
+            format!("    \"{ph}\","),
+        ),
+    ] {
+        let hidden = hide_key_line(&line);
+        assert_eq!(hidden, shown, "{line}");
+        for piece in BODY.as_bytes().chunks(8) {
+            let piece = std::str::from_utf8(piece).unwrap_or_default();
+            assert!(!hidden.contains(piece), "key bytes {piece} shown: {hidden}");
+        }
+        let pairs = |text: &str| {
+            text.bytes()
+                .filter(|byte| b"\"'`()[]{}".contains(byte))
+                .filter(|byte| !ph.as_bytes().contains(byte))
+                .count()
+        };
+        assert_eq!(
+            pairs(&line) % 2,
+            pairs(&hidden) % 2,
+            "delimiters unpaired: {hidden}"
+        );
+    }
+    // A hidden body line hidden again is unchanged.
+    for hidden in [
+        format!("  \"{ph}\" +"),
+        format!("    '{ph}',"),
+        format!("/* {ph} */"),
+        format!("        {ph},"),
+        ph.clone(),
+    ] {
+        assert_eq!(hide_key_line(&hidden), hidden);
+    }
+    // A source whose key is hidden parses as its raw text does: the string
+    // the BEGIN line opens still closes on that line.
+    let source = format!(
+        "let out = f(\n    \"head\\n-----BEGIN RSA PRIVATE KEY-----\\n{BODY}\",\n    None,\n)\n.expect(\"x\");\n"
+    );
+    let (hidden, changed) = redact_private_key_blocks(&source);
+    assert!(changed);
+    assert!(!hidden.contains(&BODY[..12]), "{hidden}");
+    assert_eq!(
+        hidden.matches('"').count(),
+        source.matches('"').count(),
+        "{hidden}"
+    );
 }
 
 /// D3: a key block written inside one member of a minified document starts

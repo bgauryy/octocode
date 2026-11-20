@@ -1,8 +1,8 @@
 # Findings: independent rating round, 2026-11-20
 
 A frozen copy of every finding from the [independent rating round](SCORECARD.md), as the raters reported them on
-`octocode 20.2.0+69024e9f`. The live list, which drops rows as fixes are verified, is the repository's
-`LEFTOVERS.md`; this copy does not change.
+`octocode 20.2.0+69024e9f`. This copy does not change: a later fix round records its outcome in its own
+scorecard or release notes.
 
 Severity: **high** wrong evidence, lost evidence or money spent without consent; **med** wrong lead, slow, or
 costly; **low** wording, size or polish. Owner: **core** (agent text and schemas), **native** (Rust behavior).

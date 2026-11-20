@@ -420,7 +420,9 @@ fn resolve_call(
                     } else {
                         "other"
                     }
-                } else if site.typed() && receiver_type.is_some_and(|ty| foreign(linker, caller, ty)) {
+                } else if site.typed()
+                    && receiver_type.is_some_and(|ty| foreign(linker, caller, ty))
+                {
                     // The parser saw the receiver's type (`let seen =
                     // BTreeSet::new()`) and the repository declares nothing
                     // of that name: a std or foreign type's method, which

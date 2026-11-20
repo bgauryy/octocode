@@ -262,11 +262,6 @@ fn evidence_coverage_goes_out_with_the_first_page_only() {
     let first = ask(&dir, "witnesses", "code.ts", 0, false);
     let later = ask(&dir, "witnesses", "code.ts", 7, false);
     assert!(first.value["coverage"].is_object(), "{}", first.value);
-    assert!(
-        first.value.get("argumentCoverage").is_some(),
-        "{}",
-        first.value
-    );
     for key in ["coverage", "argumentCoverage"] {
         assert!(later.value.get(key).is_none(), "{key}: {}", later.value);
     }

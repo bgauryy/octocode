@@ -136,13 +136,6 @@ mod evidence;
 mod walks;
 
 impl Registry {
-    /// A registry whose every tool keeps its handles under one `policy`:
-    /// what tests build to stand for another runtime's registry.
-    #[cfg(test)]
-    pub(super) fn new(config: CacheConfig, disk: Option<PathBuf>, policy: String) -> Self {
-        Self::scoped(config, disk, policy.into())
-    }
-
     /// A registry that keeps each tool's handles under its scope
     /// ([`ReplayScope::of`]).
     pub(super) fn scoped(config: CacheConfig, disk: Option<PathBuf>, policy: ReplayScope) -> Self {

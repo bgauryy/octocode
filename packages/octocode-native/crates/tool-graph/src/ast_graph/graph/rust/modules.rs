@@ -24,16 +24,41 @@ pub(in crate::ast_graph::graph) enum ModuleResolution {
     Inside(Option<String>),
 }
 
+/// The directory a file module declared inside `module.scope` lives in:
+/// each enclosing inline module adds its name to `base`, or, under
+/// `#[path = "dir"]`, replaces the directory reached so far by `dir` from
+/// it (from the declaring file's own directory at the outermost inline
+/// module: a non-`mod.rs` file's stem is not added), as rustc mounts it.
+/// `siblings` are the declaring file's module facts. `None` when a path
+/// leaves the root.
+fn scope_dir(
+    file: &str,
+    module: &GraphFactRustModule,
+    base: &str,
+    siblings: &[GraphFactRustModule],
+) -> Option<String> {
+    let mut dir = base.to_owned();
+    for (depth, name) in module.scope.iter().enumerate() {
+        let path = siblings
+            .iter()
+            .find(|m| m.inline && m.name == *name && m.scope == module.scope[..depth])
+            .and_then(|m| m.path.as_deref());
+        dir = match path {
+            Some(path) => join_within_root(if depth == 0 { dirname(file) } else { &dir }, path)?,
+            None => join(&dir, name),
+        };
+    }
+    Some(dir)
+}
+
 fn child_file(
     file: &str,
     module: &GraphFactRustModule,
     base: &str,
+    siblings: &[GraphFactRustModule],
     known: &BTreeSet<String>,
 ) -> Option<String> {
-    let scoped = module
-        .scope
-        .iter()
-        .fold(base.to_owned(), |dir, name| join(&dir, name));
+    let scoped = scope_dir(file, module, base, siblings)?;
     if let Some(path) = &module.path {
         let dir = if module.scope.is_empty() {
             dirname(file)
@@ -72,7 +97,7 @@ impl RustModules {
                     vec![rust_module_child_dir(file), dirname(file).into()]
                 };
                 for base in bases {
-                    if let Some(child) = child_file(file, module, &base, known) {
+                    if let Some(child) = child_file(file, module, &base, modules, known) {
                         targeted.insert(child.clone());
                         if module.path.is_some() {
                             relocated.insert(child);
@@ -125,7 +150,7 @@ impl RustModules {
                     out.inline(parent, &module.name);
                 } else {
                     for base in &bases {
-                        if let Some(target) = child_file(file, module, base, known)
+                        if let Some(target) = child_file(file, module, base, modules, known)
                             && let Some(&child) = out.files.get(&target)
                         {
                             out.nodes[parent]

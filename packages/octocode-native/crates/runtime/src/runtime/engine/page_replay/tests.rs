@@ -34,10 +34,10 @@ async fn changed_plan_expires_disk_handles_before_execution_but_current_handles_
     let current = replay_policy(&runtime.config, &runtime.input.cwd, BUILD_IDENTITY);
     assert_eq!(current, runtime.page_replays.policy);
     let make = |policy| {
-        Registry::new(
+        Registry::scoped(
             octocode_runtime_base::cache::CacheConfig::derived(),
             Some(runtime.config.home.join("tmp").join("continuations")),
-            policy,
+            String::into(policy),
         )
     };
     let mut expired_tokens = Vec::new();

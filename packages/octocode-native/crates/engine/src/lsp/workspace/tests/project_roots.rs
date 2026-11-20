@@ -39,11 +39,17 @@ fn a_c_family_file_roots_at_its_project_not_a_module_marker() {
     write(&tree, "lib/a.c");
     assert_eq!(root(&tree, "lib/a.c"), text(&tree));
 
-    // A generic build file names no Python project; the repository does,
+    // A generic build file names no Python project; the directory it imports
+    // from does (the repository once that holds Python code of its own),
     // until the language's own project file is nearer.
     write(&repo, "tools/Makefile");
     write(&repo, "tools/a.py");
+    write(&repo, "tools/sub/Makefile");
+    write(&repo, "tools/sub/b.py");
+    assert_eq!(root(&repo, "tools/sub/b.py"), text(&repo.join("tools")));
+    write(&repo, "setup_env.py");
     assert_eq!(root(&repo, "tools/a.py"), text(&repo));
+    std::fs::remove_file(repo.join("setup_env.py")).expect("remove");
     write(&repo, "tools/pyproject.toml");
     assert_eq!(root(&repo, "tools/a.py"), text(&repo.join("tools")));
     // A weaker tier never outranks a stronger project above it.
@@ -70,10 +76,13 @@ fn a_c_family_file_roots_at_its_project_not_a_module_marker() {
     write(&outer, "tsconfig.json");
     write(&outer, "go.work");
     write(&outer, "pyrightconfig.json");
-    for file in ["repo/m/a.ts", "repo/m/a.go", "repo/m/a.py"] {
+    for file in ["repo/m/a.ts", "repo/m/a.go"] {
         write(&outer, file);
         assert_eq!(root(&outer, file), text(&outer.join("repo")), "{file}");
     }
+    // A Python file roots at the directory it imports from, not the config.
+    write(&outer, "repo/m/a.py");
+    assert_eq!(root(&outer, "repo/m/a.py"), text(&outer.join("repo/m")));
     // No project file and no repository: the nearest marker stands.
     let bare = TmpDir::new();
     write(&bare, "pkg/Makefile");

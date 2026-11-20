@@ -457,9 +457,9 @@ fn a_point_answer_refuses_a_parent_key_its_lookup_entry_misstates() {
     assert_eq!(out.class, ExitClass::Success, "{}", out.value);
     let graph = PathBuf::from(out.value["dir"].as_str().unwrap()).join(GRAPH_FILE);
     let original = std::fs::read(&graph).unwrap();
-    let method = ask(&dir, "node", "box.ts#Box.m299", 0, false);
+    let method = ask(&dir, "node", "app/box.ts#Box.m299", 0, false);
     assert_eq!(
-        method.value["node"]["parent"], "box.ts#Box",
+        method.value["node"]["parent"], "app/box.ts#Box",
         "{}",
         method.value
     );
@@ -515,5 +515,5 @@ fn a_point_answer_refuses_a_parent_key_its_lookup_entry_misstates() {
         keyx.copy_within(b.clone(), a.start);
         keyx[b].copy_from_slice(&first);
     });
-    assert_misstated(&ask(&dir, "node", "box.ts#Box.m299", 0, false));
+    assert_misstated(&ask(&dir, "node", "app/box.ts#Box.m299", 0, false));
 }

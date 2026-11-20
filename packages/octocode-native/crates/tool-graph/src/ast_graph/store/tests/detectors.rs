@@ -539,9 +539,12 @@ fn test_imported_exports_split_from_untested_ones_in_one_file() {
 fn a_mentioned_export_only_local_is_a_hypothesis_with_its_mentions() {
     let dir = git_app(&[
         ("package.json", r#"{"name":"lib","main":"./index.ts"}"#),
-        ("index.ts", "import { run } from './runtime/workspace';
+        (
+            "index.ts",
+            "import { run } from './runtime/workspace';
 run();
-"),
+",
+        ),
         (
             "runtime/workspace.ts",
             "export function metadataPath(p: string) { return p; }

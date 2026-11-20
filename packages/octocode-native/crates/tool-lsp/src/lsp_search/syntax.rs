@@ -18,9 +18,11 @@ use super::*;
 use octocode_engine::lsp::types::LspCodeSnippet;
 use std::collections::BTreeSet;
 
+mod callable;
 mod expansion;
 mod facts;
 mod hierarchy;
+pub(super) use callable::non_callable;
 use facts::File;
 
 /// Whether the syntax rung answers for `failed`: no server was found, none

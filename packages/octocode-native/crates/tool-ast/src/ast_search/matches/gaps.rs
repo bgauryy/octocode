@@ -94,38 +94,73 @@ pub(super) fn directory_choice(
         Some(present) if !scan.truncated && q.scan_offset() == 0 && q.max_depth().is_none() => {
             rank_grammars(present.clone())
         }
-        _ => {
-            let (include, exclude) = (
-                q.include().unwrap_or_default(),
-                q.exclude().unwrap_or_default(),
-            );
-            let prune = prune::walk_names(q.default_excludes(), &include);
-            let discovery = paths.discovery_walk();
-            present_grammars(
-                root,
-                &prune,
-                Walk {
-                    ignored: q.include_ignored().unwrap_or(false),
-                    hidden: q.include_hidden().unwrap_or(false),
-                    default_excludes: q.default_excludes(),
-                    global: paths.global_ignore(),
-                },
-                usize::MAX,
-                Globs {
-                    include: &include,
-                    exclude: &exclude,
-                },
-                parsers,
-                &|path, kind| discovery.permits_entry(path, kind),
-                &|| cancel.check().is_err(),
-            )
-            .map_err(super::super::errors::native_error)?
-        }
+        _ => walk_grammars(q, root, parsers, paths, cancel)?,
     };
     let rule = q.rule();
     Ok(choose_grammar(present.into_iter(), |_, extensions| {
         compile_check(extensions, None, rule.as_ref())
     }))
+}
+
+/// The grammars a walk of `root` under the query's walk rules meets, the
+/// most frequent first.
+fn walk_grammars(
+    q: MatchQuery<'_>,
+    root: &std::path::Path,
+    parsers: &GlobParsers,
+    paths: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+) -> Result<Vec<(String, std::collections::BTreeSet<String>)>, ToolError> {
+    let (include, exclude) = (
+        q.include().unwrap_or_default(),
+        q.exclude().unwrap_or_default(),
+    );
+    let prune = prune::walk_names(q.default_excludes(), &include);
+    let discovery = paths.discovery_walk();
+    present_grammars(
+        root,
+        &prune,
+        Walk {
+            ignored: q.include_ignored().unwrap_or(false),
+            hidden: q.include_hidden().unwrap_or(false),
+            default_excludes: q.default_excludes(),
+            global: paths.global_ignore(),
+        },
+        usize::MAX,
+        Globs {
+            include: &include,
+            exclude: &exclude,
+        },
+        parsers,
+        &|path, kind| discovery.permits_entry(path, kind),
+        &|| cancel.check().is_err(),
+    )
+    .map_err(super::super::errors::native_error)
+}
+
+/// Why a query no grammar compiles fails, said in the grammar the scope
+/// holds most files of, so its nearest kinds and fields are the scope's own
+/// (`function_decl` → Rust's `function_item`); `every` (the first grammar's
+/// failure) when the scope holds no grammar.
+pub(super) fn scope_rejection(
+    q: MatchQuery<'_>,
+    root: &std::path::Path,
+    parsers: &GlobParsers,
+    (paths, cancel): (&PathPolicy, &dyn CancellationCheck),
+    every: octocode_tools_shared::ast_rule::RuleError,
+) -> Result<octocode_tools_shared::ast_rule::RuleError, ToolError> {
+    let rule = q.rule();
+    Ok(walk_grammars(q, root, parsers, paths, cancel)?
+        .into_iter()
+        .find_map(|(label, extensions)| {
+            compile_check(&extensions, None, rule.as_ref())
+                .err()
+                .map(|error| octocode_tools_shared::ast_rule::RuleError {
+                    code: error.code,
+                    message: format!("{label}: {}", error.message),
+                })
+        })
+        .unwrap_or(every))
 }
 
 /// One repair lead that runs the query once per candidate grammar, as a

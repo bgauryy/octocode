@@ -205,9 +205,10 @@ answer's `pagination.total`, which counts reached nodes. Both group before pagin
 and the grouped rows page. `witnesses` states
 `filteredByConfidence`, the matching call witnesses below the query's
 confidence, when there are any. A symbol row states its `symbolName`, its
-declaration `kind`, its `path` (root-relative, like every key) and `line`:
-an `lspSearch` references call there, its path joined to `graph.root`,
-confirms the syntax candidate.
+declaration `kind`, its `path` (from the workspace root, as its `id` and every
+file id are; from `graph.root` when the snapshot lies outside the workspace) and
+`line`: an `lspSearch` call there confirms the syntax candidate, and a symbol
+answer's `related` holds that call.
 
 `find` ranks every node whose name or key matches, in three tiers. `exact`: the
 whole text equals a key or name, key first. `words`: the text and every name and

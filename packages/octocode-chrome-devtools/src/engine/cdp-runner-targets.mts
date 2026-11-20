@@ -16,6 +16,8 @@ import {
   writeTargetSnapshot,
 } from './cdp-runner-session.mjs';
 import { pageOwner } from './target-owner.mjs';
+import { readSessionMeta } from './session-meta.mjs';
+import { DEFAULT_PORT } from './session-registry.mjs';
 
 /** A /json target row; the runner attaches to its webSocketDebuggerUrl. */
 type ChromeTarget = {
@@ -47,6 +49,10 @@ type TargetFlags = {
   strict?: boolean;
   /** The tab `open --url` selected: the default page while it exists. */
   preferredId?: string;
+  /** A tab group opened with `open --urls` on `port`, and the zero-based tab within it. */
+  group?: string;
+  groupIndex?: number;
+  port?: string;
 };
 
 /** A CDP Target.TargetInfo row from Target.getTargets. */
@@ -148,6 +154,39 @@ async function targetById(
   return attach(t);
 }
 
+/** The n-th tab of a group, selected exactly like --target <id>; an unknown group, index or closed tab lists the group. */
+async function targetByGroup(
+  chrome: ChromeEndpoint,
+  sel: TargetFlags & { group: string }
+): Promise<Selection> {
+  const port = sel.port ?? DEFAULT_PORT;
+  const groups = readSessionMeta(port).groups ?? {};
+  const ids = groups[sel.group];
+  if (!ids) {
+    const known = Object.keys(groups);
+    return {
+      error: `[CDP_RUNNER] Unknown group "${sel.group}" on port ${port}. Groups: ${known.length ? known.join(', ') : '(none; open --urls creates one)'}`,
+    };
+  }
+  const live = await chrome.targets();
+  const tabs = ids
+    .map(
+      (id, index) =>
+        `  [${index}] ${id} ${live.find(t => t.id === id)?.url ?? '(closed)'}`
+    )
+    .join('\n');
+  const index = sel.groupIndex ?? 0;
+  if (index >= ids.length)
+    return {
+      error: `[CDP_RUNNER] Group "${sel.group}" has ${ids.length} tab${ids.length === 1 ? '' : 's'}; index ${index} is out of range. Tabs:\n${tabs}`,
+    };
+  if (!live.some(t => t.id === ids[index]))
+    return {
+      error: `[CDP_RUNNER] Tab ${ids[index]} (group "${sel.group}" index ${index}) is closed. Current tabs:\n${tabs}`,
+    };
+  return targetById(chrome, ids[index]);
+}
+
 async function targetByUrl(
   chrome: ChromeEndpoint,
   sel: TargetFlags,
@@ -225,6 +264,7 @@ export function selectTarget(
   if (sel.browser) return browserTarget(chrome, sel);
   if (sel.newTab) return newTabTarget(chrome, sel.newTab, note);
   if (sel.targetId) return targetById(chrome, sel.targetId);
+  if (sel.group) return targetByGroup(chrome, { ...sel, group: sel.group });
   if (sel.targetUrl) return targetByUrl(chrome, sel, sel.targetUrl, note);
   if (sel.targetType)
     return targetByType(chrome, sel.targetType, sel.strict, note);
@@ -235,6 +275,7 @@ export function selectTarget(
 export function selectionVia(sel: TargetFlags) {
   if (sel.newTab) return 'new-tab';
   if (sel.targetId) return 'target';
+  if (sel.group) return 'group';
   if (sel.targetUrl) return 'target-url';
   if (sel.targetType) return 'target-type';
   return 'first-page';
@@ -318,12 +359,19 @@ export async function listTargets(
     lastListedTargetsAt: nowIso,
     updatedAt: nowIso,
   });
-  const rows = targets.map(t => ({
-    id: t.id,
-    type: t.type,
-    url: t.url,
-    title: t.title,
-  }));
+  const groups = Object.entries(readSessionMeta(port).groups ?? {});
+  const rows = targets.map(t => {
+    const member = groups.flatMap(([name, ids]) =>
+      ids.includes(t.id) ? [{ group: name, groupIndex: ids.indexOf(t.id) }] : []
+    )[0];
+    return {
+      id: t.id,
+      type: t.type,
+      url: t.url,
+      title: t.title,
+      ...member,
+    };
+  });
   const encoded = JSON.stringify(rows, null, 2);
   // Small inventories stay convenient; large ones retain an immutable source
   // and a lossless query continuation instead of overflowing agent context.

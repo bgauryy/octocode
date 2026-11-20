@@ -40,9 +40,9 @@ fn a_scan_offers_matches_until_its_sink_stops_it() {
             self.1.len() < self.0
         }
     }
-    let sink = rust_scan_ranges("o", false, "o o o o", StopAfter(3, vec![])).unwrap();
+    let sink = rust_scan_ranges("o", false, "o o o o", &[], StopAfter(3, vec![])).unwrap();
     assert_eq!(sink.1, vec![(0, 1), (2, 3), (4, 5)]);
-    assert!(rust_scan_ranges("(", false, "x", StopAfter(1, vec![])).is_err());
+    assert!(rust_scan_ranges("(", false, "x", &[], StopAfter(1, vec![])).is_err());
 }
 
 #[test]
@@ -84,6 +84,30 @@ fn matches_the_reason_localsearch_reports() {
             reason,
             parse_reason(&checked.error.expect("validator error")),
             "{pattern}"
+        );
+    }
+}
+
+/// A match a redaction's own placeholder makes is none; a match of the
+/// source's own text beside it, or one holding the whole placeholder,
+/// counts.
+#[test]
+fn matches_of_written_text_are_not_the_sources() {
+    let text = "a [REDACTED-X] b REDACTED ] [REDACTED]";
+    let written = [2..14, 28..38];
+    let scan = |pattern: &str| {
+        rust_scan_ranges(pattern, false, text, &written, CappedSpans::new(usize::MAX))
+            .map(CappedSpans::into_spans)
+            .expect("scan")
+    };
+    assert_eq!(scan("REDACTED"), vec![(17, 25)]);
+    assert_eq!(scan(r"\]"), vec![(26, 27)]);
+    assert_eq!(scan("(?i)redacted-x"), Vec::<(usize, usize)>::new());
+    for whole in [r"a .* b", r"\S+", r"^.*$"] {
+        assert_eq!(
+            scan(whole),
+            rust_find_ranges(whole, false, text, usize::MAX).expect("scan"),
+            "{whole}"
         );
     }
 }

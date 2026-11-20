@@ -5,7 +5,7 @@ const { test } = require('node:test');
 const { mkdirSync, mkdtempSync, rmSync, writeFileSync } = require('node:fs');
 const path = require('node:path');
 const { tmpdir } = require('node:os');
-const { PLATFORMS, platformPackageName } = require('../bin/platform.cjs');
+const { platformPackageName } = require('../bin/platform.cjs');
 const { identityChecks, maxGlibc, readHeader } = require('../scripts/binary-identity.cjs');
 
 /** A minimal ELF64 executable: one PT_INTERP and one `.gnu.version_r` need on libc.so.6. */

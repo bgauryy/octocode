@@ -72,6 +72,8 @@ const NEW_TAB = getArg('--new-tab', '');
 const TARGET_ID = getArg('--target', '');
 const TARGET_URL = getArg('--target-url', '');
 const TARGET_TYPE = getArg('--target-type', '');
+const GROUP = getArg('--group', '');
+const GROUP_INDEX = Number(getArg('--group-index', '0'));
 const TIMEOUT = Number(getArg('--timeout', '60000'));
 const KEEP_TAB = hasFlag('--keep-tab');
 const LIST_TARGETS = hasFlag('--list-targets');
@@ -82,6 +84,9 @@ const SELECTION = {
   targetUrl: TARGET_URL,
   targetType: TARGET_TYPE,
   strict: hasFlag('--strict-target'),
+  group: GROUP,
+  groupIndex: GROUP_INDEX,
+  port: PORT,
   preferredId: selectedTargetId(stateDirFor(process.cwd()), PORT),
 };
 const VERBOSE = process.env.CDP_VERBOSE === '1';
@@ -90,7 +95,7 @@ if (hasFlag('--no-stealth')) process.env.CDP_NO_STEALTH = '1';
 if (hasFlag('--no-reload')) process.env.CDP_STEALTH_NO_RELOAD = '1';
 
 const USAGE =
-  '[CDP_RUNNER] Usage: node cdp-runner.mjs <script.mjs> [--port 9222] [--new-tab <url>] [--target <id>] [--target-url <pattern>] [--target-type <type>] [--list-targets] [--browser] [--keep-tab] [--stealth] [--no-reload] [--no-stealth]';
+  '[CDP_RUNNER] Usage: node cdp-runner.mjs <script.mjs> [--port 9222] [--new-tab <url>] [--target <id>] [--group <name> [--group-index <n>]] [--target-url <pattern>] [--target-type <type>] [--list-targets] [--browser] [--keep-tab] [--stealth] [--no-reload] [--no-stealth]';
 if (hasFlag('--help') || hasFlag('-h')) {
   console.log(USAGE);
   process.exit(0);
@@ -230,6 +235,7 @@ async function main() {
     lastSelection: {
       newTab: NEW_TAB || null,
       targetId: TARGET_ID || null,
+      group: GROUP ? { name: GROUP, index: GROUP_INDEX } : null,
       targetUrl: TARGET_URL || null,
       targetType: TARGET_TYPE || null,
       keepTab: KEEP_TAB,

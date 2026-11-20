@@ -14,6 +14,10 @@ use std::sync::{Mutex, PoisonError};
 /// before its request could be retried as often as the runtime retries one.
 pub(crate) const RETRIES_SPENT: &str = "This row's shared transient retries were spent before this request could be retried; its units are left unanswered for a later retry.";
 
+/// A window refusal not retried in the long window: the row's cap has no
+/// request left for it.
+pub(crate) const LONG_RETRY_UNSENT: &str = "Not retried in the provider's long-context window: this row's maxRequests has no request left for it.";
+
 /// A send the cap has no room for: it is not sent.
 pub(crate) fn spent() -> ClassificationError {
     ClassificationError::new(
@@ -165,6 +169,13 @@ impl RequestCap {
     /// Requests the row may still send.
     pub fn left(&self) -> u64 {
         self.with(|left| left.sends)
+    }
+
+    /// The row's `maxRequests` has no send left: [`Self::take`] refuses the
+    /// next one. A row without `maxRequests` ([`Self::soft`]) is never
+    /// spent: its refusal retries pass its ceiling, counted.
+    pub fn spent(&self) -> bool {
+        !self.soft && self.left() == 0
     }
 }
 

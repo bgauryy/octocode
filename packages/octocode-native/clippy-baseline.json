@@ -432,7 +432,7 @@
       "crates/tool-lsp/src/lsp_search/recovery/aliases.rs": 2,
       "crates/tool-lsp/src/lsp_search/scope/reach/cargo.rs": 1,
       "crates/tool-lsp/src/lsp_search/scope/reach/rust.rs": 2,
-      "crates/tool-lsp/src/lsp_search/server_coverage/gates.rs": 2,
+      "crates/tool-lsp/src/lsp_search/server_coverage/gates.rs": 1,
       "crates/tool-lsp/src/lsp_search/source.rs": 1,
       "crates/tool-lsp/src/lsp_search/walk/outcome/resume.rs": 1
     },

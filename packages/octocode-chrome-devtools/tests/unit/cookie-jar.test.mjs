@@ -149,6 +149,8 @@ test('cookie metadata and the bridge never carry values', () => {
     [
       join(engine, 'cookie-bridge.mjs'),
       '--i-understand-secrets',
+      '--confirm-domains',
+      'example.com',
       '--from-profile',
       'Default',
       '--to-port',

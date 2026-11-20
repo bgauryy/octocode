@@ -67,7 +67,7 @@ async fn row_asking(root: &Path, target: Option<&str>, asked: bool) -> Value {
             crate::lsp_search::scope::Question::of(Op::References).at_anchor(
                 &lib_path,
                 Some(&text),
-                (1, "pub fn ".len() as u32),
+                (1, u32::try_from("pub fn ".len()).expect("column")),
                 "write_atomic",
             ),
         );

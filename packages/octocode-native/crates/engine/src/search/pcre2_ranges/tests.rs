@@ -54,7 +54,7 @@ fn a_scan_offers_matches_until_its_sink_stops_it() {
             self.1.len() < self.0
         }
     }
-    let sink = pcre2_scan_ranges("o", false, "o o o o", StopAfter(3, vec![])).unwrap();
+    let sink = pcre2_scan_ranges("o", false, "o o o o", &[], StopAfter(3, vec![])).unwrap();
     assert_eq!(sink.1, vec![(0, 1), (2, 3), (4, 5)]);
 }
 
@@ -70,7 +70,7 @@ fn invalid_patterns_and_deadlines_are_typed() {
     let slow = scan_ranges(
         "a",
         false,
-        &"a".repeat(1 << 20),
+        (&"a".repeat(1 << 20), &[]),
         CappedSpans::new(usize::MAX),
         Duration::ZERO,
     )
@@ -88,4 +88,24 @@ fn invalid_patterns_and_deadlines_are_typed() {
         }
         std::thread::sleep(Duration::from_millis(25));
     }
+}
+
+/// A match a redaction's own placeholder makes is none, as on the Rust
+/// path; a match holding the whole placeholder counts.
+#[test]
+fn matches_of_written_text_are_not_the_sources() {
+    let text = "a [REDACTED-X] b REDACTED ] [REDACTED]";
+    let written = [2..14, 28..38];
+    let scan = |pattern: &str| {
+        pcre2_scan_ranges(pattern, false, text, &written, CappedSpans::new(usize::MAX))
+            .map(CappedSpans::into_spans)
+            .expect("scan")
+    };
+    assert_eq!(scan("REDACTED"), vec![(17, 25)]);
+    assert_eq!(scan(r"(?<=\[)RED"), Vec::<(usize, usize)>::new());
+    assert_eq!(scan(r"\]"), vec![(26, 27)]);
+    assert_eq!(
+        scan(r"a .* b"),
+        pcre2_find_ranges(r"a .* b", false, text, usize::MAX).expect("scan")
+    );
 }

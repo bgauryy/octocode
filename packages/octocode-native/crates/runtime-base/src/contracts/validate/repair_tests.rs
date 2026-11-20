@@ -776,8 +776,8 @@ fn a_row_level_fault_is_shown_the_rows_own_repository() {
 
 /// Forms that take the row's fields alike are told apart by the row's
 /// values: a Maven row, whether its coordinate or another field is at
-/// fault, is shown a Maven example, never the first form's npm one
-/// (LEFTOVERS P6), and the example is a request the tool accepts.
+/// fault, is shown a Maven example, never the first form's npm one, and
+/// the example is a request the tool accepts.
 #[test]
 fn a_tie_between_forms_picks_the_one_sharing_the_rows_values() {
     for row in [

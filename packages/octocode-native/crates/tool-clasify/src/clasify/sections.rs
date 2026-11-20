@@ -44,6 +44,10 @@ struct Unit {
     chars: usize,
     cells: Vec<Option<Value>>,
     emitted: bool,
+    /// The batch ordinal that emitted the unit: the batch whose `next.quiet`
+    /// lists it when it is quiet.
+    #[serde(default)]
+    emitted_in: usize,
     /// The questions a transient failure left pending once: the next batch
     /// asks them again, and a second such failure is their error.
     #[serde(default)]
@@ -181,23 +185,37 @@ fn token(id: &str, batch: usize) -> String {
     format!("sections-v1:{id}:{batch:x}")
 }
 
-/// `next.quiet`: the plan's quiet sections, replayed ([`emit::quiet_replay`]).
-fn quiet_token(id: &str) -> String {
-    format!("sections-v1:{id}:{QUIET}")
+/// `next.quiet` of batch `batch`: the quiet sections it held back, replayed
+/// ([`emit::quiet_replay`]).
+fn quiet_token(id: &str, batch: usize) -> String {
+    format!("sections-v1:{id}:{QUIET}{batch:x}")
 }
 
-const QUIET: &str = "quiet";
+/// Marks a quiet replay's batch ordinal: not a hex digit.
+const QUIET: &str = "q";
 
-/// A token's plan id and its batch ordinal; `None` for the quiet replay.
-fn decode(value: &str) -> Option<(&str, Option<usize>)> {
+/// What a token names: a batch, or a batch's quiet replay.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum Named {
+    Batch(usize),
+    Quiet(usize),
+}
+
+/// A token's plan id and what it names.
+fn decode(value: &str) -> Option<(&str, Named)> {
     let (id, batch) = value.strip_prefix("sections-v1:")?.split_once(':')?;
     if id.len() != 64 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return None;
     }
-    if batch == QUIET {
-        return Some((id, None));
+    let ordinal = |digits: &str| {
+        (!digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_hexdigit()))
+            .then(|| usize::from_str_radix(digits, 16).ok())
+            .flatten()
+    };
+    if let Some(quiet) = batch.strip_prefix(QUIET) {
+        return Some((id, Named::Quiet(ordinal(quiet)?)));
     }
-    Some((id, Some(usize::from_str_radix(batch, 16).ok()?)))
+    Some((id, Named::Batch(ordinal(batch)?)))
 }
 
 /// An error as a section or resource reports it: its hints, then the failed
@@ -243,10 +261,13 @@ pub(super) fn run(
         // Every cursor of the plan, a replay included, answers only from the
         // text it judged.
         current_sources(&session, dispatcher, context)?;
-        let Some(ordinal) = ordinal else {
-            return Ok(Outcome {
-                output: emit::quiet_replay(&session),
-            });
+        let ordinal = match ordinal {
+            Named::Quiet(batch) => {
+                return Ok(Outcome {
+                    output: emit::quiet_replay(&session, batch),
+                });
+            }
+            Named::Batch(ordinal) => ordinal,
         };
         if let Some(saved) = session.batches.get(ordinal) {
             return Ok(Outcome {

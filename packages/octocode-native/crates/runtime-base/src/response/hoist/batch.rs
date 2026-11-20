@@ -150,10 +150,9 @@ pub(crate) fn keyed(results: &mut [Value], groups: &[Keyed]) {
 /// order (a query two rows offer once), as many per call as the tool takes.
 /// An empty or failed row's calls are its recovery, whose order its hints
 /// name ("related[] in order: …"): they move only when every such row
-/// offers the same whole recovery and its hints moved too
-/// ([`same_recovery`]), so the envelope states that one recovery once,
-/// beside its hints; otherwise each keeps its recovery whole, in its own
-/// order.
+/// offers the same whole recovery ([`same_recovery`]), so the envelope
+/// states that one recovery once, in its order; otherwise each keeps its
+/// recovery whole, in its own order.
 fn related(structured: &mut Value) {
     let recovers = rows(structured).map(guidance_row).collect::<Vec<_>>();
     let mut merged = Vec::new();
@@ -184,21 +183,17 @@ fn related(structured: &mut Value) {
 }
 
 /// Whether every recovering row (`recovers`) offers the same whole
-/// `related[]`, call for call in one order, and keeps no hint of its own
-/// (the hints stage stated them once, or there are none): only then can the
-/// recovery move without a hint naming calls its row no longer holds.
+/// `related[]`, call for call in one order: only then can it move, and the
+/// envelope then holds that one list in its own order, so a hint naming
+/// the order ("related[] in order: …") still describes the list it sits
+/// beside.
 fn same_recovery(structured: &Value, recovers: &[bool]) -> bool {
-    let recovering = rows(structured)
+    let lists = rows(structured)
         .zip(recovers)
         .filter(|(_, recovers)| **recovers)
-        .map(|(row, _)| row)
+        .map(|(row, _)| list(row, "/data/related"))
         .collect::<Vec<_>>();
-    recovering
-        .iter()
-        .all(|row| list(row, "/data/hints").is_empty())
-        && recovering
-            .windows(2)
-            .all(|pair| list(pair[0], "/data/related") == list(pair[1], "/data/related"))
+    lists.windows(2).all(|pair| pair[0] == pair[1])
 }
 
 /// One row's single-query `related` call: (row, position in its `related`,

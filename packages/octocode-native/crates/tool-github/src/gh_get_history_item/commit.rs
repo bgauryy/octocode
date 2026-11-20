@@ -277,21 +277,21 @@ fn no_pull_request_named(message: &str) -> String {
 /// entity) or `/` before it, then digits no word character follows. A
 /// cross-repository `owner/repo#N` names another repository's item.
 fn mentioned_numbers(message: &str) -> Vec<u64> {
+    let joined = |c: char| c.is_alphanumeric() || c == '_';
     let mut numbers = Vec::new();
-    for (at, _) in message.match_indices('#') {
-        let joined = |c: char| c.is_alphanumeric() || c == '_';
-        if message[..at]
-            .chars()
-            .next_back()
-            .is_some_and(|c| joined(c) || c == '&' || c == '/')
-        {
+    let mut before = None;
+    let mut chars = message.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '#' || before.is_some_and(|b: char| joined(b) || b == '&' || b == '/') {
+            before = Some(c);
             continue;
         }
-        let rest = &message[at + 1..];
-        let digits = &rest[..rest
-            .find(|c: char| !c.is_ascii_digit())
-            .unwrap_or(rest.len())];
-        if rest[digits.len()..].chars().next().is_some_and(joined) {
+        let mut digits = String::new();
+        while let Some(digit) = chars.next_if(char::is_ascii_digit) {
+            digits.push(digit);
+        }
+        before = digits.chars().next_back().or(Some(c));
+        if chars.peek().copied().is_some_and(joined) {
             continue;
         }
         if let Ok(number) = digits.parse::<u64>()

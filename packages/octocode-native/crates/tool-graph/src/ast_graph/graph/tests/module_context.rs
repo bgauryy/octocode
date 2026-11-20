@@ -1,5 +1,6 @@
 use super::*;
 use octocode_runtime_base::test_support::Fixture;
+use std::collections::BTreeSet;
 
 #[test]
 fn shared_source_with_different_child_directories_stays_ambiguous() {
@@ -67,6 +68,55 @@ fn relocated_module_ancestry_resolves_parents_roots_and_siblings() {
             .all(|d| d.code != DiagnosticCode::UnresolvedInternal),
         "{:?}",
         graph.diagnostics
+    );
+}
+
+/// `#[path]` on an inline module names the directory its file modules
+/// live in, from the declaring file's directory (a non-`mod.rs` file's
+/// stem is not added), as rustc mounts them; nested inline modules below
+/// it add their names.
+#[test]
+fn path_on_an_inline_module_roots_its_nested_file_modules() {
+    let root = Fixture::new();
+    for (path, source) in [
+        (
+            "lib.rs",
+            "#[path = \"extra\"]\nmod inl {\n    pub mod deep;\n    mod plain {\n        pub mod leaf;\n    }\n}\nmod other;\n",
+        ),
+        ("extra/deep.rs", "pub fn deep_fn() {}\n"),
+        ("extra/plain/leaf.rs", "pub fn leaf_fn() {}\n"),
+        (
+            "other.rs",
+            "#[path = \"gen\"]\nmod gen_mod {\n    pub mod made;\n}\n",
+        ),
+        ("gen/made.rs", "pub fn made_fn() {}\n"),
+    ] {
+        root.write(path, source);
+    }
+    let graph = fixture_graph(&root.0, &[]);
+    let module_targets = |file: &str| {
+        graph.facts[file]
+            .imports
+            .iter()
+            .filter(|import| import.id.starts_with("module:"))
+            .filter_map(|import| import.target.clone())
+            .collect::<BTreeSet<_>>()
+    };
+    assert_eq!(
+        module_targets("lib.rs"),
+        BTreeSet::from([
+            "extra/deep.rs".to_owned(),
+            "extra/plain/leaf.rs".to_owned(),
+            "other.rs".to_owned(),
+        ]),
+        "{:?}",
+        graph.facts["lib.rs"].imports
+    );
+    assert_eq!(
+        module_targets("other.rs"),
+        BTreeSet::from(["gen/made.rs".to_owned()]),
+        "{:?}",
+        graph.facts["other.rs"].imports
     );
 }
 

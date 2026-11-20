@@ -60,6 +60,9 @@ impl CompiledPattern {
             // occur inside them.
             return Ok(bind_meta(meta, pattern, candidate, texts, captures));
         }
+        if same_quote(pattern, candidate, texts) {
+            return Ok(true);
+        }
 
         let candidate = match self.across_kinds(pattern, candidate, texts, budget) {
             Across::Decided(decided) => return Ok(decided),
@@ -673,6 +676,43 @@ fn same_name(pattern: Node<'_>, candidate: Node<'_>, texts: Texts<'_>) -> bool {
         && leaf(candidate)
         && node_text(pattern, texts.pattern) == node_text(candidate, texts.candidate)
         && field_in_parent(pattern).is_some_and(|field| field_in_parent(candidate) == Some(field))
+}
+
+/// Whether `pattern` and `candidate` are the same string delimiter written
+/// in the other quote style: leaves whose texts differ only by `'` for `"`
+/// (a prefix such as Python's `f` alike), each a delimiter of a node of the
+/// same kind (both the opening, or both the closing). A grammar that gives
+/// the two quotes different meanings (C's character and string literals, a
+/// shell's raw and expanding strings) parses them as nodes of different
+/// kinds, so that difference still decides.
+fn same_quote(pattern: Node<'_>, candidate: Node<'_>, texts: Texts<'_>) -> bool {
+    let leaf = |node: Node<'_>| node.child_count() == 0 && !node.is_missing();
+    if !leaf(pattern) || !leaf(candidate) {
+        return false;
+    }
+    let (written, found) = (
+        node_text(pattern, texts.pattern),
+        node_text(candidate, texts.candidate),
+    );
+    let quoted = |text: &str| {
+        text.ends_with(['\'', '"'])
+            && text
+                .chars()
+                .all(|ch| matches!(ch, '\'' | '"') || ch.is_ascii_alphabetic())
+    };
+    let unify = |text: &str| text.replace('\'', "\"");
+    if written == found || !quoted(written) || !quoted(found) || unify(written) != unify(found) {
+        return false;
+    }
+    let (Some(outer), Some(holder)) = (pattern.parent(), candidate.parent()) else {
+        return false;
+    };
+    let opens = |node: Node<'_>, parent: Node<'_>| node.start_byte() == parent.start_byte();
+    let closes = |node: Node<'_>, parent: Node<'_>| node.end_byte() == parent.end_byte();
+    outer.kind_id() == holder.kind_id()
+        && opens(pattern, outer) == opens(candidate, holder)
+        && closes(pattern, outer) == closes(candidate, holder)
+        && (opens(pattern, outer) || closes(pattern, outer))
 }
 
 /// The field `node` fills in its parent.

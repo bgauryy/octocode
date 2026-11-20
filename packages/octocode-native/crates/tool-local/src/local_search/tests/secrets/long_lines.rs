@@ -114,20 +114,26 @@ fn a_span_keeps_what_is_not_the_secret() {
         json_fixture(r#"{"matchString": ["needle-ghp_aB3d"], "view": "matchOnly"}"#),
     );
     assert_eq!(hidden["files"], serde_json::json!([]), "{hidden}");
+    // The placeholder's own spelling is no source text: no hit.
+    let spelled = rows(
+        &text,
+        json_fixture(r#"{"matchString": ["needle-[REDACTED-"], "view": "matchOnly"}"#),
+    );
+    assert_eq!(spelled["files"], serde_json::json!([]), "{spelled}");
+    // A span that holds whatever is masked there reaches across it, and
+    // shows the placeholder in the secret's place.
     let found = rows(
         &text,
         json_fixture(
             r#"{
-                "matchString": ["needle-[REDACTED-"],
-                "regexEngine": "literal",
+                "matchString": ["needle-\\S+"],
+                "regexEngine": "rust",
                 "view": "matchOnly"
             }"#,
         ),
     );
-    // The span is the request's one term, so it states only where it is.
     let span = &found["files"][0]["matches"][0];
-    assert!(span.get("value").is_none(), "{found}");
-    let value = read_value(span, "needle-[REDACTED-");
+    let value = read_value(span, "needle-\\S+");
     assert!(!value.contains("ghp_aB3d"), "{value}");
     assert!(value.starts_with("needle-[REDACTED-"), "{value}");
 }

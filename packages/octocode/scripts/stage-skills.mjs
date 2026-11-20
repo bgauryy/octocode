@@ -7,11 +7,25 @@ const EXCLUDED = new Set([
   'Thumbs.db', 'npm-debug.log', 'yarn-error.log',
 ]);
 
+/**
+ * Skills owned by the package whose tool they guide, as repo-root-relative folders that each hold
+ * `<skill>/SKILL.md`. They are self-contained (no shared bundles) and stage beside the `skills/` ones.
+ */
+export const PACKAGE_SKILLS = ['packages/octocode-chrome-devtools/skills'];
+
 /** The only skill staging path used by build and prepack. */
 export function stageSkills(source, target) {
   if (!existsSync(source)) throw new Error(`Skills source not found: ${source}`);
-  buildCommon({ root: resolve(source, '..') });
+  const root = resolve(source, '..');
+  buildCommon({ root });
   rmSync(target, { recursive: true, force: true });
+  for (const base of [source, ...PACKAGE_SKILLS.map(dir => join(root, dir))]) {
+    // A root without a package skill (a synthetic checkout in tests) stages only its own skills.
+    if (base === source || existsSync(base)) copyInto(base, target);
+  }
+}
+
+function copyInto(source, target) {
   const manifests = new Map();
   cpSync(source, target, {
     recursive: true,

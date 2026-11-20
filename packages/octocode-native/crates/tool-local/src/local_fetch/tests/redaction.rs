@@ -283,3 +283,26 @@ fn a_blank_source_line_beside_a_redaction_is_no_blanked_line() {
         read.warnings
     );
 }
+
+/// A pattern matches the source's own text, never the spelling of a
+/// placeholder a redaction wrote: `REDACTED` or a regex selecting its
+/// brackets finds only the source's own word, on every engine.
+#[test]
+fn match_strings_never_match_the_placeholders_a_redaction_wrote() {
+    let t = Fixture::new();
+    let p = t.0.join("a.txt");
+    fs::write(&p, "key SECRET here\nplain REDACTED word\nlast ]\n").expect("fixture");
+    let paths = Paths(t.0.clone());
+    for (fields, expected) in [
+        (r#"{"matchString": ["REDACTED"]}"#, "plain REDACTED word\n"),
+        (r#"{"matchString": ["redacted"], "caseMode": "insensitive"}"#, "plain REDACTED word\n"),
+        (r#"{"matchString": ["\\]"], "regexEngine": "rust"}"#, "last ]\n"),
+        (r#"{"matchString": ["\\[RED"], "regexEngine": "pcre2"}"#, ""),
+        (r#"{"matchString": ["key .* here"], "regexEngine": "rust"}"#, "key [REDACTED] here\n"),
+    ] {
+        let mut req = q(&p);
+        amend(&mut req, json_fixture(fields));
+        let r = fetch(&req, &paths);
+        assert_eq!(r.content.as_deref().unwrap_or(""), expected, "{fields}: {r:?}");
+    }
+}

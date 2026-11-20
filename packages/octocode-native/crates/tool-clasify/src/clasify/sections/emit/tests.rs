@@ -15,6 +15,34 @@ fn resource(source: Value, read: Value, sections: &[((u64, u64), f64)]) -> Value
         "coverage":{"remainingSections":0}})
 }
 
+/// Of three local resources, the one whose every section said yes still
+/// gets a top-level read, as does the one with a yes among noes; the one
+/// with no yes gets none.
+#[test]
+fn every_resource_with_a_yes_gets_a_top_level_read() {
+    let source = |path: &str| json!({"tool":"localFetch","query":{"path":path}});
+    let resources = json!({
+        "a": resource(source("a.rs"), Value::Null, &[((1, 10), 0.9), ((11, 20), 0.8)]),
+        "b": resource(source("b.rs"), Value::Null, &[((1, 10), 0.1), ((11, 20), 0.7)]),
+        "c": resource(source("c.rs"), Value::Null, &[((1, 10), 0.1)]),
+    });
+    let reads = hit_reads(resources.as_object().expect("resources"), |_| None);
+    let read: Vec<(&Value, &Value)> = reads
+        .iter()
+        .map(|read| {
+            let row = &read["input"]["queries"][0];
+            (&row["path"], &row["ranges"])
+        })
+        .collect();
+    assert_eq!(
+        read,
+        [
+            (&json!("a.rs"), &json!([{"startLine": 1, "endLine": 20}])),
+            (&json!("b.rs"), &json!([{"startLine": 11, "endLine": 20}])),
+        ]
+    );
+}
+
 /// A URL capture's yes sections are read as lines of its saved file, at
 /// the capture's snapshot, as a file's are.
 #[test]

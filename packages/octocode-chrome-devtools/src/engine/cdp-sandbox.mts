@@ -3,10 +3,12 @@
 import { spawn } from 'child_process';
 import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { existsSync, realpathSync, mkdirSync, copyFileSync } from 'fs';
+import { existsSync, readFileSync, realpathSync, mkdirSync } from 'fs';
 import { propagateOctocodeEnv } from './octocode-config.mjs';
 import { flagArgs } from './cli-flags.mjs';
 import { octocodeOutputBase, packageTmpDir } from './engine-io.mjs';
+import { stageHelpers, pruneOldRunDirs } from './sandbox-staging.mjs';
+import { originViolation, readSessionMeta } from './session-meta.mjs';
 import { errorMessage } from './error-message.mjs';
 
 function requireNode24() {
@@ -112,19 +114,44 @@ const HELPERS = [
   // Imported at runtime by the staged helpers above.
   'error-message.mjs',
 ];
-for (const helper of HELPERS) {
-  const src = resolve(__dir, helper);
-  const dst = join(HELPERS_DIR, helper);
-  if (existsSync(src)) {
-    try {
-      copyFileSync(src, dst);
-    } catch (e) {
-      console.error(
-        `[CDP_SANDBOX] Warning: could not copy ${helper}: ${errorMessage(e)}`
-      );
+stageHelpers(__dir, HELPERS_DIR, HELPERS, message =>
+  console.error(`[CDP_SANDBOX] Warning: ${message}`)
+);
+pruneOldRunDirs(RUNS_DIR, Date.now(), OUTPUT_DIR);
+
+// The port's origin allowlist (open --allow-origin) is a mistake guard: a plan or new tab that would
+// navigate elsewhere is refused here, before the runner connects to Chrome.
+async function refuseUnlistedOrigins() {
+  const allowOrigins = readSessionMeta(PORT).allowOrigins;
+  if (!allowOrigins) return;
+  const urls: { url: string; where: string }[] = [];
+  const newTab = getArg('--new-tab');
+  if (newTab) urls.push({ url: newTab, where: '--new-tab' });
+  for (const { url, where } of urls) {
+    const violation = originViolation(url, allowOrigins);
+    if (violation) refuse(`${where}: ${violation}`);
+  }
+  const planFile = getArg('--plan');
+  if (!scriptArg?.endsWith('browser-execute.mjs')) return;
+  try {
+    const text = planFile
+      ? readFileSync(planFile, 'utf8')
+      : process.env.BROWSER_PLAN;
+    if (text) {
+      const { validatePlan } = await import('./cdp-checks/plan-validate.mjs');
+      validatePlan(JSON.parse(text), { allowOrigins });
     }
+  } catch (error) {
+    const message = errorMessage(error);
+    // Only the allowlist refusal stops here; plan errors keep their usual path inside the runner.
+    if (message.includes('is not allowed for this session')) refuse(message);
   }
 }
+function refuse(message: string): never {
+  console.error(`[CDP_SANDBOX] ${message}`);
+  process.exit(1);
+}
+await refuseUnlistedOrigins();
 
 let scriptReal = null;
 const allowReadExtra = [];
@@ -166,6 +193,7 @@ const readPaths = [
       'cdp-runner-session.mjs',
       'cdp-runner-targets.mjs',
       'session-registry.mjs',
+      'session-meta.mjs',
       'target-owner.mjs',
       // Source maps for dev-server-check stacks.
       'sourcemap-resolver.mjs',
@@ -311,7 +339,7 @@ if (VERBOSE) {
   }
 } else {
   console.error(
-    `[CDP_SANDBOX] sandboxed (node ${process.versions.node}, fs scoped, fetch/WS guarded) — rerun with --verbose for full detail`
+    `[CDP_SANDBOX] sandboxed (node ${process.versions.node}, fs scoped, net/dns loopback-only) — rerun with --verbose for full detail`
   );
 }
 

@@ -7,6 +7,7 @@ import { validateHistory } from './plan-history-validate.mjs';
 import { DOM_ACTIONS, readDomConfig, readSteps } from './dom-config.mjs';
 import type { RawStep } from './dom-types.mjs';
 import type { Plan } from './plan-types.mjs';
+import { originViolation } from '../session-meta.mjs';
 
 type Json = Record<string, unknown>;
 /** A record whose op is a supported plan operation. */
@@ -32,6 +33,7 @@ const STEP_FIELDS: readonly string[] = [
   'op',
   'after',
   'timeoutMs',
+  'optional',
   'frame',
   'session',
   ...Object.values(chromePlanOperations).flat(),
@@ -46,7 +48,15 @@ const AFTER_OPS = [
   'cdp',
 ];
 const FRAME_OPS = ['act', 'wait', 'extract', 'cdp', 'listen'];
-const SESSION_OPS = [...AFTER_OPS, 'listen', 'readStream'];
+const SESSION_OPS = [
+  ...AFTER_OPS,
+  'listen',
+  'readStream',
+  'snapshot',
+  'screenshot',
+];
+// These recipes write fixed file names into the run folder; a second step would overwrite the first.
+const SINGLE_OPS = ['snapshot', 'screenshot'];
 const TEXT_FIELDS = [
   'ref',
   'selector',
@@ -174,6 +184,7 @@ function validatePlanOptions(
 const opFields = (op: PlanOperation) => [
   'op',
   'timeoutMs',
+  'optional',
   ...(AFTER_OPS.includes(op) ? ['after'] : []),
   ...(FRAME_OPS.includes(op) ? ['frame'] : []),
   ...(SESSION_OPS.includes(op) ? ['session'] : []),
@@ -191,6 +202,8 @@ function validateStepShape(
     throw new Error(`Unsupported op: ${String(step.op)}`);
   fields(step, opFields(step.op), step.op);
   integer(step.timeoutMs ?? plan.waitMs ?? 8000, 'timeoutMs', 1);
+  if (step.optional !== undefined && typeof step.optional !== 'boolean')
+    throw new Error('optional must be boolean');
 }
 
 function validateSession(step: StepRecord, scope: ReferenceScope) {
@@ -354,18 +367,54 @@ function validateFrame(step: StepRecord) {
     throw new Error('Use root goto, then scope child-frame steps');
 }
 
-/** Validates the whole plan and returns it; throws the first problem found. */
-export function validatePlan(plan: unknown): Plan {
+/** The urls a step navigates to: goto, an after.url wait, and raw Page.navigate / Target.createTarget. */
+function navigationUrls(step: Json): string[] {
+  const params = isRecord(step.params) ? step.params : {};
+  const raw = [
+    step.op === 'goto' ? step.url : undefined,
+    isRecord(step.after) ? step.after.url : undefined,
+    step.op === 'cdp' &&
+    (step.method === 'Page.navigate' || step.method === 'Target.createTarget')
+      ? params.url
+      : undefined,
+  ];
+  return raw.filter((url): url is string => typeof url === 'string');
+}
+
+/** Throws for the first navigation target whose origin is outside the allowlist (a mistake guard, not a boundary). */
+function assertAllowedOrigins(plan: Plan, allowOrigins: readonly string[]) {
+  for (const [index, step] of plan.steps.entries())
+    for (const url of navigationUrls(step)) {
+      const violation = originViolation(url, allowOrigins);
+      if (violation) throw new Error(`Step ${index + 1}: ${violation}`);
+    }
+}
+
+/**
+ * Validates the whole plan and returns it; throws the first problem found. With `allowOrigins`
+ * (the session's list) a navigation to another origin fails here, before any browser call.
+ */
+export function validatePlan(
+  plan: unknown,
+  options: { allowOrigins?: readonly string[] } = {}
+): Plan {
   assertPlan(plan);
+  if (options.allowOrigins) assertAllowedOrigins(plan, options.allowOrigins);
   return plan;
 }
 
 // The checks narrow the input step by step; together they establish every Plan field.
 function assertPlan(plan: unknown): asserts plan is Plan {
   validatePlanOptions(plan);
-  const listeners = new Set<unknown>();
+  const listeners = new Set<unknown>(),
+    singles = new Set<string>();
   for (const [index, step] of plan.steps.entries()) {
     validateStepShape(plan, step, index);
+    if (SINGLE_OPS.includes(step.op)) {
+      if (singles.has(step.op))
+        throw new Error(`A plan allows one ${step.op} step`);
+      singles.add(step.op);
+    }
     validateStepOps(plan, step, { index, steps: plan.steps, listeners });
     validateCdpFields(step);
     if (step.after !== undefined) {

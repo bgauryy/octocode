@@ -34,21 +34,24 @@ test('shared input validation rejects invalid windows and recipe discovery in CL
   }));
 
 test('missing requested measurement evidence fails through CLI and MCP', () =>
-  fixture(async ({ client, cwd, skill }) => {
-    const input = { args: ['--perf', join(cwd, 'missing.json')] };
-    const reply = await client.callTool({
-      name: 'measure-query',
-      arguments: input,
-    });
-    assert.equal(reply.isError, true);
-    assert.match(JSON.stringify(reply), /Cannot read measurement artifact/);
-    const cli = typedCli(skill, ['measure-query', '--input', '-', '--json'], {
-      cwd,
-      input: JSON.stringify(input),
-    });
-    assert.notEqual(cli.status, 0);
-    assert.match(cli.stdout + cli.stderr, /Cannot read measurement artifact/);
-  }));
+  fixture(
+    async ({ client, cwd, skill }) => {
+      const input = { args: ['--perf', join(cwd, 'missing.json')] };
+      const reply = await client.callTool({
+        name: 'measure-query',
+        arguments: input,
+      });
+      assert.equal(reply.isError, true);
+      assert.match(JSON.stringify(reply), /Cannot read measurement artifact/);
+      const cli = typedCli(skill, ['measure-query', '--input', '-', '--json'], {
+        cwd,
+        input: JSON.stringify(input),
+      });
+      assert.notEqual(cli.status, 0);
+      assert.match(cli.stdout + cli.stderr, /Cannot read measurement artifact/);
+    },
+    { full: true }
+  ));
 
 test('focused public schema agrees across transports and rejects conflicting connection inputs before captures', () =>
   fixture(async ({ client, cwd, skill }) => {

@@ -321,9 +321,11 @@ pub struct TextSearchOptions {
 /// The text a judge serves of one source in place of its bytes, line for
 /// line, and the byte ranges of that text it wrote rather than took from the
 /// source (ascending, disjoint): each placeholder, and the blanks a replaced
-/// value's line breaks fold to. A match that takes any written byte is no
-/// hit, count, listing or file-level term: what the search counts is the
-/// source's own text, never a placeholder, nor a byte a read withholds.
+/// value's line breaks fold to. What the search counts is the source's own
+/// text, never a placeholder, nor a byte a read withholds: a match that takes
+/// a written byte is a hit, count or listing only when it holds whatever was
+/// written there (it matches again with every written byte made a byte no
+/// placeholder spells), and no file-level term takes one.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ServedText {
     pub text: Vec<u8>,

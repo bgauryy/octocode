@@ -285,10 +285,8 @@ async fn a_key_file_shows_one_placeholder_form_in_every_view() {
         }
     }
     // A search reads what a read shows: a content row's lines around each
-    // block are the read's lines, and a matchOnly search for the placeholder
-    // finds it on exactly the lines a read shows it, one per line. Each span
-    // is the request's one term, so it states only where it is: its value is
-    // the placeholder the request names, and no key text is served.
+    // block are the read's lines, and a search for the placeholder finds
+    // nothing: it is the read's text, not the file's.
     let search = |query: Value| {
         let runtime = &runtime;
         async move {
@@ -324,24 +322,28 @@ async fn a_key_file_shows_one_placeholder_form_in_every_view() {
         }
         assert!(checked >= 5, "{needle}: {found}");
     }
-    let found = search(json!({"path": path, "matchString":[placeholder], "regexEngine":"literal", "view":"matchOnly"})).await;
-    let hits = found["files"][0]["matches"]
-        .as_array()
-        .unwrap_or_else(|| panic!("{found}"));
-    let shown: Vec<usize> = (1..=view.len())
-        .filter(|line| view[line - 1].contains(placeholder))
-        .collect();
-    let found_lines: Vec<usize> = hits
-        .iter()
-        .map(|hit| {
-            assert!(hit.get("value").is_none(), "{found}");
-            assert!(hit["column"].is_u64(), "{found}");
-            usize::try_from(hit["line"].as_u64().expect("line")).expect("small")
-        })
-        .collect();
-    assert_eq!(found_lines, shown, "{found}");
+    // The placeholder is text the read wrote, never the file's: a search for
+    // it matches nothing, and the empty row says masked secrets are not
+    // searched, whatever was masked. No key text is served.
+    let served = runtime
+        .run(
+            "search".into(),
+            "localSearch".into(),
+            json!({"queries":[{"path": path, "matchString":[placeholder], "regexEngine":"literal", "view":"matchOnly"}]}),
+        )
+        .await
+        .expect("search")
+        .structured_content
+        .into_value();
+    let row = &served["results"][0]["data"];
+    assert!(
+        row["files"].as_array().is_none_or(Vec::is_empty),
+        "{served}"
+    );
+    let text = served.to_string();
+    assert!(text.contains("masked secrets are not searched"), "{served}");
     for key in [&private, &pgp, &rsa] {
-        assert!(!found.to_string().contains(key.as_str()), "{found}");
+        assert!(!text.contains(key.as_str()), "{served}");
     }
     let result = clasify(
         &runtime,

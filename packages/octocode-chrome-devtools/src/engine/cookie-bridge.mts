@@ -13,6 +13,7 @@ import { connectCDP } from './cdp-connection.mjs';
  *   --to-port <n>                inject via Storage.setCookies, then read back
  *
  * Optional:
+ *   --confirm-domains a.com,b.com          REQUIRED with --from-port/--from-profile: only these domains (and subdomains) move
  *   --urls "https://a.com,https://b.com"   keep cookies that domain-match these hosts
  *   --export-storage-state <path>          write jar (0600) without logging values
  *   --source-port 9333                     profile launch port (default 9333)
@@ -31,6 +32,10 @@ import {
   toStorageStateCookie,
   type CookieRecord,
 } from './cookie-jar.mjs';
+import {
+  cookieDomainConfirmed,
+  parseConfirmDomains,
+} from './cookie-confirm.mjs';
 import { errorMessage } from './error-message.mjs';
 import { fileURLToPath } from 'url';
 import { flagArgs, validateFlags } from './cli-flags.mjs';
@@ -45,10 +50,11 @@ if (hasFlag('--help') || hasFlag('-h') || argv.length === 0) {
     ? console.error
     : console.log)(`Usage: node cookie-bridge.mjs --i-understand-secrets --to-port 9222 \\
   (--from-port 9333 | --from-profile Default | --from-storage-state state.json) \\
+  [--confirm-domains example.com,auth.example.com  (required for --from-port/--from-profile)] \\
   [--urls "https://example.com"] [--export-storage-state out.json] [--dry-run]
   [--source-port 9333] [--chromePath <browser for --from-profile>]
 
-Gate: --i-understand-secrets is required. Values are never printed.
+Gate: --i-understand-secrets is required; reading a live browser also needs --confirm-domains naming each domain (no wildcards). Values are never printed.
 Prefer --from-port (existing CDP) or --from-storage-state. --from-profile needs the browser fully quit
 and fails on Google Chrome 136+, which refuses remote debugging on its real profile.`);
   process.exit(argv.length === 0 ? 1 : 0);
@@ -65,6 +71,7 @@ validateFlags(
     '--source-port',
     '--chromePath',
     '--urls',
+    '--confirm-domains',
   ],
   ['--help', '-h', '--i-understand-secrets', '--dry-run']
 );
@@ -80,6 +87,7 @@ const URLS = getArg('--urls', '')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);
+const CONFIRM_RAW = getArg('--confirm-domains', '');
 const DRY_RUN = hasFlag('--dry-run');
 const WORKSPACE_OUTPUT_BASE = octocodeWorkspace();
 
@@ -99,6 +107,12 @@ if (sources.length !== 1)
   fail(
     'Pick exactly one of --from-port, --from-profile, --from-storage-state.'
   );
+let CONFIRMED: string[] = [];
+if (FROM_PORT || FROM_PROFILE || CONFIRM_RAW) {
+  const parsed = parseConfirmDomains(CONFIRM_RAW);
+  if ('error' in parsed) fail(parsed.error);
+  else CONFIRMED = parsed.domains;
+}
 if (FROM_PROFILE && TO_PORT === SOURCE_PORT)
   fail('--source-port must differ from --to-port.');
 if (EXPORT_STATE) {
@@ -291,6 +305,10 @@ async function main() {
     }
 
     cookies = filterCookies(cookies, URLS);
+    if (CONFIRMED.length) {
+      cookies = cookies.filter(c => cookieDomainConfirmed(c, CONFIRMED));
+      console.log(`[ACTION] confirmed-domains=${CONFIRMED.join(',')}`);
+    }
     const metas = cookies.map(cookieMeta);
     console.log(
       `[METRIC] cookies=${metas.length} domains=${new Set(metas.map(m => m.domain)).size} partitioned=${metas.filter(m => m.partitioned).length}`

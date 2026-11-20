@@ -102,6 +102,16 @@ test('host build selects the CLI crate in one locked cargo invocation', () => {
   }
 });
 
+test('only a staged release --all build drops its platform build dir; target/ itself never', () => {
+  const { buildDirToDrop, targetDir } = require('../scripts/build-native.cjs');
+  const all = { all: true, release: true, check: false };
+  assert.equal(buildDirToDrop('linux-x64-musl', true, all), targetDir('linux-x64-musl'));
+  assert.equal(buildDirToDrop('darwin-arm64', false, all), null);
+  for (const options of [{ ...all, all: false }, { ...all, release: false }, { ...all, release: false, check: true }]) {
+    assert.equal(buildDirToDrop('linux-x64-musl', true, options), null, JSON.stringify(options));
+  }
+});
+
 test('release builds remap build paths and pin the macOS floor; dev and check builds add nothing', () => {
   const os = require('os');
   const { PLATFORMS } = require('../bin/platform.cjs');

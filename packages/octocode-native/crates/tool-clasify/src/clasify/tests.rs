@@ -515,9 +515,11 @@ fn an_over_budget_row_states_its_price_and_offers_the_confirm_call() {
         json!({"calls":0,"requestsPlanned":3,"requestsCeiling":6,"inputTokensAtMost":21400})
     );
     let error = out["error"].as_str().expect("error");
+    // One number: the price the text states is the usage's ceiling.
+    let ceiling = out["usage"]["requestsCeiling"].as_u64().expect("ceiling");
     assert!(
         error.contains("63 units")
-            && error.contains("at most 3")
+            && error.contains(&format!("at most {ceiling} "))
             && error.contains("maxRequests is 2"),
         "{error}"
     );
@@ -619,4 +621,70 @@ fn a_row_is_admitted_by_its_first_round_within_its_cap_or_what_it_names() {
             }
         }
     }
+}
+
+/// Every refusal a bound makes is a row the clasify output contract takes,
+/// with its `next.confirm`: an evaluate row over its `maxRequests` or past
+/// what it names, a `sections` plan past its resources, a source the window
+/// refused whole whose sections wait, and one resource of a resources row.
+#[test]
+fn every_bound_refusal_is_a_row_the_output_contract_takes() {
+    use octocode_runtime_base::id::ToolId;
+    use octocode_runtime_base::test_support::assert_row_contract;
+    let questions = json!({"q":{"type":"noul","instructions":"Is it?"}});
+    let local = |path: &str| json!({"tool":"localFetch","query":{"path":path}});
+    let row = |query: Value| super::rows::parse_rows(&[query]).remove(0);
+    let search = row(json!({"operation":"evaluate","questions":questions,
+        "source":{"tool":"localSearch","query":{"path":".","matchString":["x"]}}}));
+    let whole = row(json!({"operation":"evaluate","questions":questions,"source":local("big.md")}));
+    let sections = row(json!({"operation":"sections","questions":questions,
+        "resources":{"docs":local("docs/a.md")}}));
+    let over = |limit, spent| reply::OverBudget {
+        units: 3,
+        price: reply::Price {
+            planned: 3,
+            ceiling: Some(7),
+            room: 3,
+        },
+        input_tokens_at_most: None,
+        limit,
+        room: 3,
+        spent,
+    };
+    for (row, over) in [
+        (&search, over(reply::Limit::Max(2), 0)),
+        (&search, over(reply::Limit::Named(1), 0)),
+        (&sections, over(reply::Limit::Named(1), 0)),
+        (&whole, over(reply::Limit::Named(1), 1)),
+    ] {
+        for can_resume in [true, false] {
+            let out = reply::over_budget(row, &over, can_resume);
+            assert_eq!(out["errorCode"], "classificationOverBudget", "{out:#}");
+            assert_eq!(out["usage"]["calls"], over.spent, "{out:#}");
+            let confirm = if can_resume {
+                &out["next"]["confirm"]
+            } else {
+                &out["related"][0]
+            };
+            assert_eq!(confirm["tool"], "clasify", "{out:#}");
+            assert_row_contract(ToolId::Clasify, &out);
+        }
+    }
+    let resources = row(json!({"operation":"evaluate","questions":questions,
+        "resources":{"big":local("big.md")}}));
+    let outcomes = vec![evaluate::ResourceOutcome {
+        key: "big".into(),
+        source: Some(local("big.md")),
+        outcome: RowOutcome::OverBudget(Box::new(over(reply::Limit::Named(1), 1))),
+    }];
+    let out = reply::resources_answered(&resources, outcomes, Vec::new(), true);
+    assert_eq!(
+        out["resources"]["big"]["errorCode"], "classificationOverBudget",
+        "{out:#}"
+    );
+    assert_eq!(
+        out["resources"]["big"]["next"]["confirm"]["tool"], "clasify",
+        "{out:#}"
+    );
+    assert_row_contract(ToolId::Clasify, &out);
 }

@@ -43,9 +43,16 @@ pub(super) struct Package<'a> {
 struct Notes {
     /// The requested version is not on the registry.
     absent: Option<ArtifactError>,
-    /// The version `absent` names is one OSV's records name by version, so OSV
-    /// was asked at it and the row answers ([`ask_unlisted`]).
+    /// OSV, asked at the version `absent` names, lists it as affected, so the
+    /// row answers ([`ask_unlisted`]).
     unlisted: bool,
+    /// OSV, asked at the version `absent` names, lists none of the package's
+    /// advisories at it.
+    unlisted_clear: bool,
+    /// The public registry does not list the name (removed, as for malware,
+    /// or never published): the name and version went to OSV as given, and
+    /// with no advisory there the row is the failed lookup ([`not_on_registry`]).
+    unregistered_name: Option<octocode_contract_types::ArtifactType>,
     prerelease_warning: Option<String>,
     /// Runtime dependencies the confirmed version pins to one exact version:
     /// the advisories filed against them are not this package's.
@@ -139,7 +146,8 @@ pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, A
     // the first page, as its trust is read.
     let near_kind = registered
         .as_ref()
-        .and_then(|_| ecosystem::registry(package.ecosystem).ok().flatten());
+        .and_then(|_| ecosystem::registry(package.ecosystem).ok().flatten())
+        .or(notes.unregistered_name);
     let (results, trust, latest, near) = tokio::join!(
         ask_all(&target, net),
         async {
@@ -171,6 +179,9 @@ pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, A
         Err(error) if !resumed => (Vec::new(), Some(error)),
         Err(error) => return Err(error),
     };
+    if let Some(kind) = notes.unregistered_name {
+        unregistered_answer(kind, package, &results, osv_failed.as_ref(), near.as_ref())?;
+    }
     let (confirmed, results) = match osv_failed {
         None => ask_unlisted(package, confirmed, &mut notes, results, net).await,
         Some(_) => (confirmed, results),
@@ -843,13 +854,13 @@ fn skipped_note(skipped: &[String]) -> Option<String> {
 fn not_on_registry(
     kind: octocode_contract_types::ArtifactType,
     package: &Package<'_>,
-    near: Option<lookalike::Near>,
+    near: Option<&lookalike::Near>,
 ) -> ArtifactError {
     let name = package.name;
     let mut error = ArtifactError::new(
         ErrorCode::NotFound,
         format!(
-            "{name} is not on the public {kind} registry, so it was not sent to OSV: advisories were not checked."
+            "{name} is not on the public {kind} registry, and OSV lists no advisory under this name."
         ),
     )
     .with_status(404);
@@ -905,9 +916,42 @@ fn not_on_registry(
     error
 }
 
+/// A name the public registry does not list, once OSV answered: with an
+/// advisory (a package the registry removed, as for malware) the row answers
+/// as an unconfirmed one; with none, the row is the failed lookup, naming the
+/// names one edit away; when OSV failed, OSV's error, saying the registry
+/// lacks the name.
+fn unregistered_answer(
+    kind: octocode_contract_types::ArtifactType,
+    package: &Package<'_>,
+    results: &[SourceResult],
+    osv_failed: Option<&ArtifactError>,
+    near: Option<&Result<lookalike::Near, ArtifactError>>,
+) -> Result<(), ArtifactError> {
+    if let Some(error) = osv_failed {
+        let mut error = error.clone();
+        error.message = format!(
+            "{} is not on the public {kind} registry, and OSV, asked by name, failed: {} Advisories were not checked.",
+            package.name,
+            sentence(&error.message)
+        );
+        return Err(error);
+    }
+    if results.iter().any(|result| !result.advisories.is_empty()) {
+        return Ok(());
+    }
+    Err(not_on_registry(
+        kind,
+        package,
+        near.and_then(|near| near.as_ref().ok()),
+    ))
+}
+
 /// The anonymous read of the public registry: the one resolve path, with no
-/// authorization, no configured registry and no tag checks. A package it does
-/// not know, or a failed read, ends the row here with nothing sent.
+/// authorization, no configured registry and no tag checks. A failed read
+/// ends the row here with nothing sent; a name or version the registry does
+/// not list still goes to OSV (removed packages and yanked versions keep
+/// their advisories there).
 async fn confirm(
     package: &Package<'_>,
     net: &Net<'_>,
@@ -933,8 +977,9 @@ async fn confirm(
     let resolve = resolve_query(kind, name, package.version)?;
     let page = match execute_artifact(&resolve, &context(net)).await {
         Ok(page) => page,
-        // The package is public and this version is not: the source may hear
-        // the name, never a version the registry does not list.
+        // The package is public and this version is not: OSV hears the name,
+        // and the version once it lists an advisory for the package
+        // ([`ask_unlisted`]).
         Err(mut error) if error.missing_version => {
             // The repair call reads as many nearest versions as one call carries.
             let limit =
@@ -966,11 +1011,21 @@ async fn confirm(
         }
     };
     let Some(artifact) = page.artifacts.first() else {
-        let near = match lookalike::near_names(kind, name, &context(net)).await {
-            Some(Ok(near)) => Some(near),
-            _ => None,
-        };
-        return Err(not_on_registry(kind, package, near));
+        return Ok((
+            Confirmed {
+                ecosystem: package.ecosystem,
+                name: name.to_owned(),
+                version: package.version.map(str::to_owned),
+                resume: None,
+                release: package.release.map(str::to_owned),
+                import: None,
+            },
+            Notes {
+                unconfirmed: true,
+                unregistered_name: Some(kind),
+                ..Notes::default()
+            },
+        ));
     };
     // A pinned version asks the registry once more for the latest, in `run`,
     // alongside the other reads; every other row already holds it.
@@ -987,6 +1042,8 @@ async fn confirm(
         Notes {
             absent: None,
             unlisted: false,
+            unlisted_clear: false,
+            unregistered_name: None,
             unconfirmed: false,
             pinned: exact_pins(artifact),
             registered: Some(Registered::of(artifact)),
@@ -1277,13 +1334,13 @@ fn listing_version(results: &[SourceResult], version: &str) -> Vec<String> {
     ids
 }
 
-/// A version the registry does not list (unpublished, removed for malware)
-/// that a record OSV returned for the package names by that exact version: the
-/// version is public in OSV's own record, so OSV is asked at it, and its match
-/// answers the row ([`Notes::unlisted`]). Any other unlisted version is never
-/// sent ([`confirm`]). A walk that did not finish, or an answer at the version
-/// that failed, stopped or came back empty, leaves the by-name read, and the
-/// row stays a failed lookup.
+/// A version the registry does not list (yanked, unpublished, removed for
+/// malware) of a package OSV lists advisories for: OSV is asked at it and
+/// compares it with each record's versions and ranges, and its match answers
+/// the row ([`Notes::unlisted`]). An empty answer at the version is recorded
+/// ([`Notes::unlisted_clear`]) and the row stays a failed lookup; a walk that
+/// did not finish, or an answer at the version that failed or stopped,
+/// leaves the by-name read as it is.
 async fn ask_unlisted(
     package: &Package<'_>,
     confirmed: Confirmed,
@@ -1295,9 +1352,8 @@ async fn ask_unlisted(
     let requested = package
         .version
         .filter(|_| notes.absent.is_some() && confirmed.version.is_none());
-    let Some(requested) = requested
-        .filter(|requested| finished(&results) && !listing_version(&results, requested).is_empty())
-    else {
+    let known = results.iter().any(|result| !result.advisories.is_empty());
+    let Some(requested) = requested.filter(|_| finished(&results) && known) else {
         return (confirmed, results);
     };
     let asked = Confirmed {
@@ -1313,6 +1369,10 @@ async fn ask_unlisted(
         {
             notes.unlisted = true;
             (asked, at_version)
+        }
+        Ok(at_version) if finished(&at_version) => {
+            notes.unlisted_clear = true;
+            (confirmed, results)
         }
         _ => (confirmed, results),
     }
@@ -1372,7 +1432,11 @@ fn respond(
         && let Some(requested) = package.version
     {
         facts.unregistered = Some((requested, listing_version(results, requested)));
+        facts.unregistered_clear = notes.unlisted_clear;
     }
+    facts.unregistered_name = notes
+        .unregistered_name
+        .map(crate::artifact::query::artifact_type::as_str);
     let mut data = answer::lead(&target, &facts);
     data["packageName"] = json!(name);
     match version {

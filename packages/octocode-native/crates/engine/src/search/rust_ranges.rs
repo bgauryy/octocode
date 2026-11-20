@@ -5,6 +5,7 @@
 //! the verdict never depends on the text's size.
 use super::span_sink::{CappedSpans, SpanSink};
 use regex::RegexBuilder;
+use std::ops::Range;
 
 /// Why a Rust-regex range scan returned no ranges.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,17 +27,21 @@ pub fn rust_find_ranges(
         pattern,
         case_insensitive,
         input,
+        &[],
         CappedSpans::new(max_matches),
     )
     .map(CappedSpans::into_spans)
 }
 
 /// Offer every match of `pattern` in `input` to `sink`, in order, until it
-/// stops the scan; the sink comes back with what it kept.
+/// stops the scan; the sink comes back with what it kept. `written` are the
+/// byte ranges of `input` a redaction wrote: a match their own spelling
+/// makes is none ([`super::text_search::written::each_own_in`]).
 pub fn rust_scan_ranges<S: SpanSink>(
     pattern: &str,
     case_insensitive: bool,
     input: &str,
+    written: &[Range<usize>],
     mut sink: S,
 ) -> Result<S, RustRangesError> {
     let regex = RegexBuilder::new(pattern)
@@ -46,11 +51,20 @@ pub fn rust_scan_ranges<S: SpanSink>(
         .crlf(true)
         .build()
         .map_err(|error| RustRangesError::InvalidPattern(parse_reason(&error.to_string())))?;
-    for found in regex.find_iter(input) {
-        if !sink.accept((found.start(), found.end())) {
-            break;
+    if written.is_empty() {
+        for found in regex.find_iter(input) {
+            if !sink.accept((found.start(), found.end())) {
+                break;
+            }
         }
+        return Ok(sink);
     }
+    let Ok(()) = super::text_search::written::each_own_in(
+        input,
+        written,
+        |text: &str, at| Ok::<_, std::convert::Infallible>(regex.find_at(text, at).map(|m| m.range())),
+        |found| sink.accept((found.start, found.end)),
+    );
     Ok(sink)
 }
 

@@ -82,7 +82,9 @@ fn preliminary_sibling_arrays_and_records_cannot_spend_terminal_room() {
     let names = (0..18)
         .map(|i| format!("path-{i}-{}", "界".repeat(25)))
         .collect::<Vec<_>>();
-    let graph = json!({"operation":"impact","rows":results,"summary":{"testsToRun":names}});
+    // `summary.changed` is an impact summary list the row pager splits
+    // (`testsToRun` and its siblings page through their own `next` channels).
+    let graph = json!({"operation":"impact","rows":results,"summary":{"changed":names}});
     let branches = (0..18)
         .map(|i| json!({"name": format!("branch-{i}"), "sha": "b".repeat(60)}))
         .collect::<Vec<_>>();
@@ -116,7 +118,7 @@ fn preliminary_sibling_arrays_and_records_cannot_spend_terminal_room() {
             let collected = rows
                 .iter()
                 .flat_map(|row| {
-                    row["data"]["summary"]["testsToRun"]
+                    row["data"]["summary"]["changed"]
                         .as_array()
                         .into_iter()
                         .flatten()

@@ -268,14 +268,12 @@ impl Scope {
         }
     }
 
-    /// Whether scanned `file` (canonical) could reference the anchor's
-    /// declaration of `symbol`; a file not checked yet is.
-    pub(in super::super) fn in_reach(&self, symbol: &str, file: &str) -> bool {
-        self.code_uses
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(&code_use_key(symbol, file))
-            != Some(&Use::OutOfReach)
+    /// Whether scanned `file` (canonical) uses `symbol` in code in a way
+    /// that may answer what the request asks, within the anchor
+    /// declaration's reach: the test [`Self::text_only_files`] applies,
+    /// from the same memo.
+    pub(in super::super) fn uses_as_asked(&self, symbol: &str, file: &str) -> bool {
+        self.code_use(symbol, file) == Use::Code
     }
 
     /// Check every scanned file the answer does not cover for its reach and

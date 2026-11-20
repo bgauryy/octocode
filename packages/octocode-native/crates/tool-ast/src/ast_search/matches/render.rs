@@ -162,8 +162,8 @@ pub(super) fn render_match_page(
     } else if let Some(skipped) = gaps.skipped {
         include_skipped = Some(skipped);
     }
-    // The coverage cuts are the scan's: page 1 states them beside its
-    // census, and the last page, which no next page explains, again.
+    // The coverage cuts are the scan's: each page names them; page 1 and
+    // the last page, which no next page explains, add the notes.
     let incomplete = mark_coverage_cuts(&mut out, scan, &grouped, first_page || !more);
     let empty = groups.is_empty() && !more && !incomplete;
     if empty {
@@ -254,11 +254,11 @@ fn source_limit_leads(
     super::continuations::narrow_leads(q, &file, path)
 }
 
-/// Mark each coverage cut of the scan as a partial reason where `stated`
-/// (page 1, beside the census that explains it, and the final page, which
-/// no `next` explains); a page between is only `isPartial`. Returns whether
-/// the scan's coverage is incomplete. Match pages are pagination, never a
-/// coverage cut.
+/// Mark each coverage cut of the scan as a partial reason on every page, so
+/// a page read alone says why it is partial; the note that explains an
+/// unproven test-code verdict is said where `stated` (page 1, beside the
+/// census, and the final page). Returns whether the scan's coverage is
+/// incomplete. Match pages are pagination, never a coverage cut.
 fn mark_coverage_cuts(out: &mut Value, scan: &Scan, grouped: &Grouped, stated: bool) -> bool {
     use octocode_runtime_base::response::paging::PartialReason;
     let skips = scan.skips;
@@ -269,17 +269,12 @@ fn mark_coverage_cuts(out: &mut Value, scan: &Scan, grouped: &Grouped, stated: b
     let incomplete = budget_cut(scan) || skipped || recovered || grouped.unevaluated_files > 0;
     let unproven = octocode_tools_shared::test_code::unread_note(&scan.test_code_unread);
     let incomplete = incomplete || unproven.is_some();
-    if !stated {
-        if incomplete {
-            octocode_runtime_base::response::paging::set_partial(out, true);
-        }
-        return incomplete;
-    }
     if let Some(note) = unproven {
+        let notes = if stated { vec![note] } else { Vec::new() };
         octocode_runtime_base::response::paging::mark_partial(
             out,
             PartialReason::FilesUnevaluated,
-            &[note],
+            &notes,
         );
     }
     for (cut, reason) in [
@@ -437,11 +432,20 @@ impl Census {
         } else {
             None
         };
-        let (unparsed, skipped_grammars) = scan.unparsed.disclosed(
-            &super::types::SEARCH,
-            Some(&read),
-            grouped.skipped_grammars.clone(),
-        );
+        // The files no grammar parses and the skipped-grammar counts are the
+        // walk's to this window's end, and each window walks from the first
+        // candidate: the first window says them, and the final window, whose
+        // walk met every file, says them whole; a window between would repeat
+        // them.
+        let (unparsed, skipped_grammars) = if q.scan_offset() == 0 || !scan.truncated {
+            scan.unparsed.disclosed(
+                &super::types::SEARCH,
+                Some(&read),
+                grouped.skipped_grammars.clone(),
+            )
+        } else {
+            (None, None)
+        };
         let notices = [
             unparsed,
             recovered_notice(&grouped.recovered),

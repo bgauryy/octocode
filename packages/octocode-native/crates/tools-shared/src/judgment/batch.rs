@@ -77,6 +77,12 @@ pub(crate) async fn answer_questions(
     if !fits_long_window(input, model, connection.provider) {
         return not_retried(outcomes, connection.provider);
     }
+    // A row held to a spent `maxRequests` keeps the refusal: its caller
+    // prices what the source still needs (its sections) and offers it
+    // instead of a dead end.
+    if input.cap.is_some_and(super::RequestCap::spent) {
+        return capped_refusal(outcomes);
+    }
     let long = EvaluationInput {
         long_context: LongContext::Always,
         ..input
@@ -176,6 +182,23 @@ fn not_retried(
     for error in errors {
         if error.code == ErrorCode::ClassificationStateTooLarge {
             error.hints.push(hint.clone());
+        }
+    }
+    outcomes
+}
+
+/// A default-window refusal of a row whose `maxRequests` has no request left
+/// for the long-window retry: the refusal stands, and says why it was not
+/// retried.
+fn capped_refusal(mut outcomes: QuestionOutcomes) -> QuestionOutcomes {
+    let errors = outcomes
+        .answers
+        .iter_mut()
+        .filter_map(|answer| answer.as_mut().err())
+        .chain(outcomes.complete.as_mut().err());
+    for error in errors {
+        if error.code == ErrorCode::ClassificationStateTooLarge {
+            error.hints.push(super::cap::LONG_RETRY_UNSENT.to_owned());
         }
     }
     outcomes

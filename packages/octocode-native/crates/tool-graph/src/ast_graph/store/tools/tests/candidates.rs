@@ -299,7 +299,10 @@ fn a_missing_reference_offers_its_near_names_as_ready_calls() {
     for call in near {
         assert_eq!(call["kind"], "related");
         assert_eq!(call["input"]["queries"][0]["operation"], "callers");
-        assert_eq!(call["input"]["queries"][0]["target"], "a.ts#shared_target");
+        assert_eq!(
+            call["input"]["queries"][0]["target"],
+            "app/a.ts#shared_target"
+        );
     }
     // Then the find call the error names, for the reference's name.
     assert_eq!(

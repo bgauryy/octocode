@@ -22,7 +22,7 @@
 'use strict';
 
 const { spawn } = require('child_process');
-const { mkdirSync } = require('fs');
+const { mkdirSync, rmSync } = require('fs');
 const { availableParallelism, homedir, totalmem } = require('os');
 const { parseArgs } = require('util');
 const { join, relative } = require('path');
@@ -65,7 +65,7 @@ function parseOptions(argv) {
   for (const platform of targets) if (!PLATFORMS[platform]) usage(`unknown platform ${platform}`);
   const jobCount = jobs === undefined ? null : Number(jobs);
   if (jobCount !== null && !(Number.isInteger(jobCount) && jobCount > 0)) usage('--jobs must be a positive integer');
-  return { release, check, targets, jobs: jobCount };
+  return { release, check, all, targets, jobs: jobCount };
 }
 
 const hostPlatform = getPlatformSuffix();
@@ -225,6 +225,16 @@ function verifyStaged(platform, staged) {
   for (const artifact of staged) verifyBinaryRuns(artifact, version);
 }
 
+/**
+ * The build dir a staged platform build leaves for deletion, else null. A
+ * release `--all` build is the release line's one-off: its per-platform dirs
+ * (0.5-0.7 GB each) are not reused before the next release, while `target/`
+ * holds the host's warm dev, test and lint builds and stays.
+ */
+function buildDirToDrop(platform, explicitTarget, options) {
+  return explicitTarget && options.all && options.release && !options.check ? targetDir(platform) : null;
+}
+
 async function buildPlatform(platform, explicitTarget, options) {
   const label = explicitTarget ? platform : 'host';
   const target = explicitTarget ? platform : null;
@@ -248,6 +258,11 @@ async function buildPlatform(platform, explicitTarget, options) {
   const staged = stageBinary(platform, explicitTarget, options.release, dir);
   verifyStaged(platform, staged);
   for (const artifact of staged) console.log(`[${label}] staged ${relative(ROOT, artifact)}`);
+  const drop = buildDirToDrop(platform, explicitTarget, options);
+  if (drop) {
+    rmSync(drop, { recursive: true, force: true });
+    console.log(`[${label}] removed ${relative(ROOT, drop)}`);
+  }
 }
 
 /**
@@ -296,4 +311,4 @@ async function main() {
 }
 
 if (require.main === module) main();
-else module.exports = { GLIBC_FLOOR, MACOS_FLOOR, hostsCommand, targetDir };
+else module.exports = { GLIBC_FLOOR, MACOS_FLOOR, buildDirToDrop, hostsCommand, targetDir };

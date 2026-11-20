@@ -43,7 +43,7 @@ fn the_edits_reach_each_shape_one_edit_away() {
 }
 
 /// A name spelled with capitals is one edit from its lowercase spelling, the
-/// only one npm takes for a new name (LEFTOVERS P2); a registry that matches
+/// only one npm takes for a new name; a registry that matches
 /// names whatever their case has no such edit.
 #[test]
 fn capitals_lowercased_are_one_edit() {

@@ -1,3 +1,4 @@
+import { redactPlanForEvidence } from './plan-redact.mjs';
 import {
   readFileSync,
   writeFileSync,
@@ -10,8 +11,10 @@ import { jsonPointer, validatePlan } from './plan-validate.mjs';
 import { frameScope, scopedSession } from './plan-scopes.mjs';
 import { historyOps } from './plan-history-ops.mjs';
 import { pageOps } from './plan-page-ops.mjs';
+import { captureOps } from './plan-capture-ops.mjs';
 import { logQueryContinuation, protocolOps } from './plan-protocol-ops.mjs';
 import type { Payload } from '../cdp-connection.mjs';
+import { originViolation, readSessionMeta } from '../session-meta.mjs';
 import { errorMessage } from '../error-message.mjs';
 import type { CheckSession } from '../cdp-runner-session.mjs';
 import type {
@@ -39,7 +42,7 @@ const arg = (flag: string) => {
   const i = process.argv.indexOf(flag);
   return i < 0 ? null : process.argv[i + 1];
 };
-const ops = { ...pageOps, ...historyOps, ...protocolOps };
+const ops = { ...pageOps, ...historyOps, ...captureOps, ...protocolOps };
 const log = (line: string) => console.log(line);
 const readPlanInput = () => {
   const file = arg('--plan');
@@ -88,9 +91,36 @@ function stepFailure(error: unknown, step: PlanStep, index: number): Failure {
   };
 }
 
+/** The port's allowlist (open --allow-origin), if one was set for the browser this run drives. */
+const sessionAllowOrigins = () =>
+  readSessionMeta(arg('--port') ?? '9222').allowOrigins;
+
+/** Fails when the page reached a URL outside the allowlist (a redirect or a click that left it). */
+async function assertStayedOnAllowedOrigins(
+  cdp: CheckSession,
+  allowOrigins: readonly string[]
+) {
+  if (cdp.targetInfo.type !== 'page') return;
+  const reached = await cdp.send('Runtime.evaluate', {
+    expression: 'location.href',
+    returnByValue: true,
+  });
+  const href = reached.result?.value;
+  if (typeof href !== 'string') return;
+  const violation = originViolation(href, allowOrigins);
+  if (violation)
+    throw new Error(
+      `The page navigated outside the allowlist to ${href}. ${violation}`
+    );
+}
+
 export async function run(connection: CheckSession, input?: unknown) {
-  const plan = validatePlan(input ?? readPlanInput());
-  const planArtifact = connection.saveArtifact('browser-plan.json', plan).file;
+  const allowOrigins = sessionAllowOrigins();
+  const plan = validatePlan(input ?? readPlanInput(), { allowOrigins });
+  const planArtifact = connection.saveArtifact(
+    'browser-plan.json',
+    redactPlanForEvidence(plan)
+  ).file;
   const journalArtifact = join(connection.outputDir, 'browser-steps.jsonl');
   writeFileSync(journalArtifact, '', { mode: 0o600, flag: 'wx' });
   console.log(`[ARTIFACT] STEPS ${journalArtifact}`);
@@ -132,6 +162,8 @@ export async function run(connection: CheckSession, input?: unknown) {
     streams = new Map<string, EventStream>(),
     artifacts = new Map<unknown, string>();
   let failure: Failure | null = null;
+  // Optional steps that failed; the plan went on past them.
+  const failedOptionalSteps: Failure[] = [];
   const started = Date.now();
   // A { $step | $event, pointer } reference resolves to the value it selects.
   const resolveReference = (
@@ -187,6 +219,7 @@ export async function run(connection: CheckSession, input?: unknown) {
           index: index + 1,
           op: step.op,
           status: 'running',
+          ...(step.optional ? { optional: true } : {}),
           startedAt: new Date().toISOString(),
         };
       journal(row);
@@ -194,6 +227,7 @@ export async function run(connection: CheckSession, input?: unknown) {
       console.log(
         `[PROGRESS] BROWSER step=${index + 1}/${plan.steps.length} op=${step.op}`
       );
+      const exitBefore = process.exitCode;
       const stepStarted = Date.now();
       stepDeadline = stepStarted + timeout;
       const progress = setInterval(
@@ -240,6 +274,7 @@ export async function run(connection: CheckSession, input?: unknown) {
           row,
           target,
         });
+        if (allowOrigins) await assertStayedOnAllowedOrigins(cdp, allowOrigins);
         row.status = 'complete';
       } catch (error) {
         const protocolError = protocolErrorOf(error);
@@ -250,8 +285,14 @@ export async function run(connection: CheckSession, input?: unknown) {
           ).file;
         row.status = 'failed';
         row.error = errorMessage(error);
-        failure = stepFailure(error, step, index);
-        break;
+        const failed = stepFailure(error, step, index);
+        if (!step.optional) {
+          failure = failed;
+          break;
+        }
+        // A recipe behind the step may have marked the process failed; the plan went on.
+        process.exitCode = exitBefore;
+        failedOptionalSteps.push(failed);
       } finally {
         stepDeadline = null;
         clearInterval(progress);
@@ -297,6 +338,7 @@ export async function run(connection: CheckSession, input?: unknown) {
       elapsedMs: Date.now() - started,
       requestedSteps: plan.steps.length,
       completedSteps: results.filter(r => r.status === 'complete').length,
+      failedOptionalSteps,
       steps: results,
       coverage: {
         executedSteps: results.length,
@@ -307,12 +349,16 @@ export async function run(connection: CheckSession, input?: unknown) {
       eventCoverage: eventCoverage(streams),
     };
     cdp.saveArtifact('browser-result.json', result);
+    for (const skipped of failedOptionalSteps)
+      console.log(
+        `[FINDING] BROWSER_OPTIONAL_FAILED ${JSON.stringify(skipped)}`
+      );
     if (failure) {
       process.exitCode = 1;
       console.log(`[FINDING] BROWSER_STOPPED ${JSON.stringify(failure)}`);
     } else
       console.log(
-        `[METRIC] BROWSER completed=${result.completedSteps}/${result.requestedSteps} elapsedMs=${result.elapsedMs}`
+        `[METRIC] BROWSER completed=${result.completedSteps}/${result.requestedSteps} failedOptional=${failedOptionalSteps.length} elapsedMs=${result.elapsedMs}`
       );
   }
   return { ok: !failure, results };

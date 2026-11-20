@@ -37,8 +37,17 @@ async fn fail(server: &MockServer, row: Value) -> GhFailure {
         .expect_err("not found")
 }
 
-async fn sent(server: &MockServer) -> usize {
-    server.received_requests().await.expect("recorded").len()
+/// The REST reads `server` received, and its GraphQL reads apart: a pull
+/// request summary asks its whole comment count over GraphQL beside the
+/// item read (TB6), and a failed item read may end that read before it is
+/// sent, so only the REST reads have one count.
+async fn sent(server: &MockServer) -> (usize, usize) {
+    let requests = server.received_requests().await.expect("recorded");
+    let graphql = requests
+        .iter()
+        .filter(|request| request.url.path().ends_with("/graphql"))
+        .count();
+    (requests.len() - graphql, graphql)
 }
 
 #[tokio::test]
@@ -98,18 +107,19 @@ async fn a_missing_repository_leads_to_a_repository_search_beside_a_summary_coun
             !failure.hints.is_empty(),
             "the ghSearchRepo leads are labelled"
         );
-        // The item read, its probe as the other kind of numbered item (a
-        // commit has none), and the repository read; a pull-request summary
-        // also asks its whole comment count beside the item read (TB6).
-        let limit = match row["operation"].as_str() {
-            Some("commit") => 2,
-            Some("pullRequest") => 4,
-            _ => 3,
+        // The item read and the repository read; a pull request's also
+        // probes the number as an issue, and may ask its whole comment
+        // count beside the item read (TB6), which the failed read can end
+        // unsent; an issue's always asks its closing pull requests beside it.
+        let (rest, graphql) = sent(&server).await;
+        let (reads, counts) = match row["operation"].as_str() {
+            Some("commit") => (2, 0..=0),
+            Some("pullRequest") => (3, 0..=1),
+            _ => (2, 1..=1),
         };
         assert!(
-            sent(&server).await == limit,
-            "{row}: {} requests",
-            sent(&server).await
+            rest == reads && counts.contains(&graphql),
+            "{row}: {rest} REST and {graphql} GraphQL requests"
         );
     }
 }
@@ -152,9 +162,13 @@ async fn an_existing_repository_keeps_the_item_failure_after_a_summary_count_rea
         calls["findPullRequest"]["tool"], "ghSearchHistory",
         "{calls}"
     );
-    // The item read, the issue probe, the repository read, and the summary's
-    // whole comment count read beside the item read (TB6).
-    assert_eq!(sent(&server).await, 4);
+    // The item read, the issue probe, the repository read, and at most the
+    // summary's whole comment count read beside the item read (TB6).
+    let (rest, graphql) = sent(&server).await;
+    assert!(
+        rest == 3 && graphql <= 1,
+        "{rest} REST and {graphql} GraphQL"
+    );
     assert!(
         !failure.message.contains(OR_REPOSITORY),
         "the repository read proved it exists: {}",

@@ -348,11 +348,39 @@ impl Snapshots<'_> {
     }
 }
 
+/// The scope a `graph` ID was built for, named as a call's `path` is: an
+/// exact snapshot ID of the home names its own root, so a call pinning one
+/// needs no `path`. `None` for anything else (a partial ID stays refused).
+fn pinned_scope(id: &str, paths: &PathPolicy, configured: Option<&Path>) -> Option<String> {
+    let workspace = paths.validate(".").ok()?.canonical;
+    let home = graph_home(Some(&workspace), configured).ok()?;
+    if !list_snapshots(&home).iter().any(|known| known == id) {
+        return None;
+    }
+    let root = read_snapshot_metadata(&home.join(id))?.root?;
+    Some(paths.shown(Path::new(&root)))
+}
+
 fn options(
     row: &Value,
     paths: &PathPolicy,
     configured: Option<&Path>,
 ) -> Result<QueryOptions, GraphOutput> {
+    // A pinned snapshot with no `path` (or the default one the input
+    // contract fills in) answers for the scope it was built for.
+    let mut scoped;
+    let default_path = row.get("path").is_none_or(|path| path == ".");
+    let row = match (default_path, row["graph"].as_str()) {
+        (true, Some(id)) => match pinned_scope(id, paths, configured) {
+            Some(path) => {
+                scoped = row.clone();
+                scoped["path"] = json!(path);
+                &scoped
+            }
+            None => row,
+        },
+        _ => row,
+    };
     let path = row["path"].as_str().unwrap_or(".");
     let (workspace, root, home) = scope(path, paths, configured, &query_repair(row))?;
     let id = match row["graph"].as_str() {

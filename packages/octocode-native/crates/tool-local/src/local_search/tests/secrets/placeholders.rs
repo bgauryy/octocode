@@ -188,6 +188,21 @@ fn a_masked_value_finds_nothing_and_the_empty_row_says_masked_secrets_are_not_se
     }
     // The same sentence whether the pattern was in a masked value or nowhere.
     assert!(hints.windows(2).all(|pair| pair[0] == pair[1]), "{hints:?}");
+    // A regex that needs the masked value's own bytes reaches none of them,
+    // whatever else it holds: the probe over written text never reads them.
+    for pattern in [
+        r"ghp_\S+",
+        r#"= "ghp_.*"#,
+        r"H7Kq2\w*",
+        r#""[^"]*H7Kq[^"]*""#,
+    ] {
+        let rows = run(
+            &files,
+            json!({"matchString": [pattern], "regexEngine": "rust"}),
+            SourceLimits::REAL,
+        );
+        assert_eq!(listed(&rows), Vec::<String>::new(), "{pattern}: {rows}");
+    }
 }
 
 /// A line too long for a row is shown as windows around its own hits: none

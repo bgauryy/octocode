@@ -9,9 +9,9 @@ the round compares ([COMPARISONS.md](../COMPARISONS.md)), and never pool sets in
 | [tools/](tools/README.md) | 17 tool files | all local CLI/MCP tools, input/output, pages, workflows and expert comparisons | each dated tool-rating campaign; assignments and source oracles stored separately |
 | [github/](github/README.md) | 30 | public GitHub repositories | Octocode v20 (2026-10-29) and v18 (2026-08, 3 passes); gh-lean answers (2026-10-09); plain gh, gh + RTK, gh + Headroom as numbers only (2026-08); MCP builds and clasify A/B (2026-10) |
 | [local-core/](local-core/README.md) | 30 | pinned clones listed in [local/README.md](../local/README.md); judge rubrics in `answers/` | Octocode local MCP builds, 19.1.0 and the lean shell (2026-10-10) |
-| [local-goals/](local-goals/README.md) | 40 | nine pinned checkouts, `{{REPO:id}}` tokens resolved per `catalog.json` and `repositories.json`; Q33–Q40 are a Terraform slice | local MCP with and without clasify (2026-10-13) |
-| local-transfer/ | 12 | same format as local-goals | clasify guidance transfer (2026-10-13) |
-| local-scenarios/ | 30 | language root-cause scenarios: a goal and questions only; `repositories.json` maps each to its clone and commit | native CLI against shell exploration (2026-10-17) |
+| [local-goals/](local-goals/README.md) | 40 | nine pinned checkouts named by path in each question; Q33–Q40 are a Terraform slice | local MCP with and without clasify (2026-10-13) |
+| local-transfer/ | 12 | same format as local-goals (checkout named by path) | clasify guidance transfer (2026-10-13) |
+| [local-scenarios/](local-scenarios/README.md) | 30 | language root-cause scenarios: a goal and questions only; the set's README maps each to its clone | native CLI against shell exploration (2026-10-17) |
 
 How a local round uses the local sets, flow by flow, is in [local/FLOWS.md](../local/FLOWS.md); the
 repositories they need are in [local/README.md](../local/README.md).
@@ -20,9 +20,8 @@ repositories they need are in [local/README.md](../local/README.md).
 
 - **The question carries no answer.** Rubrics (`local-core/answers/`, or private storage for
   local-goals) go to the judge only, never to a runner.
-- **Repository assignment lives outside the question text**, in the set's `repositories.json` or
-  `catalog.json` or in the question's own named clone path. Don't rename questions or add
-  repository hints to fit a runner.
+- **Repositories are named by clone path** (commits in [local/README.md](../local/README.md)). Don't rename
+  questions or add repository hints to fit a runner.
 - **Stored answers exist only for the questions they cover.** A new question is compared only
   among arms run in the same round.
 

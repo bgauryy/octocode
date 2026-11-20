@@ -10,6 +10,10 @@ use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+/// A `maxRequests` past every plan the other clasify tests make: they check
+/// what a row judges, not what bounds it.
+pub(crate) const EVERY_PAGE: u64 = 1_000;
+
 /// Answers every question no (0.03), reporting its tokens.
 async fn provider() -> MockServer {
     let server = MockServer::builder().start().await;
@@ -73,10 +77,7 @@ fn assert_refused(data: &Value) -> u64 {
         .expect("a ceiling");
     let planned = data["usage"]["requestsPlanned"].as_u64().expect("a plan");
     assert!(planned <= ceiling, "{data}");
-    assert_eq!(
-        data["next"]["confirm"]["input"]["queries"][0]["maxRequests"], ceiling,
-        "{data}"
-    );
+    assert_eq!(data["next"]["confirm"]["tool"], "clasify", "{data}");
     planned
 }
 

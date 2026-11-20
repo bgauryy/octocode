@@ -59,6 +59,21 @@ fn impact_since_reads_git_and_widens_on_config_changes() {
     );
     assert!(!files.iter().any(|(f, _)| f == "app/src/lib.ts"));
 
+    // A scripts edit changes no key a linking step reads: it seeds nothing.
+    std::fs::write(
+        app.join("package.json"),
+        r#"{"name":"app","main":"dist/main.js","dependencies":{"react":"18"},"devDependencies":{"vitest":"1"},"scripts":{"build":"tsc"}}"#,
+    )
+    .expect("scripts");
+    let scripts = ask(dir.0.as_path(), "impact", None, |o| {
+        o.since = Some("HEAD".into());
+    });
+    let config = &scripts.value["summary"]["configChanges"][0];
+    assert_eq!(config["path"], "app/package.json", "{}", scripts.value);
+    assert_eq!(config["seeded"], false, "{config}");
+    assert_eq!(config["keys"], json!(["scripts"]), "{config}");
+    assert_eq!(impacted(&scripts), files, "{}", scripts.value);
+
     std::fs::write(
         app.join("package.json"),
         r#"{"name":"app","main":"dist/main.js"}"#,
@@ -77,6 +92,27 @@ fn impact_since_reads_git_and_widens_on_config_changes() {
             .iter()
             .any(|(f, d)| f == "app/src/lib.ts" && *d == 0)
     );
+    assert_eq!(
+        widened.value["summary"]["configChanges"][0]["seeded"], true,
+        "{}",
+        widened.value["summary"]
+    );
+    // Covered files name the manifest; the edited file stays changed.
+    let via = |id: &str| {
+        widened.value["rows"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|row| row["id"] == id)
+            .map(|row| (row["via"].clone(), row["config"].clone()))
+    };
+    assert_eq!(
+        via("app/src/lib.ts"),
+        Some((json!("config"), json!("app/package.json"))),
+        "{}",
+        widened.value
+    );
+    assert_eq!(via("app/src/fmt.ts").map(|v| v.0), Some(json!("changed")));
 }
 
 /// `--since` runs git on a repository the caller controls; its config

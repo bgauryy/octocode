@@ -74,6 +74,8 @@ const helperFiles = {
   'har-ingest': 'har-ingest-to-scrape.mjs',
   'corpus-query': 'corpus-run-local.mjs',
   session: 'session-cli.mjs',
+  proxy: 'cdp-proxy.mjs',
+  flow: 'flow-command.mjs',
   'dev-check': 'dev-check.mjs',
 };
 export const helpers: Record<string, [file: string, description: string]> =
@@ -88,6 +90,8 @@ export const connection = {
   '--target': 'Exact target id',
   '--target-url': 'Unique URL substring',
   '--target-type': 'Target type (page by default)',
+  '--group': 'Select a tab of a group opened with --urls',
+  '--group-index': 'Zero-based tab within --group (0)',
   '--new-tab': 'Open a tab at URL',
   '--browser': 'Use browser WebSocket',
   '--keep-tab': 'Retain new tab (CLI default)',
@@ -113,6 +117,18 @@ export const launchValues = [
   '--proxyBypassList',
   '--proxyPacUrl',
   '--config',
+  '--allow-origin',
+  '--urls',
+];
+/** Boolean `open` flags; --allow-origin and --urls take comma lists. */
+export const launchBooleans = [
+  '--headless',
+  '--dry-run',
+  '--attach',
+  '--no-sandbox',
+  '--background',
+  '--new-window',
+  '--isolated',
 ];
 export const planInputs = {
   run: ['--plan', '--json'],

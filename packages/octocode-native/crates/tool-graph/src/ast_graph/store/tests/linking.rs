@@ -255,9 +255,14 @@ fn plan_4_receiver_typed_member_calls_link() {
         "{}",
         typed.value
     );
-    let ts = ask(dir.0.as_path(), "callees", Some("web/app.ts#go"), |_| {});
+    let ts = ask(
+        dir.0.as_path(),
+        "callees",
+        Some("app/web/app.ts#go"),
+        |_| {},
+    );
     assert!(
-        ids(&ts).contains(&"web/store.ts#Cart.save".to_owned()),
+        ids(&ts).contains(&"app/web/store.ts#Cart.save".to_owned()),
         "{}",
         ts.value
     );

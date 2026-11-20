@@ -176,7 +176,8 @@ async fn every_tool_serves_a_source_as_its_whole_file_judgment() {
     assert_eq!(shown("code.ts"), CODE.trim_end(), "code reads verbatim");
 
     // localSearch: every view over the value lines, for pieces of values (no
-    // hit: a read hides them) and for the read's placeholders.
+    // hit: a read hides them) and for the read's placeholders (no hit: text
+    // the read wrote); no response shows a value.
     for (name, needle) in [
         ("s.ts", "Zx9Lm2"),
         ("s.ts", "K7MDENG"),
@@ -198,20 +199,24 @@ async fn every_tool_serves_a_source_as_its_whole_file_judgment() {
         responses.push(run("localSearch", query_path(&file(name), context)).await);
     }
     // A hit's row is the read's line: on a line whose value a read hides
-    // (found by the read's own placeholder) and on ordinary code.
-    for (name, needle) in [
-        ("s.ts", "REDACTED-"),
-        ("s.py", "REDACTED-"),
-        ("code.ts", "Token"),
+    // (found by a pattern that holds whatever is masked there; the read's own
+    // placeholder is text it wrote, which no search matches) and on ordinary
+    // code.
+    for (name, query) in [
+        ("s.ts", json!({"matchString": ".+", "regexEngine": "rust"})),
+        ("s.py", json!({"matchString": ".+", "regexEngine": "rust"})),
+        ("code.ts", json!({"matchString": "Token"})),
     ] {
-        let (call, output) = run(
-            "localSearch",
-            query_path(&file(name), json!({"matchString": needle})),
-        )
-        .await;
+        let (call, output) = run("localSearch", query_path(&file(name), query)).await;
         let mut hits = Vec::new();
         rows(&output, "value", &mut hits);
         assert!(!hits.is_empty(), "{call}: {output}");
+        if name != "code.ts" {
+            assert!(
+                hits.iter().any(|(_, value)| redacted(value)),
+                "{call}: no masked line hit: {output}"
+            );
+        }
         for (line, value) in hits {
             if value != read[name][&line] {
                 differs.push(format!("{call}\n  line {line} shows {value:?}"));
@@ -632,8 +637,10 @@ async fn multiline_redactions_keep_names_and_one_placeholder_per_value() {
             }
 
             // A search matches the text a read serves: a piece of a hidden
-            // value is no hit in any view, and a hit on the read's own
-            // placeholder shows the read's line, in the kind the read states.
+            // value is no hit in any view, the read's own placeholder is text
+            // the read wrote (no hit either), and a hit on a masked line, by a
+            // pattern that holds whatever is masked there, shows the read's
+            // line, in the kind the read states.
             if !hidden.is_empty() {
                 let (call, output) = run(
                     "localSearch",
@@ -642,8 +649,19 @@ async fn multiline_redactions_keep_names_and_one_placeholder_per_value() {
                 .await;
                 let mut hits = Vec::new();
                 rows(&output, "value", &mut hits);
-                if hits.is_empty() {
-                    differs.push(format!("{call}\n  no placeholder hit: {output}"));
+                if !hits.is_empty() {
+                    differs.push(format!("{call}\n  a placeholder hit: {output}"));
+                }
+                responses.push((call, output));
+                let (call, output) = run(
+                    "localSearch",
+                    query_path(&file, json!({"matchString": ".+", "regexEngine": "rust"})),
+                )
+                .await;
+                let mut hits = Vec::new();
+                rows(&output, "value", &mut hits);
+                if !hits.iter().any(|(_, shown)| redacted(shown)) {
+                    differs.push(format!("{call}\n  no masked line hit: {output}"));
                 }
                 for (line, shown) in hits {
                     if read.get(&line) != Some(&shown) {

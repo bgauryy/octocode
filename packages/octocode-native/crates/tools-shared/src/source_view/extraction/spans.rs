@@ -5,13 +5,17 @@ use octocode_contract_types::{ErrorCode, LocalFetchQuery};
 use octocode_engine::search::span_sink::SpanSink;
 use octocode_engine::text::case_fold::Folded;
 use octocode_io::memo::{MemoryBudget, Reservation};
+use std::ops::Range;
 
 /// Byte spans of every pattern (a list matches any of its entries), in
 /// source order. `truncated` is set when the memory budget had no room for
-/// every match of a scan.
+/// every match of a scan. `written` are the byte ranges of `content` its
+/// redactions wrote: a match their own spelling makes is none, as in
+/// localSearch ([`octocode_engine::search::text_search::written`]).
 pub(super) fn match_spans(
     q: &LocalFetchQuery,
     content: &str,
+    written: &[Range<usize>],
     patterns: &[&str],
 ) -> Result<RegexSpans, ExtractionError> {
     let mut found = RegexSpans::default();
@@ -21,21 +25,20 @@ pub(super) fn match_spans(
         let sensitive = local_fetch_query::case_sensitive_for(q, pattern);
         let name = |error| failing_item(error, index, pattern, patterns.len());
         let mut one = if local_fetch_query::is_pcre2(q) {
-            pcre2_ranges(pattern, sensitive, content).map_err(name)?
+            pcre2_ranges(pattern, sensitive, content, written).map_err(name)?
         } else if local_fetch_query::is_regex(q) {
-            rust_ranges(pattern, sensitive, content).map_err(name)?
+            rust_ranges(pattern, sensitive, content, written).map_err(name)?
         } else {
             RegexSpans {
                 held: None,
                 spans: if sensitive {
-                    sensitive_ranges(content, pattern)
+                    sensitive_ranges(content, pattern, written)
                 } else {
-                    folded
-                        .get_or_insert_with(|| Folded::of(content))
-                        .ranges(pattern)
-                        .into_iter()
-                        .map(|span| (span.start, span.end))
-                        .collect()
+                    folded_ranges(
+                        folded.get_or_insert_with(|| Folded::of(content)),
+                        pattern,
+                        written,
+                    )
                 },
                 truncated: false,
                 missed: Vec::new(),
@@ -237,6 +240,7 @@ fn rust_ranges(
     pattern: &str,
     case_sensitive: bool,
     content: &str,
+    written: &[Range<usize>],
 ) -> Result<RegexSpans, ExtractionError> {
     use octocode_engine::search::rust_ranges::RustRangesError;
     use octocode_engine::search::rust_ranges::rust_scan_ranges;
@@ -246,6 +250,7 @@ fn rust_ranges(
         pattern,
         !case_sensitive,
         content,
+        written,
         HeldSpans::new(span_budget()),
     )
     .map(HeldSpans::into_spans)
@@ -267,6 +272,7 @@ fn pcre2_ranges(
     pattern: &str,
     case_sensitive: bool,
     content: &str,
+    written: &[Range<usize>],
 ) -> Result<RegexSpans, ExtractionError> {
     use octocode_engine::search::pcre2_ranges::Pcre2RangesError;
     use octocode_engine::search::pcre2_ranges::pcre2_scan_ranges;
@@ -274,6 +280,7 @@ fn pcre2_ranges(
         pattern,
         !case_sensitive,
         content,
+        written,
         HeldSpans::new(span_budget()),
     )
     .map(HeldSpans::into_spans)
@@ -314,21 +321,69 @@ pub(super) fn hit_lines(lines: &super::LineOffsets, spans: &[(usize, usize)]) ->
 #[cfg(any(test, feature = "test-support"))]
 pub fn literal_ranges(content: &str, pattern: &str, sensitive: bool) -> Vec<(usize, usize)> {
     if sensitive {
-        sensitive_ranges(content, pattern)
+        sensitive_ranges(content, pattern, &[])
     } else {
-        Folded::of(content)
-            .ranges(pattern)
-            .into_iter()
-            .map(|span| (span.start, span.end))
-            .collect()
+        folded_ranges(&Folded::of(content), pattern, &[])
     }
 }
 
-fn sensitive_ranges(content: &str, pattern: &str) -> Vec<(usize, usize)> {
-    content
-        .match_indices(pattern)
-        .map(|(start, matched)| (start, start + matched.len()))
-        .collect()
+fn sensitive_ranges(content: &str, pattern: &str, written: &[Range<usize>]) -> Vec<(usize, usize)> {
+    if written.is_empty() {
+        return content
+            .match_indices(pattern)
+            .map(|(start, matched)| (start, start + matched.len()))
+            .collect();
+    }
+    let mut spans = Vec::new();
+    let Ok(()) = octocode_engine::search::text_search::written::each_own_in(
+        content,
+        written,
+        |text: &str, at| {
+            Ok::<_, std::convert::Infallible>(
+                (!pattern.is_empty())
+                    .then(|| text[at..].find(pattern))
+                    .flatten()
+                    .map(|found| at + found..at + found + pattern.len()),
+            )
+        },
+        |found| {
+            spans.push((found.start, found.end));
+            true
+        },
+    );
+    spans
+}
+
+/// Case-insensitive literal spans in original byte coordinates. The search
+/// runs over the folded text, so no written byte can be refilled there: a
+/// match taking one is none, and the search goes on from the next folded
+/// character, as [`octocode_engine::search::text_search::written::each_own_in`]
+/// does for a literal (a literal never matches the filler a refill writes).
+fn folded_ranges(folded: &Folded<'_>, pattern: &str, written: &[Range<usize>]) -> Vec<(usize, usize)> {
+    if written.is_empty() {
+        return folded
+            .ranges(pattern)
+            .into_iter()
+            .map(|span| (span.start, span.end))
+            .collect();
+    }
+    let needle = pattern.to_lowercase();
+    let text = folded.text();
+    let mut spans = Vec::new();
+    let mut at = 0;
+    while !needle.is_empty()
+        && let Some(found) = text.get(at..).and_then(|rest| rest.find(&needle))
+    {
+        let start = at + found;
+        let span = folded.span(start..start + needle.len());
+        if octocode_engine::search::text_search::written::takes(written, span.clone()) {
+            at = start + text[start..].chars().next().map_or(1, char::len_utf8);
+            continue;
+        }
+        spans.push((span.start, span.end));
+        at = start + needle.len();
+    }
+    spans
 }
 
 #[cfg(test)]

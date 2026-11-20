@@ -61,7 +61,7 @@ fn validated_root(
 ) -> Result<octocode_runtime_base::policy::path::ValidatedPath, ToolError> {
     cancel.check().map_err(ToolError::cancelled)?;
     paths.validate(requested).map_err(|error| {
-        crate::sparse_scope::outside_checkout(
+        octocode_tools_shared::gh_git::sparse_miss::outside_checkout(
             ToolError::root_policy(error, requested, paths),
             requested,
             paths,

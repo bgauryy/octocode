@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { connectStdio } from '../../dist/runtime.js';
 import { copyPackage } from '../copy-package.mjs';
 
-export async function fixture(fn) {
+export async function fixture(fn, { full = false } = {}) {
   const work = mkdtempSync(join(tmpdir(), 'octo-agent-'));
   const skill = join(work, 'skill');
   copyPackage(resolve(import.meta.dirname, '../..'), skill);
@@ -16,7 +16,10 @@ export async function fixture(fn) {
   mkdirSync(cwd);
   const client = await connectStdio({
     command: process.execPath,
-    args: [join(skill, 'bin/octocode-chrome-devtools.mjs')],
+    args: [
+      join(skill, 'bin/octocode-chrome-devtools.mjs'),
+      ...(full ? ['--mcp', '--preset', 'full'] : []),
+    ],
     cwd,
   });
   try {

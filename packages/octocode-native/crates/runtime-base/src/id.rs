@@ -115,6 +115,21 @@ impl ToolId {
         matches!(self, Self::LocalFetch | Self::GhGetFileContent)
     }
 
+    /// Whether a row of this tool read again (with a wider share of the
+    /// response page) costs no provider request.
+    #[must_use]
+    pub(crate) const fn rereads_free(self) -> bool {
+        match self {
+            // This host's own file, cut again from its kept view.
+            Self::LocalFetch => true,
+            // Its body is the answer pinned to the commit SHA its ref
+            // resolved to, kept across requests; the ref comes from the
+            // batch's resolutions.
+            Self::GhGetFileContent => true,
+            _ => false,
+        }
+    }
+
     /// Whether `classification` selects this tool's rows at the shared response
     /// boundary, over one sanitized provider page (code search, history, structure), instead of
     /// before the tool's own source pagination.

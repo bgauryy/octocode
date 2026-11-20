@@ -246,6 +246,18 @@ fn failures_carry_one_repair_lead() {
         error.hints,
         ["Check the exact packageName spelling; pypi has no keyword search."]
     );
+
+    // npm names are lowercase: a capitalized one is repaired to it.
+    let capitals = typed(&json!({
+        "operation": "resolve", "ecosystem": "npm", "packageName": "@Angular/core"
+    }));
+    let error = leads::with_repair(ArtifactError::new(ErrorCode::NotFound, "x"), &capitals);
+    let next = error.calls.expect("lead");
+    assert_eq!(
+        next["repair"]["input"]["queries"][0]["packageName"],
+        "@angular/core",
+        "{next}"
+    );
 }
 
 /// A missing version's repair reads as many nearest versions as one call

@@ -149,9 +149,10 @@ pub fn with_search_repair(
 /// The leads of a `repo` GitHub did not resolve: its
 /// [`repository_recovery`], and first, when the name is a clone URL's
 /// (`flask.git`, GitHub's URL for cloning `flask`), `repair`: the same
-/// `query` of `tool` naming the repository without the suffix, which the
-/// name search asks for too. A name the URL form does not explain keeps
-/// only the recovery.
+/// `query` of `tool` naming the repository without the suffix (the first
+/// `related[]` request, a channel every tool's failure row declares), which
+/// the name search asks for too. A name the URL form does not explain
+/// keeps only the recovery.
 pub fn repository_repair(
     tool: ToolId,
     query: &impl serde::Serialize,
@@ -166,7 +167,7 @@ pub fn repository_repair(
     if row.get("repo").and_then(Value::as_str) == Some(repo) {
         row["repo"] = json!(bare);
         leads["repair"] =
-            octocode_runtime_base::response::result::Continuation::continued(tool, row).build();
+            octocode_runtime_base::response::result::Continuation::related(tool, row).build();
     }
     if let (Value::Object(leads), Value::Object(recovery)) =
         (&mut leads, repository_recovery(owner, bare))

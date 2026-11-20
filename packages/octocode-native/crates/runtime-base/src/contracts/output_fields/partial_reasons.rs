@@ -100,7 +100,7 @@ const EMITTERS: &[(&str, &[ToolId])] = &[
     ("sharedModuleFile", &[LspSearch]),
     ("sourceFailed", &[SecurityCheck]),
     ("typeHierarchyExpansionFailed", &[LspSearch]),
-    ("walkDeadline", &[StructureSearch]),
+    ("walkDeadline", &[StructureSearch, GhStructure]),
     ("walkWindow", &[StructureSearch]),
     ("workspaceSymbolCoverageUnknown", &[LspSearch]),
     ("workspaceSymbolOneProject", &[LspSearch]),

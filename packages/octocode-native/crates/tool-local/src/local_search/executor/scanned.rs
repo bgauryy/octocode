@@ -253,7 +253,7 @@ pub(crate) fn search_root(
         .validate(local_search_query::path(query))
         .map_err(|error| {
             let requested = local_search_query::path(query);
-            crate::sparse_scope::outside_checkout(
+            octocode_tools_shared::gh_git::sparse_miss::outside_checkout(
                 ToolError::root_policy(error, requested, paths),
                 requested,
                 paths,

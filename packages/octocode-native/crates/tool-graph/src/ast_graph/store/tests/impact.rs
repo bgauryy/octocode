@@ -85,7 +85,12 @@ fn impact_lists_inline_rust_test_functions() {
     assert_eq!(node.value["node"]["test"], true, "{}", node.value);
     let out = ask(dir.0.as_path(), "impact", Some("src/lib.rs#add"), |_| {});
     assert_eq!(out.value["summary"]["testFunctions"], 2, "{}", out.value);
-    let tests = summary_list(dir.0.as_path(), Some("src/lib.rs#add"), "testsToRun", |_| {});
+    let tests = summary_list(
+        dir.0.as_path(),
+        Some("src/lib.rs#add"),
+        "testsToRun",
+        |_| {},
+    );
     assert_eq!(tests.len(), 1, "{tests:?}");
     assert_eq!(tests[0]["path"], "app/src/lib.rs", "{tests:?}");
     let functions = tests[0]["functions"].as_array().expect("functions");
@@ -380,6 +385,88 @@ fn a_rust_module_change_reaches_its_crate_root_through_the_module_tree() {
             !rows.iter().any(|row| row["id"] == "app/src/other.rs"),
             "other.rs uses only helper: {target}: {}",
             out.value
+        );
+    }
+}
+
+/// A depth bound only cuts the rows: every file it lists has the depth,
+/// risk and reaching edge the whole walk gives it. A caller through a path
+/// call (`crate::num::saturating(..)`, no `use`) is a direct row at depth
+/// 1 under every bound, reached by its call, not by its function's
+/// membership in the file.
+#[test]
+fn impact_rows_within_a_bound_do_not_depend_on_the_bound() {
+    let dir = git_app(&[
+        (
+            "Cargo.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        ),
+        (
+            "src/lib.rs",
+            "pub mod num;\npub mod path_call;\npub mod used;\npub mod top;\n",
+        ),
+        (
+            "src/num.rs",
+            "pub fn saturating(v: u64) -> u32 {\n    v as u32\n}\n",
+        ),
+        (
+            "src/path_call.rs",
+            "pub fn p() -> u32 {\n    crate::num::saturating(3)\n}\n",
+        ),
+        (
+            "src/used.rs",
+            "use crate::num::saturating;\n\npub fn u() -> u32 {\n    saturating(4)\n}\n",
+        ),
+        (
+            "src/top.rs",
+            "pub fn t() -> u32 {\n    crate::path_call::p() + crate::used::u()\n}\n",
+        ),
+    ]);
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let rows_at = |depth: u32| {
+        let out = ask(root, "impact", Some("src/num.rs#saturating"), |o| {
+            o.depth = Some(depth);
+            o.limit = Some(500);
+        });
+        let rows = out.value["rows"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|row| json!([row["id"], row["depth"], row["risk"], row["via"]]))
+            .collect::<Vec<_>>();
+        (out.value, rows)
+    };
+    let (deepest, whole) = rows_at(10);
+    let caller = whole
+        .iter()
+        .find(|row| row[0] == "app/src/path_call.rs")
+        .unwrap_or_else(|| panic!("path-call caller: {deepest}"));
+    assert_eq!(caller[1], 1, "{caller}");
+    assert_eq!(caller[2], "direct", "{caller}");
+    assert!(
+        caller[3]
+            .as_str()
+            .is_some_and(|via| via.starts_with("calls")),
+        "{caller}"
+    );
+    assert!(
+        whole
+            .iter()
+            .any(|row| row[0] == "app/src/top.rs" && row[1] == 2),
+        "{deepest}"
+    );
+    for depth in 1..=3 {
+        let (value, rows) = rows_at(depth);
+        let within = whole
+            .iter()
+            .filter(|row| row[1].as_u64().is_some_and(|d| d <= u64::from(depth)))
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(rows, within, "depth {depth}: {value}");
+        assert_eq!(
+            value["summary"]["byDepth"]["1"], deepest["summary"]["byDepth"]["1"],
+            "depth {depth}: {value}"
         );
     }
 }

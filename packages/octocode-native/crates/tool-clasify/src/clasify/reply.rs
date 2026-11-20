@@ -218,7 +218,6 @@ pub(super) const UNPRICED_TOKENS: &str = "inputTokensAtMost is not stated: the p
 /// (`next.confirm`, billed).
 pub(super) fn over_budget(row: &Row, over: &OverBudget, can_resume: bool) -> Value {
     let ceiling = over.price.ceiling.unwrap_or(over.price.planned);
-    let at_most = ceiling.saturating_sub(over.room);
     let what = if over.units == 1 {
         "This source".to_owned()
     } else {
@@ -242,12 +241,12 @@ pub(super) fn over_budget(row: &Row, over: &OverBudget, can_resume: bool) -> Val
     };
     let error = if over.spent == 0 {
         format!(
-            "{what} would send {} provider {requests}, at most {at_most} with every re-ask and split a refusal can add; {bound}, so nothing was sent.",
+            "{what} would send {} provider {requests}, at most {ceiling} (requestsCeiling) with every re-ask, split and transient retry it can add; {bound}, so nothing was sent.",
             over.price.planned,
         )
     } else {
         format!(
-            "The provider's window refused this source whole ({}); judged in {} sections it would send {} provider {requests}, at most {at_most} with the source asked whole once more; {bound}, so no section was sent.",
+            "The provider's window refused this source whole ({}); judged in {} sections it would send {} provider {requests}, at most {ceiling} (requestsCeiling) with the source asked whole once more and every transient retry; {bound}, so no section was sent.",
             octocode_engine::text::counted(over.spent, "request", "requests"),
             over.units,
             over.price.planned,

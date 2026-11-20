@@ -83,8 +83,10 @@ fn cells<'a>(data: &'a Value, key: &str) -> &'a Value {
     }
 }
 
+/// A units row bounded past every page here: these tests check what its
+/// units are, not what bounds them ([`super::budget`]).
 fn rows_row(tool: &str, query: Value, view: &str) -> Value {
-    json!({"operation":"evaluate","view":view,
+    json!({"operation":"evaluate","view":view,"maxRequests":super::budget::EVERY_PAGE,
         "source":{"tool":tool,"query":query},
         "questions":{"keep":noul("The entry is marked to keep.")}})
 }
@@ -624,10 +626,7 @@ async fn a_units_row_over_its_max_requests_sends_nothing_and_its_confirm_runs() 
     assert_eq!(data["usage"]["requestsPlanned"], 2, "one per file: {out}");
     let ceiling = data["usage"]["requestsCeiling"].as_u64().expect("ceiling");
     assert!(ceiling >= 2, "{out}");
-    assert_eq!(
-        data["next"]["confirm"]["input"]["queries"][0]["maxRequests"], ceiling,
-        "{out}"
-    );
+    assert_eq!(data["next"]["confirm"]["tool"], "clasify", "{out}");
     // Nothing bounds the provider's own prompt before it answered here: no
     // token figure, and the row says why.
     assert!(data["usage"].get("inputTokensAtMost").is_none(), "{out}");

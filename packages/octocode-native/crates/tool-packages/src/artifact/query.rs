@@ -35,6 +35,12 @@ pub mod artifact_type {
     }
 }
 
+/// A requested version as the registry spells it: surrounding whitespace is
+/// not part of any version, and a blank one names none.
+pub(crate) fn trimmed_version(version: Option<&str>) -> Option<&str> {
+    version.map(str::trim).filter(|version| !version.is_empty())
+}
+
 /// Registry-facing views over the generated wire query.
 pub mod artifact_search_query {
     use octocode_contract_types::{
@@ -107,7 +113,7 @@ pub mod artifact_search_query {
         }
     }
     pub fn version(query: &ArtifactSearchQuery) -> Option<&str> {
-        match query {
+        super::trimmed_version(match query {
             ArtifactSearchQuery::ResolveNpm(query) => query.version.as_deref().map(String::as_str),
             ArtifactSearchQuery::ResolvePypiOrCrates(query) => {
                 query.version.as_deref().map(String::as_str)
@@ -120,7 +126,7 @@ pub mod artifact_search_query {
             }
             ArtifactSearchQuery::SearchNpm(_)
             | ArtifactSearchQuery::SearchCratesMavenNugetGoPackagistOrRubygems(_) => None,
-        }
+        })
     }
     pub fn registry_url(query: &ArtifactSearchQuery) -> Option<&str> {
         match query {

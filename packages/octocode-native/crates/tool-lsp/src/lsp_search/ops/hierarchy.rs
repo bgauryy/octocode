@@ -105,14 +105,25 @@ impl Operation<'_, '_> {
             .iter()
             .map(|edge| super::super::walk::public_edge(expansion, edge, None))
             .collect::<Vec<_>>();
-        let mut row = salted_items_payload(
-            query,
-            kind,
-            json!(items),
-            candidates.as_ref().map(|window| window.digest.as_str()),
-            self.budget,
-            super::super::render::plain_sizes,
-        );
+        // Bases named outside the read policy are the answer: a walk that
+        // found only those resolved them, it did not come back empty.
+        let mut row = if items.is_empty() && !walk.withheld_names.is_empty() {
+            json!({
+                "operation": lsp_search_query::operation(query),
+                "matches": [],
+                "lsp": {"serverAvailable": true},
+                "pagination": octocode_runtime_base::response::pages::PageFacts::counted(0, 0, 0).to_value()
+            })
+        } else {
+            salted_items_payload(
+                query,
+                kind,
+                json!(items),
+                candidates.as_ref().map(|window| window.digest.as_str()),
+                self.budget,
+                super::super::render::plain_sizes,
+            )
+        };
         if row.get("errorCode").is_some() {
             return Ok(row);
         }

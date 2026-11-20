@@ -585,6 +585,8 @@ fn rust_supertypes_outside_the_read_policy_are_named_as_withheld() {
         "{row}"
     );
     assert!(row.get("expansionFailures").is_none(), "{row}");
+    // Withheld is no absence: the row is no "no results" answer.
+    assert!(row.get("category").is_none(), "{row}");
     let warnings = row["warnings"].to_string();
     assert!(warnings.contains("Send, Sync"), "{row}");
     assert!(!warnings.contains("octocode-outside-roots"), "{row}");

@@ -16,9 +16,14 @@ fn reexport_callers_keep_high_confidence_across_aliases_and_stars() {
         ingest_fixture(dir.0.as_path(), None).class,
         ExitClass::Success
     );
-    let out = ask(dir.0.as_path(), "callers", Some("app/impl.ts#validate"), |o| {
-        o.confidence = Some("high".into());
-    });
+    let out = ask(
+        dir.0.as_path(),
+        "callers",
+        Some("app/impl.ts#validate"),
+        |o| {
+            o.confidence = Some("high".into());
+        },
+    );
     assert_eq!(ids(&out), vec!["app/use.ts#run"], "{}", out.value);
     assert_eq!(out.value["rows"][0]["confidence"], "high");
     assert_eq!(out.value["confidence"], "high");
@@ -48,7 +53,7 @@ fn stats_call_ranking_excludes_global_name_guesses() {
     let rows = stats.value["rows"].as_array().expect("ranked calls");
     let target = rows
         .iter()
-        .find(|r| r["id"] == "impl.ts#uniqueTarget")
+        .find(|r| r["id"] == "app/impl.ts#uniqueTarget")
         .expect("target");
     assert_eq!(target["fanIn"], 1, "{}", stats.value);
 }
@@ -85,11 +90,11 @@ fn explicit_reexports_override_stars_but_ambiguous_stars_stay_candidates() {
         })
     };
     assert_eq!(ids(&high("a.ts#check")), vec!["app/use.ts#run"]);
-    assert!(ids(&high("b.ts#check")).is_empty());
-    let medium = ask(dir.0.as_path(), "callers", Some("b.ts#check"), |o| {
+    assert!(ids(&high("app/b.ts#check")).is_empty());
+    let medium = ask(dir.0.as_path(), "callers", Some("app/b.ts#check"), |o| {
         o.confidence = Some("medium".into());
     });
-    assert_eq!(ids(&medium), vec!["maybe.ts#run"], "{}", medium.value);
+    assert_eq!(ids(&medium), vec!["app/maybe.ts#run"], "{}", medium.value);
 }
 
 #[test]

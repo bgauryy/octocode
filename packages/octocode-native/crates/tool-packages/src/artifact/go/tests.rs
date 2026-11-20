@@ -362,6 +362,78 @@ async fn a_vanity_module_without_a_commit_is_pinned_to_its_release_tag() {
     assert_eq!(tags.seen()[0], "go-yaml/yaml@v2.2.8", "{:?}", tags.seen());
 }
 
+#[test]
+fn a_go_mod_module_comment_marks_the_module_deprecated() {
+    let deprecated = "// Deprecated: Use the \"google.golang.org/protobuf\" module instead.\nmodule github.com/golang/protobuf\n\ngo 1.17\n";
+    assert_eq!(
+        go_deprecation(deprecated).as_deref(),
+        Some("Use the \"google.golang.org/protobuf\" module instead.")
+    );
+    let trailing = "module example.com/old // Deprecated: use example.com/new\n";
+    assert_eq!(go_deprecation(trailing).as_deref(), Some("use example.com/new"));
+    let unrelated = "// Package docs.\nmodule example.com/live\n// Deprecated: not the module comment\n";
+    assert_eq!(go_deprecation(unrelated), None);
+}
+
+/// A package inside a module (pkg.go.dev names no repository for it) takes
+/// its repository from the module proxy, and the tag the proxy read is
+/// checked upstream: found, it pins the row (`source_tag`); naming another
+/// commit than the proxy's, the row says so.
+#[tokio::test]
+async fn a_package_path_takes_its_repository_and_checked_tag_from_the_proxy() {
+    let rejection = json!({"code": 400, "message": "is a package, not a module"});
+    let built = "bb548d0473d4e1c9b7bbfd6602c7bf12f7a84dd2";
+    let http = RouteHttp::new()
+        .status("/v1/module/github.com/stretchr/testify/assert", 400, rejection)
+        .json(
+            "/v1/package/github.com/stretchr/testify/assert",
+            json!({"path": "github.com/stretchr/testify/assert",
+                "modulePath": "github.com/stretchr/testify", "version": "v1.9.0"}),
+        )
+        .json(
+            "/github.com/stretchr/testify/@v/v1.9.0.info",
+            json!({"Version": "v1.9.0", "Origin": {"VCS": "git",
+                "URL": "https://github.com/stretchr/testify",
+                "Ref": "refs/tags/v1.9.0", "Hash": built}}),
+        );
+    let b = test_budget();
+    let tags = super::super::test_http::KnownTags::new(vec!["stretchr/testify@v1.9.0"]);
+    let client = RegistryClient {
+        tags: Some(&tags),
+        ..RegistryClient::new(&http, &b)
+    };
+    let query = artifact_query(
+        json!({"operation":"resolve","ecosystem": ArtifactType::Go,
+            "packageName": "github.com/stretchr/testify/assert", "version": "v1.9.0"}),
+        None,
+    );
+    let page = go(&query, &ArtifactProviderState::default(), &client)
+        .await
+        .expect("package");
+    let item = &page.artifacts[0];
+    assert_eq!(
+        item.repository.as_deref(),
+        Some("https://github.com/stretchr/testify")
+    );
+    assert!(item.source_tag, "{item:?}");
+    assert_eq!(item.release_tag.as_deref(), Some("v1.9.0"));
+    assert_eq!(item.source_ref.as_deref(), Some("commit-of-v1.9.0"));
+    assert!(
+        item.disclosures
+            .iter()
+            .any(|said| said.contains(built) && said.contains("tag v1.9.0")),
+        "{:?}",
+        item.disclosures
+    );
+    // Without a tag check, the proxy's commit stays the registry's claim.
+    let unchecked = RegistryClient::new(&http, &b);
+    let page = go(&query, &ArtifactProviderState::default(), &unchecked)
+        .await
+        .expect("package");
+    assert_eq!(page.artifacts[0].source_ref.as_deref(), Some(built));
+    assert!(!page.artifacts[0].source_tag);
+}
+
 fn module_row(path: &str, version: &str, repository: &str) -> (String, serde_json::Value) {
     (
         format!("/v1/module/{path}?version={version}"),

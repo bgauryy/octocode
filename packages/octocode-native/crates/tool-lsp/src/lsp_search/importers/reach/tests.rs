@@ -525,4 +525,39 @@ fn a_namespace_read_through_the_built_entry_reaches_the_anchor() {
         "pkg/tests/other.test.ts",
         "import { other } from '../dist/runtime.js';\nconst asObject = 1;\nother.run(asObject);\n"
     ));
+    // A support module exporting the loaded entry relays it: a test reading
+    // the name off an object it destructures or walks reaches the anchor.
+    write(
+        &root,
+        "pkg/tests/support.ts",
+        "export const bundle = 'dist/runtime.js';\nexport const runtime = await import('../dist/runtime.js');\n",
+    );
+    assert!(reached(
+        "pkg/tests/destructured.test.ts",
+        "import { runtime } from './support.ts';\nconst { validation } = runtime;\nvalidation.asObject(1);\n"
+    ));
+    assert!(reached(
+        "pkg/tests/walked.test.ts",
+        "import { runtime } from './support.ts';\nruntime.validation.asObject(1);\n"
+    ));
+    // A module re-exporting an imported namespace relays it the same way.
+    write(
+        &root,
+        "pkg/tests/namespace.ts",
+        "import * as entry from '../src/entries/runtime.js';\nexport { entry };\n",
+    );
+    assert!(reached(
+        "pkg/tests/namespace.test.ts",
+        "import { entry } from './namespace.ts';\nentry.validation.asObject(1);\n"
+    ));
+    // A module that loads the entry but exports none of it relays nothing.
+    write(
+        &root,
+        "pkg/tests/private.ts",
+        "const loaded = await import('../dist/runtime.js');\nexport const ready = Boolean(loaded);\n",
+    );
+    assert!(!reached(
+        "pkg/tests/private.test.ts",
+        "import { ready } from './private.ts';\nconst item = { asObject: ready };\nitem.asObject;\n"
+    ));
 }

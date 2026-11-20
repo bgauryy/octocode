@@ -50,7 +50,7 @@ calls. "Feeds" names the questions whose answers depend on the flow.
 | Set | Use it for | Notes |
 |---|---|---|
 | [local-core](../questions/local-core/README.md) (30) | the research pass: fresh agent per question, blind judge with the rubric in `answers/` | stored lean-shell, 19.1.0 and pre-release v20 numbers in [baselines](../results/baselines/local-core30.md); question kinds map to flows 1–12 above |
-| [local-goals](../questions/local-goals/README.md) (40) | goal-driven research and the Terraform slice (Q33–Q40) | `{{REPO:id}}` tokens resolved per `catalog.json`; private rubrics; stored clasify ablations |
+| [local-goals](../questions/local-goals/README.md) (40) | goal-driven research and the Terraform slice (Q33–Q40) | checkout named by path in each question; private rubrics; stored clasify ablations |
 | local-transfer (12) | checking that guidance transfers to questions it was not written against | never pooled with other sets |
 | local-scenarios (30) | flow 15: open root-cause scenarios across 17 clones | no rubric; judge from source; stored exploratory native-CLI vs shell run |
 

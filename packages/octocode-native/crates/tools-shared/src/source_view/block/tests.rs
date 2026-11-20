@@ -449,7 +449,7 @@ fn a_markdown_block_is_its_heading_section() {
 }
 
 /// A file no grammar outlines (Ruby) keeps the requested lines, says so,
-/// and leads on: `next.read` reads the same file from the first hit to its
+/// and leads on: the related read reads the same file from the first hit to its
 /// last line, which pages, so the method is read to its end.
 #[test]
 fn a_block_with_no_outline_leads_to_the_rest_of_the_file() {
@@ -466,7 +466,7 @@ fn a_block_with_no_outline_leads_to_the_rest_of_the_file() {
         &mut next,
     );
     assert_eq!(windows, vec![LineRange { start: 2, end: 2 }]);
-    assert!(warnings[0].contains("next.read"), "{warnings:?}");
+    assert!(warnings[0].contains("related read"), "{warnings:?}");
     let read = next.read.expect("a read on");
     assert_eq!(
         local_fetch_query::line_ranges(&read.query),

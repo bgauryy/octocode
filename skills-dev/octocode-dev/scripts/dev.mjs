@@ -4,7 +4,7 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ROOT, SKILL_COLLECTIONS } from './lib/workspaces.mjs';
+import { ROOT, SKILL_ROOTS } from './lib/workspaces.mjs';
 import { skillTestCommand } from './lib/skill-tests.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -20,7 +20,7 @@ const slotted = ([command, args], options) => ['node', [path.join(NATIVE, 'scrip
 // Shared assets have a private workspace; skill folders remain independently installable.
 const skill = (rel, ...args) => ['node', [path.join(ROOT, 'skills', rel), ...args]];
 const skillChecks = () => [
-  skill('octocode-skills/scripts/skill-review.mjs', '--collections', ...SKILL_COLLECTIONS.map(dir => path.join(ROOT, dir))),
+  skill('octocode-skills/scripts/skill-review.mjs', '--collections', ...SKILL_ROOTS.map(dir => path.join(ROOT, dir))),
   skill('octocode-skills/scripts/skill-review.mjs', '--self-test'),
   skill('octocode-skills/scripts/skill-sync.mjs', '--self-test'),
   skillTestCommand(ROOT),

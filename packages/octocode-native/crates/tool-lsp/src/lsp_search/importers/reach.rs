@@ -47,8 +47,10 @@ const MAX_FILTERED_FILES: usize = 2048;
 enum Reading {
     /// An importer candidate: any reference that may reach the anchor.
     Candidate,
-    /// A module another one imports the name from: it relays the name only
-    /// through static imports and re-exports.
+    /// A module another one imports the name from: it relays the name
+    /// through its re-exports and through the imports and literal dynamic
+    /// loads whose binding it exports (`export const runtime = await
+    /// import('./entry.js')`: a namespace object holding the name).
     Relay,
     /// A file that imports the name: the reference binding it must reach
     /// the anchor.
@@ -100,6 +102,93 @@ fn spells(content: &str, prefix: &str, word: &str) -> bool {
         true,
         true,
     )
+}
+
+/// A member read `….name` with its receiver chain (`a.b?.c.name`): the
+/// chain's root identifier is the first capture; a receiver that ends in a
+/// call or an index (`load().name`, `all[0].name`) captures none.
+fn member_reads(symbol: &str) -> Option<regex::Regex> {
+    regex::Regex::new(&format!(
+        r"(?:([A-Za-z_$][\w$]*)(?:\s*\??\.\s*[A-Za-z_$][\w$]*)*|[)\]])\s*\??\.\s*{}\b",
+        regex::escape(symbol)
+    ))
+    .ok()
+}
+
+/// A declaration binding names (a plain or destructuring pattern, on
+/// whichever lines) from an expression: the pattern is the first capture,
+/// the expression's first line the second.
+static DERIVED_BINDING: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    #[expect(clippy::expect_used, reason = "static pattern, valid by construction")]
+    regex::Regex::new(r"\b(?:const|let|var)\s+([^=;]+?)=\s*(?:await\s+)?([^;\n]*)")
+        .expect("static derived-binding regex")
+});
+
+/// Whether `content` reads `symbol` as a member of `local` or of a name a
+/// declaration binds from `local` (one step: `const { ns } = local`,
+/// `const ns = local.entry`), or off a call or an index result. A receiver
+/// rooted elsewhere (a global, a parameter) reads nothing off `local`.
+fn reads_member_of(content: &str, local: &str, symbol: &str) -> bool {
+    let Some(reads) = member_reads(symbol) else {
+        return true;
+    };
+    let mut derived = None::<Vec<&str>>;
+    reads.captures_iter(content).any(|read| {
+        // What a call or an index returns may be anything.
+        let Some(root) = read.get(1).map(|root| root.as_str()) else {
+            return true;
+        };
+        root == local
+            || derived
+                .get_or_insert_with(|| {
+                    DERIVED_BINDING
+                        .captures_iter(content)
+                        .filter(|binding| {
+                            binding.get(2).is_some_and(|from| {
+                                from.as_str()
+                                    .trim_start()
+                                    .strip_prefix(local)
+                                    .is_some_and(|rest| {
+                                        !rest.starts_with(|c: char| {
+                                            c.is_alphanumeric() || c == '_' || c == '$'
+                                        })
+                                    })
+                            })
+                        })
+                        .filter_map(|binding| binding.get(1).map(|pattern| pattern.as_str()))
+                        .collect()
+                })
+                .iter()
+                .any(|pattern| spells(pattern, "", root))
+    })
+}
+
+/// Whether the module exports its binding `local` by its own export (`export
+/// { local }`, `export default local`, or an export whose first line spells
+/// it: `export const api = { local }`).
+fn exports_binding(content: &str, facts: &GraphFactsDocument, local: &str) -> bool {
+    facts.exports.iter().any(|export| {
+        export.source.is_none()
+            && (export.local_name.as_deref().unwrap_or(&export.name) == local
+                || content
+                    .lines()
+                    .nth(export.line.saturating_sub(1) as usize)
+                    .is_some_and(|line| spells(line, "", local)))
+    })
+}
+
+/// Whether `statement` spells a name the module exports by its own export
+/// (`export const runtime = await import(…)`, or `const m = await
+/// import(…)` with `export { m }`).
+fn exports_any_of(facts: &GraphFactsDocument, statement: &str) -> bool {
+    facts.exports.iter().any(|export| {
+        export.source.is_none()
+            && (spells(statement, "", &export.name)
+                || export
+                    .local_name
+                    .as_deref()
+                    .is_some_and(|local| spells(statement, "", local)))
+    })
 }
 
 /// The statement of `content` holding the dynamic load at `start..end`: back
@@ -303,41 +392,58 @@ impl AnchorModule {
         reading: Reading,
     ) -> bool {
         let member = spells(content, ".", &self.symbol);
+        // A relay that declares the name itself exports its own, not an
+        // object holding the anchor's.
+        let passes_objects = reading == Reading::Relay
+            && !facts.declarations.iter().any(|declaration| {
+                declaration.parent.is_none() && declaration.name == self.symbol
+            });
         // A dynamic `import()` (or an `import('…')` type) is not in the
         // facts: a literal one binds what the file reads off it, a computed
-        // one may name any module. A relay re-exports none of them.
-        if reading != Reading::Relay {
-            for load in DYNAMIC_IMPORT.captures_iter(content) {
-                // What binds the name: the statement holding the load
-                // destructuring it, on whichever line (`const [a, { name }] =
-                // await Promise.all([\n import('x'), …`), or (for a
-                // candidate) any `.name` the file reads.
-                let (start, end) = load
-                    .get(0)
-                    .map_or((0, 0), |whole| (whole.start(), whole.end()));
-                let binds = spells(load_statement(content, start, end), "", &self.symbol)
-                    || (reading == Reading::Candidate && member);
-                let reached = match load.get(1).or_else(|| load.get(2)) {
-                    Some(specifier) => {
-                        self.reference(reading, specifier.as_str(), file, binds, relays)
-                    }
-                    None => reading == Reading::Candidate || binds,
-                };
-                if reached {
-                    return true;
+        // one may name any module. A relay passes on only a literal load
+        // whose result it exports.
+        for load in DYNAMIC_IMPORT.captures_iter(content) {
+            // What binds the name: the statement holding the load
+            // destructuring it, on whichever line (`const [a, { name }] =
+            // await Promise.all([\n import('x'), …`), or (for a candidate)
+            // any `.name` the file reads; for a relay, the statement
+            // binding a name the module exports.
+            let (start, end) = load
+                .get(0)
+                .map_or((0, 0), |whole| (whole.start(), whole.end()));
+            let statement = load_statement(content, start, end);
+            let binds = match reading {
+                Reading::Relay => passes_objects && exports_any_of(facts, statement),
+                Reading::Candidate | Reading::Binding => {
+                    spells(statement, "", &self.symbol)
+                        || (reading == Reading::Candidate && member)
                 }
+            };
+            let reached = match (load.get(1).or_else(|| load.get(2)), reading) {
+                (Some(specifier), _) => {
+                    (reading != Reading::Relay || binds)
+                        && self.reference(reading, specifier.as_str(), file, binds, relays)
+                }
+                (None, Reading::Relay) => false,
+                (None, Reading::Candidate) => true,
+                (None, Reading::Binding) => binds,
+            };
+            if reached {
+                return true;
             }
         }
         for import in &facts.imports {
-            // A binding of another name reaches the name only as
-            // `binding.name`: a namespace or default import, or a named one
-            // the module re-exports as a namespace (`export * as binding`).
-            // A side-effect import binds nothing.
+            // A binding of another name reaches the name only as a member
+            // read off it or off a name destructured or assigned from it
+            // (`binding.name`, `binding.ns.name`, `const { ns } = binding;
+            // ns.name`): the binding may be an object holding the module.
+            // A relay also passes on a binding it exports. A side-effect
+            // import binds nothing.
             let qualified = || {
-                import
-                    .local_name
-                    .as_deref()
-                    .is_some_and(|local| spells(content, &format!("{local}."), &self.symbol))
+                import.local_name.as_deref().is_some_and(|local| {
+                    member && reads_member_of(content, local, &self.symbol)
+                        || passes_objects && exports_binding(content, facts, local)
+                })
             };
             let binds = import.local_name.as_deref() == Some(self.symbol.as_str())
                 || import.imported_name.as_deref() == Some(self.symbol.as_str())
@@ -458,8 +564,8 @@ impl AnchorModule {
     /// it imports), or it cannot be read or parsed (a package manifest's
     /// entry point included). A style, data or asset file relays nothing,
     /// nor does a module that declares its own same-named symbol, re-exports
-    /// only other names, or loads modules only dynamically. A cycle reads as
-    /// a relay until decided.
+    /// only other names, or exports nothing it imports or loads. A cycle
+    /// reads as a relay until decided.
     fn relayed_by(&self, target: &Path, relays: &mut HashMap<PathBuf, bool>) -> bool {
         let file = target.to_string_lossy();
         if target

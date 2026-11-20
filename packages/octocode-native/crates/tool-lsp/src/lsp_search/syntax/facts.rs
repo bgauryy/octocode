@@ -18,7 +18,7 @@ pub(super) struct File {
 }
 
 impl File {
-    fn read(path: &str) -> Option<Self> {
+    pub(super) fn read(path: &str) -> Option<Self> {
         Some(Self {
             path: path.to_owned(),
             uri: octocode_engine::lsp::uri::path_to_uri(path).ok()?,

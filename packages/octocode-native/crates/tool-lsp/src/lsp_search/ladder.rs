@@ -20,6 +20,11 @@ pub(super) async fn run_page(
     execution_config: &LspExecutionConfig,
     response_window: Option<usize>,
 ) -> Result<Value, Exit> {
+    // A call hierarchy of a name no call names is empty on every rung: the
+    // anchor's parse says so before any server starts.
+    if let Some(row) = syntax::non_callable(query, &path) {
+        return Ok(row);
+    }
     let fell_back = match (ide::Request {
         query,
         path: &path,

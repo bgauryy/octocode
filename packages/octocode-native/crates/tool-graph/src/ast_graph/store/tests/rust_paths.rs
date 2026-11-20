@@ -22,7 +22,12 @@ fn rust_bare_calls_do_not_resolve_same_named_methods() {
     let bare = ask(root, "callees", Some("app/src/lib.rs#Query.route"), |o| {
         o.confidence = Some("high".into());
     });
-    assert_eq!(ids(&bare), vec!["app/src/helpers.rs#route"], "{}", bare.value);
+    assert_eq!(
+        ids(&bare),
+        vec!["app/src/helpers.rs#route"],
+        "{}",
+        bare.value
+    );
     assert_eq!(bare.value["rows"][0]["via"], "import");
     assert_eq!(bare.value["rows"][0]["edgeLine"], 5);
     for caller in [
@@ -40,12 +45,12 @@ fn rust_bare_calls_do_not_resolve_same_named_methods() {
             qualified.value
         );
     }
-    let nested = ask(root, "callees", Some("src/lib.rs#Query.nested"), |o| {
+    let nested = ask(root, "callees", Some("app/src/lib.rs#Query.nested"), |o| {
         o.confidence = Some("high".into());
     });
     assert_eq!(
         ids(&nested),
-        vec!["src/lib.rs#Query.nested.inside"],
+        vec!["app/src/lib.rs#Query.nested.inside"],
         "{}",
         nested.value
     );
@@ -83,7 +88,7 @@ fn implicit_receiver_languages_keep_bare_method_calls() {
         );
         assert_eq!(
             ids(&out),
-            vec![format!("{file}#Query.work")],
+            vec![format!("app/{file}#Query.work")],
             "{}",
             out.value
         );
@@ -262,7 +267,12 @@ fn rust_member_calls_on_a_local_named_like_a_module_do_not_link_by_namespace() {
     let start = ask(root, "callers", Some("app/src/driver.rs#start"), |o| {
         o.confidence = Some("low".into());
     });
-    assert_eq!(ids(&start), vec!["app/src/io.rs#moduled"], "{}", start.value);
+    assert_eq!(
+        ids(&start),
+        vec!["app/src/io.rs#moduled"],
+        "{}",
+        start.value
+    );
     assert_eq!(
         start.value["rows"][0]["via"], "namespace",
         "{}",
@@ -282,7 +292,10 @@ fn a_path_mounted_module_keeps_its_home_crates_links() {
             "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
         ),
         ("src/lib.rs", "pub mod num;\npub mod text;\n"),
-        ("src/num.rs", "pub fn saturate(v: u64) -> u32 { v as u32 }\n"),
+        (
+            "src/num.rs",
+            "pub fn saturate(v: u64) -> u32 { v as u32 }\n",
+        ),
         ("src/text.rs", "mod offsets;\npub use offsets::width;\n"),
         (
             "src/text/offsets.rs",

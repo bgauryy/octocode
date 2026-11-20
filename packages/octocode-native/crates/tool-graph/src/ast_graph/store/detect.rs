@@ -294,11 +294,12 @@ pub(crate) fn run(
         proof = tier_dead_code(&c.v, &mut c.findings, &mut c.notes, root, global, stopped);
         spread_mentioned_liveness(&c.v, &mut c.findings);
         c.findings.retain(|f| wants(f.detector));
-    } else if c
-        .findings
-        .iter()
-        .any(|f| matches!(f.detector, "unreachable-file" | "unused-export" | "export-only-local"))
-    {
+    } else if c.findings.iter().any(|f| {
+        matches!(
+            f.detector,
+            "unreachable-file" | "unused-export" | "export-only-local"
+        )
+    }) {
         // Without the scan a tier-90 dead-code finding has had no text check.
         for finding in &mut c.findings {
             if matches!(

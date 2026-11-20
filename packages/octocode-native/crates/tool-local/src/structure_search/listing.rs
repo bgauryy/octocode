@@ -367,7 +367,7 @@ fn listing_page<Q: Listing>(
     }
     // A sparse checkout holds only some of its repository: a listing of it
     // shows none of the rest.
-    warnings.extend(crate::sparse_scope::coverage(root));
+    warnings.extend(octocode_tools_shared::gh_git::sparse_miss::coverage(root));
     // The walk's summary, what it skipped and its retries
     // describe the whole listing: page 1 states them once, and a sorted walk
     // states them when it ends (its paused windows carry them there).

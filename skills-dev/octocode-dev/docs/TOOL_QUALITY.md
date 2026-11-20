@@ -94,6 +94,12 @@ Test only controls the public operation supports.
 - Fixtures: delimiter comments, comment-like strings, TS types/imports, JSX/TSX, data, markup, indentation-sensitive, empty, malformed, near-size-limit; check validity and preservation, not byte counts.
 - The chunk-boundary security property runs in the normal Rust suite. Run the manual CommonJS benchmark explicitly and record profile, fixtures and parity; an ignored test is not a pass.
 
+## Audit a tool end to end
+
+Run [tool-inventory.mjs](../scripts/tool-inventory.mjs) with the tool name. Follow the [surface map](../references/surface-map.md) from core to each interface, then [contract](../references/contract-audit.md), [implementation](../references/implementation-audit.md) and [output](../references/output-audit.md) in order, covering all three lanes. Fix a confirmed defect at its owning layer per [fix and verify](../references/fix-and-verify.md).
+
+Use the [audit template](../assets/audit-report.md), one report per tool; each 5W2H finding has source location, severity, evidence, fix and verification result, with unverified slots marked unknown. For independent audits give each actor its tool, skill, template and definition of done.
+
 ## Record evidence
 
 - Follow `<repo>/AGENTS.md` and [DEVELOPMENT.md](DEVELOPMENT.md#build-test-lint). Record each check per `../references/fix-and-verify.md` (status, command, scope). A documentation fix is not a runtime improvement.

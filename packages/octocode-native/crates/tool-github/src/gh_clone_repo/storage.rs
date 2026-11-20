@@ -451,16 +451,39 @@ pub(super) fn record_scope(
 }
 
 /// The commits the store at `store` keeps as its shallow boundary (git's
-/// `shallow` file): history walks stop at them. None for a store that holds
-/// every commit it reaches.
-pub(super) fn shallow_commits(store: &Path) -> Vec<String> {
-    fs::read_to_string(store.join("shallow"))
-        .unwrap_or_default()
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(str::to_owned)
-        .collect()
+/// `shallow` file: history walks stop at them), read one line at a time.
+/// Each line is a commit id, so a longer line names none: `Some(None)`.
+/// Nothing for a store that keeps no boundary.
+pub(super) fn shallow_boundary(store: &Path) -> impl Iterator<Item = Option<String>> {
+    // A commit id is at most 64 hex digits (SHA-256), then a line ending.
+    const LINE_BYTES: u64 = 66;
+    let mut reader = fs::File::open(store.join("shallow"))
+        .ok()
+        .map(io::BufReader::new);
+    std::iter::from_fn(move || {
+        loop {
+            let reader = reader.as_mut()?;
+            let mut line = Vec::new();
+            let read = io::BufRead::read_until(
+                &mut io::Read::take(&mut *reader, LINE_BYTES),
+                b'\n',
+                &mut line,
+            );
+            let line = match read {
+                Ok(0) => return None,
+                Ok(_) => line,
+                Err(_) => return Some(None),
+            };
+            let commit = std::str::from_utf8(&line).map(str::trim);
+            match commit {
+                Ok("") => continue,
+                Ok(commit) if octocode_github::is_full_sha(commit) => {
+                    return Some(Some(commit.to_ascii_lowercase()));
+                }
+                _ => return Some(None),
+            }
+        }
+    })
 }
 
 /// When the checkout was completed ([`record_completion`]); `None` for a

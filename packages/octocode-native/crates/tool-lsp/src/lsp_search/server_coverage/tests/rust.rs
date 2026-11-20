@@ -385,3 +385,38 @@ async fn a_module_gated_at_its_declaration_is_counted() {
     assert_eq!(row["partialReasons"], json!([CFG_REASON]), "{row}");
     assert_eq!(row["coverage"]["cfgGatedFiles"], left_out, "{row}");
 }
+
+/// The gate scan counts what the request's question counts: a gated file
+/// that only takes `&dyn Check` holds no implementation of `Check`, so an
+/// implementations row neither counts nor blames it; a gated `impl` still
+/// counts.
+#[test]
+fn the_gate_scan_counts_only_files_that_may_answer_the_question() {
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("root");
+    let write = |name: &str, text: &str| {
+        let path = root.join(name);
+        std::fs::write(&path, text).expect("source");
+        path.to_string_lossy().into_owned()
+    };
+    let declared = write("check.rs", "pub trait Check {}\n");
+    write(
+        "held.rs",
+        "#[cfg(feature = \"x\")]\nfn f(c: &dyn Check) {}\n",
+    );
+    let implemented = write("never.rs", "#[cfg(feature = \"x\")]\nimpl Check for S {}\n");
+    let scope = scanned(
+        Scope::new(root.to_string_lossy().into_owned(), vec!["*.rs".into()]),
+        "Check",
+    );
+    scope.asks(crate::lsp_search::scope::Question::Heritage);
+    scope.answer([declared]);
+    let found = gated_files_mentioning(
+        &scope,
+        &scope.root,
+        "Check",
+        (Gate::Off, &super::headless_configuration()),
+        &|| false,
+    );
+    assert_eq!(found.scan.files, vec![implemented]);
+}

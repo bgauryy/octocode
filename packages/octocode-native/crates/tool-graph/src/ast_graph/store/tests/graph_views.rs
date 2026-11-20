@@ -83,6 +83,46 @@ fn directory_target_walks_every_file_under_it() {
     );
 }
 
+/// `impact` on a directory changes every file under it, as `deps` reads
+/// one: those are its depth-0 rows, and their importers follow.
+#[test]
+fn impact_on_a_directory_changes_every_file_under_it() {
+    let dir = built();
+    let root = dir.0.as_path();
+    for target in ["util", "util/"] {
+        let impact = ask(root, "impact", Some(target), |_| {});
+        assert_eq!(
+            impact.class,
+            ExitClass::Success,
+            "{target}: {}",
+            impact.value
+        );
+        let at = |depth: u64| {
+            sorted(
+                impact.value["rows"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|row| row["depth"] == depth)
+                    .filter_map(|row| row["id"].as_str().map(str::to_owned))
+                    .collect(),
+            )
+        };
+        assert_eq!(
+            at(0),
+            vec!["app/util/box.ts", "app/util/fmt.ts"],
+            "{}",
+            impact.value
+        );
+        assert_eq!(
+            at(1),
+            vec!["app/config/load.ts", "app/main.ts"],
+            "{}",
+            impact.value
+        );
+    }
+}
+
 /// `view:"modules"`: one row per (importing directory, imported directory)
 /// pair with its edge count, in key order; counts sum to the edge total.
 #[test]
@@ -175,7 +215,7 @@ fn not_found_path_suggests_only_nodes_under_its_directory() {
     for key in &suggestions {
         let key = key.as_str().unwrap();
         assert!(
-            key.starts_with("config/schema.ts"),
+            key.starts_with("app/config/schema.ts"),
             "{key} is outside config/ or does not share the name: {}",
             out.value
         );
@@ -215,12 +255,13 @@ fn symbol_rows_state_their_path_symbol_name_kind_and_line() {
             let path = row["path"]
                 .as_str()
                 .unwrap_or_else(|| panic!("no path: {row}"));
-            // `path` names the file from the workspace root; the id keys it
-            // from the scope `app`.
+            // `path` names the file from the workspace root, and so does
+            // the id it starts.
             assert!(root.join(path).is_file(), "{path} does not exist: {row}");
             assert!(
-                path.strip_prefix("app/")
-                    .is_some_and(|key| row["id"].as_str().unwrap().starts_with(key)),
+                row["id"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with(&format!("{path}#"))),
                 "{row}"
             );
             assert!(row["line"].as_u64().is_some_and(|line| line >= 1), "{row}");

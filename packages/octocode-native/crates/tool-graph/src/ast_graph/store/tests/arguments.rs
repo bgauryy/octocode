@@ -306,8 +306,8 @@ fn wide_argument_lists_keep_every_slot_across_pages() {
             });
             assert_eq!(out.value["pagination"]["total"], 1203, "{}", out.value);
             for row in out.value["rows"].as_array().unwrap() {
-                assert_eq!(row["from"], "wide.rs#main");
-                assert_eq!(row["to"], "wide.rs#handler");
+                assert_eq!(row["from"], "app/wide.rs#main");
+                assert_eq!(row["to"], "app/wide.rs#handler");
                 assert!(ids.insert(row["id"].as_str().unwrap().to_owned()));
                 assert!(slots.insert(row["argument"]["index"].as_u64().unwrap()));
             }
@@ -331,7 +331,10 @@ fn a_traversals_argument_coverage_is_its_targets_language() {
             "args.ts",
             "function handler() {}\nexport function run() { sink(handler); }\nfunction sink(f: unknown) { return f; }\n",
         ),
-        ("tool.py", "def helper():\n    pass\n\ndef main():\n    helper()\n"),
+        (
+            "tool.py",
+            "def helper():\n    pass\n\ndef main():\n    helper()\n",
+        ),
     ]);
     let built = ingest_root(&dir.0, &dir.0.join("app"), None, false);
     let languages = |coverage: &Value| {

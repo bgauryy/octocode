@@ -65,7 +65,7 @@ fn only_unjudged_source_rows_read_again_for_free_fill_together() {
     for tool in ToolId::ALL {
         assert_eq!(
             fill_together(tool),
-            tool.reads_source() && reread_is_free(tool),
+            tool.reads_source() && tool.rereads_free(),
             "{tool}"
         );
     }

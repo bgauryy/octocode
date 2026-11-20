@@ -1,10 +1,12 @@
 # Ready checks (`src/engine/cdp-checks/`)
 
+> MCP note: the default `--mcp` surface is the research preset. Outside it (`check`, `script` and `cdp`), use `--mcp --preset full` or the typed `/cli` and `/raw` commands.
+
 Load when running a check, reading its artifacts, or capturing HAR. Why: Choose a check and read its full artifacts. Run `octocode-chrome-devtools /raw schema check [name]` to discover recipes; `check <name> --options JSON` sets their listed knobs. Dedicated commands: `snapshot`, `screenshot`, `run`, `query`, `artifact`. Artifacts: `.octocode/octocode-chrome-devtools/tmp/<timestamp>/`, printed as `[ARTIFACT]`.
 
 | Check | Does | Knobs |
 |---|---|---|
-| `browser-execute` | Find, act, wait, verify and extract in one invocation; optional concurrent network capture; stops on first failure | `--plan <JSON file>` or `BROWSER_PLAN`; [plan and frame guide](browser-execution.md) |
+| `browser-execute` | Find, act, wait, verify and extract in one invocation; optional concurrent network capture; stops at the first failing step that is not `optional` | `--plan <JSON file>` or `BROWSER_PLAN`; [plan and frame guide](browser-execution.md) |
 | `evidence-query` | Filter saved arrays/events before lossless pagination; reusable index with source positions | `--file`, `--format json\|jsonl`, `--pointer`, `--where`, `--select`, `--cursor`, `--limit`; CLI `query` (generated `dist/engine/evidence-query.mjs`) |
 | `page-snapshot` | `[PAGE]` title+URL, refs `e1…` (controls, headings; document order; same-process iframes inlined; isolated frames print `FRAME_TARGET` under `— iframe <url>`; `clickable` = div/span with cursor:pointer, onclick or tabindex), `—` row/card context lines, `~"…"` inferred names for unnamed controls. All refs saved to `page-snapshot.json`; `[NEXT]` when more | `SNAPSHOT_MAX` (60/page; use `snapshot-query` to read later saved pages), `SNAPSHOT_OUTLINE=1` (regions `rN` + headings with ref spans), `SNAPSHOT_ROOT=<css\|eN\|rN>`, `SNAPSHOT_VIEWPORT=1`, `SNAPSHOT_TEXT=<n>` (+`page-text.txt`), `SNAPSHOT_CONTEXT=0`, `SNAPSHOT_URLS=1` (link paths), `SNAPSHOT_CLICKABLE=0`, `SNAPSHOT_STDOUT=summary`, `SNAPSHOT_WAIT_SELECTOR`, `SNAPSHOT_WAIT_TEXT`, `SNAPSHOT_WAIT_MS` |
 | `page-screenshot` | JPEG of viewport, full page (≤8000px per tile; complete paginated manifest), or one element | `SHOT_FULL=1`, `SHOT_SELECTOR=<css>`, `SHOT_SCALE` (0.25–1; 0.5 ≈ ¼ bytes), `SHOT_FORMAT=png`, `SHOT_QUALITY` (70), `SHOT_ANNOTATE=1` (box + label the snapshot refs; `e20-e80` for a range) |
@@ -12,7 +14,7 @@ Load when running a check, reading its artifacts, or capturing HAR. Why: Choose 
 | `graph-actionability-check` | Operable rows `{url, rows[]}` | `--url`, `--selectors`, `--limit` (25 stdout rows; full set saved), `--graph <file>` |
 | `actionability-diagnostics` | Classifies empty pages: blocked, js-shell, consent-region… | `--url`, `--wait-ms` |
 | `performance-` / `network-` / `storage-measure-check` | Health 0–100 + findings JSON | `MEASURE_URL=<url>` (fresh load, bounded observation window) or `MEASURE_EXISTING=1` (current tab; network sees only new requests). Neither = built-in fixture. Perf reports LCP (+element), CLS, and `interactionLatencyMax` after an interaction (maximum observed event duration); `inputHandlerMax` records delay plus handler time. These are diagnostics, not field INP. The tab is brought to front and a tiny screencast keeps headless painting, so late LCP is timed correctly. `PERF_WAIT_MS`, `NET_WAIT_MS`, `NET_SLOW_MS`, `STORAGE_WAIT_MS` |
-| `protocol-snapshot` | Save the installed Chrome schema for every domain, command, event and type | Run through sandbox; page with `artifact-query` |
+| `protocol-snapshot` | Save the installed Chrome schema for every domain, command, event and type | Run through sandbox; page with `artifact` or `query` |
 | `artifact-query` | Lossless bounded pages of any saved capture | `--file`, `--format text\|json\|binary`, `--pointer /path`, `--offset`, `--length` (1–20000); SHA-256-pinned continuations; encoded content ≤20000 bytes |
 | `snapshot-query` | Page saved refs or outline without recapturing dynamic content | `--file`, `--page`, `--limit`, `--view refs\|outline` |
 | `measure-query` | Filter latest measure JSON, no browser | `--latest`, `--view`, `--page`, `--limit`, `--code`, `--kind`, `--domain`, `--min-ms`, `--har-file` |

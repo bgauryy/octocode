@@ -1,8 +1,8 @@
 //! A search matches the text a read serves: bytes a read withholds make no
 //! hit, count or listing in any localSearch view, so a regex walk over a
-//! hidden value learns nothing of it; ordinary text and the placeholders a
-//! read shows count as a read's `matchString` counts them. All key material
-//! and secrets are fabricated.
+//! hidden value learns nothing of it; ordinary text counts as a read's
+//! `matchString` counts it, and the placeholders a read shows, text it
+//! wrote, count in no view. All key material and secrets are fabricated.
 
 use crate::support::{Workspace, call, query_path};
 use octocode_test_support::json_fixture;
@@ -95,9 +95,9 @@ async fn a_search_never_matches_what_a_read_withholds() {
     );
     assert_eq!(hits(&run("localSearch", term).await), 0);
 
-    // Ordinary text on the same lines, and the placeholders a read shows,
-    // count in every view as a read's matchString counts them.
-    for pattern in ["hello", "\\[REDACTED-", "db_password"] {
+    // Ordinary text on the same lines counts in every view as a read's
+    // matchString counts it.
+    for pattern in ["hello", "db_password"] {
         let fetched = run(
             "localFetch",
             json!({"matchString": [pattern], "regexEngine": "rust"}),
@@ -116,6 +116,41 @@ async fn a_search_never_matches_what_a_read_withholds() {
             };
             assert_eq!(count, read, "{pattern} {view}: {data}");
         }
+    }
+    // The placeholders a read shows are text it wrote, not the file's: the
+    // read shows them, a search for them matches nothing in any view, and
+    // its empty row says masked secrets are not searched.
+    let placeholder = "\\[REDACTED-";
+    let fetched = run(
+        "localFetch",
+        json!({"matchString": [placeholder], "regexEngine": "rust"}),
+    )
+    .await;
+    assert!(
+        fetched["selectedMatchCount"]
+            .as_u64()
+            .is_some_and(|read| read > 0),
+        "{fetched}"
+    );
+    for view in VIEWS {
+        let query = json!({"matchString": [placeholder], "regexEngine": "rust", "view": view});
+        let outcome = call(&runtime, "localSearch", query_path(&path, query.clone()))
+            .await
+            .unwrap_or_else(|error| panic!("{query}: {error:?}"));
+        let served = outcome.structured_content.into_value();
+        let data = &served["results"][0]["data"];
+        assert_eq!(hits(data), 0, "{view}: {served}");
+        assert_eq!(
+            data["matchedLineCount"].as_u64().unwrap_or(0),
+            0,
+            "{view}: {served}"
+        );
+        assert!(
+            served
+                .to_string()
+                .contains("masked secrets are not searched"),
+            "{view}: {served}"
+        );
     }
 }
 

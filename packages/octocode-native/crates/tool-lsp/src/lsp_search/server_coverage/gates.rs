@@ -149,11 +149,12 @@ impl GateCount {
     }
 }
 
-/// Gated files under `root` (the server's workspace) that use `name` and
-/// that the server's answer did not cover. The candidates are the request's
-/// own text scan of `name` (`Scope::scanned_files`, a word-bounded search of
-/// the scope, memoized by its fingerprint) within `root`: no second walk,
-/// and only files that spell the name are read. A request without that scan
+/// Gated files under `root` (the server's workspace) that use `name` in code
+/// as the request asks ([`Scope::uses_as_asked`]) and that the server's
+/// answer did not cover. The candidates are the request's own text scan of
+/// `name` (`Scope::scanned_files`, a word-bounded search of the scope,
+/// memoized by its fingerprint) within `root`: no second walk, and only
+/// files that spell the name are read. A request without that scan
 /// (it failed) checked nothing, which `has_more` says; `stopped` (the
 /// request's cancellation or deadline) ends the check early the same way.
 pub(super) fn gated_files_mentioning(
@@ -169,8 +170,12 @@ pub(super) fn gated_files_mentioning(
         return GateCount { matches: 0, scan };
     };
     let root = super::super::scope::canonical(root);
+    // A file counts only if its code may answer what the request asks (a
+    // `&dyn Trait` is no implementation), as `textOnlyFiles` counts it.
     for file in mentions.iter().filter(|file| {
-        Path::new(file).starts_with(&root) && !scope.is_answered(file) && scope.in_reach(name, file)
+        Path::new(file).starts_with(&root)
+            && !scope.is_answered(file)
+            && scope.uses_as_asked(name, file)
     }) {
         if stopped() {
             scan.has_more = true;
@@ -193,10 +198,7 @@ pub(super) fn gated_files_mentioning(
             })
             .flatten();
         match text {
-            Some(text)
-                if uses_in_code(path, &text, name)
-                    && gate.carried_by(path, &text, configuration, stopped) =>
-            {
+            Some(text) if gate.carried_by(path, &text, configuration, stopped) => {
                 scan.files.push(file.clone());
             }
             Some(_) => {}
@@ -213,13 +215,6 @@ pub(super) fn gated_files_mentioning(
 #[cfg(test)]
 thread_local! {
     pub(super) static GATE_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-/// Whether `text` uses `name` in code, not only in comments or strings; a
-/// file the grammar cannot parse cleanly counts its word mentions.
-pub(super) fn uses_in_code(path: &Path, text: &str, name: &str) -> bool {
-    octocode_engine::lsp::resolver::code_occurrence_lines(&path.to_string_lossy(), text, name)
-        .is_none_or(|lines| !lines.is_empty())
 }
 
 /// A `cfg(not(feature …))` gate (also nested, `cfg(all(not(feature …)))`).

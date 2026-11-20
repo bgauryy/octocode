@@ -101,6 +101,20 @@ fn a_rust_types_implementations_are_its_heritage_sites() {
         ),
         Question::Heritage
     );
+    // An anchor at an `impl Trait for Type` header names the trait too; one
+    // at a `&dyn Trait` use stays the plain question.
+    let header =
+        "struct Never;\nimpl CancellationCheck for Never {}\nfn f(c: &dyn CancellationCheck) {}\n";
+    let at = |line: u32, character: u32| {
+        Question::Implementations.at_anchor(
+            "/w/never.rs",
+            Some(header),
+            (line, character),
+            "CancellationCheck",
+        )
+    };
+    assert_eq!(at(1, 5), Question::Heritage);
+    assert_eq!(at(2, 13), Question::Implementations);
     let answers = |source: &str| {
         let occurrences = octocode_engine::lsp::resolver::code_occurrences(
             "/w/b.rs",

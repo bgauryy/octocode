@@ -1,6 +1,0 @@
-{"tool": "ghGetHistoryItem", "steps": [
- {"name": "PR summary", "tool": "ghGetHistoryItem", "args": {"operation": "pullRequest", "owner": "sharkdp", "repo": "fd", "number": 1800}, "expect": {"has": ["data"]}},
- {"name": "PR conversation without bots", "tool": "ghGetHistoryItem", "args": {"operation": "pullRequest", "owner": "sharkdp", "repo": "fd", "number": 1800, "include": ["comments"], "bots": false}, "expect": {"maxChars": 30000}},
- {"name": "three PRs in one call", "tool": "ghGetHistoryItem", "args": {"queries": [{"mainGoal": "c", "reasoning": "c", "operation": "pullRequest", "owner": "sharkdp", "repo": "fd", "number": 1800}, {"mainGoal": "c", "reasoning": "c", "operation": "pullRequest", "owner": "sharkdp", "repo": "fd", "number": 1790}, {"mainGoal": "c", "reasoning": "c", "operation": "pullRequest", "owner": "sharkdp", "repo": "fd", "number": 1780}]}, "expect": {"has": ["$.results"]}},
- {"name": "missing PR", "tool": "ghGetHistoryItem", "args": {"operation": "pullRequest", "owner": "sharkdp", "repo": "fd", "number": 999999}, "expect": {"error": "notFound"}}
-]}

@@ -8,7 +8,10 @@ fn recursive_and_same_file_calls_remain_visible_without_reexpanding_seeds() {
     )]);
     let root = dir.0.as_path();
     assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
-    let expected = vec!["app/calls.ts#alpha".to_owned(), "app/calls.ts#beta".to_owned()];
+    let expected = vec![
+        "app/calls.ts#alpha".to_owned(),
+        "app/calls.ts#beta".to_owned(),
+    ];
     for target in ["app/calls.ts#alpha", "calls.ts"] {
         for operation in ["callers", "callees"] {
             for depth in [1, 20] {

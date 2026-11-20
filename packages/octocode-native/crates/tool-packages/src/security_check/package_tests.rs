@@ -1,4 +1,6 @@
 //! The registry gate and the row, against recorded doubles.
+#[path = "package_tests/cross_tool_spelling.rs"]
+mod cross_tool_spelling;
 #[path = "package_tests/dependencies.rs"]
 mod dependencies;
 #[path = "package_tests/osv_unanswered.rs"]
@@ -164,22 +166,54 @@ async fn none_known_after_a_finished_walk_is_an_answer_not_an_empty_row() {
     );
 }
 
-/// The gate fails closed: an unknown package, or a registry that failed, sends
-/// nothing to OSV.
+/// A name the public registry does not list still goes to OSV as given: a
+/// package the registry removed (malware) keeps its records there. With none,
+/// the row is the failed lookup; a registry that failed sends nothing.
 #[tokio::test]
-async fn a_registry_miss_or_failure_sends_nothing_to_osv() {
+async fn a_registry_miss_goes_to_osv_and_a_registry_failure_sends_nothing() {
+    let sent = json!({"package": {"name": "lodash", "ecosystem": "npm"}, "version": "4.17.20"});
     let missing = RouteHttp::new().osv_pages(vec![(200, json!({}))]);
     let error = answer(&missing, Some("4.17.20"), None)
         .await
         .expect_err("not found");
     assert_eq!(error.code, ErrorCode::NotFound);
-    assert!(error.message.contains("not checked"), "{}", error.message);
     assert!(
-        error.message.contains("public npm registry"),
+        error.message.contains("public npm registry")
+            && error.message.contains("OSV lists no advisory"),
         "{}",
         error.message
     );
-    assert_eq!(missing.osv_queries().len(), 0);
+    assert_eq!(missing.osv_queries(), std::slice::from_ref(&sent));
+    // Removed for malware: OSV's record answers the row, which says no
+    // registry confirmed the name.
+    let removed = RouteHttp::new().osv_pages(vec![(200, json!({"vulns": [record("MAL-1")]}))]);
+    let data = answer(&removed, Some("4.17.20"), None)
+        .await
+        .expect("row");
+    assert_eq!(removed.osv_queries()[0], sent);
+    assert!(data.get("status").is_none(), "{data}");
+    assert_eq!(data["affected"], true, "{data}");
+    assert_eq!(data["advisories"][0]["id"], "MAL-1", "{data}");
+    assert_eq!(data["registryConfirmed"], false, "{data}");
+    assert!(
+        data["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .any(|warning| warning.contains("npm registry does not list this name")),
+        "{data}"
+    );
+    // OSV failing on such a name is OSV's error, naming the registry miss.
+    let unread = RouteHttp::new().osv_pages(vec![(503, json!({"error": "down"}))]);
+    let error = answer(&unread, None, None).await.expect_err("osv failed");
+    assert_ne!(error.code, ErrorCode::NotFound, "{}", error.message);
+    assert!(
+        error.message.contains("public npm registry")
+            && error.message.contains("Advisories were not checked"),
+        "{}",
+        error.message
+    );
     let failed = RouteHttp::new()
         .status(LODASH, 503, json_fixture(r#"{"error": "down"}"#))
         .osv_pages(vec![(200, json!({}))]);
@@ -195,20 +229,34 @@ async fn a_registry_miss_or_failure_sends_nothing_to_osv() {
     assert_eq!(failed.osv_queries().len(), 0);
 }
 
-/// A version the registry does not list never leaves: the name goes alone and
-/// the row says the version was not evaluated. It is a failed row (the CLI
-/// exits non-zero) that still lists the advisories of the other versions.
+/// A version the registry does not list (yanked, unpublished) goes to OSV
+/// only once OSV lists an advisory for the name: OSV compares it with each
+/// record's ranges. Matching none, the row is a failed lookup (the CLI exits
+/// non-zero) that still lists the advisories of the other versions.
 #[tokio::test]
-async fn an_unpublished_version_is_never_sent() {
-    let http = registry().osv_pages(vec![(200, json!({"vulns": [record("GHSA-1")]}))]);
+async fn an_unpublished_version_goes_to_osv_once_it_lists_the_package() {
+    let pages = || {
+        vec![
+            (200, json!({"vulns": [record("GHSA-1")]})),
+            (200, json!({})),
+        ]
+    };
+    let http = registry().osv_pages(pages());
     let data = answer(&http, Some("4.17.999-internal"), None)
         .await
         .expect("row");
     assert_eq!(
         http.osv_queries(),
-        [json_fixture(
-            r#"{"package": {"name": "lodash", "ecosystem": "npm"}}"#
-        )]
+        [
+            json!({"package": {"name": "lodash", "ecosystem": "npm"}}),
+            json!({"package": {"name": "lodash", "ecosystem": "npm"}, "version": "4.17.999-internal"}),
+        ]
+    );
+    assert!(
+        data["answer"]
+            .as_str()
+            .is_some_and(|answer| answer.contains("asked at this version it lists none")),
+        "{data}"
     );
     assert_eq!(data["versionEvaluated"], false);
     assert_eq!(data["status"], "error", "{data}");
@@ -252,14 +300,16 @@ async fn an_unpublished_version_is_never_sent() {
     );
     // No record names the version, so nothing says the registry lost it.
     assert!(data.get("versionListed").is_none(), "{data}");
-    // Nothing known about the name is still not a verdict on the version.
+    // Nothing known about the name is still not a verdict on the version,
+    // and the version is not sent.
     let http = registry().osv_pages(vec![(200, json!({}))]);
     let data = answer(&http, Some("9.9.9"), None).await.expect("row");
+    assert_eq!(http.osv_queries().len(), 1, "{data}");
     assert_eq!(data["status"], "error", "{data}");
     assert_eq!(data["errorCode"], "notFound", "{data}");
     assert_eq!(data["versionEvaluated"], false);
     // The summary fails the same way, with the same repair.
-    let http = registry().osv_pages(vec![(200, json!({"vulns": [record("GHSA-1")]}))]);
+    let http = registry().osv_pages(pages());
     let summary = answer_in(
         &http,
         Some("4.17.999-internal"),
@@ -3016,7 +3066,7 @@ fn every_name_search_lead_runs_without_a_repair() {
             measure: "downloads",
         };
         // A name one edit away is checked as a package row of this tool.
-        let repaired = not_on_registry(kind, &package, Some(near));
+        let repaired = not_on_registry(kind, &package, Some(&near));
         let input = repaired.calls.expect("repair")["repair"]["input"].clone();
         let tool = ToolId::SecurityCheck.as_str();
         let (_, repairs) = octocode_runtime_base::contracts::normalized_input(tool, input.clone());

@@ -122,7 +122,11 @@ fn a_walk_both_ways_states_each_rows_direction() {
             other => panic!("direction {other:?}: {row}"),
         }
     }
-    assert!(!incoming.is_empty() && !outgoing.is_empty(), "{}", both.value);
+    assert!(
+        !incoming.is_empty() && !outgoing.is_empty(),
+        "{}",
+        both.value
+    );
     incoming.sort();
     outgoing.sort();
     let (mut callers, mut callees) = (callers, callees);

@@ -24,7 +24,7 @@ fn unusable_persistent_storage_names_the_recovery_without_publishing_a_handle() 
     let directory = tempfile::tempdir().unwrap();
     let blocked = directory.path().join("not-a-directory");
     std::fs::write(&blocked, "occupied").unwrap();
-    let registry = Registry::new(CacheConfig::derived(), Some(blocked), "policy".into());
+    let registry = Registry::scoped(CacheConfig::derived(), Some(blocked), String::from("policy").into());
     let mut pending = registry.pending([9; 32], None);
     let token = insert_page(&mut pending, 1);
     let error = registry
@@ -77,10 +77,10 @@ fn page_planning_reserves_the_issued_handle_width() {
 #[test]
 fn a_busy_store_honors_cancellation_and_deadline_without_publishing() {
     let disk = tempfile::tempdir().unwrap();
-    let registry = Registry::new(
+    let registry = Registry::scoped(
         CacheConfig::derived(),
         Some(disk.path().into()),
-        "policy".into(),
+        String::from("policy").into(),
     );
     let _held = octocode_io::lock::lock_within(
         octocode_io::lock::open_lock_file(&disk.path().join("continuations.lock")).unwrap(),
@@ -150,12 +150,12 @@ fn branched_resumes_preserve_every_published_handle() {
 fn independent_runtimes_merge_branches_and_refresh_cached_sets() {
     let disk = tempfile::tempdir().unwrap();
     let make = || {
-        Registry::new(
+        Registry::scoped(
             CacheConfig {
                 disk_bytes: 1024 * 1024,
             },
             Some(disk.path().into()),
-            "policy".into(),
+            String::from("policy").into(),
         )
     };
     let first = make();
@@ -186,12 +186,12 @@ fn independent_runtimes_merge_branches_and_refresh_cached_sets() {
 }
 
 fn registry(policy: &str) -> Registry {
-    Registry::new(
+    Registry::scoped(
         CacheConfig {
             disk_bytes: 1024 * 1024,
         },
         None,
-        policy.into(),
+        policy.to_owned().into(),
     )
 }
 
@@ -244,10 +244,10 @@ fn issued_work_retains_the_complete_request_and_rejects_other_access_or_tool() {
 /// many never evicts one of its own.
 #[test]
 fn an_output_retains_many_handles_without_evicting_its_own() {
-    let registry = Registry::new(
+    let registry = Registry::scoped(
         octocode_runtime_base::cache::CacheConfig::derived(),
         None,
-        "policy".into(),
+        String::from("policy").into(),
     );
     let mut pending = registry.pending([0; 32], None);
     let tokens = (0..30)
@@ -270,10 +270,10 @@ fn disk_reopen_preserves_work_but_different_contract_or_policy_cannot_open_it() 
     let config = CacheConfig {
         disk_bytes: 1024 * 1024,
     };
-    let first = Registry::new(
+    let first = Registry::scoped(
         config.clone(),
         Some(disk.path().into()),
-        "contract-a;policy-a".into(),
+        String::from("contract-a;policy-a").into(),
     );
     let input = json_fixture(
         r#"{
@@ -296,20 +296,20 @@ fn disk_reopen_preserves_work_but_different_contract_or_policy_cannot_open_it() 
     );
     assert!(first.retain(pending, &context()).is_ok());
     first.clear_memory();
-    let second = Registry::new(
+    let second = Registry::scoped(
         config.clone(),
         Some(disk.path().into()),
-        "contract-a;policy-a".into(),
+        String::from("contract-a;policy-a").into(),
     );
     let opened = second
         .open(ToolId::LocalFetch, &token, [3; 32])
         .expect("disk replay");
     assert_eq!(opened.member().input, input);
     assert_eq!(opened.github_identity(), Some("account-a"));
-    let changed = Registry::new(
+    let changed = Registry::scoped(
         config,
         Some(disk.path().into()),
-        "contract-b;policy-a".into(),
+        String::from("contract-b;policy-a").into(),
     );
     assert!(changed.open(ToolId::LocalFetch, &token, [3; 32]).is_err());
     let mut altered = token.clone().into_bytes();
@@ -329,10 +329,10 @@ fn disk_reopen_preserves_work_but_different_contract_or_policy_cannot_open_it() 
 #[test]
 fn unavailable_storage_never_claims_an_issued_handle() {
     let storage = tempfile::tempdir().unwrap();
-    let registry = Registry::new(
+    let registry = Registry::scoped(
         CacheConfig { disk_bytes: 0 },
         Some(storage.path().into()),
-        "policy".into(),
+        String::from("policy").into(),
     );
     let mut pending = registry.pending([0; 32], None);
     let token = pending.insert(
@@ -385,10 +385,10 @@ mod turns;
 fn a_cursor_write_the_filesystem_refuses_is_a_storage_failure() {
     use std::os::unix::fs::PermissionsExt;
     let directory = tempfile::tempdir().unwrap();
-    let registry = Registry::new(
+    let registry = Registry::scoped(
         CacheConfig::derived(),
         Some(directory.path().into()),
-        "policy".into(),
+        String::from("policy").into(),
     );
     // One write makes the store's files, so the refusal below is the write's own.
     let mut first = registry.pending([9; 32], None);

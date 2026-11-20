@@ -4,7 +4,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { SKILL_COLLECTIONS } from './workspaces.mjs';
+import { SKILL_ROOTS } from './workspaces.mjs';
 
 const SKIPPED_DIRS = new Set(['node_modules', 'dist', 'out', 'build', 'coverage', 'target', 'fixtures']);
 const OWN_TOOLS_DEPENDENCY = 'octocode-mcp-cli';
@@ -47,7 +47,7 @@ function packageDocs(root) {
  */
 export function guidanceFiles(root) {
   const all = [
-    ...SKILL_COLLECTIONS.flatMap(collection => markdownUnder(join(root, collection))),
+    ...SKILL_ROOTS.flatMap(collection => markdownUnder(join(root, collection))),
     ...markdownUnder(join(root, 'docs')),
     ...packageDocs(root),
   ].map(path => relative(root, path).replaceAll('\\', '/')).toSorted(sourceFirst);

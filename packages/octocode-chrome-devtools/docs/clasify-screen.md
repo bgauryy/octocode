@@ -1,5 +1,7 @@
 # Scout unread browser evidence
 
+> MCP note: the default `--mcp` surface is the research preset. Outside it (`check`, `har-pager`, `measure-query` and `snapshot-query`), use `--mcp --preset full` or the typed `/cli` and `/raw` commands.
+
 Load when many plausible capture passages, resources or images remain after exact filtering. Browser tools preserve evidence and execute actions; Octocode retrieves it locally; optional JEV classification decides what the host should inspect. A small known answer needs ordinary retrieval only.
 
 ## Pick the cheapest deciding evidence

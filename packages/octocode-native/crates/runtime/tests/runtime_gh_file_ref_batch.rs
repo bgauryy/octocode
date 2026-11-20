@@ -291,3 +291,35 @@ async fn rows_still_reading_continue_together_in_one_call() {
         );
     }
 }
+
+/// GR7: a repository named as its clone URL names it (`b.git`) that GitHub
+/// does not resolve: the failure row's first related[] request is the same
+/// read naming `b`, valid against the ghGetFileContent output contract
+/// (`call` checks it).
+#[tokio::test]
+async fn a_clone_suffix_repository_leads_to_the_bare_name_read() {
+    let server = MockServer::builder().start().await;
+    Mock::given(wiremock::matchers::any())
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message": "Not Found"})))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&github_api(&server));
+    let out = call(
+        &runtime,
+        "ghGetFileContent",
+        json!({"owner": "a", "repo": "b.git", "path": "README.md", "ref": SHA}),
+    )
+    .await
+    .expect("failure row")
+    .structured_content
+    .into_value();
+    runtime.close().await;
+    let data = &out["results"][0]["data"];
+    assert!(data["errorCode"].is_string(), "{out}");
+    assert_ne!(data["errorCode"], "outputContractViolation", "{out}");
+    let first = &data["related"][0];
+    assert_eq!(first["tool"], "ghGetFileContent", "{out}");
+    assert_eq!(first["input"]["queries"][0]["repo"], "b", "{out}");
+    assert_eq!(first["input"]["queries"][0]["path"], "README.md", "{out}");
+}

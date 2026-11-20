@@ -327,3 +327,12 @@ fn a_line_with_thirty_thousand_occurrences_lists_each_column() {
     }
     assert_eq!(resolved.position.character, measured(starts[20_000]));
 }
+
+#[test]
+fn a_dictionary_key_spelling_the_name_is_not_its_first_occurrence() {
+    // A `pair` spells the name first inside its quoted key; the code
+    // occurrence after it is the anchor.
+    let source = "def show(hosts, operator):\n    print({\n        \"operator\": operator,\n        \"running\": hosts.running(operator[\"pid\"]),\n    })\n";
+    assert_eq!(resolve_char("relay.py", source, "running", 4), 25);
+    assert_eq!(resolve_char("relay.py", source, "operator", 3), 20);
+}

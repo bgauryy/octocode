@@ -68,7 +68,7 @@ pub(super) fn report(
         if let Some(name) = component_of.get(id) {
             components.insert(*name);
         }
-        rows.push(impact_row(t, *id, r));
+        rows.push(impact_row(t, *id, r, reached.listed, global));
     }
     for (id, _) in reached_files(reach) {
         if t.nodes[id as usize].flags & ROLE_TEST != 0 && !helper(id) {
@@ -147,8 +147,18 @@ pub(super) fn report(
     (summary, rows, lists)
 }
 
-/// One affected file: its distance, risk bucket, and the edge that reached it.
-pub(super) fn impact_row(t: &GraphTables, id: u32, r: &Reach) -> Value {
+/// One affected file: its distance, risk bucket, and the edge that reached
+/// it. A file reached because one of its declarations is affected names the
+/// edge that reached that declaration (the call, use or heritage), not the
+/// declaration's membership in the file. A file a config change covers is
+/// `via:"config"`, its `config` naming that config file (no node).
+pub(super) fn impact_row(
+    t: &GraphTables,
+    id: u32,
+    r: &Reach,
+    reach: &[Option<Reach>],
+    global: &[(String, String)],
+) -> Value {
     let key = |id: u32| t.str(t.nodes[id as usize].key);
     let flags = t.nodes[id as usize].flags;
     // GitNexus-style buckets: d1 depends directly (inspect first; not proof of
@@ -171,9 +181,25 @@ pub(super) fn impact_row(t: &GraphTables, id: u32, r: &Reach) -> Value {
     if r.package_depth > 0 {
         row["packageDistance"] = json!(r.package_depth);
     }
-    match r.via {
+    let via = match r.via {
+        Some((member, EdgeKind::Contains, NONE))
+            if t.nodes[member as usize].kind == NodeKind::Symbol
+                && t.nodes[member as usize].file == id =>
+        {
+            reach[member as usize]
+                .and_then(|member| member.via)
+                .or(r.via)
+        }
+        via => via,
+    };
+    match via {
         None => {
-            row["via"] = json!("changed");
+            if let Some((_, config)) = r.config.and_then(|index| global.get(index)) {
+                row["via"] = json!("config");
+                row["config"] = json!(config);
+            } else {
+                row["via"] = json!("changed");
+            }
         }
         Some((from, kind, detail)) => {
             row["from"] = json!(key(from));

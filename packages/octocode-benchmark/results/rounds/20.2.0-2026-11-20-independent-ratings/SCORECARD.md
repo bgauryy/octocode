@@ -36,7 +36,7 @@ correctness, but four high findings fail the correctness gate, so three tools ar
 6. **Regression check last:** after rating, each lane re-tested the previous round's issues for its tools.
 7. **Coordinator merge:** one table, per-dimension averages, the correctness gate from [RATINGS.md](../../../RATINGS.md),
    spot checks of the high findings, and findings recorded with ids.
-8. **MCP coverage on the same binary:** the [tool checks](../../../tool-checks/README.md) over MCP stdio with the
+8. **MCP coverage on the same binary:** the tool checks (`tool-checks/run.mjs`, since removed from the package) over MCP stdio with the
    opt-in tools on, and a default-surface run with an empty `OCTOCODE_HOME`.
 
 ## Verdict

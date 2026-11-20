@@ -99,7 +99,7 @@ async fn exiting_memory_clasify_refuses_section_plans_before_capture_or_billing(
     ];
     for source in sources {
         let rows = vec![
-            json!({"operation":"sections","resources":{"source":source},"questions":questions()}),
+            json!({"operation":"sections","maxRequests":crate::runtime_clasify::budget::EVERY_PAGE,"resources":{"source":source},"questions":questions()}),
         ];
         let output = exiting_call(&runtime, rows).await;
         let rows = output["results"].as_array().unwrap();
@@ -263,7 +263,7 @@ async fn exiting_memory_clasify_keeps_literal_siblings_and_long_lived_source_rea
         json!({"operation":"evaluate","content":"Restart the service.","questions":questions()});
     let evaluation =
         json!({"operation":"evaluate","source":source("restart.rs"),"questions":questions()});
-    let sections = json!({"operation":"sections","resources":{"source":source("restart.rs")},"questions":questions()});
+    let sections = json!({"operation":"sections","maxRequests":crate::runtime_clasify::budget::EVERY_PAGE,"resources":{"source":source("restart.rs")},"questions":questions()});
     let output = exiting_call(&runtime, vec![sections, literal, evaluation.clone()]).await;
     refused(&output["results"][0]);
     for index in [1, 2] {
@@ -341,7 +341,7 @@ async fn reading_a_response_page_keeps_the_plan_its_batch_continues() {
                 .unwrap();
         }
     };
-    let row = json!({"operation":"sections","resources":{"file":source("many.rs")},"questions":questions()});
+    let row = json!({"operation":"sections","maxRequests":crate::runtime_clasify::budget::EVERY_PAGE,"resources":{"file":source("many.rs")},"questions":questions()});
     let mut page = crate::support::Run::run(
         &runtime,
         "plan-first".into(),

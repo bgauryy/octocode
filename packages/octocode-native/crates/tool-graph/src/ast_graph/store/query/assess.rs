@@ -3,13 +3,18 @@
 use super::*;
 
 mod changed;
+mod manifest_diff;
 
 pub(super) use changed::git;
 use changed::git_changed;
 
 /// An impact answer: the first page's facts, the affected-file rows, and
 /// the summary's lists by name.
-type ImpactAnswer = (Map<String, Value>, Vec<Value>, BTreeMap<&'static str, Vec<Value>>);
+type ImpactAnswer = (
+    Map<String, Value>,
+    Vec<Value>,
+    BTreeMap<&'static str, Vec<Value>>,
+);
 
 impl Query<'_> {
     pub(super) fn impact(&self) -> Result<GraphOutput, GraphOutput> {
@@ -47,6 +52,7 @@ impl Query<'_> {
                 .map(str::to_owned),
         );
         let mut global = Vec::new();
+        let mut config_changes = Vec::new();
         let mut unmapped = Vec::new();
         if let Some(rev) = &options.since {
             let changed = git_changed(&root, rev, self.cancel)?;
@@ -61,7 +67,23 @@ impl Query<'_> {
                     continue;
                 }
                 if super::super::super::freshness::is_global_config(&path) {
-                    global.push((crate::ast_graph::paths::parent(&path).to_owned(), path));
+                    let scope = crate::ast_graph::paths::parent(&path).to_owned();
+                    let diff = manifest_diff::manifest_diff(&root, rev, &path, change, self.cancel);
+                    // A change confined to keys no linking step reads
+                    // changes no edge, so it seeds nothing.
+                    let seeded = diff.as_ref().is_none_or(|diff| diff.read);
+                    let mut entry = json!({
+                        "path": path,
+                        "scope": if scope.is_empty() { "." } else { scope.as_str() },
+                        "seeded": seeded,
+                    });
+                    if let Some(diff) = diff {
+                        entry["keys"] = json!(diff.keys);
+                    }
+                    config_changes.push(entry);
+                    if seeded {
+                        global.push((scope, path));
+                    }
                 } else if g.t.by_key(&path).is_some() {
                     refs.push(path);
                 } else {
@@ -79,7 +101,11 @@ impl Query<'_> {
             // A change set with nothing in the graph is an empty answer.
             let mut summary = json!({
                 "since": rev,
-                "reason": if unmapped.is_empty() {
+                "reason": if !config_changes.is_empty() {
+                    format!(
+                        "no graph file changed since {rev}, and the changed manifests changed only keys no linking step reads"
+                    )
+                } else if unmapped.is_empty() {
                     format!("no files changed since {rev}")
                 } else {
                     format!("no file changed since {rev} is in the graph")
@@ -88,14 +114,23 @@ impl Query<'_> {
             if !unmapped.is_empty() {
                 summary["unmapped"] = json!(unmapped.len());
             }
+            if !config_changes.is_empty() {
+                summary["configChanges"] = json!(config_changes);
+            }
             let mut extra = Map::new();
             extra.insert("summary".into(), summary);
             let lists = BTreeMap::from([("unmapped", unmapped)]);
             return Ok((extra, Vec::new(), lists));
         }
         let mut seeds = Vec::new();
+        // A directory that names no node changes every file under it, as
+        // `deps` and `dependents` read one.
+        let files_only = self.flags.kind.is_none_or(|kind| kind == NodeKind::File);
         for reference in &refs {
-            seeds.push(self.resolve(reference, self.flags.kind)?);
+            match g.directory(reference).filter(|_| files_only) {
+                Some((_, files)) => seeds.extend(files),
+                None => seeds.push(self.resolve(reference, self.flags.kind)?),
+            }
         }
         seeds.sort_unstable();
         seeds.dedup();
@@ -104,6 +139,9 @@ impl Query<'_> {
         let mut extra = Map::new();
         let mut summary = impact.summary;
         summary["maxDepth"] = json!(max_depth);
+        if !config_changes.is_empty() {
+            summary["configChanges"] = json!(config_changes);
+        }
         if let Some(first) = seeds.first() {
             extra.insert("coverage".into(), g.coverage(*first));
         }

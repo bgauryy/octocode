@@ -477,7 +477,7 @@ async fn an_oversized_source_is_answered_from_its_sections_beside_its_siblings()
     let out = clasify(
         &runtime,
         vec![
-            json!({"operation":"evaluate","source":{"tool":"localFetch","query":{"path":"big.txt"}},
+            json!({"operation":"evaluate","maxRequests":100,"source":{"tool":"localFetch","query":{"path":"big.txt"}},
                 "questions":{"q":noul("Is it big?")}}),
             json!({"operation":"evaluate","source":{"tool":"localFetch","query":{"path":"missing.txt","ranges":[{"startLine":1,"endLine":2}]}},
                 "questions":{"q":noul("Is it there?")}}),
@@ -597,7 +597,7 @@ async fn an_omitted_long_context_asks_for_the_long_window_only_after_a_refusal()
     workspace.write("small.txt", "short text\n");
     let runtime = clasify_runtime(&workspace, &server, &[]);
     let row = |file: &str, long_context: Option<bool>| {
-        let mut row = json!({"operation":"evaluate","source":{"tool":"localFetch","query":{"path":file}},
+        let mut row = json!({"operation":"evaluate","maxRequests":100,"source":{"tool":"localFetch","query":{"path":file}},
             "questions":{"q":noul("Is it big?")}});
         if let Some(long_context) = long_context {
             row["longContext"] = json!(long_context);

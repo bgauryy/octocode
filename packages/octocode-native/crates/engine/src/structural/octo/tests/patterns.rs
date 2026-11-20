@@ -16,6 +16,33 @@ fn ast_audit_special_pattern_preserves_repeated_capture_equality() {
     assert_eq!(direct_range.column, rule_range.column);
 }
 
+/// A string literal written in the other quote style is the same string:
+/// the quotes do not decide the match, while the text inside, a prefix and
+/// a literal of another kind (C's character literal) still do.
+#[test]
+fn quote_style_does_not_decide_a_string_match() {
+    let ts = "import { a } from \"node:fs\";\nimport { b } from 'node:fs';\nimport { c } from 'node:path';\nconst t = `node:fs`;\n";
+    for pattern in [
+        "import { $$$A } from \"node:fs\"",
+        "import { $$$A } from 'node:fs'",
+    ] {
+        let found = run_pattern(ts, "ts", pattern);
+        let texts: Vec<_> = found.iter().map(|m| m.text.as_str()).collect();
+        assert_eq!(found.len(), 2, "{pattern}: {texts:?}");
+    }
+    assert_eq!(run_pattern(ts, "ts", "'node:fs'").len(), 2);
+    let py = "p.add_parser('start')\np.add_parser(\"start\")\np.add_parser(f'start')\np.add_parser('''start''')\n";
+    for pattern in ["$P.add_parser('start')", "$P.add_parser(\"start\")"] {
+        let found = run_pattern(py, "py", pattern);
+        let texts: Vec<_> = found.iter().map(|m| m.text.as_str()).collect();
+        assert_eq!(found.len(), 2, "{pattern}: {texts:?}");
+    }
+    assert_eq!(run_pattern(py, "py", "\"\"\"start\"\"\"").len(), 1);
+    let c = "int x = f('a');\nint y = f(\"a\");\n";
+    assert_eq!(run_pattern(c, "c", "f('a')").len(), 1);
+    assert_eq!(run_pattern(c, "c", "f(\"a\")").len(), 1);
+}
+
 #[test]
 fn document_probe_returns_root() {
     let matches = run_pattern("foo(a)\nbar(b)\n", "ts", "$$$");

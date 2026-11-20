@@ -142,7 +142,7 @@ fn fetch_partition_binding_rejects_same_count_legacy_replay() {
         runtime: Some(&runtime),
         query_json: std::cell::OnceCell::new(),
     };
-    let extracted = extract(&query, &source).unwrap_or_else(|_| panic!("source extraction"));
+    let extracted = extract(&query, &source, &[]).unwrap_or_else(|_| panic!("source extraction"));
     let (current, _) = crate::source_view::selection::chunks(
         &extracted.text,
         extracted.source_lines.as_deref(),

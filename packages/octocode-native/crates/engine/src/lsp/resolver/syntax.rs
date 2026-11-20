@@ -64,7 +64,9 @@ pub(super) fn collect_symbol_candidates(
             if let Some(mut candidate) =
                 candidate_from_node(current, content, index, symbol_name, language_id)
             {
-                candidate.is_declaration = candidate.is_exact && is_declaration_name(&path);
+                candidate.is_declaration = candidate.is_exact
+                    && is_declaration_name(&path)
+                    && !is_data_key(language_id, &path);
                 candidate.is_literal =
                     !candidate.is_declaration && path.last().is_some_and(|step| step.literal);
                 candidates.push(candidate);
@@ -133,7 +135,13 @@ fn candidate_from_node(
             .or_else(|| text.find(canonical_symbol_name(language_id, symbol_name)))
             .unwrap_or(0)
     } else {
-        find_symbol_in_line(text, canonical_symbol_name(language_id, symbol_name), 0)?
+        // A container's own spelling is its first code occurrence: one
+        // inside a string or comment it holds (a dictionary's quoted key) is
+        // that literal's, which the walk reaches on its own.
+        let name = canonical_symbol_name(language_id, symbol_name);
+        (0..)
+            .map_while(|order| find_symbol_in_line(text, name, order))
+            .find(|offset| !within_literal(node, node.start_byte() + offset))?
     };
     // Tree-sitter rows count only `\n`; derive the line from the byte offset
     // so a lone `\r` breaks lines here exactly as it does for the server.
@@ -285,6 +293,24 @@ fn only_candidate(candidates: &[SymbolCandidate], order_hint: usize) -> Option<S
     }
 }
 
+/// Whether `byte` of `node` lies in a string or comment below it: the
+/// innermost node there or an ancestor up to `node` is literal text, with no
+/// interpolation between (`f"{name}"` is code again).
+fn within_literal(node: Node<'_>, byte: usize) -> bool {
+    let mut current = node.descendant_for_byte_range(byte, byte + 1);
+    while let Some(inner) = current.filter(|inner| inner.id() != node.id()) {
+        let kind = inner.kind();
+        if kind.contains("interpolation") || kind == "template_substitution" {
+            return false;
+        }
+        if literal_context(false, inner, None) {
+            return true;
+        }
+        current = inner.parent();
+    }
+    false
+}
+
 fn is_ignored_node(kind: &str) -> bool {
     is_comment_kind(kind) || kind == "ERROR"
 }
@@ -319,6 +345,36 @@ fn is_declaration_name(path: &[PathStep<'_>]) -> bool {
             Some(field) => return is_naming_field(field) && is_declaring_kind(parent),
             None => child -= 1,
         }
+    }
+    false
+}
+
+/// `true` when the last node of `path` is a quoted key of a `pair` in a
+/// language whose pairs build plain data (a Python `dict`, a Ruby hash): the
+/// key is a string, not a member name. Object literals of the JavaScript
+/// family and data documents (JSON, YAML, TOML) declare their keys.
+fn is_data_key(language_id: Option<&str>, path: &[PathStep<'_>]) -> bool {
+    let declares_keys = language_id.is_none_or(|language| {
+        crate::lsp::family::is_typescript_family(Some(language))
+            || matches!(language, "json" | "jsonc" | "yaml" | "toml")
+    });
+    if declares_keys {
+        return false;
+    }
+    // The leaf, or the fielded node its unfielded wrappers sit in (a
+    // `string_content` inside the `string` key), as `is_declaration_name`
+    // walks them.
+    let mut child = path.len().saturating_sub(1);
+    for _ in 0..=MAX_NAME_WRAPPER_HOPS {
+        if child == 0 {
+            return false;
+        }
+        if path[child].field.is_some() {
+            return path[child].field == Some("key")
+                && path[child - 1].kind == "pair"
+                && crate::signatures::node_kinds::is_string_kind(path[child].kind);
+        }
+        child -= 1;
     }
     false
 }

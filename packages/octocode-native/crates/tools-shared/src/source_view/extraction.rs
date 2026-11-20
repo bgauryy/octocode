@@ -9,11 +9,13 @@ pub use matches::{FITS_ANY_BYTE_PAGE, MATCH_MARGIN};
 pub mod search_lead;
 pub mod spans;
 
+/// Byte spans of `q`'s patterns in `content`, a text no redaction wrote
+/// into a known range: a streamed window's.
 pub fn match_spans(
     q: &LocalFetchQuery,
     content: &str,
 ) -> Result<super::types::RegexSpans, ExtractionError> {
-    spans::match_spans(q, content, &local_fetch_query::match_strings(q))
+    spans::match_spans(q, content, &[], &local_fetch_query::match_strings(q))
 }
 
 /// The 1-based lines of `content` a match of `q`'s patterns touches, as a
@@ -102,13 +104,21 @@ pub(crate) fn omission_marker(start: usize, end: usize) -> String {
 pub fn line_count(s: &str) -> usize {
     octocode_engine::text::LineCount::of(s.as_bytes())
 }
-pub fn extract(q: &LocalFetchQuery, content: &str) -> Result<Extraction, ExtractionError> {
-    extract_indexed(q, content, &LineOffsets::new(content))
+/// The view `q` selects of `content`; `written` are the byte ranges of it
+/// its redactions wrote ([`super::written`]): no pattern matches their own
+/// spelling.
+pub fn extract(
+    q: &LocalFetchQuery,
+    content: &str,
+    written: &[std::ops::Range<usize>],
+) -> Result<Extraction, ExtractionError> {
+    extract_indexed(q, content, written, &LineOffsets::new(content))
 }
 
 pub(super) fn extract_indexed(
     q: &LocalFetchQuery,
     content: &str,
+    written: &[std::ops::Range<usize>],
     lines: &LineOffsets,
 ) -> Result<Extraction, ExtractionError> {
     if selects_whole(q) {
@@ -117,7 +127,7 @@ pub(super) fn extract_indexed(
     let patterns = local_fetch_query::match_strings(q);
     let requested = local_fetch_query::line_ranges(q);
     if !patterns.is_empty() {
-        return match_extract(q, content, lines, &patterns);
+        return match_extract(q, (content, written), lines, &patterns);
     }
     ranges_extract(q, content, lines, &requested)
 }

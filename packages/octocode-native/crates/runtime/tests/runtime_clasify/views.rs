@@ -158,7 +158,7 @@ async fn a_section_summary_is_its_lines_and_answers() {
     workspace.write("mid.rs", &source);
     let runtime = clasify_runtime(&workspace, &server, &[]);
     let row = |view: &str| {
-        json!({"operation":"sections","view":view,
+        json!({"operation":"sections","maxRequests":crate::runtime_clasify::budget::EVERY_PAGE,"view":view,
         "resources":{"mid":{"tool":"localFetch","query":{"path":"mid.rs"}}},
         "questions":{
             "p":{"type":"noul","instructions":"Is it planted?"},
@@ -234,7 +234,7 @@ async fn a_section_summary_replays_its_details_unbilled() {
         &runtime,
         vec![json_fixture(
             r#"{
-                "operation": "sections",
+                "operation": "sections", "maxRequests": 1000,
                 "view": "summary",
                 "resources": {"mid": {"tool": "localFetch", "query": {"path": "mid.rs"}}},
                 "questions": {
@@ -309,7 +309,7 @@ async fn an_absent_view_is_a_summary_on_cli_and_mcp() {
     let runtime = clasify_runtime(&workspace, &server, &[]);
     let sections = json_fixture(
         r#"{
-            "operation": "sections",
+            "operation": "sections", "maxRequests": 1000,
             "resources": {"mid": {"tool": "localFetch", "query": {"path": "mid.rs"}}},
             "questions": {
                 "kind": {

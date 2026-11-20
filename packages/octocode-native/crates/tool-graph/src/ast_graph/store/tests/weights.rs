@@ -158,7 +158,7 @@ fn page_rank_hubs_weight_edges_by_sites() {
         "{ranks:?}"
     );
     // A source of edges only (top calls, nothing calls it) is listed too.
-    assert_eq!(row(&ranked, "c.ts#top")["fanIn"], 0);
+    assert_eq!(row(&ranked, "app/c.ts#top")["fanIn"], 0);
     let (_, reversed) = all_rows(root, "hubs", |o| {
         calls(o);
         o.rank_by = Some("pageRank".into());

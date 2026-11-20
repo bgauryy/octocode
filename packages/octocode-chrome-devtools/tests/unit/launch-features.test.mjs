@@ -40,3 +40,9 @@ test('requested features join WebMCP in the one switch, each once', () => {
     ['Bar', 'Foo', 'WebMCP']
   );
 });
+
+test('headless Linux disables the Chrome sandbox only when running as root', () => {
+  const sandboxOff = launch({}).includes('--no-sandbox');
+  assert.equal(sandboxOff, process.getuid?.() === 0);
+  assert.ok(!launch({ os: 'darwin' }).includes('--no-sandbox'));
+});

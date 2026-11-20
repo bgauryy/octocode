@@ -42,6 +42,67 @@ fn no_row_or_capture_shows_a_line_of_a_key_block() {
     assert!(out.to_string().contains("plain text"), "{out}");
 }
 
+/// A key hidden from a string keeps the string's quotes: the source parses as
+/// its raw text does, so a call after the key's string is still found, and
+/// nothing of the key shows in a row, a capture or the count.
+#[test]
+fn a_hidden_key_keeps_the_parse_and_every_match() {
+    const BODY: &str = "MIIEpQIBAAKCAQEA7Yn8xK2vJ9qLmN3pQrStWzHvuy3fEWJr5musirUr5JYe5CMp";
+    let root = Fixture::new();
+    let path = root.write(
+        "k.rs",
+        format!(
+            "fn t() {{\n    let a = f(1).expect(\"one\");\n    let out = split(\n        \"head\\n-----BEGIN RSA PRIVATE KEY-----\\n{BODY}\",\n        None,\n    )\n    .expect(\"after the key\");\n    let b = g(2).expect(\"three\");\n}}\n"
+        ),
+    );
+    for row in [
+        json!({"operation":"match","path":path,"rule":{"pattern":"$X.expect($Y)"}}),
+        json!({"operation":"match","path":path,"rule":{"pattern":"$X.expect($Y)"},"includeCaptures":true}),
+        json!({"operation":"match","path":path,"rule":{"pattern":"$X.expect($Y)"},"view":"countMatches"}),
+    ] {
+        let out = run(&root.0, row.clone()).expect("match");
+        let shown = out.to_string();
+        assert!(shown.contains("\"matchCount\":3"), "{row}: {shown}");
+        for piece in BODY.as_bytes().chunks(8) {
+            let piece = std::str::from_utf8(piece).unwrap_or_default();
+            assert!(
+                !shown.contains(piece),
+                "{row}: key bytes {piece} shown: {shown}"
+            );
+        }
+    }
+}
+
+/// Two keys on one line with code between them hide as one span, which can
+/// leave a quote unpaired: the parse that may hide a match is disclosed, and
+/// nothing of either key shows.
+#[test]
+fn a_hidden_key_that_breaks_the_parse_is_disclosed() {
+    const BODY: &str = "MIIEpQIBAAKCAQEA7Yn8xK2vJ9qLmN3pQrStWzHvuy3fEWJr5musirUr5JYe5CMp";
+    let root = Fixture::new();
+    let path = root.write(
+        "k.js",
+        format!(
+            "const k = [\n  \"-----BEGIN RSA PRIVATE KEY-----\",\n  \"{BODY}\", '{BODY}',\n  \"-----END RSA PRIVATE KEY-----\"];\nf(1);\ng(2);\n"
+        ),
+    );
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":path,"rule":{"pattern":"$F($A)"},"includeCaptures":true}),
+    )
+    .expect("match");
+    assert_eq!(out["isPartial"], json!(true), "{out}");
+    assert!(
+        out["partialReasons"].to_string().contains("parseRecovered"),
+        "{out}"
+    );
+    let shown = out.to_string();
+    for piece in BODY.as_bytes().chunks(8) {
+        let piece = std::str::from_utf8(piece).unwrap_or_default();
+        assert!(!shown.contains(piece), "key bytes {piece} shown: {shown}");
+    }
+}
+
 /// A file with no key keeps its rows as they are.
 #[test]
 fn a_file_with_no_key_block_is_not_touched() {

@@ -18,6 +18,12 @@ fn canonical_coordinate_and_version_stay_separate() {
         Some("@scope/package")
     );
     assert_eq!(artifact_search_query::version(&exact), Some("^2.0"));
+    // Spaces around a version are no part of it.
+    let padded = artifact_query(
+        serde_json::json!({"operation": "resolve", "packageName": "lodash", "version": " 4.17.20 "}),
+        None,
+    );
+    assert_eq!(artifact_search_query::version(&padded), Some("4.17.20"));
     for row in [
         json_fixture(
             r#"{

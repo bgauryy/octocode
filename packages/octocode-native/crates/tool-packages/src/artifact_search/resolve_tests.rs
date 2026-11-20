@@ -490,7 +490,7 @@ async fn a_missing_name_leads_to_the_names_one_edit_away() {
 
 /// An npm name spelled with capitals the registry lacks leads to its
 /// lowercase spelling first when that is the most downloaded, never to a
-/// little-downloaded name one other edit away (LEFTOVERS P2).
+/// little-downloaded name one other edit away.
 #[tokio::test]
 async fn a_missing_capitalized_npm_name_leads_to_its_lowercase_spelling() {
     let http = RouteHttp::new().json(

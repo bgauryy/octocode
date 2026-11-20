@@ -106,7 +106,12 @@ fn symbol_groups_add_up_to_every_symbol_exactly_once() {
     );
     assert_eq!(
         one,
-        ["app/a.ts#Box", "app/a.ts#Box.open", "app/a.ts#Box.close", "app/a.ts#a"]
+        [
+            "app/a.ts#Box",
+            "app/a.ts#Box.open",
+            "app/a.ts#Box.close",
+            "app/a.ts#a"
+        ]
     );
 }
 
@@ -125,7 +130,12 @@ fn a_symbol_under_two_targets_is_listed_once() {
     );
     assert_eq!(
         rows,
-        ["app/a.ts#Box", "app/a.ts#Box.open", "app/a.ts#Box.close", "app/a.ts#a"]
+        [
+            "app/a.ts#Box",
+            "app/a.ts#Box.open",
+            "app/a.ts#Box.close",
+            "app/a.ts#a"
+        ]
     );
     assert_eq!(total, 4);
 }

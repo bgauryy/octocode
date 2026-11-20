@@ -101,11 +101,15 @@ pub(super) fn judge(
         }
     }
     if failures.len() == row.keys.len() {
+        // A spent cap only stops the splits of what the window refused: it is
+        // no reason of its own, so the refusal stays the row's.
         let same = failures
             .first()
             .filter(|(code, _)| {
-                *code != ErrorCode::ClassificationStateTooLarge
-                    && failures.iter().all(|(other, _)| other == code)
+                !matches!(
+                    code,
+                    ErrorCode::ClassificationStateTooLarge | ErrorCode::ClassificationOverBudget
+                ) && failures.iter().all(|(other, _)| other == code)
             })
             .cloned();
         return Err(Box::new(Failed {

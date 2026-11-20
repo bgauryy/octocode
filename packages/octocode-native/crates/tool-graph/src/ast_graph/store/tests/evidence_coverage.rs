@@ -240,6 +240,37 @@ fn a_warning_accompanies_only_coverage_that_changes_the_conclusion() {
     }
 }
 
+/// `evidence` asking `passes` by name: the answer `argumentCoverage`
+/// qualifies.
+fn passes_evidence(dir: &Path, operation: &str, target: Option<&str>) -> GraphOutput {
+    ask(dir, operation, target, |options| {
+        options.edges = vec!["passes".into()];
+    })
+}
+
+/// `argumentCoverage` qualifies argument-slot rows: an answer that admits
+/// none (calls only) does not state it.
+#[test]
+fn argument_coverage_accompanies_only_answers_admitting_passes() {
+    let (dir, _) = mixed_sources();
+    for operation in ["witnesses", "unresolved"] {
+        let calls = ask(&dir.0, operation, None, |options| {
+            options.edges = vec!["calls".into()];
+        });
+        assert!(
+            calls.value.get("argumentCoverage").is_none(),
+            "{operation}: {}",
+            calls.value
+        );
+        let passes = passes_evidence(&dir.0, operation, None);
+        assert!(
+            passes.value["argumentCoverage"].is_object(),
+            "{operation}: {}",
+            passes.value
+        );
+    }
+}
+
 /// `argumentCoverage` describes the languages of the selected sources; the
 /// snapshot's other languages concern none of the rows.
 #[test]
@@ -252,7 +283,7 @@ fn argument_coverage_lists_only_the_selected_sources_languages() {
         .as_object()
         .unwrap();
     for operation in ["witnesses", "unresolved"] {
-        let whole = evidence(&dir.0, operation, None, None);
+        let whole = passes_evidence(&dir.0, operation, None);
         assert_eq!(
             whole.value["argumentCoverage"]["byLanguage"]
                 .as_object()
@@ -260,7 +291,7 @@ fn argument_coverage_lists_only_the_selected_sources_languages() {
             all,
             "{operation}"
         );
-        let one = evidence(&dir.0, operation, Some("linked.ts"), None);
+        let one = passes_evidence(&dir.0, operation, Some("linked.ts"));
         let languages = one.value["argumentCoverage"]["byLanguage"]
             .as_object()
             .unwrap();

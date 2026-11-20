@@ -194,10 +194,10 @@ async fn a_cursor_sent_to_another_tool_names_the_tool_mismatch() {
 async fn a_cursor_another_build_issued_is_refused_naming_the_build() {
     let home = tempfile::tempdir().unwrap();
     let runtime = super::super::construction_tests::runtime(home.path(), PERSISTENT);
-    let other = crate::runtime::engine::cursors::Registry::new(
+    let other = crate::runtime::engine::cursors::Registry::scoped(
         octocode_runtime_base::cache::CacheConfig::derived(),
         Some(octocode_runtime_base::cache::Directory::Continuations.path(&runtime.config.home)),
-        replay_policy(&runtime.config, &runtime.input.cwd, "0123456789abcdef"),
+        replay_policy(&runtime.config, &runtime.input.cwd, "0123456789abcdef").into(),
     );
     let mut pending = other.pending(page_replay_key("", &[], &[], None), None);
     let token = pending.insert(

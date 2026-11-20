@@ -186,7 +186,7 @@ async fn a_gem_without_a_release_ref_is_pinned_to_its_upstream_tag() {
 /// A source link naming the version's tag (`…/tree/v7.1.3`) is the gem's
 /// claim, checked like any declared tag: the tag GitHub has pins the commit
 /// it names (`verification: tag`), never the tag's name as the registry's
-/// unchecked ref (LEFTOVERS P5); with no GitHub check, the claim stays.
+/// unchecked ref; with no GitHub check, the claim stays.
 #[tokio::test]
 async fn a_source_link_naming_the_versions_tag_is_checked_against_github() {
     let http = RouteHttp::always(json_fixture(

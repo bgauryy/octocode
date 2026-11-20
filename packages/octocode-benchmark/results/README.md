@@ -4,8 +4,8 @@ The version timeline of Octocode's benchmark and the index of every stored round
 [per-question baselines](baselines/) and each round's `rounds/<version>-<date>/SCORECARD.md` are tracked;
 all other data under `results/` and `campaigns/` is local and gitignored. Keep raw records immutable: these
 are what new versions are compared against ([METHOD.md](../METHOD.md#compare-a-new-version)). Folder names
-are relative to `results/` unless they start with `campaigns/` (relative to the benchmark package). The previous generated index is kept in `README-index-2026-10.md`.
-See [archive locations](../ARCHIVES.md) for relocated skill-output evidence.
+are relative to `results/` unless they start with `campaigns/` (relative to the benchmark package).
+Raw evidence of every round (answers, verdicts, transcripts, receipts) lives in `campaigns/<version>-<date>-<purpose>/`; older skill-output archives sit in `campaigns/legacy/`. New rounds follow [METHOD.md](../METHOD.md#record) and the setup in [TESTING_ENV.md](../TESTING_ENV.md).
 
 ## Version timeline
 
@@ -14,12 +14,13 @@ previous version and the stored baselines.
 
 | Version | Date | Build | Round (scorecard or stored folder) | Headline |
 |---|---|---|---|---|
+| 20.2.0 | 2026-11-20 | dev build `cb4b7786…a422` (`20.2.0+4476eb38`, after fix round 4) | [Rating round 3](rounds/20.2.0-2026-11-20-ratings-round-3/SCORECARD.md) | Not ready: rater average 8.2 (round 2 8.0), correct 9.4; every re-tested round-2 issue fixed or partly fixed; astSearch, lspSearch and graphQuery capped at 4 by new silent misses or a wrong count (R3-K1, R3-K2, R3-G1); 48 findings in FINDINGS.md |
 | 20.2.0 | 2026-11-20 | dev build `c6e1e3ab…10cd` (`20.2.0+69024e9f`, dirty tree) | [Independent ratings, 12 dimensions](rounds/20.2.0-2026-11-20-independent-ratings/SCORECARD.md) | Not ready: 8 independent raters, all 17 tools; rater average 8.0 (previous 7.8), correct 9.4; lspSearch, securityCheck and ghStructure capped at 4 by the correctness gate (K1, K2, P1, GR1); 58 findings frozen in FINDINGS.md |
 | 20.2.0 | 2026-11-18 | release pin `3d691596…14a4` (round 3 `bin-r4l`, snapshot of the dirty tree) | [17-tool ratings](rounds/20.2.0-2026-11-18-tool-ratings/SCORECARD.md) | Not ready: ghSearchCode and securityCheck capped at 4 (walk refused after 625 files; false "no fix" for prerelease-only fixes); others 6.7–9.4; graphQuery cap lifted; 42 defects (2 blockers, 4 major) |
-| 20.2.0 | 2026-11-15 | host release `bfe156c1…502b` | [Deep efficiency and freshness](rounds/20.2.0-2026-11-15-deep-efficiency/SCORECARD.md) | 8,696 Rust tests; fresh 17-tool CLI/MCP acceptance/131 pages; 70 independent cache scenarios; 12 Rust operations and real-workspace replay; smaller multiline output, comparable scoped speed, cumulative provisional ratings |
-| 20.2.0 | 2026-11-15 | host release `4e2052ae…4f35` | [Claude handoff follow-up](rounds/20.2.0-2026-11-15-handoff-followup/REPORT.md) | Replay after eviction, inline Rust test relevance and input-repair disclosures; 8,663 Rust tests passed, fresh CLI/MCP acceptance and qualified timing observations; prior comparative scores remain attached to their build |
-| 20.2.0 | 2026-11-14 | repaired host release `c4f7ee4e…1c0` | [17-tool ratings](rounds/20.2.0-2026-11-14-tool-ratings/SCORECARD.md) | 120 owned questions (inventory, not 120 claimed passes), per-tool 1–10 dimensions, rg/ast-grep/gh-lean/Graphify/LSP comparisons; three evidence-contract repairs and completed final-build checks |
-| 20.2.0 | 2026-11-14 | host release, SHA-256 `0dd29415…0d2d`, commit `73cddf5b32` plus shared dirty tree | [advanced capability scorecard](rounds/20.2.0-2026-11-14-advanced/SCORECARD.md) | Fresh rg/ast-grep/gh-lean/Graphify/direct-LSP comparisons: selected local/semantic evidence agrees; expert outputs smaller; graph queries faster in sample; explicit gh cache reverses the tested hybrid speed advantage; annotated-tag object gap |
+| 20.2.0 | 2026-11-15 | host release `bfe156c1…502b` | Deep efficiency and freshness | 8,696 Rust tests; fresh 17-tool CLI/MCP acceptance/131 pages; 70 independent cache scenarios; 12 Rust operations and real-workspace replay; smaller multiline output, comparable scoped speed, cumulative provisional ratings |
+| 20.2.0 | 2026-11-15 | host release `4e2052ae…4f35` | Claude handoff follow-up | Replay after eviction, inline Rust test relevance and input-repair disclosures; 8,663 Rust tests passed, fresh CLI/MCP acceptance and qualified timing observations; prior comparative scores remain attached to their build |
+| 20.2.0 | 2026-11-14 | repaired host release `c4f7ee4e…1c0` | 17-tool ratings | 120 owned questions (inventory, not 120 claimed passes), per-tool 1–10 dimensions, rg/ast-grep/gh-lean/Graphify/LSP comparisons; three evidence-contract repairs and completed final-build checks |
+| 20.2.0 | 2026-11-14 | host release, SHA-256 `0dd29415…0d2d`, commit `73cddf5b32` plus shared dirty tree | advanced capability scorecard | Fresh rg/ast-grep/gh-lean/Graphify/direct-LSP comparisons: selected local/semantic evidence agrees; expert outputs smaller; graph queries faster in sample; explicit gh cache reverses the tested hybrid speed advantage; annotated-tag object gap |
 | 20.2.0 | 2026-10-29 | native CLI, binary SHA-256 `30c301e0…a073`, commit `cb94ad744` plus uncommitted tree | `github30-v20-2026-10-29` | GitHub 30: correctness 9.57; 15,590 characters per question; 1.43× leaner than v18; gh-lean 0.47× v20's characters at 8.83 correctness; warm 1.5–2.3× faster than v18, cold 1.3–2.0× slower |
 | 20.2.0 pre-release (`local-mcp-v9`, native 20.2.0) | 2026-10-10 | local MCP build | `local-30q-2026-10-10` | local core 30: correctness 10.0 vs lean shell 9.60; shell used 0.81× the characters; 19.1.0 used 2.32× |
 | 20.x pre-release (`mcp-v9`) | 2026-10-10 | local MCP build | `lean-vs-mcp-30q-2026-10-10` | GitHub 30: correctness parity with gh-lean (8.83 vs 8.87); gh-lean leaner |
@@ -28,7 +29,7 @@ previous version and the stored baselines.
 | 18.1.1 (local build) | 2026-08-07 | `out/octocode.js` | `overview`, `full-octocode-vs-*-2026-08-07` | GitHub 30 × 3 passes: correctness 9.26; 22,111 characters per question; plain gh 2.0×, gh + Headroom 2.6×, gh + RTK 3.2× more characters |
 
 Tool renames between v18 and v20 (needed to compare per tool across versions) are in
-[baselines/release-notes-v18-v20.json](baselines/release-notes-v18-v20.json).
+[baselines/release-notes-v18-v20.md](baselines/release-notes-v18-v20.md).
 
 ## Per-question baselines (tracked)
 
@@ -36,7 +37,7 @@ Tool renames between v18 and v20 (needed to compare per tool across versions) ar
 |---|---|
 | [baselines/github30.md](baselines/github30.md) | per question: characters and correctness for v20, gh-lean, v18, plain gh, gh + RTK, gh + Headroom |
 | [baselines/local-core30.md](baselines/local-core30.md) | per question: characters, calls, seconds and correctness for the pre-release v20 build, its clasify variant, 19.1.0 and the lean shell |
-| [baselines/release-notes-v18-v20.json](baselines/release-notes-v18-v20.json) | v18 → v20 tool map: renames and what changed per tool |
+| [baselines/release-notes-v18-v20.md](baselines/release-notes-v18-v20.md) | v18 → v20 tool map: renames and what changed per tool |
 
 The August 2026 write-ups (v18.1.1 and 18.2.2 against gh, RTK and Headroom: `SUMMARY.md`, each campaign's
 report, `per_question_summary.json`, the visual `index.html`) are also tracked on the `main` branch:
@@ -44,21 +45,19 @@ report, `per_question_summary.json`, the visual `index.html`) are also tracked o
 
 ## Rounds (tracked)
 
+Every folder under `rounds/` is listed here; add a line when a round lands. Keep the newest scorecards; fold older ones into a timeline row.
+
 `rounds/<version>-<date>/SCORECARD.md`, one per round, from the [scorecard template](../briefs/SCORECARD.md).
+- [20.2.0 — rating round 3, 2026-11-20](rounds/20.2.0-2026-11-20-ratings-round-3/SCORECARD.md): the same 8 lanes and
+  12 dimensions after fix round 4; findings in [FINDINGS.md](rounds/20.2.0-2026-11-20-ratings-round-3/FINDINGS.md).
 - [20.2.0 — independent ratings on 12 dimensions, 2026-11-20](rounds/20.2.0-2026-11-20-independent-ratings/SCORECARD.md):
   8 rater agents on fresh questions against ground truth, CLI plus MCP checks on the same binary; findings in
   [FINDINGS.md](rounds/20.2.0-2026-11-20-independent-ratings/FINDINGS.md).
 - [20.2.0 — all 17 tool ratings, 2026-11-18](rounds/20.2.0-2026-11-18-tool-ratings/SCORECARD.md):
   newest build (round-3 pin), 5 lanes, CLI and MCP, two capped tools with verified causes.
-- [20.2.0 — deep efficiency and freshness, 2026-11-15](rounds/20.2.0-2026-11-15-deep-efficiency/SCORECARD.md):
-  independent rebuilt acceptance, HTTP/LSP correctness repairs, representative classification cost and scoped timing.
-- [20.2.0 — Claude handoff follow-up, 2026-11-15](rounds/20.2.0-2026-11-15-handoff-followup/REPORT.md):
-  subsequent fixes and rebuilt acceptance, with previous comparative ratings identified separately.
-- [20.2.0 — all 17 tool ratings, 2026-11-14](rounds/20.2.0-2026-11-14-tool-ratings/SCORECARD.md):
-  critical per-tool dimensions, pagination, output, workflows and expert comparisons.
-- [20.2.0 — advanced comparisons, 2026-11-14](rounds/20.2.0-2026-11-14-advanced/SCORECARD.md):
-  capability and workflow checks against fresh expert tools, with complete pages, cache arms,
-  source witnesses and shared-host timing limitations.
+Earlier 20.2.0 rounds (2026-11-14 and 2026-11-15: advanced comparisons, 17-tool ratings, final verification, deep
+efficiency, handoff follow-up, full round, workflow efficiency, live CLI usage) were removed from the tree; their
+headlines stay in the timeline above and the files stay in git history: `git show 6717848eb:packages/octocode-benchmark/results/rounds/<folder>/<file>`.
 
 ## GitHub research, 30 questions ([questions/github](../questions/github/README.md))
 

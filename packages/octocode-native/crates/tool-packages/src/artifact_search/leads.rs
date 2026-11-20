@@ -375,6 +375,27 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
     });
     let lead = match error.code {
         _ if near_lead.is_some() => near_lead,
+        // npm names are lowercase (the registry refuses capitals in a new
+        // name), so `@Angular/core` most likely means `@angular/core`.
+        _ if searchable
+            && kind == ArtifactType::Npm
+            && name.chars().any(|c| c.is_ascii_uppercase()) =>
+        {
+            let mut row = copied(query);
+            row.insert("packageName".into(), json!(name.to_ascii_lowercase()));
+            error.hints.push(format!(
+                "npm package names are lowercase: retry as {}.",
+                name.to_ascii_lowercase()
+            ));
+            Some((
+                "repair",
+                Continuation::related_input(
+                    ToolId::ArtifactSearch,
+                    json!({ "queries": [Value::Object(row)] }),
+                )
+                .build(),
+            ))
+        }
         // A scoped npm name: the packages its scope holds, which npm's search
         // lists for the scope's name.
         _ if searchable && kind == ArtifactType::Npm && name.starts_with('@') => {

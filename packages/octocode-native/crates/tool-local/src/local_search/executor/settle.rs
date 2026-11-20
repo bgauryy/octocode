@@ -111,7 +111,9 @@ pub(super) fn settle_row(
     warnings.extend(rows.notes);
     // A sparse checkout holds only some of its repository: a miss here is
     // no absence from it.
-    warnings.extend(crate::sparse_scope::coverage(page.root));
+    warnings.extend(octocode_tools_shared::gh_git::sparse_miss::coverage(
+        page.root,
+    ));
     let capped = stats.capped.unwrap_or(false);
     let (status, settled_terminal) = settle(
         query,
@@ -137,6 +139,19 @@ pub(super) fn settle_row(
         let lead = restart_lead(query, json!({"caseMode": "insensitive"}))?;
         if let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut() {
             map.insert("asInsensitive".into(), lead);
+        }
+    }
+    // A test-code scope that left code out may have left out every hit:
+    // the same search over all code is offered, not run.
+    if empty
+        && local_search_query::test_code(query)
+            .is_some_and(|scope| scope != octocode_contract_types::TestCode::Include)
+        && let Some(excluded) = stats.test_code_excluded
+    {
+        hints.push(test_code_hint(excluded));
+        let lead = restart_lead(query, json!({"testCode": "include"}))?;
+        if let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut() {
+            map.insert("includeTestCode".into(), lead);
         }
     }
     // Leads go in after the status is settled: they are optional follow-ups
@@ -223,6 +238,22 @@ fn only_binary_listing(next: Option<&Value>) -> bool {
             .keys()
             .all(|name| matches!(name.as_str(), BINARY_LISTING | "asInsensitive" | "asRegex"))
     })
+}
+
+/// The empty page's note of what its test-code scope left out: hit lines
+/// are hits it dropped; whole files are only unread code.
+fn test_code_hint(excluded: octocode_engine::types::TestCodeExcluded) -> String {
+    let mut left_out = Vec::new();
+    if excluded.files > 0 {
+        left_out.push(format!("{} file(s) unread", excluded.files));
+    }
+    if excluded.lines > 0 {
+        left_out.push(format!("{} hit line(s)", excluded.lines));
+    }
+    format!(
+        "The testCode scope left out {} (testCodeExcluded); the related[] call with testCode \"include\" searches all code.",
+        left_out.join(" and ")
+    )
 }
 
 /// `lead` as `next`'s first call, before the ones already there.

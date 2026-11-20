@@ -9,6 +9,11 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 // The skill collections, owned by skills/common/build.mjs; none in a checkout without it.
 const skillsBuild = path.join(ROOT, 'skills', 'common', 'build.mjs');
 export const SKILL_COLLECTIONS = fs.existsSync(skillsBuild) ? (await import(pathToFileURL(skillsBuild).href)).COLLECTIONS : [];
+// Skills a package owns beside its tool (staged with the public ones, never bundled with shared assets):
+// linted and doc-checked like a collection, but outside the shared-asset build.
+const stageSkills = path.join(ROOT, 'packages', 'octocode', 'scripts', 'stage-skills.mjs');
+export const PACKAGE_SKILL_COLLECTIONS = fs.existsSync(stageSkills) ? (await import(pathToFileURL(stageSkills).href)).PACKAGE_SKILLS : [];
+export const SKILL_ROOTS = [...SKILL_COLLECTIONS, ...PACKAGE_SKILL_COLLECTIONS];
 
 const PACKAGE_SCRIPT_POLICY = ['build', 'lint', 'test', 'typecheck', 'verify'];
 export const SKILL_SCRIPT_POLICY = ['build', 'lint', 'test'];

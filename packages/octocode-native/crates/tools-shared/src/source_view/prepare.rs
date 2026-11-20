@@ -54,6 +54,49 @@ impl Source<'_> {
             .map(|index| self.redacted_lines[index].1)
             .sum()
     }
+
+    /// The byte ranges of the text its source-wide redactions wrote: every
+    /// placeholder on a line they changed. A literal placeholder the source
+    /// spells on such a line counts as written too: no pattern can tell it
+    /// from the one beside it, so neither is matched by its own spelling.
+    pub(super) fn written(&self) -> Vec<std::ops::Range<usize>> {
+        if self.redacted_lines.is_empty() {
+            return Vec::new();
+        }
+        let built;
+        let offsets = match self.offsets.as_deref() {
+            Some(offsets) => offsets,
+            None => {
+                built = super::extraction::LineOffsets::new(&self.text);
+                &built
+            }
+        };
+        let mut written = Vec::new();
+        for &(line, _) in &self.redacted_lines {
+            if line == 0 || line > offsets.len() {
+                continue;
+            }
+            let start = offsets.start(line - 1);
+            let text = &self.text[start..offsets.start(line)];
+            written.extend(
+                written_placeholder()
+                    .find_iter(text)
+                    .map(|found| start + found.start()..start + found.end()),
+            );
+        }
+        written
+    }
+}
+
+/// Every spelling a redaction writes: a detector's or whole-content
+/// placeholder ([`octocode_engine::security::placeholder_regex`]) and the
+/// bare [`octocode_runtime_base::security::cut::REDACTED`].
+#[expect(clippy::expect_used, reason = "static pattern, valid by construction")]
+fn written_placeholder() -> &'static regex::Regex {
+    static PATTERN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"\[(?:CONTENT-)?REDACTED(?:-[A-Z0-9_-]+)?\]").expect("placeholder regex")
+    });
+    &PATTERN
 }
 
 /// Count `lines` (the placeholders a view's own redaction put on source
@@ -359,7 +402,7 @@ fn refusal_before_scan(q: &LocalFetchQuery, keyed: &str) -> Option<ExtractionErr
         return None;
     }
     let lines = super::extraction::LineOffsets::new(keyed);
-    super::extraction::extract_indexed(q, keyed, &lines).err()
+    super::extraction::extract_indexed(q, keyed, &[], &lines).err()
 }
 
 /// Decode and redact the source; a stale snapshot, a cancel or a failed

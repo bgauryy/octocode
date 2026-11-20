@@ -45,6 +45,9 @@ struct Reach {
     /// Reached only as the parent that declares a changed module: a
     /// candidate that walks on only up its own module chain.
     module_only: bool,
+    /// Seeded because the config change at this index of `global` covers
+    /// it, not because it was edited.
+    config: Option<usize>,
 }
 
 pub(crate) struct Impact {
@@ -76,7 +79,7 @@ pub(crate) struct Lists {
 /// Affected files a depth bound left out of the rows.
 pub(crate) struct Unlisted {
     pub files: usize,
-    /// The bound under which the walk expands every node it reaches.
+    /// The smallest bound that lists every file the change reaches.
     pub depth: u32,
 }
 
@@ -84,41 +87,40 @@ pub(crate) struct Unlisted {
 /// pairs for config changes (`""` is the scan root). `max_depth` bounds the
 /// listed rows; the tests to run are every test the change reaches at any
 /// depth, so a bound never drops one.
+///
+/// The rows are the whole walk's, cut at `max_depth`: a file's depth, risk
+/// and reaching edge are the same under every bound that lists it (a
+/// candidate a deeper proven reach replaces is no row at a smaller bound,
+/// it is counted unlisted).
 pub(crate) fn run(
     t: &GraphTables,
     seeds: &[u32],
     global: &[(String, String)],
     max_depth: u32,
 ) -> Impact {
-    let walk = |max_depth: u32| {
-        let mut walk = Propagation::new(t);
-        let symbol_mode = walk.seed_changes(seeds, global);
-        walk.symbol_precision = symbol_mode && global.is_empty();
-        let depth_limited = walk.propagate(max_depth);
-        (walk.reach, symbol_mode, depth_limited)
-    };
-    let (reach, symbol_mode, depth_limited) = walk(max_depth);
-    let unbounded = depth_limited.then(|| walk(u32::MAX).0);
-    // Nodes within the bound reach as they do in the whole walk, so the
-    // bound cut exactly the files the whole walk adds.
-    let unlisted = unbounded.as_deref().and_then(|whole| {
-        let files = |reach: &[Option<Reach>]| {
-            t.node_ids()
-                .filter(|id| {
-                    t.nodes[*id as usize].kind == NodeKind::File && reach[*id as usize].is_some()
-                })
-                .count()
-        };
-        let files = files(whole) - files(&reach);
-        let deepest = whole.iter().flatten().map(|r| r.depth).max().unwrap_or(0);
-        (files > 0).then(|| Unlisted {
-            files,
-            depth: deepest.saturating_add(1),
-        })
+    let mut walk = Propagation::new(t);
+    let symbol_mode = walk.seed_changes(seeds, global);
+    walk.symbol_precision = symbol_mode && global.is_empty();
+    walk.propagate();
+    let whole = walk.reach;
+    let is_file = |id: usize| t.nodes[id].kind == NodeKind::File;
+    let listed = whole
+        .iter()
+        .map(|reach| reach.filter(|r| r.depth <= max_depth))
+        .collect::<Vec<_>>();
+    let beyond = whole
+        .iter()
+        .enumerate()
+        .filter_map(|(id, reach)| reach.filter(|r| is_file(id) && r.depth > max_depth))
+        .map(|r| r.depth)
+        .collect::<Vec<_>>();
+    let unlisted = beyond.iter().max().map(|deepest| Unlisted {
+        files: beyond.len(),
+        depth: *deepest,
     });
     let reached = Reached {
-        listed: &reach,
-        tests: unbounded.as_deref().unwrap_or(&reach),
+        listed: &listed,
+        tests: &whole,
     };
     let (summary, rows, lists) =
         report(t, &reached, seeds, global, symbol_mode, unlisted.is_some());
@@ -173,6 +175,11 @@ impl<'t> Propagation<'t> {
     }
 
     fn seed(&mut self, id: u32) {
+        self.seed_by(id, None);
+    }
+
+    /// Seeds `id` as changed, by the config change at `config` when set.
+    fn seed_by(&mut self, id: u32, config: Option<usize>) {
         if self.reach[id as usize].is_none() {
             self.reach[id as usize] = Some(Reach {
                 depth: 0,
@@ -182,6 +189,7 @@ impl<'t> Propagation<'t> {
                 types_only: false,
                 candidate: false,
                 module_only: false,
+                config,
             });
             self.queue.push_back(id);
         }
@@ -232,13 +240,14 @@ impl<'t> Propagation<'t> {
                 }
             }
         }
-        for (dir, _) in global {
+        // Edited files were seeded first: they stay changed, not covered.
+        for (index, (dir, _)) in global.iter().enumerate() {
             for (id, node) in t.node_ids().zip(&t.nodes) {
                 let path = t.str(node.key);
                 if node.kind == NodeKind::File
                     && (dir.is_empty() || path.starts_with(&format!("{dir}/")))
                 {
-                    self.seed(id);
+                    self.seed_by(id, Some(index));
                 }
             }
         }
@@ -326,18 +335,13 @@ impl<'t> Propagation<'t> {
         reexports > 0
     }
 
-    /// Runs the walk; returns whether `max_depth` stopped it.
-    fn propagate(&mut self, max_depth: u32) -> bool {
-        let mut depth_limited = false;
+    /// Runs the walk to every node the change reaches.
+    fn propagate(&mut self) {
         while let Some(id) = self.queue.pop_front() {
             let Some(current) = self.reach[id as usize] else {
                 continue;
             };
             if current.candidate && !current.module_only {
-                continue;
-            }
-            if current.depth >= max_depth {
-                depth_limited = true;
                 continue;
             }
             for step in self.dependents(id) {
@@ -347,7 +351,6 @@ impl<'t> Propagation<'t> {
                 self.visit(id, current, step);
             }
         }
-        depth_limited
     }
 
     /// The edges a change of `id` flows back along.
@@ -435,6 +438,7 @@ impl<'t> Propagation<'t> {
             types_only: current.types_only || step.types_only,
             candidate,
             module_only: module,
+            config: None,
         };
         let slot = &mut self.reach[src as usize];
         // Proven reach outranks a candidate at any depth.

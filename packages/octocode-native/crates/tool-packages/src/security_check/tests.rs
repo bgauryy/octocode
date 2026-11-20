@@ -310,16 +310,17 @@ async fn a_record_naming_no_package_is_followed_to_its_alias() {
         "{data}"
     );
     assert_eq!(
-        data["next"]["readAlias"]["input"]["queries"][0]["id"], ghsa,
+        data["related"][0]["input"]["queries"][0]["id"], ghsa,
         "{data}"
     );
+    octocode_runtime_base::test_support::assert_row_contract(ToolId::SecurityCheck, &data);
 }
 
 /// The summary of a CVE that names no package: the answer names the
 /// repositories its commit ranges are in, the warning says where the alias's
 /// packages and fixes are (the summary groups its record into the CVE's
-/// row), and a call reads the records whole; an alias OSV could not answer
-/// is one call away in the summary too (LEFTOVERS P6, CVE-2022-24999).
+/// row) and that the details view lists it; an alias OSV could not answer
+/// is one call away in the summary too (CVE-2022-24999).
 #[tokio::test]
 async fn a_cve_summary_names_its_repositories_and_leads_to_its_records() {
     let (cve, ghsa) = ("CVE-2022-24999", "GHSA-hrpp-h998-j3pp");
@@ -354,26 +355,20 @@ async fn a_cve_summary_names_its_repositories_and_leads_to_its_records() {
     if !shown(ghsa) {
         assert!(!warnings.contains("listed after it"), "{data}");
     }
-    let reads = data["next"]
-        .as_object()
-        .into_iter()
-        .flatten()
-        .map(|(_, call)| call["input"]["queries"][0].clone())
-        .collect::<Vec<_>>();
-    assert!(
-        reads
-            .iter()
-            .any(|read| read["id"] == cve && read["view"] == "details"),
-        "a call reads the records whole: {data}"
-    );
-    // An alias OSV cannot answer is one call away in the summary as well.
+    assert!(warnings.contains("view details"), "{data}");
+    octocode_runtime_base::test_support::assert_row_contract(ToolId::SecurityCheck, &data);
+    // An alias OSV cannot answer is one call away in the summary as well:
+    // a record the row does not list keeps the call that reads it.
     let unread = RouteHttp::new().json(
         &format!("/v1/vulns/{cve}"),
         json!({"id": cve, "aliases": [ghsa], "affected": []}),
     );
     let data = answer(&unread, query).await.expect("row");
-    let calls = serde_json::to_string(&(&data["next"], &data["related"])).expect("calls");
-    assert!(calls.contains(ghsa), "{data}");
+    assert_eq!(
+        data["related"][0]["input"]["queries"][0]["id"], ghsa,
+        "{data}"
+    );
+    octocode_runtime_base::test_support::assert_row_contract(ToolId::SecurityCheck, &data);
 }
 
 /// Selected affected metadata stays as the source states it, including a

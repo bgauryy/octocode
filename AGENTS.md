@@ -37,7 +37,7 @@ Launchers, plugins and the VS Code extension are thin adapters with no tool logi
 | `packages/octocode-vscode` | `octocode-mcp-vscode` | VS Code extension: GitHub sign-in, token sync, MCP install; runs no tools |
 | `packages/octocode-claude-plugin`, `packages/octocode-codex-plugin` | `@octocodeai/claude-plugin`, `@octocodeai/codex-plugin` | Plugins: MCP launch config, public skills, onboarding |
 | `packages/octocode-agents-communication` | `@octocodeai/octocode-agents-communication` | MCP server + CLI for cross-agent messages, identity and path leases |
-| `packages/octocode-chrome-devtools` | `@octocodeai/octocode-chrome-devtools` | Chrome DevTools MCP server + CLI for live-browser work |
+| `packages/octocode-chrome-devtools` | `@octocodeai/octocode-chrome-devtools` | Chrome DevTools MCP server + CLI for live-browser work; owns its skill in `packages/octocode-chrome-devtools/skills/` (self-contained, staged with the public skills by `stage-skills.mjs`) |
 | `packages/octocode-mcp-cli` | `octocode-mcp-cli` (private) | Library mapping MCP tools and instructions to a Zod CLI and back |
 | `packages/octocode-benchmark` | none (docs) | Checks and benchmarks as behavioral docs: tool, security and skill checks, comparisons, scorecards |
 

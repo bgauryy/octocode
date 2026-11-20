@@ -1,3 +1,4 @@
+import { scrubTyped, typedValues } from './plan-redact.mjs';
 import { writeFileSync } from 'fs';
 import { join } from 'path';
 import { waitForPageReady } from '../dom-actionability.mjs';
@@ -92,7 +93,10 @@ export function createDomOperations(options: DomOptions = {}) {
   const ACCEPT_DIALOG = cfg.acceptDialog;
   const DIFF = cfg.diff;
   const STEPS = readSteps(options, WAIT_TEXT);
-  const ctx: DomContext = { cfg, log: line => console.log(line) };
+  // Typed text must not reach any line this check prints (logs are persisted as captures).
+  const secrets = typedValues(STEPS);
+  const emit = (line: string) => console.log(scrubTyped(line, secrets));
+  const ctx: DomContext = { cfg, log: line => emit(line) };
 
   // Prints one step; returns false when the batch should stop.
   function reportStep(
@@ -103,7 +107,7 @@ export function createDomOperations(options: DomOptions = {}) {
     prefix: string
   ) {
     if (!details.found) {
-      console.log(
+      emit(
         `[FINDING] ${prefix}DOM target not found target=${JSON.stringify(label)}${details.error ? ` error=${JSON.stringify(details.error)}` : ''}`
       );
       return false;
@@ -114,19 +118,19 @@ export function createDomOperations(options: DomOptions = {}) {
         !['select', 'focus', 'upload'].includes(step.action)
           ? 'trusted input'
           : 'DOM';
-      const valuePart = ['fill', 'type', 'select', 'upload'].includes(
-        step.action
-      )
-        ? ` value=${JSON.stringify(step.value)}`
-        : step.action === 'press'
-          ? ` key=${JSON.stringify(step.key)}`
-          : step.action === 'drag'
-            ? ` to=${JSON.stringify(step.toRef || step.toSelector)} (${details.dragKind ?? 'pointer'})`
-            : '';
-      console.log(
+      const valuePart = ['fill', 'type'].includes(step.action)
+        ? ` value=[redacted ${(step.value ?? '').length} chars]`
+        : ['select', 'upload'].includes(step.action)
+          ? ` value=${JSON.stringify(step.value)}`
+          : step.action === 'press'
+            ? ` key=${JSON.stringify(step.key)}`
+            : step.action === 'drag'
+              ? ` to=${JSON.stringify(step.toRef || step.toSelector)} (${details.dragKind ?? 'pointer'})`
+              : '';
+      emit(
         `[ACTION] ${prefix}${details.operation} ${JSON.stringify(details.accessibleNameGuess)} (${details.role}) via ${how}${valuePart}`
       );
-      console.log(
+      emit(
         `[CODE] ${prefix}locator=${JSON.stringify(details.path)} action=${step.action}${valuePart}`
       );
       const a = details.after ?? {};
@@ -149,19 +153,19 @@ export function createDomOperations(options: DomOptions = {}) {
       if (effects.popup) parts.push(`popup=${effects.popup}`);
       if (a.connected === false && !effects.navigatedTo)
         parts.push('target-removed');
-      console.log(`[VERIFY] ${prefix}${parts.join(' ')}`);
+      emit(`[VERIFY] ${prefix}${parts.join(' ')}`);
       if (a.events)
-        console.log(
+        emit(
           `[METRIC] ${prefix}USER_EVENTS count=${a.events.length} trusted=${a.events.filter((e: { trusted?: boolean }) => e.trusted).length}`
         );
       if (effects.dialog)
-        console.log(
+        emit(
           `[FINDING] ${prefix}JS_DIALOG ${effects.dialog.type} ${JSON.stringify(effects.dialog.message)} ${ACCEPT_DIALOG ? 'accepted' : 'dismissed (DOM_DIALOG=accept to accept)'}`
         );
       if (details.verified === false) {
         const finding = `VERIFY_MISMATCH expected=${JSON.stringify(details.expected)}${MODE === 'trusted' ? ' — retry with action:"type" (keystrokes)' : ''}`;
         details.error = finding;
-        console.log(`[FINDING] ${prefix}${finding}`);
+        emit(`[FINDING] ${prefix}${finding}`);
       }
       const noEffect =
         !effects.navigatedTo &&
@@ -177,28 +181,26 @@ export function createDomOperations(options: DomOptions = {}) {
         const finding =
           'NO_VISIBLE_EFFECT nothing changed in the DOM or URL; the target may need another action, or the handler is async (set after.text to wait for the result, or raise timeoutMs)';
         details.error = finding;
-        console.log(`[FINDING] ${prefix}${finding}`);
+        emit(`[FINDING] ${prefix}${finding}`);
       }
       return details.verified !== false;
     }
-    console.log(
+    emit(
       `[METRIC] ${prefix}DOM target=${JSON.stringify(label)} found=true visible=${details.visible} disabled=${details.disabled} stable=${details.stable} covered=${details.covered} canOperate=${details.canOperate}`
     );
-    console.log(
+    emit(
       `[METRIC] ${prefix}DOM role=${JSON.stringify(details.role)} name=${JSON.stringify(details.accessibleNameGuess)} bbox=${JSON.stringify(details.bbox)}${details.before && Object.keys(details.before).length ? ` state=${JSON.stringify(details.before)}` : ''}`
     );
     if (details.coveredBy)
-      console.log(
-        `[FINDING] ${prefix}DOM element is covered by ${details.coveredBy}`
-      );
+      emit(`[FINDING] ${prefix}DOM element is covered by ${details.coveredBy}`);
     if (details.operation?.startsWith('already-')) {
-      console.log(
+      emit(
         `[ACTION] ${prefix}${details.operation} ${JSON.stringify(details.accessibleNameGuess)} (no change needed)`
       );
       return true;
     }
     const reason = REASONS[details.operation];
-    if (reason) console.log(`[FINDING] ${prefix}${reason(details, step)}`);
+    if (reason) emit(`[FINDING] ${prefix}${reason(details, step)}`);
     return step.action === 'inspect';
   }
 
@@ -208,10 +210,10 @@ export function createDomOperations(options: DomOptions = {}) {
   function reportNewRefs(cdp: Session, before: RefUnit[], after: RefUnit[]) {
     const diff = recordNewRefs(cdp, before, after);
     if (!diff) return 0;
-    console.log(`[DIFF] new=${diff.added} gone=${diff.gone}`);
-    for (const line of diff.lines.slice(0, 20)) console.log(line);
+    emit(`[DIFF] new=${diff.added} gone=${diff.gone}`);
+    for (const line of diff.lines.slice(0, 20)) emit(line);
     if (diff.lines.length > 20)
-      console.log(`[NEW] … ${diff.lines.length - 20} more (run page-snapshot)`);
+      emit(`[NEW] … ${diff.lines.length - 20} more (run page-snapshot)`);
     return diff.added;
   }
 
@@ -225,7 +227,7 @@ export function createDomOperations(options: DomOptions = {}) {
       await (cdp.foreground ? cdp.foreground() : cdp.send('Page.bringToFront'));
     const ready = await waitForPageReady(cdp);
     if (!ready)
-      console.log(
+      emit(
         "[FINDING] PAGE_NOT_FULLY_LOADED document did not reach an interactive state — a not-found/blocked result below may reflect a page that hasn't rendered yet, not a real absence"
       );
 
@@ -283,7 +285,7 @@ export function createDomOperations(options: DomOptions = {}) {
             }
           : await waitForText(cdp, step.value || WAIT_TEXT, ctx);
         const timeout = `WAIT_TIMEOUT none of ${waitTargetLabel(step, WAIT_TEXT)} appeared within ${WAIT_MS}ms`;
-        console.log(
+        emit(
           hit
             ? `[WAIT] ${prefix}found ${JSON.stringify(hit)} after ${ms}ms`
             : `[FINDING] ${prefix}${timeout}`
@@ -320,7 +322,7 @@ export function createDomOperations(options: DomOptions = {}) {
         results.at(-1)?.objectId
       );
       const timeout = `WAIT_TIMEOUT none of ${JSON.stringify(WAIT_TEXT)} appeared within ${WAIT_MS}ms`;
-      console.log(
+      emit(
         hit
           ? `[WAIT] found ${JSON.stringify(hit)} after ${ms}ms`
           : `[FINDING] ${timeout}`
@@ -347,13 +349,13 @@ export function createDomOperations(options: DomOptions = {}) {
     const lastRow = results.at(-1);
     const lastHover = lastRow?.step.action === 'hover' ? lastRow.details : null;
     if (lastHover?.noEffect && !added)
-      console.log(
+      emit(
         '[FINDING] NO_VISIBLE_EFFECT hover changed nothing and revealed no refs; the menu may open on click'
       );
     if (before && navigatedAny)
-      console.log('[NEXT] page navigated: run page-snapshot for fresh refs');
+      emit('[NEXT] page navigated: run page-snapshot for fresh refs');
     if (STEPS.length > 1)
-      console.log(
+      emit(
         `[METRIC] STEPS done=${results.filter(r => r.found || r.details?.acted || r.step.action === 'inspect').length}/${STEPS.length}${ok ? '' : ' stopped'}`
       );
 
@@ -372,7 +374,8 @@ export function createDomOperations(options: DomOptions = {}) {
             step: r.step,
             ...(r.details ?? { found: r.found, ms: r.ms }),
           }));
-    writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, {
+    const saved = scrubTyped(artifact, typedValues(STEPS));
+    writeFileSync(artifactPath, `${JSON.stringify(saved, null, 2)}\n`, {
       mode: 0o600,
     });
     cdp.upsertResourceMap?.('dom-operation-check', {
@@ -382,7 +385,7 @@ export function createDomOperations(options: DomOptions = {}) {
       artifactPath,
       targetUrl: cdp.targetInfo.url,
     });
-    console.log(`[ARTIFACT] DOM_CHECK ${artifactPath}`);
+    emit(`[ARTIFACT] DOM_CHECK ${artifactPath}`);
     if (!ok) process.exitCode = 1;
     return {
       ok,

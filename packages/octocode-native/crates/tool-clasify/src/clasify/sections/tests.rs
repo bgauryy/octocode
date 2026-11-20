@@ -53,6 +53,7 @@ pub(super) fn session() -> Session {
                     None,
                 ],
                 emitted: false,
+                emitted_in: 0,
                 deferred: std::collections::BTreeSet::new(),
             }],
         }],
@@ -378,9 +379,14 @@ fn work_token_is_bounded_and_does_not_accept_arbitrary_plan_keys() {
         value.len() <= 128,
         "work token exceeded the canonical bound"
     );
-    assert_eq!(decode(&value), Some((id.as_str(), Some(usize::MAX))));
-    assert_eq!(decode(&quiet_token(&id)), Some((id.as_str(), None)));
-    assert!(quiet_token(&id).len() <= 128);
+    assert_eq!(decode(&value), Some((id.as_str(), Named::Batch(usize::MAX))));
+    assert_eq!(
+        decode(&quiet_token(&id, usize::MAX)),
+        Some((id.as_str(), Named::Quiet(usize::MAX)))
+    );
+    assert!(quiet_token(&id, usize::MAX).len() <= 128);
+    assert!(decode(&format!("sections-v1:{id}:q")).is_none());
+    assert!(decode(&format!("sections-v1:{id}:q+1")).is_none());
     assert!(decode("sections-v1:../other:0").is_none());
     assert!(decode(&format!("sections-v1:{}:no", id)).is_none());
 }
@@ -471,11 +477,24 @@ fn shown_ids(output: &Value) -> Vec<String> {
     ids(output, "resource")
 }
 
-/// One batch as a resumable runtime publishes it: emitted, then the hits view.
-fn page(session: &mut Session, last: bool) -> (Value, emit::Held) {
+/// One batch as a resumable runtime publishes and keeps it: emitted, then
+/// the hits view; the next page is the next batch.
+fn page(session: &mut Session) -> (Value, emit::Held) {
     let mut output = emit(session, &ClassificationUsage::default(), None);
-    let held = emit::attach_continuations(&mut output, session, last);
+    let held = emit::attach_continuations(&mut output, session);
+    session.batches.push(output.clone());
     (output, held)
+}
+
+/// The batch ordinal a page's `next.quiet` replays.
+fn quiet_batch(output: &Value) -> usize {
+    let token = output["next"]["quiet"]["input"]["queries"][0]["assessment"]
+        .as_str()
+        .expect("next.quiet");
+    match decode(token) {
+        Some((_, Named::Quiet(batch))) => batch,
+        other => panic!("not a quiet token: {other:?}"),
+    }
 }
 
 /// Hits view: a section every `noul` answered below 0.3 is held back
@@ -485,16 +504,12 @@ fn quiet_sections_are_held_back_and_counted() {
     let mut answers = vec![0.2; 22];
     answers[7] = 0.53;
     let mut session = answered_session(&answers);
-    let (output, _) = page(&mut session, true);
+    let (output, _) = page(&mut session);
     assert_eq!(shown_ids(&output), ["s7"]);
     let coverage = &output["resources"]["resource"]["coverage"];
     assert_eq!(coverage["quiet"], json!(21), "{coverage}");
     assert_eq!(coverage["totalSections"], json!(22));
-    let token = output["next"]["quiet"]["input"]["queries"][0]["assessment"]
-        .as_str()
-        .expect("next.quiet on the last batch");
-    assert_eq!(decode(token), Some((session.id.as_str(), None)));
-    let replay = emit::quiet_replay(&session);
+    let replay = emit::quiet_replay(&session, quiet_batch(&output));
     assert_eq!(replay["replayed"], json!(true));
     assert_eq!(shown_ids(&replay).len(), 21);
     assert!(!shown_ids(&replay).contains(&"s7".to_owned()));
@@ -503,7 +518,7 @@ fn quiet_sections_are_held_back_and_counted() {
 #[test]
 fn shown_sections_rank_by_their_highest_noul_answer() {
     let mut session = answered_session(&[0.4, 0.9, 0.2, 0.6]);
-    let (output, _) = page(&mut session, true);
+    let (output, _) = page(&mut session);
     assert_eq!(shown_ids(&output), ["s1", "s3", "s0"]);
     assert_eq!(
         output["resources"]["resource"]["coverage"]["quiet"],
@@ -523,7 +538,7 @@ fn failed_cells_and_non_noul_questions_are_never_quiet() {
             }
         }"#,
     ));
-    let (output, _) = page(&mut session, true);
+    let (output, _) = page(&mut session);
     assert_eq!(shown_ids(&output), ["s1"], "an error is never quiet");
     let mut session = answered_session(&[0.1]);
     session.questions =
@@ -536,7 +551,7 @@ fn failed_cells_and_non_noul_questions_are_never_quiet() {
             "probabilities": {"x": 0.55, "y": 0.45}
         }"#,
     )))];
-    let (output, _) = page(&mut session, true);
+    let (output, _) = page(&mut session);
     assert_eq!(shown_ids(&output), ["s0"], "a choice answer is shown");
     assert!(
         output["resources"]["resource"]["coverage"]
@@ -550,7 +565,7 @@ fn failed_cells_and_non_noul_questions_are_never_quiet() {
 #[test]
 fn nothing_quiet_keeps_todays_coverage() {
     let mut session = answered_session(&[0.9, 0.3]);
-    let (output, _) = page(&mut session, true);
+    let (output, _) = page(&mut session);
     assert_eq!(shown_ids(&output), ["s0", "s1"]);
     assert!(
         output["resources"]["resource"]["coverage"]
@@ -572,7 +587,7 @@ fn a_page_with_no_kept_plan_shows_every_section() {
 #[test]
 fn restore_shows_held_sections_and_drops_next_quiet() {
     let mut session = answered_session(&[0.1, 0.9]);
-    let (mut output, held) = page(&mut session, true);
+    let (mut output, held) = page(&mut session);
     assert_eq!(shown_ids(&output), ["s1"]);
     assert!(output["next"].get("quiet").is_some());
     held.restore(&mut output);
@@ -589,7 +604,8 @@ fn restore_shows_held_sections_and_drops_next_quiet() {
 
 /// Reachability walk over two resources, two batches, mixed
 /// answers. Every planned section reaches the caller exactly once, through a
-/// page or through the last batch's `next.quiet`; per resource, shown plus
+/// page or through the `next.quiet` of the page that held it back; per
+/// resource, shown plus
 /// quiet is the total; nothing quiet holds a cell that is not answered.
 #[test]
 fn every_section_is_reachable_exactly_once_across_pages_and_next_quiet() {
@@ -622,10 +638,10 @@ fn every_section_is_reachable_exactly_once_across_pages_and_next_quiet() {
             unit.cells[0] = None;
         }
     }
-    let (first, _) = page(&mut session, false);
+    let (first, _) = page(&mut session);
     assert!(
-        first["next"].get("quiet").is_none(),
-        "only the last batch lists them"
+        first["next"].get("quiet").is_some(),
+        "the page that holds sections back lists them"
     );
     for (resource, (_, cells)) in session.resources.iter_mut().zip(&planned) {
         for (unit, cell) in resource.units.iter_mut().zip(cells).skip(3) {
@@ -644,11 +660,14 @@ fn every_section_is_reachable_exactly_once_across_pages_and_next_quiet() {
     session.resources[1].units[5].cells[0] = Some(json_fixture(
         r#"{"status": "unassessed", "reason": "budget"}"#,
     ));
-    let (second, _) = page(&mut session, true);
+    let (second, _) = page(&mut session);
     assert!(second["next"].get("quiet").is_some());
-    let replay = emit::quiet_replay(&session);
+    let replays = [
+        emit::quiet_replay(&session, quiet_batch(&first)),
+        emit::quiet_replay(&session, quiet_batch(&second)),
+    ];
     let mut seen = std::collections::BTreeMap::<(String, String), usize>::new();
-    for output in [&first, &second, &replay] {
+    for output in [&first, &second, &replays[0], &replays[1]] {
         for key in ["resource", "other"] {
             for id in ids(output, key) {
                 *seen.entry((key.to_owned(), id)).or_default() += 1;
@@ -684,10 +703,9 @@ fn every_section_is_reachable_exactly_once_across_pages_and_next_quiet() {
             .expect("total");
         assert_eq!(shown as u64 + quiet, total, "{key}");
     }
-    for section in replay["resources"]
-        .as_object()
-        .expect("resources")
-        .values()
+    for section in replays
+        .iter()
+        .flat_map(|replay| replay["resources"].as_object().expect("resources").values())
         .flat_map(|row| row["sections"].as_array().into_iter().flatten())
     {
         assert!(
@@ -715,7 +733,7 @@ fn a_terminal_batch_whose_plan_is_not_kept_shows_every_held_section() {
     for unit in session.resources[0].units.iter_mut().skip(2) {
         unit.cells[0] = None;
     }
-    let (first, _) = page(&mut session, false);
+    let (first, _) = page(&mut session);
     assert_eq!(shown_ids(&first), ["s1"], "s0 is held back on batch 1");
     for (unit, cell) in session.resources[0].units.iter_mut().zip(&planned).skip(2) {
         unit.cells[0] = cell.clone();
@@ -767,7 +785,7 @@ fn an_interrupted_continuation_keeps_every_held_section_reachable() {
         for unit in session.resources[0].units.iter_mut().skip(2) {
             unit.cells[0] = None;
         }
-        let (first, _) = page(&mut session, false);
+        let (first, _) = page(&mut session);
         assert_eq!(shown_ids(&first), ["s1"], "s0 is held back on batch 1");
         session.active = vec![[0, 2], [0, 3]];
         let dir = tempfile::tempdir().expect("dir");
@@ -802,11 +820,11 @@ fn an_interrupted_continuation_keeps_every_held_section_reachable() {
             .get(&sessions.key(&runtime.access, &session.id));
         if kept {
             let retained = retained.expect("the plan is kept for next.quiet");
-            assert!(
-                output["next"].get("quiet").is_some(),
-                "kept={kept}: {output:#}"
-            );
-            seen.extend(shown_ids(&emit::quiet_replay(&retained.value)));
+            // `s0` was held back by the first page, which lists it.
+            seen.extend(shown_ids(&emit::quiet_replay(
+                &retained.value,
+                quiet_batch(&first),
+            )));
         } else {
             assert!(retained.is_none(), "the plan was not kept");
             assert!(output["next"].get("quiet").is_none(), "{output:#}");

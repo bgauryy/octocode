@@ -56,6 +56,9 @@ fn reference_scan<'k>(
                 }
             } else if let Some(stem) = key(stems, named)
                 && is_quoted(line, offset, named)
+                && !line[offset + named.len() + 1..]
+                    .trim_start_matches([' ', '\t'])
+                    .starts_with(':')
             {
                 local[STEMS].entry(stem).or_insert(index + 1);
             }
@@ -153,8 +156,33 @@ fn a_word_ending_a_sentence_names_no_file() {
             "../oracle.py",
             "import ./oracle",
             "'oracle'",
+            "{\"x\": \"oracle\"}",
+            "['oracle', 1]",
         ] {
             assert_eq!(hits(named), 1, "{named}");
+        }
+    }
+}
+
+/// A whole string literal that is an object key (`"main": …` in a
+/// manifest) names a field, not a file: it is no mention of `main.py`.
+#[test]
+fn an_object_key_names_no_file() {
+    let stems = set(&["main"]);
+    let names = BTreeSet::new();
+    let keys = Keys::new(&stems, &names);
+    for code in [false, true] {
+        for key in [
+            r#"{"name":"t","main":"index.js"}"#,
+            r#"{ "main" : 1 }"#,
+            "x = {'main':\t1}",
+        ] {
+            assert_eq!(scan_text(key, code, &keys)[STEMS].len(), 0, "{key}");
+            assert_eq!(
+                reference_scan(key, code, &stems, &names)[STEMS].len(),
+                0,
+                "{key}"
+            );
         }
     }
 }

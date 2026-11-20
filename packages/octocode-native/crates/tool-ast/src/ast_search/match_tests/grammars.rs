@@ -4,6 +4,47 @@
 use super::*;
 use octocode_test_support::json_fixture;
 
+/// A kind no grammar knows, over a directory, is refused in the grammar the
+/// scope holds, with that grammar's nearest kinds to retry with.
+#[test]
+fn an_unknown_kind_names_the_scopes_nearest_kinds() {
+    let root = Fixture::new();
+    root.write("src/a.rs", "fn a() {}\n");
+    root.write("src/b.rs", "fn b() {}\n");
+    let error = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"kind":"function_decl"}}),
+    )
+    .expect_err("unknown kind");
+    assert!(error.message.contains("function_item"), "{}", error.message);
+}
+
+/// A string written in either quote style matches the other: the import of
+/// `"node:fs"` and of `'node:fs'` are one import to a pattern of either.
+#[test]
+fn quote_style_does_not_decide_a_match() {
+    let root = Fixture::new();
+    root.write("ts/a.ts", "import { a } from \"node:fs\";\n");
+    root.write("ts/b.ts", "import { b } from 'node:fs';\n");
+    root.write(
+        "py/c.py",
+        "p.add_parser('start')\np.add_parser(\"start\")\n",
+    );
+    for (pattern, dir) in [
+        ("import { $$$A } from \"node:fs\"", "ts"),
+        ("import { $$$A } from 'node:fs'", "ts"),
+        ("$P.add_parser('start')", "py"),
+        ("$P.add_parser(\"start\")", "py"),
+    ] {
+        let out = run(
+            &root.0,
+            json!({"operation":"match","path":root.0.join(dir),"rule":{"pattern":pattern}}),
+        )
+        .expect("match");
+        assert_eq!(out["matchCount"], json!(2), "{pattern}: {out}");
+    }
+}
+
 /// A pattern that compiles in one grammar of a mixed scope cannot match the
 /// files of a grammar it does not compile in: they are outside what it
 /// applies to, not unread evidence. The result is whole (not partial, no
@@ -81,7 +122,7 @@ fn under_a_rule_language_only_files_of_unknown_type_warn() {
             "{parser:?}: {out}"
         );
     }
-    root.write("a.ts", "run(1);\n");
+    root.write("ts/a.ts", "run(1);\n");
     let mixed = run(
         &root.0,
         json!({"operation":"match","path":root.0,"rule":{"pattern":"$A"},"view":"files"}),
@@ -194,11 +235,10 @@ fn a_match_discloses_files_whose_recovered_parse_could_hide_a_match() {
     assert_eq!(named, ["a", "b", "c", "d"], "never clean.cpp or local.cpp");
 }
 
-/// A coverage cut is a fact of the scan, not of a page: page 1 states its
-/// reason beside the census that explains it, and so does the last page,
-/// which no next page explains; a page between says only `isPartial`.
+/// A coverage cut is a fact of the scan, not of a page: every page names
+/// its reason, so no page says `isPartial` beside `hasMore` without one.
 #[test]
-fn a_scans_partial_reason_is_stated_on_its_first_and_last_page() {
+fn a_scans_partial_reason_is_stated_on_every_page() {
     let root = Fixture::new();
     for name in ["a", "b", "c", "d"] {
         root.write(&format!("lib/{name}.cpp"), GARBLED_CPP);
@@ -222,15 +262,11 @@ fn a_scans_partial_reason_is_stated_on_its_first_and_last_page() {
         pages.push(page);
     }
     assert!(pages.len() > 2, "{pages:#?}");
-    let last = pages.len() - 1;
     for (at, page) in pages.iter().enumerate() {
         assert_eq!(page["isPartial"], json!(true), "page {at}: {page}");
-        let stated = at == 0 || at == last;
         assert_eq!(
-            page.get("partialReasons"),
-            stated
-                .then(|| json_fixture(r#"["parseRecovered"]"#))
-                .as_ref(),
+            page["partialReasons"],
+            json_fixture(r#"["parseRecovered"]"#),
             "page {at}: {page}"
         );
     }

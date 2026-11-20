@@ -756,7 +756,7 @@ fn fix_redundancy_uses_only_the_same_records_events() {
 /// repository's advisory) state their text once: a later record's summary or
 /// details equal to an earlier one's, line endings aside, is left out and
 /// `textSameAs` names the record that holds it; text that differs, every
-/// other field, and a record of another id keep their own (LEFTOVERS P3).
+/// other field, and a record of another id keep their own.
 #[test]
 fn twin_records_state_their_text_once() {
     let text = "## Summary\nA flaw.\n\n## Impact\nData read.";

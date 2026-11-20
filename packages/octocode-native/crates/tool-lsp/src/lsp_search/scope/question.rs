@@ -55,12 +55,17 @@ impl Question {
             let text = text?;
             Path::new(path).extension().filter(|ext| *ext == "rs")?;
             let document = octocode_tools_shared::declarations::file_document(text, path)?;
-            let declaration = document.declarations.iter().find(|declaration| {
+            let Some(declaration) = document.declarations.iter().find(|declaration| {
                 let range = &declaration.selection_range;
                 declaration.name == symbol
                     && (range.start.line, range.start.character) <= (line, character)
                     && (line, character) <= (range.end.line, range.end.character)
-            })?;
+            }) else {
+                // A name a heritage clause holds on the anchor's line (`impl
+                // Trait for Type`, a supertrait) is a type declared
+                // elsewhere; whether a receiver reaches it is not read here.
+                return names_supertype_on(text, path, symbol, line).then_some((true, false));
+            };
             let parent = declaration
                 .parent
                 .as_deref()
@@ -143,6 +148,20 @@ impl Question {
                 .collect(),
         }
     }
+}
+
+/// Whether a heritage clause on zero-based `line` of `text` (of `file`)
+/// names `symbol` as a supertype (`impl Trait for Type`, `trait Sub: Trait`).
+fn names_supertype_on(text: &str, file: &str, symbol: &str, line: u32) -> bool {
+    octocode_tools_shared::declarations::named_heritage(text, file, symbol).is_some_and(
+        |document| {
+            document.edges.iter().any(|edge| {
+                matches!(edge.relation.as_str(), "extends" | "implements")
+                    && edge.line == line + 1
+                    && edge.to.rsplit(['.', ':']).next() == Some(symbol)
+            })
+        },
+    )
 }
 
 /// Whether `text` (of `file`) declares a type whose `impl … for` or

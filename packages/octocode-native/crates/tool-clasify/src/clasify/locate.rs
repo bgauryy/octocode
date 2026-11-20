@@ -445,19 +445,41 @@ impl Located {
     /// companion that was dropped or failed (`null`) names none.
     pub(super) fn attach(&self, answers: &mut [Value], companions: &[Value]) {
         for (&index, choice) in self.serves.iter().zip(companions) {
-            let Some(part) = choice["choice"]
-                .as_str()
-                .and_then(|chosen| self.parts.iter().find(|&&span| label(span) == chosen))
-            else {
+            let Some((start, end)) = self.cited(choice) else {
                 continue;
             };
             let Some(answer) = answers.get_mut(index) else {
                 continue;
             };
             if names_lines(answer) {
-                answer["lines"] = json!({"startLine": part.0, "endLine": part.1});
+                answer["lines"] = json!({"startLine": start, "endLine": end});
             }
         }
+    }
+
+    /// The lines a companion's answer cites: from the first to the last of
+    /// the parts it holds the deciding text may sit in. That is the part it
+    /// chose and every part its probabilities rate above an even share of
+    /// its labels: an answer that rests on text in two parts (a key set in
+    /// one, its value in another) cites both. `None` when it chose no part.
+    fn cited(&self, choice: &Value) -> Option<(usize, usize)> {
+        let chosen = choice["choice"].as_str()?;
+        let picked = *self.parts.iter().find(|&&span| label(span) == chosen)?;
+        let probabilities = choice["probabilities"].as_object();
+        // Every part's label and `unknown`.
+        let labels = self.parts.len() + 1;
+        let even = 1.0 / f64::from(u32::try_from(labels).unwrap_or(u32::MAX));
+        let likely = self.parts.iter().filter(|&&span| {
+            probabilities
+                .and_then(|probabilities| probabilities.get(&label(span)))
+                .and_then(Value::as_f64)
+                .is_some_and(|probability| probability > even)
+        });
+        Some(
+            likely.fold(picked, |(start, end), &(first, last)| {
+                (start.min(first), end.max(last))
+            }),
+        )
     }
 }
 

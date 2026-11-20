@@ -60,7 +60,7 @@ fn a_span_copy_past_the_budget_is_refused_and_disclosed() {
     let content = "x ".repeat(10);
     let budget = test_budget!(SPAN * 3);
     let _scope = SpanBudgetOverride::of(budget);
-    let found = match_spans(&literal("x"), &content, &["x"]).expect("scan");
+    let found = match_spans(&literal("x"), &content, &[], &["x"]).expect("scan");
     assert!(found.truncated);
     assert!(found.spans.is_empty());
     assert!(budget.used() <= budget.limit());
@@ -84,9 +84,9 @@ fn one_patterns_spans_are_held_once() {
         let scan = |budget: &'static MemoryBudget| {
             let _scope = SpanBudgetOverride::of(budget);
             let spans = if engine == "rust" {
-                rust_ranges("x", true, &content)
+                rust_ranges("x", true, &content, &[])
             } else {
-                pcre2_ranges("x", true, &content)
+                pcre2_ranges("x", true, &content, &[])
             };
             !spans.expect("scan").truncated
         };
@@ -96,7 +96,7 @@ fn one_patterns_spans_are_held_once() {
             .expect("a budget the scan completes in");
         let budget = sized_test_budget(least);
         let _scope = SpanBudgetOverride::of(budget);
-        let found = match_spans(&regex(engine), &content, &["x"]).expect("read");
+        let found = match_spans(&regex(engine), &content, &[], &["x"]).expect("read");
         assert!(!found.truncated, "{engine}: refused under {least} bytes");
         assert_eq!(found.spans.len(), 10, "{engine}");
         assert_eq!(budget.used(), found.spans.capacity() * SPAN, "{engine}");
@@ -110,7 +110,7 @@ fn a_span_copy_within_the_budget_is_held_until_the_result_drops() {
     let content = "x ".repeat(10);
     let budget = test_budget!(SPAN * 64);
     let _scope = SpanBudgetOverride::of(budget);
-    let found = match_spans(&literal("x"), &content, &["x"]).expect("scan");
+    let found = match_spans(&literal("x"), &content, &[], &["x"]).expect("scan");
     assert!(!found.truncated);
     assert_eq!(found.spans.len(), 10);
     assert!(budget.used() >= found.spans.len() * SPAN);

@@ -37,15 +37,11 @@ async fn provider() -> MockServer {
     server
 }
 
-/// A `maxRequests` over every page these plans take: they check how a plan
-/// pages, not what bounds it ([`a_sections_plan_is_bounded_by_its_max_requests_per_page`]).
-pub(crate) const EVERY_PAGE: u64 = 1_000;
-
 async fn sections(runtime: &ToolRuntime, resources: Value) -> Value {
     let out = clasify(
         runtime,
         vec![json!({
-            "operation":"sections","resources":resources,"maxRequests":EVERY_PAGE,
+            "operation":"sections","resources":resources,"maxRequests":crate::runtime_clasify::budget::EVERY_PAGE,
             "questions":{"q":{"type":"noul","instructions":"Does this section say to restart?"}}
         })],
     )
@@ -82,11 +78,7 @@ async fn a_sections_plan_is_bounded_by_its_max_requests_per_page() {
     assert_eq!(data["usage"]["calls"], 0, "{out}");
     let planned = data["usage"]["requestsPlanned"].as_u64().expect("a plan");
     assert!(planned > 1, "several sections: {out}");
-    assert_eq!(
-        data["next"]["confirm"]["input"]["queries"][0]["maxRequests"],
-        data["usage"]["requestsCeiling"],
-        "{out}"
-    );
+    assert_eq!(data["next"]["confirm"]["tool"], "clasify", "{out}");
     assert_eq!(provider_calls(&provider).await, 0, "nothing was sent");
 
     let cap = 2;

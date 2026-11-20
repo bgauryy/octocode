@@ -1,12 +1,36 @@
 #!/usr/bin/env node
 
+import { stopProxyFor } from './cdp-proxy.mjs';
 import { spawn } from 'child_process';
 import { platform } from 'os';
-import { existsSync, writeFileSync, rmSync, mkdirSync } from 'fs';
+import { join } from 'path';
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readFileSync,
+  writeFileSync,
+  rmSync,
+  mkdirSync,
+} from 'fs';
 import { propagateOctocodeEnv } from './octocode-config.mjs';
 import { browserMajorVersion, planRealProfile } from './real-profile.mjs';
 import { flagArgs } from './cli-flags.mjs';
-import { openSelectedTab } from './open-tab.mjs';
+import {
+  disposeBrowserContexts,
+  generatedGroupName,
+  openSelectedTab,
+  openTabGroup,
+} from './open-tab.mjs';
+import {
+  normalizeOrigin,
+  originAndPath,
+  originViolation,
+  readSessionMeta,
+  removeSessionMeta,
+  updateSessionMeta,
+} from './session-meta.mjs';
+import { chromeEndpoint } from './cdp-runner-targets.mjs';
 import { OPEN_BROWSER_HELP } from './open-browser-help.mjs';
 import { errorMessage } from './error-message.mjs';
 import {
@@ -30,7 +54,9 @@ import {
 import {
   chromeLaunchArgs,
   effectiveProxy,
+  isNoSandboxFailure,
   launchFeatures,
+  NO_SANDBOX_HINT,
   loadProxyConfig,
 } from './browser-launch-config.mjs';
 
@@ -58,6 +84,16 @@ const PROXY_SERVER = getArg('--proxyServer', '');
 const PROXY_BYPASS_LIST = getArg('--proxyBypassList', '');
 const PROXY_PAC_URL = getArg('--proxyPacUrl', '');
 const CONFIG_PATH = getArg('--config', '');
+const ATTACH = hasFlag('--attach');
+const NO_SANDBOX = hasFlag('--no-sandbox');
+const URLS = getArg('--urls', '')
+  .split(',')
+  .map(url => url.trim())
+  .filter(Boolean);
+const BACKGROUND = hasFlag('--background');
+const NEW_WINDOW = hasFlag('--new-window');
+const ISOLATED = hasFlag('--isolated');
+const ALLOW_ORIGIN_ARG = getArg('--allow-origin', '');
 
 function ok(payload: Record<string, unknown>) {
   console.log(JSON.stringify(payload));
@@ -97,7 +133,21 @@ function writeSession(pid: number | undefined, wsUrl?: string) {
   );
 }
 
+/** Disposes the isolated browser contexts `open --isolated` made on this port; returns how many. */
+async function disposeGroupContexts(): Promise<number> {
+  const contexts = readSessionMeta(PORT, WORKSPACE).contexts ?? [];
+  if (!contexts.length || DRY_RUN) return 0;
+  try {
+    return await disposeBrowserContexts(PORT, contexts);
+  } catch {
+    return 0;
+  }
+}
+
 async function cleanupSession() {
+  // A proxy forwards to this browser; it must not outlive it.
+  await stopProxyFor(PORT, CHROME_STATE_DIR);
+  const disposedContexts = await disposeGroupContexts();
   let session = readSession(SESSION_FILE);
   let sessionFile = SESSION_FILE;
   let owner: Record<string, unknown> = { workspace: WORKSPACE, sessionFile };
@@ -107,9 +157,12 @@ async function cleanupSession() {
       console.error(
         `[BROWSER] No tracked session found for port ${PORT} (${found.reason})`
       );
+      if (disposedContexts)
+        updateSessionMeta(PORT, { contexts: undefined }, WORKSPACE);
       ok({
         status: 'NO_TRACKED_SESSION',
         port: PORT,
+        disposedContexts,
         reason: found.reason,
         listenerPid: found.listenerPid,
         workspace: found.workspace,
@@ -150,7 +203,13 @@ async function cleanupSession() {
     try {
       rmSync(sessionFile, { force: true });
     } catch {}
-    ok({ status: 'STALE_SESSION_REMOVED', port: PORT, ...owner });
+    removeSessionMeta(PORT, WORKSPACE);
+    ok({
+      status: 'STALE_SESSION_REMOVED',
+      port: PORT,
+      disposedContexts,
+      ...owner,
+    });
     return;
   }
 
@@ -194,8 +253,15 @@ async function cleanupSession() {
   try {
     rmSync(sessionFile, { force: true });
   } catch {}
+  removeSessionMeta(PORT, WORKSPACE);
   console.error('[BROWSER] Session cleaned up');
-  ok({ status: 'CLEANED_UP', port: PORT, pid: session.pid, ...owner });
+  ok({
+    status: 'CLEANED_UP',
+    port: PORT,
+    pid: session.pid,
+    disposedContexts,
+    ...owner,
+  });
 }
 
 if (CLEANUP) {
@@ -221,9 +287,48 @@ const proxy = effectiveProxy(
 );
 const proxyRequested = Boolean(proxy.server || proxy.pacUrl);
 
-async function openTab(url: string): Promise<string> {
+let allowOrigins: string[] | undefined;
+try {
+  allowOrigins = ALLOW_ORIGIN_ARG
+    ? [...new Set(ALLOW_ORIGIN_ARG.split(',').map(normalizeOrigin))]
+    : undefined;
+} catch (e) {
+  err(errorMessage(e));
+}
+if (hasFlag('--allow-origin') && !allowOrigins)
+  err('--allow-origin needs a comma-separated list of origins');
+if (URL_ARG && URLS.length) err('Use --url or --urls, not both');
+if ((BACKGROUND || NEW_WINDOW || ISOLATED) && !URLS.length)
+  err('--background, --new-window and --isolated apply to --urls');
+if (ATTACH) {
+  if (!hasFlag('--port')) err('--attach needs --port');
+  const launching = [
+    HEADLESS && '--headless',
+    REAL_PROFILE && '--profile',
+    CHROME_PATH && '--chromePath',
+    NO_SANDBOX && '--no-sandbox',
+    proxyRequested && 'proxy settings',
+    ENABLE_FEATURES && '--enableFeatures',
+    USER_AGENT && '--userAgent',
+    hasFlag('--windowSize') && '--windowSize',
+  ].filter(Boolean);
+  if (launching.length)
+    err(
+      `--attach never launches a browser, so ${launching.join(', ')} cannot apply`
+    );
+}
+
+async function openTab(
+  url: string,
+  allowed?: readonly string[]
+): Promise<string> {
   try {
-    return await openSelectedTab(PORT, url, line => console.error(line));
+    return await openSelectedTab(
+      PORT,
+      url,
+      line => console.error(line),
+      allowed
+    );
   } catch (e) {
     return err(
       `Chrome on port ${PORT} is reused, but opening ${url} failed: ${errorMessage(e)}`
@@ -232,6 +337,116 @@ async function openTab(url: string): Promise<string> {
 }
 
 const existing = await checkRunning(PORT);
+if (ATTACH && !existing)
+  err(
+    `Nothing is listening on port ${PORT}: --attach connects only to a Chrome already running on that exact port. Nothing was launched and no other port was scanned. Start Chrome with --remote-debugging-port=${PORT}, or call open without attach to launch an isolated browser.`
+  );
+// The list a navigation of this call is checked against: a reused browser keeps its own list
+// unless this call sets one; a fresh launch starts from this call's list only.
+const effectiveOrigins = existing
+  ? (allowOrigins ?? readSessionMeta(PORT, WORKSPACE).allowOrigins)
+  : allowOrigins;
+for (const url of URL_ARG ? [URL_ARG, ...URLS] : URLS) {
+  const violation = originViolation(url, effectiveOrigins);
+  if (violation) err(`${url}: ${violation}`);
+}
+
+/**
+ * Chrome navigates the launch URL itself, so a redirect can leave the allowlist after the
+ * pre-launch check. Wait for the first page to settle, then close it and fail if it left.
+ */
+async function enforceLaunchUrlOrigin() {
+  let last = '';
+  for (let tries = 0; tries < 20; tries++) {
+    await new Promise(r => setTimeout(r, 250));
+    const pages = (
+      await fetch(`http://127.0.0.1:${PORT}/json/list`)
+        .then(
+          r => r.json() as Promise<{ id: string; type: string; url: string }[]>
+        )
+        .catch(() => [])
+    ).filter(t => t.type === 'page');
+    const page = pages[0];
+    if (!page) continue;
+    const settled =
+      page.url === last && !/^(about:blank|chrome:)/.test(page.url);
+    last = page.url;
+    if (!settled) continue;
+    const violation = originViolation(page.url, allowOrigins);
+    if (violation) {
+      await fetch(`http://127.0.0.1:${PORT}/json/close/${page.id}`).catch(
+        () => undefined
+      );
+      err(
+        `The launch URL redirected to ${page.url}, outside the allowlist; the tab was closed. ${violation}`
+      );
+    }
+    return;
+  }
+}
+
+/** Opens the --urls group, records it in the session metadata and returns the reply fields. */
+async function openGroup() {
+  let group;
+  try {
+    group = await openTabGroup(
+      PORT,
+      URLS,
+      {
+        background: BACKGROUND,
+        newWindow: NEW_WINDOW,
+        isolated: ISOLATED,
+        allowOrigins: effectiveOrigins,
+      },
+      line => console.error(line)
+    );
+  } catch (e) {
+    return err(
+      `Chrome on port ${PORT} could not open the tab group: ${errorMessage(e)}`
+    );
+  }
+  const name = generatedGroupName();
+  const meta = readSessionMeta(PORT, WORKSPACE);
+  updateSessionMeta(
+    PORT,
+    {
+      groups: {
+        ...meta.groups,
+        [name]: group.tabs.map(tab => tab.targetId),
+      },
+      contexts: group.contextId
+        ? [...(meta.contexts ?? []), group.contextId]
+        : meta.contexts,
+    },
+    WORKSPACE
+  );
+  return { group: name, tabs: group.tabs, isolatedContext: ISOLATED };
+}
+
+/** What an attached endpoint is, from what Chrome and this workspace's session file say; never a guess. */
+function profileKind(browser: string, isolatedSession: boolean) {
+  if (isolatedSession) return 'isolated (launched by octocode open)';
+  if (browser.startsWith('HeadlessChrome')) return 'headless isolated';
+  return 'unknown (a real profile cannot be told from a separate one over CDP)';
+}
+
+async function attachedFacts(
+  info: { Browser: string },
+  isolatedSession: boolean
+) {
+  const rows = await chromeEndpoint(PORT)
+    .targets()
+    .catch(() => []);
+  const pages = rows.filter(row => row.type === 'page');
+  return {
+    attached: true,
+    browserVersion: info.Browser,
+    profile: profileKind(info.Browser, isolatedSession),
+    openTabCount: pages.length,
+    openTabs: pages.map(row => originAndPath(row.url)),
+  };
+}
+
 if (existing) {
   // Report which workspace's isolated session owns the reused browser, if any.
   const owner = await discoverListenerSession(existing, PORT);
@@ -241,10 +456,16 @@ if (existing) {
     REAL_PROFILE && '--profile',
     USER_AGENT && '--userAgent',
     hasFlag('--windowSize') && '--windowSize',
+    NO_SANDBOX && '--no-sandbox',
   ].filter(Boolean);
+  if (allowOrigins) updateSessionMeta(PORT, { allowOrigins }, WORKSPACE);
   // A reused browser keeps its tabs: the requested URL opens in a new tab that later commands
   // without a target use, and the result reports it.
-  const targetId = URL_ARG ? await openTab(URL_ARG) : undefined;
+  const targetId = URL_ARG
+    ? await openTab(URL_ARG, effectiveOrigins)
+    : undefined;
+  const group = URLS.length ? await openGroup() : undefined;
+  const selectedId = targetId ?? group?.tabs[0]?.targetId;
   // Commands without a port use this browser next, unless another workspace owns it.
   if (!owner.workspace || owner.workspace === WORKSPACE)
     recordActiveSession(CHROME_STATE_DIR, {
@@ -252,15 +473,22 @@ if (existing) {
       pid: owner.session?.pid,
       wsUrl: existing.webSocketDebuggerUrl,
       reused: true,
-      targetId,
+      targetId: selectedId,
     });
+  // Facts about the attached endpoint are read after the url or group tabs opened: they are part of it.
+  const attachedReply = ATTACH
+    ? await attachedFacts(existing, Boolean(owner.session))
+    : {};
   ok({
     status: 'BROWSER_READY',
     wsUrl: existing.webSocketDebuggerUrl,
     port: PORT,
     reused: true,
+    ...attachedReply,
     ...(targetId ? { url: URL_ARG, targetId } : {}),
+    ...group,
     browser: existing.Browser,
+    ...(effectiveOrigins ? { allowOrigins: effectiveOrigins } : {}),
     ...(owner.session
       ? {
           isolated: true,
@@ -332,6 +560,7 @@ const chromeArgs = chromeLaunchArgs({
   enableFeatures: ENABLE_FEATURES,
   proxy,
   url: URL_ARG,
+  noSandbox: NO_SANDBOX,
 });
 
 const profileLabel = HEADLESS
@@ -343,11 +572,28 @@ console.error(
   `[BROWSER] Launching Chrome: headless=${HEADLESS} port=${PORT} profile=${profileLabel}`
 );
 
+// Chrome's start-up complaints (a missing sandbox) go to a file this process can read back.
+const launchLog = join(CHROME_STATE_DIR, `cdp-chrome-launch-${PORT}.log`);
+const launchLogFd = openSync(launchLog, 'w', 0o600);
 const child = spawn(chromePath, chromeArgs, {
   detached: true,
-  stdio: 'ignore',
+  stdio: ['ignore', 'ignore', launchLogFd],
 });
+closeSync(launchLogFd);
 child.unref();
+const launchOutput = () => {
+  try {
+    return readFileSync(launchLog, 'utf8');
+  } catch {
+    return '';
+  }
+};
+// A fresh browser starts with this call's origin list and no groups from an earlier browser.
+updateSessionMeta(
+  PORT,
+  { allowOrigins, groups: undefined, contexts: undefined },
+  WORKSPACE
+);
 
 if (usingIsolatedProfile) writeSession(child.pid);
 
@@ -358,11 +604,14 @@ while (attempts < 40) {
   if (info) {
     if (usingIsolatedProfile)
       writeSession(child.pid, info.webSocketDebuggerUrl);
+    if (URL_ARG && allowOrigins) await enforceLaunchUrlOrigin();
+    const group = URLS.length ? await openGroup() : undefined;
     recordActiveSession(CHROME_STATE_DIR, {
       port: PORT,
       pid: child.pid,
       wsUrl: info.webSocketDebuggerUrl,
       reused: false,
+      targetId: group?.tabs[0]?.targetId,
     });
     ok({
       status: 'BROWSER_READY',
@@ -379,10 +628,27 @@ while (attempts < 40) {
       proxyConfigured: proxyRequested,
       enableFeaturesConfigured: launchFeatures(ENABLE_FEATURES),
       windowSize: WINDOW_SIZE || undefined,
+      ...(allowOrigins ? { allowOrigins } : {}),
+      ...group,
     });
+    rmSync(launchLog, { force: true });
     process.exit(0);
   }
+  if (isNoSandboxFailure(launchOutput())) break;
   attempts++;
+}
+const noSandboxFailure = isNoSandboxFailure(launchOutput());
+rmSync(launchLog, { force: true });
+if (noSandboxFailure) {
+  if (child.pid !== undefined)
+    try {
+      process.kill(child.pid, 'SIGKILL');
+    } catch {}
+  if (usingIsolatedProfile) {
+    rmSync(HEADLESS_PROFILE_DIR, { recursive: true, force: true });
+    rmSync(SESSION_FILE, { force: true });
+  }
+  err(`Chrome exited at start: ${NO_SANDBOX_HINT}`);
 }
 
 if (usingIsolatedProfile && existsSync(HEADLESS_PROFILE_DIR)) {

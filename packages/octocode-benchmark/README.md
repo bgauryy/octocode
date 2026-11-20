@@ -1,13 +1,14 @@
 # Octocode benchmark
 
-[Latest 17-tool scorecard](results/rounds/20.2.0-2026-11-20-independent-ratings/SCORECARD.md) — 8 independent raters, 12 dimensions per tool, every claim checked against ground truth ([how it is measured](briefs/independent-raters.md)). The [deep-efficiency round](results/rounds/20.2.0-2026-11-15-deep-efficiency/SCORECARD.md) holds cumulative 1–10 ratings, final-build acceptance, cache/Rust freshness repairs and scoped efficiency comparisons. The [earlier tool-rating round](results/rounds/20.2.0-2026-11-14-tool-ratings/SCORECARD.md) and [Claude handoff follow-up](results/rounds/20.2.0-2026-11-15-handoff-followup/REPORT.md) retain their original builds and measurements.
+[Latest 17-tool scorecard](results/rounds/20.2.0-2026-11-20-independent-ratings/SCORECARD.md) — 8 independent raters, 12 dimensions per tool, every claim checked against ground truth ([how it is measured](briefs/independent-raters.md)). Earlier rounds are summarized in the [version timeline](results/README.md#version-timeline); their files are in git history.
 
 Does Octocode give an AI agent correct, source-backed answers with less context and less
 waiting than the tools an expert would otherwise use, and is each version ready? This package is the one
 home of Octocode's checks and benchmarks, as behavioral docs (what to check, what to compare it against,
 how to judge, what to record), with the question sets, the per-question baselines and the version timeline
 of stored results. Agents run it by direct calls and judgement;
-there are no driver scripts.
+there are no driver scripts, no fixed step files and no pass/fail exit codes: questions, repositories and instructions
+define the work, and a person or agent reads the answers.
 
 | Doc | What it owns |
 |---|---|
@@ -17,7 +18,9 @@ there are no driver scripts.
 | [briefs/](briefs/) | What an agent is handed: [runner](briefs/runner.md), [judge](briefs/judge.md), [arm briefs](briefs/arms/), [check-local](briefs/check-local.md) and [check-github](briefs/check-github.md) capability rounds, [independent raters](briefs/independent-raters.md) (12-dimension tool ratings), and the [scorecard](briefs/SCORECARD.md) every round fills in |
 | [questions/](questions/README.md) | Specific capability questions for all 17 tools, plus the GitHub and local research sets |
 | [RATINGS.md](RATINGS.md) | The 1–10 tool rubric, weighted dimensions, confidence and completeness gates, and the 12-dimension agent-experience rubric |
-| [ARCHIVES.md](ARCHIVES.md) | Relocated historical archives and the one-package storage policy |
+| [TESTING_ENV.md](TESTING_ENV.md) | How to set up the testing environment: which agent for which job, tool allowlists per arm, fresh context, pinned build, Octocode home, clones, cleanup |
+| [SKILLS.md](SKILLS.md) | Benchmark and improve each public skill by requests, with [questions/skills](questions/skills/README.md) |
+| [BROWSER.md](BROWSER.md) | Browser-skill evals for `octocode-chrome-devtools`: local fixtures, tool routes, pass rules, negative triggers, safety checks, per-model metrics |
 | [results/README.md](results/README.md) | The version timeline, per-question [baselines](results/baselines/) and the index of every stored round |
 | [local/](local/README.md) | The pinned clones (repositories, commits, clone form) and the [local flows benchmark](local/FLOWS.md) |
 
@@ -239,6 +242,8 @@ Offering it is not the same as using it. In a paired run over 40 local and 30 Gi
 
 ```text
 README.md        purpose, how to run a round, dated historical results
+TESTING_ENV.md   the testing environment: agents, tools, isolation, build, home, clones
+SKILLS.md        skill benchmark and improvement loop
 RATINGS.md       current 1–10 tool rubric and confidence rules
 CHECKS.md        every check: core tools, security, skills, areas owned elsewhere
 METHOD.md        benchmark rounds and version-to-version comparison
@@ -246,7 +251,6 @@ COMPARISONS.md   Octocode against each expert competitor
 briefs/          runner, judge, arm briefs, capability-round briefs, SCORECARD template
 questions/       question sets (data), the repositories they use, judge rubrics
 local/           README (repositories, commits, clone form), FLOWS (the local flows benchmark), repos/ (clones, gitignored)
-docs/articles/   the published benchmark article
 results/         README (version timeline and index), baselines/ and rounds/ tracked; all other data gitignored
 campaigns/       raw campaign evidence (gitignored)
 ```

@@ -33,9 +33,10 @@ fn join(root: &str, path: &str) -> String {
 /// Answer fields whose values name nodes, directories or findings (a key,
 /// a list of keys, or rows): the ones that name a snapshot file or directory
 /// are restated from the workspace ([`Graph::rebase_paths`]).
-const REFERENCE_FIELDS: [&str; 15] = [
+const REFERENCE_FIELDS: [&str; 16] = [
     "id",
     "parent",
+    "suggestions",
     "changed",
     "subject",
     "from",
@@ -52,10 +53,11 @@ const REFERENCE_FIELDS: [&str; 15] = [
 ];
 
 /// Answer fields whose values are `path:line` mentions (a list, or lists
-/// keyed by export name) or text file paths the mention scan could not read
-/// (`unread`): each path is a file's, restated from the workspace whether or
-/// not the snapshot holds it (a README, a script).
-const MENTION_FIELDS: [&str; 3] = ["mentionedIn", "textMentions", "unread"];
+/// keyed by export name), text file paths the mention scan could not read
+/// (`unread`) or the config file that seeded an impact row (`config`): each
+/// path is a file's, restated from the workspace whether or not the
+/// snapshot holds it (a README, a script, a manifest).
+const MENTION_FIELDS: [&str; 4] = ["mentionedIn", "textMentions", "unread", "config"];
 
 /// Each `path:line` mention under `value` with its path restated from the
 /// workspace.
@@ -339,12 +341,8 @@ impl Graph {
     /// node, a hop) whose own fields say what they hold.
     fn rebase_reference(&self, value: &mut Value, root: &str) {
         match value {
-            Value::String(key) if self.names_path(key) => *key = join(root, key),
             Value::String(key) => {
-                let rebased = self
-                    .symbol_file(key)
-                    .map(|file| format!("{}{}", join(root, file), &key[file.len()..]));
-                if let Some(rebased) = rebased {
+                if let Some(rebased) = self.rebased_key(key, root) {
                     *key = rebased;
                 }
             }
@@ -356,9 +354,32 @@ impl Graph {
         }
     }
 
-    /// The file key symbol id `key` (`file#name`) starts with; `None` for any
-    /// other key. Read from the keys alone, as a point lookup holds them.
-    fn symbol_file<'k>(&self, key: &'k str) -> Option<&'k str> {
+    /// Node key `key` as answers name it ([`Self::rebase_paths`]): a file or
+    /// directory, or a symbol id's file, from the workspace root. A call
+    /// built from a key names it this way, as the rows beside it do.
+    pub(super) fn shown_key(&self, key: &str) -> String {
+        let root = self.shown_root();
+        if root == "." || Path::new(&root).is_absolute() {
+            return key.to_owned();
+        }
+        self.rebased_key(key, &root)
+            .unwrap_or_else(|| key.to_owned())
+    }
+
+    /// `key` named from `root`, when it names a file, a directory or a
+    /// symbol of a file; `None` for any other value.
+    fn rebased_key(&self, key: &str, root: &str) -> Option<String> {
+        if self.names_path(key) {
+            return Some(join(root, key));
+        }
+        self.symbol_file(key)
+            .map(|(file, name)| format!("{}{name}", join(root, file)))
+    }
+
+    /// Symbol id `key` (`file#name`) split into the file key it starts with
+    /// and the rest, `#` included; `None` for any other key. Read from the
+    /// keys alone, as a point lookup holds them.
+    fn symbol_file<'k>(&self, key: &'k str) -> Option<(&'k str, &'k str)> {
         let is = |key: &str, kind: NodeKind| {
             self.t
                 .by_key(key)
@@ -368,8 +389,8 @@ impl Graph {
             return None;
         }
         key.match_indices('#')
-            .map(|(at, _)| &key[..at])
-            .find(|file| is(file, NodeKind::File))
+            .filter_map(|(at, _)| Some((key.get(..at)?, key.get(at..)?)))
+            .find(|(file, _)| is(file, NodeKind::File))
     }
 
     /// Whether `key` names a snapshot file, or a directory holding one (a

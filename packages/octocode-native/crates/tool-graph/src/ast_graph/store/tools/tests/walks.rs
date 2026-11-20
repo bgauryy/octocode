@@ -153,4 +153,17 @@ fn symbol_answers_lead_to_the_lsp_search_that_checks_them() {
         json!({"operation":"dependents","path":"app","graph":built["id"],"target":"src/lib.ts"}),
     );
     assert!(checks(&file).is_empty(), "{file}");
+    // A walk both ways states each row's direction, a declared row field.
+    let both = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json!({"operation":"walk","path":"app","graph":built["id"],"target":"src/lib.ts#target","direction":"both","depth":1,"edges":["calls"]}),
+    );
+    let ways = both["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|row| row["direction"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(ways, [json!("in")], "{both}");
 }

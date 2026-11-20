@@ -49,6 +49,37 @@ fn call(dir: &Path, tool: ToolId, row: Value) -> Value {
     result.data
 }
 
+/// An exact `graph` ID names its scope: a call pinning one without `path`
+/// reads that snapshot, as the same call with its path does; a partial ID
+/// is still refused.
+#[test]
+fn a_graph_id_without_path_reads_the_snapshots_own_scope() {
+    let dir = Fixture::new();
+    dir.write("app/lib.ts", "export function run() {}\n");
+    dir.write("app/main.ts", "import { run } from './lib';\nrun();\n");
+    let built = call(&dir.0, ToolId::GraphBuild, json!({"path": "app"}));
+    let with_path = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json!({"operation":"stats","path":"app","graph":built["id"]}),
+    );
+    let without = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json!({"operation":"stats","graph":built["id"]}),
+    );
+    assert!(without.get("errorCode").is_none(), "{without}");
+    assert_eq!(without["graph"], with_path["graph"], "{without}");
+    assert_eq!(without["summary"], with_path["summary"], "{without}");
+    let id = built["id"].as_str().expect("id");
+    let partial = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json!({"operation":"stats","graph":&id[..id.len() - 1]}),
+    );
+    assert!(partial.get("errorCode").is_some(), "{partial}");
+}
+
 #[test]
 fn argument_evidence_variants_and_continuations_match_the_generated_contract() {
     let dir = Fixture::new();

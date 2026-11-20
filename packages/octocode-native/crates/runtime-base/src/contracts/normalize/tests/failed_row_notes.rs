@@ -44,30 +44,40 @@ fn a_repair_on_a_row_that_still_fails_says_only_what_was_read() {
     );
 }
 
-/// A query a clasify source holds is repaired as its tool's direct call,
-/// and said by the same rule: its repair names no form while that query
-/// still fails.
+/// A direct call's repair of a query that still fails names no form; the
+/// same query in a billed clasify source is not repaired at all
+/// ([`super::a_billed_calls_source_query_is_validated_as_sent`]): the row is
+/// refused before anything is read or sent, naming the field to fix.
 #[test]
 fn a_source_query_that_still_fails_says_only_what_was_read() {
     let query = json!({"path": ".", "matchString": "x", "view": "noSuchView"});
     let direct = normalized_input("localSearch", json!({"queries": [query]}));
     assert_eq!(rows_run("localSearch", &direct.0), [false], "{}", direct.0);
+    assert!(
+        direct
+            .1
+            .iter()
+            .any(|note| note.contains(r#"read `matchString: "x"` as `matchString: ["x"]`."#)),
+        "{:?}",
+        direct.1
+    );
+    assert!(
+        direct.1.iter().all(|note| !note.contains("send")),
+        "{:?}",
+        direct.1
+    );
     let sent = json!({"queries": [{"operation": "evaluate",
         "source": {"tool": "localSearch", "query": query},
         "questions": {"r": {"type": "noul", "instructions": "Is it?"}}}]});
-    let (ran, notes) = normalized_input("clasify", sent);
-    assert_eq!(
-        ran["queries"][0]["source"]["query"]["matchString"],
-        json!(["x"]),
-        "{ran}"
-    );
-    for notes in [&direct.1, &notes] {
-        assert!(
-            notes
-                .iter()
-                .any(|note| note.contains(r#"read `matchString: "x"` as `matchString: ["x"]`."#)),
-            "{notes:?}"
-        );
-        assert!(notes.iter().all(|note| !note.contains("send")), "{notes:?}");
-    }
+    let (ran, notes) = normalized_input("clasify", sent.clone());
+    assert_eq!(ran, sent, "nothing of a billed call is repaired");
+    assert!(notes.is_empty(), "{notes:?}");
+    // Refused before anything is read or sent, naming the field to fix.
+    let refused = match crate::contracts::prepare_rows("clasify", ran) {
+        Err(error) => error,
+        Ok(mut rows) => rows.remove(0).expect_err("refused as sent"),
+    };
+    let shown =
+        crate::contracts::format_input_error("clasify", &refused, &[], &Value::Null).to_string();
+    assert!(shown.contains("source.query.matchString"), "{shown}");
 }

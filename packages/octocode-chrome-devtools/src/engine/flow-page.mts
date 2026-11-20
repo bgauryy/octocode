@@ -191,6 +191,15 @@ export async function flowPage(
       ...(sources.length ? { sources } : {}),
       requestedSteps: flow.requestedSteps,
       completedSteps: flow.completedSteps,
+      ...(flow.failedOptionalSteps?.length
+        ? {
+            failedOptionalSteps:
+              Buffer.byteLength(JSON.stringify(flow.failedOptionalSteps)) <=
+              limits.cdpBytes
+                ? flow.failedOptionalSteps
+                : { next: readNext(file, 'json', 1000) },
+          }
+        : {}),
       ...(flow.failure
         ? {
             failure:

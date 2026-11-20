@@ -146,6 +146,10 @@ pub(super) fn disclose_completeness(
                 json!({"operation": "list", "owner": query.owner}),
             )
             .build();
+        octocode_runtime_base::response::paging::push_warnings(
+            value,
+            ["Past the window, this owner-wide search reaches every match one repository at a time: the related ghSearchRepo listing names the owner's repositories.".to_owned()],
+        );
     }
     if hits_unlisted && !more {
         mark_partial(

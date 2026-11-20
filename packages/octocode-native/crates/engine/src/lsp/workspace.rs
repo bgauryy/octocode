@@ -128,10 +128,11 @@ pub(crate) fn dir_holds(dir: &Path, marker: &str) -> bool {
 }
 
 /// The project root of `file_path` by its own language's project files, else
-/// its repository. A marker of another language or a generic build file in a
-/// subdirectory (a `Makefile` beside the sources) names no project of this
-/// language, and rooting there hides every other file from the server.
-/// `None` with neither: the nearest marker of any kind stands.
+/// its repository (for Python, the import root in it: [`python_import_root`]).
+/// A marker of another language or a generic build file in a subdirectory (a
+/// `Makefile` beside the sources) names no project of this language, and
+/// rooting there hides every other file from the server. `None` with neither:
+/// the nearest marker of any kind stands.
 fn language_project_root(file_path: &str, directory: &Path) -> Option<PathBuf> {
     let language = crate::lsp::config::detect_language_id(file_path)?;
     if crate::lsp::family::is_c_family(Some(&language)) {
@@ -146,12 +147,47 @@ fn language_project_root(file_path: &str, directory: &Path) -> Option<PathBuf> {
                 .copied()
                 .find(|dir| tier.iter().any(|marker| dir_holds(dir, marker)))
         })
-        .or_else(|| {
-            (language != "rust")
-                .then(|| repository_root(directory))
-                .flatten()
-        })
         .map(Path::to_path_buf)
+        .or_else(|| {
+            let repository = (language != "rust")
+                .then(|| repository_root(directory))
+                .flatten()?;
+            Some(if language == "python" {
+                python_import_root(directory, repository)
+            } else {
+                repository.to_path_buf()
+            })
+        })
+}
+
+/// The directory a Python file without a project imports from, within
+/// `repository`: the file's directory, widened while its parent holds Python
+/// code of its own (a `.py` file, or a package: a directory holding
+/// `__init__.py`), since an import there names that code from the parent. A
+/// script directory nothing above imports from roots itself, not a
+/// repository of other languages around it.
+fn python_import_root(directory: &Path, repository: &Path) -> PathBuf {
+    let holds_python = |dir: &Path| {
+        std::fs::read_dir(dir).is_ok_and(|entries| {
+            entries.flatten().any(|entry| {
+                let path = entry.path();
+                match entry.file_type() {
+                    Ok(kind) if kind.is_file() => path.extension() == Some("py".as_ref()),
+                    Ok(kind) if kind.is_dir() => path.join("__init__.py").is_file(),
+                    _ => false,
+                }
+            })
+        })
+    };
+    let mut root = directory;
+    while root != repository
+        && let Some(parent) = root.parent()
+        && parent.starts_with(repository)
+        && holds_python(parent)
+    {
+        root = parent;
+    }
+    root.to_path_buf()
 }
 
 /// `directory` and its ancestors, up to the repository holding it: a project

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import {
   connectStdio,
   cliFromMcp,
@@ -12,21 +13,83 @@ import {
 import { chromeCommands } from '../../dist/engine/chrome-contract.mjs';
 import { fixture, data, typedCli } from './agent-fixture.mjs';
 
-test('copied standalone MCP handshakes and exports the entire CLI registry', async () =>
-  fixture(async ({ client }) => {
-    const tools = (await client.listTools()).tools;
+const bin = resolve(
+  import.meta.dirname,
+  '../../bin/octocode-chrome-devtools.mjs'
+);
+const listNames = async args => {
+  const client = await connectStdio({
+    command: process.execPath,
+    args: [bin, ...args],
+  });
+  try {
+    return { client, tools: (await client.listTools()).tools };
+  } catch (error) {
+    await client.close();
+    throw error;
+  }
+};
+test('default MCP surface is the research preset; --preset full exports the entire CLI registry', async () => {
+  const research = await listNames([]);
+  try {
     assert.deepEqual(
-      tools.map(tool => tool.name),
+      research.tools.map(tool => tool.name),
+      researchSpec.commands.map(command => command.name)
+    );
+    assert(research.tools.length < Object.keys(chromeCommands).length);
+    assert.match(
+      research.client.getInstructions(),
+      /Plans stop at the first failing step/
+    );
+  } finally {
+    await research.client.close();
+  }
+  const full = await listNames(['--preset', 'full']);
+  try {
+    assert.deepEqual(
+      full.tools.map(tool => tool.name),
       Object.keys(chromeCommands)
     );
-    assert.match(client.getInstructions(), /Plans stop at failure/);
-    const command = tools.find(tool => tool.name === 'cdp');
+    const command = full.tools.find(tool => tool.name === 'cdp');
     assert(command.inputSchema.properties.method);
     assert(command.inputSchema.properties.connection);
-    assert.equal(
-      tools.find(tool => tool.name === 'cdp').annotations.readOnlyHint,
-      false
-    );
+    assert.equal(command.annotations.readOnlyHint, false);
+  } finally {
+    await full.client.close();
+  }
+});
+test('an unknown MCP preset is refused with usage text naming every preset', async () => {
+  const result = spawnSync(process.execPath, [bin, '--preset', 'nope'], {
+    encoding: 'utf8',
+    timeout: 10000,
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Usage/);
+  for (const preset of ['research', 'full'])
+    assert.match(result.stderr, new RegExp(preset));
+});
+test('success text is one line naming the structuredContent keys; failure text leads with cause and next call', async () =>
+  fixture(async ({ client }) => {
+    const ok = await client.callTool({
+      name: 'schema',
+      arguments: { command: 'run' },
+    });
+    assert.notEqual(ok.isError, true);
+    const text = ok.content[0].text;
+    assert(!text.includes('\n'));
+    assert(text.startsWith('OK; data in structuredContent: '));
+    for (const key of Object.keys(ok.structuredContent))
+      assert(text.includes(key), key);
+    assert(text.length < 500);
+    const failure = await client.callTool({
+      name: 'run',
+      arguments: { plan: { steps: [{ op: 'waitEvent', listener: 'none' }] } },
+    });
+    assert.equal(failure.isError, true);
+    const body = JSON.parse(failure.content[0].text);
+    assert.match(body.summary, /^Failed: .*earlier listener/);
+    assert(body.summary.length < 700);
+    assert.equal(Object.keys(body)[0], 'summary');
   }));
 test('typed CLI help is standalone and creates no workspace state', async () =>
   fixture(async ({ cwd, skill }) => {
@@ -38,7 +101,7 @@ test('typed CLI help is standalone and creates no workspace state', async () =>
 test('malformed tool schemas and plans fail without contacting Chrome', async () =>
   fixture(async ({ client }) => {
     for (const [name, input] of [
-      ['cdp', { method: 'Runtime.evaluate', connection: { port: 0 } }],
+      ['schema', { extra: true }],
       ['run', { plan: { steps: [] } }],
       ['targets', { extra: true }],
     ]) {
@@ -72,7 +135,7 @@ test('core typed CLI and MCP dry-run plans produce identical invocations', async
 test('MCP-to-CLI discovery and success retain structure; MCP failures retain evidence', async () =>
   fixture(async ({ client }) => {
     const imported = await cliFromMcp(client);
-    assert.equal(imported.commands.length, spec.commands.length);
+    assert.equal(imported.commands.length, researchSpec.commands.length);
     const output = [],
       errors = [];
     const ok = await runCli(
@@ -167,7 +230,7 @@ test('closing the MCP session cancels the active CLI child', async () =>
     assert.equal(readFileSync(join(cwd, 'stopped'), 'utf8'), 'yes');
   }));
 
-test('research preset exports exactly the research registry with typed filters and leaves the default registry whole', async () => {
+test('research preset exports exactly the research registry with typed filters and leaves the spec registry whole', async () => {
   const client = await connectStdio({
     command: process.execPath,
     args: [
@@ -201,3 +264,13 @@ test('research preset exports exactly the research registry with typed filters a
     await client.close();
   }
 });
+test('every tool declares read-only, destructive and idempotent hints, and read-only tools are idempotent', () =>
+  fixture(async ({ client }) => {
+    const { tools } = await client.listTools();
+    for (const { name, annotations } of tools) {
+      for (const hint of ['readOnlyHint', 'destructiveHint', 'idempotentHint'])
+        assert.equal(typeof annotations?.[hint], 'boolean', `${name}.${hint}`);
+      if (annotations.readOnlyHint)
+        assert.equal(annotations.idempotentHint, true, name);
+    }
+  }));

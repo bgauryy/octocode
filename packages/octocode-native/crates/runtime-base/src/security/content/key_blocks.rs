@@ -510,12 +510,14 @@ pub fn key_line_bytes(line: &str) -> Option<std::ops::Range<usize>> {
         shape.feed(bytes);
         let head = bytes.get(..KEY_LINE_HEAD_BYTES).unwrap_or(bytes);
         let lead = key_line_lead(head, &shape).len();
-        let end = shape.labelled_run_end().unwrap_or(line.len());
+        let end = shape
+            .labelled_run_end()
+            .map_or(line.len(), |end| last_body_run_end(bytes, end));
         // A cut body's ellipsis (`...`, `…`) is no key byte.
         let end = line
             .get(..end)
             .map_or(end, |head| head.trim_end_matches(['.', '…']).len());
-        return (lead < end).then_some(lead..end);
+        return (lead < end).then(|| key_text_span(bytes, lead..end));
     }
     let named_at = bytes.len() - named.len();
     if let Some(mac) = named.strip_prefix(b"Private-MAC:".as_slice()) {
@@ -546,7 +548,118 @@ pub fn key_line_bytes(line: &str) -> Option<std::ops::Range<usize>> {
         .into_iter()
         .filter(|piece| holds_key_text(&bytes[piece.clone()]))
         .collect();
-    Some(keyed.first()?.start..keyed.last()?.end)
+    Some(key_text_span(
+        bytes,
+        keyed.first()?.start..keyed.last()?.end,
+    ))
+}
+
+/// Where the last [`BODY_RUN`] of `bytes` at or after `from` ends; `from`
+/// when none follows: a line that holds a key's run after its first holds
+/// key text up to there (`"MIIE…", "MIIE…"`).
+fn last_body_run_end(bytes: &[u8], from: usize) -> usize {
+    let base64 = |byte: &u8| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'=');
+    let mut end = from;
+    let mut at = from;
+    for run in bytes
+        .get(from..)
+        .unwrap_or_default()
+        .split(|byte| !base64(byte))
+    {
+        if run.len() >= BODY_RUN && run.iter().any(u8::is_ascii_alphabetic) {
+            end = at + run.len();
+        }
+        at += run.len() + 1;
+    }
+    end
+}
+
+/// `span` of `bytes` narrowed to its key text, so what a key line writes
+/// around its key (a string's quotes, a separator, a comment's marks, a
+/// concatenation's `+`) reads as written and a source keeps its syntax with
+/// the key hidden: from the first run of base64 that holds a letter or digit
+/// to the last one, each widened over the base64 symbols (`+`, `/`, `=`) and
+/// escapes (`\`) beside it (padding, a JSON `\/`, the `\` of a `\n`), past
+/// `span` too: a run's end that stops before its `/` or `+` hides them all the
+/// same. What stays outside holds no base64 letter or digit and is set off
+/// from the key by a byte no key holds: no key byte. A span with no such
+/// run, or whose key would still hold a quote, bracket or separator (code,
+/// not a key's text: `"MIIE…", "MIIE…"`), is no narrower than given:
+/// hiding half of a pair would leave the other unpaired.
+fn key_text_span(bytes: &[u8], span: std::ops::Range<usize>) -> std::ops::Range<usize> {
+    let keyish = |byte: &u8| matches!(byte, b'+' | b'/' | b'=' | b'\\');
+    let Some(piece) = bytes.get(span.clone()) else {
+        return span;
+    };
+    let (Some(first), Some(last)) = (
+        piece.iter().position(u8::is_ascii_alphanumeric),
+        piece.iter().rposition(u8::is_ascii_alphanumeric),
+    ) else {
+        return span;
+    };
+    let (first, last) = (span.start + first, span.start + last + 1);
+    let before = bytes[..first]
+        .iter()
+        .rev()
+        .take_while(|byte| keyish(byte))
+        .count();
+    let after = bytes[last..].iter().take_while(|byte| keyish(byte)).count();
+    let mut key = first - before..last + after;
+    // A placeholder the line already shows is hidden whole, as before: hiding
+    // a hidden line again changes nothing.
+    let placeholder = super::key_fragment_placeholder();
+    let hidden: Vec<_> = line_matches(bytes, placeholder.as_bytes()).collect();
+    for (start, end) in &hidden {
+        if *start < key.end && key.start < *end {
+            key = key.start.min(*start)..key.end.max(*end);
+        }
+    }
+    // The key's bytes besides the placeholders it holds.
+    let mut shown = Vec::with_capacity(key.len());
+    let mut at = key.start;
+    for (start, end) in hidden.into_iter().filter(|(start, _)| key.contains(start)) {
+        shown.extend_from_slice(&bytes[at..start]);
+        at = end;
+    }
+    shown.extend_from_slice(&bytes[at..key.end]);
+    let paired = |byte: &u8| {
+        matches!(
+            byte,
+            b'"' | b'\''
+                | b'`'
+                | b'('
+                | b')'
+                | b'['
+                | b']'
+                | b'{'
+                | b'}'
+                | b'<'
+                | b'>'
+                | b','
+                | b';'
+        )
+    };
+    if shown.iter().any(paired) {
+        return span.start.min(key.start)..span.end.max(key.end);
+    }
+    key
+}
+
+/// Where `needle` occurs in `bytes`, in order, without overlap.
+fn line_matches<'a>(
+    bytes: &'a [u8],
+    needle: &'a [u8],
+) -> impl Iterator<Item = (usize, usize)> + 'a {
+    let mut from = 0;
+    std::iter::from_fn(move || {
+        let at = from
+            + bytes
+                .get(from..)?
+                .windows(needle.len())
+                .position(|window| window == needle)?;
+        from = at + needle.len();
+        Some((at, from))
+    })
 }
 
 /// Whether `piece`, text beside a line's armor, is key text: base64 alone in

@@ -1,7 +1,0 @@
-{"tool": "localFetch", "steps": [
- {"name": "outline a file", "tool": "localFetch", "args": {"path": "packages/octocode-native/crates/runtime-base/src/response/paging.rs", "view": "symbols"}, "expect": {"contains": ["push_warnings"]}},
- {"name": "read one function", "tool": "localFetch", "args": {"path": "packages/octocode-native/crates/runtime-base/src/response/paging.rs", "matchString": ["pub fn push_warnings"], "block": true}, "expect": {"contains": ["push_warnings"]}},
- {"name": "read a range", "tool": "localFetch", "args": {"path": "AGENTS.md", "ranges": [{"start": 1, "end": 12}]}, "expect": {"contains": ["Octocode"]}},
- {"name": "batch: whole file + a range", "tool": "localFetch", "args": {"queries": [{"mainGoal": "c", "reasoning": "c", "path": "packages/octocode-native/crates/engine/src/search/walk.rs"}, {"mainGoal": "c", "reasoning": "c", "path": "AGENTS.md", "ranges": [{"start": 1, "end": 10}]}]}, "expect": {"has": ["$.results"]}},
- {"name": "missing file is a clear error", "tool": "localFetch", "args": {"path": "packages/octocode-native/crates/no/such/file.rs"}, "expect": {"error": "notFound"}}
-]}

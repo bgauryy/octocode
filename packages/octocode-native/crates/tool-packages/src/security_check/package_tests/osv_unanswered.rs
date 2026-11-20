@@ -23,7 +23,7 @@ fn github_clause(data: &Value) -> String {
 }
 
 /// OSV and GitHub's database both fail: the answer says GitHub's database
-/// was not read, never that it matches none (LEFTOVERS P1).
+/// was not read, never that it matches none.
 #[tokio::test]
 async fn a_failed_github_read_is_never_stated_as_matching_none() {
     let http = monorepo_registry().osv_pages(vec![(503, json!({}))]);

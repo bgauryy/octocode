@@ -100,11 +100,26 @@ function displayArgs(headless: boolean, os: string) {
     // A headless profile is throwaway and has nobody to answer a prompt: without a usable
     // login keychain (a service, a sandboxed HOME) macOS Chrome holds its first request on it.
     ...(os === 'darwin' ? ['--use-mock-keychain'] : []),
-    ...(os === 'linux'
-      ? ['--disable-gpu', '--no-sandbox', '--disable-setuid-sandbox']
-      : []),
+    ...(os === 'linux' ? ['--disable-gpu'] : []),
   ];
 }
+
+/**
+ * Chrome's sandbox refuses to start as root (containers, CI) and on kernels without user
+ * namespaces; it stays on unless the caller opts out with noSandbox or runs as root on Linux.
+ */
+export function sandboxArgs(os: string, noSandbox: boolean | undefined) {
+  const root = os === 'linux' && process.getuid?.() === 0;
+  return noSandbox || root ? ['--no-sandbox', '--disable-setuid-sandbox'] : [];
+}
+
+/** The launch failure text when Chrome exits at start because it has no usable sandbox. */
+export const NO_SANDBOX_HINT =
+  'Chrome found no usable sandbox (typical in containers or without user namespaces). Retry with noSandbox: true (open --no-sandbox); that turns the browser sandbox off, so open only trusted pages.';
+
+/** Whether Chrome's start-up output says the sandbox could not be used. */
+export const isNoSandboxFailure = (output: string) =>
+  /no usable sandbox/i.test(output);
 
 function proxyArgs(proxy: ProxySettings) {
   return [
@@ -145,6 +160,8 @@ type LaunchOptions = {
   enableFeatures: string;
   proxy: ProxySettings;
   url: string;
+  /** Explicit opt-in to Chrome's --no-sandbox (also applied automatically for root on Linux). */
+  noSandbox?: boolean;
 };
 
 function optionArgs(launch: LaunchOptions) {
@@ -169,6 +186,7 @@ export function chromeLaunchArgs(launch: LaunchOptions) {
       ? []
       : [`--profile-directory=${launch.profile}`, '--restore-last-session']),
     ...displayArgs(launch.headless, launch.os),
+    ...sandboxArgs(launch.os, launch.noSandbox),
     ...optionArgs(launch),
     ...proxyArgs(launch.proxy),
     ...(launch.url ? [launch.url] : []),

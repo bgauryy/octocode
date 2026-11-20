@@ -16,8 +16,16 @@ fn nested_function_calls_link_to_the_innermost_function() {
             "app/m.mjs#outer.blocks",
             &["app/m.mjs#outer.blank", "app/m.mjs#outer.helper"][..],
         ),
-        ("callers", "app/m.mjs#outer.blank", &["app/m.mjs#outer.blocks"][..]),
-        ("callers", "app/m.mjs#outer.helper", &["app/m.mjs#outer.blocks"][..]),
+        (
+            "callers",
+            "app/m.mjs#outer.blank",
+            &["app/m.mjs#outer.blocks"][..],
+        ),
+        (
+            "callers",
+            "app/m.mjs#outer.helper",
+            &["app/m.mjs#outer.blocks"][..],
+        ),
         ("callees", "m.mjs#outer", &["app/m.mjs#outer.blocks"][..]),
     ] {
         let answer = ask(root, operation, Some(target), |_| {});

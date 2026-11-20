@@ -103,6 +103,8 @@ impl Query<'_> {
         };
         // Matching call witnesses the confidence filter leaves out.
         let mut filtered_by_confidence = 0usize;
+        // Whether any matching row, on any page, is an argument-slot one.
+        let mut passes = self.flags.edge_kinds.contains(&EdgeKind::Passes);
         if self.options.op == "witnesses" {
             let filter = self.filter(&EdgeKind::ALL);
             for (index, witness) in self.g.t.witnesses.iter().enumerate() {
@@ -121,6 +123,7 @@ impl Query<'_> {
                     filtered_by_confidence += 1;
                     continue;
                 }
+                passes |= edge.kind == EdgeKind::Passes;
                 keep(
                     &|| self.witness_row(witness),
                     marked_witnesses.contains(&(index as u64)),
@@ -140,6 +143,7 @@ impl Query<'_> {
                 {
                     continue;
                 }
+                passes |= site.relation == EdgeKind::Passes;
                 keep(
                     &|| self.unresolved_row(site),
                     marked_sites.contains(&(index as u64)),
@@ -164,7 +168,11 @@ impl Query<'_> {
             _ => None,
         };
         extra.insert("coverage".into(), self.g.evidence_coverage(scope));
-        extra.insert("argumentCoverage".into(), self.g.argument_coverage(source));
+        // It qualifies passes rows: stated when `passes` was asked by name
+        // or a matching row is one.
+        if passes {
+            extra.insert("argumentCoverage".into(), self.g.argument_coverage(source));
+        }
         let page = window.finish();
         // `target` is the calling side: a symbol that makes no call listed
         // here may still be the one called, which `to` scopes.

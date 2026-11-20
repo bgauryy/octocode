@@ -27,7 +27,7 @@ fn read(disputing: &[&str], unread: Vec<String>) -> Read {
 
 /// Many disagreements are one warning naming each advisory with the record
 /// that disputes it, never one near-identical sentence per advisory
-/// (LEFTOVERS P3, tensorflow 2.0.0); each record still names its own.
+/// (tensorflow 2.0.0); each record still names its own.
 #[test]
 fn many_disagreements_are_one_warning_naming_each() {
     let pairs = [

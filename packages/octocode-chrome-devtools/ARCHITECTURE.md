@@ -1,6 +1,6 @@
 # Chrome package boundaries
 
-The package owns execution; `skills/octocode-chrome-devtools` contains only guidance. The npm executable follows the communication package: MCP by default, `/cli` for typed commands. `/raw` reaches the same argument-oriented engine used by the adapter.
+The package owns execution; `skills/octocode-chrome-devtools` (inside this package) contains only guidance. The npm executable follows the communication package: MCP by default, `/cli` for typed commands. `/raw` reaches the same argument-oriented engine used by the adapter.
 
 ```mermaid
 flowchart TD
@@ -22,7 +22,7 @@ flowchart TD
 | `src/engine/cli-catalog.mts`, `src/engine/cli.mts`, `src/engine/cli-options.mts`, `src/engine/cli-schema.mts` | Command/recipe registry, core arguments and preflight routing; option parsing and runner connection flags; the `schema` output |
 | `src/engine/cdp-connection.mts` | Shared WebSocket transport, request deadlines, flattened-session events, error evidence and pending-request cleanup |
 | `src/engine/scraping-bridge.mts` | Optional scraping-tool discovery and argument forwarding, shared by corpus/HAR/protocol commands |
-| `src/engine/cdp-sandbox.mts`, `src/engine/cdp-runner.mts` | Permissions, connection/session routing and run lifecycle. The sandbox reads only `cdp-checks/` and the engine files it lists: a new module the runner or a check imports from `src/engine/` joins that list |
+| `src/engine/cdp-sandbox.mts`, `src/engine/cdp-runner.mts` | Permissions, connection/session routing and run lifecycle. The sandbox reads only `src/engine/cdp-checks/` and the engine files it lists: a new module the runner or a check imports from `src/engine/` joins that list |
 | `src/engine/cdp-runner-targets.mts`, `src/engine/cdp-runner-session.mts`, `src/engine/cdp-runner-guard.mts`, `src/engine/target-owner.mts` | Target selection, foregrounding and first navigation; run folder, session metadata, run history, resource map and complete artifact writes; localhost-only fetch/WebSocket; the top-level page owning an iframe target |
 | `src/engine/open-browser.mts`, `src/engine/browser-process.mts`, `src/engine/browser-session.mts`, `src/engine/browser-launch-config.mts` | Launch, reuse and cleanup; the Chrome executable, pid and command line; per-port isolated sessions and ownership checks; proxy config and launch flags |
 | `src/engine/cdp-checks/`, DOM/frame/input helpers | Browser actions, captures, observation, executor references and stream draining. `browser-execute` runs plans through `plan-validate`, `plan-scopes`, `plan-page-ops`, `plan-protocol-ops` and `plan-condition`; DOM steps run through `dom-config`, `dom-locate`, `dom-pointer`, `dom-act`, `dom-ref-diff` and the page-side `dom-page-scripts` |
@@ -36,7 +36,7 @@ MCP and typed CLI use the same spec, delegate to the same core CLI and stop on t
 
 Config comes from `@octocodeai/config`: build copies its compiled standalone module into `dist/engine/` for the sandbox and dependency-free archive, as the communication runtime does for Python. No home/env parsing is reimplemented. Only the build refreshes that generated copy.
 
-The adapter is bundled once into `dist/runtime.js`; `dist/cli.js` and `dist/mcp.js` expose it without a duplicate bundle. Each build rewrites the generated outputs and deletes obsolete ones. All production sources are TypeScript (`.ts` / ESM `.mts`). `typecheck` checks all engines, then checks the adapter, command inputs, invocation, capture, registry, transport and scraping bridge with strict mode. Inherited dynamic CDP engines retain inferred checking; their protocol payloads stay open. Archives contain generated runtime/engines, the bin, operating docs and the complete canonical skill copied into `dist/skills/octocode-chrome-devtools/`. The `./skill` export resolves its `SKILL.md`; building refreshes all skill assets and removes obsolete generated files. Source, tests and build tooling stay in the repository.
+The adapter is bundled once into `dist/runtime.js`; `dist/cli.js` and `dist/mcp.js` expose it without a duplicate bundle. Each build rewrites the generated outputs and deletes obsolete ones. All production sources are TypeScript (`.ts` / ESM `.mts`). `typecheck` checks all engines, then checks the adapter, command inputs, invocation, capture, registry, transport and scraping bridge with strict mode. Inherited dynamic CDP engines retain inferred checking; their protocol payloads stay open. Archives contain generated runtime/engines, the bin, operating docs and the complete skill at `skills/octocode-chrome-devtools/` (shipped from its one source, never copied into `dist/`). The `./skill` export resolves its `SKILL.md`. Source, tests and build tooling stay in the repository.
 
 Within-server requests serialize. Engine deadlines and server shutdown share termination ownership: SIGTERM, then SIGKILL after five seconds if the engine remains alive. Completion clears both timers. MCP cancellation propagates to queued and active requests; partial captures survive and in-flight mutation outcomes remain uncertain. Separate servers must coordinate shared tabs. Captures are complete; pages carry executable continuations. A structural protocol inventory distinguishes advertised methods from methods actually exercised by fixtures.
 
@@ -44,4 +44,4 @@ Within-server requests serialize. Engine deadlines and server shutdown share ter
 
 - Popups (`window.open`, `target=_blank`) and service workers start with the native user agent under `--stealth`; covering them needs browser-level auto-attach (see `docs/launch-stealth.md`).
 - A plan stops at its first failed step. A continue-on-error option is a change to the shared core contract (`octocode-mcp-host`), not to this package.
-- One `cdp` call starts four Node processes (about 390 ms). Merging the engine CLI and the sandbox is the known saving (about 60–100 ms per call), deferred.
+- One `cdp` call starts four Node processes (about 390 ms). Helper staging is content-addressed (a `.stage-hash` stamp in `tmp/helpers`; an unchanged set copies zero files) and sandbox runs prune run folders older than 3 days. Merging the engine CLI and the sandbox is the remaining saving (about 60–100 ms per call), deferred: the sandbox must stay a separate process to apply `--permission` flags to the runner, and the CLI process is the unsandboxed parent.

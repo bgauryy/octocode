@@ -124,29 +124,39 @@ function originalPositionFor(
   };
 }
 
+/** Runs fn inside the guard's narrow network exemption when the sandbox guard is installed. */
+function withSandboxExemption<T>(fn: () => T): T {
+  const scope = (globalThis as Record<symbol, unknown>)[
+    Symbol.for('octocode.chrome-devtools.sandbox-exempt')
+  ] as { run<R>(store: boolean, f: () => R): R } | undefined;
+  return scope ? scope.run(true, fn) : fn();
+}
+
 async function fetchText(url: string, timeoutMs = 4000) {
   const { get } = url.startsWith('https')
     ? await import('https')
     : await import('http');
   return new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('timeout')), timeoutMs);
-    get(url, res => {
-      if (res.statusCode !== 200) {
-        clearTimeout(timer);
-        res.resume();
-        return reject(new Error(`HTTP ${res.statusCode}`));
-      }
-      const chunks: Buffer[] = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => {
-        clearTimeout(timer);
-        resolve(Buffer.concat(chunks).toString('utf8'));
-      });
-      res.on('error', e => {
-        clearTimeout(timer);
-        reject(e);
-      });
-    }).on('error', e => {
+    withSandboxExemption(() =>
+      get(url, res => {
+        if (res.statusCode !== 200) {
+          clearTimeout(timer);
+          res.resume();
+          return reject(new Error(`HTTP ${res.statusCode}`));
+        }
+        const chunks: Buffer[] = [];
+        res.on('data', c => chunks.push(c));
+        res.on('end', () => {
+          clearTimeout(timer);
+          resolve(Buffer.concat(chunks).toString('utf8'));
+        });
+        res.on('error', e => {
+          clearTimeout(timer);
+          reject(e);
+        });
+      })
+    ).on('error', e => {
       clearTimeout(timer);
       reject(e);
     });

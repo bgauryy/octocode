@@ -14,6 +14,7 @@ import {
   checks,
   helpers,
   connection,
+  launchBooleans,
   launchValues,
   planInputs,
 } from './cli-catalog.mjs';
@@ -105,6 +106,10 @@ function execute(
 async function planContract() {
   return import('./cdp-checks/browser-execute.mjs');
 }
+/** The `--params` text: `-` reads stdin, so typed values stay out of the process argument list. */
+function paramsText(text: string | undefined) {
+  return text === '-' ? readFileSync(0, 'utf8') : (text ?? '{}');
+}
 /** The plan text of `run`: --json, or the --plan file (`-` reads stdin). */
 function runPlanText(text: string | undefined, file: string | undefined) {
   if (text !== undefined) return text;
@@ -144,10 +149,7 @@ async function main(argv: string[]) {
     const values = launchValues;
     if (args.includes('--help') || args.includes('-h'))
       return execute('open-browser.mjs', ['--help']);
-    const { opts, positional } = parse(args, values, [
-      '--headless',
-      '--dry-run',
-    ]);
+    const { opts, positional } = parse(args, values, launchBooleans);
     if (positional.length) fail('Unexpected positional argument');
     runnerArgs({ '--port': opts['--port'] });
     if (
@@ -270,7 +272,7 @@ async function main(argv: string[]) {
         {
           op: 'cdp',
           method: positional[0],
-          params: json(optionValue(opts, '--params') ?? '{}', '--params'),
+          params: json(paramsText(optionValue(opts, '--params')), '--params'),
         },
       ],
     };

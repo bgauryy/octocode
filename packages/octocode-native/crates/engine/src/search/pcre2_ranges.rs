@@ -1,5 +1,6 @@
 //! PCRE2 match ranges in one in-memory text (a file read's `regex:"pcre2"`),
 //! under the same worker slots as a `-P` search and a wall-clock deadline.
+use std::ops::Range;
 use std::time::Duration;
 
 use grep_matcher::Matcher;
@@ -42,6 +43,7 @@ pub fn pcre2_find_ranges(
         pattern,
         case_insensitive,
         input,
+        &[],
         CappedSpans::new(max_matches),
     )
     .map(CappedSpans::into_spans)
@@ -49,17 +51,20 @@ pub fn pcre2_find_ranges(
 
 /// Offer every match of `pattern` in `input` to `sink`, in order, until it
 /// stops the scan; the sink comes back with what it kept. The sink runs on
-/// the scan's worker thread.
+/// the scan's worker thread. `written` are the byte ranges of `input` a
+/// redaction wrote: a match their own spelling makes is none
+/// ([`super::text_search::written::each_own_in`]).
 pub fn pcre2_scan_ranges<S: SpanSink + Send + 'static>(
     pattern: &str,
     case_insensitive: bool,
     input: &str,
+    written: &[Range<usize>],
     sink: S,
 ) -> Result<S, Pcre2RangesError> {
     scan_ranges(
         pattern,
         case_insensitive,
-        input,
+        (input, written),
         sink,
         PCRE2_SEARCH_DEADLINE + PCRE2_DEADLINE_GRACE,
     )
@@ -68,7 +73,7 @@ pub fn pcre2_scan_ranges<S: SpanSink + Send + 'static>(
 fn scan_ranges<S: SpanSink + Send + 'static>(
     pattern: &str,
     case_insensitive: bool,
-    input: &str,
+    (input, written): (&str, &[Range<usize>]),
     mut sink: S,
     deadline: Duration,
 ) -> Result<S, Pcre2RangesError> {
@@ -86,6 +91,7 @@ fn scan_ranges<S: SpanSink + Send + 'static>(
         ));
     }
     let input = input.to_owned();
+    let written = written.to_vec();
     let (tx, rx) = std::sync::mpsc::channel();
     let spawned = std::thread::Builder::new()
         .name("pcre2-ranges".into())
@@ -93,9 +99,22 @@ fn scan_ranges<S: SpanSink + Send + 'static>(
             // Release the slot when this thread exits, even after the caller
             // stopped waiting for an uninterruptible match.
             let _slot = Pcre2WorkerSlot;
-            let scanned = matcher.find_iter(input.as_bytes(), |found| {
-                sink.accept((found.start(), found.end()))
-            });
+            let scanned = if written.is_empty() {
+                matcher.find_iter(input.as_bytes(), |found| {
+                    sink.accept((found.start(), found.end()))
+                })
+            } else {
+                super::text_search::written::each_own_in(
+                    input.as_str(),
+                    &written,
+                    |text: &str, at| {
+                        Ok(matcher
+                            .find_at(text.as_bytes(), at)?
+                            .map(|m| m.start()..m.end()))
+                    },
+                    |found| sink.accept((found.start, found.end)),
+                )
+            };
             let _ = tx.send(scanned.map(|()| sink).map_err(|error| error.to_string()));
         });
     if spawned.is_err() {

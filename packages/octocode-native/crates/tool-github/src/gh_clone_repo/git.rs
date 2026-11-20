@@ -714,7 +714,11 @@ pub(super) fn holds_whole_history(
     context: &GitContext<'_>,
     store: &Path,
 ) -> Result<bool, GitError> {
-    for commit in storage::shallow_commits(store) {
+    for commit in storage::shallow_boundary(store) {
+        // A boundary git's file does not name as a commit proves nothing.
+        let Some(commit) = commit else {
+            return Ok(false);
+        };
         let object = run(
             context,
             scoped(store, &["cat-file", "commit", &commit]),

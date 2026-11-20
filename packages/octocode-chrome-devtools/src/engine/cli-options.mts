@@ -59,6 +59,8 @@ export const commonValues = [
   '--target-url',
   '--target-type',
   '--new-tab',
+  '--group',
+  '--group-index',
   '--timeout',
   '--script-timeout',
 ];
@@ -74,6 +76,11 @@ export const commonBooleans = [
 ];
 
 function validateNumbers(opts: CliOptions) {
+  if (
+    opts['--group-index'] !== undefined &&
+    !/^\d+$/.test(String(opts['--group-index']))
+  )
+    fail('--group-index needs a non-negative integer');
   for (const key of ['--port', '--timeout', '--script-timeout'])
     if (
       opts[key] !== undefined &&
@@ -105,6 +112,10 @@ function validateSelection(opts: CliOptions) {
     fail(
       'Use one target selector; --browser cannot combine with page selection or stealth'
     );
+  if (opts['--group'] && selectors.length)
+    fail('--group cannot combine with --target, --target-url or --new-tab');
+  if (opts['--group-index'] !== undefined && !opts['--group'])
+    fail('--group-index needs --group');
   if (opts['--new-tab'] && opts['--target-type'])
     fail('--new-tab cannot combine with --target-type');
 }

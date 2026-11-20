@@ -3,8 +3,8 @@
 How to rate every Octocode tool with independent agents. Each agent uses its tools on fresh research questions,
 checks every answer against a source outside Octocode, and scores each tool on the
 [12-dimension rubric](../RATINGS.md#agent-experience-rubric-12-dimensions). The
-[tool checks](../tool-checks/README.md) test the paths they were written for; independent raters find what those
-paths miss. Rate on one pinned build; fix nothing during the round.
+[per-tool questions](../questions/tools/README.md) test the paths their author thought of; independent raters find what
+those paths miss. Rate on one pinned build; fix nothing during the round.
 
 ```mermaid
 flowchart LR
@@ -27,9 +27,9 @@ flowchart LR
    coordinator stops only the new ones, by PID.
 
 The CLI and the MCP server run the same tools, fields and runtime; the CLI is the surface raters use. Cover MCP in
-the same round with the tool checks (`run.mjs` drives `octocode mcp` over stdio) and with a default-surface run
-over MCP: an empty `OCTOCODE_HOME`, `tools/list`, one call per step of each default tool's check file, and a scan
-for any tool the surface names but does not serve.
+the same round with a default-surface lane: a fresh agent on an empty `OCTOCODE_HOME` that lists the tools, makes one
+real call per default tool from its [question file](../questions/tools/README.md), and notes any tool the surface names
+but does not serve.
 
 ## Lanes
 

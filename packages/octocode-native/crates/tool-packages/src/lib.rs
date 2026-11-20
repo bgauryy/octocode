@@ -17,5 +17,7 @@
 pub mod artifact;
 pub mod artifact_search;
 pub mod security_check;
+#[cfg(test)]
+mod test_spelling;
 
 pub use artifact::CallShare;

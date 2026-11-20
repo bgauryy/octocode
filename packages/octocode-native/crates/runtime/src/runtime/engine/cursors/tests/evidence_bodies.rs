@@ -29,10 +29,10 @@ impl Home {
         KeptAnswers::new(Some(self.answers_dir()))
     }
     fn registry(&self) -> Registry {
-        Registry::new(
+        Registry::scoped(
             CacheConfig::derived(),
             Some(self.continuations_dir()),
-            "policy".into(),
+            String::from("policy").into(),
         )
         .linking_answers(Some(self.answers_dir()))
     }
@@ -331,7 +331,7 @@ fn a_saved_body_is_written_once_and_leaves_with_its_answer() {
 #[test]
 fn in_memory_one_allocation_outlives_the_saved_answer() {
     let answers = KeptAnswers::new(None);
-    let registry = Registry::new(CacheConfig::derived(), None, "policy".into());
+    let registry = Registry::scoped(CacheConfig::derived(), None, String::from("policy").into());
     let origin = answer("one allocation\n");
     let at = origin.body.as_bytes().as_ptr();
     answers.save(

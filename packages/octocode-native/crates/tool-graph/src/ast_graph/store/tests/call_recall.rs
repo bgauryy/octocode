@@ -99,7 +99,7 @@ fn rust_module_paths_resolve_by_their_written_segments() {
     );
     assert_eq!(
         callers(root, "src/io/util/mod.rs#pin_ref"),
-        vec!["src/io/mod.rs#local", "src/io/read.rs#parent"]
+        vec!["app/src/io/mod.rs#local", "app/src/io/read.rs#parent"]
     );
 }
 
@@ -175,7 +175,7 @@ fn callers_state_the_call_sites_that_only_name_the_target() {
     assert!(
         out.value
             .to_string()
-            .contains("1 call sites name the target but their receiver could not be resolved"),
+            .contains("1 call site names the target but their receiver could not be resolved"),
         "{} {}",
         out.value,
         named.value
@@ -317,8 +317,18 @@ fn callees_with_unlinked_in_repo_sites_are_partial_with_the_count() {
     )]);
     let built = ingest_fixture(dir.0.as_path(), None);
     assert_eq!(built.class, ExitClass::Success, "{}", built.value);
-    let partial = ask(dir.0.as_path(), "callees", Some("app/lib/run.js#run"), |_| {});
-    assert_eq!(ids(&partial), ["app/lib/run.js#helper"], "{}", partial.value);
+    let partial = ask(
+        dir.0.as_path(),
+        "callees",
+        Some("app/lib/run.js#run"),
+        |_| {},
+    );
+    assert_eq!(
+        ids(&partial),
+        ["app/lib/run.js#helper"],
+        "{}",
+        partial.value
+    );
     assert_eq!(partial.value["isPartial"], true, "{}", partial.value);
     let warnings = partial.value["warnings"].to_string();
     assert!(warnings.contains("2 call sites"), "{}", partial.value);
@@ -329,14 +339,19 @@ fn callees_with_unlinked_in_repo_sites_are_partial_with_the_count() {
         .find(|call| call["input"]["queries"][0]["operation"] == "unresolved")
         .unwrap_or_else(|| panic!("an unresolved lead: {}", partial.value));
     let row = lead["input"]["queries"][0].clone();
-    let listed = ask(dir.0.as_path(), "unresolved", Some("app/lib/run.js#run"), |o| {
-        o.reasons = row["reasons"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|reason| reason.as_str().map(str::to_owned))
-            .collect();
-    });
+    let listed = ask(
+        dir.0.as_path(),
+        "unresolved",
+        Some("app/lib/run.js#run"),
+        |o| {
+            o.reasons = row["reasons"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|reason| reason.as_str().map(str::to_owned))
+                .collect();
+        },
+    );
     assert_eq!(
         listed.value["rows"].as_array().map_or(0, Vec::len),
         2,

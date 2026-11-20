@@ -24,7 +24,7 @@ Saved skill output lives under the project's `.octocode/` folder: reports and au
 | [Workflows](octocode-workflows/SKILL.md) | Select, design or resume an explicit workflow across agents, tools, services or artifacts; define handoffs and acceptance. |
 | [Orchestrator](octocode-orchestrator/SKILL.md) | Coordinate ongoing agent work: assign owners, manage dependencies, integrate evidence, recover stalled loops and resume execution. |
 | [Scraping](octocode-scraping/SKILL.md) | Public pages need fetching or a reusable source corpus. |
-| [Chrome DevTools](octocode-chrome-devtools/SKILL.md) | A live browser is needed for rendering, interaction, or diagnostics. |
+| [Chrome DevTools](../packages/octocode-chrome-devtools/skills/octocode-chrome-devtools/SKILL.md) | A live browser is needed for rendering, interaction, or diagnostics. |
 | [Brainstorming](octocode-brainstorming/SKILL.md) | An open problem, idea or comparison needs checked sources and an evidence-based recommendation. |
 | [Graph](octocode-graph/SKILL.md) | Build a code graph and read its hubs, importers, callers, cycles, issues, impact or Git co-change, then prove the rows. |
 | [Graph View](octocode-graph-view/SKILL.md) | Map repository structure, retain graph evidence, and optionally render an interactive viewer. |

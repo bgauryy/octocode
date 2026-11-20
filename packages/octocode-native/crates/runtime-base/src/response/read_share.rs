@@ -14,7 +14,7 @@
 //! one call, which fills its page the same way, so a batch never takes more
 //! calls than the rows' pages packed one after another.
 
-use crate::id::{ToolFamily, ToolId};
+use crate::id::ToolId;
 use octocode_engine::json_size::{string_body_units, utf16_units};
 use serde_json::{Value, json};
 
@@ -37,25 +37,11 @@ pub fn rows_room(tool: ToolId, page: usize, rows: usize) -> usize {
 
 /// Whether the rows of one `tool` call fill the response page together
 /// ([`widened`]) and continue together: rows that read sources, read again
-/// with a wider share at no provider request ([`reread_is_free`]). A row a
-/// provider judges is never read again ([`reads_again`]).
+/// with a wider share at no provider request (`ToolId::rereads_free`). A
+/// row a provider judges is never read again ([`reads_again`]).
 #[must_use]
 pub fn fill_together(tool: ToolId) -> bool {
-    tool.reads_source() && reread_is_free(tool)
-}
-
-/// Whether reading a `tool` row again costs no provider request: a local
-/// read reads this host's file again; a GitHub file read reads its body at
-/// the commit SHA its ref resolved to, an answer pinned to that commit and
-/// kept, with the ref from the batch's resolutions, so a second read sends
-/// nothing.
-#[must_use]
-pub fn reread_is_free(tool: ToolId) -> bool {
-    match tool.family() {
-        ToolFamily::Local => true,
-        ToolFamily::GitHub => tool == ToolId::GhGetFileContent,
-        ToolFamily::Remote => false,
-    }
+    tool.reads_source() && tool.rereads_free()
 }
 
 /// Whether the row of `query` may be read again with a wider share: a row

@@ -245,7 +245,7 @@ fn constructors_require_the_full_written_container_and_lexical_visibility() {
             .as_array()
             .unwrap()
             .iter()
-            .all(|row| row["to"] == "scoped.cpp#Outer.Box")
+            .all(|row| row["to"] == "app/scoped.cpp#Outer.Box")
     );
 }
 

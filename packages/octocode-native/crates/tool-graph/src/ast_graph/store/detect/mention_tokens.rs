@@ -149,9 +149,11 @@ fn scan_token<'k>(
         }
     } else if let Some(stem) = keys.of(named, STEM)
         && quoted(text.as_bytes(), start, start + named.len())
+        && !object_key(text.as_bytes(), start + named.len() + 1)
     {
         // A bare name as a whole string literal (`'worker'`) is a file a
-        // loader may build a path from.
+        // loader may build a path from; as an object key (`"main": …`) it
+        // names a field.
         local[STEMS].entry(stem).or_insert(line);
     }
     let mut from = 0;
@@ -208,6 +210,19 @@ pub(super) fn path_key(token: &str) -> &str {
 /// that directory looks up ([`path_key`]).
 pub(super) fn path_stem_key(dir: &str, stem: &str) -> String {
     format!("{dir}/{stem}")
+}
+
+/// Whether the text from `after` (past a string literal's closing quote)
+/// opens with a `:` on the same line, past spaces and tabs: the literal is
+/// an object key. A key whose colon starts the next read window
+/// ([`super::mention_stream`]) is not seen as one and still counts.
+pub(super) fn object_key(bytes: &[u8], after: usize) -> bool {
+    bytes
+        .get(after..)
+        .unwrap_or_default()
+        .iter()
+        .find(|byte| !matches!(byte, b' ' | b'\t'))
+        == Some(&b':')
 }
 
 /// Whether the token at `start..end` is a whole string literal: the same

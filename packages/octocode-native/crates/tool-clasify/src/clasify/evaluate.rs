@@ -260,6 +260,9 @@ pub(super) fn judge_prepared(
     let admits =
         |sections: u64| row.max_requests.is_some() && cap.is_some_and(|cap| sections <= cap.left());
     let retries = evaluator.retry_room();
+    // What asking the source whole sends at most, its long-window retry
+    // included: a fresh run asks it again before its sections.
+    let whole = evaluator.sends(input, row.model.as_deref()).at_most;
     let mut sectioned = None;
     if let Target::Source(source) = target
         && refused
@@ -270,7 +273,9 @@ pub(super) fn judge_prepared(
             Ok(combined) => return RowOutcome::Combined(Box::new(combined)),
             Err(failed) => match failed.unadmitted {
                 Some(sections) => {
-                    return RowOutcome::OverBudget(sections_over(row, sections, 0, retries));
+                    return RowOutcome::OverBudget(sections_over(
+                        row, sections, whole, 0, retries,
+                    ));
                 }
                 None => sectioned = Some(failed),
             },
@@ -338,6 +343,7 @@ pub(super) fn judge_prepared(
                     return RowOutcome::OverBudget(sections_over(
                         row,
                         sections,
+                        whole,
                         refusal.provider_calls,
                         retries,
                     ));
@@ -360,8 +366,8 @@ pub(super) fn judge_prepared(
 /// no hits to send alone, so nothing was read or sent.
 fn no_hits(source: &serde_json::Value) -> ClassificationError {
     let what = source["tool"].as_str().map_or_else(
-        || "A URL source".to_owned(),
-        |tool| format!("A {tool} source"),
+        || "a URL source".to_owned(),
+        |tool| format!("a {tool} source"),
     );
     ClassificationError::new(
         ErrorCode::InvalidClassificationContext,
@@ -385,15 +391,17 @@ fn known_too_large() -> ClassificationError {
 
 /// A source over the window whose `sections` were not admitted: none was
 /// sent, after `spent` requests of the whole source. Its price is a fresh
-/// run's: the source asked whole once more, then its sections, with the
-/// `retries` they share; `next.confirm` holds it.
+/// run's: the source asked whole once more (`whole` requests at most, its
+/// long-window retry included), then its sections, with the `retries` they
+/// share; `next.confirm` holds it.
 fn sections_over(
     row: &Row,
     sections: u64,
+    whole: u64,
     spent: u64,
     retries: u64,
 ) -> Box<super::reply::OverBudget> {
-    let at_most = sections.saturating_add(1);
+    let at_most = sections.saturating_add(whole);
     Box::new(super::reply::OverBudget {
         units: usize::try_from(sections).unwrap_or(usize::MAX),
         price: super::reply::Price {

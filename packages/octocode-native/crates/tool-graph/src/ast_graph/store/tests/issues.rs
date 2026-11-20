@@ -919,9 +919,9 @@ fn controls_every_finding_of_a_detector_shares_are_stated_once() {
 /// Every file an answer names is a path from the workspace root, as rows'
 /// `path` is, so it goes straight to localFetch or lspSearch: hubs `id`,
 /// an issue's `subject`, a cycle's `members`, `witness` and `suggestedCuts`.
-/// A symbol id stays the snapshot's id, its file named by `path` beside it.
+/// A symbol id names its file the same way, `path` beside it.
 #[test]
-fn answers_name_files_from_the_workspace_and_keep_symbol_ids() {
+fn answers_name_files_and_symbol_ids_from_the_workspace() {
     let dir = fixture();
     let root = dir.0.as_path();
     assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
@@ -971,7 +971,7 @@ fn answers_name_files_from_the_workspace_and_keep_symbol_ids() {
         o.kind = Some("symbol".into());
     });
     assert_eq!(
-        found.value["rows"][0]["id"], "src/lib.ts#greet",
+        found.value["rows"][0]["id"], "app/src/lib.ts#greet",
         "{}",
         found.value
     );

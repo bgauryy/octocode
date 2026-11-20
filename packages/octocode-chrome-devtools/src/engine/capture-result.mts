@@ -6,6 +6,12 @@ import { fileURLToPath } from 'node:url';
 import { helpers } from './cli-catalog.mjs';
 import { flowPage, readerRoute } from './flow-page.mjs';
 
+// A snapshot page at most this large rides in the reply; larger pages stay behind `next`.
+export const INLINE_SNAPSHOT_BYTES = 4000;
+
+// Plain output with no artifacts at most this large rides in the reply whole.
+export const INLINE_STDOUT_BYTES = 2000;
+
 export type ExitStatus = {
   exitCode: number;
   signal?: NodeJS.Signals | null;
@@ -69,7 +75,8 @@ export async function captureResult(
     stderr = outputs.stderr;
   const artifacts: { label: string; path: string }[] = [],
     seen = new Set<string>(),
-    findings: string[] = [];
+    findings: string[] = [],
+    pageLines: string[] = [];
   for await (const line of createInterface({
     input: createReadStream(stdout.file),
     crlfDelay: Infinity,
@@ -83,6 +90,8 @@ export async function captureResult(
       }
     }
     if (/^\[(FINDING|WARNING|ERROR)\]/.test(line)) findings.push(line);
+    if (/^\[(PAGE|SNAPSHOT)\]|^\[METRIC\] SNAPSHOT /.test(line))
+      pageLines.push(line);
   }
   // JSON-returning commands/readers carry their complete page directly, avoiding
   // an escaped JSON string nested in the transport envelope.
@@ -162,6 +171,15 @@ export async function captureResult(
     // stderr is preserved in logs and the full manifest; avoid repeating its path.
     return result;
   }
+  // A complete, small snapshot page is the answer itself: inline its refs so acting on a
+  // control costs no further read. A paged or large one keeps the continuation below.
+  const snapshot = pageLines.join('\n');
+  if (
+    command === 'snapshot' &&
+    /refs=\d+ showing=\S+ page=(\d+)\/\1 /.test(snapshot) &&
+    Buffer.byteLength(snapshot) <= INLINE_SNAPSHOT_BYTES
+  )
+    result.snapshot = snapshot;
   if (artifacts.length) {
     result.root = dirname(artifacts[0].path);
     result.artifacts = [];
@@ -190,7 +208,10 @@ export async function captureResult(
           ],
         },
       };
-  } else result.next.stdout = read(stdout.file);
+  } else if (stdout.bytes <= INLINE_STDOUT_BYTES)
+    // A short whole output (a script's printed result) is the answer: no read call needed.
+    result.stdout = readFileSync(stdout.file, 'utf8');
+  else result.next.stdout = read(stdout.file);
   if (findings.length)
     result.next.findings = {
       tool: 'query',

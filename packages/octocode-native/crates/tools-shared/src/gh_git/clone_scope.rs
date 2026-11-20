@@ -17,6 +17,17 @@ use std::path::{Component, Path, PathBuf};
 /// The record's file name in the checkout's git administration directory.
 const RECORD_FILE: &str = "octocode-clone.json";
 
+/// The largest record a checkout can hold: at most
+/// [`MAX_INPUT_ARRAY_ITEMS`](octocode_runtime_base::id::MAX_INPUT_ARRAY_ITEMS)
+/// scope paths, each a path on disk (within the longest any filesystem
+/// allows: Windows' 32,767 UTF-16 units, at most 3 UTF-8 bytes each, above
+/// Unix `PATH_MAX`), doubled for JSON escapes (the contract admits no control
+/// character), and the fixed fields (owner, repository, commit id, depth).
+const RECORD_BYTES: u64 = {
+    const PATH_BYTES: u64 = 32_767 * 3;
+    octocode_runtime_base::id::MAX_INPUT_ARRAY_ITEMS as u64 * (PATH_BYTES * 2 + 4) + 1024
+};
+
 /// What one checkout holds, as ghCloneRepo served it.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,16 +46,18 @@ pub struct CloneRecord {
 }
 
 /// Write `record` for the checkout whose git administration directory is
-/// `git_dir`.
+/// `git_dir`, atomically, so a reader sees the old record or the new one.
 pub fn write_record(git_dir: &Path, record: &CloneRecord) -> std::io::Result<()> {
     let text = serde_json::to_vec(record).map_err(std::io::Error::other)?;
-    std::fs::write(git_dir.join(RECORD_FILE), text)
+    octocode_io::atomic::write_atomic(&git_dir.join(RECORD_FILE), &text, false)
 }
 
 /// The record of the checkout whose git administration directory is
-/// `git_dir`; `None` when it has none or it does not parse.
+/// `git_dir`; `None` when it has none, it is larger than any record
+/// ([`RECORD_BYTES`]) or it does not parse: the scope is then unknown.
 pub fn read_record(git_dir: &Path) -> Option<CloneRecord> {
-    let text = std::fs::read(git_dir.join(RECORD_FILE)).ok()?;
+    let file = std::fs::File::open(git_dir.join(RECORD_FILE)).ok()?;
+    let text = octocode_io::read::read_limited(file, RECORD_BYTES).ok()??;
     serde_json::from_slice(&text).ok()
 }
 

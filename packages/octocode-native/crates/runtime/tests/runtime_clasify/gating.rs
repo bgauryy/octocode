@@ -274,7 +274,7 @@ async fn one_call_with_several_sections_rows_keeps_to_its_share_of_the_gate() {
     };
     let runtime = workspace.runtime_with(&provider_env(&server, &[]), limits);
     let row = |file: &str| {
-        json!({"operation":"sections",
+        json!({"operation":"sections","maxRequests":crate::runtime_clasify::budget::EVERY_PAGE,
             "resources":{"r":{"tool":"localFetch","query":{"path":file}}},
             "questions":{"kind":{"type":"choice","criteria":{"ops":"operations text","code":"source code"}}}})
     };
