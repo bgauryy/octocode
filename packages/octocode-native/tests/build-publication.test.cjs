@@ -102,6 +102,26 @@ test('host build selects the CLI crate in one locked cargo invocation', () => {
   }
 });
 
+test('release builds remap build paths and pin the macOS floor; dev and check builds add nothing', () => {
+  const os = require('os');
+  const { PLATFORMS } = require('../bin/platform.cjs');
+  const { MACOS_FLOOR, hostsCommand } = require('../scripts/build-native.cjs');
+  for (const [platform, target] of Object.entries(PLATFORMS)) {
+    const { args, env } = hostsCommand(platform, { release: true }, '/tmp/hosts');
+    const config = args[args.indexOf('--config') + 1];
+    assert.ok(config.startsWith(`target.${target.triple}.rustflags=`), config);
+    const flags = JSON.parse(config.slice(config.indexOf('=') + 1));
+    assert.ok(flags.some(flag => flag.startsWith(`--remap-path-prefix=${os.homedir()}=`)), platform);
+    assert.equal(env.MACOSX_DEPLOYMENT_TARGET, target.os === 'darwin' ? MACOS_FLOOR : undefined, platform);
+    assert.equal(env.CFLAGS?.includes(`-ffile-prefix-map=${os.homedir()}=`) ?? false, target.os !== 'win32', platform);
+    for (const mode of [{}, { check: true }]) {
+      const plain = hostsCommand(platform, mode, '/tmp/hosts');
+      assert.ok(!plain.args.includes('--config'), platform);
+      assert.deepEqual(plain.env, {}, platform);
+    }
+  }
+});
+
 test('host and platform builds never share a target dir', () => {
   const { PLATFORMS } = require('../bin/platform.cjs');
   const { targetDir } = require('../scripts/build-native.cjs');

@@ -102,8 +102,8 @@ fn selective_find_pages_reach_every_row_once() {
         ids.iter().collect::<std::collections::BTreeSet<_>>().len(),
         700
     );
-    assert_eq!(ids.first().map(String::as_str), Some("code.ts#fn0000"));
-    assert_eq!(ids.last().map(String::as_str), Some("code.ts#fn0699"));
+    assert_eq!(ids.first().map(String::as_str), Some("app/code.ts#fn0000"));
+    assert_eq!(ids.last().map(String::as_str), Some("app/code.ts#fn0699"));
 }
 
 #[test]
@@ -287,7 +287,7 @@ fn unread_evidence_text_and_sources_cannot_fail_lookups_that_skip_them() {
             .unwrap();
             ask(&dir, "witnesses", "fn0000", 0, false)
         } else {
-            ask(&dir, "node", "code.ts#fn0257", 0, false)
+            ask(&dir, "node", "app/code.ts#fn0257", 0, false)
         };
         assert_ne!(reader.class, ExitClass::Success, "{}", reader.value);
         assert!(super::super::format::decode(&corrupted).is_err());
@@ -310,7 +310,7 @@ fn deferred_source_read_observes_cancellation() {
     let (dir, _) = fixture();
     let options = QueryOptions {
         op: "node".into(),
-        target: Some("code.ts#fn0257".into()),
+        target: Some("app/code.ts#fn0257".into()),
         workspace: Some(dir.0.to_path_buf()),
         ..Default::default()
     };

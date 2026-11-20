@@ -56,16 +56,21 @@ fn the_fill_ends_when_no_row_still_reading_would_gain() {
     assert_eq!(widened(room, share, &[]), None);
 }
 
-/// Only rows a local read serves fill the page together; a judged row is
-/// never read again, and a row reads on only while its own walk continues.
+/// Exactly the source rows whose re-read sends nothing fill the page
+/// together (localFetch, and ghGetFileContent at its resolved commit); a
+/// judged row is never read again, and a row reads on only while its own
+/// walk continues.
 #[test]
-fn only_unjudged_local_source_rows_are_read_again() {
-    assert!(fill_together(ToolId::LocalFetch));
+fn only_unjudged_source_rows_read_again_for_free_fill_together() {
     for tool in ToolId::ALL {
-        if tool != ToolId::LocalFetch {
-            assert!(!fill_together(tool), "{tool}");
-        }
+        assert_eq!(
+            fill_together(tool),
+            tool.reads_source() && reread_is_free(tool),
+            "{tool}"
+        );
     }
+    assert!(fill_together(ToolId::LocalFetch));
+    assert!(fill_together(ToolId::GhGetFileContent));
     assert!(reads_again(&json!({"path": "a.rs"})));
     for field in crate::contracts::PROVIDER_FIELDS {
         let mut judged = json!({"path": "a.rs"});

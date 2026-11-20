@@ -16,10 +16,10 @@ fn reexport_callers_keep_high_confidence_across_aliases_and_stars() {
         ingest_fixture(dir.0.as_path(), None).class,
         ExitClass::Success
     );
-    let out = ask(dir.0.as_path(), "callers", Some("impl.ts#validate"), |o| {
+    let out = ask(dir.0.as_path(), "callers", Some("app/impl.ts#validate"), |o| {
         o.confidence = Some("high".into());
     });
-    assert_eq!(ids(&out), vec!["use.ts#run"], "{}", out.value);
+    assert_eq!(ids(&out), vec!["app/use.ts#run"], "{}", out.value);
     assert_eq!(out.value["rows"][0]["confidence"], "high");
     assert_eq!(out.value["confidence"], "high");
 }
@@ -84,7 +84,7 @@ fn explicit_reexports_override_stars_but_ambiguous_stars_stay_candidates() {
             o.confidence = Some("high".into());
         })
     };
-    assert_eq!(ids(&high("a.ts#check")), vec!["use.ts#run"]);
+    assert_eq!(ids(&high("a.ts#check")), vec!["app/use.ts#run"]);
     assert!(ids(&high("b.ts#check")).is_empty());
     let medium = ask(dir.0.as_path(), "callers", Some("b.ts#check"), |o| {
         o.confidence = Some("medium".into());
@@ -117,8 +117,8 @@ fn long_reexport_chains_terminate_on_cycles_without_losing_the_target() {
         ingest_fixture(dir.0.as_path(), None).class,
         ExitClass::Success
     );
-    let out = ask(dir.0.as_path(), "callers", Some("impl.ts#check"), |o| {
+    let out = ask(dir.0.as_path(), "callers", Some("app/impl.ts#check"), |o| {
         o.confidence = Some("high".into());
     });
-    assert_eq!(ids(&out), vec!["use.ts#run"], "{}", out.value);
+    assert_eq!(ids(&out), vec!["app/use.ts#run"], "{}", out.value);
 }

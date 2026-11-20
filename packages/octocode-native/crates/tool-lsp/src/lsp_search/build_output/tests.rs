@@ -130,3 +130,39 @@ fn jsonc_comments_and_trailing_commas_are_dropped_but_strings_kept() {
     assert_eq!(value["a"], "//not a comment");
     assert_eq!(value["b"], serde_json::json!([1, 2]));
 }
+
+/// A package that emits its declarations from a second config
+/// (`tsc -p tsconfig.types.json`) beside a no-emit `tsconfig.json`: the
+/// emitting config names the output, whatever its name, so its
+/// declarations map back to the sources (the agents-communication layout,
+/// `rootDir` above the package).
+#[test]
+fn a_named_emit_config_beside_tsconfig_names_the_output() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path();
+    write(root, "packages/comms/package.json", r#"{"name":"comms"}"#);
+    write(
+        root,
+        "packages/comms/tsconfig.json",
+        r#"{"compilerOptions":{"noEmit":true},"include":["src/**/*.ts","tests/**/*.ts"]}"#,
+    );
+    write(
+        root,
+        "packages/comms/tsconfig.types.json",
+        r#"{"extends":"./tsconfig.json","compilerOptions":{"noEmit":false,"declaration":true,"outDir":"dist/types","rootDir":".."},"include":["src/entries/*.ts"]}"#,
+    );
+    let source = write(
+        root,
+        "packages/comms/src/runtime/validation.ts",
+        "export function asObject(value: unknown): object {\n  return value as object;\n}\n",
+    );
+    let emitted = write(
+        root,
+        "packages/comms/dist/types/comms/src/runtime/validation.d.ts",
+        "export declare function asObject(value: unknown): object;\n",
+    );
+    let paths = policy(root);
+    let output = BuildOutput::containing(&emitted, &paths).expect("output");
+    assert_eq!(output.source_of(&emitted), Some(source.clone()));
+    assert_eq!(BuildOutput::of_source(&source, &paths), Some(output));
+}

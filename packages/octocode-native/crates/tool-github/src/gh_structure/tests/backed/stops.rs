@@ -45,7 +45,7 @@ async fn stopped_tree_reads_preserve_timeout_and_cancellation() {
 /// partial listing.
 #[tokio::test]
 async fn cancelled_child_directory_does_not_return_partial_success() {
-    use crate::gh_structure::traverse::{Listing, walk_contents};
+    use crate::gh_structure::traverse::{Listing, Pace, walk_contents};
     use octocode_tools_shared::gh_shared::test_support::{default_context, one_shot_provider};
     let server = MockServer::builder().start().await;
     let provider = one_shot_provider(&server);
@@ -73,7 +73,11 @@ async fn cancelled_child_directory_does_not_return_partial_success() {
         })
         .mount(&server)
         .await;
-    let result = walk_contents(&provider, &listing, false, &context).await;
+    let pace = Pace {
+        resume_from: 0,
+        stop_at: None,
+    };
+    let result = walk_contents(&provider, &listing, false, pace, &context).await;
     assert!(
         matches!(result, Err(ref error) if error.kind == ProviderErrorKind::Cancelled),
         "cancellation in a child directory must not become a partial success"

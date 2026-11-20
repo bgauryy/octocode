@@ -14,6 +14,9 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 const PLANTED: &str = "The worker opens a socket to the ledger.";
 /// The largest request body the stand-in provider's window takes.
 const WINDOW_BYTES: usize = 100_000;
+/// A `maxRequests` that holds every section of these sources: a source's
+/// sections are judged only within the row's bound.
+const SECTIONS: u64 = 200;
 
 /// The input tokens a taken request of `bytes` reports: the stated window's
 /// tokens over [`WINDOW_BYTES`], so the window holds exactly that many bytes.
@@ -89,7 +92,7 @@ async fn an_oversized_source_is_judged_in_sections_and_answered_once_per_questio
     assert!(text.len() > 262_000, "{}", text.len());
     workspace.write("big.txt", &text);
     let runtime = clasify_runtime(&workspace, &server, &[]);
-    let row = json!({"operation":"evaluate",
+    let row = json!({"operation":"evaluate","maxRequests":SECTIONS,
     "source":{"tool":"localFetch","query":{"path":"big.txt"}},
     "questions":{
         "socket":noul("The text says the worker opens a socket."),
@@ -151,7 +154,7 @@ async fn sections_fill_the_window_the_provider_states() {
     let text = source(lines, planted);
     workspace.write("big.txt", &text);
     let runtime = clasify_runtime(&workspace, &server, &[]);
-    let row = json!({"operation":"evaluate",
+    let row = json!({"operation":"evaluate","maxRequests":SECTIONS,
         "source":{"tool":"localFetch","query":{"path":"big.txt"}},
         "questions":{"socket":noul("The text says the worker opens a socket.")}});
     // The fewest requests that hold the source's tokens.
@@ -230,7 +233,7 @@ async fn a_source_whose_sections_are_refused_too_keeps_the_refusal() {
     let workspace = Workspace::new();
     workspace.write("big.txt", source(6_000, 1));
     let runtime = clasify_runtime(&workspace, &server, &[]);
-    let row = json!({"operation":"evaluate",
+    let row = json!({"operation":"evaluate","maxRequests":SECTIONS,
         "source":{"tool":"localFetch","query":{"path":"big.txt"}},
         "questions":{"socket":noul("The text says the worker opens a socket.")}});
     let out = clasify(&runtime, vec![row]).await;
@@ -253,7 +256,7 @@ async fn a_size_the_provider_refused_is_not_uploaded_whole_again() {
     workspace.write("small.txt", source(600, 300));
     let runtime = clasify_runtime(&workspace, &server, &[]);
     let row = |file: &str| {
-        json!({"operation":"evaluate",
+        json!({"operation":"evaluate","maxRequests":SECTIONS,
             "source":{"tool":"localFetch","query":{"path":file}},
             "questions":{"socket":noul("The text says the worker opens a socket.")}})
     };
@@ -351,7 +354,7 @@ async fn a_deadline_mid_sections_answers_from_the_judged_ones_and_counts_the_res
         ..crate::support::PROVIDER_LIMITS
     };
     let runtime = workspace.runtime_with(&crate::support::provider_env(&server, &[]), limits);
-    let row = json!({"operation":"evaluate",
+    let row = json!({"operation":"evaluate","maxRequests":SECTIONS,
         "source":{"tool":"localFetch","query":{"path":"big.txt"}},
         "questions":{"socket":noul("The text says the worker opens a socket.")}});
     let out = clasify(&runtime, vec![row]).await;
@@ -435,7 +438,7 @@ async fn an_unanswered_question_is_an_error_cell_beside_the_answered_ones() {
     workspace.write("big.txt", source(6_000, 4_321));
     let runtime = clasify_runtime(&workspace, &server, &[]);
     let row = |view: &str| {
-        json!({"operation":"evaluate","view":view,
+        json!({"operation":"evaluate","maxRequests":SECTIONS,"view":view,
             "source":{"tool":"localFetch","query":{"path":"big.txt"}},
             "questions":two_kinds()})
     };
@@ -477,9 +480,11 @@ async fn a_row_whose_every_question_failed_alike_reports_that_reason_and_the_spe
     let runtime = clasify_runtime(&workspace, &server, &[]);
     let out = clasify(
         &runtime,
-        vec![json!({"operation":"evaluate","view":"details",
+        vec![
+            json!({"operation":"evaluate","maxRequests":SECTIONS,"view":"details",
             "source":{"tool":"localFetch","query":{"path":"big.txt"}},
-            "questions":{"b":two_kinds()["b"].clone()}})],
+            "questions":{"b":two_kinds()["b"].clone()}}),
+        ],
     )
     .await;
     let data = &out["results"][0]["data"];
@@ -491,5 +496,93 @@ async fn a_row_whose_every_question_failed_alike_reports_that_reason_and_the_spe
         json!(spent.load(std::sync::atomic::Ordering::SeqCst)),
         "{out}"
     );
+    runtime.close().await;
+}
+
+/// C1: a source over the window sends its one named request whole; its
+/// sections are its own expansion, so without `maxRequests` none is sent:
+/// the row states their price and `next.confirm` runs them. C3: in the same
+/// process the refused size is known, and the same row sends nothing.
+#[tokio::test]
+async fn an_oversized_sources_sections_wait_for_a_bound_that_holds_them() {
+    let server = windowed().await;
+    let workspace = Workspace::new();
+    workspace.write("big.txt", source(6_000, 4_321));
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let row = json!({"operation":"evaluate",
+        "source":{"tool":"localFetch","query":{"path":"big.txt"}},
+        "questions":{"socket":noul("The text says the worker opens a socket.")}});
+    let requests = || async { server.received_requests().await.unwrap().len() as u64 };
+
+    let out = clasify(&runtime, vec![row.clone()]).await;
+    let data = &out["results"][0]["data"];
+    assert_eq!(data["errorCode"], "classificationOverBudget", "{out}");
+    let spent = requests().await;
+    assert!(spent >= 1, "the whole source was asked: {out}");
+    assert_eq!(data["usage"]["calls"], json!(spent), "{out}");
+    let ceiling = data["usage"]["requestsCeiling"]
+        .as_u64()
+        .expect("a ceiling");
+    assert!(
+        data["usage"]["requestsPlanned"].as_u64().expect("a plan") > 1,
+        "{out}"
+    );
+    let confirm = &data["next"]["confirm"];
+    assert_eq!(
+        confirm["input"]["queries"][0]["maxRequests"], ceiling,
+        "{out}"
+    );
+
+    let again = clasify(&runtime, vec![row]).await;
+    let data = &again["results"][0]["data"];
+    assert_eq!(data["errorCode"], "classificationOverBudget", "{again}");
+    assert_eq!(data["usage"]["calls"], 0, "{again}");
+    assert_eq!(requests().await, spent, "a known refusal sends nothing");
+
+    let confirmed = crate::support::Run::run(
+        &runtime,
+        "confirm".into(),
+        "clasify".into(),
+        confirm["input"].clone(),
+    )
+    .await
+    .expect("the confirm runs")
+    .structured_content
+    .into_value();
+    let data = &confirmed["results"][0]["data"];
+    assert!(data.get("errorCode").is_none(), "{confirmed}");
+    assert_eq!(data["answers"]["socket"]["noul"], 0.96, "{confirmed}");
+    assert!(
+        data["coverage"]["totalSections"].as_u64().unwrap() > 1,
+        "{confirmed}"
+    );
+    let calls = data["usage"]["calls"].as_u64().expect("calls");
+    assert!(calls <= ceiling, "{calls} past the confirmed {ceiling}");
+    assert_eq!(requests().await - spent, calls, "{confirmed}");
+    runtime.close().await;
+}
+
+/// C3: literal content has no sections; once the window refused its size in
+/// this process, content at least that large is refused without a request.
+#[tokio::test]
+async fn content_the_window_refused_is_not_sent_again() {
+    let server = windowed().await;
+    let workspace = Workspace::new();
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let row = json!({"operation":"evaluate","content":"entry ".repeat(WINDOW_BYTES / 4),
+        "questions":{"socket":noul("The text says the worker opens a socket.")}});
+    let requests = || async { server.received_requests().await.unwrap().len() };
+    let first = clasify(&runtime, vec![row.clone()]).await;
+    assert_eq!(
+        first["results"][0]["data"]["errorCode"], "classificationStateTooLarge",
+        "{first}"
+    );
+    let spent = requests().await;
+    assert!(spent >= 1, "{first}");
+    let again = clasify(&runtime, vec![row]).await;
+    let data = &again["results"][0]["data"];
+    assert_eq!(data["errorCode"], "classificationStateTooLarge", "{again}");
+    assert!(data.get("usage").is_none(), "nothing was sent: {again}");
+    assert_eq!(requests().await, spent);
     runtime.close().await;
 }

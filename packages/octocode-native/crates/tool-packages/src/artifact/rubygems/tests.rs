@@ -183,6 +183,48 @@ async fn a_gem_without_a_release_ref_is_pinned_to_its_upstream_tag() {
     }
 }
 
+/// A source link naming the version's tag (`…/tree/v7.1.3`) is the gem's
+/// claim, checked like any declared tag: the tag GitHub has pins the commit
+/// it names (`verification: tag`), never the tag's name as the registry's
+/// unchecked ref (LEFTOVERS P5); with no GitHub check, the claim stays.
+#[tokio::test]
+async fn a_source_link_naming_the_versions_tag_is_checked_against_github() {
+    let http = RouteHttp::always(json_fixture(
+        r#"{
+            "name": "rails",
+            "version": "7.1.3",
+            "source_code_uri": "https://github.com/rails/rails/tree/v7.1.3"
+        }"#,
+    ));
+    let b = test_budget();
+    let tags = super::super::test_http::KnownTags::new(vec!["rails/rails@v7.1.3"]);
+    let checked = RegistryClient {
+        tags: Some(&tags),
+        ..RegistryClient::new(&http, &b)
+    };
+    let page = rubygems(
+        &exact_query(ArtifactType::Rubygems, "rails"),
+        &Default::default(),
+        &checked,
+    )
+    .await
+    .expect("rails");
+    let item = &page.artifacts[0];
+    assert_eq!(item.source_ref.as_deref(), Some("commit-of-v7.1.3"));
+    assert_eq!(item.release_tag.as_deref(), Some("v7.1.3"));
+    assert!(item.source_tag);
+    let unchecked = rubygems(
+        &exact_query(ArtifactType::Rubygems, "rails"),
+        &Default::default(),
+        &RegistryClient::new(&http, &b),
+    )
+    .await
+    .expect("rails");
+    let item = &unchecked.artifacts[0];
+    assert_eq!(item.source_ref.as_deref(), Some("v7.1.3"));
+    assert!(!item.source_tag);
+}
+
 /// A search summary states no directory, so a row's source link below a ref
 /// asks GitHub nothing (rack's `…/tree/main` link was one commit check per
 /// search page): the registry's one request is the call's. The details view

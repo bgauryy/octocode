@@ -472,3 +472,107 @@ fn a_sparse_location_states_its_scope() {
     let served = serde_json::to_value(&full).expect("serialized clone");
     assert!(served["location"].get("paths").is_none(), "{served}");
 }
+
+/// A scope's checkout is keyed by the paths it holds: a requested path the
+/// commit lacks costs no checkout of its own. Whichever comes first, the
+/// scope with the missing path and the scope of the paths that exist share
+/// one checkout, and the row names the missing path with its recovery.
+#[test]
+fn a_missing_sparse_path_shares_the_checkout_of_the_paths_that_exist() {
+    for requests in [
+        [many(&["src", "nope"]), one("src")],
+        [one("other"), many(&["nope", "other"])],
+    ] {
+        let bench = Bench::new();
+        let context = bench.context();
+        let rows = requests.clone().map(|paths| {
+            clone_pinned(
+                &bench.fixture,
+                &GhCloneRepoQuery { paths, ..query() },
+                &context,
+            )
+            .expect("clone")
+        });
+        assert_eq!(rows[0].location.path, rows[1].location.path, "{rows:?}");
+        assert!(
+            !rows[0].location.reused && rows[1].location.reused,
+            "{rows:?}"
+        );
+        let checkouts =
+            std::fs::read_dir(Path::new(&rows[0].location.path).parent().expect("repo"))
+                .expect("checkouts")
+                .flatten()
+                .filter(|entry| entry.path().is_dir())
+                .count();
+        assert_eq!(checkouts, 1, "one checkout for one held scope");
+        for row in &rows {
+            let served = serde_json::to_value(row).expect("serialize");
+            let held = served["location"]["paths"].as_array().expect("scope");
+            assert!(!held.contains(&json_fixture(r#""nope""#)), "{served}");
+            let named = row
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("\"nope\""));
+            // The row the first clone made asked by `requests[0]`.
+            let asked = requests[usize::from(row.location.reused)]
+                .iter()
+                .any(|asked| asked.as_str() == "nope");
+            assert_eq!(named, asked, "{served}");
+            assert_eq!(
+                test_support::checks::find_related_call(&served, "ghStructure", |_| true).is_some(),
+                asked,
+                "{served}"
+            );
+        }
+    }
+}
+
+/// A sparse checkout records its scope for the local tools and its row
+/// states the coverage: a missing path outside the scope is named as such,
+/// with the clone that checks it out; a full checkout records no scope.
+#[test]
+fn a_sparse_checkout_records_its_scope_for_the_local_tools() {
+    use octocode_tools_shared::gh_git::clone_scope::clone_scope;
+    let bench = Bench::new();
+    let context = bench.context();
+    for again in [false, true] {
+        let sparse = clone_pinned(
+            &bench.fixture,
+            &GhCloneRepoQuery {
+                paths: one("src"),
+                ..query()
+            },
+            &context,
+        )
+        .expect("sparse clone");
+        assert_eq!(sparse.location.reused, again);
+        let root = Path::new(&sparse.location.path);
+        let outside = root.join("other/skip.txt");
+        assert!(!outside.exists());
+        let scope = clone_scope(&outside).expect("recorded scope");
+        assert_eq!(scope.paths(), ["src"]);
+        assert!(scope.excludes(&outside) && !scope.excludes(&root.join("src/absent.rs")));
+        let reclone = scope.reclone(&outside).expect("re-clone");
+        let row = &reclone["input"]["queries"][0];
+        assert_eq!(row["ref"], sparse.location.commit_sha.as_str(), "{reclone}");
+        assert_eq!(
+            row["paths"],
+            json_fixture(r#"["src", "other/skip.txt"]"#),
+            "{reclone}"
+        );
+        assert!(
+            sparse.warnings.contains(&scope.coverage_warning()),
+            "{:?}",
+            sparse.warnings
+        );
+        // The record lives beside git's own, never in the work tree.
+        assert!(
+            git_output(root, &["status", "--porcelain"])
+                .trim()
+                .is_empty()
+        );
+    }
+    let full = clone_pinned(&bench.fixture, &query(), &context).expect("full clone");
+    assert_eq!(clone_scope(&Path::new(&full.location.path).join("x")), None);
+    assert!(full.warnings.is_empty(), "{:?}", full.warnings);
+}

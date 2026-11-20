@@ -11,7 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         repository.join("packages/octocode-config/src"),
         generator.clone(),
     ] {
-        println!("cargo:rerun-if-changed={}", path.display());
+        println!("cargo::rerun-if-changed={}", path.display());
     }
     let status = Command::new("node")
         .arg(generator)

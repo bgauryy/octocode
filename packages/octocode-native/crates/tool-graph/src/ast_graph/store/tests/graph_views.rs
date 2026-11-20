@@ -115,7 +115,7 @@ fn modules_view_counts_edges_per_directory_pair() {
         "{}",
         dependents.value
     );
-    let callers = modules("callers", "util/fmt.ts#fmt");
+    let callers = modules("callers", "app/util/fmt.ts#fmt");
     assert_eq!(
         callers.value["rows"],
         json_fixture(
@@ -247,7 +247,7 @@ fn symbol_rows_state_their_path_symbol_name_kind_and_line() {
 fn an_edge_row_places_its_edge_inside_the_calling_symbol() {
     let dir = built();
     let root = dir.0.as_path();
-    let callers = ask(root, "callers", Some("util/fmt.ts#fmt"), |_| {});
+    let callers = ask(root, "callers", Some("app/util/fmt.ts#fmt"), |_| {});
     let rows = callers.value["rows"].as_array().unwrap();
     assert!(rows.len() >= 2, "{}", callers.value);
     for row in rows {
@@ -262,16 +262,16 @@ fn an_edge_row_places_its_edge_inside_the_calling_symbol() {
         );
         assert!(row.get("verify").is_none(), "{row}");
     }
-    let walk = ask(root, "callers", Some("config/schema.ts#schema"), |o| {
+    let walk = ask(root, "callers", Some("app/config/schema.ts#schema"), |o| {
         o.depth = Some(2);
     });
     let main = walk.value["rows"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|row| row["id"] == "main.ts#main")
+        .find(|row| row["id"] == "app/main.ts#main")
         .unwrap_or_else(|| panic!("main at depth 2: {}", walk.value));
-    assert_eq!(main["from"], "config/load.ts#load", "{main}");
+    assert_eq!(main["from"], "app/config/load.ts#load", "{main}");
 }
 
 /// A row reached from the answer's target states no `from`: it would only
@@ -281,7 +281,7 @@ fn an_edge_row_places_its_edge_inside_the_calling_symbol() {
 fn a_row_reached_from_the_target_leaves_from_out() {
     let dir = built();
     let root = dir.0.as_path();
-    let walk = ask(root, "callers", Some("config/schema.ts#schema"), |o| {
+    let walk = ask(root, "callers", Some("app/config/schema.ts#schema"), |o| {
         o.depth = Some(2);
     });
     let rows = walk.value["rows"].as_array().unwrap();
@@ -293,7 +293,7 @@ fn a_row_reached_from_the_target_leaves_from_out() {
     for row in deeper {
         assert!(row["from"].is_string(), "{row}");
     }
-    let callers = ask(root, "callers", Some("util/fmt.ts#fmt"), |_| {});
+    let callers = ask(root, "callers", Some("app/util/fmt.ts#fmt"), |_| {});
     for row in callers.value["rows"].as_array().unwrap() {
         assert!(row.get("from").is_none(), "from restates the target: {row}");
     }
@@ -669,7 +669,7 @@ fn stats_calls_lead_ranks_the_most_called_symbols() {
     });
     assert_eq!(hubs.class, ExitClass::Success, "{}", hubs.value);
     let top = &hubs.value["rows"][0];
-    assert_eq!(top["id"], "util/fmt.ts#fmt", "{}", hubs.value);
+    assert_eq!(top["id"], "app/util/fmt.ts#fmt", "{}", hubs.value);
     assert_eq!(top["fanIn"], 2, "{}", hubs.value);
     assert!(
         hubs.value["rows"]

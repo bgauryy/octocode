@@ -13,7 +13,9 @@ use octocode_runtime_base::security::ContentSecurity;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-/// Config files that govern a TypeScript or JavaScript project.
+/// Config files that govern a TypeScript or JavaScript project, first; a
+/// project named for its build (`tsc -p tsconfig.types.json`) is
+/// `<one of them>.<name>.json` beside them.
 const CONFIG_NAMES: [&str; 2] = ["tsconfig.json", "jsconfig.json"];
 /// Directories walked up from a file to its governing config.
 const MAX_ANCESTORS: usize = 16;
@@ -49,10 +51,9 @@ impl BuildOutput {
             return None;
         }
         for directory in file.ancestors().skip(1).take(MAX_ANCESTORS) {
-            if let Some(output) = Self::in_directory(directory, policy)
-                && file.starts_with(&output.root_dir)
-                && !file.starts_with(&output.out_dir)
-            {
+            if let Some(output) = Self::in_directory(directory, policy).find(|output| {
+                file.starts_with(&output.root_dir) && !file.starts_with(&output.out_dir)
+            }) {
                 return Some(output);
             }
             if directory.join("package.json").is_file() {
@@ -72,17 +73,24 @@ impl BuildOutput {
             .skip(1)
             .take(MAX_ANCESTORS)
             .find_map(|directory| {
-                Self::in_directory(directory, policy).filter(|output| output.holds(file))
+                Self::in_directory(directory, policy).find(|output| output.holds(file))
             })
     }
 
-    /// The output the config in `directory` emits, when it names an `outDir`.
-    fn in_directory(directory: &Path, policy: &PathPolicy) -> Option<Self> {
-        let config = CONFIG_NAMES
-            .iter()
-            .map(|name| directory.join(name))
-            .find(|path| path.is_file())?;
-        let options = read_options(&config, policy, 0)?;
+    /// The outputs the configs in `directory` emit ([`configs_in`]), each
+    /// that names an `outDir`, in that order.
+    fn in_directory<'a>(
+        directory: &'a Path,
+        policy: &'a PathPolicy,
+    ) -> impl Iterator<Item = Self> + 'a {
+        configs_in(directory)
+            .into_iter()
+            .filter_map(move |config| Self::of_config(&config, directory, policy))
+    }
+
+    /// The output `config` (in `directory`) emits, when it names an `outDir`.
+    fn of_config(config: &Path, directory: &Path, policy: &PathPolicy) -> Option<Self> {
+        let options = read_options(config, policy, 0)?;
         let out_dir = options.out_dir?;
         let root_dir = options
             .root_dir
@@ -119,6 +127,42 @@ impl BuildOutput {
             .find(|source| source.is_file())
             .map(|source| std::fs::canonicalize(&source).unwrap_or(source))
     }
+}
+
+/// The project configs in `directory`: `tsconfig.json` and `jsconfig.json`,
+/// then each `tsconfig.<name>.json` or `jsconfig.<name>.json` in name order.
+/// A package can emit its declarations from such a build config while its
+/// `tsconfig.json` only type-checks (`noEmit`).
+fn configs_in(directory: &Path) -> Vec<PathBuf> {
+    let mut configs = CONFIG_NAMES
+        .iter()
+        .map(|name| directory.join(name))
+        .filter(|path| path.is_file())
+        .collect::<Vec<_>>();
+    let mut named = std::fs::read_dir(directory)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| {
+                    CONFIG_NAMES.iter().any(|config| {
+                        config.strip_suffix(".json").is_some_and(|stem| {
+                            name.strip_prefix(stem)
+                                .and_then(|rest| rest.strip_prefix('.'))
+                                .and_then(|rest| rest.strip_suffix(".json"))
+                                .is_some_and(|middle| !middle.is_empty())
+                        })
+                    })
+                })
+                && path.is_file()
+        })
+        .collect::<Vec<_>>();
+    named.sort();
+    configs.extend(named);
+    configs
 }
 
 /// The identifier that starts at zero-based `line` and UTF-16 `character` of

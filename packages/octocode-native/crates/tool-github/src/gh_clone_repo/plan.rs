@@ -23,6 +23,9 @@ pub(super) struct Plan<'a> {
     pub(super) sparse: Option<Sparse>,
     sparse_key: Option<String>,
     pub(super) depth: u64,
+    /// Requested sparse paths the commit lacks, found by the tree listing
+    /// that narrowed `sparse` to the paths it has ([`execute_prepared`]).
+    absent: Vec<String>,
 }
 
 impl Plan<'_> {
@@ -58,21 +61,27 @@ impl Plan<'_> {
 
     /// The served row of the checkout at `clone_dir`: where it is and what it
     /// holds. Requested sparse paths the commit lacks are named in a warning
-    /// with their recovery lead; the checkout holds the others.
+    /// with their recovery lead; the checkout holds the others. A sparse
+    /// checkout's row states its coverage: local tools see only its scope.
     pub(super) fn result(&self, commit: &str, clone_dir: &Path, checkout: Checkout) -> CloneResult {
         let bytes = checkout.size;
-        let missing = self.missing_paths(clone_dir, &checkout.withheld);
-        let paths = self.sparse.as_ref().map(|sparse| {
-            sparse
-                .paths()
-                .iter()
-                .filter(|path| !missing.contains(&path.as_str()))
-                .cloned()
-                .collect()
-        });
+        let on_disk = self.missing_paths(clone_dir, &checkout.withheld);
+        let paths = self.held_paths(clone_dir, &checkout.withheld);
+        let missing = self
+            .absent
+            .iter()
+            .map(String::as_str)
+            .chain(on_disk)
+            .collect::<Vec<_>>();
         let path = clone_dir.to_string_lossy().into_owned();
         let mut calls = Map::new();
         let mut warnings = Vec::new();
+        if let Some(scope) = octocode_tools_shared::gh_git::clone_scope::CloneScope::of(
+            clone_dir.to_path_buf(),
+            self.record(&checkout.commit_sha, paths.clone(), checkout.root_files),
+        ) {
+            warnings.push(scope.coverage_warning());
+        }
         if !missing.is_empty() {
             warnings.push(format!(
                 "Path does not exist: {} in {}/{}@{}; the checkout holds the other paths.",
@@ -85,9 +94,13 @@ impl Plan<'_> {
                 self.query.repo,
                 checkout.commit_sha
             ));
-            if let Some(Value::Object(recovery)) =
-                super::recovery::sparse_next(self.context, clone_dir, self.query, &missing)
-            {
+            if let Some(Value::Object(recovery)) = super::recovery::sparse_next(
+                self.context,
+                clone_dir,
+                &checkout.commit_sha,
+                self.query,
+                &missing,
+            ) {
                 calls.extend(recovery);
             }
         }
@@ -103,10 +116,58 @@ impl Plan<'_> {
                 symlinks: (!checkout.symlinks.is_empty()).then_some(checkout.symlinks),
                 skipped: (!checkout.withheld.is_empty()).then_some(checkout.withheld),
                 history_depth: (self.depth > 1).then_some(self.depth),
+                full_history: checkout.full_history,
                 cloned_at: None,
                 reused: false,
             },
         }
+    }
+
+    /// What the checkout of `commit` holding the sparse `paths` (`None`:
+    /// all of it) records for the local tools
+    /// ([`octocode_tools_shared::gh_git::clone_scope`]).
+    pub(super) fn record(
+        &self,
+        commit: &str,
+        paths: Option<Vec<String>>,
+        root_files: bool,
+    ) -> octocode_tools_shared::gh_git::clone_scope::CloneRecord {
+        octocode_tools_shared::gh_git::clone_scope::CloneRecord {
+            owner: self.query.owner.to_string(),
+            repo: self.query.repo.to_string(),
+            commit_sha: commit.to_ascii_lowercase(),
+            paths,
+            root_files,
+            history_depth: self.depth,
+        }
+    }
+
+    /// The sparse scope the checkout at `dir` holds: the plan's paths it has
+    /// (or withholds), in request order; `None` for a full checkout.
+    pub(super) fn held_paths(&self, dir: &Path, withheld: &[String]) -> Option<Vec<String>> {
+        let missing = self.missing_paths(dir, withheld);
+        self.sparse.as_ref().map(|sparse| {
+            sparse
+                .paths()
+                .iter()
+                .filter(|path| !missing.contains(&path.as_str()))
+                .cloned()
+                .collect()
+        })
+    }
+
+    /// Whether the root's own files are on disk in the checkout at `dir`:
+    /// always for a full checkout; beside a sparse scope only in cone mode,
+    /// which a file path or a withheld file turns off ([`super::git`]'s
+    /// `sparse_set_args`). A file path of the scope is a file on disk.
+    pub(super) fn root_files(&self, dir: &Path, withheld: &[String]) -> bool {
+        self.sparse.as_ref().is_none_or(|sparse| {
+            withheld.is_empty()
+                && !sparse
+                    .paths()
+                    .iter()
+                    .any(|path| dir.join(path.trim_end_matches('/')).is_file())
+        })
     }
 
     /// The requested sparse paths absent from the checkout at `dir`: neither
@@ -159,7 +220,7 @@ pub(super) fn execute_prepared(
     validate_query(query)?;
     let sparse = Sparse::of(query);
     let root = web_root(context.endpoint)?;
-    let plan = Plan {
+    let mut plan = Plan {
         query,
         context,
         repository_url: repository_url(&root, &query.owner, &query.repo)?,
@@ -167,6 +228,7 @@ pub(super) fn execute_prepared(
         sparse_key: sparse.as_ref().map(Sparse::key),
         sparse,
         depth: history_depth(query),
+        absent: Vec::new(),
     };
     // `run` pins every row to a commit before it gets here.
     let Some(reference) = query
@@ -179,12 +241,46 @@ pub(super) fn execute_prepared(
             "ref must name the full commit SHA to check out",
         ));
     };
-    let clone_dir = plan.target(reference)?;
-    let _lock = storage::CloneLock::acquire(&clone_dir, context)?;
-    match reuse_checkout(&plan, reference, &clone_dir)? {
-        Some(reused) => Ok(reused),
-        None => fresh_clone(&plan, reference, &clone_dir),
+    // A scope keys its checkout by the paths it holds: a requested path the
+    // commit lacks is found by the tree listing before anything is staged,
+    // and the scope narrows once to the paths that exist, whose checkout
+    // (reused, or cloned under that key) serves the row and names the
+    // missing ones. Each destination's lock is held alone.
+    loop {
+        let clone_dir = plan.target(reference)?;
+        let _lock = storage::CloneLock::acquire(&clone_dir, context)?;
+        if let Some(reused) = reuse_checkout(&plan, reference, &clone_dir)? {
+            return Ok(reused);
+        }
+        match fresh_clone(&plan, reference, &clone_dir)? {
+            Fresh::Published(result) => return Ok(result),
+            Fresh::Narrowed { present, absent } if plan.absent.is_empty() => {
+                let sparse = Sparse { paths: present };
+                plan.sparse_key = Some(sparse.key());
+                plan.sparse = Some(sparse);
+                plan.absent = absent;
+            }
+            Fresh::Narrowed { .. } => {
+                return Err(GitError::new(
+                    ErrorCode::GitFailed,
+                    "The commit's tree lists a sparse path, then lacks it: nothing was cloned.",
+                ));
+            }
+        }
     }
+}
+
+/// What [`fresh_clone`] made of a plan.
+pub(super) enum Fresh {
+    /// The checkout, published and verified.
+    Published(CloneResult),
+    /// Some requested sparse paths are not in the commit: nothing was
+    /// staged. `present` (request order) is the scope to check out instead;
+    /// `absent` the paths its row names as missing.
+    Narrowed {
+        present: Vec<String>,
+        absent: Vec<String>,
+    },
 }
 
 /// The clones root under the home passes the path policy, then exists.
@@ -227,4 +323,9 @@ pub(super) struct Checkout {
     pub(super) symlinks: Vec<String>,
     /// Credential-named files in scope, left out of the checkout.
     pub(super) withheld: Vec<String>,
+    /// The root's own files are on disk beside a sparse scope (cone mode).
+    pub(super) root_files: bool,
+    /// The store holds the commit's whole history, back to the roots
+    /// ([`super::git::holds_whole_history`]; asked only past depth 1).
+    pub(super) full_history: bool,
 }

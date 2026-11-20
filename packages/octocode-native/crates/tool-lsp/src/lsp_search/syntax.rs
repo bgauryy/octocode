@@ -104,7 +104,14 @@ impl Request<'_> {
             self.discovery,
         );
         scope.anchor_site(self.path, anchor.line, anchor.character);
-        scope.asks(scope::Question::of(lsp_search_query::op(self.query)));
+        scope.asks(
+            scope::Question::of(lsp_search_query::op(self.query)).at_anchor(
+                self.path,
+                Some(&file.content),
+                (anchor.line, anchor.character),
+                lsp_search_query::symbol_name(self.query).unwrap_or_default(),
+            ),
+        );
         Some(Site {
             file,
             scope,

@@ -59,6 +59,7 @@ pub(super) fn session() -> Session {
         github_identity: None,
         batches: Vec::new(),
         source_disclosures: None,
+        max_requests: None,
         active: Vec::new(),
         request: Value::Null,
     }

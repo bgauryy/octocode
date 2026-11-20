@@ -329,8 +329,10 @@ impl AnchorModule {
             }
         }
         for import in &facts.imports {
-            // A namespace or default binding reaches the name only as
-            // `binding.name`; a side-effect import binds nothing.
+            // A binding of another name reaches the name only as
+            // `binding.name`: a namespace or default import, or a named one
+            // the module re-exports as a namespace (`export * as binding`).
+            // A side-effect import binds nothing.
             let qualified = || {
                 import
                     .local_name
@@ -338,12 +340,8 @@ impl AnchorModule {
                     .is_some_and(|local| spells(content, &format!("{local}."), &self.symbol))
             };
             let binds = import.local_name.as_deref() == Some(self.symbol.as_str())
-                || match import.imported_name.as_deref() {
-                    Some(name) => {
-                        name == self.symbol || (matches!(name, "*" | "default") && qualified())
-                    }
-                    None => qualified(),
-                };
+                || import.imported_name.as_deref() == Some(self.symbol.as_str())
+                || qualified();
             if self.reference(reading, &import.specifier, file, binds, relays) {
                 return true;
             }

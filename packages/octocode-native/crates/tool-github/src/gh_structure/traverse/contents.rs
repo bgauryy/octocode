@@ -3,41 +3,20 @@
 //! when no tree of it answers.
 use super::*;
 
-/// Folder and subtree reads one listing spends at most. A call has no wall
-/// deadline, and every read draws on the caller's shared core quota: without
-/// a bound, an `include` over a repository the size of Linux spent over 2,000
-/// requests before answering. Past it the walk stops and says how many
-/// folders it left unread ([`Traversal::unwalked`]): a disclosed cut, never a
-/// silent one.
-pub(in crate::gh_structure) const MAX_WALK_READS: usize = 300;
-
-/// [`MAX_WALK_READS`], or a test's own on this thread.
-fn walk_reads() -> usize {
-    #[cfg(test)]
-    if let Some(reads) = TEST_WALK_READS.with(std::cell::Cell::get) {
-        return reads;
-    }
-    MAX_WALK_READS
-}
-
-#[cfg(test)]
-thread_local! {
-    /// Tests: a read budget smaller than any real tree needs.
-    pub(in crate::gh_structure) static TEST_WALK_READS: std::cell::Cell<Option<usize>> =
-        const { std::cell::Cell::new(None) };
-}
-
 /// The folder-by-folder walk, level by level with up to [`read_concurrency`]
-/// folder reads in flight, within [`MAX_WALK_READS`]. After a truncated
-/// recursive tree (`split`), a folder with more than one level left to list
-/// is read whole from its own recursive subtree, so a large repository costs
-/// one read per subtree instead of per folder.
+/// folder reads in flight. After a truncated recursive tree (`split`), a
+/// folder with more than one level left to list is read whole from its own
+/// recursive subtree, so a large repository costs one read per subtree
+/// instead of per folder. No count of reads stops it: only the call's own
+/// time ([`Pace`]) pauses it, and the walk that resumes there replays the
+/// reads made so far and goes on.
 pub(in crate::gh_structure) async fn walk_contents(
     provider: &GitHubProvider,
     listing: &Listing<'_>,
     split: bool,
+    pace: Pace,
     context: &RequestContext,
-) -> Result<Traversal, ProviderError> {
+) -> Result<Walked, ProviderError> {
     use futures_util::StreamExt as _;
     let at = *listing;
     let mut traversal = Traversal::default();
@@ -45,39 +24,27 @@ pub(in crate::gh_structure) async fn walk_contents(
     let mut level = vec![at.root.to_owned()];
     let mut visited = HashSet::new();
     let mut depth = 1usize;
-    let mut spent = 0usize;
+    let mut gate = Gate::new(pace);
     while !level.is_empty() {
         level.retain(|path| visited.insert(path.clone()));
-        let room = walk_reads().saturating_sub(spent);
-        if level.len() > room {
-            traversal.unwalked += level.len() - room;
-            #[cfg_attr(
-                octocode_clippy_ratchet,
-                expect(
-                    clippy::disallowed_methods,
-                    reason = "The folders past the read budget are counted in `unwalked`, which the listing discloses as partial"
-                )
-            )]
-            {
-                level.truncate(room);
-            }
-        }
-        if level.is_empty() {
-            break;
-        }
-        spent += level.len();
         let required = depth == 1;
-        let reads = futures_util::stream::iter(
-            level
-                .iter()
-                .map(|path| read_folder(provider, &at, path, required, context)),
-        )
-        .buffered(read_concurrency(provider))
-        .collect::<Vec<_>>()
-        .await;
+        let reads = futures_util::stream::iter(&level)
+            .map(|path| {
+                let open = gate.admit();
+                async move {
+                    if open {
+                        Some(read_folder(provider, &at, path, required, context).await)
+                    } else {
+                        None
+                    }
+                }
+            })
+            .buffered(read_concurrency(provider))
+            .collect::<Vec<_>>()
+            .await;
         let mut below = Vec::new();
         let mut subtrees = Vec::new();
-        for read in reads {
+        for read in reads.into_iter().flatten() {
             let folder = match read {
                 Ok(folder) => folder,
                 Err(error) if !required && !terminal_failure(&error) => {
@@ -97,42 +64,123 @@ pub(in crate::gh_structure) async fn walk_contents(
                 }
             }
         }
+        if let Some(paused) = gate.paused() {
+            return Ok(paused);
+        }
         // Folders with two or more levels left read whole from their own
         // recursive subtree; a subtree that is truncated too (or
         // unreadable) is walked like any folder.
-        let room = walk_reads().saturating_sub(spent);
-        if subtrees.len() > room {
-            traversal.unwalked += subtrees.len() - room;
-            #[cfg_attr(
-                octocode_clippy_ratchet,
-                expect(
-                    clippy::disallowed_methods,
-                    reason = "The subtrees past the read budget are counted in `unwalked`, which the listing discloses as partial"
-                )
-            )]
-            {
-                subtrees.truncate(room);
+        let trees = futures_util::stream::iter(&subtrees)
+            .map(|(path, sha)| {
+                let open = gate.admit();
+                async move {
+                    if open {
+                        Some(subtree(provider, &at, path, sha, context).await)
+                    } else {
+                        None
+                    }
+                }
+            })
+            .buffered(read_concurrency(provider))
+            .collect::<Vec<_>>()
+            .await;
+        for ((path, _), tree) in subtrees.into_iter().zip(trees) {
+            match tree.transpose()? {
+                Some(Some(tree)) => absorb(&mut traversal, traversal_from_git_tree(tree, &at)),
+                Some(None) => below.push(path),
+                None => {}
             }
         }
-        spent += subtrees.len();
-        let trees = futures_util::stream::iter(
-            subtrees
-                .iter()
-                .map(|(path, sha)| subtree(provider, &at, path, sha, context)),
-        )
-        .buffered(read_concurrency(provider))
-        .collect::<Vec<_>>()
-        .await;
-        for ((path, _), tree) in subtrees.into_iter().zip(trees) {
-            match tree? {
-                Some(tree) => absorb(&mut traversal, traversal_from_git_tree(tree, &at)),
-                None => below.push(path),
-            }
+        if let Some(paused) = gate.paused() {
+            return Ok(paused);
         }
         level = below;
         depth += 1;
     }
-    Ok(traversal)
+    Ok(Walked::Done(traversal))
+}
+
+/// What a walk read: every entry, or, when the call's time paused it, how
+/// many reads it had made ([`Pace`]).
+pub(in crate::gh_structure) enum Walked {
+    Done(Traversal),
+    /// A later call replays these `reads` and walks on (`walkOffset`).
+    Paused {
+        reads: usize,
+    },
+}
+
+/// How far one call's walk goes. The reads an earlier call made
+/// (`walkOffset`) are replayed whatever the time: each is a git tree at the
+/// pinned commit, kept across calls and processes, so a replay asks GitHub
+/// nothing it already answered. Past them the walk starts reads until
+/// `stop_at`, and at least one, so every resumed call gets further. The
+/// call's own time is its only stop, never a count of reads.
+#[derive(Clone, Copy, Debug)]
+pub(in crate::gh_structure) struct Pace {
+    pub(in crate::gh_structure) resume_from: usize,
+    pub(in crate::gh_structure) stop_at: Option<std::time::Instant>,
+}
+
+impl Pace {
+    /// The walk of a call resuming after `walk_offset` reads, stopping new
+    /// reads halfway through what its request has left, so the other half
+    /// answers (the shared resumable-work midpoint,
+    /// [`octocode_runtime_base::execution::cancel::halfway`]).
+    pub(in crate::gh_structure) fn of(
+        walk_offset: Option<std::num::NonZeroU64>,
+        context: &RequestContext,
+    ) -> Self {
+        let now = std::time::Instant::now();
+        let left = context.budget.deadline.saturating_duration_since(now);
+        Self {
+            resume_from: walk_offset.map_or(0, |reads| {
+                octocode_engine::num::saturating_usize(reads.get())
+            }),
+            stop_at: Some(now + left / 2),
+        }
+    }
+}
+
+/// Which reads of a walk start: each is decided in walk order as its read
+/// is queued, so the reads started are always the walk's first ones.
+struct Gate {
+    pace: Pace,
+    admitted: usize,
+    paused: bool,
+}
+
+impl Gate {
+    fn new(pace: Pace) -> Self {
+        Self {
+            pace,
+            admitted: 0,
+            paused: false,
+        }
+    }
+
+    /// Whether the next read of the walk starts: a replayed one and the
+    /// first new one always do, the rest only before `stop_at`.
+    fn admit(&mut self) -> bool {
+        let open = !self.paused
+            && (self.admitted <= self.pace.resume_from
+                || self
+                    .pace
+                    .stop_at
+                    .is_none_or(|stop| std::time::Instant::now() < stop));
+        if open {
+            self.admitted += 1;
+        } else {
+            self.paused = true;
+        }
+        open
+    }
+
+    fn paused(&self) -> Option<Walked> {
+        self.paused.then_some(Walked::Paused {
+            reads: self.admitted,
+        })
+    }
 }
 
 /// One folder of the walk: its entries, typed, and the folders below it with

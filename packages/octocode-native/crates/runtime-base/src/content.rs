@@ -5,7 +5,7 @@ mod markdown_outline;
 pub use document_format::DocumentFormat;
 
 pub use file_type::{FileType, classify_file_type};
-pub use markdown_outline::markdown_heading_outline;
+pub use markdown_outline::{MarkdownHeading, markdown_heading_outline, markdown_headings};
 
 /// `value[start..end]` in UTF-16 code units (the unit of provider match
 /// indices); `None` when out of bounds or splitting a surrogate pair.

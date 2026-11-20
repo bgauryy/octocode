@@ -1,6 +1,5 @@
 //! Impact: symbol precision, test functions, barrels and dependents.
 use super::*;
-use octocode_test_support::json_fixture;
 
 #[test]
 fn impact_is_symbol_precise_for_symbols_and_transitive_for_files() {
@@ -27,9 +26,10 @@ fn impact_is_symbol_precise_for_symbols_and_transitive_for_files() {
         !files.iter().any(|(f, _)| f == "app/src/fmt.ts"),
         "fmt never touches lib: {files:?}"
     );
+    assert_eq!(symbol.value["summary"]["testsToRun"], 1);
     assert_eq!(
-        symbol.value["summary"]["testsToRun"],
-        json_fixture(r#"["app/src/main.test.ts"]"#)
+        tests_to_run(root, "src/lib.ts#shout", |_| {}),
+        ["app/src/main.test.ts"]
     );
 
     // Box is exported but nobody binds it: symbol precision keeps main.ts out.
@@ -49,9 +49,10 @@ fn impact_is_symbol_precise_for_symbols_and_transitive_for_files() {
         files.contains(&("app/src/main.test.ts".into(), 2)),
         "{files:?}"
     );
+    assert_eq!(file.value["summary"]["affectedEntrypoints"], 1);
     assert_eq!(
-        file.value["summary"]["affectedEntrypoints"],
-        json_fixture(r#"["app/src/main.ts"]"#)
+        summary_list(root, Some("src/lib.ts"), "affectedEntrypoints", |_| {}),
+        [json!("app/src/main.ts")]
     );
 }
 
@@ -83,24 +84,15 @@ fn impact_lists_inline_rust_test_functions() {
     );
     assert_eq!(node.value["node"]["test"], true, "{}", node.value);
     let out = ask(dir.0.as_path(), "impact", Some("src/lib.rs#add"), |_| {});
-    let tests = &out.value["summary"]["testFunctions"];
+    assert_eq!(out.value["summary"]["testFunctions"], 2, "{}", out.value);
+    let tests = summary_list(dir.0.as_path(), Some("src/lib.rs#add"), "testsToRun", |_| {});
+    assert_eq!(tests.len(), 1, "{tests:?}");
+    assert_eq!(tests[0]["path"], "app/src/lib.rs", "{tests:?}");
+    let functions = tests[0]["functions"].as_array().expect("functions");
+    assert!(functions.contains(&json!("tests.adds")), "{tests:?}");
     assert!(
-        tests
-            .as_array()
-            .is_some_and(|t| t.contains(&json!("src/lib.rs#tests.adds"))),
-        "{}",
-        out.value["summary"]
-    );
-    assert!(
-        tests
-            .as_array()
-            .is_some_and(|t| t.contains(&json!("src/lib.rs#tests.doubles"))),
-        "transitively via twice: {}",
-        out.value["summary"]
-    );
-    assert_eq!(
-        out.value["summary"]["testsToRun"],
-        json_fixture(r#"["app/src/lib.rs"]"#)
+        functions.contains(&json!("tests.doubles")),
+        "transitively via twice: {tests:?}"
     );
 }
 
@@ -370,8 +362,10 @@ fn a_rust_module_change_reaches_its_crate_root_through_the_module_tree() {
     ] {
         let out = ask(root, "impact", Some(target), |o| o.depth = Some(depth));
         assert_eq!(
-            out.value["summary"]["affectedEntrypoints"],
-            json_fixture(r#"["app/src/lib.rs"]"#),
+            summary_list(root, Some(target), "affectedEntrypoints", |o| {
+                o.depth = Some(depth);
+            }),
+            [json!("app/src/lib.rs")],
             "{target}: {}",
             out.value
         );
@@ -427,9 +421,10 @@ fn tests_to_run_reach_past_the_depth_bound() {
     let deep = ask(root, "impact", Some("src/store.ts#S"), |o| {
         o.depth = Some(10);
     });
+    let deep_tests = tests_to_run(root, "src/store.ts#S", |o| o.depth = Some(10));
     assert_eq!(
-        deep.value["summary"]["testsToRun"],
-        json_fixture(r#"["app/tests/deep.test.ts"]"#),
+        deep_tests,
+        ["app/tests/deep.test.ts"],
         "the deep walk reaches the test: {}",
         deep.value
     );
@@ -447,6 +442,7 @@ fn tests_to_run_reach_past_the_depth_bound() {
         summary["testsToRun"], deep.value["summary"]["testsToRun"],
         "{summary}"
     );
+    assert_eq!(tests_to_run(root, "src/store.ts#S", |_| {}), deep_tests);
 }
 
 /// A Go importer binds its package, never one file of it: an importer whose
@@ -542,13 +538,7 @@ fn tests_to_run_lists_each_test_file_once_and_no_helper() {
     let root = dir.0.as_path();
     assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
     for target in ["src/errors.ts", "src/errors.ts#fail"] {
-        let out = ask(root, "impact", Some(target), |_| {});
-        let tests = out.value["summary"]["testsToRun"]
-            .as_array()
-            .expect("testsToRun")
-            .iter()
-            .map(|test| test.as_str().expect("path").to_owned())
-            .collect::<Vec<_>>();
+        let tests = tests_to_run(root, target, |_| {});
         let unique = tests.iter().collect::<std::collections::BTreeSet<_>>();
         assert_eq!(unique.len(), tests.len(), "{target}: {tests:?}");
         for test in &tests {
@@ -633,12 +623,12 @@ fn a_depth_limited_impact_leads_to_the_depth_that_lists_every_file() {
     );
     assert!(whole.value.get("warnings").is_none(), "{}", whole.value);
 
-    let symbol = ask(root, "impact", Some("src/a.ts#a"), |o| {
+    let symbol = ask(root, "impact", Some("app/src/a.ts#a"), |o| {
         o.depth = Some(depth);
     });
     assert_eq!(
         symbol.value["summary"]["changed"],
-        json!(["src/a.ts#a"]),
+        json!(["app/src/a.ts#a"]),
         "{}",
         symbol.value
     );

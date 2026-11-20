@@ -53,6 +53,22 @@ pub fn declared_name(text: &str) -> Option<&str> {
     word.get(..end.max(first.len_utf8()))
 }
 
+/// Whether `line` declares `name`: an occurrence of it there, as a whole
+/// identifier, is the name a declaration introduces in code (the row flag a
+/// search hit on it carries, [`line_rank`]), not a use, a comment or a
+/// string. What a read takes to stand for a misremembered declaration head
+/// (`fn apply(` for `pub(crate) fn apply<T>(`).
+pub fn declares_name(line: &str, name: &str) -> bool {
+    let word = |c: Option<char>| c.is_some_and(crate::text::is_ident_char);
+    !name.is_empty()
+        && line.match_indices(name).any(|(at, _)| {
+            let (before, after) = (line.get(..at), line.get(at + name.len()..));
+            !word(before.and_then(|text| text.chars().next_back()))
+                && !word(after.and_then(|text| text.chars().next()))
+                && line_rank(line.as_bytes(), at) == DECLARATION_RANK
+        })
+}
+
 /// Words that may precede a declaration keyword, or its name (`let mut x`).
 const DECLARATION_MODIFIERS: &[&[u8]] = &[
     b"pub",

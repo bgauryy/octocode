@@ -148,8 +148,9 @@ fn a_row_of_a_source_past_the_whole_file_ceiling_is_the_reads_line() {
 
 /// A source past the whole-file ceiling is searched as its streamed read
 /// serves it: a regex walk over a key body or a credential-named value finds
-/// nothing in any view, and ordinary text and the read's placeholders count
-/// as the read's own `matchString` counts them. All key material is fake.
+/// nothing in any view, ordinary text counts as the read's own `matchString`
+/// counts it, and the read's placeholders count nowhere. All key material is
+/// fake.
 #[test]
 fn a_source_past_the_ceiling_matches_what_its_read_serves() {
     let root = tempfile::tempdir().expect("fixture");
@@ -219,13 +220,16 @@ fn a_source_past_the_ceiling_matches_what_its_read_serves() {
             assert_eq!(count(fields), 0, "{pattern} {view}");
         }
     }
-    for pattern in ["hello", "\\[REDACTED-"] {
+    // Ordinary text counts as the read's own scan counts it; a placeholder
+    // the read shows is text it wrote, which the search never matches.
+    for (pattern, searched) in [("hello", true), ("\\[REDACTED-", false)] {
         let expected = read(pattern);
         assert!(expected > 0, "{pattern}");
         for view in ["content", "countLines", "countMatches"] {
             let fields =
                 serde_json::json!({"matchString":[pattern],"regexEngine":"rust","view":view});
-            assert_eq!(count(fields), expected, "{pattern} {view}");
+            let want = if searched { expected } else { 0 };
+            assert_eq!(count(fields), want, "{pattern} {view}");
         }
     }
 }

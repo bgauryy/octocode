@@ -114,11 +114,8 @@ fn a_shared_error_hint_is_stated_once_per_response() {
     assert!(!structured.to_string().contains("notices"), "{structured}");
 }
 
-/// The tools whose lookups are not paths: each states its own `notFound`
-/// recovery ([`octocode_runtime_base::response::output::ToolOutput::error_hint`]).
-const OWN_NOT_FOUND: [ToolId; 2] = [ToolId::ArtifactSearch, ToolId::SecurityCheck];
-
-/// One `notFound` rule on every tool that states no recovery of its own. A
+/// One `notFound` rule on every tool that states no recovery of its own
+/// ([`octocode_runtime_base::response::output::ToolOutput::error_hint`]). A
 /// row without hints of its own carries the shared hint, leads or not: a
 /// lead is a call (a parent listing, a search, the nearest nodes), the hint
 /// says what to do with its answer. The hint names no registry or version
@@ -135,7 +132,12 @@ fn a_not_found_hint_fits_the_resource_and_repeats_no_caution() {
     );
     for tool in ToolId::ALL
         .into_iter()
-        .filter(|tool| !OWN_NOT_FOUND.contains(tool))
+        // A tool that states its own `notFound` recovery keeps it alone.
+        .filter(|tool| {
+            tool.output()
+                .error_hint(ErrorCode::NotFound, &Value::Null)
+                .is_none()
+        })
     {
         for related in [None, Some(json!([lead.clone()]))] {
             let mut data = json_fixture(r#"{"errorCode": "notFound", "error": "gone"}"#);

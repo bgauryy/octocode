@@ -290,8 +290,35 @@ impl Halt<'_> {
 
 /// The text a judge served, with the bytes it holds admitted until dropped.
 pub(super) struct JudgedText {
-    pub(super) text: Vec<u8>,
+    pub(super) served: crate::types::ServedText,
     _held: crate::memory::Ticket<'static>,
+}
+
+/// Bytes a search runs over whole, with the ranges of them a judge wrote
+/// ([`crate::types::ServedText::written`]; empty for a file's own bytes).
+#[derive(Clone, Copy)]
+pub(super) struct Searched<'a> {
+    pub(super) bytes: &'a [u8],
+    pub(super) written: &'a [std::ops::Range<usize>],
+}
+
+impl<'a> Searched<'a> {
+    /// A file's own bytes: nothing of them was written.
+    pub(super) fn own(bytes: &'a [u8]) -> Self {
+        Self {
+            bytes,
+            written: &[],
+        }
+    }
+}
+
+impl<'a> From<&'a crate::types::ServedText> for Searched<'a> {
+    fn from(served: &'a crate::types::ServedText) -> Self {
+        Self {
+            bytes: &served.text,
+            written: &served.written,
+        }
+    }
 }
 
 mod held_whole;
@@ -355,7 +382,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
             Some(served) => {
                 drop(own);
                 let work = self.work_for(file)?;
-                let mut outcome = self.search_bytes(&served.text, path, work)?;
+                let mut outcome = self.search_bytes((&served.served).into(), path, work)?;
                 outcome.served = true;
                 outcome
             }
@@ -426,7 +453,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
     /// `utf16` when those bytes are BOM-marked UTF-16 ([`Self::work_for`]).
     pub(super) fn search_proved(
         &mut self,
-        text: &[u8],
+        text: Searched<'_>,
         path: &Path,
         (utf16, served): (bool, bool),
     ) -> std::io::Result<FileOutcome> {
@@ -470,10 +497,10 @@ impl<M: Matcher> FileSearcher<'_, M> {
         let halt = self.halt();
         let judged = (judge.serve)(path, file, &|| halt.is_set())?;
         std::io::Seek::seek(&mut &*file, std::io::SeekFrom::Start(0))?;
-        Ok(judged.map(|text| {
-            ticket.shrink_to(text.len());
+        Ok(judged.map(|served| {
+            ticket.shrink_to(served.text.len());
             JudgedText {
-                text,
+                served,
                 _held: ticket,
             }
         }))
@@ -556,6 +583,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
             outcome.copied = tap.copy.map(|bytes| CopiedRead {
                 bytes,
                 eof: tap.eof,
+                written: Vec::new(),
             });
             return Ok(outcome);
         };
@@ -563,6 +591,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
         let copied = tap.copy.map(|bytes| CopiedRead {
             bytes,
             eof: tap.eof,
+            written: Vec::new(),
         });
         // The rows come from this second read of the bytes before the NUL:
         // the file's digest is of it, read on from where it ends.
@@ -598,10 +627,12 @@ impl<M: Matcher> FileSearcher<'_, M> {
     /// [`Self::search`] over a file's bytes read once for several matchers,
     /// through the same line buffer, so a NUL ends it where it ends a read of
     /// the file. Only for a search with no per-file scope ([`super::listable`]).
-    pub(super) fn search_held(&mut self, bytes: &[u8]) -> std::io::Result<FileOutcome> {
+    pub(super) fn search_held(&mut self, text: Searched<'_>) -> std::io::Result<FileOutcome> {
+        let Searched { bytes, written } = text;
         let mut sink =
             CollectSink::new(self.matcher, self.work, (self.stop, self.held), self.terms);
         sink.cancelled = self.cancelled;
+        sink.written = written;
         self.searcher
             .search_reader(self.matcher, bytes, &mut sink)?;
         let offset = sink
@@ -619,6 +650,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
         let mut prefix_sink =
             CollectSink::new(self.matcher, self.work, (self.stop, self.held), self.terms);
         prefix_sink.cancelled = self.cancelled;
+        prefix_sink.written = written;
         prefix_searcher.search_slice(self.matcher, prefix, &mut prefix_sink)?;
         let mut outcome = FileOutcome::from(prefix_sink);
         outcome.binary = true;

@@ -60,9 +60,13 @@ fn validated_root(
     cancel: &dyn octocode_runtime_base::execution::cancel::CancellationCheck,
 ) -> Result<octocode_runtime_base::policy::path::ValidatedPath, ToolError> {
     cancel.check().map_err(ToolError::cancelled)?;
-    paths
-        .validate(requested)
-        .map_err(|error| ToolError::root_policy(error, requested, paths))
+    paths.validate(requested).map_err(|error| {
+        crate::sparse_scope::outside_checkout(
+            ToolError::root_policy(error, requested, paths),
+            requested,
+            paths,
+        )
+    })
 }
 
 /// A file named as a tree root (`files` lists a file root as itself): say

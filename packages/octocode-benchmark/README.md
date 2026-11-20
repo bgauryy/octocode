@@ -1,6 +1,6 @@
 # Octocode benchmark
 
-[Latest 17-tool scorecard](results/rounds/20.2.0-2026-11-15-deep-efficiency/SCORECARD.md) — critical cumulative 1–10 ratings, independent final-build acceptance, cache/Rust freshness repairs and scoped efficiency comparisons. The [earlier tool-rating round](results/rounds/20.2.0-2026-11-14-tool-ratings/SCORECARD.md) and [Claude handoff follow-up](results/rounds/20.2.0-2026-11-15-handoff-followup/REPORT.md) retain their original builds and measurements.
+[Latest 17-tool scorecard](results/rounds/20.2.0-2026-11-20-independent-ratings/SCORECARD.md) — 8 independent raters, 12 dimensions per tool, every claim checked against ground truth ([how it is measured](briefs/independent-raters.md)). The [deep-efficiency round](results/rounds/20.2.0-2026-11-15-deep-efficiency/SCORECARD.md) holds cumulative 1–10 ratings, final-build acceptance, cache/Rust freshness repairs and scoped efficiency comparisons. The [earlier tool-rating round](results/rounds/20.2.0-2026-11-14-tool-ratings/SCORECARD.md) and [Claude handoff follow-up](results/rounds/20.2.0-2026-11-15-handoff-followup/REPORT.md) retain their original builds and measurements.
 
 Does Octocode give an AI agent correct, source-backed answers with less context and less
 waiting than the tools an expert would otherwise use, and is each version ready? This package is the one
@@ -14,9 +14,9 @@ there are no driver scripts.
 | [CHECKS.md](CHECKS.md) | Every check of Octocode, core tools first: the tool review and 1–10 ratings, end to end, per tool, workflows, security, skills, and the areas other packages own |
 | [METHOD.md](METHOD.md) | Benchmark rounds: arms, isolation, what to measure, blind judging, aggregation, comparing a new version, what a round records |
 | [COMPARISONS.md](COMPARISONS.md) | Each Octocode tool and workflow against its expert competitor (rg, ast-grep, graphify, gh and gh-lean, registries, OSV, RTK, Headroom), and what "better" means |
-| [briefs/](briefs/) | What an agent is handed: [runner](briefs/runner.md), [judge](briefs/judge.md), [arm briefs](briefs/arms/), [check-local](briefs/check-local.md) and [check-github](briefs/check-github.md) capability rounds, and the [scorecard](briefs/SCORECARD.md) every round fills in |
+| [briefs/](briefs/) | What an agent is handed: [runner](briefs/runner.md), [judge](briefs/judge.md), [arm briefs](briefs/arms/), [check-local](briefs/check-local.md) and [check-github](briefs/check-github.md) capability rounds, [independent raters](briefs/independent-raters.md) (12-dimension tool ratings), and the [scorecard](briefs/SCORECARD.md) every round fills in |
 | [questions/](questions/README.md) | Specific capability questions for all 17 tools, plus the GitHub and local research sets |
-| [RATINGS.md](RATINGS.md) | The 1–10 tool rubric, weighted dimensions, confidence and completeness gates |
+| [RATINGS.md](RATINGS.md) | The 1–10 tool rubric, weighted dimensions, confidence and completeness gates, and the 12-dimension agent-experience rubric |
 | [ARCHIVES.md](ARCHIVES.md) | Relocated historical archives and the one-package storage policy |
 | [results/README.md](results/README.md) | The version timeline, per-question [baselines](results/baselines/) and the index of every stored round |
 | [local/](local/README.md) | The pinned clones (repositories, commits, clone form) and the [local flows benchmark](local/FLOWS.md) |

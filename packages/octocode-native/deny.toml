@@ -4,8 +4,11 @@
 [graph]
 targets = [
     { triple = "aarch64-apple-darwin" },
+    { triple = "x86_64-apple-darwin" },
     { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "x86_64-unknown-linux-musl" },
     { triple = "aarch64-unknown-linux-gnu" },
+    { triple = "aarch64-unknown-linux-musl" },
     { triple = "x86_64-pc-windows-msvc" },
     { triple = "aarch64-pc-windows-msvc" },
 ]
@@ -54,8 +57,14 @@ confidence-threshold = 0.8
 
 # ── Bans (duplicate crates, banned crates) ────────────────────────────────────────────────
 [bans]
-multiple-versions = "warn"   # warn on duplicated semver-incompatible crates
+multiple-versions = "deny"   # a new duplicated semver-incompatible crate fails; known ones are in `skip`
 wildcards = "deny"          # no wildcard versions in Cargo.toml
+# TLS is rustls only: the static musl builds and the cross toolchains carry no OpenSSL.
+deny = [
+    { name = "openssl-sys" },
+    { name = "openssl" },
+    { name = "native-tls" },
+]
 allow-wildcard-paths = true # versionless path deps between our publish=false crates
 # Each entry is a duplicate that upstream crates force; a new duplicate, or one
 # whose version moves, shows up as a warning until it is listed here.

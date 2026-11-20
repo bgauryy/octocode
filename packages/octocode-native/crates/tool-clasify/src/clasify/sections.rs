@@ -4,7 +4,7 @@ use octocode_contract_types::ErrorCode;
 use octocode_runtime_base::execution::ExecutionContext;
 use octocode_runtime_base::providers::classification::gate::GateLease;
 use octocode_tools_shared::judgment::stats::ClassificationUsage;
-use octocode_tools_shared::judgment::{ClassificationError, LongContext};
+use octocode_tools_shared::judgment::{ClassificationError, LongContext, RequestCap};
 use octocode_tools_shared::source_capture::SourceReader;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -103,6 +103,10 @@ struct Session {
     /// first saved batch so an interrupted first assessment cannot lose them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     source_disclosures: Option<Value>,
+    /// The row's `maxRequests`: every batch takes the sections whose first
+    /// round fits it, and is held to it ([`assess`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    max_requests: Option<u64>,
 }
 
 impl Session {
@@ -292,6 +296,21 @@ pub(super) fn run(
     {
         session.source_disclosures = Some(disclosures);
     }
+    // Without maxRequests a plan sends one request per resource it names;
+    // sections past that are a price nobody accepted, so nothing is sent.
+    let named = input["resources"]
+        .as_object()
+        .map_or(0, serde_json::Map::len);
+    if row.max_requests.is_none() {
+        let plan = assess::plan_of(&session, &assess::pending(&session), dispatcher);
+        let named = u64::try_from(named).unwrap_or(u64::MAX);
+        if let Err(over) = super::admission::admit(None, plan, named, evaluator.retry_room()) {
+            return Ok(Outcome {
+                output: super::reply::over_budget(row, &over, runtime.can_resume),
+            });
+        }
+    }
+    session.max_requests = row.max_requests;
     session.github_identity = dispatcher.retained_github_identity(context)?;
     session.request = octocode_runtime_base::response::result::fresh_query_row(
         octocode_runtime_base::id::ToolId::Clasify,
@@ -424,9 +443,11 @@ pub(super) struct Whole {
 }
 
 /// A source judged whole that failed after some of its requests were
-/// billed: what those requests cost.
+/// billed: what those requests cost, and, when its sections were not
+/// admitted, how many it planned (none of them was sent).
 pub(super) struct WholeFailed {
     pub usage: ClassificationUsage,
+    pub unadmitted: Option<u64>,
 }
 
 /// Judge one `source` whole in sections: each section alone, with every
@@ -438,19 +459,38 @@ pub(super) struct WholeFailed {
 /// section the window still refuses is planned again at most half its size,
 /// until the window takes it or the questions alone would fill it. Nothing
 /// is kept: the caller combines the sections into one answer per question.
+/// The sections are the row's own expansion: they are judged only when
+/// `admits` takes their count, every send counted against `cap`; otherwise
+/// none is sent, and the failure names their count.
 pub(super) fn whole(
     row: &Row,
     source: &Value,
     dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
     gate: &GateLease,
+    cap: Option<&RequestCap>,
+    admits: &dyn Fn(u64) -> bool,
 ) -> Result<Whole, Box<WholeFailed>> {
     let mut usage = ClassificationUsage::default();
-    whole_billed(row, source, dispatcher, context, gate, &mut usage).map_err(|_| {
+    let mut unadmitted = None;
+    let bounds = Bounds {
+        cap,
+        admits,
+        unadmitted: &mut unadmitted,
+    };
+    whole_billed(row, source, dispatcher, context, gate, bounds, &mut usage).map_err(|_| {
         Box::new(WholeFailed {
             usage: std::mem::take(&mut usage),
+            unadmitted,
         })
     })
+}
+
+/// What bounds a source's sections ([`whole`]).
+struct Bounds<'a> {
+    cap: Option<&'a RequestCap>,
+    admits: &'a dyn Fn(u64) -> bool,
+    unadmitted: &'a mut Option<u64>,
 }
 
 /// [`whole`], adding every request it bills to `usage` even when it fails.
@@ -460,6 +500,7 @@ fn whole_billed(
     dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
     gate: &GateLease,
+    bounds: Bounds<'_>,
     usage: &mut ClassificationUsage,
 ) -> Result<Whole, ClassificationError> {
     let questions = row
@@ -497,10 +538,18 @@ fn whole_billed(
     else {
         return Err(unavailable("The source named no resource to judge."));
     };
+    let sections = u64::try_from(session.resources[0].units.len()).unwrap_or(u64::MAX);
+    if !(bounds.admits)(sections) {
+        *bounds.unadmitted = Some(sections);
+        return Err(unavailable(
+            "The source's sections were not admitted; none was sent.",
+        ));
+    }
+    let cap = bounds.cap;
     let mut judged = Vec::new();
     let mut planned_at = first.bytes;
     if !first.learned && session.resources[0].units.len() > 1 {
-        judge_pending(&mut session, 1, dispatcher, context, gate, usage);
+        judge_pending(&mut session, 1, dispatcher, context, gate, cap, usage);
         let next = fit();
         if next.bytes > first.bytes {
             let probe = session.resources[0].units.remove(0);
@@ -513,7 +562,15 @@ fn whole_billed(
         }
     }
     loop {
-        judge_pending(&mut session, usize::MAX, dispatcher, context, gate, usage);
+        judge_pending(
+            &mut session,
+            usize::MAX,
+            dispatcher,
+            context,
+            gate,
+            cap,
+            usage,
+        );
         let units = session
             .resources
             .first_mut()
@@ -579,13 +636,14 @@ fn refused(unit: &Unit) -> bool {
 }
 
 /// Judge up to `take` of the plan's units with a question still pending,
-/// in plan order, concurrently.
+/// in plan order, concurrently, every send counted against `cap`.
 fn judge_pending(
     session: &mut Session,
     take: usize,
     dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
     gate: &GateLease,
+    cap: Option<&RequestCap>,
     usage: &mut ClassificationUsage,
 ) {
     let admitted: Vec<[usize; 2]> = session
@@ -614,7 +672,7 @@ fn judge_pending(
         })
         .collect();
     let inputs = assess::inputs(session, &admitted, &pending);
-    let results = assess::judge_units(session, &inputs, dispatcher, context, gate, None);
+    let results = assess::judge_units(session, &inputs, dispatcher, context, gate, cap);
     assess::apply_results(
         session,
         &admitted,

@@ -106,7 +106,7 @@ fn symbol_groups_add_up_to_every_symbol_exactly_once() {
     );
     assert_eq!(
         one,
-        ["a.ts#Box", "a.ts#Box.open", "a.ts#Box.close", "a.ts#a"]
+        ["app/a.ts#Box", "app/a.ts#Box.open", "app/a.ts#Box.close", "app/a.ts#a"]
     );
 }
 
@@ -119,13 +119,13 @@ fn a_symbol_under_two_targets_is_listed_once() {
             r#"{
                 "operation": "symbols",
                 "path": "app",
-                "target": ["a.ts", "a.ts#Box"]
+                "target": ["a.ts", "app/a.ts#Box"]
             }"#,
         ),
     );
     assert_eq!(
         rows,
-        ["a.ts#Box", "a.ts#Box.open", "a.ts#Box.close", "a.ts#a"]
+        ["app/a.ts#Box", "app/a.ts#Box.open", "app/a.ts#Box.close", "app/a.ts#a"]
     );
     assert_eq!(total, 4);
 }

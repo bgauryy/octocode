@@ -235,6 +235,7 @@ pub(super) fn into_row(mut data: Value, results: &[SourceResult], view: View) ->
                     .filter_map(|row| serde_json::to_value(row).ok())
                     .collect::<Vec<_>>();
                 super::record::drop_restated_fixes(&mut rows);
+                super::record::drop_restated_text(&mut rows);
                 Value::Array(rows)
             }
         };

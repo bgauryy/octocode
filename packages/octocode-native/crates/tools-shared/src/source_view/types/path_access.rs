@@ -26,6 +26,19 @@ pub struct PathFailure {
     /// The missing path lies in a sparse git checkout, so it may exist
     /// upstream outside the checked-out paths.
     pub sparse_checkout: bool,
+    /// The recorded scope of the ghCloneRepo checkout that excludes the
+    /// missing path ([`CloneScope::excludes`]): its message and re-clone
+    /// call. `None` when the path is inside the scope, the checkout records
+    /// none (its scope is unknown: only `sparse_checkout` says it is
+    /// sparse), or no checkout holds it.
+    ///
+    /// [`CloneScope::excludes`]: crate::gh_git::clone_scope::CloneScope::excludes
+    pub clone_scope: Option<crate::gh_git::clone_scope::CloneScope>,
+    /// The absolute path a missing path was judged at (home and links
+    /// expanded): what [`CloneScope::reclone`] takes.
+    ///
+    /// [`CloneScope::reclone`]: crate::gh_git::clone_scope::CloneScope::reclone
+    pub resolved: Option<PathBuf>,
     /// The path names something other than a regular file.
     pub not_a_file: Option<NotAFile>,
     /// Where a missing file's listing searches: the workspace root (`.`)
@@ -109,6 +122,11 @@ impl PathAccess for octocode_runtime_base::policy::path::PathPolicy {
                     safe_path: error.safe_path,
                     resource_missing: missing,
                     sparse_checkout: missing && in_sparse_checkout(&resolved),
+                    clone_scope: missing
+                        .then(|| crate::gh_git::clone_scope::clone_scope(&resolved))
+                        .flatten()
+                        .filter(|scope| scope.excludes(&resolved)),
+                    resolved: missing.then(|| resolved.clone()),
                     not_a_file: (error.code
                         == octocode_runtime_base::policy::PolicyErrorCode::NotRegular)
                         .then(|| match resolved.is_dir() {

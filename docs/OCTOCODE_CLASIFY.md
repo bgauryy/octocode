@@ -110,13 +110,14 @@ By default, `localSearch` supplies the hit line with no surrounding lines. Set `
 <a id="clasify-sections-map-questions-across-many-files"></a>
 ## Map questions across files
 
-This example scans Markdown files under `docs/`. Narrow the glob to the files that matter to control usage.
+This example scans Markdown files under `docs/`. Narrow the glob to the files that matter to control usage. A sections plan sends one request per section, so it needs `maxRequests` (see [Budget](#budget-maxrequests)): each page takes the sections that fit it, and `next.nextPage` takes the rest.
 
 ```bash
 octocode clasify '{
   "queries": [{
     "operation": "sections",
     "resources": {"guides": {"tool": "localFetch", "query": {"path": "docs/*.md"}}},
+    "maxRequests": 10,
     "questions": {
       "login": {"type": "noul", "instructions": "Does this passage give a command to sign in to GitHub?"}
     }
@@ -136,7 +137,7 @@ Read each resource's `coverage` and each section's `target.lines`. Coverage is c
 
 A text source that exceeds the provider window is judged section by section. The combined answer uses the highest `noul` or `score`, or the most confident `choice` other than `unknown`. Its `lines` name the deciding section. Read relevant sections together for event order, contradictions or claims about every code path. A single section covers only the text it received.
 
-A text judged whole in one window also names its deciding `lines`. Octocode marks parts of the text with line-numbered markers and asks which part decides each question, in the same request. A source read with `ranges` names its lines within those ranges. A URL capture, JSON `content` and image rows name no `lines`.
+A text judged whole in one window also names its deciding `lines`. Octocode marks parts of the text with line-numbered markers and asks which part decides each question, in the same request. A source read with `ranges` names its lines within those ranges. A URL row's `lines` count lines of the captured page text, which its `next.read` opens. JSON `content` that is not a string and image rows name no `lines`. `lines` name the deciding part, which ends at a block edge (a section, paragraph, table or code block), so it can be wider than the sentence that decides.
 
 <a id="from-a-pipe-cli"></a>
 ## From a pipe (CLI)
@@ -171,29 +172,35 @@ Rules:
 
 ### Billing
 
-- **One billed request per row.** A `clasify` row is one request for each path, GitHub file, URL, `content` entry, `perItem` item or whole-file chunk. A search `source` bills **per file**: the hits of one file share one request, with one question per hit, and a long question's words are sent once per request. Identical units share one request. `perHit: true` (with a tool `source`) judges each hit in its own request instead, priced one request per hit.
-- **Refusals and retries add requests.** When the provider refuses a request as too large, its hits are split and asked again. When it leaves an answer out, that hit is asked once more. An answer still missing is reported as an `error` cell.
+- **One billed request per row.** A `clasify` row is one request for each path, GitHub file, URL, `content` entry, `perItem` item or whole-file chunk. A search `source` bills **per file**: the hits of one file share one request, with one question per hit, and a long question's words are sent once per request. Identical units share one request. `perHit: true` (with a search or listing `source`) judges each hit in its own request instead, priced one request per hit; on a file or URL `source`, which has no hits, it is refused before anything is read.
+- **Refusals and retries add requests.** When the provider refuses a request as too large, its hits are split and asked again. When it leaves an answer out, that hit is asked once more. An answer still missing is reported as an `error` cell. A refused request counts in `usage.calls` and `usage.refused` and reports no tokens; the provider does not document whether it bills one. Within one process, a size the provider refused is remembered: literal `content` at least that large is refused without a request, and a source goes to its sections.
 - **`evaluate` always re-bills.** Repeating an identical `clasify` evaluation sends new requests, even on cached source.
 - **Saved `sections` pages replay for free.** `next.details`, `next.quiet` and `responsePagination.next` replay saved answers with no request. A fresh `evaluate` or `sections` call starts again.
 - **Saved pages expire** after 30 minutes of inactivity. A new process can also need new inference.
 
 ### Budget (`maxRequests`)
 
-Set `maxRequests` (an integer of at least 1) on a row to cap the provider requests it may send in one response page. Re-asks and splits count.
+Set `maxRequests` (an integer of at least 1) on an `evaluate` row or a fresh `sections` row to cap the provider requests it may send in one response page. Re-asks, splits and transient retries count.
+
+Without `maxRequests`, a row sends at most one first-round request per source, resource or `content` item it names. A plan whose own expansion needs more is refused before anything is sent: a search or listing `source` over several files, `perHit` over several hits, a glob that matches more files than its resource keys, a `sections` plan of more sections than resources, or a source over the provider window that would be judged in sections.
 
 | Field | Meaning |
 |---|---|
 | `maxRequests` | Cap on provider requests for the row, per response page |
 | `usage.requestsPlanned` | Requests the row expects to send |
-| `usage.requestsCeiling` | Most requests the row or `sections` page can send: the first round, every re-ask and split, and the 3 transient retries the row shares. Absent means unbounded |
+| `usage.requestsCeiling` | Most requests the row or `sections` page can send: the first round, every re-ask and split, and the 3 transient retries the row shares, never more than `maxRequests` |
 | `usage.calls` | Requests actually sent |
 | `usage.refused` | Requests the provider refused |
-| `usage.remainingInputTokensEstimate` | Estimated input tokens for the requests not yet sent |
+| `usage.inputTokensAtMost` | On a refused row: input tokens its first round costs at most. It counts one token per byte sent plus the provider's own prompt, so it runs well above the tokens billed. Absent until the provider has answered a request in this process |
+| `usage.remainingInputTokensEstimate` | On a `sections` page or a classified search with work left: input tokens of the rest, priced at this page's rate |
 
 Behavior:
 
-- If `requestsCeiling` is above `maxRequests`, the row is refused before anything is sent. The error is `classificationOverBudget`, with `usage.calls: 0`, the planned and ceiling counts, and `next.confirm`. `next.confirm` reruns the same row with `maxRequests` raised to the ceiling. That rerun is billed.
-- If the cap runs out during a run, the next send is not made and the row reports `classificationOverBudget`.
+- A row runs when its first round (`requestsPlanned`) fits `maxRequests`. Re-asks, splits and transient retries use only what the first round leaves, so `requestsCeiling` never passes the cap.
+- A first round above `maxRequests`, or above what an uncapped row names, is refused before anything is sent. The error is `classificationOverBudget`, with `usage.calls: 0`, the planned and ceiling counts, and `next.confirm`. `next.confirm` reruns the same row with `maxRequests` raised to the ceiling. That rerun is billed.
+- A source over the provider window is judged in sections only when its `maxRequests` still holds them. Otherwise the refusal names how many sections it would send, and `next.confirm` allows them.
+- A `sections` page with `maxRequests` takes the sections whose first round fits the cap; `next.nextPage` takes the rest.
+- If the cap runs out during a run, the next send is not made: the unit, section or question it left is an `error` cell with `classificationOverBudget`.
 - A row without `maxRequests` is held to its ceiling too, except that a refusal's retries (long window or split) may pass it; they are counted and named in a warning. Transient retries never pass it.
 - Units still unanswered after the retries stay `error` cells; `next.retry` asks only them again, at their own price.
 - To keep a request under budget, narrow the source: fewer files, hits or resources, or smaller line ranges.

@@ -72,12 +72,21 @@ pub(super) fn render_tree_page(
         return out;
     }
     let page = ast_search_query_syntax_tree::page(q);
-    let complete = r.status == "ok" && !*more;
     let pagination = facts.to_value();
     // The snapshot pins the next page through its cursor only.
     let mut out =
         json!({"operation":"syntaxTree","path":display_path,"nodes":nodes,"pagination":pagination});
-    octocode_runtime_base::response::paging::set_partial(&mut out, !complete);
+    // More pages are pagination (`hasMore` and the next page), never
+    // partial coverage: only a partial walk is partial.
+    octocode_runtime_base::response::paging::set_partial(&mut out, r.status != "ok");
+    // A tree over one page names its size and how to read a part of it
+    // before every page is read.
+    if first_page && *more {
+        octocode_runtime_base::response::paging::push_notice(
+            &mut out,
+            narrowing_notice(r.total_nodes, r.nodes.len()),
+        );
+    }
     if !diagnostics.is_empty() {
         out["diagnostics"] = json!(diagnostics);
     }
@@ -113,6 +122,13 @@ pub(super) fn render_tree_page(
         }
     }
     out
+}
+
+/// How a tree of `total` nodes, `shown` on its first page, is read in part.
+fn narrowing_notice(total: u32, shown: usize) -> String {
+    format!(
+        "The tree holds {total} nodes, {shown} on this page; to read fewer, set line to a line inside the declaration you need: the tree then starts at the smallest node covering it."
+    )
 }
 
 /// A walk-budget stop: the listing ends there, not at the tree's end.

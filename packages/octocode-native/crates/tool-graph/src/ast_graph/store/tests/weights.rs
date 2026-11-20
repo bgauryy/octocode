@@ -74,11 +74,11 @@ fn all_rows(root: &Path, op: &str, tweak: impl Fn(&mut QueryOptions)) -> (Vec<Va
 fn edge_rows_count_the_sites_behind_their_edge() {
     let dir = weighted();
     let root = dir.0.as_path();
-    for (callee, expected) in [("a.ts#zeta", 3), ("a.ts#alpha", 1)] {
+    for (callee, expected) in [("app/a.ts#zeta", 3), ("app/a.ts#alpha", 1)] {
         let out = ask(root, "callers", Some(callee), |_| {});
         let listed = rows(&out);
         assert_eq!(
-            row(&listed, "b.ts#mixed")["sites"],
+            row(&listed, "app/b.ts#mixed")["sites"],
             expected,
             "{}",
             out.value
@@ -98,14 +98,14 @@ fn hub_sites_reconcile_with_witnesses() {
     let (hubs, _) = all_rows(root, "hubs", calls);
     let (witnesses, _) = all_rows(root, "witnesses", calls);
     assert_eq!(sites(&hubs), witnesses.len() as u64, "{hubs:?}");
-    assert_eq!(row(&hubs, "a.ts#zeta")["sites"], 3);
-    assert_eq!(row(&hubs, "a.ts#zeta")["fanIn"], 1);
+    assert_eq!(row(&hubs, "app/a.ts#zeta")["sites"], 3);
+    assert_eq!(row(&hubs, "app/a.ts#zeta")["fanIn"], 1);
     // Outgoing hubs count the outgoing edges' sites.
     let (callers, _) = all_rows(root, "hubs", |o| {
         calls(o);
         o.direction = Some("out".into());
     });
-    assert_eq!(row(&callers, "b.ts#mixed")["sites"], 4, "{callers:?}");
+    assert_eq!(row(&callers, "app/b.ts#mixed")["sites"], 4, "{callers:?}");
 }
 
 /// `rankBy:"pageRank"` weights each edge by its sites: two callees equal by
@@ -119,8 +119,8 @@ fn page_rank_hubs_weight_edges_by_sites() {
     let (degree, _) = all_rows(root, "hubs", calls);
     let position = |rows: &[Value], id: &str| rows.iter().position(|row| row["id"] == id).unwrap();
     assert_eq!(
-        row(&degree, "a.ts#zeta")["fanIn"],
-        row(&degree, "a.ts#alpha")["fanIn"]
+        row(&degree, "app/a.ts#zeta")["fanIn"],
+        row(&degree, "app/a.ts#alpha")["fanIn"]
     );
     assert!(degree.iter().all(|row| row.get("pageRank").is_none()));
     let (ranked, first) = all_rows(root, "hubs", |o| {
@@ -132,7 +132,7 @@ fn page_rank_hubs_weight_edges_by_sites() {
         "{first}"
     );
     assert!(
-        position(&ranked, "a.ts#zeta") < position(&ranked, "a.ts#alpha"),
+        position(&ranked, "app/a.ts#zeta") < position(&ranked, "app/a.ts#alpha"),
         "{ranked:?}"
     );
     let ranks = ranked
@@ -229,4 +229,39 @@ fn repeated_sites_on_one_line_stay_distinct_rows() {
         .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(spans.len(), 3, "{witnesses:?}");
     assert!(!spans.contains("null"), "{witnesses:?}");
+}
+
+/// A method call on a receiver whose type the parser saw (`let seen =
+/// BTreeSet::new()`) and the repository does not declare is a std or
+/// foreign method: no declaration here is its target, so it is excluded
+/// from the linkage ratio even when a repository type has a method of
+/// that name. A receiver of a repository type stays eligible.
+#[test]
+fn a_foreign_typed_receivers_method_is_outside_the_linkage_ratio() {
+    let dir = git_app(&[
+        (
+            "Cargo.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        ),
+        (
+            "src/lib.rs",
+            "use std::collections::BTreeSet;\npub struct Bag;\nimpl Bag {\n    pub fn insert(&self, _v: u8) {}\n}\npub fn fill() {\n    let mut seen = BTreeSet::new();\n    seen.insert(1u8);\n}\n",
+        ),
+    ]);
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let unresolved = ask(root, "unresolved", Some("src/lib.rs#fill"), |_| {});
+    let rows = unresolved.value["rows"].as_array().expect("rows");
+    let insert = rows
+        .iter()
+        .find(|row| row["targetName"] == "seen.insert")
+        .unwrap_or_else(|| panic!("{}", unresolved.value));
+    assert_eq!(insert["reason"], "not-declared-in-repo", "{insert}");
+    let stats = ask(root, "stats", None, |_| {});
+    let linkage = &stats.value["linkage"];
+    assert_eq!(
+        linkage["eligible"].as_u64(),
+        linkage["linked"].as_u64(),
+        "{linkage}"
+    );
 }

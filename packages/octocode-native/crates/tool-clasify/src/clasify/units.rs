@@ -349,11 +349,13 @@ pub(super) fn judge_source(
         Err(error) => return RowOutcome::Units(Err(error)),
     };
     let units = page_units(&data, query);
+    // The row names one source; the tool's rows are its expansion.
     let mut judged = match judge(
         evaluator,
         evaluations,
         row,
         units,
+        1,
         dispatcher,
         context,
         gate,
@@ -570,11 +572,13 @@ pub(super) fn judge_items(
         )));
     };
     let units = item_units(items);
+    // Each item is one the row names.
     match judge(
         evaluator,
         evaluations,
         row,
         units,
+        u64::try_from(items.len()).unwrap_or(u64::MAX),
         dispatcher,
         context,
         gate,
@@ -592,13 +596,19 @@ pub(super) fn judge_items(
 /// (highest `noul` first) and the coverage. The spend is stated by
 /// [`UnitsOutcome::finish`] once the call has settled which asker of a
 /// shared request carries it. The requests are priced before any is sent
-/// ([`Evaluator::plan_units`]): a row whose ceiling is over its
-/// `maxRequests` sends nothing, and a capped row's sends are counted.
+/// ([`Evaluator::plan_units`]) and admitted against the `named` units the
+/// row names ([`super::admission::admit`]): a first round past its bound
+/// sends nothing, and every send is counted against the row's cap.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one row's units: its runtime, what it names and its gate"
+)]
 fn judge(
     evaluator: &Evaluator,
     evaluations: &Evaluations,
     row: &Row,
     mut units: Vec<Unit>,
+    named: u64,
     dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
     gate: &GateLease,
@@ -634,27 +644,19 @@ fn judge(
     };
     let plan = evaluator.plan_units(&call);
     let allowed = evaluator.retry_room();
-    let priced = |room| reply::Price {
-        planned: u64::try_from(plan.requests).unwrap_or(u64::MAX),
-        ceiling: Some(RequestCap::ceiling(plan.requests_at_most, room)),
-        room,
+    let planned = super::admission::Plan {
+        first: u64::try_from(plan.requests).unwrap_or(u64::MAX),
+        at_most: plan.requests_at_most,
+        bounded: true,
+        units: sent.iter().flatten().count(),
+        tokens: plan.input_tokens_at_most,
     };
-    if let Some(max) = row.max_requests
-        && plan.requests_at_most > max
-    {
-        return Err(Box::new(reply::OverBudget {
-            units: sent.iter().flatten().count(),
-            price: priced(allowed),
-            input_tokens_at_most: plan.input_tokens_at_most,
-            max,
-            room: allowed,
-        }));
-    }
-    // The retries its cap leaves room for; held to its ceiling, capped or
-    // not.
-    let room = super::evaluate::room(row.max_requests, plan.requests_at_most, allowed);
-    let price = priced(room);
-    let cap = super::evaluate::held(row, plan.requests_at_most, room);
+    let admitted = super::admission::admit(row.max_requests, planned, named, allowed)?;
+    let price = admitted.price;
+    // Every units row is bounded: its plan states each request it can send.
+    let cap = admitted
+        .cap
+        .unwrap_or_else(|| RequestCap::implicit(plan.requests_at_most, allowed));
     call.cap = Some(&cap);
     let judged =
         dispatcher
@@ -694,11 +696,23 @@ fn judge(
                 cap: None,
                 ..call
             });
-            // Asked again under the row's own cap.
-            let room = super::evaluate::room(row.max_requests, plan.requests_at_most, allowed);
+            // Asked again under the row's own cap: a retry's first round is
+            // within it, so it is admitted at the ceiling it states.
+            let retried = super::admission::Plan {
+                first: u64::try_from(plan.requests).unwrap_or(u64::MAX),
+                at_most: plan.requests_at_most,
+                bounded: true,
+                units: part.len(),
+                tokens: plan.input_tokens_at_most,
+            };
+            let ceiling =
+                match super::admission::admit(row.max_requests, retried, retried.first, allowed) {
+                    Ok(admitted) => admitted.price.ceiling,
+                    Err(over) => over.price.ceiling,
+                };
             Retry {
                 keys: part.iter().map(|&at| units[at].key.clone()).collect(),
-                ceiling: RequestCap::ceiling(plan.requests_at_most, room),
+                ceiling: ceiling.unwrap_or(plan.requests_at_most),
             }
         })
         .collect::<Vec<_>>();

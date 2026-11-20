@@ -66,7 +66,7 @@ fn argument_binding_premises_exclude_unrelated_members() {
         "{}",
         imported.value
     );
-    assert_eq!(imported.value["rows"][0]["to"], "exported.ts#handler");
+    assert_eq!(imported.value["rows"][0]["to"], "app/exported.ts#handler");
     assert_eq!(imported.value["rows"][0]["detail"], "import-binding");
     let rust = ask(&dir.0, "witnesses", Some("scope.rs"), |o| {
         o.edges = vec!["passes".into()];
@@ -99,7 +99,7 @@ fn nearest_ordinary_lexical_scope_wins_for_argument_candidates() {
         if row["from"] == "module.rs#outer" {
             assert_eq!(row["to"], "module.rs#handler");
         } else {
-            assert_eq!(row["to"], "module.rs#inner.handler", "{row}");
+            assert_eq!(row["to"], "app/module.rs#inner.handler", "{row}");
         }
     }
 }

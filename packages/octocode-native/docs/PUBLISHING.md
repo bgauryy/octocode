@@ -9,12 +9,15 @@ The internal Rust crates compile into that binary; none is published to a Cargo 
 | Suffix | Rust target |
 |---|---|
 | `darwin-arm64` | `aarch64-apple-darwin` |
+| `darwin-x64` | `x86_64-apple-darwin` |
 | `linux-arm64-gnu` | `aarch64-unknown-linux-gnu` |
+| `linux-arm64-musl` | `aarch64-unknown-linux-musl` |
 | `linux-x64-gnu` | `x86_64-unknown-linux-gnu` |
+| `linux-x64-musl` | `x86_64-unknown-linux-musl` |
 | `win32-arm64-msvc` | `aarch64-pc-windows-msvc` |
 | `win32-x64-msvc` | `x86_64-pc-windows-msvc` |
 
-`PLATFORMS` is the one list. To add or remove a platform, edit it and run `node scripts/platform-packages.cjs`: it writes each `npm/<platform>/package.json` (`os`, `cpu`, `libc`, `files`, `preferUnplugged`) and `README.md`, and both launchers' `optionalDependencies`. `test:scripts` runs it with `--check`. CI's `native-platforms` job and the Release workflow's matrices (`scripts/release-matrix.cjs`) read the same map.
+`PLATFORMS` is the one list. To add or remove a platform, edit it and run `node scripts/platform-packages.cjs`: it writes each `npm/<platform>/package.json` (`os`, `cpu`, `libc`, `files`, `preferUnplugged`) and `README.md`, and both launchers' `optionalDependencies`. `test:scripts` runs it with `--check`.
 
 ## Build
 
@@ -26,11 +29,11 @@ yarn workspace @octocodeai/octocode-native build:all                  # every pl
 yarn workspace @octocodeai/octocode-native check:target win32-x64-msvc  # one platform, type-check only
 ```
 
-`check:target <platform>` (or `node scripts/build-native.cjs --check --all`) type-checks the same selection through the same cross tool, C build scripts included, and neither links nor stages. Use it while editing platform-specific code (`cfg(windows)`, `cfg(target_os = "linux")`): after a runtime edit it takes about 10s, a release target build about 40s (Apple Silicon host, warm `target/platforms/<platform>/`). CI's `native-platforms` job runs the same check for every platform: darwin on a macOS runner (Apple SDK), the rest on Linux.
+`check:target <platform>` (or `node scripts/build-native.cjs --check --all`) type-checks the same selection through the same cross tool, C build scripts included, and neither links nor stages. Use it while editing platform-specific code (`cfg(windows)`, `cfg(target_os = "linux")`): after a runtime edit it takes about 10s, a release target build about 40s (Apple Silicon host, warm `target/platforms/<platform>/`). darwin targets need a macOS host (Apple SDK).
 
-Every script runs `scripts/build-native.cjs`, which builds the `octocode-cli` binary in one Cargo invocation with the committed lockfile, then stages it atomically into `npm/<platform>/`. Staging replaces the file's inode instead of overwriting it in place, so a running MCP server does not crash. Target builds use `target/platforms/<platform>/`; Linux targets cross-link with cargo-zigbuild and zig, Windows with cargo-xwin. Cross-linked gnu targets link against glibc 2.28, Node 24's own floor (`GLIBC_FLOOR` in the script), so the binary runs wherever Node does. Check the floor with `llvm-readelf -V npm/<platform>/octocode`: no `GLIBC_` version above 2.28. A native Linux build links the host's glibc instead. When the target is the host, staging runs the binary in a subprocess.
+Every script runs `scripts/build-native.cjs`, which builds the `octocode-cli` binary in one Cargo invocation with the committed lockfile, then stages it atomically into `npm/<platform>/`. Staging replaces the file's inode instead of overwriting it in place, so a running MCP server does not crash. Target builds use `target/platforms/<platform>/`; Linux targets cross-link with cargo-zigbuild and zig, Windows with cargo-xwin. Cross-linked gnu targets link against glibc 2.28, Node 24's own floor (`GLIBC_FLOOR` in the script), so the binary runs wherever Node does. Check the floor with `llvm-readelf -V npm/<platform>/octocode`: no `GLIBC_` version above 2.28. A native Linux build links the host's glibc instead. musl targets link statically and allocate through mimalloc (`crates/cli/src/main.rs`), since musl's own allocator serializes threads. Windows targets link the MSVC runtime statically (`+crt-static` in `.cargo/config.toml`), so `octocode.exe` needs no Visual C++ Redistributable. Release builds set `MACOSX_DEPLOYMENT_TARGET` to `MACOS_FLOOR` (11.0) for darwin targets and remap the home, Cargo home and repository paths (`--remap-path-prefix` for Rust, `-ffile-prefix-map` for C outside Windows), so no build-machine path ships. A `RUSTFLAGS` or `CARGO_ENCODED_RUSTFLAGS` variable replaces all configured Rust flags, these included: leave both unset for release builds. When the target is the host, staging runs the binary in a subprocess.
 
-A cross-built artifact is not runtime proof. CI's Release workflow (`.github/workflows/release.yml`, manual dispatch) builds every platform and runs the binary on the platform's own OS and CPU, and each gnu binary also in a glibc 2.28 image, with plain commands in the workflow's "Run the binary" step: `--version` (`octocode <version>`, optionally `+<hex>`, the contract fingerprint), `config --manage` accepting the expected contract fingerprint, `schema`, and one `localSearch` call. Locally, run the same commands on a machine of that platform. `pack-release.cjs` checks each binary's identity (format, CPU, libc with no `GLIBC_` above `GLIBC_FLOOR`, embedded version and fingerprint) before packing.
+A cross-built artifact is not runtime proof, and no CI runs the binaries: before publishing, run each one on its platform's own OS and CPU, each musl binary in Alpine (`node:24-alpine`) and each gnu binary also in a glibc 2.28 image (`almalinux:8`): `--version` (`octocode <version>`, optionally `+<hex>`, the contract fingerprint), `config --manage` accepting the expected contract fingerprint, `schema`, and one `localSearch` call. `pack-release.cjs` checks each binary's identity (format, CPU, libc with no `GLIBC_` above `GLIBC_FLOOR`, embedded version and fingerprint) before packing.
 
 ## Version
 
@@ -45,11 +48,11 @@ node skills-dev/octocode-dev/scripts/prepublish.mjs
 yarn workspace @octocodeai/octocode-native verify
 ```
 
-The Release workflow proves the rest before anything is published: each binary passes the smoke on its own platform, and `scripts/pack-release.cjs` packs one tarball per `PLATFORMS` entry holding exactly its manifest's files (the binary executable), plus both launchers, into the `release-packages` artifact with `SHA256SUMS`. Platform packages have no `prepublishOnly` hook. Generated-contract provenance records the source package/version, format version, contract fingerprint, and contract hash; it does not attest to a clean Git tree. Run the published-core sync gate and follow the owner commit requirements in the release guide.
+Once each binary has passed those runs on its own platform, `node scripts/pack-release.cjs --out release-packages` packs one tarball per `PLATFORMS` entry holding exactly its manifest's files (the binary executable), plus both launchers, into `release-packages/` with `SHA256SUMS`. Platform packages have no `prepublishOnly` hook. Generated-contract provenance records the source package/version, format version, contract fingerprint, and contract hash; it does not attest to a clean Git tree. Run the published-core sync gate and follow the owner commit requirements in the release guide.
 
 ## Canary and promotion
 
-Publish a prerelease under a dist-tag first, from the Release workflow's `release-packages` (check `SHA256SUMS` first): the platform packages, then the launchers at the same version.
+Publish a prerelease under a dist-tag first, from `release-packages/` (check `SHA256SUMS` first): the platform packages, then the launchers at the same version.
 
 ```sh
 for f in release-packages/octocodeai-octocode-native-*-<v>.tgz; do

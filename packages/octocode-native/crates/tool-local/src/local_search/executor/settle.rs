@@ -109,6 +109,9 @@ pub(super) fn settle_row(
         );
     }
     warnings.extend(rows.notes);
+    // A sparse checkout holds only some of its repository: a miss here is
+    // no absence from it.
+    warnings.extend(crate::sparse_scope::coverage(page.root));
     let capped = stats.capped.unwrap_or(false);
     let (status, settled_terminal) = settle(
         query,
@@ -176,15 +179,12 @@ pub(super) fn settle_row(
     }
     // An empty page that searched files and whose skipped paths hold nothing
     // says what it covered in one sentence, before any other fact.
-    if status == SearchStatus::Empty
-        && stats.files_searched > 0
-        && !disclosed.skipped_match
-        && let Some(absence) = coverage.absence(
+    if status == SearchStatus::Empty && stats.files_searched > 0 && !disclosed.skipped_match {
+        let absence = coverage.absence(
             local_search_query::view(query),
             (stats.files_searched, stats.binary_skipped.unwrap_or(0)),
             beyond,
-        )
-    {
+        );
         hints.insert(0, absence);
     }
     let is_partial = coverage.gap() || capped;

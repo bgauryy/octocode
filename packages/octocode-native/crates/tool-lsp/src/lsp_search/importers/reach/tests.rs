@@ -448,3 +448,81 @@ fn a_relay_names_the_aliases_it_exports_the_symbol_under() {
     let file = write(&root, "d/stranger.ts", stranger);
     assert!(!relay.reached_by(&file, stranger, &mut HashMap::new()));
 }
+
+/// A test that imports the package's built entry (`../dist/runtime.js`)
+/// binds what TypeScript resolves it to: the emitted `dist/runtime.d.ts`
+/// ahead of the bundle beside it, through its re-exports into the
+/// declaration output (`outDir` of a second config) that mirrors the
+/// sources, so a namespace member it reads (`validation.asObject`) reaches
+/// the anchor. An import of the entry that never reads the name as a member
+/// binds nothing of it.
+#[test]
+fn a_namespace_read_through_the_built_entry_reaches_the_anchor() {
+    let (_dir, root) = fixture();
+    let anchor_text =
+        "export function asObject(value: unknown): object {\n  return value as object;\n}\n";
+    write(&root, "pkg/package.json", r#"{"name":"pkg"}"#);
+    write(
+        &root,
+        "pkg/tsconfig.json",
+        r#"{"compilerOptions":{"noEmit":true,"rootDirs":["dist","src/entries","src"]},"include":["src/**/*.ts","tests/**/*.ts"]}"#,
+    );
+    write(
+        &root,
+        "pkg/tsconfig.types.json",
+        r#"{"extends":"./tsconfig.json","compilerOptions":{"noEmit":false,"declaration":true,"outDir":"dist/types","rootDir":".."},"include":["src/entries/*.ts"]}"#,
+    );
+    let anchor = write(&root, "pkg/src/runtime/validation.ts", anchor_text);
+    write(
+        &root,
+        "pkg/src/runtime/other.ts",
+        "export function asObject() { return {}; }\n",
+    );
+    let entry = "export * as validation from '../runtime/validation.js';\nexport * as other from '../runtime/other.js';\n";
+    write(&root, "pkg/src/entries/runtime.ts", entry);
+    write(&root, "pkg/dist/types/pkg/src/entries/runtime.d.ts", entry);
+    write(
+        &root,
+        "pkg/dist/types/pkg/src/runtime/validation.d.ts",
+        "export declare function asObject(value: unknown): object;\n",
+    );
+    write(
+        &root,
+        "pkg/dist/types/pkg/src/runtime/other.d.ts",
+        "export declare function asObject(): object;\n",
+    );
+    write(
+        &root,
+        "pkg/dist/runtime.d.ts",
+        "export * from './types/pkg/src/entries/runtime.js';\n",
+    );
+    // The bundle names no source module: only its types bind the import.
+    write(
+        &root,
+        "pkg/dist/runtime.js",
+        "import { validation_exports } from './chunk-A.js';\nexport { validation_exports as validation };\n",
+    );
+    let policy = octocode_runtime_base::test_support::workspace_policy(&root);
+    let listed = [
+        "pkg/src/runtime/validation.ts",
+        "pkg/src/runtime/other.ts",
+        "pkg/src/entries/runtime.ts",
+        "pkg/dist/runtime.d.ts",
+    ]
+    .map(|name| root.join(name));
+    let module = AnchorModule::of(&anchor, anchor_text, "asObject")
+        .expect("module")
+        .within(&root, &listed, &policy);
+    let reached = |name: &str, text: &str| {
+        let file = write(&root, name, text);
+        module.reached_by(&file, text, &mut HashMap::new())
+    };
+    assert!(reached(
+        "pkg/tests/boundary.test.ts",
+        "import { validation } from '../dist/runtime.js';\nvalidation.asObject(1);\n"
+    ));
+    assert!(!reached(
+        "pkg/tests/other.test.ts",
+        "import { other } from '../dist/runtime.js';\nconst asObject = 1;\nother.run(asObject);\n"
+    ));
+}

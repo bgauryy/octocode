@@ -2,7 +2,7 @@
 use super::*;
 pub(super) mod contents;
 mod entries;
-pub(super) use contents::{MAX_WALK_READS, walk_contents};
+pub(super) use contents::{Pace, Walked, walk_contents};
 pub(super) use entries::{entry_kind, missing_ref, not_a_directory, traversal_from_git_tree};
 use entries::{file_oid, git_kind, note_unlisted, unlisted_kind};
 
@@ -61,25 +61,27 @@ pub(super) fn terminal_failure(error: &ProviderError) -> bool {
 pub(super) async fn traverse(
     provider: &GitHubProvider,
     listing: &Listing<'_>,
+    pace: Pace,
     context: &RequestContext,
-) -> Result<Traversal, ProviderError> {
+) -> Result<Walked, ProviderError> {
     let mut split = false;
     if listing.max_depth > 1 {
         match recursive_tree(provider, listing, context).await? {
-            DeepTree::Read(traversal) => return Ok(traversal),
+            DeepTree::Read(traversal) => return Ok(Walked::Done(traversal)),
             DeepTree::Truncated => split = true,
             DeepTree::Unavailable => {}
         }
     }
     // A one-level listing is the walk's first folder, read from its own git
     // tree like any folder.
-    walk_contents(provider, listing, split, context).await
+    walk_contents(provider, listing, split, pace, context).await
 }
 
 /// What one recursive git tree read answered.
 pub(super) enum DeepTree {
     Read(Traversal),
-    /// Past GitHub's recursive-tree limit: smaller subtrees still read whole.
+    /// Past GitHub's recursive-tree limit, or past what one response may
+    /// hold: smaller subtrees still read whole.
     Truncated,
     Unavailable,
 }
@@ -157,7 +159,9 @@ async fn read_tree(
 /// What one git tree read answered.
 enum TreeRead {
     Whole(octocode_github::TreeResponse),
-    /// Past GitHub's recursive-tree limit.
+    /// Past GitHub's recursive-tree limit, or a recursive tree larger than
+    /// one response may hold (a repository the size of Linux): either way
+    /// its subtrees are smaller, and read whole.
     Truncated,
     /// Any other failure than access: the folder-by-folder walk reads instead.
     Unavailable,
@@ -187,6 +191,9 @@ async fn fetch_tree(
         Ok(tree) if !tree.truncated => Ok(TreeRead::Whole(tree)),
         Ok(_) => Ok(TreeRead::Truncated),
         Err(error) if terminal_failure(&error) => Err(error),
+        Err(error) if recursive && error.kind == ProviderErrorKind::ResponseTooLarge => {
+            Ok(TreeRead::Truncated)
+        }
         Err(_) => Ok(TreeRead::Unavailable),
     }
 }

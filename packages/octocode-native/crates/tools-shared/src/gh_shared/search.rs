@@ -131,7 +131,7 @@ pub fn with_search_repair(
             failure.message = repository_not_found_message(owner, repo);
         }
         (
-            repository_recovery(owner, repo),
+            repository_repair(tool, query, owner, repo),
             vec![REPOSITORY_SEARCH_HINT.to_owned()],
         )
     } else {
@@ -144,6 +144,44 @@ pub fn with_search_repair(
     }
     failure.calls = Some(next);
     failure
+}
+
+/// The leads of a `repo` GitHub did not resolve: its
+/// [`repository_recovery`], and first, when the name is a clone URL's
+/// (`flask.git`, GitHub's URL for cloning `flask`), `repair`: the same
+/// `query` of `tool` naming the repository without the suffix, which the
+/// name search asks for too. A name the URL form does not explain keeps
+/// only the recovery.
+pub fn repository_repair(
+    tool: ToolId,
+    query: &impl serde::Serialize,
+    owner: Option<&str>,
+    repo: &str,
+) -> Value {
+    let Some(bare) = without_clone_suffix(repo) else {
+        return repository_recovery(owner, repo);
+    };
+    let mut row = query_row(query, &[]);
+    let mut leads = Value::Object(serde_json::Map::new());
+    if row.get("repo").and_then(Value::as_str) == Some(repo) {
+        row["repo"] = json!(bare);
+        leads["repair"] =
+            octocode_runtime_base::response::result::Continuation::continued(tool, row).build();
+    }
+    if let (Value::Object(leads), Value::Object(recovery)) =
+        (&mut leads, repository_recovery(owner, bare))
+    {
+        leads.extend(recovery);
+    }
+    leads
+}
+
+/// `repo` without the `.git` a clone URL ends with (any ASCII case);
+/// `None` when it has none, or is nothing else.
+fn without_clone_suffix(repo: &str) -> Option<&str> {
+    let split = repo.len().checked_sub(".git".len())?;
+    let (bare, suffix) = (repo.get(..split)?, repo.get(split..)?);
+    (suffix.eq_ignore_ascii_case(".git") && !bare.is_empty()).then_some(bare)
 }
 
 /// `next.nextPage`: the same query at the page after `page`. GitHub's own

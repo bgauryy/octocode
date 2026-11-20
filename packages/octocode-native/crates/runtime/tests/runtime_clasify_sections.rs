@@ -37,16 +37,82 @@ async fn provider() -> MockServer {
     server
 }
 
+/// A `maxRequests` over every page these plans take: they check how a plan
+/// pages, not what bounds it ([`a_sections_plan_is_bounded_by_its_max_requests_per_page`]).
+pub(crate) const EVERY_PAGE: u64 = 1_000;
+
 async fn sections(runtime: &ToolRuntime, resources: Value) -> Value {
     let out = clasify(
         runtime,
         vec![json!({
-            "operation":"sections","resources":resources,
+            "operation":"sections","resources":resources,"maxRequests":EVERY_PAGE,
             "questions":{"q":{"type":"noul","instructions":"Does this section say to restart?"}}
         })],
     )
     .await;
     out["results"][0]["data"].clone()
+}
+
+/// C5/D7: without `maxRequests` a sections plan sends one request per
+/// resource it names, so a plan of more sections sends nothing and offers
+/// `next.confirm` at its price. With `maxRequests` each page takes the
+/// sections whose first round fits the cap and `next.nextPage` the rest:
+/// walking the pages judges every section once, never past the cap per page.
+#[tokio::test]
+async fn a_sections_plan_is_bounded_by_its_max_requests_per_page() {
+    use crate::support::Run as _;
+    let provider = provider().await;
+    let workspace = crate::support::Workspace::new();
+    workspace.write("sections.rs", separate_functions(5));
+    let runtime = crate::support::clasify_runtime(&workspace, &provider, &[]);
+    let row = |max: Option<u64>| {
+        let mut row = json!({
+            "operation":"sections",
+            "resources":{"file":{"tool":"localFetch","query":{"path":"sections.rs"}}},
+            "questions":{"q":{"type":"noul","instructions":"Does this section say to restart?"}}
+        });
+        if let Some(max) = max {
+            row["maxRequests"] = json!(max);
+        }
+        row
+    };
+    let out = clasify(&runtime, vec![row(None)]).await;
+    let data = &out["results"][0]["data"];
+    assert_eq!(data["errorCode"], "classificationOverBudget", "{out}");
+    assert_eq!(data["usage"]["calls"], 0, "{out}");
+    let planned = data["usage"]["requestsPlanned"].as_u64().expect("a plan");
+    assert!(planned > 1, "several sections: {out}");
+    assert_eq!(
+        data["next"]["confirm"]["input"]["queries"][0]["maxRequests"],
+        data["usage"]["requestsCeiling"],
+        "{out}"
+    );
+    assert_eq!(provider_calls(&provider).await, 0, "nothing was sent");
+
+    let cap = 2;
+    let mut page = clasify(&runtime, vec![row(Some(cap))]).await;
+    let (mut spent, mut pages) = (0, 0);
+    loop {
+        let data = page["results"][0]["data"].clone();
+        assert!(data.get("errorCode").is_none(), "{page}");
+        let calls = data["usage"]["calls"].as_u64().unwrap_or(0);
+        assert!(calls <= cap, "{calls} past the cap: {page}");
+        spent += calls;
+        pages += 1;
+        let Some(next) = data["next"].get("nextPage") else {
+            break;
+        };
+        page = runtime
+            .run("page".into(), "clasify".into(), next["input"].clone())
+            .await
+            .expect("next page")
+            .structured_content
+            .into_value();
+    }
+    assert!(pages > 1, "the cap paged the plan");
+    assert_eq!(spent, planned, "each section once: {page}");
+    assert_eq!(provider_calls(&provider).await as u64, spent);
+    runtime.close().await;
 }
 
 async fn provider_calls(server: &MockServer) -> usize {

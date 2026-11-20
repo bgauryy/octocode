@@ -60,7 +60,7 @@ fn cached_extraction_relinks_add_edit_delete_rename_and_negative_dependencies() 
     assert_eq!(added.value["extraction"]["parsedFiles"], 1, "the new file");
     assert_eq!(added.value["extraction"]["reusedFiles"], 2);
     assert_eq!(
-        ask(&dir.0, "callees", Some("main.ts#run"), |_| {}).value["pagination"]["total"],
+        ask(&dir.0, "callees", Some("app/main.ts#run"), |_| {}).value["pagination"]["total"],
         1
     );
     assert_clean_equivalent(&dir.0);
@@ -75,7 +75,7 @@ fn cached_extraction_relinks_add_edit_delete_rename_and_negative_dependencies() 
     std::fs::remove_file(root.join("renamed.ts")).unwrap();
     assert_clean_equivalent(&dir.0);
     assert_eq!(
-        ask(&dir.0, "callees", Some("main.ts#run"), |_| {}).value["pagination"]["total"],
+        ask(&dir.0, "callees", Some("app/main.ts#run"), |_| {}).value["pagination"]["total"],
         0
     );
 }
@@ -102,8 +102,8 @@ fn unchanged_sources_are_rebound_when_resolution_configuration_changes() {
     )
     .unwrap();
     assert_clean_equivalent(&dir.0);
-    let out = ask(&dir.0, "callees", Some("main.ts#run"), |_| {});
-    assert_eq!(out.value["rows"][0]["id"], "right.ts#work", "{}", out.value);
+    let out = ask(&dir.0, "callees", Some("app/main.ts#run"), |_| {});
+    assert_eq!(out.value["rows"][0]["id"], "app/right.ts#work", "{}", out.value);
 }
 
 /// A rebuild after an edit hands the secret scan only the strings that no

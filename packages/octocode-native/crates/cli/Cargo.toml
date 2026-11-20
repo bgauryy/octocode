@@ -58,6 +58,11 @@ libc = { workspace = true }
 [target.'cfg(windows)'.dependencies]
 junction = "2.1"
 
+# musl's own malloc serializes the engine's rayon and tokio threads on one lock;
+# the musl (Alpine) builds allocate through mimalloc instead.
+[target.'cfg(target_env = "musl")'.dependencies]
+mimalloc = { version = "0.1.52", default-features = false }
+
 [dev-dependencies]
 octocode-test-support = { path = "../test-support" }
 wiremock = { workspace = true }

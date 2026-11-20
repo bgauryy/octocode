@@ -45,11 +45,10 @@ async fn whole_records(osv: Value, github: octocode_github::RepositoryAdvisory) 
     let data = answer_on_github(&http, &github, json!({"operation":"advisory","id":ID}))
         .await
         .expect("both records");
-    assert_eq!(
-        data["advisories"],
-        json!([expected_osv, expected_github]),
-        "each complete selected record retains its own fields: {data}"
-    );
+    let rows = data["advisories"].as_array().expect("advisories");
+    assert_eq!(rows.len(), 2, "{data}");
+    assert_eq!(rows[0], expected_osv, "the first record is whole: {data}");
+    assert_same_text_once(rows, &[expected_osv, expected_github]);
     assert!(
         !data["warnings"]
             .as_array()
@@ -64,6 +63,67 @@ async fn whole_records(osv: Value, github: octocode_github::RepositoryAdvisory) 
     );
     octocode_runtime_base::test_support::assert_row_contract(ToolId::SecurityCheck, &data);
     data
+}
+
+/// `rows` against the records as each source states them (`whole`): each
+/// record keeps every field but a summary or details equal to an earlier
+/// record's, line endings aside; a record leaving one out names, in
+/// `textSameAs`, a record holding it (by `link`, or the OSV page its id
+/// names, which the details view leaves unstated); and each distinct text
+/// of the id is stated once.
+fn assert_same_text_once(rows: &[Value], whole: &[Value]) {
+    let unified = |value: &Value| value.as_str().map(|text| text.replace("\r\n", "\n"));
+    let link_of = |row: &Value| {
+        row.get("link").cloned().unwrap_or_else(|| {
+            json!(format!(
+                "https://osv.dev/vulnerability/{}",
+                row["id"].as_str().unwrap_or_default()
+            ))
+        })
+    };
+    for (row, record) in rows.iter().zip(whole) {
+        for (field, value) in record.as_object().expect("record") {
+            match (field.as_str(), row.get(field)) {
+                (_, Some(own)) => assert_eq!(own, value, "{field}: {row}"),
+                ("summary" | "details", None) => {
+                    let pointer = row.get("textSameAs").unwrap_or_else(|| panic!("{row}"));
+                    let holder = rows
+                        .iter()
+                        .find(|held| &link_of(held) == pointer)
+                        .unwrap_or_else(|| panic!("{pointer} resolves: {rows:?}"));
+                    assert!(holder.get("textSameAs").is_none(), "{holder}");
+                    assert_eq!(unified(&holder[field]), unified(value), "{field}");
+                }
+                (_, None) => panic!("{field} lost: {row}"),
+            }
+        }
+        // Nothing but the pointer is added.
+        for field in row.as_object().expect("row").keys() {
+            assert!(
+                field == "textSameAs" || record.get(field).is_some(),
+                "{field} added: {row}"
+            );
+        }
+    }
+    for (field, row) in ["summary", "details"]
+        .iter()
+        .flat_map(|field| rows.iter().map(move |row| (*field, row)))
+    {
+        let stated = rows
+            .iter()
+            .filter(|other| other["id"] == row["id"])
+            .filter_map(|other| unified(&other[field]))
+            .collect::<Vec<_>>();
+        let mut distinct = stated.clone();
+        distinct.sort();
+        distinct.dedup();
+        assert_eq!(
+            stated.len(),
+            distinct.len(),
+            "{field} of {}: {stated:?}",
+            row["id"]
+        );
+    }
 }
 
 #[tokio::test]
@@ -135,7 +195,7 @@ async fn references_keep_each_sources_order() {
 }
 
 #[tokio::test]
-async fn identical_source_fields_are_kept_in_both_records() {
+async fn identical_references_are_kept_in_both_records() {
     whole_records(
         osv_record(json_fixture(
             r#"[{"type": "WEB", "url": "https://refs.example/shared"}]"#,

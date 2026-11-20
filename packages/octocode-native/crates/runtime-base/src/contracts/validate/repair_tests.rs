@@ -774,6 +774,22 @@ fn a_row_level_fault_is_shown_the_rows_own_repository() {
     );
 }
 
+/// Forms that take the row's fields alike are told apart by the row's
+/// values: a Maven row, whether its coordinate or another field is at
+/// fault, is shown a Maven example, never the first form's npm one
+/// (LEFTOVERS P6), and the example is a request the tool accepts.
+#[test]
+fn a_tie_between_forms_picks_the_one_sharing_the_rows_values() {
+    for row in [
+        json!({"operation": "resolve", "ecosystem": "maven", "packageName": "log4j-core"}),
+        json!({"operation": "resolve", "ecosystem": "maven",
+            "packageName": "org.apache.logging.log4j:log4j-core", "noSuchField": 1}),
+    ] {
+        let shown = shown_example("artifactSearch", row.clone());
+        assert_eq!(shown["ecosystem"], row["ecosystem"], "{shown} beside {row}");
+    }
+}
+
 /// A required value the row lacks is shown as a visible placeholder (its
 /// name in capitals), never core's example value, which reads as a real
 /// name: an owner-only repository `get` is shown that owner and `REPO`.

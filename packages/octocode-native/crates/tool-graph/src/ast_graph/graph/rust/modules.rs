@@ -6,6 +6,9 @@ use octocode_engine::graph::{GraphFactImport, GraphFactRustModule};
 struct Module {
     file: String,
     parents: BTreeSet<usize>,
+    /// The parents that mount this file by `#[path]`: another crate's
+    /// target that compiles the source too (a fuzz target, a bench).
+    mounts: BTreeSet<usize>,
     children: BTreeMap<String, BTreeSet<usize>>,
     root: bool,
 }
@@ -131,6 +134,9 @@ impl RustModules {
                                 .or_default()
                                 .insert(child);
                             out.nodes[child].parents.insert(parent);
+                            if module.path.is_some() {
+                                out.nodes[child].mounts.insert(parent);
+                            }
                         }
                     }
                 }
@@ -169,10 +175,9 @@ impl RustModules {
     fn super_leaves_tree(&self, mut id: usize, spec: &str) -> bool {
         let climbs = spec.split("::").take_while(|part| *part == "super").count();
         for _ in 0..climbs {
-            let parents = &self.nodes[id].parents;
-            match Self::only(parents) {
+            match self.parent(id) {
                 Some(parent) => id = parent,
-                None => return parents.is_empty(),
+                None => return self.nodes[id].parents.is_empty(),
             }
         }
         false
@@ -184,6 +189,21 @@ impl RustModules {
         } else {
             None
         }
+    }
+
+    /// The module that declares `id`: its one parent; or, when `#[path]`
+    /// mounts in other crates add parents, the one plain `mod` declaration
+    /// of its home crate, whose paths (`crate::`, `super::`) the file is
+    /// written against. `None` when no single parent is its home.
+    fn parent(&self, id: usize) -> Option<usize> {
+        let node = &self.nodes[id];
+        Self::only(&node.parents).or_else(|| {
+            let mut home = node.parents.difference(&node.mounts);
+            match (home.next(), home.next()) {
+                (Some(parent), None) => Some(*parent),
+                _ => None,
+            }
+        })
     }
 
     fn scope(&self, mut id: usize, scope: &[String]) -> Option<usize> {
@@ -203,7 +223,7 @@ impl RustModules {
                     if !seen.insert(id) {
                         return None;
                     }
-                    id = Self::only(&self.nodes[id].parents)?;
+                    id = self.parent(id)?;
                 }
             }
             "self" => {
@@ -212,7 +232,7 @@ impl RustModules {
             "super" => {
                 while segments.peek() == Some(&"super") {
                     segments.next();
-                    id = Self::only(&self.nodes[id].parents)?;
+                    id = self.parent(id)?;
                 }
             }
             first => {

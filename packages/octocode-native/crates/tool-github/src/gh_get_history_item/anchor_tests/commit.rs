@@ -398,3 +398,51 @@ async fn a_commit_leads_to_its_pull_request_read_or_its_sha_search() {
         assert_eq!(kept.is_some(), !named, "{served}");
     }
 }
+
+/// A message can mention a pull request in prose ("submitted as part of PR
+/// #2483") without stating the one that holds the commit: the SHA search
+/// stays required, and its warning claims only what was checked, never that
+/// the message names no pull request.
+#[tokio::test]
+async fn a_pull_request_mentioned_in_prose_is_not_denied_by_the_warning() {
+    let server = MockServer::builder().start().await;
+    let message = "printer: add hyperlinks\n\nThis commit was submitted as part of PR #2483.";
+    let mut raw = commit_raw(HEAD, message);
+    raw["parents"] = json!([{"sha": BASE}]);
+    raw["files"] = json!([changed_file("src/a.rs")]);
+    mount_json(
+        &server,
+        format!("/api/v3/repos/o/r/commits/{HEAD}"),
+        200,
+        raw,
+    )
+    .await;
+    let out = read(
+        &server,
+        json!({"operation": "commit", "owner": "o", "repo": "r", "ref": HEAD}),
+    )
+    .await;
+    assert!(
+        checks::find_related_call(&out, "ghSearchHistory", |input| {
+            input["queries"][0]["keywords"] == json!([HEAD])
+        })
+        .is_some(),
+        "{out}"
+    );
+    let warnings = out["warnings"].as_array().expect("warnings");
+    assert!(!warnings.is_empty(), "{out}");
+    for warning in warnings.iter().filter_map(Value::as_str) {
+        assert!(
+            !warning.contains("names no pull request"),
+            "the message names #2483: {warning}"
+        );
+    }
+    // The mention is named, so the reader need not guess what it is.
+    assert!(
+        warnings
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|warning| warning.contains("#2483")),
+        "{out}"
+    );
+}

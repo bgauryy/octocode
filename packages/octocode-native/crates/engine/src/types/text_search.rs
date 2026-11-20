@@ -318,21 +318,31 @@ pub struct TextSearchOptions {
     pub judge: Option<SourceJudge>,
 }
 
-/// What a search matches of one opened file: `Ok(Some(text))` when the
+/// The text a judge serves of one source in place of its bytes, line for
+/// line, and the byte ranges of that text it wrote rather than took from the
+/// source (ascending, disjoint): each placeholder, and the blanks a replaced
+/// value's line breaks fold to. A match that takes any written byte is no
+/// hit, count, listing or file-level term: what the search counts is the
+/// source's own text, never a placeholder, nor a byte a read withholds.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ServedText {
+    pub text: Vec<u8>,
+    pub written: Vec<std::ops::Range<usize>>,
+}
+
+/// What a search matches of one opened file: `Ok(Some(served))` when the
 /// judge replaced some of its bytes, the file's text as a read of it serves
-/// it, line for line, so a hit's line is the file's line; `Ok(None)` when the
-/// bytes are searched as they are. A hit is then never made by bytes a read
-/// withholds, and every count, listing and file-level term sees the same
-/// text. An error leaves the file unsearched, recorded as a failed path. The
-/// judge is handed the file at its start, and the search reads it again from
-/// its start after. It is also handed whether the search was stopped
-/// (cancelled, or past its bound): a judge that works for long checks it and
-/// ends its work with an error.
+/// it ([`ServedText`]), so a hit's line is the file's line; `Ok(None)` when
+/// the bytes are searched as they are. An error leaves the file unsearched,
+/// recorded as a failed path. The judge is handed the file at its start, and
+/// the search reads it again from its start after. It is also handed whether
+/// the search was stopped (cancelled, or past its bound): a judge that works
+/// for long checks it and ends its work with an error.
 pub type JudgeSource = dyn Fn(
         &std::path::Path,
         &std::fs::File,
         &(dyn Fn() -> bool + Sync),
-    ) -> std::io::Result<Option<Vec<u8>>>
+    ) -> std::io::Result<Option<ServedText>>
     + Send
     + Sync;
 
@@ -344,9 +354,9 @@ pub(super) type JudgeWrites = dyn Fn(&str, bool) -> bool + Send + Sync;
 
 /// [`JudgeSource`] of bytes already held: the start of one version of a file
 /// that grew while it was searched ([`crate::text::Proved::Prefix`]), served
-/// as the judge serves the file when it holds that file whole. `Some(text)`
+/// as the judge serves the file when it holds that file whole. `Some(served)`
 /// when it replaced some of them; `None` when they are searched as they are.
-pub type JudgeHeldSource = dyn Fn(&std::path::Path, &[u8]) -> Option<Vec<u8>> + Send + Sync;
+pub type JudgeHeldSource = dyn Fn(&std::path::Path, &[u8]) -> Option<ServedText> + Send + Sync;
 
 /// A [`JudgeHeldSource`], for bytes of at most `limit`.
 #[derive(Clone)]

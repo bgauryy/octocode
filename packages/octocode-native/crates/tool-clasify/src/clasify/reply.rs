@@ -130,19 +130,30 @@ pub struct Price {
     pub room: u64,
 }
 
-/// A row whose requests, before any transient retry, are over its
-/// `maxRequests`, priced before anything was sent: how many units it holds,
-/// its price (its ceiling with every transient retry it shares), the input
-/// tokens its first round costs at most (`None` while nothing bounds them),
-/// and the cap.
+/// A row whose first round is past what bounds it
+/// ([`super::admission::admit`]), priced before anything was sent: how many
+/// units it holds, its price (its ceiling with every transient retry it
+/// shares), the input tokens its first round costs at most (`None` while
+/// nothing bounds them), and the bound.
 #[derive(Clone, Copy, Debug)]
 pub struct OverBudget {
     pub units: usize,
     pub price: Price,
     pub input_tokens_at_most: Option<u64>,
-    pub max: u64,
+    pub limit: Limit,
     /// The transient retries the row's ceiling counts.
     pub room: u64,
+    /// The requests already sent: a source the window refused whole, whose
+    /// sections are what was not admitted.
+    pub spent: u64,
+}
+
+/// What bounds a row's first round: its `maxRequests`, or, without one, the
+/// sources, resources and items it names, one request each.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Limit {
+    Max(u64),
+    Named(u64),
 }
 
 /// The usage fields of `price` as the contract types them; nothing for
@@ -201,10 +212,10 @@ pub(super) fn past_ceiling(calls: u64, ceiling: u64) -> Option<String> {
 /// answered a request ([`octocode_tools_shared::judgment::Evaluator::tokens_at_most`]).
 pub(super) const UNPRICED_TOKENS: &str = "inputTokensAtMost is not stated: the provider bills its own prompt beside each request, and nothing bounds it until it has answered a request in this process; requestsPlanned and requestsCeiling still hold.";
 
-/// A row refused before anything was sent: its requests, before any
-/// transient retry, are over `maxRequests`. It states the price and offers
-/// the same row with `maxRequests` raised to the ceiling, its transient
-/// retries included (`next.confirm`, billed).
+/// A row refused before anything was sent: its first round is past what
+/// bounds it ([`Limit`]). It states the price and offers the same row with
+/// `maxRequests` raised to the ceiling, its transient retries included
+/// (`next.confirm`, billed).
 pub(super) fn over_budget(row: &Row, over: &OverBudget, can_resume: bool) -> Value {
     let ceiling = over.price.ceiling.unwrap_or(over.price.planned);
     let at_most = ceiling.saturating_sub(over.room);
@@ -218,17 +229,36 @@ pub(super) fn over_budget(row: &Row, over: &OverBudget, can_resume: bool) -> Val
         1 => " and the 1 transient retry it shares".to_owned(),
         room => format!(" and the {room} transient retries it shares"),
     };
+    let bound = match over.limit {
+        Limit::Max(max) => format!("maxRequests is {max}"),
+        Limit::Named(named) => format!(
+            "without maxRequests a row sends at most one request per source, resource or item it names ({named})"
+        ),
+    };
+    let requests = if over.price.planned == 1 {
+        "request"
+    } else {
+        "requests"
+    };
+    let error = if over.spent == 0 {
+        format!(
+            "{what} would send {} provider {requests}, at most {at_most} with every re-ask and split a refusal can add; {bound}, so nothing was sent.",
+            over.price.planned,
+        )
+    } else {
+        format!(
+            "The provider's window refused this source whole ({}); judged in {} sections it would send {} provider {requests}, at most {at_most} with the source asked whole once more; {bound}, so no section was sent.",
+            octocode_engine::text::counted(over.spent, "request", "requests"),
+            over.units,
+            over.price.planned,
+        )
+    };
     let mut failure = json!({
         "errorCode": ErrorCode::ClassificationOverBudget,
-        "error": format!(
-            "{what} would send {} provider {}, at most {at_most} with every re-ask and split a refusal can add; maxRequests is {}, so nothing was sent.",
-            over.price.planned,
-            if over.price.planned == 1 { "request" } else { "requests" },
-            over.max
-        ),
+        "error": error,
     });
     let mut usage = Map::new();
-    usage.insert("calls".into(), json!(0));
+    usage.insert("calls".into(), json!(over.spent));
     usage.extend(price_fields(over.price, over.input_tokens_at_most));
     failure["usage"] = Value::Object(usage);
     if over.input_tokens_at_most.is_none() {
@@ -381,6 +411,22 @@ pub(super) fn resources_answered(
                     if let Some(Value::Array(calls)) = fields.remove("related") {
                         related.extend(calls);
                     }
+                }
+                out["resources"][resource.key] = value;
+                continue;
+            }
+            // A resource whose plan its bound does not hold: its price and
+            // the call that confirms it alone.
+            super::RowOutcome::OverBudget(over) => {
+                let view = resource
+                    .source
+                    .as_ref()
+                    .map(|source| view(row, Target::Source(source.clone())));
+                let mut value = over_budget(view.as_ref().unwrap_or(row), &over, can_resume);
+                if let Some(fields) = value.as_object_mut()
+                    && let Some(Value::Array(calls)) = fields.remove("related")
+                {
+                    related.extend(calls);
                 }
                 out["resources"][resource.key] = value;
                 continue;

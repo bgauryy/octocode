@@ -40,12 +40,27 @@ pub(super) fn git_changed(
     rev: &str,
     cancel: &dyn octocode_runtime_base::execution::cancel::CancellationCheck,
 ) -> Result<Vec<(String, Change)>, GraphOutput> {
+    // A revision git cannot name is the caller's to correct: an option
+    // spelling, or no commit of this repository. Any other git failure
+    // (no repository, no git) is the tree's.
+    let unknown = || {
+        GraphOutput::error(
+            ErrorCode::InvalidInput,
+            format!(
+                "since {rev:?} names no commit of the repository at the graph's root; pass a branch, tag or commit"
+            ),
+        )
+    };
     if rev.starts_with('-') {
-        return Err(GraphOutput::error(
-            ErrorCode::GitFailed,
-            format!("invalid revision {rev:?}"),
-        ));
+        return Err(unknown());
     }
+    let commit = format!("{rev}^{{commit}}");
+    let verified = git_output(root, &["rev-parse", "--verify", "--quiet", &commit], cancel)?;
+    // `--verify --quiet` exits 1, silently, for a name that is no commit.
+    if verified.status.code() == Some(1) {
+        return Err(unknown());
+    }
+    success(verified)?;
     let run = |args: &[&str]| -> Result<Vec<String>, GraphOutput> {
         // NUL-separated (`-z`): paths arrive unquoted, whatever they hold.
         Ok(String::from_utf8_lossy(&git(root, args, cancel)?)
@@ -88,6 +103,29 @@ pub(in super::super) fn git(
     args: &[&str],
     cancel: &dyn octocode_runtime_base::execution::cancel::CancellationCheck,
 ) -> Result<Vec<u8>, GraphOutput> {
+    success(git_output(root, args, cancel)?)
+}
+
+/// The standard output of a git run that succeeded; its standard error
+/// otherwise.
+fn success(
+    output: octocode_tools_shared::bounded_process::BoundedOutput,
+) -> Result<Vec<u8>, GraphOutput> {
+    if !output.status.success() {
+        return Err(GraphOutput::error(
+            ErrorCode::GitFailed,
+            String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+        ));
+    }
+    Ok(output.stdout)
+}
+
+/// [`git`]'s run, whatever its exit status.
+fn git_output(
+    root: &Path,
+    args: &[&str],
+    cancel: &dyn octocode_runtime_base::execution::cancel::CancellationCheck,
+) -> Result<octocode_tools_shared::bounded_process::BoundedOutput, GraphOutput> {
     let mut command = std::process::Command::new("git");
     command
         .arg("-C")
@@ -96,7 +134,7 @@ pub(in super::super) fn git(
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_OPTIONAL_LOCKS", "0");
-    let output = octocode_tools_shared::bounded_process::run_bounded(
+    octocode_tools_shared::bounded_process::run_bounded(
         command,
         "git",
         std::time::Duration::MAX,
@@ -111,12 +149,5 @@ pub(in super::super) fn git(
                 GraphOutput::error(ErrorCode::GitFailed, message)
             }
         }
-    })?;
-    if !output.status.success() {
-        return Err(GraphOutput::error(
-            ErrorCode::GitFailed,
-            String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-        ));
-    }
-    Ok(output.stdout)
+    })
 }

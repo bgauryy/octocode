@@ -117,7 +117,8 @@ pub(crate) struct Finding {
     /// vulture-style certainty: 100 nothing references it anywhere (every
     /// text file was read), 90 no graph or code reference (bare prose words
     /// go to `evidence.textMentions`), 60 the file path or every listed
-    /// unused export is referenced in code or qualified text
+    /// export (`unused-export`, `export-only-local`) is referenced in code
+    /// or qualified text
     /// (`evidence.mentionedIn`), or no mention scan ran. An export group
     /// only partly referenced splits into one finding per tier. The default
     /// view shows 90+.
@@ -296,11 +297,14 @@ pub(crate) fn run(
     } else if c
         .findings
         .iter()
-        .any(|f| matches!(f.detector, "unreachable-file" | "unused-export"))
+        .any(|f| matches!(f.detector, "unreachable-file" | "unused-export" | "export-only-local"))
     {
         // Without the scan a tier-90 dead-code finding has had no text check.
         for finding in &mut c.findings {
-            if matches!(finding.detector, "unreachable-file" | "unused-export") {
+            if matches!(
+                finding.detector,
+                "unreachable-file" | "unused-export" | "export-only-local"
+            ) {
                 finding.tier = finding.tier.min(60);
             }
         }

@@ -219,5 +219,5 @@ fn analyses_never_cross_language_families() {
     });
     assert_eq!(cycle_members(&cycles), Vec::<Value>::new(), "{cycles}");
     let impact = ask(root, "impact", Some("api.ts"));
-    assert_eq!(impact["summary"]["testsToRun"], json!([]), "{impact}");
+    assert_eq!(impact["summary"]["testsToRun"], 0, "{impact}");
 }

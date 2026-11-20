@@ -141,16 +141,6 @@ pub(super) fn disclose_limits(traversal: &Traversal, page: &ListingPage<'_>, val
             ["One or more repository subdirectories could not be read; retry the same page or narrow the path/depth.".to_owned()],
         );
     }
-    if traversal.unwalked > 0 {
-        octocode_runtime_base::response::paging::push_warnings(
-            value,
-            [format!(
-                "The walk stopped at its read budget ({} folder reads): {} folder(s) were not read, so nothing below them is listed. Narrow path to a subdirectory, find a file by name with ghSearchCode nameContains, or list the whole tree locally with ghCloneRepo.",
-                super::traverse::MAX_WALK_READS,
-                traversal.unwalked
-            )],
-        );
-    }
     if traversal.unchecked > 0 {
         octocode_runtime_base::response::paging::push_warnings(
             value,

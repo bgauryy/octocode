@@ -46,6 +46,49 @@ async fn tag_listing_failure_never_emits_an_incompatible_order_cursor() {
     );
 }
 
+/// A repository named as its clone URL names it (`b.git`) that GitHub
+/// does not resolve leads first to the same listing naming `b`.
+#[tokio::test]
+async fn a_missing_repository_named_with_a_clone_suffix_is_repaired() {
+    let server = MockServer::builder().start().await;
+    for route in [
+        "/api/v3/repos/a/b.git",
+        "/api/v3/repos/a/b.git/commits/HEAD",
+    ] {
+        mount_json(
+            &server,
+            route,
+            404,
+            json_fixture(r#"{"message": "Not Found"}"#),
+        )
+        .await;
+    }
+    let home = tempfile::tempdir().expect("home");
+    let provider = mock_provider(&server, RetryPolicy::default());
+    let context = default_context();
+    let failure = run(
+        &provider,
+        &query(json!({"operation": "tree", "owner": "a", "repo": "b.git", "path": "src"})),
+        Ok(&context),
+        home.path(),
+        None,
+    )
+    .await
+    .expect_err("missing repository");
+    let calls = failure.calls.as_deref().expect("next");
+    assert_eq!(calls["repair"]["tool"], "ghStructure", "{calls}");
+    assert_eq!(
+        calls["repair"]["input"]["queries"][0],
+        json!({"operation": "tree", "owner": "a", "repo": "b", "path": "src"}),
+        "{calls}"
+    );
+    assert_eq!(
+        calls["findRepository"]["input"]["queries"][0]["keywords"],
+        json!(["b"]),
+        "{calls}"
+    );
+}
+
 /// A repository that does not resolve (a typo) leads to a search for
 /// its name, as the search tools' failures do.
 #[tokio::test]

@@ -222,8 +222,38 @@ pub(crate) async fn pin_release_tag(
     )
     .await;
     let ambiguous = search.ambiguous();
+    // Not even the candidates (the declared tag among them) were checked.
+    let unchecked = matches!(
+        search,
+        TagSearch::Unchecked
+            | TagSearch::Unlisted {
+                shapes_checked: false,
+                ..
+            }
+    );
     search.note_on(artifact, version);
     let mut found = search.found();
+    // A declared tag naming this release that GitHub could not be asked
+    // about stays the ref, as the registry's claim, rather than no ref at
+    // all (as [`pin_go_release_tag`] keeps its spelled tag).
+    if found.is_none()
+        && unchecked
+        && github_slug(&repository).is_some()
+        && let Some(tag) = declared
+            .map(str::trim)
+            .filter(|tag| names_version(tag, bare_version(version)))
+    {
+        // A repository on GitHub is unchecked only without GitHub access;
+        // a lookup cut short has noted its own cause.
+        if artifact.tag_absence.is_none() {
+            artifact.tag_absence = Some(super::TagAbsence::Unchecked(
+                CheckFailure::Unavailable.describe(),
+            ));
+        }
+        artifact.source_ref = Some(tag.to_owned());
+        artifact.declared_ref = true;
+        return;
+    }
     // No tag names the release: a declared tag of another release (a release
     // candidate's) that exists is still nearer the release than the default
     // branch. It is pinned as the registry's claim (`registryRef`), never as

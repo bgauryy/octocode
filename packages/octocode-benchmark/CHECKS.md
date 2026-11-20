@@ -9,6 +9,8 @@ away and nothing is lost.
 
 Run [tool-checks](tool-checks/README.md) first on the local build: one file per tool, its workflow into the related tools, scored on description, schema, results and offered follow-ups.
 
+For a rating that is not anchored on those paths, run [independent raters](briefs/independent-raters.md): one fresh agent per tool group, fresh questions, every claim checked against ground truth, each tool scored on the [12-dimension rubric](RATINGS.md#agent-experience-rubric-12-dimensions).
+
 A round fills in one [scorecard](briefs/SCORECARD.md), using the [1–10 rating rubric](RATINGS.md),
 so what is ready is visible at a glance. Every tool has [specific questions](questions/tools/README.md).
 Ready briefs

@@ -1,6 +1,6 @@
 ---
 name: octocode-engineer
-description: "Load first, before proposing a design, to choose, design or review how software is built: architecture, data structures, storage, caching, concurrency, sync vs async, I/O, streaming, throttling, networking, memory, APIs, reliability, refactors. Observed runtime failures: octocode-debugging."
+description: "Load this skill first when asked how software should be built (architecture, data structures, caching, concurrency, I/O, APIs, refactors): it compares options against workload and failure paths. Runtime failures: octocode-debugging."
 ---
 
 # Octocode Engineer

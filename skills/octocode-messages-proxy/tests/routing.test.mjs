@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { fakeProcesses } from './fake-host.mjs';
 
 const tools = fileURLToPath(new URL('../scripts/', import.meta.url));
 const text = 'Status ✓\r\nsecond line  \n';
@@ -32,6 +33,19 @@ test('Codex queue receives one literal argument including whitespace', t => {
   assert.notEqual(mixed.status, 0);
   assert.match(mixed.stderr, /requires --session/);
   assert.equal(mixed.stdout, '');
+});
+
+test('a native send without --from uses the host found in the process tree', t => {
+  const dir = workspace(t);
+  writeFileSync(path.join(dir, 'codex'), '#!/usr/bin/env python3\nimport json,sys\nprint(json.dumps(sys.argv[1:]))\n', { mode: 0o700 });
+  fakeProcesses(dir, { selfParent: 9001, rows: [[9001, 1, '/opt/homebrew/bin/codex', 'codex']] });
+  const native = send(dir, ['--to', 'codex:thread']);
+  assert.equal(native.status, 0, native.stderr);
+  assert.equal(JSON.parse(native.stdout)[0], 'queue');
+  fakeProcesses(dir, { selfParent: 9001, rows: [[9001, 1, 'node', 'octocode-main-abcd1234']] });
+  const crossVendor = send(dir, ['--to', 'codex:thread']);
+  assert.notEqual(crossVendor.status, 0);
+  assert.match(crossVendor.stderr, /requires --session/);
 });
 
 test('Claude authorizes one named recipient and restores the original text at dispatch', t => {

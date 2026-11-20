@@ -1,6 +1,6 @@
 # Write and improve skills
 
-Load when changing a skill's trigger, instructions or resource layout. Start from the [entry template](../SKILL.md#template).
+Load when changing a skill's trigger, instructions or resource layout. Start from the [entry template](template.md).
 
 ## Work loop
 
@@ -28,6 +28,7 @@ Combine these only when the task needs them. The template is the sole starting s
 The body cannot rescue a trigger the host never selects. Check the actual served listing, including stale overrides, against intended and neighboring requests.
 
 - Match the stable folder name: 1–64 lowercase ASCII letters, digits and single hyphens; no leading/trailing hyphen.
+- The description is the trigger (when to load) plus a concise motivation (what the skill does and why to load it instead of working alone). Put the trigger first; keep procedure in the body.
 - Begin the description with “Load this skill first when” and the request as a user would phrase it. An agent reads only the description when choosing, so it answers three questions: which requests, why load it instead of working alone, and what it is not for. Host runs on 2026-11-14 measured this lead against “Use when”: Haiku held-out 9.5 → 13 of 20, Sonnet 18 → 19 of 20, no new false triggers.
 - Scope hard where a neighbor or general habit competes: “Load this skill first to review a GitHub pull request, and only a pull request …” beats a list of every input the body happens to support. Name the neighbor that owns the near-miss.
 - For jobs agents believe they can do alone (research, debugging, docs), name the shortcut it replaces in the lead (“before searching or reading files yourself”); recheck no-skill requests for false triggers.
@@ -36,6 +37,8 @@ The body cannot rescue a trigger the host never selects. Check the actual served
 - Test the description against the skill's actual actions. Include the distinguishing capability and essential neighbor boundary; keep procedure, commands and quality claims in the body.
 
 ## Lobby and files
+
+Keep SKILL.md at 50 lines or fewer (the checker warns with `skill-length`): first action, deciding conditions, safeguards and completion stay inline; independent branch detail moves to `references/<topic>.md`, linked from a “When → Read” row.
 
 Use the [placement table](../SKILL.md#decide-placement). Name resources by task or domain so their contents are predictable. Keep task-critical branches one read from the entry. Split by independent load conditions; merge pages the same reader always needs together. Add a contents list when a long reference is hard to scan.
 
@@ -49,7 +52,7 @@ Optional metadata and host files need an actual consumer. Verify host support, p
 
 ## Minimal single-file template
 
-Use the [canonical template](../SKILL.md#template), then walk a normal request and a failure or missing-input case. Add only the resources those tasks need. Keep simple result contracts inline even when references or executable helpers exist. A separate `output.md` is useful for a complex report schema. In Octocode's collection, renderer/catalog consumers use a `## Saved report` section and bundled `references/report-output.md`. Other skills follow their actual consumer's format, dependencies and destination.
+Use the [canonical template](template.md), then walk a normal request and a failure or missing-input case. Add only the resources those tasks need. Keep simple result contracts inline even when references or executable helpers exist. A separate `output.md` is useful for a complex report schema. In Octocode's collection, renderer/catalog consumers use a `## Saved report` section and bundled `references/report-output.md`. Other skills follow their actual consumer's format, dependencies and destination.
 
 ## Standards and limits
 

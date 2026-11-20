@@ -4,22 +4,35 @@ use super::*;
 use crate::lsp_search::importers::{CONCURRENT_FILE_VERIFICATIONS, ordered_concurrently};
 
 impl<'a, 'p> Fallback<'a, 'p> {
+    /// The type declarations the definition at `path` `line` `character`
+    /// resolves to. A base `named` there whose every definition lies outside
+    /// the read policy (`Send` in the toolchain's `core`) resolves: it is
+    /// withheld by name, not a relation the source failed to establish.
     pub(super) async fn definitions(
         &self,
         path: &str,
         line: u32,
         character: u32,
+        named: Option<&str>,
     ) -> Result<Vec<Value>, LspFailure> {
-        let mut found = get_locations(
+        let (mut found, withheld) = get_counted_locations(
             self.client,
             self.snippet_policy,
             self.cancel,
             LocationRequest::Definition,
-            path,
-            line,
-            character,
+            (path, line, character),
         )
         .await?;
+        if let Some(name) = named
+            && found.is_empty()
+            && withheld > 0
+        {
+            let mut names = self.withheld.lock().await;
+            if !names.iter().any(|known| known == name) {
+                names.push(name.to_owned());
+            }
+            return Ok(Vec::new());
+        }
         let mut nodes = Vec::new();
         let mut unresolved = false;
         for snippet in &found {
@@ -101,7 +114,10 @@ impl<'a, 'p> Fallback<'a, 'p> {
         }
         let mut resolved = Vec::new();
         for (path, base) in bases {
-            match self.definitions(&path, base.line, base.character).await {
+            match self
+                .definitions(&path, base.line, base.character, Some(&base.name))
+                .await
+            {
                 Ok(nodes) => resolved.extend(nodes),
                 Err(failure) if failure.is_cancelled() => return Err(failure),
                 Err(failure) => self.fail_from(failure).await,

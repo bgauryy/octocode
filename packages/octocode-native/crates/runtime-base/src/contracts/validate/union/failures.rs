@@ -279,11 +279,23 @@ pub(super) fn mixed_forms(
 pub(super) fn score(
     issues: &[ValidationIssue],
     depth: usize,
-    selectors: &[String],
+    selectors: &super::branches::Selectors,
     undeclared: usize,
-) -> [usize; 7] {
+) -> [usize; 8] {
     let at_field = |issue: &&ValidationIssue| issue.path.len() == depth + 1;
     [
+        // A selector whose value names one form decides first: the value
+        // is of that form, whatever another selector it fails there.
+        issues
+            .iter()
+            .filter(|issue| selector_mismatch(issue, depth, selectors))
+            .filter(|issue| {
+                issue
+                    .path
+                    .last()
+                    .is_some_and(|field| selectors.names_one(field))
+            })
+            .count(),
         issues
             .iter()
             .filter(|issue| selector_mismatch(issue, depth, selectors))

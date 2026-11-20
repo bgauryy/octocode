@@ -74,7 +74,11 @@ use octocode_tools_shared::import_resolution::{aliases, js_paths, paths};
 /// streamed::f` after `use scanned::streamed`), and `use super::*` binds the
 /// parent's `use`s for the paths and calls that name them; lockfiles and other
 /// files no linking step reads are no snapshot inputs.
-const ANALYSIS_VERSION: u32 = 40;
+/// 41: a Rust module file another crate also mounts by `#[path]` resolves
+/// `crate::` and `super::` through its home crate's plain `mod`; a method
+/// call on a receiver of a type the repository does not declare is
+/// `not-declared-in-repo`, outside the linkage ratio.
+const ANALYSIS_VERSION: u32 = 41;
 
 /// graphBuild's and graphQuery's recovery for the shared response stages.
 pub struct Output;

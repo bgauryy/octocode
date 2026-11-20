@@ -330,7 +330,9 @@ fn in_row_terms(tool_name: &str, example: &Value, rejected: Option<&Rejected<'_>
 }
 
 /// The form of `variants` that takes the most fields of `row`, among those
-/// of the `operation` it names when any form has it; the first on a tie.
+/// of the `operation` it names when any form has it; on a tie, the one whose
+/// example shares the most of the row's values (a Maven row is shown the
+/// Maven example, not the first form's npm one); then the first.
 fn nearest_form<'a>(
     variants: &'a [Value],
     row: Option<&serde_json::Map<String, Value>>,
@@ -355,17 +357,23 @@ fn nearest_form<'a>(
         of_operation
     };
     let taken = |variant: &Value| {
-        row.map_or(0, |row| {
-            row.keys()
+        row.map_or((0, 0), |row| {
+            let fields = row
+                .keys()
                 .filter(|field| names(variant, "fields", field))
-                .count()
+                .count();
+            let shared = row
+                .iter()
+                .filter(|(field, value)| variant["example"].get(field.as_str()) == Some(value))
+                .count();
+            (fields, shared)
         })
     };
-    let mut nearest: Option<(&Value, usize)> = None;
+    let mut nearest: Option<(&Value, (usize, usize))> = None;
     for form in forms {
-        let fields = taken(form);
-        if nearest.is_none_or(|(_, most)| fields > most) {
-            nearest = Some((form, fields));
+        let score = taken(form);
+        if nearest.is_none_or(|(_, most)| score > most) {
+            nearest = Some((form, score));
         }
     }
     nearest.map(|(form, _)| form)

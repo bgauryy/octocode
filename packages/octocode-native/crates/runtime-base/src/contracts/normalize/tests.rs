@@ -73,34 +73,39 @@ fn a_field_at_its_default_beside_another_form_runs_without_it() {
     );
 }
 
-/// A clasify source's `query` is the row a direct call of its tool
-/// takes, so it is repaired as that direct call is, and the note names the
-/// field to send under `source.query`.
+/// A clasify call bills, so the tool query its source holds runs only as
+/// sent: what a free direct call of that tool repairs (a guessed field, a
+/// value in another shape) stays the clasify row's refusal, before anything
+/// is read or billed, and the error names the field to send.
 #[test]
-fn a_source_query_is_repaired_as_its_tools_direct_call() {
-    let query = json_fixture(r#"{"path": ".", "matchString": ["x"], "contextLines": 4}"#);
-    let sent = json!({"queries":[{"operation":"evaluate",
-        "source":{"tool":"localSearch","query":query},
-        "questions":{"r":{"type":"noul","instructions":"Is it?"}}}]});
-    let direct = normalized_input("localSearch", json!({"queries":[query]})).0;
-    let input = accepted("clasify", sent.clone());
-    assert_eq!(
-        input["queries"][0]["source"]["query"], direct["queries"][0],
-        "{input}"
-    );
-    assert_eq!(
-        input["queries"][0]["source"]["query"]["contextLines"],
-        json_fixture(r#"{"before": 4, "after": 4}"#),
-        "{input}"
-    );
-    let notes = normalized_input("clasify", sent).1;
-    assert!(
-        notes
-            .iter()
-            .any(|note| note.starts_with("queries[0]: source.query: ")
-                && note.contains("contextLines")),
-        "{notes:?}"
-    );
+fn a_billed_calls_source_query_is_validated_as_sent() {
+    for (query, field) in [
+        (
+            json_fixture(r#"{"path": ".", "pattern": "retry"}"#),
+            "matchString",
+        ),
+        (
+            json_fixture(r#"{"path": ".", "matchString": ["x"], "contextLines": 4}"#),
+            "contextLines",
+        ),
+    ] {
+        let direct = normalized_input("localSearch", json!({"queries":[query.clone()]}));
+        assert_ne!(direct.0["queries"][0], query, "the direct call repairs it");
+        assert!(!direct.1.is_empty(), "and says so: {direct:?}");
+        let sent = json!({"queries":[{"operation":"evaluate",
+            "source":{"tool":"localSearch","query":query},
+            "questions":{"r":{"type":"noul","instructions":"Is it?"}}}]});
+        let (input, notes) = normalized_input("clasify", sent.clone());
+        assert_eq!(input, sent, "nothing of a billed call is repaired");
+        assert!(notes.is_empty(), "{notes:?}");
+        let refused = match prepare_rows("clasify", input) {
+            Err(error) => error,
+            Ok(mut rows) => rows.remove(0).expect_err("refused as sent"),
+        };
+        let shown = crate::contracts::format_input_error("clasify", &refused, &[], &Value::Null)
+            .to_string();
+        assert!(shown.contains(field), "{shown}");
+    }
 }
 
 /// A value is repaired one nesting level per validation round, so the rounds

@@ -101,6 +101,38 @@ fn ask(
     query(&options, &workspace_policy(dir))
 }
 
+/// Every row of the `impact` summary list `list`: the question `tweak`
+/// asks with `list` set, read page by page to its end.
+fn summary_list(
+    dir: &Path,
+    target: Option<&str>,
+    list: &str,
+    tweak: impl Fn(&mut QueryOptions),
+) -> Vec<Value> {
+    let mut rows = Vec::new();
+    loop {
+        let offset = rows.len();
+        let out = ask(dir, "impact", target, |options| {
+            tweak(options);
+            options.list = Some(list.into());
+            options.offset = Some(offset);
+        });
+        assert_eq!(out.value["list"], list, "{}", out.value);
+        rows.extend(out.value["rows"].as_array().cloned().unwrap_or_default());
+        if out.value["pagination"]["hasMore"] != true {
+            return rows;
+        }
+    }
+}
+
+/// The test files `impact` of `target` names to run, in order.
+fn tests_to_run(dir: &Path, target: &str, tweak: impl Fn(&mut QueryOptions)) -> Vec<String> {
+    summary_list(dir, Some(target), "testsToRun", tweak)
+        .iter()
+        .map(|row| row["path"].as_str().expect("test path").to_owned())
+        .collect()
+}
+
 fn ids(out: &GraphOutput) -> Vec<String> {
     out.value["rows"]
         .as_array()

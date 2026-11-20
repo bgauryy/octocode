@@ -252,7 +252,8 @@ fn run_match_under(
         .recovered_bodies
         .respelled(|shown| row_paths.delivered(shown));
     let bounds = window_bounds(before, &scan);
-    let mut page = stream::stream_page(q, &grouped.groups, bounds, budget);
+    let mut census = render::Census::of(q, &scope, &scan, &grouped)?;
+    let mut page = census.page(q, &scan, &grouped, (bounds, budget, before));
     page.count_from(before.before);
     let rows = page_rows::PageRows {
         snapshot: &snapshot,
@@ -318,7 +319,7 @@ fn run_match_under(
         grouped,
         &snapshot,
         gaps,
-        (&page, row_paths, bounds),
+        (&page, census, row_paths, bounds),
         cancel,
     )?;
     // A page with matches keeps no hints (they recover an empty or failed

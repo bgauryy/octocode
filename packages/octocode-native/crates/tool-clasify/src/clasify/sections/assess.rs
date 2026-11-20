@@ -39,7 +39,8 @@ pub(super) fn assess_and_save(
     gate: &GateLease,
 ) -> Result<Outcome, ClassificationError> {
     let mut usage = ClassificationUsage::default();
-    let (admitted, deferred_by_sibling) = admit_units(session, shared, !runtime.can_resume);
+    let (admitted, deferred_by_sibling) =
+        admit_units(session, shared, !runtime.can_resume, dispatcher);
     let judged_chars = admitted
         .iter()
         .map(|&[resource, unit]| session.resources[resource].units[unit].chars)
@@ -67,33 +68,23 @@ pub(super) fn assess_and_save(
     // mismatch decision match a serial run whatever order calls finish in.
     let pending: Vec<Vec<usize>> = admitted
         .iter()
-        .map(|&[resource, unit]| {
-            session.resources[resource].units[unit]
-                .cells
-                .iter()
-                .enumerate()
-                .filter_map(|(index, cell)| cell.is_none().then_some(index))
-                .collect()
-        })
+        .map(|&[resource, unit]| pending_of(&session.resources[resource].units[unit]))
         .collect();
-    // The page's price, and the ceiling it is held to.
+    // The page's price, and the ceiling it is held to: the row's
+    // `maxRequests`, which its admission fits, else the provider's windows
+    // ([`RequestCap::implicit`]).
+    let plan = plan_of(session, &admitted, dispatcher);
+    let room = dispatcher.evaluator().retry_room();
+    let held = match session.max_requests {
+        Some(max) => super::super::admission::within(max, plan, room),
+        None => super::super::admission::own_ceiling(plan, room),
+    };
+    let cap = held
+        .cap
+        .unwrap_or_else(|| RequestCap::implicit(plan.at_most, room));
+    usage.requests_planned = Some(held.price.planned);
+    usage.requests_ceiling = held.price.ceiling;
     let inputs = inputs(session, &admitted, &pending);
-    let evaluator = dispatcher.evaluator();
-    let (planned, at_most) = inputs
-        .iter()
-        .fold((0_u64, 0_u64), |(planned, at_most), input| {
-            let sends = evaluator.sends(input.evaluation(session, None), session.model.as_deref());
-            (
-                planned.saturating_add(sends.first),
-                at_most.saturating_add(sends.at_most),
-            )
-        });
-    let room = evaluator.retry_room();
-    // A sections page takes no maxRequests: its ceiling rests on the
-    // provider's windows ([`RequestCap::implicit`]).
-    let cap = RequestCap::implicit(at_most, room);
-    usage.requests_planned = Some(planned);
-    usage.requests_ceiling = Some(RequestCap::ceiling(at_most, room));
     let results = judge_units(session, &inputs, dispatcher, context, gate, Some(&cap));
     let (settled, deferred) = apply_results(
         session,
@@ -310,22 +301,92 @@ pub(super) fn judge_units(
     results.into_iter().map(|(_, result)| result).collect()
 }
 
+/// Every unit with a question still pending, as `[resource, unit]`, in plan
+/// order.
+pub(super) fn pending(session: &Session) -> Vec<[usize; 2]> {
+    session
+        .resources
+        .iter()
+        .enumerate()
+        .flat_map(|(resource, planned)| {
+            planned
+                .units
+                .iter()
+                .enumerate()
+                .filter(|(_, unit)| unit.cells.iter().any(Option::is_none))
+                .map(move |(unit, _)| [resource, unit])
+        })
+        .collect()
+}
+
+/// The requests judging `units` (their pending questions) sends: each
+/// one's first round, and every request its refusals can add.
+pub(super) fn plan_of(
+    session: &Session,
+    units: &[[usize; 2]],
+    dispatcher: &dyn SourceReader,
+) -> super::super::admission::Plan {
+    let evaluator = dispatcher.evaluator();
+    let pending = units
+        .iter()
+        .map(|&[resource, unit]| pending_of(&session.resources[resource].units[unit]))
+        .collect::<Vec<_>>();
+    let (first, at_most) =
+        inputs(session, units, &pending)
+            .iter()
+            .fold((0_u64, 0_u64), |(first, at_most), input| {
+                let sends =
+                    evaluator.sends(input.evaluation(session, None), session.model.as_deref());
+                (
+                    first.saturating_add(sends.first),
+                    at_most.saturating_add(sends.at_most),
+                )
+            });
+    super::super::admission::Plan {
+        first,
+        at_most,
+        bounded: true,
+        units: units.len(),
+        tokens: None,
+    }
+}
+
+/// The questions of `unit` still pending, in question order.
+fn pending_of(unit: &super::Unit) -> Vec<usize> {
+    unit.cells
+        .iter()
+        .enumerate()
+        .filter_map(|(index, cell)| cell.is_none().then_some(index))
+        .collect()
+}
+
 /// The units this batch assesses, as `[resource, unit]`, in plan order
-/// while the shared budget admits them; and whether a sibling's admissions
-/// deferred the whole batch.
-fn admit_units(session: &Session, shared: &Budget, whole: bool) -> (Vec<[usize; 2]>, bool) {
+/// while the shared budget admits them and, with `maxRequests`, while their
+/// first round fits it (the first always does: a section is one request);
+/// and whether a sibling's admissions deferred the whole batch. What a
+/// batch does not take, the next takes.
+fn admit_units(
+    session: &Session,
+    shared: &Budget,
+    whole: bool,
+    dispatcher: &dyn SourceReader,
+) -> (Vec<[usize; 2]>, bool) {
     let mut admitted = Vec::new();
-    for (resource_index, resource) in session.resources.iter().enumerate() {
-        for (unit_index, unit) in resource.units.iter().enumerate() {
-            if unit.cells.iter().all(Option::is_some) {
-                continue;
+    let mut first = 0_u64;
+    for at in pending(session) {
+        if let Some(max) = session.max_requests {
+            let more = plan_of(session, &[at], dispatcher).first;
+            if !admitted.is_empty() && first.saturating_add(more) > max {
+                return (admitted, false);
             }
-            if !shared.admit(unit.chars, whole) {
-                let deferred_by_sibling = admitted.is_empty() && shared.has_admissions();
-                return (admitted, deferred_by_sibling);
-            }
-            admitted.push([resource_index, unit_index]);
+            first = first.saturating_add(more);
         }
+        let unit = &session.resources[at[0]].units[at[1]];
+        if !shared.admit(unit.chars, whole) {
+            let deferred_by_sibling = admitted.is_empty() && shared.has_admissions();
+            return (admitted, deferred_by_sibling);
+        }
+        admitted.push(at);
     }
     (admitted, false)
 }

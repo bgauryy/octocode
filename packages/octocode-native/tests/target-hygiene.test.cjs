@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const { tmpdir } = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
-const { cargoProcesses, finishCargoRun, main, prune } = require('../scripts/target-hygiene.cjs');
+const { cargoProcesses, finishCargoRun, isCargoProgress, main, prune } = require('../scripts/target-hygiene.cjs');
 
 const LIVE = '1111111111111111';
 const OLD = '2222222222222222';
@@ -126,6 +126,22 @@ test('prune refuses, and deletes nothing, while a cargo process is alive', async
   assert.ok(result.refused.some(process => process.pid === child.pid && process.name === 'cargo'), JSON.stringify(result.refused));
   assert.ok(exists(root, `target/debug/deps/libcore_crate-${OLD}.rlib`));
   assert.ok(exists(root, 'target/debug/incremental'));
+});
+
+test('only per-unit progress lines count as Cargo progress; diagnostics and lock waits stay', () => {
+  for (const line of ['   Compiling serde v1.0.229', '    Checking tokio v1.54.1', '       Fresh libc v0.2.0', ' Downloaded 3 crates (1.2 MB) in 0.4s', '     Locking 2 packages to latest compatible versions']) {
+    assert.equal(isCargoProgress(line), true, line);
+  }
+  for (const line of [
+    'warning: unused variable: `x`',
+    'error[E0599]: no method named `get_index_of` found',
+    '  --> crates/engine/src/lib.rs:7:9',
+    '    Blocking waiting for file lock on build directory',
+    '    Finished `release` profile [optimized] target(s) in 4m 27s',
+    '',
+  ]) {
+    assert.equal(isCargoProgress(line), false, line);
+  }
 });
 
 test('cargo-family processes are recognized by executable name only', () => {

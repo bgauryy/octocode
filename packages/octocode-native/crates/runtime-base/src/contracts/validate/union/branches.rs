@@ -209,8 +209,10 @@ pub(super) fn disjoint_forms(root: &Value, branches: &[Value]) -> Option<Vec<Vec
 /// The fields that select among `branches`: forms pin each to literals
 /// (`const`/`enum`), and not all to the same set. A literal on any other
 /// field (a `role` only one form declares, or every form pins alike) is a
-/// value of the form, not a choice between forms.
-pub(super) fn selector_fields(root: &Value, branches: &[Value]) -> Vec<String> {
+/// value of the form, not a choice between forms. A selector whose forms'
+/// sets share no literal names one form by its value alone ([`Selectors::names_one`]):
+/// `by` beside `asc`-only and `asc`-or-`desc` orders.
+pub(super) fn selector_fields(root: &Value, branches: &[Value]) -> Selectors {
     let mut sets: Vec<(&str, Vec<Vec<&Value>>)> = Vec::new();
     for form in branches
         .iter()
@@ -236,10 +238,48 @@ pub(super) fn selector_fields(root: &Value, branches: &[Value]) -> Vec<String> {
             }
         }
     }
-    sets.into_iter()
-        .filter(|(_, distinct)| distinct.len() > 1)
-        .map(|(field, _)| field.to_owned())
-        .collect()
+    let disjoint = |distinct: &[Vec<&Value>]| {
+        distinct.iter().enumerate().all(|(index, set)| {
+            distinct[index + 1..].iter().all(|other| {
+                !set.iter()
+                    .any(|literal| other.iter().any(|known| equivalent(literal, known)))
+            })
+        })
+    };
+    let mut selectors = Selectors::default();
+    for (field, distinct) in sets.into_iter().filter(|(_, distinct)| distinct.len() > 1) {
+        if disjoint(&distinct) {
+            selectors.naming.push(field.to_owned());
+        }
+        selectors.fields.push(field.to_owned());
+    }
+    selectors
+}
+
+/// A union's selector fields ([`selector_fields`]), and those of them whose
+/// value names one form.
+#[derive(Debug, Default)]
+pub(super) struct Selectors {
+    fields: Vec<String>,
+    naming: Vec<String>,
+}
+
+impl Selectors {
+    /// Whether `field` is a selector whose forms' literal sets share no
+    /// value: a mismatch there says the value is of another form, where a
+    /// mismatch on a selector whose sets overlap (an `order` one form takes
+    /// as `asc` alone) may be the value's error within its own form.
+    pub(super) fn names_one(&self, field: &str) -> bool {
+        self.naming.iter().any(|named| named == field)
+    }
+}
+
+impl std::ops::Deref for Selectors {
+    type Target = [String];
+
+    fn deref(&self) -> &[String] {
+        &self.fields
+    }
 }
 
 fn same_literals(left: &[&Value], right: &[&Value]) -> bool {
@@ -264,4 +304,85 @@ pub(super) fn undeclared_fields(root: &Value, branch: &Value, value: &Value) -> 
         .keys()
         .filter(|key| !forms.iter().any(|declared| declared.contains_key(*key)))
         .count()
+}
+
+#[cfg(test)]
+mod selector_tests {
+    use serde_json::json;
+
+    /// The issue a query's validation reports at `queries[0].sort`.
+    fn sort_issue(tool: &str, query: serde_json::Value) -> (String, String) {
+        let error = crate::contracts::validate(tool, json!({ "queries": [query] }))
+            .expect_err("the sort is refused");
+        let issue = error
+            .issues
+            .iter()
+            .find(|issue| issue.path.iter().any(|part| part == "sort"))
+            .unwrap_or_else(|| panic!("a sort issue: {error:?}"));
+        (issue.path.join("."), issue.message.clone())
+    }
+
+    /// A sort whose `by` only one form takes, with an `order` that form
+    /// refuses, is refused at its `order`, whichever form the union lists
+    /// first: `by` names the form (its sets share no value), and `order`
+    /// (`asc` alone beside `asc` or `desc`) is a value within it.
+    #[test]
+    fn the_field_whose_sets_share_no_value_chooses_the_form() {
+        for (tool, query, only) in [
+            (
+                "structureSearch",
+                json!({"operation":"files","path":".","sort":{"by":"traversal","order":"desc"}}),
+                "asc",
+            ),
+            (
+                "localSearch",
+                json!({"path":".","matchString":["x"],"sort":{"by":"traversal","order":"desc"}}),
+                "asc",
+            ),
+            (
+                "ghSearchRepo",
+                json!({"operation":"search","keywords":["x"],"sort":{"by":"relevance","order":"asc"}}),
+                "desc",
+            ),
+        ] {
+            let (path, message) = sort_issue(tool, query);
+            assert!(path.ends_with("sort.order"), "{tool}: {path}: {message}");
+            assert!(
+                message.contains(&format!("allowed: {only}")),
+                "{tool}: {message}"
+            );
+        }
+        // A selector whose sets overlap still chooses among the forms the
+        // naming ones leave: a Maven resolve fails at its name, not at an
+        // ecosystem another resolve form lacks.
+        let error = crate::contracts::validate(
+            "artifactSearch",
+            json!({"queries":[{"operation":"resolve","ecosystem":"maven","packageName":"log4j-core"}]}),
+        )
+        .expect_err("a Maven name needs group:artifact");
+        assert!(
+            error
+                .issues
+                .iter()
+                .any(|issue| issue.path.last().map(String::as_str) == Some("packageName")),
+            "{error:?}"
+        );
+        assert!(
+            !error
+                .issues
+                .iter()
+                .any(|issue| issue.path.last().map(String::as_str) == Some("ecosystem")),
+            "{error:?}"
+        );
+        // A `by` no form takes is refused at `by`, listing every form's.
+        let (path, message) = sort_issue(
+            "structureSearch",
+            json!({"operation":"files","path":".","sort":{"by":"size","order":"asc"}}),
+        );
+        assert!(path.ends_with("sort.by"), "{path}: {message}");
+        assert!(
+            message.contains("traversal") && message.contains("bytes"),
+            "{message}"
+        );
+    }
 }

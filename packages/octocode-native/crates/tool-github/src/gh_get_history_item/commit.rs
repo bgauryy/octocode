@@ -107,7 +107,7 @@ pub(super) async fn commit(
     // when the message names none, the warning says so and requires its
     // search, which a successful row otherwise leaves out of related[].
     if leads.iter().any(|(name, _)| name == FIND_PULL_REQUEST) {
-        push_warnings(&mut out, [NO_PULL_REQUEST_NAMED.to_owned()]);
+        push_warnings(&mut out, [no_pull_request_named(commit.message)]);
     }
     lead_first(&mut out, leads);
     remove_nulls(&mut out);
@@ -246,8 +246,63 @@ fn commit_file_page(
 /// names none.
 const FIND_PULL_REQUEST: &str = "findPullRequest";
 
-/// The note beside [`FIND_PULL_REQUEST`].
-pub(in crate::gh_get_history_item) const NO_PULL_REQUEST_NAMED: &str = "This commit's message names no pull request: the related[] ghSearchHistory search by its SHA finds the one that holds it.";
+/// The note beside [`FIND_PULL_REQUEST`]. It states only what
+/// [`commit_pull_request`](octocode_tools_shared::gh_shared::commit::commit_pull_request)
+/// checks: a message may still mention other pull requests in prose
+/// ("submitted as part of PR #2483"), which say nothing of the one that
+/// holds the commit.
+pub(in crate::gh_get_history_item) const NO_PULL_REQUEST_NAMED: &str = "This commit's message states no pull request of its own (no (#N) headline, merge headline or PR-URL trailer): the related[] ghSearchHistory search by its SHA finds the one that holds it.";
+
+/// [`NO_PULL_REQUEST_NAMED`] for `message`, naming the same-repository
+/// references it makes in prose ([`mentioned_numbers`]): each may be an
+/// issue or another pull request, never stated as the commit's own.
+fn no_pull_request_named(message: &str) -> String {
+    let mentioned = mentioned_numbers(message);
+    if mentioned.is_empty() {
+        return NO_PULL_REQUEST_NAMED.to_owned();
+    }
+    let (own, search) = NO_PULL_REQUEST_NAMED
+        .split_once(": ")
+        .unwrap_or((NO_PULL_REQUEST_NAMED, ""));
+    let listed = mentioned
+        .iter()
+        .map(|number| format!("#{number}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{own}; the {listed} it mentions may be an issue or another pull request: {search}")
+}
+
+/// The same-repository references a message makes, in order, once each, in
+/// GitHub's autolink form: `#` with no word character, `&` (an HTML
+/// entity) or `/` before it, then digits no word character follows. A
+/// cross-repository `owner/repo#N` names another repository's item.
+fn mentioned_numbers(message: &str) -> Vec<u64> {
+    let mut numbers = Vec::new();
+    for (at, _) in message.match_indices('#') {
+        let joined = |c: char| c.is_alphanumeric() || c == '_';
+        if message[..at]
+            .chars()
+            .next_back()
+            .is_some_and(|c| joined(c) || c == '&' || c == '/')
+        {
+            continue;
+        }
+        let rest = &message[at + 1..];
+        let digits = &rest[..rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len())];
+        if rest[digits.len()..].chars().next().is_some_and(joined) {
+            continue;
+        }
+        if let Ok(number) = digits.parse::<u64>()
+            && number > 0
+            && !numbers.contains(&number)
+        {
+            numbers.push(number);
+        }
+    }
+    numbers
+}
 
 /// A commit read's leads in rank order: the unfiltered read when a
 /// `matchString` hit nothing, the pull request that holds the commit (the

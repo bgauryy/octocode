@@ -3,6 +3,7 @@
 //! once however many matchers it runs.
 
 use super::collect::byte_ceiling;
+use super::file_search::Searched;
 use super::file_search::{FileSearcher, SEARCH_HEAP_LIMIT_BYTES, build_searcher};
 use super::judge_gate::JudgeGate;
 use super::mode::{Mode, match_work};
@@ -233,7 +234,7 @@ fn held_outcome(
 ) -> std::io::Result<super::file_search::FileOutcome> {
     if matches!(judged, Judged::Pending) {
         if searcher.opts.judge.is_some() && searcher.gate.gates() {
-            let own = searcher.search_held(held)?;
+            let own = searcher.search_held(Searched::own(held))?;
             if searcher
                 .gate
                 .proves_unmatched(file, own.matched_lines, own.binary)?
@@ -247,7 +248,7 @@ fn held_outcome(
         };
     }
     match judged {
-        Judged::Replaced(served) => searcher.search_held(&served.text),
-        Judged::Pending | Judged::Unchanged => searcher.search_held(held),
+        Judged::Replaced(judged) => searcher.search_held((&judged.served).into()),
+        Judged::Pending | Judged::Unchanged => searcher.search_held(Searched::own(held)),
     }
 }

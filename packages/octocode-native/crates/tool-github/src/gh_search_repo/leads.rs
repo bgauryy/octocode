@@ -40,6 +40,51 @@ pub(super) fn broaden_search(query: &GhSearchRepoQuery) -> Option<Value> {
     (!variants.is_empty()).then_some(lead)
 }
 
+/// When GitHub's first repositories were created (October 2007): no
+/// repository is older, so a creation-date split weighs its lower half from
+/// here (that half itself stays open below).
+const FIRST_REPOSITORY_SECS: i64 = 1_191_196_800;
+
+/// A search past GitHub's 1,000-result window, split in two by when the
+/// repositories were created: the same search before and after the middle
+/// of its creation window (its own `createdAt` bounds, else GitHub's first
+/// repository and `now_secs`). The halves are disjoint, at whole seconds,
+/// and together hold every match; a half still past the window offers its
+/// own split, so the walk reaches every match. `None` for a listing, or a
+/// window of one second.
+pub(super) fn split_by_created(query: &GhSearchRepoQuery, now_secs: i64) -> Option<Value> {
+    let GhSearchRepoQuery::Search(_) = query else {
+        return None;
+    };
+    let created = super::access::filters(query).and_then(|filters| filters.created_at.as_ref());
+    let secs = |bound: Option<&str>| {
+        bound
+            .and_then(octocode_runtime_base::civil_date::parse_rfc3339)
+            .map(|(secs, _)| secs)
+    };
+    let low = secs(created.and_then(|range| range.from.as_deref().map(String::as_str)))
+        .unwrap_or(FIRST_REPOSITORY_SECS);
+    let high =
+        secs(created.and_then(|range| range.to.as_deref().map(String::as_str))).unwrap_or(now_secs);
+    if high.saturating_sub(low) < 1 {
+        return None;
+    }
+    let middle = low + (high - low) / 2;
+    let half = |bound: &str, secs: i64| {
+        let mut row = copied_search(query);
+        row["filters"]["createdAt"][bound] =
+            json!(octocode_runtime_base::civil_date::iso8601_secs(secs));
+        row
+    };
+    Some(
+        Continuation::related_input(
+            ToolId::GhSearchRepo,
+            json!({"queries": [half("to", middle), half("from", middle + 1)]}),
+        )
+        .build(),
+    )
+}
+
 pub(super) fn repository_output(
     value: Value,
     query: &GhSearchRepoQuery,
@@ -48,6 +93,14 @@ pub(super) fn repository_output(
     provider_capped: bool,
 ) -> ToolData {
     let mut output = ToolData::from(value);
+    // The matches past the window are reached by splitting the search: the
+    // lead rides the first page, where the cap is first stated.
+    if provider_capped
+        && super::access::page(query) == 1
+        && let Some(split) = split_by_created(query, octocode_runtime_base::civil_date::unix_secs())
+    {
+        output.data["calls"]["splitByCreated"] = split;
+    }
     // No rows is empty whether or not GitHub finished the search, as
     // ghSearchCode reports it: an incomplete page keeps its retry (the CLI
     // exits 1, nothing printed), and only a complete one is worth broadening.

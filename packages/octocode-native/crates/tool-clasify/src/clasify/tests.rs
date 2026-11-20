@@ -96,47 +96,62 @@ fn each_resource_is_judged_whole_and_a_failure_stays_with_it() {
         "Check the glob.",
     );
     let calls = std::sync::atomic::AtomicUsize::new(0);
-    let outcomes = evaluate::each_resource(
-        vec![
-            ("one".into(), Ok(local("one.md"))),
-            ("gone".into(), Err(missing)),
-            ("two".into(), Ok(local("two.md"))),
-        ],
-        2,
-        |source| {
-            calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let yes = if source["query"]["path"] == "one.md" {
-                0.9
-            } else {
-                0.2
-            };
-            RowOutcome::Judgment {
-                judged: Ok(Judged {
-                    answers: vec![
-                        json!({"type":"noul","noul":yes}),
-                        json_fixture(
-                            r#"{
+    let judge = |source: &Value| {
+        calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let yes = if source["query"]["path"] == "one.md" {
+            0.9
+        } else {
+            0.2
+        };
+        RowOutcome::Judgment {
+            judged: Ok(Judged {
+                answers: vec![
+                    json!({"type":"noul","noul":yes}),
+                    json_fixture(
+                        r#"{
                                 "type": "choice",
                                 "choice": "a",
                                 "confidence": 1,
                                 "probabilities": {"a": 1, "b": 0}
                             }"#,
-                        ),
-                    ],
-                    model: "jev-1.13.0".into(),
-                    input_tokens: 40,
-                    output_tokens: 7,
-                    provider_calls: 1,
-                    known_usage_calls: 1,
-                    long_context_retry: None,
-                }),
+                    ),
+                ],
+                model: "jev-1.13.0".into(),
+                input_tokens: 40,
+                output_tokens: 7,
+                provider_calls: 1,
+                known_usage_calls: 1,
+                long_context_retry: None,
+            }),
+            captured: None,
+            assets: None,
+            identity: None,
+            price: None,
+        }
+    };
+    let entries: Vec<(String, Result<Value, _>)> = vec![
+        ("one".into(), Ok(local("one.md"))),
+        ("gone".into(), Err(missing)),
+        ("two".into(), Ok(local("two.md"))),
+    ];
+    let outcomes = evaluate::each(entries, 2, |(key, entry)| match entry {
+        Ok(source) => evaluate::ResourceOutcome {
+            key,
+            outcome: judge(&source),
+            source: Some(source),
+        },
+        Err(error) => evaluate::ResourceOutcome {
+            key,
+            source: None,
+            outcome: RowOutcome::Judgment {
+                judged: Err(error),
                 captured: None,
                 assets: None,
                 identity: None,
                 price: None,
-            }
+            },
         },
-    );
+    });
     assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 2);
     let out = reply::resources_answered(&row, outcomes, Vec::new(), true);
     let resources = out["resources"].as_object().expect("resources");
@@ -489,8 +504,9 @@ fn an_over_budget_row_states_its_price_and_offers_the_confirm_call() {
             room: 3,
         },
         input_tokens_at_most: Some(21_400),
-        max: 2,
+        limit: reply::Limit::Max(2),
         room: 3,
+        spent: 0,
     };
     let out = reply::over_budget(&rows[0], &over, true);
     assert_eq!(out["errorCode"], "classificationOverBudget", "{out:#}");
@@ -554,22 +570,52 @@ fn a_rows_price_is_stated_in_its_usage() {
     assert!(unsent.get("usage").is_none());
 }
 
-/// `maxRequests` caps a row's requests, its transient retries included, and
-/// refuses only a row whose requests before any retry (every planned one,
-/// re-ask and split) pass it: a retry is never needed to answer, so a cap
-/// between that count and the full ceiling admits the row with only the
-/// retries it leaves room for, and its stated ceiling never passes the cap.
+/// A row is admitted by its first round: with `maxRequests`, when that
+/// round fits the cap, held to it (its stated ceiling never passes the cap,
+/// and the transient retries take only what the plan leaves); without it,
+/// when that round sends no more requests than the row names. A plan past
+/// its bound sends nothing and states its whole ceiling for `next.confirm`.
 #[test]
-fn max_requests_admits_every_row_its_planned_requests_fit_with_the_retries_left() {
+fn a_row_is_admitted_by_its_first_round_within_its_cap_or_what_it_names() {
     let retries = 3;
-    for at_most in 1..=6_u64 {
-        assert_eq!(evaluate::room(None, at_most, retries), retries);
-        for max in 1..=12_u64 {
-            let room = evaluate::room(Some(max), at_most, retries);
-            let ceiling = octocode_tools_shared::judgment::RequestCap::ceiling(at_most, room);
-            if at_most <= max {
-                assert!(ceiling <= max, "{at_most} in {max}: ceiling {ceiling}");
-                assert_eq!(room, retries.min(max - at_most), "{at_most} in {max}");
+    for first in 1..=4_u64 {
+        for at_most in first..=8 {
+            let plan = super::admission::Plan {
+                first,
+                at_most,
+                bounded: true,
+                units: 1,
+                tokens: None,
+            };
+            let full = octocode_tools_shared::judgment::RequestCap::ceiling(at_most, retries);
+            for max in 1..=12_u64 {
+                match super::admission::admit(Some(max), plan, 0, retries) {
+                    Ok(admitted) => {
+                        assert!(first <= max, "{first} past {max} admitted");
+                        let ceiling = admitted.price.ceiling.expect("a capped row states one");
+                        assert!(ceiling <= max, "{plan:?} in {max}: ceiling {ceiling}");
+                        assert!(ceiling >= first, "its first round fits: {ceiling}");
+                        assert_eq!(ceiling, full.min(max), "{first}/{at_most} in {max}");
+                    }
+                    Err(over) => {
+                        assert!(first > max, "{first} within {max} refused");
+                        assert_eq!(over.limit, reply::Limit::Max(max));
+                        assert_eq!(over.price.ceiling, Some(full));
+                    }
+                }
+            }
+            for named in 0..=5_u64 {
+                match super::admission::admit(None, plan, named, retries) {
+                    Ok(admitted) => {
+                        assert!(first <= named, "{first} past {named} named admitted");
+                        assert_eq!(admitted.price.ceiling, Some(full));
+                    }
+                    Err(over) => {
+                        assert!(first > named, "{first} within {named} named refused");
+                        assert_eq!(over.limit, reply::Limit::Named(named));
+                        assert_eq!(over.price.ceiling, Some(full));
+                    }
+                }
             }
         }
     }

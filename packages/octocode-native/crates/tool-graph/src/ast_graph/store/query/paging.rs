@@ -24,18 +24,35 @@ pub(super) fn continues_walk(options: &QueryOptions) -> bool {
     options.page.unwrap_or(1) > 1
 }
 
+/// The evidence lists an operation pages under `list`: a cycle's members,
+/// and the lists an `impact` summary counts.
+fn lists_of(op: &str) -> &'static [&'static str] {
+    match op {
+        "cycles" => &["cycleNodes"],
+        "impact" => &super::super::impact::LISTS,
+        _ => &[],
+    }
+}
+
+/// Refuses a `list` the operation does not page.
+pub(super) fn unknown_list(options: &QueryOptions) -> Result<(), GraphOutput> {
+    match options.list.as_deref() {
+        Some(list) if !lists_of(&options.op).contains(&list) => Err(GraphOutput::error(
+            ErrorCode::InvalidInput,
+            "unknown graph evidence list",
+        )),
+        _ => Ok(()),
+    }
+}
+
 pub(super) fn run_page(
     options: &QueryOptions,
     graph: &Graph,
     mut extra: Map<String, Value>,
     page: Page,
 ) -> GraphOutput {
-    if options
-        .list
-        .as_deref()
-        .is_some_and(|list| list != "cycleNodes")
-    {
-        return GraphOutput::error(ErrorCode::InvalidInput, "unknown graph evidence list");
+    if let Err(refused) = unknown_list(options) {
+        return refused;
     }
     let offset = options.offset.unwrap_or(0);
     // The summary, its evidence lists and coverage go out once, with the
@@ -106,6 +123,27 @@ pub(super) fn settle(output: &mut GraphOutput, options: &QueryOptions, total: us
             (Channel::Cycle(index), resume)
         })
         .collect::<Vec<_>>();
+    // The first page of an `impact` answer counts its summary lists: each
+    // is read whole by its own `list` call.
+    let lists = (options.op == "impact" && first_page(options))
+        .then(|| {
+            super::super::impact::LISTS.into_iter().filter(|list| {
+                output.value["summary"][*list]
+                    .as_u64()
+                    .is_some_and(|count| count > 0)
+            })
+        })
+        .into_iter()
+        .flatten()
+        .map(|list| {
+            let resume = Resume::Row {
+                offset: 0,
+                list: Some(list.into()),
+                cycle: None,
+            };
+            (Channel::List(list), resume)
+        })
+        .collect::<Vec<_>>();
     let has_more = offset + shown < total;
     output.next.clear();
     if has_more {
@@ -117,6 +155,7 @@ pub(super) fn settle(output: &mut GraphOutput, options: &QueryOptions, total: us
         output.next.push((Channel::NextPage, resume));
     }
     output.next.extend(cycles);
+    output.next.extend(lists);
     output.value["pagination"] = pagination(offset, shown, total, has_more);
 }
 

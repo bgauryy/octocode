@@ -1,0 +1,29 @@
+{
+  "name": "@octocodeai/octocode-native-linux-arm64-musl",
+  "description": "Octocode native binary — linux-arm64-musl",
+  "version": "20.2.0",
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-native"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "libc": [
+    "musl"
+  ],
+  "files": [
+    "octocode",
+    "README.md"
+  ],
+  "preferUnplugged": true,
+  "publishConfig": {
+    "access": "public"
+  }
+}

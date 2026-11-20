@@ -354,7 +354,7 @@ async fn advisory(
             )],
         );
     }
-    aliases.apply(&mut data);
+    aliases.apply(&mut data, id, repo, view);
     malware::fire(&mut data, &malware::reports(&results), false, None);
     octocode_runtime_base::response::result::finish_calls(&mut data);
     if view == SecurityCheckView::Summary {
@@ -461,15 +461,36 @@ async fn follow_aliases(results: &mut Vec<source::SourceResult>, net: &Net<'_>) 
 
 impl Aliases {
     /// Says which records were read for an alias, and leads to each alias
-    /// that was not.
-    fn apply(&self, data: &mut Value) {
-        let read = self.read.iter().map(|(record, alias)| {
-            format!("{record} names no package; {alias}, its alias, is listed after it for the packages and fixes.")
+    /// that was not. The details view lists an alias's records after the
+    /// record; the summary groups them into its row, so it says the answer
+    /// states them and leads to the details read of `id` (with `repo`).
+    /// An unread alias is evidence still to read: `next.readAlias`.
+    fn apply(&self, data: &mut Value, id: &str, repo: Option<&str>, view: SecurityCheckView) {
+        let read = self.read.iter().map(|(record, alias)| match view {
+            SecurityCheckView::Details => format!(
+                "{record} names no package; {alias}, its alias, is listed after it for the packages and fixes."
+            ),
+            SecurityCheckView::Summary => format!(
+                "{record} names no package; the answer states the packages and fixes of {alias}, its alias, and next.readDetails lists its record."
+            ),
         });
         let unread = self.unread.iter().map(|(record, alias, why)| {
-            format!("{record} names no package, and {alias}, its alias, could not be read ({why}); related reads it.")
+            format!("{record} names no package, and {alias}, its alias, could not be read ({why}); next.readAlias reads it.")
         });
         paging::push_warnings(data, read.chain(unread).collect::<Vec<_>>());
+        if view == SecurityCheckView::Summary && !self.read.is_empty() {
+            let mut query = json!({"operation": "advisory", "id": id});
+            if let Some(repo) = repo {
+                query["repo"] = json!(repo);
+            }
+            data["calls"]["readDetails"] = Continuation::continued(
+                ToolId::SecurityCheck,
+                Value::Object(summary::with_details(
+                    query.as_object().cloned().unwrap_or_default(),
+                )),
+            )
+            .build();
+        }
         if self.unread.is_empty() {
             return;
         }
@@ -479,7 +500,7 @@ impl Aliases {
             .map(|(_, alias, _)| json!({"operation": "advisory", "id": alias}))
             .collect::<Vec<_>>();
         data["calls"]["readAlias"] =
-            Continuation::related_input(ToolId::SecurityCheck, json!({ "queries": queries }))
+            Continuation::continued_input(ToolId::SecurityCheck, json!({ "queries": queries }))
                 .build();
     }
 }

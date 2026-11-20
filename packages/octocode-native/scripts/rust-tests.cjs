@@ -44,7 +44,7 @@ const { spawn } = require('node:child_process');
 const nodePath = require('node:path');
 const { runForwardingSignals, takeSignals } = require('../bin/launch-native.cjs');
 const { exitOnSignals, withSlot } = require('./build-slot.cjs');
-const { finishCargoRun, parseCargoLine } = require('./target-hygiene.cjs');
+const { finishCargoRun, isCargoProgress, parseCargoLine } = require('./target-hygiene.cjs');
 const { testTmpdir } = require('./test-tmpdir.cjs');
 const { crateNamed, runBinaries, testExecutables } = require('./test-binaries.cjs');
 
@@ -191,7 +191,8 @@ async function runSteps(steps, env) {
 /**
  * One run of `args`. Cargo's JSON messages (stdout) name every unit the selection uses, so
  * target-hygiene.cjs records them and sweeps what the run left stale. Output is collected
- * and printed whole when the run ends, so concurrent runs do not interleave.
+ * and printed whole when the run ends, so concurrent runs do not interleave; Cargo's
+ * per-crate progress lines are dropped.
  */
 function runOne(name, keep, args, env, children) {
   const startedMs = Date.now();
@@ -216,7 +217,8 @@ function runOne(name, keep, args, env, children) {
         if (rest) lines.push(rest);
       }
       console.log(`=== ${name} (${((Date.now() - startedMs) / 1000).toFixed(1)} s) ===\n${lines.join('\n')}`);
-      process.stderr.write(Buffer.concat(err));
+      const stderr = Buffer.concat(err).toString('utf8').split('\n').filter(line => !isCargoProgress(line));
+      process.stderr.write(stderr.join('\n'));
       const status = code ?? 1;
       finishCargoRun({ selection: `test-${keep}`, messages, success: status === 0, startedMs });
       resolve(status);

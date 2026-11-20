@@ -98,6 +98,10 @@ pub struct CloneLocation {
     /// History depth when more than the shallow single commit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub history_depth: Option<u64>,
+    /// The depth reached the root commit: the checkout holds the whole
+    /// history. Stated only beside `historyDepth`.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub full_history: bool,
     /// When the checkout of this commit was cloned.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cloned_at: Option<String>,

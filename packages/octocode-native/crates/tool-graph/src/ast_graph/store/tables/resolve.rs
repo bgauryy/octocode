@@ -420,6 +420,12 @@ fn resolve_call(
                     } else {
                         "other"
                     }
+                } else if site.typed() && receiver_type.is_some_and(|ty| foreign(linker, caller, ty)) {
+                    // The parser saw the receiver's type (`let seen =
+                    // BTreeSet::new()`) and the repository declares nothing
+                    // of that name: a std or foreign type's method, which
+                    // no declaration here can be, however its name repeats.
+                    "not-declared-in-repo"
                 } else {
                     unlinked_reason(&unit.bindings, qualifier, name, in_repo)
                 }
@@ -428,6 +434,14 @@ fn resolve_call(
         };
         (caller, Ok(linked))
     }
+}
+
+/// Whether receiver type `ty` (as written: a path, generic arguments)
+/// names nothing declared in `caller`'s language family.
+fn foreign(linker: &Linker, caller: u32, ty: &str) -> bool {
+    let head = ty.split('<').next().unwrap_or(ty);
+    let name = head.rsplit([':', '.']).next().unwrap_or(head).trim();
+    !name.is_empty() && linker.named(caller, name).next().is_none()
 }
 
 /// inherits: `extends` / `implements` base types, linked like calls. A

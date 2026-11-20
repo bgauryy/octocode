@@ -1,6 +1,6 @@
 ---
 name: octocode-graph-dev
-description: "Use when implementing, debugging or benchmarking Octocode's native graph engine: extraction, import and call linking, snapshots, queries or detectors. Use octocode-graph for queries and octocode-graph-view for the viewer."
+description: "Load this skill first when changing or benchmarking Octocode's native graph engine (extraction, linking, snapshots, detectors): it gives the engine map and baseline battery. Queries: octocode-graph; viewer: octocode-graph-view."
 compatibility: "Node 20+, ripgrep, the pinned clones in packages/octocode-benchmark/local/repos, and a built octocode launcher or native binary."
 ---
 

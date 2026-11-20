@@ -33,8 +33,9 @@ fn join(root: &str, path: &str) -> String {
 /// Answer fields whose values name nodes, directories or findings (a key,
 /// a list of keys, or rows): the ones that name a snapshot file or directory
 /// are restated from the workspace ([`Graph::rebase_paths`]).
-const REFERENCE_FIELDS: [&str; 14] = [
+const REFERENCE_FIELDS: [&str; 15] = [
     "id",
+    "parent",
     "changed",
     "subject",
     "from",
@@ -254,6 +255,35 @@ impl Graph {
         }
     }
 
+    /// The lspSearch call that checks a symbol semantically, where graph
+    /// rows are syntax candidates: `operation` at the symbol's file, name
+    /// and declaration line, the path named as answers name it (from the
+    /// workspace, or absolute outside it). `None` for a file or package.
+    pub(super) fn lsp_check(
+        &self,
+        id: u32,
+        operation: &str,
+        cancel: &dyn octocode_runtime_base::execution::cancel::CancellationCheck,
+    ) -> Result<Option<Value>, GraphOutput> {
+        let node = self.node_record(id, cancel)?;
+        if node.kind != NodeKind::Symbol || node.file == NONE || node.line == NONE {
+            return Ok(None);
+        }
+        let row = json!({
+            "operation": operation,
+            "path": join(&self.shown_root(), self.key(node.file)),
+            "symbolName": self.text(node.name, cancel)?,
+            "line": node.line,
+        });
+        Ok(Some(
+            octocode_runtime_base::response::result::Continuation::related(
+                octocode_runtime_base::id::ToolId::LspSearch,
+                row,
+            )
+            .build(),
+        ))
+    }
+
     /// The scope named relative to the workspace, as graphBuild states it;
     /// absolute when it lies outside the workspace.
     pub(super) fn shown_root(&self) -> String {
@@ -271,11 +301,13 @@ impl Graph {
     /// States every file reference of an answer from the workspace root, as
     /// every local tool names a file: the snapshot keys files from its own
     /// root. Each `path`, and each reference field ([`REFERENCE_FIELDS`])
-    /// that names a snapshot file or directory, is restated; node ids that
-    /// are ids (a symbol's `file#name`, a package's `pkg:` key) and finding
-    /// ids stay as they are. A snapshot outside the workspace keeps its own
-    /// keys, named from the `graph.root` its answers state ([`Self::summary`]).
-    /// Calls (`next`, `related`, `reingest`) carry absolute paths.
+    /// that names a snapshot file or directory, is restated, and so is the
+    /// file a symbol id (`file#name`) starts with: one answer names every
+    /// node from one root. A package's `pkg:` key and finding ids stay as
+    /// they are; a target reads either spelling. A snapshot outside the
+    /// workspace keeps its own keys, named from the `graph.root` its answers
+    /// state ([`Self::summary`]). Calls (`next`, `related`, `reingest`)
+    /// carry absolute paths.
     pub(super) fn rebase_paths(&self, value: &mut Value) {
         let root = self.shown_root();
         if root != "." && !Path::new(&root).is_absolute() {
@@ -308,12 +340,36 @@ impl Graph {
     fn rebase_reference(&self, value: &mut Value, root: &str) {
         match value {
             Value::String(key) if self.names_path(key) => *key = join(root, key),
+            Value::String(key) => {
+                let rebased = self
+                    .symbol_file(key)
+                    .map(|file| format!("{}{}", join(root, file), &key[file.len()..]));
+                if let Some(rebased) = rebased {
+                    *key = rebased;
+                }
+            }
             Value::Array(items) => items
                 .iter_mut()
                 .for_each(|item| self.rebase_reference(item, root)),
             Value::Object(_) => self.rebase(value, root),
             _ => {}
         }
+    }
+
+    /// The file key symbol id `key` (`file#name`) starts with; `None` for any
+    /// other key. Read from the keys alone, as a point lookup holds them.
+    fn symbol_file<'k>(&self, key: &'k str) -> Option<&'k str> {
+        let is = |key: &str, kind: NodeKind| {
+            self.t
+                .by_key(key)
+                .is_some_and(|id| self.t.nodes[id as usize].kind == kind)
+        };
+        if !is(key, NodeKind::Symbol) {
+            return None;
+        }
+        key.match_indices('#')
+            .map(|(at, _)| &key[..at])
+            .find(|file| is(file, NodeKind::File))
     }
 
     /// Whether `key` names a snapshot file, or a directory holding one (a

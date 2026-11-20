@@ -112,18 +112,21 @@ impl Cutter {
 }
 
 /// Every page's first match and the place after its last, and whether a
-/// page spends more than `budget` (one match alone outgrows it): the pages
-/// of the matches `spans` names of each file.
+/// page spends more than `budget` (one match alone, or with the `census`
+/// page 1 carries, outgrows it): the pages of the matches `spans` names of
+/// each file. The stream's first match is charged the census.
 fn cut(
     groups: &[Group],
     spans: &[Range<usize>],
     limit: usize,
-    budget: usize,
+    (budget, census): (usize, usize),
 ) -> (Vec<(At, At)>, bool) {
     let mut cutter = Cutter::new(limit, budget);
+    let mut census = census;
     for (file, (group, span)) in groups.iter().zip(spans).enumerate() {
         for index in span.clone() {
-            cutter.push((file, index), group.chars, group.sizes[index]);
+            let size = group.sizes[index].saturating_add(std::mem::take(&mut census));
+            cutter.push((file, index), group.chars, size);
         }
     }
     let end = match spans.last() {
@@ -229,30 +232,38 @@ impl PageFill {
 
 /// Page `q.page()` of the matches `groups` hold within `bounds` (of their
 /// files, in the file views): where it starts in the stream, the matches it
-/// shows and the stream's total. A page past the last is empty and flagged
-/// out of range.
+/// shows and the stream's total. Page 1 also carries the scan's census
+/// (`census` characters), so its first row is charged it: page 1 with its
+/// census fits the window every later page fills. A page past the last is
+/// empty and flagged out of range.
 pub(super) fn stream_page(
     q: MatchQuery<'_>,
     groups: &[Group],
     bounds: Bounds,
-    budget: usize,
+    (budget, census): (usize, usize),
 ) -> StreamPage {
     let page = q.page().max(1) as usize;
+    let budget = budget.max(1);
     if super::file_list(q) {
         let paging = octocode_runtime_base::response::page_windows::Paging::of(q.limit(), budget);
-        let sizes = groups.iter().map(|group| group.chars).collect::<Vec<_>>();
+        let mut sizes = groups.iter().map(|group| group.chars).collect::<Vec<_>>();
+        if let Some(first) = sizes.first_mut() {
+            *first = first.saturating_add(census);
+        }
         let cut = octocode_runtime_base::response::page_windows::select(paging, &sizes, page);
         return StreamPage {
             window: cut.range,
             slices: Vec::new(),
             pages: cut.pages,
             more: cut.more,
-            oversized: false,
+            // A file over the budget takes a page alone, which the response
+            // pager splits into row parts.
+            oversized: sizes.iter().any(|size| *size > budget),
             pagination: cut.facts.with_unit("files").to_value(),
         };
     }
     let spans = bounds.spans(groups);
-    let (cuts, oversized) = cut(groups, &spans, page_limit(q), budget.max(1));
+    let (cuts, oversized) = cut(groups, &spans, page_limit(q), (budget, census));
     let pages = cuts.len().max(1);
     let total = spans.iter().map(ExactSizeIterator::len).sum::<usize>();
     let more = page < pages;

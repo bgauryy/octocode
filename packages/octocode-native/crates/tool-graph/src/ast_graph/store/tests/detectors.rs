@@ -530,6 +530,64 @@ fn test_imported_exports_split_from_untested_ones_in_one_file() {
     );
 }
 
+/// An export only its own file links is no tier-90 finding when other code
+/// names it qualified (tests reaching it through a namespace re-export of
+/// the built output, which the graph does not link): it drops to tier 60
+/// with the mention in `mentionedIn`, and a group's unmentioned names keep
+/// their tier as a finding of their own.
+#[test]
+fn a_mentioned_export_only_local_is_a_hypothesis_with_its_mentions() {
+    let dir = git_app(&[
+        ("package.json", r#"{"name":"lib","main":"./index.ts"}"#),
+        ("index.ts", "import { run } from './runtime/workspace';
+run();
+"),
+        (
+            "runtime/workspace.ts",
+            "export function metadataPath(p: string) { return p; }
+export function quietName() { return 1; }
+export function run() { return metadataPath('x') + quietName(); }
+",
+        ),
+        (
+            "entries/runtime.ts",
+            "export * as workspace from '../runtime/workspace.js';
+",
+        ),
+        (
+            "tests/paths.test.ts",
+            "const runtime = await import('../dist/runtime.js');
+runtime.workspace.metadataPath('a');
+",
+        ),
+    ]);
+    assert_eq!(
+        ingest_fixture(dir.0.as_path(), None).class,
+        ExitClass::Success
+    );
+    let issues = ask(dir.0.as_path(), "issues", None, |o| {
+        o.detectors = vec!["export-only-local".into()];
+        o.min_tier = Some(0);
+    });
+    let value = &issues.value;
+    let rows = value["rows"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .filter(|row| row["subject"] == "app/runtime/workspace.ts")
+        .collect::<Vec<_>>();
+    let named = |name: &str| {
+        rows.iter()
+            .find(|row| row["evidence"]["exports"] == json!([name]))
+            .unwrap_or_else(|| panic!("{name}: {value}"))
+    };
+    let mentioned = named("metadataPath");
+    assert_eq!(mentioned["tier"], 60, "{value}");
+    let mentions = mentioned["evidence"]["mentionedIn"]["metadataPath"].to_string();
+    assert!(mentions.contains("tests/paths.test.ts:2"), "{value}");
+    assert!(named("quietName")["tier"].as_u64() > Some(60), "{value}");
+}
+
 /// A cycle past the member preview says so in a warning that promises the
 /// `cycles` read, and the served row keeps that lead.
 #[test]

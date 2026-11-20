@@ -15,7 +15,7 @@ fn named_argument_occurrences_page_without_becoming_invocations() {
     let mut ids = BTreeSet::new();
     let mut slots = BTreeSet::new();
     for offset in 0..3 {
-        let out = ask(&dir.0, "witnesses", Some("args.ts#run"), |o| {
+        let out = ask(&dir.0, "witnesses", Some("app/args.ts#run"), |o| {
             o.include_provenance = true;
             o.edges = vec!["passes".into()];
             o.to = Some("args.ts#handler".into());
@@ -27,7 +27,7 @@ fn named_argument_occurrences_page_without_becoming_invocations() {
         let row = &out.value["rows"][0];
         assert_eq!(row["edge"], "passes");
         assert_eq!(row["targetName"], "handler");
-        assert_eq!(row["from"], "args.ts#run");
+        assert_eq!(row["from"], "app/args.ts#run");
         assert_eq!(slice(source, &row["sourceRange"]), "handler");
         assert_eq!(slice(source, &row["selectionByteRange"]), "handler");
         let recipient = slice(source, &row["recipient"]["sourceRange"]);
@@ -68,7 +68,7 @@ fn named_argument_occurrences_page_without_becoming_invocations() {
             assert!(out.value.get("argumentCoverage").is_none());
         }
     }
-    let calls = ask(&dir.0, "witnesses", Some("args.ts#run"), |o| {
+    let calls = ask(&dir.0, "witnesses", Some("app/args.ts#run"), |o| {
         o.include_provenance = true;
         o.edges = vec!["calls".into()];
         o.to = Some("args.ts#handler".into());
@@ -294,7 +294,7 @@ fn wide_argument_lists_keep_every_slot_across_pages() {
             o.edges = vec!["calls".into()];
         });
         assert_eq!(calls.value["pagination"]["total"], 1);
-        assert_eq!(calls.value["rows"][0]["to"], "wide.rs#consume");
+        assert_eq!(calls.value["rows"][0]["to"], "app/wide.rs#consume");
         let mut ids = BTreeSet::new();
         let mut slots = BTreeSet::new();
         for offset in (0..1203).step_by(71) {
@@ -319,4 +319,39 @@ fn wide_argument_lists_keep_every_slot_across_pages() {
         assert_eq!(ids.len(), 1203);
         assert_eq!(slots, (0..1203).collect());
     }
+}
+
+/// A traversal that follows `passes` states the argument coverage of its
+/// target's language only: the snapshot's other languages concern none of
+/// its rows.
+#[test]
+fn a_traversals_argument_coverage_is_its_targets_language() {
+    let dir = git_app(&[
+        (
+            "args.ts",
+            "function handler() {}\nexport function run() { sink(handler); }\nfunction sink(f: unknown) { return f; }\n",
+        ),
+        ("tool.py", "def helper():\n    pass\n\ndef main():\n    helper()\n"),
+    ]);
+    let built = ingest_root(&dir.0, &dir.0.join("app"), None, false);
+    let languages = |coverage: &Value| {
+        coverage["byLanguage"]
+            .as_object()
+            .map(|by| by.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default()
+    };
+    assert!(
+        languages(&built.value["argumentCoverage"]).len() > 1,
+        "{}",
+        built.value["argumentCoverage"]
+    );
+    let out = ask(&dir.0, "callees", Some("app/args.ts#run"), |o| {
+        o.edges = vec!["calls".into(), "passes".into()];
+    });
+    assert_eq!(
+        languages(&out.value["argumentCoverage"]),
+        ["typescript"],
+        "{}",
+        out.value
+    );
 }

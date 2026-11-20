@@ -1,6 +1,8 @@
 //! The registry gate and the row, against recorded doubles.
 #[path = "package_tests/dependencies.rs"]
 mod dependencies;
+#[path = "package_tests/osv_unanswered.rs"]
+mod osv_unanswered;
 
 use super::*;
 use crate::artifact::test_http::{RouteHttp, test_budget};
@@ -1893,7 +1895,7 @@ async fn a_missing_repository_is_followed_to_the_one_the_latest_release_names() 
     // GitHub's 404 for the old name says only what this credential is shown,
     // with no guess at why (deleted or private).
     assert!(
-        why.contains("does not show this credential") && !why.contains("private"),
+        why.contains("does not show to this credential") && !why.contains("private"),
         "{why}"
     );
     assert_eq!(data["repository"]["owner"], "minimistjs", "{data}");
@@ -1951,7 +1953,7 @@ async fn a_followed_repository_github_redirects_is_one_moved_caution() {
         "minimistjs/minimist",
         "neworg/minimist",
         "1.2.8",
-        "does not show this credential",
+        "does not show to this credential",
     ] {
         assert!(why.contains(named), "{named} in {why}");
     }

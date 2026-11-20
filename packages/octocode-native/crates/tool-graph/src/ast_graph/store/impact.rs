@@ -50,9 +50,27 @@ struct Reach {
 pub(crate) struct Impact {
     pub summary: Value,
     pub rows: Vec<Value>,
+    /// The summary's lists, which it counts: each pages as the rows of its
+    /// own `list` call.
+    pub lists: Lists,
     /// When the depth bound left affected files unlisted: how many, and the
     /// bound whose walk lists every one.
     pub unlisted: Option<Unlisted>,
+}
+
+/// The lists an `impact` summary counts, each paged as the rows of the
+/// same query with `list` set to its name: the entrypoint files among the
+/// rows, every test file reached with its reached test functions, and the
+/// changed paths outside the graph.
+pub(crate) const LISTS: [&str; 3] = ["affectedEntrypoints", "testsToRun", "unmapped"];
+
+/// The lists of a walk's report (`unmapped` is the change set's, not the
+/// walk's).
+pub(crate) struct Lists {
+    /// Entrypoint file keys, in row order.
+    pub entrypoints: Vec<Value>,
+    /// `{path, functions?}` per test file, in reach order.
+    pub tests: Vec<Value>,
 }
 
 /// Affected files a depth bound left out of the rows.
@@ -102,10 +120,12 @@ pub(crate) fn run(
         listed: &reach,
         tests: unbounded.as_deref().unwrap_or(&reach),
     };
-    let (summary, rows) = report(t, &reached, seeds, global, symbol_mode, unlisted.is_some());
+    let (summary, rows, lists) =
+        report(t, &reached, seeds, global, symbol_mode, unlisted.is_some());
     Impact {
         summary,
         rows,
+        lists,
         unlisted,
     }
 }

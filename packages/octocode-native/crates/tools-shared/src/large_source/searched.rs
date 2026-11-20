@@ -17,8 +17,14 @@ use long_line::{Splice, judged_long};
 /// What a read serves of one line it changes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Shown {
-    /// A line a window held whole: the text served.
-    Line(String),
+    /// A line a window held whole: the text served, and the byte ranges of
+    /// it the pass wrote (ascending, disjoint): its placeholders, placed on
+    /// the line's own bytes as every redaction of this module is
+    /// ([`redactions`]).
+    Line {
+        text: String,
+        written: Vec<std::ops::Range<usize>>,
+    },
     /// A line longer than a window: its redactions alone, laid over the
     /// source's own bytes as they stream ([`long_line::LongLine`]).
     Long(long_line::LongLine),
@@ -28,7 +34,7 @@ impl Shown {
     /// How many times `needle` shows in what the read wrote on the line.
     pub(crate) fn count(&self, needle: &str) -> usize {
         match self {
-            Self::Line(text) => text.matches(needle).count(),
+            Self::Line { text, .. } => text.matches(needle).count(),
             Self::Long(line) => line
                 .shown()
                 .map(|shown| shown.matches(needle).count())
@@ -39,7 +45,9 @@ impl Shown {
     /// Bytes it holds, weighed against the memory budget.
     fn weight(&self) -> usize {
         match self {
-            Self::Line(text) => text.len() + 16,
+            Self::Line { text, written } => {
+                text.len() + 16 + written.len() * std::mem::size_of::<std::ops::Range<usize>>()
+            }
             Self::Long(line) => line.weight(),
         }
     }
@@ -162,7 +170,7 @@ pub fn changed_lines(
                     None => judged_alone(text, path, security, cancel)?,
                 };
                 if shown != text {
-                    changed.insert(number, Shown::Line(shown.replace('\n', " ")));
+                    changed.insert(number, served_line(text, &shown));
                 }
             }
         }
@@ -179,6 +187,27 @@ pub fn changed_lines(
     let judged = (changed, known);
     JUDGED.put(key, policy, weight, std::sync::Arc::new(judged.clone()));
     Ok(Some(judged))
+}
+
+/// What a read serves of `text`, one line it serves as `shown`: on one line
+/// (a line break the pass kept folds to a blank), with the ranges the pass
+/// wrote there, each redaction [`redactions`] places on the line's bytes.
+fn served_line(text: &str, shown: &str) -> Shown {
+    let shown = shown.replace('\n', " ");
+    let mut written = Vec::new();
+    // Where the last redaction ended, in the source line and in the served one.
+    let (mut source_at, mut served_at) = (0, 0);
+    for (range, placeholder) in redactions(text, &shown) {
+        let start = served_at + range.start.saturating_sub(source_at);
+        (source_at, served_at) = (range.end, start + placeholder.len());
+        if !placeholder.is_empty() && served_at <= shown.len() {
+            written.push(start..served_at);
+        }
+    }
+    Shown::Line {
+        text: shown,
+        written,
+    }
 }
 
 /// The line windows covering every line of `file`, in order: consecutive
@@ -373,7 +402,8 @@ fn placeholders_only(shown: &str) -> bool {
 
 /// The bytes of a source with each of its changed lines (1-based) replaced by
 /// the line a read serves, its own line break kept: what a match of the
-/// source runs over, streamed.
+/// source runs over, streamed. It records where in those bytes it wrote what
+/// the pass wrote ([`Self::written`]).
 pub struct Patched<'a, R> {
     raw: R,
     changed: &'a ChangedLines,
@@ -383,6 +413,10 @@ pub struct Patched<'a, R> {
     taken: usize,
     /// A long line being served piece by piece.
     splice: Option<Splice<'a>>,
+    /// Bytes served before `pending`.
+    served: usize,
+    /// The ranges of the served bytes the pass wrote, ascending.
+    written: Vec<std::ops::Range<usize>>,
 }
 
 impl<'a, R: BufRead> Patched<'a, R> {
@@ -395,17 +429,31 @@ impl<'a, R: BufRead> Patched<'a, R> {
             pending: Vec::new(),
             taken: 0,
             splice: None,
+            served: 0,
+            written: Vec::new(),
         }
+    }
+
+    /// The ranges of the bytes served so far that the pass wrote, not the
+    /// source (ascending, disjoint): each placeholder of a changed line, at
+    /// its place in what was read.
+    pub fn written(&self) -> &[std::ops::Range<usize>] {
+        &self.written
     }
 }
 
 impl<R: BufRead> Read for Patched<'_, R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         while self.taken == self.pending.len() {
+            self.served += self.pending.len();
             self.pending.clear();
             self.taken = 0;
             if let Some(splice) = &mut self.splice {
-                if !splice.step(&mut self.raw, &mut self.pending)? {
+                if !splice.step(
+                    &mut self.raw,
+                    (&mut self.pending, self.served),
+                    &mut self.written,
+                )? {
                     self.splice = None;
                     self.line += 1;
                 }
@@ -414,14 +462,17 @@ impl<R: BufRead> Read for Patched<'_, R> {
             let changed = self.changed;
             match changed.get(&self.line).filter(|_| self.at_start) {
                 Some(Shown::Long(long)) => self.splice = Some(Splice::new(long)),
-                Some(Shown::Line(shown)) => {
+                Some(Shown::Line { text, written }) => {
                     // A line a window held whole: no longer than one.
                     let mut skipped = Vec::new();
                     self.raw.read_until(b'\n', &mut skipped)?;
                     if skipped.is_empty() {
                         return Ok(0);
                     }
-                    self.pending.extend_from_slice(shown.as_bytes());
+                    let at = self.served;
+                    self.written
+                        .extend(written.iter().map(|range| at + range.start..at + range.end));
+                    self.pending.extend_from_slice(text.as_bytes());
                     if skipped.ends_with(b"\r\n") {
                         self.pending.extend_from_slice(b"\r\n");
                     } else if skipped.ends_with(b"\n") {

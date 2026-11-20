@@ -42,6 +42,12 @@ fn package(lib: &str, files: &[(&str, &str)]) -> (tempfile::TempDir, std::path::
 /// `lib.rs` alone, from a server configured for `target` (`cargo.target`;
 /// none: the host).
 async fn row(root: &Path, target: Option<&str>) -> Value {
+    row_asking(root, target, false).await
+}
+
+/// [`row`], with the scope asked what `references` asks of the anchor
+/// (`asked`), as a request asks it.
+async fn row_asking(root: &Path, target: Option<&str>, asked: bool) -> Value {
     let package = root.join("pkg");
     let lib_path = package.join("src/lib.rs").to_string_lossy().into_owned();
     let policy = octocode_runtime_base::test_support::workspace_policy(root);
@@ -55,6 +61,17 @@ async fn row(root: &Path, target: Option<&str>) -> Value {
         .await
         .expect("scan");
     scope.answer([lib_path.clone()]);
+    if asked {
+        let text = std::fs::read_to_string(&lib_path).expect("lib");
+        scope.asks(
+            crate::lsp_search::scope::Question::of(Op::References).at_anchor(
+                &lib_path,
+                Some(&text),
+                (1, "pub fn ".len() as u32),
+                "write_atomic",
+            ),
+        );
+    }
     let q = query(json!({"path": lib_path, "operation": "references",
         "symbolName": "write_atomic", "line": 2}));
     let mut options = octocode_engine::lsp::config::rust_analyzer_headless_options();
@@ -244,4 +261,30 @@ fn cfg_predicates_are_judged_against_a_target() {
         AnalysisTarget::Unknown
     );
     assert_eq!(AnalysisTarget::of(None), AnalysisTarget::Host);
+}
+
+/// A free function is reached by its path, never through a receiver: a gated
+/// file that only calls a same-named method (`held.write_atomic(…)`, as the
+/// Windows tests of a private file do) holds no use of it, so the row neither
+/// counts nor blames that file; one that calls it by its path still counts.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_same_named_method_is_no_use_of_a_free_function() {
+    let (off, _) = family_gates();
+    for (call, counted) in [
+        ("held\n        .write_atomic(1)", false),
+        ("crate::write_atomic()", true),
+    ] {
+        let other = format!("pub fn f() {{ {call}; }}\n");
+        let (_dir, root) = package(
+            &format!("#[cfg({off})]\nmod other;\n"),
+            &[("other.rs", other.as_str())],
+        );
+        let row = row_asking(&root, None, true).await;
+        assert_eq!(
+            row["partialReasons"] == json!([CFG_REASON]),
+            counted,
+            "{call}: {row}"
+        );
+        assert_eq!(row.get("isPartial").is_some(), counted, "{call}: {row}");
+    }
 }

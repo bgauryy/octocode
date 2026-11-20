@@ -136,7 +136,8 @@ pub(crate) fn search_options(
             margin: octocode_tools_shared::source_view::extraction::MATCH_MARGIN,
         }),
         // Each file is matched as a read of it serves it: bytes a read
-        // withholds make no hit, count or listing (see `judge`).
+        // withholds make no hit, count or listing, nor does a placeholder
+        // it writes in their place (see `judge`).
         judge: Some(judge(octocode_runtime_base::security::SourceLimits::REAL)),
     }
 }
@@ -147,6 +148,8 @@ pub(crate) fn search_options(
 /// ([`octocode_runtime_base::security::searched_text`]); a file past the whole-source size
 /// a read judges whole is searched with each line its streamed read serves
 /// differently replaced by that line ([`octocode_tools_shared::large_source::changed_lines`]).
+/// Either way the judge names the bytes the pass wrote, which no match takes
+/// ([`octocode_engine::types::ServedText`]).
 /// A file whose own bytes prove that text holds no match is not judged
 /// ([`octocode_runtime_base::security::meets_written`]).
 pub(crate) fn judge(
@@ -195,12 +198,13 @@ pub(crate) fn judge(
                 };
                 handle.seek(SeekFrom::Start(0))?;
                 let mut text = Vec::new();
-                octocode_tools_shared::large_source::Patched::new(
+                let mut patched = octocode_tools_shared::large_source::Patched::new(
                     std::io::BufReader::new(handle),
                     &changed,
-                )
-                .read_to_end(&mut text)?;
-                return Ok(Some(text));
+                );
+                patched.read_to_end(&mut text)?;
+                let written = patched.written().to_vec();
+                return Ok(Some(octocode_engine::types::ServedText { text, written }));
             }
             // The search hands the file at its start ([`octocode_engine::types::JudgeSource`]).
             let mut bytes = Vec::new();
@@ -232,7 +236,7 @@ fn judged_whole(
     path: &std::path::Path,
     bytes: &[u8],
     security: &octocode_runtime_base::security::ContentSecurity,
-) -> Option<Vec<u8>> {
+) -> Option<octocode_engine::types::ServedText> {
     octocode_runtime_base::security::searched_text(bytes, |text| {
         octocode_tools_shared::judged_rows::judged_text(text, path, security)
     })

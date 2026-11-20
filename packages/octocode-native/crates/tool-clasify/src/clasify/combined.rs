@@ -35,12 +35,14 @@ pub struct Combined {
     pub output: Value,
 }
 
-/// A source no section could answer: what its requests cost, and the one
+/// A source no section could answer: what its requests cost, the one
 /// non-window reason every question failed for, when there is one (the row
-/// then fails as its sections did, with that message).
+/// then fails as its sections did, with that message), and the count of its
+/// sections when they were not admitted (none was sent).
 pub(super) struct Failed {
     pub usage: ClassificationUsage,
     pub cause: Option<(ErrorCode, String)>,
+    pub unadmitted: Option<u64>,
 }
 
 /// Judge `source` in sections and combine them. `refused` is the provider
@@ -48,26 +50,37 @@ pub(super) struct Failed {
 /// section answered becomes an error cell carrying its sections' code, next
 /// to the answered ones. Only when no question was answered is the row an
 /// error: the refusal stays the row's error, counting the sections'
-/// requests, unless every question failed for one other reason.
+/// requests, unless every question failed for one other reason. The
+/// sections are judged only when `admits` takes their count, each send
+/// counted against `cap` ([`sections::whole`]).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one source's sections: its runtime, its spend so far and its bound"
+)]
 pub(super) fn judge(
     row: &Row,
     source: &Value,
     refused: u64,
+    cap: Option<&octocode_tools_shared::judgment::RequestCap>,
+    admits: &dyn Fn(u64) -> bool,
     gate: &GateLease,
     dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
     can_resume: bool,
 ) -> Result<Combined, Box<Failed>> {
-    let whole = sections::whole(row, source, dispatcher, context, gate).map_err(|failed| {
-        Box::new(Failed {
-            usage: failed.usage,
-            cause: None,
-        })
-    })?;
+    let whole =
+        sections::whole(row, source, dispatcher, context, gate, cap, admits).map_err(|failed| {
+            Box::new(Failed {
+                usage: failed.usage,
+                cause: None,
+                unadmitted: failed.unadmitted,
+            })
+        })?;
     if whole.metadata["status"] != "ready" || whole.sections.is_empty() {
         return Err(Box::new(Failed {
             usage: whole.usage,
             cause: None,
+            unadmitted: None,
         }));
     }
     let mut answers = Map::new();
@@ -98,6 +111,7 @@ pub(super) fn judge(
         return Err(Box::new(Failed {
             usage: whole.usage,
             cause: same,
+            unadmitted: None,
         }));
     }
     let mut output = json!({

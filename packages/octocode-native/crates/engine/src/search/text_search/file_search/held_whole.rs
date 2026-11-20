@@ -35,7 +35,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
         if (filled as u64) < len {
             self.read.ended();
         }
-        self.search_bytes(held, path, work)
+        self.search_bytes(super::Searched::own(held), path, work)
     }
 
     /// The first `len` bytes of the file in one region sized from them (no
@@ -73,12 +73,14 @@ impl<M: Matcher> FileSearcher<'_, M> {
     /// its judge serves ([`super::FileSearcher::judged`]).
     pub(super) fn search_bytes(
         &mut self,
-        bytes: &[u8],
+        text: super::Searched<'_>,
         path: &Path,
         work: MatchWork,
     ) -> std::io::Result<FileOutcome> {
+        let super::Searched { bytes, written } = text;
         let mut sink = CollectSink::new(self.matcher, work, (self.stop, self.held), self.terms);
         sink.cancelled = self.cancelled;
+        sink.written = written;
         sink.test_code = self.opts.test_code.as_ref().map(|scope| (scope, path));
         sink.line_scope = self.opts.line_scope.as_ref().map(|scope| (scope, path));
         sink.source = Some(path);
@@ -103,6 +105,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
                 let mut prefix_sink =
                     CollectSink::new(self.matcher, work, (self.stop, self.held), self.terms);
                 prefix_sink.cancelled = self.cancelled;
+                prefix_sink.written = written;
                 prefix_sink.source = Some(path);
                 prefix_sink.line_scope = self.opts.line_scope.as_ref().map(|scope| (scope, path));
                 prefix_searcher.search_slice(self.matcher, prefix, &mut prefix_sink)?;
@@ -119,6 +122,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
             outcome.copied = Some(CopiedRead {
                 bytes: bytes[..kept].to_vec(),
                 eof,
+                written: written.to_vec(),
             });
         }
         Ok(outcome)

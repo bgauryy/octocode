@@ -35,6 +35,7 @@ mod stream_judge;
 mod visit;
 pub(crate) mod walk_rule;
 mod window;
+mod written;
 
 #[cfg(any(test, feature = "test-hooks"))]
 pub use file_search::{DURING_SEARCH_READ, ReadRace};

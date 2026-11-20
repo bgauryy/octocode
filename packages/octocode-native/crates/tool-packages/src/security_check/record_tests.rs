@@ -751,3 +751,77 @@ fn fix_redundancy_uses_only_the_same_records_events() {
         "another record cannot erase this statement"
     );
 }
+
+/// Records of one id from several sources (OSV, GitHub's database, the
+/// repository's advisory) state their text once: a later record's summary or
+/// details equal to an earlier one's, line endings aside, is left out and
+/// `textSameAs` names the record that holds it; text that differs, every
+/// other field, and a record of another id keep their own (LEFTOVERS P3).
+#[test]
+fn twin_records_state_their_text_once() {
+    let text = "## Summary\nA flaw.\n\n## Impact\nData read.";
+    let mut rows = vec![
+        json!({"id": "GHSA-a", "link": "https://osv.dev/vulnerability/GHSA-a",
+            "summary": "S", "details": text, "severity": "high"}),
+        json!({"id": "GHSA-a", "link": "https://github.com/o/r/security/advisories/GHSA-a",
+            "summary": "S", "details": text.replace('\n', "\r\n"), "severity": "high"}),
+        json!({"id": "GHSA-a", "link": "https://github.com/advisories/GHSA-a",
+            "summary": "S", "details": format!("{text} More."), "cwes": ["CWE-1"]}),
+        json!({"id": "GHSA-a", "link": "https://example/edited",
+            "summary": "S edited", "details": format!("{text} Other.")}),
+        json!({"id": "GHSA-b", "link": "https://osv.dev/vulnerability/GHSA-b",
+            "summary": "S", "details": text}),
+    ];
+    let before = rows.clone();
+    drop_restated_text(&mut rows);
+    let unified = |value: &Value| value.as_str().map(|text| text.replace("\r\n", "\n"));
+    for (at, (kept, was)) in rows.iter().zip(&before).enumerate() {
+        // Every field but the text stays as the record stated it.
+        for (field, value) in was.as_object().expect("row") {
+            if field != "summary" && field != "details" {
+                assert_eq!(&kept[field], value, "row {at} {field}");
+            }
+        }
+        for field in ["summary", "details"] {
+            match (kept.get(field), kept.get("textSameAs")) {
+                (Some(own), _) => assert_eq!(own, &was[field], "row {at} {field}"),
+                // An omitted text is held, equal, by the record its pointer names.
+                (None, Some(pointer)) => {
+                    let holder = rows
+                        .iter()
+                        .find(|row| &row["link"] == pointer && row["id"] == kept["id"])
+                        .unwrap_or_else(|| panic!("row {at}: {pointer} resolves"));
+                    assert!(holder.get("textSameAs").is_none(), "row {at}");
+                    assert_eq!(unified(&holder[field]), unified(&was[field]), "row {at}");
+                }
+                (None, None) => panic!("row {at} lost {field} with no pointer"),
+            }
+        }
+    }
+    // Each distinct text of an id is stated exactly once.
+    for id in ["GHSA-a", "GHSA-b"] {
+        for field in ["summary", "details"] {
+            let stated = rows
+                .iter()
+                .filter(|row| row["id"] == id)
+                .filter_map(|row| unified(&row[field]))
+                .collect::<Vec<_>>();
+            let mut distinct = stated.clone();
+            distinct.sort();
+            distinct.dedup();
+            assert_eq!(stated.len(), distinct.len(), "{id} {field}: {stated:?}");
+        }
+    }
+    assert!(rows[1].get("details").is_none() && rows[1].get("summary").is_none());
+    assert_eq!(
+        rows[2]["textSameAs"], before[0]["link"],
+        "summary only: {}",
+        rows[2]
+    );
+    assert!(rows[3].get("textSameAs").is_none(), "{}", rows[3]);
+    assert!(
+        rows[4].get("textSameAs").is_none(),
+        "another id: {}",
+        rows[4]
+    );
+}

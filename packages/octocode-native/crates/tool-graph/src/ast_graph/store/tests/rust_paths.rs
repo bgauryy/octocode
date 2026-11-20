@@ -19,10 +19,10 @@ fn rust_bare_calls_do_not_resolve_same_named_methods() {
         ExitClass::Success
     );
     let root = dir.0.as_path();
-    let bare = ask(root, "callees", Some("src/lib.rs#Query.route"), |o| {
+    let bare = ask(root, "callees", Some("app/src/lib.rs#Query.route"), |o| {
         o.confidence = Some("high".into());
     });
-    assert_eq!(ids(&bare), vec!["src/helpers.rs#route"], "{}", bare.value);
+    assert_eq!(ids(&bare), vec!["app/src/helpers.rs#route"], "{}", bare.value);
     assert_eq!(bare.value["rows"][0]["via"], "import");
     assert_eq!(bare.value["rows"][0]["edgeLine"], 5);
     for caller in [
@@ -35,7 +35,7 @@ fn rust_bare_calls_do_not_resolve_same_named_methods() {
         });
         assert_eq!(
             ids(&qualified),
-            vec!["src/lib.rs#Query.route"],
+            vec!["app/src/lib.rs#Query.route"],
             "{caller}: {}",
             qualified.value
         );
@@ -108,12 +108,12 @@ fn plan_3_rust_module_path_calls_link() {
         ingest_fixture(dir.0.as_path(), None).class,
         ExitClass::Success
     );
-    for caller in ["src/api.rs#handle", "src/api.rs#nested"] {
+    for caller in ["app/src/api.rs#handle", "src/api.rs#nested"] {
         let out = ask(dir.0.as_path(), "callees", Some(caller), |_| {});
         let rows = out.value["rows"].as_array().expect("rows");
         assert!(
             rows.iter()
-                .any(|r| r["id"] == "src/portable.rs#sanitize" && r["via"] == "module-path"),
+                .any(|r| r["id"] == "app/src/portable.rs#sanitize" && r["via"] == "module-path"),
             "{caller}: {}",
             out.value
         );
@@ -138,11 +138,11 @@ fn rust_module_path_calls_follow_pub_use_reexports() {
         ingest_fixture(dir.0.as_path(), None).class,
         ExitClass::Success
     );
-    let out = ask(dir.0.as_path(), "callees", Some("src/api.rs#g"), |_| {});
+    let out = ask(dir.0.as_path(), "callees", Some("app/src/api.rs#g"), |_| {});
     let rows = out.value["rows"].as_array().expect("rows");
     assert!(
         rows.iter()
-            .any(|r| r["id"] == "src/a/b.rs#f" && r["via"] == "module-path"),
+            .any(|r| r["id"] == "app/src/a/b.rs#f" && r["via"] == "module-path"),
         "{}",
         out.value
     );
@@ -259,13 +259,67 @@ fn rust_member_calls_on_a_local_named_like_a_module_do_not_link_by_namespace() {
         });
         assert_eq!(ids(&callers), Vec::<String>::new(), "{}", callers.value);
     }
-    let start = ask(root, "callers", Some("src/driver.rs#start"), |o| {
+    let start = ask(root, "callers", Some("app/src/driver.rs#start"), |o| {
         o.confidence = Some("low".into());
     });
-    assert_eq!(ids(&start), vec!["src/io.rs#moduled"], "{}", start.value);
+    assert_eq!(ids(&start), vec!["app/src/io.rs#moduled"], "{}", start.value);
     assert_eq!(
         start.value["rows"][0]["via"], "namespace",
         "{}",
         start.value
+    );
+}
+
+/// A module file another crate also mounts by `#[path]` (a fuzz target, a
+/// bench sharing the source) keeps its home crate's links: `crate::` and
+/// `super::` paths resolve through the module tree that declares it with a
+/// plain `mod`, so its imports, calls and callers stay linked.
+#[test]
+fn a_path_mounted_module_keeps_its_home_crates_links() {
+    let dir = git_app(&[
+        (
+            "Cargo.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        ),
+        ("src/lib.rs", "pub mod num;\npub mod text;\n"),
+        ("src/num.rs", "pub fn saturate(v: u64) -> u32 { v as u32 }\n"),
+        ("src/text.rs", "mod offsets;\npub use offsets::width;\n"),
+        (
+            "src/text/offsets.rs",
+            "use crate::num::saturate;\npub fn width(v: u64) -> u32 { saturate(v) }\n",
+        ),
+        (
+            "fuzz/Cargo.toml",
+            "[package]\nname = \"app-fuzz\"\nversion = \"0.0.0\"\n\n[[bin]]\nname = \"offsets\"\npath = \"fuzz_targets/offsets.rs\"\n",
+        ),
+        (
+            "fuzz/fuzz_targets/offsets.rs",
+            "#[path = \"../../src/text/offsets.rs\"]\nmod offsets;\nfn main() { offsets::width(1); }\n",
+        ),
+    ]);
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let deps = ask(root, "deps", Some("src/text/offsets.rs"), |_| {});
+    assert!(
+        ids(&deps).iter().any(|id| id == "app/src/num.rs"),
+        "{}",
+        deps.value
+    );
+    let callers = ask(root, "callers", Some("app/src/num.rs#saturate"), |_| {});
+    assert_eq!(
+        ids(&callers),
+        ["app/src/text/offsets.rs#width"],
+        "{}",
+        callers.value
+    );
+    let diagnostics = ask(root, "diagnostics", Some("unresolved-internal"), |_| {});
+    assert!(
+        !diagnostics.value["rows"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|row| row["path"] == "app/src/text/offsets.rs"),
+        "{}",
+        diagnostics.value
     );
 }

@@ -14,6 +14,7 @@ previous version and the stored baselines.
 
 | Version | Date | Build | Round (scorecard or stored folder) | Headline |
 |---|---|---|---|---|
+| 20.2.0 | 2026-11-20 | dev build `c6e1e3ab…10cd` (`20.2.0+69024e9f`, dirty tree) | [Independent ratings, 12 dimensions](rounds/20.2.0-2026-11-20-independent-ratings/SCORECARD.md) | Not ready: 8 independent raters, all 17 tools; rater average 8.0 (previous 7.8), correct 9.4; lspSearch, securityCheck and ghStructure capped at 4 by the correctness gate (K1, K2, P1, GR1); 58 findings frozen in FINDINGS.md |
 | 20.2.0 | 2026-11-18 | release pin `3d691596…14a4` (round 3 `bin-r4l`, snapshot of the dirty tree) | [17-tool ratings](rounds/20.2.0-2026-11-18-tool-ratings/SCORECARD.md) | Not ready: ghSearchCode and securityCheck capped at 4 (walk refused after 625 files; false "no fix" for prerelease-only fixes); others 6.7–9.4; graphQuery cap lifted; 42 defects (2 blockers, 4 major) |
 | 20.2.0 | 2026-11-15 | host release `bfe156c1…502b` | [Deep efficiency and freshness](rounds/20.2.0-2026-11-15-deep-efficiency/SCORECARD.md) | 8,696 Rust tests; fresh 17-tool CLI/MCP acceptance/131 pages; 70 independent cache scenarios; 12 Rust operations and real-workspace replay; smaller multiline output, comparable scoped speed, cumulative provisional ratings |
 | 20.2.0 | 2026-11-15 | host release `4e2052ae…4f35` | [Claude handoff follow-up](rounds/20.2.0-2026-11-15-handoff-followup/REPORT.md) | Replay after eviction, inline Rust test relevance and input-repair disclosures; 8,663 Rust tests passed, fresh CLI/MCP acceptance and qualified timing observations; prior comparative scores remain attached to their build |
@@ -44,6 +45,9 @@ report, `per_question_summary.json`, the visual `index.html`) are also tracked o
 ## Rounds (tracked)
 
 `rounds/<version>-<date>/SCORECARD.md`, one per round, from the [scorecard template](../briefs/SCORECARD.md).
+- [20.2.0 — independent ratings on 12 dimensions, 2026-11-20](rounds/20.2.0-2026-11-20-independent-ratings/SCORECARD.md):
+  8 rater agents on fresh questions against ground truth, CLI plus MCP checks on the same binary; findings in
+  [FINDINGS.md](rounds/20.2.0-2026-11-20-independent-ratings/FINDINGS.md).
 - [20.2.0 — all 17 tool ratings, 2026-11-18](rounds/20.2.0-2026-11-18-tool-ratings/SCORECARD.md):
   newest build (round-3 pin), 5 lanes, CLI and MCP, two capped tools with verified causes.
 - [20.2.0 — deep efficiency and freshness, 2026-11-15](rounds/20.2.0-2026-11-15-deep-efficiency/SCORECARD.md):

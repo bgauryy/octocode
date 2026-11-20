@@ -158,7 +158,27 @@ fn merged_status(existing: Option<&str>, global: &'static str) -> &'static str {
     }
 }
 
+/// How much of its list GitHub's database answered for the version.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Answered {
+    /// Not asked, or no page read: nothing is known of its records.
+    Not,
+    /// Read until a page failed: its matches are a floor.
+    InPart,
+    /// Every page read.
+    Whole,
+}
+
 impl Global {
+    /// How much of the list this read reached ([`Answered`]).
+    pub(super) fn answered(&self) -> Answered {
+        match (advisories::failure(&self.end), self.rows.is_empty()) {
+            (None, _) => Answered::Whole,
+            (Some(_), true) => Answered::Not,
+            (Some(_), false) => Answered::InPart,
+        }
+    }
+
     /// Merges each of GitHub's records that is the twin of an OSV record into
     /// `results`, and keeps the ids of the rest.
     pub(super) fn merge(&mut self, results: &mut Vec<SourceResult>) {
@@ -216,12 +236,12 @@ impl Global {
     /// not whole.
     pub(super) fn apply(&self, data: &mut Value, brief: &Map<String, Value>) {
         let stopped = advisories::failure(&self.end);
-        let status = match (&stopped, self.rows.is_empty()) {
+        let status = match (self.answered(), self.rows.is_empty()) {
             // Asked and nothing read: it did not answer.
-            (Some(_), true) => "failed",
-            (Some(_), false) => "partial",
-            (None, true) => "noneKnown",
-            (None, false) => "found",
+            (Answered::Not, _) => "failed",
+            (Answered::InPart, _) => "partial",
+            (Answered::Whole, true) => "noneKnown",
+            (Answered::Whole, false) => "found",
         };
         if !data["sources"].is_array() {
             data["sources"] = json!([]);

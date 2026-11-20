@@ -10,6 +10,9 @@ pub(super) const FILE_TERMS_MAX_BYTES: u64 = 64 * 1024 * 1024;
 pub(super) struct CopiedRead {
     pub(super) bytes: Vec<u8>,
     pub(super) eof: bool,
+    /// The ranges of `bytes` a judge wrote ([`crate::types::ServedText`]): no
+    /// term found taking any of them counts.
+    pub(super) written: Vec<std::ops::Range<usize>>,
 }
 
 /// `file_contains_all` / `file_contains_none`, compiled once per search.
@@ -76,7 +79,12 @@ impl FileTerms {
     /// when the search stopped before its end. A failed read fails the check.
     pub(super) fn pass(&self, copied: Option<CopiedRead>, file: &std::fs::File) -> bool {
         use std::io::{Read, Seek, SeekFrom};
-        let Some(CopiedRead { mut bytes, eof }) = copied else {
+        let Some(CopiedRead {
+            mut bytes,
+            eof,
+            written,
+        }) = copied
+        else {
             return false;
         };
         let len = bytes.len() as u64;
@@ -94,6 +102,9 @@ impl FileTerms {
         let mut found = vec![false; self.required];
         for (matcher, kinds) in &self.automatons {
             for hit in matcher.find_overlapping_iter(&bytes) {
+                if super::written::takes(&written, hit.start()..hit.end()) {
+                    continue;
+                }
                 match kinds[hit.pattern().as_usize()] {
                     FileTerm::Excluded => return false,
                     FileTerm::Required(index) => found[index] = true,

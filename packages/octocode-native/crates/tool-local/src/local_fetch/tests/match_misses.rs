@@ -287,29 +287,61 @@ fn a_list_read_names_each_entry_that_matched_nothing() {
     }
 }
 
-/// A miss reads the file itself again before any folder is searched: a
+/// A miss reads the file itself again before any folder is searched. A
 /// declaration head the file declares otherwise (`pub fn apply(` where it
-/// says `pub(crate) fn apply`) is read by its name alone, a fact beside the
-/// lead; any other miss in a file with an outline leads to that outline. The
-/// folder search stays, after the file's own read.
+/// says `pub(crate) fn apply`) reads its one declaration at once, as the
+/// read of that line, with a warning naming the swap. With two declarations
+/// of the name it is read by its name alone, a fact beside the lead; any
+/// other miss in a file with an outline leads to that outline. The folder
+/// search stays, after the file's own read.
 #[test]
 fn a_miss_reads_the_file_again_before_searching_its_folder() {
     let t = Fixture::new();
-    let p = t.0.join("hoist.rs");
+    let one = t.0.join("hoist.rs");
+    let two = t.0.join("twice.rs");
     fs::write(
-        &p,
-        "pub(crate) fn apply(x: u32) -> u32 {\n    x\n}\npub fn apply_on() {}\n",
+        &one,
+        "pub(crate) fn apply(x: u32) -> u32 {\n    x\n}\npub fn apply_on() {\n    apply(1);\n}\n",
+    )
+    .expect("fixture");
+    fs::write(
+        &two,
+        "impl A {\n    fn apply(&self) {}\n}\nimpl B {\n    fn apply(&self) {}\n}\n",
     )
     .expect("fixture");
     let paths = Paths(t.0.clone());
-    let leads = |pattern: &str| {
-        let row = fetch(
+    let read = |path: &std::path::Path, pattern: &str| {
+        fetch(
             &qj(
-                &p,
+                path,
                 serde_json::json!({"matchString": [pattern], "block": true}),
             ),
             &paths,
+        )
+    };
+    for head in ["pub fn apply(", "fn apply<T>"] {
+        let row = read(&one, head);
+        assert_eq!(row.status, ReadStatus::Success, "{head}: {row:?}");
+        let content = row.content.as_deref().unwrap_or_default();
+        // The declaration's block, and no other line naming it.
+        assert!(
+            content.contains("pub(crate) fn apply(x: u32)"),
+            "{head}: {content}"
         );
+        assert!(content.contains("    x"), "{head}: {content}");
+        assert!(!content.contains("apply(1)"), "{head}: {content}");
+        assert!(
+            row.warnings
+                .first()
+                .is_some_and(|warning| warning.contains(&format!("`{head}`"))
+                    && warning.contains("`apply`")
+                    && warning.contains("line 1")),
+            "{head}: {:?}",
+            row.warnings
+        );
+    }
+    let leads = |path: &std::path::Path, pattern: &str| {
+        let row = read(path, pattern);
         assert_eq!(row.status, ReadStatus::Empty, "{row:?}");
         let next = serde_json::to_value(row.next.as_ref().expect("next")).expect("json");
         let order = next
@@ -320,22 +352,43 @@ fn a_miss_reads_the_file_again_before_searching_its_folder() {
             .collect::<Vec<_>>();
         (row.warnings, next, order)
     };
-    let (warnings, next, order) = leads("pub fn apply(");
-    let read = &next["read"]["input"]["queries"][0];
+    let (warnings, next, order) = leads(&two, "pub fn apply(");
+    let lead = &next["read"]["input"]["queries"][0];
     assert_eq!(next["read"]["tool"], "localFetch", "{next}");
-    assert_eq!(read["matchString"], serde_json::json!(["apply"]), "{next}");
-    assert_eq!(read["wholeWord"], true, "{next}");
-    assert_eq!(read["block"], true, "{next}");
-    assert_eq!(warnings, vec!["1 line matches `apply`.".to_owned()]);
+    assert_eq!(lead["matchString"], serde_json::json!(["apply"]), "{next}");
+    assert_eq!(lead["wholeWord"], true, "{next}");
+    assert_eq!(lead["block"], true, "{next}");
+    assert_eq!(warnings, vec!["2 lines match `apply`.".to_owned()]);
     assert_eq!(order, ["read", "findText"], "{next}");
 
-    let (warnings, next, order) = leads("nowhere_here");
+    let (warnings, next, order) = leads(&one, "nowhere_here");
     assert!(warnings.is_empty(), "{warnings:?}");
     assert_eq!(
         next["read"]["input"]["queries"][0]["view"], "symbols",
         "{next}"
     );
     assert_eq!(order, ["read", "findText"], "{next}");
+}
+
+/// The one declaration is read only when its line's text selects it alone:
+/// the same text on another line keeps the empty row and its lead.
+#[test]
+fn a_declaration_whose_line_repeats_keeps_the_lead() {
+    let t = Fixture::new();
+    let p = t.0.join("again.ts");
+    fs::write(
+        &p,
+        "export function parseEnv(text: string) {\n  return text;\n}\n// export function parseEnv(text: string) {\n",
+    )
+    .expect("fixture");
+    let row = fetch(
+        &qj(
+            &p,
+            serde_json::json!({"matchString": ["const parseEnv"], "block": true}),
+        ),
+        &Paths(t.0.clone()),
+    );
+    assert_eq!(row.status, ReadStatus::Empty, "{row:?}");
 }
 
 /// A file without a declaration outline has no outline to lead to: the

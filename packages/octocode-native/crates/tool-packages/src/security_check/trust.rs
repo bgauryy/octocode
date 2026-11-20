@@ -285,7 +285,7 @@ impl Trust {
         paging::push_warnings(
             data,
             [format!(
-                "This page compared OSV's records with the advisories of {}, which the latest release, {}, names; this version names {}, which GitHub does not show this credential.",
+                "This page compared OSV's records with the advisories of {}, which the latest release, {}, names; this version names {}, which GitHub does not show to this credential.",
                 typed(&successor.to),
                 typed(&successor.version),
                 typed(&successor.from)
@@ -326,7 +326,7 @@ impl Trust {
                     contract,
                     "repositoryMoved",
                     format!(
-                        "This version names {from}, which GitHub does not show this credential; the latest release, {version}, names {to}{redirect}, read {today}."
+                        "This version names {from}, which GitHub does not show to this credential; the latest release, {version}, names {to}{redirect}, read {today}."
                     ),
                 )
                 .into_iter()

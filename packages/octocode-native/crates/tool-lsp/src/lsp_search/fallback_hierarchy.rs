@@ -5,7 +5,7 @@ use super::cancellable;
 use super::failure::LspFailure;
 use super::file_windows::FileWindows;
 use super::heritage;
-use super::recovery::{get_locations, resolve_definition_chain};
+use super::recovery::{get_counted_locations, get_locations, resolve_definition_chain};
 use super::render::uri_to_path;
 use super::source::SourceCache;
 use super::walk::{
@@ -97,6 +97,9 @@ pub(super) struct Fallback<'a, 'p> {
     /// one window, in the order found: each resumes as the anchor of its own
     /// walk, where its candidates page by window.
     candidate_capped: Mutex<Vec<Value>>,
+    /// Bases the source names whose declaration lies outside the read
+    /// policy (`Send` in the toolchain's `core`), by name once each.
+    withheld: Mutex<Vec<String>>,
 }
 
 impl<'a, 'p> Fallback<'a, 'p> {
@@ -118,6 +121,7 @@ impl<'a, 'p> Fallback<'a, 'p> {
             documents: Mutex::new(std::collections::HashMap::new()),
             initial: Mutex::new(None),
             candidate_capped: Mutex::new(Vec::new()),
+            withheld: Mutex::new(Vec::new()),
         }
     }
 
@@ -199,7 +203,7 @@ impl<'a, 'p> Fallback<'a, 'p> {
         match self.node(path, line, character).await {
             Ok(node) => Ok(vec![node]),
             Err(failure) if failure.is_cancelled() => Err(failure),
-            Err(_) => self.definitions(path, line, character).await,
+            Err(_) => self.definitions(path, line, character, None).await,
         }
     }
 
@@ -241,6 +245,9 @@ impl<'a, 'p> Fallback<'a, 'p> {
             .finish(self, self.cancel)
             .await?;
         walk.failures.extend(self.failures.lock().await.drain(..));
+        let withheld = std::mem::take(&mut *self.withheld.lock().await);
+        walk.out_of_policy += withheld.len();
+        walk.withheld_names.extend(withheld);
         let capped = std::mem::take(&mut *self.candidate_capped.lock().await);
         self.resume_candidates(&mut walk, capped, depth).await;
         Ok(walk)

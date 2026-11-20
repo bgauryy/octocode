@@ -6,7 +6,7 @@ use super::page_rows::PageRows;
 use super::query::MatchQuery;
 use super::rows::{MatchRow, diag};
 use super::scan::parser_extension;
-use super::types::{Group, Grouped, SKIP_CODES, ScannedFile, Scope};
+use super::types::{Group, Grouped, Nesting, SKIP_CODES, ScannedFile, Scope};
 use super::{file_list, row_chars};
 use octocode_engine::num::saturating_u32;
 use octocode_engine::structural::{FileMatches, StructuralDiagnostic};
@@ -131,6 +131,7 @@ pub(super) fn listed_file(
         held: None,
         row,
         truncated_captures: false,
+        nested: Nesting::default(),
         priced: None,
     }
 }
@@ -146,6 +147,7 @@ fn matched_group(path: String, sizes: Vec<usize>, row_paths: RowPaths<'_>) -> Gr
         held: None,
         row: json!({"path": path}),
         truncated_captures: false,
+        nested: Nesting::default(),
         priced: None,
     }
 }
@@ -306,6 +308,7 @@ fn show(group: &mut Group, rows: &[MatchRow], slice: std::ops::Range<usize>) {
     // Rows whose text was cut to a header or that hide capture text:
     // `includeCaptures:true` (next.expandCaptures) returns them whole.
     group.truncated_captures = rows.iter().any(|row| row.withheld);
+    group.nested = nesting(rows);
     group.row["matches"] = rows
         .iter()
         .zip(shares_line)
@@ -331,5 +334,41 @@ fn show(group: &mut Group, rows: &[MatchRow], slice: std::ops::Range<usize>) {
                 .source_descriptors
                 .push(std::sync::Arc::clone(descriptor));
         }
+    }
+}
+
+/// How `rows` (one file's, in any order) nest: each row inside another
+/// (a node within another's extent; of two with one extent, the later),
+/// and the kinds of the innermost rows inside one, which enclose no other.
+fn nesting(rows: &[MatchRow]) -> Nesting {
+    let mut order = (0..rows.len()).collect::<Vec<_>>();
+    // Outer before inner: by start, then the later end first.
+    order.sort_by(|&a, &b| {
+        let (a, b) = (&rows[a].node, &rows[b].node);
+        a.start.cmp(&b.start).then(b.end.cmp(&a.end))
+    });
+    let mut open: Vec<usize> = Vec::new();
+    let mut inside = vec![false; rows.len()];
+    let mut encloses = vec![false; rows.len()];
+    for index in order {
+        let node = &rows[index].node;
+        while open
+            .last()
+            .is_some_and(|&outer| rows[outer].node.end < node.end)
+        {
+            open.pop();
+        }
+        if let Some(&outer) = open.last() {
+            inside[index] = true;
+            encloses[outer] = true;
+        }
+        open.push(index);
+    }
+    Nesting {
+        inside: inside.iter().filter(|inside| **inside).count(),
+        innermost: (0..rows.len())
+            .filter(|&index| inside[index] && !encloses[index])
+            .filter_map(|index| rows[index].node.kind.clone())
+            .collect(),
     }
 }

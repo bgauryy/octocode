@@ -6,7 +6,7 @@
 
 mod recovery;
 
-use super::types::LineRange;
+use super::types::{FetchCall, LineRange, NextCalls, local_fetch_query};
 use crate::declarations::{self, Declared, all_declarations};
 pub(super) use recovery::outline_recovery_warning;
 use recovery::recovered_parse;
@@ -21,8 +21,10 @@ struct Blocks {
 
 impl Blocks {
     /// `None` when the file type has no outline or the outline is empty.
+    /// A Markdown file's declarations are its sections ([`sections`]).
     fn of(content: &str, path: &str) -> Option<Self> {
-        let (declared, one_line): (Vec<Declared>, Vec<Declared>) = all_declarations(content, path)?
+        let (declared, one_line): (Vec<Declared>, Vec<Declared>) = all_declarations(content, path)
+            .or_else(|| sections(content, path))?
             .into_iter()
             .partition(|declared| declared.end > declared.start);
         if declared.is_empty() && one_line.is_empty() {
@@ -41,6 +43,31 @@ impl Blocks {
     fn is_one_line(&self, line: usize) -> bool {
         self.one_line.binary_search(&line).is_ok()
     }
+}
+
+/// A Markdown file's sections, the outline `view:"symbols"` lists
+/// ([`octocode_runtime_base::content::markdown_headings`]): each heading
+/// through the line before the next heading of the same or a higher level,
+/// else the file's last line, so a section holds its subsections.
+fn sections(content: &str, path: &str) -> Option<Vec<Declared>> {
+    let headings = octocode_runtime_base::content::markdown_headings(content, path)?;
+    let last = content.lines().count();
+    let sections = headings
+        .iter()
+        .enumerate()
+        .map(|(at, heading)| Declared {
+            name: heading.text.clone(),
+            kind: "heading".to_owned(),
+            doc_start: None,
+            line: heading.line,
+            start: heading.line,
+            end: headings[at + 1..]
+                .iter()
+                .find(|next| next.level <= heading.level)
+                .map_or(last, |next| next.line - 1),
+        })
+        .collect();
+    Some(sections)
 }
 
 /// `lines` as a warning names them: `line 4` or `lines 4, 9`.
@@ -103,11 +130,33 @@ fn innermost(spans: &[(usize, usize)], line: usize) -> Option<(usize, usize)> {
     declarations::innermost_by(spans, line, |&span| span).copied()
 }
 
-fn no_outline(content: &str, path: &str) -> String {
-    format!(
-        "block: no declaration outline for {path}; returned the requested lines.{}",
+/// A block read of a file with no declaration outline (no grammar for its
+/// language): the requested lines, a warning, and `next.read`, the same
+/// file from `first` through its last line, paged, so the declaration that
+/// starts there is read to its end whatever spells it.
+fn no_outline(
+    content: &str,
+    path: &str,
+    first: Option<usize>,
+    warnings: &mut Vec<String>,
+    next: &mut NextCalls,
+) {
+    let last = content.lines().count();
+    let read = first
+        .filter(|first| *first <= last)
+        .and_then(|first| local_fetch_query::ranges_lead(path, &[(first as u64, last as u64)]));
+    warnings.push(format!(
+        "block: no declaration outline for {path}; returned the requested lines{}.{}",
+        if read.is_some() {
+            "; next.read reads on to the file's end"
+        } else {
+            ""
+        },
         recovered_parse(content, path).unwrap_or_default()
-    )
+    ));
+    if let Some(read) = read {
+        next.read = Some(FetchCall::related(read));
+    }
 }
 
 /// Widen each range to the innermost declaration containing its first line,
@@ -117,9 +166,11 @@ pub(super) fn widen_ranges(
     path: &str,
     ranges: Vec<LineRange>,
     warnings: &mut Vec<String>,
+    next: &mut NextCalls,
 ) -> Vec<LineRange> {
     let Some(blocks) = Blocks::of(content, path) else {
-        warnings.push(no_outline(content, path));
+        let first = ranges.iter().map(|range| range.start).min();
+        no_outline(content, path, first, warnings, next);
         return ranges;
     };
     let spans = block_spans(content, path, &blocks);
@@ -180,9 +231,10 @@ pub(super) fn widen_matches(
     windows: Vec<LineRange>,
     warnings: &mut Vec<String>,
     blocks: &mut Vec<super::types::DeclaredBlock>,
+    next: &mut NextCalls,
 ) -> Vec<LineRange> {
     let Some(outline) = Blocks::of(content, path) else {
-        warnings.push(no_outline(content, path));
+        no_outline(content, path, hits.iter().copied().min(), warnings, next);
         return windows;
     };
     let spans = outline.spans();

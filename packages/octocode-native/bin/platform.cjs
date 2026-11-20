@@ -10,8 +10,11 @@ const { spawnSync } = require('child_process');
  */
 const PLATFORMS = {
   'darwin-arm64': { triple: 'aarch64-apple-darwin', os: 'darwin', arch: 'arm64', libc: null, label: 'macOS Apple Silicon (arm64)' },
+  'darwin-x64': { triple: 'x86_64-apple-darwin', os: 'darwin', arch: 'x64', libc: null, label: 'macOS Intel (x64)' },
   'linux-arm64-gnu': { triple: 'aarch64-unknown-linux-gnu', os: 'linux', arch: 'arm64', libc: 'gnu', label: 'Linux ARM64 (glibc)' },
+  'linux-arm64-musl': { triple: 'aarch64-unknown-linux-musl', os: 'linux', arch: 'arm64', libc: 'musl', label: 'Linux ARM64 musl (Alpine Linux)' },
   'linux-x64-gnu': { triple: 'x86_64-unknown-linux-gnu', os: 'linux', arch: 'x64', libc: 'gnu', label: 'Linux x64 (glibc)' },
+  'linux-x64-musl': { triple: 'x86_64-unknown-linux-musl', os: 'linux', arch: 'x64', libc: 'musl', label: 'Linux x64 musl (Alpine Linux)' },
   'win32-arm64-msvc': { triple: 'aarch64-pc-windows-msvc', os: 'win32', arch: 'arm64', libc: null, label: 'Windows ARM64 (MSVC)' },
   'win32-x64-msvc': { triple: 'x86_64-pc-windows-msvc', os: 'win32', arch: 'x64', libc: null, label: 'Windows x64 (MSVC)' },
 };

@@ -111,6 +111,57 @@ pub(super) fn no_match(q: &LocalFetchQuery, source: &Source<'_>) -> LocalFetchRe
     }
 }
 
+/// The read a literal read that selected nothing stands for when its
+/// patterns are declaration heads misremembered (`fn add_hints(` where the
+/// file declares `pub fn add_hints<I>(`) and the file holds exactly one line
+/// declaring a name they declare: the same read of that line's own text,
+/// with the warning that says so, when that read selects that line alone.
+/// `None` when a case-insensitive or
+/// unranged read would select lines (its own lead says so), no pattern is a
+/// head, or no line, or several, declare the names: the empty row's leads
+/// then stand.
+pub(super) fn declared_read(q: &LocalFetchQuery, text: &str) -> Option<(LocalFetchQuery, String)> {
+    // The name read first: it rejects a regex or a pattern that is no head
+    // without running a pattern.
+    let (_, names, _) = named_read(q, text)?;
+    if local_fetch_query::has_ranges(q) || insensitive_match_count(q, text) > 0 {
+        return None;
+    }
+    let names = names.split("`, `").collect::<Vec<_>>();
+    let mut declaring = text.lines().enumerate().filter(|(_, line)| {
+        names
+            .iter()
+            .any(|name| octocode_engine::search::declares_name(line, name))
+    });
+    let (index, line) = declaring.next()?;
+    if declaring.next().is_some() {
+        return None;
+    }
+    let line = line.trim();
+    let query = local_fetch_query::updated(
+        q,
+        serde_json::json!({ "matchString": [line], "wholeWord": false }),
+    )
+    .ok()?;
+    // The read selects that one line, or the lead stands: the same text on
+    // another line would make it a read of more than the declaration.
+    super::extraction::extract(&query, text)
+        .ok()
+        .and_then(|extraction| extraction.count)
+        .filter(|count| *count == 1)?;
+    let patterns = local_fetch_query::match_strings(q)
+        .iter()
+        .map(|pattern| format!("`{pattern}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let warning = format!(
+        "No line holds {patterns}: read the one declaration of `{}` instead, line {}.",
+        names.join("`, `"),
+        index + 1
+    );
+    Some((query, warning))
+}
+
 /// The same read of the names a literal read's declaration heads declare
 /// (`pub fn apply(` names `apply`), with the lines it selects and the names
 /// joined; `None` when no pattern is a head, the read is a regex, or the

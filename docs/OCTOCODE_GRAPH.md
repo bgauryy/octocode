@@ -73,7 +73,7 @@ Narrowing: `kind` (`file`, `symbol` or `package`), `confidence` (see [Read the a
 | Change coupling | `commits`, `share`, `linked` | `cochange`: commits that changed both files, divided by the target's commits. `linked: false` means coupling with no graph edge. |
 | Runtime frequency | none | Not modeled. It needs profiling data. |
 
-**Impact.** Rows are dependents, not breakage. `risk` gives the distance from the change: `changed` (0), `direct` (1, inspect first), `likely` (2), `transitive` (3 or more), and `candidate` (an import-only importer that no linked reference proves affected). `summary.testsToRun` names every test the change reaches, even past `depth`. `summary.affectedEntrypoints` says where to look. Only tests or execution prove a break. Dynamic dispatch, reflection and string loading are not modeled.
+**Impact.** Rows are dependents, not breakage. `risk` gives the distance from the change: `changed` (0), `direct` (1, inspect first), `likely` (2), `transitive` (3 or more), and `candidate` (an import-only importer that no linked reference proves affected). `summary.testsToRun` counts every test file the change reaches, even past `depth`, and `next.testsToRun` lists each with the test functions reached in it. `next.affectedEntrypoints` lists the entrypoints to look at. Only tests or execution prove a break. Dynamic dispatch, reflection and string loading are not modeled.
 
 **Issues.** Findings are ranked hypotheses, each with `evidence` and the `controls` applied:
 

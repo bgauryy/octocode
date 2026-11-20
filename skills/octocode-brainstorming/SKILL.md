@@ -1,6 +1,6 @@
 ---
 name: octocode-brainstorming
-description: "Load first for ideas, options, alternatives, competitor comparisons or a challenged proposal, claims backed by checked web sources, before answering from memory. Design trade-offs inside one codebase: octocode-engineer."
+description: "Load this skill first when the user wants ideas, options, alternatives or a challenged proposal checked against web sources: it tests answers against rivals with cited evidence. Codebase design trade-offs: octocode-engineer."
 ---
 
 # Octocode Brainstorming

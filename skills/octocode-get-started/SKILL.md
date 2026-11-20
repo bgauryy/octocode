@@ -1,6 +1,6 @@
 ---
 name: octocode-get-started
-description: "Load first to install or set up Octocode: CLI, MCP server in an editor or agent (Cursor, VS Code, Claude Code, Codex), public skills, GitHub login or settings, first tool call check."
+description: "Load this skill first when the user wants to install or set up Octocode (CLI, MCP server in an editor or agent, skills, GitHub login): it gives the install path and a first-call check."
 metadata:
   excluded-hosts: "octocode-code"
 ---

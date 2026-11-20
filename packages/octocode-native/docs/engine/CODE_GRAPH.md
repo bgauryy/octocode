@@ -329,10 +329,12 @@ at its `exportLine`, a critical file by `dependents` to its `farthestDepth`.
 - `depth` defaults to 3. Rows carry `depth`, `risk` (`direct` at depth 1,
   `likely` at 2, `transitive` at 3+), `packageDistance`, `confidence` and
   `typesOnly`.
-- The summary (first page only) counts rows `byDepth` and lists
-  `affectedEntrypoints`, `testsToRun`, `components`, and `testFunctions`
-  (including Rust `mod tests` and pytest `test_*` functions). Tests are named
-  at any depth: a `depthLimited` walk still lists every test the change reaches.
+- The summary (first page only) counts rows `byDepth`, lists `components`,
+  and counts `affectedEntrypoints`, `testsToRun` and `testFunctions`
+  (including Rust `mod tests` and pytest `test_*` functions); each counted
+  list is read by its own `next.*` call, so the rows come first. Tests are
+  counted at any depth: a `depthLimited` walk still reaches every test the
+  change reaches.
 - A change to a config linking reads (manifest, workspace list,
   tsconfig/pyproject/go.mod) affects everything
   below its directory; `allAffected` marks a root-level change.
@@ -982,9 +984,10 @@ dependency) inside a `#[cfg(test)]` item or in a test file, transitively. `impac
 reaches.
 
 graphQuery pages rows with `limit` and `offset`; a page also ends at the response
-budget. Large `impact` summary arrays and `issues` baseline arrays show 100 entries
-in the first response, and `next` holds one continuation per array (for example
-`next["summary.testsToRun"]`), which returns the complete list as ordinary paged
+budget. An `impact` summary counts its long lists, and its first page holds
+`next.affectedEntrypoints`, `next.testsToRun` (rows `{path, functions}`: each test
+file with the test functions reached in it) and, for `since`, `next.unmapped`:
+the same query with `list` set, which returns the complete list as ordinary paged
 `rows`; follow its own `next.nextPage` until it ends. A cycle larger than 50 nodes
 gets `next.cycle<i>` (the row's index on its page), which pages every member.
 Continuations repeat the query's `path` and pin the snapshot ID.

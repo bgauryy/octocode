@@ -16,6 +16,7 @@
 
 pub mod local_fetch;
 pub mod local_search;
+mod sparse_scope;
 pub mod structure_search;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;

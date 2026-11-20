@@ -65,14 +65,14 @@ pub(super) fn render_match_page(
     gaps: ScopeGaps,
     presentation: (
         &StreamPage,
+        Census,
         super::super::RowPaths<'_>,
         super::stream::Bounds,
     ),
     cancel: &dyn octocode_runtime_base::execution::cancel::CancellationCheck,
 ) -> Result<Value, octocode_runtime_base::response::result::ToolError> {
-    let (page, row_paths, bounds) = presentation;
+    let (page, census, row_paths, bounds) = presentation;
     let truncated = scan.truncated;
-    let cut = budget_cut(scan);
     let diagnostics = octocode_tools_shared::ast_rule::group_diagnostics(merge_diagnostics(
         std::mem::take(&mut grouped.diagnostics),
         scan_diagnostics(scope, scan, q.page(), grouped.total_matches > 0),
@@ -92,11 +92,6 @@ pub(super) fn render_match_page(
     } else {
         bounds.total(&groups) as u64
     };
-    // A caller who set `limit` chose the page size: advice to read fewer is
-    // noise; the windows before this one are counted, not paged here.
-    let narrow = (q.limit().is_none() && !floor && start == WindowStart::default())
-        .then(|| narrowing_notice(grouped.total_matches, groups.len(), page))
-        .flatten();
     let page_groups = &groups[page.window.clone()];
     let more = page.more;
     let mut out = if floor {
@@ -128,33 +123,9 @@ pub(super) fn render_match_page(
         out["calls"]["narrowSearch"] = first;
         out["calls"]["narrowRest"] = rest;
     }
-    // What the walk left out is disclosed once, on page 1, in
-    // `skippedPaths`, like localSearch's walk: what its ignore, dot and
-    // default-exclude rules skipped, and what no flag lifts (withheld
-    // entries, read errors).
-    let errors = &scan.walk_errors;
-    let skips = octocode_tools_shared::leads::skipped::ledger_entries(
-        &scope.canonical,
-        &scan.skipped,
-        errors.into(),
-    );
-    // The grammars this scan reads decide which files no grammar parses
-    // leave absence unproven: the census warning counts them, and each is
-    // its own `unparsed` entry beside the causes above.
-    let read = octocode_tools_shared::leads::unparsed::SourceTypes::read_by(
-        scope.language.as_deref().or(scope.inferred.as_deref()),
-    );
-    // Once per scan: its first page of its first window (every window
-    // walks from the first candidate, so a later one would repeat it).
-    if q.page() == 1 && q.scan_offset() == 0 {
-        let grouped = octocode_tools_shared::leads::skipped::skipped_paths(skips, false, cut)?;
-        let unparsed = octocode_tools_shared::leads::skipped::unparsed_paths(
-            scan.unparsed.skipped(Some(&read)),
-            cut,
-        )?;
-        if let Some(paths) = octocode_tools_shared::leads::skipped::appended(grouped, unparsed) {
-            out["skippedPaths"] = serde_json::to_value(paths).unwrap_or_default();
-        }
+    let first_page = q.page() <= 1;
+    if first_page && let Some(paths) = &census.skipped_paths {
+        out["skippedPaths"] = paths.clone();
     }
     octocode_runtime_base::response::paging::push_warnings(
         &mut out,
@@ -163,24 +134,14 @@ pub(super) fn render_match_page(
             &q.exclude().unwrap_or_default(),
         ),
     );
+    octocode_runtime_base::response::paging::push_warnings(
+        &mut out,
+        nested_warning(q, page_groups),
+    );
     // The scan's census, said on its first page; a later page of the same
     // scan repeats nothing (a scan window reads other files).
-    if q.page() <= 1 {
-        let (unparsed, skipped_grammars) = scan.unparsed.disclosed(
-            &super::types::SEARCH,
-            Some(&read),
-            grouped.skipped_grammars.clone(),
-        );
-        push_census(
-            &mut out,
-            [
-                unparsed,
-                recovered_notice(&grouped.recovered),
-                recovered_bodies_notice(&grouped.recovered_bodies),
-                narrow,
-            ],
-            skipped_grammars,
-        );
+    if first_page {
+        census.write(&mut out);
     }
     // An empty page explains itself, skipped walks included; the matches of
     // a page that has some are those of the walk the defaults left, so the
@@ -201,7 +162,9 @@ pub(super) fn render_match_page(
     } else if let Some(skipped) = gaps.skipped {
         include_skipped = Some(skipped);
     }
-    let incomplete = mark_coverage_cuts(&mut out, scan, &grouped);
+    // The coverage cuts are the scan's: page 1 states them beside its
+    // census, and the last page, which no next page explains, again.
+    let incomplete = mark_coverage_cuts(&mut out, scan, &grouped, first_page || !more);
     let empty = groups.is_empty() && !more && !incomplete;
     if empty {
         out["status"] = json!("empty");
@@ -291,10 +254,12 @@ fn source_limit_leads(
     super::continuations::narrow_leads(q, &file, path)
 }
 
-/// Mark each coverage cut of the scan as a partial reason, so a partial
-/// final page (no `next`) still says why it is partial. Returns whether the
-/// scan's coverage is incomplete. Match pages are pagination, never a coverage cut.
-fn mark_coverage_cuts(out: &mut Value, scan: &Scan, grouped: &Grouped) -> bool {
+/// Mark each coverage cut of the scan as a partial reason where `stated`
+/// (page 1, beside the census that explains it, and the final page, which
+/// no `next` explains); a page between is only `isPartial`. Returns whether
+/// the scan's coverage is incomplete. Match pages are pagination, never a
+/// coverage cut.
+fn mark_coverage_cuts(out: &mut Value, scan: &Scan, grouped: &Grouped, stated: bool) -> bool {
     use octocode_runtime_base::response::paging::PartialReason;
     let skips = scan.skips;
     let skipped = skips.0 + skips.1 + skips.2 > 0
@@ -304,6 +269,12 @@ fn mark_coverage_cuts(out: &mut Value, scan: &Scan, grouped: &Grouped) -> bool {
     let incomplete = budget_cut(scan) || skipped || recovered || grouped.unevaluated_files > 0;
     let unproven = octocode_tools_shared::test_code::unread_note(&scan.test_code_unread);
     let incomplete = incomplete || unproven.is_some();
+    if !stated {
+        if incomplete {
+            octocode_runtime_base::response::paging::set_partial(out, true);
+        }
+        return incomplete;
+    }
     if let Some(note) = unproven {
         octocode_runtime_base::response::paging::mark_partial(
             out,
@@ -419,35 +390,198 @@ pub(super) fn merge_diagnostics(mut diagnostics: Vec<Value>, scan: Vec<Value>) -
     diagnostics
 }
 
-/// A first page's census: the static notes (files without a grammar,
-/// recovered parses, how to narrow a multi-page set), which the response
-/// stage says once, and the skipped-grammar counts.
-fn push_census<const N: usize>(
-    out: &mut Value,
-    notices: [Option<String>; N],
+/// What a scan's first page carries besides its rows: what the walk left
+/// out (`skippedPaths`, on its first window's), the static notes (files
+/// without a grammar, recovered parses, how to narrow a multi-page set),
+/// which the response stage says once, and the skipped-grammar counts.
+/// The page cut charges page 1 for it ([`Census::page`]), so page 1 and
+/// its census fit the window every later page fills.
+pub(super) struct Census {
+    skipped_paths: Option<Value>,
+    notices: Vec<String>,
     skipped_grammars: Option<Value>,
-) {
-    for notice in notices.into_iter().flatten() {
-        octocode_runtime_base::response::paging::push_notice(out, notice);
+    /// How to narrow a set over one page, once the cut says it is.
+    narrow: Option<String>,
+}
+
+impl Census {
+    pub(super) fn of(
+        q: MatchQuery<'_>,
+        scope: &Scope,
+        scan: &Scan,
+        grouped: &Grouped,
+    ) -> Result<Self, octocode_runtime_base::response::result::ToolError> {
+        use octocode_tools_shared::leads::skipped;
+        let cut = budget_cut(scan);
+        // The grammars this scan reads decide which files no grammar parses
+        // leave absence unproven: the census warning counts them, and each is
+        // its own `unparsed` entry beside the causes below.
+        let read = octocode_tools_shared::leads::unparsed::SourceTypes::read_by(
+            scope.language.as_deref().or(scope.inferred.as_deref()),
+        );
+        // What the walk left out is disclosed once, in `skippedPaths`, like
+        // localSearch's walk: what its ignore, dot and default-exclude rules
+        // skipped, and what no flag lifts (withheld entries, read errors).
+        // Once per scan: on its first window (every window walks from the
+        // first candidate, so a later one would repeat it).
+        let skipped_paths = if q.scan_offset() == 0 {
+            let skips = skipped::ledger_entries(
+                &scope.canonical,
+                &scan.skipped,
+                (&scan.walk_errors).into(),
+            );
+            let walked = skipped::skipped_paths(skips, false, cut)?;
+            let unparsed = skipped::unparsed_paths(scan.unparsed.skipped(Some(&read)), cut)?;
+            skipped::appended(walked, unparsed)
+                .map(|paths| serde_json::to_value(paths).unwrap_or_default())
+        } else {
+            None
+        };
+        let (unparsed, skipped_grammars) = scan.unparsed.disclosed(
+            &super::types::SEARCH,
+            Some(&read),
+            grouped.skipped_grammars.clone(),
+        );
+        let notices = [
+            unparsed,
+            recovered_notice(&grouped.recovered),
+            recovered_bodies_notice(&grouped.recovered_bodies),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        Ok(Self {
+            skipped_paths,
+            notices,
+            skipped_grammars,
+            narrow: None,
+        })
     }
-    if let Some(counts) = skipped_grammars {
-        out["skippedGrammars"] = counts;
+
+    /// The characters this census adds to page 1, with `narrow` among its
+    /// notes.
+    fn chars(&self, narrow: Option<&str>) -> usize {
+        let mut census = serde_json::Map::new();
+        if let Some(paths) = &self.skipped_paths {
+            census.insert("skippedPaths".to_owned(), paths.clone());
+        }
+        if let Some(counts) = &self.skipped_grammars {
+            census.insert("skippedGrammars".to_owned(), counts.clone());
+        }
+        let notes = self
+            .notices
+            .iter()
+            .map(String::as_str)
+            .chain(narrow)
+            .collect::<Vec<_>>();
+        if !notes.is_empty() {
+            census.insert("warnings".to_owned(), json!(notes));
+        }
+        if census.is_empty() {
+            return 0;
+        }
+        octocode_engine::json_size::utf16_units(&census).unwrap_or(0)
+    }
+
+    /// Page `q.page()` of `grouped`'s rows within `bounds`, page 1 charged
+    /// this census. A set that fills more than one page names its size on
+    /// page 1 (the response window and `limit` decide, as they cut every
+    /// page): that note is charged too, its page count written at its
+    /// widest (a page per match), and then states the count of the cut it
+    /// was charged in. The cut depends on the scan alone, so every page of
+    /// it cuts alike.
+    pub(super) fn page(
+        &mut self,
+        q: MatchQuery<'_>,
+        scan: &Scan,
+        grouped: &Grouped,
+        (bounds, budget, start): (super::stream::Bounds, usize, WindowStart),
+    ) -> StreamPage {
+        let cut = |census| super::stream::stream_page(q, &grouped.groups, bounds, (budget, census));
+        let page = cut(self.chars(None));
+        // A caller who set `limit` chose the page size: advice to read fewer
+        // is noise; a window's pages count no final total, and the windows
+        // before this one are counted, not paged here.
+        let narrows = q.limit().is_none() && !scan.truncated && start == WindowStart::default();
+        // A page over the budget is split into parts: its page count is not
+        // the walk's number of calls, so none is stated.
+        if !narrows || page.pages <= 1 || page.oversized {
+            return page;
+        }
+        let files = grouped.groups.len();
+        let widest = narrowing_notice(grouped.total_matches, files, grouped.total_matches);
+        let page = cut(self.chars(Some(&widest)));
+        self.narrow = (!page.oversized)
+            .then(|| narrowing_notice(grouped.total_matches, files, page.pages as u64));
+        page
+    }
+
+    /// Write the census on its page.
+    fn write(self, out: &mut Value) {
+        for notice in self.notices.into_iter().chain(self.narrow) {
+            octocode_runtime_base::response::paging::push_notice(out, notice);
+        }
+        if let Some(counts) = self.skipped_grammars {
+            out["skippedGrammars"] = counts;
+        }
     }
 }
 
-/// The first page of a match set that fills more than one page (the
-/// response window and `limit` decide, as they cut every page) names its
-/// size and how to narrow it before every page is read.
-fn narrowing_notice(matches: u64, files: usize, page: &StreamPage) -> Option<String> {
-    // A page over the budget is split into parts: its page count is not
-    // the walk's number of calls, so none is stated.
-    let pages = (!page.oversized).then_some(page.pages)?;
-    (page.more && pages > 1).then(|| {
+/// A rule that names no node (no `kind` or `pattern` the node must be)
+/// matches every node that satisfies it, so each node around a hit whose
+/// text or descendants satisfy it too (a `regex` tests a node's whole
+/// text): when the page's rows nest, the warning counts the rows inside
+/// another and names the innermost kinds, the nodes a `kind` would keep.
+fn nested_warning(q: MatchQuery<'_>, page_groups: &[Group]) -> Option<String> {
+    if q.rule().as_ref().is_none_or(names_node) {
+        return None;
+    }
+    let inside = page_groups
+        .iter()
+        .map(|group| group.nested.inside)
+        .sum::<usize>();
+    if inside == 0 {
+        return None;
+    }
+    let kinds = page_groups
+        .iter()
+        .flat_map(|group| group.nested.innermost.iter().map(String::as_str))
+        .collect::<std::collections::BTreeSet<_>>();
+    let innermost = if kinds.is_empty() {
+        String::new()
+    } else {
         format!(
-            "{matches} matches in {} fill {pages} pages; to read fewer, narrow the rule (pattern, has, inside, not) or the scope (include, exclude, a deeper path).",
-            octocode_engine::text::counted(files as u64, "file", "files")
+            " (innermost here: {})",
+            kinds.into_iter().collect::<Vec<_>>().join(", ")
         )
-    })
+    };
+    let lie = if inside == 1 { "lies" } else { "lie" };
+    Some(format!(
+        "{} on this page {lie} inside another match: a rule with no kind or pattern also matches every node around a hit (regex tests a node's whole text); add kind to keep one node per hit{innermost}.",
+        octocode_engine::text::counted(inside as u64, "match", "matches")
+    ))
+}
+
+/// Whether `rule` fixes the node it matches by kind or pattern: itself, an
+/// `all` member, or every `any` branch.
+fn names_node(rule: &Value) -> bool {
+    rule.get("kind").is_some()
+        || rule.get("pattern").is_some()
+        || rule["all"]
+            .as_array()
+            .is_some_and(|all| all.iter().any(names_node))
+        || rule["any"]
+            .as_array()
+            .is_some_and(|any| !any.is_empty() && any.iter().all(names_node))
+}
+
+/// How a match set of `matches` in `files` that fills `pages` pages is
+/// narrowed before every page is read.
+fn narrowing_notice(matches: u64, files: usize, pages: u64) -> String {
+    format!(
+        "{matches} matches in {} fill {pages} pages; to read fewer, narrow the rule (pattern, has, inside, not) or the scope (include, exclude, a deeper path).",
+        octocode_engine::text::counted(files as u64, "file", "files")
+    )
 }
 
 /// The file rows of a page, each path as delivered.

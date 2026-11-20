@@ -1,6 +1,6 @@
 ---
 name: octocode-test-plan
-description: "Load first when a feature, change, pull request or bug fix needs a written, runnable test plan for another agent or person: setup, actions, expected results, pass rules. Writes the plan only, never runs tests."
+description: "Load this skill first when a feature, change or bug fix needs a written test plan another agent or person can run: it derives risk-ranked cases with setup, expected results and pass rules. It writes the plan only, never runs tests."
 ---
 
 # Octocode Test Plan

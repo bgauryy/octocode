@@ -488,6 +488,47 @@ async fn a_missing_name_leads_to_the_names_one_edit_away() {
     assert_eq!(names, [json!("serde"), json!("sedree")]);
 }
 
+/// An npm name spelled with capitals the registry lacks leads to its
+/// lowercase spelling first when that is the most downloaded, never to a
+/// little-downloaded name one other edit away (LEFTOVERS P2).
+#[tokio::test]
+async fn a_missing_capitalized_npm_name_leads_to_its_lowercase_spelling() {
+    let http = RouteHttp::new().json(
+        &npm_counts_path("React"),
+        json!({
+            "React": null,
+            "react": {"downloads": 50_000_000u64},
+            "eact": {"downloads": 20}
+        }),
+    );
+    let error = served(
+        json!({"operation": "resolve", "ecosystem": "npm", "packageName": "React"}),
+        &http,
+        None,
+    )
+    .await
+    .expect_err("missing");
+    let names = error.calls.as_ref().expect("repair")["repair"]["input"]["queries"]
+        .as_array()
+        .expect("queries")
+        .iter()
+        .map(|row| row["packageName"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(names.first(), Some(&json!("react")), "{}", error.message);
+    assert!(error.message.contains("react ("), "{}", error.message);
+    // npm was asked the lowercase spelling, not handed it.
+    let seen = http.seen();
+    assert!(
+        seen.iter().any(|request| request
+            .url
+            .path()
+            .rsplit('/')
+            .next()
+            .is_some_and(|names| names.split(',').any(|name| name == "react"))),
+        "{seen:?}"
+    );
+}
+
 /// A scoped npm name the registry lacks leads to its scope's packages,
 /// never to a search of the whole name's words.
 #[tokio::test]

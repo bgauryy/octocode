@@ -16,7 +16,8 @@ const BEHAVIOUR: &str = "/*BEHAVIOUR*/";
 
 /// Answers `references` with the anchor file alone. `definition` in `b.*` names
 /// `b.*` itself when `elsewhere` holds (another symbol of the name), and nothing
-/// otherwise (a file it did not load).
+/// otherwise (a file it did not load); inside a string literal it names nothing,
+/// as rust-analyzer does.
 const SERVER: &str = r#"#!/usr/bin/env node
 /*BEHAVIOUR*/
 let buf = Buffer.alloc(0);
@@ -33,7 +34,9 @@ function handle(msg) {
     send({ jsonrpc: '2.0', id: msg.id, result: empty ? [] : [site(uri, 0, 9), site(uri, 1, 0)] });
   } else if (msg.method === 'textDocument/definition') {
     const uri = msg.params.textDocument.uri;
-    const known = !uri.includes('/b.') || elsewhere;
+    const before = require('fs').readFileSync(new URL(uri), 'utf8').split('\n')[msg.params.position.line].slice(0, msg.params.position.character);
+    const inString = (before.match(/"/g) || []).length % 2 === 1;
+    const known = (!uri.includes('/b.') || elsewhere) && !inString;
     const line = uri.includes('/b.') ? msg.params.position.line : 0;
     const character = uri.includes('/b.') ? msg.params.position.character : 9;
     send({ jsonrpc: '2.0', id: msg.id, result: known ? [site(uri, line, character)] : [] });
@@ -99,19 +102,22 @@ fn references_with(
     crate::lsp_search::tests::write_executable(&script, server.as_bytes());
     let anchor = root.join(format!("a.{extension}"));
     std::fs::write(&anchor, "function helper() {}\nhelper();\n").expect("anchor");
-    for (name, content) in anchor_files {
-        std::fs::write(root.join(name), content).expect("anchor project file");
-    }
     let other = if sibling {
         std::fs::create_dir_all(root.join("b")).expect("sibling");
-        for (name, content) in sibling_files {
-            std::fs::write(root.join("b").join(name), content).expect("project file");
-        }
         root.join(format!("b/b.{extension}"))
     } else {
         root.join(format!("b.{extension}"))
     };
     std::fs::write(other, "x.helper();\n").expect("other file");
+    // A layout's own files come last: one may replace `b.*`.
+    for (name, content) in anchor_files {
+        std::fs::write(root.join(name), content).expect("anchor project file");
+    }
+    if sibling {
+        for (name, content) in sibling_files {
+            std::fs::write(root.join("b").join(name), content).expect("project file");
+        }
+    }
     std::fs::write(
         root.join("lsp-servers.json"),
         json!({"languageServers": {format!(".{extension}"): {
@@ -339,6 +345,16 @@ fn another_symbol_of_the_name_is_not_blamed_on_build_scripts() {
     let own = references_with("rust", "rs", true, false, &package, &[], false);
     assert_eq!(own["matchCount"], 2, "{own}");
     assert_ne!(own["isPartial"], true, "{own}");
+    // A spelling in a string literal (`.expect("helper")`), where the server
+    // names nothing, says nothing either way: the file stays checked.
+    let quoted = [
+        package.as_slice(),
+        &[("b.rs", "x.helper().expect(\"helper\");\n")],
+    ]
+    .concat();
+    let with_string = references_with("rust", "rs", true, false, &quoted, &[], false);
+    assert_eq!(with_string["matchCount"], 2, "{with_string}");
+    assert_ne!(with_string["isPartial"], true, "{with_string}");
     // A spelling the server cannot place stays a possible missed use.
     let unplaced = references_with("rust", "rs", false, false, &package, &[], false);
     assert!(

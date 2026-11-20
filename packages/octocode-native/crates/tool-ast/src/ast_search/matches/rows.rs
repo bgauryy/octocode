@@ -21,6 +21,27 @@ pub(super) struct MatchRow {
     /// multi-line match cut to its header (signature) followed by `…`, or
     /// capture text the value does not show.
     pub(super) withheld: bool,
+    /// The matched node: its kind and where it lies.
+    pub(super) node: MatchedNode,
+}
+
+/// A match's node: its kind and its `(line, column)` start and exclusive
+/// end, ordered by line, then column.
+#[derive(Clone, Debug)]
+pub(super) struct MatchedNode {
+    pub(super) kind: Option<String>,
+    pub(super) start: (u32, u32),
+    pub(super) end: (u32, u32),
+}
+
+impl MatchedNode {
+    fn of(m: &StructuralDetailedMatch) -> Self {
+        Self {
+            kind: m.node_kind.clone(),
+            start: (m.start_line, m.start_col),
+            end: (m.end_line, m.end_col),
+        }
+    }
 }
 
 /// Whether the `inner` span (`(line, column)` start and end) lies inside
@@ -60,6 +81,7 @@ fn display_value(m: &StructuralDetailedMatch, capture_text: bool) -> MatchRow {
             source_descriptors: None,
             value,
             withheld,
+            node: MatchedNode::of(m),
         };
     }
     use octocode_runtime_base::num::one_based_column;
@@ -123,6 +145,7 @@ fn display_value(m: &StructuralDetailedMatch, capture_text: bool) -> MatchRow {
         source_descriptors: None,
         value,
         withheld: false,
+        node: MatchedNode::of(m),
     }
 }
 

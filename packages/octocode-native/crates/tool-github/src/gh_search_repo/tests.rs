@@ -58,6 +58,76 @@ fn zero_repositories_are_empty_and_only_a_complete_search_broadens() {
     assert!(capped.data.get("next").is_none());
 }
 
+/// A search past GitHub's 1,000-result window leads to the same search
+/// split in two by creation date: the halves are adjacent at whole seconds
+/// (disjoint, nothing between them), keep the search's own bounds, and a
+/// half still capped splits again inside its own window.
+#[test]
+fn a_capped_search_splits_by_creation_date() {
+    use serde_json::Value;
+    let now = octocode_runtime_base::civil_date::unix_secs();
+    let split = |query: &GhSearchRepoQuery| {
+        let call = leads::split_by_created(query, now).expect("a split");
+        let rows = call["input"]["queries"].as_array().expect("rows").clone();
+        assert_eq!(rows.len(), 2, "{call}");
+        let bound = |row: &Value, key: &str| {
+            row["filters"]["createdAt"][key].as_str().map(|text| {
+                octocode_runtime_base::civil_date::parse_rfc3339(text)
+                    .expect("a date-time")
+                    .0
+            })
+        };
+        let (to, from) = (bound(&rows[0], "to"), bound(&rows[1], "from"));
+        assert_eq!(from, to.map(|to| to + 1), "adjacent halves: {call}");
+        for row in &rows {
+            assert_eq!(row["keywords"], json!(["http client"]), "{call}");
+        }
+        rows
+    };
+    let query: GhSearchRepoQuery = serde_json::from_value(json!({
+        "operation": "search", "keywords": ["http client"]
+    }))
+    .expect("query");
+    let rows = split(&query);
+    // The first split is open at both ends: every match falls in a half.
+    assert!(
+        rows[0]["filters"]["createdAt"].get("from").is_none(),
+        "{rows:?}"
+    );
+    assert!(
+        rows[1]["filters"]["createdAt"].get("to").is_none(),
+        "{rows:?}"
+    );
+    // A half splits inside its own bounds.
+    let lower: GhSearchRepoQuery = serde_json::from_value(rows[0].clone()).expect("half");
+    let inner = split(&lower);
+    assert_eq!(
+        inner[1]["filters"]["createdAt"]["to"], rows[0]["filters"]["createdAt"]["to"],
+        "{inner:?}"
+    );
+    // The lead rides a capped first page only.
+    let capped = repository_output(
+        json!({"repositories": [{"repo": "o/r"}]}),
+        &query,
+        false,
+        false,
+        true,
+    );
+    octocode_runtime_base::test_support::checks::related_call(
+        &capped.data,
+        "ghSearchRepo",
+        |input| {
+            input["queries"]
+                .as_array()
+                .is_some_and(|rows| rows.len() == 2)
+        },
+    );
+    octocode_runtime_base::test_support::checks::assert_leads_valid(&capped.data);
+    let listing: GhSearchRepoQuery =
+        serde_json::from_value(json!({"operation": "list", "owner": "o"})).expect("listing");
+    assert!(leads::split_by_created(&listing, now).is_none());
+}
+
 /// An empty search inside one repository with a lone keyword broadens
 /// to that repository's own row; each filter drops by its wire name.
 #[test]

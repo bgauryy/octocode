@@ -15,6 +15,7 @@ fn widening_follows_the_files_comment_syntax() {
         "m.py",
         vec![LineRange { start: 5, end: 5 }],
         &mut vec![],
+        &mut NextCalls::default(),
     );
     assert_eq!(widened, vec![LineRange { start: 2, end: 6 }]);
     let rs = "const S: &str = \"a\n-- b\";\n#[inline]\nfn f() -> u8 {\n    1\n}\n";
@@ -23,6 +24,7 @@ fn widening_follows_the_files_comment_syntax() {
         "lib.rs",
         vec![LineRange { start: 5, end: 5 }],
         &mut vec![],
+        &mut NextCalls::default(),
     );
     assert_eq!(widened, vec![LineRange { start: 3, end: 6 }]);
 }
@@ -38,6 +40,7 @@ fn ranges_widen_to_the_enclosing_declaration() {
             LineRange { start: 4, end: 4 },
         ],
         &mut warnings,
+        &mut NextCalls::default(),
     );
     assert_eq!(
         widened,
@@ -53,6 +56,7 @@ fn ranges_widen_to_the_enclosing_declaration() {
         "m.py",
         vec![LineRange { start: 1, end: 1 }],
         &mut warnings,
+        &mut NextCalls::default(),
     );
     assert_eq!(kept, vec![LineRange { start: 1, end: 1 }]);
     assert!(warnings[0].contains("line 1"), "{warnings:?}");
@@ -66,6 +70,7 @@ fn unsupported_files_keep_the_window_with_a_note() {
         "notes.unknownext",
         vec![LineRange { start: 1, end: 1 }],
         &mut warnings,
+        &mut NextCalls::default(),
     );
     assert_eq!(kept, vec![LineRange { start: 1, end: 1 }]);
     assert!(
@@ -87,6 +92,7 @@ fn a_long_declaration_is_selected_whole() {
         "m.py",
         vec![LineRange { start: 10, end: 12 }],
         &mut warnings,
+        &mut NextCalls::default(),
     );
     assert_eq!(widened, whole);
     let mut blocks = vec![];
@@ -97,6 +103,7 @@ fn a_long_declaration_is_selected_whole() {
         vec![LineRange { start: 18, end: 22 }],
         &mut warnings,
         &mut blocks,
+        &mut NextCalls::default(),
     );
     assert_eq!(windows, whole);
     assert_eq!(blocks.len(), 1, "{blocks:?}");
@@ -115,6 +122,7 @@ fn blocks_include_leading_doc_comments_and_attributes() {
         "m.rs",
         vec![LineRange { start: 7, end: 7 }],
         &mut warnings,
+        &mut NextCalls::default(),
     );
     assert_eq!(
         widened,
@@ -133,6 +141,7 @@ fn blocks_include_leading_doc_comments_and_attributes() {
         ],
         &mut warnings,
         &mut vec![],
+        &mut NextCalls::default(),
     );
     assert_eq!(
         windows,
@@ -148,6 +157,7 @@ fn blocks_include_leading_doc_comments_and_attributes() {
         "m.c",
         vec![LineRange { start: 3, end: 3 }],
         &mut warnings,
+        &mut NextCalls::default(),
     );
     assert_eq!(widened, vec![LineRange { start: 2, end: 4 }]);
 }
@@ -162,6 +172,7 @@ fn matches_widen_to_their_declaration() {
         vec![LineRange { start: 9, end: 11 }],
         &mut warnings,
         &mut vec![],
+        &mut NextCalls::default(),
     );
     assert_eq!(windows, vec![LineRange { start: 8, end: 11 }]);
     assert!(warnings.is_empty(), "{warnings:?}");
@@ -180,6 +191,7 @@ fn a_match_outside_every_declaration_says_block_did_not_apply() {
         ],
         &mut warnings,
         &mut vec![],
+        &mut NextCalls::default(),
     );
     assert_eq!(
         windows,
@@ -213,6 +225,7 @@ fn one_line_declarations_are_named_as_such_not_as_outside() {
         ],
         &mut warnings,
         &mut vec![],
+        &mut NextCalls::default(),
     );
     assert_eq!(windows[0], LineRange { start: 1, end: 1 });
     assert_eq!(warnings.len(), 2, "{warnings:?}");
@@ -230,6 +243,7 @@ fn one_line_declarations_are_named_as_such_not_as_outside() {
         "m.rs",
         vec![LineRange { start: 2, end: 2 }],
         &mut warnings,
+        &mut NextCalls::default(),
     );
     assert_eq!(
         warnings,
@@ -254,6 +268,7 @@ fn unenclosed_ranges_state_the_recovered_parse_once() {
             LineRange { start: 4, end: 4 },
         ],
         &mut warnings,
+        &mut NextCalls::default(),
     );
     let notes = warnings
         .iter()
@@ -279,6 +294,7 @@ fn javascript_member_assigned_functions_are_blocks() {
         vec![LineRange { start: 1, end: 5 }],
         &mut warnings,
         &mut vec![],
+        &mut NextCalls::default(),
     );
     assert_eq!(windows, vec![LineRange { start: 3, end: 9 }]);
     assert!(warnings.is_empty(), "{warnings:?}");
@@ -301,6 +317,7 @@ fn call_site_hits_keep_window_when_a_declaration_hit_exists() {
         ],
         &mut warnings,
         &mut blocks,
+        &mut NextCalls::default(),
     );
     assert_eq!(
         windows,
@@ -332,6 +349,7 @@ fn call_site_hits_keep_window_when_a_declaration_hit_exists() {
         vec![LineRange { start: 10, end: 10 }],
         &mut warnings,
         &mut vec![],
+        &mut NextCalls::default(),
     );
     assert_eq!(windows, vec![LineRange { start: 8, end: 11 }]);
 }
@@ -353,6 +371,7 @@ fn a_hit_on_an_attribute_line_reads_the_whole_declaration() {
             }],
             &mut warnings,
             &mut vec![],
+            &mut NextCalls::default(),
         );
         assert_eq!(
             windows,
@@ -380,6 +399,7 @@ fn a_hit_on_a_one_line_attributed_member_reads_its_header_and_body() {
             }],
             &mut warnings,
             &mut vec![],
+            &mut NextCalls::default(),
         );
         assert_eq!(
             windows,
@@ -387,4 +407,73 @@ fn a_hit_on_a_one_line_attributed_member_reads_its_header_and_body() {
             "hit {hit}: {warnings:?}"
         );
     }
+}
+
+/// A Markdown block is the heading's section: it ends on the line before
+/// the outline's next heading of the same or a higher level (a deeper one
+/// stays inside), or on the file's last line.
+#[test]
+fn a_markdown_block_is_its_heading_section() {
+    let md = "# Guide\n\nIntro.\n\n## Configuration file\n\nSet it.\n\n### Keys\n\nA key.\n\n## Tutorial\n\nStep.\n";
+    let headings =
+        octocode_runtime_base::content::markdown_headings(md, "README.md").expect("headings");
+    let last = md.lines().count();
+    for (at, heading) in headings.iter().enumerate() {
+        let end = headings[at + 1..]
+            .iter()
+            .find(|next| next.level <= heading.level)
+            .map_or(last, |next| next.line - 1);
+        let mut blocks = vec![];
+        let windows = widen_matches(
+            md,
+            "README.md",
+            &[heading.line],
+            vec![LineRange {
+                start: heading.line,
+                end: heading.line,
+            }],
+            &mut vec![],
+            &mut blocks,
+            &mut NextCalls::default(),
+        );
+        assert_eq!(
+            windows,
+            vec![LineRange {
+                start: heading.line,
+                end
+            }],
+            "{heading:?}"
+        );
+        assert_eq!(blocks[0].symbol_name, heading.text);
+    }
+}
+
+/// A file no grammar outlines (Ruby) keeps the requested lines, says so,
+/// and leads on: `next.read` reads the same file from the first hit to its
+/// last line, which pages, so the method is read to its end.
+#[test]
+fn a_block_with_no_outline_leads_to_the_rest_of_the_file() {
+    let rb = "class App\n  def route(verb)\n    verb\n  end\nend\n";
+    let mut warnings = vec![];
+    let mut next = NextCalls::default();
+    let windows = widen_matches(
+        rb,
+        "lib/app.rb",
+        &[2],
+        vec![LineRange { start: 2, end: 2 }],
+        &mut warnings,
+        &mut vec![],
+        &mut next,
+    );
+    assert_eq!(windows, vec![LineRange { start: 2, end: 2 }]);
+    assert!(warnings[0].contains("next.read"), "{warnings:?}");
+    let read = next.read.expect("a read on");
+    assert_eq!(
+        local_fetch_query::line_ranges(&read.query),
+        vec![LineRange {
+            start: 2,
+            end: rb.lines().count()
+        }]
+    );
+    assert_eq!(local_fetch_query::path(&read.query), "lib/app.rb");
 }

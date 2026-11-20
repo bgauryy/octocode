@@ -164,7 +164,7 @@ fn plan_3_type_qualified_calls_and_scoped_disambiguation_link() {
     let callees = ask(
         dir.0.as_path(),
         "callees",
-        Some("com/shop/Checkout.java#Checkout.run"),
+        Some("app/com/shop/Checkout.java#Checkout.run"),
         |o| o.confidence = Some("medium".into()),
     );
     assert!(
@@ -177,7 +177,7 @@ fn plan_3_type_qualified_calls_and_scoped_disambiguation_link() {
     let strong = ask(
         dir.0.as_path(),
         "callees",
-        Some("com/shop/Checkout.java#Checkout.run"),
+        Some("app/com/shop/Checkout.java#Checkout.run"),
         |o| o.confidence = Some("high".into()),
     );
     assert_eq!(
@@ -187,12 +187,12 @@ fn plan_3_type_qualified_calls_and_scoped_disambiguation_link() {
     );
     let got = ids(&callees);
     assert!(
-        got.contains(&"com/shop/Cart.java#Cart.empty".to_owned()),
+        got.contains(&"app/com/shop/Cart.java#Cart.empty".to_owned()),
         "{}",
         callees.value
     );
     assert!(
-        got.contains(&"com/shop/Helper.java#Helper.assist".to_owned()),
+        got.contains(&"app/com/shop/Helper.java#Helper.assist".to_owned()),
         "same-package wins: {got:?}"
     );
     assert!(
@@ -233,13 +233,13 @@ fn plan_4_receiver_typed_member_calls_link() {
     let rust = ask(
         dir.0.as_path(),
         "callees",
-        Some("src/service.rs#run"),
+        Some("app/src/service.rs#run"),
         |_| {},
     );
     let rows = rust.value["rows"].as_array().expect("rows");
     assert!(
         rows.iter()
-            .any(|r| r["id"] == "src/store.rs#Store.save" && r["via"] == "receiver-type"),
+            .any(|r| r["id"] == "app/src/store.rs#Store.save" && r["via"] == "receiver-type"),
         "{}",
         rust.value
     );
@@ -251,7 +251,7 @@ fn plan_4_receiver_typed_member_calls_link() {
         |_| {},
     );
     assert!(
-        ids(&typed).contains(&"src/store.rs#Store.save".to_owned()),
+        ids(&typed).contains(&"app/src/store.rs#Store.save".to_owned()),
         "{}",
         typed.value
     );
@@ -289,12 +289,12 @@ fn plan_4_typed_this_field_calls_are_member_calls_not_local_matches() {
     let out = ask(
         dir.0.as_path(),
         "callees",
-        Some("src/svc.ts#Svc.run"),
+        Some("app/src/svc.ts#Svc.run"),
         |_| {},
     );
     let got = ids(&out);
     assert!(
-        got.contains(&"src/repo.ts#Repo.load".to_owned()),
+        got.contains(&"app/src/repo.ts#Repo.load".to_owned()),
         "{}",
         out.value
     );

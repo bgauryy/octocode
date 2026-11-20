@@ -6,16 +6,42 @@ use crate::lsp_search::build_output::BuildOutput;
 use crate::lsp_search::call_sites::classify_sites;
 use crate::lsp_search::source::Source;
 use octocode_engine::graph::GraphPosition;
+use octocode_engine::lsp::types::LspRange;
 
 /// One occurrence of the name in a candidate: zero-based line and UTF-16
-/// character, whether it is a call, and the file's own binding it names
-/// (the oxc parse's id, see `ReferenceSite::binding`).
+/// character, whether it is a call, the file's own binding it names (the
+/// oxc parse's id, see `ReferenceSite::binding`), and whether it lies in
+/// code rather than a comment or a string literal (`None`: the grammar
+/// cannot tell, see [`code_spots`]).
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Spot {
     pub(super) line: u32,
     pub(super) character: u32,
     pub(super) is_call: bool,
     pub(super) binding: Option<u32>,
+    pub(super) in_code: Option<bool>,
+}
+
+/// The code ranges of each of `names` in `content` (`file` picks the
+/// grammar): where a spelling is code, not a comment or a string literal
+/// (`"admit"` in `.expect("admit")`). `None` when the grammar cannot read
+/// the file.
+fn code_spots(file: &str, content: &str, names: &[String]) -> Option<Vec<LspRange>> {
+    let mut ranges = Vec::new();
+    for name in names {
+        let found = octocode_engine::lsp::resolver::code_occurrences(file, content, name)?;
+        ranges.extend_from_slice(found.ranges());
+    }
+    Some(ranges)
+}
+
+/// Whether zero-based `line` and UTF-16 `character` lie in one of `ranges`.
+fn within(ranges: &[LspRange], line: u32, character: u32) -> bool {
+    ranges.iter().any(|range| {
+        let at = (line, character);
+        (range.start.line, range.start.character) <= at
+            && at < (range.end.line, range.end.character)
+    })
 }
 
 /// A synchronized candidate and its occurrences.
@@ -65,12 +91,14 @@ pub(super) async fn open_candidates(
             }
             continue;
         };
-        let mut found = names_in(file)
+        let names = names_in(file);
+        let mut found = names
             .iter()
             .flat_map(|name| occurrences(&source.content, name))
             .collect::<Vec<_>>();
         found.sort_unstable();
         found.dedup();
+        let code = code_spots(file, &source.content, &names);
         let mut spots = found
             .into_iter()
             .map(|(line, character, is_call)| Spot {
@@ -78,6 +106,9 @@ pub(super) async fn open_candidates(
                 character,
                 is_call,
                 binding: None,
+                in_code: code
+                    .as_deref()
+                    .map(|ranges| within(ranges, line, character)),
             })
             .collect::<Vec<_>>();
         if spots.is_empty() {
@@ -310,6 +341,7 @@ pub(super) async fn verify_file(
             character: spot_character,
             is_call,
             binding: named,
+            in_code,
         } = spot;
         if verified_any && !is_call {
             continue;
@@ -342,11 +374,14 @@ pub(super) async fn verify_file(
                     continue;
                 }
                 // A server with no project behind a file answers nothing: that
-                // is no other declaration. A comment says nothing either way.
+                // is no other declaration. A comment or a string literal says
+                // nothing either way.
                 if empty_is_unknown && resolved.is_empty() {
-                    let line = content.lines().nth(spot_line as usize).unwrap_or_default();
-                    let comment = octocode_engine::signatures::is_comment_line(&file, line);
-                    if comment != Some(true) {
+                    let code = in_code.unwrap_or_else(|| {
+                        let line = content.lines().nth(spot_line as usize).unwrap_or_default();
+                        octocode_engine::signatures::is_comment_line(&file, line) != Some(true)
+                    });
+                    if code {
                         unresolved = true;
                     }
                     continue;

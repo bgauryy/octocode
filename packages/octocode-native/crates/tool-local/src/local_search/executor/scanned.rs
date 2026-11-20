@@ -251,7 +251,14 @@ pub(crate) fn search_root(
 ) -> Result<octocode_runtime_base::policy::path::ValidatedPath, ToolError> {
     paths
         .validate(local_search_query::path(query))
-        .map_err(|error| ToolError::root_policy(error, local_search_query::path(query), paths))
+        .map_err(|error| {
+            let requested = local_search_query::path(query);
+            crate::sparse_scope::outside_checkout(
+                ToolError::root_policy(error, requested, paths),
+                requested,
+                paths,
+            )
+        })
 }
 
 /// A scan and the digests of its matched files when it was stored.

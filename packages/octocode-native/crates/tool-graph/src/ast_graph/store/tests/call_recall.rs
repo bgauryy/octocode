@@ -49,9 +49,9 @@ fn java_members_beside_a_recovered_sibling_link_static_and_imported_calls() {
         assert_eq!(
             callers(dir.0.as_path(), overload),
             vec![
-                "com/x/Static.java#Static.run",
-                "com/x/User.java#User.run",
-                "com/x/Wild.java#Wild.run",
+                "app/com/x/Static.java#Static.run",
+                "app/com/x/User.java#User.run",
+                "app/com/x/Wild.java#Wild.run",
             ],
             "{overload}"
         );
@@ -95,7 +95,7 @@ fn rust_module_paths_resolve_by_their_written_segments() {
     let root = dir.0.as_path();
     assert_eq!(
         callers(root, "src/util/mod.rs#pin_ref"),
-        vec!["src/io/read.rs#root"]
+        vec!["app/src/io/read.rs#root"]
     );
     assert_eq!(
         callers(root, "src/io/util/mod.rs#pin_ref"),
@@ -129,7 +129,7 @@ fn rust_type_paths_link_associated_functions() {
     );
     assert_eq!(
         callers(dir.0.as_path(), "src/runtime/park.rs#Parked.new"),
-        vec!["src/future/mod.rs#run"]
+        vec!["app/src/future/mod.rs#run"]
     );
 }
 
@@ -150,7 +150,7 @@ fn callers_state_the_call_sites_that_only_name_the_target() {
     ]);
     let built = ingest_fixture(dir.0.as_path(), None);
     assert_eq!(built.class, ExitClass::Success, "{}", built.value);
-    let target = "lib/command.js#Command._parseCommand";
+    let target = "app/lib/command.js#Command._parseCommand";
     let named = ask(dir.0.as_path(), "unresolved", None, |o| {
         o.symbol_name = Some("_parseCommand".into());
     });
@@ -214,7 +214,7 @@ fn callers_with_rows_and_unresolved_sites_are_partial_with_the_count() {
     let partial = ask(
         dir.0.as_path(),
         "callers",
-        Some("lib/command.js#Command._parseCommand"),
+        Some("app/lib/command.js#Command._parseCommand"),
         |_| {},
     );
     assert!(
@@ -317,8 +317,8 @@ fn callees_with_unlinked_in_repo_sites_are_partial_with_the_count() {
     )]);
     let built = ingest_fixture(dir.0.as_path(), None);
     assert_eq!(built.class, ExitClass::Success, "{}", built.value);
-    let partial = ask(dir.0.as_path(), "callees", Some("lib/run.js#run"), |_| {});
-    assert_eq!(ids(&partial), ["lib/run.js#helper"], "{}", partial.value);
+    let partial = ask(dir.0.as_path(), "callees", Some("app/lib/run.js#run"), |_| {});
+    assert_eq!(ids(&partial), ["app/lib/run.js#helper"], "{}", partial.value);
     assert_eq!(partial.value["isPartial"], true, "{}", partial.value);
     let warnings = partial.value["warnings"].to_string();
     assert!(warnings.contains("2 call sites"), "{}", partial.value);
@@ -329,7 +329,7 @@ fn callees_with_unlinked_in_repo_sites_are_partial_with_the_count() {
         .find(|call| call["input"]["queries"][0]["operation"] == "unresolved")
         .unwrap_or_else(|| panic!("an unresolved lead: {}", partial.value));
     let row = lead["input"]["queries"][0].clone();
-    let listed = ask(dir.0.as_path(), "unresolved", Some("lib/run.js#run"), |o| {
+    let listed = ask(dir.0.as_path(), "unresolved", Some("app/lib/run.js#run"), |o| {
         o.reasons = row["reasons"]
             .as_array()
             .into_iter()

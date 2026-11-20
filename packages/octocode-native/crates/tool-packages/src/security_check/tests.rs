@@ -310,9 +310,70 @@ async fn a_record_naming_no_package_is_followed_to_its_alias() {
         "{data}"
     );
     assert_eq!(
-        data["related"][0]["input"]["queries"][0]["id"], ghsa,
+        data["next"]["readAlias"]["input"]["queries"][0]["id"], ghsa,
         "{data}"
     );
+}
+
+/// The summary of a CVE that names no package: the answer names the
+/// repositories its commit ranges are in, the warning says where the alias's
+/// packages and fixes are (the summary groups its record into the CVE's
+/// row), and a call reads the records whole; an alias OSV could not answer
+/// is one call away in the summary too (LEFTOVERS P6, CVE-2022-24999).
+#[tokio::test]
+async fn a_cve_summary_names_its_repositories_and_leads_to_its_records() {
+    let (cve, ghsa) = ("CVE-2022-24999", "GHSA-hrpp-h998-j3pp");
+    let express = "https://github.com/expressjs/express";
+    let http = RouteHttp::new()
+        .json(
+            &format!("/v1/vulns/{cve}"),
+            json!({"id": cve, "aliases": [ghsa],
+                "affected": [{"ranges": [{"type": "GIT", "repo": express,
+                    "events": [{"introduced": "0"}, {"fixed": "3d7fce5"}]}]}]}),
+        )
+        .json(
+            &format!("/v1/vulns/{ghsa}"),
+            json!({"id": ghsa, "aliases": [cve], "summary": "qs prototype pollution",
+                "affected": [{"package": {"ecosystem": "npm", "name": "qs"},
+                    "ranges": [{"type": "SEMVER", "events": [
+                        {"introduced": "0"}, {"fixed": "6.2.4"}]}]}]}),
+        );
+    let query = json!({"operation": "advisory", "id": cve, "view": "summary"});
+    let data = answer(&http, query.clone()).await.expect("row");
+    let sentence = data["answer"].as_str().expect("answer");
+    assert!(sentence.contains("expressjs/express"), "{sentence}");
+    assert!(
+        sentence.contains("qs") && sentence.contains("6.2.4"),
+        "{sentence}"
+    );
+    let rows = data["advisories"].as_array().expect("advisories");
+    let shown = |id: &str| rows.iter().any(|row| row["id"] == id);
+    let warnings = data["warnings"].to_string();
+    assert!(warnings.contains(ghsa), "{data}");
+    // The warning never points to a row the view does not show.
+    if !shown(ghsa) {
+        assert!(!warnings.contains("listed after it"), "{data}");
+    }
+    let reads = data["next"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(_, call)| call["input"]["queries"][0].clone())
+        .collect::<Vec<_>>();
+    assert!(
+        reads
+            .iter()
+            .any(|read| read["id"] == cve && read["view"] == "details"),
+        "a call reads the records whole: {data}"
+    );
+    // An alias OSV cannot answer is one call away in the summary as well.
+    let unread = RouteHttp::new().json(
+        &format!("/v1/vulns/{cve}"),
+        json!({"id": cve, "aliases": [ghsa], "affected": []}),
+    );
+    let data = answer(&unread, query).await.expect("row");
+    let calls = serde_json::to_string(&(&data["next"], &data["related"])).expect("calls");
+    assert!(calls.contains(ghsa), "{data}");
 }
 
 /// Selected affected metadata stays as the source states it, including a

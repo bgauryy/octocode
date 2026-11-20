@@ -24,7 +24,8 @@ packages/octocode-benchmark/local/repos/*
 # ─── Rust packages ──────────────────────────────────────────────────────────
 # Cargo build artefacts
 target/
-.octocode-*-target/
+packages/octocode-native/.cargo/config.local.toml
+.bsp/
 # Platform packages track only their manifest and README; binaries and any
 # other build output staged there are built per platform, never committed.
 packages/*/npm/*/*

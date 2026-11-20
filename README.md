@@ -16,7 +16,7 @@ Give your coding agent access to local files, GitHub repositories and package re
 
 ## Install
 
-The npm launchers require Node.js 22 or later. Prebuilt binaries cover macOS on Apple Silicon, Linux with glibc on x64 or ARM64, and Windows on x64 or ARM64. The standalone `octocode` binary runs without Node.js. [Native installation](packages/octocode-native/README.md#install)
+The npm launchers require Node.js 22 or later. Prebuilt binaries cover macOS on Apple Silicon or Intel, Linux on x64 or ARM64 (glibc, or musl such as Alpine), and Windows on x64 or ARM64. The standalone `octocode` binary runs without Node.js. [Native installation](packages/octocode-native/README.md#install)
 
 | Interface | Start here | Check that it works |
 |---|---|---|

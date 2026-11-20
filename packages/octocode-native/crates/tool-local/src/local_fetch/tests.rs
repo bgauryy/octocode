@@ -40,6 +40,8 @@ impl PathAccess for Paths {
                     safe_path: None,
                     resource_missing: false,
                     sparse_checkout: false,
+                    clone_scope: None,
+                    resolved: None,
                     not_a_file: None,
                     search_root: None,
                     view_tree: None,

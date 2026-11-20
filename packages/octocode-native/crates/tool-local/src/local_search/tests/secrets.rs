@@ -14,6 +14,7 @@ mod known_formats;
 mod large_sources;
 mod long_lines;
 mod member_context;
+mod placeholders;
 mod ranking;
 mod row_windows;
 mod sources;

@@ -48,7 +48,7 @@ pub(super) fn convert(out: &mut GraphOutput, row: &Value) {
             _ if node.contains_key("symbolName") => &["callers", "callees"],
             _ => &["dependents"],
         };
-        let related = operations
+        let graph_calls = operations
             .iter()
             .map(|operation| {
                 let target = node
@@ -64,7 +64,9 @@ pub(super) fn convert(out: &mut GraphOutput, row: &Value) {
                 Continuation::related(ToolId::GraphQuery, request).build()
             })
             .collect::<Vec<_>>();
-        data["related"] = json!(related);
+        for call in graph_calls {
+            octocode_runtime_base::response::result::attach_related(data, call);
+        }
     }
     for (channel, resume) in &out.next {
         let call = next(row, &id, resume);
@@ -75,7 +77,7 @@ pub(super) fn convert(out: &mut GraphOutput, row: &Value) {
                 None,
                 call,
             ),
-            Channel::Cycle(_) => {
+            Channel::Cycle(_) | Channel::List(_) => {
                 octocode_runtime_base::response::result::set_next(
                     &mut out.value,
                     &channel.name(),

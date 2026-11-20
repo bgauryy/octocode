@@ -55,10 +55,11 @@ impl SavedRows {
     }
 
     /// The entry of the question `options` asks of snapshot `g`: its id and
-    /// graph digest and every field that shapes the rows, never the window.
+    /// graph digest and every field that shapes the rows (`list` picks
+    /// which), never the window.
     fn key(&self, g: &Graph, options: &QueryOptions) -> CacheKey {
         let mut row = query_row(options, &g.id);
-        for window in ["offset", "limit", "page", "list"] {
+        for window in ["offset", "limit", "page"] {
             row.remove(window);
         }
         CacheKey {

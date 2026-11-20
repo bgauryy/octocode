@@ -8,7 +8,7 @@ use super::compact::{CALLER_PATH, call_items_payload};
 use super::importer_recovery::{ImporterRecovery, IncomingRecovery};
 use super::nodes::NodeKeys;
 use super::outcome::{
-    builtin_lib_names, expansion_outcome, mark_partial_expansion, mark_truncation,
+    builtin_lib_names, expansion_outcome, mark_partial_expansion, mark_truncation, withheld_names,
 };
 use super::public::public_edge;
 use crate::lsp_search::anchor::Position;
@@ -214,9 +214,11 @@ pub(in crate::lsp_search) async fn hierarchy(
         .iter()
         .map(|(expansion, walk)| (*expansion, walk))
         .collect::<Vec<_>>();
-    // Built-in callees are the answer: a walk that listed only those
-    // resolved, it is not empty.
-    let mut row = if items.is_empty() && !builtin_lib_names(&walks).is_empty() {
+    // Built-in callees, and bases named outside the read policy, are the
+    // answer: a walk that listed only those resolved, it is not empty.
+    let mut row = if items.is_empty()
+        && !(builtin_lib_names(&walks).is_empty() && withheld_names(&walks).is_empty())
+    {
         json!({
             "path": lsp_search_query::path(query),
             "lsp": {"serverAvailable": true},

@@ -1,6 +1,6 @@
 ---
 name: octocode-research
-description: "Load first, before searching or reading files yourself, when asked how code works, where something is defined, who calls it, what a change affects, why or when it changed, or which package version holds it, in this checkout, on GitHub or in registries; cites source. Reproducing runtime failures: octocode-debugging."
+description: "Load this skill first, before searching or reading files yourself, when asked how code works, who calls it, what a change affects or why it changed, locally, on GitHub or in registries: it cites source. Runtime failures: octocode-debugging."
 metadata:
   excluded-hosts: "octocode-code"
 ---

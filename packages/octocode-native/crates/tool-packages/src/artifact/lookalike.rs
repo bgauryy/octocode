@@ -2,7 +2,9 @@
 //! downloads the registry counts for each: the evidence the `lookalikeName`
 //! caution, an exact row's lookalike warning and a missing name's repair
 //! stand on. One edit is a character dropped, two adjacent characters
-//! swapped, or a separator added, dropped or changed. Only registries that
+//! swapped, a separator added, dropped or changed, or the name's capitals
+//! lowercased (npm takes only lowercase for a new name, so `React` most
+//! likely means `react`). Only registries that
 //! count many names in one request are asked: npm's downloads API for
 //! unscoped names on the public registry (last-week downloads) and crates.io
 //! (90-day downloads). Any other registry, a scoped npm name and a
@@ -107,7 +109,8 @@ fn near(name: &str, mut counts: BTreeMap<String, u64>, measure: &'static str) ->
 }
 
 /// Every name one edit away from `name` with `separators` as its separators,
-/// each once, none the same package as `name` (`identity`), each starting
+/// each once, none the same package as `name` (`identity`: a registry that
+/// matches names whatever their case gets no lowercased edit), each starting
 /// and ending with a letter or digit.
 pub(crate) fn edits(name: &str, separators: &[char], identity: fn(&str) -> String) -> Vec<String> {
     let chars = name.chars().collect::<Vec<_>>();
@@ -125,6 +128,7 @@ pub(crate) fn edits(name: &str, separators: &[char], identity: fn(&str) -> Strin
             out.push(text);
         }
     };
+    push(name.to_lowercase().chars().collect());
     for at in 0..chars.len() {
         let mut dropped = chars.clone();
         dropped.remove(at);

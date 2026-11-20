@@ -9,6 +9,8 @@ pub struct CodeOccurrences {
     /// Zero-based lines, see [`super::code_occurrence_lines`].
     pub lines: Vec<usize>,
     ranges: Vec<LspRange>,
+    /// The byte ranges of `ranges`, in the same order.
+    bytes: Vec<std::ops::Range<usize>>,
     tree: tree_sitter::Tree,
     language: &'static tree_sitter::Language,
 }
@@ -41,6 +43,10 @@ impl CodeOccurrences {
                 index.byte_to_position(content, crate::num::saturating_u32(byte));
             LspExactPosition { line, character }
         };
+        let bytes = candidates
+            .iter()
+            .map(|candidate| candidate.source.start..candidate.source.end)
+            .collect::<Vec<_>>();
         let ranges = candidates
             .into_iter()
             .map(|candidate| LspRange {
@@ -56,9 +62,30 @@ impl CodeOccurrences {
         Self {
             lines,
             ranges,
+            bytes,
             tree,
             language,
         }
+    }
+
+    /// Whether an occurrence sits in a macro's token tree (a Rust
+    /// `macro_rules!` body, a macro call's arguments): only the expansion
+    /// says what the name declares, implements or calls there.
+    #[must_use]
+    pub fn in_macro_tokens(&self) -> bool {
+        self.bytes.iter().any(|range| {
+            let mut node = self
+                .tree
+                .root_node()
+                .descendant_for_byte_range(range.start, range.end);
+            while let Some(current) = node {
+                if current.kind() == "token_tree" {
+                    return true;
+                }
+                node = current.parent();
+            }
+            false
+        })
     }
 
     /// Unique UTF-16 code-name ranges, preserving raw and quoted declaration

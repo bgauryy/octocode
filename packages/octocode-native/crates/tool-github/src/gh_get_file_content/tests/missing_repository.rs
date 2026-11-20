@@ -53,6 +53,33 @@ async fn a_missing_repository_at_a_sha_leads_to_a_repository_search() {
     assert_eq!(repository_reads(&server).await, 1);
 }
 
+/// A repository named as its clone URL names it (`b.git`) that GitHub does
+/// not resolve: `next.repair` is the same read naming `b`, and the name
+/// search asks for `b` too.
+#[tokio::test]
+async fn a_missing_repository_named_with_a_clone_suffix_is_repaired() {
+    let server = MockServer::builder().start().await;
+    not_found_elsewhere(&server).await;
+    let provider = mock_provider(&server, RetryPolicy::default());
+    let failure = run_default(
+        &provider,
+        json!({"owner":"a","repo":"b.git","path":"README.md","ref":SHA}),
+    )
+    .await
+    .expect_err("missing repository");
+    let calls = failure.calls.as_deref().expect("leads");
+    let repair = &calls["repair"]["input"]["queries"][0];
+    assert_eq!(calls["repair"]["tool"], "ghGetFileContent", "{calls}");
+    assert_eq!(repair["repo"], "b", "{calls}");
+    assert_eq!(repair["path"], "README.md", "{calls}");
+    assert_eq!(repair["ref"], SHA, "{calls}");
+    assert_eq!(
+        calls["findRepository"]["input"]["queries"][0]["keywords"],
+        json!(["b"]),
+        "{calls}"
+    );
+}
+
 #[tokio::test]
 async fn a_missing_path_at_a_sha_in_an_existing_repository_stays_a_path_failure() {
     let server = MockServer::builder().start().await;

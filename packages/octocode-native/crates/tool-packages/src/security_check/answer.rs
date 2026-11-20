@@ -411,7 +411,24 @@ pub(super) fn advisory_lead(row: &Value) -> Value {
                 .into_iter()
                 .map(|(shown, _)| shown)
                 .collect::<Vec<_>>();
+            // A record naming no package (OSV's CVE records) still names
+            // the repositories its commit ranges are in.
+            let repositories = commit_repositories(record);
             match (packages.is_empty(), withdrawn.is_some()) {
+                (true, _) if !repositories.is_empty() => {
+                    if withdrawn.is_some() {
+                        sentence.pop();
+                    }
+                    let verb = if withdrawn.is_some() {
+                        "named"
+                    } else {
+                        "names"
+                    };
+                    sentence.push_str(&format!(
+                        " {verb} no package, only commit ranges in {}.",
+                        repositories.join(", ")
+                    ));
+                }
                 (true, true) => {
                     sentence.pop();
                     sentence.push('.');
@@ -431,6 +448,26 @@ pub(super) fn advisory_lead(row: &Value) -> Value {
         return json!({});
     }
     json!({ "answer": sentences.join(" ") })
+}
+
+/// The repositories of a record's `GIT` ranges in entries that name no
+/// package, each once, in the record's order.
+fn commit_repositories(record: &Value) -> Vec<String> {
+    let mut repositories = Vec::new();
+    let entries = record["affected"].as_array().into_iter().flatten();
+    for entry in entries.filter(|entry| entry.get("packageName").is_none()) {
+        let ranges = entry["ranges"].as_array().into_iter().flatten();
+        for repo in ranges
+            .filter(|range| range["type"] == "GIT")
+            .filter_map(|range| range["repo"].as_str())
+        {
+            let repo = typed(repo);
+            if !repositories.contains(&repo) {
+                repositories.push(repo);
+            }
+        }
+    }
+    repositories
 }
 
 /// A range's claim as both sources make it alike: with a fix named, the

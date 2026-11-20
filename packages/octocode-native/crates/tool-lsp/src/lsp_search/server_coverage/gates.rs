@@ -7,16 +7,22 @@ pub(super) fn annotate_rust(
     query: &LspSearchQuery,
     server_root: &str,
     scope: &Scope,
-    all_features: bool,
+    rust: crate::lsp_search::receipt::RustAnalysis,
     stopped: &dyn Fn() -> bool,
 ) {
     let Some(name) = lsp_search_query::symbol_name(query).filter(|name| !name.trim().is_empty())
     else {
         return;
     };
-    if all_features {
-        let negated =
-            gated_files_mentioning(scope, server_root, name, Gate::NegatedFeature, stopped);
+    let configuration = Configuration::of(rust);
+    if configuration.all_features() {
+        let negated = gated_files_mentioning(
+            scope,
+            server_root,
+            name,
+            (Gate::NegatedFeature, &configuration),
+            stopped,
+        );
         if negated.matches > 0 || negated.incomplete() {
             // The counts are this answer's; what the gate means and the
             // default-features comparison are `cfgNegatedFeatures`', said once.
@@ -28,9 +34,14 @@ pub(super) fn annotate_rust(
             let warning = warning.trim_end();
             flag_partial(row, query, CFG_NEGATED_REASON, Some(warning), scope);
         }
-        return;
     }
-    let gated = gated_files_mentioning(scope, server_root, name, Gate::Feature, stopped);
+    let gated = gated_files_mentioning(
+        scope,
+        server_root,
+        name,
+        (Gate::Off, &configuration),
+        stopped,
+    );
     if gated.matches == 0 && !gated.incomplete() {
         return;
     }
@@ -59,20 +70,41 @@ pub(super) fn annotate_rust(
     }
 }
 
-/// Which `cfg` gate a scan looks for.
+/// Which `cfg` gate a scan looks for, in the file's own attributes or on a
+/// `mod` declaration of its module chain ([`targets::file_gates`]), which
+/// leaves the whole file out.
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Gate {
-    /// `cfg(… feature …)`: compiled out under the default features.
-    Feature,
+    /// A gate the analyzed configuration leaves out or open
+    /// ([`Configuration::hides`]): a feature of a default build,
+    /// `cfg(transport_cfg)` that nothing sets, `cfg(not(test))`.
+    Off,
     /// `cfg(not(feature …))`: compiled out under all features.
     NegatedFeature,
 }
 
 impl Gate {
-    pub(super) fn carried_by(self, text: &str) -> bool {
+    /// Whether `file`, whose text is `text`, carries this gate under
+    /// `configuration`.
+    pub(super) fn carried_by(
+        self,
+        file: &Path,
+        text: &str,
+        configuration: &Configuration,
+        stopped: &dyn Fn() -> bool,
+    ) -> bool {
+        let chain = || super::targets::file_gates(file, text, stopped);
         match self {
-            Self::Feature => has_feature_gate(text),
-            Self::NegatedFeature => has_negated_feature_gate(text),
+            Self::Off => {
+                let hides = |gate: &super::targets::Predicate| configuration.hides(gate);
+                super::targets::cfg_predicates(text).iter().any(hides) || chain().iter().any(hides)
+            }
+            Self::NegatedFeature => {
+                has_negated_feature_gate(text)
+                    || chain()
+                        .iter()
+                        .any(super::targets::Predicate::negates_feature)
+            }
         }
     }
 }
@@ -128,7 +160,7 @@ pub(super) fn gated_files_mentioning(
     scope: &Scope,
     root: &str,
     name: &str,
-    gate: Gate,
+    (gate, configuration): (Gate, &Configuration),
     stopped: &dyn Fn() -> bool,
 ) -> GateCount {
     let mut scan = GateScan::default();
@@ -161,7 +193,10 @@ pub(super) fn gated_files_mentioning(
             })
             .flatten();
         match text {
-            Some(text) if gate.carried_by(&text) && uses_in_code(path, &text, name) => {
+            Some(text)
+                if uses_in_code(path, &text, name)
+                    && gate.carried_by(path, &text, configuration, stopped) =>
+            {
                 scan.files.push(file.clone());
             }
             Some(_) => {}
@@ -185,17 +220,6 @@ thread_local! {
 pub(super) fn uses_in_code(path: &Path, text: &str, name: &str) -> bool {
     octocode_engine::lsp::resolver::code_occurrence_lines(&path.to_string_lossy(), text, name)
         .is_none_or(|lines| !lines.is_empty())
-}
-
-pub(super) fn has_feature_gate(text: &str) -> bool {
-    text.match_indices("cfg").any(|(at, _)| {
-        let rest = &text[at + 3..];
-        rest.trim_start().starts_with('(')
-            && rest
-                .split(')')
-                .next()
-                .is_some_and(|gate| gate.contains("feature"))
-    })
 }
 
 /// A `cfg(not(feature …))` gate (also nested, `cfg(all(not(feature …)))`).

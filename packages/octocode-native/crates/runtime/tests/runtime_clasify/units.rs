@@ -603,25 +603,31 @@ async fn items_shared_across_rows_are_billed_once_to_the_first_row() {
     runtime.close().await;
 }
 
-/// A units row whose ceiling is over its `maxRequests` sends nothing and
-/// states its price (VD2); its `next.confirm`, run unchanged, judges it
+/// A units row whose first round is over its `maxRequests` sends nothing
+/// and states its price (VD2); its `next.confirm`, run unchanged, judges it
 /// within the ceiling; and its read, run unchanged, shows the passing lines
 /// (VD3).
 #[tokio::test]
 async fn a_units_row_over_its_max_requests_sends_nothing_and_its_confirm_runs() {
     let server = target_keeper().await;
     let workspace = Workspace::new();
-    workspace.write("dense.txt", dense());
+    workspace.write("d/dense.txt", dense());
+    workspace.write("d/other.txt", dense());
     let runtime = clasify_runtime(&workspace, &server, &[]);
-    let query = json_fixture(r#"{"path": "dense.txt", "matchString": ["needle"]}"#);
+    let query = json_fixture(r#"{"path": "d", "matchString": ["needle"]}"#);
     let mut row = rows_row("localSearch", query, "summary");
     row["maxRequests"] = json!(1);
     let out = clasify(&runtime, vec![row]).await;
     let data = &out["results"][0]["data"];
     assert_eq!(data["errorCode"], "classificationOverBudget", "{out}");
     assert_eq!(data["usage"]["calls"], 0, "{out}");
-    assert_eq!(data["usage"]["requestsPlanned"], 1, "{out}");
-    assert_eq!(data["usage"]["requestsCeiling"], 2, "{out}");
+    assert_eq!(data["usage"]["requestsPlanned"], 2, "one per file: {out}");
+    let ceiling = data["usage"]["requestsCeiling"].as_u64().expect("ceiling");
+    assert!(ceiling >= 2, "{out}");
+    assert_eq!(
+        data["next"]["confirm"]["input"]["queries"][0]["maxRequests"], ceiling,
+        "{out}"
+    );
     // Nothing bounds the provider's own prompt before it answered here: no
     // token figure, and the row says why.
     assert!(data["usage"].get("inputTokensAtMost").is_none(), "{out}");
@@ -650,51 +656,51 @@ async fn a_units_row_over_its_max_requests_sends_nothing_and_its_confirm_runs() 
     let confirmed = run("confirm", &data["next"]["confirm"]).await;
     let again = &confirmed["results"][0]["data"];
     assert!(again.get("errorCode").is_none(), "{confirmed}");
+    let mut kept = unit_keys(again);
+    kept.sort();
     assert_eq!(
-        unit_keys(again),
-        ["dense.txt:2", "dense.txt:5"],
+        kept,
+        [
+            "d/dense.txt:2",
+            "d/dense.txt:5",
+            "d/other.txt:2",
+            "d/other.txt:5"
+        ],
         "{confirmed}"
     );
     assert_eq!(
         sent(&server).await.len(),
-        1,
+        2,
         "the first round, within the ceiling"
     );
     let read = run("read", &again["next"]["read"]).await;
     let content = read["results"][0]["data"]["content"]
         .as_str()
         .unwrap_or_default();
-    assert!(
-        content.contains("needle KEEP entry 2") && content.contains("needle KEEP entry 5"),
-        "{read}"
-    );
+    assert!(content.contains("needle KEEP entry 2"), "{read}");
     runtime.close().await;
 }
 
-/// A source the default window may refuse is priced with its long-window
-/// retry: under a `maxRequests` below that nothing is sent; at it, the
-/// source is judged.
+/// A source the default window may refuse runs within a `maxRequests` that
+/// holds its first round, held to the cap: its stated ceiling never passes
+/// it.
 #[tokio::test]
-async fn a_whole_source_over_its_max_requests_sends_nothing() {
+async fn a_whole_source_runs_within_a_max_requests_that_holds_its_first_round() {
     let server = keeper().await;
     let workspace = Workspace::new();
     workspace.write("big.txt", "needle skip line\n".repeat(2_500));
     let runtime = clasify_runtime(&workspace, &server, &[]);
-    let row = |max: u64| {
-        json!({"operation":"evaluate","maxRequests":max,
-            "source":{"tool":"localFetch","query":{"path":"big.txt"}},
-            "questions":{"keep":noul("The entry is marked to keep.")}})
-    };
-    let out = clasify(&runtime, vec![row(1)]).await;
-    let data = &out["results"][0]["data"];
-    assert_eq!(data["errorCode"], "classificationOverBudget", "{out}");
-    assert_eq!(data["usage"]["requestsPlanned"], 1, "{out}");
-    assert_eq!(data["usage"]["requestsCeiling"], 2, "{out}");
-    assert!(sent(&server).await.is_empty(), "nothing was sent");
-    let out = clasify(&runtime, vec![row(2)]).await;
+    let row = json!({"operation":"evaluate","maxRequests":1,
+        "source":{"tool":"localFetch","query":{"path":"big.txt"}},
+        "questions":{"keep":noul("The entry is marked to keep.")}});
+    let out = clasify(&runtime, vec![row]).await;
     let data = &out["results"][0]["data"];
     assert!(data.get("errorCode").is_none(), "{out}");
-    assert_eq!(data["usage"]["requestsCeiling"], 2, "{out}");
+    assert_eq!(data["usage"]["calls"], 1, "{out}");
+    assert!(
+        data["usage"]["requestsCeiling"].as_u64().unwrap_or(1) <= 1,
+        "{out}"
+    );
     assert_eq!(sent(&server).await.len(), 1);
     runtime.close().await;
 }

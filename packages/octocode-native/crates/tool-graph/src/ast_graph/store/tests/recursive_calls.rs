@@ -8,8 +8,8 @@ fn recursive_and_same_file_calls_remain_visible_without_reexpanding_seeds() {
     )]);
     let root = dir.0.as_path();
     assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
-    let expected = vec!["calls.ts#alpha".to_owned(), "calls.ts#beta".to_owned()];
-    for target in ["calls.ts#alpha", "calls.ts"] {
+    let expected = vec!["app/calls.ts#alpha".to_owned(), "app/calls.ts#beta".to_owned()];
+    for target in ["app/calls.ts#alpha", "calls.ts"] {
         for operation in ["callers", "callees"] {
             for depth in [1, 20] {
                 let answer = ask(root, operation, Some(target), |o| o.depth = Some(depth));
@@ -28,7 +28,7 @@ fn recursive_and_same_file_calls_remain_visible_without_reexpanding_seeds() {
     }
     let mut paged = Vec::new();
     for offset in 0..2 {
-        let page = ask(root, "callees", Some("calls.ts#alpha"), |o| {
+        let page = ask(root, "callees", Some("app/calls.ts#alpha"), |o| {
             o.limit = Some(1);
             o.offset = Some(offset);
         });

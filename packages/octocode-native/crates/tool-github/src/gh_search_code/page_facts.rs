@@ -136,6 +136,17 @@ pub(super) fn disclose_completeness(
             subject: "code",
         },
     );
+    // An owner-wide search past GitHub's window reaches every match only
+    // one repository at a time: the owner's repositories list the scopes
+    // that split it (code search has no date or size field to split by).
+    if data.matched > data.total && current == 1 && query.repo.is_none() {
+        value["calls"]["listRepositories"] =
+            octocode_runtime_base::response::result::Continuation::related(
+                ToolId::GhSearchRepo,
+                json!({"operation": "list", "owner": query.owner}),
+            )
+            .build();
+    }
     if hits_unlisted && !more {
         mark_partial(
             value,

@@ -167,45 +167,176 @@ async fn a_truncated_tree_is_read_by_subtree_and_pages_without_overlap() {
     );
 }
 
-/// A walk that reaches its read budget stops there: the folders it left
-/// unread are counted, the listing is partial, and the warning names the
-/// cheaper routes. No call spends the caller's quota without bound.
+/// A recursive tree larger than one response may hold (Linux's root tree
+/// is 17.6 MB) is a truncated tree, not a missing one: its folders are
+/// read whole from their own recursive subtrees, never folder by folder.
 #[tokio::test]
-async fn a_walk_past_its_read_budget_is_partial_and_says_so() {
+async fn an_oversized_recursive_tree_is_read_by_subtree() {
     let server = server().await;
-    mount_json(
+    let limit = default_context().budget.max_body_bytes;
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v3/repos/a/b/git/trees/{SHA}")))
+        .and(wiremock::matchers::query_param("recursive", "1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": SHA, "truncated": false, "tree": [], "padding": "x".repeat(limit + 1)
+        })))
+        .mount(&server)
+        .await;
+    let src = "d".repeat(40);
+    mount_folder_tree(
         &server,
-        format!("/api/v3/repos/a/b/git/trees/{SHA}"),
-        200,
-        json!({"sha":SHA,"truncated":true,"tree":[]}),
-    )
-    .await;
-    mount_json(
-        &server,
-        "/api/v3/repos/a/b/contents",
-        200,
-        json!([
+        "/api/v3/repos/a/b",
+        SHA,
+        "",
+        &json!([
             {"name":"README.md","path":"README.md","type":"file","size":1},
-            {"name":"src","path":"src","type":"dir","sha":"d".repeat(40)}
+            {"name":"src","path":"src","type":"dir","sha":src}
         ]),
     )
     .await;
+    mount_json(
+        &server,
+        format!("/api/v3/repos/a/b/git/trees/{src}"),
+        200,
+        json!({"sha":src,"truncated":false,"tree":[
+            {"path":"a","type":"tree"},
+            {"path":"a/handler.rs","type":"blob","size":5}
+        ]}),
+    )
+    .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v3/repos/a/b/git/trees/{SHA}:src")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(0)
+        .mount(&server)
+        .await;
     let row = json_fixture(
         r#"{"operation": "tree", "owner": "a", "repo": "b", "ref": "main", "include": ["**/*.rs"]}"#,
     );
-    super::super::traverse::contents::TEST_WALK_READS.with(|reads| reads.set(Some(1)));
-    let out = list(&server, row).await;
-    super::super::traverse::contents::TEST_WALK_READS.with(|reads| reads.set(None));
-    let data = out.expect("listing").data;
+    let data = list(&server, row).await.expect("listing").data;
+    assert!(data.get("isPartial").is_none(), "{data}");
     assert_eq!(
-        data["partialReasons"],
-        json_fixture(r#"["partialTreeFailures"]"#),
+        data["files"],
+        json_fixture(r#"[{"dir": "src/a", "files": ["handler.rs (5)"]}]"#),
         "{data}"
     );
-    assert!(
-        data["warnings"].to_string().contains("read budget"),
-        "{data}"
-    );
+}
+
+/// No count of reads stops a walk: one the call's time pauses
+/// ([`Walked::Paused`]) is resumed by the walk that replays its reads, each
+/// resumed call gets at least one read further, and the walk that ends
+/// lists every entry the unpaused walk lists, once.
+#[tokio::test]
+async fn a_paused_walk_resumes_to_every_entry_once() {
+    use crate::gh_structure::traverse::{Listing, Pace, Walked, walk_contents};
+    let server = server().await;
+    let dir = |name: &str| json!({"name":name,"path":name,"type":"dir"});
+    let file = |path: &str| json!({"path":path,"type":"file","size":1});
+    mount_folder_tree(
+        &server,
+        "/api/v3/repos/a/b",
+        SHA,
+        "",
+        &json!([dir("src"), dir("docs"), file("README.md")]),
+    )
+    .await;
+    mount_folder_tree(
+        &server,
+        "/api/v3/repos/a/b",
+        SHA,
+        "src",
+        &json!([dir("src/core"), file("src/lib.rs")]),
+    )
+    .await;
+    mount_folder_tree(
+        &server,
+        "/api/v3/repos/a/b",
+        SHA,
+        "docs",
+        &json!([file("docs/guide.md")]),
+    )
+    .await;
+    mount_folder_tree(
+        &server,
+        "/api/v3/repos/a/b",
+        SHA,
+        "src/core",
+        &json!([file("src/core/walk.rs")]),
+    )
+    .await;
+    let provider = mock_provider(&server, RetryPolicy::default());
+    let context = default_context();
+    let listing = Listing {
+        owner: "a",
+        repo: "b",
+        branch: SHA,
+        root: "",
+        max_depth: crate::gh_structure::traverse::max_listing_depth(),
+    };
+    let paths = |traversal: &Traversal| {
+        let mut paths = traversal
+            .entries
+            .iter()
+            .map(|entry| entry.path.clone())
+            .collect::<Vec<_>>();
+        paths.sort();
+        paths
+    };
+    let unpaused = Pace {
+        resume_from: 0,
+        stop_at: None,
+    };
+    let Walked::Done(whole) = walk_contents(&provider, &listing, false, unpaused, &context)
+        .await
+        .expect("whole walk")
+    else {
+        panic!("an unpaused walk ends");
+    };
+    let mut resume_from = 0;
+    let mut calls = 0;
+    let resumed = loop {
+        // A stop already passed: each call makes the replayed reads and one more.
+        let pace = Pace {
+            resume_from,
+            stop_at: Some(std::time::Instant::now()),
+        };
+        calls += 1;
+        match walk_contents(&provider, &listing, false, pace, &context)
+            .await
+            .expect("paced walk")
+        {
+            Walked::Done(traversal) => break traversal,
+            Walked::Paused { reads } => {
+                assert!(reads > resume_from, "a resumed walk gets further: {reads}");
+                resume_from = reads;
+            }
+        }
+    };
+    assert!(calls > 1, "a passed stop pauses a walk of several folders");
+    assert_eq!(paths(&resumed), paths(&whole));
+    let mut once = paths(&resumed);
+    once.dedup();
+    assert_eq!(once, paths(&resumed), "every entry once");
+}
+
+/// A paused walk's page lists nothing yet and says why: partial at the
+/// walk's time budget, with `next.nextPage` the same pinned query resuming
+/// after the reads made.
+#[test]
+fn a_paused_walk_page_resumes_after_its_reads() {
+    let pinned: GhStructureQueryTree = serde_json::from_value(json!({
+        "operation":"tree","owner":"a","repo":"b","ref":SHA,"include":["**/*.rs"]
+    }))
+    .expect("tree query");
+    let data = crate::gh_structure::tree::paused_listing(&pinned, "main", SHA, 7);
+    assert!(data.get("files").is_none(), "{data}");
+    assert!(data.get("summary").is_none(), "{data}");
+    assert_eq!(data["partialReasons"], json!(["walkDeadline"]), "{data}");
+    let next = &data["next"]["nextPage"]["input"]["queries"][0];
+    assert_eq!(next["walkOffset"], 7, "{data}");
+    assert_eq!(next["ref"], SHA, "{data}");
+    assert_eq!(next["include"], json!(["**/*.rs"]), "{data}");
+    octocode_runtime_base::test_support::assert_row_contract(ToolId::GhStructure, &data);
 }
 
 /// A directory past the Contents API's 1,000-entry cap is listed

@@ -1,6 +1,6 @@
 ---
 name: octocode-graph-view
-description: "Load first for a visual, interactive map of a repository to explore (architecture or dependency graph) or a saved source-backed graph brief."
+description: "Load this skill first when the user wants a visual, interactive map of a repository (architecture or dependency graph) or a saved source-backed graph brief: it builds and serves the viewer. Textual structure answers: octocode-graph."
 ---
 
 # Octocode Graph View

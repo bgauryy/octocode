@@ -186,6 +186,15 @@ impl Query<'_> {
             };
             extra.insert("coverage".into(), coverage);
         }
+        // Argument coverage of the target's languages only: the snapshot's
+        // other languages concern none of these rows.
+        if filter.kinds.contains(&EdgeKind::Passes) {
+            let sources = match &target {
+                TraversalTarget::Node(root) => vec![*root],
+                TraversalTarget::Directory { files, .. } => files.clone(),
+            };
+            extra.insert("argumentCoverage".into(), g.argument_coverage(&sources));
+        }
         let (hints, mut related) = (hints, related);
         // The manifest states each declared name's unresolved call sites, so
         // this costs no evidence read and holds for listed answers too.
@@ -200,8 +209,9 @@ impl Query<'_> {
                 } else {
                     "text search may find more"
                 };
+                let (sites, verb) = call_sites(named);
                 unresolved = Some(format!(
-                    "{named} call sites name the target but their receiver could not be resolved; {reach}"
+                    "{sites} {verb} the target but their receiver could not be resolved; {reach}"
                 ));
                 related.extend(lead);
             }
@@ -214,8 +224,10 @@ impl Query<'_> {
             if unlinked > 0 {
                 // The note promises the `unresolved` read scoped to the
                 // target, so the served row keeps it.
+                let (sites, verb) = call_sites(unlinked);
+                let verb = if verb == "name" { "link" } else { "links" };
                 unresolved = Some(format!(
-                    "{unlinked} call sites in the target link no edge though their name is declared in this repository (unknown receiver, ambiguous or unbound); related lists them"
+                    "{sites} in the target {verb} no edge though their name is declared in this repository (unknown receiver, ambiguous or unbound); related lists them"
                 ));
                 let mut row = super::paging::query_row(self.options, &g.id);
                 row.retain(|field, _| matches!(field.as_str(), "path" | "graph" | "target"));
@@ -233,6 +245,14 @@ impl Query<'_> {
                     .build(),
                 );
             }
+        }
+        // A symbol's rows are syntax candidates: lspSearch checks them.
+        if let TraversalTarget::Node(root) = &target {
+            let check = match op {
+                "callers" | "callees" => op,
+                _ => "references",
+            };
+            related.extend(g.lsp_check(*root, check, self.cancel)?);
         }
         if !related.is_empty() {
             extra.insert("related".into(), Value::Array(related));
@@ -508,4 +528,13 @@ fn per_file(page: Page) -> Page {
         rows,
         start: 0,
     }
+}
+
+/// `count` call sites as words, with the verb `name` that agrees with them.
+fn call_sites(count: u64) -> (String, &'static str) {
+    let verb = if count == 1 { "names" } else { "name" };
+    (
+        octocode_engine::text::counted(count, "call site", "call sites"),
+        verb,
+    )
 }

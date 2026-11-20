@@ -1,5 +1,9 @@
 mod cli;
 
+#[cfg(target_env = "musl")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 // The CLI is a short-lived, IO-bound process: CPU-parallel work lives in the
 // engine's `rayon` pools, not on tokio
 // worker threads. A multi-thread runtime would spawn one worker per core per

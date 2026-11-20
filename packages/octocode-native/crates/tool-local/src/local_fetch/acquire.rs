@@ -363,7 +363,16 @@ fn path_failure(q: &LocalFetchQuery, failure: PathFailure) -> LocalFetchResult {
         .safe_path
         .as_deref()
         .unwrap_or(local_fetch_query::path(q));
-    let message = if failure.sparse_checkout {
+    // A path a recorded sparse scope leaves out is checked out by the
+    // related ghCloneRepo call its message names.
+    let reclone = failure
+        .clone_scope
+        .as_ref()
+        .zip(failure.resolved.as_ref())
+        .and_then(|(scope, path)| scope.reclone(path));
+    let message = if let Some(scope) = failure.clone_scope.as_ref().filter(|_| reclone.is_some()) {
+        scope.outside_message(display)
+    } else if failure.sparse_checkout {
         format!(
             "Path does not exist: {display}. It lies in a sparse checkout, so it may exist outside the checked-out paths: re-clone with a path that covers it, or read it with ghGetFileContent."
         )
@@ -392,6 +401,7 @@ fn path_failure(q: &LocalFetchQuery, failure: PathFailure) -> LocalFetchResult {
                     local_fetch_query::updated(q, serde_json::json!({"path":path})).ok()
                 })
                 .map(FetchCall::related),
+            reclone,
             ..NextCalls::default()
         };
         result.next = Some(next).filter(|next| !next.is_empty());

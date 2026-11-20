@@ -3,7 +3,7 @@ pub mod fs_query;
 pub mod glob;
 pub mod pattern_reach;
 pub mod pcre2_ranges;
-pub use declaration::declared_name;
+pub use declaration::{declared_name, declares_name};
 pub mod repository;
 pub mod rust_ranges;
 pub mod span_sink;

@@ -123,15 +123,17 @@ fn resolves_nowhere(specifier: &str, file: &str, missing: &dyn Fn(&Path) -> bool
     module_candidates(&base).iter().all(|path| missing(path))
 }
 
-/// The paths a relative module path `base` may resolve to, in resolution
-/// order: the exact path, its compiled-name source swaps, each extension
-/// probe and directory index, and a package manifest.
+/// The paths a relative module path `base` may resolve to, in the order the
+/// TypeScript server resolves them: a compiled name's source swaps (`a.js`:
+/// `a.ts`, `a.tsx`, `a.d.ts`) ahead of the exact path, so an emitted
+/// declaration binds before the bundle beside it; then each extension probe
+/// and directory index, and a package manifest.
 pub(super) fn module_candidates(base: &Path) -> Vec<PathBuf> {
     let name = base
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let mut candidates = vec![base.to_path_buf()];
+    let mut candidates = Vec::new();
     for (compiled, sources) in octocode_engine::signatures::languages::JS_SOURCE_SWAPS {
         if let Some(stem) = name.strip_suffix(&format!(".{compiled}")) {
             candidates.extend(
@@ -141,6 +143,7 @@ pub(super) fn module_candidates(base: &Path) -> Vec<PathBuf> {
             );
         }
     }
+    candidates.push(base.to_path_buf());
     for extension in MODULE_EXTENSIONS {
         candidates.push(base.with_file_name(format!("{name}.{extension}")));
         candidates.push(base.join(format!("index.{extension}")));

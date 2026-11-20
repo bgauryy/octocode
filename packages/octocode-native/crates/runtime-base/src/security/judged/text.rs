@@ -298,6 +298,33 @@ impl JudgedText {
         }
     }
 
+    /// The byte ranges of the 1-based `line` as a read serves it
+    /// ([`Self::lines`]) that hold text the pass wrote in place of the
+    /// source's (ascending, disjoint): the pass's own outputs there. A pass
+    /// that joined lines shows them by position: then the whole line counts.
+    pub fn written_in_line(&self, line: usize) -> Vec<Range<usize>> {
+        match &self.redacted {
+            None => Vec::new(),
+            Some((clean, edits, Some(starts))) => {
+                starts.span(clean, line, 1).map_or_else(Vec::new, |served| {
+                    edits
+                        .outputs()
+                        .filter(|written| written.start < served.end && served.start < written.end)
+                        .map(|written| {
+                            written.start.max(served.start) - served.start
+                                ..written.end.min(served.end) - served.start
+                        })
+                        .filter(|written| !written.is_empty())
+                        .collect()
+                })
+            }
+            Some((_, _, None)) => self
+                .lines(line, 1)
+                .map(|served| std::iter::once(0..served.len()).collect())
+                .unwrap_or_default(),
+        }
+    }
+
     /// The placeholder the pass wrote for what it replaced of source bytes
     /// `range`, when every run it replaced there states that one and no
     /// other: what a row that is some of those bytes, at no place of its own
@@ -505,9 +532,10 @@ impl JudgedText {
     }
 }
 
-/// What a text search matches of a file whose bytes are `bytes`: `None`
-/// when `judge` replaced nothing of its text, so the bytes are searched as
-/// they are. `judge` judges the source's text whole, as a read of it is, and
+/// What a text search matches of a file whose bytes are `bytes`, with the
+/// ranges of it the pass wrote ([`octocode_engine::types::ServedText`]):
+/// `None` when `judge` replaced nothing of its text, so the bytes are
+/// searched as they are. `judge` judges the source's text whole, as a read of it is, and
 /// is given that text as a row's whole-source check reads it (each line
 /// decoded alone, its line break dropped, the lines joined by `\n`), so one
 /// kept pass of that text serves both. Otherwise every line the pass
@@ -515,10 +543,15 @@ impl JudgedText {
 /// line keeps its own bytes and terminator, so a hit's line, and its column
 /// on a line the pass left whole, are the file's. A hit is then never made by
 /// bytes a read withholds, nor by what is around them (a lookaround, a word
-/// boundary), and a search for a placeholder finds it where a read shows it.
-/// A search reads a file up to its first NUL: only that text is judged, and
-/// the bytes from it on follow unchanged.
-pub fn searched_text(bytes: &[u8], judge: impl FnOnce(&str) -> JudgedText) -> Option<Vec<u8>> {
+/// boundary). Each byte the pass wrote on a served line (a placeholder, a
+/// blank a replaced line break folds to) is in `written`, which no match the
+/// search counts takes: a search for a placeholder finds only the source's
+/// own spelling of it. A search reads a file up to its first NUL: only that
+/// text is judged, and the bytes from it on follow unchanged.
+pub fn searched_text(
+    bytes: &[u8],
+    judge: impl FnOnce(&str) -> JudgedText,
+) -> Option<octocode_engine::types::ServedText> {
     let end = memchr::memchr(0, bytes).unwrap_or(bytes.len());
     let (head, tail) = bytes.split_at(end);
     // Each source line's own bytes, and its text: a UTF-16 source's lines are
@@ -550,6 +583,7 @@ pub fn searched_text(bytes: &[u8], judge: impl FnOnce(&str) -> JudgedText) -> Op
         return None;
     }
     let mut out = Vec::with_capacity(head.len() + tail.len());
+    let mut written: Vec<std::ops::Range<usize>> = Vec::new();
     let mut at = 0;
     for (index, (line, own_line)) in lines.iter().zip(&own).enumerate() {
         // A line and the break after it: a pass that replaced only the break
@@ -561,6 +595,18 @@ pub fn searched_text(bytes: &[u8], judge: impl FnOnce(&str) -> JudgedText) -> Op
             continue;
         }
         let served = judged.lines(index + 1, 1);
+        let start = out.len();
+        // What the pass wrote on the line, at its place in the searched text;
+        // a line no read serves is the placeholder, written whole.
+        match &served {
+            Some(_) => written.extend(
+                judged
+                    .written_in_line(index + 1)
+                    .into_iter()
+                    .map(|range| start + range.start..start + range.end),
+            ),
+            None => written.push(start..start + REDACTED.len()),
+        }
         let served = served.as_deref().unwrap_or(REDACTED);
         // One line stays one line.
         out.extend(
@@ -578,7 +624,7 @@ pub fn searched_text(bytes: &[u8], judge: impl FnOnce(&str) -> JudgedText) -> Op
         out.extend_from_slice(terminator);
     }
     out.extend_from_slice(tail);
-    Some(out)
+    Some(octocode_engine::types::ServedText { text: out, written })
 }
 
 /// Whether a match of `literal` (compared ignoring case when `fold`) could

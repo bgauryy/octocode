@@ -451,8 +451,12 @@ impl WalkScope<'_> {
         drop(outcome);
         let utf16 = crate::text::has_utf16_bom(prefix);
         let mut kept = match &served {
-            Some(text) => files.search_proved(text, path, (utf16, true))?,
-            None => files.search_proved(prefix, path, (utf16, false))?,
+            Some(served) => files.search_proved(served.into(), path, (utf16, true))?,
+            None => files.search_proved(
+                super::file_search::Searched::own(prefix),
+                path,
+                (utf16, false),
+            )?,
         };
         kept.utf8_bom = kept.matched_lines > 0 && !utf16 && crate::text::bom_len(prefix) > 0;
         Ok(kept)

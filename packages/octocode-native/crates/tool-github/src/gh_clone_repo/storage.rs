@@ -430,6 +430,39 @@ pub(super) fn record_completion(stage: &Path) -> Result<String, GitError> {
     Ok(at)
 }
 
+/// Record what the checkout at `checkout` holds for the local tools
+/// ([`clone_scope`](octocode_tools_shared::gh_git::clone_scope)), unless it
+/// already says so.
+pub(super) fn record_scope(
+    checkout: &Path,
+    record: &octocode_tools_shared::gh_git::clone_scope::CloneRecord,
+) -> Result<(), GitError> {
+    let git_dir = git_dir(checkout).ok_or_else(|| {
+        GitError::new(
+            ErrorCode::FileAccessFailed,
+            "Clone checkout has no git directory to record its scope in.",
+        )
+    })?;
+    let scope = octocode_tools_shared::gh_git::clone_scope::read_record(&git_dir);
+    if scope.as_ref() == Some(record) {
+        return Ok(());
+    }
+    octocode_tools_shared::gh_git::clone_scope::write_record(&git_dir, record).map_err(storage_io)
+}
+
+/// The commits the store at `store` keeps as its shallow boundary (git's
+/// `shallow` file): history walks stop at them. None for a store that holds
+/// every commit it reaches.
+pub(super) fn shallow_commits(store: &Path) -> Vec<String> {
+    fs::read_to_string(store.join("shallow"))
+        .unwrap_or_default()
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
 /// When the checkout was completed ([`record_completion`]); `None` for a
 /// checkout made before the stamp existed.
 pub(super) fn completed_at(path: &Path) -> Option<String> {

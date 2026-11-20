@@ -100,3 +100,57 @@ fn a_stale_answer_leads_to_the_rebuild_of_its_scope() {
         assert_eq!(row["exclude"], json!(["gen"]), "{rebuild}");
     }
 }
+
+/// A symbol answer's rows are syntax candidates: `related` holds the
+/// lspSearch call that checks them at the symbol's file, name and line,
+/// with the operation that asks the same question; a file answer has none.
+#[test]
+fn symbol_answers_lead_to_the_lsp_search_that_checks_them() {
+    let dir = Fixture::new();
+    dir.write(
+        "app/src/lib.ts",
+        "export function target() { return 1; }\nexport function run() { return target(); }\n",
+    );
+    let built = call(
+        &dir.0,
+        ToolId::GraphBuild,
+        json_fixture(r#"{"path": "app"}"#),
+    );
+    let checks = |answer: &Value| {
+        answer["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|call| call["tool"] == "lspSearch")
+            .map(|call| call["input"]["queries"][0].clone())
+            .collect::<Vec<_>>()
+    };
+    for (operation, check) in [
+        ("callers", "callers"),
+        ("callees", "callees"),
+        ("node", "references"),
+        ("impact", "references"),
+        ("walk", "references"),
+    ] {
+        let answer = call(
+            &dir.0,
+            ToolId::GraphQuery,
+            json!({"operation":operation,"path":"app","graph":built["id"],"target":"src/lib.ts#target"}),
+        );
+        let checks = checks(&answer);
+        assert_eq!(checks.len(), 1, "{operation}: {answer}");
+        let row = &checks[0];
+        assert_eq!(row["operation"], check, "{operation}: {row}");
+        assert_eq!(row["path"], "app/src/lib.ts", "{operation}: {row}");
+        assert_eq!(row["symbolName"], "target", "{operation}: {row}");
+        assert_eq!(row["line"], 1, "{operation}: {row}");
+        octocode_runtime_base::contracts::validate_built_query("lspSearch", row.clone())
+            .unwrap_or_else(|error| panic!("{operation}: {error:?}: {row}"));
+    }
+    let file = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json!({"operation":"dependents","path":"app","graph":built["id"],"target":"src/lib.ts"}),
+    );
+    assert!(checks(&file).is_empty(), "{file}");
+}

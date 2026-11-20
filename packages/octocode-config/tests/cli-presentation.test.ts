@@ -161,6 +161,28 @@ describe('canonical CLI and MCP discovery', () => {
     }
   });
 
+  it('states how many queries one call takes, as the published envelope bounds it', () => {
+    for (const definition of DIRECT_TOOL_DEFINITIONS) {
+      const queries = at(publishedInputSchema(definition), 'properties', 'queries');
+      const max = queries.maxItems;
+      expect(typeof max, definition.name).toBe('number');
+      const stated = toolHelpSection(definition).match(/^(?:One query|Up to (\d+) queries) per call\.$/m);
+      expect(stated, definition.name).not.toBeNull();
+      expect(stated?.[1] === undefined ? 1 : Number(stated[1]), definition.name).toBe(max);
+    }
+  });
+
+  it('shows testCode in a help example of every tool that takes it', () => {
+    for (const definition of DIRECT_TOOL_DEFINITIONS) {
+      if (!JSON.stringify(publishedInputSchema(definition)).includes('"testCode"')) continue;
+      const examples = commands(toolHelpSection(definition));
+      expect(
+        examples.some(({ input }) => JSON.stringify(input).includes('"testCode"')),
+        definition.name
+      ).toBe(true);
+    }
+  });
+
   it('lists each required-fields form of a tool once, however many examples share it', () => {
     for (const definition of DIRECT_TOOL_DEFINITIONS) {
       const blocks = toolHelpSection(definition).split('\n\n');

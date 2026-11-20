@@ -34,13 +34,14 @@ pub(super) fn read_head(context: &GitContext<'_>, directory: &Path) -> Result<St
 }
 
 /// The entry names (files, directories and submodules) directly under `dir`
-/// at the checkout's HEAD commit; `dir` is repo-relative, empty for the
-/// root. Empty when `dir` is no directory of the commit. `ls-tree` reads
-/// tree objects only, so a sparse checkout lists the whole commit without
-/// fetching a blob.
+/// at `commit`, read in the repository at `directory` (a checkout or its
+/// store); `dir` is repo-relative, empty for the root. Empty when `dir` is
+/// no directory of the commit. `ls-tree` reads tree objects only, so a
+/// sparse checkout lists the whole commit without fetching a blob.
 pub(super) fn tree_names(
     context: &GitContext<'_>,
     directory: &Path,
+    commit: &str,
     dir: &str,
 ) -> Result<Vec<String>, GitError> {
     let mut args = vec![
@@ -49,7 +50,7 @@ pub(super) fn tree_names(
         "ls-tree".into(),
         "-z".into(),
         "--name-only".into(),
-        "HEAD".into(),
+        commit.into(),
     ];
     if !dir.is_empty() {
         args.extend(["--".into(), format!("{dir}/").into()]);
@@ -243,6 +244,10 @@ struct TreeListing {
     /// Every repository symlink (mode `120000`) of the tree, in or out of
     /// scope: [`present_symlinks`] keeps those a checkout wrote.
     links: Vec<String>,
+    /// The scope paths no entry of the tree is or lies under, in request
+    /// order and spelling: byte for byte, as a commit's paths are
+    /// case-sensitive whatever the filesystem.
+    missing: Vec<String>,
 }
 
 fn list_tree(
@@ -253,6 +258,12 @@ fn list_tree(
 ) -> Result<TreeListing, GitError> {
     let mut withheld = Vec::new();
     let mut links = Vec::new();
+    let requested = scope
+        .unwrap_or_default()
+        .iter()
+        .map(|path| path.trim_end_matches('/'))
+        .collect::<Vec<_>>();
+    let mut present = vec![false; requested.len()];
     // Blobs of the files a checkout of `rev` may write (not credential-named,
     // in any scope).
     let mut written = std::collections::HashSet::new();
@@ -268,13 +279,21 @@ fn list_tree(
         .git
         .run_nul_records(&request, &control(context), &mut |line| {
             let line = String::from_utf8_lossy(line);
-            // `<mode> <type> <blob>\t<path>`; a submodule is no blob.
+            // `<mode> <type> <blob>\t<path>`; a submodule is no blob, but
+            // it is a path of the commit.
             let Some((meta, path)) = line.split_once('\t') else {
                 return Ok(());
             };
             let mut meta = meta.split_whitespace();
             let mode = meta.next();
-            let (Some("blob"), Some(blob)) = (meta.next(), meta.next()) else {
+            let kind = meta.next();
+            for (requested, present) in requested.iter().zip(present.iter_mut()) {
+                *present |= path == *requested
+                    || path
+                        .strip_prefix(requested)
+                        .is_some_and(|rest| rest.starts_with('/'));
+            }
+            let (Some("blob"), Some(blob)) = (kind, meta.next()) else {
                 return Ok(());
             };
             if mode == Some("120000") {
@@ -303,7 +322,18 @@ fn list_tree(
     for file in &mut withheld {
         file.shared = written.contains(&file.blob);
     }
-    Ok(TreeListing { withheld, links })
+    let missing = scope
+        .unwrap_or_default()
+        .iter()
+        .zip(present)
+        .filter(|(_, present)| !present)
+        .map(|(path, _)| path.clone())
+        .collect();
+    Ok(TreeListing {
+        withheld,
+        links,
+        missing,
+    })
 }
 
 /// The symlinks of `links` (repo-relative paths) that the checkout at
@@ -393,6 +423,11 @@ pub(super) fn checkout(
             created,
         },
         |staged| {
+            // A scope the commit lacks a path of is narrowed by the caller
+            // to the paths it has, and checked out under that scope.
+            if !staged.missing.is_empty() {
+                return Ok(());
+            }
             add_worktree(context, store, commit, stage)?;
             let scope = match sparse_paths {
                 Some(paths) => Some((
@@ -417,6 +452,9 @@ pub(super) fn checkout(
     else {
         return Ok(None);
     };
+    if !staged.missing.is_empty() {
+        return Ok(Some(staged));
+    }
     // The work tree fills in from the store; a blob it lacks is fetched from
     // the store's promisor remote, which is why this step carries the
     // credential.
@@ -436,6 +474,9 @@ pub(super) struct Staged {
     pub(super) withheld: Vec<String>,
     /// Repository symlinks of the commit ([`present_symlinks`]).
     pub(super) links: Vec<String>,
+    /// The requested sparse paths the commit lacks. When any is, nothing
+    /// was staged: the caller narrows the scope to the paths that exist.
+    pub(super) missing: Vec<String>,
 }
 
 /// The shared store at `store`: a bare repository whose every checkout is a
@@ -561,12 +602,14 @@ fn ensure_commit(
     let TreeListing {
         withheld: listed,
         links,
+        missing,
     } = list_tree(context, store, commit, sparse_paths)?;
     // A remote that ignores the blob filter sends every blob, credential
     // files included: refuse rather than keep them.
     let staged = Staged {
         withheld: listed.iter().map(|file| file.path.clone()).collect(),
         links,
+        missing,
     };
     if created {
         let (absent, prepared) = std::thread::scope(|threads| {
@@ -660,6 +703,35 @@ pub(super) fn move_worktree(
     args.extend([from.as_os_str().to_owned(), to.as_os_str().to_owned()]);
     run(context, args, step_timeout(context), "move worktree", None)?;
     Ok(())
+}
+
+/// Whether `store` holds every commit back to the roots: it keeps no
+/// shallow boundary, or each boundary commit is a root (a depth that ends
+/// exactly at a root marks it shallow all the same). A boundary commit's own
+/// object still names its parents, which the shallow boundary hides from
+/// history walks; the first one that has a parent decides.
+pub(super) fn holds_whole_history(
+    context: &GitContext<'_>,
+    store: &Path,
+) -> Result<bool, GitError> {
+    for commit in storage::shallow_commits(store) {
+        let object = run(
+            context,
+            scoped(store, &["cat-file", "commit", &commit]),
+            step_timeout(context),
+            "read history boundary",
+            None,
+        )?;
+        let parented = object
+            .stdout
+            .lines()
+            .take_while(|line| !line.is_empty())
+            .any(|line| line.starts_with("parent "));
+        if parented {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// Whether git finds `store` intact: its connectivity check exits zero. A

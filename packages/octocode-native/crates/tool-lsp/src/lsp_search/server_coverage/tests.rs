@@ -212,7 +212,13 @@ fn gate_check_reads_only_the_files_that_mention_the_name() {
     let mentions = scope.scanned_files("wanted").expect("scan").len();
     assert_eq!(mentions, 2, "lib.rs and z.rs spell the name");
     GATE_READS.with(|reads| reads.set(0));
-    let whole = gated_files_mentioning(&scope, &text, "wanted", Gate::Feature, &|| false);
+    let whole = gated_files_mentioning(
+        &scope,
+        &text,
+        "wanted",
+        (Gate::Off, &headless_configuration()),
+        &|| false,
+    );
     assert_eq!(whole.matches, 1, "the gated file is found");
     assert!(!whole.incomplete());
     assert_eq!(
@@ -220,10 +226,22 @@ fn gate_check_reads_only_the_files_that_mention_the_name() {
         mentions,
         "files read"
     );
-    let stopped = gated_files_mentioning(&scope, &text, "wanted", Gate::Feature, &|| true);
+    let stopped = gated_files_mentioning(
+        &scope,
+        &text,
+        "wanted",
+        (Gate::Off, &headless_configuration()),
+        &|| true,
+    );
     assert!(stopped.scan.files.is_empty() && stopped.scan.has_more);
     let unscanned = Scope::new(text.clone(), vec!["*.rs".into()]);
-    let unknown = gated_files_mentioning(&unscanned, &text, "wanted", Gate::Feature, &|| false);
+    let unknown = gated_files_mentioning(
+        &unscanned,
+        &text,
+        "wanted",
+        (Gate::Off, &headless_configuration()),
+        &|| false,
+    );
     assert!(unknown.incomplete() && unknown.matches == 0);
 }
 
@@ -245,16 +263,24 @@ fn gate_scan_ignores_comment_mentions_and_answered_files() {
         Scope::new(root.to_string_lossy().into_owned(), vec!["*.rs".into()]),
         "Continuation",
     );
-    let count = gated_files_mentioning(&scope, &scope.root, "Continuation", Gate::Feature, &|| {
-        false
-    });
+    let count = gated_files_mentioning(
+        &scope,
+        &scope.root,
+        "Continuation",
+        (Gate::Off, &headless_configuration()),
+        &|| false,
+    );
     assert_eq!(count.scan.files, vec![used.to_string_lossy().into_owned()]);
     assert_eq!(count.matches, 1);
     scope.answer([used.to_string_lossy()]);
     assert_eq!(
-        gated_files_mentioning(&scope, &scope.root, "Continuation", Gate::Feature, &|| {
-            false
-        })
+        gated_files_mentioning(
+            &scope,
+            &scope.root,
+            "Continuation",
+            (Gate::Off, &headless_configuration()),
+            &|| { false }
+        )
         .matches,
         0
     );
@@ -433,11 +459,33 @@ fn text_search_lead_targets_repo_scope_with_language_include() {
     );
 }
 
+/// The headless server's configuration: the host target, default features,
+/// no build scripts, rust-analyzer's own `cfg` options.
+fn headless_configuration() -> Configuration {
+    Configuration::of(super::super::receipt::RustAnalysis::of(&configured_rust(
+        octocode_engine::lsp::config::rust_analyzer_headless_options(),
+    )))
+}
+
+/// A file carries a gate the headless analysis leaves out when a `cfg`
+/// attribute reads a feature (left open by a default build), an option
+/// nothing sets, or negates one it sets; `cfg(test)`, `debug_assertions`
+/// and a word that is no attribute leave nothing out.
 #[test]
 fn gate_detection() {
-    assert!(has_feature_gate("#[cfg(all(test, feature = \"x\"))]"));
-    assert!(has_feature_gate("#![cfg(feature=\"full\")]"));
-    assert!(!has_feature_gate("#[cfg(test)]\nlet feature = 1;"));
+    let configuration = headless_configuration();
+    let carried = |text: &str| {
+        Gate::Off.carried_by(Path::new("/nowhere/a.rs"), text, &configuration, &|| false)
+    };
+    assert!(carried("#[cfg(all(test, feature = \"x\"))]"));
+    assert!(carried("#![cfg(feature=\"full\")]"));
+    assert!(carried("#[cfg(transport_cfg)]\nfn f() {}"));
+    assert!(carried("#[cfg(not(test))]\nfn f() {}"));
+    assert!(!carried("#[cfg(test)]\nlet feature = 1;"));
+    assert!(!carried(
+        "#[cfg(any(test, feature = \"x\"))]\n#[cfg(debug_assertions)]"
+    ));
+    assert!(!carried("#[cfg_attr(docsrs, doc(cfg(feature = \"x\")))]"));
 }
 
 /// A row names no use when it is empty or lists only declarations.

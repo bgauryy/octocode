@@ -106,6 +106,45 @@ async fn the_code_search_window_ends_at_its_last_whole_page() {
     assert_eq!(next["repair"]["input"]["queries"][0]["page"], 20, "{next}");
 }
 
+/// An owner-wide search past the window reaches its matches one
+/// repository at a time: its first page leads to the owner's repositories,
+/// the scopes that split it. A search already in one repository has no
+/// such lead (code search has no date or size field to split by).
+#[tokio::test]
+async fn an_owner_wide_capped_search_leads_to_the_owners_repositories() {
+    use serde_json::Value;
+    let server = MockServer::builder().start().await;
+    mount_counted_search(&server, 2236).await;
+    let provider = one_shot_provider(&server);
+    let context = default_context();
+    let page = async |row: Value| {
+        let query: GhSearchCodeQuery = serde_json::from_value(row).expect("query");
+        execute(
+            &provider,
+            &query,
+            &context,
+            &Passthrough,
+            &octocode_runtime_base::policy::discovery::is_sensitive_repository_file,
+        )
+        .await
+        .expect("page")
+        .data
+    };
+    let owner_wide = page(json!({"owner":"a","keywords":["needle"],"fields":["path"]})).await;
+    octocode_runtime_base::test_support::checks::related_call(
+        &owner_wide,
+        "ghSearchRepo",
+        |input| input["queries"][0] == json!({"operation":"list","owner":"a"}),
+    );
+    let one_repo =
+        page(json!({"owner":"a","repo":"b","keywords":["needle"],"fields":["path"]})).await;
+    let leads = one_repo
+        .get("related")
+        .map(Value::to_string)
+        .unwrap_or_default();
+    assert!(!leads.contains("\"list\""), "{one_repo}");
+}
+
 /// A merged multi-`extensions` page is page N of each extension's own
 /// search of `ceil(pageSize / k)` files, so the window is that search's: at
 /// 50 files over 3 extensions (17 each) page 58 is the last, and page 59

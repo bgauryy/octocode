@@ -13,12 +13,12 @@ fn nested_function_calls_link_to_the_innermost_function() {
     for (operation, target, expected) in [
         (
             "callees",
-            "m.mjs#outer.blocks",
-            &["m.mjs#outer.blank", "m.mjs#outer.helper"][..],
+            "app/m.mjs#outer.blocks",
+            &["app/m.mjs#outer.blank", "app/m.mjs#outer.helper"][..],
         ),
-        ("callers", "m.mjs#outer.blank", &["m.mjs#outer.blocks"][..]),
-        ("callers", "m.mjs#outer.helper", &["m.mjs#outer.blocks"][..]),
-        ("callees", "m.mjs#outer", &["m.mjs#outer.blocks"][..]),
+        ("callers", "app/m.mjs#outer.blank", &["app/m.mjs#outer.blocks"][..]),
+        ("callers", "app/m.mjs#outer.helper", &["app/m.mjs#outer.blocks"][..]),
+        ("callees", "m.mjs#outer", &["app/m.mjs#outer.blocks"][..]),
     ] {
         let answer = ask(root, operation, Some(target), |_| {});
         let mut actual = ids(&answer);
@@ -40,12 +40,12 @@ fn a_nested_helper_called_by_a_nested_sibling_is_linked() {
     let answer = ask(
         root,
         "callers",
-        Some("markdown.mjs#renderMarkdown.blank"),
+        Some("app/markdown.mjs#renderMarkdown.blank"),
         |_| {},
     );
     assert_eq!(
         ids(&answer),
-        vec!["markdown.mjs#renderMarkdown.blocks".to_owned()],
+        vec!["app/markdown.mjs#renderMarkdown.blocks".to_owned()],
         "{}",
         answer.value
     );

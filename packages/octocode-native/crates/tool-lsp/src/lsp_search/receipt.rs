@@ -89,6 +89,8 @@ pub(super) struct RustAnalysis {
     proc_macros: bool,
     /// The target it analyzes for (`cargo.target`, else the host).
     pub(super) target: super::server_coverage::AnalysisTarget,
+    /// The other `cfg` options it sets (`cfg.setTest`, `cargo.cfgs`).
+    pub(super) cfgs: super::server_coverage::SetCfgs,
 }
 
 impl RustAnalysis {
@@ -112,6 +114,10 @@ impl RustAnalysis {
                 .unwrap_or(false),
             target: super::server_coverage::AnalysisTarget::of(
                 setting("cargo.target").and_then(Value::as_str),
+            ),
+            cfgs: super::server_coverage::SetCfgs::of(
+                setting("cfg.setTest").and_then(Value::as_bool),
+                setting("cargo.cfgs"),
             ),
         }
     }

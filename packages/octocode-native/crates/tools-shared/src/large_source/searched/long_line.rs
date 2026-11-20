@@ -271,10 +271,13 @@ impl<'a> Splice<'a> {
 
     /// Serve the line's next bytes into `out`; false once it ended (its
     /// break was written).
+    /// Each redaction's text it writes is noted in `written`, at its place
+    /// among the served bytes: `out` holds them from `base` on.
     pub(super) fn step(
         &mut self,
         raw: &mut impl BufRead,
-        out: &mut Vec<u8>,
+        (out, base): (&mut Vec<u8>, usize),
+        written: &mut Vec<Range<usize>>,
     ) -> std::io::Result<bool> {
         if self.text_left > 0 {
             let piece = raw.fill_buf()?;
@@ -292,7 +295,7 @@ impl<'a> Splice<'a> {
             self.decoder
                 .push(&piece[..read], self.text_left == 0, &mut text);
             raw.consume(read);
-            self.splice(text.as_bytes(), out);
+            self.splice(text.as_bytes(), (out, base), written);
             self.piece = text;
             return Ok(true);
         }
@@ -307,7 +310,7 @@ impl<'a> Splice<'a> {
         // Redactions past the text's end (it ended early) still show.
         for (index, (_, shown)) in self.line.spans.iter().enumerate().skip(self.span) {
             if index > self.span || !self.shown {
-                out.extend_from_slice(shown.as_bytes());
+                write_shown(shown, (out, base), written);
             }
         }
         self.span = self.line.spans.len();
@@ -329,14 +332,19 @@ impl<'a> Splice<'a> {
 
     /// Write `text`, the decoded bytes from `self.at`, with each redaction's
     /// bytes replaced by its text, written once where it starts.
-    fn splice(&mut self, text: &[u8], out: &mut Vec<u8>) {
+    fn splice(
+        &mut self,
+        text: &[u8],
+        (out, base): (&mut Vec<u8>, usize),
+        written: &mut Vec<Range<usize>>,
+    ) {
         let (from, to) = (self.at, self.at + text.len());
         let mut at = from;
         while at < to {
             match self.line.spans.get(self.span) {
                 Some((range, shown)) if range.start <= at => {
                     if !self.shown {
-                        out.extend_from_slice(shown.as_bytes());
+                        write_shown(shown, (out, base), written);
                         self.shown = true;
                     }
                     if range.end <= at {
@@ -367,5 +375,15 @@ impl<'a> Splice<'a> {
             }
         }
         self.at = to;
+    }
+}
+
+/// Write `shown`, a redaction's text, to `out` (served bytes from `base` on),
+/// noting its place among the served bytes in `written`.
+fn write_shown(shown: &str, (out, base): (&mut Vec<u8>, usize), written: &mut Vec<Range<usize>>) {
+    let start = base + out.len();
+    out.extend_from_slice(shown.as_bytes());
+    if !shown.is_empty() {
+        written.push(start..start + shown.len());
     }
 }

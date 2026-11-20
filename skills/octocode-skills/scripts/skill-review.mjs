@@ -68,6 +68,8 @@ function supportPaths(text) {
   return [...text.matchAll(/(?:^|[^A-Za-z0-9./])((?:scripts|references|assets|docs|benchmarks)\/[A-Za-z0-9._/-]+\.(?:mjs|md|tsv|json|html|js|sh|py))/gm)].map((match) => match[1]);
 }
 
+const MAX_SKILL_LINES = 50;
+
 function checkFrontmatter({ dir, name, skill, add }) {
   const fm = frontmatter(skill);
   if (!fm) {
@@ -86,6 +88,8 @@ function checkFrontmatter({ dir, name, skill, add }) {
     if (problem) add('ERROR', 'description-json', problem);
   }
   if (fm.description && [...fm.description].length > 1024) add('ERROR', 'description-length', 'Description exceeds the Agent Skills limit of 1024 characters (code points).');
+  const lines = skill.replace(/\n$/, '').split('\n').length;
+  if (lines > MAX_SKILL_LINES) add('WARN', 'skill-length', `SKILL.md has ${lines} lines; keep it at ${MAX_SKILL_LINES} or fewer and move branch detail into references.`);
 }
 
 function checkLayout({ dir, files, texts, skill, add }) {
@@ -239,6 +243,13 @@ function selfTestContent(skill, source) {
   writeFileSync(join(skill, 'SKILL.md'), source.replace('description: |-\n  Review an example.', `description: Use when an example\n  ${'needs a long review. '.repeat(60)}`));
   if (!review(skill).findings.some((item) => item.code === 'description-length')) throw new Error('a multi-line plain description escaped the length check');
   for (const count of [1024, 1025]) { writeFileSync(join(skill, 'SKILL.md'), source.replace('description: |-\n  Review an example.', `description: "${'\u{1F600}'.repeat(count)}"`)); if (review(skill).findings.some((item) => item.code === 'description-length') !== count > 1024) throw new Error(`a ${count}-code-point description (twice as many UTF-16 units) was measured wrong`); }
+  const trimmed = source.trimEnd(), trimmedLines = trimmed.split('\n').length;
+  for (const count of [MAX_SKILL_LINES, MAX_SKILL_LINES + 1]) {
+    writeFileSync(join(skill, 'SKILL.md'), `${trimmed}${'\n'.repeat(count - trimmedLines + 1)}`);
+    const finding = review(skill).findings.find((item) => item.code === 'skill-length');
+    if (Boolean(finding) !== count > MAX_SKILL_LINES || (finding && finding.level !== 'WARN')) throw new Error(`a ${count}-line SKILL.md was judged wrong for skill-length`);
+  }
+  writeFileSync(join(skill, 'SKILL.md'), source);
   writeFileSync(join(skill, 'README.md'), '# Example\n\n```md\n[link](not-here.md) [anchor](#nowhere)\n```\n\n```bash\nnode scripts/example-tool.mjs\n```\n');
   const fenced = review(skill).findings.filter((item) => item.code !== 'description-length');
   if (fenced.some((item) => item.level === 'ERROR') || !fenced.some((item) => item.code === 'missing-support-file-in-code')) throw new Error(`fenced code was linted as links, or a missing command went unreported: ${JSON.stringify(fenced)}`);

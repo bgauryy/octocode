@@ -372,6 +372,96 @@ fn a_failed_or_empty_row_keeps_its_own_related_calls() {
     }
 }
 
+/// GR4: two empty matches on one file offer the same outline and history
+/// reads but different text searches. Their recoveries differ as wholes, so
+/// neither moves: each row's `related[]` keeps the order its hint names,
+/// and every hint naming "related[] in order" still sits beside the whole
+/// list it describes.
+#[test]
+fn a_recovery_row_keeps_the_related_order_its_hint_names() {
+    let plan = batch_plan(&[], false, true);
+    let call = |tool: &str, query: Value| json!({"kind": "related", "tool": tool, "input": {"queries": [query]}});
+    let symbols = call(
+        "ghGetFileContent",
+        json!({"owner": "o", "repo": "r", "path": "command.go", "view": "symbols"}),
+    );
+    let commits = call(
+        "ghSearchHistory",
+        json!({"operation": "commit", "owner": "o", "repo": "r", "path": "command.go"}),
+    );
+    let miss = |index: usize, literal: &str| {
+        let related = json!([
+            symbols.clone(),
+            call(
+                "ghSearchCode",
+                json!({"owner": "o", "repo": "r", "keywords": [literal]})
+            ),
+            commits.clone(),
+        ]);
+        row(
+            index,
+            Some("empty"),
+            json!({
+                "hints": ["related[] in order: this file's declarations, the text in other files, the commits that changed it."],
+                "related": related,
+            }),
+        )
+    };
+    let original = json!({"results": [miss(0, "func Execute"), miss(1, "func Run")]});
+    let stated = super::hoisted(&plan, &original, &super::optional);
+    for at in [0, 1] {
+        assert_eq!(
+            stated["results"][at]["data"]["related"], original["results"][at]["data"]["related"],
+            "row {at}: {stated}"
+        );
+    }
+    assert!(stated.get("related").is_none(), "{stated}");
+    // The invariant on every row: a hint naming the order sits beside a
+    // whole list in that order (its first call reads the file's outline).
+    for result in stated["results"].as_array().expect("rows") {
+        let names_order = result["data"]["hints"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|hint| {
+                hint.as_str()
+                    .is_some_and(|hint| hint.contains("related[] in order"))
+            });
+        if names_order {
+            assert_eq!(result["data"]["related"][0], symbols, "{result}");
+            assert_eq!(
+                result["data"]["related"].as_array().map(Vec::len),
+                Some(3),
+                "{result}"
+            );
+        }
+    }
+    super::assert_recovers(&plan, &original, &stated);
+    // The same whole recovery on every row moves once, for all, only with
+    // the hints that name it; a row that keeps its hint keeps its list.
+    let same = json!({"results": [miss(0, "func Execute"), miss(1, "func Execute")]});
+    let kept = super::hoisted(&plan, &same, &super::optional);
+    assert_eq!(
+        kept["results"][0]["data"]["related"], same["results"][0]["data"]["related"],
+        "{kept}"
+    );
+    let with_hints = batch_plan(&[], true, true);
+    let once = super::hoisted(&with_hints, &same, &super::optional);
+    for at in [0, 1] {
+        assert!(
+            once["results"][at]["data"].get("related").is_none(),
+            "{once}"
+        );
+        assert!(once["results"][at]["data"].get("hints").is_none(), "{once}");
+    }
+    assert_eq!(once["related"].as_array().map(Vec::len), Some(3), "{once}");
+    assert_eq!(once["related"][0], symbols, "{once}");
+    assert!(
+        once["hints"].to_string().contains("related[] in order"),
+        "{once}"
+    );
+}
+
 /// VC2's merge case on the embedded contract (K-3): each artifactSearch row
 /// offers one single-query securityCheck call for its resolved package; the
 /// batch states one envelope call holding the three queries in row order,

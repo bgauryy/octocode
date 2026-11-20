@@ -92,7 +92,7 @@ impl<M: Matcher> CollectSink<'_, M> {
         &mut self,
         bytes: &[u8],
         line: u32,
-        first_start: &mut Option<usize>,
+        (first_start, hidden): (&mut Option<usize>, &[std::ops::Range<usize>]),
     ) -> std::io::Result<u32> {
         let decoded = line_of(bytes);
         self.not_utf8 |= decoded.warning.is_some();
@@ -102,37 +102,36 @@ impl<M: Matcher> CollectSink<'_, M> {
         let mut columns = super::SpanColumns::new(bytes, text);
         let (om, charge, stop) = (&mut self.om_matches, &mut self.charge, self.stop);
         let cancelled = self.cancelled;
-        self.matcher
-            .find_iter(bytes, |found| {
-                if super::past_block_end(bytes, found) {
-                    return true;
-                }
-                count = count.saturating_add(1);
-                if !super::keep_going(cancelled, stop, count) {
-                    return false;
-                }
-                first_start.get_or_insert(found.start());
-                let start = columns.lossy(found.start()).min(text.len());
-                let end = columns.lossy(found.end()).min(text.len());
-                let shown = text.floor_char_boundary(start)..text.ceil_char_boundary(end);
-                let (_, column, byte_offset) = columns.position(start);
-                let value = judged.cut(text, shown);
-                let span = TextSearchMatch {
-                    deferred: None,
-                    line,
-                    first_line: line,
-                    last_line: None,
-                    column,
-                    byte_offset,
-                    value_digest: TextSearchMatch::digest_of(&value),
-                    value,
-                    count: None,
-                    rank: None,
-                    window_start: None,
-                };
-                super::keep_span((&mut *om, &mut *charge, stop), span)
-            })
-            .map_err(|error| std::io::Error::other(error.to_string()))?;
+        super::super::written::each_own(self.matcher, bytes, hidden, |found| {
+            if super::past_block_end(bytes, found) {
+                return true;
+            }
+            count = count.saturating_add(1);
+            if !super::keep_going(cancelled, stop, count) {
+                return false;
+            }
+            first_start.get_or_insert(found.start());
+            let start = columns.lossy(found.start()).min(text.len());
+            let end = columns.lossy(found.end()).min(text.len());
+            let shown = text.floor_char_boundary(start)..text.ceil_char_boundary(end);
+            let (_, column, byte_offset) = columns.position(start);
+            let value = judged.cut(text, shown);
+            let span = TextSearchMatch {
+                deferred: None,
+                line,
+                first_line: line,
+                last_line: None,
+                column,
+                byte_offset,
+                value_digest: TextSearchMatch::digest_of(&value),
+                value,
+                count: None,
+                rank: None,
+                window_start: None,
+            };
+            super::keep_span((&mut *om, &mut *charge, stop), span)
+        })
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
         Ok(count)
     }
 }

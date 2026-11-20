@@ -50,6 +50,18 @@ function profileDirOf(file) {
   return ['deps', 'build', 'examples'].includes(path.basename(dir)) ? path.dirname(dir) : dir;
 }
 
+/**
+ * Cargo's per-unit status lines (`   Compiling serde v1.0.0`): one per crate,
+ * hundreds per cold build, with no diagnostic in them. Warnings, errors,
+ * `Blocking` (a lock wait) and `Finished` stay.
+ */
+const CARGO_PROGRESS = /^\s*(Compiling|Checking|Fresh|Downloading|Downloaded|Locking|Adding|Updating|Documenting)\s/;
+
+/** True for a Cargo stderr line that only reports per-unit progress. */
+function isCargoProgress(line) {
+  return CARGO_PROGRESS.test(line);
+}
+
 /** Splits a cargo stdout stream: JSON messages are collected, any other line is returned for printing. */
 function parseCargoLine(line, messages) {
   if (line.startsWith('{')) {
@@ -340,4 +352,4 @@ function main(argv) {
 
 if (require.main === module) process.exit(main(process.argv.slice(2)));
 
-module.exports = { cargoProcesses, collectArtifacts, finishCargoRun, main, parseCargoLine, prune, writeKeep };
+module.exports = { cargoProcesses, collectArtifacts, finishCargoRun, isCargoProgress, main, parseCargoLine, prune, writeKeep };

@@ -23,7 +23,11 @@ fn slow_judge(now: &Arc<AtomicUsize>, most: &Arc<AtomicUsize>) -> SourceJudge {
                 let mut text = String::new();
                 (&*file).read_to_string(&mut text)?;
                 now.fetch_sub(1, Ordering::SeqCst);
-                Ok(Some(text.replace("needle", "NEEDLE").into_bytes()))
+                // Served as the source's own text: nothing of it written.
+                Ok(Some(crate::types::ServedText {
+                    text: text.replace("needle", "NEEDLE").into_bytes(),
+                    written: Vec::new(),
+                }))
             },
         ),
         writes: Arc::new(|_: &str, _: bool| true),

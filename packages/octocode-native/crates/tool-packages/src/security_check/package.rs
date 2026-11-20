@@ -277,7 +277,10 @@ pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, A
         octocode_runtime_base::response::result::finish_calls(&mut data);
     }
     if let Some(error) = &osv_failed {
-        osv_unanswered(&mut data, &confirmed, &results, github.is_some(), error);
+        let answered = github
+            .as_ref()
+            .map_or(global::Answered::Not, global::Global::answered);
+        osv_unanswered(&mut data, &confirmed, &results, answered, error);
         // The rewrite replaced the answer: it names the review cautions again.
         answer::name_review_cautions(&mut data);
     }
@@ -357,12 +360,13 @@ fn in_view(package: &Package<'_>, data: Value, upgrade: &Upgrade) -> Value {
 /// A row whose OSV read failed: OSV is a failed source, the row partial, and
 /// the answer says the target was not checked against OSV. Nothing is counted
 /// (`affected` is OSV's word) and nothing is called none known; GitHub's
-/// records, when read, stand as its own.
+/// records stand as its own, as far as its read reached (`github`): a read
+/// that failed matches nothing, and one that stopped names a floor.
 fn osv_unanswered(
     data: &mut Value,
     confirmed: &Confirmed,
     results: &[SourceResult],
-    github_read: bool,
+    github: global::Answered,
     error: &ArtifactError,
 ) {
     let target = answer::typed(&match confirmed.version.as_deref() {
@@ -375,17 +379,26 @@ fn osv_unanswered(
         .flat_map(|result| &result.advisories)
         .map(|row| answer::stated_id(&row.id))
         .collect::<Vec<_>>();
-    let github = match (github_read, ids.len()) {
-        (false, _) => "GitHub's advisory database was not read for it.".to_owned(),
-        (true, 0) => {
+    let github = match (github, ids.len()) {
+        (global::Answered::Not, _) => "GitHub's advisory database was not read for it.".to_owned(),
+        (global::Answered::InPart, 0) => {
+            "GitHub's advisory database was read in part and matches none to it in what was read, which proves nothing."
+                .to_owned()
+        }
+        (global::Answered::InPart, count) => format!(
+            "GitHub's advisory database was read in part and matches at least {count} {} to it, GitHub's word: {}.",
+            if count == 1 { "advisory" } else { "advisories" },
+            ids.join(", ")
+        ),
+        (global::Answered::Whole, 0) => {
             "GitHub's advisory database matches none to it, which proves only that database."
                 .to_owned()
         }
-        (true, 1) => format!(
+        (global::Answered::Whole, 1) => format!(
             "GitHub's advisory database matches 1 advisory to it, GitHub's word: {}.",
             ids.join(", ")
         ),
-        (true, count) => format!(
+        (global::Answered::Whole, count) => format!(
             "GitHub's advisory database matches {count} advisories to it, GitHub's word: {}.",
             ids.join(", ")
         ),

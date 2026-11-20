@@ -25,12 +25,12 @@ fn a_ready_argument_links_its_module_path_callee() {
     let out = ask(
         dir.0.as_path(),
         "callers",
-        Some("src/task/coop.rs#poll_proceed"),
+        Some("app/src/task/coop.rs#poll_proceed"),
         |_| {},
     );
     let rows = out.value["rows"].as_array().expect("rows");
     assert!(
-        rows.iter().any(|row| row["id"] == "src/a.rs#x"
+        rows.iter().any(|row| row["id"] == "app/src/a.rs#x"
             && row["via"] == "module-path"
             && row["confidence"] == "high"),
         "{}",
@@ -80,11 +80,11 @@ fn a_repo_macro_sharing_a_std_name_leaves_the_argument_unlinked() {
         o.confidence = Some("low".into());
     });
     assert!(
-        !ids(&callers).contains(&"src/a.rs#x".to_owned()),
+        !ids(&callers).contains(&"app/src/a.rs#x".to_owned()),
         "{}",
         callers.value
     );
-    let unresolved = ask(root, "unresolved", Some("src/a.rs#x"), |_| {});
+    let unresolved = ask(root, "unresolved", Some("app/src/a.rs#x"), |_| {});
     let rows = unresolved.value["rows"].as_array().expect("rows");
     assert!(
         rows.iter()
@@ -93,8 +93,8 @@ fn a_repo_macro_sharing_a_std_name_leaves_the_argument_unlinked() {
         unresolved.value
     );
     // An unshadowed std macro in the same graph still links.
-    let two = ask(root, "callers", Some("src/a.rs#helper_two"), |_| {});
-    assert_eq!(ids(&two), vec!["src/a.rs#y"], "{}", two.value);
+    let two = ask(root, "callers", Some("app/src/a.rs#helper_two"), |_| {});
+    assert_eq!(ids(&two), vec!["app/src/a.rs#y"], "{}", two.value);
 }
 
 #[test]
@@ -113,10 +113,10 @@ fn a_macro_rules_arm_that_invokes_a_std_macro_does_not_shadow_it() {
     let out = ask(
         dir.0.as_path(),
         "callers",
-        Some("src/lib.rs#helper"),
+        Some("app/src/lib.rs#helper"),
         |_| {},
     );
-    assert_eq!(ids(&out), vec!["src/lib.rs#x"], "{}", out.value);
+    assert_eq!(ids(&out), vec!["app/src/lib.rs#x"], "{}", out.value);
 }
 
 #[test]
@@ -140,14 +140,14 @@ fn macro_rules_arms_do_not_create_graph_declarations() {
     let root = dir.0.as_path();
     let phantom = ask(root, "find", Some("Some"), |_| {});
     assert_eq!(ids(&phantom), Vec::<String>::new(), "{}", phantom.value);
-    let plain = ask(root, "callees", Some("src/a.rs#plain"), |o| {
+    let plain = ask(root, "callees", Some("app/src/a.rs#plain"), |o| {
         o.confidence = Some("low".into());
     });
     assert_eq!(ids(&plain), Vec::<String>::new(), "{}", plain.value);
-    let asserted = ask(root, "callees", Some("src/a.rs#asserted"), |o| {
+    let asserted = ask(root, "callees", Some("app/src/a.rs#asserted"), |o| {
         o.confidence = Some("low".into());
     });
-    assert_eq!(ids(&asserted), vec!["src/a.rs#plain"], "{}", asserted.value);
+    assert_eq!(ids(&asserted), vec!["app/src/a.rs#plain"], "{}", asserted.value);
 }
 
 #[test]
@@ -166,7 +166,7 @@ fn a_named_macro_nested_in_a_function_remains_a_call_target() {
     let callers = ask(dir.0.as_path(), "callers", Some("local_value"), |_| {});
     assert_eq!(
         ids(&callers),
-        vec!["src/lib.rs#use_macro"],
+        vec!["app/src/lib.rs#use_macro"],
         "{}",
         callers.value
     );

@@ -548,3 +548,44 @@ fn implementation_at_a_use_scans_the_file_that_declares_the_trait() {
 
 mod reach;
 mod scan;
+
+/// Rust `supertypes` of a trait bounded by std traits (`SelectionJudge:
+/// Send + Sync`): the server resolves each bound to the toolchain's `core`,
+/// outside the read policy. Each bound is a supertype the policy withholds,
+/// named as the source names it, never a relation the source failed to
+/// establish.
+#[test]
+fn rust_supertypes_outside_the_read_policy_are_named_as_withheld() {
+    assert!(
+        node_available(),
+        "Node is required for the real LSP fixture"
+    );
+    let (_dir, root, script) = fixture();
+    std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"a\"\n").expect("manifest");
+    std::fs::write(
+        root.join("a.rs"),
+        "pub trait SelectionJudge: Send + Sync {}\n",
+    )
+    .expect("trait");
+    octocode_engine::stamp::settle_written_so_far();
+    let server = rust_implementation_server("", (0, 0, 0)).replace(
+        "uri: dir + 'a.rs'",
+        "uri: 'file:///octocode-outside-roots/core/src/marker.rs'",
+    );
+    assert!(server.contains("octocode-outside-roots"), "{server}");
+    let row = rust_row(
+        &root,
+        &script,
+        &server,
+        ("supertypes", "SelectionJudge", 0, 10),
+    );
+    assert_eq!(
+        row["partialReasons"],
+        serde_json::json!(["locationsWithheld"]),
+        "{row}"
+    );
+    assert!(row.get("expansionFailures").is_none(), "{row}");
+    let warnings = row["warnings"].to_string();
+    assert!(warnings.contains("Send, Sync"), "{row}");
+    assert!(!warnings.contains("octocode-outside-roots"), "{row}");
+}

@@ -130,3 +130,26 @@ fn a_declaration_head_names_its_last_word() {
         assert_eq!(declared_name(text), None, "{text}");
     }
 }
+
+/// A line declares a name when one whole-word occurrence of it is the name
+/// its declaration introduces: never a use, a longer identifier holding it,
+/// or a mention in a comment.
+#[test]
+fn a_line_declares_a_name_only_where_its_declaration_introduces_it() {
+    for (line, declares) in [
+        ("pub fn add_hints<I>(row: &mut Value, hints: I)", true),
+        ("export function parseEnv(text: string) {", true),
+        ("        add_hints(row, hints);", false),
+        ("pub fn add_hints_first(row: &mut Value)", false),
+        ("/// Like [`add_hints`], but first.", false),
+        ("let add = add_hints;", false),
+    ] {
+        let name = if line.contains("parseEnv") {
+            "parseEnv"
+        } else {
+            "add_hints"
+        };
+        assert_eq!(declares_name(line, name), declares, "{line}");
+    }
+    assert!(!declares_name("fn x() {}", ""));
+}

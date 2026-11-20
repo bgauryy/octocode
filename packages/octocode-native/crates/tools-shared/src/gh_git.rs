@@ -7,6 +7,7 @@
 //! pinning belong to ghCloneRepo, listings and the writer to ghStructure.
 pub mod admission;
 pub mod blobs;
+pub mod clone_scope;
 pub mod endpoint;
 pub mod process;
 pub mod step;

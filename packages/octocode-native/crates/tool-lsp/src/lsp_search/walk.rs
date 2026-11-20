@@ -142,6 +142,9 @@ pub(super) struct HierarchyWalk {
     pub(super) unexpanded_last_level: Vec<Value>,
     /// Results naming a file outside the read policy (skipped).
     pub(super) out_of_policy: usize,
+    /// Of those, the bases the source names whose declaration lies outside
+    /// the read policy, by name once each (`Send`, `Sync`).
+    pub(super) withheld_names: Vec<String>,
     /// Results declared in a TypeScript built-in lib file (`lib.*.d.ts`,
     /// e.g. `String.toUpperCase`), kept out of the call graph and listed by
     /// name once each.

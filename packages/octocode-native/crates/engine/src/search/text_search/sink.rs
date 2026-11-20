@@ -131,6 +131,10 @@ pub(super) struct CollectSink<'a, M: Matcher> {
     pub(super) test_lines_excluded: u32,
     /// This file's path, which says what a long line's secrets are.
     pub(super) source: Option<&'a std::path::Path>,
+    /// The ranges of the searched text its judge wrote
+    /// ([`crate::types::ServedText::written`]): a match taking any of their
+    /// bytes is no match (empty for a file searched as its own bytes).
+    pub(super) written: &'a [std::ops::Range<usize>],
 }
 
 impl<'a, M: Matcher> CollectSink<'a, M> {
@@ -151,6 +155,7 @@ impl<'a, M: Matcher> CollectSink<'a, M> {
             test_spans: None,
             test_lines_excluded: 0,
             source: None,
+            written: &[],
             matcher,
             entry: FileEntry::new(),
             submatches: 0,
@@ -173,7 +178,7 @@ impl<M: Matcher> CollectSink<'_, M> {
         &mut self,
         bytes: &[u8],
         line_number: u32,
-        first_start: &mut Option<usize>,
+        (first_start, hidden): (&mut Option<usize>, &[std::ops::Range<usize>]),
     ) -> std::io::Result<u32> {
         let mut count = 0u32;
         let (line_text, not_utf8) = block_text(bytes);
@@ -182,43 +187,42 @@ impl<M: Matcher> CollectSink<'_, M> {
         let (matcher, stop, cancelled) = (self.matcher, self.stop, self.cancelled);
         let (om, charge) = (&mut self.om_matches, &mut self.charge);
         let mut columns = SpanColumns::new(bytes, &line_text);
-        matcher
-            .find_iter(bytes, |m| {
-                if past_block_end(bytes, m) {
-                    return true;
-                }
-                count = count.saturating_add(1);
-                if !keep_going(cancelled, stop, count) {
-                    return false;
-                }
-                first_start.get_or_insert(m.start());
-                let (start, end) = (columns.lossy(m.start()), columns.lossy(m.end()));
-                let value = span_value(&line_text, start, end);
-                let (line_delta, column, byte_offset) = columns.position(start);
-                let line = line_number.saturating_add(line_delta);
-                let lines = saturating_u32(
-                    value
-                        .as_bytes()
-                        .split_inclusive(|&b| b == b'\n')
-                        .count()
-                        .max(1),
-                );
-                let span = TextSearchMatch {
-                    deferred: None,
-                    line,
-                    first_line: line,
-                    last_line: (lines > 1).then(|| line.saturating_add(lines - 1)),
-                    column,
-                    byte_offset,
-                    value_digest: TextSearchMatch::digest_of(&value),
-                    value,
-                    count: None,
-                    rank: None,
-                    window_start: None,
-                };
-                keep_span((om, charge, stop), span)
-            })
-            .map_err(|error| std::io::Error::other(error.to_string()))?;
+        super::written::each_own(matcher, bytes, hidden, |m| {
+            if past_block_end(bytes, m) {
+                return true;
+            }
+            count = count.saturating_add(1);
+            if !keep_going(cancelled, stop, count) {
+                return false;
+            }
+            first_start.get_or_insert(m.start());
+            let (start, end) = (columns.lossy(m.start()), columns.lossy(m.end()));
+            let value = span_value(&line_text, start, end);
+            let (line_delta, column, byte_offset) = columns.position(start);
+            let line = line_number.saturating_add(line_delta);
+            let lines = saturating_u32(
+                value
+                    .as_bytes()
+                    .split_inclusive(|&b| b == b'\n')
+                    .count()
+                    .max(1),
+            );
+            let span = TextSearchMatch {
+                deferred: None,
+                line,
+                first_line: line,
+                last_line: (lines > 1).then(|| line.saturating_add(lines - 1)),
+                column,
+                byte_offset,
+                value_digest: TextSearchMatch::digest_of(&value),
+                value,
+                count: None,
+                rank: None,
+                window_start: None,
+            };
+            keep_span((om, charge, stop), span)
+        })
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
         // A matched line with no enumerable submatch (e.g. zero-width or
         // multiline block) still yields one span: the whole line.
         if count == 0 {
@@ -328,13 +332,22 @@ impl<M: Matcher> CollectSink<'_, M> {
     /// ([`MatchWork::terms_by_line`]): each term the block holds counts the
     /// block's lines. Every line holding a term's match is a matched line, so
     /// the matched blocks hold every match of every term.
-    fn count_terms(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+    fn count_terms(
+        &mut self,
+        bytes: &[u8],
+        hidden: &[std::ops::Range<usize>],
+    ) -> std::io::Result<()> {
         let failed = |error: M::Error| std::io::Error::other(error.to_string());
         let terms = self.terms;
         if self.work.terms_by_line {
             let lines = saturating_u32(bytes.split_inclusive(|&b| b == b'\n').count().max(1));
             for (index, term) in terms.iter().enumerate() {
-                if term.is_match(bytes).map_err(failed)? {
+                let holds = if hidden.is_empty() {
+                    term.is_match(bytes).map_err(failed)?
+                } else {
+                    own_match(term, bytes, hidden)?.unwrap_or(false)
+                };
+                if holds {
                     self.term_counts[index] = self.term_counts[index].saturating_add(lines);
                 }
             }
@@ -345,7 +358,7 @@ impl<M: Matcher> CollectSink<'_, M> {
         let (stop, cancelled) = (self.stop, self.cancelled);
         for (index, term) in terms.iter().enumerate() {
             let mut found: u32 = 0;
-            term.find_iter(bytes, |matched| {
+            super::written::each_own(term, bytes, hidden, |matched| {
                 if past_block_end(bytes, matched) {
                     return true;
                 }
@@ -367,6 +380,36 @@ impl<M: Matcher> CollectSink<'_, M> {
 const MATCHES_PER_POLL: u32 = 1024;
 /// Matched lines between two looks at it.
 const MATCHED_LINES_PER_POLL: u32 = 64;
+
+/// Whether `matcher` matches `bytes`, a matched block, with text the judge
+/// wrote there left out (`hidden`, ranges of the block): `Some(true)` when a
+/// match takes none of it, `Some(false)` when every match takes some, `None`
+/// when no match of the block alone is enumerable (a block the searcher
+/// matched across lines), which is kept as the searcher matched it.
+fn own_match<M: Matcher>(
+    matcher: &M,
+    bytes: &[u8],
+    hidden: &[std::ops::Range<usize>],
+) -> std::io::Result<Option<bool>> {
+    let failed = |error: M::Error| std::io::Error::other(error.to_string());
+    let mut any = false;
+    matcher
+        .find_iter(bytes, |matched| {
+            any = !past_block_end(bytes, matched);
+            !any
+        })
+        .map_err(failed)?;
+    if !any {
+        return Ok(None);
+    }
+    let mut own = false;
+    super::written::each_own(matcher, bytes, hidden, |matched| {
+        own = !past_block_end(bytes, matched);
+        !own
+    })
+    .map_err(failed)?;
+    Ok(Some(own))
+}
 
 /// Whether the walk of a line's matches goes on: it ends once the search was
 /// stopped, or the caller cancelled (which stops the search).
@@ -396,6 +439,13 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
         }
         let line_number = saturating_u32(mat.line_number().unwrap_or(0));
         let bytes = mat.bytes();
+        // What the judge wrote in this block: a block whose every match takes
+        // some of it holds no match of the source's text.
+        let at = usize::try_from(mat.absolute_byte_offset()).unwrap_or(usize::MAX);
+        let hidden = super::written::within(self.written, at..at.saturating_add(bytes.len()));
+        if !hidden.is_empty() && own_match(self.matcher, bytes, &hidden)? == Some(false) {
+            return Ok(true);
+        }
         if !self.keeps_line(line_number, bytes) {
             return Ok(true);
         }
@@ -406,40 +456,40 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
         let (raw_rows, prepared_rows) = (self.entry.raw_matches.len(), self.entry.prepared.len());
 
         if self.work.collect_spans && long_line {
-            count = self.collect_long_spans(bytes, line_number, &mut first_start)?;
+            count = self.collect_long_spans(bytes, line_number, (&mut first_start, &hidden))?;
         } else if self.work.collect_spans {
-            count = self.collect_spans(bytes, line_number, &mut first_start)?;
+            count = self.collect_spans(bytes, line_number, (&mut first_start, &hidden))?;
         } else if self.work.enumerate_submatches {
             let keeps_spans = self.work.materialize_line;
             let (stop, cancelled) = (self.stop, self.cancelled);
-            self.matcher
-                .find_iter(bytes, |matched| {
-                    if past_block_end(bytes, matched) {
-                        return true;
-                    }
-                    count = count.saturating_add(1);
-                    if !keep_going(cancelled, stop, count) {
-                        return false;
-                    }
-                    first_start.get_or_insert(matched.start());
-                    if keeps_spans {
-                        spans.push((matched.start(), matched.end()));
-                    }
-                    true
-                })
-                .map_err(|error| std::io::Error::other(error.to_string()))?;
+            super::written::each_own(self.matcher, bytes, &hidden, |matched| {
+                if past_block_end(bytes, matched) {
+                    return true;
+                }
+                count = count.saturating_add(1);
+                if !keep_going(cancelled, stop, count) {
+                    return false;
+                }
+                first_start.get_or_insert(matched.start());
+                if keeps_spans {
+                    spans.push((matched.start(), matched.end()));
+                }
+                true
+            })
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
             if self.work.materialize_line {
                 // One row per group of matches; a group that is one line
                 // past a row's bound is shown as a line of one-line mode is.
                 for group in line_groups(bytes, &spans) {
                     let first = group.first_start.map(|start| start - group.bytes.start);
+                    let hidden = super::written::within(&hidden, group.bytes.clone());
                     let (bytes, line) = (
                         &bytes[group.bytes],
                         line_number.saturating_add(group.first_line),
                     );
                     if long_line::is_long(bytes) {
                         self.long_line_row(bytes, line, first)?;
-                    } else if !self.window_rows(bytes, line)? {
+                    } else if !self.window_rows(bytes, line, &hidden)? {
                         self.line_row(bytes, line, first);
                     }
                 }
@@ -447,7 +497,7 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
         }
 
         if !self.terms.is_empty() {
-            self.count_terms(bytes)?;
+            self.count_terms(bytes, &hidden)?;
         }
         self.submatches = self.submatches.saturating_add(count.max(1));
         let lines = saturating_u32(bytes.split_inclusive(|&b| b == b'\n').count().max(1));

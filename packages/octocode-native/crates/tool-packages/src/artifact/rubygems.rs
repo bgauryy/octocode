@@ -59,12 +59,21 @@ fn gem(row: &serde_json::Map<String, Value>) -> Result<ArtifactItem, ArtifactErr
     Ok(artifact)
 }
 
-/// An exact gem as a page, its source pinned to the upstream release tag when
-/// the registry named no ref (rubygems.org never names a commit).
+/// An exact gem as a page, its source pinned to the upstream release tag
+/// (rubygems.org never names a commit). A tag its source link names
+/// (`…/tree/v8.1.4`) is the gem's claim, checked first like any declared tag.
 async fn pinned(mut artifact: ArtifactItem, client: &RegistryClient<'_>) -> ArtifactProviderPage {
     if let Some(version) = artifact.version.clone() {
         let name = artifact.package_name.clone();
-        super::release_ref::pin_release_tag(&mut artifact, &name, &version, None, client).await;
+        let declared = artifact.source_ref.take();
+        super::release_ref::pin_release_tag(
+            &mut artifact,
+            &name,
+            &version,
+            declared.as_deref(),
+            client,
+        )
+        .await;
     }
     ArtifactProviderPage::single(artifact)
 }

@@ -215,7 +215,12 @@ pub(super) async fn run_target(
     // Every code-use check of the scope (the operation's and the one below)
     // bounds the scanned files by the anchor declaration's reach.
     scope.anchor_site(&target.path, anchor.line, anchor.character);
-    scope.asks(scope::Question::of(lsp_search_query::op(query)));
+    scope.asks(scope::Question::of(lsp_search_query::op(query)).at_anchor(
+        &target.path,
+        text,
+        (anchor.line, anchor.character),
+        lsp_search_query::symbol_name(query).unwrap_or_default(),
+    ));
     let session = open_session(
         query,
         target,

@@ -40,6 +40,14 @@ function exampleJson(example: Json): string {
   return `{\n${fields.join(',\n')}\n  }`;
 }
 
+/** How many rows one fresh call takes: the published envelope's `queries` bound. */
+function queriesPerCall(definition: Definition): string {
+  const queries = publishedInputSchema(definition).properties?.queries;
+  const max = queries && typeof queries === 'object' && 'maxItems' in queries ? queries.maxItems : undefined;
+  if (typeof max !== 'number') throw new Error(`${definition.name}: queries has no maxItems`);
+  return max === 1 ? 'One query per call.' : `Up to ${max} queries per call.`;
+}
+
 const shellQuote = (text: string): string =>
   `'${text.replaceAll("'", `'\\''`)}'`;
 
@@ -54,7 +62,7 @@ export function toolHelpSection(definition: Definition): string {
   lines.push('Examples:');
   for (const example of jsonExamples)
     lines.push(`  octocode ${name} ${shellQuote(exampleJson({ queries: [example] }))}`);
-  lines.push('', AGENT_TEXT.helpInput);
+  lines.push('', AGENT_TEXT.helpInput, queriesPerCall(definition));
   const [only] = variants;
   if (only && variants.length === 1) {
     lines.push(

@@ -11,8 +11,8 @@ pub(super) struct Step {
 }
 
 /// Affected files as rows, sorted by distance (each carries its `depth` and
-/// `risk`; `byDepth` counts them), plus the summary lists. The tests to run
-/// are every test the change reaches, listed row or not.
+/// `risk`; `byDepth` counts them), plus the summary and its lists. The tests
+/// to run are every test the change reaches, listed row or not.
 pub(super) fn report(
     t: &GraphTables,
     reached: &Reached<'_>,
@@ -20,7 +20,7 @@ pub(super) fn report(
     global: &[(String, String)],
     symbol_mode: bool,
     depth_limited: bool,
-) -> (Value, Vec<Value>) {
+) -> (Value, Vec<Value>, Lists) {
     let key = |id: u32| t.str(t.nodes[id as usize].key);
     // Proven reach (a call, use or heritage edge bound to the change)
     // before module-level candidates, as it outranks one in the walk; each
@@ -86,13 +86,24 @@ pub(super) fn report(
                 && reach[*id as usize].is_some()
                 && !(node.file != NONE && helper(node.file))
         })
-        .map(|id| (reach[id as usize].map_or(0, |r| r.depth), key(id)))
+        .map(|id| (reach[id as usize].map_or(0, |r| r.depth), id))
         .collect::<Vec<_>>();
-    test_functions.sort_unstable();
-    for (_, test) in &test_functions {
-        let file = test.split('#').next().unwrap_or(test);
-        if !tests.contains(&file) {
-            tests.push(file);
+    test_functions.sort_unstable_by(|a, b| (a.0, key(a.1)).cmp(&(b.0, key(b.1))));
+    // Each test file once, in reach order, with the test functions reached
+    // in it: a function's id is its file's key, `#`, and its name.
+    let mut grouped = tests
+        .iter()
+        .map(|file| (*file, Vec::new()))
+        .collect::<Vec<(&str, Vec<&str>)>>();
+    for (_, id) in &test_functions {
+        let file = key(t.nodes[*id as usize].file);
+        let name = key(*id)
+            .strip_prefix(file)
+            .and_then(|rest| rest.strip_prefix('#'))
+            .unwrap_or(key(*id));
+        match grouped.iter_mut().find(|(known, _)| *known == file) {
+            Some((_, functions)) => functions.push(name),
+            None => grouped.push((file, vec![name])),
         }
     }
     // A changed file is its own depth-0 row; only the changed symbols and
@@ -108,9 +119,9 @@ pub(super) fn report(
         "precision": if symbol_mode && global.is_empty() { "symbol" } else { "file" },
         "allAffected": global.iter().any(|(dir, _)| dir.is_empty()),
         "byDepth": by_depth,
-        "affectedEntrypoints": entries,
-        "testsToRun": tests,
-        "testFunctions": test_functions.iter().map(|(_, k)| *k).collect::<Vec<_>>(),
+        "affectedEntrypoints": entries.len(),
+        "testsToRun": grouped.len(),
+        "testFunctions": test_functions.len(),
         "components": components,
         "depthLimited": depth_limited,
     });
@@ -119,7 +130,21 @@ pub(super) fn report(
     {
         fields.remove("changed");
     }
-    (summary, rows)
+    let tests = grouped
+        .into_iter()
+        .map(|(file, functions)| {
+            let mut row = json!({"path": file});
+            if !functions.is_empty() {
+                row["functions"] = json!(functions);
+            }
+            row
+        })
+        .collect();
+    let lists = Lists {
+        entrypoints: entries.into_iter().map(|file| json!(file)).collect(),
+        tests,
+    };
+    (summary, rows, lists)
 }
 
 /// One affected file: its distance, risk bucket, and the edge that reached it.

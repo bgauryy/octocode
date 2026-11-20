@@ -194,6 +194,48 @@ fn a_match_discloses_files_whose_recovered_parse_could_hide_a_match() {
     assert_eq!(named, ["a", "b", "c", "d"], "never clean.cpp or local.cpp");
 }
 
+/// A coverage cut is a fact of the scan, not of a page: page 1 states its
+/// reason beside the census that explains it, and so does the last page,
+/// which no next page explains; a page between says only `isPartial`.
+#[test]
+fn a_scans_partial_reason_is_stated_on_its_first_and_last_page() {
+    let root = Fixture::new();
+    for name in ["a", "b", "c", "d"] {
+        root.write(&format!("lib/{name}.cpp"), GARBLED_CPP);
+    }
+    for name in ["e", "f", "g"] {
+        root.write(
+            &format!("lib/{name}.cpp"),
+            "int f() { JSON_ASSERT(1); return 2; }\n",
+        );
+    }
+    let mut pending = Some(
+        json!({"operation":"match","path":root.0.join("lib"),"parser":"cpp","rule":{"pattern":"JSON_ASSERT($$$A)"},"view":"files"}),
+    );
+    let mut pages = Vec::new();
+    while let Some(call) = pending.take() {
+        let page = run_window(&root.0, call, 1).expect("page");
+        assert!(pages.len() < 20, "nonterminating walk");
+        pending = page["next"]
+            .get("nextPage")
+            .map(|call| call["input"]["queries"][0].clone());
+        pages.push(page);
+    }
+    assert!(pages.len() > 2, "{pages:#?}");
+    let last = pages.len() - 1;
+    for (at, page) in pages.iter().enumerate() {
+        assert_eq!(page["isPartial"], json!(true), "page {at}: {page}");
+        let stated = at == 0 || at == last;
+        assert_eq!(
+            page.get("partialReasons"),
+            stated
+                .then(|| json_fixture(r#"["parseRecovered"]"#))
+                .as_ref(),
+            "page {at}: {page}"
+        );
+    }
+}
+
 /// A recovered parse that cannot hide a match is no gap: errors away from
 /// the anchor, and a clean file, leave the answer as complete as before.
 #[test]

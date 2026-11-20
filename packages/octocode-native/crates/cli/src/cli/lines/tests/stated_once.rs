@@ -573,11 +573,13 @@ fn skipped_paths_read_the_same_beside_content_and_alone() {
     assert!(!line.contains(&format!("{root}/")), "{line}");
 }
 
-/// A graph answer names its files from the workspace root, the scope the
-/// query asked included. Its text states that scope once, as the row's
-/// root, and every path under it relative to it; a value that is no path
-/// under it (a symbol id named from the snapshot, a package key) prints as
-/// the result spells it, and the calls keep the result's exact paths.
+/// A graph answer names its files and symbol ids from the workspace root,
+/// the scope the query asked included. Its text states that scope once, as
+/// the row's root, and every path under it relative to it, a symbol id's
+/// file alike; a value that is no path under it (a package key, a URL with
+/// an anchor, an issue `#123`, a Markdown anchor or a symbol id elsewhere)
+/// prints as the result spells it, and the calls keep the result's exact
+/// paths.
 #[test]
 fn graph_rows_name_files_under_the_scope_once() {
     let scope = "packages/native/crates/io";
@@ -586,13 +588,15 @@ fn graph_rows_name_files_under_the_scope_once() {
         "rows":[
             {"id":format!("{scope}/src/http.rs"),"kind":"file","fanIn":2,"fanOut":5,"sites":7},
             {"id":format!("{scope}/src/budget.rs"),"kind":"file","fanIn":1,"fanOut":3,"sites":2},
-            {"id":"src/http.rs#get","kind":"function","path":format!("{scope}/src/http.rs"),"line":9},
+            {"id":format!("{scope}/src/http.rs#get"),"kind":"function","path":format!("{scope}/src/http.rs"),"line":9},
             {"id":"pkg:tokio","kind":"package","fanIn":4},
             {"from":scope,"to":format!("{scope}/src/http"),"edges":3}],
-        "evidence":{"mentionedIn":[format!("{scope}/README.md:12")]},
+        "evidence":{"mentionedIn":[format!("{scope}/README.md:12")],
+            "kept":["https://docs.rs/tokio/latest/tokio/#features","#123","docs/guide.md#install","packages/native/crates/cli/src/main.rs#main"]},
         "related":[{"tool":"graphQuery","input":{"queries":[
             {"operation":"dependents","path":scope,"target":format!("{scope}/src/http.rs")}]}}]}}]});
     let deep_asked = json!({"queries":[{"operation":"hubs","path":scope}]});
+    let (deep_kept, deep_kept_asked) = (deep.clone(), deep_asked.clone());
     let mut cases: Vec<(String, Value, Value)> = recorded()
         .into_iter()
         .filter(|call| call.tool == ToolId::GraphQuery)
@@ -648,7 +652,16 @@ fn graph_rows_name_files_under_the_scope_once() {
         );
     }
     assert!(rooted > 1, "no graph row names a file under its scope");
-    // Ids named from the snapshot print as they are.
+    let deep = render(ToolId::GraphQuery, &deep_kept, &deep_kept_asked, None).expect("text");
+    let both = format!("{}\n{}", deep.out, deep.notes);
+    for kept in deep_kept["results"][0]["data"]["evidence"]["kept"]
+        .as_array()
+        .expect("kept")
+    {
+        let kept = kept.as_str().expect("kept text");
+        assert!(both.contains(kept), "{kept} rewritten:\n{both}");
+    }
+    // A symbol id under the scope prints relative to it, as its file does.
     let text = render(
         ToolId::GraphQuery,
         &json_fixture(
@@ -658,8 +671,8 @@ fn graph_rows_name_files_under_the_scope_once() {
                         "index": 0,
                         "data": {
                             "rows": [
-                                {"id": "src/x.ts#f", "kind": "function", "path": "src/src/x.ts", "line": 1},
-                                {"id": "a.ts#g", "kind": "function", "path": "src/a.ts", "line": 2}
+                                {"id": "src/src/x.ts#f", "kind": "function", "path": "src/src/x.ts", "line": 1},
+                                {"id": "src/a.ts#g", "kind": "function", "path": "src/a.ts", "line": 2}
                             ]
                         }
                     }
@@ -691,7 +704,7 @@ fn under(value: &Value, scope: &str, out: &mut Vec<String>) {
             }
         }
         Value::Array(items) => items.iter().for_each(|item| under(item, scope, out)),
-        Value::String(text) if !text.contains('#') => {
+        Value::String(text) => {
             let path = text
                 .rsplit_once(':')
                 .filter(|(_, line)| line.bytes().all(|byte| byte.is_ascii_digit()))

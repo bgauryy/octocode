@@ -9,6 +9,7 @@ fn group(header: usize, sizes: &[usize]) -> Group {
         sizes: sizes.to_vec(),
         held: None,
         truncated_captures: false,
+        nested: Default::default(),
         priced: None,
     }
 }
@@ -19,7 +20,12 @@ fn group(header: usize, sizes: &[usize]) -> Group {
 fn every_match_lands_on_one_page_within_limit_and_budget() {
     let groups = [group(10, &[5, 5, 5]), group(10, &[5]), group(10, &[5, 5])];
     for (limit, budget) in [(1, 1000), (2, 1000), (4, 1000), (usize::MAX, 30), (3, 25)] {
-        let (pages, oversized) = cut(&groups, &Bounds::default().spans(&groups), limit, budget);
+        let (pages, oversized) = cut(
+            &groups,
+            &Bounds::default().spans(&groups),
+            limit,
+            (budget, 0),
+        );
         assert!(!oversized, "{limit} {budget}");
         let mut seen = Vec::new();
         for &(from, to) in &pages {
@@ -42,7 +48,7 @@ fn every_match_lands_on_one_page_within_limit_and_budget() {
         }));
     }
     assert_eq!(
-        cut(&groups, &Bounds::default().spans(&groups), 4, 1000)
+        cut(&groups, &Bounds::default().spans(&groups), 4, (1000, 0))
             .0
             .len(),
         2
@@ -54,7 +60,12 @@ fn every_match_lands_on_one_page_within_limit_and_budget() {
 #[test]
 fn a_match_over_the_budget_takes_a_page_alone_and_is_flagged() {
     let groups = [group(10, &[5, 500, 5])];
-    let (pages, oversized) = cut(&groups, &Bounds::default().spans(&groups), usize::MAX, 100);
+    let (pages, oversized) = cut(
+        &groups,
+        &Bounds::default().spans(&groups),
+        usize::MAX,
+        (100, 0),
+    );
     assert!(oversized);
     assert_eq!(
         pages,
@@ -73,7 +84,7 @@ fn a_bounded_stream_pages_only_its_own_matches() {
         split: Some(1),
     };
     let spans = bounds.spans(&groups);
-    let (pages, oversized) = cut(&groups, &spans, 2, 1000);
+    let (pages, oversized) = cut(&groups, &spans, 2, (1000, 0));
     assert!(!oversized);
     let mut seen = Vec::new();
     let mut sizes = Vec::new();
@@ -96,4 +107,43 @@ fn a_bounded_stream_pages_only_its_own_matches() {
         whole.iter().all(|size| *size == 2) && *last <= 2,
         "{sizes:?}"
     );
+}
+
+/// Page 1 carries the scan's census besides its rows: the cut charges it
+/// to the stream's first match, so page 1 with its census spends no more
+/// than the budget, every later page cuts as before from where page 1
+/// ended, and every match still lands on exactly one page.
+#[test]
+fn page_one_is_charged_its_census_and_every_match_lands_once() {
+    let groups = [group(10, &[5; 6]), group(10, &[5; 6])];
+    let spans = Bounds::default().spans(&groups);
+    let budget = 40;
+    let (plain, _) = cut(&groups, &spans, usize::MAX, (budget, 0));
+    for census in [0, 5, 12, budget - 15] {
+        let (pages, oversized) = cut(&groups, &spans, usize::MAX, (budget, census));
+        assert!(!oversized, "census {census}");
+        let mut seen = Vec::new();
+        for (at, &(from, to)) in pages.iter().enumerate() {
+            let (window, slices) = slices(&groups, from, to);
+            let mut used = if at == 0 { census } else { 0 };
+            for (file, slice) in window.zip(slices) {
+                used +=
+                    groups[file].chars + groups[file].sizes[slice.clone()].iter().sum::<usize>();
+                seen.extend(slice.map(|index| (file, index)));
+            }
+            assert!(used <= budget, "census {census} page {at}: {used}");
+        }
+        let all = spans
+            .iter()
+            .enumerate()
+            .flat_map(|(file, span)| span.clone().map(move |index| (file, index)))
+            .collect::<Vec<_>>();
+        assert_eq!(seen, all, "census {census}");
+        assert!(pages.len() >= plain.len(), "census {census}");
+    }
+    // A census that leaves page 1 no room for its first match still moves
+    // the walk: that match takes page 1 alone, flagged over the budget.
+    let (pages, oversized) = cut(&groups, &spans, usize::MAX, (budget, budget));
+    assert!(oversized);
+    assert_eq!(pages[0], ((0, 0), (0, 1)));
 }

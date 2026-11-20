@@ -7,7 +7,6 @@ const path = require('node:path');
 const { tmpdir } = require('node:os');
 const { PLATFORMS, platformPackageName } = require('../bin/platform.cjs');
 const { identityChecks, maxGlibc, readHeader } = require('../scripts/binary-identity.cjs');
-const { RUNNERS, releaseMatrix } = require('../scripts/release-matrix.cjs');
 
 /** A minimal ELF64 executable: one PT_INTERP and one `.gnu.version_r` need on libc.so.6. */
 function elf({ machine = 62, interpreter = '/lib64/ld-linux-x86-64.so.2', needs = [] } = {}) {
@@ -94,34 +93,15 @@ test('identityChecks hold a gnu binary to the glibc floor and the embedded ident
   assert.deepEqual(failing(), ['binary']);
 });
 
-test('the release matrix builds every platform once and verifies it on its own OS and CPU', () => {
-  const { build, verify, platforms } = releaseMatrix();
-  const runnerTarget = Object.fromEntries(
-    Object.entries(RUNNERS).flatMap(([os, byArch]) => Object.entries(byArch).map(([arch, runner]) => [runner, { os, arch }])),
-  );
-  assert.deepEqual(platforms, Object.keys(PLATFORMS));
-  assert.deepEqual(build.map(entry => entry.platform), platforms);
-  for (const { platform, runner } of build) {
-    const target = PLATFORMS[platform];
-    const host = runnerTarget[runner];
-    assert.ok(host, `${platform}: unknown build runner ${runner}`);
-    // Linux cross-links (zigbuild, glibc floor) only from another OS or CPU.
-    if (target.os === 'linux') assert.notEqual(host.arch, target.arch, platform);
-    if (target.os === 'darwin') assert.equal(host.os, 'darwin', platform);
-  }
-  assert.equal(new Set(verify.map(entry => entry.id)).size, verify.length);
-  for (const platform of platforms) {
-    const target = PLATFORMS[platform];
-    const entries = verify.filter(entry => entry.platform === platform);
-    for (const entry of entries) {
-      const host = runnerTarget[entry.runner];
-      assert.equal(host.arch, target.arch, entry.name);
-      assert.equal(entry.arch, target.arch, entry.name);
-      assert.equal(host.os, entry.container ? 'linux' : target.os, entry.name);
-    }
-    if (target.libc === 'gnu') assert.deepEqual(entries.map(entry => entry.glibc), [null, require('../scripts/build-native.cjs').GLIBC_FLOOR], platform);
-    else assert.equal(entries.length, 1, platform);
-  }
+test('identityChecks accept a static musl binary and reject a glibc one', t => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'octocode-identity-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: platformPackageName('linux-x64-musl'), version: '1.0.0' }));
+  const stamp = Buffer.from('1.0.0 fp');
+  writeFileSync(path.join(dir, 'octocode'), Buffer.concat([elf({ interpreter: null }), stamp]), { mode: 0o755 });
+  assert.ok(identityChecks(dir, 'fp').every(check => check.ok));
+  writeFileSync(path.join(dir, 'octocode'), Buffer.concat([elf({ needs: ['GLIBC_2.17'] }), stamp]));
+  assert.equal(identityChecks(dir, 'fp').find(check => check.name === 'libc').ok, false);
 });
 
 test('a launcher packs only when its bin is the Node stub and out/ holds no half-written bin', t => {

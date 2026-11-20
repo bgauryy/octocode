@@ -31,19 +31,21 @@ npx octocode-mcp              # the stdio MCP server
 ```
 
 Both launchers pin one package per platform in `optionalDependencies`, and npm
-installs only the one whose `os`, `cpu` and `libc` match the machine. These are
-the only builds; other hosts (macOS Intel, musl Linux such as Alpine) are refused:
+installs only the one whose `os`, `cpu` and `libc` match the machine:
 
 | Platform package | Target |
 |---|---|
 | `@octocodeai/octocode-native-darwin-arm64` | macOS Apple Silicon |
+| `@octocodeai/octocode-native-darwin-x64` | macOS Intel |
 | `@octocodeai/octocode-native-linux-x64-gnu` | Linux x64 (glibc) |
+| `@octocodeai/octocode-native-linux-x64-musl` | Linux x64 musl (Alpine) |
 | `@octocodeai/octocode-native-linux-arm64-gnu` | Linux ARM64 (glibc) |
+| `@octocodeai/octocode-native-linux-arm64-musl` | Linux ARM64 musl (Alpine) |
 | `@octocodeai/octocode-native-win32-x64-msvc` | Windows x64 |
 | `@octocodeai/octocode-native-win32-arm64-msvc` | Windows ARM64 |
 
-On Linux the launcher takes the glibc package when `/usr/bin/ldd` carries the GNU
-C Library header and refuses when it names musl; only an `ldd` that names
+On Linux the launcher picks the musl package when `/usr/bin/ldd` names musl and
+the glibc one when it carries the GNU C Library header; only an `ldd` that names
 neither falls back to Node's glibc report and `ldd --version`.
 
 An installed `octocode` command is already the binary when its postinstall ran
@@ -123,7 +125,7 @@ packages/octocode-native/
 ├─ bin/         platform map, binary resolver, registry fallback, signal-forwarding launcher (bundled into the launchers)
 ├─ npm/<p>/     one package per platform: the `octocode` binary
 └─ scripts/     build-native.cjs (build + atomic staging), stage-binary.cjs, platform-packages.cjs (derived manifests),
-               release: release-matrix.cjs, binary-identity.cjs, pack-release.cjs (docs/PUBLISHING.md)
+               release: binary-identity.cjs, pack-release.cjs (docs/PUBLISHING.md)
 ```
 
 Cross-platform and release builds (`build:target <platform>`, `build:all`) and

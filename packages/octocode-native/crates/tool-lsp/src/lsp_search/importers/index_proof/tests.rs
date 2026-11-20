@@ -6,6 +6,7 @@ fn spot(line: u32) -> Spot {
         character: 4,
         is_call: true,
         binding: None,
+        in_code: Some(true),
     }
 }
 

@@ -280,21 +280,19 @@ impl Coverage {
     }
 
     /// An empty page's one absence sentence: what it searched and what it did
-    /// not, as counts, and the `step` its lead takes; `None` when it would
-    /// only restate the status and `filesScanned`. Entries the path policy
+    /// not, as counts, and the `step` its lead takes. Entries the path policy
     /// withholds are counted, never hedged over: no setting lifts them, so no
-    /// search could read them.
+    /// search could read them. Text a read masks as a secret is never
+    /// matched ([`MASKED_UNSEARCHED`]): the sentence says so on every empty
+    /// page, whatever was masked, so it tells nothing of what a mask hides.
     pub(super) fn absence(
         &self,
         view: super::local_search_query::View,
         (files_searched, binary_skipped): (u32, u32),
         step: Option<String>,
-    ) -> Option<String> {
+    ) -> String {
         use octocode_engine::text::counted;
         let withheld = self.withheld;
-        if step.is_none() && binary_skipped == 0 && withheld == 0 {
-            return None;
-        }
         let files = counted(files_searched, "searched file", "searched files");
         let mut sentence = if view == super::local_search_query::View::FilesWithout {
             format!("Every one of {files} matches")
@@ -321,14 +319,20 @@ impl Coverage {
             sentence.push_str("; not searched: ");
             sentence.push_str(&unsearched.join(", "));
         }
+        sentence.push_str("; ");
+        sentence.push_str(MASKED_UNSEARCHED);
         if let Some(step) = step {
             sentence.push_str("; ");
             sentence.push_str(&step);
         }
         sentence.push('.');
-        Some(sentence)
+        sentence
     }
 }
+
+/// What no search matches, stated on every empty page: the text a read
+/// masks as a secret, and the placeholders it shows there.
+pub(super) const MASKED_UNSEARCHED: &str = "masked secrets are not searched";
 
 /// The empty row's fact when the walk found no file at all, with no
 /// include/exclude, test-code scope or skip to blame.

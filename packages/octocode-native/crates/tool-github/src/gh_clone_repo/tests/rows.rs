@@ -315,3 +315,44 @@ fn a_history_shorter_than_the_depth_is_not_fetched_again() {
     clone_pinned(&fixture, &deep(one("src")), &context).expect("scoped");
     assert_eq!(steps(&runner, "fetch requested commit"), 1, "one fetch");
 }
+
+/// A depth that reaches the root commit states that the checkout holds the
+/// whole history, on the first clone and on reuse; a depth that stops short
+/// does not. Checked against the origin's own commit count.
+#[test]
+fn a_depth_past_the_root_states_the_whole_history() {
+    let bench = Bench::committing(api_github_endpoint());
+    let context = bench.context();
+    bench.fixture.push_second();
+    bench.fixture.push_commit("three.txt");
+    let origin: usize = git_output(&bench.fixture.work, &["rev-list", "--count", "HEAD"])
+        .trim()
+        .parse()
+        .expect("count");
+    for depth in [2, 3, 50] {
+        for _ in 0..2 {
+            let clone = clone_pinned(
+                &bench.fixture,
+                &GhCloneRepoQuery {
+                    history_depth: std::num::NonZeroU64::new(depth).expect("depth"),
+                    ..query()
+                },
+                &context,
+            )
+            .expect("deep clone");
+            let whole = history(&clone.location.path) == origin;
+            assert_eq!(
+                clone.location.full_history, whole,
+                "depth {depth}: {clone:?}"
+            );
+            let served = serde_json::to_value(&clone).expect("serialize");
+            assert_eq!(
+                served["location"].get("fullHistory").is_some(),
+                whole,
+                "{served}"
+            );
+        }
+    }
+    let shallow = clone_pinned(&bench.fixture, &query(), &context).expect("shallow");
+    assert!(!shallow.location.full_history, "{shallow:?}");
+}

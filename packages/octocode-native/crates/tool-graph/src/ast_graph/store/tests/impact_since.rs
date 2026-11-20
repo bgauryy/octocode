@@ -174,6 +174,54 @@ fn impact_since_with_no_changes_is_empty() {
     );
 }
 
+/// A `since` that names no commit of the repository, or spells an option,
+/// is input to correct, not a git failure: the same request with a real
+/// revision answers.
+#[test]
+fn impact_since_an_unknown_revision_is_input_to_correct() {
+    let dir = fixture();
+    let app = dir.0.as_path().join("app");
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(&app)
+            .args(["-c", "user.email=t@t", "-c", "user.name=t"])
+            .args(args)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    };
+    if !git(&["init", "-q"]) {
+        return; // git unavailable in this environment
+    }
+    assert!(git(&["add", "-A"]) && git(&["commit", "-qm", "base"]));
+    assert_eq!(
+        ingest_fixture(dir.0.as_path(), None).class,
+        ExitClass::Success
+    );
+    for rev in ["nosuchref", "--output=x", "HEAD~5"] {
+        let out = ask(dir.0.as_path(), "impact", None, |o| {
+            o.since = Some(rev.into());
+        });
+        assert_eq!(
+            out.class,
+            ExitClass::Failed(octocode_runtime_base::id::error_codes::ErrorClass::CorrectInput),
+            "{rev}: {}",
+            out.value
+        );
+        assert_eq!(
+            out.value["errorCode"],
+            json!(ErrorCode::InvalidInput),
+            "{rev}: {}",
+            out.value
+        );
+    }
+    let real = ask(dir.0.as_path(), "impact", None, |o| {
+        o.since = Some("HEAD".into());
+    });
+    assert_eq!(real.class, ExitClass::Empty, "{}", real.value);
+}
+
 /// `since` lists a changed path outside the graph with its git status, so
 /// a deletion reads as one, and never the graph's own snapshot files.
 #[test]
@@ -209,13 +257,13 @@ fn impact_since_labels_unmapped_changes_and_skips_the_graph_home() {
         "export function greet(name: string) {\n  return name;\n}\n",
     )
     .expect("edit");
-    let out = ask(root, "impact", None, |o| {
-        o.since = Some("HEAD".into());
-    });
-    let unmapped = &out.value["summary"]["unmapped"];
+    let since = |o: &mut QueryOptions| o.since = Some("HEAD".into());
+    let out = ask(root, "impact", None, since);
+    assert_eq!(out.value["summary"]["unmapped"], 2, "{}", out.value);
+    let unmapped = json!(summary_list(root, None, "unmapped", since));
     assert_eq!(
         unmapped,
-        &json_fixture(
+        json_fixture(
             r#"[
                 {"path": "notes.md", "status": "deleted"},
                 {"path": "todo.md", "status": "added"}

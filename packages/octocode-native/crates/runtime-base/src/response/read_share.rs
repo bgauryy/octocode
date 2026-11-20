@@ -36,12 +36,26 @@ pub fn rows_room(tool: ToolId, page: usize, rows: usize) -> usize {
 }
 
 /// Whether the rows of one `tool` call fill the response page together
-/// ([`widened`]) and continue together: rows that read sources this host
-/// reads again for free, so cutting a row again from its kept view costs no
-/// request. A row a provider judges is never read again ([`reads_again`]).
+/// ([`widened`]) and continue together: rows that read sources, read again
+/// with a wider share at no provider request ([`reread_is_free`]). A row a
+/// provider judges is never read again ([`reads_again`]).
 #[must_use]
 pub fn fill_together(tool: ToolId) -> bool {
-    tool.reads_source() && matches!(tool.family(), ToolFamily::Local)
+    tool.reads_source() && reread_is_free(tool)
+}
+
+/// Whether reading a `tool` row again costs no provider request: a local
+/// read reads this host's file again; a GitHub file read reads its body at
+/// the commit SHA its ref resolved to, an answer pinned to that commit and
+/// kept, with the ref from the batch's resolutions, so a second read sends
+/// nothing.
+#[must_use]
+pub fn reread_is_free(tool: ToolId) -> bool {
+    match tool.family() {
+        ToolFamily::Local => true,
+        ToolFamily::GitHub => tool == ToolId::GhGetFileContent,
+        ToolFamily::Remote => false,
+    }
 }
 
 /// Whether the row of `query` may be read again with a wider share: a row

@@ -52,3 +52,72 @@ fn a_uses_question_reads_the_occurrences_parse() {
         (true, 0)
     );
 }
+
+/// A Rust item declared outside any type is asked about as such: no receiver
+/// reaches a free function, so a member call of the name is no use of it,
+/// while a path call is; a method keeps the plain uses question.
+#[test]
+fn a_free_items_uses_exclude_member_access() {
+    let source = "pub fn write_atomic() {}\nimpl Held { pub fn write_atomic(&self) {} }\n";
+    let path = "/w/lib.rs";
+    let free = Question::Uses.at_anchor(path, Some(source), (0, 7), "write_atomic");
+    assert_eq!(free, Question::ItemUses);
+    let method = Question::Uses.at_anchor(path, Some(source), (1, 19), "write_atomic");
+    assert_eq!(method, Question::Uses);
+    assert_eq!(
+        Question::Implementations.at_anchor(path, Some(source), (0, 7), "write_atomic"),
+        Question::Implementations
+    );
+    let answers = |source: &str| {
+        let occurrences =
+            octocode_engine::lsp::resolver::code_occurrences("/w/b.rs", source, "write_atomic")
+                .expect("occurrences");
+        Question::ItemUses.may_answer("write_atomic", "/w/b.rs", source, &occurrences)
+    };
+    assert!(!answers(
+        "fn f() { held.write_atomic(1); held\n    .write_atomic(2); }\n"
+    ));
+    assert!(answers(
+        "fn f() { held.write_atomic(1); crate::write_atomic(); }\n"
+    ));
+    assert!(answers(
+        "fn f() { let w = write_atomic; (0..1).map(|_| w()); }\n"
+    ));
+}
+
+/// A Rust trait's implementations are its `impl … for` blocks and the
+/// traits that extend it: a file that only takes `&dyn Trait`, bounds a
+/// parameter by it or imports it holds none; one whose name a macro body
+/// holds may, as only the whole file can tell.
+#[test]
+fn a_rust_types_implementations_are_its_heritage_sites() {
+    let source = "pub trait CancellationCheck {}\n";
+    assert_eq!(
+        Question::Implementations.at_anchor(
+            "/w/cancel.rs",
+            Some(source),
+            (0, 10),
+            "CancellationCheck"
+        ),
+        Question::Heritage
+    );
+    let answers = |source: &str| {
+        let occurrences = octocode_engine::lsp::resolver::code_occurrences(
+            "/w/b.rs",
+            source,
+            "CancellationCheck",
+        )
+        .expect("occurrences");
+        Question::Heritage.may_answer("CancellationCheck", "/w/b.rs", source, &occurrences)
+    };
+    assert!(!answers(
+        "use crate::CancellationCheck;\nfn f(c: &dyn CancellationCheck) {}\nfn g<T: CancellationCheck>(t: T) {}\n"
+    ));
+    assert!(answers(
+        "struct Never;\nimpl crate::CancellationCheck for Never {}\n"
+    ));
+    assert!(answers("pub trait Deadline: CancellationCheck {}\n"));
+    assert!(answers(
+        "macro_rules! never {\n    ($t:ty) => { impl CancellationCheck for $t {} };\n}\n"
+    ));
+}

@@ -251,12 +251,12 @@ impl ToolRuntime {
         let selection_available = selection_available(&config, &availability);
         let page_replays = Arc::new(PageReplayMemo::new(&config, &input.cwd));
         let cursors = Arc::new(
-            super::cursors::Registry::new(
+            super::cursors::Registry::scoped(
                 octocode_runtime_base::cache::CacheConfig::derived(),
                 saves_local.then(|| {
                     octocode_runtime_base::cache::Directory::Continuations.path(&config.home)
                 }),
-                page_replays.policy.clone(),
+                page_replays.scope(),
             )
             .linking_answers(persistent.then(|| {
                 octocode_runtime_base::cache::Directory::ProviderAnswers.path(&config.home)

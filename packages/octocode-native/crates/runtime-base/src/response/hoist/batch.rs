@@ -148,15 +148,20 @@ pub(crate) fn keyed(results: &mut [Value], groups: &[Keyed]) {
 /// Single-query `related` calls of one tool and input, offered by two or
 /// more rows, become one envelope call holding each row's query, in row
 /// order (a query two rows offer once), as many per call as the tool takes.
-/// An empty or failed row's calls are its recovery, which its hints name:
-/// they merge only with other such rows' and only when every one of those
-/// rows offers the same queries, so the envelope call is each row's own
-/// recovery stated once; a row whose recovery differs keeps it beside it.
+/// An empty or failed row's calls are its recovery, whose order its hints
+/// name ("related[] in order: …"): they move only when every such row
+/// offers the same whole recovery and its hints moved too
+/// ([`same_recovery`]), so the envelope states that one recovery once,
+/// beside its hints; otherwise each keeps its recovery whole, in its own
+/// order.
 fn related(structured: &mut Value) {
     let recovers = rows(structured).map(guidance_row).collect::<Vec<_>>();
     let mut merged = Vec::new();
     let mut taken: Vec<(usize, usize)> = Vec::new();
     for recovery in [false, true] {
+        if recovery && !same_recovery(structured, &recovers) {
+            continue;
+        }
         let offers = offers(structured, |row| recovers[row] == recovery);
         merge_offers(&offers, recovery, &mut merged, &mut taken);
     }
@@ -176,6 +181,24 @@ fn related(structured: &mut Value) {
         }
     }
     append(structured, "related", merged);
+}
+
+/// Whether every recovering row (`recovers`) offers the same whole
+/// `related[]`, call for call in one order, and keeps no hint of its own
+/// (the hints stage stated them once, or there are none): only then can the
+/// recovery move without a hint naming calls its row no longer holds.
+fn same_recovery(structured: &Value, recovers: &[bool]) -> bool {
+    let recovering = rows(structured)
+        .zip(recovers)
+        .filter(|(_, recovers)| **recovers)
+        .map(|(row, _)| row)
+        .collect::<Vec<_>>();
+    recovering
+        .iter()
+        .all(|row| list(row, "/data/hints").is_empty())
+        && recovering
+            .windows(2)
+            .all(|pair| list(pair[0], "/data/related") == list(pair[1], "/data/related"))
 }
 
 /// One row's single-query `related` call: (row, position in its `related`,

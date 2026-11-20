@@ -301,3 +301,87 @@ async fn gitignored_files_are_outside_the_scan() {
     assert!(row["coverage"].get("ignoredFiles").is_none(), "{row}");
     assert!(!row.to_string().contains("scratch"), "{row}");
 }
+
+/// A module whose `mod` declaration carries a gate the analysis leaves out
+/// (a feature of a default build, a cfg option no build setting sets) is
+/// compiled out whole, though the module file carries no gate itself: its
+/// uses are missing, so the row is partial and counts every such module.
+/// A gate the analysis sets (`cfg(test)`) leaves nothing out.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_module_gated_at_its_declaration_is_counted() {
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("root");
+    let source = root.join("pkg/src");
+    std::fs::create_dir_all(&source).expect("src");
+    std::fs::write(
+        root.join("pkg/Cargo.toml"),
+        "[package]\nname = \"p\"\n\n[features]\nbright = []\n",
+    )
+    .expect("manifest");
+    let gates = [
+        ("bright", Some("feature = \"bright\"")),
+        ("custom", Some("transport_cfg")),
+        (
+            "nested",
+            Some("all(feature = \"bright\", not(feature = \"dim\"))"),
+        ),
+        ("tested", Some("test")),
+        ("always", None),
+    ];
+    let mut lib = String::from("pub fn gated_target() {}\n");
+    for (module, gate) in gates {
+        if let Some(gate) = gate {
+            lib.push_str(&format!("#[cfg({gate})]\n"));
+        }
+        lib.push_str(&format!("mod {module};\n"));
+        std::fs::write(
+            source.join(format!("{module}.rs")),
+            "pub fn call() { super::gated_target(); }\n",
+        )
+        .expect("module");
+    }
+    std::fs::write(source.join("lib.rs"), &lib).expect("lib");
+    let policy = octocode_runtime_base::test_support::workspace_policy(&root);
+    let scope = Scope::new(root.to_string_lossy().into_owned(), vec!["*.rs".into()]);
+    scope
+        .text_files(
+            "gated_target",
+            &policy,
+            &octocode_runtime_base::execution::cancel::NeverCancel,
+        )
+        .await
+        .expect("scan");
+    // The server compiled the crate root and the modules the analysis keeps.
+    let compiled = ["lib", "tested", "always"];
+    scope.answer(compiled.map(|module| {
+        source
+            .join(format!("{module}.rs"))
+            .to_string_lossy()
+            .into_owned()
+    }));
+    let lib_path = source.join("lib.rs").to_string_lossy().into_owned();
+    let q = query(json!({"path": lib_path, "operation": "references",
+        "symbolName": "gated_target", "line": 1}));
+    let mut row =
+        json_fixture(r#"{"operation": "references", "matches": [{"path": "pkg/src/lib.rs"}]}"#);
+    let package = root.join("pkg").to_string_lossy().into_owned();
+    let config = configured_rust(octocode_engine::lsp::config::rust_analyzer_headless_options());
+    super::super::annotate(
+        &mut row,
+        &q,
+        Some("rust"),
+        Server {
+            anchor: &lib_path,
+            root: &package,
+        },
+        &scope,
+        crate::lsp_search::receipt::RustAnalysis::of(&config),
+        &|| false,
+    );
+    let left_out = gates
+        .iter()
+        .filter(|(module, _)| !compiled.contains(module))
+        .count();
+    assert_eq!(row["partialReasons"], json!([CFG_REASON]), "{row}");
+    assert_eq!(row["coverage"]["cfgGatedFiles"], left_out, "{row}");
+}

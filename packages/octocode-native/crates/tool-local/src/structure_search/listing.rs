@@ -365,6 +365,9 @@ fn listing_page<Q: Listing>(
     if walk.rows[shown].iter().any(|row| row.redacted) {
         warnings.push(octocode_runtime_base::security::redacted_mark());
     }
+    // A sparse checkout holds only some of its repository: a listing of it
+    // shows none of the rest.
+    warnings.extend(crate::sparse_scope::coverage(root));
     // The walk's summary, what it skipped and its retries
     // describe the whole listing: page 1 states them once, and a sorted walk
     // states them when it ends (its paused windows carry them there).

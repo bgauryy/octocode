@@ -108,6 +108,7 @@ pub(in crate::gh_search_code) async fn disclose_index_ref(
                     by: octocode_contract_types::GhStructureTreeSortBy::Path,
                     order: octocode_contract_types::SortOrder::Asc,
                 },
+                walk_offset: None,
             },
         );
     if let Some(listing) = listing {

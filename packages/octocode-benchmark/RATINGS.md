@@ -42,6 +42,31 @@ Confidence is high when both surfaces, required continuations, an oracle and the
 were checked; medium when a material surface or dimension has limited coverage; low when the
 positive path is unverified. A confidence label describes this round, not the entire product.
 
+## Agent-experience rubric (12 dimensions)
+
+[Independent rater rounds](briefs/independent-raters.md) score each tool on the 12 dimensions below, on the
+same 1–10 scale, plus **Overall** (the rater's judgment of the whole tool, not a weighted mean) and
+**Correct** (the share of the rater's verified claims that were right). Every score of 7 or below needs a
+one-line reason and its evidence. A cell is "–" when the round gave no evidence for it.
+
+| # | Dimension | What the rater judges |
+|---|---|---|
+| 1 | Description | The served description (`--help`): accurate, short, says when to use the tool and when not |
+| 2 | Schema | Input fields: clear names, minimal required set, smart defaults, enums, validation and repair messages |
+| 3 | Workflow | Which tools hand off to it and which it hands off to (`in: … → tool → out: …`); are the handoffs right and executable unchanged? |
+| 4 | Clarity | Output readable and unambiguous; field meanings found in `octocode schema <tool> --view output` |
+| 5 | Time | Measured cold and warm latency |
+| 6 | Token efficiency | Characters returned against evidence gained; duplication or metadata that carries no evidence |
+| 7 | Pagination | Every page and `next.*` call reachable; walking them rebuilds the evidence exactly once; cursors resume |
+| 8 | Smart | Defaults, input repair, inference and routing leads that save the agent a call |
+| 9 | Short queries | The fewest-field query gives a useful answer |
+| 10 | Long queries | Complex multi-field queries, batches of up to 5 queries, long `mainGoal`/`reasoning` |
+| 11 | Stress test | Huge scopes, many results, big files or repositories, odd inputs, back-to-back calls |
+| 12 | Hints | `hints[]`, `warnings[]`, `related[]`, `next.*`: useful, correct, not noisy |
+
+The correctness gate above still decides readiness: a scorecard that uses this rubric also reports, per tool,
+whether an unresolved wrong answer, silent evidence loss or unreachable required page caps it at 4.
+
 Specific prompts belong in [questions/tools](questions/tools/README.md); shared runtime checks
 belong in [CHECKS.md](CHECKS.md). Preserve every failed or invalid attempt in the raw campaign;
 exclude invalid measurements from paired efficiency statistics and explain the exclusion.

@@ -110,6 +110,12 @@ pub(super) fn walk(
             if target != Some(id) {
                 row.insert("from".into(), json!(g.key(id)));
             }
+            // Both ways, the row says which way its edge runs: out from the
+            // node it was reached from, or in to it.
+            if direction == Direction::Both {
+                let way = if edge.src == id { "out" } else { "in" };
+                row.insert("direction".into(), json!(way));
+            }
             g.edge_fields(&mut row, edge);
             // The source occurrences behind the walked edge.
             row.insert(

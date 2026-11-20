@@ -7,14 +7,33 @@ mod changed;
 pub(super) use changed::git;
 use changed::git_changed;
 
+/// An impact answer: the first page's facts, the affected-file rows, and
+/// the summary's lists by name.
+type ImpactAnswer = (Map<String, Value>, Vec<Value>, BTreeMap<&'static str, Vec<Value>>);
+
 impl Query<'_> {
     pub(super) fn impact(&self) -> Result<GraphOutput, GraphOutput> {
+        unknown_list(self.options)?;
         let (extra, page) = self.complete_rows(|| self.impact_rows())?;
         Ok(run_page(self.options, self.g, extra, page))
     }
 
-    /// The blast radius's complete rows and the facts its first page states.
+    /// The blast radius's complete rows and the facts its first page states;
+    /// with `list`, the complete rows of that summary list instead.
     fn impact_rows(&self) -> Result<(Map<String, Value>, Vec<Value>), GraphOutput> {
+        let (extra, rows, mut lists) = self.impact_answer()?;
+        let Some(list) = self.options.list.as_deref() else {
+            return Ok((extra, rows));
+        };
+        let mut extra = Map::new();
+        extra.insert("list".into(), json!(list));
+        Ok((extra, lists.remove(list).unwrap_or_default()))
+    }
+
+    /// The blast radius: the first page's facts, the affected-file rows and
+    /// the summary's lists by name ([`super::super::impact::LISTS`]), which
+    /// the summary counts.
+    fn impact_answer(&self) -> Result<ImpactAnswer, GraphOutput> {
         let (g, options) = (self.g, self.options);
         let root = PathBuf::from(g.manifest["root"].as_str().unwrap_or_default());
         let mut refs = options.target.iter().cloned().collect::<Vec<_>>();
@@ -67,11 +86,12 @@ impl Query<'_> {
                 },
             });
             if !unmapped.is_empty() {
-                summary["unmapped"] = json!(unmapped);
+                summary["unmapped"] = json!(unmapped.len());
             }
             let mut extra = Map::new();
             extra.insert("summary".into(), summary);
-            return Ok((extra, Vec::new()));
+            let lists = BTreeMap::from([("unmapped", unmapped)]);
+            return Ok((extra, Vec::new(), lists));
         }
         let mut seeds = Vec::new();
         for reference in &refs {
@@ -88,9 +108,19 @@ impl Query<'_> {
             extra.insert("coverage".into(), g.coverage(*first));
         }
         if !unmapped.is_empty() {
-            summary["unmapped"] = json!(unmapped);
+            summary["unmapped"] = json!(unmapped.len());
         }
         extra.insert("summary".into(), summary);
+        let lists = BTreeMap::from([
+            ("affectedEntrypoints", impact.lists.entrypoints),
+            ("testsToRun", impact.lists.tests),
+            ("unmapped", unmapped),
+        ]);
+        // A changed symbol's reach is syntax: lspSearch checks its references.
+        let mut related = Vec::new();
+        for seed in &seeds {
+            related.extend(g.lsp_check(*seed, "references", self.cancel)?);
+        }
         if let Some(unlisted) = impact.unlisted {
             extra.insert(
                 "warnings".into(),
@@ -107,18 +137,19 @@ impl Query<'_> {
             let mut call = super::paging::query_row(options, &g.id);
             call.remove("list");
             call.insert("depth".into(), json!(unlisted.depth));
-            extra.insert(
-                "related".into(),
-                json!([
-                    octocode_runtime_base::response::result::Continuation::related(
-                        octocode_runtime_base::id::ToolId::GraphQuery,
-                        Value::Object(call),
-                    )
-                    .build()
-                ]),
+            related.insert(
+                0,
+                octocode_runtime_base::response::result::Continuation::related(
+                    octocode_runtime_base::id::ToolId::GraphQuery,
+                    Value::Object(call),
+                )
+                .build(),
             );
         }
-        Ok((extra, impact.rows))
+        if !related.is_empty() {
+            extra.insert("related".into(), Value::Array(related));
+        }
+        Ok((extra, impact.rows, lists))
     }
 
     pub(super) fn issues(&self, paths: &PathPolicy) -> Result<GraphOutput, GraphOutput> {

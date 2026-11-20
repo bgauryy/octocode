@@ -656,6 +656,62 @@ pub(super) fn drop_restated_fixes(rows: &mut [Value]) {
     }
 }
 
+/// The text fields one advisory's records often carry alike: OSV's record,
+/// GitHub's database and the repository's advisory (the last with `\r\n`
+/// line endings).
+const TEXT_FIELDS: [&str; 2] = ["summary", "details"];
+
+/// States each advisory's text once across its details records: a later
+/// record of an id drops each of `summary` and `details` equal to an earlier
+/// record's, line endings aside, and names that record by its `link` in
+/// `textSameAs`. Only a record that still holds all its own text is pointed
+/// to, so the pointer always resolves to the text; text that differs stays.
+pub(super) fn drop_restated_text(rows: &mut [Value]) {
+    let unified = |row: &Value, field: &str| {
+        row.get(field)
+            .and_then(Value::as_str)
+            .map(|text| text.replace("\r\n", "\n"))
+    };
+    // Records that hold their own text: (id, link, each text field).
+    let mut holders: Vec<(String, String, [Option<String>; 2])> = Vec::new();
+    for row in rows {
+        let (Some(id), Some(link)) = (
+            row.get("id").and_then(Value::as_str).map(str::to_owned),
+            row.get("link").and_then(Value::as_str).map(str::to_owned),
+        ) else {
+            continue;
+        };
+        let texts = TEXT_FIELDS.map(|field| unified(row, field));
+        let same =
+            |held: &[Option<String>; 2], at: usize| texts[at].is_some() && held[at] == texts[at];
+        let holder = holders.iter().find(|(held_id, _, held)| {
+            *held_id == id && (0..TEXT_FIELDS.len()).any(|at| same(held, at))
+        });
+        let Some((_, holder_link, held)) = holder else {
+            holders.push((id, link, texts));
+            continue;
+        };
+        let restated = (0..TEXT_FIELDS.len())
+            .filter(|at| same(held, *at))
+            .collect::<Vec<_>>();
+        let pointer = holder_link.clone();
+        if let Some(fields) = row.as_object_mut() {
+            let at = fields
+                .keys()
+                .position(|key| key == TEXT_FIELDS[restated[0]])
+                .unwrap_or(fields.len());
+            for field in restated {
+                fields.shift_remove(TEXT_FIELDS[field]);
+            }
+            fields.shift_insert(
+                at.min(fields.len()),
+                "textSameAs".to_owned(),
+                json!(pointer),
+            );
+        }
+    }
+}
+
 /// The rows of `records`, failing whole on one malformed record.
 pub(super) fn rows(
     records: &[Value],

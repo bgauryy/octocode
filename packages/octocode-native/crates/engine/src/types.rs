@@ -97,6 +97,7 @@ pub use test_code::{PathTest, TestCodeExcluded, TestCodeScope, WHOLE_FILE, wholl
 pub use text_search::{
     BinaryExtensionCount, CapReason, CaseRule, DECLARATION_RANK, DeferredInspector, FileCounts,
     GrownFile, InspectDeferred, JudgeHeld, JudgeHeldSource, JudgeSource, PatternSyntax, RowWindow,
-    SearchContext, SearchOutput, SearchSort, SearchedSource, SourceJudge, SourceValues, SpanValues,
-    TextSearchFile, TextSearchMatch, TextSearchOptions, TextSearchResult, TextSearchStats,
+    SearchContext, SearchOutput, SearchSort, SearchedSource, ServedText, SourceJudge, SourceValues,
+    SpanValues, TextSearchFile, TextSearchMatch, TextSearchOptions, TextSearchResult,
+    TextSearchStats,
 };

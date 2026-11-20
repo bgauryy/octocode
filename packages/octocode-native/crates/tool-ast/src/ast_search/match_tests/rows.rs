@@ -627,3 +627,63 @@ fn every_file_the_unparsed_census_counts_is_a_skipped_path_entry() {
         "{out}"
     );
 }
+
+/// The warnings of a raw page that say its rows nest.
+fn nesting_warnings(out: &serde_json::Value) -> Vec<String> {
+    out["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .filter(|warning| warning.contains("inside another match"))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// A rule that names no node (here `regex` alone) matches every node whose
+/// text holds the hit, so the hit's enclosing nodes come back as rows
+/// around it: the page warns, counting the rows inside another and naming
+/// the innermost kind, the node a `kind` keeps. A rule that names its kind
+/// keeps nested rows of that kind without a warning, and so does a regex
+/// rule whose rows do not nest.
+#[test]
+fn a_rule_naming_no_node_warns_when_its_rows_nest() {
+    let root = Fixture::new();
+    let file = root.write(
+        "lib.rs",
+        "fn outer() {\n    let a = || { load(); };\n}\n\nfn other() {}\n",
+    );
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":file,"rule":{"regex":"load"}}),
+    )
+    .expect("match");
+    let rows = out["files"][0]["matches"].as_array().expect("rows").len();
+    assert!(rows > 2, "the hit and the nodes around it: {out}");
+    let warnings = nesting_warnings(&out);
+    let [warning] = warnings.as_slice() else {
+        panic!("one nesting warning: {out}");
+    };
+    assert!(
+        warning.starts_with(&format!("{} matches", rows - 1)),
+        "every row but the outermost lies inside another: {warning}"
+    );
+    assert!(warning.contains("kind"), "{warning}");
+    assert!(
+        warning.contains("identifier"),
+        "the innermost kind: {warning}"
+    );
+    for named in [
+        json_fixture(r#"{"kind": "block", "regex": "load"}"#),
+        json_fixture(r#"{"any": [{"kind": "block"}, {"pattern": "load()"}], "regex": "load"}"#),
+        json_fixture(r#"{"regex": "^fn other"}"#),
+    ] {
+        let out = run(
+            &root.0,
+            json!({"operation":"match","path":file,"rule":named}),
+        )
+        .expect("match");
+        assert!(out["files"][0]["matches"].is_array(), "{named}: {out}");
+        assert!(nesting_warnings(&out).is_empty(), "{named}: {out}");
+    }
+}

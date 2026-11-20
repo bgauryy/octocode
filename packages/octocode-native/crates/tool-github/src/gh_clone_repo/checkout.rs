@@ -1,5 +1,5 @@
 //! A fresh checkout: stage the commit, verify it, publish it as an output.
-use super::plan::{Checkout, Plan};
+use super::plan::{Checkout, Fresh, Plan};
 use super::{CloneResult, GitContext, GitError, Sparse, git, policy_denied, recovery, storage};
 use octocode_contract_types::ErrorCode;
 use std::path::{Path, PathBuf};
@@ -57,12 +57,19 @@ pub(super) fn reuse_checkout(
         commit_sha: reference.to_ascii_lowercase(),
         size: storage::checked_out_size(clone_dir),
         symlinks: inspection.symlinks,
+        root_files: plan.root_files(clone_dir, &withheld),
+        full_history: match storage::worktree_store(&context.config.home, clone_dir) {
+            Some(store) if plan.depth > 1 => git::holds_whole_history(context, &store)?,
+            _ => false,
+        },
         withheld,
     };
     context
         .path_policy
         .validate(clone_dir)
         .map_err(policy_denied)?;
+    // A checkout made before scopes were recorded gets its record now.
+    storage::record_scope(clone_dir, &record(plan, clone_dir, &checkout))?;
     let mut result = plan.result(reference, clone_dir, checkout);
     result.location.cloned_at = storage::completed_at(clone_dir);
     result.location.reused = true;
@@ -73,12 +80,13 @@ pub(super) fn reuse_checkout(
 /// and publish it as the destination `clone_dir`, whose lock the caller
 /// holds. The store's lock is held from here until the stage is published or
 /// discarded: the store's config, shallow boundaries and worktree list are
-/// shared by every row of the repository.
+/// shared by every row of the repository. A scope with a path the commit
+/// lacks stages nothing: it is [`Fresh::Narrowed`] to the paths it has.
 pub(super) fn fresh_clone(
     plan: &Plan<'_>,
     reference: &str,
     clone_dir: &Path,
-) -> Result<CloneResult, GitError> {
+) -> Result<Fresh, GitError> {
     let context = plan.context;
     if clone_dir.exists() && !git::safe_to_replace(context, clone_dir, reference)? {
         return Err(dirty_checkout(clone_dir));
@@ -89,20 +97,59 @@ pub(super) fn fresh_clone(
     // a checkout of a moved home would read as gone.
     reconnect_moved(context, &key, clone_dir)?;
     let stage = storage::stage_dir(&context.config.home, clone_dir)?;
-    let published =
-        checkout_stage(plan, reference, &key, &stage).and_then(|(store, commit_sha, staged)| {
-            let checkout = publish_stage(plan, &store, &stage, &commit_sha, staged, clone_dir)?;
-            retire_old_stores(context, &key, &store);
-            Ok(checkout)
-        });
-    let checkout = published.inspect_err(|_| discard_stage(&stage))?;
+    let staging =
+        checkout_stage(plan, reference, &key, &stage).inspect_err(|_| discard_stage(&stage))?;
+    let (store, commit_sha, staged) = match staging {
+        Staging::Staged {
+            store,
+            commit_sha,
+            staged,
+        } => (store, commit_sha, staged),
+        Staging::Narrowed { present, absent } => {
+            discard_stage(&stage);
+            return Ok(Fresh::Narrowed { present, absent });
+        }
+    };
+    let checkout = publish_stage(plan, &store, &stage, &commit_sha, staged, clone_dir)
+        .inspect_err(|_| discard_stage(&stage))?;
+    retire_old_stores(context, &key, &store);
     context
         .path_policy
         .validate(clone_dir)
         .map_err(policy_denied)?;
     let mut result = plan.result(reference, clone_dir, checkout);
     result.location.cloned_at = storage::completed_at(clone_dir);
-    Ok(result)
+    Ok(Fresh::Published(result))
+}
+
+/// What [`checkout_stage`] made: a verified stage, or nothing for a scope
+/// the commit lacks a path of.
+enum Staging {
+    Staged {
+        store: PathBuf,
+        commit_sha: String,
+        staged: git::Staged,
+    },
+    /// Some requested sparse paths are not in the commit (see
+    /// [`Fresh::Narrowed`]).
+    Narrowed {
+        present: Vec<String>,
+        absent: Vec<String>,
+    },
+}
+
+/// What the checkout `dir` that `checkout` describes records for the local
+/// tools.
+fn record(
+    plan: &Plan<'_>,
+    dir: &Path,
+    checkout: &Checkout,
+) -> octocode_tools_shared::gh_git::clone_scope::CloneRecord {
+    plan.record(
+        &checkout.commit_sha,
+        plan.held_paths(dir, &checkout.withheld),
+        checkout.root_files,
+    )
 }
 
 /// Publish a verified stage as the destination `clone_dir` after verification.
@@ -119,6 +166,8 @@ fn publish_stage(
         commit_sha: commit_sha.to_owned(),
         size: storage::checked_out_size(stage),
         symlinks: git::present_symlinks(stage, staged.links),
+        root_files: plan.root_files(stage, &staged.withheld),
+        full_history: plan.depth > 1 && git::holds_whole_history(context, store)?,
         withheld: staged.withheld,
     };
     // The lock serializes only Octocode: a user can create or edit the
@@ -127,6 +176,7 @@ fn publish_stage(
         return Err(dirty_checkout(clone_dir));
     }
     storage::record_completion(stage)?;
+    storage::record_scope(stage, &record(plan, stage, &checkout))?;
     // The destination it replaces, when a linked worktree, moves aside and
     // back through git, which keeps its registration: the prune before the
     // placement drops only registrations of directories that are gone (a
@@ -187,13 +237,15 @@ fn reconnect_moved(
 
 /// Check out the commit `reference` into `stage` and verify it: every
 /// sparse path exists, and the commit is the checked-out HEAD. Returns the
-/// checked-out commit and the credential-named files left out of it.
+/// checked-out commit and the credential-named files left out of it, or,
+/// for a scope with a path the commit lacks, the scope narrowed to the
+/// paths it has (nothing staged).
 fn checkout_stage(
     plan: &Plan<'_>,
     reference: &str,
     key: &storage::StoreKey,
     stage: &Path,
-) -> Result<(PathBuf, String, git::Staged), GitError> {
+) -> Result<Staging, GitError> {
     let context = plan.context;
     let sparse_paths = plan.sparse.as_ref().map(Sparse::paths);
     let materialize = |store: &Path| {
@@ -234,13 +286,28 @@ fn checkout_stage(
         }
     };
     // A scope none of whose paths exists checks out nothing: the row fails.
-    // With any path present the checkout stands, and its row names the
-    // missing ones ([`Plan::result`]).
-    if let Some(paths) = sparse_paths {
-        let missing = plan.missing_paths(stage, &staged.withheld);
-        if missing.len() == paths.len() {
-            return Err(sparse_not_found(plan, reference, &missing, stage));
+    // With any path present the scope narrows to those, whose checkout
+    // serves the row and names the missing ones ([`Plan::result`]).
+    if let Some(paths) = sparse_paths
+        && !staged.missing.is_empty()
+    {
+        if staged.missing.len() == paths.len() {
+            let missing = staged
+                .missing
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>();
+            return Err(sparse_not_found(plan, reference, &missing, &store));
         }
+        let present = paths
+            .iter()
+            .filter(|path| !staged.missing.contains(path))
+            .cloned()
+            .collect();
+        return Ok(Staging::Narrowed {
+            present,
+            absent: staged.missing,
+        });
     }
     // `checkout --detach` leaves the commit id in the worktree's HEAD file.
     let commit_sha = match storage::detached_head(stage) {
@@ -253,7 +320,11 @@ fn checkout_stage(
             format!("Checkout HEAD {commit_sha} does not match requested commit {reference}."),
         ));
     }
-    Ok((store, commit_sha, staged))
+    Ok(Staging::Staged {
+        store,
+        commit_sha,
+        staged,
+    })
 }
 
 /// Remove the older generations of the store `key` once no worktree uses
@@ -323,13 +394,13 @@ fn discard_stage(stage: &Path) {
     storage::remove_dir(stage);
 }
 
-/// Requested sparse paths absent at the checked-out revision, every one of
-/// them: a not-found input, named per path. The checkout holds the commit's trees, so the
-/// recovery is a runnable lead ([`recovery::sparse_next`]); only when the
+/// Requested sparse paths absent at the revision, every one of them: a
+/// not-found input, named per path. The `store` holds the commit's trees, so
+/// the recovery is a runnable lead ([`recovery::sparse_next`]); only when the
 /// tree cannot be read is it a hint.
-fn sparse_not_found(plan: &Plan<'_>, reference: &str, missing: &[&str], stage: &Path) -> GitError {
+fn sparse_not_found(plan: &Plan<'_>, reference: &str, missing: &[&str], store: &Path) -> GitError {
     let query = plan.query;
-    let next = recovery::sparse_next(plan.context, stage, query, missing);
+    let next = recovery::sparse_next(plan.context, store, reference, query, missing);
     let hints = if next.is_some() {
         Vec::new()
     } else {

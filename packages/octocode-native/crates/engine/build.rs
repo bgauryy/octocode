@@ -296,9 +296,9 @@ fn byte_string(bytes: &[u8]) -> String {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=src/security/patterns.rs");
-    println!("cargo:rerun-if-changed=src/security/patterns");
+    println!("cargo::rerun-if-changed=build.rs");
+    println!("cargo::rerun-if-changed=src/security/patterns.rs");
+    println!("cargo::rerun-if-changed=src/security/patterns");
     let mut gates = String::new();
     let mut fallback_gates = String::new();
     let mut longest = 0usize;

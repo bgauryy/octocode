@@ -226,6 +226,34 @@ fn a_moved_repository_warning_names_the_redirect_target() {
     assert!(named.contains("redirects a/b to c/d (renamed"), "{named}");
 }
 
+/// A moved repository whose release tag names another commit than the
+/// registry's states both: the redirect never hides the differing tag
+/// (LEFTOVERS P4, react 18.2.0).
+#[test]
+fn a_moved_repository_still_names_a_release_tag_at_another_commit() {
+    use crate::artifact::{ReleaseTag, RepositoryStatus};
+    let mut row = item(ArtifactType::Npm, "https://github.com/a/b");
+    row.version = Some("1.0.0".into());
+    row.source_ref = Some("abc".into());
+    row.tag_differs = Some(ReleaseTag {
+        tag: "v1.0.0".into(),
+        commit: "def".into(),
+    });
+    let still = source_warning(&row).expect("warning");
+    row.repository_status = Some(RepositoryStatus::Moved);
+    row.successor_repository = Some("c/d".into());
+    label_release_source(&mut row, true);
+    assert_eq!(row.verification, Some("registryRef"));
+    let warning = source_warning(&row).expect("warning");
+    assert!(warning.contains("redirects a/b to c/d"), "{warning}");
+    let differs = still
+        .trim_end_matches('.')
+        .rsplit(": ")
+        .next()
+        .expect("reason");
+    assert!(warning.contains(differs), "{warning} lacks {differs}");
+}
+
 /// A moved repository's source lead names it as GitHub does now (the name
 /// its redirect leads to), so the lead runs unchanged; while that name is
 /// unknown the lead keeps the registry's, which GitHub redirects.

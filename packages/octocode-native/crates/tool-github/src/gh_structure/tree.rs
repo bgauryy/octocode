@@ -32,7 +32,26 @@ pub(super) async fn execute_tree(
         root: &scope.path,
         max_depth: scope.depth,
     };
-    let mut traversal = traverse(provider, &listing, context).await?;
+    // Continuations read the same commit.
+    let pinned = GhStructureQueryTree {
+        ref_: Some(commit_sha.parse().map_err(
+            |error: octocode_contract_types::error::ConversionError| {
+                ProviderError::new(ProviderErrorKind::Decode, error.to_string())
+            },
+        )?),
+        ..query.clone()
+    };
+    let pace = Pace::of(query.walk_offset, context);
+    let mut traversal = match traverse(provider, &listing, pace, context).await? {
+        Walked::Done(traversal) => traversal,
+        Walked::Paused { reads } => {
+            let mut value = paused_listing(&pinned, &resolved_branch, &commit_sha, reads);
+            if let Some(warning) = renamed_warning {
+                push_warning_front(&mut value, warning);
+            }
+            return Ok(ToolData::from(value));
+        }
+    };
     scope.select(&mut traversal);
     // Every page reads the whole tree of the pinned commit, so a rank is
     // over the whole listing before its page is cut.
@@ -104,15 +123,6 @@ pub(super) async fn execute_tree(
     if let Some(warning) = renamed_warning {
         push_warning_front(&mut value, warning);
     }
-    // Continuations read the same commit.
-    let pinned = GhStructureQueryTree {
-        ref_: Some(commit_sha.parse().map_err(
-            |error: octocode_contract_types::error::ConversionError| {
-                ProviderError::new(ProviderErrorKind::Decode, error.to_string())
-            },
-        )?),
-        ..query.clone()
-    };
     attach_continuations(
         &mut value,
         &pinned,
@@ -163,6 +173,45 @@ pub(super) async fn execute_tree(
     octocode_runtime_base::response::result::finish_calls(&mut value);
     output.data = value;
     Ok(output)
+}
+
+/// The page of a walk the call's time paused ([`Walked::Paused`]): nothing
+/// is listed yet, since a listing orders, counts and pages its whole
+/// selection; `next.nextPage` replays the `reads` made so far at the same
+/// commit and walks on, so walking every page lists each entry once.
+pub(super) fn paused_listing(
+    pinned: &GhStructureQueryTree,
+    resolved_branch: &str,
+    commit_sha: &str,
+    reads: usize,
+) -> Value {
+    let mut value = json!({"owner": pinned.owner, "repo": pinned.repo});
+    if !resolved_branch.eq_ignore_ascii_case(commit_sha) {
+        value["ref"] = json!(resolved_branch);
+    }
+    value["commitSha"] = json!(commit_sha);
+    octocode_runtime_base::response::paging::mark_partial(
+        &mut value,
+        octocode_runtime_base::response::paging::PartialReason::WalkDeadline,
+        &[format!(
+            "The walk paused at this call's time budget after {reads} folder reads; it lists its entries once the walk ends: next.nextPage resumes it there."
+        )],
+    );
+    if let Some(call) = octocode_runtime_base::response::collection::continued_page(
+        ToolId::GhStructure,
+        query_row(pinned, &[]),
+        "walkOffset",
+        reads,
+        &[],
+    ) {
+        octocode_runtime_base::response::collection::insert_row_walk(
+            &mut value,
+            ToolId::GhStructure,
+            call,
+        );
+    }
+    octocode_runtime_base::response::result::finish_calls(&mut value);
+    value
 }
 
 /// An empty filtered listing, broadened ([`octocode_tools_shared::leads::broaden::broaden`]):

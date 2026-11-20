@@ -128,6 +128,22 @@ pub fn process_fetched_content_selected<S: ContentScan>(
         query_json: std::cell::OnceCell::new(),
     };
     if ext.count == Some(0) {
+        // A misremembered declaration head reads the file's one declaration
+        // of its name, as that read of the declaration's own line.
+        if let Some((declared, warning)) = declared_read(q, &source.text) {
+            let mut read = process_fetched_content_selected(
+                &declared,
+                bytes,
+                source_path,
+                provider_path,
+                facts,
+                security,
+                cancel,
+                selection,
+            );
+            read.warnings.insert(0, warning);
+            return read;
+        }
         let mut missed = no_match(q, &source);
         if ext.match_limited {
             disclose_match_limit(&mut missed, ext);

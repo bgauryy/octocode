@@ -165,6 +165,7 @@ Reads part of a file at a known path. Pass `ref` as the commit SHA from earlier 
 Finds pull requests, issues or commits, for why, when or who questions.
 
 - A `commit` query with `path` and no keywords lists that path's changes. Open the returned commit SHA or PR/issue number next.
+- A `pullRequest` search with no `owner` or `keywords` needs a filter naming a person, label or branch (`author`, `assignee`, `commenter`, `mentions`, `reviewRequested`, `reviewedBy`, `labels`, `headRef` or `baseRef`). Without one it would list every pull request on GitHub, so it is refused.
 
 ```json
 {"queries":[{"operation":"commit","owner":"octocat","repo":"Hello-World","path":"README"}]}
@@ -181,6 +182,8 @@ Reads one pull request, issue or commit, or compares two refs.
 ### `ghCloneRepo`
 
 Creates a local checkout at a revision, for repeated analysis with the local tools.
+
+- Don't clone for one known file: use `ghGetFileContent`. For many searches over a few named paths, use `ghStructure` with `materialize:true`.
 
 - `paths` makes a sparse checkout (up to 100 subtrees); completeness then covers only those paths.
 - Use `location.path` and keep the commit and path scope with your findings. An existing checkout with local changes is kept.

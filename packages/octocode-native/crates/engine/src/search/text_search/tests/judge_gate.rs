@@ -20,9 +20,7 @@ fn judge(judged: &Arc<AtomicUsize>) -> SourceJudge {
                 count.fetch_add(1, Ordering::Relaxed);
                 let mut text = String::new();
                 (&*file).read_to_string(&mut text)?;
-                Ok(text
-                    .contains(HIDDEN)
-                    .then(|| text.replace(HIDDEN, WRITTEN).into_bytes()))
+                Ok(text.contains(HIDDEN).then(|| served(&text)))
             },
         ),
         writes: Arc::new(|literal: &str, fold: bool| {
@@ -34,6 +32,20 @@ fn judge(judged: &Arc<AtomicUsize>) -> SourceJudge {
             literal.contains(['[', ']']) || written.contains(&literal)
         }),
         held: None,
+    }
+}
+
+/// `text` with each [`HIDDEN`] written as [`WRITTEN`], and where it was
+/// written.
+fn served(text: &str) -> crate::types::ServedText {
+    let served = text.replace(HIDDEN, WRITTEN);
+    let written = served
+        .match_indices(WRITTEN)
+        .map(|(at, _)| at..at + WRITTEN.len())
+        .collect();
+    crate::types::ServedText {
+        text: served.into_bytes(),
+        written,
     }
 }
 
@@ -105,21 +117,25 @@ fn a_hidden_value_never_matches() {
     assert!(files.is_empty(), "{files:?}");
 }
 
+/// A pattern that can take written text judges every file, and still
+/// matches none of the text written: a placeholder is no source text.
 #[test]
-fn a_pattern_that_can_match_written_text_judges_every_file() {
+fn a_pattern_that_can_match_written_text_judges_every_file_and_never_matches_it() {
     let root = root();
-    for pattern in ["HID", r"\[HID", "hid"] {
+    for pattern in ["HID", r"\[HID", "hid", r"key \[", r"\]"] {
         let (files, judged) = run(&root, pattern, |options| {
             options.syntax = PatternSyntax::Regex;
             options.case = CaseRule::Smart;
         });
-        assert_eq!(
-            files,
-            vec!["hidden.txt".to_owned(), "joined.txt".to_owned()],
-            "{pattern}"
-        );
+        assert!(files.is_empty(), "{pattern}: {files:?}");
         assert_eq!(judged, 4, "{pattern}");
     }
+    // A source that spells the written text itself matches it.
+    root.write("spelled.txt", "the [HID] marker\n");
+    let (files, _) = run(&root, r"\[HID\]", |options| {
+        options.syntax = PatternSyntax::Regex;
+    });
+    assert_eq!(files, vec!["spelled.txt".to_owned()]);
 }
 
 /// A match next to written text that its bytes do not hold: a word boundary
@@ -133,8 +149,9 @@ fn a_match_that_takes_its_context_from_written_text_is_found() {
         options.syntax = PatternSyntax::Regex;
     });
     // Every match starts with `foo`, which takes no written text: only the
-    // file whose bytes hold it is judged, and its served text matches.
-    assert_eq!((files, judged), (vec!["joined.txt".into()], 1));
+    // file whose bytes hold it is judged; its one match there runs into the
+    // written text, so it is none.
+    assert_eq!((files, judged), (vec![], 1));
     let (files, judged) = run(&root, r"fo+\b", |options| {
         options.syntax = PatternSyntax::Regex;
     });
@@ -198,9 +215,6 @@ fn terms_joined_without_case_judge_only_files_whose_bytes_match() {
     assert!(files.is_empty(), "{files:?}");
     assert_eq!(judged, 2);
     let (files, judged) = run(&root, "(?i:hid)|(?i:missing)", regex);
-    assert_eq!(
-        files,
-        vec!["hidden.txt".to_owned(), "joined.txt".to_owned()]
-    );
+    assert!(files.is_empty(), "{files:?}");
     assert_eq!(judged, 5);
 }

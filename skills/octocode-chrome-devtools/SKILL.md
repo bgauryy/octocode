@@ -1,6 +1,6 @@
 ---
 name: octocode-chrome-devtools
-description: "Load first to drive Chrome via DevTools Protocol with Octocode Chrome DevTools MCP or CLI: logged-in pages, clicks, form filling, screenshots, DOM, console errors, network requests, performance traces, tools a page declares via WebMCP. Public pages without interaction: octocode-scraping."
+description: "Load this skill first when a task needs a live Chrome page driven (logged-in pages, clicks, forms, screenshots, console, network, traces): it serves the DevTools MCP and CLI guides. Public static pages: octocode-scraping."
 ---
 
 # Chrome DevTools

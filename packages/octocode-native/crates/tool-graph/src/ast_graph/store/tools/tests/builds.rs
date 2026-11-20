@@ -71,7 +71,7 @@ fn builds_pages_and_freshness_are_workspace_scoped() {
             r#"{
                 "operation": "callers",
                 "path": "app",
-                "target": "a.ts#first"
+                "target": "app/a.ts#first"
             }"#,
         ),
     );
@@ -79,7 +79,7 @@ fn builds_pages_and_freshness_are_workspace_scoped() {
         callers["confidence"], "high",
         "the core contract supplies the default"
     );
-    assert_eq!(callers["rows"][0]["id"], "a.ts#final");
+    assert_eq!(callers["rows"][0]["id"], "app/a.ts#final");
     call(
         &dir.0,
         ToolId::GraphBuild,
@@ -471,14 +471,14 @@ fn a_snapshot_of_another_analysis_version_leads_to_its_rebuild() {
             r#"{
                 "operation": "callers",
                 "path": "app",
-                "target": "a.ts#first"
+                "target": "app/a.ts#first"
             }"#,
         ),
     );
     let by_id = call(
         &dir.0,
         ToolId::GraphQuery,
-        json!({"operation":"callers","path":"app","graph":id,"target":"a.ts#first"}),
+        json!({"operation":"callers","path":"app","graph":id,"target":"app/a.ts#first"}),
     );
     assert_eq!(by_path, by_id);
     assert_eq!(by_path["errorCode"], "snapshotIncompatible", "{by_path}");
@@ -499,10 +499,10 @@ fn a_snapshot_of_another_analysis_version_leads_to_its_rebuild() {
             r#"{
                 "operation": "callers",
                 "path": "app",
-                "target": "a.ts#first"
+                "target": "app/a.ts#first"
             }"#,
         ),
     );
     assert_eq!(callers["graph"]["id"], rebuilt["id"], "{callers}");
-    assert_eq!(callers["rows"][0]["id"], "a.ts#final", "{callers}");
+    assert_eq!(callers["rows"][0]["id"], "app/a.ts#final", "{callers}");
 }

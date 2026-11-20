@@ -1,6 +1,6 @@
 ---
 name: octocode-dev
-description: "Use when developing or verifying this Octocode monorepo: setup, builds, tests, lint, contract regeneration, tool audits, configuration changes or release preparation. Load it before running builds, tests or audits here: it owns the task runner and the shared-build rules."
+description: "Load this skill first when building, testing, linting, regenerating contracts, auditing tools or preparing a release in this Octocode monorepo: it owns the task runner and shared-build rules that bare cargo or yarn would break."
 ---
 
 # Octocode Dev
@@ -12,8 +12,7 @@ dev() { node skills-dev/octocode-dev/scripts/dev.mjs "$@"; }
 octo() { node packages/octocode/out/octocode.js "$@"; }
 ```
 
-For tool calls see [MCP and CLI usage](references/octocode-usage.md).
-Delegating more than one task: [orchestration](references/orchestration.md). Checking tools and workflows: [tool checks](../../packages/octocode-benchmark/CHECKS.md) (direct calls judged by reading; no harness scripts).
+For tool calls see [MCP and CLI usage](references/octocode-usage.md). Delegating more than one task: [orchestration](references/orchestration.md). Checking tools and workflows: [tool checks](../../packages/octocode-benchmark/CHECKS.md) (direct calls judged by reading; no harness scripts).
 
 ## Task runner
 
@@ -34,12 +33,6 @@ Follow [repository working rules](../../AGENTS.md). Schemas and descriptions liv
 
 Use `--all`, `build:all` and `build:publish` only for requested release or cross-platform work. `verify` and `check-outputs` check the host binary; `check-outputs --all` checks staged platforms.
 
-## Audit a tool end to end
-
-Run [tool-inventory.mjs](scripts/tool-inventory.mjs) with the tool name. Follow the [surface map](references/surface-map.md) from core to each interface, then [contract](references/contract-audit.md), [implementation](references/implementation-audit.md) and [output](references/output-audit.md) in order, covering all three lanes. Fix a confirmed defect at its owning layer per [fix and verify](references/fix-and-verify.md).
-
-Use the [audit template](assets/audit-report.md), one report per tool; each 5W2H finding has source location, severity, evidence, fix and verification result, with unverified slots marked unknown. For independent audits give each actor its tool, skill, template and definition of done.
-
 ## Resources
 
 | When | Read |
@@ -48,12 +41,10 @@ Use the [audit template](assets/audit-report.md), one report per tool; each 5W2H
 | A setting or credential changes | [Configuration changes](docs/ADDING_CONFIG.md) |
 | Maintaining a scraper or adding a vendor | [Scraping maintenance](docs/SCRAPING_MAINTENANCE.md) |
 | Checking tool evidence, pagination or continuations | [Tool quality](docs/TOOL_QUALITY.md) · [data contract](../../docs/TOOL_DATA_CONTRACT.md) |
+| Auditing one tool across core, CLI and MCP | [Tool audit](docs/TOOL_AUDIT.md) |
 | Reporting results | [Output](output.md) |
+| Neighbor skills | `octocode-research` (code evidence), `rust-best-practices` (Rust design), `octocode-graph-dev` (graph engine, language battery), `octocode-documentation` (prose rewrites). |
 
 ## Definition of Done
 
 Generated outputs come from their owner, new fields have coverage, focused tests pass, and runtime changes are verified through the affected interface. Plain task runs report command and exit status; audits give result and evidence first, then unchecked scope.
-
-## Related skills
-
-`octocode-research` (code evidence), `rust-best-practices` (Rust design), `octocode-graph-dev` (graph engine, language battery), `octocode-documentation` (prose rewrites).

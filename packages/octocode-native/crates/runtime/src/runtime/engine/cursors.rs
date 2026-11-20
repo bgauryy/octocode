@@ -1,7 +1,7 @@
 //! Issued handles for saved tool work and immutable response pages.
 //! A handle names one retained continuation by its content ([`handle`]). It
 //! never contains caller-editable progress.
-use super::page_replay::Refusal;
+use super::page_replay::{Refusal, ReplayScope};
 use crate::runtime::row_indices::RowOrigin;
 use octocode_runtime_base::cache::{CacheConfig, CacheKey, Disk, Store};
 use octocode_runtime_base::execution::{ExecutionContext, ExecutionError, StorageFault};
@@ -79,6 +79,9 @@ pub(super) struct Member {
 /// it was issued to and the work it resumes.
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) struct Issued {
+    /// The scope it is kept under ([`ReplayScope::of`] its tool).
+    #[serde(default)]
+    scope: String,
     access: [u8; 32],
     pub github_identity: Option<String>,
     member: Member,
@@ -95,7 +98,7 @@ pub(super) struct Registry {
     /// ([`octocode_runtime_base::providers::saved_answers::gate_keeps`]): this process's
     /// memory only ([`evidence`]).
     held_evidence: Store<octocode_github::ProviderEvidence>,
-    policy: String,
+    policy: ReplayScope,
     disk: Option<PathBuf>,
     /// Taken before the sidecar file lock, so that lock is contended across
     /// processes only.
@@ -105,7 +108,7 @@ pub(super) struct Registry {
 /// The continuations one output issues, retained together before it is
 /// published.
 pub(super) struct Pending {
-    policy: String,
+    policy: ReplayScope,
     access: [u8; 32],
     github_identity: Option<String>,
     issued: BTreeMap<String, Member>,
@@ -133,7 +136,16 @@ mod evidence;
 mod walks;
 
 impl Registry {
+    /// A registry whose every tool keeps its handles under one `policy`:
+    /// what tests build to stand for another runtime's registry.
+    #[cfg(test)]
     pub(super) fn new(config: CacheConfig, disk: Option<PathBuf>, policy: String) -> Self {
+        Self::scoped(config, disk, policy.into())
+    }
+
+    /// A registry that keeps each tool's handles under its scope
+    /// ([`ReplayScope::of`]).
+    pub(super) fn scoped(config: CacheConfig, disk: Option<PathBuf>, policy: ReplayScope) -> Self {
         Self {
             store: Store::new(config.clone(), disk.clone()),
             evidence: Store::new(config.clone(), disk.clone()),
@@ -162,10 +174,11 @@ impl Registry {
         self
     }
 
-    fn key(&self, token: &str) -> CacheKey {
+    /// Where a handle is kept: under the scope of the tool it was issued to.
+    fn key(scope: &str, token: &str) -> CacheKey {
         CacheKey {
             namespace: "issued-continuations-v2".into(),
-            scope: self.policy.clone(),
+            scope: scope.into(),
             resource: token.into(),
         }
     }
@@ -191,14 +204,14 @@ impl Registry {
         let _mutation = self.mutation_lock(context)?;
         let _storage = self.process_lock(context)?;
         context.check()?;
-        if let Some((_, owned)) = pending.evidence
+        if let Some((owner, owned)) = pending.evidence
             && pending
                 .issued
                 .values()
                 .any(|member| member.evidence.as_ref() == Some(&owned.digest))
         {
             let key = evidence::key(
-                &self.policy,
+                pending.policy.of(owner),
                 pending.github_identity.as_deref(),
                 &owned.digest,
             );
@@ -211,7 +224,12 @@ impl Registry {
             );
         }
         for (token, member) in pending.issued {
-            let key = self.key(&token);
+            let scope = ToolId::from_name(&member.tool)
+                .map_or(pending.policy.workspace.as_str(), |tool| {
+                    pending.policy.of(tool)
+                })
+                .to_owned();
+            let key = Self::key(&scope, &token);
             if self
                 .store
                 .get(&key)
@@ -222,6 +240,7 @@ impl Registry {
             // A clasify cursor names a plan kept that long: it must not die first.
             let retention = super::page_replay::retention_of(&member.tool);
             let issued = Issued {
+                scope,
                 access: pending.access,
                 github_identity: pending.github_identity.clone(),
                 member,
@@ -308,9 +327,11 @@ impl Registry {
         access: [u8; 32],
     ) -> Result<Opened, Refusal> {
         issued::parts(token).ok_or(Refusal::Malformed)?;
-        let issued = self
-            .store
-            .get(&self.key(token))
+        // A handle of the other kind of tool is kept under the other scope:
+        // found there, it was issued to another tool.
+        let issued = [self.policy.of(tool), self.policy.other_than(tool)]
+            .into_iter()
+            .find_map(|scope| self.store.get(&Self::key(scope, token)))
             .ok_or(Refusal::NotRetained)?
             .value;
         if issued.access != access {
@@ -332,7 +353,7 @@ impl Registry {
         let evidence = evidence::open(
             &self.evidence,
             &self.held_evidence,
-            &evidence::key(&self.policy, opened.github_identity(), digest),
+            &evidence::key(&opened.issued.scope, opened.github_identity(), digest),
         )?;
         Some((digest.to_owned(), evidence))
     }
@@ -374,7 +395,7 @@ impl Pending {
     /// ([`handle`]).
     pub(super) fn insert(&mut self, tool: ToolId, mut input: Value, work: SavedWork) -> String {
         shown_paths(&mut input);
-        let token = handle(&self.policy, &self.access, tool, &input, &work);
+        let token = handle(self.policy.of(tool), &self.access, tool, &input, &work);
         let evidence = match (&self.evidence, &work) {
             (Some((owner, owned)), SavedWork::ToolResume { .. } | SavedWork::Rows { .. })
                 if *owner == tool =>
@@ -424,8 +445,9 @@ fn shown_paths(input: &mut Value) {
 /// The opaque handle of one continuation: a digest of the replay policy,
 /// access identity (the call's credential scope), tool, complete canonical
 /// input and saved work (a response page's replay key). The policy binds
-/// configuration, workspace, contract and planner epoch, so reissuing work
-/// cannot resurrect an older policy's token. Within one policy the same
+/// configuration, contract and planner epoch, and the workspace for a tool
+/// bound to it ([`ReplayScope::of`]), so reissuing work cannot resurrect an
+/// older policy's token. Within one policy the same
 /// continuation has one handle, so repeated leads are read once.
 fn handle(
     policy: &str,

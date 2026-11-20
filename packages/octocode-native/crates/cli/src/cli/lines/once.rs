@@ -257,9 +257,10 @@ const SNAPSHOT_FIELDS: [&str; 2] = ["graph", "baseline"];
 /// answer names each file from the workspace root, the scope included, so
 /// the row states the scope once as its root instead. Rewritten are the
 /// strings of the row's `data` (its snapshot references aside) that spell a
-/// path under the scope, a `path:line` mention alike, and a node field
-/// naming the scope itself (`.`). A value with a space (text) or a `#` (a
-/// symbol id, named from the snapshot) stays as the result spells it. `None`
+/// path under the scope, a `path:line` mention and a symbol id
+/// (`path#name`) alike, and a node field naming the scope itself (`.`). A
+/// value with a space (text), or one not under the scope (a URL, an issue
+/// `#123`, a path elsewhere), stays as the result spells it. `None`
 /// (nothing rewritten) when the query names no scope below the workspace or
 /// no value lies under it; calls are separate and keep their paths.
 pub(super) fn under_scope(row: &mut Map<String, Value>, query: &Value) -> Option<String> {
@@ -284,7 +285,7 @@ pub(super) fn under_scope(row: &mut Map<String, Value>, query: &Value) -> Option
 /// [`under_scope`] of one value under `key`.
 fn relative_to(value: &mut Value, key: &str, scope: &str, rewritten: &mut bool) {
     match value {
-        Value::String(text) if !text.contains(char::is_whitespace) && !text.contains('#') => {
+        Value::String(text) if !text.contains(char::is_whitespace) => {
             let relative = text
                 .strip_prefix(scope)
                 .and_then(|rest| rest.strip_prefix('/'))

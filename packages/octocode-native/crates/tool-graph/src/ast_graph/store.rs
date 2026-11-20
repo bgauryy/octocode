@@ -122,6 +122,8 @@ pub(crate) enum Channel {
     NextPage,
     /// The members of the cycle on row `i` of this page, past its preview.
     Cycle(usize),
+    /// A list the answer's summary counts, read whole as rows (`impact`).
+    List(&'static str),
 }
 
 impl Channel {
@@ -129,6 +131,7 @@ impl Channel {
         match self {
             Self::NextPage => "nextPage".into(),
             Self::Cycle(index) => format!("cycle{index}"),
+            Self::List(list) => (*list).into(),
         }
     }
 }

@@ -40,14 +40,70 @@ pub(super) struct PageReplayMemo {
     /// storage mode, as held provider answers are. A later runtime answers
     /// their cursors by re-executing the pinned page.
     held: octocode_runtime_base::cache::Store<PageReplay>,
+    /// The scope of saved work that depends on the workspace
+    /// ([`replay_policy`]); every store but the GitHub tools' keeps its
+    /// work under it.
     pub(super) policy: String,
+    /// The scope of GitHub tools' saved work ([`ReplayScope`]).
+    shared: String,
     pub(super) persistent: bool,
+}
+
+/// The scopes saved work is kept and named under. Configuration, the
+/// contract and the build bind every tool's saved work; the workspace (the
+/// directory the runtime started in) binds the work of tools that read the
+/// local filesystem or answer under its policy. The GitHub tools answer from
+/// the API endpoint and home alone (the contract's `family`), so their
+/// cursors resume from any directory with the same configuration and
+/// access identity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct ReplayScope {
+    pub(super) shared: String,
+    pub(super) workspace: String,
+}
+
+/// Whether `tool`'s saved work is kept under the shared scope: a GitHub
+/// tool's ([`ReplayScope`]).
+fn shares_scope(tool: ToolId) -> bool {
+    tool.is_github()
+}
+
+impl ReplayScope {
+    /// The scope of `tool`'s saved work.
+    pub(super) fn of(&self, tool: ToolId) -> &str {
+        if shares_scope(tool) {
+            &self.shared
+        } else {
+            &self.workspace
+        }
+    }
+
+    /// The scope of the other tools' saved work: where a handle sent to
+    /// `tool` but issued to a tool of the other kind is kept.
+    pub(super) fn other_than(&self, tool: ToolId) -> &str {
+        if shares_scope(tool) {
+            &self.workspace
+        } else {
+            &self.shared
+        }
+    }
+}
+
+/// One scope for every tool: a registry made from one policy text.
+impl From<String> for ReplayScope {
+    fn from(policy: String) -> Self {
+        Self {
+            shared: policy.clone(),
+            workspace: policy,
+        }
+    }
 }
 
 impl PageReplayMemo {
     pub(super) fn new(config: &ConfigOutput, cwd: &std::path::Path) -> Self {
         let persistent = config::saves_local_results(&config.resolved);
         let policy = replay_policy(config, cwd, BUILD_IDENTITY);
+        let shared = shared_policy(config, BUILD_IDENTITY);
         Self {
             store: octocode_runtime_base::cache::Store::new(
                 octocode_runtime_base::cache::CacheConfig::derived(),
@@ -60,7 +116,25 @@ impl PageReplayMemo {
                 None,
             ),
             policy,
+            shared,
             persistent,
+        }
+    }
+
+    /// The scopes the cursor registry keeps handles under.
+    pub(super) fn scope(&self) -> ReplayScope {
+        ReplayScope {
+            shared: self.shared.clone(),
+            workspace: self.policy.clone(),
+        }
+    }
+
+    /// The scope `tool`'s saved responses are kept under.
+    fn scope_of(&self, tool: &str) -> &str {
+        if ToolId::from_name(tool).is_some_and(shares_scope) {
+            &self.shared
+        } else {
+            &self.policy
         }
     }
 
@@ -74,12 +148,18 @@ impl PageReplayMemo {
         }
     }
 
+    /// The saved response `cursor` names. Its key names the tool, so the
+    /// response is under that tool's scope: the workspace's, or the shared
+    /// one of a GitHub tool. A response another workspace saved is under
+    /// neither.
     pub(super) fn get(&self, cursor: &Cursor) -> Option<Arc<PageReplay>> {
-        let key = Self::key(cursor, &self.policy);
-        self.held
-            .get(&key)
-            .or_else(|| self.store.get(&key))
-            .map(|hit| hit.value)
+        [&self.policy, &self.shared].into_iter().find_map(|policy| {
+            let key = Self::key(cursor, policy);
+            self.held
+                .get(&key)
+                .or_else(|| self.store.get(&key))
+                .map(|hit| hit.value)
+        })
     }
 
     pub(super) fn insert(
@@ -110,7 +190,7 @@ impl PageReplayMemo {
         };
         store.put_until(
             deadline,
-            Self::key(cursor, &self.policy),
+            Self::key(cursor, self.scope_of(tool)),
             replay,
             weight,
             retention_of(tool),
@@ -118,6 +198,8 @@ impl PageReplayMemo {
     }
 }
 
+/// The scope of saved work bound to the workspace `cwd` as well as to the
+/// configuration, contract and build ([`ReplayScope`]).
 fn replay_policy(config: &ConfigOutput, cwd: &std::path::Path, build: &str) -> String {
     octocode_engine::digest::sha256(
         format!(
@@ -130,11 +212,27 @@ fn replay_policy(config: &ConfigOutput, cwd: &std::path::Path, build: &str) -> S
     )
 }
 
+/// The scope of saved work bound to the configuration, contract and build
+/// alone ([`ReplayScope`]).
+fn shared_policy(config: &ConfigOutput, build: &str) -> String {
+    octocode_engine::digest::sha256(
+        format!(
+            "{}:{}:{build}",
+            config.identity_digest(),
+            octocode_contract_types::TOOL_TYPES_CONTRACT_FINGERPRINT
+        )
+        .as_bytes(),
+    )
+}
+
 #[cfg(test)]
 mod tests;
 
 #[cfg(test)]
 mod refusal_tests;
+
+#[cfg(test)]
+mod workspace_tests;
 
 /// How long saved work for `tool` stays reachable after its last read: the
 /// one owner of the lifetime of its cursors, saved pages, the expiry a page

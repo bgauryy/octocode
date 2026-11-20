@@ -108,6 +108,10 @@ pub struct NextCalls {
     /// The same read with each regex item that does not compile repaired.
     #[serde(rename = "repair", skip_serializing_if = "Option::is_none", default)]
     pub repair: Option<FetchCall>,
+    /// The ghCloneRepo call that checks a missing path out beside the sparse
+    /// checkout that leaves it out (a related call: it rides `related[]`).
+    #[serde(rename = "reclone", skip_serializing_if = "Option::is_none", default)]
+    pub reclone: Option<serde_json::Value>,
 }
 
 /// Which source a continuation read reads.
@@ -166,6 +170,7 @@ impl NextCalls {
             (&mut self.view_tree, other.view_tree),
             (&mut self.find_file, other.find_file),
             (&mut self.text_search, other.text_search),
+            (&mut self.reclone, other.reclone),
         ] {
             if mine.is_none() {
                 *mine = theirs;

@@ -84,15 +84,16 @@ fn only_files_whose_bytes_match_are_judged() {
         assert!(!judged.iter().any(|name| name == "plain.txt"), "{judged:?}");
     }
 
-    // A placeholder is found where a read shows it, though no byte holds it:
-    // a pattern that can match written text judges every text file.
+    // A placeholder is text the read wrote, never found, though a read
+    // shows it: a pattern that can match written text still judges every
+    // text file.
     for needle in [
         "[REDACTED-GITHUBTOKENS]",
         "REDACTED-GITHUBTOKENS",
         "githubtokens",
     ] {
         let (files, judged) = listed(&root, json!({"matchString": [needle]}));
-        assert_eq!(files, ["tok.rs"], "{needle}");
+        assert!(files.is_empty(), "{needle}: {files:?}");
         assert!(
             judged.iter().any(|name| name == "plain.txt"),
             "{needle}: {judged:?}"

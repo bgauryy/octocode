@@ -124,7 +124,7 @@ pub(super) fn tier_dead_code(
             "unreachable-file" | "test-only" => {
                 stems.extend(subject_keys(&finding.subject, &root_name));
             }
-            "unused-export" => {
+            "unused-export" | "export-only-local" => {
                 // Every name, short ones too: tier 90 claims no code or
                 // qualified reference, so no name may skip the check.
                 for name in finding.evidence["exports"].as_array().into_iter().flatten() {
@@ -158,7 +158,7 @@ pub(super) fn tier_dead_code(
             "unreachable-file" | "test-only" => {
                 tier_mentioned_file(v, &hits, &root_name, finding);
             }
-            "unused-export" => {
+            "unused-export" | "export-only-local" => {
                 let references = |name: &str| {
                     let own = declared.get(name);
                     let bare = mentions_outside(&hits.bare, name, &finding.subject)
@@ -209,14 +209,14 @@ pub(super) fn tier_dead_code(
                     let (mut words_named, words_unnamed): (BTreeMap<_, _>, BTreeMap<_, _>) = words
                         .into_iter()
                         .partition(|(name, _)| referenced.contains_key(name));
-                    if let Some(mut referenced_part) = regroup_unused_export(v, finding, &named) {
+                    if let Some(mut referenced_part) = regroup_exports(v, finding, &named) {
                         referenced_part.tier = 60;
                         mention_evidence(
                             &mut referenced_part,
                             referenced,
                             std::mem::take(&mut words_named),
                         );
-                        if let Some(rest) = regroup_unused_export(v, finding, &unnamed) {
+                        if let Some(rest) = regroup_exports(v, finding, &unnamed) {
                             *finding = rest;
                             mention_evidence(finding, BTreeMap::new(), words_unnamed);
                         }

@@ -289,6 +289,17 @@ fn offer_deeper_walk(
     );
 }
 
+/// Every walk's bases declared outside the read policy, each named once.
+pub(super) fn withheld_names<'a>(walks: &[(Expansion, &'a HierarchyWalk)]) -> Vec<&'a String> {
+    let mut names: Vec<&String> = Vec::new();
+    for name in walks.iter().flat_map(|(_, walk)| &walk.withheld_names) {
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names
+}
+
 /// Every walk's TypeScript built-in library callees, each named once.
 pub(super) fn builtin_lib_names<'a>(walks: &[(Expansion, &'a HierarchyWalk)]) -> Vec<&'a String> {
     let mut names: Vec<&String> = Vec::new();
@@ -310,11 +321,20 @@ fn note_omitted(row: &mut Value, walks: &[(Expansion, &HierarchyWalk)]) {
         .sum::<usize>();
     if out_of_policy > 0 {
         // Missing callers: the same count `references` reports as partial.
+        // A base the source names is named: its name is read from source
+        // the policy allows.
+        let named = withheld_names(walks);
+        let named = if named.is_empty() {
+            String::new()
+        } else {
+            let names = named.iter().map(|name| name.as_str()).collect::<Vec<_>>();
+            format!(" (the source names {})", names.join(", "))
+        };
         octocode_runtime_base::response::paging::mark_partial(
             row,
             octocode_runtime_base::response::paging::PartialReason::LocationsWithheld,
             &[format!(
-                "{out_of_policy} hierarchy items the path policy does not let this tool read were omitted."
+                "{out_of_policy} hierarchy items the path policy does not let this tool read were omitted{named}."
             )],
         );
     }

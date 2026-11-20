@@ -137,9 +137,11 @@ pub(super) fn node(
         out.insert("out".into(), json!(degree_counts(g.t.out(id).iter())));
         out.insert("in".into(), json!(degree_counts(g.t.incoming(id))));
     }
-    Ok(GraphOutput::ok(
-        json!({"graph": g.summary(), "operation": "node", "node": out}),
-    ))
+    let mut answer = json!({"graph": g.summary(), "operation": "node", "node": out});
+    if let Some(check) = g.lsp_check(id, "references", cancel)? {
+        answer["related"] = json!([check]);
+    }
+    Ok(GraphOutput::ok(answer))
 }
 
 /// The symbols `id` directly contains, in edge order.

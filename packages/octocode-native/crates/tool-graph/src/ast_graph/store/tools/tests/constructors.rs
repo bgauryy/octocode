@@ -179,7 +179,7 @@ fn leading_global_constructor_does_not_bind_a_nested_type() {
     );
     let out = rows(&dir.0, "witnesses", "global.cpp");
     assert_eq!(out["pagination"]["total"], 1, "{out}");
-    assert_eq!(out["rows"][0]["to"], "global.cpp#Box");
+    assert_eq!(out["rows"][0]["to"], "app/global.cpp#Box");
     dir.write(
         "app/global.cpp",
         "namespace inner { struct Box {}; void run(){ new ::Box(); } }",
@@ -274,7 +274,7 @@ fn exact_namespace_constructor_paths_preserve_ambiguity_without_casing_heuristic
             .iter()
             .map(|row| row["to"].as_str().unwrap())
             .collect::<BTreeSet<_>>(),
-        BTreeSet::from(["namespaces.cpp#lower.Box", "namespaces.cpp#Root"])
+        BTreeSet::from(["app/namespaces.cpp#lower.Box", "app/namespaces.cpp#Root"])
     );
     dir.write("app/namespaces.cpp","namespace lower { struct Box {}; }\nnamespace lower { struct Box {}; }\nvoid run(){ new lower::Box(); }");
     call(

@@ -135,6 +135,7 @@ pub(super) fn match_extract(
     let mut warnings = vec![];
     let windows = context_windows(q, lines, &hits, &regions);
     let mut blocks = vec![];
+    let mut next = NextCalls::default();
     let windows = if local_fetch_query::block(q) {
         super::super::block::widen_matches(
             content,
@@ -143,12 +144,12 @@ pub(super) fn match_extract(
             windows,
             &mut warnings,
             &mut blocks,
+            &mut next,
         )
     } else {
         windows
     };
     let ranges = merge_ranges(windows);
-    let mut next = NextCalls::default();
     let (text, selected, placed) = placed_windows_text(content, lines, &ranges);
     let match_windows = long_line_windows(content, lines, &spans, (&ranges, &placed));
     if let Some(line) = limit_line {

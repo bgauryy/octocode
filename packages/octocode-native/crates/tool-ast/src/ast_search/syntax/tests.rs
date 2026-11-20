@@ -295,6 +295,44 @@ fn a_recovered_parse_over_several_pages_states_its_reason_on_the_first_and_last(
     }
 }
 
+/// A whole tree over several pages is pagination, not partial coverage:
+/// no page says `isPartial` beside `hasMore`; page 1 alone names the tree's
+/// size and how to read part of it (`line`), and every node comes once.
+#[test]
+fn a_whole_tree_over_pages_is_never_partial_and_page_one_names_line() {
+    let text = "value = 1\n".repeat(200);
+    let pages = rendered_pages(&text, 2_000);
+    assert!(pages.len() > 2, "{}", pages.len());
+    let mut ids = std::collections::BTreeSet::new();
+    let total = pages[0]["pagination"]["total"].as_u64().expect("a total") as usize;
+    for (at, row) in pages.iter().enumerate() {
+        assert!(
+            row.get("isPartial") != Some(&json!(true)),
+            "page {at}: {row}"
+        );
+        assert!(row.get("partialReasons").is_none(), "page {at}: {row}");
+        let notices = row["notices"].as_array().map_or(0, Vec::len);
+        let names_line = row["notices"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .any(|notice| notice.contains(&total.to_string()) && notice.contains("line"));
+        assert_eq!(names_line, at == 0, "page {at}: {row}");
+        assert_eq!(notices, usize::from(at == 0), "page {at}: {row}");
+        for node in row["nodes"].as_array().expect("nodes") {
+            let id = node["node"].as_str().expect("node row");
+            assert!(ids.insert(id.to_owned()), "a node repeats: {id}");
+        }
+    }
+    assert_eq!(ids.len(), total);
+    // A tree that fits one page names nothing.
+    let [one] = rendered_pages("value = 1\n", 131_072)
+        .try_into()
+        .expect("one page");
+    assert!(one.get("notices").is_none(), "{one}");
+}
+
 /// A walk the deadline stopped is a terminal limit: nodes past it are on no
 /// page, and its diagnostic keeps the recovery that reaches them.
 #[test]

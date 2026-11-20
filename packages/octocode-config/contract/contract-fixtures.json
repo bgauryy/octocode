@@ -3863,11 +3863,69 @@
   {
     "id": "history-search.global-pr",
     "tool": "ghSearchHistory",
-    "accepted": true,
+    "accepted": false,
     "input": {
       "queries": [
         {
           "operation": "pullRequest"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-search.global-pr-state-only",
+    "tool": "ghSearchHistory",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "filters": {
+            "state": "open"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-search.global-pr-keywords",
+    "tool": "ghSearchHistory",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "keywords": [
+            "tokio"
+          ]
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "keywords": [
+            "tokio"
+          ],
+          "limit": 50,
+          "page": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-search.global-pr-author",
+    "tool": "ghSearchHistory",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "filters": {
+            "author": "octocat",
+            "state": "open"
+          }
         }
       ]
     },
@@ -3876,7 +3934,11 @@
         {
           "operation": "pullRequest",
           "limit": 50,
-          "page": 1
+          "page": 1,
+          "filters": {
+            "state": "open",
+            "author": "octocat"
+          }
         }
       ]
     }

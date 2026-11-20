@@ -42,6 +42,25 @@ fn the_edits_reach_each_shape_one_edit_away() {
     assert!(!crates.contains(&"serde_json".to_owned()), "{crates:?}");
 }
 
+/// A name spelled with capitals is one edit from its lowercase spelling, the
+/// only one npm takes for a new name (LEFTOVERS P2); a registry that matches
+/// names whatever their case has no such edit.
+#[test]
+fn capitals_lowercased_are_one_edit() {
+    let npm = ['-', '_', '.'];
+    for name in ["React", "Lodash.Merge", "JSONStream"] {
+        let lower = name.to_lowercase();
+        assert!(edits(name, &npm, same).contains(&lower), "{name}");
+    }
+    assert!(
+        !edits("react", &npm, same)
+            .iter()
+            .any(|edit| edit == "react")
+    );
+    let crates = edits("Serde", &['-', '_'], crate_identity);
+    assert!(!crates.contains(&"serde".to_owned()), "{crates:?}");
+}
+
 /// The ratio is the policy's, over the name's own count of one at least.
 #[test]
 fn a_lookalike_needs_the_ratio_over_the_names_own_count() {

@@ -181,6 +181,7 @@ pub(super) fn create(
         active: Vec::new(),
         request: Value::Null,
         source_disclosures: None,
+        max_requests: None,
     };
     Ok((session, notices, related))
 }

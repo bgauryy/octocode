@@ -1,4 +1,33 @@
+/// One ATX heading of a Markdown file: its 1-based line, its level (1–6)
+/// and its text (`(untitled heading)` for none).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MarkdownHeading {
+    pub line: usize,
+    pub level: usize,
+    pub text: String,
+}
+
+/// The `symbols` outline of a Markdown file: one row per heading,
+/// `line<TAB>` then the heading indented by its level.
 pub fn markdown_heading_outline(content: &str, path: &str) -> Option<String> {
+    let output = markdown_headings(content, path)?
+        .into_iter()
+        .map(|heading| {
+            format!(
+                "{}\t{}{} {}",
+                heading.line,
+                "  ".repeat(heading.level - 1),
+                "#".repeat(heading.level),
+                heading.text
+            )
+        })
+        .collect::<Vec<_>>();
+    (!output.is_empty()).then(|| output.join("\n"))
+}
+
+/// The ATX headings of a Markdown file in line order, none inside a fenced
+/// code block; `None` for a path that is no Markdown file.
+pub fn markdown_headings(content: &str, path: &str) -> Option<Vec<MarkdownHeading>> {
     let path = path.split(['?', '#']).next().unwrap_or(path);
     if super::DocumentFormat::of(path) != Some(super::DocumentFormat::Markdown) {
         return None;
@@ -46,15 +75,13 @@ pub fn markdown_heading_outline(content: &str, path: &str) -> Option<String> {
         } else {
             text
         };
-        output.push(format!(
-            "{}\t{}{} {}",
-            index + 1,
-            "  ".repeat(level - 1),
-            "#".repeat(level),
-            text
-        ));
+        output.push(MarkdownHeading {
+            line: index + 1,
+            level,
+            text: text.to_owned(),
+        });
     }
-    (!output.is_empty()).then(|| output.join("\n"))
+    Some(output)
 }
 
 #[cfg(test)]

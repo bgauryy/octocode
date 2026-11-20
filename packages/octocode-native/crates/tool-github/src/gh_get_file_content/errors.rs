@@ -7,8 +7,8 @@ use octocode_runtime_base::id::ToolId;
 use octocode_runtime_base::response::result::{Continuation, query_row};
 use octocode_tools_shared::gh_shared::{
     GhFailure, PathRecovery, REPOSITORY_SEARCH_HINT, RepoPath, parent_dir, provider_hint,
-    provider_message, repository_not_found, repository_not_found_message, repository_recovery,
-    tree_recovery, validation_message, with_ref_recovery,
+    provider_message, repository_not_found, repository_not_found_message, tree_recovery,
+    validation_message, with_ref_recovery,
 };
 use serde_json::{Value, json};
 
@@ -96,7 +96,15 @@ pub fn failure(
         // for its name names the owner that holds it (as on the search
         // tools).
         label = Some(REPOSITORY_SEARCH_HINT.to_owned());
-        (None, Some(repository_recovery(Some(owner), repo)))
+        (
+            None,
+            Some(octocode_tools_shared::gh_shared::search::repository_repair(
+                ToolId::GhGetFileContent,
+                query,
+                Some(owner),
+                repo,
+            )),
+        )
     } else if error.kind == ProviderErrorKind::NotFound {
         path_recovery(query, &at, found)
     } else {

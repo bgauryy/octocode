@@ -1,6 +1,6 @@
 ---
 name: zod
-description: "Use when creating, reviewing or testing Zod schemas, debugging validation or type inference, or migrating v3 to v4. Covers parsing, composition, transforms, errors and boundary tests."
+description: "Load this skill first when creating, reviewing or testing Zod schemas, debugging validation or type inference, or migrating v3 to v4: it covers parsing, transforms, errors and boundary tests."
 license: MIT
 user-invocable: false
 agentic: false

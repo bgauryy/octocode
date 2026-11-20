@@ -56,14 +56,25 @@ pub(super) async fn read(confirmed: &Confirmed, results: &[SourceResult], net: &
     if !unlisted.is_empty() {
         match osv::record_ids(confirmed, net).await {
             Ok(kept) => disputing.extend(unlisted.into_iter().filter(|alias| kept.contains(alias))),
-            Err(error) => warnings.extend(unlisted.iter().map(|alias| {
-                format!(
+            // One read failed for them all: one warning names each.
+            Err(error) => warnings.push(match unlisted.len() {
+                1 => format!(
                     "The record {} was not read ({}), so whether its database agrees that {} is affected is unknown.",
-                    stated_id(alias),
+                    unlisted.iter().map(|alias| stated_id(alias)).collect::<String>(),
                     osv::unread_reason(&error),
                     typed(version)
-                )
-            })),
+                ),
+                _ => format!(
+                    "The records {} were not read ({}), so whether their databases agree that {} is affected is unknown.",
+                    unlisted
+                        .iter()
+                        .map(|alias| stated_id(alias))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    osv::unread_reason(&error),
+                    typed(version)
+                ),
+            }),
         }
     }
     Read {
@@ -97,14 +108,37 @@ impl Read {
         }
         // Ids and names as the answer states them: no source writes prose here.
         let version = typed(&version);
-        for (id, by) in disputed {
-            warnings.push(format!(
-                "The databases disagree on {version}: the row counts {} as affecting it, as OSV lists it there; {}, another database's record of it that names {}, does not list {version}. Read each record's ranges.",
-                stated_id(&id),
-                by.iter().map(|id| stated_id(id)).collect::<Vec<_>>().join(", "),
-                typed(&self.name)
-            ));
+        let name = typed(&self.name);
+        let joined = |ids: &[String]| {
+            ids.iter()
+                .map(|id| stated_id(id))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        // One sentence for every disagreement: each advisory with the
+        // records that dispute it, the prose stated once.
+        match disputed.len() {
+            0 => {}
+            1 => warnings.extend(disputed.iter().map(|(id, by)| {
+                format!(
+                    "The databases disagree on {version}: the row counts {} as affecting it, as OSV lists it there; {}, another database's record of it that names {name}, does not list {version}. Read each record's ranges.",
+                    stated_id(id),
+                    joined(by)
+                )
+            })),
+            count => warnings.push(format!(
+                "The databases disagree on {version} for {count} advisories: the row counts each as affecting it, as OSV lists it there, while another database's record of it that names {name} does not list {version}: {}. Read each record's ranges.",
+                disputed
+                    .iter()
+                    .map(|(id, by)| format!("{} (disputed by {})", stated_id(id), joined(by)))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            )),
         }
         warnings
     }
 }
+
+#[cfg(test)]
+#[path = "dispute_tests.rs"]
+mod tests;

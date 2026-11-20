@@ -1,7 +1,22 @@
 //! What the shared response stages ask ghGetHistoryItem about its output:
-//! the shared recovery table answers for every code.
+//! its own recovery for a missing item; the shared table answers the rest.
+use octocode_contract_types::ErrorCode;
 use octocode_runtime_base::response::output::ToolOutput;
+use serde_json::Value;
 
 pub struct Output;
 
-impl ToolOutput for Output {}
+impl ToolOutput for Output {
+    fn error_hint(&self, code: ErrorCode, _query: &Value) -> Option<&'static str> {
+        (code == ErrorCode::NotFound).then_some(NOT_FOUND_HINT)
+    }
+}
+
+/// A history item is named by its repository and its number or ref, never
+/// by a path: the shared hint's parent-directory listing does not apply.
+/// The row's related[] listing (the repository's recent items, its refs,
+/// or a repository search) names the ones that exist.
+const NOT_FOUND_HINT: &str = "Check owner, repo and the number or ref as GitHub writes them; the related[] listing, when given, names the ones that exist: retry with one it lists.";
+
+#[cfg(test)]
+mod tests;

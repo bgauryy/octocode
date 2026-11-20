@@ -69,8 +69,13 @@ fn after_each_read<T>(
 /// about takes the stars, so a file's own bytes are searched first.
 fn starring(hidden: &'static str, held: bool) -> SourceJudge {
     let star = move |text: &str| {
-        text.contains(hidden)
-            .then(|| text.replace(hidden, &"*".repeat(hidden.len())).into_bytes())
+        text.contains(hidden).then(|| crate::types::ServedText {
+            text: text.replace(hidden, &"*".repeat(hidden.len())).into_bytes(),
+            written: text
+                .match_indices(hidden)
+                .map(|(at, _)| at..at + hidden.len())
+                .collect(),
+        })
     };
     SourceJudge {
         serve: Arc::new(

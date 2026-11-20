@@ -616,12 +616,29 @@ fn drop_default(input: &mut Value, issue: &ValidationIssue) -> Option<(Option<us
     ))
 }
 
+/// Whether a call of `tool_name` bills a classification provider for every
+/// row it runs: the tool that does not run without the classification
+/// credential (clasify). A repair is a guessed reading; a free call may run
+/// one and say so, but a billed call would spend on a query nobody sent.
+fn bills(tool_name: &str) -> bool {
+    ToolId::from_name(tool_name) == Some(ToolId::Clasify)
+}
+
 /// A query row another tool's contract checks (a clasify `source.query`,
 /// core `x-toolQuery`), repaired as a direct call of that tool is: the
 /// repaired row in its place, and each of that call's notes said of the
 /// field that holds it (`source.query: read …`). `None` when the issue is
-/// no such rule's, or the direct call's repair changes nothing.
-fn repair_tool_query(input: &mut Value, issue: &ValidationIssue) -> Option<Vec<Note>> {
+/// no such rule's, the direct call's repair changes nothing, or the holding
+/// call bills ([`bills`]): a nested query there is validated as sent, and
+/// its error names the field to send, before anything is read or billed.
+fn repair_tool_query(
+    tool_name: &str,
+    input: &mut Value,
+    issue: &ValidationIssue,
+) -> Option<Vec<Note>> {
+    if bills(tool_name) {
+        return None;
+    }
     let (tool_field, query_field) = super::validate::tool_query_fields(&issue.rule_id)?;
     let at = (0..issue.path.len()).find(|at| {
         issue.path[*at] == query_field
@@ -665,7 +682,7 @@ fn repair_values(
 ) -> bool {
     let mut applied = false;
     for issue in issues {
-        if let Some(notes) = repair_tool_query(input, issue) {
+        if let Some(notes) = repair_tool_query(tool_name, input, issue) {
             applied = true;
             repairs.notes.extend(notes);
             continue;

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Local clippy ratchet for packages/octocode-native (`dev.mjs lint:rust`; CI keeps plain clippy). Same contract as
+// Local clippy ratchet for packages/octocode-native (`dev.mjs lint:rust`; `lint:own` keeps plain clippy). Same contract as
 // oxlint-baseline.mjs: lints adopted after code existed live in clippy-baseline.json, which may only shrink.
 //   check (default): any other warning fails, as `-D warnings` does; for a RATCHET lint, a crate holding
 //                    more findings than its entries fails, and one holding fewer is stale until --write

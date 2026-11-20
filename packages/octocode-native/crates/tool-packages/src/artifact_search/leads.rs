@@ -46,11 +46,13 @@ pub(super) fn label_release_source(artifact: &mut ArtifactItem, exact: bool) {
     }
 }
 
-/// The warning a row's release source needs, one per row: a registry
-/// release commit GitHub does not have, and any row whose source reads the
-/// default branch (`verification:"defaultBranch"`) rather than a ref of the
-/// resolved version: that branch may hold another version, as a monorepo's
-/// often does.
+/// The warning a row's release source needs, one per row: a repository
+/// GitHub lacks or redirects, a registry release commit GitHub does not
+/// have, a release tag naming another commit than the registry's, and any
+/// row whose source reads the default branch (`verification:"defaultBranch"`)
+/// rather than a ref of the resolved version: that branch may hold another
+/// version, as a monorepo's often does. A redirect is said beside the ref's
+/// own reason, never instead of it.
 pub(super) fn source_warning(artifact: &ArtifactItem) -> Option<String> {
     let default_branch = artifact.verification == Some("defaultBranch");
     let repository = artifact
@@ -58,57 +60,75 @@ pub(super) fn source_warning(artifact: &ArtifactItem) -> Option<String> {
         .as_deref()
         .and_then(github_slug)
         .map_or_else(|| "its repository".to_owned(), |(o, r)| format!("{o}/{r}"));
-    let reason = match (artifact.repository_status, artifact.missing_ref.as_deref()) {
-        (Some(RepositoryStatus::Missing), _) => format!(
-            "GitHub has no repository {repository} (deleted, private, or never there), so no release ref or GitHub lead is given{}",
-            artifact.successor_repository.as_deref().map_or_else(
-                String::new,
-                |successor| format!(
-                    "; the registry's latest release names {successor}, which may be where the project moved"
+    let moved = match artifact.repository_status {
+        // Nothing of a repository GitHub lacks is read: its one reason.
+        Some(RepositoryStatus::Missing) => {
+            return Some(format!(
+                "{}: GitHub has no repository {repository} (deleted, private, or never there), so no release ref or GitHub lead is given{}.",
+                package_label(artifact),
+                artifact.successor_repository.as_deref().map_or_else(
+                    String::new,
+                    |successor| format!(
+                        "; the registry's latest release names {successor}, which may be where the project moved"
+                    )
                 )
-            )
-        ),
-        (Some(RepositoryStatus::Moved), _) => format!(
+            ));
+        }
+        Some(RepositoryStatus::Moved) => Some(format!(
             "GitHub redirects {repository} to {} (renamed or transferred), so the registry's link is stale; GitHub tools follow the redirect",
             artifact
                 .successor_repository
                 .as_deref()
                 .unwrap_or("another name")
-        ),
-        (None, Some(reference)) => {
-            format!("release commit {reference} is not in {repository} (unpushed or rewritten)")
-        }
-        (None, None) if default_branch => tag_absence(artifact).map_or_else(
+        )),
+        None => None,
+    };
+    let reference = match artifact.missing_ref.as_deref() {
+        Some(reference) => Some(format!(
+            "release commit {reference} is not in {repository} (unpushed or rewritten)"
+        )),
+        None if default_branch => Some(tag_absence(artifact).map_or_else(
             || "the registry names no release ref".to_owned(),
             |absence| format!("the registry names no release ref, and {absence}"),
-        ),
-        (None, None) if artifact.declared_ref => {
+        )),
+        None if artifact.declared_ref => {
             let reference = artifact.source_ref.as_deref().unwrap_or_default();
             let absence =
                 tag_absence(artifact).unwrap_or_else(|| "no tag names this version".to_owned());
-            format!(
+            Some(format!(
                 "{absence}; ref {reference} is the tag its metadata declares, unchecked against the release"
-            )
+            ))
         }
-        (None, None) => {
-            let release = artifact.tag_differs.as_ref()?;
+        None => artifact.tag_differs.as_ref().map(|release| {
             let reference = artifact.source_ref.as_deref().unwrap_or_default();
             format!(
                 "the registry names commit {reference}, but release tag {} is commit {}",
                 release.tag, release.commit
             )
-        }
+        }),
     };
-    let package = match artifact.version.as_deref() {
-        Some(version) => format!("{} {version}", artifact.package_name),
-        None => artifact.package_name.clone(),
-    };
+    let reasons = moved.into_iter().chain(reference).collect::<Vec<_>>();
+    if reasons.is_empty() {
+        return None;
+    }
     let source = if default_branch {
         "; its source on the default branch may be another version"
     } else {
         ""
     };
-    Some(format!("{package}: {reason}{source}."))
+    Some(format!(
+        "{}: {}{source}.",
+        package_label(artifact),
+        reasons.join("; ")
+    ))
+}
+
+/// The package a row's warning names: with its version when resolved.
+fn package_label(artifact: &ArtifactItem) -> String {
+    match artifact.version.as_deref() {
+        Some(version) => format!("{} {version}", artifact.package_name),
+        None => artifact.package_name.clone(),
+    }
 }
 
 /// What the lookup could say of the tags naming this version, when it is

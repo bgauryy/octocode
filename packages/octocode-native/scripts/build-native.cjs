@@ -23,13 +23,13 @@
 
 const { spawn } = require('child_process');
 const { mkdirSync } = require('fs');
-const { availableParallelism, totalmem } = require('os');
+const { availableParallelism, homedir, totalmem } = require('os');
 const { parseArgs } = require('util');
 const { join, relative } = require('path');
 const { PLATFORMS, executableName, getPlatformSuffix } = require('../bin/platform.cjs');
 const { slotCount, withSlot } = require('./build-slot.cjs');
 const { stageFile, verifyBinaryRuns } = require('./stage-binary.cjs');
-const { finishCargoRun, parseCargoLine } = require('./target-hygiene.cjs');
+const { finishCargoRun, isCargoProgress, parseCargoLine } = require('./target-hygiene.cjs');
 
 const ROOT = join(__dirname, '..');
 
@@ -70,7 +70,11 @@ function parseOptions(argv) {
 
 const hostPlatform = getPlatformSuffix();
 
-/** A target of another OS or CPU than the host needs a cross linker. */
+/**
+ * A target of another OS or CPU than the host needs a cross linker. A
+ * libc-only difference (musl on a glibc host of the same CPU) links with the
+ * host toolchain plus musl-tools.
+ */
 function needsCrossLinker(platform) {
   const host = PLATFORMS[hostPlatform];
   const target = PLATFORMS[platform];
@@ -85,7 +89,8 @@ const running = new Set();
 
 /**
  * Spawn with line-prefixed output so concurrent platform builds stay readable.
- * Cargo JSON messages on stdout go to `messages` instead of the terminal.
+ * Cargo JSON messages on stdout go to `messages` instead of the terminal, and
+ * its per-crate progress lines are dropped.
  */
 function run(label, command, args, env, messages = []) {
   const started = Date.now();
@@ -97,7 +102,7 @@ function run(label, command, args, env, messages = []) {
       let pending = '';
       const print = line => {
         const rest = stream === child.stdout ? parseCargoLine(line, messages) : line;
-        if (rest !== null) process.stdout.write(`[${label}] ${rest}\n`);
+        if (rest !== null && !isCargoProgress(rest)) process.stdout.write(`[${label}] ${rest}\n`);
       };
       stream.setEncoding('utf8');
       stream.on('data', chunk => {
@@ -140,9 +145,43 @@ function targetDir(platform) {
  */
 const GLIBC_FLOOR = '2.28';
 
-/** The Cargo invocation for `platform` (null: the host) as `{ command, args }`. */
+/**
+ * The oldest macOS a darwin artifact runs on, for rustc and every C build
+ * script; Rust's own default for Apple Silicon.
+ */
+const MACOS_FLOOR = '11.0';
+
+/**
+ * Release artifacts name no path of the machine that built them. Rust paths
+ * map through `--remap-path-prefix` (the last matching prefix wins, so the
+ * most specific comes last); C build scripts map through `-ffile-prefix-map`,
+ * except clang-cl on Windows, which takes no such flag.
+ */
+function pathRemaps(os) {
+  const repo = join(ROOT, '..', '..');
+  const cargoHome = process.env.CARGO_HOME || join(homedir(), '.cargo');
+  const maps = [[homedir(), '/home'], [cargoHome, '/cargo'], [repo, '/octocode']];
+  const rustflags = maps.map(([from, to]) => `--remap-path-prefix=${from}=${to}`);
+  const cflags = os === 'win32' ? null : [process.env.CFLAGS, ...maps.map(([from, to]) => `-ffile-prefix-map=${from}=${to}`)].filter(Boolean).join(' ');
+  return { rustflags, cflags };
+}
+
+/**
+ * The Cargo invocation for `platform` (null: the host) as `{ command, args,
+ * env }`; env holds only the variables it adds.
+ */
 function hostsCommand(platform, { release = false, check = false }, dir) {
   const target = platform && PLATFORMS[platform];
+  const shipped = target || PLATFORMS[hostPlatform];
+  const env = {};
+  // `--config` arrays join the config file's: the Windows crt-static flags stay.
+  const releaseConfig = [];
+  if (release) {
+    const { rustflags, cflags } = pathRemaps(shipped.os);
+    releaseConfig.push('--config', `target.${shipped.triple}.rustflags=${JSON.stringify(rustflags)}`);
+    if (cflags) env.CFLAGS = env.CXXFLAGS = cflags;
+    if (shipped.os === 'darwin') env.MACOSX_DEPLOYMENT_TARGET = MACOS_FLOOR;
+  }
   const subcommand = check ? 'check' : 'build';
   let command = 'cargo';
   let cargo = [subcommand];
@@ -160,13 +199,13 @@ function hostsCommand(platform, { release = false, check = false }, dir) {
     '-p', 'octocode-cli',
     '--bins',
     // Dev builds share compiled crates with `test:rust` (see crates/runtime `dev-unify`).
-    ...(release ? ['--release'] : ['--features', 'octocode-native/dev-unify']),
+    ...(release ? ['--release', ...releaseConfig] : ['--features', 'octocode-native/dev-unify']),
     ...(target ? ['--target', triple] : []),
     '--target-dir', dir,
     // Lists every unit's outputs, fresh ones included: target-hygiene.cjs records them.
     '--message-format=json-render-diagnostics',
   ];
-  return { command, args };
+  return { command, args, env };
 }
 
 function stageBinary(platform, explicitTarget, release, dir) {
@@ -190,7 +229,7 @@ async function buildPlatform(platform, explicitTarget, options) {
   const label = explicitTarget ? platform : 'host';
   const target = explicitTarget ? platform : null;
   const dir = targetDir(target);
-  const { command, args } = hostsCommand(target, options, dir);
+  const { command, args, env } = hostsCommand(target, options, dir);
   const mode = options.check ? 'check' : options.release ? 'build-release' : 'build-dev';
   const selection = `${mode}-${target ?? 'host'}`;
   await withSlot(`build-native ${selection}`, async slot => {
@@ -198,7 +237,7 @@ async function buildPlatform(platform, explicitTarget, options) {
     const startedMs = Date.now();
     let success = false;
     try {
-      await run(`${label}:${options.check ? 'check' : 'build'}`, command, args, slot.env, messages);
+      await run(`${label}:${options.check ? 'check' : 'build'}`, command, args, { ...slot.env, ...env }, messages);
       success = true;
     } finally {
       finishCargoRun({ selection, messages, success, startedMs, targetRoot: targetDir(null), log: line => console.log(`[${label}] ${line}`) });
@@ -257,4 +296,4 @@ async function main() {
 }
 
 if (require.main === module) main();
-else module.exports = { GLIBC_FLOOR, hostsCommand, targetDir };
+else module.exports = { GLIBC_FLOOR, MACOS_FLOOR, hostsCommand, targetDir };

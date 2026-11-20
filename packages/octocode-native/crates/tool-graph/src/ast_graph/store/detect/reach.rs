@@ -326,25 +326,7 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
         note_settled_exports(&mut c.notes, v, &settled);
     }
     for ((file, tested), names) in local_only {
-        let key = v.key(file).to_owned();
-        push(
-            &mut c.findings,
-            Draft {
-                detector: "export-only-local",
-                subject: key,
-                id_parts: &[&names.join(",")],
-                title: format!(
-                    "{} export(s) used only inside this file{}: could be un-exported",
-                    names.len(),
-                    if tested { " and by tests" } else { "" }
-                ),
-                severity: 0.15,
-                confidence: 0.8,
-                impact: v.impact(file),
-                evidence: json!({"exports": names, "count": names.len()}),
-                controls: vec!["referenced within the file; not dead code"],
-            },
-        );
+        push_export_only_local(&mut c.findings, v, file, &names, tested);
         tier_tested(&mut c.findings, tested);
     }
     for ((file, tested), exports) in by_file {
@@ -361,6 +343,35 @@ pub(super) fn detect_unused_exports(c: &mut Ctx) {
         );
         tier_tested(&mut c.findings, tested);
     }
+}
+
+/// The `export-only-local` finding for `names` of `file`: exports only
+/// their own file (and, when `tested`, tests) use.
+fn push_export_only_local(
+    out: &mut Vec<Finding>,
+    v: &View,
+    file: u32,
+    names: &[&str],
+    tested: bool,
+) {
+    push(
+        out,
+        Draft {
+            detector: "export-only-local",
+            subject: v.key(file).to_owned(),
+            id_parts: &[&names.join(",")],
+            title: format!(
+                "{} export(s) used only inside this file{}: could be un-exported",
+                names.len(),
+                if tested { " and by tests" } else { "" }
+            ),
+            severity: 0.15,
+            confidence: 0.8,
+            impact: v.impact(file),
+            evidence: json!({"exports": names, "count": names.len()}),
+            controls: vec!["referenced within the file; not dead code"],
+        },
+    );
 }
 
 /// The `unused-export` finding for `names` of `file`, the first declared on
@@ -398,15 +409,21 @@ fn push_unused_export(
     );
 }
 
-/// An untested `unused-export` finding narrowed to `names` (some of its
-/// exports, in its order): its own id, count, severity and first line.
-/// `None` when `names` is empty or its subject is not in the graph.
-pub(super) fn regroup_unused_export(
-    v: &View,
-    finding: &Finding,
-    names: &[&String],
-) -> Option<Finding> {
+/// An untested `unused-export` or `export-only-local` finding narrowed to
+/// `names` (some of its exports, in its order): its own id, count, severity
+/// and, for `unused-export`, first line. `None` when `names` is empty or its
+/// subject is not in the graph.
+pub(super) fn regroup_exports(v: &View, finding: &Finding, names: &[&String]) -> Option<Finding> {
     let file = v.t.by_key(&finding.subject)?;
+    if finding.detector == "export-only-local" {
+        if names.is_empty() {
+            return None;
+        }
+        let names = names.iter().map(|name| name.as_str()).collect::<Vec<_>>();
+        let mut out = Vec::new();
+        push_export_only_local(&mut out, v, file, &names, false);
+        return out.pop();
+    }
     let line =
         v.t.node_ids()
             .zip(&v.t.nodes)

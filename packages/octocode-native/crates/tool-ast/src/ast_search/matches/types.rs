@@ -206,9 +206,20 @@ pub(super) struct Group {
     /// A held scan's rows, sliced when a page shows them.
     pub(super) held: Option<Vec<super::rows::MatchRow>>,
     pub(super) truncated_captures: bool,
+    /// The page's rows of the file that lie inside another of them, and
+    /// the kinds of the innermost such rows.
+    pub(super) nested: Nesting,
     /// A priced file whose rows are not built yet: its index in the scan's
     /// files ([`super::groups::fill_page`]).
     pub(super) priced: Option<usize>,
+}
+
+/// How a page's rows of one file nest: how many lie inside another row,
+/// and the kinds of the innermost of those (each enclosing no other row).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct Nesting {
+    pub(super) inside: usize,
+    pub(super) innermost: std::collections::BTreeSet<String>,
 }
 
 /// How the candidate scan ended early, and where a resume starts.

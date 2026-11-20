@@ -65,3 +65,45 @@ fn a_missing_file_in_a_sparse_linked_worktree_may_exist_upstream() {
     assert!(failure.resource_missing, "{failure:?}");
     assert!(!failure.sparse_checkout, "{failure:?}");
 }
+
+/// A ghCloneRepo checkout that records its scope names it on a missing path
+/// outside that scope, with the clone that checks the path out; a path
+/// inside the scope is missing at the commit itself, and a checkout with no
+/// record keeps only the bare sparse flag (its scope is unknown).
+#[test]
+fn a_recorded_clone_scope_rides_on_a_path_it_excludes() {
+    let root = Fixture::new();
+    let (sparse, _) = repository_with_worktrees(&root.0);
+    let policy = workspace_policy(&root.0);
+    let unrecorded = missing(&policy, &sparse.join("docs/guide.md"));
+    assert!(
+        unrecorded.sparse_checkout && unrecorded.clone_scope.is_none(),
+        "{unrecorded:?}"
+    );
+
+    let git_dir = octocode_engine::search::walk::checkout_git_dir(&sparse).expect("git dir");
+    crate::gh_git::clone_scope::write_record(
+        &git_dir,
+        &crate::gh_git::clone_scope::CloneRecord {
+            owner: "o".into(),
+            repo: "r".into(),
+            commit_sha: "6ecc29b9c8c84d08a7e860f7f69c22b113b480ea".into(),
+            paths: Some(vec!["src".into()]),
+            root_files: true,
+            history_depth: 1,
+        },
+    )
+    .expect("record");
+    let outside = missing(&policy, &sparse.join("docs/guide.md"));
+    let scope = outside.clone_scope.as_ref().expect("recorded scope");
+    assert_eq!(scope.paths(), ["src"], "{outside:?}");
+    let resolved = outside.resolved.as_ref().expect("judged path");
+    let reclone = scope.reclone(resolved).expect("re-clone");
+    assert_eq!(
+        reclone["input"]["queries"][0]["paths"],
+        serde_json::json!(["src", "docs/guide.md"]),
+        "{reclone}"
+    );
+    let inside = missing(&policy, &sparse.join("src/absent.rs"));
+    assert!(inside.clone_scope.is_none(), "{inside:?}");
+}

@@ -21,11 +21,11 @@ fn queries_answer_imports_calls_cycles_and_packages() {
     );
 
     let callers = ask(root, "callers", Some("greet"), |_| {});
-    assert_eq!(ids(&callers), vec!["src/main.ts#main"], "{}", callers.value);
+    assert_eq!(ids(&callers), vec!["app/src/main.ts#main"], "{}", callers.value);
     assert_eq!(callers.value["rows"][0]["via"], "import");
     assert_eq!(callers.value["rows"][0]["confidence"], "high");
 
-    let callees = ask(root, "callees", Some("src/lib.ts#greet"), |_| {});
+    let callees = ask(root, "callees", Some("app/src/lib.ts#greet"), |_| {});
     assert_eq!(ids(&callees), vec!["src/lib.ts#shout"]);
     assert_eq!(callees.value["rows"][0]["via"], "local");
 
@@ -57,10 +57,10 @@ fn queries_answer_imports_calls_cycles_and_packages() {
     assert_eq!(
         ids(&outline),
         vec![
-            "src/lib.ts#greet",
+            "app/src/lib.ts#greet",
             "src/lib.ts#shout",
-            "src/lib.ts#Box",
-            "src/lib.ts#Box.open",
+            "app/src/lib.ts#Box",
+            "app/src/lib.ts#Box.open",
             "src/lib.ts#Box.close"
         ]
     );
@@ -76,7 +76,7 @@ fn queries_answer_imports_calls_cycles_and_packages() {
     let found = ask(root, "find", Some("gre"), |o| {
         o.kind = Some("symbol".into());
     });
-    assert_eq!(ids(&found), vec!["src/lib.ts#greet"]);
+    assert_eq!(ids(&found), vec!["app/src/lib.ts#greet"]);
 }
 
 #[test]
@@ -127,7 +127,7 @@ fn list_operations_page_with_a_runnable_next_command() {
         o.limit = Some(2);
         o.offset = Some(2);
     });
-    assert_eq!(ids(&second), vec!["src/lib.ts#Box", "src/lib.ts#Box.open"]);
+    assert_eq!(ids(&second), vec!["app/src/lib.ts#Box", "app/src/lib.ts#Box.open"]);
 }
 
 #[test]
@@ -162,11 +162,11 @@ fn heritage_and_jsx_become_inherits_and_renders_edges() {
         })
         .collect::<Vec<_>>();
     assert!(
-        got.contains(&("src/lib.ts#Box", "extends:import")),
+        got.contains(&("app/src/lib.ts#Box", "extends:import")),
         "{got:?}"
     );
     assert!(
-        got.contains(&("src/shapes.ts#Shape", "implements:local")),
+        got.contains(&("app/src/shapes.ts#Shape", "implements:local")),
         "{got:?}"
     );
 
@@ -193,7 +193,7 @@ fn out_of_range_flags_are_rejected_and_a_page_past_the_end_is_empty() {
     let root = dir.0.as_path();
     assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
     // No depth bound but the graph's own: a deep walk is admitted.
-    let deep = ask(root, "callers", Some("src/lib.ts#greet"), |o| {
+    let deep = ask(root, "callers", Some("app/src/lib.ts#greet"), |o| {
         o.depth = Some(21);
     });
     assert_ne!(
@@ -203,7 +203,7 @@ fn out_of_range_flags_are_rejected_and_a_page_past_the_end_is_empty() {
         deep.value
     );
     // No limit bound either: pages and responseChars bound a page.
-    let wide = ask(root, "callers", Some("src/lib.ts#greet"), |o| {
+    let wide = ask(root, "callers", Some("app/src/lib.ts#greet"), |o| {
         o.limit = Some(1001);
     });
     assert_ne!(
@@ -213,7 +213,7 @@ fn out_of_range_flags_are_rejected_and_a_page_past_the_end_is_empty() {
         wide.value
     );
     for (depth, limit) in [(Some(0), None), (None, Some(0))] {
-        let out = ask(root, "callers", Some("src/lib.ts#greet"), |o| {
+        let out = ask(root, "callers", Some("app/src/lib.ts#greet"), |o| {
             o.depth = depth;
             o.limit = limit;
         });

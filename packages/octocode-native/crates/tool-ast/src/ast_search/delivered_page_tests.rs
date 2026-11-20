@@ -246,3 +246,96 @@ fn a_relational_rule_publishes_a_page_two_that_validates_and_runs() {
     .unwrap_or_else(|error| panic!("{next}: {error:?}"));
     octocode_runtime_base::test_support::assert_row_contract(ToolId::AstSearch, &page_two);
 }
+
+/// The page count a first page's narrowing note states, if it has one.
+fn stated_pages(data: &Value) -> Option<usize> {
+    data["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .find_map(|warning| {
+            let (_, rest) = warning.split_once(" fill ")?;
+            rest.split_whitespace().next()?.parse().ok()
+        })
+}
+
+/// Page 1 carries the scan's census beside its rows (the skipped paths,
+/// the files no grammar reads, the skipped-grammar counts, the narrowing
+/// note), which no later page repeats: the cut charges it to page 1, so
+/// every page of the walk, as delivered, fits the response window the
+/// response pager would otherwise split into row parts, the walk takes as
+/// many calls as page 1 says it fills, and every file comes once.
+#[test]
+fn a_first_page_with_its_census_fits_the_window_and_states_the_walks_calls() {
+    let root = Fixture::new();
+    let long = "z".repeat(60);
+    sources(&root, "src", 600, 2);
+    // Named one by one in `skippedPaths`, and three of them in the note.
+    for file in 0..octocode_tools_shared::leads::skipped::NAMED_UNPARSED {
+        root.write(&format!("data/blob_{file:02}_{long}.unknownext"), "x\n");
+    }
+    for file in 0..5 {
+        root.write(&format!("py/module_{file}.py"), "def f():\n    pass\n");
+    }
+    let base = root.0.canonicalize().expect("canonical root");
+    let (paths, security) = simple_policy(&base);
+    // A ranked file view reads the whole scope before page 1 and states its
+    // page count; a walk-order content view pages scan windows, which
+    // count no final total and state none.
+    let views = [
+        (
+            json!({"operation":"match","path":base,"rule":{"kind":"function_declaration"},"view":"countMatches","sort":{"by":"matchCount","order":"desc"}}),
+            true,
+        ),
+        (
+            json!({"operation":"match","path":base,"rule":{"kind":"function_declaration"}}),
+            false,
+        ),
+    ];
+    for (row, counted) in views {
+        let mut pending = Some(row.clone());
+        let (mut calls, mut stated, mut files) = (0, None, std::collections::BTreeSet::new());
+        while let Some(query) = pending.take() {
+            let out = execute_ast(
+                octocode_runtime_base::test_support::BUILD_IDENTITY,
+                &typed(&query),
+                &paths,
+                &security,
+                &NeverCancel,
+                Some(WINDOW),
+            )
+            .unwrap_or_else(|error| panic!("{query}: {error:?}"));
+            let served = published(ToolId::AstSearch, &out);
+            calls += 1;
+            assert!(calls <= 50, "nonterminating walk: {row}");
+            let size = octocode_engine::json_size::utf16_units(&served).expect("size");
+            assert!(size <= WINDOW, "page {calls} of {row}: {size} > {WINDOW}");
+            let data = &served["results"][0]["data"];
+            if calls == 1 {
+                assert!(data["skippedPaths"].is_object(), "the census: {data}");
+                assert!(data["skippedGrammars"].is_object(), "the census: {data}");
+                stated = stated_pages(data);
+            }
+            for file in data["files"].as_array().into_iter().flatten() {
+                let path = file["path"].as_str().expect("path").to_owned();
+                // A content walk lists a file once per page its matches are on.
+                if file.get("matches").is_none() {
+                    assert!(files.insert(path), "a file repeats: {row}");
+                } else {
+                    files.insert(path);
+                }
+            }
+            pending = data["next"]["nextPage"]
+                .is_object()
+                .then(|| published_next_page(ToolId::AstSearch, &out));
+        }
+        assert!(calls > 1, "the fixture spans pages: {row}");
+        assert_eq!(
+            stated,
+            counted.then_some(calls),
+            "page 1 states the walk's calls: {row}"
+        );
+        assert_eq!(files.len(), 600, "every file once: {row}");
+    }
+}

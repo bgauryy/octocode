@@ -8,6 +8,7 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
 mod across_rows;
+mod budget;
 mod failures;
 mod gating;
 pub(crate) mod github_withheld;

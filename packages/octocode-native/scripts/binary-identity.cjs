@@ -92,11 +92,15 @@ function readHeader(bytes) {
   return { format: 'unknown', arch: 'unknown' };
 }
 
-/** What a Linux (glibc) platform demands of an ELF: glibc's loader and no symbol version above the floor. */
-function libcCheck(header) {
+/** What a platform's libc demands of an ELF: glibc's loader at or under the floor, or musl. */
+function libcCheck(libc, header) {
   const glibc = maxGlibc(header.versionNeeds);
-  const ok = /\/ld-linux[-\w.]*\.so/.test(header.interpreter ?? '') && glibc !== null && compareVersions(glibc, GLIBC_FLOOR) <= 0;
-  return { ok, detail: `interpreter ${header.interpreter}; newest GLIBC_${glibc} (floor ${GLIBC_FLOOR})` };
+  if (libc === 'gnu') {
+    const ok = /\/ld-linux[-\w.]*\.so/.test(header.interpreter ?? '') && glibc !== null && compareVersions(glibc, GLIBC_FLOOR) <= 0;
+    return { ok, detail: `interpreter ${header.interpreter}; newest GLIBC_${glibc} (floor ${GLIBC_FLOOR})` };
+  }
+  const ok = glibc === null && (header.interpreter === null || /\/ld-musl-/.test(header.interpreter));
+  return { ok, detail: header.interpreter === null ? 'statically linked' : `interpreter ${header.interpreter}` };
 }
 
 /** One platform package dir: `{ platform, version, binary }` from its manifest. */
@@ -121,7 +125,7 @@ function identityChecks(dir, fingerprint = expectedFingerprint()) {
     { name: 'embeddedVersion', ok: bytes.includes(version), detail: version },
     { name: 'embeddedFingerprint', ok: bytes.includes(fingerprint), detail: fingerprint },
   ];
-  if (header.format === 'elf') checks.push({ name: 'libc', ...libcCheck(header) });
+  if (header.format === 'elf') checks.push({ name: 'libc', ...libcCheck(target.libc, header) });
   // A zip artifact or a Windows checkout drops the mode bit; npm packs what the file has.
   if (target.os !== 'win32' && process.platform !== 'win32') {
     checks.push({ name: 'executable', ok: (stat.mode & 0o111) !== 0, detail: `mode ${(stat.mode & 0o777).toString(8)}` });

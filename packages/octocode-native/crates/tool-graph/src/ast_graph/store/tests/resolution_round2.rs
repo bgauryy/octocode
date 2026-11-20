@@ -31,14 +31,14 @@ fn inherited_calls_follow_bound_bases_and_overrides() {
         ExitClass::Success
     );
     for target in [
-        "child.ts#Child.send",
+        "app/child.ts#Child.send",
         "child.ts#typed",
         "override.ts#Override.inherited",
     ] {
         let out = call_ids(dir.0.as_path(), target, "high");
         assert_eq!(
             ids(&out),
-            vec!["base.ts#Base.transaction"],
+            vec!["app/base.ts#Base.transaction"],
             "{target}: {}",
             out.value
         );
@@ -65,12 +65,12 @@ fn private_method_calls_link_to_their_declarations() {
         ingest_fixture(dir.0.as_path(), None).class,
         ExitClass::Success
     );
-    let out = call_ids(dir.0.as_path(), "src/a.ts#A.run", "high");
+    let out = call_ids(dir.0.as_path(), "app/src/a.ts#A.run", "high");
     let mut got = ids(&out);
     got.sort();
     assert_eq!(
         got,
-        vec!["src/a.ts#A.#opt", "src/a.ts#A.#priv", "src/a.ts#A.pub"],
+        vec!["src/a.ts#A.#opt", "src/a.ts#A.#priv", "app/src/a.ts#A.pub"],
         "{}",
         out.value
     );
@@ -101,14 +101,14 @@ fn inherited_ambiguity_is_not_high_confidence_and_cycles_terminate() {
         ingest_fixture(dir.0.as_path(), None).class,
         ExitClass::Success
     );
-    let high = call_ids(dir.0.as_path(), "child.ts#Child.send", "high");
+    let high = call_ids(dir.0.as_path(), "app/child.ts#Child.send", "high");
     assert!(ids(&high).is_empty(), "{}", high.value);
-    let medium = call_ids(dir.0.as_path(), "child.ts#Child.send", "medium");
+    let medium = call_ids(dir.0.as_path(), "app/child.ts#Child.send", "medium");
     let mut got = ids(&medium);
     got.sort();
     assert_eq!(
         got,
-        vec!["a.ts#Base.transaction", "b.ts#Base.transaction"],
+        vec!["app/a.ts#Base.transaction", "app/b.ts#Base.transaction"],
         "{}",
         medium.value
     );
@@ -166,10 +166,10 @@ fn rust_glob_calls_preserve_identity_through_reexports_and_cycles() {
         ingest_fixture(dir.0.as_path(), None).class,
         ExitClass::Success
     );
-    let out = call_ids(dir.0.as_path(), "src/api.rs#run", "high");
+    let out = call_ids(dir.0.as_path(), "app/src/api.rs#run", "high");
     assert_eq!(
         ids(&out),
-        vec!["src/implementation.rs#route"],
+        vec!["app/src/implementation.rs#route"],
         "{}",
         out.value
     );
@@ -207,8 +207,8 @@ fn rust_glob_ambiguity_and_explicit_shadowing_are_distinct() {
         ingest_fixture(dir.0.as_path(), None).class,
         ExitClass::Success
     );
-    let explicit = call_ids(dir.0.as_path(), "src/explicit.rs#run", "high");
-    assert_eq!(ids(&explicit), vec!["src/a.rs#route"], "{}", explicit.value);
+    let explicit = call_ids(dir.0.as_path(), "app/src/explicit.rs#run", "high");
+    assert_eq!(ids(&explicit), vec!["app/src/a.rs#route"], "{}", explicit.value);
     let high = call_ids(dir.0.as_path(), "src/ambiguous.rs#run", "high");
     assert!(ids(&high).is_empty(), "{}", high.value);
     let medium = call_ids(dir.0.as_path(), "src/ambiguous.rs#run", "medium");
@@ -216,7 +216,7 @@ fn rust_glob_ambiguity_and_explicit_shadowing_are_distinct() {
     got.sort();
     assert_eq!(
         got,
-        vec!["src/a.rs#route", "src/b.rs#route"],
+        vec!["app/src/a.rs#route", "src/b.rs#route"],
         "{}",
         medium.value
     );
@@ -258,18 +258,18 @@ fn rust_glob_unknown_branches_cannot_claim_unique_identity() {
         ingest_fixture(dir.0.as_path(), None).class,
         ExitClass::Success
     );
-    let high = call_ids(dir.0.as_path(), "src/api.rs#run", "high");
+    let high = call_ids(dir.0.as_path(), "app/src/api.rs#run", "high");
     assert!(
         ids(&high).is_empty(),
         "unobserved wildcard branch: {}",
         high.value
     );
-    let medium = call_ids(dir.0.as_path(), "src/api.rs#run", "medium");
-    assert_eq!(ids(&medium), vec!["src/known.rs#route"], "{}", medium.value);
-    let explicit = call_ids(dir.0.as_path(), "src/explicit.rs#run", "high");
+    let medium = call_ids(dir.0.as_path(), "app/src/api.rs#run", "medium");
+    assert_eq!(ids(&medium), vec!["app/src/known.rs#route"], "{}", medium.value);
+    let explicit = call_ids(dir.0.as_path(), "app/src/explicit.rs#run", "high");
     assert_eq!(
         ids(&explicit),
-        vec!["src/known.rs#route"],
+        vec!["app/src/known.rs#route"],
         "{}",
         explicit.value
     );
@@ -285,14 +285,14 @@ fn unresolved_base_cannot_claim_unique_inherited_implementation() {
         ingest_fixture(dir.0.as_path(), None).class,
         ExitClass::Success
     );
-    let high = call_ids(dir.0.as_path(), "app.py#Child.send", "high");
+    let high = call_ids(dir.0.as_path(), "app/app.py#Child.send", "high");
     assert!(
         ids(&high).is_empty(),
         "unobserved base branch: {}",
         high.value
     );
-    let medium = call_ids(dir.0.as_path(), "app.py#Child.send", "medium");
-    assert_eq!(ids(&medium), vec!["app.py#Known.route"], "{}", medium.value);
+    let medium = call_ids(dir.0.as_path(), "app/app.py#Child.send", "medium");
+    assert_eq!(ids(&medium), vec!["app/app.py#Known.route"], "{}", medium.value);
     let own = call_ids(dir.0.as_path(), "app.py#Own.send", "high");
     assert_eq!(ids(&own), vec!["app.py#Own.route"], "{}", own.value);
 }

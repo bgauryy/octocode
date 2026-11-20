@@ -135,6 +135,102 @@ impl AnalysisTarget {
     }
 }
 
+/// The `cfg` options rust-analyzer sets beyond the target and the features:
+/// `test` (`cfg.setTest`) and the `cargo.cfgs` list, by default
+/// `debug_assertions` and `miri`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in super::super) struct SetCfgs {
+    test: bool,
+    debug_assertions: bool,
+    miri: bool,
+    /// `cargo.cfgs` names another option (or a `key = value` one): any
+    /// other option may be set.
+    others: bool,
+}
+
+impl SetCfgs {
+    /// The options `cfg.setTest` (`set_test`) and `cargo.cfgs` (`cfgs`: a
+    /// list of `name` or `name=value`, or a map of names) set; an unset
+    /// setting keeps rust-analyzer's default.
+    pub(in super::super) fn of(set_test: Option<bool>, cfgs: Option<&Value>) -> Self {
+        let names = match cfgs {
+            Some(Value::Array(items)) => items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect::<Vec<_>>(),
+            Some(Value::Object(fields)) => fields
+                .iter()
+                .map(|(name, value)| match value.as_str() {
+                    Some(value) => format!("{name}={value}"),
+                    None => name.clone(),
+                })
+                .collect(),
+            _ => vec!["debug_assertions".to_owned(), "miri".to_owned()],
+        };
+        let names_flag = |flag: &str| names.iter().any(|name| name.trim() == flag);
+        Self {
+            test: set_test.unwrap_or(true),
+            debug_assertions: names_flag("debug_assertions"),
+            miri: names_flag("miri"),
+            others: names
+                .iter()
+                .any(|name| !matches!(name.trim(), "debug_assertions" | "miri")),
+        }
+    }
+}
+
+/// What the analyzed configuration compiles: its target, its features
+/// (every one, or a default build that leaves each open), the options it
+/// sets, and whether build scripts run (one may set any other option).
+#[derive(Clone, Copy, Debug)]
+pub(in super::super) struct Configuration {
+    target: AnalysisTarget,
+    all_features: bool,
+    build_scripts: bool,
+    cfgs: SetCfgs,
+}
+
+impl Configuration {
+    pub(in super::super) fn of(rust: crate::lsp_search::receipt::RustAnalysis) -> Self {
+        Self {
+            target: rust.target,
+            all_features: rust.all_features,
+            build_scripts: rust.build_scripts,
+            cfgs: rust.cfgs,
+        }
+    }
+
+    pub(in super::super) fn all_features(&self) -> bool {
+        self.all_features
+    }
+
+    /// This configuration with the default features, which leave each open.
+    fn default_features(self) -> Self {
+        Self {
+            all_features: false,
+            ..self
+        }
+    }
+
+    /// Whether the configuration may leave out code under `gate` (compiles
+    /// it out, or reads an option it leaves open) for a reason the gate scan
+    /// reports: not one the target decides (the target check names a gate
+    /// the analyzed target rules out, [`annotate_targets`], and judges none
+    /// against a target whose `cfg` is not known), nor, in an all-features
+    /// build, one only a feature decides (`cfg(not(feature …))`,
+    /// `cfgNegatedFeatures`').
+    pub(in super::super) fn hides(&self, gate: &Predicate) -> bool {
+        let by_target = match self.target.facts() {
+            Some(target) => gate.holds(target) == Some(false),
+            None => gate.reads_only_target(),
+        };
+        gate.compiles(self) != Some(true)
+            && !by_target
+            && !(self.all_features && gate.compiles(&self.default_features()).is_none())
+    }
+}
+
 /// A `cfg` predicate.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(in super::super) enum Predicate {
@@ -167,6 +263,65 @@ impl Predicate {
                 fold(held, true)
             }
             Self::Not(part) => part.holds(target).map(|held| !held),
+        }
+    }
+
+    /// Whether code under the predicate compiles in `configuration`; `None`
+    /// when an option it reads is open there: a feature of a default build,
+    /// an option a build script or `cargo.cfgs` may set, a target option of
+    /// a target whose `cfg` is not known, a key-value option this does not
+    /// know (`panic = "unwind"`).
+    pub(in super::super) fn compiles(&self, configuration: &Configuration) -> Option<bool> {
+        let target = configuration.target.facts();
+        match self {
+            Self::Flag(name) if name == "windows" || name == "unix" => {
+                target.map(|target| target.family == name)
+            }
+            Self::Flag(name) if name == "test" => Some(configuration.cfgs.test),
+            Self::Flag(name) if name == "debug_assertions" => {
+                Some(configuration.cfgs.debug_assertions)
+            }
+            Self::Flag(name) if name == "miri" => Some(configuration.cfgs.miri),
+            Self::Flag(_) => {
+                (!(configuration.build_scripts || configuration.cfgs.others)).then_some(false)
+            }
+            Self::Pair(key, _) if key == "feature" => configuration.all_features.then_some(true),
+            Self::Pair(key, value) if key.starts_with("target_") => target
+                .and_then(|target| target.value(key))
+                .map(|set| set == value),
+            Self::Pair(..) => None,
+            Self::All(parts) => fold(parts.iter().map(|part| part.compiles(configuration)), false),
+            Self::Any(parts) => fold(parts.iter().map(|part| part.compiles(configuration)), true),
+            Self::Not(part) => part.compiles(configuration).map(|held| !held),
+        }
+    }
+
+    /// Whether the predicate negates a feature (`not(feature …)`, also
+    /// nested): code an all-features build compiles out.
+    pub(in super::super) fn negates_feature(&self) -> bool {
+        match self {
+            Self::Not(part) => part.reads_feature() || part.negates_feature(),
+            Self::All(parts) | Self::Any(parts) => parts.iter().any(Self::negates_feature),
+            Self::Flag(_) | Self::Pair(..) => false,
+        }
+    }
+
+    fn reads_feature(&self) -> bool {
+        match self {
+            Self::Pair(key, _) => key == "feature",
+            Self::All(parts) | Self::Any(parts) => parts.iter().any(Self::reads_feature),
+            Self::Not(part) => part.reads_feature(),
+            Self::Flag(_) => false,
+        }
+    }
+
+    /// Whether every option the predicate reads is the target's.
+    fn reads_only_target(&self) -> bool {
+        match self {
+            Self::Flag(name) => name == "windows" || name == "unix",
+            Self::Pair(key, _) => key.starts_with("target_"),
+            Self::All(parts) | Self::Any(parts) => parts.iter().all(Self::reads_only_target),
+            Self::Not(part) => part.reads_only_target(),
         }
     }
 
@@ -385,7 +540,11 @@ fn read(path: &Path) -> Option<String> {
 /// those of each `mod` declaration up to its crate root. A file several
 /// files declare as a module compiles once per declaration, so no one chain
 /// gates it: only its inner gates count then.
-fn file_gates(file: &Path, text: &str, stopped: &dyn Fn() -> bool) -> Vec<Predicate> {
+pub(in super::super) fn file_gates(
+    file: &Path,
+    text: &str,
+    stopped: &dyn Fn() -> bool,
+) -> Vec<Predicate> {
     let mut gates = inner_gates(text);
     let mut seen = BTreeSet::new();
     let mut current = file.to_path_buf();

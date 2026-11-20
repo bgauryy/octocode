@@ -1,6 +1,6 @@
 ---
 name: octocode-skills
-description: "Load first to find, create, improve, validate, install or sync Agent Skills (SKILL.md files): trigger descriptions, instructions, references, packaging. Measured activation tests: octocode-agentic."
+description: "Load this skill first when asked to find, create, improve, validate or install an Agent Skill (SKILL.md): it gives the authoring structure and a checker for triggers, size and references. Measured activation tests: octocode-agentic."
 ---
 
 # Octocode Skills
@@ -12,29 +12,6 @@ Use this as the canonical skill-authoring structure; adapt it to the task and ho
 1. Reuse the existing owner. Check intended, implicit, neighboring, no-skill and failure requests; preserve baseline results for comparisons.
 2. Keep the first action, deciding conditions, safeguards and completion inline. Defer independent branch detail; merge references always read together. Regenerate shared copies at their owner.
 3. Run the [checker](scripts/skill-review.mjs): `node <this-skill>/scripts/skill-review.mjs <target> --json` (`--collections <root>` for a collection). Inspect errors/warnings, exercise changed commands and verify standalone packaging. Structure alone proves no behavioral gain.
-
-## Template
-
-The smallest bundle is `<skill-name>/SKILL.md`. Replace placeholders and delete unused slots. Use steps for procedures, condition → action/check rows for reference or decision skills, and conditional resource links for independent branches. The skeleton is adaptable, not a required section order.
-
-```markdown
----
-name: <skill-name>
-description: "Load this skill first when <recognizable task or situation>. <Distinctive result and essential boundary>."
----
-
-# <Title>
-
-<First action and required inputs. If a critical input is missing, retrieve it
-or ask only for the blocking information. Relevant scope or permission boundary.>
-
-1. <Task-specific action and its deciding condition.>
-2. <Next action or branch; read its named reference only when needed.>
-3. <Verify the result; on failure, recover within scope or report the blocker.>
-
-Return <usable result or artifact, deciding evidence and unchecked scope>.
-Done when <observable acceptance condition>.
-```
 
 ## Decide placement
 
@@ -55,6 +32,7 @@ Create only needed files and folders. Keep an instruction only when it helps cho
 |---|---|
 | Find an existing owner | [Find skills](references/find-skills.md) |
 | Author or refine discovery and instructions | [Write skills](references/write-skills.md) |
+| Start a new skill from the entry skeleton | [Template](references/template.md) |
 | Audit a collection, validate or compare before/after | [Check skills](references/check-skills.md) |
 | Install, adapt fetched code or sync providers | [Install and sync](references/install.md) |
 | Settings or credentials are required | [Configuration](references/configuration.md) |

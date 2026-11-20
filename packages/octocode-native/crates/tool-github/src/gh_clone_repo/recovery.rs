@@ -1,4 +1,4 @@
-//! Recovery for a sparse path the commit does not have. The checkout already
+//! Recovery for a sparse path the commit does not have. The store already
 //! holds the commit's trees, so the lead is computed locally: the same clone
 //! with a near-miss name corrected, else the listing of the deepest
 //! directory that exists.
@@ -18,24 +18,30 @@ struct Ancestor {
     below: String,
 }
 
-/// `next` for requested sparse `missing` paths of the checkout in `stage`:
-/// `repair` (the same clone with every missing path corrected) when each has
-/// one near-miss sibling, else `viewTree` (ghStructure of the first
+/// `next` for requested sparse `missing` paths of `commit`, whose trees the
+/// repository at `directory` (its checkout or its store) holds: `repair`
+/// (the same clone with every missing path corrected) when each has one
+/// near-miss sibling, else `viewTree` (ghStructure of the first
 /// uncorrectable path's deepest existing directory, at the commit). `None`
 /// when the commit's tree cannot be read.
 pub(super) fn sparse_next(
     context: &GitContext<'_>,
-    stage: &Path,
+    directory: &Path,
+    commit: &str,
     query: &GhCloneRepoQuery,
     missing: &[&str],
 ) -> Option<Value> {
-    let commit = git::read_head(context, stage).ok()?;
+    let tree = Tree {
+        context,
+        directory,
+        commit,
+    };
     let mut corrections = Vec::new();
     let mut uncorrectable = None;
     for path in missing {
         let path = path.trim_end_matches('/');
-        let ancestor = deepest_ancestor(context, stage, path)?;
-        match corrected_path(context, stage, &ancestor) {
+        let ancestor = deepest_ancestor(&tree, path)?;
+        match corrected_path(&tree, &ancestor) {
             Some(corrected) => corrections.push((path, corrected)),
             None => {
                 uncorrectable.get_or_insert(ancestor.dir);
@@ -47,7 +53,7 @@ pub(super) fn sparse_next(
             owner: query.owner.as_str(),
             repo: query.repo.as_str(),
             path: &dir,
-            reference: Some(&commit),
+            reference: Some(commit),
         }
         .lead(ToolId::GhStructure)
         .build();
@@ -75,9 +81,23 @@ pub(super) fn sparse_next(
     Some(json!({"repair": lead}))
 }
 
+/// One commit's trees, read in a repository that holds them.
+struct Tree<'a> {
+    context: &'a GitContext<'a>,
+    directory: &'a Path,
+    commit: &'a str,
+}
+
+impl Tree<'_> {
+    /// The entry names directly under `dir` ([`git::tree_names`]).
+    fn names(&self, dir: &str) -> Option<Vec<String>> {
+        git::tree_names(self.context, self.directory, self.commit, dir).ok()
+    }
+}
+
 /// The path with its first missing segment replaced by the one near-miss
 /// entry of the deepest existing directory, when the result exists.
-fn corrected_path(context: &GitContext<'_>, stage: &Path, ancestor: &Ancestor) -> Option<String> {
+fn corrected_path(tree: &Tree<'_>, ancestor: &Ancestor) -> Option<String> {
     let (segment, rest) = match ancestor.below.split_once('/') {
         Some((segment, rest)) => (segment, Some(rest)),
         None => (ancestor.below.as_str(), None),
@@ -89,8 +109,7 @@ fn corrected_path(context: &GitContext<'_>, stage: &Path, ancestor: &Ancestor) -
     };
     let corrected = format!("{head}/{rest}");
     let (parent, name) = corrected.rsplit_once('/')?;
-    git::tree_names(context, stage, parent)
-        .ok()?
+    tree.names(parent)?
         .iter()
         .any(|entry| entry == name)
         .then_some(corrected)
@@ -98,10 +117,10 @@ fn corrected_path(context: &GitContext<'_>, stage: &Path, ancestor: &Ancestor) -
 
 /// The deepest directory above `path` that exists at HEAD (the root when
 /// none does), with its entries.
-fn deepest_ancestor(context: &GitContext<'_>, stage: &Path, path: &str) -> Option<Ancestor> {
+fn deepest_ancestor(tree: &Tree<'_>, path: &str) -> Option<Ancestor> {
     let mut dir = path.rsplit_once('/').map_or("", |(parent, _)| parent);
     loop {
-        let entries = git::tree_names(context, stage, dir).ok()?;
+        let entries = tree.names(dir)?;
         if !entries.is_empty() || dir.is_empty() {
             let below = path
                 .strip_prefix(dir)

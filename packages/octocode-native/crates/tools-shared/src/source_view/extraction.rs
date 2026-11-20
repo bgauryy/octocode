@@ -190,8 +190,15 @@ fn ranges_extract(
             ),
         ));
     }
+    let mut next = NextCalls::default();
     if local_fetch_query::block(q) {
-        kept = super::block::widen_ranges(content, local_fetch_query::path(q), kept, &mut warnings);
+        kept = super::block::widen_ranges(
+            content,
+            local_fetch_query::path(q),
+            kept,
+            &mut warnings,
+            &mut next,
+        );
     }
     let windows = merge_ranges(kept);
     let (text, selected, _) = placed_windows_text(content, lines, &windows);
@@ -204,7 +211,7 @@ fn ranges_extract(
         matched_lines: vec![],
         count: None,
         warnings,
-        next: NextCalls::default(),
+        next,
         blocks: vec![],
         match_limited: false,
         match_windows: vec![],

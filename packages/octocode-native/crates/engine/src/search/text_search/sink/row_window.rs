@@ -21,7 +21,12 @@ impl<M: Matcher> CollectSink<'_, M> {
     /// no row kept, when the search shows its lines whole, the line is no
     /// longer than a row, it holds no enumerable hit, or its windows join
     /// into the whole line.
-    pub(super) fn window_rows(&mut self, bytes: &[u8], line: u32) -> std::io::Result<bool> {
+    pub(super) fn window_rows(
+        &mut self,
+        bytes: &[u8],
+        line: u32,
+        hidden: &[std::ops::Range<usize>],
+    ) -> std::io::Result<bool> {
         let Some(RowWindow {
             longer_than,
             margin,
@@ -37,27 +42,26 @@ impl<M: Matcher> CollectSink<'_, M> {
         }
         let mut columns = SpanColumns::new(bytes, text);
         let mut windows: Vec<Window> = Vec::new();
-        self.matcher
-            .find_iter(bytes, |found| {
-                if super::past_block_end(bytes, found) {
-                    return true;
+        super::super::written::each_own(self.matcher, bytes, hidden, |found| {
+            if super::past_block_end(bytes, found) {
+                return true;
+            }
+            let start = columns.lossy(found.start()).min(text.len());
+            let end = columns.lossy(found.end()).min(text.len());
+            let from = text.floor_char_boundary(start.saturating_sub(margin));
+            let to = text.ceil_char_boundary(end.saturating_add(margin).min(text.len()));
+            match windows.last_mut() {
+                Some(before) if from <= before.text.end => {
+                    before.text.end = before.text.end.max(to);
                 }
-                let start = columns.lossy(found.start()).min(text.len());
-                let end = columns.lossy(found.end()).min(text.len());
-                let from = text.floor_char_boundary(start.saturating_sub(margin));
-                let to = text.ceil_char_boundary(end.saturating_add(margin).min(text.len()));
-                match windows.last_mut() {
-                    Some(before) if from <= before.text.end => {
-                        before.text.end = before.text.end.max(to);
-                    }
-                    _ => windows.push(Window {
-                        text: from..to,
-                        first_hit: found.start(),
-                    }),
-                }
-                true
-            })
-            .map_err(|error| std::io::Error::other(error.to_string()))?;
+                _ => windows.push(Window {
+                    text: from..to,
+                    first_hit: found.start(),
+                }),
+            }
+            true
+        })
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
         let whole = matches!(windows.as_slice(), [one] if one.text == (0..text.len()));
         if windows.is_empty() || whole {
             return Ok(false);

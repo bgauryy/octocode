@@ -116,3 +116,15 @@ fn a_committer_is_shown_only_when_it_differs_from_the_author() {
     let kept = committer(&rebased, &identity(&rebased, "author")).expect("kept");
     assert_eq!(kept["date"], "2024-02-01T00:00:00Z");
 }
+
+/// Only GitHub's same-repository autolink form counts as a mention: `#N`
+/// alone, never inside a word, an HTML entity or `owner/repo#N`, each
+/// number once.
+#[test]
+fn a_message_mentions_only_same_repository_references() {
+    let mentioned = super::mentioned_numbers(
+        "Fix (#12), see #2483 and #2483; not a#3, &#38;, o/r#4, #5x, #0 or #.",
+    );
+    assert_eq!(mentioned, [12, 2483]);
+    assert!(super::mentioned_numbers("printer: add hyperlinks").is_empty());
+}

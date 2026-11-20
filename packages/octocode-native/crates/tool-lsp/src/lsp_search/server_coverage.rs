@@ -13,11 +13,14 @@
 //! same file-level evidence; a missed file a target gate leaves out is no
 //! such evidence. rust-analyzer analyzes one target, so a file whose uses sit
 //! under a `cfg` of another target (`windows`, `target_os`) is missing:
-//! reason `cfgGatedFiles`. rust-analyzer analyzes one feature set, so code
-//! under disabled `cfg(feature)` gates is compiled out: reason
-//! `cfgGatedFiles` when files the answer did not cover use the name in code
-//! and carry such gates. An all-features configuration compiles out
-//! `cfg(not(feature …))` code instead: reason `cfgNegatedFeatures`. Every
+//! reason `cfgGatedFiles`. rust-analyzer analyzes one feature set and sets
+//! few other options (`test`, the `cargo.cfgs` list), so code under a gate
+//! it leaves out or open (a disabled `cfg(feature)`, a `cfg(transport_cfg)`
+//! nothing sets) is compiled out: reason `cfgGatedFiles` when files the
+//! answer did not cover use the name in code and carry such a gate, in the
+//! file or on a `mod` declaration of its module chain. An all-features
+//! configuration compiles out `cfg(not(feature …))` code instead: reason
+//! `cfgNegatedFeatures`. Every
 //! such row gets the lexical related localSearch. Gate scans cover the server's
 //! Cargo workspace: code outside it is not compiled, so no gate there hides
 //! a use.
@@ -40,8 +43,8 @@ use includes::{annotate_includes, record_text_coverage};
 pub(super) use includes::{include_declaring, package_declares, package_includes};
 use projects::annotate_unanswered;
 pub(super) use projects::answer_settled_files;
-pub(super) use targets::AnalysisTarget;
-use targets::{annotate_targets, target_gated_files};
+pub(super) use targets::{AnalysisTarget, SetCfgs};
+use targets::{Configuration, annotate_targets, target_gated_files};
 
 pub(super) const DYNAMIC_REASON: octocode_runtime_base::response::paging::PartialReason =
     octocode_runtime_base::response::paging::PartialReason::DynamicDispatch;
@@ -117,7 +120,7 @@ pub(super) fn annotate(
                 annotate_includes(row, query, server.anchor, scope, rust, &gated, stopped);
                 annotate_targets(row, query, scope, &gated);
             }
-            annotate_rust(row, query, server.root, scope, rust.all_features, stopped);
+            annotate_rust(row, query, server.root, scope, rust, stopped);
             // An answer naming no use stands only where the server placed every
             // spelling elsewhere: a server that has not taken in an edit, or
             // has not loaded the files, answers empty too. An answer listing
