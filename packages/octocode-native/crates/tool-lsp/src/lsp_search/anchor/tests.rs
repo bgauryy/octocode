@@ -154,6 +154,84 @@ fn a_name_off_its_line_names_every_spelling_the_resolver_chose_among() {
     );
 }
 
+/// A line too far from every spelling resolves to the file's one
+/// declaration, by that rule and not by nearness: the spelling nearest the
+/// asked line, on each side, is as likely the one meant, and the receipt
+/// names it however far.
+#[test]
+fn a_line_far_from_every_spelling_names_the_nearest_one_beside_the_declaration() {
+    let source = format!(
+        "fn check() {{}}\nfn a() {{ check(); }}\n{}fn b() {{ check(); }}\n{}",
+        "// filler\n".repeat(20),
+        "// filler\n".repeat(20)
+    );
+    let near = 23_u32;
+    let asked = near + 2 * DEFAULT_RADIUS as u32 + 1;
+    let anchor = resolve_anchor(
+        &line_query("check", asked),
+        "/w/a.rs",
+        "file:///w/a.rs",
+        Some(&source),
+    )
+    .expect("anchor");
+    let receipt = anchor.resolved_symbol.expect("receipt");
+    assert_eq!(receipt["foundAtLine"], 1, "{receipt}");
+    let lines = alternative_lines(&receipt);
+    assert_eq!(lines.first(), Some(&near), "{receipt}");
+    assert!(
+        anchor.warning.is_none(),
+        "the line is in the file: {receipt}"
+    );
+}
+
+/// A line past the end of the file names no line of it: the row warns,
+/// stating the file's length, and the receipt names the spelling nearest
+/// the end beside the one chosen.
+#[test]
+fn a_line_past_the_end_warns_and_names_the_spelling_nearest_the_end() {
+    let source = "fn check() {}\nfn a() { check(); }\nfn b() { check(); }\n";
+    let length = source.lines().count();
+    let asked = u32::try_from(length).expect("lines") + 1_000;
+    let anchor = resolve_anchor(
+        &line_query("check", asked),
+        "/w/a.rs",
+        "file:///w/a.rs",
+        Some(source),
+    )
+    .expect("anchor");
+    let receipt = anchor.resolved_symbol.expect("receipt");
+    let found = receipt["foundAtLine"].as_u64().expect("found");
+    let last = u32::try_from(length).expect("lines");
+    let lines = alternative_lines(&receipt);
+    assert!(
+        u64::from(last) == found || lines.contains(&last),
+        "the spelling nearest the end is chosen or named: {receipt}"
+    );
+    let warning = anchor.warning.expect("a warning");
+    assert!(warning.contains(&asked.to_string()), "{warning}");
+    assert!(warning.contains(&length.to_string()), "{warning}");
+}
+
+fn line_query(name: &str, line: u32) -> LspSearchQuery {
+    serde_json::from_value(serde_json::json!({
+        "operation": "references",
+        "path": "/w/a.rs",
+        "symbolName": name,
+        "line": line
+    }))
+    .expect("query")
+}
+
+fn alternative_lines(receipt: &Value) -> Vec<u32> {
+    receipt["alternatives"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|alternative| alternative["foundAtLine"].as_u64())
+        .filter_map(|line| u32::try_from(line).ok())
+        .collect()
+}
+
 #[test]
 fn a_stored_anchor_never_answers_for_edited_text() {
     let path = "/memo/anchor.ts";

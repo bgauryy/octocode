@@ -333,7 +333,8 @@ at its `exportLine`, a critical file by `dependents` to its `farthestDepth`.
   `affectedEntrypoints`, `testsToRun`, `components`, and `testFunctions`
   (including Rust `mod tests` and pytest `test_*` functions). Tests are named
   at any depth: a `depthLimited` walk still lists every test the change reaches.
-- A manifest, lockfile, or tsconfig/pyproject/go.mod change affects everything
+- A change to a config linking reads (manifest, workspace list,
+  tsconfig/pyproject/go.mod) affects everything
   below its directory; `allAffected` marks a root-level change.
 
 ### Weights and the co-change overlay

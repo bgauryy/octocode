@@ -7,6 +7,8 @@ return. This file is the whole method for checks; [METHOD.md](METHOD.md) owns be
 carries the answer, identity for the next call, one indication, and the way to get more; detail is one call
 away and nothing is lost.
 
+Run [tool-checks](tool-checks/README.md) first on the local build: one file per tool, its workflow into the related tools, scored on description, schema, results and offered follow-ups.
+
 A round fills in one [scorecard](briefs/SCORECARD.md), using the [1–10 rating rubric](RATINGS.md),
 so what is ready is visible at a glance. Every tool has [specific questions](questions/tools/README.md).
 Ready briefs

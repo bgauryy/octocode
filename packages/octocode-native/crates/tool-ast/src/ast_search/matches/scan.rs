@@ -9,7 +9,7 @@ use super::stream::PageFill;
 use super::types::{Scan, ScannedFile, Scope};
 use super::{demand, file_list, match_price};
 use octocode_engine::structural::{
-    FileMatches, PageFilled, StructuralDetailedMatch, StructuralDiagnostic,
+    FileMatches, PageStarts, StructuralDetailedMatch, StructuralDiagnostic,
     StructuralSearchDetailedFileResult, StructuralSearchFilesOptions,
 };
 use octocode_runtime_base::execution::cancel::CancellationCheck;
@@ -171,10 +171,10 @@ pub(super) fn scan_directory(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Keeps {
     /// The page's own demand ([`demand`]): its rows are priced. With the
-    /// page's budget, a content window in walk order ends after the file
-    /// that fills its page 1 ([`super::stream::PageFill`], and
-    /// [`octocode_engine::structural::StructuralDemand::Paged`]): its later
-    /// pages are its rows past page 1, then the next window's.
+    /// page's budget, a content window in walk order ends at a start of its
+    /// pages ([`super::stream::PageFill`], and
+    /// [`octocode_engine::structural::PagedWindow`]): its pages are whole,
+    /// and the next window's page 1 follows its last.
     Page(Option<usize>),
     /// Each file's match count: a census that states how many.
     Counts,
@@ -209,7 +209,18 @@ pub(super) fn scan_directory_keeping(
         },
     );
     let ignore_rules = q.include_ignored() != Some(true);
-    let log = WalkLog::new(scope, paths, &admission, q.include_hidden() == Some(true));
+    // A test-code scope leaves out, unparsed, every file whose path puts it
+    // on the other side (the walk's log decides it, so its census counts
+    // only what is read), and every match on the other side of a file that
+    // may mix both (its spans read once, on its first match).
+    let scoped = octocode_tools_shared::test_code::Scoped::of(q.test_code(), paths);
+    let log = WalkLog::new(
+        scope,
+        paths,
+        &admission,
+        q.include_hidden() == Some(true),
+        scoped.as_ref(),
+    );
     // Only a walk-order content window is cut by its page: a file view
     // lists every file's count, a ranked order needs every file, and an
     // explicit window is the caller's.
@@ -220,13 +231,24 @@ pub(super) fn scan_directory_keeping(
         _ => None,
     };
     let row_paths = super::super::RowPaths::new(paths, &scope.canonical, scope.is_file);
-    let fill = page_budget.map(|budget| std::sync::Mutex::new(PageFill::of(q, budget)));
-    let filled = |files: &[&StructuralSearchDetailedFileResult]| {
-        let fill = fill.as_ref()?;
+    // A window the one before ended inside its first file lists that file
+    // from where the window before stopped.
+    let carry = super::snapshot::listed_before(q).carry;
+    let fill = page_budget.map(|budget| {
+        std::sync::Mutex::new(PageFill::of(
+            q,
+            budget,
+            octocode_engine::num::saturating_usize(carry),
+        ))
+    });
+    let page_starts = |files: &[(usize, &StructuralSearchDetailedFileResult)]| {
+        let Some(fill) = fill.as_ref() else {
+            return Vec::new();
+        };
         let mut fill = fill
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        files.iter().enumerate().find_map(|(at, file)| {
+        for (position, file) in files {
             if let FileMatches::Priced(prices) = &file.matches
                 && !prices.is_empty()
             {
@@ -235,15 +257,13 @@ pub(super) fn scan_directory_keeping(
                     std::path::Path::new(&file.path),
                 );
                 fill.add(
+                    *position,
                     header_chars(&shown, row_paths),
                     prices.iter().map(|price| *price as usize),
                 );
             }
-            // Page 1 needs the files before the one its next page starts
-            // at, and that file too when page 1 holds some of its matches.
-            fill.filled()
-                .map(|at_start| if at_start { at } else { at + 1 })
-        })
+        }
+        fill.new_starts()
     };
     let projection_failure = std::sync::Mutex::new(None);
     let price = |m: &StructuralDetailedMatch| match match_price(q, m, cancel) {
@@ -256,10 +276,6 @@ pub(super) fn scan_directory_keeping(
             0
         }
     };
-    // A test-code scope leaves out, unparsed, every file whose path puts it
-    // on the other side, and every match on the other side of a file that
-    // may mix both (its spans read once, on its first match).
-    let scoped = octocode_tools_shared::test_code::Scoped::of(q.test_code(), paths);
     let keep_line = |path: &std::path::Path, line: u32| {
         scoped
             .as_ref()
@@ -286,14 +302,8 @@ pub(super) fn scan_directory_keeping(
         // row price's inputs are the scan key's.
         kept: Some(super::memo::scan_key(q, paths)),
     };
-    let admit = |path: &std::path::Path, file_type: Option<std::fs::FileType>| {
-        // Only a file the scan parses is one the scope leaves unread.
-        log.admit(path, file_type)
-            && scoped.as_ref().is_none_or(|scoped| {
-                let is_dir = file_type.map_or_else(|| path.is_dir(), |kind| kind.is_dir());
-                (!is_dir && !parses(scope, path)) || scoped.reads(path, is_dir)
-            })
-    };
+    let admit =
+        |path: &std::path::Path, file_type: Option<std::fs::FileType>| log.admit(path, file_type);
     let stop = || {
         cancel.check().is_err()
             || projection_failure
@@ -312,9 +322,11 @@ pub(super) fn scan_directory_keeping(
             octocode_engine::structural::search_files_shared(
                 options,
                 match keeps {
-                    Keeps::Page(_) => {
-                        demand(q, &price, page_budget.map(|_| &filled as &PageFilled<'_>))
-                    }
+                    Keeps::Page(_) => demand(
+                        q,
+                        &price,
+                        page_budget.map(|_| (&page_starts as &PageStarts<'_>, carry > 0)),
+                    ),
                     Keeps::Counts => octocode_engine::structural::StructuralDemand::Count,
                     Keeps::First => octocode_engine::structural::StructuralDemand::Exists,
                 },
@@ -402,6 +414,8 @@ pub(super) fn scan_directory_keeping(
             .collect(),
         truncated: r.scan_truncated,
         filled: r.page_filled,
+        page_split: r.page_split,
+        resumed_inside: r.resumed_inside,
         scan_resume: r.scan_resume,
         listed_before: r.listed_before,
         listed_through: r.listed_through,

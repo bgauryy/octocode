@@ -191,16 +191,11 @@ pub fn call(
         kinds.push(kind);
     }
     across.attach(&mut output, &parsed, can_resume);
-    // A row whose twin paid for its request states calls:0; a reader of the
-    // summary then needs every row's calls to see who paid.
-    let shared = output
-        .iter()
-        .any(|data| data["usage"]["calls"] == json!(0) && data.get("errorCode").is_none());
     for (row, data) in parsed.iter().zip(&mut output) {
         if row.details {
             view::carry_details(data);
         } else {
-            view::summarize(data, shared);
+            view::summarize(data);
         }
     }
     Ok(receipts(output, kinds))

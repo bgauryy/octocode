@@ -394,22 +394,46 @@ impl Evaluator {
         u64::from(self.retries)
     }
 
-    /// Input tokens a request of `bytes` is priced at before it is sent: the
-    /// densest tokens per byte this endpoint reported for the model and
-    /// window, else one token per byte (a token covers at least one byte of
-    /// text, so this bounds it from above).
-    pub fn tokens_at_most(&self, model: Option<&str>, long: bool, bytes: usize) -> u64 {
-        let bytes = u64::try_from(bytes).unwrap_or(u64::MAX);
-        match windows::tokens_per_byte(&self.base_url, model.unwrap_or(&self.model), long) {
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                clippy::cast_precision_loss,
-                reason = "a positive token count well inside u64, rounded up"
-            )]
-            Some(density) => ((bytes as f64) * density).ceil() as u64,
-            None => bytes,
-        }
+    /// Input tokens a round of `requests` (each its body bytes and its
+    /// question count) costs at most, priced before any is sent so a real run
+    /// cannot pass it: each request's body at one token per byte (a token
+    /// covers at least one byte of the text sent) and the provider's own
+    /// prompt, which no body shows, at most what the requests taken here
+    /// bound it to ([`windows::prompt_tokens_at_most`]). `None` before any
+    /// request of this model and window was taken: nothing bounds that
+    /// prompt yet.
+    pub fn tokens_at_most(
+        &self,
+        model: Option<&str>,
+        long: bool,
+        requests: impl IntoIterator<Item = (usize, usize)>,
+    ) -> Option<u64> {
+        let model = model.unwrap_or(&self.model);
+        requests
+            .into_iter()
+            .try_fold(0_u64, |sum, (bytes, questions)| {
+                let prompt =
+                    windows::prompt_tokens_at_most(&self.base_url, model, long, questions)?;
+                Some(
+                    sum.saturating_add(u64::try_from(bytes).unwrap_or(u64::MAX))
+                        .saturating_add(prompt),
+                )
+            })
+    }
+
+    /// [`Self::tokens_at_most`] of the first round `sends` plans for `asked`
+    /// questions: one grouped request, else one request per question, each
+    /// at most its share of the round's bytes.
+    pub fn first_round_tokens_at_most(
+        &self,
+        model: Option<&str>,
+        long: bool,
+        sends: &Sends,
+        asked: usize,
+    ) -> Option<u64> {
+        let first = usize::try_from(sends.first).unwrap_or(usize::MAX).max(1);
+        let each = (sends.bytes.div_ceil(first), asked.div_ceil(first).max(1));
+        self.tokens_at_most(model, long, std::iter::repeat_n(each, first))
     }
 
     /// The requests `input` sends first and at most ([`Sends`]), before any

@@ -51,6 +51,8 @@ impl Standing {
             files,
             truncated,
             filled,
+            page_split: _,
+            resumed_inside: _,
             scan_resume,
             listed_before,
             listed_through,

@@ -540,3 +540,66 @@ async fn requested_comment_sections_with_none_are_empty_lists() {
     assert_eq!(pr["comments"], json!([]), "{out}");
     assert_eq!(pr["reviewComments"], json!([]), "{out}");
 }
+
+/// Body-less COMMENTED reviews whose inline comments are in the same read
+/// are folded into those comments (`reviewId` names each one), and the
+/// response counts them: an empty `reviews` list never reads as "no
+/// reviews" (flask#4692: 7 such reviews, `reviews: []`).
+#[tokio::test]
+async fn reviews_folded_into_their_comments_are_counted() {
+    let server = MockServer::builder().start().await;
+    mount_pr(&server, json!([changed_file("src/a.rs")])).await;
+    let reviews = [10, 11, 12].map(|id| {
+        json!({"id": id, "user": {"login": "rev"}, "state": "COMMENTED", "body": "",
+            "submitted_at": "2024-01-02T00:00:00Z", "commit_id": HEAD})
+    });
+    mount_json(
+        &server,
+        "/api/v3/repos/o/r/pulls/1/reviews",
+        200,
+        json!(reviews),
+    )
+    .await;
+    let inline = [10, 11, 12].map(|review| {
+        json!({"id": review * 100, "pull_request_review_id": review, "user": {"login": "rev"},
+            "body": format!("note {review}"), "path": "src/a.rs", "line": 1, "side": "RIGHT",
+            "commit_id": HEAD, "created_at": "2024-01-02T00:00:00Z"})
+    });
+    mount_json(
+        &server,
+        "/api/v3/repos/o/r/pulls/1/comments",
+        200,
+        json!(inline),
+    )
+    .await;
+    let out = read(
+        &server,
+        json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "o",
+                "repo": "r",
+                "number": 1,
+                "sections": ["reviews", "reviewComments"]
+            }"#,
+        ),
+    )
+    .await;
+    let pr = &out["pullRequests"][0];
+    assert_eq!(pr["reviews"], json!([]), "{out}");
+    let named = pr["reviewComments"]
+        .as_array()
+        .expect("reviewComments")
+        .iter()
+        .filter(|comment| comment.get("reviewId").is_some())
+        .count();
+    assert_eq!(named, reviews.len(), "{out}");
+    let notes = out["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|note| note.contains(&reviews.len().to_string()) && note.contains("reviewId"))
+        .count();
+    assert_eq!(notes, 1, "{out}");
+}

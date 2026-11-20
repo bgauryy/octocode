@@ -8,6 +8,7 @@ use super::*;
 fn source_secret_guard_fails_closed_when_the_source_cannot_be_reread() {
     let security = ContentSecurity::new();
     let mut file = octocode_engine::types::TextSearchFile {
+        sort_time: None,
         term_counts: Vec::new(),
         path: "gone.txt".into(),
         match_count: 1,
@@ -62,6 +63,7 @@ fn source_secret_guard_fails_closed_when_the_match_line_is_gone() {
     let source = root.path().join("shrunk.txt");
     fs::write(&source, "one line now\n").expect("fixture");
     let mut file = octocode_engine::types::TextSearchFile {
+        sort_time: None,
         term_counts: Vec::new(),
         path: "shrunk.txt".into(),
         match_count: 1,

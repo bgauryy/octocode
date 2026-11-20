@@ -46,13 +46,15 @@ impl ToolId {
     }
 
     /// The cross-tool calls this tool's served description promises as its
-    /// `related` output (artifactSearch: the advisory lead of an exact row).
+    /// `related` output (artifactSearch: the advisory lead of an exact row;
+    /// graphBuild: the queries of the snapshot it published).
     /// The response stage keeps a promised call by that promise alone; a
     /// contract-lock test pins each target to the producing description.
     #[must_use]
     pub(crate) const fn promised_links(self) -> &'static [Self] {
         match self {
             Self::ArtifactSearch => &[Self::SecurityCheck],
+            Self::GraphBuild => &[Self::GraphQuery],
             _ => &[],
         }
     }

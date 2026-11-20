@@ -31,7 +31,6 @@ export interface RequiredLspConfig {
   autoInstall: "prompt" | "off" | "auto";
   trustProjectConfig: boolean;
   trustFetchedCode: boolean;
-  allowBuildScripts: boolean;
   prewarm: "targeted" | "all" | "off";
 }
 
@@ -303,29 +302,13 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "defaultValue": false
   },
   {
-    "path": "lsp.allowBuildScripts",
-    "section": "lsp",
-    "key": "allowBuildScripts",
-    "type": "boolean",
-    "resolved": true,
-    "credential": false,
-    "description": "Let lspSearch run a Rust workspace's Cargo build scripts and procedural macros when a query's rustContext sets buildScripts or procMacros. Off by default: they are repository code, so such a query is refused (errorCode policy) and the default rust-analyzer, which runs none, answers every other query.",
-    "notes": "Security-sensitive: turning it on lets any lspSearch call, in any client mode, run the build scripts and proc macros of the workspace it names. Home-only, so a repository cannot turn it on.",
-    "env": {
-      "name": "OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS",
-      "dotenv": "home",
-      "workspaceNarrowsTo": "false"
-    },
-    "defaultValue": false
-  },
-  {
     "path": "lsp.prewarm",
     "section": "lsp",
     "key": "prewarm",
     "type": "enum",
     "resolved": true,
     "credential": false,
-    "description": "Language-server prewarm: targeted warms the server of an lspSearch call the response offers; all also warms files named by reads or searches and, at MCP initialize, the workspace's top three languages; off disables prewarm. Starts index a whole project: targeted avoids unrelated server starts, but a lookup without an earlier candidate can take seconds.",
+    "description": "Language-server prewarm: targeted warms the server of the file a localSearch, localFetch or astSearch row names and of an lspSearch call the response offers; all also warms files named by other local tools and, at MCP initialize, the workspace's top three languages; off disables prewarm. Only languages with a configured server start, and each start indexes a whole project: targeted avoids unrelated server starts, but a lookup before any read or search can take seconds.",
     "env": {
       "name": "OCTOCODE_LSP_PREWARM",
       "normalize": "lower"
@@ -461,8 +444,8 @@ export const RUNTIME_SURFACES = ["mcp","cli"] as const;
 export type RuntimeSurface = (typeof RUNTIME_SURFACES)[number];
 export const ENV_TOKEN_VARS = ["GH_TOKEN","GITHUB_TOKEN"] as const;
 export const ENV_CREDENTIAL_VARS = ["ALL_PROXY","EXA_API_KEY","GH_TOKEN","GITHUB_TOKEN","HTTPS_PROXY","HTTP_PROXY","OCTOCODE_CLASSIFICATION_API","SCRAPING_ANT","SERPER_API_KEY","TAVILY_API_KEY"] as const;
-export const PROTECTED_KEY_NAMES = ["PATH","HOME","SHELL","USER","LOGNAME","PWD","TMPDIR","NODE_OPTIONS","PYTHON","TAVILY_BASE_URL","EXA_BASE_URL","SERPER_BASE_URL","HTTPS_PROXY","HTTP_PROXY","ALL_PROXY","NO_PROXY","SSL_CERT_FILE","SSL_CERT_DIR","GIT_SSL_CAINFO","GIT_SSL_CAPATH","CURL_CA_BUNDLE","OCTOCODE_GITHUB_CLIENT_ID","OCTOCODE_HOME","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_GRAPH_HOME","OCTOCODE_ENABLE_CLONE","OCTOCODE_SECURITY_CHECKS","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_LSP_TRUST_FETCHED_CODE","OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS","OCTOCODE_REDACT_EMAILS","OCTOCODE_REDACT_UUID","OCTOCODE_CREDENTIAL_FILES","OCTOCODE_STORAGE_MODE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
-export const HOME_TRUSTED_ENV_KEYS = ["TAVILY_BASE_URL","EXA_BASE_URL","SERPER_BASE_URL","OCTOCODE_GITHUB_CLIENT_ID","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_GRAPH_HOME","OCTOCODE_ENABLE_CLONE","OCTOCODE_SECURITY_CHECKS","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_LSP_TRUST_FETCHED_CODE","OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS","OCTOCODE_REDACT_EMAILS","OCTOCODE_REDACT_UUID","OCTOCODE_CREDENTIAL_FILES","OCTOCODE_STORAGE_MODE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
+export const PROTECTED_KEY_NAMES = ["PATH","HOME","SHELL","USER","LOGNAME","PWD","TMPDIR","NODE_OPTIONS","PYTHON","TAVILY_BASE_URL","EXA_BASE_URL","SERPER_BASE_URL","HTTPS_PROXY","HTTP_PROXY","ALL_PROXY","NO_PROXY","SSL_CERT_FILE","SSL_CERT_DIR","GIT_SSL_CAINFO","GIT_SSL_CAPATH","CURL_CA_BUNDLE","OCTOCODE_GITHUB_CLIENT_ID","OCTOCODE_HOME","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_GRAPH_HOME","OCTOCODE_ENABLE_CLONE","OCTOCODE_SECURITY_CHECKS","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_LSP_TRUST_FETCHED_CODE","OCTOCODE_REDACT_EMAILS","OCTOCODE_REDACT_UUID","OCTOCODE_CREDENTIAL_FILES","OCTOCODE_STORAGE_MODE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
+export const HOME_TRUSTED_ENV_KEYS = ["TAVILY_BASE_URL","EXA_BASE_URL","SERPER_BASE_URL","OCTOCODE_GITHUB_CLIENT_ID","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_GRAPH_HOME","OCTOCODE_ENABLE_CLONE","OCTOCODE_SECURITY_CHECKS","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_LSP_TRUST_FETCHED_CODE","OCTOCODE_REDACT_EMAILS","OCTOCODE_REDACT_UUID","OCTOCODE_CREDENTIAL_FILES","OCTOCODE_STORAGE_MODE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
 /** Home-trusted switches a workspace may set only to this narrowing value. */
-export const WORKSPACE_NARROW_ONLY_ENV: Readonly<Record<string, string>> = {"OCTOCODE_ENABLE_LOCAL":"false","OCTOCODE_ENABLE_CLONE":"false","OCTOCODE_SECURITY_CHECKS":"false","OCTOCODE_LSP_TRUST_FETCHED_CODE":"false","OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS":"false","OCTOCODE_REDACT_EMAILS":"true","OCTOCODE_REDACT_UUID":"true","OCTOCODE_CREDENTIAL_FILES":"withhold","OCTOCODE_STORAGE_MODE":"memory"};
-export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "github": { "apiUrl": "https://api.github.com" }, "local": { "enabled": true, "beta": false, "allowedPaths": [], "workspaceRoot": undefined, "graphHome": undefined }, "tools": { "enabled": null, "disabled": null, "enableClone": false, "enableSecurityCheck": false }, "network": { "allowPrivateRegistry": false }, "lsp": { "autoInstall": "prompt", "trustProjectConfig": false, "trustFetchedCode": false, "allowBuildScripts": false, "prewarm": "targeted" }, "output": { "redactEmails": false, "redactUuid": false }, "security": { "credentialFiles": "withhold" }, "storage": { "mode": "persistent" }, "classification": { "apiHost": undefined, "model": undefined } };
+export const WORKSPACE_NARROW_ONLY_ENV: Readonly<Record<string, string>> = {"OCTOCODE_ENABLE_LOCAL":"false","OCTOCODE_ENABLE_CLONE":"false","OCTOCODE_SECURITY_CHECKS":"false","OCTOCODE_LSP_TRUST_FETCHED_CODE":"false","OCTOCODE_REDACT_EMAILS":"true","OCTOCODE_REDACT_UUID":"true","OCTOCODE_CREDENTIAL_FILES":"withhold","OCTOCODE_STORAGE_MODE":"memory"};
+export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "github": { "apiUrl": "https://api.github.com" }, "local": { "enabled": true, "beta": false, "allowedPaths": [], "workspaceRoot": undefined, "graphHome": undefined }, "tools": { "enabled": null, "disabled": null, "enableClone": false, "enableSecurityCheck": false }, "network": { "allowPrivateRegistry": false }, "lsp": { "autoInstall": "prompt", "trustProjectConfig": false, "trustFetchedCode": false, "prewarm": "targeted" }, "output": { "redactEmails": false, "redactUuid": false }, "security": { "credentialFiles": "withhold" }, "storage": { "mode": "persistent" }, "classification": { "apiHost": undefined, "model": undefined } };

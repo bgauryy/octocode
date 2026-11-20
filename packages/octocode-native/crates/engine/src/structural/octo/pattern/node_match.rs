@@ -5,7 +5,7 @@ use std::num::NonZeroU16;
 use tree_sitter::Node;
 
 use crate::structural::octo::matching::{
-    CaptureEnv, ExecutionError, children, node_text, raw_range,
+    CaptureEnv, ExecutionError, children, listed_ranges, node_text, raw_range,
 };
 use crate::structural::octo::metavars::{MetaVar, meta_from_node};
 
@@ -721,7 +721,7 @@ fn bind_parameters(
         captures.capture_many(
             name,
             nodes.iter().map(|node| node_text(*node, texts.candidate)),
-            || nodes.iter().map(|node| raw_range(*node)).collect(),
+            || listed_ranges(nodes, texts.candidate),
         )
     })
 }

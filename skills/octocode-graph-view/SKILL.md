@@ -7,7 +7,7 @@ description: "Load first for a visual, interactive map of a repository to explor
 
 ## Build the requested scope
 
-Run from the target workspace. When environment capabilities are unknown, use `node <skill>/scripts/preflight.mjs`; disclose missing layers that affect the task. Leave repository source untouched. `rustContext.buildScripts` executes project code; enable it only when the user's authorization covers building that project.
+Run from the target workspace. When environment capabilities are unknown, use `node <skill>/scripts/preflight.mjs`; disclose missing layers that affect the task. Leave repository source untouched.
 
 | Need | Command |
 |---|---|

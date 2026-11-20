@@ -122,6 +122,7 @@ pub(super) fn file_of(opts: &TextSearchOptions, mode: Mode, mut r: FileRec) -> T
         _ => None,
     };
     let source = r.source;
+    let sort_time = r.sort_time;
     let counted = crate::types::FileCounts {
         occurrences: r.submatches,
         lines: r.matched_lines,
@@ -137,6 +138,7 @@ pub(super) fn file_of(opts: &TextSearchOptions, mode: Mode, mut r: FileRec) -> T
                 SpanValues::Counted => collapse_unique_matches(r.om_matches, true),
             };
             TextSearchFile {
+                sort_time: None,
                 path: r.path,
                 match_count: saturating_u32(matches.len()),
                 counted: Default::default(),
@@ -149,6 +151,7 @@ pub(super) fn file_of(opts: &TextSearchOptions, mode: Mode, mut r: FileRec) -> T
         // files-only / files-without-match: path list, matchCount 1, no
         // snippets.
         Mode::FilesOnly | Mode::FilesWithoutMatch => TextSearchFile {
+            sort_time: None,
             path: r.path,
             match_count: 1,
             counted: Default::default(),
@@ -157,6 +160,7 @@ pub(super) fn file_of(opts: &TextSearchOptions, mode: Mode, mut r: FileRec) -> T
             term_counts: Vec::new(),
         },
         Mode::CountLines => TextSearchFile {
+            sort_time: None,
             path: r.path,
             match_count: r.matched_lines,
             counted: Default::default(),
@@ -165,6 +169,7 @@ pub(super) fn file_of(opts: &TextSearchOptions, mode: Mode, mut r: FileRec) -> T
             term_counts: Vec::new(),
         },
         Mode::CountMatches => TextSearchFile {
+            sort_time: None,
             path: r.path,
             match_count: r.submatches,
             counted: Default::default(),
@@ -176,6 +181,7 @@ pub(super) fn file_of(opts: &TextSearchOptions, mode: Mode, mut r: FileRec) -> T
     file.source = source;
     file.term_counts = term_counts;
     file.counted = counted;
+    file.sort_time = sort_time;
     file
 }
 

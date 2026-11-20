@@ -211,9 +211,85 @@ pub(super) fn set(
     }
 }
 
-/// `config unset KEY`.
+/// `config unset KEY`. A dotted key no setting declares, such as one an older
+/// Octocode wrote, is removed from each `.octocoderc` that holds it; every other
+/// key from the home `.env`.
 pub(super) fn unset(runtime: &ToolRuntime, key: &str, json_out: bool) -> u8 {
+    let declared = octocode_runtime_base::config::CONFIG_FIELDS
+        .iter()
+        .any(|field| field.path == key);
+    if key.contains('.') && !declared {
+        return unset_unknown_setting(runtime, key, json_out);
+    }
     edit(runtime, key, None, json_out)
+}
+
+/// Remove `key`, which no setting declares, from the home and workspace
+/// `.octocoderc`; a file that does not hold it is left alone.
+fn unset_unknown_setting(runtime: &ToolRuntime, key: &str, json_out: bool) -> u8 {
+    use octocode_runtime_base::config::{
+        CONFIG_FILE_NAME, config_revision, edit_setting, read_private_config,
+    };
+    let files = [
+        (runtime.config().home.join(CONFIG_FILE_NAME), false),
+        (runtime.inspect_config().project_config_file, true),
+    ];
+    let mut removed = Vec::new();
+    let mut notice = None;
+    // Each file is read just before its edit: when the workspace file is the
+    // home file, the second pass finds the key already gone.
+    for (path, workspace) in files {
+        let edited = read_private_config(&path)
+            .map_err(|error| {
+                if error.kind() == io::ErrorKind::InvalidInput {
+                    error
+                } else {
+                    io::Error::other("Cannot safely read configuration.")
+                }
+            })
+            .and_then(|text| {
+                edit_setting(
+                    &path,
+                    key,
+                    None,
+                    &config_revision(text.as_deref()),
+                    workspace,
+                )
+            });
+        match edited {
+            Ok(edit) => {
+                notice = notice.or_else(|| edit.notice(key));
+                if edit.changed() {
+                    removed.push(path);
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return edit_failed(&error, &path.display().to_string(), json_out),
+        }
+    }
+    if removed.is_empty() {
+        let code = ErrorCode::InvalidInput;
+        emit_error(
+            code,
+            &format!(
+                "No .octocoderc holds {key}, and no setting has that name; nothing was changed."
+            ),
+            json_out,
+        );
+        return super::exit_code(ExitClass::of(code));
+    }
+    if json_out {
+        return write_json(
+            &json!({"action": "unset", "key": key, "paths": removed, "changed": true, "notice": notice}),
+        );
+    }
+    for path in &removed {
+        println!("unset {key}: {} (updated)", path.display());
+    }
+    if let Some(notice) = notice {
+        println!("{notice}");
+    }
+    0
 }
 
 fn read_stdin_value() -> Result<String, &'static str> {
@@ -250,18 +326,18 @@ fn edit(runtime: &ToolRuntime, key: &str, value: Option<&str>, json_out: bool) -
                 0
             }
         }
-        Err(error) => {
-            let code = if error.kind() == io::ErrorKind::InvalidInput {
-                ErrorCode::InvalidInput
-            } else {
-                ErrorCode::FileAccessFailed
-            };
-            emit_error(
-                code,
-                &format!("Cannot edit global config: {error}"),
-                json_out,
-            );
-            super::exit_code(octocode_runtime_base::response::exit::ExitClass::of(code))
-        }
+        Err(error) => edit_failed(&error, "global config", json_out),
     }
+}
+
+/// Report a failed edit of `target`: a rejected key or value is invalid input,
+/// anything else a file access failure.
+fn edit_failed(error: &io::Error, target: &str, json_out: bool) -> u8 {
+    let code = if error.kind() == io::ErrorKind::InvalidInput {
+        ErrorCode::InvalidInput
+    } else {
+        ErrorCode::FileAccessFailed
+    };
+    emit_error(code, &format!("Cannot edit {target}: {error}"), json_out);
+    super::exit_code(ExitClass::of(code))
 }

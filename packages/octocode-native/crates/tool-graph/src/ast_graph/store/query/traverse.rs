@@ -206,6 +206,34 @@ impl Query<'_> {
                 related.extend(lead);
             }
         }
+        if op == "callees" && how.direction == Direction::Out {
+            let unlinked = seeds
+                .iter()
+                .map(|seed| super::super::manifest::unresolved_calls_of(&g.manifest, *seed))
+                .sum::<u64>();
+            if unlinked > 0 {
+                // The note promises the `unresolved` read scoped to the
+                // target, so the served row keeps it.
+                unresolved = Some(format!(
+                    "{unlinked} call sites in the target link no edge though their name is declared in this repository (unknown receiver, ambiguous or unbound); related lists them"
+                ));
+                let mut row = super::paging::query_row(self.options, &g.id);
+                row.retain(|field, _| matches!(field.as_str(), "path" | "graph" | "target"));
+                row.insert("operation".into(), json!("unresolved"));
+                row.insert("edges".into(), json!(["calls"]));
+                row.insert(
+                    "reasons".into(),
+                    json!(super::super::tables::INTERNAL_REASONS),
+                );
+                related.push(
+                    octocode_runtime_base::response::result::Continuation::related(
+                        octocode_runtime_base::id::ToolId::GraphQuery,
+                        Value::Object(row),
+                    )
+                    .build(),
+                );
+            }
+        }
         if !related.is_empty() {
             extra.insert("related".into(), Value::Array(related));
         }

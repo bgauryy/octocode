@@ -248,39 +248,16 @@ async fn an_unpublished_version_is_never_sent() {
                 .is_some_and(|hint| hint.starts_with("Only 2 published"))),
         "{data}"
     );
+    // No record names the version, so nothing says the registry lost it.
+    assert!(data.get("versionListed").is_none(), "{data}");
     // Nothing known about the name is still not a verdict on the version.
     let http = registry().osv_pages(vec![(200, json!({}))]);
     let data = answer(&http, Some("9.9.9"), None).await.expect("row");
     assert_eq!(data["status"], "error", "{data}");
     assert_eq!(data["errorCode"], "notFound", "{data}");
     assert_eq!(data["versionEvaluated"], false);
-}
-
-/// A version the registry no longer holds (unpublished, removed for
-/// malware) is still named by the records OSV returns for the package: one
-/// listing it affects it, and the row says so rather than "other versions".
-#[tokio::test]
-async fn an_unpublished_version_a_record_lists_is_affected() {
-    let mut listed = record("MAL-1");
-    listed["affected"] = json!([{
-        "package": {"name": "lodash", "ecosystem": "npm"},
-        "versions": ["4.17.999-internal"]
-    }]);
-    let http = registry().osv_pages(vec![(200, json!({"vulns": [listed, record("GHSA-2")]}))]);
-    let data = answer(&http, Some("4.17.999-internal"), None)
-        .await
-        .expect("row");
-    assert_eq!(data["versionEvaluated"], false);
-    let said = data.to_string();
-    assert!(said.contains("OSV lists it as affected by MAL-1"), "{data}");
-    assert!(!said.contains("at other versions"), "{data}");
-    assert_eq!(data["affected"], true, "{data}");
-    let mut listed = record("MAL-1");
-    listed["affected"] = json!([{
-        "package": {"name": "lodash", "ecosystem": "npm"},
-        "versions": ["4.17.999-internal"]
-    }]);
-    let http = registry().osv_pages(vec![(200, json!({"vulns": [listed]}))]);
+    // The summary fails the same way, with the same repair.
+    let http = registry().osv_pages(vec![(200, json!({"vulns": [record("GHSA-1")]}))]);
     let summary = answer_in(
         &http,
         Some("4.17.999-internal"),
@@ -288,16 +265,151 @@ async fn an_unpublished_version_a_record_lists_is_affected() {
     )
     .await
     .expect("row");
-    // The summary of the failed row states the verdict and the record.
-    assert_eq!(summary["affected"], true, "{summary}");
+    assert_eq!(summary["status"], "error", "{summary}");
+    assert_eq!(summary["errorCode"], "notFound", "{summary}");
+    assert!(summary.get("versionListed").is_none(), "{summary}");
     assert_eq!(
-        summary["link"], "https://osv.dev/vulnerability/MAL-1",
+        suggested_versions(&summary),
+        [json!("4.18.1"), json!("4.17.20")],
         "{summary}"
     );
-    assert!(
-        !summary.to_string().contains("at other versions"),
-        "{summary}"
+}
+
+/// The versions a row's `related` package checks name, in order.
+fn suggested_versions(data: &Value) -> Vec<Value> {
+    data["related"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|call| call["input"]["queries"].as_array().into_iter().flatten())
+        .filter(|row| row["operation"] == "package")
+        .filter_map(|row| row.get("version").cloned())
+        .collect()
+}
+
+/// A record naming lodash at the unlisted version `UNLISTED`.
+fn naming_unlisted(id: &str) -> Value {
+    let mut listed = record(id);
+    listed["affected"] = json!([{
+        "package": {"name": "lodash", "ecosystem": "npm"},
+        "versions": [UNLISTED]
+    }]);
+    listed
+}
+
+const UNLISTED: &str = "4.17.999-internal";
+
+/// A version the registry no longer holds (unpublished, removed for
+/// malware) that a record OSV returns for the package names by version is
+/// public in that record: OSV is asked at it, and the row is an answer in
+/// both views, not a failed lookup. `versionListed:false` and a warning say the
+/// registry does not list it; the leads check the nearest published versions.
+#[tokio::test]
+async fn an_unpublished_version_a_record_lists_is_affected() {
+    // OSV by name lists both; at the version it matches the one naming it.
+    let pages = || {
+        vec![
+            (
+                200,
+                json!({"vulns": [naming_unlisted("MAL-1"), record("GHSA-2")]}),
+            ),
+            (200, json!({"vulns": [naming_unlisted("MAL-1")]})),
+        ]
+    };
+    let http = registry().osv_pages(pages());
+    let data = answer(&http, Some(UNLISTED), None).await.expect("row");
+    // The name goes alone first; the version only once a record names it.
+    assert_eq!(
+        http.osv_queries(),
+        [
+            json!({"package": {"name": "lodash", "ecosystem": "npm"}}),
+            json!({"package": {"name": "lodash", "ecosystem": "npm"}, "version": UNLISTED}),
+        ]
     );
+    let said = data.to_string();
+    assert!(!said.contains("at other versions"), "{data}");
+    assert!(!said.contains("discover published versions"), "{data}");
+    for summary in [false, true] {
+        let row = if summary {
+            let http = registry().osv_pages(pages());
+            answer_in(
+                &http,
+                Some(UNLISTED),
+                octocode_contract_types::SecurityCheckView::Summary,
+            )
+            .await
+            .expect("row")
+        } else {
+            data.clone()
+        };
+        // An answer: no failure, and no version the registry confirmed.
+        for absent in [
+            "status",
+            "errorCode",
+            "error",
+            "hints",
+            "version",
+            "versionEvaluated",
+        ] {
+            assert!(row.get(absent).is_none(), "{absent}: {row}");
+        }
+        assert_eq!(row["affected"], true, "{row}");
+        assert_eq!(row["versionListed"], false, "{row}");
+        // OSV's match at the version, not every record of the name.
+        let ids = if summary {
+            row["advisoryIds"].clone()
+        } else {
+            json!(
+                row["advisories"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|advisory| advisory["id"].clone())
+                    .collect::<Vec<_>>()
+            )
+        };
+        assert_eq!(ids, json!(["MAL-1"]), "{row}");
+        let warned = row["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .any(|warning| {
+                warning.starts_with(&format!("The registry does not list lodash {UNLISTED}"))
+                    && warning.ends_with("affected by MAL-1: do not install it.")
+            });
+        assert!(warned, "{row}");
+        assert_eq!(
+            suggested_versions(&row),
+            [json!("4.18.1"), json!("4.17.20")],
+            "{row}"
+        );
+    }
+}
+
+/// Only OSV's own answer at the version makes the row an answer: one that
+/// fails or matches nothing leaves the by-name read, so the row stays the
+/// failed lookup, still affected by the record naming the version.
+#[tokio::test]
+async fn an_unlisted_version_osv_does_not_match_stays_a_failed_lookup() {
+    for at_version in [(503, json!({"error": "down"})), (200, json!({}))] {
+        let http = registry().osv_pages(vec![
+            (200, json!({"vulns": [naming_unlisted("MAL-1")]})),
+            at_version,
+        ]);
+        let data = answer(&http, Some(UNLISTED), None).await.expect("row");
+        assert_eq!(http.osv_queries()[1]["version"], UNLISTED, "{data}");
+        assert_eq!(data["status"], "error", "{data}");
+        assert_eq!(data["errorCode"], "notFound", "{data}");
+        assert_eq!(data["versionEvaluated"], false, "{data}");
+        assert_eq!(data["affected"], true, "{data}");
+        assert!(data.get("versionListed").is_none(), "{data}");
+        assert!(
+            data.to_string()
+                .contains("OSV lists it as affected by MAL-1"),
+            "{data}"
+        );
+    }
 }
 
 /// A range is checked at its newest match only, and says so.
@@ -1778,8 +1890,12 @@ async fn a_missing_repository_is_followed_to_the_one_the_latest_release_names() 
     for named in ["substack/minimist", "minimistjs/minimist", "1.2.8"] {
         assert!(why.contains(named), "{named} in {why}");
     }
-    // GitHub's 404 for the old name is also its answer for a private repository.
-    assert!(why.contains("private repository"), "{why}");
+    // GitHub's 404 for the old name says only what this credential is shown,
+    // with no guess at why (deleted or private).
+    assert!(
+        why.contains("does not show this credential") && !why.contains("private"),
+        "{why}"
+    );
     assert_eq!(data["repository"]["owner"], "minimistjs", "{data}");
     // The successor is described and holds no advisory for the package.
     assert_eq!(github_entry(&data)["status"], "noneKnown", "{data}");
@@ -1835,7 +1951,7 @@ async fn a_followed_repository_github_redirects_is_one_moved_caution() {
         "minimistjs/minimist",
         "neworg/minimist",
         "1.2.8",
-        "private repository",
+        "does not show this credential",
     ] {
         assert!(why.contains(named), "{named} in {why}");
     }
@@ -2369,6 +2485,52 @@ async fn npms_takedown_placeholder_is_named_beside_a_malware_report() {
     );
 }
 
+/// npm's takedown placeholder names npm's holding repository: its push date
+/// and stars are npm's, not the package's, so no repository caution is
+/// drawn from them, and the row says why.
+#[tokio::test]
+async fn npms_placeholder_states_no_repository_trust() {
+    let placeholder = json_fixture(
+        r#"{"name": "lodash", "version": "0.0.1-security",
+            "repository": {"type": "git", "url": "git+https://github.com/o/mono.git"}}"#,
+    );
+    let http = RouteHttp::new()
+        .json(
+            LODASH,
+            json!({"name": "lodash", "dist-tags": {"latest": "0.0.1-security"},
+                "versions": {"0.0.1-security": placeholder.clone()}}),
+        )
+        .json("/lodash/0.0.1-security", placeholder.clone())
+        .json("/lodash/latest", placeholder)
+        .osv_pages(vec![(200, json!({"vulns": []}))]);
+    let budget = test_budget();
+    let reused = ReusedSince::default();
+    let config = crate::security_check::tests::default_config();
+    let github = unmaintained_mono();
+    let data = run(
+        &Package {
+            view: octocode_contract_types::SecurityCheckView::Details,
+            ecosystem: crate::artifact::query::artifact_type::osv_ecosystem(ArtifactType::Npm),
+            release: None,
+            name: "lodash",
+            version: Some("0.0.1-security"),
+            resume: None,
+            brief: Map::new(),
+        },
+        &crate::security_check::github_double::net(&http, &budget, &reused, &config, &github),
+    )
+    .await
+    .expect("row");
+    assert!(rules(&data).is_empty(), "{data}");
+    assert!(data.get("repository").is_none(), "{data}");
+    assert!(
+        data["warnings"]
+            .to_string()
+            .contains("npm's placeholder for a package it removed"),
+        "{data}"
+    );
+}
+
 /// `o/mono` last pushed long ago (the `unmaintained` caution fires), with an
 /// empty advisory list.
 fn unmaintained_mono() -> crate::security_check::github_double::Double {
@@ -2837,7 +2999,35 @@ fn every_name_search_lead_runs_without_a_repair() {
         ArtifactType::Packagist,
         ArtifactType::Rubygems,
     ] {
-        let error = not_on_registry(kind, "x", &Map::new());
+        let package = Package {
+            view: octocode_contract_types::SecurityCheckView::Summary,
+            ecosystem: crate::artifact::query::artifact_type::osv_ecosystem(kind),
+            release: None,
+            name: "x",
+            version: None,
+            resume: None,
+            brief: Map::new(),
+        };
+        let near = crate::artifact::lookalike::Near {
+            own: None,
+            names: vec![("xy".to_owned(), 9)],
+            measure: "downloads",
+        };
+        // A name one edit away is checked as a package row of this tool.
+        let repaired = not_on_registry(kind, &package, Some(near));
+        let input = repaired.calls.expect("repair")["repair"]["input"].clone();
+        let tool = ToolId::SecurityCheck.as_str();
+        let (_, repairs) = octocode_runtime_base::contracts::normalized_input(tool, input.clone());
+        assert!(repairs.is_empty(), "{kind}: {input} {repairs:?}");
+        octocode_runtime_base::contracts::validate(tool, input.clone())
+            .unwrap_or_else(|error| panic!("{kind}: {input} {error}"));
+        assert_eq!(input["queries"][0]["packageName"], "xy", "{input}");
+        assert!(
+            repaired.message.contains("xy (9 downloads)"),
+            "{}",
+            repaired.message
+        );
+        let error = not_on_registry(kind, &package, None);
         let Some(calls) = error.calls else {
             continue;
         };
@@ -2848,6 +3038,24 @@ fn every_name_search_lead_runs_without_a_repair() {
         octocode_runtime_base::contracts::validate(tool, input.clone())
             .unwrap_or_else(|error| panic!("{kind}: {input} {error}"));
     }
+}
+
+/// A scoped npm name the registry lacks leads to its scope's packages, which
+/// npm's search lists for the scope, never to a search of the whole name.
+#[test]
+fn a_missing_scoped_npm_name_searches_its_scope() {
+    let package = Package {
+        view: octocode_contract_types::SecurityCheckView::Summary,
+        ecosystem: crate::artifact::query::artifact_type::osv_ecosystem(ArtifactType::Npm),
+        release: None,
+        name: "@octocodeai/definitely-not-a-real-pkg-zz9",
+        version: None,
+        resume: None,
+        brief: Map::new(),
+    };
+    let error = not_on_registry(ArtifactType::Npm, &package, None);
+    let lead = &error.calls.expect("lead")["broadenSearch"]["input"]["queries"][0];
+    assert_eq!(lead["keywords"], json!(["@octocodeai"]), "{lead}");
 }
 
 /// A crate version OSV clears that the registry yanked is no upgrade: the row

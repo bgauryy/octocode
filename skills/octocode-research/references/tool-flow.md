@@ -10,8 +10,8 @@ The routes the server instructions serve, generated from core (`node skills/comm
 | code shape: declarations, calls, nesting → astSearch → localFetch ranges | `astSearch`, `localFetch` |
 | definition, identity, every caller or use → lspSearch at a search hit's line | `lspSearch` |
 | known file → localFetch | `localFetch` |
-| hits meaning X (cause, kind, intent) → localSearch + classification | `clasify`, `localSearch` |
-| too many hits, paths, commits or thread entries; huge file, log, command output, many files or docs, images → clasify → next.read | `clasify` |
+| keep only hits meaning X (cause, kind, intent) → localSearch classification:{predicates} | `clasify`, `localSearch` |
+| questions over too many hits, paths, commits or thread entries; huge file, log, command output, many files or docs, images → clasify → next.read | `clasify` |
 | web page or URL → clasify source.url → next.read | `clasify` |
 | command output, git state → shell (§5) | always |
 | repo or library not in this checkout → ghSearchRepo → ghStructure (tree, tags) or ghSearchCode → ghGetFileContent | `ghSearchRepo`, `ghStructure`, `ghSearchCode`, `ghGetFileContent` |

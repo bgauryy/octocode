@@ -30,6 +30,7 @@ fn hit(line: u32) -> TextSearchMatch {
 fn stream_pages_price_each_row_and_file_once() {
     let files = (0..30u32)
         .map(|n| TextSearchFile {
+            sort_time: None,
             term_counts: Vec::new(),
             path: format!("src/f{n}.rs"),
             match_count: 40,
@@ -156,6 +157,7 @@ fn page_cuts_outline_only_the_first_pages_files_and_every_call_cuts_alike() {
     let root = tempfile::tempdir().expect("fixture directory");
     let files = (0..100u32)
         .map(|n| TextSearchFile {
+            sort_time: None,
             term_counts: Vec::new(),
             path: format!("src/f{n:03}.rs"),
             match_count: 30,
@@ -240,6 +242,7 @@ fn listed_file_chars_match_the_rendered_entry() {
             (4_294_967_295, vec![4_294_967_295, 0, 12]),
         ] {
             let file = TextSearchFile {
+                sort_time: None,
                 term_counts: terms.clone(),
                 path: path.to_owned(),
                 match_count: count,
@@ -250,6 +253,7 @@ fn listed_file_chars_match_the_rendered_entry() {
             for view in [View::Files, View::CountMatches, View::CountLines] {
                 let counted = matches!(view, View::CountMatches | View::CountLines);
                 let rendered = SearchFile {
+                    sorted_at: None,
                     path: file.path.clone(),
                     declarations: Vec::new(),
                     matches: None,
@@ -277,6 +281,7 @@ fn listed_file_chars_match_the_rendered_entry() {
 fn a_whole_page_skips_the_rows_an_earlier_page_showed() {
     let files = (0..3u32)
         .map(|n| TextSearchFile {
+            sort_time: None,
             term_counts: Vec::new(),
             path: format!("src/f{n}.rs"),
             match_count: 5,

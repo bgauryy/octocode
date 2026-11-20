@@ -57,16 +57,23 @@ fn match_price(
 
 /// What a directory scan keeps of each match: a file view needs only the
 /// counts; a match view prices every row (pages are cut from the prices)
-/// and rebuilds only the rows of the page it shows, and with `filled` stops
-/// once its page fills ([`scan::Keeps::Page`]).
+/// and rebuilds only the rows of the page it shows, and with `pages` (its
+/// page starts, and whether it resumes inside the file the window before
+/// ended in) ends at a start of its pages ([`scan::Keeps::Page`]).
 fn demand<'a>(
     q: MatchQuery<'_>,
     price: &'a (dyn Fn(&StructuralDetailedMatch) -> u32 + Sync),
-    filled: Option<&'a octocode_engine::structural::PageFilled<'a>>,
+    pages: Option<(&'a octocode_engine::structural::PageStarts<'a>, bool)>,
 ) -> StructuralDemand<'a> {
-    match filled {
+    match pages {
         _ if file_list(q) => StructuralDemand::Count,
-        Some(filled) => StructuralDemand::Paged(price, filled),
+        Some((page_starts, resumes_inside)) => {
+            StructuralDemand::Paged(octocode_engine::structural::PagedWindow {
+                price,
+                page_starts,
+                resumes_inside,
+            })
+        }
         None => StructuralDemand::Priced(price),
     }
 }
@@ -83,10 +90,20 @@ pub fn execute_match(
 }
 
 /// A window past the first whose candidates before it are not the ones the
-/// windows before it evaluated: its `scanOffset` counts other files.
-fn window_moved(q: MatchQuery<'_>, scan: &types::Scan) -> bool {
+/// windows before it evaluated: its `scanOffset` counts other files, or the
+/// file the window before ended inside is not the one it reads first.
+fn window_moved(build: &str, q: MatchQuery<'_>, scan: &types::Scan) -> bool {
     q.snapshot().is_some_and(|pin| {
-        q.scan_offset() > 0 && scan.listed_before.as_deref() != Some(snapshot::uncounted(&pin).0)
+        let (bare, start) = snapshot::uncounted(&pin);
+        let listed = scan.listed_before.as_deref().map(|listed| {
+            if start.carry > 0 {
+                snapshot::built(listed, build)
+            } else {
+                listed.to_owned()
+            }
+        });
+        q.scan_offset() > 0
+            && (listed.as_deref() != Some(bare) || (start.carry > 0 && !scan.resumed_inside))
     })
 }
 
@@ -107,7 +124,7 @@ enum Fresh {
 /// A fresh scan of `q`'s window: a ranked order's windows add up to the whole
 /// scope before any file is listed, and its later pages scan the whole scope.
 fn fresh_window(
-    q: MatchQuery<'_>,
+    (build, q): (&str, MatchQuery<'_>),
     scope: &types::Scope,
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
@@ -127,7 +144,7 @@ fn fresh_window(
             ),
         ))
     };
-    if !continues && window_moved(q, &scan) {
+    if !continues && window_moved(build, q, &scan) {
         return Ok(moved());
     }
     let mut from_start = None;
@@ -173,7 +190,7 @@ fn run_match_under(
     let from_start;
     let (q, scan, started) = match stored {
         Some(scan) => (q, scan, octocode_engine::stamp::settle_clock()),
-        None => match fresh_window(q, &scope, paths, cancel, (continues, budget))? {
+        None => match fresh_window((build, q), &scope, paths, cancel, (continues, budget))? {
             Fresh::Answered(out) => return Ok(out),
             Fresh::Scanned(whole, scan, started) => {
                 from_start = whole;
@@ -234,8 +251,9 @@ fn run_match_under(
     grouped.recovered_bodies = grouped
         .recovered_bodies
         .respelled(|shown| row_paths.delivered(shown));
-    let mut page = stream::stream_page(q, &grouped.groups, budget);
-    page.count_from(before);
+    let bounds = window_bounds(before, &scan);
+    let mut page = stream::stream_page(q, &grouped.groups, bounds, budget);
+    page.count_from(before.before);
     let rows = page_rows::PageRows {
         snapshot: &snapshot,
         key: &key,
@@ -294,13 +312,13 @@ fn run_match_under(
         && !scan.truncated
         && q.scan_offset() == 0;
     let mut out = render_match_page(
-        q,
+        (build, q),
         &scope,
         &scan,
         grouped,
         &snapshot,
         gaps,
-        (&page, row_paths),
+        (&page, row_paths, bounds),
         cancel,
     )?;
     // A page with matches keeps no hints (they recover an empty or failed
@@ -327,6 +345,23 @@ fn run_match_under(
         remember_scan((snapshot, key), &scope, &scan, paths, started);
     }
     Ok(out)
+}
+
+/// Where `scan`'s window's stream lies in its files' matches: past the
+/// matches the window before listed of the file it ended inside, when this
+/// window read that file again (its first), and up to the page start inside
+/// its own last file it ended at.
+fn window_bounds(start: snapshot::WindowStart, scan: &types::Scan) -> stream::Bounds {
+    stream::Bounds {
+        carry: if scan.resumed_inside {
+            octocode_engine::num::saturating_usize(start.carry)
+        } else {
+            0
+        },
+        split: scan
+            .page_split
+            .map(|split| octocode_engine::num::saturating_usize(u64::from(split))),
+    }
 }
 
 /// Fill the rows `page` shows of `grouped`'s files. A shown file whose match did not finish is counted and

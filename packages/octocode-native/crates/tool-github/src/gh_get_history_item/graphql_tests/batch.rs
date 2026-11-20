@@ -106,7 +106,9 @@ fn first_pages_and_summaries_plan_a_batch_read_and_patches_do_not() {
 }
 
 /// Summary rows read their whole comment counts in the batch's one request:
-/// each row states GitHub's whole count and REST's inline count beside it.
+/// each row states GitHub's whole count (`totalCommentsCount`) beside REST's
+/// conversation (`commentsCount`) and inline (`reviewCommentsCount`) counts,
+/// each count the entries of the section its name says.
 #[tokio::test]
 async fn summary_rows_read_their_whole_counts_in_one_request() {
     let server = MockServer::builder().start().await;
@@ -156,10 +158,17 @@ async fn summary_rows_read_their_whole_counts_in_one_request() {
             .expect("history item");
         let pr = &out.data["pullRequests"][0];
         counts.push((
+            pr["totalCommentsCount"].clone(),
             pr["commentsCount"].clone(),
             pr["reviewCommentsCount"].clone(),
         ));
         assert!(out.data.get("warnings").is_none(), "{}", out.data);
     }
-    assert_eq!(counts, [(json!(222), json!(120)), (json!(3), json!(120))]);
+    assert_eq!(
+        counts,
+        [
+            (json!(222), json!(55), json!(120)),
+            (json!(3), json!(55), json!(120))
+        ]
+    );
 }

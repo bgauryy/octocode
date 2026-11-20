@@ -16,6 +16,21 @@ pub(super) fn anchors_type_declaration(content: &str, file: &str, line: u32, nam
     })
 }
 
+/// Whether `line` declares anything named `name` (a type, a member, a
+/// function, a binding); a file without a parsed outline declares nothing
+/// known.
+pub(super) fn declares(content: &str, file: &str, line: u32, name: &str) -> bool {
+    let Some(document) = octocode_tools_shared::declarations::file_document(content, file) else {
+        return false;
+    };
+    let language = octocode_engine::lsp::config::detect_language_id(file);
+    let name = canonical_symbol_name(language.as_deref(), name);
+    document.declarations.iter().any(|declaration| {
+        canonical_symbol_name(language.as_deref(), &declaration.name) == name
+            && declaration.selection_range.start.line == line
+    })
+}
+
 /// The innermost type declaring `name` at `line`; an impl block has no owner
 /// that another declaration can extend or implement.
 pub(super) fn member_owner(content: &str, file: &str, line: u32, name: &str) -> Option<String> {

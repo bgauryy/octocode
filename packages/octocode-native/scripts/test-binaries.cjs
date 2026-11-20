@@ -111,7 +111,8 @@ function runBinaries(binaries, { args = [], threads, concurrency, env, children 
     let running = 0;
     const next = () => {
       if (queue.length === 0 && running === 0) return finish();
-      while (running < concurrency && queue.length > 0) start(queue.shift());
+      // start() raises `running` by one, so this fills every free slot.
+      for (let free = concurrency - running; free > 0 && queue.length > 0; free -= 1) start(queue.shift());
     };
     const start = binary => {
       running += 1;

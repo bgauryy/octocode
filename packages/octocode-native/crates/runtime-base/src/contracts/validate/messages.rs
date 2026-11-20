@@ -75,7 +75,10 @@ pub fn format_input_error(
             }
             let message = match required_guidance(issue) {
                 Some(guidance) => format!("{} ({guidance})", issue.message),
-                None => issue.message.clone(),
+                None => match picked_by(tool_name, issue, sent) {
+                    Some(fields) => format!("{} ({} needs it)", issue.message, fields.join(", ")),
+                    None => issue.message.clone(),
+                },
             };
             if path.is_empty() {
                 message
@@ -107,18 +110,8 @@ const EXAMPLE: &str = "Example: ";
 /// request field or a refused value (`security.*`) is the whole repair.
 fn call_reference(tool_name: &str, rejected: Option<&Rejected<'_>>) -> Vec<String> {
     let row = rejected.map(|rejected| rejected.row);
-    let example = crate::contracts::cli_presentation()
-        .ok()
-        .and_then(|presentation| {
-            presentation["tools"]
-                .as_array()?
-                .iter()
-                .find(|entry| entry["name"] == tool_name)
-        })
-        .and_then(|entry| {
-            let variants = entry["views"]["variants"]["variants"].as_array()?;
-            nearest_form(variants, row)?.get("example")
-        });
+    let example =
+        tool_variants(tool_name).and_then(|variants| nearest_form(variants, row)?.get("example"));
     let Some(example) = example else {
         return Vec::new();
     };
@@ -127,6 +120,113 @@ fn call_reference(tool_name: &str, rejected: Option<&Rejected<'_>>) -> Vec<Strin
         "{EXAMPLE}{}",
         serde_json::json!({ "queries": [example] })
     )]
+}
+
+/// The forms `tool_name` publishes (`schema <tool> --view variants`): each
+/// one's `operations`, `fields`, `requires` and `example`.
+fn tool_variants(tool_name: &str) -> Option<&'static [Value]> {
+    let presentation = crate::contracts::cli_presentation().ok()?;
+    let entry = presentation["tools"]
+        .as_array()?
+        .iter()
+        .find(|entry| entry["name"] == tool_name)?;
+    entry["views"]["variants"]["variants"]
+        .as_array()
+        .map(Vec::as_slice)
+}
+
+/// The row fields that picked the form a missing required field belongs
+/// to: each one only forms that require the field take, sent in the row
+/// that lacks it (clasify `perHit` needs `source`). `None` when the field
+/// is required whatever the row sends, or no sent field decided it.
+fn picked_by(tool_name: &str, issue: &ValidationIssue, sent: &Value) -> Option<Vec<String>> {
+    if issue.rule_id != "schema.required" {
+        return None;
+    }
+    let [queries, index, field] = issue.path.as_slice() else {
+        return None;
+    };
+    let row = sent
+        .get(queries)?
+        .get(index.parse::<usize>().ok()?)?
+        .as_object()?;
+    if row.contains_key(field) {
+        return None;
+    }
+    let names = |variant: &Value, list: &str, name: &str| {
+        variant[list]
+            .as_array()
+            .is_some_and(|names| names.iter().any(|known| known == name))
+    };
+    let operation = row.get("operation").and_then(Value::as_str);
+    let variants = tool_variants(tool_name)?
+        .iter()
+        .filter(|variant| operation.is_none_or(|operation| names(variant, "operations", operation)))
+        .collect::<Vec<_>>();
+    let requires = |variant: &&Value| names(variant, "requires", field);
+    if variants.iter().all(requires) {
+        return None;
+    }
+    let picked = row
+        .keys()
+        .filter(|sent| {
+            *sent != "operation"
+                && !crate::contracts::BRIEF_FIELDS.contains(&sent.as_str())
+                && variants
+                    .iter()
+                    .any(|variant| names(variant, "fields", sent))
+                && variants
+                    .iter()
+                    .filter(|variant| names(variant, "fields", sent))
+                    .all(requires)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    (!picked.is_empty()).then_some(picked)
+}
+
+/// A visible placeholder for a required `field` the rejected row lacks, in
+/// the shape of the example's `value`: the field's name in capitals
+/// (`repo` → `REPO`, `matchString` → `MATCH_STRING`), never a value that
+/// reads as a real name. `None` for a value that is not text.
+fn placeholder(field: &str, value: &Value) -> Option<Value> {
+    let mut name = String::new();
+    for (at, character) in field.chars().enumerate() {
+        if at > 0 && character.is_ascii_uppercase() {
+            name.push('_');
+        }
+        name.push(character.to_ascii_uppercase());
+    }
+    match value {
+        Value::String(_) => Some(Value::String(name)),
+        Value::Array(items) if items.first().is_some_and(Value::is_string) => {
+            Some(Value::Array(vec![Value::String(name)]))
+        }
+        _ => None,
+    }
+}
+
+/// The row's own `value` of a field whose issues all lie inside it, each
+/// key at fault removed (`source.query.bogusField`); `None` when an issue
+/// names the field itself or a fault is not a removable object key.
+fn without_faults(value: &Value, faults: &[&[String]]) -> Option<Value> {
+    let mut value = value.clone();
+    for fault in faults {
+        let (leaf, parents) = fault.split_last()?;
+        if parents.is_empty() {
+            return None;
+        }
+        let mut at = &mut value;
+        for segment in &parents[1..] {
+            at = match at {
+                Value::Object(fields) => fields.get_mut(segment)?,
+                Value::Array(items) => items.get_mut(segment.parse::<usize>().ok()?)?,
+                _ => return None,
+            };
+        }
+        at.as_object_mut()?.shift_remove(leaf)?;
+    }
+    Some(value)
 }
 
 /// `example` in the rejected row's own terms, so copying it runs what the
@@ -141,12 +241,19 @@ fn call_reference(tool_name: &str, rejected: Option<&Rejected<'_>>) -> Vec<Strin
 /// with `by: "modified"`, which means `modifiedAt`) is the row's own with
 /// that value, so the example still asks what the row did. Each change is
 /// kept only while the request validates, so the example stays one the tool
-/// accepts. A row at fault as a whole keeps the example.
+/// accepts. A row at fault as a whole (two forms mixed) names no field at
+/// fault: its own values stand wherever the request still validates, so a
+/// commit row mixing `keywords` and `path` is shown its own repository's
+/// search, not core's example repository. A field whose faults all lie
+/// inside it is the row's own with those keys removed (a clasify
+/// `source.query` keeps the tool it names). A required value the row lacks
+/// is a visible placeholder ([`placeholder`]), never core's example value.
 fn in_row_terms(tool_name: &str, example: &Value, rejected: Option<&Rejected<'_>>) -> Value {
     let (
         Some(Rejected {
             row,
-            faulted: Some(faulted),
+            faulted,
+            faults,
             meant,
         }),
         Some(fields),
@@ -158,22 +265,33 @@ fn in_row_terms(tool_name: &str, example: &Value, rejected: Option<&Rejected<'_>
         super::validate(tool_name, serde_json::json!({ "queries": [candidate] })).is_ok()
     };
     let mut shown = fields.clone();
-    for field in fields.keys() {
-        let candidate = match row.get(field) {
-            Some(own) if !faulted.contains(field) => {
-                let mut candidate = shown.clone();
-                candidate.insert(field.clone(), own.clone());
-                candidate
+    for (field, value) in fields {
+        let candidates = match row.get(field) {
+            Some(own) if !faulted.contains(field) => vec![own.clone()],
+            Some(own) => {
+                let inside = faults
+                    .iter()
+                    .filter(|fault| fault.first() == Some(field))
+                    .map(Vec::as_slice)
+                    .collect::<Vec<_>>();
+                without_faults(own, &inside).into_iter().collect()
             }
-            Some(_) => continue,
-            None => shown
-                .iter()
-                .filter(|(name, _)| *name != field)
-                .map(|(name, value)| (name.clone(), value.clone()))
+            // Left out, then a placeholder where the request needs it.
+            None => std::iter::once(Value::Null)
+                .chain(placeholder(field, value))
                 .collect(),
         };
-        if accepted(&candidate) {
-            shown = candidate;
+        for value in candidates {
+            let mut candidate = shown.clone();
+            if value.is_null() {
+                candidate.shift_remove(field);
+            } else {
+                candidate.insert(field.clone(), value);
+            }
+            if accepted(&candidate) {
+                shown = candidate;
+                break;
+            }
         }
     }
     let state = crate::id::ToolId::from_name(tool_name).map(crate::contracts::state_fields);
@@ -256,9 +374,11 @@ fn nearest_form<'a>(
 /// A rejected row as it was sent, and the row fields its issues name.
 struct Rejected<'a> {
     row: &'a serde_json::Map<String, Value>,
-    /// `None`: an issue of the row as a whole, so no field of it is known
-    /// to be sound.
-    faulted: Option<Vec<String>>,
+    /// The fields the row's issues name; none for an issue of the row as a
+    /// whole, whose fields stand only where the request validates.
+    faulted: Vec<String>,
+    /// Each issue's path under the row (`source`, `query`, `bogusField`).
+    faults: Vec<Vec<String>>,
     /// Each value outside its enum whose message names the one literal it
     /// means (`use "modifiedAt"`): its path under the row, and that literal.
     meant: Vec<(Vec<String>, Value)>,
@@ -306,26 +426,28 @@ fn sent_row<'a>(error: &ContractValidationError, sent: &'a Value) -> Option<Reje
     let row = sent["queries"]
         .get(index.parse::<usize>().ok()?)?
         .as_object()?;
-    let mut faulted = Some(Vec::new());
+    let mut faulted = Vec::new();
+    let mut faults = Vec::new();
     let mut meant = Vec::new();
     for issue in &error.issues {
-        match issue.path.as_slice() {
-            [queries, at, field, ..] if queries == "queries" && at == index => {
-                if let Some(literal) = meant_literal(issue) {
-                    meant.push((issue.path[2..].to_vec(), literal));
-                }
-                let field = field.split(['.', '[']).next().unwrap_or(field);
-                if let Some(faulted) = &mut faulted {
-                    faulted.push(field.to_owned());
-                }
+        if let [queries, at, field, ..] = issue.path.as_slice()
+            && queries == "queries"
+            && at == index
+        {
+            if let Some(literal) = meant_literal(issue) {
+                meant.push((issue.path[2..].to_vec(), literal));
             }
-            [queries, at] if queries == "queries" && at == index => faulted = None,
-            _ => {}
+            let field = field.split(['.', '[']).next().unwrap_or(field);
+            faulted.push(field.to_owned());
+            let mut under = vec![field.to_owned()];
+            under.extend(issue.path[3..].iter().cloned());
+            faults.push(under);
         }
     }
     Some(Rejected {
         row,
         faulted,
+        faults,
         meant,
     })
 }

@@ -129,9 +129,14 @@ pub(super) fn state_updated(row: &mut Value, item: &Value) {
 
 /// Counts GitHub states are facts, zero included; an absent count stays
 /// unknown. The page decides which of these a default row needs.
+/// `commentsCount` is the conversation count GitHub's item carries;
+/// `totalCommentsCount` the whole count a pull-request page read
+/// ([`super::comment_counts`]).
 fn state_counts(row: &mut Value, item: &Value) {
+    let whole = format!("/{}", super::comment_counts::ITEM_KEY);
     for (pointer, key) in [
         ("/comments", "commentsCount"),
+        (whole.as_str(), "totalCommentsCount"),
         ("/reactions/total_count", "reactionCount"),
     ] {
         if let Some(count) = item.pointer(pointer).and_then(Value::as_u64) {

@@ -17,8 +17,9 @@
 //! entrypoints, while the parent's other importers are not implied.
 //!
 //! Each affected file carries its distance, the edge that reached it, and the
-//! weakest edge confidence along that path. Manifest, lockfile, and compiler
-//! config changes affect every file below their directory.
+//! weakest edge confidence along that path. A change to a config linking
+//! reads (manifest, workspace list, compiler config) affects every file below
+//! its directory.
 use super::super::classify::{ROLE_ENTRY, ROLE_TEST, role_names};
 use super::format::{Confidence, EdgeKind, FLAG_TEST, GraphTables, NONE, NodeKind};
 use super::tables::MODULE_DETAIL;
@@ -49,6 +50,16 @@ struct Reach {
 pub(crate) struct Impact {
     pub summary: Value,
     pub rows: Vec<Value>,
+    /// When the depth bound left affected files unlisted: how many, and the
+    /// bound whose walk lists every one.
+    pub unlisted: Option<Unlisted>,
+}
+
+/// Affected files a depth bound left out of the rows.
+pub(crate) struct Unlisted {
+    pub files: usize,
+    /// The bound under which the walk expands every node it reaches.
+    pub depth: u32,
 }
 
 /// `seeds` are resolved nodes; `global` are `(directory, changed file)`
@@ -70,11 +81,33 @@ pub(crate) fn run(
     };
     let (reach, symbol_mode, depth_limited) = walk(max_depth);
     let unbounded = depth_limited.then(|| walk(u32::MAX).0);
-    let reach = Reached {
+    // Nodes within the bound reach as they do in the whole walk, so the
+    // bound cut exactly the files the whole walk adds.
+    let unlisted = unbounded.as_deref().and_then(|whole| {
+        let files = |reach: &[Option<Reach>]| {
+            t.node_ids()
+                .filter(|id| {
+                    t.nodes[*id as usize].kind == NodeKind::File && reach[*id as usize].is_some()
+                })
+                .count()
+        };
+        let files = files(whole) - files(&reach);
+        let deepest = whole.iter().flatten().map(|r| r.depth).max().unwrap_or(0);
+        (files > 0).then(|| Unlisted {
+            files,
+            depth: deepest.saturating_add(1),
+        })
+    });
+    let reached = Reached {
         listed: &reach,
         tests: unbounded.as_deref().unwrap_or(&reach),
     };
-    report(t, &reach, seeds, global, symbol_mode, depth_limited)
+    let (summary, rows) = report(t, &reached, seeds, global, symbol_mode, unlisted.is_some());
+    Impact {
+        summary,
+        rows,
+        unlisted,
+    }
 }
 
 /// What a change reaches: within the depth bound (the listed rows), and

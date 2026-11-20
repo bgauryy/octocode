@@ -13,10 +13,7 @@ use std::path::{Path, PathBuf};
 /// (measured on the octocode-native workspace: a 5-query references batch
 /// after a 30 s idle took 22.5 s with priming off, 4.4 s with it on).
 /// `cargo.targetDir: true` uses a rust-analyzer subdirectory of the existing
-/// target directory, separating its artifacts from normal builds. Keys use
-/// the same shapes as the runtime's `rustContext` overlay, which sets
-/// `cargo.buildScripts`, `procMacro`, `checkOnSave`, and `cargo.targetDir` on
-/// top of these when a caller opts in.
+/// target directory, separating its artifacts from normal builds.
 pub fn rust_analyzer_headless_options() -> Value {
     json!({
         "cargo": {
@@ -241,8 +238,8 @@ fn clangd_result_limit(args: &[String]) -> usize {
 /// no index into the repository; jdtls keeps its workspace data outside it
 /// and does not auto-build; Metals opens no HTTP port. Defaults sit
 /// *underneath* the configuration: an `initializationOptions` key the user
-/// (or `rustContext`) set wins, and a flag the user already passed (by name,
-/// before any `=`) is not added again. A non-object user value is left
+/// set wins, and a flag the user already passed (by name, before any `=`) is
+/// not added again. A non-object user value is left
 /// untouched. Idempotent. Without `octocode_home` (a launch outside
 /// discovery) jdtls gets no `-data` directory.
 pub(crate) fn apply_server_default_options(

@@ -79,9 +79,11 @@ impl<'q> Alternates<'q> {
     }
 
     /// Offer the regex reading of an empty literal search whose terms hold
-    /// regex syntax: an agent writing `a|b` or `x[0-9]` usually means a regex,
-    /// but `arr[i]` and `char*` are code, so the row stays the literal answer
-    /// and the caller chooses.
+    /// regex syntax ([`regex_widens`](octocode_engine::search::text_pattern::regex_widens)):
+    /// an agent writing `a|b` or `x[0-9]` usually means a regex, but `char*`
+    /// may be code, so the row stays the literal answer and the caller
+    /// chooses. A term whose regex reading is one other fixed text
+    /// (`pub(crate) fn`, `arr[i]`) is code, and gets no offer.
     pub(in crate::local_search) fn offer_regex_reading(&self, row: &mut LocalSearchResult) {
         if row.status != SearchStatus::Empty || row.stats.files_searched == 0 {
             return;
@@ -110,7 +112,7 @@ impl<'q> Alternates<'q> {
     /// counts every term's own matches); a page it only partly read names
     /// nothing.
     pub(in crate::local_search) fn offer_dead_terms(&self, row: &mut LocalSearchResult) {
-        use octocode_engine::search::text_pattern::regex_spells_itself;
+        use octocode_engine::search::text_pattern::regex_widens;
         let written = self.written;
         let terms = &local_search_query::patterns(written).0;
         let view = local_search_query::view(written);
@@ -134,7 +136,7 @@ impl<'q> Alternates<'q> {
             return;
         }
         for (term, _) in terms.iter().zip(hits).filter(|(term, hits)| {
-            **hits == 0 && !regex_spells_itself(term) && regex::Regex::new(term).is_ok()
+            **hits == 0 && regex_widens(term) && regex::Regex::new(term).is_ok()
         }) {
             row.warnings.push(format!(
                 "No literal match for `{term}`, which holds regex syntax; regexEngine:\"rust\" reads every term as a regex."
@@ -143,7 +145,8 @@ impl<'q> Alternates<'q> {
     }
 
     /// The written request read as a regex. `None` when no term holds regex
-    /// syntax or a term fails to compile, on a shape a regex would not answer,
+    /// syntax a writer means ([`regex_widens`](octocode_engine::search::text_pattern::regex_widens))
+    /// or a term fails to compile, on a shape a regex would not answer,
     /// or when the request cannot be restated.
     fn regex_reading(&self) -> Option<LocalSearchQuery> {
         let written = self.written;
@@ -154,7 +157,7 @@ impl<'q> Alternates<'q> {
             || local_search_query::snapshot(written).is_some()
             || terms
                 .iter()
-                .all(|term| octocode_engine::search::text_pattern::regex_spells_itself(term))
+                .all(|term| !octocode_engine::search::text_pattern::regex_widens(term))
             || terms.iter().any(|term| regex::Regex::new(term).is_err())
         {
             return None;

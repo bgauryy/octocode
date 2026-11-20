@@ -164,3 +164,52 @@ fn a_proof_reports_the_stamps_it_read() {
         "the check stops at the first change"
     );
 }
+
+/// A capture with a walk's stamps stats only the other paths, and holds the
+/// taken stamps to the capture's rules: one written within its settle window
+/// before the capture's instant, or one that proves nothing, refuses it as a
+/// stat would. The taken path stays watched: an edit fails the proof.
+#[test]
+fn a_capture_with_taken_stamps_stats_only_the_rest() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("a.rs");
+    std::fs::write(&file, "x").expect("write");
+    let stamp = SourceStamp::of(&std::fs::symlink_metadata(&file).expect("meta")).expect("stamp");
+    let written = std::time::UNIX_EPOCH + std::time::Duration::from_nanos(stamp.last_write_ns());
+    let settled = written + stamp.settle_for();
+    let capture = |taken: SourceStamp, settled_before| {
+        Proof::capture_with_taken(
+            [dir.path().to_path_buf()],
+            vec![(file.clone(), taken)],
+            Link::Itself,
+            settled_before,
+        )
+    };
+    let before = stamp_stats_of(&file);
+    let proof = capture(stamp, Some(settled)).expect("settled");
+    assert_eq!(
+        stamp_stats_of(&file),
+        before,
+        "the taken file is not stat'ed"
+    );
+    assert_eq!(proof.stamps_read(), 1, "the directory alone");
+    assert!(proof.holds());
+    assert!(
+        capture(stamp, Some(written)).is_none(),
+        "written at the capture's instant"
+    );
+    assert!(capture(stamp, None).is_some(), "no settle check asked");
+    let unprovable = SourceStamp {
+        changed_ns: 0,
+        ..stamp
+    };
+    if cfg!(unix) {
+        assert!(
+            capture(unprovable, None).is_none(),
+            "no change time proves nothing"
+        );
+    }
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(&file, "y").expect("edit");
+    assert!(!proof.holds(), "the taken file is watched");
+}

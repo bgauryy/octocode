@@ -69,6 +69,7 @@ fn a_packed_scan_unpacks_to_the_same_scan() {
     let line = "fn needle(x: u32) -> u32 { x + 1 } // 中文 ✓".repeat(3);
     let files = (0..200u32)
         .map(|n| TextSearchFile {
+            sort_time: None,
             term_counts: (0..n % 4).map(|term| n + term).collect(),
             path: format!("/repo/src/module_{n}/file.rs"),
             match_count: n,
@@ -126,6 +127,7 @@ fn a_packed_scan_unpacks_to_the_same_scan() {
 fn compact_classes_store_an_oversized_scan_and_preserve_all_duplicate_relations() {
     let mut scan = TextSearchResult {
         files: vec![TextSearchFile {
+            sort_time: None,
             term_counts: Vec::new(),
             path: "/dense.txt".into(),
             match_count: 150_000,
@@ -183,4 +185,66 @@ fn an_empty_scan_packs() {
     };
     let packed = Packed::pack(&scan, 0, usize::MAX).expect("packed");
     assert!(packed.unpack().expect("unpacked").files.is_empty());
+}
+
+/// A seekable scan of many small entries (one-row pages) shares its
+/// deflate streams: the compressors it starts grow with its raw bytes, not
+/// with its entries, and every entry still reads back alone.
+#[test]
+fn small_entries_share_deflate_streams() {
+    let rows = 4_000u32;
+    let file = TextSearchFile {
+        sort_time: None,
+        term_counts: Vec::new(),
+        path: "/repo/src/dense.rs".into(),
+        match_count: rows,
+        counted: Default::default(),
+        matches: (1..=rows)
+            .map(|line| hit(line, "let needle = 1;"))
+            .collect(),
+        source: None,
+    };
+    let mut writer = FrameWriter::new(1, usize::MAX);
+    for row in 0..rows {
+        let at = row as usize;
+        let facts = super::super::page_view::EntryFacts {
+            total: rows,
+            start: row,
+            end: row + 1,
+            neighbours: Vec::new(),
+        };
+        writer
+            .entry(
+                (0, &file),
+                &file.matches[at..=at],
+                &facts,
+                (&[], false),
+                &|| false,
+            )
+            .expect("entry");
+    }
+    let index = PageIndex {
+        pages: (0..rows).map(|page| page..page + 1).collect(),
+        starts: (0..rows).collect(),
+        total_files: 1,
+        total_rows: rows,
+    };
+    let encoded = writer.finish(index, TextSearchStats::default());
+    let raw = encoded.raw.len();
+    let before = streams_on_this_thread();
+    let packed = encoded
+        .deflate_checked(usize::MAX, &|| false)
+        .expect("packed");
+    let started = streams_on_this_thread() - before;
+    assert!(
+        started <= raw / STREAM_RAW_BYTES + 1,
+        "{started} deflate streams for {rows} entries of {raw} raw bytes"
+    );
+    for row in [0, rows / 2, rows - 1] {
+        let entry = packed.entry(row, &|| false).expect("entry");
+        assert_eq!(entry.file.path, file.path);
+        assert_eq!(entry.file.matches.len(), 1);
+        assert_eq!(entry.file.matches[0].line, file.matches[row as usize].line);
+        assert_eq!((entry.facts.start, entry.facts.end), (row, row + 1));
+    }
 }

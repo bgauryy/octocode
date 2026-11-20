@@ -1,0 +1,4 @@
+{"tool": "ghCloneRepo", "steps": [
+ {"name": "sparse clone", "tool": "ghCloneRepo", "args": {"owner": "sharkdp", "repo": "fd", "paths": ["src"]}, "expect": {"has": ["data.location.path"]}},
+ {"name": "unknown field is refused with the allowed list", "tool": "ghCloneRepo", "args": {"owner": "sharkdp", "repo": "fd", "sparsePaths": ["src"]}, "expect": {"error": "invalidInput"}}
+]}

@@ -29,7 +29,7 @@ pub(super) fn discover_server(
     } else {
         default_server_for_file(&path, &workspace, &discovery)
     };
-    let Some(mut config) = discovered else {
+    let Some(config) = discovered else {
         let message = if root_only {
             format!(
                 "No language server could be inferred for this directory: it holds no source file of a supported language, and neither it nor the workspace root has a project marker (none of {}).",
@@ -51,15 +51,7 @@ pub(super) fn discover_server(
     if let Some(refusal) = octocode_engine::lsp::config::repository_toolchain_refusal(&config) {
         return Err(fail(ErrorCode::ServerUnavailable, &refusal));
     }
-    // A context that runs build scripts or proc macros runs repository code:
-    // refused before any server starts, unless the host's own settings allow it.
-    if config.language_id.as_deref() == Some("rust")
-        && !execution_config.allow_build_scripts
-        && receipt::requests_build_scripts(query)
-    {
-        return Err(fail(ErrorCode::Policy, &receipt::build_scripts_refusal()));
-    }
-    receipt::apply_rust_context(&mut config, query).map_err(LspFailure::invalid_query)?;
+    receipt::validate_rust_options(&config).map_err(LspFailure::invalid_query)?;
     let config_notes =
         octocode_engine::lsp::config::route_problems(&path, Some(&config), &workspace, &discovery);
     let fallback = super::page::Fallback {
@@ -77,7 +69,6 @@ pub(super) fn discover_server(
         fallback,
         root_note,
         config_notes,
-        allow_build_scripts: execution_config.allow_build_scripts,
     })
 }
 

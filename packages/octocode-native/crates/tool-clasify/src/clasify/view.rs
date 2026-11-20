@@ -17,7 +17,7 @@
 //! - the distribution behind a value (`probabilities`, `confidence`) and the
 //!   `legend`, which restates the request's criteria; a choice whose sections
 //!   disagreed keeps each label's share;
-//! - the answering `model`, and a request count of one;
+//! - the answering `model`;
 //! - image provenance, except the pixel sizes a `box` maps to;
 //! - a section's `id`, `kind`, `name`, `context` and byte range, and the
 //!   `status` wrapper of an answered cell;
@@ -65,10 +65,8 @@ pub(super) fn carry_details(row: &mut Value) {
     }
 }
 
-/// Cut `row` to its summary, in place. `shared`: a sibling row of the call
-/// states `calls: 0` because this one paid for its request, so every row
-/// states its `calls`, a single request included.
-pub(super) fn summarize(row: &mut Value, shared: bool) {
+/// Cut `row` to its summary, in place.
+pub(super) fn summarize(row: &mut Value) {
     let Some(fields) = row.as_object_mut() else {
         return;
     };
@@ -80,22 +78,19 @@ pub(super) fn summarize(row: &mut Value, shared: bool) {
     }
     fields.shift_remove("model");
     if fields.contains_key("units") || fields.contains_key("files") {
-        units(fields, shared);
+        units(fields);
     } else if fields.contains_key("answers") {
-        evaluation(fields, shared);
+        evaluation(fields);
     } else if let Some(Value::Object(resources)) = fields.get_mut("resources") {
         let sectioned = resources
             .values()
             .any(|resource| resource.get("sections").is_some());
-        // Several resources bill a request each: every one states its
-        // `calls`, as sibling rows do, so the summary shows the spend.
-        let several = resources.len() > 1;
         for resource in resources.values_mut().filter_map(Value::as_object_mut) {
             if sectioned {
                 resource_sections(resource);
             } else if resource.contains_key("answers") {
                 resource.shift_remove("model");
-                evaluation(resource, shared || several);
+                evaluation(resource);
             }
         }
         if sectioned {
@@ -138,12 +133,11 @@ fn answer(answer: &mut Value, sectioned: bool) {
     }
 }
 
-/// A summary states the billing facts that change a decision: `calls` when
-/// more than one request billed or a sibling row shared it, `refused`, the
-/// ceiling, and the plan when it differs from what was sent. The token counts are the
-/// `details` view's, and one request is the common case: its count says
-/// nothing.
-fn usage(fields: &mut Map<String, Value>, shared: bool) {
+/// A summary states the billing facts that change a decision: the `calls`
+/// the row billed (beside its ceiling, what it spent of it; 0 when a twin
+/// row paid), `refused`, the ceiling, and the plan when it differs from what
+/// was sent. The token counts are the `details` view's.
+fn usage(fields: &mut Map<String, Value>) {
     let Some(usage) = fields.get_mut("usage").and_then(Value::as_object_mut) else {
         return;
     };
@@ -154,16 +148,13 @@ fn usage(fields: &mut Map<String, Value>, shared: bool) {
     {
         usage.shift_remove("requestsPlanned");
     }
-    if !shared && usage.get("calls") == Some(&json!(1)) {
-        usage.shift_remove("calls");
-    }
     if usage.is_empty() {
         fields.shift_remove("usage");
     }
 }
 
 /// An answered evaluation: `answers` over one source, content or images.
-fn evaluation(fields: &mut Map<String, Value>, shared: bool) {
+fn evaluation(fields: &mut Map<String, Value>) {
     let sectioned = fields.contains_key("coverage");
     let mut boxed = false;
     for value in fields
@@ -175,7 +166,7 @@ fn evaluation(fields: &mut Map<String, Value>, shared: bool) {
         boxed |= value.get("box").is_some();
         answer(value, sectioned);
     }
-    usage(fields, shared);
+    usage(fields);
     // A box is a fraction of an image: its pixels need the image's size.
     if boxed {
         for asset in fields
@@ -282,7 +273,7 @@ const PLAN_USAGE: [&str; 8] = [
 ];
 
 /// A units row: quiet units leave (they stay counted), cells unwrap.
-fn units(fields: &mut Map<String, Value>, shared: bool) {
+fn units(fields: &mut Map<String, Value>) {
     let mut left_out = Vec::new();
     if let Some(Value::Object(files)) = fields.get_mut("files") {
         for (path, lines) in files.iter_mut() {
@@ -302,14 +293,14 @@ fn units(fields: &mut Map<String, Value>, shared: bool) {
         octocode_runtime_base::response::paging::push_warnings(
             fields,
             [format!(
-                "{} quiet {} left out of this summary (every answer below the quiet threshold): {}; view:\"details\" repeats the call and lists them.",
+                "{} quiet {} left out of this summary (every answer below the quiet threshold): {}; view:\"details\" repeats the call, billed again, and lists them.",
                 left_out.len(),
                 if left_out.len() == 1 { "unit" } else { "units" },
                 named(&left_out),
             )],
         );
     }
-    usage(fields, shared);
+    usage(fields);
 }
 
 /// Keeps the units of `units` a summary shows, naming each quiet one it

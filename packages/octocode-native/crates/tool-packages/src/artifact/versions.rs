@@ -340,6 +340,21 @@ pub(crate) fn version_not_found(
     }
 }
 
+/// `error` with the nearest versions `discouraged` names (yanked or
+/// deprecated: published, but no release to move to) after every other one,
+/// each group in its order, so a repair call reads one only when no other
+/// fills it.
+pub(crate) fn discouraged_last(
+    mut error: ArtifactError,
+    discouraged: impl Fn(&str) -> bool,
+) -> ArtifactError {
+    let (live, rest): (Vec<String>, Vec<String>) = std::mem::take(&mut error.nearest)
+        .into_iter()
+        .partition(|version| !discouraged(version));
+    error.nearest = live.into_iter().chain(rest).collect();
+    error
+}
+
 /// A requested version as the registries write theirs: no surrounding space,
 /// no leading `=` (an exact pin), and no `v` before a digit.
 fn ranked_as(requested: &str) -> &str {

@@ -122,17 +122,10 @@ export const sections: ContractInput['sections'] = {
         notes: 'Security-sensitive: turning it on lets a repository you fetched run code on this machine when lspSearch opens it. Home-only, so a repository cannot turn it on.',
         env: { name: 'OCTOCODE_LSP_TRUST_FETCHED_CODE', dotenv: 'home', workspaceNarrowsTo: 'false' },
       },
-      allowBuildScripts: {
-        type: 'boolean',
-        default: false,
-        description: 'Let lspSearch run a Rust workspace\'s Cargo build scripts and procedural macros when a query\'s rustContext sets buildScripts or procMacros. Off by default: they are repository code, so such a query is refused (errorCode policy) and the default rust-analyzer, which runs none, answers every other query.',
-        notes: 'Security-sensitive: turning it on lets any lspSearch call, in any client mode, run the build scripts and proc macros of the workspace it names. Home-only, so a repository cannot turn it on.',
-        env: { name: 'OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS', dotenv: 'home', workspaceNarrowsTo: 'false' },
-      },
       prewarm: {
         type: 'enum',
         values: ['targeted', 'all', 'off'],
-        description: 'Language-server prewarm: targeted warms the server of an lspSearch call the response offers; all also warms files named by reads or searches and, at MCP initialize, the workspace\'s top three languages; off disables prewarm. Starts index a whole project: targeted avoids unrelated server starts, but a lookup without an earlier candidate can take seconds.',
+        description: 'Language-server prewarm: targeted warms the server of the file a localSearch, localFetch or astSearch row names and of an lspSearch call the response offers; all also warms files named by other local tools and, at MCP initialize, the workspace\'s top three languages; off disables prewarm. Only languages with a configured server start, and each start indexes a whole project: targeted avoids unrelated server starts, but a lookup before any read or search can take seconds.',
         env: { name: 'OCTOCODE_LSP_PREWARM', normalize: 'lower' },
       },
     },

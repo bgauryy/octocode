@@ -210,6 +210,16 @@ pub(crate) fn unique(q: &LocalSearchQuery) -> Unique {
 fn sort_of(q: &LocalSearchQuery) -> &LocalSearchSort {
     common!(q, sort, sort)
 }
+/// The output key a file's time takes under `q`'s time order
+/// (`modifiedAt`, `accessedAt`, `createdAt`); `None` under any other order.
+pub(crate) fn sort_time_key(q: &LocalSearchQuery) -> Option<&'static str> {
+    match sort(q) {
+        SearchSort::Modified => Some("modifiedAt"),
+        SearchSort::Accessed => Some("accessedAt"),
+        SearchSort::Created => Some("createdAt"),
+        SearchSort::Path | SearchSort::Traversal | SearchSort::MatchCount => None,
+    }
+}
 pub(crate) fn sort(q: &LocalSearchQuery) -> SearchSort {
     match sort_of(q) {
         LocalSearchSort::AscOnly(_) => SearchSort::Traversal,

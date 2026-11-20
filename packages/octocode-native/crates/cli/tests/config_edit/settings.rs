@@ -381,3 +381,120 @@ fn set_refuses_a_host_that_could_never_work_without_echoing_it() {
     }
     assert!(!workspace.home.join(".env").exists(), "nothing was stored");
 }
+
+// ─── `config unset` of a key no setting declares ───────────────────────
+
+/// A key in a declared section that no setting declares, as one an older
+/// Octocode wrote.
+const RETIRED: &str = "lsp.retiredOption";
+
+fn saved(path: &std::path::Path) -> serde_json::Value {
+    octocode_runtime_base::config::parse_config_json(&std::fs::read_to_string(path).unwrap())
+        .unwrap()
+}
+
+#[test]
+fn unset_removes_a_retired_key_from_each_octocoderc_that_holds_it() {
+    assert!(CONFIG_FIELDS.iter().all(|field| field.path != RETIRED));
+    let workspace = Workspace::new();
+    home_rc(
+        &workspace,
+        r#"{"lsp":{"prewarm":"off","retiredOption":true},"local":{"enabled":true}}"#,
+    );
+    let project = workspace_dir(&workspace).join(".octocoderc");
+    std::fs::write(&project, r#"{"lsp":{"retiredOption":false}}"#).unwrap();
+    let warned = json_of(&config(&workspace, &["--json"]));
+    assert!(
+        warned.to_string().contains("unknown_or_future_config"),
+        "{warned}"
+    );
+    let output = config(&workspace, &["unset", RETIRED]);
+    assert_eq!(output.status.code(), Some(0), "{}", errors(&output));
+    let shown = text(&output);
+    assert!(
+        shown.contains(&format!("Removed unknown configuration key {RETIRED}")),
+        "{shown}"
+    );
+    for path in [workspace.home.join(".octocoderc"), project.clone()] {
+        assert!(shown.contains(path.to_str().unwrap()), "{shown}");
+    }
+    assert_eq!(
+        saved(&workspace.home.join(".octocoderc")),
+        serde_json::json!({"lsp": {"prewarm": "off"}, "local": {"enabled": true}})
+    );
+    assert_eq!(saved(&project), serde_json::json!({}));
+    let clean = json_of(&config(&workspace, &["--json"]));
+    assert!(
+        !clean.to_string().contains("unknown_or_future_config"),
+        "{clean}"
+    );
+    assert_eq!(text(&config(&workspace, &["get", "lsp.prewarm"])), "off");
+}
+
+#[test]
+fn unset_of_a_retired_key_reports_json_and_refuses_once_nothing_holds_it() {
+    let workspace = Workspace::new();
+    home_rc(&workspace, r#"{"lsp":{"retiredOption":true}}"#);
+    let removed = json_of(&config(&workspace, &["unset", RETIRED, "--json"]));
+    assert_eq!(removed["changed"], true, "{removed}");
+    assert_eq!(
+        removed["paths"],
+        serde_json::json!([workspace.home.join(".octocoderc")])
+    );
+    assert!(
+        removed["notice"]
+            .as_str()
+            .is_some_and(|notice| notice.contains(RETIRED)),
+        "{removed}"
+    );
+    let again = config(&workspace, &["unset", RETIRED, "--json"]);
+    assert_eq!(again.status.code(), Some(2));
+    let refused = json_of(&again);
+    let message = refused["error"].as_str().unwrap();
+    assert!(
+        message.contains("No .octocoderc holds") && message.contains(RETIRED),
+        "{message}"
+    );
+    assert_eq!(
+        saved(&workspace.home.join(".octocoderc")),
+        serde_json::json!({})
+    );
+    assert!(
+        !workspace.home.join(".env").exists(),
+        "the home .env is untouched"
+    );
+    assert!(
+        !workspace.workspace.join(".octocode").exists(),
+        "no workspace directory"
+    );
+}
+
+/// A declared setting, by its path or its variable, still unsets the home
+/// `.env` assignment and leaves `.octocoderc` alone.
+#[test]
+fn unset_of_a_declared_setting_still_edits_only_the_home_env() {
+    for key in ["lsp.prewarm", "OCTOCODE_LSP_PREWARM"] {
+        let workspace = Workspace::new();
+        let rc = r#"{"lsp":{"prewarm":"off"}}"#;
+        home_rc(&workspace, rc);
+        std::fs::write(
+            workspace.home.join(".env"),
+            "OCTOCODE_LSP_PREWARM=all\nKEEP=1\n",
+        )
+        .unwrap();
+        let output = config(&workspace, &["unset", key, "--json"]);
+        assert_eq!(output.status.code(), Some(0), "{key}: {}", errors(&output));
+        let result = json_of(&output);
+        assert_eq!(result["key"], "OCTOCODE_LSP_PREWARM", "{result}");
+        assert_eq!(result["changed"], true, "{result}");
+        assert!(result.get("notice").is_none(), "{result}");
+        assert_eq!(
+            std::fs::read_to_string(workspace.home.join(".env")).unwrap(),
+            "KEEP=1\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(workspace.home.join(".octocoderc")).unwrap(),
+            rc
+        );
+    }
+}

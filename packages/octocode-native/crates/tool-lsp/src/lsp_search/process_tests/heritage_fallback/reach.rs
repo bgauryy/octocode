@@ -74,3 +74,51 @@ fn a_scan_row_must_reach_the_anchors_type() {
         "another project's same-named type: {row}"
     );
 }
+
+/// The same answer from a use of `Shape` (`user/tri.ts`'s `implements`
+/// clause): the scan reads the reach of the declaration the use resolves
+/// to, so `Square`, which implements another file's `Shape`, stays out.
+#[test]
+fn a_scan_from_a_use_reaches_what_its_declaration_reaches() {
+    if !require_node() {
+        return;
+    }
+    let (_dir, root, _opened, execution) = repository_fixture(
+        &[
+            ("fx/tsconfig.json", "{}\n"),
+            (
+                "fx/types.ts",
+                "export interface Shape { area(): number; }\nexport class Circle implements Shape { area() { return 1; } }\n",
+            ),
+            (
+                "other/model.ts",
+                "export interface Shape {\n  area(): number;\n}\n\nexport class Square implements Shape {\n  area(): number { return 2; }\n}\n",
+            ),
+            (
+                "user/tri.ts",
+                "import { Shape } from '../fx/types';\nexport class Tri implements Shape { area() { return 3; } }\n",
+            ),
+        ],
+        ANSWERS,
+        (&[".ts"], "typescript"),
+    );
+    let ask = |file: &str, line: u32| {
+        run_once(
+            &root,
+            &execution,
+            serde_json::json!({
+                "operation": "implementation", "path": root.join(file).to_string_lossy(),
+                "symbolName": "Shape", "line": line
+            }),
+        )
+    };
+    let at_declaration = ask("fx/types.ts", 1);
+    let at_use = ask("user/tri.ts", 2);
+    assert!(
+        !located(&at_use)
+            .iter()
+            .any(|(file, _, _)| file == "model.ts"),
+        "another project's same-named type: {at_use}"
+    );
+    assert_eq!(located(&at_use), located(&at_declaration), "{at_use}");
+}

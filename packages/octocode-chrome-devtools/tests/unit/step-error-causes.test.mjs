@@ -81,7 +81,8 @@ test('a missed text wait names the text it waited for', async () =>
     assert.match(failure.error, /200ms/);
   }));
 
-for (const [name, step, details, cause, forbidden] of [
+/** @type {Array<[string, object, object, RegExp, RegExp]>} */
+const causeCases = [
   [
     'a verify mismatch',
     { op: 'act', action: 'select', selector: '#status', value: 'In progress' },
@@ -102,7 +103,9 @@ for (const [name, step, details, cause, forbidden] of [
     /NO_VISIBLE_EFFECT.*after\.text.*timeoutMs/s,
     /DOM_WAIT_TEXT|DOM_SETTLE_MS/,
   ],
-])
+];
+
+for (const [name, step, details, cause, forbidden] of causeCases)
   test(`${name} reports its cause with step fields, not env vars`, async () =>
     fixture(async ({ cdp, read }) => {
       pageReporting(cdp, details);

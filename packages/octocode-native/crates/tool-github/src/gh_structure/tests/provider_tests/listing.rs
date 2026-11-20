@@ -454,3 +454,99 @@ async fn a_listing_of_a_submodule_or_symlink_leads_to_its_content() {
         "{next}"
     );
 }
+
+/// A listed folder that holds a guide offers one read of it at the listed
+/// commit, on the first page only: `AGENTS.md` before `README.md` before
+/// `CONTRIBUTING.md` (names compared ignoring case), whatever else the
+/// folder holds; a guide below the listed folder or a folder named like one
+/// is not its guide. A later page, or a filter that lists no guide, offers
+/// none.
+#[tokio::test]
+async fn a_listed_folder_with_a_guide_offers_one_read_of_it() {
+    let server = server().await;
+    octocode_test_support::mock_http::GitRepository::new()
+        .file("CONTRIBUTING.md", "x")
+        .file("readme.md", "x")
+        // A folder named like a guide is no guide.
+        .file("AGENTS.md/notes.txt", "x")
+        .file("lib.rs", "x")
+        .file("src/AGENTS.md", "x")
+        .file("src/main.rs", "x")
+        .file("src/deep/README.md", "x")
+        .mount(&server, "a", "b", SHA)
+        .await;
+    let guide_reads = |data: &Value| {
+        data["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|call| call["tool"] == "ghGetFileContent")
+            .map(|call| call["input"]["queries"].clone())
+            .collect::<Vec<_>>()
+    };
+    let read = |path: &str| json!([{"owner":"a","repo":"b","path":path,"ref":SHA}]);
+    for (listing, guide) in [
+        (json!({}), read("readme.md")),
+        (json!({"path":"src"}), read("src/AGENTS.md")),
+        (json!({"path":"src","maxDepth":2}), read("src/AGENTS.md")),
+        (json!({"path":"src/deep"}), read("src/deep/README.md")),
+    ] {
+        let mut row = json!({"operation":"tree","owner":"a","repo":"b"});
+        row.as_object_mut()
+            .expect("row")
+            .extend(listing.as_object().expect("fields").clone());
+        let out = list(&server, row.clone()).await.expect("listing");
+        assert_eq!(guide_reads(&out.data), [guide], "{row}: {}", out.data);
+        let read = &out.data["related"][0]["input"]["queries"][0];
+        octocode_runtime_base::contracts::validate_query("ghGetFileContent", read.clone())
+            .expect("the guide read is a valid request");
+        // The second page lists the same folder: it orients nothing new.
+        row["limit"] = json!(1);
+        row["page"] = json!(2);
+        let later = list(&server, row.clone()).await.expect("page 2");
+        assert!(guide_reads(&later.data).is_empty(), "{row}: {}", later.data);
+    }
+    // A filter that leaves every guide out of the listing offers no read.
+    let filtered = list(
+        &server,
+        json!({"operation":"tree","owner":"a","repo":"b","include":["**/*.rs"]}),
+    )
+    .await
+    .expect("filtered listing");
+    assert!(
+        !structure_is_empty(&filtered.data),
+        "the filter lists the sources: {}",
+        filtered.data
+    );
+    assert!(guide_reads(&filtered.data).is_empty(), "{}", filtered.data);
+}
+
+/// A guide the folder holds as a symlink (a root `README.md` linking to a
+/// package's readme) is still its guide: the read names the link, which
+/// ghGetFileContent follows, before a later guide the folder holds as a file.
+#[tokio::test]
+async fn a_linked_guide_is_the_folders_guide() {
+    let server = server().await;
+    octocode_test_support::mock_http::GitRepository::new()
+        .link("README.md", "pkg/README.md")
+        .file("CONTRIBUTING.md", "x")
+        .file("pkg/README.md", "# pkg")
+        .mount(&server, "a", "b", SHA)
+        .await;
+    let out = list(&server, json!({"operation":"tree","owner":"a","repo":"b"}))
+        .await
+        .expect("listing");
+    let reads = out.data["related"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|call| call["tool"] == "ghGetFileContent")
+        .map(|call| call["input"]["queries"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        reads,
+        [json!([{"owner":"a","repo":"b","path":"README.md","ref":SHA}])],
+        "{}",
+        out.data
+    );
+}

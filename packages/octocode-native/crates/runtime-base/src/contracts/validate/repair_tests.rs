@@ -274,6 +274,24 @@ fn every_misuse_shape_gets_a_one_line_repair() {
             ),
             r#"queries.0.ranges.0.startLine: Expected number; send 1, not "1""#,
         ),
+        (
+            // A form that needs the row's own ecosystem changed as well as its
+            // operation adds nothing to the form that needs the operation only.
+            "artifactSearch",
+            json_fixture(
+                r#"{
+                    "queries": [
+                        {
+                            "operation": "resolve",
+                            "ecosystem": "npm",
+                            "packageName": "express",
+                            "keywords": ["x"]
+                        }
+                    ]
+                }"#,
+            ),
+            r#"'keywords' is not allowed in this form of queries[0]; it requires operation:"search"."#,
+        ),
     ];
     let failures: Vec<String> = cases
         .into_iter()
@@ -720,6 +738,94 @@ fn the_example_keeps_the_rows_own_valid_values() {
         "{shown}"
     );
     assert!(shown.get("version").is_none(), "{shown}");
+}
+
+/// A row at fault as a whole (two forms mixed) names no field at fault: the
+/// example still takes the row's own values wherever the request stays
+/// valid, so it searches the caller's repository, never core's example
+/// one, and keeps one of the mixed forms. A field-level fault keeps the
+/// rule above: the field at fault shows the example's value.
+#[test]
+fn a_row_level_fault_is_shown_the_rows_own_repository() {
+    let mixed = json_fixture(
+        r#"{"operation": "commit", "owner": "tokio-rs", "repo": "axum",
+            "keywords": ["router"], "path": "axum/src"}"#,
+    );
+    let shown = shown_example("ghSearchHistory", mixed);
+    assert_eq!(
+        (&shown["owner"], &shown["repo"], &shown["operation"]),
+        (&json!("tokio-rs"), &json!("axum"), &json!("commit")),
+        "{shown}"
+    );
+    assert!(
+        shown.get("keywords").is_some() != shown.get("path").is_some(),
+        "one form: {shown}"
+    );
+    let field_level = json_fixture(
+        r#"{"operation": "commit", "owner": "tokio-rs", "repo": "axum",
+            "keywords": ["router"], "bogus": 1}"#,
+    );
+    assert_eq!(
+        shown_example("ghSearchHistory", field_level),
+        json_fixture(
+            r#"{"operation": "commit", "owner": "tokio-rs", "repo": "axum",
+                "keywords": ["router"]}"#
+        )
+    );
+}
+
+/// A required value the row lacks is shown as a visible placeholder (its
+/// name in capitals), never core's example value, which reads as a real
+/// name: an owner-only repository `get` is shown that owner and `REPO`.
+#[test]
+fn a_missing_required_value_is_a_placeholder_not_a_real_looking_name() {
+    let shown = shown_example(
+        "ghSearchRepo",
+        json_fixture(r#"{"operation": "get", "owner": "tokio-rs"}"#),
+    );
+    assert_eq!(shown["owner"], "tokio-rs", "{shown}");
+    assert_eq!(
+        shown["repo"].as_str(),
+        Some("repo".to_ascii_uppercase().as_str()),
+        "{shown}"
+    );
+}
+
+/// A field only one form takes picks that form: a required field the row
+/// then lacks is named with the field that picked it (clasify `perHit`
+/// sent beside `content` needs `source`).
+#[test]
+fn a_missing_field_names_the_field_that_picked_its_form() {
+    let sent = json_fixture(
+        r#"{"queries": [{"operation": "evaluate", "perHit": true, "content": "abc",
+            "questions": {"x": {"type": "noul", "instructions": "is it x"}}}]}"#,
+    );
+    let (_, lines) = answered("clasify", &sent);
+    let named = lines
+        .iter()
+        .filter(|line| line.contains("Missing required field: source") && line.contains("perHit"))
+        .count();
+    assert_eq!(named, 1, "{lines:?}");
+}
+
+/// A fault inside a nested query (an unknown structureSearch field in a
+/// clasify `source.query`) leaves the rest of that value the row's own: the
+/// example keeps the tool the row names, without the field at fault.
+#[test]
+fn a_nested_fault_keeps_the_rows_own_nested_value() {
+    let shown = shown_example(
+        "clasify",
+        json_fixture(
+            r#"{"operation": "evaluate",
+                "questions": {"x": {"type": "noul", "instructions": "is it x"}},
+                "source": {"tool": "structureSearch", "query": {"path": ".", "bogusField": 1}}}"#,
+        ),
+    );
+    assert_eq!(
+        shown["source"],
+        json_fixture(r#"{"tool": "structureSearch", "query": {"path": "."}}"#),
+        "{shown}"
+    );
 }
 
 /// The example also keeps each field the row sent without an issue that

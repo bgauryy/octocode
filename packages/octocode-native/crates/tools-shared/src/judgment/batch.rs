@@ -455,7 +455,14 @@ async fn send(
                     .read(request, response)
                     .usage
                     .map(|usage| usage.input_tokens);
-                super::windows::took(connection.base_url, model, long, bytes, tokens);
+                super::windows::took(
+                    connection.base_url,
+                    model,
+                    long,
+                    bytes,
+                    input.questions.len(),
+                    tokens,
+                );
             }
             Err(error) if error.code == ErrorCode::ClassificationStateTooLarge => {
                 super::windows::refused(connection.base_url, model, long, bytes);

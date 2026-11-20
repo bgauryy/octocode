@@ -263,11 +263,10 @@ fn gate_scan_ignores_comment_mentions_and_answered_files() {
 fn query(value: Value) -> LspSearchQuery {
     serde_json::from_value(value).expect("query")
 }
-fn configured_rust(
-    query: &LspSearchQuery,
-    options: Value,
-) -> octocode_engine::lsp::types::LspLanguageServerConfig {
-    let mut config = octocode_engine::lsp::types::LspLanguageServerConfig {
+/// A rust-analyzer configuration with `options`, as a user's server
+/// configuration sets them.
+fn configured_rust(options: Value) -> octocode_engine::lsp::types::LspLanguageServerConfig {
+    octocode_engine::lsp::types::LspLanguageServerConfig {
         command: "rust-analyzer".into(),
         args: None,
         workspace_root: "/repo".into(),
@@ -277,9 +276,7 @@ fn configured_rust(
         env: None,
         max_memory_mb: None,
         source: Default::default(),
-    };
-    super::super::receipt::apply_rust_context(&mut config, query).expect("Rust context");
-    config
+    }
 }
 
 fn annotate(
@@ -289,17 +286,33 @@ fn annotate(
     server: Server<'_>,
     scope: &Scope,
 ) {
-    let config = configured_rust(
+    annotate_with(
+        row,
         query,
+        language_id,
+        server,
+        scope,
         octocode_engine::lsp::config::rust_analyzer_headless_options(),
     );
+}
+
+/// [`annotate`] for a server configured with `options`.
+fn annotate_with(
+    row: &mut Value,
+    query: &LspSearchQuery,
+    language_id: Option<&str>,
+    server: Server<'_>,
+    scope: &Scope,
+    options: Value,
+) {
+    let config = configured_rust(options);
     super::annotate(
         row,
         query,
         language_id,
         server,
         scope,
-        super::super::receipt::RustAnalysis::of(&config).allowing_build_scripts(true),
+        super::super::receipt::RustAnalysis::of(&config),
         &|| false,
     );
 }
@@ -317,25 +330,13 @@ async fn rust_row(root: &Path, lib: &str, query_fields: Value, answered: &[&str]
     .await
 }
 
+/// [`rust_row`] under a server configured with `options`.
 async fn rust_row_configured(
     root: &Path,
     lib: &str,
     query_fields: Value,
     answered: &[&str],
     options: Value,
-) -> Value {
-    rust_row_gated(root, lib, query_fields, answered, options, true).await
-}
-
-/// [`rust_row_configured`] where `allowed` is the host's
-/// `lsp.allowBuildScripts`.
-async fn rust_row_gated(
-    root: &Path,
-    lib: &str,
-    query_fields: Value,
-    answered: &[&str],
-    options: Value,
-    allowed: bool,
 ) -> Value {
     let package = root.join("pkg");
     std::fs::write(package.join("src/lib.rs"), lib).expect("lib");
@@ -379,7 +380,7 @@ async fn rust_row_gated(
         }"#,
     );
     let q = query(q);
-    let config = configured_rust(&q, options);
+    let config = configured_rust(options);
     // rust-analyzer roots at the package's Cargo workspace: here the package.
     let package_text = package.to_string_lossy().into_owned();
     super::annotate(
@@ -391,7 +392,7 @@ async fn rust_row_gated(
             root: &package_text,
         },
         &scope,
-        super::super::receipt::RustAnalysis::of(&config).allowing_build_scripts(allowed),
+        super::super::receipt::RustAnalysis::of(&config),
         &|| false,
     );
     row

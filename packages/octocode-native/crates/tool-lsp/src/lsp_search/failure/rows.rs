@@ -156,49 +156,30 @@ pub(in super::super) fn annotate_empty_includes(
                         super::super::server_coverage::package_declares(&anchor, name, stopped)
                     });
             if generated && !rust.build_scripts {
-                // With an outside include as well, the name may be defined
-                // there: the ~2 GB rerun is no repair to lead with. Alone,
-                // the executable rerun is the lead.
-                let allowed = rust.build_scripts_allowed;
-                let rerun = includes.outside.is_empty() && allowed;
                 let reason = super::super::server_coverage::BUILD_SCRIPTS_REASON;
                 octocode_runtime_base::response::paging::mark_partial(row, reason, &[]);
-                if rerun && let Some(action) = next_action(query, reason) {
-                    octocode_runtime_base::response::result::attach_related(row, action);
-                }
             }
         }
     }
 }
 
-/// The one next action of each partial reason that offers one, as an
-/// executable `lspSearch` lead from the walk's first page: `buildScriptsOff`
-/// reruns with `rustContext.buildScripts: true` (it runs repository code:
-/// the caller's consent), `cfgGatedFiles` with `rustContext.features:
-/// "all"`, and every other reason (`languageServerIndexing`, a retryable
-/// server failure, …) retries the same query. The rest of the Rust context
-/// is kept.
-pub(in super::super) fn next_action(
+/// The next action of a partial reason a retry can recover
+/// (`languageServerIndexing`, a retryable server failure, …): the same query
+/// again, as an executable `lspSearch` lead. A related request is fresh: it
+/// drops the query's page and snapshot. A reason no rerun recovers
+/// (`buildScriptsOff`, `cfgGatedFiles`: the server's own build settings
+/// decide them) has none; its row's related localSearch is the text check.
+fn next_action(
     query: &LspSearchQuery,
     reason: octocode_runtime_base::response::paging::PartialReason,
 ) -> Option<Value> {
     use super::super::server_coverage::{BUILD_SCRIPTS_REASON, CFG_REASON};
-    // A related request is fresh: it drops the query's page and snapshot.
-    let setting = match reason {
-        BUILD_SCRIPTS_REASON => Some(("buildScripts", json!(true))),
-        CFG_REASON => Some(("features", json!("all"))),
-        _ => None,
-    };
-    let rerun = match setting {
-        Some((field, value)) => {
-            let mut context = lsp_search_query::rust_context(query)
-                .map_or_else(|| json!({}), |context| json!(context));
-            context[field] = value;
-            lsp_search_query::edited(query, &json!({"rustContext": context})).ok()?
-        }
-        None => query.clone(),
-    };
-    Some(octocode_runtime_base::response::result::Continuation::related_query(rerun).build())
+    if matches!(reason, BUILD_SCRIPTS_REASON | CFG_REASON) {
+        return None;
+    }
+    Some(
+        octocode_runtime_base::response::result::Continuation::related_query(query.clone()).build(),
+    )
 }
 
 /// The query row of the fresh rerun lead of `query`, for tests that name the

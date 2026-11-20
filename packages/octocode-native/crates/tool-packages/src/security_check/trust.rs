@@ -326,7 +326,7 @@ impl Trust {
                     contract,
                     "repositoryMoved",
                     format!(
-                        "This version names {from}, which GitHub does not have; the latest release, {version}, names {to}{redirect}, read {today}. GitHub answers the same for {from} if it is a private repository this credential cannot see."
+                        "This version names {from}, which GitHub does not show this credential; the latest release, {version}, names {to}{redirect}, read {today}."
                     ),
                 )
                 .into_iter()
@@ -342,7 +342,7 @@ impl Trust {
                 contract,
                 "repositoryMissing",
                 format!(
-                    "GitHub has neither {from}, which this version names, nor {to}, which the latest release, {version}, names, read {today}. GitHub answers the same for a private repository this credential cannot see."
+                    "GitHub shows this credential neither {from}, which this version names, nor {to}, which the latest release, {version}, names, read {today}."
                 ),
             )
             .into_iter()

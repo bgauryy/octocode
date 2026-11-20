@@ -28,11 +28,11 @@ fn zero_repositories_are_empty_and_only_a_complete_search_broadens() {
         "ghSearchRepo",
         |_| true,
     )["input"]["queries"];
-    assert_eq!(rows.as_array().map(Vec::len), Some(2));
+    // The search keeps its subject: no variant drops the lone keyword to
+    // list every repository of a language, which answers nothing asked.
+    assert_eq!(rows.as_array().map(Vec::len), Some(1), "{}", complete.data);
     assert_eq!(rows[0]["keywords"], json_fixture(r#"["x"]"#));
     assert!(rows[0].get("filters").is_none());
-    assert_eq!(rows[1]["filters"]["language"], "rust");
-    assert!(rows[1].get("keywords").is_none());
     octocode_runtime_base::test_support::checks::assert_leads_valid(&complete.data);
 
     // GitHub's incomplete page: empty (exit 1), no broadening; its retry

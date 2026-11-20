@@ -98,6 +98,9 @@ impl FileLink<'_, '_> {
         if let Some(t) = target.as_ref().filter(|t| **t != self.file) {
             self.edge(t, super::super::edges::RUST_PATH, c.line);
         }
+        if self.lang == Linker::Rust && target.is_none() {
+            self.note_unbound_path(&c.callee, c.line);
+        }
         self.facts.calls.push(Call {
             id: c.id,
             binding: c.binding,
@@ -133,6 +136,9 @@ impl FileLink<'_, '_> {
                 self.inputs.rust_modules,
             ),
         };
+        if target.is_none() && p.inline_depth == 0 {
+            self.note_unbound_path(&p.path, p.line);
+        }
         match &target {
             Some(t) if *t != self.file => self.edge(t, super::super::edges::RUST_PATH, p.line),
             Some(_) => {}
@@ -167,6 +173,40 @@ impl FileLink<'_, '_> {
                 ));
             }
             None => {}
+        }
+    }
+
+    /// Records the module path of a Rust call or value path (`m::f` names
+    /// `f` in `m`) that resolved nowhere, when the file glob-imports an
+    /// ancestor module and no `use` of its own binds the path's first
+    /// segment: that glob may bind it ([`inherit_parent_globs`]).
+    fn note_unbound_path(&mut self, path: &str, line: u32) {
+        let Some((prefix, _)) = path.rsplit_once("::") else {
+            return;
+        };
+        if !self
+            .facts
+            .imports
+            .iter()
+            .any(|import| import.imported_name == "*" && ancestor_glob(&import.specifier))
+        {
+            return;
+        }
+        let head = prefix.split("::").next().unwrap_or_default();
+        let plain = !head.is_empty()
+            && !matches!(head, "crate" | "self" | "super" | "Self")
+            && head.chars().all(|c| c == '_' || c.is_alphanumeric());
+        let bound = self.facts.imports.iter().any(|import| {
+            import
+                .local_name
+                .as_deref()
+                .unwrap_or(&import.imported_name)
+                == head
+        });
+        if plain && !bound {
+            self.facts
+                .rust_unbound_paths
+                .push((prefix.to_owned(), line));
         }
     }
 
@@ -207,6 +247,7 @@ impl FileLink<'_, '_> {
                     target: target.clone(),
                     external,
                     scope_id: None,
+                    inline: false,
                 },
                 declaration_id: binding.declaration_id,
                 scope: binding.scope,

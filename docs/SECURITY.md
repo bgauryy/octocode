@@ -32,7 +32,6 @@ A key named `password`, `passwd`, `pwd`, `secret`, `client_secret`, `secret_key`
 |---|---|---|
 | `lsp.trustProjectConfig` | `false` | A project's language-server config cannot launch an executable until trusted |
 | `lsp.trustFetchedCode` | `false` | No language server on fetched checkouts, materialized files or URL captures |
-| `lsp.allowBuildScripts` | `false` | Rust build scripts and proc macros return a policy error |
 
 Language servers can run project code, so use them only on projects you trust. Check routing with `octocode lsp-server status <file>`.
 

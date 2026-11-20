@@ -86,9 +86,6 @@ pub struct NextCalls {
     /// A structureSearch listing that finds a missing file by its stem.
     #[serde(rename = "findFile", skip_serializing_if = "Option::is_none", default)]
     pub find_file: Option<serde_json::Value>,
-    /// A localSearch for a missed matchString in the file's directory.
-    #[serde(rename = "findText", skip_serializing_if = "Option::is_none", default)]
-    pub text_search: Option<serde_json::Value>,
     /// The same read matched case-insensitively, after a case-sensitive
     /// matchString selected no line.
     #[serde(
@@ -97,12 +94,17 @@ pub struct NextCalls {
         default
     )]
     pub ignore_case: Option<FetchCall>,
-    /// The same read with one input fixed: a match read without its
+    /// The same file read with one input changed: a match read without its
     /// `ranges`, after the ranges selected no line while the file has hits
-    /// outside them, or a missing file's mistyped name corrected to its one
-    /// close sibling.
+    /// outside them; after a miss, the names a declaration head declares
+    /// alone or the file's `symbols` outline; or a missing file's mistyped
+    /// name corrected to its one close sibling.
     #[serde(rename = "read", skip_serializing_if = "Option::is_none", default)]
     pub read: Option<FetchCall>,
+    /// A localSearch for a missed matchString in the file's directory: after
+    /// every read of the file itself, which a miss tries first.
+    #[serde(rename = "findText", skip_serializing_if = "Option::is_none", default)]
+    pub text_search: Option<serde_json::Value>,
     /// The same read with each regex item that does not compile repaired.
     #[serde(rename = "repair", skip_serializing_if = "Option::is_none", default)]
     pub repair: Option<FetchCall>,

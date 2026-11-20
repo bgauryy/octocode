@@ -44,6 +44,7 @@ pub(super) fn fallback_provider(operation: &str) -> Option<&'static str> {
 /// `None` when no name is queried or the text scan of the workspace could
 /// not run.
 async fn scan_workspace(
+    declaration: &Declaration,
     query: &super::LspSearchQuery,
     scope: &super::scope::Scope,
     policy: &octocode_runtime_base::policy::path::PathPolicy,
@@ -54,14 +55,22 @@ async fn scan_workspace(
     else {
         return Ok(None);
     };
-    let language = super::lsp_search_query::path(query)
-        .and_then(octocode_engine::lsp::config::detect_language_id);
+    let language = octocode_engine::lsp::config::detect_language_id(&declaration.path);
     let wanted = canonical_symbol_name(language.as_deref(), base);
     let Some(files) = scope.text_files(wanted, policy, cancel).await? else {
         return Ok(None);
     };
     let files = std::sync::Arc::new(
-        reaching(query, scope, (wanted, wanted), &files, policy, cancel).await?,
+        reaching(
+            declaration,
+            query,
+            scope,
+            (wanted, wanted),
+            &files,
+            policy,
+            cancel,
+        )
+        .await?,
     );
     let name = wanted.to_owned();
     let scanned = files.clone();
@@ -80,13 +89,14 @@ async fn scan_workspace(
     }))
 }
 
-/// The scanned `files` that may hold a subtype of the anchor's type `base`
-/// (or a member of it, scanned by `scanned`): the anchor's own file, and a
-/// file in the reach of the anchor's declaration that names that type. In
-/// TS/JS a file names the anchor's exported type only through a module
-/// reference that may reach the anchor's module; in other languages a file
-/// that declares its own type of that name names its own.
+/// The scanned `files` that may hold a subtype of the type `base` at
+/// `declaration` (or a member of it, scanned by `scanned`): its file, and a
+/// file in that declaration's reach that names the type. In TS/JS a file
+/// names the exported type only through a module reference that may reach
+/// its module; in other languages a file that declares its own type of
+/// that name names its own.
 async fn reaching(
+    declaration: &Declaration,
     query: &super::LspSearchQuery,
     scope: &super::scope::Scope,
     (base, scanned): (&str, &str),
@@ -94,16 +104,15 @@ async fn reaching(
     policy: &octocode_runtime_base::policy::path::PathPolicy,
     cancel: &dyn octocode_runtime_base::execution::cancel::CancellationCheck,
 ) -> Result<BTreeSet<String>, LspFailure> {
-    let (Some(anchor), Some(symbol)) = (
-        super::lsp_search_query::path(query),
-        super::lsp_search_query::symbol_name(query),
-    ) else {
+    let Some(symbol) = super::lsp_search_query::symbol_name(query) else {
         return Ok(files.clone());
     };
-    let anchor = super::scope::canonical(anchor);
+    let anchor = super::scope::canonical(&declaration.path);
+    let reaches =
+        super::scope::Scope::reach_from((&anchor, declaration.line, declaration.character), symbol);
     let in_reach = files
         .iter()
-        .filter(|file| **file == anchor || scope.may_reach(symbol, file))
+        .filter(|file| **file == anchor || reaches(file))
         .cloned()
         .collect::<BTreeSet<_>>();
     let language = octocode_engine::lsp::config::detect_language_id(&anchor);
@@ -179,17 +188,100 @@ pub(super) fn scannable(content: &str, file: &str, line: u32, name: &str) -> Opt
     scan::member_owner(content, file, line, name).map(|owner| Scannable::Members { owner })
 }
 
-/// The scan `what` names for the query's symbol ([`scan_workspace`] for a
-/// type, the members its subtypes declare for a member).
+/// Where the type or member a heritage scan reads is declared: its file
+/// (canonical) and the zero-based position of its name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Declaration {
+    pub(super) path: String,
+    pub(super) line: u32,
+    pub(super) character: u32,
+}
+
+/// Where the heritage scan beside an `implementation` answer reads.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum ScanAnchor {
+    /// The anchor declares the type or member the scan reads.
+    Declared(Scannable),
+    /// The anchor spells the name without declaring it (an `impl Trait for
+    /// X` header, a bound, an import): the scan reads what the declaration
+    /// it resolves to declares ([`resolved`]), so the answer is the one
+    /// that declaration's anchor gets.
+    Use,
+}
+
+impl ScanAnchor {
+    /// Whether the scan may stand in for a server that did not answer: a
+    /// use stands in when it resolves to a type ([`Scannable::stands_in`]).
+    pub(super) fn may_stand_in(&self) -> bool {
+        match self {
+            Self::Declared(what) => what.stands_in(),
+            Self::Use => true,
+        }
+    }
+}
+
+/// [`ScanAnchor`] of the anchor `name` at the zero-based `line` of
+/// `content`; `None` for a declaration no heritage clause reaches.
+pub(super) fn scan_anchor(content: &str, file: &str, line: u32, name: &str) -> Option<ScanAnchor> {
+    if let Some(what) = scannable(content, file, line, name) {
+        return Some(ScanAnchor::Declared(what));
+    }
+    (!scan::declares(content, file, line, name)).then_some(ScanAnchor::Use)
+}
+
+/// What a heritage scan can read for an anchor that spells `name` without
+/// declaring it: [`scannable`] at the first of `definitions` (the server's
+/// answer at the anchor) that declares it, with that declaration. Each file
+/// is read through `policy`, off the async workers; one that cannot be read
+/// declares nothing known.
+pub(super) async fn resolved(
+    definitions: &[LspCodeSnippet],
+    name: &str,
+    policy: &octocode_runtime_base::policy::path::PathPolicy,
+    cancel: &dyn octocode_runtime_base::execution::cancel::CancellationCheck,
+) -> Result<Option<(Scannable, Declaration)>, LspFailure> {
+    let targets = definitions
+        .iter()
+        .map(|found| Declaration {
+            path: super::scope::canonical_uri(&found.uri),
+            line: found.range.start.line,
+            character: found.range.start.character,
+        })
+        .collect::<Vec<_>>();
+    if targets.is_empty() {
+        return Ok(None);
+    }
+    let (name, policy) = (name.to_owned(), policy.clone());
+    let found = super::blocking_cancellable(cancel, move |stopped| {
+        targets.into_iter().find_map(|declaration| {
+            if stopped() {
+                return None;
+            }
+            let valid = policy.validate_read(&declaration.path).ok()?;
+            let content = read_bounded_source(&valid.canonical).ok()?;
+            scannable(&content, &declaration.path, declaration.line, &name)
+                .map(|what| (what, declaration))
+        })
+    })
+    .await?;
+    Ok(found.flatten())
+}
+
+/// The scan `what` names for the query's symbol at `declaration`:
+/// [`scan_workspace`] for a type, the members its subtypes declare for a
+/// member.
 pub(super) async fn scan_for(
     what: &Scannable,
+    declaration: &Declaration,
     query: &super::LspSearchQuery,
     scope: &super::scope::Scope,
     policy: &octocode_runtime_base::policy::path::PathPolicy,
     cancel: &dyn octocode_runtime_base::execution::cancel::CancellationCheck,
 ) -> Result<Option<HeritageScan>, LspFailure> {
     let owner = match what {
-        Scannable::Subtypes => return scan_workspace(query, scope, policy, cancel).await,
+        Scannable::Subtypes => {
+            return scan_workspace(declaration, query, scope, policy, cancel).await;
+        }
         Scannable::Members { owner } => owner,
     };
     let Some(member) =
@@ -199,14 +291,23 @@ pub(super) async fn scan_for(
     };
     // A subtype that declares the member spells its name: the files that
     // spell it hold every such declaration.
-    let language = super::lsp_search_query::path(query)
-        .and_then(octocode_engine::lsp::config::detect_language_id);
+    let language = octocode_engine::lsp::config::detect_language_id(&declaration.path);
     let member = canonical_symbol_name(language.as_deref(), member);
     let Some(files) = scope.text_files(member, policy, cancel).await? else {
         return Ok(None);
     };
-    let files =
-        std::sync::Arc::new(reaching(query, scope, (owner, member), &files, policy, cancel).await?);
+    let files = std::sync::Arc::new(
+        reaching(
+            declaration,
+            query,
+            scope,
+            (owner, member),
+            &files,
+            policy,
+            cancel,
+        )
+        .await?,
+    );
     let (base, name, scanned) = (owner.clone(), member.to_owned(), files.clone());
     let Some((found, unread)) = super::blocking_cancellable(cancel, move |stopped| {
         scan_members(&scanned, &base, &name, stopped)

@@ -4,6 +4,7 @@
 use crate::contracts::prepare_rows;
 use serde_json::{Value, json};
 use std::sync::atomic::{AtomicUsize, Ordering};
+mod absorption;
 mod allowed_fields;
 mod enums;
 mod equivalence;

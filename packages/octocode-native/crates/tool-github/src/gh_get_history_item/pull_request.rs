@@ -45,8 +45,9 @@ pub(super) async fn pull_request(
                 InlineWindow::Pending,
             )
         };
-    // A summary states GitHub's whole comment count, as ghSearchHistory
-    // does: read beside the REST pull request, not after it.
+    // A summary states GitHub's whole comment count (`totalCommentsCount`),
+    // as ghSearchHistory does: read beside the REST pull request, not after
+    // it. REST's `comments` stays the conversation count.
     let summary = wants.is_empty();
     let (mut loads, whole_comments) = tokio::try_join!(
         load_pr(
@@ -67,7 +68,7 @@ pub(super) async fn pull_request(
         },
     )?;
     if let Some(count) = whole_comments {
-        loads.raw["comments"] = json!(count);
+        loads.raw[super::pr_finish::WHOLE_COUNT_KEY] = json!(count);
     }
     let head = str_at(&loads.raw, "/head/sha").map(str::to_owned);
     // A pin names the head by its SHA or an abbreviation of it.
@@ -89,7 +90,7 @@ pub(super) async fn pull_request(
     if summary && whole_comments.is_none() {
         octocode_runtime_base::response::paging::push_warnings(
             &mut data.data,
-            [octocode_tools_shared::gh_shared::history::CONVERSATION_ONLY.to_owned()],
+            [octocode_tools_shared::gh_shared::history::WHOLE_COUNT_UNREAD.to_owned()],
         );
     }
     if let (Some(head), Some(number)) = (head, gh_get_history_item_query::number(query)) {

@@ -109,3 +109,57 @@ fn a_settled_cache_preserves_an_earlier_fresh_observation() {
         "the earlier lookup preserves the useful settled cache"
     );
 }
+
+/// A cold call stats each fingerprint file once (R6): the walk's stamp, the
+/// one its digest line carries, is the kept proof's too, so the capture
+/// stamps only the directories. The proof still watches every file: an edit
+/// in place, which changes no directory, walks again.
+#[test]
+fn a_cold_fingerprint_stats_each_file_once() {
+    use super::fingerprint::FILE_STATS;
+    use octocode_engine::stamp::stamp_stats_of;
+    let (_dir, root) = fixture();
+    std::fs::create_dir_all(root.join(".git")).expect("git");
+    let dirs = ["a", "b", "c"].map(|name| root.join(name));
+    let files = (0..30)
+        .map(|index| dirs[index % 3].join(format!("f{index:02}.go")))
+        .collect::<Vec<_>>();
+    for file in &files {
+        write(file, "package a\n");
+    }
+    settle_written_so_far();
+    // A proof this small is stamped on the calling thread, where
+    // `stamp_stats_of` counts.
+    let first = of(&root, octocode_engine::stamp::settle_clock());
+    assert_eq!(WALKS.of(&root), 1);
+    assert_eq!(first.1.len(), files.len());
+    for dir in dirs.iter().chain([&root]) {
+        assert_eq!(
+            stamp_stats_of(dir),
+            1,
+            "the capture stamps {}",
+            dir.display()
+        );
+    }
+    for file in &files {
+        assert_eq!(
+            (FILE_STATS.of(file), stamp_stats_of(file)),
+            (1, 0),
+            "the walk stats {} once, the capture not again",
+            file.display()
+        );
+    }
+
+    let again = of(&root, octocode_engine::stamp::settle_clock());
+    assert_eq!(WALKS.of(&root), 1, "kept");
+    assert_eq!(again, first);
+    // Same length, new times: only the file's own stamp shows the edit.
+    write(&files[7], "package b\n");
+    settle_written_so_far();
+    let edited = of(&root, octocode_engine::stamp::settle_clock());
+    assert_eq!(WALKS.of(&root), 2, "the edit fails the kept proof");
+    let relative = files[7].strip_prefix(&root).expect("under root");
+    let relative = relative.to_string_lossy();
+    assert_ne!(edited.1[relative.as_ref()], first.1[relative.as_ref()]);
+    assert_ne!(edited.0, first.0);
+}

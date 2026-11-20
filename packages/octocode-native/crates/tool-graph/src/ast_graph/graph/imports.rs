@@ -193,6 +193,17 @@ impl FileLink<'_, '_> {
             return self.package_import(i);
         }
         let rust = self.lang == Linker::Rust;
+        let inline = rust
+            && i.module_scope
+                .as_ref()
+                .is_some_and(|scope| !scope.is_empty());
+        // Rust 2018 paths start at any name the module binds: a `use` path
+        // whose first segment an earlier `use` binds continues that one's
+        // path (`use scanned::streamed;` then `use streamed::walk_cut;`).
+        let mut i = i;
+        if rust && let Some(specifier) = self.rust_rebound(&i) {
+            i.specifier = specifier;
+        }
         // `include!("path")` splices that file into this one: the path is
         // relative to this file and its items share this file's namespace.
         // `include_str!`/`include_bytes!` resolve the same way but embed
@@ -268,7 +279,37 @@ impl FileLink<'_, '_> {
             target,
             external,
             scope_id: i.scope_id,
+            inline,
         });
+    }
+
+    /// The path of a file-level Rust `use` whose first segment another
+    /// file-level `use` of this file binds to linked code, with that segment
+    /// replaced by the binding's own path; `None` for a path that starts at
+    /// a keyword, a child module or a crate.
+    fn rust_rebound(&self, i: &octocode_engine::graph::GraphFactImport) -> Option<String> {
+        if i.module_scope
+            .as_ref()
+            .is_some_and(|scope| !scope.is_empty())
+        {
+            return None;
+        }
+        let head = i.specifier.split("::").next()?;
+        let rest = i.specifier.strip_prefix(head)?;
+        if matches!(head, "" | "crate" | "self" | "super") || rest.is_empty() {
+            return None;
+        }
+        let bound = self.facts.imports.iter().find(|import| {
+            !import.inline
+                && import.target.is_some()
+                && import.imported_name != "*"
+                && import
+                    .local_name
+                    .as_deref()
+                    .unwrap_or(&import.imported_name)
+                    == head
+        })?;
+        Some(format!("{}{rest}", bound.specifier))
     }
 
     /// Go and Java imports name packages: one import fact per linked file,
@@ -325,6 +366,7 @@ impl FileLink<'_, '_> {
                 target: None,
                 external,
                 scope_id: i.scope_id,
+                inline: false,
             });
             return;
         }
@@ -358,6 +400,7 @@ impl FileLink<'_, '_> {
                 target: Some(target),
                 external: false,
                 scope_id: i.scope_id.clone(),
+                inline: false,
             });
         }
     }

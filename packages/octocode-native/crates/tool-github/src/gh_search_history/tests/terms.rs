@@ -5,32 +5,29 @@ use octocode_test_support::json_fixture;
 fn every_typed_history_filter_reaches_the_provider_query() {
     let cases = [
         (json_fixture(r#"{"state": "closed"}"#), "is:closed"),
-        (
-            json_fixture(r#"{"author": "alice", "notAuthor": ["bot"]}"#),
-            "author:alice -author:bot",
-        ),
+        (json_fixture(r#"{"author": "alice"}"#), "author:alice"),
         (json_fixture(r#"{"assignee": "alice"}"#), "assignee:alice"),
         (json_fixture(r#"{"commenter": "alice"}"#), "commenter:alice"),
-        (json_fixture(r#"{"notMentions": ["bot"]}"#), "-mentions:bot"),
+        (json_fixture(r#"{"mentions": "bot"}"#), "mentions:bot"),
         (
-            json_fixture(r#"{"labels": ["bug", "needs work"], "notLabels": ["blocked"]}"#),
-            "label:bug label:\"needs work\" -label:blocked",
+            json_fixture(r#"{"labels": ["bug", "needs work"]}"#),
+            "label:bug label:\"needs work\"",
         ),
         (
             json_fixture(r#"{"commentsCount": {"min": 0, "max": 10}}"#),
             "comments:0..10",
         ),
         (
-            json_fixture(r#"{"notReactionCount": [{"max": 2}]}"#),
-            "-reactions:<=2",
+            json_fixture(r#"{"reactionCount": {"max": 2}}"#),
+            "reactions:<=2",
         ),
         (
             json_fixture(r#"{"createdAt": {"from": "2024-01-01T00:00:00Z"}}"#),
             "created:>=2024-01-01T00:00:00Z",
         ),
         (
-            json_fixture(r#"{"notUpdatedAt": [{"to": "2024-02-01T00:00:00Z"}]}"#),
-            "-updated:<=2024-02-01T00:00:00Z",
+            json_fixture(r#"{"updatedAt": {"to": "2024-02-01T00:00:00Z"}}"#),
+            "updated:<=2024-02-01T00:00:00Z",
         ),
         (
             json_fixture(
@@ -83,15 +80,12 @@ fn pull_request_predicates_are_distinct_and_negation_survives() {
             json_fixture(r#"{"reviewRequested": "alice"}"#),
             "review-requested:alice",
         ),
-        (
-            json_fixture(r#"{"notReviewedBy": ["bot"]}"#),
-            "-reviewed-by:bot",
-        ),
+        (json_fixture(r#"{"reviewedBy": "bot"}"#), "reviewed-by:bot"),
         (
             json_fixture(r#"{"headRef": "feature/x"}"#),
             "head:feature/x",
         ),
-        (json_fixture(r#"{"notBaseRef": ["main"]}"#), "-base:main"),
+        (json_fixture(r#"{"baseRef": "main"}"#), "base:main"),
         (json_fixture(r#"{"linked": "issue"}"#), "linked:issue"),
         (
             json_fixture(r#"{"mergedAt": {"from": "2024-01-01T00:00:00Z"}}"#),
@@ -197,98 +191,59 @@ fn legacy_aliases_and_cross_operation_filters_are_rejected() {
     }
 }
 
+/// Before 2026-11-19 each filter had a `not<Field>` twin sent as a
+/// `-key:value` term (and `linked` with `notLinked` was refused); the owner
+/// removed the twins, so admission now refuses every one of them.
 #[test]
-fn a_field_and_its_not_field_both_reach_the_provider_query() {
+fn not_field_filters_are_refused_at_admission() {
     let date = "2024-01-01T00:00:00Z";
     let shared = [
-        (
-            json_fixture(r#"{"author": "alice", "notAuthor": ["bot", "dep"]}"#),
-            vec!["author:alice", "-author:bot", "-author:dep"],
-        ),
-        (
-            json_fixture(r#"{"labels": ["bug"], "notLabels": ["wip"]}"#),
-            vec!["label:bug", "-label:wip"],
-        ),
-        (
-            json!({"createdAt":{"from":date},"notCreatedAt":[{"to":"2023-01-01T00:00:00Z"}]}),
-            vec![
-                "created:>=2024-01-01T00:00:00Z",
-                "-created:<=2023-01-01T00:00:00Z",
-            ],
-        ),
-        (
-            json_fixture(
-                r#"{
-                    "commentsCount": {"min": 1},
-                    "notCommentsCount": [{"max": 5}]
-                }"#,
-            ),
-            vec!["comments:>=1", "-comments:<=5"],
-        ),
+        json!({"notAuthor":["bot"]}),
+        json!({"notAssignee":["bot"]}),
+        json!({"notCommenter":["bot"]}),
+        json!({"notMentions":["bot"]}),
+        json!({"notLabels":["wip"]}),
+        json!({"notCreatedAt":[{"to":date}]}),
+        json!({"notUpdatedAt":[{"to":date}]}),
+        json!({"notClosedAt":[{"from":date}]}),
+        json!({"notCommentsCount":[{"max":5}]}),
+        json!({"notReactionCount":[{"max":2}]}),
     ];
-    for (filters, terms) in &shared {
-        for operation in ["issue", "pullRequest"] {
-            let q = serde_json::from_value(
-                json!({"operation":operation,"owner":"o","repo":"r","filters":filters}),
-            )
-            .expect("query");
-            let actual = build_query(&q).expect("provider query");
-            for term in terms {
-                assert!(
-                    actual.contains(term),
-                    "{operation} {filters}: {actual} lacks {term}"
-                );
-            }
-        }
+    let pull_request = [
+        json!({"notLinked":"issue"}),
+        json!({"notReview":["changesRequested"]}),
+        json!({"notCheckStatus":["failure"]}),
+        json!({"notHeadRef":["b"]}),
+        json!({"notBaseRef":["main"]}),
+        json!({"notMergedAt":[{"to":date}]}),
+        json!({"notReviewedBy":["bot"]}),
+        json!({"notReviewRequested":["bob"]}),
+    ];
+    let issue_linked = json!({"notLinked":"pullRequest"});
+    let cases = shared
+        .iter()
+        .flat_map(|filters| [("issue", filters), ("pullRequest", filters)])
+        .chain(pull_request.iter().map(|filters| ("pullRequest", filters)))
+        .chain(std::iter::once(("issue", &issue_linked)));
+    for (operation, filters) in cases {
+        let row = json!({"operation":operation,"owner":"o","repo":"r","filters":filters});
+        assert!(
+            octocode_runtime_base::contracts::validate("ghSearchHistory", json!({"queries":[row]}))
+                .is_err(),
+            "{operation} {filters}: a not<Field> filter must be refused"
+        );
     }
-    let pull_request = json!({
-        "review":"approved","notReview":["changesRequested"],
-        "checkStatus":"success","notCheckStatus":["failure"],
-        "headRef":"a","notHeadRef":["b"],
-        "mergedAt":{"from":date},"notMergedAt":[{"to":"2023-01-01T00:00:00Z"}],
-        "linked":"issue",
-    });
-    let q = serde_json::from_value(
-        json!({"operation":"pullRequest","owner":"o","repo":"r","filters":pull_request}),
-    )
-    .expect("query");
-    let actual = build_query(&q).expect("provider query");
-    for term in [
-        "review:approved",
-        "-review:changes_requested",
-        "status:success",
-        "-status:failure",
-        "head:a",
-        "-head:b",
-        "merged:>=2024-01-01T00:00:00Z",
-        "-merged:<=2023-01-01T00:00:00Z",
-        "linked:issue",
-    ] {
-        assert!(actual.contains(term), "{actual} lacks {term}");
-    }
-}
-
-#[test]
-fn not_linked_excludes_the_linked_kind_and_linked_with_it_is_rejected() {
     let q = serde_json::from_value(json_fixture(
         r#"{
             "operation": "issue",
             "owner": "o",
             "repo": "r",
-            "filters": {"notLinked": "pullRequest"}
+            "filters": {"labels": ["good first issue"]}
         }"#,
     ))
     .expect("query");
-    assert!(build_query(&q).expect("query").contains("-linked:pr"));
-    for (operation, linked) in [("issue", "pullRequest"), ("pullRequest", "issue")] {
-        let row = json!({"operation":operation,"owner":"o","repo":"r",
-            "filters":{"linked":linked,"notLinked":linked}});
-        assert!(
-            octocode_runtime_base::contracts::validate("ghSearchHistory", json!({"queries":[row]}))
-                .is_err(),
-            "{operation}: linked and notLinked together must be rejected"
-        );
-    }
+    let terms = build_query(&q).expect("query");
+    assert!(!terms.contains(" -"), "no exclusion term is sent: {terms}");
 }
 
 fn query_terms(operation: &str, filters: Value) -> Vec<String> {
@@ -317,23 +272,12 @@ fn query_terms(operation: &str, filters: Value) -> Vec<String> {
 fn review_requests_name_a_team_by_its_slash_and_a_login_by_its_name() {
     let terms = query_terms(
         "pullRequest",
-        json_fixture(
-            r#"{
-                "reviewRequested": "acme/core",
-                "notReviewRequested": ["acme/infra", "bob"]
-            }"#,
-        ),
+        json_fixture(r#"{"reviewRequested": "acme/core"}"#),
     );
-    for expected in [
-        "team-review-requested:acme/core",
-        "-team-review-requested:acme/infra",
-        "-review-requested:bob",
-    ] {
-        assert!(
-            terms.iter().any(|t| t == expected),
-            "{terms:?} lacks {expected}"
-        );
-    }
+    assert!(
+        terms.iter().any(|t| t == "team-review-requested:acme/core"),
+        "{terms:?} lacks team-review-requested:acme/core"
+    );
     assert!(
         !terms.iter().any(|t| t == "review-requested:acme/core"),
         "{terms:?}"
@@ -348,28 +292,31 @@ fn review_requests_name_a_team_by_its_slash_and_a_login_by_its_name() {
     );
 }
 
+/// Before 2026-11-19 this pinned the quoted form of the `not<Field>` twins
+/// (`-label:"good first issue"`); the twins are gone, so it pins the
+/// positive filters' quoted form.
 #[test]
-fn negated_twins_reach_the_provider_query_in_their_quoted_form() {
+fn filter_values_reach_the_provider_query_in_their_quoted_form() {
     for (operation, filters, expected) in [
         (
             "issue",
-            json_fixture(r#"{"notAssignee": ["bot"]}"#),
-            "-assignee:bot",
+            json_fixture(r#"{"assignee": "bot"}"#),
+            "assignee:bot",
         ),
         (
             "issue",
-            json_fixture(r#"{"notCommenter": ["bot"]}"#),
-            "-commenter:bot",
+            json_fixture(r#"{"commenter": "bot"}"#),
+            "commenter:bot",
         ),
         (
             "issue",
-            json_fixture(r#"{"notClosedAt": [{"from": "2024-01-01T00:00:00Z"}]}"#),
-            "-closed:>=2024-01-01T00:00:00Z",
+            json_fixture(r#"{"closedAt": {"from": "2024-01-01T00:00:00Z"}}"#),
+            "closed:>=2024-01-01T00:00:00Z",
         ),
         (
             "issue",
-            json_fixture(r#"{"notLabels": ["good first issue"]}"#),
-            "-label:\"good first issue\"",
+            json_fixture(r#"{"labels": ["good first issue"]}"#),
+            "label:\"good first issue\"",
         ),
     ] {
         let terms = query_terms(operation, filters.clone());

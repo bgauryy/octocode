@@ -2,8 +2,25 @@
 use super::*;
 use octocode_test_support::json_fixture;
 
+/// The headless defaults with every feature on (`cargo.features: "all"`).
+fn all_features() -> Value {
+    let mut options = octocode_engine::lsp::config::rust_analyzer_headless_options();
+    options["cargo"]["features"] = json!("all");
+    options
+}
+
+/// Whether `row` offers an `lspSearch` call: no rerun changes the server's
+/// feature set.
+fn offers_rerun(row: &Value) -> bool {
+    octocode_runtime_base::test_support::checks::find_related_call(row, "lspSearch", |_| true)
+        .is_some()
+}
+
+/// Feature-gated mentions the answer missed: one reason and their count,
+/// no prose and no rerun, on every page of the walk; a server configured
+/// for every feature is not flagged.
 #[test]
-fn rust_rows_flag_feature_gated_mentions_and_offer_an_all_features_rerun() {
+fn rust_rows_flag_feature_gated_mentions() {
     let dir = tempfile::tempdir().expect("dir");
     std::fs::write(dir.path().join("lib.rs"), "pub fn spawn_blocking() {}\n").expect("lib");
     std::fs::write(
@@ -34,7 +51,7 @@ fn rust_rows_flag_feature_gated_mentions_and_offer_an_all_features_rerun() {
         },
         &scope,
     );
-    // Gated files found: the rerun page, one reason and their count, no prose.
+    // Gated files found: one reason and their count, no prose.
     assert_eq!(row["partialReasons"], json!([CFG_REASON]), "{row}");
     assert_eq!(row["coverage"]["cfgGatedFiles"], 1, "{row}");
     assert!(
@@ -43,14 +60,8 @@ fn rust_rows_flag_feature_gated_mentions_and_offer_an_all_features_rerun() {
         "{row}"
     );
     assert!(row.get("warnings").is_none(), "{row}");
-    let rerun =
-        &octocode_runtime_base::test_support::checks::related_call(&row, "lspSearch", |input| {
-            input["queries"][0]["rustContext"]["features"] == "all"
-        })["input"]["queries"][0];
-    assert_eq!(rerun["rustContext"]["features"], "all", "{row}");
-    assert_eq!(rerun["symbolName"], "spawn_blocking", "{row}");
-    // A later page of the same walk keeps the reason; the rerun lead
-    // was offered once, on the first page.
+    assert!(!offers_rerun(&row), "{row}");
+    // A later page of the same walk keeps the reason.
     for later in [
         json_fixture(r#"{"page": 2, "snapshot": "lsp-v3:abc"}"#),
         json_fixture(r#"{"importerPage": 2, "snapshot": "lsp-v3:abc"}"#),
@@ -73,29 +84,20 @@ fn rust_rows_flag_feature_gated_mentions_and_offer_an_all_features_rerun() {
             &scope,
         );
         assert_eq!(page["partialReasons"], json!([CFG_REASON]), "{page}");
-        assert!(
-            !page["related"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .any(|call| call["tool"] == "lspSearch"
-                    && call["input"]["queries"][0]["rustContext"]["features"] == "all"),
-            "{page}"
-        );
+        assert!(!offers_rerun(&page), "{page}");
     }
-    // An all-features run is not flagged again.
+    // A server configured for every feature is not flagged.
     let mut all = json_fixture(r#"{"operation": "references", "matches": []}"#);
-    let mut all_query = row_query;
-    all_query["rustContext"] = json_fixture(r#"{"features": "all"}"#);
-    annotate(
+    annotate_with(
         &mut all,
-        &query(all_query),
+        &query(row_query),
         Some("rust"),
         Server {
             anchor: &format!("{root}/lib.rs"),
             root: &root,
         },
         &scope,
+        all_features(),
     );
     assert!(all.get("isPartial").is_none(), "{all}");
 }
@@ -118,9 +120,9 @@ fn all_features_run_flags_negated_feature_gates() {
     let mut row = json_fixture(r#"{"operation": "references", "matches": []}"#);
     let q = query(
         json!({"path":format!("{root}/lib.rs"),"operation":"references",
-        "symbolName":"spawn_blocking","line":1,"rustContext":{"features":"all"}}),
+        "symbolName":"spawn_blocking","line":1}),
     );
-    annotate(
+    annotate_with(
         &mut row,
         &q,
         Some("rust"),
@@ -129,6 +131,7 @@ fn all_features_run_flags_negated_feature_gates() {
             root: &root,
         },
         &scope,
+        all_features(),
     );
     assert_eq!(row["partialReasons"], json!([CFG_NEGATED_REASON]), "{row}");
     assert_eq!(
@@ -136,15 +139,7 @@ fn all_features_run_flags_negated_feature_gates() {
         "localSearch",
         "{row}"
     );
-    assert!(
-        !row["related"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|call| call["tool"] == "lspSearch"
-                && call["input"]["queries"][0]["rustContext"]["features"] == "all"),
-        "{row}"
-    );
+    assert!(!offers_rerun(&row), "{row}");
     assert!(has_negated_feature_gate(
         "#[cfg(all(unix, not( feature = \"x\")))]"
     ));

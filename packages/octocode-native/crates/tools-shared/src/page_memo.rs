@@ -5,7 +5,7 @@
 //! continuation state does ([`octocode_runtime_base::cache::CONTINUATION_RETENTION`]): it
 //! expires [`CONTINUATION_IDLE`] after its last read. A hit is only a
 //! candidate: each owner re-validates what it reads before serving a page.
-use octocode_engine::stamp::{Link, Proof, exists};
+use octocode_engine::stamp::{Link, Proof, SourceStamp, exists};
 use octocode_io::memo::Memo;
 use std::{
     path::{Path, PathBuf},
@@ -521,16 +521,36 @@ impl Watch<'_> {
     /// stamped entry is gone, or was written within the settle window
     /// before `settled_before`.
     pub fn capture(&self, link: Link, settled_before: Option<SystemTime>) -> Option<Proof> {
+        self.capture_with_taken(link, settled_before, Vec::new())
+    }
+
+    /// [`Self::capture`], with `taken` too: sources the walk stamped itself,
+    /// as `link` reads them. Each joins the proof with the walk's stamp
+    /// instead of a second stat ([`Proof::capture_with_taken`], which refuses
+    /// an unsettled one as a stat would), and its directory is stamped. A path
+    /// the walk stamped twice is checked against both stamps: when they
+    /// differ, it changed under the walk and the proof fails.
+    pub fn capture_with_taken(
+        &self,
+        link: Link,
+        settled_before: Option<SystemTime>,
+        taken: Vec<(PathBuf, SourceStamp)>,
+    ) -> Option<Proof> {
+        /// The directory holding `source`, when it lies under `root`.
+        fn directory<'p>(source: &'p Path, root: &Path) -> Option<&'p Path> {
+            source.parent().filter(|parent| parent.starts_with(root))
+        }
         let root = self.root;
         // Deduplicated borrowed, so each shared parent is copied once.
         let mut paths = std::collections::BTreeSet::<&Path>::new();
         paths.insert(root);
+        paths.extend(
+            taken
+                .iter()
+                .filter_map(|(source, _)| directory(source, root)),
+        );
         for source in self.sources {
-            if let Some(parent) = source.parent()
-                && parent.starts_with(root)
-            {
-                paths.insert(parent);
-            }
+            paths.extend(directory(source, root));
             paths.insert(source);
         }
         let mut presence = self
@@ -545,14 +565,8 @@ impl Watch<'_> {
                 presence.push((rule.clone(), false));
             }
         }
-        Some(
-            Proof::capture(
-                paths.into_iter().map(Path::to_path_buf),
-                link,
-                settled_before,
-            )?
-            .with_presence(presence),
-        )
+        let paths = paths.into_iter().map(Path::to_path_buf).collect::<Vec<_>>();
+        Some(Proof::capture_with_taken(paths, taken, link, settled_before)?.with_presence(presence))
     }
 }
 

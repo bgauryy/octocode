@@ -300,7 +300,7 @@ pub(super) enum ConfigCommand {
         #[arg(long, conflicts_with = "value")]
         stdin: bool,
     },
-    /// Remove every assignment of a key from the global .env.
+    /// Remove every assignment of a key from the global .env, or a dotted key no setting declares from each .octocoderc that holds it.
     Unset {
         /// Environment key or setting path to remove, e.g. `OCTOCODE_BETA`.
         key: String,

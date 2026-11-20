@@ -186,11 +186,7 @@ pub(super) fn python_component(
             component.deps.extend(python_requirement(key));
         }
     }
-    for requirements in [
-        "requirements.txt",
-        "requirements-dev.txt",
-        "dev-requirements.txt",
-    ] {
+    for requirements in REQUIREMENTS_FILES {
         if let Some(text) = read(&base.join(requirements)) {
             found = true;
             let dev = requirements.contains("dev");

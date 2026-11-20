@@ -286,3 +286,128 @@ pub(super) fn resolve_rust(
         }
     }
 }
+
+/// Whether a Rust glob import (`specifier` ends in `::*`) imports an
+/// ancestor module, whose private `use` bindings it sees: `super::*`,
+/// `super::super::*`, `crate::*`.
+pub(super) fn ancestor_glob(specifier: &str) -> bool {
+    specifier.strip_suffix("::*").is_some_and(|module| {
+        module == "crate" || module.split("::").all(|segment| segment == "super")
+    })
+}
+
+/// The name a Rust `use` binds in its module.
+fn bound_name(import: &Import) -> &str {
+    import
+        .local_name
+        .as_deref()
+        .unwrap_or(&import.imported_name)
+}
+
+/// `use super::*` binds every name the parent module binds, its private
+/// `use`s included. A module path whose first segment its file binds no
+/// other way (`query::view()` beside the parent's `use crate::query;`)
+/// binds through the parent's `use`: that binding becomes an import of the
+/// file at the glob's line, so calls resolve through it, and a path through
+/// it depends on its module as a `use` does. Repeats until no file gains a
+/// binding, so a parent's own inherited bindings reach its children.
+pub(super) fn inherit_parent_globs(b: &mut BuiltGraph, inputs: &LinkInputs) {
+    loop {
+        let mut gained = Vec::<(String, Vec<Import>, Vec<(String, u32)>)>::new();
+        for (file, facts) in &b.facts {
+            if facts.rust_unbound_paths.is_empty() {
+                continue;
+            }
+            let mut imports = Vec::<Import>::new();
+            let mut edges = Vec::new();
+            let globs = facts.imports.iter().filter(|import| {
+                !import.inline && import.imported_name == "*" && ancestor_glob(&import.specifier)
+            });
+            for glob in globs {
+                let Some((parent, parent_facts)) = glob
+                    .target
+                    .as_deref()
+                    .filter(|parent| *parent != file)
+                    .and_then(|parent| Some((parent, b.facts.get(parent)?)))
+                else {
+                    continue;
+                };
+                for (path, line) in &facts.rust_unbound_paths {
+                    let head = path.split("::").next().unwrap_or_default();
+                    let held = |import: &Import| bound_name(import) == head;
+                    if facts.imports.iter().any(held) {
+                        continue;
+                    }
+                    let Some(bound) = parent_facts.imports.iter().find(|import| {
+                        !import.inline && import.imported_name != "*" && held(import)
+                    }) else {
+                        continue;
+                    };
+                    let rest = path.strip_prefix(head).unwrap_or_default();
+                    let target = match &bound.target {
+                        Some(target) if rest.is_empty() => Some(target.clone()),
+                        Some(_) => inputs.rust_modules.resolve(
+                            &format!("{}{rest}", bound.specifier),
+                            parent,
+                            inputs.known,
+                            inputs.cargo_crates,
+                        ),
+                        None => None,
+                    };
+                    if let Some(target) = target.filter(|target| target != file) {
+                        edges.push((target, *line));
+                    }
+                    if !imports.iter().any(held) {
+                        imports.push(Import {
+                            id: format!("{}:{head}", glob.id),
+                            line: glob.line,
+                            scope_id: None,
+                            ..bound.clone()
+                        });
+                    }
+                }
+            }
+            if !imports.is_empty() {
+                gained.push((file.clone(), imports, edges));
+            }
+        }
+        if gained.is_empty() {
+            return;
+        }
+        for (file, imports, edges) in gained {
+            let Some(mut node) = b.nodes.remove(&file) else {
+                continue;
+            };
+            for (target, line) in edges {
+                let test = b
+                    .facts
+                    .get(&file)
+                    .is_some_and(|facts| facts.test_scoped(line));
+                add_edge(
+                    b,
+                    &mut node,
+                    &target,
+                    super::super::edges::RUST_PATH,
+                    line,
+                    &|_| test,
+                );
+                if node
+                    .edges
+                    .get(&target)
+                    .is_some_and(|kinds| kinds.contains_key(super::super::edges::RUST_PATH))
+                    && let Some(facts) = b.facts.get_mut(&file)
+                {
+                    facts.file_edges.push((
+                        target,
+                        super::super::edges::RUST_PATH.to_owned(),
+                        line,
+                    ));
+                }
+            }
+            b.nodes.insert(file.clone(), node);
+            if let Some(facts) = b.facts.get_mut(&file) {
+                facts.imports.extend(imports);
+            }
+        }
+    }
+}

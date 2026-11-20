@@ -27,9 +27,11 @@
 //! is at most one read; at least two parts, at most the labels one choice may
 //! list.
 //!
-//! A part ends at the last block edge within its share ([`block_ends`]), so
-//! a paragraph, a table, a fenced block or an indented body stays in one
-//! part with the text around it, and a fact is judged with its context. A
+//! A part ends at a block edge within its share ([`block_ends`]), before the
+//! highest heading that leaves it at least half its share, else at the last
+//! edge, so a section, a paragraph, a table, a fenced block or an indented
+//! body stays in one part with the text around it, and a fact is judged with
+//! its context: a method's errors sit in the part that names the method. A
 //! block larger than a share is cut at a line, and the next part opens
 //! saying it carries that block on (`<lines 168-313 continues>`).
 //!
@@ -41,14 +43,15 @@
 //!
 //! An answer names lines as a sectioned one does
 //! ([`super::combined`]) except that a `noul` below 0.5 keeps the part its
-//! companion chose: that part is the judge's own pick, though only a yes
-//! narrows `next.read`. An `unknown` `choice` names none, and neither does an
-//! answer whose companion chose no part.
+//! companion chose: that part is the judge's own pick. `next.read` reads the
+//! parts that decide; with no yes, the parts the answers chose, so a
+//! negative is checked where it came nearest. An `unknown` `choice` names
+//! none, and neither does an answer whose companion chose no part.
 //!
 //! [`EvaluationInput::companions`]: octocode_tools_shared::judgment::EvaluationInput::companions
 //! [`RuntimeLimits::auto_page_chars`]: octocode_runtime_base::execution::RuntimeLimits::auto_page_chars
 use super::Target;
-use super::combined::{abstains, deciding_lines};
+use super::combined::{abstains, read_lines};
 use octocode_tools_shared::source_capture::{self, Captured};
 use serde_json::{Map, Value, json};
 
@@ -196,49 +199,77 @@ struct Parts {
     continues: Vec<bool>,
 }
 
-/// Whether a part may end after each of `lines`: where the next line opens
-/// a top-level block. In a text with blank lines a block runs from one blank
-/// line to the next, so a part may end on a blank line whose next line is
-/// neither blank nor indented, outside a fenced block (```` ``` ```` or
-/// `~~~`): tables, paragraphs, fenced code, and declarations whose bodies
-/// are indented stay whole. A text without blank lines (a log, a listing) is
-/// made of its lines; one indented under another (a stack trace, a wrapped
-/// record) stays with it. A lead-in stays with what it introduces: no part
-/// ends on a block whose last line is a heading or ends with `:`
-/// ([`leads_in`]). The last line always ends a part.
-fn block_ends(lines: &[&str]) -> Vec<bool> {
+/// Where a part may end after each of `lines` (`None`: inside a block), and
+/// how strongly: before a heading of level `n` (`#` to `######` and a space,
+/// [`heading`]) the edge ranks `7 - n`, so a higher heading is a stronger
+/// edge; any other edge ranks 0. A heading opens a block wherever it stands,
+/// so a section stays whole with its own heading and subheadings (a rendered
+/// page or Markdown file with no blank lines between its paragraphs included).
+/// Otherwise, in a text with blank lines outside fenced blocks
+/// (```` ``` ```` or `~~~`) a block runs from one such blank line to the
+/// next, so a part may end on a blank line whose next line is neither blank
+/// nor indented, outside a fenced block: tables, paragraphs, fenced code,
+/// and declarations whose bodies are indented stay whole. A text without
+/// such blank lines (a log, a listing, a page whose only blank lines sit in
+/// its code blocks) is made of its lines; one indented under another (a
+/// stack trace, a wrapped record) stays with it. A lead-in stays with what
+/// it introduces: no part ends on a block whose last line is a heading or
+/// ends with `:` ([`leads_in`]). The last line always ends a part.
+fn block_ends(lines: &[&str]) -> Vec<Option<u8>> {
     let blank = |line: &str| line.trim().is_empty();
     let indented = |line: &str| line.starts_with([' ', '\t']);
-    let separated = lines.iter().any(|line| blank(line));
+    // Whether a fenced block is open after each line: one it opens or
+    // stays in, not one it closes.
     let mut fence: Option<&str> = None;
+    let fenced: Vec<bool> = lines
+        .iter()
+        .map(|line| {
+            let opened = line.trim_start();
+            match fence {
+                Some(open) if opened.starts_with(open) => fence = None,
+                Some(_) => {}
+                None => {
+                    fence = ["```", "~~~"]
+                        .into_iter()
+                        .find(|open| opened.starts_with(open));
+                }
+            }
+            fence.is_some()
+        })
+        .collect();
+    let separated = lines
+        .iter()
+        .zip(&fenced)
+        .any(|(line, &inside)| !inside && blank(line));
     let mut last_text = "";
     let mut ends = Vec::with_capacity(lines.len());
     for (index, line) in lines.iter().enumerate() {
         if !blank(line) {
             last_text = line;
         }
-        let opened = line.trim_start();
-        match fence {
-            Some(open) if opened.starts_with(open) => fence = None,
-            Some(_) => {}
-            None => {
-                fence = ["```", "~~~"]
-                    .into_iter()
-                    .find(|open| opened.starts_with(open));
-            }
-        }
         ends.push(match lines.get(index + 1) {
-            None => true,
+            None => Some(0),
             Some(next) => {
-                fence.is_none()
+                let opens = heading(next);
+                let edge = !fenced[index]
                     && !blank(next)
                     && !indented(next)
-                    && (!separated || blank(line))
-                    && !leads_in(last_text)
+                    && (!separated || blank(line) || opens.is_some())
+                    && !leads_in(last_text);
+                edge.then(|| opens.map_or(0, |level| 7 - level))
             }
         });
     }
     ends
+}
+
+/// The level of the heading `line` is (`#` to `######` and a space, as
+/// Markdown and comment banners write one), if it is one.
+fn heading(line: &str) -> Option<u8> {
+    let line = line.trim_end();
+    let text = line.trim_start_matches('#');
+    let hashes = line.len() - text.len();
+    ((1..=6).contains(&hashes) && text.starts_with(' ')).then(|| u8::try_from(hashes).unwrap_or(6))
 }
 
 /// Whether `line` introduces what follows it: a heading (`#` to `######`
@@ -246,9 +277,7 @@ fn block_ends(lines: &[&str]) -> Vec<bool> {
 /// ends with `:`.
 fn leads_in(line: &str) -> bool {
     let line = line.trim();
-    let heading = line.trim_start_matches('#');
-    let hashes = line.len() - heading.len();
-    line.ends_with(':') || ((1..=6).contains(&hashes) && heading.starts_with(' '))
+    line.ends_with(':') || heading(line).is_some()
 }
 
 /// What one part adds to the request that judges the text: its two marker
@@ -278,10 +307,14 @@ fn part_count(total: usize, lines: usize, page_chars: usize, companions: usize) 
 }
 
 /// The parts of whole `lines`: each at most one share of the text as a read
-/// renders it (the text over [`part_count`]), ending at the last block edge
-/// ([`block_ends`]) within its share. A block larger than a share is cut at
-/// the line that fills it, and the next part carries it on. A part holds at
-/// least one line; past the label limit the last part holds the rest.
+/// renders it (the text over [`part_count`]), ending at the strongest block
+/// edge ([`block_ends`]) that leaves the part at least half its share, the
+/// last of equal ones; with none that far, the strongest edge within the
+/// share. A section then ends a part before its heading rather than in its
+/// middle, and a text of equal edges ends each part at its last one. A block
+/// larger than a share is cut at the line that fills it, and the next part
+/// carries it on. A part holds at least one line; past the label limit the
+/// last part holds the rest.
 fn spans(lines: &[&str], page_chars: usize, companions: usize) -> Parts {
     let gutter = octocode_tools_shared::source_view::pagination::gutter_chars(lines.len());
     let widths: Vec<usize> = lines.iter().map(|line| rendered(line, gutter)).collect();
@@ -300,17 +333,21 @@ fn spans(lines: &[&str], page_chars: usize, companions: usize) -> Parts {
             parts.continues.push(carried);
             break;
         }
-        let (mut filled, mut fits, mut edge) = (0, start, None);
+        // The best edge reached: (whether the part is then at least half
+        // its share, its rank, the line), compared in that order.
+        let (mut filled, mut fits, mut edge) = (0, start, None::<(bool, u8, usize)>);
         for (index, width) in widths.iter().enumerate().skip(start) {
             filled += width;
             if filled > share && index > start {
                 break;
             }
             fits = index;
-            if ends[index] {
-                edge = Some(index);
+            if let Some(rank) = ends[index] {
+                let found = (filled.saturating_mul(2) >= share, rank, index);
+                edge = Some(edge.map_or(found, |best| best.max(found)));
             }
         }
+        let edge = edge.map(|(_, _, index)| index);
         let end = edge.unwrap_or(fits);
         parts.spans.push((start + 1, end + 1));
         parts.continues.push(carried);
@@ -424,10 +461,11 @@ impl Located {
     }
 }
 
-/// `captured`'s read narrowed to the deciding lines of `answers`, pinned as
-/// the capture was ([`source_capture::narrowed_read`]): `readChars` counts
-/// what that read returns. `state` is the captured `{source, text}`. A row
-/// whose answers name no lines keeps the read of the whole source.
+/// `captured`'s read narrowed to the lines of `answers` a read cites
+/// ([`read_lines`]: the deciding ones, else the nearest miss), pinned as the
+/// capture was ([`source_capture::narrowed_read`]): `readChars` counts what
+/// that read returns. `state` is the captured `{source, text}`. A row whose
+/// answers name no lines keeps the read of the whole source.
 pub(super) fn narrow_read(
     captured: &mut Captured,
     source: &Value,
@@ -436,7 +474,7 @@ pub(super) fn narrow_read(
     can_resume: bool,
     auto_page_chars: usize,
 ) {
-    let lines = deciding_lines(answers);
+    let lines = read_lines(answers);
     let Some(read) = source_capture::narrowed_read(&captured.read, &lines) else {
         return;
     };
@@ -464,8 +502,8 @@ pub(super) fn narrow_read(
 }
 
 /// Whether `answer` has a part to show: a `noul` of any value (the part is
-/// the judge's own pick, a low answer's included, though only a yes narrows
-/// the read), a `choice` other than `unknown`, a `score`.
+/// the judge's own pick, a low answer's included: the read cites it when no
+/// answer is a yes), a `choice` other than `unknown`, a `score`.
 fn names_lines(answer: &Value) -> bool {
     match answer["type"].as_str() {
         Some("noul") => true,

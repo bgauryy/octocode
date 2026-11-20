@@ -20,7 +20,7 @@ pub(super) fn report(
     global: &[(String, String)],
     symbol_mode: bool,
     depth_limited: bool,
-) -> Impact {
+) -> (Value, Vec<Value>) {
     let key = |id: u32| t.str(t.nodes[id as usize].key);
     // Proven reach (a call, use or heritage edge bound to the change)
     // before module-level candidates, as it outranks one in the walk; each
@@ -95,8 +95,14 @@ pub(super) fn report(
             tests.push(file);
         }
     }
-    let seed_keys = seeds.iter().map(|id| key(*id)).collect::<Vec<_>>();
-    let summary = json!({
+    // A changed file is its own depth-0 row; only the changed symbols and
+    // packages, which no row names, are listed here.
+    let seed_keys = seeds
+        .iter()
+        .filter(|id| t.nodes[**id as usize].kind != NodeKind::File)
+        .map(|id| key(*id))
+        .collect::<Vec<_>>();
+    let mut summary = json!({
         "changed": seed_keys,
         "configChanges": global.iter().map(|(dir, file)| json!({"path": file, "scope": if dir.is_empty() { "." } else { dir.as_str() }})).collect::<Vec<_>>(),
         "precision": if symbol_mode && global.is_empty() { "symbol" } else { "file" },
@@ -108,7 +114,12 @@ pub(super) fn report(
         "components": components,
         "depthLimited": depth_limited,
     });
-    Impact { summary, rows }
+    if seed_keys.is_empty()
+        && let Some(fields) = summary.as_object_mut()
+    {
+        fields.remove("changed");
+    }
+    (summary, rows)
 }
 
 /// One affected file: its distance, risk bucket, and the edge that reached it.

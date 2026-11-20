@@ -64,6 +64,7 @@ pub(crate) fn assemble_file(
 ) -> TextSearchFile {
     if !entry.prepared.is_empty() {
         return TextSearchFile {
+            sort_time: None,
             path,
             match_count: saturating_u32(entry.prepared.len()),
             counted: Default::default(),
@@ -92,6 +93,7 @@ pub(crate) fn assemble_file(
             })
             .collect::<Vec<_>>();
         return TextSearchFile {
+            sort_time: None,
             path,
             match_count: saturating_u32(matches.len()),
             counted: Default::default(),
@@ -171,6 +173,7 @@ pub(crate) fn assemble_file(
 
     let match_count = saturating_u32(matches.len());
     TextSearchFile {
+        sort_time: None,
         path,
         match_count,
         counted: Default::default(),

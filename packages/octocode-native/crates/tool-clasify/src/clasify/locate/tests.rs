@@ -164,6 +164,72 @@ fn parts_end_at_block_edges_and_never_inside_a_block() {
     }
 }
 
+/// A rendered reference page (Markdown from HTML): headings and paragraphs
+/// with no blank line between them, blank lines only inside its fenced
+/// examples. Each of `methods` method sections opens with its `####`
+/// signature and holds `#####` subsections (its errors, its examples); every
+/// `per_impl` methods an `###` impl heading opens a group. Returns the text
+/// and each method section's first and last line.
+fn reference_page(methods: usize, per_impl: usize) -> (String, Vec<(usize, usize)>) {
+    let mut rows: Vec<String> = vec!["# Struct Lock".into(), "A lock of a value.".into()];
+    let mut sections = Vec::new();
+    for index in 0..methods {
+        if index % per_impl == 0 {
+            rows.push(format!("### impl Lock<T{index}>"));
+        }
+        rows.push("1.0.0 · Source".into());
+        let first = rows.len() + 1;
+        rows.push(format!("#### pub fn method{index}(&self) -> Result<T, E>"));
+        rows.push(format!(
+            "Does what method{index} does, and returns its value."
+        ));
+        rows.push("##### §Errors".into());
+        rows.push(format!(
+            "method{index} returns an error when the lock is poisoned."
+        ));
+        rows.push("##### §Examples".into());
+        rows.push("```".into());
+        rows.push(format!("let value = lock.method{index}();"));
+        rows.push(String::new());
+        rows.push("assert!(value.is_ok());".into());
+        rows.push("```".into());
+        sections.push((first, rows.len()));
+    }
+    (
+        rows.iter().map(|row| format!("{row}\n")).collect(),
+        sections,
+    )
+}
+
+/// A page whose only blank lines sit in its code blocks is not a text of
+/// blank-line blocks: it is cut at its headings, before the highest one
+/// that leaves a part half its share, so a section that fits a part is never
+/// split from its heading (a method's errors stay in the part that names the
+/// method), and no part opens as a continuation.
+#[test]
+fn a_page_is_cut_before_its_headings_and_keeps_each_section_whole() {
+    let (text, sections) = reference_page(40, 6);
+    let lines = text.lines().count();
+    for page in [900, 1_500, 3_000] {
+        let (size, share) = sizes(&text, page, PAGED);
+        assert!(
+            sections.iter().all(|&(a, b)| 2 * size(a, b) < share),
+            "the fixture's sections must fit half a part at {page}"
+        );
+        let (marked, Parts { spans: parts, .. }) = mark(&text, page, None, PAGED).expect("parts");
+        assert_covers(&parts, lines);
+        assert!(parts.len() > 2, "{page}: {parts:?}");
+        for &(_, end) in &parts[..parts.len() - 1] {
+            let inside = sections.iter().find(|&&(a, b)| a <= end && end < b);
+            assert!(
+                inside.is_none(),
+                "{page}: part ends at {end} inside the section {inside:?}"
+            );
+        }
+        assert!(continued(&marked).is_empty(), "{page}: {marked}");
+    }
+}
+
 /// A lead-in stays with what it introduces: no part ends on a heading or
 /// on a line ending with `:`, unless it is the last part or the next part
 /// carries on a cut block.
@@ -747,4 +813,46 @@ fn a_url_capture_reads_only_its_deciding_lines() {
         (&saved["path"], &saved["snapshot"])
     );
     assert_eq!(captured.read_chars, "line 3\nline 4\n".chars().count());
+}
+
+/// With no yes, the read cites the lines the answers named, the nearest
+/// miss, so a negative is checked where it came closest; a yes alone
+/// decides the read when there is one; no named lines keep the whole read.
+#[test]
+fn with_no_yes_the_read_cites_the_nearest_miss() {
+    let text = log(40);
+    let whole = source_capture::read_lead(
+        octocode_runtime_base::id::ToolId::LocalFetch,
+        &json!({"path":"out.log","ranges":[{"startLine":1,"endLine":40}]}),
+        Some(&"a1".repeat(32)),
+    );
+    let captured = || Captured {
+        state: Value::Null,
+        read: whole.clone(),
+        read_chars: text.chars().count(),
+        read_pages: false,
+        source: None,
+        pin: None,
+    };
+    let source = json!({"tool":"localFetch","query":{"path":"out.log"}});
+    let state = json!({"source":{"path":"out.log"},"text":text});
+    let no = |start: u64, end: u64| json!({"type":"noul","noul":0.2,"lines":{"startLine":start,"endLine":end}});
+    let ranges = |answers: &[Value]| {
+        let mut read = captured();
+        narrow_read(&mut read, &source, &state, answers, true, PAGE);
+        read.read["input"]["queries"][0]["ranges"].clone()
+    };
+    assert_eq!(
+        ranges(&[no(12, 14), no(30, 31)]),
+        json!([{"startLine":12,"endLine":14},{"startLine":30,"endLine":31}])
+    );
+    let yes = json!({"type":"noul","noul":0.9,"lines":{"startLine":3,"endLine":4}});
+    assert_eq!(
+        ranges(&[no(12, 14), yes]),
+        json!([{"startLine":3,"endLine":4}])
+    );
+    assert_eq!(
+        ranges(&[json!({"type":"noul","noul":0.2})]),
+        whole["input"]["queries"][0]["ranges"]
+    );
 }

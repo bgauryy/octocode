@@ -60,6 +60,9 @@ pub(in crate::gh_get_history_item) struct ShapedPr {
     /// What a `matchString` dropped of the discussion sections, one
     /// disclosure each.
     pub(in crate::gh_get_history_item) body_drops: Vec<String>,
+    /// What the sections leave out by design (reviews folded into their
+    /// inline comments), one disclosure each.
+    pub(in crate::gh_get_history_item) notes: Vec<String>,
 }
 
 pub(super) async fn shape_pr(
@@ -112,8 +115,9 @@ pub(super) async fn shape_pr(
     let comment_reads =
         shape_comment_sections(&mut row, &mut pagination, inline, discussion, query);
     let mut review_bodies = BodyWindows::default();
+    let mut notes = Vec::new();
     if let Some(loaded) = reviews {
-        shape_pr_reviews(
+        let folded = shape_pr_reviews(
             &mut row,
             &mut pagination,
             loaded.items,
@@ -121,6 +125,7 @@ pub(super) async fn shape_pr(
             query,
             &mut review_bodies,
         );
+        notes.extend(super::super::pr_sections::folded_reviews_note(folded));
     }
     review_bodies.attach(Axis::ReviewBody, &mut pagination);
     let mut commit_file_pages = Vec::new();
@@ -168,6 +173,7 @@ pub(super) async fn shape_pr(
         comment_reads,
         commit_file_pages,
         body_drops,
+        notes,
     })
 }
 

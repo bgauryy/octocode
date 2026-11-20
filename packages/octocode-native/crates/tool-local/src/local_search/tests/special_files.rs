@@ -31,6 +31,7 @@ fn a_fifo_in_place_of_a_source_is_refused_without_blocking() {
     let verified = within_deadline(move || {
         let value = "…token = ghp_abcdefghijklmnopqrstuvwxyz0123456789";
         let mut file = octocode_engine::types::TextSearchFile {
+            sort_time: None,
             term_counts: Vec::new(),
             path: "swapped.txt".into(),
             match_count: 1,

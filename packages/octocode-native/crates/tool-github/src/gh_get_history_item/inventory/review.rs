@@ -5,8 +5,9 @@ use crate::gh_get_history_item::util::{str_at, usize_at};
 use octocode_engine::text::test_paths::is_test_path;
 use serde_json::Value;
 
-/// Review priority of a changed path: source first, then tests, then other
-/// files; docs, changesets, lockfiles, and generated output last.
+/// Review priority of a changed path: source first, then tests and example
+/// programs (they show the change checked or in use), then other files;
+/// docs, changesets, lockfiles, and generated output last.
 fn review_tier(path: &str) -> u8 {
     use octocode_runtime_base::content::{FileType, classify_file_type};
     let lower = path.to_ascii_lowercase();
@@ -19,10 +20,20 @@ fn review_tier(path: &str) -> u8 {
     match classify_file_type(path) {
         _ if generated => 3,
         Some(FileType::Doc | FileType::Lock) => 3,
-        Some(FileType::Code) if is_test_path(path) => 1,
+        Some(FileType::Code) if is_test_path(path) || is_example_path(path) => 1,
         Some(FileType::Code) => 0,
         _ => 2,
     }
+}
+
+/// Whether a directory of `path` is an example tree (`examples/`,
+/// `example/`, Go's `_examples/`), by the convention the ecosystems share.
+fn is_example_path(path: &str) -> bool {
+    let mut dirs = path.split('/').rev().skip(1);
+    dirs.any(|dir| {
+        let dir = dir.trim_start_matches('_');
+        dir.eq_ignore_ascii_case("examples") || dir.eq_ignore_ascii_case("example")
+    })
 }
 
 /// Estimated rendered patch chars per changed line (diff marker, text,

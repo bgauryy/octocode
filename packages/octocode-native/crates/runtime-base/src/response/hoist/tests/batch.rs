@@ -305,6 +305,73 @@ fn single_query_related_calls_of_one_tool_merge_into_one_envelope_call() {
     assert_eq!(super::hoisted(&plan, &lone, &super::optional), lone);
 }
 
+/// A failed or empty row keeps its own `related` calls (its recovery, which
+/// its hints name) beside it when its recovery differs from the other such
+/// rows'; rows with evidence still merge theirs as before, and failed rows
+/// offering the same recovery state it once.
+#[test]
+fn a_failed_or_empty_row_keeps_its_own_related_calls() {
+    let plan = batch_plan(&[], false, true);
+    let listing = |path: &str| json!({"kind": "related", "tool": "ghStructure", "input": {"queries": [{"operation": "tree", "owner": "o", "repo": "r", "path": path}]}});
+    let original = json!({"results": [
+        row(0, None, json!({"files": [{"path": "a"}], "related": [listing("a")]})),
+        row(1, Some("error"), json!({"error": "e", "errorCode": "pathNotFound", "related": [listing("src")]})),
+        row(2, Some("empty"), json!({"files": [], "related": [listing("lib")]})),
+        row(3, None, json!({"files": [{"path": "b"}], "related": [listing("b")]})),
+        row(4, Some("error"), json!({"error": "e", "errorCode": "pathNotFound", "related": [listing("docs")]})),
+    ]});
+    let stated = super::hoisted(&plan, &original, &super::optional);
+    for (at, path) in [(1, "src"), (2, "lib"), (4, "docs")] {
+        assert_eq!(
+            stated["results"][at]["data"]["related"],
+            json!([listing(path)]),
+            "row {at}: {stated}"
+        );
+    }
+    let merged = stated["related"].as_array().expect("envelope related");
+    assert_eq!(merged.len(), 1, "{stated}");
+    assert_eq!(
+        merged[0]["input"]["queries"],
+        json!([
+            listing("a")["input"]["queries"][0],
+            listing("b")["input"]["queries"][0]
+        ]),
+        "{stated}"
+    );
+    for at in [0, 3] {
+        assert!(
+            stated["results"][at]["data"].get("related").is_none(),
+            "row {at}: {stated}"
+        );
+    }
+    super::assert_recovers(&plan, &original, &stated);
+    // Rows with evidence alone hoist as they did: the batch above less its
+    // empty and failed rows merges the same calls the same way.
+    let evidence = json!({"results": [
+        row(0, None, json!({"files": [{"path": "a"}], "related": [listing("a")]})),
+        row(1, None, json!({"files": [{"path": "b"}], "related": [listing("b")]})),
+    ]});
+    let alone = super::hoisted(&plan, &evidence, &super::optional);
+    assert_eq!(alone["related"], stated["related"], "{alone}");
+    // Failed rows that all offer the same recovery: stated once, for all.
+    let failed = |index: usize| {
+        row(
+            index,
+            Some("error"),
+            json!({"error": "e", "errorCode": "notFound", "related": [listing("src")]}),
+        )
+    };
+    let same = json!({"results": [failed(0), failed(1)]});
+    let once = super::hoisted(&plan, &same, &super::optional);
+    assert_eq!(once["related"], json!([listing("src")]), "{once}");
+    for at in [0, 1] {
+        assert!(
+            once["results"][at]["data"].get("related").is_none(),
+            "row {at}: {once}"
+        );
+    }
+}
+
 /// VC2's merge case on the embedded contract (K-3): each artifactSearch row
 /// offers one single-query securityCheck call for its resolved package; the
 /// batch states one envelope call holding the three queries in row order,

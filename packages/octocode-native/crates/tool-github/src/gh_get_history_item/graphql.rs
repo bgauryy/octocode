@@ -114,7 +114,7 @@ fn first_page_read(query: &HistoryItemRequest) -> Option<(String, Value)> {
 }
 
 /// The GraphQL document and variables of `query`'s whole comment count
-/// (a summary read's `commentsCount`). `None` without a pull-request number.
+/// (a summary read's `totalCommentsCount`). `None` without a pull-request number.
 pub(super) fn whole_count_read(query: &HistoryItemRequest) -> Option<(String, Value)> {
     let number = gh_get_history_item_query::number(query)?;
     Some((

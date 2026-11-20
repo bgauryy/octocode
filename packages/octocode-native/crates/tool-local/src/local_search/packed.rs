@@ -13,9 +13,11 @@
 //!   and list pages keep this shape: a classification filters rows before
 //!   its cut, and a list page shows no rows.
 //! - **Seekable** ([`FrameWriter`]): one frame per page entry of the
-//!   page's streamed cut, in page order, each its own deflate stream, with an index of
-//!   where each frame sits and which entries make each page ([`PageIndex`]).
-//!   A continuation inflates and decodes only its own page's frames.
+//!   page's streamed cut, in page order, with an index of where each frame
+//!   sits and which entries make each page ([`PageIndex`]). Consecutive
+//!   frames share a deflate stream of about [`STREAM_RAW_BYTES`] raw bytes
+//!   (a large frame takes one alone). A continuation inflates only the
+//!   streams of its own page's frames and decodes only those frames.
 //!
 //! ## Page-entry frame
 //!
@@ -98,6 +100,10 @@ pub(super) struct Encoded {
     /// A seekable scan's frames and pages; `None` for a whole one.
     seek: Option<(Vec<FrameEnd>, PageIndex)>,
 }
+
+/// Raw bytes one deflate stream takes in before the next frame starts a
+/// new one; a page inflates whole streams.
+const STREAM_RAW_BYTES: usize = 64 * 1024;
 
 /// Writes a seekable scan's frames (`Encoded::frames`).
 pub(super) struct FrameWriter {
@@ -227,6 +233,10 @@ impl Encoded {
 
     /// Deflated for storage, or `None` when the deflated bytes pass
     /// `max_packed` (checked as they grow, so an oversized scan stops early).
+    /// Consecutive frames share a deflate stream until it has taken in
+    /// [`STREAM_RAW_BYTES`]: a stream's setup and block tables cost the same
+    /// for a one-row frame as for a large one, so a scan of one-row pages
+    /// starts as many streams as its bytes fill, not one per frame.
     pub(super) fn deflate_checked(
         self,
         max_packed: usize,
@@ -242,37 +252,18 @@ impl Encoded {
             }
             None => (vec![self.raw.len()], None),
         };
-        let mut bytes = Vec::new();
-        let mut frames = Vec::with_capacity(ends.len());
+        let mut out = Deflating::new(ends.len());
         let mut start = 0;
         for end in ends {
-            let raw = self.raw.get(start..end)?;
-            let at = bytes.len();
-            let mut encoder = flate2::write::DeflateEncoder::new(
-                std::mem::take(&mut bytes),
-                flate2::Compression::fast(),
-            );
-            for block in raw.chunks(64 * 1024) {
-                if cancelled() {
-                    return None;
-                }
-                encoder.write_all(block).ok()?;
-                // The deflated bytes so far only grow.
-                (encoder.get_ref().len() <= max_packed).then_some(())?;
-            }
-            bytes = encoder.finish().ok()?;
-            (bytes.len() <= max_packed).then_some(())?;
-            frames.push(Frame {
-                at,
-                len: bytes.len() - at,
-                raw: raw.len(),
-            });
+            out.frame(self.raw.get(start..end)?, max_packed, cancelled)?;
             start = end;
         }
+        let (bytes, streams, frames) = out.finish(max_packed)?;
         #[cfg(test)]
         DEFLATED.with(|deflated| deflated.set(deflated.get() + self.raw.len()));
         Some(Packed {
             bytes,
+            streams,
             frames,
             raw_len: self.raw.len(),
             files: self.files,
@@ -282,18 +273,124 @@ impl Encoded {
     }
 }
 
-/// Where one frame sits in [`Packed::bytes`], and its raw length.
+/// Frames being deflated into shared streams ([`Encoded::deflate_checked`]).
+struct Deflating {
+    /// The closed streams, one after another.
+    bytes: Vec<u8>,
+    streams: Vec<Stream>,
+    frames: Vec<Frame>,
+    /// The stream taking frames in, if any.
+    open: Option<OpenStream>,
+}
+
+/// A deflate stream still taking frames in.
+struct OpenStream {
+    encoder: flate2::write::DeflateEncoder<Vec<u8>>,
+    /// Where it starts in the deflated bytes.
+    at: usize,
+    /// Raw bytes it has taken in.
+    raw: usize,
+}
+
+impl Deflating {
+    fn new(frames: usize) -> Self {
+        Self {
+            bytes: Vec::new(),
+            streams: Vec::new(),
+            frames: Vec::with_capacity(frames),
+            open: None,
+        }
+    }
+
+    /// Deflate the next frame's `raw` bytes, into the open stream unless it
+    /// has taken in [`STREAM_RAW_BYTES`] already.
+    fn frame(&mut self, raw: &[u8], max_packed: usize, cancelled: &dyn Fn() -> bool) -> Option<()> {
+        if self
+            .open
+            .as_ref()
+            .is_some_and(|open| open.raw >= STREAM_RAW_BYTES)
+        {
+            self.close(max_packed)?;
+        }
+        let stream = u32::try_from(self.streams.len()).ok()?;
+        let open = match &mut self.open {
+            Some(open) => open,
+            empty @ None => {
+                #[cfg(test)]
+                STREAMS.with(|streams| streams.set(streams.get() + 1));
+                let at = self.bytes.len();
+                empty.insert(OpenStream {
+                    encoder: flate2::write::DeflateEncoder::new(
+                        std::mem::take(&mut self.bytes),
+                        flate2::Compression::fast(),
+                    ),
+                    at,
+                    raw: 0,
+                })
+            }
+        };
+        self.frames.push(Frame {
+            stream,
+            start: open.raw,
+            raw: raw.len(),
+        });
+        for block in raw.chunks(STREAM_RAW_BYTES) {
+            if cancelled() {
+                return None;
+            }
+            open.encoder.write_all(block).ok()?;
+            // The deflated bytes so far only grow.
+            (open.encoder.get_ref().len() <= max_packed).then_some(())?;
+        }
+        open.raw += raw.len();
+        Some(())
+    }
+
+    /// Finish the open stream, if any.
+    fn close(&mut self, max_packed: usize) -> Option<()> {
+        let Some(open) = self.open.take() else {
+            return Some(());
+        };
+        self.bytes = open.encoder.finish().ok()?;
+        (self.bytes.len() <= max_packed).then_some(())?;
+        self.streams.push(Stream {
+            at: open.at,
+            len: self.bytes.len() - open.at,
+            raw: open.raw,
+        });
+        Some(())
+    }
+
+    /// The deflated bytes, their streams and the frames they hold.
+    fn finish(mut self, max_packed: usize) -> Option<(Vec<u8>, Vec<Stream>, Vec<Frame>)> {
+        self.close(max_packed)?;
+        Some((self.bytes, self.streams, self.frames))
+    }
+}
+
+/// Where one deflate stream sits in [`Packed::bytes`], and its raw length.
 #[derive(Clone, Copy, Debug)]
-struct Frame {
+struct Stream {
     at: usize,
     len: usize,
     raw: usize,
 }
 
+/// Where one frame's raw bytes sit: its stream, and its span in that
+/// stream's raw bytes.
+#[derive(Clone, Copy, Debug)]
+struct Frame {
+    stream: u32,
+    start: usize,
+    raw: usize,
+}
+
 /// A scan deflated by [`Encoded::deflate_checked`].
 pub(super) struct Packed {
-    /// The deflated frames, one after another.
+    /// The deflated streams, one after another.
     bytes: Vec<u8>,
+    streams: Vec<Stream>,
+    /// Each frame's place in `streams`.
     frames: Vec<Frame>,
     /// Bytes every frame takes unpacked.
     raw_len: usize,
@@ -322,8 +419,8 @@ impl Packed {
         if self.seek.is_some() {
             return None;
         }
-        // A whole encoding is one frame.
-        let raw = self.inflate(*self.frames.first()?, cancelled)?;
+        // A whole encoding is one frame in one stream.
+        let raw = self.inflate(*self.streams.first()?, cancelled)?;
         (raw.len() == self.raw_len).then_some(())?;
         decode(&raw, self.files, &self.stats, cancelled)
     }
@@ -337,20 +434,48 @@ impl Packed {
         &self.stats
     }
 
-    /// Frame `at` of a seekable scan, inflated alone.
+    /// Frame `at` of a seekable scan, its stream inflated alone.
+    #[cfg(test)]
     pub(super) fn entry(&self, at: u32, cancelled: &dyn Fn() -> bool) -> Option<Entry> {
-        self.seek.as_ref()?;
-        let raw = self.inflate(*self.frames.get(at as usize)?, cancelled)?;
-        let mut reader = Reader::new(&raw);
-        let entry = reader.entry(cancelled)?;
-        reader.finished().then_some(entry)
+        self.entries(at..at + 1, cancelled)?.pop()
     }
 
-    fn inflate(&self, frame: Frame, cancelled: &dyn Fn() -> bool) -> Option<Vec<u8>> {
-        let deflated = self.bytes.get(frame.at..frame.at.checked_add(frame.len)?)?;
-        let mut raw = Vec::with_capacity(frame.raw);
-        let mut input = flate2::read::DeflateDecoder::new(deflated).take(frame.raw as u64);
-        let mut block = vec![0; 65536.min(frame.raw.max(1))];
+    /// Frames `range` of a seekable scan (one page's), each stream they sit
+    /// in inflated once.
+    pub(super) fn entries(
+        &self,
+        range: std::ops::Range<u32>,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Option<Vec<Entry>> {
+        self.seek.as_ref()?;
+        let mut inflated: Option<(u32, Vec<u8>)> = None;
+        let mut entries = Vec::with_capacity(range.len());
+        for at in range {
+            let frame = *self.frames.get(at as usize)?;
+            if inflated
+                .as_ref()
+                .is_none_or(|(stream, _)| *stream != frame.stream)
+            {
+                let stream = *self.streams.get(frame.stream as usize)?;
+                inflated = Some((frame.stream, self.inflate(stream, cancelled)?));
+            }
+            let (_, raw) = inflated.as_ref()?;
+            let raw = raw.get(frame.start..frame.start.checked_add(frame.raw)?)?;
+            let mut reader = Reader::new(raw);
+            let entry = reader.entry(cancelled)?;
+            reader.finished().then_some(())?;
+            entries.push(entry);
+        }
+        Some(entries)
+    }
+
+    fn inflate(&self, stream: Stream, cancelled: &dyn Fn() -> bool) -> Option<Vec<u8>> {
+        let deflated = self
+            .bytes
+            .get(stream.at..stream.at.checked_add(stream.len)?)?;
+        let mut raw = Vec::with_capacity(stream.raw);
+        let mut input = flate2::read::DeflateDecoder::new(deflated).take(stream.raw as u64);
+        let mut block = vec![0; 65536.min(stream.raw.max(1))];
         loop {
             if cancelled() {
                 return None;
@@ -361,15 +486,16 @@ impl Packed {
             }
             raw.extend_from_slice(&block[..n]);
         }
-        (raw.len() == frame.raw).then_some(())?;
+        (raw.len() == stream.raw).then_some(())?;
         #[cfg(test)]
         INFLATED.with(|inflated| inflated.set(inflated.get() + raw.len()));
         Some(raw)
     }
 
-    /// Bytes this keeps in memory: the deflated frames and their index.
+    /// Bytes this keeps in memory: the deflated streams and their index.
     pub(super) fn weight(&self) -> usize {
         self.bytes.len()
+            + self.streams.len() * std::mem::size_of::<Stream>()
             + self.frames.len() * std::mem::size_of::<Frame>()
             + self.seek.as_ref().map_or(0, |(files, index)| {
                 files.len() * std::mem::size_of::<u32>() + index.weight()
@@ -397,6 +523,8 @@ fn decode(
 
 #[cfg(test)]
 thread_local! {
+    /// Deflate streams this thread started, for tests that pin what one costs.
+    static STREAMS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// Raw bytes this thread deflated, for tests that pin when a scan is packed.
     static DEFLATED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// Raw bytes this thread inflated, for tests that pin what a page reads.
@@ -407,6 +535,12 @@ thread_local! {
 #[cfg(test)]
 pub(super) fn inflated_on_this_thread() -> usize {
     INFLATED.with(std::cell::Cell::get)
+}
+
+/// Deflate streams started on this thread so far.
+#[cfg(test)]
+pub(super) fn streams_on_this_thread() -> usize {
+    STREAMS.with(std::cell::Cell::get)
 }
 
 /// Raw bytes deflated on this thread so far.

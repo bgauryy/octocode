@@ -146,9 +146,6 @@ pub(crate) fn context_lines(q: &Q) -> Option<octocode_engine::types::SearchConte
         },
     ), else => None)
 }
-pub(crate) fn rust_context(q: &Q) -> Option<&octocode_contract_types::LspRustContext> {
-    each_shape!(q, rust_context => rust_context.as_ref())
-}
 /// `q` with `changes` applied (a `null` change drops that field): the
 /// request a continuation or lead runs. The edited fields are chosen at run
 /// time and differ by shape (`page`, `importerPage`, `candidatePage`,
@@ -158,9 +155,8 @@ pub(crate) fn edited(q: &Q, changes: &Value) -> Result<Q, serde_json::Error> {
 }
 
 /// A fresh `operation` lead over the document at `path`, in the workspace
-/// (`workspaceRoot`, `rustContext`) `workspace` ran in (none: the default
-/// one). `None` when `path` or the workspace root is not a representable
-/// value.
+/// (`workspaceRoot`) `workspace` ran in (none: the default one). `None`
+/// when `path` or the workspace root is not a representable value.
 pub(crate) fn document_lead(
     operation: LspDocumentOperation,
     path: &str,
@@ -173,7 +169,6 @@ pub(crate) fn document_lead(
         page: std::num::NonZeroU64::MIN,
         path: path.try_into().ok()?,
         reasoning: None,
-        rust_context: workspace.and_then(rust_context).cloned(),
         snapshot: None,
         workspace_root: workspace
             .and_then(workspace_root)
@@ -194,7 +189,6 @@ pub(crate) fn workspace_symbol_lead(term: &str, path: &str, workspace: Option<&Q
         page: std::num::NonZeroU64::MIN,
         path: path.try_into().ok()?,
         reasoning: None,
-        rust_context: workspace.and_then(rust_context).cloned(),
         snapshot: None,
         symbol_fuzzy: term.try_into().ok()?,
         workspace_root: workspace

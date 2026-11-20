@@ -1,0 +1,6 @@
+{"tool": "graphQuery", "steps": [
+ {"name": "build first", "tool": "graphBuild", "args": {"path": "packages/octocode-native/crates/tools-shared/src/leads"}},
+ {"name": "stats", "tool": "graphQuery", "args": {"operation": "stats", "path": "packages/octocode-native/crates/tools-shared/src/leads"}, "expect": {"maxChars": 6000}},
+ {"name": "hubs", "tool": "graphQuery", "args": {"operation": "hubs", "path": "packages/octocode-native/crates/tools-shared/src/leads"}, "expect": {"maxChars": 20000}},
+ {"name": "unknown operation", "tool": "graphQuery", "args": {"operation": "everything", "path": "packages/octocode-native/crates/tools-shared/src/leads"}, "expect": {"error": "invalidInput"}}
+]}

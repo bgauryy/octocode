@@ -159,9 +159,6 @@ pub struct LspExecutionConfig {
     pub index_on_disk: bool,
     /// See [`LspDiscoveryOptions::fetched_code_roots`].
     pub fetched_code_roots: Vec<std::path::PathBuf>,
-    /// `lsp.allowBuildScripts`: whether a `rustContext` may run the
-    /// workspace's build scripts and proc macros (repository code).
-    pub allow_build_scripts: bool,
     /// The scanner that redacts the sources a response windows: the runtime's
     /// one content policy.
     pub security: octocode_runtime_base::security::ContentSecurity,

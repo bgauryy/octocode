@@ -246,11 +246,26 @@ impl Scope {
             .is_some_and(|reach| matches!(*reach, reach::Reach::Local { .. }))
     }
 
-    /// Whether `file` (canonical) lies in the reach of the anchor's
-    /// declaration of `symbol`; every file does when no bound is known.
-    pub(in super::super) fn may_reach(&self, symbol: &str, file: &str) -> bool {
-        self.reach_of(symbol, &|| false)
-            .is_none_or(|reach| reach.reaches(file, &|| false))
+    /// Whether a file (canonical) lies in the reach of the declaration of
+    /// `symbol` whose name sits at `declaration` (canonical path, zero-based
+    /// line and character): the anchor's, or the one a use of the name
+    /// resolves to. Every file is in reach when no bound is known.
+    pub(in super::super) fn reach_from(
+        declaration: (&str, u32, u32),
+        symbol: &str,
+    ) -> impl Fn(&str) -> bool + use<> {
+        let (path, line, character) = declaration;
+        let site = reach::Site {
+            path: path.to_owned(),
+            line,
+            character,
+        };
+        let reach = reach::Reach::of(&site, symbol);
+        move |file| {
+            reach
+                .as_ref()
+                .is_none_or(|reach| reach.reaches(file, &|| false))
+        }
     }
 
     /// Whether scanned `file` (canonical) could reference the anchor's

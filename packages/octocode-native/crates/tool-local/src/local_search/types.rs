@@ -135,6 +135,11 @@ pub struct Enclosing {
 #[serde(rename_all = "camelCase")]
 pub struct SearchFile {
     pub path: String,
+    /// The time the query's sort ranked the file by, under the sort's key
+    /// (`modifiedAt`, `accessedAt` or `createdAt`); `None` under any other
+    /// order.
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub sorted_at: Option<SortedAt>,
     /// JSON and TOML files: each hit line's key path (`matchKeys`).
     #[serde(
         rename = "matchKeys",
@@ -167,6 +172,24 @@ pub struct SearchFile {
     /// read of it ends. Never serialized.
     #[serde(skip)]
     pub(crate) lines: Option<u32>,
+}
+
+/// A file's time under the key its sort ranked it by: one member, the key
+/// (`modifiedAt`, `accessedAt` or `createdAt`) and the time in RFC 3339
+/// UTC, to the second.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SortedAt {
+    pub key: &'static str,
+    pub time: String,
+}
+
+impl Serialize for SortedAt {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(1))?;
+        map.serialize_entry(self.key, &self.time)?;
+        map.end()
+    }
 }
 
 /// The response's totals. They serialize flat into the row (`matchCount`,

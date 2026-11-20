@@ -16,6 +16,9 @@ use std::sync::Arc;
 /// Serialized sizes a page is cut by. File entries include the workspace-relative prefix.
 pub(super) struct PageCosts {
     pub(super) prefix_chars: usize,
+    /// A file entry's time under a time order (`,"modifiedAt":"…Z"`,
+    /// [`local_search_query::sort_time_key`]); 0 under any other.
+    sorted_at_chars: usize,
     /// The root a shown file's path is named from: a scanned file's path
     /// still spells it until the page names the file from it.
     root: std::path::PathBuf,
@@ -179,6 +182,9 @@ impl PageCosts {
         };
         Self {
             prefix_chars,
+            // `,"<key>":"<time>"`, the time to the second.
+            sorted_at_chars: local_search_query::sort_time_key(query)
+                .map_or(0, |key| format!(r#","{key}":"YYYY-MM-DDTHH:MM:SSZ""#).len()),
             root: output_root.to_path_buf(),
             span_columns: shows_span_columns(query),
             shows_names: {
@@ -200,7 +206,10 @@ impl PageCosts {
             .map_or(std::borrow::Cow::Borrowed(file.path.as_str()), |relative| {
                 relative.to_string_lossy()
             });
-        octocode_engine::json_size::string_body_units(&shown) + self.prefix_chars + FILE_ENTRY_CHARS
+        octocode_engine::json_size::string_body_units(&shown)
+            + self.prefix_chars
+            + FILE_ENTRY_CHARS
+            + self.sorted_at_chars
     }
 
     /// The enclosing name a hit row of file `index` carries (priced independently): its owner in a file the cut outlined, a reserve in

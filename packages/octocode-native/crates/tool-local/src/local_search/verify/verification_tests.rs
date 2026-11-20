@@ -49,6 +49,7 @@ fn a_parallel_redaction_records_in_file_order() {
         }
         std::fs::write(&path, body).expect("fixture");
         files.push(octocode_engine::types::TextSearchFile {
+            sort_time: None,
             term_counts: Vec::new(),
             path: path.to_string_lossy().into_owned(),
             match_count: matches.len() as u32,
@@ -116,6 +117,7 @@ fn file_with(
     matches: Vec<octocode_engine::types::TextSearchMatch>,
 ) -> octocode_engine::types::TextSearchFile {
     octocode_engine::types::TextSearchFile {
+        sort_time: None,
         term_counts: Vec::new(),
         path: "source.txt".into(),
         match_count: matches.len() as u32,
@@ -788,6 +790,7 @@ fn a_withheld_row_that_shows_a_replaced_span_is_reported() {
     let mut matched = hit(2, "");
     matched.deferred = Some(1);
     let mut file = octocode_engine::types::TextSearchFile {
+        sort_time: None,
         term_counts: Vec::new(),
         path: path.to_string_lossy().into_owned(),
         match_count: 1,

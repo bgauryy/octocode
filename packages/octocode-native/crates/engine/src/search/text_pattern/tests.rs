@@ -11,6 +11,34 @@ fn a_regex_spells_itself_only_when_it_parses_to_its_own_text() {
 }
 
 #[test]
+fn a_regex_widens_only_past_one_fixed_text_or_with_an_escape() {
+    for pattern in [
+        "a|b",
+        "x[0-9]",
+        "^fn",
+        "a+",
+        "char*",
+        "fn .*alpha",
+        r"a\.b",
+        r"alph\S",
+        "(?i)ab",
+    ] {
+        assert!(regex_widens(pattern), "{pattern}");
+    }
+    for pattern in [
+        "pub(crate) fn",
+        "arr[i]",
+        "(a)",
+        "plain words",
+        "defects-queue",
+        "call(",
+        "",
+    ] {
+        assert!(!regex_widens(pattern), "{pattern}");
+    }
+}
+
+#[test]
 fn line_breaks_are_named_only_where_the_line_search_rejects_them() {
     assert!(matches_line_break("\\n", false));
     assert!(matches_line_break("a\\nb", false));

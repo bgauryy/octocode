@@ -511,6 +511,7 @@ fn the_read_handoff_windows_hits_without_reading_the_file() {
         None,
     );
     let file = crate::local_search::types::SearchFile {
+        sorted_at: None,
         path: "a.txt".into(),
         match_keys: Vec::new(),
         declarations: Vec::new(),
@@ -686,6 +687,7 @@ fn the_read_handoff_reaches_every_shown_hit_at_any_count() {
             None,
         );
         let file = crate::local_search::types::SearchFile {
+            sorted_at: None,
             path: "a.txt".into(),
             match_keys: Vec::new(),
             declarations: Vec::new(),

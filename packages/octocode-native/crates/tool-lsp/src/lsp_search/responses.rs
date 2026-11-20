@@ -225,8 +225,7 @@ pub(super) fn annotate(
         &target.path,
         scope,
     );
-    let rust = receipt::RustAnalysis::of(&session.config)
-        .allowing_build_scripts(target.allow_build_scripts);
+    let rust = receipt::RustAnalysis::of(&session.config);
     failure::annotate_empty_includes(result, query, rust, stopped);
     server_coverage::annotate(
         result,

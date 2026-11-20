@@ -162,7 +162,8 @@ impl<'a> Found<'a> {
         let kept = match demand {
             StructuralDemand::Matches => Kept::Matches(Vec::new()),
             StructuralDemand::Count | StructuralDemand::Exists => Kept::Counted(0),
-            StructuralDemand::Priced(price) | StructuralDemand::Paged(price, _) => {
+            StructuralDemand::Priced(price)
+            | StructuralDemand::Paged(crate::structural::types::PagedWindow { price, .. }) => {
                 Kept::Priced(price, Vec::new())
             }
         };
@@ -410,6 +411,31 @@ impl CandidatePlan {
 /// Raw capture position: (start_row, start_byte_col, end_row, end_byte_col),
 /// tree-sitter native. Converted to 1-based line + char column at build time.
 pub(super) type RawRange = (u32, u32, u32, u32, u32, u32, usize);
+
+/// A capture's span with the index of the captured value it is.
+pub(super) type ListedRange = (usize, RawRange);
+
+/// Each bound name's spans ([`ListedRange`]).
+pub(super) type CapturedRanges = std::collections::HashMap<String, Vec<ListedRange>>;
+
+/// The spans a capture of the node sequence `nodes` lists, each with the
+/// index of the captured value it is: every node but a punctuation token (an
+/// anonymous node that spells no word, such as the `,` between arguments).
+/// The capture's values keep every node, so its text and a backreference
+/// still compare the whole sequence; only its spans leave the separators out.
+pub(super) fn listed_ranges(nodes: &[Node<'_>], text: &str) -> Vec<ListedRange> {
+    nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| {
+            node.is_named()
+                || node_text(**node, text)
+                    .chars()
+                    .any(|c| c.is_alphanumeric() || c == '_')
+        })
+        .map(|(index, node)| (index, raw_range(*node)))
+        .collect()
+}
 
 pub(super) fn raw_range(node: Node<'_>) -> RawRange {
     let start = node.start_position();

@@ -224,23 +224,41 @@ fn a_cancel_ends_a_write_waiting_on_a_held_store() {
     });
 }
 
-/// A write only later reuse reads gives up sooner, and is said too: nobody would
-/// otherwise learn why the next call reads afresh.
+/// A write only later reuse reads gives up sooner, and leaves its call's answer
+/// whole: the call's result says nothing of it, and the operator's log (the
+/// call's notice scope) says once why the next call reads afresh.
 #[test]
-fn a_reuse_write_refused_for_a_busy_store_is_said() {
+fn a_reuse_write_refused_for_a_busy_store_is_logged_not_in_the_result() {
     let dir = tempfile::tempdir().unwrap();
     let store = store(dir.path());
     let _scan = hold_the_store(dir.path());
     let call = octocode_io::notice::ResultNotes::default();
-    let _in_call = call.enter();
+    let log = octocode_io::notice::Scope::default();
+    let (in_call, logged) = (call.enter(), log.enter());
     assert!(
         !store
             .put_confirmed(key("reuse", "x"), 1, 8, volatile(600))
             .1
     );
-    let notices = store_notices(&call, dir.path());
-    assert_eq!(notices.len(), 1, "{notices:?}");
-    assert!(notices[0].contains("was not saved"));
+    drop((in_call, logged));
+    assert_eq!(store_notices(&call, dir.path()), Vec::<String>::new());
+    let folder = dir
+        .path()
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let said = log
+        .notices()
+        .into_iter()
+        .filter(|notice| notice.contains(&format!("store {folder} ")))
+        .collect::<Vec<_>>();
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].contains("was not saved"), "{said:?}");
+    assert!(
+        !said[0].contains(&dir.path().display().to_string()),
+        "{said:?}"
+    );
 }
 
 /// Two writers and a sweep that never stops. Each writer's turn on a key with no

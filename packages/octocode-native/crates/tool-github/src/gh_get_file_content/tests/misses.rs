@@ -17,8 +17,8 @@ async fn mount_no_history(server: &MockServer) {
 
 /// A matchString with no hit in an existing file is `matchNotFound` with
 /// an empty `content` (the contract requires it, as in localFetch) and
-/// its leads; it carries no prose beside them, no zero counters and no
-/// echo of the request.
+/// its leads, with one hint saying which to run first; it carries no zero
+/// counters and no echo of the request.
 #[tokio::test]
 async fn no_match_read_keeps_its_leads_without_empty_echo() {
     let server = MockServer::builder().start().await;
@@ -50,11 +50,17 @@ async fn no_match_read_keeps_its_leads_without_empty_echo() {
         "returnedChars",
         "searchedFor",
         "pagination",
-        "hints",
         "warnings",
     ] {
         assert!(data.get(junk).is_none(), "{junk}: {data}");
     }
+    // One hint ranks the leads in the order they are offered.
+    let hints = data["hints"].as_array().expect("the leads' order");
+    assert_eq!(hints.len(), 1, "{data}");
+    let hint = hints[0].as_str().expect("hint");
+    let order = ["repository's code", "commits", "pull requests"]
+        .map(|step| hint.find(step).unwrap_or_else(|| panic!("{step}: {hint}")));
+    assert!(order.is_sorted(), "{hint}");
     let lead =
         octocode_runtime_base::test_support::checks::related_call(data, "ghSearchCode", |_| true);
     assert_eq!(lead["tool"], "ghSearchCode", "{data}");
@@ -265,4 +271,57 @@ fn a_symbols_failure_gets_no_local_tool_hint() {
             "{code:?}"
         );
     }
+}
+
+/// A miss in a file with an outline leads first to that outline (the
+/// shared miss's read of its declarations, offered once), then to the
+/// repository's code and the path's history: the outline answers nothing
+/// by itself, so the repository's leads stay. The hint names that order.
+#[tokio::test]
+async fn a_miss_in_an_outlined_file_leads_to_its_outline_then_the_repository() {
+    let server = MockServer::builder().start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b/contents/a.rs",
+        200,
+        serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("fn one() {}\n")}),
+    )
+    .await;
+    mount_no_history(&server).await;
+    let provider = mock_provider(&server, RetryPolicy::default());
+    let read = run_default(
+        &provider,
+        serde_json::json!({"owner":"a","repo":"b","path":"a.rs","ref":sha,"matchString":["absent"]}),
+    )
+    .await
+    .expect("read");
+    let data = &read.data;
+    let leads = data["related"].as_array().expect("leads");
+    let at = |tool: &str, view: Option<&str>| {
+        leads
+            .iter()
+            .position(|lead| {
+                lead["tool"] == tool
+                    && view.is_none_or(|view| lead["input"]["queries"][0]["view"] == view)
+            })
+            .unwrap_or_else(|| panic!("{tool} {view:?}: {data}"))
+    };
+    let outlines = leads
+        .iter()
+        .filter(|lead| lead["input"]["queries"][0]["view"] == "symbols")
+        .count();
+    assert_eq!(outlines, 1, "one outline lead: {data}");
+    assert!(
+        at("ghGetFileContent", Some("symbols")) < at("ghSearchCode", None),
+        "{data}"
+    );
+    assert!(
+        at("ghSearchCode", None) < at("ghSearchHistory", None),
+        "{data}"
+    );
+    let hint = data["hints"][0].as_str().expect("the leads' order");
+    let order = ["declarations", "repository's code", "commits"]
+        .map(|step| hint.find(step).unwrap_or_else(|| panic!("{step}: {hint}")));
+    assert!(order.is_sorted(), "{hint}");
 }

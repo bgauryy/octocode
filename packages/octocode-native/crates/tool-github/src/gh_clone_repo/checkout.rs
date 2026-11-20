@@ -233,13 +233,12 @@ fn checkout_stage(
             })?
         }
     };
+    // A scope none of whose paths exists checks out nothing: the row fails.
+    // With any path present the checkout stands, and its row names the
+    // missing ones ([`Plan::result`]).
     if let Some(paths) = sparse_paths {
-        let missing = paths
-            .iter()
-            .filter(|path| !checked_out(stage, path) && !is_withheld(&staged.withheld, path))
-            .map(String::as_str)
-            .collect::<Vec<_>>();
-        if !missing.is_empty() {
+        let missing = plan.missing_paths(stage, &staged.withheld);
+        if missing.len() == paths.len() {
             return Err(sparse_not_found(plan, reference, &missing, stage));
         }
     }
@@ -281,7 +280,7 @@ fn retire_old_stores(context: &GitContext<'_>, key: &storage::StoreKey, current:
 
 /// Whether `path` (a requested sparse path) is a withheld file or holds one:
 /// its absence from the checkout is by design, not a missing path.
-fn is_withheld(withheld: &[String], path: &str) -> bool {
+pub(super) fn is_withheld(withheld: &[String], path: &str) -> bool {
     let path = path.trim_end_matches('/');
     withheld.iter().any(|file| {
         file == path
@@ -295,7 +294,7 @@ fn is_withheld(withheld: &[String], path: &str) -> bool {
 /// A commit's paths are case-sensitive, but a case-insensitive filesystem
 /// (macOS, Windows) finds `src/Nested` at `src/nested`: each segment must
 /// equal a directory entry's name byte for byte.
-fn checked_out(stage: &Path, path: &str) -> bool {
+pub(super) fn checked_out(stage: &Path, path: &str) -> bool {
     let mut dir = stage.to_path_buf();
     path.split('/')
         .filter(|segment| !segment.is_empty())
@@ -324,8 +323,8 @@ fn discard_stage(stage: &Path) {
     storage::remove_dir(stage);
 }
 
-/// Requested sparse paths absent at the checked-out revision: a not-found
-/// input, named per path. The checkout holds the commit's trees, so the
+/// Requested sparse paths absent at the checked-out revision, every one of
+/// them: a not-found input, named per path. The checkout holds the commit's trees, so the
 /// recovery is a runnable lead ([`recovery::sparse_next`]); only when the
 /// tree cannot be read is it a hint.
 fn sparse_not_found(plan: &Plan<'_>, reference: &str, missing: &[&str], stage: &Path) -> GitError {

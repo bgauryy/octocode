@@ -247,6 +247,74 @@ async fn an_advisory_row_answers_with_its_ranges_and_fixes() {
     assert_eq!(data["advisories"][0]["id"], id, "the record stays whole");
 }
 
+/// OSV's CVE record names no package (an entry with only a GIT range, or
+/// none): its alias's record states the package and the fix, so the row
+/// reads that record too and its answer names them. A record that names its
+/// package reads no alias (RUSTSEC above).
+#[tokio::test]
+async fn a_record_naming_no_package_is_followed_to_its_alias() {
+    let (cve, ghsa) = ("CVE-2021-44906", "GHSA-xvch-5gv4-984h");
+    let http = RouteHttp::new()
+        .json(
+            &format!("/v1/vulns/{cve}"),
+            json!({"id": cve, "aliases": [ghsa], "related": ["SNYK-JS-MINIMIST-559764"],
+                "affected": [{"ranges": [{"type": "GIT", "repo": "https://github.com/substack/minimist",
+                    "events": [{"introduced": "0"}]}]}]}),
+        )
+        .json(
+            &format!("/v1/vulns/{ghsa}"),
+            json!({"id": ghsa, "aliases": [cve], "summary": "Prototype Pollution in minimist",
+                "affected": [{"package": {"ecosystem": "npm", "name": "minimist"},
+                    "ranges": [{"type": "SEMVER", "events": [
+                        {"introduced": "1.0.0"}, {"fixed": "1.2.6"}]}]}]}),
+        );
+    let data = answer(&http, json!({"operation": "advisory", "id": cve}))
+        .await
+        .expect("row");
+    let ids = data["advisories"]
+        .as_array()
+        .expect("advisories")
+        .iter()
+        .map(|row| row["id"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, [json!(cve), json!(ghsa)], "{data}");
+    let sentence = data["answer"].as_str().expect("answer");
+    assert!(
+        sentence.contains("minimist") && sentence.contains("(fixed 1.2.6)"),
+        "{sentence}"
+    );
+    // Only aliases are the same advisory: a related record is not read.
+    assert!(
+        !http.targets().iter().any(|target| target.contains("SNYK")),
+        "{:?}",
+        http.targets()
+    );
+    // An alias OSV cannot answer is disclosed, with the call that reads it.
+    let unread = RouteHttp::new().json(
+        &format!("/v1/vulns/{cve}"),
+        json!({"id": cve, "aliases": [ghsa], "affected": []}),
+    );
+    let data = answer(&unread, json!({"operation": "advisory", "id": cve}))
+        .await
+        .expect("row");
+    assert_eq!(
+        data["advisories"].as_array().map(Vec::len),
+        Some(1),
+        "{data}"
+    );
+    let warned = data["warnings"].as_array().expect("warnings");
+    assert!(
+        warned
+            .iter()
+            .any(|warning| warning.as_str().is_some_and(|text| text.contains(ghsa))),
+        "{data}"
+    );
+    assert_eq!(
+        data["related"][0]["input"]["queries"][0]["id"], ghsa,
+        "{data}"
+    );
+}
+
 /// Selected affected metadata stays as the source states it, including a
 /// range text also described by events. Only same-record fix duplication is omitted.
 #[tokio::test]

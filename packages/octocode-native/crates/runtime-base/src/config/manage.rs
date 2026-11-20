@@ -60,32 +60,76 @@ pub(crate) fn validate_env_value(key: &str, value: &str) -> Result<(), String> {
     }
     Ok(())
 }
+/// What one `.octocoderc` edit did.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SettingEdit {
+    /// The file already had the requested content.
+    Unchanged,
+    /// A setting the contract declares was saved or removed.
+    Changed,
+    /// A key the contract does not declare was removed: one an older or newer
+    /// Octocode wrote, which the loader warns about as unknown.
+    RemovedUnknown,
+}
+impl SettingEdit {
+    /// Whether the file's bytes changed.
+    pub fn changed(self) -> bool {
+        self != Self::Unchanged
+    }
+    /// What a caller tells the person about this edit of `key`, when the
+    /// outcome needs more than "changed".
+    pub fn notice(self, key: &str) -> Option<String> {
+        (self == Self::RemovedUnknown).then(|| {
+            format!(
+                "Removed unknown configuration key {key}: this Octocode version does not use it."
+            )
+        })
+    }
+}
+/// Whether `key` names something the contract declares: a setting, a section
+/// that holds settings, or a part of a setting's value. Only a key outside all
+/// three is unknown, so removing one never drops a declared setting.
+fn declared(key: &str) -> bool {
+    let within = |path: &str, prefix: &str| {
+        path.strip_prefix(prefix)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
+    };
+    CONFIG_FIELDS
+        .iter()
+        .any(|field| within(field.path, key) || within(key, field.path))
+}
 /// Set or remove one `.octocoderc` setting under the inspected `revision`.
-/// Errors are `InvalidInput` for a rejected key or value, `WouldBlock` when
-/// the file changed or is locked since it was inspected, and `Other` when it
-/// cannot be read or written safely.
+/// Removal also accepts a key the contract does not declare when the file
+/// holds it, so a key the loader warns about can be removed; setting one is
+/// refused. Errors are `InvalidInput` for a rejected key or value, `NotFound`
+/// when the file does not hold the undeclared key it would remove,
+/// `WouldBlock` when the file changed or is locked since it was inspected, and
+/// `Other` when it cannot be read or written safely.
 pub fn edit_setting(
     path: &Path,
     key: &str,
     value: Option<&Value>,
     revision: &str,
     workspace: bool,
-) -> std::io::Result<bool> {
+) -> std::io::Result<SettingEdit> {
     let invalid = |message: String| std::io::Error::new(std::io::ErrorKind::InvalidInput, message);
-    let field = CONFIG_FIELDS
-        .iter()
-        .find(|f| f.path == key)
-        .ok_or_else(|| invalid("Unknown configuration setting.".into()))?;
-    if let Some(value) = value {
-        field_value(field, value).map_err(invalid)?;
-        if field.kind == ConfigFieldKind::Url && value.as_str().is_some_and(url_embeds_secret) {
-            return Err(invalid(url_refusal(field.path)));
+    let unknown = || invalid("Unknown configuration setting.".into());
+    let field = CONFIG_FIELDS.iter().find(|f| f.path == key);
+    match (field, value) {
+        (Some(field), Some(value)) => {
+            field_value(field, value).map_err(invalid)?;
+            if field.kind == ConfigFieldKind::Url && value.as_str().is_some_and(url_embeds_secret) {
+                return Err(invalid(url_refusal(field.path)));
+            }
+            if workspace && !workspace_setting_allowed(field, value) {
+                return Err(invalid(
+                    "This setting may only be configured in home scope.".into(),
+                ));
+            }
         }
-        if workspace && !workspace_setting_allowed(field, value) {
-            return Err(invalid(
-                "This setting may only be configured in home scope.".into(),
-            ));
-        }
+        (None, Some(_)) => return Err(unknown()),
+        (None, None) if declared(key) => return Err(unknown()),
+        (Some(_) | None, None) => {}
     }
     let original = read_private_config(path).map_err(|error| {
         if error.kind() == std::io::ErrorKind::InvalidInput {
@@ -94,6 +138,15 @@ pub fn edit_setting(
             std::io::Error::other("Cannot safely read configuration.")
         }
     })?;
+    if field.is_none() {
+        let saved = parse_config_json(original.as_deref().unwrap_or("{}")).map_err(invalid)?;
+        if get_path(&saved, key).is_none() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Unknown configuration setting, and this file does not hold it.",
+            ));
+        }
+    }
     let parts = key.split('.').collect::<Vec<_>>();
     let mut body =
         edit_config_json(original.as_deref().unwrap_or("{}"), &parts, value).map_err(invalid)?;
@@ -111,7 +164,11 @@ pub fn edit_setting(
         }
     }
     replace_private_config(path, revision, &body, false)
-        .map(|(changed, _)| changed)
+        .map(|(changed, _)| match (changed, field) {
+            (false, _) => SettingEdit::Unchanged,
+            (true, Some(_)) => SettingEdit::Changed,
+            (true, None) => SettingEdit::RemovedUnknown,
+        })
         .map_err(|e| match e.kind() {
             std::io::ErrorKind::WouldBlock | std::io::ErrorKind::InvalidInput => e,
             _ => std::io::Error::other("Cannot safely write configuration."),

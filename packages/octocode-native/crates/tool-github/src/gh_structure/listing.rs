@@ -175,6 +175,45 @@ pub(super) fn clone_lead(query: &GhStructureQueryTree, scope: &Scope, commit_sha
     .build()
 }
 
+/// Files that orient a reader in a folder, in the order one is chosen:
+/// agent instructions, then the readme, then the contribution guide.
+const GUIDES: [&str; 3] = ["AGENTS.md", "README.md", "CONTRIBUTING.md"];
+
+/// One ghGetFileContent read of the listed folder's guide at the listed
+/// commit: the first of [`GUIDES`] (names compared ignoring ASCII case) among
+/// the files the listing names directly in that folder, whichever others it
+/// holds. A guide held as a symlink (a root readme linking to a package's)
+/// counts: the read names the link, and ghGetFileContent follows it. `None`
+/// when it names none.
+pub(super) fn guide_read(
+    query: &GhStructureQueryTree,
+    scope: &Scope,
+    entries: &[TreeEntry],
+    commit_sha: &str,
+) -> Option<Value> {
+    let is_guide = |entry: &&TreeEntry, guide: &str| {
+        let (dir, name) = entry.path.rsplit_once('/').unwrap_or(("", &entry.path));
+        matches!(entry.kind, EntryKind::File | EntryKind::Link)
+            && dir == scope.path
+            && name.eq_ignore_ascii_case(guide)
+    };
+    let guide = GUIDES
+        .iter()
+        .find_map(|guide| entries.iter().find(|entry| is_guide(entry, guide)))?;
+    let target = octocode_tools_shared::leads::gh_file_read::Target {
+        owner: query.owner.as_str(),
+        repo: query.repo.as_str(),
+        path: &guide.path,
+        reference: Some(commit_sha),
+    };
+    Some(
+        octocode_runtime_base::response::result::Continuation::related_query(
+            octocode_tools_shared::leads::gh_file_read::plain_read(&target)?,
+        )
+        .build(),
+    )
+}
+
 /// Whether the listing ranks its files by size. Ranking still determines
 /// traversal depth even when the result offers no optional read advice.
 pub(super) fn ranks_by_size(query: &GhStructureQueryTree) -> bool {

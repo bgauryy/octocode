@@ -278,13 +278,18 @@ pub(crate) async fn crates(
         // The versions nearest a missing one, and which of them are yanked;
         // the message quotes the version as the request typed it.
         let asked = artifact_search_query::version(query).unwrap_or_default();
-        let missing = || ArtifactError {
-            yanked: yanked.clone(),
-            ..super::versions::version_not_found(
-                ArtifactType::Crates,
-                &artifact.package_name,
-                asked,
-                &all,
+        let missing = || {
+            super::versions::discouraged_last(
+                ArtifactError {
+                    yanked: yanked.clone(),
+                    ..super::versions::version_not_found(
+                        ArtifactType::Crates,
+                        &artifact.package_name,
+                        asked,
+                        &all,
+                    )
+                },
+                |version| yanked.iter().any(|known| known == version),
             )
         };
         let wanted = match artifact_search_query::version(query).map(VersionSpec::parse) {

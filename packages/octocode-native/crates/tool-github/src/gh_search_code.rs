@@ -1,6 +1,7 @@
 //! ghSearchCode: indexed default-branch code or path search.
 mod code_output;
 mod code_selection;
+mod cut;
 mod empty;
 mod fragments;
 mod leads;
@@ -243,8 +244,10 @@ async fn execute_within(
                 &mut plan, &items, query, withholds, room, provider, context, security,
             )
             .await?;
-            let unshown = items.split_off(shown);
-            (Some(plan.resolution(0..shown)), unshown)
+            let unshown = items.split_off(shown.rows);
+            let mut resolution = plan.resolution(0..shown.rows);
+            resolution.cut(&shown.cuts, plan.window());
+            (Some(resolution), unshown)
         }
         None => (None, Vec::new()),
     };
@@ -278,7 +281,8 @@ async fn execute_within(
         let fields = field_names(&query.fields);
         pick_rows(&mut value, "files", CODE_ROW_ID, &fields);
     }
-    if let Some(pagination) = pagination(&data, current, past_end) {
+    let parted = continues_page || data.listed.continues_page();
+    if let Some(pagination) = pagination(&data, current, past_end, parted) {
         value["pagination"] = pagination;
     }
     // Every page of a ref search states the index scope (a page can be read
@@ -298,7 +302,8 @@ async fn execute_within(
         continued,
         more,
     );
-    // A file lists at most a few of its hit lines; `readHits` reads the rest.
+    // A file not read, or listing a run of its hit lines, has a `readHits`
+    // read of the rest.
     let hits_unlisted = !reads.hits.is_empty();
     add_reads(&mut value, reads);
     if !items.is_empty() {

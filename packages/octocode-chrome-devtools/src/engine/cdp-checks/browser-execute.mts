@@ -116,7 +116,7 @@ export async function run(connection: CheckSession, input?: unknown) {
       // The step budget, not the command limit, cut this request short.
       return remaining < commandMs
         ? request.catch((error: unknown) => {
-            throw /^CDP timeout/.test(errorMessage(error))
+            throw errorMessage(error).startsWith('CDP timeout')
               ? new Error(
                   `Browser step budget exhausted during ${method} (${Math.round(remaining)}ms left); raise timeoutMs`,
                   { cause: error }

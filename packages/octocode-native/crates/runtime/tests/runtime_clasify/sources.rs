@@ -141,6 +141,37 @@ async fn the_read_lead_returns_the_classified_capture() {
 /// the same one request: the marked text is sent, `next.read` reads only
 /// those lines, `readChars` counts them, and no sections call is offered to
 /// locate the yes. Literal text names its lines too.
+/// One range of a file, judged whole (a 36-line function): the summary names
+/// the deciding lines in the file's own numbering, inside the range.
+#[tokio::test]
+async fn a_single_range_read_names_its_deciding_lines_in_the_files_numbering() {
+    let server = provider(1).await;
+    let workspace = Workspace::new();
+    let body = (1..=200)
+        .map(|n| format!("const line{n} = {n};\n"))
+        .collect::<String>();
+    workspace.write("src/index.ts", &body);
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let out = clasify(
+        &runtime,
+        vec![json!({"operation":"evaluate","source":{"tool":"localFetch","query":{"path":"src/index.ts","ranges":[{"startLine":100,"endLine":135}]}},
+            "questions":{"lazy":noul("Is a value computed lazily?")}
+        })],
+    )
+    .await;
+    let text = sent(&server).await[0]["state"]["text"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let decided = &out["results"][0]["data"]["answers"]["lazy"]["lines"];
+    let start = decided["startLine"].as_u64().expect("start line");
+    let end = decided["endLine"].as_u64().expect("end line");
+    assert!(
+        (100..=135).contains(&start) && (start..=135).contains(&end),
+        "{out}\n{text}"
+    );
+}
+
 #[tokio::test]
 async fn a_whole_window_answer_names_its_deciding_lines_in_the_same_request() {
     let server = provider(2).await;
@@ -659,10 +690,11 @@ impl wiremock::Respond for LowNoul {
 }
 
 /// A low whole-window `noul` keeps the part its companion chose, which the
-/// judge picked in the same request; only a yes narrows `next.read`, so the
-/// read stays the whole source. A companion that chose no part gives none.
+/// judge picked in the same request; with no yes, `next.read` cites that
+/// part, the nearest miss, so the negative is checked where it came closest.
+/// A companion that chose no part gives none, and the read stays whole.
 #[tokio::test]
-async fn a_low_answer_keeps_its_chosen_part_without_narrowing_the_read() {
+async fn a_low_answer_keeps_its_chosen_part_and_the_read_cites_it() {
     let line = |n: usize| format!("test case_{n:04} ... ok\n");
     let body: String = (1..=3_000).map(line).collect();
     let whole_chars = body.chars().count();
@@ -689,14 +721,15 @@ async fn a_low_answer_keeps_its_chosen_part_without_narrowing_the_read() {
             assert_eq!(lines["startLine"], 1, "{out}");
             let end = lines["endLine"].as_u64().expect("end");
             assert!(end > 1 && end < 3_000, "{out}");
-            // The read is the whole source, not the part.
-            let read_chars = data["readChars"].as_u64().unwrap_or(whole_chars as u64);
+            // With no yes the read cites the chosen part: exactly its lines.
+            let read_chars = data["readChars"].as_u64().expect("readChars");
             let part_chars = (1..=end as usize)
                 .map(|n| line(n).chars().count())
                 .sum::<usize>();
-            assert!(read_chars as usize > part_chars, "{out}");
+            assert_eq!(read_chars as usize, part_chars, "{out}");
         } else {
             assert!(lines.is_null(), "{out}");
+            assert_eq!(data["readChars"], whole_chars, "{out}");
         }
         runtime.close().await;
     }

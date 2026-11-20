@@ -22,7 +22,7 @@ fn empty_match_search_uses_the_index_while_history_keeps_the_ref() {
             r#"{"path": "README.md", "matchString": ["missing literal"]}"#,
         ))
         .expect("local query");
-        let leads = empty_match_leads(&source, &local);
+        let leads = empty_match_leads(&source, &local, true);
         let code = &leads
             .iter()
             .find(|(name, _)| *name == "findCode")

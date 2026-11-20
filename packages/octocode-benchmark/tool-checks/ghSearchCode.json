@@ -1,0 +1,6 @@
+{"tool": "ghSearchCode", "steps": [
+ {"name": "code search in one repo", "tool": "ghSearchCode", "args": {"owner": "BurntSushi", "repo": "ripgrep", "keywords": ["WalkBuilder"], "limit": 3}, "expect": {"min": {"data.files[]": 1}, "offers": "next:nextPage"}},
+ {"name": "follow next page", "follow": "next:nextPage", "expect": {"min": {"data.files[]": 1}}},
+ {"name": "read a hit file at the search commit", "tool": "ghGetFileContent", "args": {"owner": "BurntSushi", "repo": "ripgrep", "path": "crates/ignore/README.md", "matchString": ["WalkBuilder"]}, "expect": {"contains": ["WalkBuilder"]}},
+ {"name": "no hits", "tool": "ghSearchCode", "args": {"owner": "sharkdp", "repo": "fd", "keywords": ["zzqxNeverHere42"]}, "expect": {"status": "empty"}}
+]}

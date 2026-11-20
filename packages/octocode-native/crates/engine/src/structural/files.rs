@@ -233,6 +233,19 @@ pub(crate) fn search_files_with_budget(
     let skip = skip_files
         .map_or(0, |n| n as usize)
         .min(candidate_files.len());
+    // A paged window the one before ended inside the last of them reads
+    // that one again: its pin still covers it, as its listing did.
+    let reread = usize::from(
+        skip > 0
+            && matches!(
+                demand,
+                StructuralDemand::Paged(super::types::PagedWindow {
+                    resumes_inside: true,
+                    ..
+                })
+            ),
+    );
+    let start = skip - reread;
     // What this window's resume query pinned is what those candidates are now.
     let mut listed = ListedFiles::default();
     let listed_before = (skip > 0).then(|| {
@@ -245,7 +258,7 @@ pub(crate) fn search_files_with_budget(
         }
         listed.hex()
     });
-    let earlier_files = candidate_files.drain(..skip).collect::<Vec<_>>();
+    let earlier_files = candidate_files.drain(..start).collect::<Vec<_>>();
     // Compile one matcher per extension up front (cheap, serial), then read,
     // prefilter, parse and match files in parallel. `collect` keeps candidate
     // order, and the serial fold below rebuilds the same counters.
@@ -283,16 +296,25 @@ pub(crate) fn search_files_with_budget(
         budget.filter(|_| timed),
         crate::scan_budget::WalkClock::default(),
     );
-    let (outcomes, mut scan_resume, page_filled) =
-        scan_in_chunks(&scan, &candidate_files, skip, pacer)?;
+    let ScannedChunks {
+        outcomes,
+        resume: mut scan_resume,
+        page_stop: page_filled,
+        split: page_split,
+    } = scan_in_chunks(&scan, &candidate_files, (start, skip), pacer)?;
+    let resumed_inside = reread > 0
+        && outcomes
+            .first()
+            .is_some_and(|(_, outcome)| outcome.is_some());
     let scan_truncated = scan_truncated || scan_resume.is_some();
     // Every cut resumes where it stopped: the walk cap of an unset
     // `max_files`, and a caller's file window.
     if scan_resume.is_none() && scan_truncated {
-        scan_resume = Some(u32::try_from(skip + candidate_files.len()).unwrap_or(u32::MAX));
+        scan_resume = Some(u32::try_from(start + candidate_files.len()).unwrap_or(u32::MAX));
     }
+    // The reread candidate is in the pin already.
     let listed_through = scan_resume.map(|_| {
-        for (file_path, (stamp, _)) in candidate_files.iter().zip(&outcomes) {
+        for (file_path, (stamp, _)) in candidate_files.iter().zip(&outcomes).skip(reread) {
             listed.add(file_path, *stamp);
         }
         listed.hex()
@@ -317,6 +339,8 @@ pub(crate) fn search_files_with_budget(
     Ok(StructuralSearchFilesDetailedResult {
         scan_truncated,
         page_filled,
+        page_split,
+        resumed_inside,
         scan_resume,
         listed_before,
         listed_through,
@@ -338,42 +362,56 @@ pub(crate) fn search_files_with_budget(
 }
 
 /// What [`scan_in_chunks`] evaluated: each candidate's stamp and outcome,
-/// where the scan resumes, and whether it stopped because its page filled.
-type ScannedChunks = (Vec<(Option<SourceStamp>, FileOutcome)>, Option<u32>, bool);
+/// where the scan resumes, whether it stopped at a page start (else at its
+/// time), and, for a page start inside its last file, how many of that file's
+/// matches its pages hold.
+struct ScannedChunks {
+    outcomes: Vec<(Option<SourceStamp>, FileOutcome)>,
+    resume: Option<u32>,
+    page_stop: bool,
+    split: Option<u32>,
+}
 
-/// Evaluates `candidates` in the pacer's chunks, in order, and stops at the
-/// first chunk boundary the pacer calls spent, or, under
-/// [`StructuralDemand::Paged`], after the window's last file
-/// ([`paged_end`]). The outcomes are those of the candidates the window
-/// keeps; the resume offset (`skip` + how many it keeps) is set only when
+/// Evaluates `candidates` (from walk position `start`; the windows before
+/// read `skip`) in the pacer's chunks, in order, and stops at the first chunk
+/// boundary the pacer calls spent, or, under [`StructuralDemand::Paged`], at
+/// the window's page start ([`window_end`]). The outcomes are those of the
+/// candidates the window keeps; the resume offset is set only when
 /// candidates remain, and so is the page stop.
 fn scan_in_chunks(
     scan: &FileScan<'_>,
     candidates: &[PathBuf],
-    skip: usize,
+    (start, skip): (usize, usize),
     mut pacer: crate::scan_budget::ScanPacer,
 ) -> Result<ScannedChunks> {
-    let filled = match scan.demand {
-        StructuralDemand::Paged(_, filled) => Some(filled),
+    let page_starts = match scan.demand {
+        StructuralDemand::Paged(window) => Some(window.page_starts),
         _ => None,
     };
     // A paged scan's chunks start at the threads the call computes on, so
     // every worker is busy, and double: the window evaluates at most about
     // twice the files it keeps.
-    let mut page_chunk = filled.map(|_| crate::cpu::host().share().max(1));
-    // How many of the outcomes page 1 needs, once it is filled.
-    let mut filled_at = None;
+    let mut page_chunk = page_starts.map(|_| crate::cpu::host().share().max(1));
+    // Every page start met so far: (position from `start`, match index), and
+    // the last position of a file holding a match.
+    let mut starts = Vec::new();
+    let mut last_matched = None;
     let mut outcomes = Vec::with_capacity(candidates.len());
-    let mut resume = None;
-    let mut page_stop = false;
+    let at = |position: usize| Some(u32::try_from(start + position).unwrap_or(u32::MAX));
     let mut rest = candidates;
     while !rest.is_empty() {
         if pacer.spent() {
-            // A window whose page is whole stops as its page; else this is
-            // the time cut.
-            page_stop = filled_at.is_some();
-            resume = Some(u32::try_from(skip + outcomes.len()).unwrap_or(u32::MAX));
-            break;
+            // A window that met a page start ends at its last one, its pages
+            // whole; else this is the time cut.
+            return Ok(match starts.last() {
+                Some(&page) => end_at_page(outcomes, page, start),
+                None => ScannedChunks {
+                    resume: at(outcomes.len()),
+                    outcomes,
+                    page_stop: false,
+                    split: None,
+                },
+            });
         }
         let size =
             page_chunk.map_or_else(|| pacer.next_chunk(), |chunk| chunk.min(pacer.next_chunk()));
@@ -396,74 +434,102 @@ fn scan_in_chunks(
                     .as_ref()
                     .is_some_and(|(_, file)| !file.matches.is_empty())
             });
-        if let (Some(filled), None) = (filled, filled_at) {
-            let (positions, files): (Vec<usize>, Vec<_>) = scanned
+        if let Some(page_starts) = page_starts {
+            let files = scanned
                 .iter()
                 .enumerate()
-                .filter_map(|(at, (_, outcome))| outcome.as_ref().map(|(_, file)| (at, file)))
-                .unzip();
-            filled_at = filled(&files).map(|needs| {
-                outcomes.len() + positions.get(needs).copied().unwrap_or(scanned.len())
-            });
+                .filter_map(|(at, (_, outcome))| {
+                    outcome
+                        .as_ref()
+                        .map(|(_, file)| (outcomes.len() + at, file))
+                })
+                .collect::<Vec<_>>();
+            starts.extend(page_starts(&files));
+        }
+        if let Some(at) = scanned.iter().rposition(|(_, outcome)| {
+            outcome
+                .as_ref()
+                .is_some_and(|(_, file)| !file.matches.is_empty())
+        }) {
+            last_matched = Some(outcomes.len() + at);
         }
         outcomes.extend(scanned);
         pacer.record(chunk.len());
-        if let Some(end) = filled_at.map(|at| paged_end(at, skip))
-            && outcomes.len() >= end
+        // The window ends at its page start once a match lies past it in
+        // another file, so the window after it is never empty; with none, it
+        // ends with the scope, whole.
+        if let Some(&page) = starts
+            .iter()
+            .find(|(position, _)| *position >= window_end(skip))
+            && (page.1 == 0 || last_matched > Some(page.0))
         {
-            // The window ends before the next file that holds a match, so
-            // the window after it is never empty; with none, it ends with
-            // the scope.
-            let next = outcomes[end..]
-                .iter()
-                .position(|(_, outcome)| {
-                    outcome
-                        .as_ref()
-                        .is_some_and(|(_, file)| !file.matches.is_empty())
-                })
-                .map(|at| end + at);
-            if let Some(next) = next {
-                // The files from `next` on were evaluated with this chunk but
-                // are the next window's: it reads them again (from the kept
-                // outcomes), so dropping them here loses nothing.
-                #[cfg_attr(
-                    octocode_clippy_ratchet,
-                    expect(
-                        clippy::disallowed_methods,
-                        reason = "the dropped outcomes are the next window's, which evaluates them again"
-                    )
-                )]
-                outcomes.truncate(next);
-                resume = Some(u32::try_from(skip + next).unwrap_or(u32::MAX));
-                page_stop = true;
-                break;
-            }
-            if rest.is_empty() {
-                break;
-            }
+            return Ok(end_at_page(outcomes, page, start));
         }
         if found {
-            if !rest.is_empty() {
-                resume = Some(u32::try_from(skip + outcomes.len()).unwrap_or(u32::MAX));
-            }
-            break;
+            let resume = if rest.is_empty() {
+                None
+            } else {
+                at(outcomes.len())
+            };
+            return Ok(ScannedChunks {
+                outcomes,
+                resume,
+                page_stop: false,
+                split: None,
+            });
         }
         page_chunk = page_chunk.map(|chunk| chunk.saturating_mul(2));
     }
-    Ok((outcomes, resume, page_stop))
+    Ok(ScannedChunks {
+        outcomes,
+        resume: None,
+        page_stop: false,
+        split: None,
+    })
 }
 
-/// The fewest candidates a paged window keeps when page 1 needs its first
-/// `filled_at` and `skip` candidates came before it: those, and no fewer
-/// than the windows before it evaluated; it then keeps the files without a
-/// match up to the next that holds one. The first window is its page; each
-/// later one at least doubles what was read, so a walk through every window
-/// takes a number of windows logarithmic in the scope. Each is a fact of the
-/// files, not of the chunks: the same window ends at the same file however
-/// its chunks were cut, so a continuation rescans the window its first page
-/// did.
-fn paged_end(filled_at: usize, skip: usize) -> usize {
-    filled_at.max(skip).max(1)
+/// The window ending at the page start `(position, index)`: the files before
+/// its file, and that file too when the page starts inside it (the next
+/// window reads it again, its first `index` matches listed here); the
+/// window after resumes at the next candidate. The files past it were
+/// evaluated with its chunk but are the next window's: it reads them again
+/// (from the kept outcomes), so dropping them here loses nothing.
+fn end_at_page(
+    mut outcomes: Vec<(Option<SourceStamp>, FileOutcome)>,
+    (position, index): (usize, usize),
+    start: usize,
+) -> ScannedChunks {
+    let (kept, split) = if index > 0 {
+        (position + 1, Some(u32::try_from(index).unwrap_or(u32::MAX)))
+    } else {
+        (position, None)
+    };
+    #[cfg_attr(
+        octocode_clippy_ratchet,
+        expect(
+            clippy::disallowed_methods,
+            reason = "the dropped outcomes are the next window's, which evaluates them again"
+        )
+    )]
+    outcomes.truncate(kept);
+    ScannedChunks {
+        resume: Some(u32::try_from(start + kept).unwrap_or(u32::MAX)),
+        outcomes,
+        page_stop: true,
+        split,
+    }
+}
+
+/// The fewest candidates, from its first, before the page start a paged
+/// window ends at, when the windows before it read `skip`: no fewer than
+/// they did, so the first window is its first page, each later one passes
+/// the file it may read again and at least doubles what was read, and a walk
+/// through every window takes a number of windows logarithmic in the scope.
+/// It is a fact of the files and the pages, not of the chunks: the same
+/// window ends at the same page start however its chunks were cut, so a
+/// continuation rescans the window its first page did.
+fn window_end(skip: usize) -> usize {
+    skip
 }
 
 type CompiledMatchers = BTreeMap<String, std::result::Result<OctoCompiledMatcher, CompileError>>;
@@ -478,6 +544,8 @@ fn invalid_query_result(
     StructuralSearchFilesDetailedResult {
         scan_truncated: false,
         page_filled: false,
+        page_split: None,
+        resumed_inside: false,
         scan_resume: None,
         listed_before: None,
         listed_through: None,

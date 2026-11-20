@@ -42,11 +42,14 @@ const sameDocument = emit => url =>
 const navigated = cdp =>
   cdp.calls.filter(c => c.method === 'Page.navigateToHistoryEntry');
 
-for (const [kind, make, direction, from, wantId, wantUrl] of [
+/** @type {Array<[string, typeof document, string, number, number, string]>} */
+const historyCases = [
   ['full-document', document, 'back', 2, 11, entries[1].url],
   ['same-document', sameDocument, 'back', 1, 10, entries[0].url],
   ['same-document', sameDocument, 'forward', 0, 11, entries[1].url],
-])
+];
+
+for (const [kind, make, direction, from, wantId, wantUrl] of historyCases)
   test(`history ${direction} (${kind}) moves one entry and reports the settled URL`, async () =>
     fixture(async ({ cdp, emit, read }) => {
       pageAt(cdp, emit, { current: from, event: make(emit) });

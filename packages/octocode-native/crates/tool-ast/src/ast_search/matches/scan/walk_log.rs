@@ -6,6 +6,7 @@ use octocode_runtime_base::policy::discovery::WalkAdmission;
 use octocode_runtime_base::policy::path::PathPolicy;
 use octocode_tools_shared::ast_rule::has_extension_in;
 use octocode_tools_shared::leads::unparsed::Passed;
+use octocode_tools_shared::test_code::Scoped;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::FileType;
 use std::path::{Path, PathBuf};
@@ -18,6 +19,9 @@ pub(super) struct WalkLog<'a> {
     paths: &'a PathPolicy,
     admission: &'a WalkAdmission<'a>,
     include_hidden: bool,
+    /// The `testCode` scope: a file on the side it leaves out is no file of
+    /// the scope's, in the census or among the unparsed.
+    scoped: Option<&'a Scoped>,
     grammars: BTreeSet<String>,
     unparsed: Mutex<Unparsed>,
     observed: Mutex<BTreeSet<PathBuf>>,
@@ -41,12 +45,14 @@ impl<'a> WalkLog<'a> {
         paths: &'a PathPolicy,
         admission: &'a WalkAdmission<'a>,
         include_hidden: bool,
+        scoped: Option<&'a Scoped>,
     ) -> Self {
         Self {
             scope,
             paths,
             admission,
             include_hidden,
+            scoped,
             grammars: super::super::scope::structural_extensions(),
             unparsed: Mutex::new(Unparsed::default()),
             observed: Mutex::new(BTreeSet::new()),
@@ -94,8 +100,13 @@ impl<'a> WalkLog<'a> {
         // A file no grammar parses is disclosed, not silently dropped, with
         // the type its name is of, if any: the page decides by the rule's
         // language which of them leave absence unproven. A file of another
-        // grammar under `parser` is that grammar's, never this scope's.
-        if unparsed_file && !has_extension_in(path, &self.grammars) {
+        // grammar under `parser` is that grammar's, never this scope's, and
+        // one where a `testCode` scope would leave it out is no gap of it
+        // (asked uncounted: only a file the scan parses counts as left out).
+        if unparsed_file
+            && !has_extension_in(path, &self.grammars)
+            && self.scoped.is_none_or(|scoped| scoped.lists(path, false))
+        {
             // Named as a row path reads after the response stage: from
             // the workspace root, else absolute. Judged (its head read)
             // before the lock, so walker threads do not queue on the read.
@@ -110,7 +121,12 @@ impl<'a> WalkLog<'a> {
                     .add(passed);
             }
         }
-        let admitted = !unparsed_file;
+        // A file the scan parses is read unless the `testCode` scope leaves
+        // it out by where it lies (counted there): the census counts only
+        // the files read, so the grammars an answer names are the ones it
+        // searched. A directory is always walked.
+        let admitted = !unparsed_file
+            && (is_dir || self.scoped.is_none_or(|scoped| scoped.reads(path, false)));
         if admitted && met {
             self.count(path);
         }

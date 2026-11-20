@@ -181,7 +181,10 @@ fn multiple_sparse_paths_check_out_every_path() {
     assert!(!local.join("src/lib.rs").exists());
     assert!(!local.join("other/skip.txt").exists());
 
-    let missing = clone_pinned(
+    // A missing path among existing ones costs only itself: the others
+    // are checked out, the scope says which, and a warning names the
+    // missing one with its recovery lead.
+    let partial = clone_pinned(
         &bench.fixture,
         &GhCloneRepoQuery {
             paths: many(&["src", "nope"]),
@@ -189,10 +192,40 @@ fn multiple_sparse_paths_check_out_every_path() {
         },
         &context,
     )
-    .expect_err("one missing path fails the clone");
+    .expect("the existing path is checked out");
+    let local = Path::new(&partial.location.path);
+    assert!(local.join("src/lib.rs").is_file());
+    let row = serde_json::to_value(&partial).expect("serialize");
+    assert_eq!(
+        row["location"]["paths"],
+        json_fixture(r#"["src"]"#),
+        "{row}"
+    );
+    let named = |path: &str| {
+        partial
+            .warnings
+            .iter()
+            .filter(|warning| warning.contains(&format!("\"{path}\"")))
+            .count()
+    };
+    assert_eq!((named("nope"), named("src")), (1, 0), "{row}");
+    assert!(
+        test_support::checks::find_related_call(&row, "ghStructure", |_| true).is_some(),
+        "{row}"
+    );
+
+    // Every path missing: nothing to check out, the row fails.
+    let missing = clone_pinned(
+        &bench.fixture,
+        &GhCloneRepoQuery {
+            paths: many(&["nope", "nada"]),
+            ..query()
+        },
+        &context,
+    )
+    .expect_err("no requested path exists");
     assert_eq!(missing.code, ErrorCode::NotFound);
     assert!(missing.message.contains("\"nope\""), "{missing:?}");
-    test_support::checks::assert_absent(&serde_json::json!(missing.message), "\"src\"");
 }
 
 /// A missing sparse path is recovered from the commit's own trees: a unique
@@ -234,13 +267,23 @@ fn a_missing_sparse_path_leads_to_its_near_miss_or_its_nearest_directory() {
     let row = &next["repair"]["input"]["queries"][0];
     assert_eq!(row["paths"][0], "src/nested", "{next}");
 
-    // A directory is a near miss too, and a list is corrected in place.
-    let next = failed(many(&["other", "sr/nested"]));
-    let row = &next["repair"]["input"]["queries"][0];
+    // A directory is a near miss too, and a list is corrected in place:
+    // beside an existing path the clone succeeds and carries the repair.
+    let partial = clone_pinned(
+        &bench.fixture,
+        &GhCloneRepoQuery {
+            paths: many(&["other", "sr/nested"]),
+            ..query()
+        },
+        &context,
+    )
+    .expect("the existing path is checked out");
+    let served = serde_json::to_value(&partial).expect("serialize");
+    let repair = test_support::checks::related_call(&served, "ghCloneRepo", |_| true);
     assert_eq!(
-        row["paths"],
+        repair["input"]["queries"][0]["paths"],
         json_fixture(r#"["other", "src/nested"]"#),
-        "{next}"
+        "{served}"
     );
 
     // Nothing near: the deepest directory that exists, at the commit.
@@ -393,11 +436,11 @@ fn a_linked_worktree_is_no_bare_repository_beside_its_bare_store() {
     assert_eq!(flag(&stores[0], "--is-bare-repository"), "true");
 }
 
-/// A sparse clone's served location names its checkout, commit and ref: it
-/// does not echo the request's paths or a kind derived from them, and the
-/// same scope is reused.
+/// A sparse clone's served location names its checkout, commit, ref and
+/// the scope it holds (`paths`, in request order), on the first clone and
+/// on reuse alike; no kind derived from the paths.
 #[test]
-fn a_sparse_location_does_not_echo_the_request() {
+fn a_sparse_location_states_its_scope() {
     let bench = Bench::new();
     let context = bench.context();
     let request = GhCloneRepoQuery {
@@ -416,4 +459,16 @@ fn a_sparse_location_does_not_echo_the_request() {
         assert!(location.get(echo).is_none(), "{echo}: {served}");
     }
     assert!(second.location.reused);
+    for clone in [&first, &second] {
+        let served = serde_json::to_value(clone).expect("serialized clone");
+        assert_eq!(
+            served["location"]["paths"],
+            json_fixture(r#"["src/nested", "other"]"#),
+            "{served}"
+        );
+    }
+    // A full checkout has no scope to state.
+    let full = clone_pinned(&bench.fixture, &query(), &context).expect("full clone");
+    let served = serde_json::to_value(&full).expect("serialized clone");
+    assert!(served["location"].get("paths").is_none(), "{served}");
 }

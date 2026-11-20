@@ -20,6 +20,7 @@ mod rows;
 mod standing;
 #[cfg(test)]
 mod tests;
+mod time_window;
 mod tree;
 mod walk_policy;
 mod walked;
@@ -293,14 +294,26 @@ fn execute_structure_within(
             response_window,
             budget,
         ),
-        StructureSearchQuery::Files(query) => listing::execute_listing(
-            query,
-            paths,
-            security,
-            cancellation,
-            response_window,
-            budget,
-        ),
+        StructureSearchQuery::Files(query) => {
+            // A duration back from now resolves once, here: every walk,
+            // page cursor and lead of the query applies the same bounds.
+            let (query, window) =
+                time_window::resolve_query(query, octocode_runtime_base::civil_date::unix_secs())?;
+            listing::execute_listing(
+                &query,
+                paths,
+                security,
+                cancellation,
+                response_window,
+                budget,
+            )
+            .map(|mut data| {
+                if let (Some(window), Some(data)) = (window, data.as_object_mut()) {
+                    data.insert("window".to_owned(), window);
+                }
+                data
+            })
+        }
     }
     .map(octocode_runtime_base::response::result::finished)
 }

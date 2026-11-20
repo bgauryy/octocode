@@ -1,0 +1,7 @@
+{"tool": "ghGetFileContent", "steps": [
+ {"name": "orient: README section", "tool": "ghGetFileContent", "args": {"owner": "sharkdp", "repo": "fd", "path": "README.md", "matchString": ["Installation"]}, "expect": {"has": ["data.commitSha"]}},
+ {"name": "range read", "tool": "ghGetFileContent", "args": {"owner": "BurntSushi", "repo": "ripgrep", "path": "README.md", "ranges": [{"start": 1, "end": 15}]}, "expect": {"has": ["data.content"]}},
+ {"name": "outline a source file", "tool": "ghGetFileContent", "args": {"owner": "BurntSushi", "repo": "ripgrep", "path": "crates/ignore/src/walk.rs", "view": "symbols"}, "expect": {"contains": ["WalkBuilder"]}},
+ {"name": "batch of two files", "tool": "ghGetFileContent", "args": {"queries": [{"mainGoal": "c", "reasoning": "c", "owner": "sharkdp", "repo": "fd", "path": "Cargo.toml"}, {"mainGoal": "c", "reasoning": "c", "owner": "sharkdp", "repo": "fd", "path": "LICENSE-MIT"}]}, "expect": {"has": ["$.results"]}},
+ {"name": "missing path names the ref", "tool": "ghGetFileContent", "args": {"owner": "sharkdp", "repo": "fd", "path": "no/such/file.md"}, "expect": {"error": "notFound"}}
+]}

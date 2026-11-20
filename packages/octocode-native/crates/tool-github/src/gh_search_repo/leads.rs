@@ -19,10 +19,13 @@ pub(super) fn include_archived(query: &GhSearchRepoQuery) -> Value {
 }
 
 /// An empty search, broadened ([`broaden`]): one variant per set filter,
-/// then one per dropped keyword; a lone keyword of an `owner`+`repo` search
-/// drops to that repository's own row.
+/// then one per dropped keyword; a lone keyword of an `owner` search drops
+/// to that owner's repositories (of an `owner`+`repo` search, to that
+/// repository's own row). A variant without any keyword and without an
+/// owner keeps nothing of what was asked (every Rust repository), so none
+/// is offered.
 pub(super) fn broaden_search(query: &GhSearchRepoQuery) -> Option<Value> {
-    broaden(
+    let mut lead = broaden(
         ToolId::GhSearchRepo,
         &copied_search(query),
         &Broaden {
@@ -31,7 +34,10 @@ pub(super) fn broaden_search(query: &GhSearchRepoQuery) -> Option<Value> {
             split_lone_keyword: false,
         },
         octocode_runtime_base::response::result::rows_per_call(ToolId::GhSearchRepo),
-    )
+    )?;
+    let variants = lead.pointer_mut("/input/queries")?.as_array_mut()?;
+    variants.retain(|variant| variant.get("keywords").is_some() || variant.get("owner").is_some());
+    (!variants.is_empty()).then_some(lead)
 }
 
 pub(super) fn repository_output(

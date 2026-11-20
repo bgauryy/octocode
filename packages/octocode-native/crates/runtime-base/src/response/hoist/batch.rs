@@ -148,57 +148,17 @@ pub(crate) fn keyed(results: &mut [Value], groups: &[Keyed]) {
 /// Single-query `related` calls of one tool and input, offered by two or
 /// more rows, become one envelope call holding each row's query, in row
 /// order (a query two rows offer once), as many per call as the tool takes.
+/// An empty or failed row's calls are its recovery, which its hints name:
+/// they merge only with other such rows' and only when every one of those
+/// rows offers the same queries, so the envelope call is each row's own
+/// recovery stated once; a row whose recovery differs keeps it beside it.
 fn related(structured: &mut Value) {
-    // (row, position in its `related`, the call without its query, query)
-    let mut offers: Vec<(usize, usize, Value, Value)> = Vec::new();
-    for (row, result) in rows(structured).enumerate() {
-        for (at, call) in list(result, "/data/related").into_iter().enumerate() {
-            let single = call
-                .pointer("/input/queries")
-                .and_then(Value::as_array)
-                .filter(|queries| queries.len() == 1)
-                .map(|queries| queries[0].clone());
-            if let Some(query) = single {
-                let mut shape = call;
-                shape["input"]["queries"] = json!([]);
-                offers.push((row, at, shape, query));
-            }
-        }
-    }
-    let mut shapes: Vec<&Value> = Vec::new();
-    for (_, _, shape, _) in &offers {
-        if !shapes.contains(&shape) {
-            shapes.push(shape);
-        }
-    }
+    let recovers = rows(structured).map(guidance_row).collect::<Vec<_>>();
     let mut merged = Vec::new();
     let mut taken: Vec<(usize, usize)> = Vec::new();
-    for shape in shapes {
-        let held = offers
-            .iter()
-            .filter(|(_, _, offered, _)| offered == shape)
-            .collect::<Vec<_>>();
-        let mut from = held.iter().map(|(row, ..)| *row).collect::<Vec<_>>();
-        from.dedup();
-        let per_call = shape["tool"]
-            .as_str()
-            .and_then(crate::id::ToolId::from_name)
-            .map_or(1, crate::response::result::rows_per_call);
-        if from.len() < 2 || per_call < 2 {
-            continue;
-        }
-        let mut queries: Vec<Value> = Vec::new();
-        for (row, at, _, query) in &held {
-            taken.push((*row, *at));
-            if !queries.contains(query) {
-                queries.push(query.clone());
-            }
-        }
-        for chunk in queries.chunks(per_call) {
-            let mut call = shape.clone();
-            call["input"]["queries"] = Value::Array(chunk.to_vec());
-            merged.push(call);
-        }
+    for recovery in [false, true] {
+        let offers = offers(structured, |row| recovers[row] == recovery);
+        merge_offers(&offers, recovery, &mut merged, &mut taken);
     }
     if merged.is_empty() {
         return;
@@ -216,6 +176,87 @@ fn related(structured: &mut Value) {
         }
     }
     append(structured, "related", merged);
+}
+
+/// One row's single-query `related` call: (row, position in its `related`,
+/// the call without its query, query).
+type Offer = (usize, usize, Value, Value);
+
+/// The single-query `related` calls of the rows `of` admits.
+fn offers(structured: &Value, of: impl Fn(usize) -> bool) -> Vec<Offer> {
+    let mut offers = Vec::new();
+    for (row, result) in rows(structured).enumerate().filter(|(row, _)| of(*row)) {
+        for (at, call) in list(result, "/data/related").into_iter().enumerate() {
+            let single = call
+                .pointer("/input/queries")
+                .and_then(Value::as_array)
+                .filter(|queries| queries.len() == 1)
+                .map(|queries| queries[0].clone());
+            if let Some(query) = single {
+                let mut shape = call;
+                shape["input"]["queries"] = json!([]);
+                offers.push((row, at, shape, query));
+            }
+        }
+    }
+    offers
+}
+
+/// [`related`] over one group of rows' `offers`: each shape two or more rows
+/// offer becomes envelope calls (pushed to `merged`, the offers it takes to
+/// `taken`); for `recovery` rows only when every row offers the same queries.
+fn merge_offers(
+    offers: &[Offer],
+    recovery: bool,
+    merged: &mut Vec<Value>,
+    taken: &mut Vec<(usize, usize)>,
+) {
+    let mut shapes: Vec<&Value> = Vec::new();
+    for (_, _, shape, _) in offers {
+        if !shapes.contains(&shape) {
+            shapes.push(shape);
+        }
+    }
+    for shape in shapes {
+        let held = offers
+            .iter()
+            .filter(|(_, _, offered, _)| offered == shape)
+            .collect::<Vec<_>>();
+        let mut from = held.iter().map(|(row, ..)| *row).collect::<Vec<_>>();
+        from.dedup();
+        let per_call = shape["tool"]
+            .as_str()
+            .and_then(crate::id::ToolId::from_name)
+            .map_or(1, crate::response::result::rows_per_call);
+        if from.len() < 2 || per_call < 2 {
+            continue;
+        }
+        let asked = |row: usize| {
+            let mut queries = held
+                .iter()
+                .filter(|(of, ..)| *of == row)
+                .map(|(.., query)| query.to_string())
+                .collect::<Vec<_>>();
+            queries.sort_unstable();
+            queries.dedup();
+            queries
+        };
+        if recovery && from.iter().any(|&row| asked(row) != asked(from[0])) {
+            continue;
+        }
+        let mut queries: Vec<Value> = Vec::new();
+        for (row, at, _, query) in &held {
+            taken.push((*row, *at));
+            if !queries.contains(query) {
+                queries.push(query.clone());
+            }
+        }
+        for chunk in queries.chunks(per_call) {
+            let mut call = shape.clone();
+            call["input"]["queries"] = Value::Array(chunk.to_vec());
+            merged.push(call);
+        }
+    }
 }
 
 fn rows(structured: &Value) -> impl Iterator<Item = &Value> {

@@ -237,7 +237,6 @@ impl ToolRuntime {
                     .map(|(root, _)| root.clone())
                     .collect()
             },
-            allow_build_scripts: config.resolved.lsp.allow_build_scripts,
             security: security.clone(),
             prewarm_state: std::sync::Arc::default(),
         });

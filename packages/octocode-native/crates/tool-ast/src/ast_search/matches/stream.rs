@@ -88,18 +88,23 @@ impl Cutter {
         {
             self.pages.push((self.start, (file, index)));
             self.oversized |= self.used > self.budget;
-            (self.start, self.used, self.count, self.open) = ((file, index), 0, 0, None);
+            (self.used, self.count, self.open) = (0, 0, None);
+        }
+        // A page starts at its first match: the stream's first may lie past
+        // a file's first ([`Bounds`]).
+        if self.count == 0 {
+            self.start = (file, index);
         }
         self.used = self.used.saturating_add(size + header_on(self.open));
         self.count += 1;
         self.open = Some(file);
     }
 
-    /// Every page, the open one closed at `end`, the place after the last
-    /// file.
-    fn finish(mut self, end: usize) -> (Vec<(At, At)>, bool) {
+    /// Every page, the open one closed at `end`, the place after the
+    /// stream's last match.
+    fn finish(mut self, end: At) -> (Vec<(At, At)>, bool) {
         if self.count > 0 {
-            self.pages.push((self.start, (end, 0)));
+            self.pages.push((self.start, end));
             self.oversized |= self.used > self.budget;
         }
         (self.pages, self.oversized)
@@ -107,15 +112,60 @@ impl Cutter {
 }
 
 /// Every page's first match and the place after its last, and whether a
-/// page spends more than `budget` (one match alone outgrows it).
-fn cut(groups: &[Group], limit: usize, budget: usize) -> (Vec<(At, At)>, bool) {
+/// page spends more than `budget` (one match alone outgrows it): the pages
+/// of the matches `spans` names of each file.
+fn cut(
+    groups: &[Group],
+    spans: &[Range<usize>],
+    limit: usize,
+    budget: usize,
+) -> (Vec<(At, At)>, bool) {
     let mut cutter = Cutter::new(limit, budget);
-    for (file, group) in groups.iter().enumerate() {
-        for (index, size) in group.sizes.iter().enumerate() {
-            cutter.push((file, index), group.chars, *size);
+    for (file, (group, span)) in groups.iter().zip(spans).enumerate() {
+        for index in span.clone() {
+            cutter.push((file, index), group.chars, group.sizes[index]);
         }
     }
-    cutter.finish(groups.len())
+    let end = match spans.last() {
+        Some(last) if last.end < groups[spans.len() - 1].sizes.len() => (spans.len() - 1, last.end),
+        _ => (groups.len(), 0),
+    };
+    cutter.finish(end)
+}
+
+/// Where a window's stream lies in the matches its files hold: past the
+/// `carry` matches of its first file the window before listed (when it
+/// reads that file again), and up to the page start inside its last file
+/// it ended at (`split`, [`octocode_engine::structural::PagedWindow`]).
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct Bounds {
+    pub(super) carry: usize,
+    pub(super) split: Option<usize>,
+}
+
+impl Bounds {
+    /// The matches each file of `groups` holds in the stream.
+    fn spans(self, groups: &[Group]) -> Vec<Range<usize>> {
+        let last = groups.len().saturating_sub(1);
+        groups
+            .iter()
+            .enumerate()
+            .map(|(file, group)| {
+                let all = group.sizes.len();
+                let start = if file == 0 { self.carry.min(all) } else { 0 };
+                let end = match self.split {
+                    Some(split) if file == last => split.clamp(start, all),
+                    _ => all,
+                };
+                start..end
+            })
+            .collect()
+    }
+
+    /// The matches of `groups` the stream holds.
+    pub(super) fn total(self, groups: &[Group]) -> usize {
+        self.spans(groups).iter().map(ExactSizeIterator::len).sum()
+    }
 }
 
 /// The match limit a content page holds (`limit`, else no count bound).
@@ -123,44 +173,70 @@ fn page_limit(q: MatchQuery<'_>) -> usize {
     q.limit().map_or(usize::MAX, |limit| limit.max(1))
 }
 
-/// What fills a walk-order content page: the cut every page takes
+/// What fills a walk-order content window's pages: the cut every page takes
 /// ([`stream_page`]). A scan in walk order lists its files in stream order,
-/// so the files it evaluated so far fill page 1 once a match after page 1's
-/// last exists: the scan can stop there and the files past it are another
-/// window's ([`octocode_engine::structural::StructuralDemand::Paged`]).
+/// so the files it evaluated so far say where its pages start: the scan can
+/// end at one, and the files past it are another window's
+/// ([`octocode_engine::structural::PagedWindow`]).
 pub(super) struct PageFill {
     cutter: Cutter,
-    files: usize,
+    /// The matches of the window's first file the window before listed.
+    carry: usize,
+    /// Each added file's position from the window's first candidate.
+    positions: Vec<usize>,
+    /// The page starts already reported.
+    reported: usize,
 }
 
 impl PageFill {
-    pub(super) fn of(q: MatchQuery<'_>, budget: usize) -> Self {
+    pub(super) fn of(q: MatchQuery<'_>, budget: usize, carry: usize) -> Self {
         Self {
             cutter: Cutter::new(page_limit(q), budget.max(1)),
-            files: 0,
+            carry,
+            positions: Vec::new(),
+            reported: 0,
         }
     }
 
-    /// Add the next file with matches: its header and its matches' sizes.
-    pub(super) fn add(&mut self, header: usize, sizes: impl IntoIterator<Item = usize>) {
-        for (index, size) in sizes.into_iter().enumerate() {
-            self.cutter.push((self.files, index), header, size);
+    /// Add the next file with matches, at `position` from the window's first
+    /// candidate: its header and its matches' sizes (the window's first file
+    /// from its carry on).
+    pub(super) fn add(
+        &mut self,
+        position: usize,
+        header: usize,
+        sizes: impl IntoIterator<Item = usize>,
+    ) {
+        let from = if position == 0 { self.carry } else { 0 };
+        let file = self.positions.len();
+        for (index, size) in sizes.into_iter().enumerate().skip(from) {
+            self.cutter.push((file, index), header, size);
         }
-        self.files += 1;
+        self.positions.push(position);
     }
 
-    /// Once page 1 is whole and a match follows it: whether that match is
-    /// the first of the file just added, so page 1 needs only the files
-    /// before it.
-    pub(super) fn filled(&self) -> Option<bool> {
-        self.cutter.pages.first().map(|(_, (_, index))| *index == 0)
+    /// The page starts past page 1 the files added since the last call hold,
+    /// as (position, match index).
+    pub(super) fn new_starts(&mut self) -> Vec<(usize, usize)> {
+        let starts = self.cutter.pages[self.reported..]
+            .iter()
+            .map(|(_, (file, index))| (self.positions[*file], *index))
+            .collect();
+        self.reported = self.cutter.pages.len();
+        starts
     }
 }
 
-/// Page `q.page()` of the matches `groups` hold (of their files, in the file
-/// views): where it starts in the stream, the matches it shows and the
-/// stream's total. A page past the last is empty and flagged out of range.
-pub(super) fn stream_page(q: MatchQuery<'_>, groups: &[Group], budget: usize) -> StreamPage {
+/// Page `q.page()` of the matches `groups` hold within `bounds` (of their
+/// files, in the file views): where it starts in the stream, the matches it
+/// shows and the stream's total. A page past the last is empty and flagged
+/// out of range.
+pub(super) fn stream_page(
+    q: MatchQuery<'_>,
+    groups: &[Group],
+    bounds: Bounds,
+    budget: usize,
+) -> StreamPage {
     let page = q.page().max(1) as usize;
     if super::file_list(q) {
         let paging = octocode_runtime_base::response::page_windows::Paging::of(q.limit(), budget);
@@ -175,23 +251,24 @@ pub(super) fn stream_page(q: MatchQuery<'_>, groups: &[Group], budget: usize) ->
             pagination: cut.facts.with_unit("files").to_value(),
         };
     }
-    let (cuts, oversized) = cut(groups, page_limit(q), budget.max(1));
+    let spans = bounds.spans(groups);
+    let (cuts, oversized) = cut(groups, &spans, page_limit(q), budget.max(1));
     let pages = cuts.len().max(1);
-    let total = groups.iter().map(|group| group.sizes.len()).sum::<usize>();
+    let total = spans.iter().map(ExactSizeIterator::len).sum::<usize>();
     let more = page < pages;
     let past_end = page > pages;
     let (window, slices) = cuts.get(page - 1).map_or_else(
         || (groups.len()..groups.len(), Vec::new()),
         |&(from, to)| slices(groups, from, to),
     );
-    // The page starts after every match of the files before its first and
-    // the matches of that file before its first shown one.
+    // The page starts after every stream match of the files before its
+    // first and the stream matches of that file before its first shown one.
     let offset = cuts.get(page - 1).map_or(total, |&((file, index), _)| {
-        groups[..file]
+        spans[..file]
             .iter()
-            .map(|group| group.sizes.len())
+            .map(ExactSizeIterator::len)
             .sum::<usize>()
-            + index
+            + index.saturating_sub(spans[file].start)
     });
     let length = slices.iter().map(ExactSizeIterator::len).sum::<usize>();
     let facts = PageFacts::open(offset, length, more)

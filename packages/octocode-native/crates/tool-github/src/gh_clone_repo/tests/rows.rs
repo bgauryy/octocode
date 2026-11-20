@@ -44,10 +44,11 @@ fn missing_repository_names_the_repository_with_a_recovery_hint() {
     );
 }
 
-/// A clone row continues into the local tools on its checkout (the
-/// sparse subtree when one was requested), and every fetch reports its completion time.
+/// A clone row names its checkout (and a sparse checkout's `paths` scope)
+/// and the time of every fetch; it adds no related request: its path is the
+/// next step the description names.
 #[test]
-fn clone_rows_continue_into_local_tools_and_name_the_checkout_time() {
+fn clone_rows_name_their_checkout_scope_and_time() {
     let fixture = Fixture::shared();
     let (root, home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
@@ -65,6 +66,7 @@ fn clone_rows_continue_into_local_tools_and_name_the_checkout_time() {
         data
     };
     let fresh = row(&clone_pinned(&fixture, &query(), &context).expect("fresh clone"));
+    assert!(fresh["location"].get("paths").is_none(), "{fresh}");
     assert!(fresh.get("related").is_none(), "{fresh}");
     assert!(Path::new(fresh["location"]["path"].as_str().expect("path")).is_dir());
     assert!(fresh["location"]["clonedAt"].is_string(), "{fresh}");
@@ -99,9 +101,10 @@ fn clone_rows_continue_into_local_tools_and_name_the_checkout_time() {
         "{sparse}"
     );
     assert!(Path::new(local).join("src").is_dir(), "{sparse}");
+    assert_eq!(sparse["location"]["paths"], json_fixture(r#"["src"]"#));
     assert!(sparse.get("related").is_none(), "{sparse}");
 
-    // A single checked-out file is read, not listed as a directory.
+    // A single checked-out file: the scope names the file.
     let file = row(&clone_pinned(
         &fixture,
         &GhCloneRepoQuery {
@@ -114,6 +117,7 @@ fn clone_rows_continue_into_local_tools_and_name_the_checkout_time() {
     let local = file["location"]["path"].as_str().expect("path");
     assert!(file["location"].get("requestedPaths").is_none(), "{file}");
     assert!(Path::new(local).join("src/lib.rs").is_file(), "{file}");
+    assert_eq!(file["location"]["paths"], json_fixture(r#"["src/lib.rs"]"#));
     assert!(file.get("related").is_none(), "{file}");
 }
 

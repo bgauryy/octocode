@@ -17,7 +17,7 @@ test('a package id names its crate and version in every form cargo writes', () =
 });
 
 test('only test executables are kept, once each, from their package directory', () => {
-  const artifact = (kind, test, executable) => ({ reason: 'compiler-artifact', package_id: 'path+file:///w/crates/io#octocode-io@1.0.0', manifest_path: '/w/crates/io/Cargo.toml', target: { kind: [kind], name: 'octocode_io' }, profile: { test }, executable });
+  const artifact = (kind, isTest, executable) => ({ reason: 'compiler-artifact', package_id: 'path+file:///w/crates/io#octocode-io@1.0.0', manifest_path: '/w/crates/io/Cargo.toml', target: { kind: [kind], name: 'octocode_io' }, profile: { test: isTest }, executable });
   const found = testExecutables([
     artifact('lib', true, '/t/deps/octocode_io-1'),
     artifact('lib', true, '/t/deps/octocode_io-1'),

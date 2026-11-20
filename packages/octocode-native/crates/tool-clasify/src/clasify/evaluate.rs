@@ -74,22 +74,24 @@ pub(super) fn evaluate_row(
         Ok(prepared) => prepared,
         Err(outcome) => return *outcome,
     };
-    let (price, at_most) = prepared.price(evaluator, row);
-    let room = evaluator.retry_room();
+    let planned = prepared.planned(evaluator, row);
+    let retries = evaluator.retry_room();
     if let Some(max) = row.max_requests
-        && RequestCap::ceiling(at_most, room) > max
+        && planned.at_most > max
     {
         return RowOutcome::OverBudget(Box::new(super::reply::OverBudget {
             units: 1,
-            price,
+            price: planned.price(retries),
             input_tokens_at_most: prepared.tokens_at_most(evaluator, row),
             max,
-            room,
+            room: retries,
         }));
     }
+    let room = room(row.max_requests, planned.at_most, retries);
+    let price = planned.price(room);
     // Every finite ceiling is held, capped or not; an uncapped source that
     // may be judged in sections states none and has none.
-    let cap = price.ceiling.map(|_| held(row, at_most, room));
+    let cap = price.ceiling.map(|_| held(row, planned.at_most, room));
     judge_prepared(
         evaluator,
         evaluations,
@@ -103,6 +105,15 @@ pub(super) fn evaluate_row(
         gate,
         can_resume,
     )
+}
+
+/// The transient retries a row of `at_most` requests shares, of the
+/// `retries` the runtime allows it: all of them without `maxRequests`, else
+/// only the room its cap leaves past `at_most`. A retry is never needed to
+/// answer, so a cap that holds every planned request, re-ask and split
+/// admits the row with fewer retries, never refuses it for them.
+pub(super) fn room(max: Option<u64>, at_most: u64, retries: u64) -> u64 {
+    max.map_or(retries, |max| retries.min(max.saturating_sub(at_most)))
 }
 
 /// The cap a row of `at_most` requests sharing `room` transient retries is
@@ -157,35 +168,53 @@ impl Prepared {
         }
     }
 
-    /// Its price, and the most requests its evaluation sends without
-    /// transient retries: a capped row is never judged in sections, so its
-    /// evaluation bounds it; an uncapped one whose last window may refuse it
-    /// may be, and is unbounded. The stated ceiling adds the transient
-    /// retries the row shares ([`RequestCap::held`]).
-    pub(super) fn price(&self, evaluator: &Evaluator, row: &Row) -> (super::reply::Price, u64) {
+    /// What its evaluation sends before any is sent ([`Planned`]).
+    pub(super) fn planned(&self, evaluator: &Evaluator, row: &Row) -> Planned {
         let sent = self.sent(row);
         let sends = evaluator.sends(self.input(row, &sent, None), row.model.as_deref());
-        let sectioned = sends.refusable && row.max_requests.is_none();
-        (
-            super::reply::Price {
-                planned: sends.first,
-                ceiling: (!sectioned)
-                    .then(|| RequestCap::ceiling(sends.at_most, evaluator.retry_room())),
-                room: evaluator.retry_room(),
-            },
-            sends.at_most,
-        )
+        Planned {
+            first: sends.first,
+            at_most: sends.at_most,
+            bounded: !(sends.refusable && row.max_requests.is_none()),
+        }
     }
 
-    /// The input tokens its first round costs at most.
-    pub(super) fn tokens_at_most(&self, evaluator: &Evaluator, row: &Row) -> u64 {
+    /// The input tokens its first round costs at most; `None` while nothing
+    /// bounds the provider's own prompt ([`Evaluator::tokens_at_most`]).
+    pub(super) fn tokens_at_most(&self, evaluator: &Evaluator, row: &Row) -> Option<u64> {
         let sent = self.sent(row);
         let sends = evaluator.sends(self.input(row, &sent, None), row.model.as_deref());
-        evaluator.tokens_at_most(
+        evaluator.first_round_tokens_at_most(
             row.model.as_deref(),
             row.long_context == Some(true),
-            sends.bytes,
+            &sends,
+            self.questions.len(),
         )
+    }
+}
+
+/// What a prepared row's evaluation sends: its first round, and the most
+/// requests it sends without transient retries. `bounded`: a capped row is
+/// never judged in sections, so its evaluation bounds it; an uncapped one
+/// whose last window may refuse it may be, and is unbounded.
+#[derive(Clone, Copy)]
+pub(super) struct Planned {
+    pub first: u64,
+    pub at_most: u64,
+    pub bounded: bool,
+}
+
+impl Planned {
+    /// Its price when it shares `room` transient retries: the stated
+    /// ceiling adds them ([`RequestCap::held`]).
+    pub(super) fn price(self, room: u64) -> super::reply::Price {
+        super::reply::Price {
+            planned: self.first,
+            ceiling: self
+                .bounded
+                .then(|| RequestCap::ceiling(self.at_most, room)),
+            room,
+        }
     }
 }
 
@@ -489,37 +518,39 @@ pub(super) fn resources_row(
         (key, prepared)
     });
     // The resources share one cap, and the row's transient retries once.
-    let room = evaluator.retry_room();
-    let (mut planned, mut at_most, mut tokens, mut units) = (0_u64, 0_u64, 0_u64, 0_usize);
+    let retries = evaluator.retry_room();
+    let (mut planned, mut at_most, mut tokens, mut units) = (0_u64, 0_u64, Some(0_u64), 0_usize);
     for (_, entry) in &prepared {
         if let Ok((_, Ok(prepared))) = entry {
-            let (price, most) = prepared.price(evaluator, row);
-            planned = planned.saturating_add(price.planned);
-            at_most = at_most.saturating_add(most);
-            tokens = tokens.saturating_add(prepared.tokens_at_most(evaluator, row));
+            let sends = prepared.planned(evaluator, row);
+            planned = planned.saturating_add(sends.first);
+            at_most = at_most.saturating_add(sends.at_most);
+            tokens = tokens
+                .zip(prepared.tokens_at_most(evaluator, row))
+                .map(|(sum, more)| sum.saturating_add(more));
             units += 1;
         }
     }
-    let ceiling = RequestCap::ceiling(at_most, room);
-    if ceiling > max {
+    if at_most > max {
         return RowOutcome::OverBudget(Box::new(super::reply::OverBudget {
             units,
             price: super::reply::Price {
                 planned,
-                ceiling: Some(ceiling),
-                room,
+                ceiling: Some(RequestCap::ceiling(at_most, retries)),
+                room: retries,
             },
             input_tokens_at_most: tokens,
             max,
-            room,
+            room: retries,
         }));
     }
+    let room = room(Some(max), at_most, retries);
     let cap = RequestCap::held(at_most, room);
     let resources = each(prepared, width, |(key, entry)| {
         let _enter = dispatcher.handle().enter();
         match entry {
             Ok((source, Ok(prepared))) => {
-                let (price, _) = prepared.price(evaluator, row);
+                let price = prepared.planned(evaluator, row).price(room);
                 let target = Target::Source(source.clone());
                 ResourceOutcome {
                     key,

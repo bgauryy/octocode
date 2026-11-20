@@ -23,7 +23,7 @@ fn within(summary: &Value, details: &Value) -> bool {
 
 fn summary_of(details: &Value) -> Value {
     let mut summary = details.clone();
-    summarize(&mut summary, false);
+    summarize(&mut summary);
     // The one thing a summary adds is the warning that names what it
     // left out; everything else it states is a leaf of the details.
     let mut stated = summary.clone();
@@ -64,7 +64,8 @@ fn an_evaluation_keeps_each_answers_value_and_leaves_its_tokens_to_details() {
                     "restart": {"noul": 0.96},
                     "kind": {"choice": "ops"},
                     "risk": {"score": 1.5}
-                }
+                },
+                "usage": {"calls": 1}
             }"#
         )
     );
@@ -254,6 +255,8 @@ fn a_summary_names_the_quiet_units_it_leaves_out() {
         "{warning}"
     );
     assert!(!warning.contains("a.rs:3"), "{warning}");
+    // Listing them asks the provider again: the warning says it bills.
+    assert!(warning.contains("billed"), "{warning}");
     // A row with no quiet unit says nothing.
     let loud = json_fixture(
         r#"{
@@ -418,10 +421,11 @@ fn a_details_continuation_stays_in_details() {
     );
 }
 
-/// Each resource of a row bills its own request: with several, every one
-/// states its `calls`, so the summary shows what the call spent.
+/// Each resource of a row bills its own request: every one states its
+/// `calls`, a single request included, so the summary shows what the call
+/// spent.
 #[test]
-fn several_resources_each_state_their_calls() {
+fn every_resource_states_its_calls() {
     let resource = |noul: f64| {
         json!({
             "model": "jev-1",
@@ -439,7 +443,10 @@ fn several_resources_each_state_their_calls() {
         );
     }
     let one = json!({"resources": {"a.md": resource(0.9)}});
-    assert!(summary_of(&one)["resources"]["a.md"].get("usage").is_none());
+    assert_eq!(
+        summary_of(&one)["resources"]["a.md"]["usage"],
+        json!({"calls": 1})
+    );
 }
 
 /// A summary of a row whose hits sit under their files: quiet hits leave

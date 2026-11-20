@@ -58,6 +58,9 @@ pub(crate) struct Import {
     /// Declaration id of the declaration whose body holds a Scala import;
     /// `None` at file level.
     pub scope_id: Option<String>,
+    /// A Rust `use` written inside an inline module (`mod tests { use ..; }`):
+    /// it binds names in that module, not at the file's top level.
+    pub inline: bool,
 }
 /// A `require` binding the engine proved (`const x = require('./m')`): it
 /// links calls like an import, and the variable that holds it is never a
@@ -164,6 +167,11 @@ pub(crate) struct FileFacts {
     /// Line of each linked re-export statement (named or `*`), by target.
     pub reexport_lines: Vec<(String, u32)>,
     pub calls: Vec<Call>,
+    /// Rust module paths of calls and value paths (`m::f` of `m::f()`) whose
+    /// first segment nothing this file binds names, with their lines: a
+    /// `use super::*` may bind it from the parent module (see the graph's
+    /// `inherit_parent_globs`).
+    pub rust_unbound_paths: Vec<(String, u32)>,
     /// The sites projection reads: only reference and unsupported slots and
     /// unsupported groups ([`Self::argument_counts`] has the whole scan).
     pub argument_sites: Vec<octocode_engine::graph::GraphFactArgumentSite>,
@@ -207,6 +215,7 @@ impl FileFacts {
         self.reexports.shrink_to_fit();
         self.reexport_lines.shrink_to_fit();
         self.calls.shrink_to_fit();
+        self.rust_unbound_paths.shrink_to_fit();
         self.heritage.shrink_to_fit();
     }
 

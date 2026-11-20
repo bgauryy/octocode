@@ -66,6 +66,14 @@ pub(crate) const MANIFEST_FILES: &[&str] = &[
     "setup.cfg",
 ];
 
+/// The pip requirement lists a Python component's dependencies come from
+/// (a name holding `dev` lists development dependencies).
+pub(crate) const REQUIREMENTS_FILES: &[&str] = &[
+    "requirements.txt",
+    "requirements-dev.txt",
+    "dev-requirements.txt",
+];
+
 #[derive(Debug, Default)]
 pub(crate) struct Workspace {
     /// Components by directory, deepest first when iterated in reverse.

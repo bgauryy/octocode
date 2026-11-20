@@ -515,24 +515,7 @@ fn build(
         return GraphOutput::error(error.code, error.message);
     }
     resume_paused(&mut out, query);
-    retry_after_change(&mut out, query);
     out
-}
-
-/// A build that lost a race with an edit: the hint says the failure is
-/// transient and `related` is the same build, runnable as written.
-fn retry_after_change(out: &mut GraphOutput, query: &GraphBuildQuery) {
-    if !out.retry {
-        return;
-    }
-    octocode_runtime_base::response::result::set_hints(
-        &mut out.value,
-        [
-            "A file changed while the graph was being built, so no snapshot was published. This is not a tool failure: run the same graphBuild again once the edits settle."
-                .to_owned(),
-        ],
-    );
-    out.value["related"] = json!([Continuation::related_query(query.clone()).build()]);
 }
 
 /// A paused build's `next.expandScan`: the same request, never a refresh,

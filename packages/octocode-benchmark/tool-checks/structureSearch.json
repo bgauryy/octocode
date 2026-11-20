@@ -1,0 +1,6 @@
+{"tool": "structureSearch", "steps": [
+ {"name": "orient: tree of a crate", "tool": "structureSearch", "args": {"path": "packages/octocode-native/crates/tool-lsp/src", "maxDepth": 1}, "expect": {"has": ["data.files"]}},
+ {"name": "files by name, newest first", "tool": "structureSearch", "args": {"path": "packages/octocode-native/crates", "operation": "files", "nameRegex": "^walk\\.rs$", "sort": {"by": "modifiedAt"}}, "expect": {"min": {"data.files[]": 1}}},
+ {"name": "then read one found file", "tool": "localFetch", "args": {"path": "packages/octocode-native/crates/engine/src/search/walk.rs", "view": "symbols"}, "expect": {"contains": ["walk_builder"]}},
+ {"name": "bad sort field is repaired with an example", "tool": "structureSearch", "args": {"path": "packages/octocode-native/crates", "operation": "files", "sort": {"by": "modified"}}, "expect": {"error": "invalidInput"}}
+]}

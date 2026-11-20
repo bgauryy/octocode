@@ -127,6 +127,7 @@ fn a_priced_scan_pages_exactly_as_a_held_scan() {
             &group_files(q, &priced.files, row_paths, &NeverCancel)
                 .expect("grouped")
                 .groups,
+            stream::Bounds::default(),
             budget,
         )
         .pages;
@@ -139,8 +140,10 @@ fn a_priced_scan_pages_exactly_as_a_held_scan() {
             let mut from_prices =
                 group_files(q, &priced.files, row_paths, &NeverCancel).expect("grouped");
             let mut expected = group_files(q, &held, row_paths, &NeverCancel).expect("grouped");
-            let cut = stream::stream_page(q, &from_prices.groups, budget);
-            let held_cut = stream::stream_page(q, &expected.groups, budget);
+            let cut =
+                stream::stream_page(q, &from_prices.groups, stream::Bounds::default(), budget);
+            let held_cut =
+                stream::stream_page(q, &expected.groups, stream::Bounds::default(), budget);
             assert_eq!(
                 (&cut.window, &cut.slices, &cut.pagination),
                 (&held_cut.window, &held_cut.slices, &held_cut.pagination)
@@ -198,7 +201,7 @@ fn a_priced_file_edited_after_its_scan_rebuilds_no_page() {
     let budget = 100_000;
     let row_paths = RowPaths::new(&paths, &scope.canonical, scope.is_file);
     let mut grouped = group_files(q, &scan.files, row_paths, &NeverCancel).expect("grouped");
-    let cut = stream::stream_page(q, &grouped.groups, budget);
+    let cut = stream::stream_page(q, &grouped.groups, stream::Bounds::default(), budget);
     std::fs::write(root.0.join("src/f0.rs"), "fn z() {}\n").expect("edit");
     let groups = &mut grouped.groups[cut.window];
     assert!(
@@ -247,7 +250,7 @@ fn a_priced_file_whose_match_does_not_finish_is_shown_unevaluated() {
     scan.files[0].source = Some((renamed, digest));
     let row_paths = RowPaths::new(&paths, &scope.canonical, scope.is_file);
     let mut grouped = group_files(q, &scan.files, row_paths, &NeverCancel).expect("grouped");
-    let cut = stream::stream_page(q, &grouped.groups, budget);
+    let cut = stream::stream_page(q, &grouped.groups, stream::Bounds::default(), budget);
     let window = cut.window.clone();
     assert!(window.contains(&0) && window.len() > 1, "{window:?}");
     let Ok(incomplete) = fill_page(

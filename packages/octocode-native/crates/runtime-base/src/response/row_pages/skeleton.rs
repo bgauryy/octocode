@@ -47,40 +47,72 @@ pub(super) fn continues_chars(array: &str, index: usize) -> usize {
 /// pass once the part is whole). An object or array that only holds declared
 /// collections off the pointer's path rides the first part: its collections
 /// are delivered by the parts that page them, and repeating its context on
-/// every later part would outgrow the page.
+/// every later part would outgrow the page. A row-level fact of `data`
+/// kept whole as required evidence (a total, an enum) stays only where the
+/// part needs it to validate ([`PageContextFields::drop_restated`]): a
+/// localSearch part that holds `files` validates without `matchCount`,
+/// which the first part states. An element the part continues keeps its
+/// members: they name it.
 ///
 /// [`PageContextFields::keep_later`]: crate::contracts::output_fields::PageContextFields::keep_later
+/// [`PageContextFields::drop_restated`]: crate::contracts::output_fields::PageContextFields::drop_restated
 pub(super) fn lean_later_context(
     skeleton: &mut Value,
     pointer: &str,
     context: &crate::contracts::output_fields::PageContextFields,
     routes: &crate::contracts::output_fields::CollectionRoutes,
 ) {
+    use crate::contracts::output_fields::PageContext;
     let collections = collection_paths(skeleton, routes);
     let holds = |path: &str| collections.iter().any(|held| held == path);
-    let mut node = Some(skeleton);
-    let mut at = String::new();
-    for segment in pointer.trim_start_matches('/').split('/') {
-        let Some(current) = node else {
-            return;
-        };
-        let key = crate::json_pointer::unescape(segment);
-        if let Some(map) = current.as_object_mut() {
-            map.retain(|name, value| {
-                let member = format!("{at}/{}", crate::json_pointer::escape(name));
-                *name == key
-                    || name == PAGES_KEY
-                    || name == HINTS_KEY
-                    || holds(&member)
-                    || context.keep_later(&member, value)
-            });
+    // Required evidence kept whole beside the pointer's path, by pointer.
+    let mut restated = Vec::new();
+    {
+        let mut node = Some(&mut *skeleton);
+        let mut at = String::new();
+        for segment in pointer.trim_start_matches('/').split('/') {
+            let Some(current) = node else {
+                break;
+            };
+            let key = crate::json_pointer::unescape(segment);
+            if let Some(map) = current.as_object_mut() {
+                map.retain(|name, value| {
+                    let member = format!("{at}/{}", crate::json_pointer::escape(name));
+                    if *name == key || name == PAGES_KEY || name == HINTS_KEY || holds(&member) {
+                        return true;
+                    }
+                    let kept = context.keep_later(&member, value);
+                    // A row-level fact (`data`'s own member, a total); an
+                    // element on the way keeps its members, which name it.
+                    if kept
+                        && at == "/data"
+                        && context.at(&member) == Some(PageContext::RequiredEvidence)
+                        && !is_empty_form(value)
+                    {
+                        restated.push(member);
+                    }
+                    kept
+                });
+            }
+            node = match current {
+                Value::Object(map) => map.get_mut(&key),
+                Value::Array(items) => key.parse::<usize>().ok().and_then(|i| items.get_mut(i)),
+                _ => None,
+            };
+            at = format!("{at}/{segment}");
         }
-        node = match current {
-            Value::Object(map) => map.get_mut(&key),
-            Value::Array(items) => key.parse::<usize>().ok().and_then(|i| items.get_mut(i)),
-            _ => None,
-        };
-        at = format!("{at}/{segment}");
+    }
+    context.drop_restated(skeleton, &restated);
+}
+
+/// An empty string, list or record: required evidence in the empty form a
+/// later part carries only to validate.
+fn is_empty_form(value: &Value) -> bool {
+    match value {
+        Value::String(text) => text.is_empty(),
+        Value::Array(items) => items.is_empty(),
+        Value::Object(members) => members.is_empty(),
+        _ => false,
     }
 }
 

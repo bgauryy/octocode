@@ -30,29 +30,115 @@ fn strict_environment_types() {
     assert!(validate_env_value("OCTOCODE_ENABLE_LOCAL", "perhaps").is_err());
     assert!(validate_env_value("CUSTOM_PROVIDER_KEY", "anything").is_ok());
 }
-#[test]
-fn unknown_settings_cannot_mutate_the_configuration_file() {
+fn rc_with(text: &str) -> (tempfile::TempDir, std::path::PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let rc = std::fs::canonicalize(dir.path())
         .unwrap()
         .join(".octocoderc");
-    let text = r#"{"lsp":{"prewarm":"off"},"unrecognized":"private-marker"}"#;
     std::fs::write(&rc, text).unwrap();
-    for value in [Some(json!("replacement")), None] {
+    (dir, rc)
+}
+/// A key in a declared section that no setting declares, as one a newer or
+/// older Octocode wrote.
+const RETIRED: &str = "lsp.retiredOption";
+#[test]
+fn an_unknown_key_cannot_be_set() {
+    assert!(!declared(RETIRED));
+    let text = r#"{"lsp":{"prewarm":"off","retiredOption":true},"unrecognized":"private-marker"}"#;
+    let (_dir, rc) = rc_with(text);
+    for key in ["unrecognized", RETIRED, "retired.option"] {
         let error = edit_setting(
             &rc,
-            "unrecognized",
-            value.as_ref(),
+            key,
+            Some(&json!("replacement")),
             &config_revision(Some(text)),
             false,
         )
         .unwrap_err();
-        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput, "{key}");
         assert!(!error.to_string().contains("private-marker"));
         assert_eq!(std::fs::read_to_string(&rc).unwrap(), text);
     }
 }
-
+/// The loader warns about a key the contract dropped; removal is the one
+/// edit that reaches it, and it takes only that key.
+#[test]
+fn removing_an_unknown_key_the_file_holds_takes_only_that_key() {
+    let text = r#"{"lsp":{"prewarm":"off","retiredOption":true},"unrecognized":"private-marker"}"#;
+    let (_dir, rc) = rc_with(text);
+    let edit = edit_setting(&rc, RETIRED, None, &config_revision(Some(text)), false).unwrap();
+    assert_eq!(edit, SettingEdit::RemovedUnknown);
+    assert!(edit.changed());
+    let notice = edit.notice(RETIRED).expect("an unknown-key notice");
+    assert!(notice.contains(RETIRED), "{notice}");
+    let after = parse_config_json(&std::fs::read_to_string(&rc).unwrap()).unwrap();
+    assert_eq!(
+        after,
+        json_fixture(r#"{"lsp": {"prewarm": "off"}, "unrecognized": "private-marker"}"#)
+    );
+}
+#[test]
+fn a_declared_setting_edit_has_no_notice() {
+    let text = r#"{"lsp":{"prewarm":"off"}}"#;
+    let (_dir, rc) = rc_with(text);
+    let edit = edit_setting(
+        &rc,
+        "lsp.prewarm",
+        None,
+        &config_revision(Some(text)),
+        false,
+    )
+    .unwrap();
+    assert_eq!(edit, SettingEdit::Changed);
+    assert_eq!(edit.notice("lsp.prewarm"), None);
+    assert_eq!(SettingEdit::Unchanged.notice(RETIRED), None);
+    assert!(!SettingEdit::Unchanged.changed());
+}
+#[test]
+fn removing_the_last_unknown_key_prunes_its_empty_section() {
+    let text = r#"{"retired":{"option":"private-marker"},"lsp":{"prewarm":"off"}}"#;
+    let (_dir, rc) = rc_with(text);
+    let edit = edit_setting(
+        &rc,
+        "retired.option",
+        None,
+        &config_revision(Some(text)),
+        false,
+    );
+    assert_eq!(edit.unwrap(), SettingEdit::RemovedUnknown);
+    let after = parse_config_json(&std::fs::read_to_string(&rc).unwrap()).unwrap();
+    assert_eq!(after, json_fixture(r#"{"lsp": {"prewarm": "off"}}"#));
+}
+#[test]
+fn an_unknown_key_the_file_does_not_hold_changes_nothing() {
+    let text = r#"{"lsp":{"prewarm":"off"},"unrecognized":"private-marker"}"#;
+    let (_dir, rc) = rc_with(text);
+    for key in [RETIRED, "unrecognized.option"] {
+        let error = edit_setting(&rc, key, None, &config_revision(Some(text)), false).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "{key}");
+        assert!(error.to_string().contains("does not hold"), "{error}");
+        assert!(!error.to_string().contains("private-marker"));
+        assert_eq!(std::fs::read_to_string(&rc).unwrap(), text);
+    }
+    let missing = rc.with_file_name("absent.octocoderc");
+    let error = edit_setting(&missing, RETIRED, None, "missing", false).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    assert!(!missing.exists());
+}
+/// A section, or a part of a declared setting's value, is not an unknown
+/// key: removing it would drop declared settings, so it stays refused.
+#[test]
+fn removal_never_reaches_a_declared_section_or_a_part_of_a_setting() {
+    let text = r#"{"lsp":{"prewarm":{"hidden":"private-marker"}}}"#;
+    let (_dir, rc) = rc_with(text);
+    for key in ["lsp", "lsp.prewarm.hidden"] {
+        assert!(declared(key), "{key}");
+        let error = edit_setting(&rc, key, None, &config_revision(Some(text)), false).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput, "{key}");
+        assert_eq!(std::fs::read_to_string(&rc).unwrap(), text, "{key}");
+    }
+    assert!(!declared("lspx") && !declared("lsp.prewarmx"));
+}
 #[test]
 fn inspect_never_discloses_unknown_or_invalid_values() {
     let dir = tempfile::tempdir().unwrap();
@@ -227,6 +313,9 @@ fn stale_revision_cannot_overwrite() {
     std::fs::write(&path, "{/*keep*/\"lsp\":{\"prewarm\":\"off\"}}").unwrap();
     assert!(edit_setting(&path, "lsp.prewarm", Some(&json!("all")), "missing", false).is_err());
     let revision = config_revision(read_private_config(&path).unwrap().as_deref());
-    assert!(edit_setting(&path, "lsp.prewarm", Some(&json!("all")), &revision, false).unwrap());
+    assert_eq!(
+        edit_setting(&path, "lsp.prewarm", Some(&json!("all")), &revision, false).unwrap(),
+        SettingEdit::Changed
+    );
     assert!(std::fs::read_to_string(path).unwrap().contains("/*keep*/"));
 }

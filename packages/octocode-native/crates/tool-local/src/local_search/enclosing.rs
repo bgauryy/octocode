@@ -157,22 +157,23 @@ impl Outline {
     }
 }
 
-/// Whether the search names a declaration (`fn foo`, `class Foo`) rather
-/// than a bare identifier.
+/// Whether the search names a declaration (`fn foo`, `pub fn foo`,
+/// `class Foo`) rather than a bare identifier.
 pub(super) fn declaration_search(search_text: &str) -> bool {
     searched_symbol(search_text).is_some() && search_text.trim().contains(char::is_whitespace)
 }
 
-/// The identifier a search names: a bare identifier, or one after a
-/// declaration keyword.
+/// The identifier a search names: a bare identifier, or the name a
+/// declaration head declares ([`octocode_engine::search::declared_name`]:
+/// `fn foo`, `pub(crate) fn foo`, `export default class Foo`), read by the
+/// walk that marks a hit line `declaration`; a head written up to its
+/// signature's opening (`pub fn foo(`) names `foo`.
 pub(super) fn searched_symbol(search_text: &str) -> Option<&str> {
     let text = search_text.trim();
-    let name = match text.split_once(char::is_whitespace) {
-        Some((keyword, rest)) if octocode_engine::search::is_declaration_keyword(keyword) => {
-            rest.trim()
-        }
-        Some(_) => return None,
-        None => text,
+    let name = if text.contains(char::is_whitespace) {
+        octocode_engine::search::declared_name(text)?
+    } else {
+        text
     };
     let mut chars = name.chars();
     let first = chars.next()?;

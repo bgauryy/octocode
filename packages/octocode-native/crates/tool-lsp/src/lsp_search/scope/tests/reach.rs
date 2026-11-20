@@ -518,12 +518,9 @@ async fn bounded_agrees(
     assert_eq!(sorted(&bounded), sorted(&whole), "the same missed sites");
     let left = bounded.unsearched_files(symbol);
     assert_eq!(left.len(), unread, "{left:?}");
+    let reaches = Scope::reach_from((&shown(anchor.0), anchor.1, anchor.2), symbol);
     for file in &left {
-        assert!(
-            !whole.may_reach(symbol, &shown(file)),
-            "{} is in reach",
-            file.display()
-        );
+        assert!(!reaches(&shown(file)), "{} is in reach", file.display());
     }
     assert!(whole.unsearched_files(symbol).is_empty());
     let count = |scope: &Scope| scope.out_of_reach(symbol).map_or(0, |out| out.files);

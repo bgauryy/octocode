@@ -37,7 +37,7 @@ async fn search_naming_a_missing_user_is_not_a_missing_repository() {
             "repo": "r",
             "filters": {
                 "author": "ghost",
-                "notReviewedBy": ["bot"],
+                "reviewedBy": "bot",
                 "labels": ["bug"]
             }
         }"#,

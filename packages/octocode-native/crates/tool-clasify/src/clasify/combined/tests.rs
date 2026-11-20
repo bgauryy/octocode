@@ -11,7 +11,7 @@ fn deciding_read(
     can_resume: bool,
     capture: &Value,
 ) -> Option<Value> {
-    let lines = deciding_lines(answers.as_object()?.values());
+    let lines = read_lines(answers.as_object()?.values());
     lines_read(source, pin, &lines, can_resume, capture)
 }
 
@@ -54,10 +54,10 @@ fn noul_is_the_highest_section_and_names_its_lines() {
 }
 
 /// An absent fact answered low in every section: the highest section's lines
-/// are stated (a summary drops them), but no section decided the no, so they
-/// add nothing to the read.
+/// are stated (a summary drops them), and with no yes the read cites them,
+/// the nearest miss, so the negative is checked where it came closest.
 #[test]
-fn a_noul_no_states_its_highest_section_but_adds_nothing_to_the_read() {
+fn a_noul_no_states_its_highest_section_and_the_read_cites_it() {
     let sections = [
         section(1, 428, vec![json_fixture(r#"{"noul": 0.02}"#)]),
         section(429, 853, vec![json_fixture(r#"{"noul": 0.01}"#)]),
@@ -70,7 +70,19 @@ fn a_noul_no_states_its_highest_section_but_adds_nothing_to_the_read() {
     );
     let source = json_fixture(r#"{"tool": "localFetch", "query": {"path": "big.log"}}"#);
     let answers = json!({"payments":answer});
-    assert!(deciding_read(&source, None, &answers, true, &Value::Null).is_none());
+    let read = deciding_read(&source, None, &answers, true, &Value::Null).expect("a read");
+    assert_eq!(
+        read["input"]["queries"][0]["ranges"],
+        json_fixture(r#"[{"startLine": 854, "endLine": 900}]"#)
+    );
+    // A yes elsewhere decides the read alone.
+    let decided =
+        json!({"payments":answer,"refunds":{"noul":0.9,"lines":{"startLine":1,"endLine":428}}});
+    let read = deciding_read(&source, None, &decided, true, &Value::Null).expect("a read");
+    assert_eq!(
+        read["input"]["queries"][0]["ranges"],
+        json_fixture(r#"[{"startLine": 1, "endLine": 428}]"#)
+    );
 }
 
 fn pick(label: &str, confidence: f64) -> Value {
@@ -228,7 +240,7 @@ fn failed_sections_are_counted_and_never_answer() {
 }
 
 /// The read holds the yes sections and every choice or score section,
-/// merged; a `noul` no adds nothing to read.
+/// merged; beside them a `noul` no adds nothing to read.
 #[test]
 fn the_read_covers_the_deciding_lines_only() {
     let source = json_fixture(r#"{"tool": "localFetch", "query": {"path": "big.rs"}}"#);

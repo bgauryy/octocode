@@ -110,7 +110,6 @@
     {"files":["packages/octocode-chrome-devtools/tests/unit/helper-inputs.test.mjs"],"rules":{"typescript/no-misused-spread":"off","typescript/restrict-template-expressions":"off"}},
     {"files":["packages/octocode-chrome-devtools/tests/unit/invocation.test.mjs"],"rules":{"no-unsafe-finally":"off"}},
     {"files":["packages/octocode-chrome-devtools/tools/build.mjs"],"rules":{"no-shadow":"off"}},
-    {"files":["packages/octocode-chrome-devtools/tools/check.mjs"],"rules":{"no-shadow":"off"}},
     {"files":["packages/octocode-config/build.mjs"],"rules":{"no-underscore-dangle":"off","no-unused-vars":"off"}},
     {"files":["packages/octocode-config/tests/config.test.ts"],"rules":{"no-shadow":"off"}},
     {"files":["packages/octocode-config/tests/tool-contract-generation.test.ts"],"rules":{"typescript/no-explicit-any":"off","typescript/no-unnecessary-type-assertion":"off"}},

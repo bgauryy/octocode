@@ -192,6 +192,15 @@ fn the_answer_and_the_coordinates_stay_only_when_they_say_something_new() {
         target(package()),
     );
     assert_eq!(no_verdict["answer"], "sentence", "{no_verdict}");
+    // A verdict of none known counts 0, which proves nothing: the sentence
+    // that says so stays.
+    let none_known = apply(
+        SecurityCheckView::Summary,
+        row(json_fixture(r#"{"affected": false, "advisories": []}"#)),
+        target(package()),
+    );
+    assert_eq!(none_known["answer"], "sentence", "{none_known}");
+    assert_eq!(none_known["advisoryCount"], 0, "{none_known}");
     // A range the registry resolved, or a URL: the row's coordinates are news.
     let mut resolved = target(package());
     resolved.asked_version = Some("^4");
@@ -266,6 +275,37 @@ fn a_missing_version_leads_to_the_nearest_versions_alone() {
         json_fixture(r#"["Version not found: check the registry"]"#),
         "{lean}"
     );
+}
+
+/// A version that was not evaluated has no count of its own: the package's
+/// advisories OSV lists are not counted, ranked or linked as the version's,
+/// and the sentence that says what they are stays.
+#[test]
+fn a_version_not_evaluated_counts_no_advisory_as_its_own() {
+    let row = json_fixture(
+        r#"{
+            "status": "error",
+            "errorCode": "notFound",
+            "answer": "lodash: the requested version is not on the registry, so it was not evaluated. OSV has 1 known advisory for this package.",
+            "versionEvaluated": false,
+            "advisories": [
+                {"id": "GHSA-1", "severity": "critical", "link": "https://osv.dev/vulnerability/GHSA-1"}
+            ]
+        }"#,
+    );
+    let mut asked = target(package());
+    asked.unfixed_in_major = 1;
+    let lean = apply(SecurityCheckView::Summary, row.clone(), asked);
+    for absent in [
+        "advisoryCount",
+        "advisoryIds",
+        "highestSeverity",
+        "link",
+        "unfixedInMajorCount",
+    ] {
+        assert!(lean.get(absent).is_none(), "{absent}: {lean}");
+    }
+    assert_eq!(lean["answer"], row["answer"], "{lean}");
 }
 
 /// Fields the summary does not name stay: a new disclosure is never dropped

@@ -93,11 +93,10 @@ async fn commit_match_string_that_removes_every_file_says_so() {
     assert!(out.get("status").is_none(), "{out}");
     assert_eq!(
         out["warnings"],
-        json_fixture(
-            r#"[
-                "matchString dropped 1 of 2 changed files: no patch line holds it."
-            ]"#
-        ),
+        json!([
+            "matchString dropped 1 of 2 changed files: no patch line holds it.",
+            crate::gh_get_history_item::commit::NO_PULL_REQUEST_NAMED
+        ]),
         "{out}"
     );
     assert!(out["next"].get("withoutMatchString").is_none(), "{out}");
@@ -267,11 +266,10 @@ async fn commit_match_string_lists_patchless_files_as_unsearched() {
     assert_eq!(paths, [json!("src/a.rs")], "{out}");
     assert_eq!(
         out["warnings"],
-        json_fixture(
-            r#"[
-                "matchString dropped 1 of 3 changed files: no patch line holds it."
-            ]"#
-        ),
+        json!([
+            "matchString dropped 1 of 3 changed files: no patch line holds it.",
+            crate::gh_get_history_item::commit::NO_PULL_REQUEST_NAMED
+        ]),
         "{out}"
     );
     assert_eq!(
@@ -301,11 +299,10 @@ async fn commit_match_string_lists_patchless_files_as_unsearched() {
     assert!(out.get("status").is_none(), "{out}");
     assert_eq!(
         out["warnings"],
-        json_fixture(
-            r#"[
-                "matchString dropped 2 of 3 changed files: no patch line holds it."
-            ]"#
-        ),
+        json!([
+            "matchString dropped 2 of 3 changed files: no patch line holds it.",
+            crate::gh_get_history_item::commit::NO_PULL_REQUEST_NAMED
+        ]),
         "{out}"
     );
     assert_eq!(

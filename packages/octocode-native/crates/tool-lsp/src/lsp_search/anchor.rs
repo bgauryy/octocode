@@ -15,6 +15,9 @@ pub(super) struct Anchor {
     pub(super) line: u32,
     pub(super) character: u32,
     pub(super) resolved_symbol: Option<Value>,
+    /// Why the request's `line` named no line of the file (past its end),
+    /// for the row's warnings.
+    pub(super) warning: Option<String>,
 }
 
 /// A zero-based LSP position in `path`: where a request, or one of its
@@ -51,6 +54,7 @@ pub(super) fn resolve_anchor(
             line: 0,
             character: 0,
             resolved_symbol: None,
+            warning: None,
         });
     }
     if let Some(name) = lsp_search_query::symbol_name(query) {
@@ -90,10 +94,13 @@ pub(super) fn resolve_anchor(
         {
             disclose_rival_lines(&mut symbol, path, source, name, asked, &resolved);
         }
+        let warning = lsp_search_query::anchor_line(query)
+            .and_then(|asked| past_the_end(source, name, asked, &resolved, &symbol));
         return Ok(Anchor {
             line: resolved.position.line,
             character: resolved.position.character,
             resolved_symbol: Some(symbol),
+            warning,
         });
     }
     Err("lspSearch requires symbolName and line".to_owned())
@@ -129,14 +136,44 @@ fn disclose_same_line(symbol: &mut Value, resolved: &LspResolvedSymbol, name: &s
     symbol["alternatives"] = json!(alternatives);
 }
 
+/// The warning of a one-based `asked` line past the end of `source`: it
+/// names no line of the file, so the anchor `resolved` was chosen by name
+/// alone, and the receipt's alternatives (in `symbol`) are as likely meant.
+fn past_the_end(
+    source: &str,
+    name: &str,
+    asked: u32,
+    resolved: &LspResolvedSymbol,
+    symbol: &Value,
+) -> Option<String> {
+    let length = source.lines().count();
+    if usize::try_from(asked).is_ok_and(|asked| asked <= length) {
+        return None;
+    }
+    let others = match symbol.get("alternatives").and_then(Value::as_array) {
+        Some(listed) if !listed.is_empty() => {
+            "; resolvedSymbol.alternatives names other lines that spell it"
+        }
+        _ => "",
+    };
+    Some(format!(
+        "Line {asked} is past the end of the file ({}): `{name}` was anchored on line {} by name alone{others}.",
+        octocode_engine::text::counted(length, "line", "lines"),
+        resolved.found_at_line
+    ))
+}
+
 /// A name that is not on its `line` resolved to the nearest line that
 /// anchors it, which may hold another symbol of that spelling. Every other
 /// line the resolver chose among (within its own reach of the one-based
 /// `asked` line, [`DEFAULT_RADIUS`]) is a rival reading of a stale line
 /// number, and so is the nearest line on the other side of `asked`, however
-/// far: the resolver chose by nearness alone. The receipt names each as an
-/// alternative, nearest first, with the `line` that anchors on it and its
-/// distance.
+/// far: the resolver chose by nearness alone. A line out of that reach of
+/// every spelling resolved to the file's one declaration, not by nearness:
+/// the nearest line on its own side, when nearer than that declaration, is
+/// a rival too. The receipt names each
+/// as an alternative, nearest first, with the `line` that anchors on it and
+/// its distance.
 fn disclose_rival_lines(
     symbol: &mut Value,
     path: &str,
@@ -146,6 +183,7 @@ fn disclose_rival_lines(
     resolved: &LspResolvedSymbol,
 ) {
     let below = resolved.found_at_line > asked;
+    let by_nearness = resolved.found_at_line.abs_diff(asked) as usize <= DEFAULT_RADIUS;
     let other_side = |line: u32| if below { line < asked } else { line > asked };
     let mut lines = super::importers::occurrences(source, name)
         .into_iter()
@@ -161,21 +199,28 @@ fn disclose_rival_lines(
             .ok()
             .filter(|rival| rival.line_offset == 0)
     };
-    let mut crossed = false;
+    // The nearest anchoring line found on the other side, and on the
+    // resolved line's own side: wanted only when nearness did not choose,
+    // and only nearer to `asked` than the resolved line.
+    let (mut crossed, mut beside) = (false, by_nearness);
+    let resolved_distance = resolved.found_at_line.abs_diff(asked);
     let mut rivals = Vec::new();
     for line in lines {
+        beside |= line.abs_diff(asked) >= resolved_distance;
         let chosen_among = line.abs_diff(asked) as usize <= DEFAULT_RADIUS;
         let crossing = !crossed && other_side(line);
-        if !chosen_among && crossed {
+        let nearest_beside = !beside && !other_side(line);
+        if !chosen_among && crossed && beside {
             break;
         }
-        if !chosen_among && !crossing {
+        if !chosen_among && !crossing && !nearest_beside {
             continue;
         }
         let Some(rival) = anchors(line) else {
             continue;
         };
         crossed |= crossing;
+        beside |= nearest_beside;
         rivals.push(json!({
             "foundAtLine": rival.found_at_line,
             "foundAtCharacter": rival.position.character + 1,

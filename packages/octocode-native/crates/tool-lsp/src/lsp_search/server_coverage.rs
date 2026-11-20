@@ -8,17 +8,17 @@
 //! the server did not resolve to this declaration (a module path outside
 //! its search roots): reason `importUnresolved`. In a package that `include!`s source rust-analyzer does
 //! not load, uses through the types it defines are missing: reason
-//! `buildScriptsOff` (build-script output, loaded by a rerun) or
-//! `includeOutsidePackage` (a file outside the package), on the same
-//! file-level evidence; a missed file a target gate leaves out is no such
-//! evidence. rust-analyzer analyzes one target, so a file whose uses sit
+//! `buildScriptsOff` (build-script output the server's configuration does
+//! not load) or `includeOutsidePackage` (a file outside the package), on the
+//! same file-level evidence; a missed file a target gate leaves out is no
+//! such evidence. rust-analyzer analyzes one target, so a file whose uses sit
 //! under a `cfg` of another target (`windows`, `target_os`) is missing:
-//! reason `cfgGatedFiles`, with a `rustContext.target` rerun. rust-analyzer analyzes one feature set, so code
+//! reason `cfgGatedFiles`. rust-analyzer analyzes one feature set, so code
 //! under disabled `cfg(feature)` gates is compiled out: reason
 //! `cfgGatedFiles` when files the answer did not cover use the name in code
-//! and carry such gates, with an `expandFeatures` rerun page. An all-features run compiles out
+//! and carry such gates. An all-features configuration compiles out
 //! `cfg(not(feature …))` code instead: reason `cfgNegatedFeatures`. Every
-//! such row gets the lexical `findText` lead. Gate scans cover the server's
+//! such row gets the lexical related localSearch. Gate scans cover the server's
 //! Cargo workspace: code outside it is not compiled, so no gate there hides
 //! a use.
 
@@ -115,7 +115,7 @@ pub(super) fn annotate(
                     .map(|name| target_gated_files(scope, server.root, name, rust.target, stopped))
                     .unwrap_or_default();
                 annotate_includes(row, query, server.anchor, scope, rust, &gated, stopped);
-                annotate_targets(row, query, scope, rust.target, &gated);
+                annotate_targets(row, query, scope, &gated);
             }
             annotate_rust(row, query, server.root, scope, rust.all_features, stopped);
             // An answer naming no use stands only where the server placed every

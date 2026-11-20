@@ -24,7 +24,7 @@ pub const FILE_LEVEL_REASONS: [octocode_runtime_base::response::paging::PartialR
 pub const LISTED_TEXT_FILES: usize = 5;
 
 /// Mark an incoming-direction row partial: coverage reason, a warning, and
-/// (when the query names its symbol) a lexical `findText` lead over the
+/// (when the query names its symbol) a lexical related localSearch over the
 /// request's search scope. `coverage.textOnlyFiles` counts the files that
 /// spell the name but are not in the answer; up to five are the lead's rows.
 pub fn flag_partial(

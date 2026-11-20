@@ -147,11 +147,5 @@ pub(in super::super) fn with_next(query: &LspSearchQuery, mut value: Value) -> V
             attach_recovery_next(&mut value, query);
         }
     }
-    if let Some(context) = &lsp_search_query::rust_context(query) {
-        value["rustContext"] = json!({
-            "context": context,
-            "fingerprint": super::super::receipt::rust_fingerprint(context)
-        });
-    }
     value
 }

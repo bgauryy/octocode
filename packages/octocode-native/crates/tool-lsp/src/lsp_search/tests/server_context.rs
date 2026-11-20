@@ -1,211 +1,71 @@
-//! Server context overlays: a Rust context over the engine's headless
-//! defaults, and a default-equivalent context sharing the default server.
+//! A Rust server's configured analysis: the engine's headless defaults, a
+//! configuration that runs build scripts, and one that cannot run.
 
 use super::*;
 use octocode_test_support::json_fixture;
 
-#[test]
-fn rust_context_overlays_the_engine_headless_defaults() {
-    let mut config = octocode_engine::lsp::types::LspLanguageServerConfig {
-        command: "rust-analyzer".into(),
-        args: None,
-        workspace_root: "/repo".into(),
-        language_id: Some("rust".into()),
-        document_language_ids: Default::default(),
-        initialization_options: Some(
-            octocode_engine::lsp::config::rust_analyzer_headless_options(),
-        ),
-        env: Some(std::collections::HashMap::from([(
-            "PATH".to_owned(),
-            std::env::var("PATH").unwrap_or_default(),
-        )])),
-        max_memory_mb: None,
-        source: Default::default(),
-    };
-    let q = query(json_fixture(
-        r#"{
-            "operation": "definition",
-            "path": "/repo/src/lib.rs",
-            "symbolName": "foo",
-            "line": 1,
-            "rustContext": {"features": ["x"]}
-        }"#,
-    ));
-    apply_rust_context(&mut config, &q).expect("rust context");
-    let options = config.initialization_options.expect("options");
-    assert_eq!(options["cargo"]["features"], json_fixture(r#"["x"]"#));
-    assert_eq!(options["cargo"]["buildScripts"]["enable"], false);
-    assert_eq!(options["cargo"]["targetDir"], true);
-    assert_eq!(options["procMacro"]["enable"], false);
-    assert_eq!(options["checkOnSave"], false);
-    assert!(
-        options.get("cachePriming").is_none(),
-        "the overlay sets no option the engine leaves at rust-analyzer's default"
-    );
-    assert!(
-        options.get("cfg").is_none(),
-        "cfg(test) code stays analyzed: the overlay never sets cfg.setTest"
-    );
-    assert!(options["cargo"].get("cfgs").is_none());
-    assert!(options["cargo"].get("noDefaultFeatures").is_none());
-}
-
+/// A rust-analyzer configuration: the engine's headless defaults with
+/// `options` merged over them, as a user's server configuration sets them.
 pub(super) fn rust_server_config(
-    context: serde_json::Value,
+    options: serde_json::Value,
 ) -> octocode_engine::lsp::types::LspLanguageServerConfig {
-    let mut config = octocode_engine::lsp::types::LspLanguageServerConfig {
+    fn merge(into: &mut serde_json::Value, from: serde_json::Value) {
+        match (into, from) {
+            (serde_json::Value::Object(into), serde_json::Value::Object(from)) => {
+                for (key, value) in from {
+                    merge(into.entry(key).or_insert(serde_json::Value::Null), value);
+                }
+            }
+            (into, from) => *into = from,
+        }
+    }
+    let mut initialization = octocode_engine::lsp::config::rust_analyzer_headless_options();
+    merge(&mut initialization, options);
+    octocode_engine::lsp::types::LspLanguageServerConfig {
         command: "rust-analyzer".into(),
         args: None,
         workspace_root: "/repo".into(),
         language_id: Some("rust".into()),
         document_language_ids: Default::default(),
-        initialization_options: Some(
-            octocode_engine::lsp::config::rust_analyzer_headless_options(),
-        ),
+        initialization_options: Some(initialization),
         env: Some(std::collections::HashMap::from([(
             "PATH".to_owned(),
             std::env::var("PATH").unwrap_or_default(),
         )])),
         max_memory_mb: None,
         source: Default::default(),
-    };
-    let mut row = json_fixture(
-        r#"{
-            "operation": "references",
-            "path": "/repo/src/lib.rs",
-            "symbolName": "foo",
-            "line": 1
-        }"#,
-    );
-    if !context.is_null() {
-        row["rustContext"] = context;
     }
-    apply_rust_context(&mut config, &query(row)).expect("rust context");
-    config
 }
 
+/// The headless defaults run no build script and pass; a configuration that
+/// runs build scripts, proc macros and every feature is read as such and
+/// passes; proc macros without build scripts cannot run (rust-analyzer
+/// builds them through Cargo) and are refused before a server starts. A
+/// server of another language is not asked.
 #[test]
-fn rust_context_admission_uses_the_effective_configuration() {
+fn a_rust_server_runs_proc_macros_only_with_build_scripts() {
+    let headless = rust_server_config(serde_json::json!({}));
+    assert!(validate_rust_options(&headless).is_ok());
+    let analysis = RustAnalysis::of(&headless);
+    assert!(!analysis.build_scripts && !analysis.all_features);
+
     let configured = rust_server_config(json_fixture(
         r#"{
-            "features": "all",
-            "buildScripts": true,
-            "procMacros": true
+            "cargo": {"features": "all", "buildScripts": {"enable": true}},
+            "procMacro": {"enable": true}
         }"#,
     ));
-    let key = octocode_engine::lsp::pool::canonical_lsp_key(&configured).expect("configured key");
-    let base = json_fixture(
-        r#"{
-            "operation": "references",
-            "path": "/repo/src/lib.rs",
-            "symbolName": "foo",
-            "line": 1
-        }"#,
-    );
-    for context in [
-        serde_json::Value::Null,
-        serde_json::json!({}),
-        json_fixture(r#"{"procMacros": true}"#),
-        json_fixture(
-            r#"{
-                "features": "all",
-                "buildScripts": true,
-                "procMacros": true
-            }"#,
-        ),
-    ] {
-        let mut input = base.clone();
-        if !context.is_null() {
-            input["rustContext"] = context;
-        }
-        let query = query(input);
-        let before = lsp_search_query::to_row(&query);
-        let mut config = configured.clone();
-        apply_rust_context(&mut config, &query).expect("inherited enabled build scripts");
-        assert_eq!(
-            octocode_engine::lsp::pool::canonical_lsp_key(&config).expect("key"),
-            key
-        );
-        assert_eq!(lsp_search_query::to_row(&query), before);
-        assert!(RustAnalysis::of(&config).build_scripts && RustAnalysis::of(&config).all_features);
-    }
+    assert!(validate_rust_options(&configured).is_ok());
+    let analysis = RustAnalysis::of(&configured);
+    assert!(analysis.build_scripts && analysis.all_features);
 
-    for context in [
-        json_fixture(r#"{"buildScripts": false}"#),
-        json_fixture(r#"{"buildScripts": false, "procMacros": true}"#),
-    ] {
-        let mut input = base.clone();
-        input["rustContext"] = context;
-        let mut config = configured.clone();
-        assert!(
-            apply_rust_context(&mut config, &query(input))
-                .unwrap_err()
-                .contains("requires buildScripts:true")
-        );
-        assert_eq!(
-            config.initialization_options, configured.initialization_options,
-            "rejection cannot mutate the resolved config"
-        );
-    }
-
-    let mut invalid_inherited = configured.clone();
-    invalid_inherited
-        .initialization_options
-        .as_mut()
-        .expect("options")["cargo"]["buildScripts"]["enable"] = serde_json::json!(false);
-    assert!(apply_rust_context(&mut invalid_inherited, &query(base.clone())).is_err());
-    let mut disabled = configured.clone();
-    let mut input = base;
-    input["rustContext"] =
-        json_fixture(r#"{"features": [], "buildScripts": false, "procMacros": false}"#);
-    apply_rust_context(&mut disabled, &query(input)).expect("explicit disable");
-    let options = disabled.initialization_options.as_ref().expect("options");
-    assert_eq!(options["cargo"]["features"], serde_json::json!([]));
-    assert_eq!(options["cargo"]["buildScripts"]["enable"], false);
-    assert_eq!(options["procMacro"]["enable"], false);
+    let invalid = rust_server_config(json_fixture(r#"{"procMacro": {"enable": true}}"#));
     assert!(
-        !RustAnalysis::of(&disabled).build_scripts && !RustAnalysis::of(&disabled).all_features
+        validate_rust_options(&invalid)
+            .unwrap_err()
+            .contains("procMacro.enable requires cargo.buildScripts.enable")
     );
-    assert_ne!(
-        octocode_engine::lsp::pool::canonical_lsp_key(&disabled).expect("key"),
-        key
-    );
-}
-
-/// A context that names only default values is the default analysis: the
-/// same configuration, so the same pooled server (one rust-analyzer, not
-/// one per spelling of the defaults). A context that changes one field
-/// changes only that field.
-#[test]
-fn a_default_equivalent_rust_context_shares_the_default_server() {
-    let key = |context| {
-        octocode_engine::lsp::pool::canonical_lsp_key(&rust_server_config(context)).expect("key")
-    };
-    let default = key(serde_json::Value::Null);
-    for explicit in [
-        serde_json::json!({}),
-        json_fixture(r#"{"buildScripts": false}"#),
-        json_fixture(r#"{"buildScripts": false, "procMacros": false}"#),
-        json_fixture(r#"{"features": [], "noDefaultFeatures": false}"#),
-        json_fixture(r#"{"cfgs": ["debug_assertions"]}"#),
-    ] {
-        assert_eq!(key(explicit.clone()), default, "{explicit}");
-    }
-    let scripts = rust_server_config(json_fixture(r#"{"buildScripts": true}"#))
-        .initialization_options
-        .expect("options");
-    assert_ne!(key(json_fixture(r#"{"buildScripts": true}"#)), default);
-    let mut expected = octocode_engine::lsp::config::rust_analyzer_headless_options();
-    expected["cargo"]["buildScripts"]["enable"] = serde_json::json!(true);
-    // Build scripts run repository code anyway: the wrapper blanks go with them.
-    expected["cargo"]["extraEnv"] = serde_json::json!({});
-    assert_eq!(scripts, expected, "only the named field changes");
-    let cfgs = rust_server_config(json_fixture(r#"{"cfgs": ["tokio_unstable"]}"#))
-        .initialization_options
-        .expect("options");
-    assert_eq!(
-        cfgs["cargo"]["cfgs"],
-        json_fixture(r#"["debug_assertions", "miri", "tokio_unstable"]"#),
-        "named cfgs add to rust-analyzer's defaults"
-    );
+    let mut other = invalid;
+    other.language_id = Some("typescript".into());
+    assert!(validate_rust_options(&other).is_ok());
 }

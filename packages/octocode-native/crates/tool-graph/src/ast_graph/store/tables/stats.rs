@@ -20,7 +20,7 @@ pub(crate) struct CallStats {
 }
 
 /// Unlinked reasons that still name a declaration in this repository.
-pub(super) const INTERNAL_REASONS: &[&str] =
+pub(in crate::ast_graph::store) const INTERNAL_REASONS: &[&str] =
     &["ambiguous", "member-unknown-receiver-in-repo", "other"];
 
 impl CallStats {

@@ -355,11 +355,14 @@ fn pypi_version_not_found(project: &Value, name: &str, requested: &str) -> Artif
         .iter()
         .filter(|release| !live.contains(release))
         .cloned()
-        .collect();
-    ArtifactError {
-        yanked,
-        ..super::versions::version_not_found(ArtifactType::Pypi, name, requested, &all)
-    }
+        .collect::<Vec<_>>();
+    super::versions::discouraged_last(
+        ArtifactError {
+            yanked: yanked.clone(),
+            ..super::versions::version_not_found(ArtifactType::Pypi, name, requested, &all)
+        },
+        |version| yanked.iter().any(|known| known == version),
+    )
 }
 
 /// Release numbers of a PyPI project; `include_yanked` false drops releases

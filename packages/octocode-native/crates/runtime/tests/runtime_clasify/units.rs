@@ -181,13 +181,17 @@ async fn the_hits_of_a_file_share_one_request_and_only_the_passing_ones_return_u
         "{out}"
     );
     // One request for the file, one question per hit, each naming its line;
-    // the summary leaves out a request count of one and the plan that came
-    // true, and states the ceiling: the request and one re-ask.
+    // the summary states the request it sent and the ceiling (the request
+    // and one re-ask), and leaves out the plan that came true.
     let bodies = sent(&server).await;
     assert_eq!(bodies.len(), 1, "{out}");
     assert_eq!(targeted_lines(&bodies[0]), [1, 2, 3, 4, 5, 6]);
     assert_eq!(bodies[0]["state"]["path"], "dense.txt");
-    assert_eq!(data["usage"], json!({"requestsCeiling": 2}), "{out}");
+    assert_eq!(
+        data["usage"],
+        json!({"calls": 1, "requestsCeiling": 2}),
+        "{out}"
+    );
     // One read of the passing lines, two either side, merged.
     let read = &data["next"]["read"];
     assert_eq!(read["tool"], "localFetch", "{out}");
@@ -618,10 +622,13 @@ async fn a_units_row_over_its_max_requests_sends_nothing_and_its_confirm_runs() 
     assert_eq!(data["usage"]["calls"], 0, "{out}");
     assert_eq!(data["usage"]["requestsPlanned"], 1, "{out}");
     assert_eq!(data["usage"]["requestsCeiling"], 2, "{out}");
+    // Nothing bounds the provider's own prompt before it answered here: no
+    // token figure, and the row says why.
+    assert!(data["usage"].get("inputTokensAtMost").is_none(), "{out}");
     assert!(
-        data["usage"]["inputTokensAtMost"]
-            .as_u64()
-            .is_some_and(|tokens| tokens > 0),
+        data["warnings"][0]
+            .as_str()
+            .is_some_and(|warning| warning.contains("inputTokensAtMost is not stated")),
         "{out}"
     );
     assert!(sent(&server).await.is_empty(), "nothing was sent");

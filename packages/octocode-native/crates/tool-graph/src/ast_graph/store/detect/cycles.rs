@@ -242,7 +242,11 @@ pub(super) fn detect_dir_cycles(c: &mut Ctx) {
             .windows(2)
             .map(|w| {
                 let (f, t) = adj[w[0] as usize][&w[1]];
-                json!({"from": names[w[0] as usize], "to": names[w[1] as usize], "via": {"from": v.key(f), "to": v.key(t)}})
+                let mut via = json!({"from": v.key(f), "to": v.key(t)});
+                if let Some(line) = v.line(f, t) {
+                    via["line"] = json!(line);
+                }
+                json!({"from": names[w[0] as usize], "to": names[w[1] as usize], "via": via})
             })
             .collect::<Vec<_>>();
         let keys = members

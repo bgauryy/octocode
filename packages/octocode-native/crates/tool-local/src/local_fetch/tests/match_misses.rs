@@ -286,3 +286,70 @@ fn a_list_read_names_each_entry_that_matched_nothing() {
         }
     }
 }
+
+/// A miss reads the file itself again before any folder is searched: a
+/// declaration head the file declares otherwise (`pub fn apply(` where it
+/// says `pub(crate) fn apply`) is read by its name alone, a fact beside the
+/// lead; any other miss in a file with an outline leads to that outline. The
+/// folder search stays, after the file's own read.
+#[test]
+fn a_miss_reads_the_file_again_before_searching_its_folder() {
+    let t = Fixture::new();
+    let p = t.0.join("hoist.rs");
+    fs::write(
+        &p,
+        "pub(crate) fn apply(x: u32) -> u32 {\n    x\n}\npub fn apply_on() {}\n",
+    )
+    .expect("fixture");
+    let paths = Paths(t.0.clone());
+    let leads = |pattern: &str| {
+        let row = fetch(
+            &qj(
+                &p,
+                serde_json::json!({"matchString": [pattern], "block": true}),
+            ),
+            &paths,
+        );
+        assert_eq!(row.status, ReadStatus::Empty, "{row:?}");
+        let next = serde_json::to_value(row.next.as_ref().expect("next")).expect("json");
+        let order = next
+            .as_object()
+            .expect("calls")
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        (row.warnings, next, order)
+    };
+    let (warnings, next, order) = leads("pub fn apply(");
+    let read = &next["read"]["input"]["queries"][0];
+    assert_eq!(next["read"]["tool"], "localFetch", "{next}");
+    assert_eq!(read["matchString"], serde_json::json!(["apply"]), "{next}");
+    assert_eq!(read["wholeWord"], true, "{next}");
+    assert_eq!(read["block"], true, "{next}");
+    assert_eq!(warnings, vec!["1 line matches `apply`.".to_owned()]);
+    assert_eq!(order, ["read", "findText"], "{next}");
+
+    let (warnings, next, order) = leads("nowhere_here");
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(
+        next["read"]["input"]["queries"][0]["view"], "symbols",
+        "{next}"
+    );
+    assert_eq!(order, ["read", "findText"], "{next}");
+}
+
+/// A file without a declaration outline has no outline to lead to: the
+/// miss leads to the folder search alone.
+#[test]
+fn a_miss_in_a_file_without_an_outline_searches_its_folder() {
+    let t = Fixture::new();
+    let p = t.0.join("notes.txt");
+    fs::write(&p, "plain notes\n").expect("fixture");
+    let row = fetch(
+        &qj(&p, serde_json::json!({"matchString": ["nowhere_here"]})),
+        &Paths(t.0.clone()),
+    );
+    let next = serde_json::to_value(row.next.as_ref().expect("next")).expect("json");
+    assert!(next.get("read").is_none(), "{next}");
+    assert!(next.get("findText").is_some(), "{next}");
+}

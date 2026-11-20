@@ -121,6 +121,46 @@ describe('canonical CLI and MCP discovery', () => {
     }
   });
 
+  // graphQuery deps/dependents/callers take an optional view that selects
+  // the grouped form; help listed "operation, target, view" with no mark, so
+  // view read as required. Every form's required list stays a help line
+  // (native's tool_flags guard reads it); a sub-form says what selects it.
+  it('labels a sub-form by the optional field that selects it, keeping every form\'s required line', () => {
+    for (const definition of DIRECT_TOOL_DEFINITIONS) {
+      const help = toolHelpSection(definition);
+      const block = help.split('\n\n').find(text => text.startsWith('Required fields, by operation:'));
+      const variants = toolVariants(definition);
+      for (const variant of variants) {
+        const listed = variant.requires.join(', ');
+        if (listed && variants.length > 1)
+          expect(
+            help.split('\n').some(line => line.trimEnd().endsWith(listed)),
+            `${definition.name}: ${listed}`
+          ).toBe(true);
+      }
+      if (!block) continue;
+      const rows = block
+        .split('\n')
+        .slice(1)
+        .map(row => row.trim().split(/\s{2,}/))
+        .map(([label = '', requires = '']) => ({
+          label,
+          operations: label.replace(/ \(with [^)]*\)$/, '').split(', '),
+          requires: requires.split(', ').filter(Boolean),
+        }));
+      for (const row of rows)
+        for (const other of rows) {
+          if (other === row || other.label.includes('(with ')) continue;
+          const sameOperations = row.operations.every(operation => other.operations.includes(operation));
+          const fewer =
+            other.requires.length < row.requires.length &&
+            other.requires.every(field => row.requires.includes(field));
+          if (sameOperations && fewer)
+            expect(row.label, definition.name).toMatch(/ \(with [^)]+\)$/);
+        }
+    }
+  });
+
   it('lists each required-fields form of a tool once, however many examples share it', () => {
     for (const definition of DIRECT_TOOL_DEFINITIONS) {
       const blocks = toolHelpSection(definition).split('\n\n');

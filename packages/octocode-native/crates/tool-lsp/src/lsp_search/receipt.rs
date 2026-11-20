@@ -1,6 +1,7 @@
-//! Server selection metadata: operation → provider capability, the Rust
-//! build-context overlay, the provider context of an answered row, and the
-//! server receipt of a row where the server's state decides the next step.
+//! Server selection metadata: operation → provider capability, what a Rust
+//! server's options make it analyze, the provider context of an answered
+//! row, and the server receipt of a row where the server's state decides the
+//! next step.
 
 use super::anchor::is_anchored;
 use super::{Exit, Op};
@@ -80,21 +81,12 @@ pub(super) fn naming(exit: Exit, receipt: Value) -> Exit {
     Exit::Row(row)
 }
 
-/// rust-analyzer's own defaults for the `rustContext` keys the headless
-/// defaults do not set: an unset key and an explicit default are the same
-/// analysis, so neither changes the server configuration.
-const RUST_ANALYZER_DEFAULT_CFGS: [&str; 2] = ["debug_assertions", "miri"];
-
-/// What a Rust server's options make it run, and whether this host lets a
-/// query turn build scripts on (`lsp.allowBuildScripts`).
+/// What a Rust server's options make it run.
 #[derive(Clone, Copy)]
 pub(super) struct RustAnalysis {
     pub(super) build_scripts: bool,
     pub(super) all_features: bool,
     proc_macros: bool,
-    /// Whether a `rustContext` may enable build scripts here. Off, a row
-    /// offers no rerun that does and its note names the opt-in.
-    pub(super) build_scripts_allowed: bool,
     /// The target it analyzes for (`cargo.target`, else the host).
     pub(super) target: super::server_coverage::AnalysisTarget,
 }
@@ -104,16 +96,8 @@ impl RustAnalysis {
         Self::from_options(config.initialization_options.as_ref())
     }
 
-    /// The same analysis, with `allowed` the host's `lsp.allowBuildScripts`.
-    pub(super) fn allowing_build_scripts(self, allowed: bool) -> Self {
-        Self {
-            build_scripts_allowed: allowed,
-            ..self
-        }
-    }
-
     /// Reads each setting as the server reads it (flat dotted key, then
-    /// nested), so the build-script gate sees what rust-analyzer will run.
+    /// nested), so the checks see what rust-analyzer will run.
     fn from_options(options: Option<&Value>) -> Self {
         let setting = |section: &str| {
             options.and_then(|value| octocode_engine::lsp::lookup_section(value, section))
@@ -126,7 +110,6 @@ impl RustAnalysis {
             proc_macros: setting("procMacro.enable")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
-            build_scripts_allowed: false,
             target: super::server_coverage::AnalysisTarget::of(
                 setting("cargo.target").and_then(Value::as_str),
             ),
@@ -136,7 +119,7 @@ impl RustAnalysis {
     fn validate(self) -> Result<(), String> {
         if self.proc_macros && !self.build_scripts {
             return Err(
-                "Rust procMacros requires buildScripts:true; rust-analyzer builds procedural macros through Cargo."
+                "rust-analyzer's procMacro.enable requires cargo.buildScripts.enable: it builds procedural macros through Cargo."
                     .into(),
             );
         }
@@ -144,140 +127,13 @@ impl RustAnalysis {
     }
 }
 
-/// How to opt in to build scripts, stated by the refusal (the
-/// `rustContext.buildScripts` field says only that the user's home
-/// configuration decides). Home-only, as `lsp.trustFetchedCode` is.
-pub const BUILD_SCRIPTS_OPT_IN: &str = "set lsp.allowBuildScripts in the home .octocoderc, or OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS=true in the process environment or the home .env; a workspace cannot";
-
-/// Whether the query's `rustContext` asks to run build scripts or proc
-/// macros (which rust-analyzer builds through Cargo).
-pub(super) fn requests_build_scripts(query: &LspSearchQuery) -> bool {
-    lsp_search_query::rust_context(query).is_some_and(|context| {
-        context.build_scripts == Some(true) || context.proc_macros == Some(true)
-    })
-}
-
-/// Why `lspSearch` refuses a `rustContext` that runs build scripts or proc
-/// macros, what it would run, and how to opt in.
-pub(super) fn build_scripts_refusal() -> String {
-    format!(
-        "lspSearch starts no rust-analyzer that runs build scripts or procedural macros: rustContext.buildScripts and procMacros would run this workspace's Cargo build scripts and proc macros, which is repository code, and this server was not told to allow that. Drop them to use the default rust-analyzer, which runs none; localSearch and astSearch read the same code without running anything. To opt in, {BUILD_SCRIPTS_OPT_IN}."
-    )
-}
-
-/// Overlay an explicit `rustContext` onto the resolved rust-analyzer options.
-/// The engine already merged its headless defaults (`cargo.buildScripts`,
-/// `procMacro`, `checkOnSave`, `cargo.targetDir`) into the
-/// config. A context overrides only the fields it names, and only where the
-/// named value differs from the effective one (the configured value, else
-/// rust-analyzer's default): everything else, `cfg(test)` code included,
-/// stays as the default server analyzes it. So a context equal to the
-/// defaults leaves the configuration, and with it the pooled server,
-/// unchanged. `cfgs` adds to the effective list (`"!name"` disables one),
-/// as rust-analyzer's own list replaces its defaults.
-pub(super) fn apply_rust_context(
-    config: &mut LspLanguageServerConfig,
-    query: &LspSearchQuery,
-) -> Result<(), String> {
-    let Some(context) = lsp_search_query::rust_context(query) else {
-        if config.language_id.as_deref() == Some("rust") {
-            RustAnalysis::of(config).validate()?;
-        }
-        return Ok(());
-    };
-    if config.language_id.as_deref() != Some("rust") {
-        return Err("rustContext requires a Rust language server.".into());
+/// Refuse a Rust server whose configured options cannot run together
+/// ([`RustAnalysis::validate`]); any other server passes.
+pub(super) fn validate_rust_options(config: &LspLanguageServerConfig) -> Result<(), String> {
+    if config.language_id.as_deref() == Some("rust") {
+        RustAnalysis::of(config).validate()?;
     }
-    let mut options = match config.initialization_options.clone() {
-        Some(options @ Value::Object(_)) => options,
-        _ => json!({}),
-    };
-    let mut set = |pointer: &str, value: Value, default: Value| {
-        if options.pointer(pointer).unwrap_or(&default) != &value {
-            set_pointer(&mut options, pointer, value);
-        }
-    };
-    if let Some(features) = &context.features {
-        set("/cargo/features", json!(features), json!([]));
-    }
-    if let Some(off) = context.no_default_features {
-        set("/cargo/noDefaultFeatures", json!(off), json!(false));
-    }
-    if let Some(target) = &context.target {
-        set("/cargo/target", json!(target), Value::Null);
-    }
-    if let Some(build_scripts) = context.build_scripts {
-        set(
-            "/cargo/buildScripts/enable",
-            json!(build_scripts),
-            json!(false),
-        );
-    }
-    if let Some(proc_macros) = context.proc_macros {
-        set("/procMacro/enable", json!(proc_macros), json!(false));
-    }
-    octocode_engine::lsp::config::allow_build_wrappers(&mut options);
-    RustAnalysis::from_options(Some(&options)).validate()?;
-    if !context.cfgs.is_empty() {
-        let cfgs = context
-            .cfgs
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>();
-        let effective = options
-            .pointer("/cargo/cfgs")
-            .and_then(Value::as_array)
-            .map(|cfgs| {
-                cfgs.iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_owned)
-                    .collect()
-            })
-            .unwrap_or_else(|| RUST_ANALYZER_DEFAULT_CFGS.map(str::to_owned).to_vec());
-        let mut merged = effective.clone();
-        for cfg in &cfgs {
-            if !merged.contains(cfg) {
-                merged.push(cfg.clone());
-            }
-        }
-        if merged != effective {
-            set_pointer(&mut options, "/cargo/cfgs", json!(merged));
-        }
-    }
-    // Code execution stays off unless the context opted in: a server the
-    // engine did not recognize as rust-analyzer gets the same guards.
-    for (pointer, guard) in [
-        ("/checkOnSave", json!(false)),
-        ("/cargo/targetDir", json!(true)),
-    ] {
-        if options.pointer(pointer).is_none() {
-            set_pointer(&mut options, pointer, guard);
-        }
-    }
-    config.initialization_options = Some(options);
     Ok(())
-}
-
-/// Set `value` at a `/a/b` JSON pointer, creating objects on the way.
-fn set_pointer(root: &mut Value, pointer: &str, value: Value) {
-    let mut node = root;
-    for key in pointer.trim_start_matches('/').split('/') {
-        if !node.is_object() {
-            *node = json!({});
-        }
-        let Value::Object(fields) = node else {
-            return;
-        };
-        node = fields.entry(key.to_owned()).or_insert(Value::Null);
-    }
-    *node = value;
-}
-
-pub(super) fn rust_fingerprint(context: &octocode_contract_types::LspRustContext) -> String {
-    format!(
-        "rust-v1:{}",
-        octocode_runtime_base::digest::json_sha256(context)
-    )
 }
 
 pub(super) fn attach_provider_context(

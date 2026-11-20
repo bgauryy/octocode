@@ -6,9 +6,17 @@
 //! implements them: `.gitignore` files (inside a git repository only),
 //! `.ignore` files, the global gitignore, `.git/info/exclude`, and the ignore
 //! files of the directories above the walked root. `includeIgnored` lifts
-//! every source at once. [`walk_builder`] applies the rules inside a walk;
-//! [`IgnoreRules`] answers the same question for one path, and says which
-//! rule decided it.
+//! every source at once.
+//!
+//! Where an entry is decided: localSearch and astSearch build
+//! [`walk_builder`] with [`IgnorePolicy::ALL`], so the walker itself drops
+//! nothing for ignore or dot rules, and decide each entry in their entry
+//! filter: `EntryRule::skips` (`text_search/walk_rule.rs`) asks
+//! [`IgnoreRules`] (`walk/ignore_rules.rs`) which rule leaves it out, and the
+//! walk records it as skipped instead of losing it. structureSearch's own
+//! walk (`fs_query`) asks [`IgnoreRules`] the same way. Only
+//! [`walk_builder_under`], with the caller's policy, applies the rules
+//! inside the walker, where an ignored entry vanishes unrecorded.
 
 use crate::types::IgnorePolicy;
 use std::collections::{BTreeSet, HashSet};
@@ -37,7 +45,9 @@ pub type Stop<'a> = dyn Fn() -> bool + Sync + 'a;
 
 /// A walker over `root` under `policy`, with symlinks unfollowed.
 /// `max_depth` is in `ignore` terms: the root is depth 0, its entries depth 1.
-/// Callers add overrides, file types, ordering, and pruning.
+/// Callers add overrides, file types, ordering, and pruning. A search passes
+/// [`IgnorePolicy::ALL`] and decides ignore and dot rules per entry itself
+/// (`EntryRule::skips` in `text_search/walk_rule.rs`; see the module docs).
 pub fn walk_builder(root: &Path, policy: IgnorePolicy, max_depth: Option<usize>) -> WalkBuilder {
     builder(root, policy, max_depth)
 }

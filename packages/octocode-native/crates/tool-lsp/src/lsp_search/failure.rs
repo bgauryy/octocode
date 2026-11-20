@@ -26,7 +26,7 @@ use rows::attach_text_search;
 pub(super) use rows::same_query_rerun;
 pub(super) use rows::{
     annotate_empty_includes, empty, mark_anchor_line_errors, mark_diagnostics_unpublished,
-    next_action, no_answer, partial_with_related_rerun, stamp_coverage, still_indexing,
+    no_answer, partial_with_related_rerun, stamp_coverage, still_indexing,
 };
 
 /// A request-level failure `execute` could not render as a row. The

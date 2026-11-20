@@ -146,8 +146,7 @@ async fn locations_outside_the_read_roots_are_reported_withheld() {
             .as_array()
             .into_iter()
             .flatten()
-            .any(|call| call["tool"] == "lspSearch"
-                && call["input"]["queries"][0]["rustContext"]["buildScripts"] == true),
+            .any(|call| call["tool"] == "lspSearch"),
         "{row}"
     );
 }

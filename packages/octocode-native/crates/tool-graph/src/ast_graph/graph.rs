@@ -225,6 +225,7 @@ pub(crate) fn build_graph_with_registry(
             link_restored(&mut built, &inputs, &known, scan, restored?)?;
         }
     }
+    inherit_parent_globs(&mut built, &inputs);
     markup::link_markup(
         &mut built,
         &inputs,

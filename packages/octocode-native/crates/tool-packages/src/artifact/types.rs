@@ -390,6 +390,11 @@ pub struct ArtifactError {
     /// no release to move to.
     #[serde(skip)]
     pub yanked: Vec<String>,
+    /// A package the registry does not know: what it counts of the names one
+    /// edit away ([`super::lookalike`]); the tool's repair lead reads them.
+    /// Boxed: an error stays small on every path that returns one.
+    #[serde(skip)]
+    pub near: Option<Box<super::lookalike::Near>>,
 }
 
 /// The recovery of a version a known package does not publish.
@@ -408,6 +413,7 @@ impl ArtifactError {
             searchable_name: false,
             missing_version: false,
             yanked: vec![],
+            near: None,
         }
     }
 

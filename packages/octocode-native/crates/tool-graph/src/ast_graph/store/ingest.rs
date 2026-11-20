@@ -142,7 +142,9 @@ pub(super) fn ingest_with_registry(
             octocode_engine::text::counted(built.facts.len(), "file", "files")
         )
     });
-    let (inputs, input_proof) = match settled_inputs(&built, &projection.tables, paths, cancel) {
+    #[cfg(test)]
+    hooks::reach(hooks::Point::Settle, &home);
+    let settled = match settled_inputs(&built, &projection.tables, paths, cancel) {
         Ok(settled) => settled,
         Err(output) => return output,
     };
@@ -200,8 +202,15 @@ pub(super) fn ingest_with_registry(
             files: &files,
             projection: &projection,
             argument_coverage: &argument_coverage,
-            inputs: &inputs,
-            input_proof: input_proof.as_deref(),
+            inputs: &settled.inputs,
+            input_proof: settled.proof.as_deref(),
+            changed: (settled.changed > 0).then(|| snapshot::Changed {
+                files: settled.changed,
+                path: paths
+                    .workspace_relative(&built.root)
+                    .unwrap_or_else(|| built.root.display().to_string()),
+                rebuild: same_build(&built.root, options, paths),
+            }),
             scope_proof: scope_proof.as_ref(),
             build_ms,
             registry,
@@ -327,6 +336,25 @@ fn exclude_retry(
             .iter()
             .map(|file| format!("/{}", octocode_engine::search::glob::literal(file))),
     );
+    build_lead(root, &scope, paths)
+}
+
+/// The same build of `root`, as a related graphBuild call: a later run reads
+/// what changed since this one.
+fn same_build(root: &Path, options: &IngestOptions, paths: &PathPolicy) -> Option<Value> {
+    build_lead(
+        root,
+        &crate::ast_graph::build_scope::BuildScope::of_options(options),
+        paths,
+    )
+}
+
+/// A related graphBuild call of `root` with `scope`'s walk and exclusions.
+fn build_lead(
+    root: &Path,
+    scope: &crate::ast_graph::build_scope::BuildScope,
+    paths: &PathPolicy,
+) -> Option<Value> {
     let path = paths
         .workspace_relative(root)
         .unwrap_or_else(|| root.display().to_string());
@@ -410,7 +438,6 @@ pub(super) fn build_for_ingest(
             Err(GraphOutput {
                 class: ExitClass::of(error.code),
                 next: Vec::new(),
-                retry: false,
                 #[cfg(test)]
                 validation: Box::default(),
                 value,

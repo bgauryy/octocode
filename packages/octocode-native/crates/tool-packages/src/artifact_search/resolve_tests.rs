@@ -18,7 +18,7 @@ async fn served(
     let budget = test_budget();
     let reused = ReusedSince::new();
     let registry = npm_registry(&query, &NO_ENV)?;
-    let page = execute_artifact(
+    serve(
         &query,
         &ArtifactProviderContext {
             http,
@@ -32,8 +32,6 @@ async fn served(
         },
     )
     .await
-    .map_err(|error| leads::with_repair(error, &query))?;
-    respond(&query, page).map_err(|error| leads::with_repair(error, &query))
 }
 
 fn npm(version: &str) -> Value {
@@ -383,4 +381,124 @@ async fn a_resolve_summary_drops_the_version_the_request_pinned() {
             "{asked:?}: {data}"
         );
     }
+}
+
+/// npm's bulk downloads path for `name` and every name one edit away, as one
+/// request asks them.
+fn npm_counts_path(name: &str) -> String {
+    let names = std::iter::once(name.to_owned())
+        .chain(crate::artifact::lookalike::edits(
+            name,
+            &['-', '_', '.'],
+            str::to_owned,
+        ))
+        .collect::<Vec<_>>();
+    format!("/downloads/point/last-week/{}", names.join(","))
+}
+
+/// A found name with a far more downloaded name one edit away (the
+/// contract's ratio) warns that it may be a typosquat and leads to that
+/// name; one that is not far more downloaded does neither.
+#[tokio::test]
+async fn a_far_more_downloaded_name_one_edit_away_is_flagged() {
+    let ratio = octocode_runtime_base::contracts::security::security_contract()
+        .expect("contract")
+        .policy
+        .lookalike_downloads_ratio;
+    let row = |name: &str| json!({"operation": "resolve", "ecosystem": "npm", "packageName": name});
+    let registry = |other: u64| {
+        RouteHttp::new()
+            .json(
+                "/expresss/latest",
+                json!({"name": "expresss", "version": "0.0.0"}),
+            )
+            .json(
+                &npm_counts_path("expresss"),
+                json!({
+                    "expresss": {"downloads": 743},
+                    "express": {"downloads": other},
+                    "exprss": {"downloads": 57}
+                }),
+            )
+    };
+    let flagged = served(row("expresss"), &registry(743 * ratio), None)
+        .await
+        .expect("row");
+    let warned = flagged["warnings"].to_string();
+    assert!(
+        warned.contains("express, one edit away") && warned.contains("lookalikeDownloadsRatio"),
+        "{flagged}"
+    );
+    assert_eq!(
+        flagged["related"]
+            .as_array()
+            .expect("related")
+            .iter()
+            .find(|call| call["tool"] == "artifactSearch")
+            .map(|call| call["input"]["queries"][0]["packageName"].clone()),
+        Some(json!("express")),
+        "{flagged}"
+    );
+    let near = served(row("expresss"), &registry(743 * ratio - 1), None)
+        .await
+        .expect("row");
+    assert!(!near.to_string().contains("one edit away"), "{near}");
+}
+
+/// A name the registry lacks, with names one edit away it has, leads to
+/// those names, most downloaded first, and its error names them.
+#[tokio::test]
+async fn a_missing_name_leads_to_the_names_one_edit_away() {
+    let http = RouteHttp::new().json(
+        &format!(
+            "/api/v1/crates?per_page=100&{}",
+            std::iter::once("serdee".to_owned())
+                .chain(crate::artifact::lookalike::edits(
+                    "serdee",
+                    &['-', '_'],
+                    |name| { name.to_ascii_lowercase().replace('_', "-") }
+                ))
+                .map(|name| format!("ids%5B%5D={name}"))
+                .collect::<Vec<_>>()
+                .join("&")
+        ),
+        json!({"crates": [
+            {"name": "sedree", "recent_downloads": 2},
+            {"name": "serde", "recent_downloads": 447_414_642u64}
+        ]}),
+    );
+    let error = served(
+        json!({"operation": "resolve", "ecosystem": "crates", "packageName": "serdee"}),
+        &http,
+        None,
+    )
+    .await
+    .expect_err("missing");
+    assert!(
+        error.message.contains("serde (447414642"),
+        "{}",
+        error.message
+    );
+    let names = error.calls.as_ref().expect("repair")["repair"]["input"]["queries"]
+        .as_array()
+        .expect("queries")
+        .iter()
+        .map(|row| row["packageName"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(names, [json!("serde"), json!("sedree")]);
+}
+
+/// A scoped npm name the registry lacks leads to its scope's packages,
+/// never to a search of the whole name's words.
+#[tokio::test]
+async fn a_missing_scoped_name_searches_its_scope() {
+    let error = served(
+        json!({"operation": "resolve", "ecosystem": "npm", "packageName": "@octocodeai/definitely-not-a-real-pkg-zz9"}),
+        &RouteHttp::new(),
+        None,
+    )
+    .await
+    .expect_err("missing");
+    let lead = &error.calls.as_ref().expect("lead")["broadenSearch"]["input"]["queries"][0];
+    assert_eq!(lead["keywords"], json!(["@octocodeai"]), "{lead}");
 }

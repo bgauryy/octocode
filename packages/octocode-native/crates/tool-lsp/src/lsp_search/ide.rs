@@ -92,7 +92,6 @@ impl Request<'_> {
         if (root_only && operation != Op::WorkspaceSymbol)
             || (operation == Op::References
                 && lsp_search_query::include_declaration(query) == Some(false))
-            || (receipt::requests_build_scripts(query) && !execution_config.allow_build_scripts)
         {
             return Ok(None);
         }
@@ -167,6 +166,7 @@ impl Request<'_> {
             &bridge,
             anchor.resolved_symbol,
         );
+        octocode_runtime_base::response::paging::push_warnings(&mut row, anchor.warning);
         let mut row = super::with_next(query, row);
         if lsp_search_query::snapshot(query).is_none()
             && super::continuations::declares_continuation(&mut row)?

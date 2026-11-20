@@ -321,6 +321,7 @@ async fn advisory(
         }
     };
     results.extend(github.result());
+    let aliases = follow_aliases(&mut results, net).await;
     let mut data = source::into_row(json!({}), &results, View::Whole);
     if let Some(failed) = osv_failed {
         let why = format!(
@@ -353,6 +354,7 @@ async fn advisory(
             )],
         );
     }
+    aliases.apply(&mut data);
     malware::fire(&mut data, &malware::reports(&results), false, None);
     octocode_runtime_base::response::result::finish_calls(&mut data);
     if view == SecurityCheckView::Summary {
@@ -376,6 +378,110 @@ async fn advisory(
         record::drop_derivable_links(rows);
     }
     Ok(data)
+}
+
+/// The aliases an advisory row read because a record it holds names no
+/// package, and those OSV did not answer, with why.
+#[derive(Default)]
+struct Aliases {
+    /// `(record, alias)`: the alias's records are listed after the record's.
+    read: Vec<(String, String)>,
+    /// `(record, alias, why)`.
+    unread: Vec<(String, String, String)>,
+}
+
+/// A record whose `affected` entries name no package (OSV's CVE records: no
+/// entry, or only a GIT range) states no package or fix; the records of its
+/// aliases, the same advisory in another database, do. Each alias no record
+/// of the row already is gets read from OSV, all at once, and its records are
+/// listed with the source that answered. A related record is another
+/// advisory and is not read, and an alias the row holds (GitHub's record of
+/// it) is not read again.
+async fn follow_aliases(results: &mut Vec<source::SourceResult>, net: &Net<'_>) -> Aliases {
+    let held = results
+        .iter()
+        .flat_map(|result| &result.advisories)
+        .map(|record| record.id.clone())
+        .collect::<Vec<_>>();
+    let mut wanted: Vec<(String, String)> = Vec::new();
+    // OSV's records only: GitHub's record of an alias is already that
+    // alias's own, and is held.
+    let osv = results
+        .iter()
+        .filter(|result| result.source == source::Source::Osv);
+    for record in osv.flat_map(|result| &result.advisories) {
+        let names_package = record
+            .affected
+            .iter()
+            .any(|entry| entry.get("packageName").is_some() || entry.get("purl").is_some());
+        if names_package {
+            continue;
+        }
+        for alias in &record.aliases {
+            if !held.contains(alias) && !wanted.iter().any(|(_, known)| known == alias) {
+                wanted.push((record.id.clone(), alias.clone()));
+            }
+        }
+    }
+    let targets = wanted
+        .iter()
+        .map(|(_, alias)| Target::Advisory(alias.clone()))
+        .collect::<Vec<_>>();
+    let reads =
+        futures_util::future::join_all(targets.iter().map(|target| source::ask_all(target, net)))
+            .await;
+    let mut aliases = Aliases::default();
+    for ((record, alias), read) in wanted.into_iter().zip(reads) {
+        match read {
+            Ok(found) => {
+                for mut answered in found {
+                    // A record the row holds already is not listed twice.
+                    answered
+                        .advisories
+                        .retain(|record| !held.contains(&record.id));
+                    match results
+                        .iter_mut()
+                        .find(|result| result.source == answered.source)
+                    {
+                        Some(result) => result.advisories.extend(answered.advisories),
+                        None => results.push(answered),
+                    }
+                }
+                aliases.read.push((record, alias));
+            }
+            Err(error) => aliases.unread.push((
+                record,
+                alias,
+                octocode_runtime_base::security::quoted(&error.message).into_owned(),
+            )),
+        }
+    }
+    aliases
+}
+
+impl Aliases {
+    /// Says which records were read for an alias, and leads to each alias
+    /// that was not.
+    fn apply(&self, data: &mut Value) {
+        let read = self.read.iter().map(|(record, alias)| {
+            format!("{record} names no package; {alias}, its alias, is listed after it for the packages and fixes.")
+        });
+        let unread = self.unread.iter().map(|(record, alias, why)| {
+            format!("{record} names no package, and {alias}, its alias, could not be read ({why}); related reads it.")
+        });
+        paging::push_warnings(data, read.chain(unread).collect::<Vec<_>>());
+        if self.unread.is_empty() {
+            return;
+        }
+        let queries = self
+            .unread
+            .iter()
+            .map(|(_, alias, _)| json!({"operation": "advisory", "id": alias}))
+            .collect::<Vec<_>>();
+        data["calls"]["readAlias"] =
+            Continuation::related_input(ToolId::SecurityCheck, json!({ "queries": queries }))
+                .build();
+    }
 }
 
 /// One commit, asked alone. OSV takes no repository, so `repo` is never sent

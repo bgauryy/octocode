@@ -2,8 +2,7 @@
 //! `unix`, `target_os = "…"`) leaves out of the one target rust-analyzer
 //! analyzes. A file whose every use of the name sits under such a gate is
 //! missing from the answer for that reason alone, whatever the package's
-//! build scripts generate, and a rerun under a target where the gate holds
-//! (`rustContext.target`) answers for it.
+//! build scripts generate.
 use super::*;
 use std::collections::BTreeSet;
 
@@ -49,9 +48,8 @@ const LINUX: (&str, &str) = ("linux", "unix");
 const MACOS: (&str, &str) = ("macos", "unix");
 
 /// Rust's Tier 1 targets with host tools (the rustc book's platform
-/// support): the targets a toolchain is guaranteed to analyze, so the only
-/// ones a rerun is offered for and the only explicit `rustContext.target`
-/// values whose `cfg` is known here.
+/// support): the targets a toolchain is guaranteed to analyze, and the only
+/// configured `cargo.target` values whose `cfg` is known here.
 const TIER_ONE: [TargetFacts; 8] = [
     listed("aarch64-apple-darwin", AARCH64, "apple", MACOS, ""),
     listed("aarch64-pc-windows-msvc", AARCH64, "pc", WINDOWS, "msvc"),
@@ -500,36 +498,13 @@ pub(super) fn target_gated_files(
         .collect()
 }
 
-/// The listed target every one of `gates` may hold for, the one nearest the
-/// analyzed `target` first (same architecture, then same system): the
-/// target a rerun names. `None` when no listed target satisfies them.
-fn rerun_target(gates: &[Predicate], target: AnalysisTarget) -> Option<&'static str> {
-    let now = target.facts();
-    TIER_ONE
-        .iter()
-        .filter(|candidate| {
-            gates
-                .iter()
-                .all(|gate| gate.holds(candidate) != Some(false))
-        })
-        .min_by_key(|candidate| {
-            (
-                now.is_some_and(|now| now.arch != candidate.arch),
-                now.is_some_and(|now| now.os != candidate.os),
-            )
-        })
-        .and_then(|candidate| candidate.triple)
-}
-
 /// Flag a row whose missed files (`gated`) sit behind target gates:
-/// partial (`cfgGatedFiles`), with the gates and files named, and, on the
-/// walk's first page, one rerun per target that compiles them in
-/// (`rustContext.target`).
+/// partial (`cfgGatedFiles`), with the gates and files named; the row's
+/// related localSearch reads them.
 pub(super) fn annotate_targets(
     row: &mut Value,
     query: &LspSearchQuery,
     scope: &Scope,
-    target: AnalysisTarget,
     gated: &[TargetGated],
 ) {
     if gated.is_empty() {
@@ -555,39 +530,9 @@ pub(super) fn annotate_targets(
         })
         .collect::<Vec<_>>()
         .join(", ");
-    let reruns = gated
-        .iter()
-        .filter_map(|found| rerun_target(&found.gates, target))
-        .collect::<BTreeSet<_>>();
-    let repair = if reruns.is_empty() {
-        "set rustContext.target to a target they hold for".to_owned()
-    } else {
-        format!(
-            "the related rerun sets rustContext.target ({})",
-            reruns.iter().copied().collect::<Vec<_>>().join(", ")
-        )
-    };
     let warning = format!(
-        "{} file(s) that use this name compile only under target gates the analyzed target leaves out: {named}. rust-analyzer analyzes one target; {repair}.",
+        "{} file(s) that use this name compile only under target gates the analyzed target leaves out: {named}. rust-analyzer analyzes one target.",
         gated.len()
     );
     flag_partial(row, query, CFG_REASON, Some(&warning), scope);
-    if continues_a_page(query) || !lists_reason(row, CFG_REASON) {
-        return;
-    }
-    for triple in reruns {
-        let mut context = lsp_search_query::rust_context(query).map_or_else(
-            || serde_json::json!({}),
-            |context| serde_json::json!(context),
-        );
-        context["target"] = serde_json::json!(triple);
-        if let Ok(rerun) =
-            lsp_search_query::edited(query, &serde_json::json!({"rustContext": context}))
-        {
-            octocode_runtime_base::response::result::attach_related(
-                row,
-                octocode_runtime_base::response::result::Continuation::related_query(rerun).build(),
-            );
-        }
-    }
 }

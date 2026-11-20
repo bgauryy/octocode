@@ -395,9 +395,8 @@ impl Operation<'_, '_> {
                 )],
             );
         }
-        // What rust-analyzer's unexpanded-macro codes mean, and the
-        // rustContext that expands them, is the tool description's: the
-        // codes on the listed diagnostics are this answer's whole statement.
+        // The codes on the listed diagnostics (rust-analyzer's
+        // unexpanded-macro ones too) are this answer's whole statement.
         Ok(row)
     }
 }

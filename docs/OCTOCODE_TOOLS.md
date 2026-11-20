@@ -125,7 +125,7 @@ Rows labeled `native-graph-facts` are candidates from a scan of inheritance decl
 
 For TypeScript, Octocode prefers `tsgo` from a trusted project's install or the bundled copy, then falls back to `typescript-language-server`. JavaScript uses `typescript-language-server`.
 
-**Rust build scripts and proc macros** run only when `lsp.allowBuildScripts` is set and the query's `rustContext` asks for them. [Settings](CONFIGURATION.md#all-settings-and-defaults)
+**Rust build scripts and proc macros** stay off unless your rust-analyzer entry in `lsp-servers.json` turns them on.
 
 #### Fetched code
 

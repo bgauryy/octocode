@@ -82,5 +82,26 @@ pub fn regex_spells_itself(pattern: &str) -> bool {
     })
 }
 
+/// Whether `pattern`, read as a regex, means something its writer would
+/// write a regex for: an alternation, a class of several characters, a
+/// repetition, an anchor, or an escape. A pattern whose regex reading is one
+/// fixed text by grouping alone (`pub(crate) fn` reads as `pubcrate fn`,
+/// `arr[i]` as `arri`) is code written literally; `false` too for a pattern
+/// that does not parse.
+#[must_use]
+pub fn regex_widens(pattern: &str) -> bool {
+    use regex_syntax::hir::{Hir, HirKind};
+    fn fixed(hir: &Hir) -> bool {
+        match hir.kind() {
+            HirKind::Empty | HirKind::Literal(_) => true,
+            HirKind::Class(class) => class.literal().is_some(),
+            HirKind::Capture(capture) => fixed(&capture.sub),
+            HirKind::Concat(parts) => parts.iter().all(fixed),
+            HirKind::Look(_) | HirKind::Repetition(_) | HirKind::Alternation(_) => false,
+        }
+    }
+    regex_syntax::parse(pattern).is_ok_and(|hir| pattern.contains('\\') || !fixed(&hir))
+}
+
 #[cfg(test)]
 mod tests;

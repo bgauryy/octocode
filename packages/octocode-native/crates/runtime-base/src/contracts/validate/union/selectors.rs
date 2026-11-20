@@ -40,11 +40,15 @@ pub(super) fn sibling_selector_values(
 /// Alternatives, each the selectors one form needs: a form needing one
 /// selector merges with the others needing that selector (`view one of
 /// "matchOnly", "count"`); a form needing several stays its own
-/// alternative (`a:1 and b:2`). `None` when no form needs any.
-fn merge_alternatives<'a>(alternatives: Vec<Vec<(&'a str, Vec<&'a Value>)>>) -> Option<String> {
+/// alternative (`a:1 and b:2`). A form needing every selector another form
+/// needs, and more, is named by that other form alone (`A or (B and A)` is
+/// `A`). `None` when no form needs any.
+pub(super) fn merge_alternatives<'a>(
+    alternatives: Vec<Vec<(&'a str, Vec<&'a Value>)>>,
+) -> Option<String> {
     let mut merged: Vec<(&str, Vec<&Value>)> = Vec::new();
     let mut options = Vec::new();
-    for selectors in alternatives {
+    for selectors in unabsorbed(alternatives) {
         match selectors.as_slice() {
             [] => {}
             [(name, literals)] => {
@@ -83,6 +87,33 @@ fn merge_alternatives<'a>(alternatives: Vec<Vec<(&'a str, Vec<&'a Value>)>>) -> 
         .collect::<Vec<_>>();
     rendered.extend(options);
     (!rendered.is_empty()).then(|| rendered.join(" or "))
+}
+
+/// The alternatives no other one absorbs. `smaller` absorbs `larger` when it
+/// needs fewer selectors and each of them is one `larger` needs as strictly
+/// (the same name, every literal `larger` allows also one `smaller` allows):
+/// any row meeting `larger` then meets `smaller`, so `larger` adds only a
+/// change the field does not need.
+fn unabsorbed<'a>(
+    alternatives: Vec<Vec<(&'a str, Vec<&'a Value>)>>,
+) -> Vec<Vec<(&'a str, Vec<&'a Value>)>> {
+    let absorbs = |smaller: &[(&str, Vec<&Value>)], larger: &[(&str, Vec<&Value>)]| {
+        !smaller.is_empty()
+            && smaller.len() < larger.len()
+            && smaller.iter().all(|(name, allowed)| {
+                larger.iter().any(|(other, required)| {
+                    other == name
+                        && required
+                            .iter()
+                            .all(|literal| allowed.iter().any(|known| equivalent(known, literal)))
+                })
+            })
+    };
+    alternatives
+        .iter()
+        .filter(|larger| !alternatives.iter().any(|smaller| absorbs(smaller, larger)))
+        .cloned()
+        .collect()
 }
 
 /// Whether every literal selector of `branch` accepts the query's value.

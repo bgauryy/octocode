@@ -54,6 +54,13 @@ pub(super) struct Scan {
     /// ([`super::scan::Keeps::Page`]): what it left is pagination (its
     /// totals are floors), not a coverage gap.
     pub(super) filled: bool,
+    /// The window ended at a page start inside its last file: its stream
+    /// holds this many of that file's matches, the next window the rest.
+    pub(super) page_split: Option<u32>,
+    /// The window read again the file the window before ended inside: it is
+    /// the first of `files`, and its stream starts past what that window
+    /// listed ([`super::snapshot::WindowStart::carry`]).
+    pub(super) resumed_inside: bool,
     /// Where a cut resumes (`scanOffset`), in walk order.
     pub(super) scan_resume: Option<u32>,
     /// What the candidates before this window are now, and through its cut

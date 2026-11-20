@@ -78,8 +78,14 @@ fn summary(row: Value, target: Target<'_>) -> Value {
     // The ids the row's advisories state: a read of one of them repeats the
     // details view, which the tool description names.
     let mut on_row: Vec<String> = Vec::new();
+    // A version not evaluated, with no verdict, has no advisory of its own:
+    // the package's are not counted as its, and its sentence says what they are.
+    let unevaluated = fields.get("versionEvaluated") == Some(&Value::Bool(false))
+        && lean.get("affected").is_none();
     if let Some(listed) = fields.get("advisories").and_then(Value::as_array) {
-        indication(&mut lean, listed, target.unfixed_in_major);
+        if !unevaluated {
+            indication(&mut lean, listed, target.unfixed_in_major);
+        }
         for row in listed {
             let ids = std::iter::once(&row["id"])
                 .chain(row["aliases"].as_array().into_iter().flatten())
@@ -88,14 +94,16 @@ fn summary(row: Value, target: Target<'_>) -> Value {
         }
     }
     // The sentence stays where no field says what it does: a row that owes a
-    // verdict and gives none (a finished empty list too: a count of 0 there
-    // proves nothing, and only the sentence says so), one with no finished
-    // list, and a row that owes no verdict (a repository's or a commit's),
-    // whose count is of its own records only: without the sentence its
+    // verdict and gives none, a verdict of none known (a count of 0 proves
+    // nothing, and only the sentence says so), one with no finished list,
+    // and a row that owes no verdict (a repository's or a commit's), whose
+    // count is of its own records only: without the sentence its
     // `advisoryCount` reads as the package's.
+    let none_counted = lean.get("advisoryCount").and_then(Value::as_u64) == Some(0);
     let no_verdict = !target.gives_verdict
         || lean.get("affected").is_none()
-        || fields.get("advisories").is_none();
+        || fields.get("advisories").is_none()
+        || (lean.get("affected") == Some(&Value::Bool(false)) && none_counted);
     let echoes = |field: &str, asked: Option<&str>, fields: &Map<String, Value>| {
         asked.is_some() && fields.get(field).and_then(Value::as_str) == asked
     };

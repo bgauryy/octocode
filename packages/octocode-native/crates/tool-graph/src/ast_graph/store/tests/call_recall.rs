@@ -303,3 +303,50 @@ fn witnesses_of_a_called_symbol_lead_to_the_destination_scope() {
         by_destination.value
     );
 }
+
+/// `callees` states the target's own call sites that link no edge though
+/// their name is declared in this repository (an unknown receiver, an
+/// ambiguous name): the answer is partial with their count, and the related
+/// `unresolved` call scoped to the target lists exactly them. A target
+/// whose every call links is not partial.
+#[test]
+fn callees_with_unlinked_in_repo_sites_are_partial_with_the_count() {
+    let dir = git_app(&[(
+        "lib/run.js",
+        "function helper(args) { return args; }\nfunction run(subCommand, args) {\n  helper(args);\n  subCommand.helper(args);\n  return subCommand.helper(args);\n}\nfunction plain(args) { return helper(args); }\nmodule.exports = { run, plain };\n",
+    )]);
+    let built = ingest_fixture(dir.0.as_path(), None);
+    assert_eq!(built.class, ExitClass::Success, "{}", built.value);
+    let partial = ask(dir.0.as_path(), "callees", Some("lib/run.js#run"), |_| {});
+    assert_eq!(ids(&partial), ["lib/run.js#helper"], "{}", partial.value);
+    assert_eq!(partial.value["isPartial"], true, "{}", partial.value);
+    let warnings = partial.value["warnings"].to_string();
+    assert!(warnings.contains("2 call sites"), "{}", partial.value);
+    let lead = partial.value["related"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|call| call["input"]["queries"][0]["operation"] == "unresolved")
+        .unwrap_or_else(|| panic!("an unresolved lead: {}", partial.value));
+    let row = lead["input"]["queries"][0].clone();
+    let listed = ask(dir.0.as_path(), "unresolved", Some("lib/run.js#run"), |o| {
+        o.reasons = row["reasons"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|reason| reason.as_str().map(str::to_owned))
+            .collect();
+    });
+    assert_eq!(
+        listed.value["rows"].as_array().map_or(0, Vec::len),
+        2,
+        "{}",
+        listed.value
+    );
+    let complete = ask(dir.0.as_path(), "callees", Some("lib/run.js#plain"), |_| {});
+    assert!(
+        complete.value.get("isPartial").is_none(),
+        "{}",
+        complete.value
+    );
+}

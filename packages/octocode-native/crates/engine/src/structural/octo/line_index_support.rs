@@ -6,24 +6,23 @@ use tree_sitter::Node;
 use crate::structural::types::{MetavarRange, StructuralMatch};
 use crate::text::LineIndex;
 
-use super::matching::{RawRange, node_text};
+use super::matching::{CapturedRanges, node_text};
 use super::source_context::SourceContext;
 
 /// Converts raw tree-sitter capture positions into `MetavarRange`s (1-based
-/// line, char column), pairing each range with its captured text by index.
+/// line, char column), each with the captured text of the value it is.
 fn build_metavar_ranges(
     source: &SourceContext,
     content: &str,
     line_index: &LineIndex,
     values: &HashMap<String, Vec<String>>,
-    raw: HashMap<String, Vec<RawRange>>,
+    raw: CapturedRanges,
 ) -> std::collections::BTreeMap<String, Vec<MetavarRange>> {
     raw.into_iter()
         .map(|(name, ranges)| {
             let texts = values.get(&name);
             let mapped = ranges
                 .into_iter()
-                .enumerate()
                 .map(|(i, (sr, sc, er, ec, start, end, tree))| MetavarRange {
                     source_span: source.range(tree, start, end),
                     source_origin: None,
@@ -43,7 +42,7 @@ pub(super) fn to_structural_match(
     node: Node<'_>,
     content: &str,
     metavars: HashMap<String, Vec<String>>,
-    metavar_ranges_raw: HashMap<String, Vec<RawRange>>,
+    metavar_ranges_raw: CapturedRanges,
 ) -> StructuralMatch {
     let line_index = LineIndex::tree_sitter(content);
     to_structural_match_with_index(node, content, &line_index, metavars, metavar_ranges_raw)
@@ -54,7 +53,7 @@ pub(super) fn to_structural_match_with_index(
     content: &str,
     line_index: &LineIndex,
     metavars: HashMap<String, Vec<String>>,
-    metavar_ranges_raw: HashMap<String, Vec<RawRange>>,
+    metavar_ranges_raw: CapturedRanges,
 ) -> StructuralMatch {
     let source = SourceContext::root(node, content);
     to_structural_match_with_context(
@@ -73,7 +72,7 @@ pub(super) fn to_structural_match_with_context(
     content: &str,
     line_index: &LineIndex,
     metavars: HashMap<String, Vec<String>>,
-    metavar_ranges_raw: HashMap<String, Vec<RawRange>>,
+    metavar_ranges_raw: CapturedRanges,
 ) -> StructuralMatch {
     let start = node.start_position();
     let end = node.end_position();

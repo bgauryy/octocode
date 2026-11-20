@@ -3,14 +3,14 @@
 use super::*;
 
 /// rust-analyzer loads a package's own directory, and its build-script
-/// output (`OUT_DIR`) only when `rustContext` runs build scripts. A type
+/// output (`OUT_DIR`) only when its configuration runs build scripts. A type
 /// defined in source the package `include!`s from elsewhere is unknown, so
 /// uses that reach a symbol through it (a method called through `Deref` to
 /// one, a field of one) do not resolve, and the server answers without
 /// them. The row is partial when files that use the name in code are
 /// missing from the answer, the lexical lead names them, and the reason
 /// says which load is missing: `includeOutsidePackage` (no build context
-/// loads it) or `buildScriptsOff` (with its rerun), the latter only when a
+/// loads it) or `buildScriptsOff`, the latter only when a
 /// missed file is not one a target gate leaves out (`target_gated`). A
 /// reason's meaning is core's; a note names only this answer's files, said
 /// once ([`flag_noted`]).
@@ -92,26 +92,9 @@ pub(super) fn annotate_includes(
     if !unexplained {
         return;
     }
-    let allowed = rust.build_scripts_allowed;
-    // Which load hides a missed file is not known: when the outside include
-    // may hide it too, the rerun (~2 GB) can recover nothing, so the text
-    // check comes first and the rerun is no lead.
-    let outside = lists_reason(row, OUTSIDE_INCLUDE_REASON);
-    // `buildScriptsOff` is the whole statement: its meaning is core's, and
-    // the rerun's cost and opt-in are the `rustContext.buildScripts` field's.
-    // An offered rerun carries the call; the `findText` lead is the text
-    // check.
+    // `buildScriptsOff` is the whole statement: its meaning is core's. The
+    // related localSearch is the text check.
     flag_partial(row, query, BUILD_SCRIPTS_REASON, None, scope);
-    // The rerun repeats the whole walk: offered once, on its first page,
-    // and only where the reason holds alone.
-    if allowed
-        && !continues_a_page(query)
-        && !outside
-        && lists_reason(row, BUILD_SCRIPTS_REASON)
-        && let Some(rerun) = super::super::failure::next_action(query, BUILD_SCRIPTS_REASON)
-    {
-        octocode_runtime_base::response::result::attach_related(row, rerun);
-    }
 }
 
 /// Whether `file` spells `name` as a member of something (`value.name`): a

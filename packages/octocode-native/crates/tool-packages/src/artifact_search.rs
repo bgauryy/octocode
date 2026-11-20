@@ -19,7 +19,7 @@ use octocode_runtime_base::response::paging;
 use serde_json::{Value, json};
 use std::time::Instant;
 
-use crate::artifact::{ArtifactItem, ResolvedNpmRegistry};
+use crate::artifact::{ArtifactItem, ResolvedNpmRegistry, lookalike};
 
 /// What one call takes from the runtime besides its query.
 pub struct ArtifactCall<'a> {
@@ -53,26 +53,79 @@ pub async fn execute(
         .with_stall(call.timeout);
     let npm_registry = npm_registry(&query, call.env)?;
     let reused = ReusedSince::default();
-    let page = execute_artifact(
-        &query,
-        &ArtifactProviderContext {
-            http: &http,
-            budget: &budget,
-            npm_registry: npm_registry.as_ref(),
-            allow_private_registry: call.allow_private_registry,
-            answers: call.answers,
-            reused: &reused,
-            tags: call.tags,
-            share: call.share,
-        },
-    )
-    .await
-    .map_err(|error| leads::with_repair(error, &query))?;
-    let mut data = respond(&query, page).map_err(|error| leads::with_repair(error, &query))?;
+    let context = ArtifactProviderContext {
+        http: &http,
+        budget: &budget,
+        npm_registry: npm_registry.as_ref(),
+        allow_private_registry: call.allow_private_registry,
+        answers: call.answers,
+        reused: &reused,
+        tags: call.tags,
+        share: call.share,
+    };
+    let mut data = serve(&query, &context).await?;
     if let Some(observed) = reused.get() {
         disclose_reuse(&mut data, observed);
     }
     Ok(data)
+}
+
+/// The response `query` gets through `context`: the page as served, or the
+/// error with its repair lead. An exact row is checked for a far more
+/// downloaded name one edit away ([`leads::lookalike`]).
+async fn serve(
+    query: &ArtifactSearchQuery,
+    context: &ArtifactProviderContext<'_>,
+) -> Result<Value, ArtifactError> {
+    let page = match execute_artifact(query, context).await {
+        Ok(page) => page,
+        Err(error) => {
+            return Err(leads::with_repair(
+                near_missing(error, query, context).await,
+                query,
+            ));
+        }
+    };
+    // The exact row's name as the registry spells it: what its names one
+    // edit away are counted against.
+    let known = artifact_search_query::package_name(query)
+        .and_then(|_| page.artifacts.first())
+        .map(|artifact| (artifact.artifact_type, artifact.package_name.clone()));
+    let mut data = match respond(query, page) {
+        Ok(data) => data,
+        Err(error) => {
+            return Err(leads::with_repair(
+                near_missing(error, query, context).await,
+                query,
+            ));
+        }
+    };
+    if let Some((kind, name)) = known
+        && let Some(near) = lookalike::near_names(kind, &name, context).await
+    {
+        leads::lookalike(&mut data, query, &name, near);
+    }
+    Ok(data)
+}
+
+/// A package the registry does not know carries what the registry counts of
+/// the names one edit away, for its repair lead; any other failure, and a
+/// count that could not be read, carries none.
+async fn near_missing(
+    mut error: ArtifactError,
+    query: &ArtifactSearchQuery,
+    context: &ArtifactProviderContext<'_>,
+) -> ArtifactError {
+    if error.code != ErrorCode::NotFound || error.missing_version {
+        return error;
+    }
+    if let Some(name) = artifact_search_query::package_name(query)
+        && let Some(Ok(near)) =
+            lookalike::near_names(artifact_search_query::artifact_type(query), name, context).await
+    {
+        error.near = Some(Box::new(near));
+    }
+    error
 }
 
 /// The npm registry a query reads: only the query names it (default

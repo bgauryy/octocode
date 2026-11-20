@@ -274,7 +274,7 @@ async fn a_redacted_patch_flags_the_row() {
             .and(path(format!("/api/v3/repos/a/b/commits/{commit}")))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "sha": commit,
-                "commit": {"message": "add config", "author": {"name": "A", "date": "2024-01-01T00:00:00Z"}},
+                "commit": {"message": "add config (#7)", "author": {"name": "A", "date": "2024-01-01T00:00:00Z"}},
                 "files": [{"filename": "conf/app.ini", "status": "added", "additions": 2, "deletions": 0,
                            "patch": patch}]
             })))

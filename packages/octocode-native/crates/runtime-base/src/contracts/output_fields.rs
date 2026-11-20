@@ -320,6 +320,48 @@ impl PageContextFields {
         }
     }
 
+    /// Drop from the later part `row` (a result row) each member at the row
+    /// pointers `restated`, required evidence [`Self::keep_later`] kept
+    /// whole, that the part validates without: another output variant
+    /// admits it absent (a localSearch part holding `files` needs no
+    /// `matchCount`), so the row's first part alone states it. Each is
+    /// tried in turn, and stays where the part needs it; a part that does
+    /// not validate as it is keeps every one.
+    pub(crate) fn drop_restated(&self, row: &mut serde_json::Value, restated: &[String]) {
+        use serde_json::Value;
+        if restated.is_empty() {
+            return;
+        }
+        let mut envelope = serde_json::json!({ "results": [std::mem::take(row)] });
+        let valid = |envelope: &mut Value| {
+            super::validate_output_in_place(self.tool.as_str(), envelope).is_ok()
+        };
+        if valid(&mut envelope) {
+            for pointer in restated {
+                let Some((holder, name)) = pointer.rsplit_once('/') else {
+                    continue;
+                };
+                let name = crate::json_pointer::unescape(name);
+                let holder = format!("/results/0{holder}");
+                let Some(map) = envelope.pointer_mut(&holder).and_then(Value::as_object_mut) else {
+                    continue;
+                };
+                let Some(at) = map.keys().position(|key| *key == name) else {
+                    continue;
+                };
+                let Some(value) = map.shift_remove(&name) else {
+                    continue;
+                };
+                if !valid(&mut envelope)
+                    && let Some(map) = envelope.pointer_mut(&holder).and_then(Value::as_object_mut)
+                {
+                    map.shift_insert(at, name, value);
+                }
+            }
+        }
+        *row = envelope["results"][0].take();
+    }
+
     /// Whether the value at `pointer` repeats whole on every part, itself or
     /// inside an identity, next or disclosure field: such a string is never
     /// cut into windows, since each part would repeat it.

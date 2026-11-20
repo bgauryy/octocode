@@ -279,11 +279,11 @@ async fn a_renamed_repository_without_a_ref_costs_no_extra_metadata_read() {
     runtime.close().await;
 }
 
-/// A cache store busy when the call saves what it found is said once, in the
-/// response's `warnings`, by the store's folder name: never a line outside the
-/// envelope, never the home's absolute path. The answer itself is whole.
+/// A cache store busy when the call saves what it found leaves the answer
+/// whole: only later reuse reads what was not saved, so the response says
+/// nothing of it (the operator's log does) and never names the home.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_busy_answer_cache_is_said_in_the_responses_warnings() {
+async fn a_busy_answer_cache_leaves_the_response_whole_and_quiet() {
     let server = tree_server(0).await;
     let workspace = Workspace::new();
     let warmup = github(&workspace, &server);
@@ -335,14 +335,7 @@ async fn a_busy_answer_cache_is_said_in_the_responses_warnings() {
         .filter_map(serde_json::Value::as_str)
         .filter(|warning| warning.contains("was busy"))
         .collect::<Vec<_>>();
-    assert_eq!(
-        busy,
-        [format!(
-            "The cache store {} was busy or could not be locked, so something this call found was not saved; a later call reads it again.",
-            store.file_name().expect("store name").to_string_lossy()
-        )],
-        "{envelope}"
-    );
+    assert_eq!(busy, Vec::<&str>::new(), "{envelope}");
     assert!(
         !envelope
             .to_string()

@@ -62,3 +62,51 @@ fn a_module_root_file_counts_in_its_own_folder() {
         issues.value
     );
 }
+
+/// Each hop of a directory cycle's witness names the file import that
+/// closes it at its line, as a file cycle's hop does.
+#[test]
+fn a_directory_cycle_hop_names_its_import_line() {
+    let dir = git_app(&[
+        (
+            "src/a/one.ts",
+            "\nimport { two } from '../b/two';\nexport const one = two;\n",
+        ),
+        (
+            "src/b/two.ts",
+            "export const two = 2;\nexport const back = () => import('../a/one');\n",
+        ),
+        (
+            "src/b/three.ts",
+            "\n\nimport { one } from '../a/one';\nexport const three = one;\n",
+        ),
+    ]);
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let issues = ask(root, "issues", None, |o| {
+        o.detectors = vec!["dir-cycle".into()];
+        o.min_tier = Some(0);
+    });
+    let hops = issues.value["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|row| row["detector"] == "dir-cycle")
+        .flat_map(|row| {
+            row["evidence"]["witness"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+        })
+        .collect::<Vec<_>>();
+    assert!(!hops.is_empty(), "{}", issues.value);
+    for hop in &hops {
+        let via = &hop["via"];
+        let from = via["from"].as_str().expect("from file");
+        let line = via["line"].as_u64().unwrap_or_else(|| panic!("{hop}"));
+        let text = std::fs::read_to_string(root.join(from)).expect("source");
+        let at = usize::try_from(line).expect("line") - 1;
+        let written = text.lines().nth(at).unwrap_or_default();
+        assert!(written.contains("import"), "{hop}: {written:?}");
+    }
+}

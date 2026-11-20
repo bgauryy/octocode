@@ -24,9 +24,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 mod observed;
 mod proof;
 pub use observed::{Held, Observed, held, observation, observing};
-#[cfg(any(test, feature = "test-hooks"))]
-pub use proof::stamp_stats;
 pub use proof::{Checked, Link, Proof, cache_stamp, exists};
+#[cfg(any(test, feature = "test-hooks"))]
+pub use proof::{stamp_stats, stamp_stats_of};
 
 /// A source file's size and change times when its content was hashed. A
 /// later read compares these before hashing again; equal stamps prove the

@@ -9,9 +9,10 @@ const LOCK: &str = ".capacity.lock";
 const SCAN_INTERVAL: u64 = 60;
 /// How long a write only later reuse reads waits for the store's lock, a holder
 /// being one write or one scan as long as the store is large. Past it the call
-/// goes on with its whole answer and says so ([`STORE_BUSY`]); a later read pays
-/// a fresh read. A write its call's answer depends on waits for the request's own
-/// deadline instead ([`crate::cache::Store::put_until`]).
+/// goes on with its whole answer, and only the operator's log says so
+/// ([`STORE_BUSY`], [`Wait::Reuse`]); a later read pays a fresh read. A write
+/// its call's answer depends on waits for the request's own deadline instead
+/// ([`crate::cache::Store::put_until`]), and its call's result says it gave up.
 pub(in crate::cache) const REUSE_LOCK_WAIT: Duration = Duration::from_secs(1);
 /// How often a wait for the store's lock looks for its request's cancel.
 #[cfg_attr(
@@ -22,6 +23,29 @@ pub(in crate::cache) const REUSE_LOCK_WAIT: Duration = Duration::from_secs(1);
     )
 )]
 const CANCEL_SLICE: Duration = Duration::from_millis(100);
+
+/// How long a write waits for the store's lock, and who hears that it gave
+/// up: the choice its caller makes by what the write is for.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Wait {
+    /// A write only later reuse reads ([`REUSE_LOCK_WAIT`]): giving up
+    /// leaves the call's answer whole, so the call's result says nothing and
+    /// the cause goes to the operator's log (stderr, once per process).
+    Reuse,
+    /// A write the call's answer depends on, waited for up to the request's
+    /// deadline: giving up is said in the call's result.
+    Until(Instant),
+}
+
+impl Wait {
+    /// When the wait for the lock ends, from now.
+    fn deadline(self) -> Instant {
+        match self {
+            Self::Reuse => Instant::now() + REUSE_LOCK_WAIT,
+            Self::Until(deadline) => deadline,
+        }
+    }
+}
 
 /// Why the store's lock was not taken.
 enum NotLocked {
@@ -99,34 +123,37 @@ impl Disk {
         }
     }
 
-    /// The store's lock for a write, or the note in the call's `warnings` that
-    /// the write was not kept (none for a cancelled request, whose answer
-    /// nobody reads). The store is named by its folder: where the home is says
-    /// nothing the agent acts on.
-    fn lock_to_write(&self, deadline: Instant) -> Option<StoreLock> {
-        let lock = self.lock(deadline);
+    /// The store's lock for a write, or the note that the write was not kept
+    /// ([`Disk::say_not_locked`]; none for a cancelled request, whose answer
+    /// nobody reads).
+    fn lock_to_write(&self, wait: Wait) -> Option<StoreLock> {
+        let lock = self.lock(wait.deadline());
         if let Err(NotLocked::Unavailable(cause)) = &lock {
-            self.say_not_locked(*cause);
+            self.say_not_locked(*cause, wait);
         }
         lock.ok()
     }
 
-    /// The call's note that a write was not kept because the store's lock
-    /// could not be taken: the cause is access when the filesystem refused
-    /// the lock file, busy otherwise.
-    fn say_not_locked(&self, cause: Option<io::ErrorKind>) {
+    /// The note that a write was not kept because the store's lock could
+    /// not be taken: the cause is access when the filesystem refused the
+    /// lock file, busy otherwise. A write the call's answer depends on says
+    /// it in the call's `warnings`; a reuse write, whose call's answer is
+    /// whole, says it only in the operator's log. The store is named by its
+    /// folder: where the home is says nothing anyone acts on.
+    fn say_not_locked(&self, cause: Option<io::ErrorKind>, wait: Wait) {
         let store = self.dir.file_name().unwrap_or(self.dir.as_os_str());
         let cause = match cause {
             Some(kind) if refused_for_access(kind) => "is not writable",
             _ => "was busy or could not be locked",
         };
-        octocode_io::notice::raise_in_result(
-            STORE_BUSY,
-            format!(
-                "The cache store {} {cause}, so something this call found was not saved; a later call reads it again.",
-                store.to_string_lossy()
-            ),
+        let text = format!(
+            "The cache store {} {cause}, so something this call found was not saved; a later call reads it again.",
+            store.to_string_lossy()
         );
+        match wait {
+            Wait::Reuse => octocode_io::notice::raise(STORE_BUSY, text),
+            Wait::Until(_) => octocode_io::notice::raise_in_result(STORE_BUSY, text),
+        }
     }
 
     fn capacity(&self) -> Option<Capacity> {
@@ -145,7 +172,7 @@ impl Disk {
         path: &Path,
         parts: [&[u8]; 2],
         config: &CacheConfig,
-        deadline: Instant,
+        wait: Wait,
     ) -> Result<(), NotStored> {
         let Some(size) = parts[0].len().checked_add(parts[1].len()) else {
             return Err(NotStored::Refused);
@@ -153,11 +180,11 @@ impl Disk {
         if size as u64 > config.disk_bytes {
             return Err(NotStored::Refused);
         }
-        let lock = match self.lock(deadline) {
+        let lock = match self.lock(wait.deadline()) {
             Ok(lock) => lock,
             Err(NotLocked::Cancelled) => return Err(NotStored::Cancelled),
             Err(NotLocked::Unavailable(cause)) => {
-                self.say_not_locked(cause);
+                self.say_not_locked(cause, wait);
                 return Err(NotStored::Unlocked(cause));
             }
         };
@@ -198,7 +225,7 @@ impl Disk {
             touch_file(&file, to);
             return true;
         }
-        let Some(_lock) = self.lock_to_write(Instant::now() + REUSE_LOCK_WAIT) else {
+        let Some(_lock) = self.lock_to_write(Wait::Reuse) else {
             return false;
         };
         if self.reserve(to, source.len(), config.disk_bytes).is_err() {

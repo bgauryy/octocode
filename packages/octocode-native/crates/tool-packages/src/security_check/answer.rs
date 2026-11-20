@@ -203,6 +203,22 @@ pub(super) fn unconfirmed_warning(facts: &Facts<'_>) -> Option<String> {
     })
 }
 
+/// The warning of a row OSV answered at a version the registry does not list
+/// (`versionListed:false`): `ids` are the advisories it counts, each named up to
+/// [`CVES_IN_SENTENCE`], past that counted (`advisoryIds` names them).
+pub(super) fn unlisted_warning(name: &str, version: &str, ids: &[String]) -> String {
+    let affected_by = if ids.len() <= CVES_IN_SENTENCE {
+        ids_clause(ids)
+    } else {
+        format!("{} (advisoryIds)", counted(ids.len()))
+    };
+    format!(
+        "The registry does not list {} {} (unpublished or removed); OSV lists it as affected by {affected_by}: do not install it.",
+        typed(name),
+        typed(version)
+    )
+}
+
 const STOPPED: &str =
     "the source stopped before its last page, so this is not an answer yet: follow next.nextPage.";
 
@@ -245,7 +261,9 @@ pub(super) fn lead(target: &str, facts: &Facts<'_>) -> Value {
         (false, false, true) if facts.release_named => format!(
             "{target}: none known to OSV at this version. OSV answered the version with nothing, and asked by name it lists this package in the release, so that empty answer is a real one."
         ),
-        (false, false, true) => format!("{target}: none known to OSV."),
+        (false, false, true) => {
+            format!("{target}: none known to OSV, which does not prove it safe.")
+        }
         (false, false, false) => format!(
             "{target}: the requested version is not on the registry, so it was not evaluated, and OSV knows none for this package."
         ),

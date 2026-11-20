@@ -1,0 +1,5 @@
+{"tool": "clasify", "steps": [
+ {"name": "price before billing: over budget sends nothing", "tool": "clasify", "args": {"operation": "evaluate", "source": {"tool": "localSearch", "query": {"path": "packages/octocode-native/crates/runtime-base/src/response", "matchString": ["push_warnings"]}}, "questions": {"warns": {"type": "noul", "instructions": "The line adds a warning to a response row."}}, "maxRequests": 1}, "expect": {"error": "classificationOverBudget", "contains": ["requestsCeiling"]}},
+ {"name": "judge one short text", "billed": true, "tool": "clasify", "args": {"operation": "evaluate", "content": "cargo build failed: error[E0432]: unresolved import crate::foo", "questions": {"build": {"type": "noul", "instructions": "The text reports a failed build."}}, "maxRequests": 4}, "expect": {"maxChars": 4000}},
+ {"name": "questions as a list is repaired with an example", "tool": "clasify", "args": {"operation": "evaluate", "content": "x", "questions": [{"type": "noul"}]}, "expect": {"error": "invalidInput"}}
+]}

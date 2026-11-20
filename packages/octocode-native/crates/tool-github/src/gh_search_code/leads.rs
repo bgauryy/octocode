@@ -1,7 +1,9 @@
 //! ghSearchCode leads: optional top-hit reads and required unresolved-source reads.
 use super::code_output::{Resolution, requested_ref, row_repo};
+use super::cut::Unlisted;
 use octocode_contract_types::{
-    CaseMode, GhSearchCodeQuery, GhSearchCodeQueryMatchInItem, RegexEngine,
+    CaseMode, GhGetFileContentQuery, GhSearchCodeQuery, GhSearchCodeQueryMatchInItem, RegexEngine,
+    SourceLineRange,
 };
 use octocode_engine::num::saturating_u32;
 use octocode_runtime_base::id::ToolId;
@@ -11,6 +13,7 @@ use octocode_tools_shared::leads::gh_file_read::{
     Target, Terms, match_read, plain_read, range_read,
 };
 use serde_json::{Value, json};
+use std::num::NonZeroU64;
 
 /// Code-search fragments carry no line numbers. Point the top hit at an exact
 /// ghGetFileContent match read, whose sourceLineRanges carry line numbers.
@@ -56,7 +59,8 @@ pub(super) fn code_hit(path: &str) -> bool {
 }
 
 /// Read source keyword lines when the provider result could not be resolved
-/// to a locally scanned blob. Resolved blobs already show every hit whole.
+/// to a locally scanned blob. A resolved blob lists every hit, or a run of
+/// them with the rest in its [`unlisted_read`].
 pub(super) fn hits_read(
     query: &GhSearchCodeQuery,
     row: &serde_json::Map<String, Value>,
@@ -73,6 +77,47 @@ pub(super) fn hits_read(
             .or_else(|| requested_ref(query)),
     };
     let read = match_read(&target, keyword_terms(query)?, Some((0, 0)), false)?;
+    Some(Continuation::continued_query(read).build())
+}
+
+/// The read of the hit lines a cut row left unlisted ([`Unlisted`]): its
+/// keywords as the listing matched them, with the query's context, inside
+/// the line ranges the row's run left, at the commit the lines were read
+/// at. Only hits inside a range count there and their context stays inside
+/// it, so it lists each line the row left exactly once.
+pub(super) fn unlisted_read(
+    query: &GhSearchCodeQuery,
+    row: &serde_json::Map<String, Value>,
+    sha: &str,
+    unlisted: &Unlisted,
+) -> Option<Value> {
+    let path = row.get("path")?.as_str()?;
+    let (owner, repo) = row_repo(query, row)?;
+    let target = Target {
+        owner,
+        repo,
+        path,
+        reference: (!sha.is_empty())
+            .then_some(sha)
+            .or_else(|| requested_ref(query)),
+    };
+    let context = query
+        .context_lines
+        .as_ref()
+        .map(|lines| (lines.before, lines.after));
+    let mut read = match_read(&target, keyword_terms(query)?, context, false)?;
+    let GhGetFileContentQuery::ContentMatchString(matched) = &mut read else {
+        return None;
+    };
+    matched.ranges = unlisted
+        .ranges()
+        .map(|(start, end)| {
+            Some(SourceLineRange {
+                start_line: NonZeroU64::new(u64::from(start))?,
+                end_line: NonZeroU64::new(u64::from(end))?,
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
     Some(Continuation::continued_query(read).build())
 }
 

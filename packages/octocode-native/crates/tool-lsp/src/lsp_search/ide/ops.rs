@@ -128,8 +128,9 @@ impl Question<'_, '_> {
     }
 
     /// `implementation`: the editor's answer, with the heritage scan's
-    /// declarations it left out for a type anchor or a member of a type, as
-    /// a server answer has.
+    /// declarations it left out for a type or a member of a type, as a
+    /// server answer has; an anchor that uses the name scans what its
+    /// declaration declares.
     async fn implementation(&mut self) -> Result<Value, Fault> {
         let answer = self.ask("implementation", self.anchor()).await?;
         let found = snippets::snippets_of(&answer, self.sources).await;
@@ -139,12 +140,26 @@ impl Question<'_, '_> {
             .await
             .map(|source| source.content.clone())
             .unwrap_or_default();
-        let scannable = lsp_search_query::symbol_name(self.query)
-            .and_then(|name| heritage::scannable(&content, self.path, self.line, name));
+        let name = lsp_search_query::symbol_name(self.query);
+        let scannable = match name
+            .and_then(|name| heritage::scan_anchor(&content, self.path, self.line, name))
+        {
+            Some(heritage::ScanAnchor::Declared(what)) => Some((
+                what,
+                heritage::Declaration {
+                    path: self.path.to_owned(),
+                    line: self.line,
+                    character: self.character,
+                },
+            )),
+            Some(heritage::ScanAnchor::Use) => self.resolved_declaration(name).await?,
+            None => None,
+        };
         let scan = match &scannable {
             // A scan that cannot run adds nothing; only cancellation stops.
-            Some(what) => match heritage::scan_for(
+            Some((what, declaration)) => match heritage::scan_for(
                 what,
+                declaration,
                 self.query,
                 self.scope,
                 self.sources.policy(),
@@ -169,6 +184,25 @@ impl Question<'_, '_> {
         let mut row = self.page_of("implementation", rows).await;
         flag_scan_only(&mut row, &extra);
         Ok(row)
+    }
+
+    /// What the declaration the anchor resolves to (the editor's definition
+    /// answer) lets a heritage scan read, with that declaration; a definition the
+    /// editor cannot give leaves no scan.
+    async fn resolved_declaration(
+        &mut self,
+        name: Option<&str>,
+    ) -> Result<Option<(heritage::Scannable, heritage::Declaration)>, Fault> {
+        let Some(name) = name else {
+            return Ok(None);
+        };
+        let answer = match self.ask("definition", self.anchor()).await {
+            Ok(answer) => answer,
+            Err(Fault::Stop(failure)) => return Err(Fault::Stop(failure)),
+            Err(Fault::Fallback(_)) => return Ok(None),
+        };
+        let definitions = snippets::snippets_of(&answer, self.sources).await;
+        Ok(heritage::resolved(&definitions, name, self.sources.policy(), self.cancel).await?)
     }
 
     async fn references(&mut self) -> Result<Value, Fault> {

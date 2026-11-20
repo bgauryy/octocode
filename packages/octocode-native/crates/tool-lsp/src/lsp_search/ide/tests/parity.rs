@@ -151,3 +151,51 @@ async fn an_ide_implementation_lists_what_the_heritage_scan_found_beside_it() {
     assert!(text.contains("native-graph-facts"), "and labelled: {row}");
     assert_eq!(row["isPartial"], true, "{row}");
 }
+
+/// `implementation` gives one answer whichever spelling of the type anchors
+/// it: at a use (an `implements` clause) the heritage scan reads what the
+/// editor's definition names, as at the declaration.
+#[tokio::test(flavor = "current_thread")]
+async fn an_ide_implementation_at_a_use_scans_the_declaration_it_resolves_to() {
+    let editor = Editor::new();
+    std::fs::write(
+        &editor.file,
+        "export interface Base {}\nexport class A implements Base {}\n",
+    )
+    .expect("source");
+    std::fs::write(
+        editor.root.join("b.ts"),
+        "import { Base } from './a';\nexport class B implements Base {}\n",
+    )
+    .expect("sibling");
+    let uri = editor.uri();
+    let bridge = Bridge::serve(Box::new(move |body| match body["method"].as_str() {
+        Some("implementation") => result(json!([location(&uri, 1, 13, 14)])),
+        Some("definition") => result(json!([location(&uri, 0, 17, 21)])),
+        Some("diagnostics") => result(json!([])),
+        _ => (
+            404,
+            json_fixture(r#"{"error": "unknown", "reason": "method"}"#),
+        ),
+    }));
+    editor.open(&bridge);
+    let ask = |line: u32| {
+        editor.ask(json!({
+            "operation": "implementation",
+            "symbolName": "Base",
+            "line": line
+        }))
+    };
+    let at_declaration = ask(1).await;
+    let at_use = ask(2).await;
+    assert_eq!(at_use["lsp"]["level"], "ide", "{at_use}");
+    assert!(
+        at_declaration.to_string().contains("b.ts"),
+        "the scan's declaration is listed: {at_declaration}"
+    );
+    assert_eq!(at_use["files"], at_declaration["files"], "{at_use}");
+    assert_eq!(
+        at_use["partialReasons"], at_declaration["partialReasons"],
+        "{at_use}"
+    );
+}

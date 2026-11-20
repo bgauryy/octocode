@@ -70,7 +70,11 @@ use octocode_tools_shared::import_resolution::{aliases, js_paths, paths};
 /// it is partial without reading evidence text.
 /// 39: a source that is not UTF-8 (8-bit text, Latin-1 or with stray bytes)
 /// is indexed as its decoded text instead of skipped as unreadable.
-const ANALYSIS_VERSION: u32 = 39;
+/// 40: a Rust `use` path starts at a name another `use` binds (`use
+/// streamed::f` after `use scanned::streamed`), and `use super::*` binds the
+/// parent's `use`s for the paths and calls that name them; lockfiles and other
+/// files no linking step reads are no snapshot inputs.
+const ANALYSIS_VERSION: u32 = 40;
 
 /// graphBuild's and graphQuery's recovery for the shared response stages.
 pub struct Output;

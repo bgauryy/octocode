@@ -324,10 +324,15 @@ async fn impact_states_every_file_reference_from_one_base() {
         json!({"operation":"impact","path":scan,"target":"layout.rs"}),
     )
     .await;
-    assert_eq!(
-        data["summary"]["changed"][0], data["rows"][0]["id"],
-        "{data}"
-    );
+    // The changed file is its own depth-0 row (summary.changed does not
+    // repeat it), and every `from` names a row from the same base.
+    let rows = data["rows"].as_array().expect("impact rows");
+    assert_eq!(rows[0]["risk"], "changed", "{data}");
+    assert!(data["summary"].get("changed").is_none(), "{data}");
+    let ids = rows.iter().map(|row| &row["id"]).collect::<Vec<_>>();
+    for row in rows.iter().filter(|row| row.get("from").is_some()) {
+        assert!(ids.contains(&&row["from"]), "{row}: {data}");
+    }
     runtime.close().await;
 }
 

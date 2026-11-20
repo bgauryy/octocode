@@ -1,0 +1,5 @@
+{"tool": "graphBuild", "steps": [
+ {"name": "build one scope", "tool": "graphBuild", "args": {"path": "packages/octocode-native/crates/tool-ast/src/ast_search/symbols"}, "expect": {"maxChars": 6000}},
+ {"name": "unchanged scope returns its snapshot", "tool": "graphBuild", "args": {"path": "packages/octocode-native/crates/tool-ast/src/ast_search/symbols"}, "expect": {"maxChars": 6000}},
+ {"name": "then query it", "tool": "graphQuery", "args": {"operation": "stats", "path": "packages/octocode-native/crates/tool-ast/src/ast_search/symbols"}, "expect": {"maxChars": 6000}}
+]}

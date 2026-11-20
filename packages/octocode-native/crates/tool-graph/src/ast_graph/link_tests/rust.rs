@@ -385,3 +385,68 @@ fn an_unbound_keyword_path_stays_unresolved_with_a_truthful_reason() {
         "{out}"
     );
 }
+
+/// A `use` path starts at any name the module binds (Rust 2018 uniform
+/// paths), a `use` of a module included: `use streamed::walk_cut` after
+/// `use scanned::streamed` names the item in that module's file, which is
+/// in this repository, never a package.
+#[test]
+fn a_use_path_through_a_module_another_use_binds_links_its_item() {
+    let temp = fixture(&[
+        CARGO_APP,
+        ("src/lib.rs", "pub mod exec;\n"),
+        (
+            "src/exec.rs",
+            "mod scanned;\npub(super) use scanned::{Scanned, streamed};\nuse streamed::{WalkCut, walk_cut};\npub fn shape(_: Scanned, _: WalkCut) -> u8 { walk_cut() }\n",
+        ),
+        (
+            "src/exec/scanned.rs",
+            "pub(super) mod streamed;\npub struct Scanned;\n",
+        ),
+        (
+            "src/exec/scanned/streamed.rs",
+            "pub struct WalkCut;\npub fn walk_cut() -> u8 { 1 }\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    let targets = call_edges(root, "src/exec.rs#shape")
+        .into_iter()
+        .map(|(id, _, _)| id)
+        .collect::<Vec<_>>();
+    assert_eq!(targets, ["src/exec/scanned/streamed.rs#walk_cut"]);
+    let deps = ask(root, "deps", Some("src/exec.rs"));
+    assert!(
+        files(&deps).contains(&"src/exec/scanned/streamed.rs"),
+        "{deps}"
+    );
+    let unresolved = ask(root, "unresolved", Some("src/exec.rs"));
+    assert_eq!(unresolved["rows"], json!([]), "{unresolved}");
+}
+
+/// `use super::*` binds every name the parent module binds, its private
+/// `use` of a module included: `query::view()` in the child calls that
+/// module's item, and the child depends on the module's file.
+#[test]
+fn a_parent_glob_binds_the_modules_the_parent_uses() {
+    let temp = fixture(&[
+        CARGO_APP,
+        ("src/lib.rs", "pub mod query;\npub mod verify;\n"),
+        ("src/query.rs", "pub fn view() -> u8 { 1 }\n"),
+        ("src/verify.rs", "use crate::query;\nmod guard;\n"),
+        (
+            "src/verify/guard.rs",
+            "use super::*;\npub fn of() -> u8 { query::view() }\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    let targets = call_edges(root, "src/verify/guard.rs#of")
+        .into_iter()
+        .map(|(id, _, _)| id)
+        .collect::<Vec<_>>();
+    assert_eq!(targets, ["src/query.rs#view"]);
+    let dependents = ask(root, "dependents", Some("src/query.rs"));
+    assert!(
+        files(&dependents).contains(&"src/verify/guard.rs"),
+        "{dependents}"
+    );
+}

@@ -30,11 +30,27 @@ const DECLARATION_KEYWORDS: &[&[u8]] = &[
     b"#define",
 ];
 
-/// Whether `word` introduces a declared name (`fn`, `class`, `#define`): the
-/// one keyword set both the relevance ranking of a line and a caller that
-/// reads a search such as `fn merge` as a declaration share.
-pub fn is_declaration_keyword(word: &str) -> bool {
-    DECLARATION_KEYWORDS.contains(&word.as_bytes())
+/// The name a declaration head introduces as its last word: `fn merge`,
+/// `pub(crate) fn merge`, `export default class Merge`, `let mut merge`,
+/// `@Override public String merge`, a Go method `func (r *T) merge`. One walk
+/// ([`declares_at`]) both marks a matched line `declaration` and reads a
+/// search such as `pub fn merge` as a declaration, so the two agree. A head
+/// written up to its signature's opening (`fn merge(`, `fn merge<T>`)
+/// names the identifier its last word starts with. `None` for any other
+/// text, a lone word among them.
+pub fn declared_name(text: &str) -> Option<&str> {
+    let head = text.trim_ascii();
+    let (_, word) = head.rsplit_once(|c: char| c.is_ascii_whitespace())?;
+    if !declares_at(head.as_bytes(), 0, head.len() - word.len()) {
+        return None;
+    }
+    let first = word.chars().next()?;
+    let end = word
+        .char_indices()
+        .skip(1)
+        .find(|(_, c)| !crate::text::is_ident_char(*c))
+        .map_or(word.len(), |(at, _)| at);
+    word.get(..end.max(first.len_utf8()))
 }
 
 /// Words that may precede a declaration keyword, or its name (`let mut x`).

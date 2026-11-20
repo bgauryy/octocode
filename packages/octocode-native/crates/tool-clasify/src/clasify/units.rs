@@ -633,25 +633,27 @@ fn judge(
         isolate: row.per_hit,
     };
     let plan = evaluator.plan_units(&call);
-    let room = evaluator.retry_room();
-    let ceiling = RequestCap::ceiling(plan.requests_at_most, room);
-    let price = reply::Price {
+    let allowed = evaluator.retry_room();
+    let priced = |room| reply::Price {
         planned: u64::try_from(plan.requests).unwrap_or(u64::MAX),
-        ceiling: Some(ceiling),
+        ceiling: Some(RequestCap::ceiling(plan.requests_at_most, room)),
         room,
     };
     if let Some(max) = row.max_requests
-        && ceiling > max
+        && plan.requests_at_most > max
     {
         return Err(Box::new(reply::OverBudget {
             units: sent.iter().flatten().count(),
-            price,
+            price: priced(allowed),
             input_tokens_at_most: plan.input_tokens_at_most,
             max,
-            room,
+            room: allowed,
         }));
     }
-    // Held to its ceiling, capped or not.
+    // The retries its cap leaves room for; held to its ceiling, capped or
+    // not.
+    let room = super::evaluate::room(row.max_requests, plan.requests_at_most, allowed);
+    let price = priced(room);
     let cap = super::evaluate::held(row, plan.requests_at_most, room);
     call.cap = Some(&cap);
     let judged =
@@ -671,31 +673,38 @@ fn judge(
         })
         .map(|(at, _)| at)
         .collect::<Vec<_>>();
-    let retry = (!unanswered.is_empty()).then(|| {
-        let again = sent
-            .iter()
-            .enumerate()
-            .map(|(at, unit)| {
-                let unit = unit.as_ref().filter(|_| unanswered.contains(&at))?;
-                Some(octocode_tools_shared::selection::judge::Unit {
-                    state: unit.state,
-                    alone: unit.alone.clone(),
+    // At most [`RETRY_KEYS`] keys per retry, so its own cursor passes the
+    // input gate: each part is its own retry, priced alone.
+    let retries = unanswered
+        .chunks(RETRY_KEYS)
+        .map(|part| {
+            let again = sent
+                .iter()
+                .enumerate()
+                .map(|(at, unit)| {
+                    let unit = unit.as_ref().filter(|_| part.contains(&at))?;
+                    Some(octocode_tools_shared::selection::judge::Unit {
+                        state: unit.state,
+                        alone: unit.alone.clone(),
+                    })
                 })
-            })
-            .collect::<Vec<_>>();
-        let plan = evaluator.plan_units(&UnitCall {
-            units: &again,
-            cap: None,
-            ..call
-        });
-        Retry {
-            keys: unanswered.iter().map(|&at| units[at].key.clone()).collect(),
-            ceiling: RequestCap::ceiling(plan.requests_at_most, room),
-        }
-    });
+                .collect::<Vec<_>>();
+            let plan = evaluator.plan_units(&UnitCall {
+                units: &again,
+                cap: None,
+                ..call
+            });
+            // Asked again under the row's own cap.
+            let room = super::evaluate::room(row.max_requests, plan.requests_at_most, allowed);
+            Retry {
+                keys: part.iter().map(|&at| units[at].key.clone()).collect(),
+                ceiling: RequestCap::ceiling(plan.requests_at_most, room),
+            }
+        })
+        .collect::<Vec<_>>();
     let mut outcome = shape(row, units, judged);
     outcome.price = price;
-    outcome.retry = retry;
+    outcome.retries = retries;
     if gone > 0 {
         octocode_runtime_base::response::paging::push_warnings(
             &mut outcome.output,
@@ -725,7 +734,11 @@ fn left_unanswered(answer: &Result<Value, ClassificationError>) -> bool {
     })
 }
 
-/// What a units row's `next.retry` asks again ([`UnitsOutcome::offer_retry`]).
+/// The unit keys one retry names at most: the input gate's bound on an
+/// array (`retryUnits` states it too), so a retry's own cursor is admitted.
+const RETRY_KEYS: usize = octocode_runtime_base::id::MAX_INPUT_ARRAY_ITEMS;
+
+/// What one of a units row's retries asks again ([`UnitsOutcome::offer_retry`]).
 pub struct Retry {
     /// The keys of the units left unanswered, in page order.
     pub keys: Vec<String>,
@@ -772,8 +785,9 @@ pub struct UnitsOutcome {
     pub deciding: Vec<(String, u64, u64)>,
     /// What the row's requests were planned at.
     pub price: reply::Price,
-    /// The units left unanswered, which `next.retry` asks again.
-    pub retry: Option<Retry>,
+    /// The units left unanswered, which `next.retry` (then `next.retry2`,
+    /// …, [`RETRY_KEYS`] units each) asks again.
+    pub retries: Vec<Retry>,
 }
 
 impl UnitsOutcome {
@@ -783,62 +797,87 @@ impl UnitsOutcome {
     /// at their ceiling; in one that keeps nothing, the related retry is the
     /// whole row at its own ceiling, and its hint says so.
     pub(super) fn offer_retry(&mut self, row: &Row, can_resume: bool) {
-        let (Some(retry), Some(mut query)) = (&self.retry, row.query.as_object().cloned()) else {
+        let Some(query) = row.query.as_object().filter(|_| !self.retries.is_empty()) else {
             return;
         };
+        let count = self
+            .retries
+            .iter()
+            .map(|retry| retry.keys.len())
+            .sum::<usize>();
         let units = octocode_engine::text::counted(
-            u64::try_from(retry.keys.len()).unwrap_or(u64::MAX),
+            u64::try_from(count).unwrap_or(u64::MAX),
             "unit",
             "units",
         );
-        let (call, hint) = if can_resume {
-            query.insert(super::rows::RETRY_UNITS.into(), json!(retry.keys));
-            query.insert("maxRequests".into(), json!(retry.ceiling));
-            (
-                Value::Object(query),
-                format!(
-                    "{units} left unanswered by a transient failure: next.retry asks only them again (billed, at most {} requests).",
-                    retry.ceiling
-                ),
+        let valid = |call: &Value| {
+            octocode_runtime_base::contracts::validate_built_query(
+                ToolId::Clasify.as_str(),
+                call.clone(),
             )
-        } else {
+            .is_ok()
+        };
+        if !can_resume {
             let Some(ceiling) = self.price.ceiling else {
                 return;
             };
+            let mut query = query.clone();
             query.remove(super::rows::RETRY_UNITS);
             query.insert("maxRequests".into(), json!(ceiling));
-            (
-                Value::Object(query),
-                format!(
-                    "{units} left unanswered by a transient failure. This command keeps no saved work, so the related retry asks every unit of the row again (billed, at most {ceiling} requests)."
-                ),
-            )
-        };
-        if octocode_runtime_base::contracts::validate_built_query(
-            ToolId::Clasify.as_str(),
-            call.clone(),
-        )
-        .is_err()
-        {
-            return;
-        }
-        if can_resume {
-            let call = octocode_runtime_base::response::result::Continuation::continued(
-                ToolId::Clasify,
-                call,
-            );
-            octocode_runtime_base::response::result::attach_calls(
-                &mut self.output,
-                json!({"retry": call.build()}),
-            );
-        } else {
+            let call = Value::Object(query);
+            if !valid(&call) {
+                return;
+            }
             let call = octocode_runtime_base::response::result::Continuation::related(
                 ToolId::Clasify,
                 call,
             );
             octocode_runtime_base::response::result::attach_related(&mut self.output, call.build());
+            octocode_runtime_base::response::result::add_hints(
+                &mut self.output,
+                vec![format!(
+                    "{units} left unanswered by a transient failure. This command keeps no saved work, so the related retry asks every unit of the row again (billed, at most {ceiling} requests)."
+                )],
+            );
+            return;
         }
-        octocode_runtime_base::response::result::add_hints(&mut self.output, vec![hint]);
+        let mut calls = Map::new();
+        let mut total = 0_u64;
+        for retry in &self.retries {
+            let mut query = query.clone();
+            query.insert(super::rows::RETRY_UNITS.into(), json!(retry.keys));
+            query.insert("maxRequests".into(), json!(retry.ceiling));
+            let call = Value::Object(query);
+            if !valid(&call) {
+                return;
+            }
+            let name = match calls.len() {
+                0 => "retry".to_owned(),
+                at => format!("retry{}", at + 1),
+            };
+            let call = octocode_runtime_base::response::result::Continuation::continued(
+                ToolId::Clasify,
+                call,
+            );
+            calls.insert(name, call.build());
+            total = total.saturating_add(retry.ceiling);
+        }
+        let which = match calls.len() {
+            1 => "next.retry asks only them again".to_owned(),
+            parts => format!(
+                "next.retry through next.retry{parts} ask only them again, {RETRY_KEYS} units each"
+            ),
+        };
+        octocode_runtime_base::response::result::attach_calls(
+            &mut self.output,
+            Value::Object(calls),
+        );
+        octocode_runtime_base::response::result::add_hints(
+            &mut self.output,
+            vec![format!(
+                "{units} left unanswered by a transient failure: {which} (billed, at most {total} requests)."
+            )],
+        );
     }
 
     /// The row's data with its usage: the spend that stayed with its
@@ -991,7 +1030,7 @@ fn shape(row: &Row, units: Vec<Unit>, judged: UnitAnswers) -> UnitsOutcome {
             ceiling: Some(0),
             room: 0,
         },
-        retry: None,
+        retries: Vec::new(),
     }
 }
 

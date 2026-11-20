@@ -1,0 +1,85 @@
+{
+ "tool": "lspSearch",
+ "steps": [
+  {
+   "name": "find the anchor line",
+   "tool": "localSearch",
+   "args": {
+    "path": "packages/octocode-native/crates",
+    "matchString": [
+     "fn walk_builder"
+    ]
+   },
+   "expect": {
+    "offers": "related:lspSearch"
+   }
+  },
+  {
+   "name": "follow: callers",
+   "follow": "related:lspSearch",
+   "expect": {
+    "min": {
+     "data.files[]": 1
+    }
+   }
+  },
+  {
+   "name": "references",
+   "tool": "lspSearch",
+   "args": {
+    "operation": "references",
+    "path": "packages/octocode-native/crates/runtime-base/src/response/paging.rs",
+    "symbolName": "push_warnings",
+    "line": 120
+   },
+   "expect": {
+    "min": {
+     "data.files[]": 5
+    }
+   }
+  },
+  {
+   "name": "definition",
+   "tool": "lspSearch",
+   "args": {
+    "operation": "definition",
+    "path": "packages/octocode-native/crates/runtime-base/src/response/paging.rs",
+    "symbolName": "push_warnings",
+    "line": 120
+   },
+   "expect": {
+    "contains": [
+     "paging.rs"
+    ]
+   }
+  },
+  {
+   "name": "identical repeat answers from memory",
+   "tool": "lspSearch",
+   "args": {
+    "operation": "references",
+    "path": "packages/octocode-native/crates/runtime-base/src/response/paging.rs",
+    "symbolName": "push_warnings",
+    "line": 120
+   },
+   "expect": {
+    "min": {
+     "data.files[]": 5
+    }
+   }
+  },
+  {
+   "name": "symbol not on the line",
+   "tool": "lspSearch",
+   "args": {
+    "operation": "references",
+    "path": "packages/octocode-native/crates/runtime-base/src/response/paging.rs",
+    "symbolName": "no_such_symbol_here",
+    "line": 120
+   },
+   "expect": {
+    "error": "notFound"
+   }
+  }
+ ]
+}

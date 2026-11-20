@@ -22,16 +22,12 @@ async function batchLimit() {
 }
 
 // Callees of one probed symbol: definition file and name per match, or null when the server gave no answer.
-// Until every operation states it in partialReasons, a related rerun with rustContext.buildScripts is the same signal:
-// the answer is missing types that build scripts generate.
-const buildScriptLead = (d) => (d.related ?? []).some((r) => r?.input?.queries?.some?.((q) => q?.rustContext?.buildScripts === true));
-
 // One probe's answer: `{ callees }` (definition file, name and line per callee, plus the call-site lines in the probed
 // function), or `{ unanswered }` with the server's own reasons (error code, partialReasons such as buildScriptsOff).
 function calleesOf(rowPages, root) {
   if (!rowPages.length || rowPages.some((p) => !p?.data)) return { unanswered: ['missingResult'] };
   const rows = rowPages.map((p) => p?.data ?? {});
-  const reasons = [...new Set(rows.flatMap((d) => [...(d.errorCode ? [d.errorCode] : []), ...(d.partialReasons ?? []), ...(buildScriptLead(d) ? ['buildScriptsOff'] : [])]))];
+  const reasons = [...new Set(rows.flatMap((d) => [...(d.errorCode ? [d.errorCode] : []), ...(d.partialReasons ?? [])]))];
   if (rows.some((d) => d.errorCode || d.isPartial) || reasons.length) return { unanswered: reasons.length ? reasons : ['partial'] };
   if (rows.every((d) => d.kind === 'empty')) return rows.some((d) => d.isPartial) ? { unanswered: reasons.length ? reasons : ['partial'] } : { callees: new Map() };
   const out = new Map();

@@ -1,13 +1,12 @@
 //! Language-server prewarm (`lsp.prewarm`).
 //!
-//! A local response that serves an lspSearch call names a source file before
-//! the agent asks for its identity. When enabled, that file's server is
-//! started in the shared pool
+//! A local read or search names a source file, and a response that serves an
+//! lspSearch call names one, before the agent asks for its identity. When
+//! enabled, that file's server is started in the shared pool
 //! in the background, under exactly the configuration `lspSearch` would
 //! resolve for the same file (same workspace root, same discovery options,
-//! no `rustContext` overlay, so rust-analyzer keeps its no-build-scripts /
-//! no-proc-macros defaults), and the file is opened so a project load starts
-//! too. The later `lspSearch` then acquires the warm pooled client.
+//! so rust-analyzer keeps its no-build-scripts / no-proc-macros defaults),
+//! and the file is opened so a project load starts too. The later `lspSearch` then acquires the warm pooled client.
 //!
 //! Under `all`, a host that knows its workspace before any call (`octocode
 //! mcp` after `initialize`) also warms the workspace's servers
@@ -41,9 +40,11 @@ const PREWARM_READY_TIMEOUT_MS: u32 = 20_000;
 const MAX_PREWARM_OPEN_BYTES: u64 = 2 * 1024 * 1024;
 
 /// The source file a local tool row points at: the top search hit, else the
-/// row's or query's own `path` when it is a file. Relative paths are not guessed.
+/// row's or query's own `path` when it is a file. A local tool states its hits
+/// workspace-relative, so a relative path resolves against the workspace, as
+/// the call itself would.
 #[must_use]
-pub fn anchor_file(query: &Value, data: &Value) -> Option<PathBuf> {
+pub fn anchor_file(paths: &PathPolicy, query: &Value, data: &Value) -> Option<PathBuf> {
     let hit = data
         .get("files")
         .and_then(Value::as_array)
@@ -53,8 +54,8 @@ pub fn anchor_file(query: &Value, data: &Value) -> Option<PathBuf> {
     hit.into_iter()
         .chain(data.get("path").and_then(Value::as_str))
         .chain(query.get("path").and_then(Value::as_str))
-        .map(PathBuf::from)
-        .find(|path| path.is_absolute() && path.is_file())
+        .map(|path| paths.expand_and_resolve(Path::new(path)))
+        .find(|path| path.is_file())
 }
 
 /// The file of the first lspSearch call a settled response serves: its

@@ -2,6 +2,7 @@
 //! for the rows a page shows: a response window that holds a few rows reads
 //! a few files ([`super::super::part`]).
 use crate::gh_search_code::Withholds;
+use crate::gh_search_code::cut::{Cut, Unlisted};
 use crate::gh_search_code::lines::{FileHits, Listing, Window, resolve_files};
 use octocode_contract_types::GhSearchCodeQuery;
 use octocode_github::{GitHubProvider, ProviderError, RequestContext};
@@ -18,6 +19,26 @@ pub(in crate::gh_search_code) struct Resolution {
     pub(in crate::gh_search_code) reference: Option<String>,
     /// Per row: the commit it was read at, and its hits.
     pub(in crate::gh_search_code) hits: Vec<(String, FileHits)>,
+    /// Per row, the hit lines a cut row leaves to its `readHits` read
+    /// ([`Resolution::cut`]); a row past its end is listed whole.
+    pub(in crate::gh_search_code) unlisted: Vec<Option<Unlisted>>,
+}
+
+impl Resolution {
+    /// Each row's hits cut to its run (`cuts`, per row; `None`: whole), as
+    /// the page's window shares the rows ([`crate::gh_search_code::part`]).
+    pub(in crate::gh_search_code) fn cut(&mut self, cuts: &[Option<Cut>], window: Window) {
+        self.unlisted = self
+            .hits
+            .iter_mut()
+            .zip(cuts)
+            .map(|((_, hits), cut)| {
+                let (listed, unlisted) = cut.and_then(|cut| cut.apply(hits, window))?;
+                *hits = listed;
+                Some(unlisted)
+            })
+            .collect();
+    }
 }
 
 /// `(owner, repo, commit)` a group of rows is read at.
@@ -215,6 +236,12 @@ impl LinePlan {
             sha,
             reference: self.reference.as_ref().map(|(name, _)| name.clone()),
             hits,
+            unlisted: Vec::new(),
         }
+    }
+
+    /// The context listed around each hit.
+    pub(in crate::gh_search_code) fn window(&self) -> Window {
+        self.window
     }
 }

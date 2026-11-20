@@ -323,9 +323,7 @@ pub(super) fn cautions(
             found.extend(caution(
                 contract,
                 "repositoryMissing",
-                format!(
-                    "GitHub has no such repository, read {today}. GitHub answers the same for a private repository this credential cannot see."
-                ),
+                format!("GitHub shows this credential no such repository, read {today}."),
             ));
             return found;
         }

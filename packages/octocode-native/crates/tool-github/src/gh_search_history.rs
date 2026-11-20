@@ -166,8 +166,8 @@ pub async fn execute(
     result.warnings.splice(0..0, unconfirmed);
     result.warnings.extend(warnings);
     rows::sanitize_items(&mut result.items, security).map_err(history_failure)?;
-    // Rows that state a pull request's comment count state GitHub's whole
-    // count, the one its sort and filters use.
+    // Rows that state a pull request's whole comment count read it: the
+    // count GitHub's sort and filters use (`totalCommentsCount`).
     if comment_counts::shown(&query)
         && let Some(note) = comment_counts::whole_counts(transport, &mut result.items, context)
             .await

@@ -20,10 +20,14 @@ fn subtypes_fall_back_to_a_labelled_heritage_scan_when_implementation_fails() {
     );
     let (_dir, root, script) = fixture();
     std::fs::write(root.join("b.ts"), "export interface Base {}\n").expect("base");
-    std::fs::write(root.join("a.ts"), "export class Child extends Base {}\n").expect("child");
+    std::fs::write(
+        root.join("a.ts"),
+        "import { Base } from './b';\nexport class Child extends Base {}\n",
+    )
+    .expect("child");
     std::fs::write(
         root.join("c.ts"),
-        "export interface Wide extends Other, Base {}\n",
+        "import { Base } from './b';\nexport interface Wide extends Other, Base {}\n",
     )
     .expect("wide");
     std::fs::write(root.join("d.ts"), "export class Skip extends Other {}\n").expect("other");
@@ -135,10 +139,14 @@ fn implementation_row(
         "export interface Base {\n  run(): void;\n}\nexport class Plain {\n  go(): void {}\n}\n",
     )
     .expect("base");
-    std::fs::write(root.join("a.ts"), "export class Child extends Base {}\n").expect("child");
+    std::fs::write(
+        root.join("a.ts"),
+        "import { Base } from './b';\nexport class Child extends Base {}\n",
+    )
+    .expect("child");
     std::fs::write(
         root.join("c.ts"),
-        "export class Impl implements Other, Base { run(): void {} }\n",
+        "import { Base } from './b';\nexport class Impl implements Other, Base { run(): void {} }\n",
     )
     .expect("impl");
     std::fs::write(root.join("e.ts"), "// Base\nconst x: Base = {};\n").expect("mention");

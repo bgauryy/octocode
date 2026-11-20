@@ -1,7 +1,8 @@
-//! A walk-order content window ends after the file that fills its page
-//! (TE3): it reads the files its page needs, not its scope; its totals are
-//! floors (`countScope: loaded`, no `matchCount`), never a coverage gap; and
-//! the walk goes on through `next.nextPage`, each match once.
+//! A walk-order content window ends at a start of its pages (TE3): it reads
+//! the files its pages need, not its scope; its totals are floors
+//! (`countScope: loaded`, no `matchCount`), never a coverage gap; every page
+//! but the walk's last is whole, wherever a window ends; and the walk goes
+//! on through `next.nextPage`, each match once.
 use super::super::test_rows::{ast_chain, ast_rows, run, run_window};
 use octocode_runtime_base::test_support::Fixture;
 use serde_json::{Value, json};
@@ -28,13 +29,17 @@ fn query(root: &Fixture, limit: Option<u64>) -> Value {
 }
 
 /// Page 1 of a broad rule reads through the file that fills it: the window
-/// is that one file, its count a floor, and nothing about it is partial.
+/// is that one file, ending where page 2 starts inside it, its count a floor
+/// of what it lists, and nothing about it is partial.
 #[test]
 fn a_content_page_reads_only_the_files_its_page_needs() {
     let root = hits(40, 3);
     let out = run(&root.0, query(&root, Some(2))).expect("page 1");
     assert_eq!(out["files"].as_array().map(Vec::len), Some(1), "{out}");
-    assert_eq!(out["pagination"]["total"], 3, "only f00 was read: {out}");
+    assert_eq!(
+        out["pagination"]["total"], 2,
+        "only f00 was read, up to page 2: {out}"
+    );
     assert_eq!(out["pagination"]["countScope"], "loaded", "{out}");
     assert_eq!(out["pagination"]["hasMore"], true, "{out}");
     assert!(out.get("matchCount").is_none(), "no final count: {out}");
@@ -140,4 +145,59 @@ fn later_windows_grow_so_a_walk_takes_few_windows() {
         windows <= 8,
         "{windows} windows for 64 files: each window at least doubles"
     );
+}
+
+/// Every page but the walk's last is whole, wherever a scan window ends: a
+/// page `limit` caps holds `limit` matches, so the walk takes the fewest
+/// pages its matches need, however the windows split the files.
+#[test]
+fn every_page_but_the_last_is_whole_across_windows() {
+    for (files, per_file, limit) in [(40, 3, 2), (12, 7, 3), (5, 40, 9), (64, 1, 5)] {
+        let root = hits(files, per_file);
+        let pages = ast_chain(&root.0, query(&root, Some(limit)));
+        let shown = pages
+            .iter()
+            .map(|page| {
+                page["files"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|file| file["matches"].as_array().map_or(0, Vec::len))
+                    .sum::<usize>()
+            })
+            .collect::<Vec<_>>();
+        let total = files * per_file;
+        assert_eq!(shown.iter().sum::<usize>(), total, "{shown:?}");
+        let (last, whole) = shown.split_last().expect("a page");
+        assert!(
+            whole.iter().all(|rows| *rows == limit as usize),
+            "{files}x{per_file} limit {limit}: {shown:?}"
+        );
+        assert!((1..=limit as usize).contains(last), "{shown:?}");
+        assert_eq!(pages.len(), total.div_ceil(limit as usize), "{shown:?}");
+    }
+}
+
+/// A window that ends inside a file pins it: the next window lists that
+/// file's rest only while it is unchanged, and restarts the walk when it
+/// changed, never listing its matches from two versions.
+#[test]
+fn a_file_a_window_ended_inside_stays_pinned_for_the_next_window() {
+    let root = hits(3, 5);
+    let first = run(&root.0, query(&root, Some(2))).expect("page 1");
+    assert_eq!(first["pagination"]["countScope"], "loaded", "{first}");
+    let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
+    assert!(next.is_object(), "{first}");
+    let second = run(&root.0, next.clone()).expect("page 2");
+    assert!(second.get("errorCode").is_none(), "{second}");
+    assert_eq!(second["pagination"]["offset"], 2, "{second}");
+    let first_rows = ast_rows(std::slice::from_ref(&first));
+    let second_rows = ast_rows(std::slice::from_ref(&second));
+    assert!(
+        second_rows.iter().all(|row| !first_rows.contains(row)),
+        "no row twice: {first} {second}"
+    );
+    root.write("f00.rs", "fn f() {\n    hit(10);\n    hit(11);\n}\n");
+    let moved = run(&root.0, next).expect("page 2 again");
+    assert_eq!(moved["errorCode"], "staleSnapshot", "{moved}");
 }

@@ -135,6 +135,40 @@ fn unknown_settings_are_rejected_without_mutating_saved_configuration() {
     assert_eq!(std::fs::read_to_string(path).unwrap(), original);
 }
 
+/// The config view's Remove reaches a key the contract no longer declares
+/// when the file holds it, and its response says the key was unknown.
+#[test]
+fn removing_an_unknown_saved_key_succeeds_with_a_notice() {
+    let workspace = Workspace::new();
+    let path = workspace.home.join(".octocoderc");
+    std::fs::write(&path, r#"{"lsp":{"prewarm":"off","retiredOption":true}}"#).unwrap();
+    let (_, inspected) = manage(&workspace, json_fixture(r#"{"operation": "inspect"}"#));
+    let revision = inspected["data"]["files"]["homeSettings"]["revision"].clone();
+    let (code, removed) = manage(
+        &workspace,
+        serde_json::json!({"operation":"removeSetting","scope":"home","key":"lsp.retiredOption",
+            "revision":revision}),
+    );
+    assert_eq!(code, Some(0), "{removed}");
+    assert_eq!(removed["data"]["changed"], true, "{removed}");
+    let notice = removed["data"]["notice"].as_str().expect("a notice");
+    assert!(notice.contains("lsp.retiredOption"), "{notice}");
+    assert_eq!(
+        octocode_runtime_base::config::parse_config_json(&std::fs::read_to_string(&path).unwrap())
+            .unwrap(),
+        json_fixture(r#"{"lsp": {"prewarm": "off"}}"#)
+    );
+    let (_, inspected) = manage(&workspace, json_fixture(r#"{"operation": "inspect"}"#));
+    let revision = inspected["data"]["files"]["homeSettings"]["revision"].clone();
+    let (_, known) = manage(
+        &workspace,
+        serde_json::json!({"operation":"removeSetting","scope":"home","key":"lsp.prewarm",
+            "revision":revision}),
+    );
+    assert_eq!(known["data"]["changed"], true, "{known}");
+    assert!(known["data"].get("notice").is_none(), "{known}");
+}
+
 #[test]
 fn arbitrary_environment_keys_remain_editable_and_values_are_not_disclosed() {
     let workspace = Workspace::new();

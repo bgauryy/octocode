@@ -2,7 +2,7 @@
 
 use tree_sitter::Node;
 
-use crate::structural::octo::matching::{CaptureEnv, ExecutionError, node_text, raw_range};
+use crate::structural::octo::matching::{CaptureEnv, ExecutionError, listed_ranges, node_text};
 use crate::structural::octo::metavars::minimum_candidate_nodes;
 
 use super::super::{CompiledPattern, MatchBudget};
@@ -105,9 +105,7 @@ impl CompiledPattern {
                     }
                 }
                 let values = taken.iter().map(|node| node_text(*node, texts.candidate));
-                if !captures.capture_many(name, values, || {
-                    taken.iter().map(|node| raw_range(*node)).collect()
-                }) {
+                if !captures.capture_many(name, values, || listed_ranges(taken, texts.candidate)) {
                     continue;
                 }
             }

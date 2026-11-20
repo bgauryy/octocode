@@ -8,8 +8,7 @@ fn query() -> LspSearchQuery {
             "path": "/repo/src/main.rs",
             "symbolName": "work",
             "line": 20,
-            "workspaceRoot": "/repo",
-            "rustContext": {"features": ["custom"], "buildScripts": false}
+            "workspaceRoot": "/repo"
         }"#,
     ))
     .expect("query")
@@ -53,8 +52,7 @@ fn document_errors_are_not_limited_to_the_anchor_and_keep_context() {
             r#"{
                 "operation": "diagnostic",
                 "path": "/repo/src/main.rs",
-                "workspaceRoot": "/repo",
-                "rustContext": {"features": ["custom"], "buildScripts": false}
+                "workspaceRoot": "/repo"
             }"#
         )
     );

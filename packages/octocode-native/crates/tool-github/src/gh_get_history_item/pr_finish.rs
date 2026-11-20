@@ -23,7 +23,7 @@ mod metadata;
 #[cfg(test)]
 mod tests;
 
-pub(super) use metadata::{body_preview, pr_metadata};
+pub(super) use metadata::{WHOLE_COUNT_KEY, body_preview, pr_metadata};
 
 /// A scope or literal that matched nothing: an empty row whose leads run the
 /// recovery ([`unmatched_leads`]), or, when other sections hold evidence, a
@@ -100,6 +100,7 @@ pub(super) fn finish_pr(
         comment_reads,
         commit_file_pages,
         body_drops,
+        notes,
     } = shaped;
     // A `matchString` miss in the files is an empty row only when no other
     // section of the read (body, comments, reviews) holds evidence;
@@ -130,6 +131,7 @@ pub(super) fn finish_pr(
             )],
         );
     }
+    push_warnings(&mut out, notes);
     if !body_drops.is_empty() {
         push_warnings(&mut out, body_drops);
         ensure_calls(&mut out);

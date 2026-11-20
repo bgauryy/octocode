@@ -53,6 +53,10 @@ pub(super) struct Judge {
     /// Refuse a request whose body is over these bytes (default window,
     /// long window), as a provider whose windows hold a token per byte.
     pub(super) refuse_bytes: Option<(usize, usize)>,
+    /// The provider's own prompt, in input tokens per request and per
+    /// question, reported beside a third of a token per body byte; `None`:
+    /// every request reports 10.
+    pub(super) prompt: Option<(u64, u64)>,
 }
 
 impl Judge {
@@ -62,6 +66,7 @@ impl Judge {
             once: false,
             lost_seen: Arc::default(),
             refuse_bytes: None,
+            prompt: None,
         }
     }
 
@@ -88,9 +93,14 @@ impl Judge {
             let noul = if text.contains("KEEP") { 0.94 } else { 0.03 };
             answers.insert(id.clone(), json!({"type":"noul","noul":noul}));
         }
+        let input_tokens = self.prompt.map_or(10, |(per_request, per_question)| {
+            per_request
+                + per_question * questions.len() as u64
+                + (request.body.len() as u64).div_ceil(3)
+        });
         ResponseTemplate::new(200).set_body_json(json!({
             "model":"jev-test","answers":answers,
-            "usage":{"input_tokens":10,"output_tokens":2}
+            "usage":{"input_tokens":input_tokens,"output_tokens":2}
         }))
     }
 }
@@ -594,12 +604,70 @@ fn the_plan_matches_the_requests_sent() {
     assert_eq!(plan.requests, 3);
     assert_eq!(plan.requests, provider.bodies().len());
     assert_eq!(plan.body_bytes, provider.body_bytes());
-    // Before an answer teaches the density, a token per byte bounds it.
-    assert_eq!(plan.input_tokens_at_most, plan.body_bytes as u64);
+    // Before the provider answered here, nothing bounds its own prompt.
+    assert_eq!(plan.input_tokens_at_most, None);
     let learned = provider
         .evaluator
         .plan_units_at(&call(&units, &questions), 1);
-    assert!(learned.input_tokens_at_most < learned.body_bytes as u64);
+    assert!(learned.input_tokens_at_most >= Some(learned.body_bytes as u64));
+}
+
+/// A price's input tokens are a bound a real run cannot pass, small
+/// requests included, where the provider's own prompt outweighs the body:
+/// none is stated before the provider answered a request here; after one,
+/// every plan (one item, packed items, hits of several files; one question
+/// or three) states at most what its run then reports.
+#[test]
+fn a_planned_token_price_bounds_what_the_run_reports() {
+    let mut judge = Judge::new();
+    judge.prompt = Some((600, 300));
+    let provider = Provider::start(judge);
+    let one = question();
+    let three = vec![
+        json!({"type":"noul","instructions":"The entry is marked to keep."}),
+        json!({"type":"noul","instructions":"The entry is short."}),
+        json!({"type":"noul","instructions":"The entry names a file."}),
+    ];
+    let item = vec![json!("fix: keep the KEEP entry")];
+    let items = (0..5)
+        .map(|at| json!(format!("item {at}: a short line")))
+        .collect::<Vec<_>>();
+    let page = hits(&[("a.md", 3), ("b.md", 2)], &[1]);
+    let cases: [(&[Value], &[Value]); 4] = [
+        (&item, &one),
+        (&items, &three),
+        (&page, &one),
+        (&item, &three),
+    ];
+    let first = units(cases[0].0);
+    assert_eq!(
+        provider
+            .evaluator
+            .plan_units(&call(&first, cases[0].1))
+            .input_tokens_at_most,
+        None
+    );
+    provider.judge(&call(&first, cases[0].1), super::requests::GROUP_UNITS);
+    for (states, questions) in cases {
+        let units = units(states);
+        let plan = provider.evaluator.plan_units(&call(&units, questions));
+        let judged = provider.judge(&call(&units, questions), super::requests::GROUP_UNITS);
+        let reported = judged
+            .spends
+            .iter()
+            .map(|spend| spend.input_tokens)
+            .sum::<u64>();
+        let bound = plan.input_tokens_at_most.expect("a request was taken");
+        assert!(
+            reported <= bound,
+            "{} units, {} questions: reported {reported} over {bound}",
+            states.len(),
+            questions.len()
+        );
+        // A token per body byte alone would not bound it: the prompt
+        // outweighs the body.
+        assert!(reported > plan.body_bytes as u64, "{reported}");
+    }
 }
 
 /// Many questions close a file's group at the provider's request window:

@@ -180,16 +180,25 @@ fn read_leads(
     acquired: &octocode_github::ContentResponse,
 ) -> Option<Value> {
     let mut next = rewrite_continuations(content, query, &acquired.resolved_ref);
-    // A miss this file can still answer (hits outside the ranges, or
-    // ignoring case) leads to that read, not back to a repository search.
-    let answered_here = next
-        .as_ref()
-        .is_some_and(|calls| calls.get("read").is_some() || calls.get("ignoreCase").is_some());
+    // A miss this file can still answer (hits outside the ranges, the
+    // declared name alone, or ignoring case) leads to that read, not back to
+    // a repository search. The file's outline the shared miss offers answers
+    // nothing by itself: it leads, and the repository's leads follow it.
+    let outline = |call: &Value| call.pointer("/input/queries/0/view") == Some(&json!("symbols"));
+    let shared_read = next.as_ref().and_then(|calls| calls.get("read"));
+    let outlined = shared_read.is_some_and(outline);
+    let answered_here = shared_read.is_some_and(|read| !outline(read))
+        || next
+            .as_ref()
+            .is_some_and(|calls| calls.get("ignoreCase").is_some());
     let misses = if match_not_found && !answered_here {
-        empty_match_leads(query, local)
+        empty_match_leads(query, local, !outlined)
     } else {
         Vec::new()
     };
+    if !misses.is_empty() {
+        content.hints.push(miss_order(outlined, &misses));
+    }
     if !misses.is_empty()
         && let Some(calls) = next.get_or_insert_with(|| json!({})).as_object_mut()
     {
@@ -219,6 +228,30 @@ fn read_leads(
 /// case-insensitive read or a read without `ranges` would select) and the
 /// file's size, with the contract's empty `content` (as in localFetch) and
 /// no zero counters.
+/// Which of a miss's leads to run first, in the order they are offered:
+/// the file's own declarations (the name may be spelled otherwise; the
+/// shared miss's outline read when `outlined`), then the repository's code
+/// (it may live in another file), then the path's history (it may have been
+/// removed or never merged).
+fn miss_order(outlined: bool, misses: &[(&'static str, Value)]) -> String {
+    let steps = outlined
+        .then_some("readSymbols")
+        .into_iter()
+        .chain(misses.iter().map(|(name, _)| *name))
+        .filter_map(|name| match name {
+            "readSymbols" => Some("this file's declarations (spelled otherwise)"),
+            "findCode" => Some("the repository's code (another file)"),
+            "listCommits" => Some("this path's commits (removed)"),
+            "findPullRequest" => Some("pull requests naming it (unmerged)"),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    format!(
+        "No line of this file holds it; related[] in order: {}.",
+        steps.join(", then ")
+    )
+}
+
 fn no_match(
     content: &mut octocode_tools_shared::source_view::LocalFetchResult,
     query: &GhGetFileContentQuery,

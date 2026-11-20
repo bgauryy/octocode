@@ -1,4 +1,4 @@
-use super::leads::{declaration_read, hits_read, line_read, scoped_fragment_read};
+use super::leads::{declaration_read, hits_read, line_read, scoped_fragment_read, unlisted_read};
 use super::{GhSearchCodeQuery, GhSearchCodeQueryMatchInItem, Withholds};
 use octocode_github::{CodeSearchItem, ProviderError};
 use octocode_runtime_base::security::scan::ContentScan;
@@ -143,7 +143,8 @@ pub(super) fn shape_rows(
         .cloned();
     let mut top = None;
     if let Some(resolution) = &resolution {
-        for ((row, (sha, hits)), &unread) in items.iter_mut().zip(&resolution.hits).zip(&unread) {
+        let rows = items.iter_mut().zip(&resolution.hits).zip(&unread);
+        for (at, ((row, (sha, hits)), &unread)) in rows.enumerate() {
             let Some(row) = row.as_object_mut() else {
                 continue;
             };
@@ -172,9 +173,18 @@ pub(super) fn shape_rows(
                     if lines.len() > matched.len() {
                         row.insert("matchedLines".into(), json!(matched));
                     }
-                    // Complete lines already carry the count unless explicitly selected.
-                    if picks(query, "matchCount") {
+                    // A cut row states how many hits its file holds, and its
+                    // read lists the rest; complete lines already carry the
+                    // count unless explicitly selected.
+                    let unlisted = resolution.unlisted.get(at).copied().flatten();
+                    if unlisted.is_some() || picks(query, "matchCount") {
                         row.insert("matchCount".into(), json!(total));
+                    }
+                    if let Some(read) = unlisted
+                        .as_ref()
+                        .and_then(|unlisted| unlisted_read(query, row, sha, unlisted))
+                    {
+                        hit_reads.push(read);
                     }
                     if top_lead && top.is_none() {
                         top = Some(match declaration {
@@ -188,11 +198,13 @@ pub(super) fn shape_rows(
                     withheld += 1;
                     row.insert("lineResolved".into(), json!(false));
                 }
-                super::lines::FileHits::Missing | super::lines::FileHits::Unmatched
-                    if resolution.reference.is_some() =>
-                {
-                    // The path, or its hit, is not at the ref.
+                // The path is not at the ref.
+                super::lines::FileHits::Missing if resolution.reference.is_some() => {
                     row.insert("atRef".into(), json!(false));
+                }
+                // The file is at the ref, and no line of it holds a keyword.
+                super::lines::FileHits::Unmatched if resolution.reference.is_some() => {
+                    row.insert("matchCount".into(), json!(0));
                 }
                 super::lines::FileHits::Unavailable
                 | super::lines::FileHits::Oversized

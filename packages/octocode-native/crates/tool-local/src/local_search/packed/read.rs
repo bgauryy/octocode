@@ -156,6 +156,7 @@ impl<'a> Reader<'a> {
             occurrences: self.small()?,
             lines: self.small()?,
         };
+        let sort_time = self.time()?;
         let source = match self.number()? {
             0 => None,
             1 => Some(SearchedSource {
@@ -179,6 +180,7 @@ impl<'a> Reader<'a> {
             }
         }
         Some(TextSearchFile {
+            sort_time,
             term_counts,
             path,
             match_count,

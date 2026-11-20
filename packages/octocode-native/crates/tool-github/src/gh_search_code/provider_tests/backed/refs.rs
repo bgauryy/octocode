@@ -208,11 +208,12 @@ async fn a_file_missing_at_the_requested_ref_offers_no_default_branch_read() {
     )
     .await
     .expect("search");
-    // The file exists at the ref but no line holds the keyword: the
-    // hit is not at the ref, and the default-branch fragment is not
-    // shown as the ref's text.
+    // The file exists at the ref but no line holds the keyword: the path
+    // is at the ref (no `atRef:false`), its hit count there is 0, and the
+    // default-branch fragment is not shown as the ref's text.
     let row = &out.data["files"][0];
-    assert_eq!(row["atRef"], false, "{}", out.data);
+    assert!(row.get("atRef").is_none(), "{}", out.data);
+    assert_eq!(row["matchCount"], 0, "{}", out.data);
     assert!(row.get("matches").is_none(), "{}", out.data);
     assert!(out.data.pointer("/next/read").is_none(), "{}", out.data);
 }
@@ -253,8 +254,8 @@ async fn every_row_of_a_default_branch_page_has_numbered_lines() {
 }
 
 /// With `branch`, every row of the page is read at the ref, not only
-/// the top files: each has numbered `lines`, or `atRef:false` (the
-/// hit is not at the ref), or `lineResolved:false` with a read of
+/// the top files: each has numbered `lines`, or `matchCount:0` (the file
+/// is at the ref without the hit), or `lineResolved:false` with a read of
 /// its keyword lines at the ref. No row shows default-branch index
 /// text as the ref's.
 #[tokio::test]
@@ -303,7 +304,8 @@ async fn every_row_of_a_ref_page_is_read_at_the_ref() {
             "{row}"
         );
     }
-    assert_eq!(files[6]["atRef"], false, "{data}");
+    assert_eq!(files[6]["matchCount"], 0, "{data}");
+    assert!(files[6].get("atRef").is_none(), "{data}");
     assert_eq!(files[7]["lineResolved"], false, "{data}");
     let reads = data["next"]
         .as_object()

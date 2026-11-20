@@ -1,40 +1,64 @@
-//! The inputs a build read must be unchanged when it publishes.
+//! What a build read, as its snapshot records it, and what changed while it
+//! ran.
 use super::*;
+use crate::ast_graph::freshness;
 
-/// The snapshot's resolution inputs and their stamp proof, if one can be
-/// recorded; refused when a config or source the build read changed while it
-/// ran.
+/// The inputs a snapshot records: the linking configs as the build read
+/// them and the files that changed while it ran.
+pub(super) struct Settled {
+    /// The linking configs the snapshot's directories hold, with the
+    /// digests the build read.
+    pub inputs: BTreeMap<String, String>,
+    /// The stamp proof of `inputs`: `None` when one is refused or anything
+    /// the build read changed while it ran.
+    pub proof: Option<String>,
+    /// How many sources and configs changed, went missing or became
+    /// unreadable after the build read them. The snapshot holds what was
+    /// read, so its freshness check reports each of them.
+    pub changed: usize,
+}
+
+/// The snapshot's resolution inputs as the build read them, with their stamp
+/// proof when nothing it read has changed since. A file edited while the
+/// build ran keeps the digest of what was read: the snapshot publishes, and
+/// its freshness check reports that file, as it would an edit made after
+/// publication.
 pub(super) fn settled_inputs(
     built: &super::super::super::types::BuiltGraph,
     tables: &format::GraphTables,
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
-) -> Result<(BTreeMap<String, String>, Option<String>), GraphOutput> {
-    let proof = settled_input_stamps(paths, &built.root, tables, &built.resolution_inputs);
-    let inputs = snapshot_inputs(paths, &built.root, tables);
-    if inputs != built.resolution_inputs {
-        return Err(GraphOutput::changed_during_build(
-            "project configuration changed during graph analysis; rebuild from settled inputs",
-        ));
-    }
+) -> Result<Settled, GraphOutput> {
+    let files = tables
+        .nodes
+        .iter()
+        .filter(|node| node.kind == format::NodeKind::File)
+        .map(|node| tables.str(node.key));
+    let dirs = freshness::scope_dirs(&built.root, files);
+    let read = freshness::inputs_in(&built.resolution_inputs, &built.root, &dirs);
+    // Stamped before the configs are hashed again: equal digests then prove
+    // what the stamps saw.
+    let proof = settled_input_stamps(paths, &built.root, tables, &read);
+    let current = freshness::config_inputs(paths, &built.root, &dirs);
+    let mut changed = freshness::config_changes(&read, &current).len();
     for (file, facts) in &built.facts {
         if let Err(error) = cancel.check() {
             return Err(GraphOutput::error(ErrorCode::Cancelled, error));
         }
-        let source = match paths.validate_read(built.root.join(file)) {
-            Ok(source) => source.canonical,
-            Err(_) => {
-                return Err(GraphOutput::changed_during_build(
-                    "source access changed during graph analysis; rebuild from accessible inputs",
-                ));
-            }
-        };
-        if source_matches(&source, &facts.digest, facts.stamp.as_ref()) != Some(true) {
-            return Err(GraphOutput::changed_during_build(format!(
-                "source {file:?} changed during graph analysis; rebuild from settled inputs"
-            )));
+        let unchanged = paths
+            .validate_read(built.root.join(file))
+            .ok()
+            .and_then(|source| {
+                source_matches(&source.canonical, &facts.digest, facts.stamp.as_ref())
+            });
+        if unchanged != Some(true) {
+            changed += 1;
         }
     }
-    let proof = proof.filter(|_| !withholds_configs(&built.root, tables, &inputs));
-    Ok((inputs, proof))
+    let proof = proof.filter(|_| changed == 0 && !withholds_configs(&built.root, tables, &read));
+    Ok(Settled {
+        inputs: read,
+        proof,
+        changed,
+    })
 }

@@ -259,13 +259,13 @@ impl DomainDispatcher {
             ..context.clone()
         };
         let selection = self.selection_runtime(&context);
-        // `lsp.prewarm` `all` warms the file a read or search names;
-        // `targeted` warms from the lspSearch call the settled response
-        // serves ([`Self::warm_served_leads`]), not from a lead the response
-        // stage then drops.
-        let prewarm_query = (self.config.resolved.lsp.prewarm
-            == octocode_runtime_base::config::LspPrewarm::All)
-            .then_some(query);
+        // `lsp.prewarm` warms the file a row names, as an editor starts a
+        // server when a file of its language opens: `all` for every local
+        // tool, `targeted` for a read or search (localSearch, localFetch,
+        // astSearch). Both also warm the file of the lspSearch call the
+        // settled response serves ([`Self::warm_served_leads`]).
+        let prewarm_query =
+            warms_named_file(self.config.resolved.lsp.prewarm, tool).then_some(query);
         let lsp = &self.lsp_execution_config;
         // The row already runs on a blocking or scoped worker thread inside
         // the runtime context ([`Self::execute`]): no further thread hop.
@@ -298,10 +298,11 @@ impl DomainDispatcher {
                     },
                 )
             })?;
-        // Under `all`, start the server of the file a read or search names
-        // in the background. The pool bounds it: at most three start at once.
+        // Start the server of the file the row names in the background, one
+        // file per row; a file with no configured server starts none. The
+        // pool bounds it: at most three start at once.
         if let Some(file) =
-            prewarm_query.and_then(|query| prewarm::anchor_file(query, &result.data))
+            prewarm_query.and_then(|query| prewarm::anchor_file(&self.paths, query, &result.data))
         {
             prewarm::schedule(
                 &self.handle,
@@ -337,6 +338,19 @@ impl DomainDispatcher {
                 &file,
             );
         }
+    }
+}
+
+/// Whether `prewarm` starts the server of the file a `tool` row names.
+fn warms_named_file(prewarm: octocode_runtime_base::config::LspPrewarm, tool: ToolId) -> bool {
+    use octocode_runtime_base::config::LspPrewarm;
+    match prewarm {
+        LspPrewarm::Off => false,
+        LspPrewarm::Targeted => matches!(
+            tool,
+            ToolId::LocalSearch | ToolId::LocalFetch | ToolId::AstSearch
+        ),
+        LspPrewarm::All => true,
     }
 }
 

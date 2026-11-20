@@ -104,7 +104,6 @@ impl AnswerKey {
             asked,
             target.path,
             target.root_only,
-            target.allow_build_scripts,
             scope.root,
             scope.include,
             fingerprint,

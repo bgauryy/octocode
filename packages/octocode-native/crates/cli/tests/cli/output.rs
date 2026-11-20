@@ -26,7 +26,11 @@ fn localsearch_emits_structured_results() {
     // span is its line and column.
     let span = &data["files"][0]["matches"][0];
     assert!(span.get("value").is_none(), "{data}");
-    assert_eq!((span["line"].as_u64(), span["column"].as_u64()), (Some(1), Some(4)), "{data}");
+    assert_eq!(
+        (span["line"].as_u64(), span["column"].as_u64()),
+        (Some(1), Some(4)),
+        "{data}"
+    );
 }
 
 /// A failed row prints on stdout as text, its fields and then its status,

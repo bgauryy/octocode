@@ -225,3 +225,44 @@ fn an_outline_whose_verdict_needed_an_unreadable_parent_says_so() {
         );
     }
 }
+
+/// An empty answer speaks only of the grammars its scope searched: a test-side
+/// file a `testCode` scope leaves out unread names no grammar in the pattern's
+/// shape notes, the inferred language or the skipped grammars, whatever it is.
+#[test]
+fn an_empty_answer_names_only_the_grammars_its_scope_read() {
+    let root = Fixture::new();
+    root.write("src/lib.rs", "pub fn run() {}\n");
+    root.write("tests/fixtures/a.py", "run()\n");
+    root.write("tests/fixtures/b.go", "package b\n\nfunc f() { run() }\n");
+    root.write("tests/fixtures/c.css", "a { color: red; }\n");
+    let empty = |test_code: &str| {
+        run(
+            &root.0,
+            json!({"operation":"match","path":root.0,"rule":{"pattern":"missing($X)"},"testCode":test_code}),
+        )
+        .expect("match")
+    };
+    let shapes = |out: &Value| {
+        out["diagnostics"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|note| note["code"] == "structural.pattern.shape")
+            .count()
+    };
+    // Every grammar searched: each shape is said, beside the css no grammar reads.
+    let all = empty("include");
+    assert!(shapes(&all) > 1, "{all}");
+    assert!(all["skippedGrammars"].is_object(), "{all}");
+    // Only the Rust file is read: one shape, one grammar, nothing skipped.
+    let production = empty("exclude");
+    assert_eq!(production["status"], "empty", "{production}");
+    assert_eq!(shapes(&production), 1, "{production}");
+    assert_eq!(production["inferredLanguage"], "rust", "{production}");
+    assert!(production.get("skippedGrammars").is_none(), "{production}");
+    assert!(
+        !production.to_string().contains("c.css"),
+        "a test-side file is no unparsed gap: {production}"
+    );
+}

@@ -226,8 +226,8 @@ impl<V: Send + Sync + 'static, C: DiskCodec<V>> Store<V, C> {
         bytes: usize,
         class: CacheClass,
     ) -> (Arc<V>, bool) {
-        let deadline = Instant::now() + disk::REUSE_LOCK_WAIT;
-        self.put_until(deadline, key, value, bytes, class)
+        let (value, stored) = self.put_waiting(disk::Wait::Reuse, key, value, bytes, class);
+        (value, stored.is_ok())
     }
 
     /// [`Self::put_confirmed`] for what its call's answer depends on: a busy
@@ -254,11 +254,23 @@ impl<V: Send + Sync + 'static, C: DiskCodec<V>> Store<V, C> {
         bytes: usize,
         class: CacheClass,
     ) -> (Arc<V>, Result<(), disk::NotStored>) {
+        self.put_waiting(disk::Wait::Until(deadline), key, value, bytes, class)
+    }
+
+    /// Store `value`, waiting for a busy store as `wait` says ([`disk::Wait`]).
+    fn put_waiting(
+        &self,
+        wait: disk::Wait,
+        key: CacheKey,
+        value: V,
+        bytes: usize,
+        class: CacheClass,
+    ) -> (Arc<V>, Result<(), disk::NotStored>) {
         if !class.is_live(Duration::ZERO) {
             return (Arc::new(value), Err(disk::NotStored::Refused));
         }
         if let Some(disk) = &self.disk {
-            let saved = disk.write::<V, C>(&key, &value, class, &self.config, deadline);
+            let saved = disk.write::<V, C>(&key, &value, class, &self.config, wait);
             return (Arc::new(value), saved);
         }
         let Some(memory) = &self.memory else {

@@ -566,3 +566,80 @@ fn tests_to_run_lists_each_test_file_once_and_no_helper() {
         }
     }
 }
+
+/// A depth bound that leaves affected files unlisted counts them in a
+/// warning and leads to the depth that lists every one: the related call's
+/// rows are the whole walk's, and that call is no longer depth limited. A
+/// changed file is its depth-0 row, never repeated in summary.changed; a
+/// changed symbol, which no row names, is listed there.
+#[test]
+fn a_depth_limited_impact_leads_to_the_depth_that_lists_every_file() {
+    let chain = ["a", "b", "c", "d", "e", "f"];
+    let files = chain
+        .iter()
+        .enumerate()
+        .map(|(at, name)| {
+            let text = match at.checked_sub(1).map(|before| chain[before]) {
+                None => format!("export function {name}() {{ return 1; }}\n"),
+                Some(prev) => format!(
+                    "import {{ {prev} }} from './{prev}';\nexport function {name}() {{ return {prev}(); }}\n"
+                ),
+            };
+            (format!("src/{name}.ts"), text)
+        })
+        .collect::<Vec<_>>();
+    let files = files
+        .iter()
+        .map(|(path, text)| (path.as_str(), text.as_str()))
+        .collect::<Vec<_>>();
+    let dir = git_app(&files);
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let bounded = ask(root, "impact", Some("src/a.ts"), |_| {});
+    let summary = &bounded.value["summary"];
+    assert_eq!(summary["depthLimited"], true, "{summary}");
+    assert!(summary.get("changed").is_none(), "{summary}");
+    assert_eq!(bounded.value["rows"][0]["id"], "app/src/a.ts");
+    assert_eq!(bounded.value["rows"][0]["risk"], "changed");
+    let listed = impacted(&bounded).len();
+    let unlisted = chain.len() - listed;
+    assert!(unlisted > 0, "{}", bounded.value);
+    let warnings = bounded.value["warnings"].to_string();
+    assert!(
+        warnings.contains(&format!("{unlisted} affected files")) && warnings.contains("related"),
+        "{}",
+        bounded.value
+    );
+    let lead = bounded.value["related"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|call| call["input"]["queries"][0]["operation"] == "impact")
+        .expect("depth lead");
+    let row = &lead["input"]["queries"][0];
+    assert_eq!(row["target"], "src/a.ts", "{lead}");
+    let depth = row["depth"]
+        .as_u64()
+        .and_then(|depth| u32::try_from(depth).ok())
+        .expect("depth");
+    let whole = ask(root, "impact", Some("src/a.ts"), |o| {
+        o.depth = Some(depth);
+    });
+    assert_eq!(impacted(&whole).len(), chain.len(), "{}", whole.value);
+    assert_ne!(
+        whole.value["summary"]["depthLimited"], true,
+        "{}",
+        whole.value
+    );
+    assert!(whole.value.get("warnings").is_none(), "{}", whole.value);
+
+    let symbol = ask(root, "impact", Some("src/a.ts#a"), |o| {
+        o.depth = Some(depth);
+    });
+    assert_eq!(
+        symbol.value["summary"]["changed"],
+        json!(["src/a.ts#a"]),
+        "{}",
+        symbol.value
+    );
+}

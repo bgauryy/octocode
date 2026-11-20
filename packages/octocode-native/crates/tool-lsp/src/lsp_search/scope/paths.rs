@@ -317,8 +317,8 @@ impl super::Scope {
     }
 
     /// Follow what the request's server loads. rust-analyzer whose effective
-    /// options (the `rustContext` overlay applied) turn build scripts off
-    /// loads no file of the Cargo cache directories it leaves out
+    /// options turn build scripts off loads no file of the Cargo cache
+    /// directories it leaves out
     /// ([`octocode_engine::lsp::workspace::UnloadedCargoCaches`]), so the
     /// scope walk does not enter them. Its own default runs build scripts:
     /// only an explicit `false` turns them off.

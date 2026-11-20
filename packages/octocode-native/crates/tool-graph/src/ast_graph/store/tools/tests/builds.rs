@@ -439,29 +439,6 @@ fn a_build_names_the_files_no_graph_grammar_parses() {
     );
 }
 
-/// A build that lost a race with an edit names the cause as transient and
-/// leads to the same graphBuild, runnable as written; it is no tool failure.
-#[test]
-fn a_build_that_lost_a_race_with_an_edit_leads_to_the_same_build() {
-    let query: GraphBuildQuery =
-        serde_json::from_value(json_fixture(r#"{"path": "app", "keep": 2}"#))
-            .expect("graphBuild query");
-    let mut out =
-        GraphOutput::changed_during_build("source \"a.ts\" changed during graph analysis");
-    retry_after_change(&mut out, &query);
-    let hints = out.value["hints"].to_string();
-    assert!(hints.contains("run the same graphBuild again"), "{hints}");
-    assert!(!hints.contains("tool failure") || hints.contains("not a tool failure"));
-    let lead = &out.value["related"][0];
-    assert_eq!(lead["tool"], "graphBuild", "{lead}");
-    assert_eq!(lead["input"]["queries"][0]["path"], "app", "{lead}");
-    assert_eq!(lead["input"]["queries"][0]["keep"], 2, "{lead}");
-    // A build that succeeded, or failed otherwise, is left alone.
-    let mut other = GraphOutput::error(ErrorCode::ExecutionFailed, "other");
-    retry_after_change(&mut other, &query);
-    assert!(other.value.get("related").is_none());
-}
-
 /// A snapshot built by another analysis version is refused by path and by
 /// ID, on the row both interfaces serve; its lead is the build that replaces
 /// it, and the rebuilt snapshot answers.

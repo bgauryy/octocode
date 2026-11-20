@@ -141,6 +141,37 @@ fn every_missing_version_gets_one_call_of_suggestions() {
     );
 }
 
+/// A version the registry marks deprecated (npm) or yanked (crates, PyPI)
+/// is published but no release to move to: the suggestions read every other
+/// near version first, and one of those only fills a call the rest cannot.
+#[test]
+fn deprecated_and_yanked_versions_are_suggested_last() {
+    let lodash = ["4.17.20", "4.17.21", "4.17.23", "4.18.0", "4.18.1"]
+        .map(str::to_owned)
+        .to_vec();
+    let error = discouraged_last(
+        version_not_found(ArtifactType::Npm, "lodash", "4.99.0", &lodash),
+        |version| version == "4.18.0",
+    );
+    assert_eq!(
+        suggested(ArtifactType::Npm, &error, 3).0,
+        ["4.18.1", "4.17.23", "4.17.21"]
+    );
+    // Only a deprecated one is left to fill the call: it is still published.
+    assert_eq!(
+        suggested(ArtifactType::Npm, &error, 5).0,
+        ["4.18.1", "4.18.0", "4.17.23", "4.17.21", "4.17.20"]
+    );
+    let error = discouraged_last(
+        version_not_found(ArtifactType::Crates, "pkg", "4.99.0", &lodash),
+        |version| version == "4.18.1",
+    );
+    assert_eq!(
+        suggested(ArtifactType::Crates, &error, 2).0,
+        ["4.18.0", "4.17.23"]
+    );
+}
+
 #[test]
 fn fewer_versions_than_one_call_say_so() {
     let published = vec!["1.0.0".to_owned(), "1.1.0".to_owned()];

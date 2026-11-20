@@ -218,7 +218,7 @@ fn folds_into_comments(review: &Value, raw_body: &str, row: &Value) -> Option<St
 /// Shape one page of PR reviews. Their cut bodies join `windows`. A review
 /// that only batched inline comments shown in this read is not listed
 /// again ([`folds_into_comments`]): its comments name it, and every other
-/// comment drops its `reviewId`.
+/// comment drops its `reviewId`. Returns how many reviews were folded.
 pub(super) fn shape_pr_reviews(
     row: &mut Value,
     pagination: &mut Map<String, Value>,
@@ -226,7 +226,7 @@ pub(super) fn shape_pr_reviews(
     state: WindowState,
     query: &HistoryItemRequest,
     windows: &mut BodyWindows,
-) {
+) -> usize {
     let (slice, page) = state.paginate(
         reviews,
         gh_get_history_item_query::page(query),
@@ -281,6 +281,22 @@ pub(super) fn shape_pr_reviews(
     }
     row["reviews"] = Value::Array(shaped);
     pagination.insert(Axis::Reviews.key().into(), page);
+    folded.len()
+}
+
+/// The disclosure of `folded` reviews left out of `reviews`: each one's
+/// inline comments name it, so the list never reads as all the reviews.
+pub(super) fn folded_reviews_note(folded: usize) -> Option<String> {
+    (folded > 0).then(|| {
+        format!(
+            "{} with no body (COMMENTED) not listed in reviews: the reviewComments naming each one (reviewId) hold what it said.",
+            octocode_engine::text::counted(
+                u64::try_from(folded).unwrap_or(u64::MAX),
+                "review",
+                "reviews"
+            )
+        )
+    })
 }
 
 /// Shape one page of PR commits. With `commitFiles` each commit lists its

@@ -129,64 +129,69 @@ const LOCAL_ERROR_CPP: &str = "struct S {\n    JSON_HEDLEY_NON_NULL(2)\n    int 
 
 /// A match over files whose recovered parse could hide a match says so, as
 /// `symbols` does: partial with `parseRecovered`, and one warning with the
-/// count and a few names. The count is the scan's, so every page states it;
-/// a file whose error is away from the query's anchor is not counted.
+/// count and a few names. Each scan window states the files it read, so the
+/// walk names every such file once; a file whose error is away from the
+/// query's anchor is not counted.
 #[test]
 fn a_match_discloses_files_whose_recovered_parse_could_hide_a_match() {
     let root = Fixture::new();
     for name in ["a", "b", "c", "d"] {
         root.write(&format!("pkg/lib/{name}.cpp"), GARBLED_CPP);
     }
-    // Two matches: page 1 holds one, so the page after it is the same
-    // window's, which read the same files.
+    // Two matches here and one in local.cpp: page 1 holds one, so the walk
+    // goes on past the recovered files.
     root.write(
         "pkg/lib/clean.cpp",
         "int f() { JSON_ASSERT(1); JSON_ASSERT(2); return 2; }\n",
     );
     root.write("pkg/lib/local.cpp", LOCAL_ERROR_CPP);
     let row = json!({"operation":"match","path":root.0.join("pkg/lib"),"parser":"cpp","rule":{"pattern":"JSON_ASSERT($$$A)"}});
-    let first = run_window(&root.0, row, 1).expect("first page");
-    assert_eq!(first["isPartial"], json!(true), "{first}");
-    assert_eq!(
-        first["partialReasons"],
-        json_fixture(r#"["parseRecovered"]"#),
-        "{first}"
-    );
-    // The recovered-parse notice, once; the multi-page set's narrowing
-    // notice rides beside it.
-    let warnings = first["notices"]
-        .as_array()
-        .expect("notices")
-        .iter()
-        .filter(|notice| !notice.as_str().unwrap_or_default().contains(" fill "))
-        .collect::<Vec<_>>();
-    assert_eq!(warnings.len(), 1, "{first}");
-    let warning = warnings[0].as_str().expect("warning");
-    assert!(
-        warning.starts_with("4 files parsed with syntax errors"),
-        "{warning}"
-    );
-    // Paths read as the rows' do after the response stage, from the
-    // workspace root, so each passes to localFetch verbatim.
-    assert!(
-        warning.contains("(pkg/lib/a.cpp, pkg/lib/b.cpp, pkg/lib/c.cpp, …)"),
-        "{warning}"
-    );
-    assert!(!warning.contains("d.cpp"), "{warning}");
-    assert!(
-        !warning.contains("local.cpp") && !warning.contains("clean.cpp"),
-        "{warning}"
-    );
-    assert!(first.get("coverage").is_none(), "{first}");
-    // Every page of the window states the same coverage.
-    let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
-    let second = run_window(&root.0, next, 1).expect("second page");
-    assert_eq!(second["warnings"], first["warnings"], "{second}");
-    assert_eq!(
-        second["partialReasons"],
-        json_fixture(r#"["parseRecovered"]"#),
-        "{second}"
-    );
+    let mut pending = vec![row];
+    let mut named = Vec::new();
+    let mut counted = 0;
+    let mut pages = 0;
+    while let Some(call) = pending.pop() {
+        let page = run_window(&root.0, call, 1).expect("page");
+        pages += 1;
+        assert!(pages < 20, "nonterminating walk");
+        // The recovered-parse notice, once on a window's page; the
+        // multi-page set's narrowing notice rides beside it.
+        let warnings = page["notices"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+            .filter(|notice| notice.contains("parsed with syntax errors"))
+            .collect::<Vec<_>>();
+        assert!(warnings.len() <= 1, "{page}");
+        if let Some(warning) = warnings.first() {
+            assert_eq!(page["isPartial"], json!(true), "{page}");
+            assert_eq!(
+                page["partialReasons"],
+                json_fixture(r#"["parseRecovered"]"#),
+                "{page}"
+            );
+            assert!(page.get("coverage").is_none(), "{page}");
+            counted += warning
+                .split_whitespace()
+                .next()
+                .and_then(|count| count.parse::<usize>().ok())
+                .expect("a count");
+            // Paths read as the rows' do after the response stage, from the
+            // workspace root, so each passes to localFetch verbatim.
+            for name in ["a", "b", "c", "d", "clean", "local"] {
+                if warning.contains(&format!("pkg/lib/{name}.cpp")) {
+                    named.push(name);
+                }
+            }
+        }
+        if let Some(call) = page["next"].get("nextPage") {
+            pending.push(call["input"]["queries"][0].clone());
+        }
+    }
+    assert_eq!(counted, 4, "each recovered file once across the walk");
+    named.sort_unstable();
+    assert_eq!(named, ["a", "b", "c", "d"], "never clean.cpp or local.cpp");
 }
 
 /// A recovered parse that cannot hide a match is no gap: errors away from

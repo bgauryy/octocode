@@ -10,14 +10,8 @@ fn typed_filter_bounds_reject_invalid_input_before_execution() {
         json_fixture(r#"{"bytes": {"min": "1k"}}"#),
         json_fixture(r#"{"modifiedAt": {}}"#),
         json_fixture(r#"{"modifiedAt": {"from": "yesterday"}}"#),
-        json_fixture(
-            r#"{
-                "accessedAt": {
-                    "from": "2026-10-24T10:00:00Z",
-                    "to": "2026-10-23T10:00:00Z"
-                }
-            }"#,
-        ),
+        json_fixture(r#"{"modifiedAt": {"from": "-P1M"}}"#),
+        json_fixture(r#"{"modifiedAt": {"from": "P1D"}}"#),
         json_fixture(r#"{"minDepth": 3, "maxDepth": 2}"#),
         json_fixture(r#"{"pageSize": 1}"#),
         json_fixture(r#"{"extras": ["details"]}"#),
@@ -47,6 +41,18 @@ fn typed_filter_bounds_reject_invalid_input_before_execution() {
             }"#,
         ),
         json_fixture(r#"{"accessedAt": {"to": "2026-10-24T10:00:00Z"}}"#),
+        // A duration back from now, and a window whose order depends on
+        // the clock it resolves against: execution refuses an inverted one
+        // (`time_windows`).
+        json_fixture(r#"{"modifiedAt": {"from": "-P1D", "to": "-PT6H"}}"#),
+        json_fixture(
+            r#"{
+                "accessedAt": {
+                    "from": "2026-10-24T10:00:00Z",
+                    "to": "2026-10-23T10:00:00Z"
+                }
+            }"#,
+        ),
     ] {
         let mut row = json_fixture(r#"{"operation": "files", "path": "."}"#);
         row.as_object_mut()

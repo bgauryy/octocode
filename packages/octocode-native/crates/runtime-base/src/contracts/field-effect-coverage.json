@@ -930,9 +930,6 @@
         "path": [
           "source"
         ],
-        "rustContext": [
-          "execution"
-        ],
         "symbolName": [
           "navigation"
         ],

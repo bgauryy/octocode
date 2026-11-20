@@ -96,6 +96,7 @@ fn unresolved_code_rows_keep_required_reads_without_inventing_commits() {
             sha: None,
             reference: None,
             hits: vec![(String::new(), FileHits::Unavailable); items.len()],
+            unlisted: Vec::new(),
         });
         let reads = shape_files(
             &mut items,
@@ -167,6 +168,7 @@ fn shaped_files_retain_repository_and_commit_identity() {
                         )
                     })
                     .collect(),
+                unlisted: Vec::new(),
             });
             shape_files(
                 &mut items,

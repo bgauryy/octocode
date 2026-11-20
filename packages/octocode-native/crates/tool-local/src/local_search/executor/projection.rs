@@ -86,6 +86,25 @@ fn searched_symbol<'q>(query: &'q LocalSearchQuery, layout: &Layout) -> Option<&
     .flatten()
 }
 
+/// A file's time under the key `query`'s time order ranked it by;
+/// `None` under any other order, or when the walk read no time.
+fn sorted_at(
+    query: &LocalSearchQuery,
+    time: Option<std::time::SystemTime>,
+) -> Option<super::super::types::SortedAt> {
+    let key = local_search_query::sort_time_key(query)?;
+    let seconds = match time?.duration_since(std::time::UNIX_EPOCH) {
+        Ok(after) => i64::try_from(after.as_secs()).ok()?,
+        Err(before) => i64::try_from(before.duration().as_secs())
+            .ok()?
+            .checked_neg()?,
+    };
+    Some(super::super::types::SortedAt {
+        key,
+        time: octocode_runtime_base::civil_date::iso8601_secs(seconds),
+    })
+}
+
 fn is_count_view(query: &LocalSearchQuery) -> bool {
     matches!(
         local_search_query::view(query),
@@ -187,6 +206,7 @@ fn project_files(
             };
             let span = (facts.start as usize, facts.end as usize);
             SearchFile {
+                sorted_at: sorted_at(query, f.sort_time),
                 declarations: Vec::new(),
                 matches: (!layout.list).then_some(shown),
                 total_occurrences: (local_search_query::view(query) == View::CountMatches)

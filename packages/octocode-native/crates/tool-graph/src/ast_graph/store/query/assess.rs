@@ -91,6 +91,33 @@ impl Query<'_> {
             summary["unmapped"] = json!(unmapped);
         }
         extra.insert("summary".into(), summary);
+        if let Some(unlisted) = impact.unlisted {
+            extra.insert(
+                "warnings".into(),
+                json!([format!(
+                    "maxDepth {max_depth} left {} unlisted; the related graphQuery call with depth {} lists every file the change reaches.",
+                    octocode_engine::text::counted(
+                        unlisted.files,
+                        "affected file",
+                        "affected files"
+                    ),
+                    unlisted.depth
+                )]),
+            );
+            let mut call = super::paging::query_row(options, &g.id);
+            call.remove("list");
+            call.insert("depth".into(), json!(unlisted.depth));
+            extra.insert(
+                "related".into(),
+                json!([
+                    octocode_runtime_base::response::result::Continuation::related(
+                        octocode_runtime_base::id::ToolId::GraphQuery,
+                        Value::Object(call),
+                    )
+                    .build()
+                ]),
+            );
+        }
         Ok((extra, impact.rows))
     }
 

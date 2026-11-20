@@ -31,6 +31,7 @@ mod scans;
 mod skips;
 mod summaries;
 mod test_code;
+mod time_windows;
 mod tree;
 mod views;
 mod walk_windows;

@@ -48,10 +48,11 @@ fn outline_row() -> Value {
 /// unsplit row's `data`) unchanged, judged without the pager from core's
 /// `pageContextFields` and the output schema: an identity, next or
 /// disclosure field (`required` or `optional`) repeats whole; required
-/// evidence (`requiredEvidence`) repeats whole only when the schema admits
-/// no empty form of it there (a number, an enum, a bounded string, list or
-/// record), and otherwise arrives empty; optional evidence rides the first
-/// part only.
+/// evidence (`requiredEvidence`) rides the first part only where the row
+/// validates without it (another output variant admits it absent), else
+/// repeats whole only when the schema admits no empty form of it there (a
+/// number, an enum, a bounded string, list or record), and otherwise
+/// arrives empty; optional evidence rides the first part only.
 pub(super) fn may_repeat(tool: ToolId, data: &Value, name: &str) -> bool {
     let contract = crate::contracts::tool_contract(tool).expect("embedded contract");
     let pointer = format!("/data/{}", crate::json_pointer::escape(name));
@@ -74,6 +75,14 @@ pub(super) fn may_repeat(tool: ToolId, data: &Value, name: &str) -> bool {
         let published = crate::test_support::published(tool, data);
         crate::contracts::validate_output(tool.as_str(), &published).is_ok()
     };
+    let mut omitted = data.clone();
+    omitted
+        .as_object_mut()
+        .expect("data object")
+        .shift_remove(name);
+    if valid(&omitted) {
+        return false;
+    }
     let mut emptied = data.clone();
     match &mut emptied[name] {
         Value::String(text) => text.clear(),

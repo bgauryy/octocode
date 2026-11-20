@@ -39,12 +39,14 @@ pub(super) struct FingerprintScope<'a> {
 /// A fingerprint none of whose files was fresh is kept across requests with
 /// a proof of what the walks read: each directory they entered (an entry
 /// added, removed or renamed changes its stamp), the ignore files there and
-/// outside them, the repository markers, and every file they stamped. While
-/// it holds, every file is as it was and none is fresh at a later instant,
-/// so a fresh walk would give the same lines: the kept fingerprint is
-/// served without walking only at or after its captured observation. A pinned
-/// earlier instant may still need content hashes. A scope written within the settle window before
-/// the walk began is not kept ([`Watch::capture`](octocode_tools_shared::page_memo::Watch::capture)).
+/// outside them, the repository markers, and every file they stamped, at the
+/// stamp its walk took (so a cold walk stats each file once). While it
+/// holds, every file is as it was and none is fresh at a later instant, so a
+/// fresh walk would give the same lines: the kept fingerprint is served
+/// without walking only at or after its captured observation. A pinned
+/// earlier instant may still need content hashes. A scope written within the
+/// settle window before the walk began is not kept
+/// ([`Watch::capture_with_taken`](octocode_tools_shared::page_memo::Watch::capture_with_taken)).
 pub(super) fn fingerprint(
     scope: &FingerprintScope<'_>,
     observed: SystemTime,
@@ -123,8 +125,13 @@ const ANY_POLICY: &str = "";
 /// What the fingerprint walks read.
 #[derive(Default)]
 struct Read {
-    /// Entered directories, their ignore files, and the stamped files.
+    /// Entered directories, their ignore files, and the Cargo cache tags
+    /// watched in place of an unloaded cache directory.
     watched: Vec<PathBuf>,
+    /// The files the walks stamped, each with the stamp its digest line
+    /// carries: the proof takes it as its own, so a cold walk stats each
+    /// file once.
+    stamped: Vec<(PathBuf, octocode_engine::stamp::SourceStamp)>,
     /// Ignore inputs outside the walks: the walked roots' own and nested
     /// repositories'.
     rules: Vec<PathBuf>,
@@ -154,6 +161,7 @@ impl Read {
     /// Add what another walker thread read.
     fn absorb(&mut self, other: Self) {
         self.watched.extend(other.watched);
+        self.stamped.extend(other.stamped);
         self.rules.extend(other.rules);
         self.untracked |= other.untracked;
     }
@@ -168,7 +176,11 @@ impl Read {
             rules: &self.rules,
             markers: &octocode_tools_shared::page_memo::repository_markers(root),
         }
-        .capture(octocode_engine::stamp::Link::Itself, Some(started))
+        .capture_with_taken(
+            octocode_engine::stamp::Link::Itself,
+            Some(started),
+            self.stamped,
+        )
     }
 }
 
@@ -198,6 +210,11 @@ fn build_script_outputs(server: &Path) -> Vec<std::path::PathBuf> {
 /// Test-only count of the fingerprint walks of each scope root.
 #[cfg(test)]
 pub(super) static WALKS: super::path_counter::PathCounter = super::path_counter::PathCounter::new();
+
+/// Test-only count of the stats the fingerprint walks take of each file.
+#[cfg(test)]
+pub(super) static FILE_STATS: super::path_counter::PathCounter =
+    super::path_counter::PathCounter::new();
 
 /// The directories a fingerprint walk covers whole: the server's root when
 /// the scope sits inside it, else the scope's root and the server's.
@@ -516,6 +533,9 @@ impl Stamp<'_> {
         if !family && !name.is_some_and(|name| PROJECT_FILES.contains(&name.as_ref())) {
             return Ok(None);
         }
+        // The walk does not follow links: an lstat, as the proof reads.
+        #[cfg(test)]
+        FILE_STATS.note(entry.path());
         let meta = entry.metadata().map_err(|_| ())?;
         let stamp = octocode_engine::stamp::cache_stamp(&meta).ok_or(())?;
         let fresh = meta.modified().ok().is_none_or(|time| {
@@ -529,7 +549,7 @@ impl Stamp<'_> {
         } else {
             String::new()
         };
-        read.watched.push(path.to_path_buf());
+        read.stamped.push((path.to_path_buf(), stamp));
         let relative = path.strip_prefix(self.scope.root).unwrap_or(path);
         Ok(Some(format!(
             "{}\u{0}{}\u{0}{}\u{0}{}\u{0}{}\u{0}{content}",

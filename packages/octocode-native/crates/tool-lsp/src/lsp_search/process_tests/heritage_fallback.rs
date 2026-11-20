@@ -471,5 +471,80 @@ fn implementation_of_a_trait_method_lists_the_impl_inside_a_function_body() {
     );
 }
 
+/// `implementation` of a trait gives one answer whichever spelling of the
+/// trait anchors it: the declaration, or a use (an `impl Trait for X`
+/// header). The server lists the top-level impls; the impl declared inside
+/// a function body comes from the heritage scan of the declaration the
+/// anchor resolves to, labelled, at either anchor.
+#[test]
+fn implementation_of_a_trait_does_not_depend_on_the_anchor() {
+    assert!(
+        node_available(),
+        "Node is required for the real LSP fixture"
+    );
+    let (_dir, root, script) = fixture();
+    std::fs::write(
+        root.join("a.rs"),
+        "pub trait Check {}\npub struct A;\nimpl Check for A {}\n",
+    )
+    .expect("trait");
+    std::fs::write(
+        root.join("b.rs"),
+        "struct B;\nimpl Check for B {}\nfn local() {\n    struct C;\n    impl Check for C {}\n}\n",
+    )
+    .expect("impls");
+    octocode_engine::stamp::settle_written_so_far();
+    let server =
+        rust_implementation_server("at('a.rs', 2, 15, 1), at('b.rs', 1, 15, 1)", (0, 10, 15));
+    let at_declaration = rust_row(&root, &script, &server, ("implementation", "Check", 0, 10));
+    let at_use = rust_row(&root, &script, &server, ("implementation", "Check", 2, 5));
+    assert!(
+        located(&at_declaration)
+            .iter()
+            .any(|(_, _, source)| source.as_deref() == Some(crate::lsp_search::ops::SCAN_SOURCE)),
+        "{at_declaration}"
+    );
+    assert_eq!(located(&at_use), located(&at_declaration), "{at_use}");
+    assert_eq!(
+        at_use["partialReasons"], at_declaration["partialReasons"],
+        "{at_use}"
+    );
+}
+
+/// A use of a trait in another file than its declaration resolves to that
+/// declaration: the scan reads the declaring file too (a file that declares
+/// its own type of that name is left out only when it is not the queried
+/// declaration's), so an impl inside a function body there is listed.
+#[test]
+fn implementation_at_a_use_scans_the_file_that_declares_the_trait() {
+    assert!(
+        node_available(),
+        "Node is required for the real LSP fixture"
+    );
+    let (_dir, root, script) = fixture();
+    std::fs::write(root.join("a.rs"), "pub struct A;\nimpl Check for A {}\n").expect("use");
+    std::fs::write(
+        root.join("b.rs"),
+        "pub trait Check {}\nfn local() {\n    struct B;\n    impl Check for B {}\n}\n",
+    )
+    .expect("trait");
+    octocode_engine::stamp::settle_written_so_far();
+    let server = rust_implementation_server("at('a.rs', 1, 15, 1)", (0, 10, 15))
+        .replace("dir + 'a.rs', range", "dir + 'b.rs', range");
+    let row = rust_row(&root, &script, &server, ("implementation", "Check", 1, 5));
+    assert_eq!(
+        located(&row),
+        [
+            ("a.rs".to_owned(), 2, None),
+            (
+                "b.rs".to_owned(),
+                4,
+                Some(crate::lsp_search::ops::SCAN_SOURCE.to_owned())
+            ),
+        ],
+        "{row}"
+    );
+}
+
 mod reach;
 mod scan;

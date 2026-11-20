@@ -24,7 +24,7 @@ pub mod snapshots;
 mod staleness;
 pub(super) mod tables;
 pub mod tools;
-mod workspace;
+pub(super) mod workspace;
 pub(super) use format::sources::PackedOrigins;
 
 use super::graph::GraphScan;
@@ -77,9 +77,6 @@ pub struct GraphOutput {
     /// The calls that continue this answer, by `next` channel; the tool
     /// adapter states each as an executable call.
     pub(crate) next: Vec<(Channel, Resume)>,
-    /// A build failed only because the tree changed while it ran: the same
-    /// request succeeds once the tree settles, so the adapter leads to it.
-    pub(crate) retry: bool,
     /// What the query read and verified: test evidence of how little it
     /// decoded, never in a response. Boxed so the test-only payload does not
     /// inflate every `Result<_, GraphOutput>` in test builds.
@@ -93,7 +90,6 @@ impl GraphOutput {
             value,
             class: ExitClass::Success,
             next: Vec::new(),
-            retry: false,
             #[cfg(test)]
             validation: Box::default(),
         }
@@ -103,17 +99,8 @@ impl GraphOutput {
             value,
             class: ExitClass::Empty,
             next: Vec::new(),
-            retry: false,
             #[cfg(test)]
             validation: Box::default(),
-        }
-    }
-    /// A build refused because a source or config it read changed while it
-    /// ran; the same request, once the tree stops changing, builds.
-    pub(crate) fn changed_during_build(message: impl Into<String>) -> Self {
-        Self {
-            retry: true,
-            ..Self::error(ErrorCode::ExecutionFailed, message)
         }
     }
     /// A failure with a declared `errorCodes` entry; its class decides the exit.
@@ -122,7 +109,6 @@ impl GraphOutput {
             value: json!({"error": message.into(), "errorCode": code}),
             class: ExitClass::of(code),
             next: Vec::new(),
-            retry: false,
             #[cfg(test)]
             validation: Box::default(),
         }

@@ -328,9 +328,11 @@ fn run_with(
     // A fresh, current snapshot is the expected state: only a stale or
     // outdated one is stated.
     if let Some(freshness) = freshness.filter(|state| state["fresh"] != json!(true)) {
-        if output.class == ExitClass::Empty {
-            stale_empty_leads(&mut output.value, options, &graph.manifest, paths);
-        }
+        stale_leads(
+            &mut output.value,
+            output.class == ExitClass::Empty,
+            &graph.manifest,
+        );
         output.value["freshness"] = freshness;
     }
     graph.fit_page(&mut output, options, cancel)?;
@@ -345,38 +347,24 @@ fn run_with(
     Ok(output)
 }
 
-/// An empty answer from a snapshot older than its tree or its analysis may
-/// be empty only because the snapshot predates them (a `drift` whose head
-/// was never rebuilt): the hint says so, and `related` holds the graphBuild
-/// of the scope that would see them, by the request's `path` or else the
-/// snapshot's root.
-fn stale_empty_leads(
-    value: &mut Value,
-    options: &QueryOptions,
-    manifest: &Value,
-    paths: &PathPolicy,
-) {
-    octocode_runtime_base::response::result::add_hints(
-        value,
-        [
-            "This snapshot predates changes to its files or analysis (freshness.fresh: false), so the empty answer may only be stale: run graphBuild for this path, then repeat the query on the snapshot it returns.",
-        ],
-    );
-    let root = manifest["root"]
-        .as_str()
-        .map(|root| paths.shown(Path::new(root)));
-    let Some(path) = options.path.clone().or(root) else {
-        return;
+/// An answer from a snapshot older than its tree or its analysis: rows may
+/// be out of date, and an empty answer may be empty only because the
+/// snapshot predates them (a `drift` whose head was never rebuilt). A note
+/// says which, and `related` holds the graphBuild that replaces the snapshot,
+/// with the walk it was built with.
+fn stale_leads(value: &mut Value, empty: bool, manifest: &Value) {
+    let note = if empty {
+        "This snapshot predates changes to its files or analysis (freshness.fresh: false), so the empty answer may only be stale: run the related graphBuild, then repeat the query on the snapshot it returns."
+    } else {
+        "This snapshot predates changes to its files or analysis (freshness.fresh: false), so rows may be out of date: graphQuery stale lists what changed, and the related graphBuild replaces the snapshot."
     };
-    if let Some(build) =
-        typed_row::<octocode_contract_types::GraphBuildQuery>(json!({"path": path}))
-    {
-        let lead =
-            octocode_runtime_base::response::result::Continuation::related_query(build).build();
-        match value.get_mut("related").and_then(Value::as_array_mut) {
-            Some(related) => related.push(lead),
-            None => value["related"] = json!([lead]),
-        }
+    if empty {
+        octocode_runtime_base::response::result::add_hints(value, [note.to_owned()]);
+    } else {
+        octocode_runtime_base::response::paging::push_warnings(value, [note.to_owned()]);
+    }
+    if let Some(lead) = health::reingest_call(manifest) {
+        octocode_runtime_base::response::result::attach_related(value, lead);
     }
 }
 

@@ -12,11 +12,13 @@
 //!
 //! A taken request's reported input tokens also teach how many tokens a
 //! byte costs here; with the provider's stated token window that sizes the
-//! request a source split into sections can send ([`request_bytes`]).
-use std::collections::HashMap;
+//! request a source split into sections can send ([`request_bytes`]). They
+//! also bound the provider's own prompt, which no request body shows, so a
+//! request is priced at most what it can cost ([`prompt_tokens_at_most`]).
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{LazyLock, Mutex, PoisonError};
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 struct Bounds {
     /// The largest request taken.
     taken: usize,
@@ -24,6 +26,9 @@ struct Bounds {
     refused: Option<usize>,
     /// The most input tokens per request byte a taken request reported.
     tokens_per_byte: Option<f64>,
+    /// By question count, the fewest input tokens a taken request asking
+    /// that many questions reported ([`prompt_tokens_at_most`]).
+    least_tokens: BTreeMap<usize, u64>,
 }
 
 /// An endpoint, a model and a window (`true`: the long-context one).
@@ -39,16 +44,22 @@ fn with<T>(endpoint: &str, model: &str, long: bool, read: impl FnOnce(&mut Bound
     )
 }
 
-/// The window took a request of `bytes`, reported as `input_tokens`.
+/// The window took a request of `bytes` asking `questions` questions,
+/// reported as `input_tokens`.
 pub(crate) fn took(
     endpoint: &str,
     model: &str,
     long: bool,
     bytes: usize,
+    questions: usize,
     input_tokens: Option<u64>,
 ) {
     with(endpoint, model, long, |bounds| {
         bounds.taken = bounds.taken.max(bytes);
+        if let Some(tokens) = input_tokens.filter(|_| questions > 0) {
+            let least = bounds.least_tokens.entry(questions).or_insert(tokens);
+            *least = (*least).min(tokens);
+        }
         if let Some(tokens) = input_tokens.filter(|tokens| *tokens > 0 && bytes > 0) {
             #[expect(
                 clippy::cast_precision_loss,
@@ -106,10 +117,38 @@ pub(crate) fn request_bytes(
     })
 }
 
-/// The most input tokens per request byte a taken request reported here,
-/// if any did: what prices a request before it is sent.
-pub(crate) fn tokens_per_byte(endpoint: &str, model: &str, long: bool) -> Option<f64> {
-    with(endpoint, model, long, |bounds| bounds.tokens_per_byte)
+/// The most input tokens the provider's own prompt can add to a request
+/// asking `questions` questions: what no request body shows, so a request is
+/// priced at most its body bytes (a token covers at least one byte of the
+/// text sent) plus this. A taken request's reported tokens `T` are its prompt
+/// and its body's, so its prompt is at most `T`; a prompt that costs a fixed
+/// part per request and per question is then at most `T` for as many
+/// questions or fewer, and `T` scaled by the ratio for more. The least such
+/// bound over the requests taken here; `None` before any was taken, when
+/// nothing bounds it.
+pub(crate) fn prompt_tokens_at_most(
+    endpoint: &str,
+    model: &str,
+    long: bool,
+    questions: usize,
+) -> Option<u64> {
+    with(endpoint, model, long, |bounds| {
+        bounds
+            .least_tokens
+            .iter()
+            .map(|(&asked, &tokens)| {
+                if questions <= asked {
+                    tokens
+                } else {
+                    let (questions, asked) = (
+                        u64::try_from(questions).unwrap_or(u64::MAX),
+                        u64::try_from(asked).unwrap_or(u64::MAX),
+                    );
+                    tokens.saturating_mul(questions).div_ceil(asked)
+                }
+            })
+            .min()
+    })
 }
 
 /// The window refused a request of `bytes` as too large.

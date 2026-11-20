@@ -469,9 +469,10 @@ fn classification_disclosures_keep_resource_coverage_and_failed_resource_recover
     );
 }
 
-/// A row whose ceiling is over its `maxRequests` sends nothing: it states
-/// the price (no request sent, the first round, the ceiling, the input
-/// tokens at most) and offers the same row at the ceiling as `next.confirm`.
+/// A row whose requests, before any transient retry, are over its
+/// `maxRequests` sends nothing: it states the price (no request sent, the
+/// first round, the ceiling with its shared retries, the input tokens at
+/// most) and offers the same row at the ceiling as `next.confirm`.
 #[test]
 fn an_over_budget_row_states_its_price_and_offers_the_confirm_call() {
     let rows = super::rows::parse_rows(&[json!({
@@ -487,7 +488,7 @@ fn an_over_budget_row_states_its_price_and_offers_the_confirm_call() {
             ceiling: Some(6),
             room: 3,
         },
-        input_tokens_at_most: 21_400,
+        input_tokens_at_most: Some(21_400),
         max: 2,
         room: 3,
     };
@@ -500,19 +501,38 @@ fn an_over_budget_row_states_its_price_and_offers_the_confirm_call() {
     let error = out["error"].as_str().expect("error");
     assert!(
         error.contains("63 units")
-            && error.contains("the 3 transient retries it shares")
+            && error.contains("at most 3")
             && error.contains("maxRequests is 2"),
         "{error}"
+    );
+    let hint = out["hints"][0].as_str().expect("hint");
+    assert!(
+        hint.contains("at its ceiling, 6") && hint.contains("the 3 transient retries it shares"),
+        "{hint}"
     );
     let confirm = &out["next"]["confirm"];
     assert_eq!(confirm["tool"], "clasify", "{out:#}");
     let query = &confirm["input"]["queries"][0];
     assert_eq!(query["maxRequests"], 6, "{out:#}");
     assert_eq!(query["source"], rows[0].query["source"], "{out:#}");
+    assert!(out.get("warnings").is_none(), "{out:#}");
     // A runtime that keeps nothing offers it as a related call.
     let fresh = reply::over_budget(&rows[0], &over, false);
     assert!(fresh["next"].get("confirm").is_none(), "{fresh:#}");
     assert_eq!(fresh["related"][0]["input"]["queries"][0]["maxRequests"], 6);
+    // Before the provider has answered a request here, nothing bounds its
+    // own prompt: the price states its requests, no token figure, and says
+    // why.
+    let unbounded = reply::OverBudget {
+        input_tokens_at_most: None,
+        ..over
+    };
+    let out = reply::over_budget(&rows[0], &unbounded, true);
+    assert_eq!(
+        out["usage"],
+        json!({"calls":0,"requestsPlanned":3,"requestsCeiling":6})
+    );
+    assert_eq!(out["warnings"], json!([reply::UNPRICED_TOKENS]), "{out:#}");
 }
 
 /// A price is stated in the usage of a row that sent a request.
@@ -532,4 +552,25 @@ fn a_rows_price_is_stated_in_its_usage() {
     let mut unsent = json!({"errorCode": "notFound"});
     reply::priced(&mut unsent, Some(price));
     assert!(unsent.get("usage").is_none());
+}
+
+/// `maxRequests` caps a row's requests, its transient retries included, and
+/// refuses only a row whose requests before any retry (every planned one,
+/// re-ask and split) pass it: a retry is never needed to answer, so a cap
+/// between that count and the full ceiling admits the row with only the
+/// retries it leaves room for, and its stated ceiling never passes the cap.
+#[test]
+fn max_requests_admits_every_row_its_planned_requests_fit_with_the_retries_left() {
+    let retries = 3;
+    for at_most in 1..=6_u64 {
+        assert_eq!(evaluate::room(None, at_most, retries), retries);
+        for max in 1..=12_u64 {
+            let room = evaluate::room(Some(max), at_most, retries);
+            let ceiling = octocode_tools_shared::judgment::RequestCap::ceiling(at_most, room);
+            if at_most <= max {
+                assert!(ceiling <= max, "{at_most} in {max}: ceiling {ceiling}");
+                assert_eq!(room, retries.min(max - at_most), "{at_most} in {max}");
+            }
+        }
+    }
 }

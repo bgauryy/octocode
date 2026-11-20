@@ -2,13 +2,13 @@ use super::{CacheClass, CacheConfig, CacheKey, DiskCodec};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 
 mod capacity;
 mod read;
-pub(super) use capacity::REUSE_LOCK_WAIT;
 #[cfg(test)]
 pub(super) use capacity::SCANS;
+pub(super) use capacity::{REUSE_LOCK_WAIT, Wait};
 
 /// The extension of an entry file. Entries of the retired JSON-envelope
 /// layout (`.json`, value base64 inside JSON) are removed by the next prune.
@@ -277,12 +277,12 @@ impl Disk {
         value: &V,
         class: CacheClass,
         config: &CacheConfig,
-        deadline: Instant,
+        wait: Wait,
     ) -> Result<(), NotStored> {
         let Some(value) = C::encode(value) else {
             return Err(NotStored::Refused);
         };
-        self.write_encoded(key, &value, class, config, deadline)
+        self.write_encoded(key, &value, class, config, wait)
     }
 
     pub(crate) fn write_encoded(
@@ -291,7 +291,7 @@ impl Disk {
         value: &[u8],
         class: CacheClass,
         config: &CacheConfig,
-        deadline: Instant,
+        wait: Wait,
     ) -> Result<(), NotStored> {
         let path = self.file(key);
         let header = DiskHeader {
@@ -302,6 +302,6 @@ impl Disk {
             return Err(NotStored::Refused);
         };
         bytes.push(b'\n');
-        self.publish(&path, [&bytes, value], config, deadline)
+        self.publish(&path, [&bytes, value], config, wait)
     }
 }

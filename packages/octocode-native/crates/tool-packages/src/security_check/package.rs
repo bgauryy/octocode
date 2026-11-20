@@ -15,7 +15,7 @@ use super::upgrade;
 use crate::artifact::query::artifact_type;
 use crate::artifact::{
     ArtifactError, ArtifactItem, ArtifactProviderContext, ArtifactProviderPage, Pin, exact_pins,
-    execute_artifact,
+    execute_artifact, lookalike,
 };
 use octocode_contract_types::{ArtifactSearchQuery, ErrorCode, SecurityCheckView};
 use octocode_runtime_base::id::ToolId;
@@ -43,6 +43,9 @@ pub(super) struct Package<'a> {
 struct Notes {
     /// The requested version is not on the registry.
     absent: Option<ArtifactError>,
+    /// The version `absent` names is one OSV's records name by version, so OSV
+    /// was asked at it and the row answers ([`ask_unlisted`]).
+    unlisted: bool,
     prerelease_warning: Option<String>,
     /// Runtime dependencies the confirmed version pins to one exact version:
     /// the advisories filed against them are not this package's.
@@ -121,19 +124,41 @@ pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, A
     // GitHub's read of the source repository and the registry's latest release
     // do not depend on OSV's answer.
     let registered = notes.registered.take();
+    // npm's security placeholder names npm's holding repository, not the
+    // package's source: no repository trust is read for it, and the row
+    // says why.
+    let placeholder = super::malware::npm_placeholder(
+        &confirmed.ecosystem.to_string(),
+        confirmed.version.as_deref(),
+    )
+    .filter(|_| registered.is_some())
+    .map(str::to_owned);
     let target = Target::Package(confirmed.clone());
     let lookup = notes.latest_lookup.take();
-    let (results, trust, latest) = tokio::join!(
+    // Names one edit away are counted for a name the registry confirmed, on
+    // the first page, as its trust is read.
+    let near_kind = registered
+        .as_ref()
+        .and_then(|_| ecosystem::registry(package.ecosystem).ok().flatten());
+    let (results, trust, latest, near) = tokio::join!(
         ask_all(&target, net),
         async {
             match registered {
-                Some(registered) => Some(trust::read(registered, &confirmed, net).await),
-                None => None,
+                Some(registered) if placeholder.is_none() => {
+                    Some(trust::read(registered, &confirmed, net).await)
+                }
+                _ => None,
             }
         },
         async {
             match lookup {
                 Some(kind) => Some(read_latest(package, kind, net).await),
+                None => None,
+            }
+        },
+        async {
+            match near_kind {
+                Some(kind) => lookalike::near_names(kind, &confirmed.name, &context(net)).await,
                 None => None,
             }
         }
@@ -145,6 +170,10 @@ pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, A
         Ok(results) => (results, None),
         Err(error) if !resumed => (Vec::new(), Some(error)),
         Err(error) => return Err(error),
+    };
+    let (confirmed, results) = match osv_failed {
+        None => ask_unlisted(package, confirmed, &mut notes, results, net).await,
+        Some(_) => (confirmed, results),
     };
     notes.trust = trust;
     match latest {
@@ -251,6 +280,16 @@ pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, A
         osv_unanswered(&mut data, &confirmed, &results, github.is_some(), error);
         // The rewrite replaced the answer: it names the review cautions again.
         answer::name_review_cautions(&mut data);
+    }
+    lookalike_caution(&mut data, &confirmed, near);
+    if let Some(version) = placeholder {
+        paging::push_warnings(
+            &mut data,
+            [format!(
+                "{} {version} is npm's placeholder for a package it removed for security reasons: the repository it names is npm's holding repository, not this package's source, so no repository trust is stated.",
+                confirmed.name
+            )],
+        );
     }
     // After every other caution, so the answer names them all.
     malware_caution(&mut data, github.as_ref(), &results, &confirmed);
@@ -376,6 +415,53 @@ fn osv_unanswered(
     data["retryable"] = json!(true);
     // The OSV entry states why; the warnings do not repeat it.
     super::source::source_failed(data, &[]);
+}
+
+/// The `lookalikeName` caution of a confirmed package whose registry has a
+/// name one edit away with at least the policy's `lookalikeDownloadsRatio`
+/// times its downloads; a count that could not be read says no lookalike
+/// was checked.
+fn lookalike_caution(
+    data: &mut Value,
+    confirmed: &Confirmed,
+    near: Option<Result<lookalike::Near, ArtifactError>>,
+) {
+    let near = match near {
+        None => return,
+        Some(Ok(near)) => near,
+        Some(Err(error)) => {
+            paging::push_warnings(
+                data,
+                [format!(
+                    "{}: the names one edit away could not be counted ({}), so no lookalike was checked.",
+                    confirmed.name,
+                    octocode_runtime_base::security::quoted(&error.message)
+                )],
+            );
+            return;
+        }
+    };
+    let Ok(contract) = octocode_runtime_base::contracts::security::security_contract() else {
+        return;
+    };
+    let ratio = contract.policy.lookalike_downloads_ratio;
+    let Some((other, count)) = near.lookalike(ratio) else {
+        return;
+    };
+    let why = format!(
+        "The registry counts {count} {} for {other}, one edit away, against {} for {} (at least {ratio} times, policy lookalikeDownloadsRatio).",
+        near.measure,
+        near.own.unwrap_or(0),
+        confirmed.name
+    );
+    let Some(caution) = super::repository::caution(contract, "lookalikeName", why) else {
+        return;
+    };
+    match data["cautions"].as_array_mut() {
+        Some(cautions) => cautions.push(caution),
+        None => data["cautions"] = json!([caution]),
+    }
+    answer::name_review_cautions(data);
 }
 
 /// The `malware` caution of a package row, from GitHub's class of a record
@@ -737,13 +823,16 @@ fn skipped_note(skipped: &[String]) -> Option<String> {
 }
 
 /// A package the registry does not list: the recovery is the name's own
-/// spelling, so the hint says that and, where the registry has a keyword
-/// search, a related `artifactSearch` call searches the name.
+/// spelling, so the hint says that. Names one edit away the registry has
+/// ([`lookalike`]) are checked instead, most downloaded first; a scoped npm
+/// name searches its scope's packages; elsewhere, where the registry has a
+/// keyword search, a related `artifactSearch` call searches the name.
 fn not_on_registry(
     kind: octocode_contract_types::ArtifactType,
-    name: &str,
-    brief: &Map<String, Value>,
+    package: &Package<'_>,
+    near: Option<lookalike::Near>,
 ) -> ArtifactError {
+    let name = package.name;
     let mut error = ArtifactError::new(
         ErrorCode::NotFound,
         format!(
@@ -752,12 +841,50 @@ fn not_on_registry(
     )
     .with_status(404);
     error.hints = vec!["Check the name and ecosystem as the manifest spells them.".to_owned()];
+    if let Some(near) = near.filter(|near| !near.names.is_empty()) {
+        let limit =
+            octocode_runtime_base::contracts::batch_limit(ToolId::SecurityCheck).unwrap_or(1);
+        let read = &near.names[..near.names.len().min(limit)];
+        error.message = format!(
+            "{} The registry has {} one edit away{}.",
+            error.message,
+            read.iter()
+                .map(|(other, count)| format!("{other} ({count} {})", near.measure))
+                .collect::<Vec<_>>()
+                .join(", "),
+            match near.names.len() - read.len() {
+                0 => String::new(),
+                more => format!(", and {more} more with fewer"),
+            }
+        );
+        let queries = read
+            .iter()
+            .map(|(other, _)| {
+                let mut row = package.brief.clone();
+                row.insert("operation".into(), json!("package"));
+                row.insert("ecosystem".into(), json!(package.ecosystem.to_string()));
+                row.insert("packageName".into(), json!(other));
+                Value::Object(row)
+            })
+            .collect::<Vec<_>>();
+        error.calls = Some(Box::new(json!({
+            "repair": Continuation::related_input(ToolId::SecurityCheck, json!({ "queries": queries })).build()
+        })));
+        return error;
+    }
     // PyPI has no keyword search to broaden an unknown name into.
     if kind != octocode_contract_types::ArtifactType::Pypi {
-        let mut search = brief.clone();
+        // A scoped npm name: npm's search lists its scope's packages.
+        let keyword = match kind {
+            octocode_contract_types::ArtifactType::Npm if name.starts_with('@') => {
+                name.split('/').next().unwrap_or(name)
+            }
+            _ => name,
+        };
+        let mut search = package.brief.clone();
         search.insert("operation".into(), json!("search"));
         search.insert("ecosystem".into(), json!(kind));
-        search.insert("keywords".into(), json!([name]));
+        search.insert("keywords".into(), json!([keyword]));
         error.calls = Some(Box::new(json!({
             "broadenSearch": Continuation::related(ToolId::ArtifactSearch, Value::Object(search)).build()
         })));
@@ -826,7 +953,11 @@ async fn confirm(
         }
     };
     let Some(artifact) = page.artifacts.first() else {
-        return Err(not_on_registry(kind, name, &package.brief));
+        let near = match lookalike::near_names(kind, name, &context(net)).await {
+            Some(Ok(near)) => Some(near),
+            _ => None,
+        };
+        return Err(not_on_registry(kind, package, near));
     };
     // A pinned version asks the registry once more for the latest, in `run`,
     // alongside the other reads; every other row already holds it.
@@ -842,6 +973,7 @@ async fn confirm(
         },
         Notes {
             absent: None,
+            unlisted: false,
             unconfirmed: false,
             pinned: exact_pins(artifact),
             registered: Some(Registered::of(artifact)),
@@ -1132,6 +1264,62 @@ fn listing_version(results: &[SourceResult], version: &str) -> Vec<String> {
     ids
 }
 
+/// A version the registry does not list (unpublished, removed for malware)
+/// that a record OSV returned for the package names by that exact version: the
+/// version is public in OSV's own record, so OSV is asked at it, and its match
+/// answers the row ([`Notes::unlisted`]). Any other unlisted version is never
+/// sent ([`confirm`]). A walk that did not finish, or an answer at the version
+/// that failed, stopped or came back empty, leaves the by-name read, and the
+/// row stays a failed lookup.
+async fn ask_unlisted(
+    package: &Package<'_>,
+    confirmed: Confirmed,
+    notes: &mut Notes,
+    results: Vec<SourceResult>,
+    net: &Net<'_>,
+) -> (Confirmed, Vec<SourceResult>) {
+    let finished = |results: &[SourceResult]| results.iter().all(|result| result.resume.is_none());
+    let requested = package
+        .version
+        .filter(|_| notes.absent.is_some() && confirmed.version.is_none());
+    let Some(requested) = requested
+        .filter(|requested| finished(&results) && !listing_version(&results, requested).is_empty())
+    else {
+        return (confirmed, results);
+    };
+    let asked = Confirmed {
+        version: Some(requested.to_owned()),
+        ..confirmed.clone()
+    };
+    match ask_all(&Target::Package(asked.clone()), net).await {
+        Ok(at_version)
+            if finished(&at_version)
+                && at_version
+                    .iter()
+                    .any(|result| !result.advisories.is_empty()) =>
+        {
+            notes.unlisted = true;
+            (asked, at_version)
+        }
+        _ => (confirmed, results),
+    }
+}
+
+/// The ids of the advisories `results` count, each advisory once by its
+/// first live record; a withdrawn one is not counted.
+fn counted_ids(results: &[SourceResult]) -> Vec<String> {
+    let records = results
+        .iter()
+        .flat_map(|result| &result.advisories)
+        .collect::<Vec<_>>();
+    super::record::advisory_groups(&records)
+        .iter()
+        .map(|group| super::record::Standing::of(group))
+        .filter(|standing| !standing.is_withdrawn())
+        .filter_map(|standing| standing.live.first().map(|row| row.id.clone()))
+        .collect()
+}
+
 /// A row whose empty answer proves nothing: each source says it did not cover
 /// this target, never `noneKnown`.
 fn not_evaluated(data: &mut Value, why: &str) {
@@ -1175,6 +1363,9 @@ fn respond(
     let mut data = answer::lead(&target, &facts);
     data["packageName"] = json!(name);
     match version {
+        // OSV was asked at a version the registry does not list: no version
+        // is the registry's, and this field says so.
+        Some(_) if notes.unlisted => data["versionListed"] = json!(false),
         Some(version) => data["version"] = json!(version),
         None if notes.unconfirmed => {}
         None => data["versionEvaluated"] = json!(false),
@@ -1234,21 +1425,46 @@ fn respond(
         trust.apply(&mut data, &package.brief);
     }
     if let Some(absent) = notes.absent {
-        // A version the registry does not list is a failed lookup, so the row
-        // exits non-zero; it still lists what the sources know of the name.
-        data["status"] = json!("error");
-        data["errorCode"] = json!(absent.code);
-        data["error"] = json!(sentence(&absent.message));
-        octocode_runtime_base::response::result::add_hints(&mut data, absent.hints.iter().cloned());
         let nearest = absent
             .nearest
             .iter()
             .map(|near| Value::Object(package_row(package, name, Some(near))))
             .collect::<Vec<_>>();
-        if !nearest.is_empty() {
-            data["calls"]["repair"] =
-                Continuation::related_input(ToolId::SecurityCheck, json!({ "queries": nearest }))
-                    .build();
+        let nearest = (!nearest.is_empty()).then(|| {
+            Continuation::related_input(ToolId::SecurityCheck, json!({ "queries": nearest }))
+                .build()
+        });
+        match version {
+            // OSV answered at a version its records name: an answer, with a
+            // check of the nearest published versions to move to.
+            Some(version) if notes.unlisted => {
+                paging::push_warnings(
+                    &mut data,
+                    [answer::unlisted_warning(
+                        name,
+                        version,
+                        &counted_ids(results),
+                    )],
+                );
+                if let Some(nearest) = nearest {
+                    data["calls"]["otherVersions"] = nearest;
+                }
+            }
+            // A version the registry does not list is a failed lookup, so the
+            // row exits non-zero; it still lists what the sources know of the
+            // name, and its repair reads the nearest published versions.
+            _ => {
+                data["status"] = json!("error");
+                data["errorCode"] = json!(absent.code);
+                data["error"] = json!(sentence(&absent.message));
+                octocode_runtime_base::response::result::add_hints(
+                    &mut data,
+                    absent.hints.iter().cloned(),
+                );
+                if let Some(nearest) = nearest {
+                    data["calls"]["repair"] = nearest;
+                }
+            }
         }
     }
     if let Some(resume) = results.iter().find_map(|result| result.resume.as_ref()) {

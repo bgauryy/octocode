@@ -68,7 +68,6 @@ pub(super) fn should_use_search_for_prs(q: &HistorySearch) -> bool {
         || q.head().is_some()
         || q.base().is_some()
         || f.merged.is_some()
-        || !f.excluded.is_empty()
         || q.state().as_deref() == Some("merged")
         // The pulls list cannot filter on repository archive state.
         || f.archived.is_some()
@@ -135,9 +134,6 @@ fn commit_terms(q: &HistorySearch, out: &mut SearchTerms) -> Result<(), Provider
         }
     }
     out.text("committer-date", f.committed.as_deref());
-    for (key, value) in &f.excluded {
-        out.text(&format!("-{key}"), Some(value));
-    }
     Ok(())
 }
 
@@ -192,9 +188,6 @@ fn issue_terms(q: &HistorySearch, out: &mut SearchTerms) -> Result<(), ProviderE
         out.push(format!("archived:{archived}"));
     }
     out.text("status", f.status.as_deref());
-    for (key, value) in &f.excluded {
-        out.text(&format!("-{key}"), Some(value));
-    }
     Ok(())
 }
 

@@ -30,6 +30,7 @@ mod test_code;
 use crate::ast_graph::languages::canonical_language;
 use names::*;
 use naming::*;
+pub(super) use stats::INTERNAL_REASONS;
 use stats::*;
 
 /// Detail of a file → file `contains` edge: a Rust `mod` declaration.

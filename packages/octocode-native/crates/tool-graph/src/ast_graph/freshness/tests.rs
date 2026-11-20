@@ -62,3 +62,53 @@ fn config_inputs_outside_the_path_policy_are_not_read() {
     let inputs = config_inputs(&paths, &root, &scope_dirs(&root, ["src/a.ts"]));
     assert!(inputs.is_empty(), "{inputs:?}");
 }
+
+/// Only a file some linking step reads is a build input: a lockfile or a
+/// build script no resolver parses changes nothing in the graph, while the
+/// workspace lists pnpm and Go read are inputs like the manifests.
+#[test]
+fn only_configs_linking_reads_are_build_inputs() {
+    let repo = octocode_runtime_base::test_support::Fixture::new();
+    let base = repo.0.as_path();
+    std::fs::create_dir_all(base.join(".git")).expect("git marker");
+    for unread in [
+        "yarn.lock",
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "bun.lock",
+        "Cargo.lock",
+        "go.sum",
+        "poetry.lock",
+        "uv.lock",
+        "Pipfile.lock",
+        "pom.xml",
+        "build.gradle",
+        "CMakeLists.txt",
+        "requirements-docs.txt",
+    ] {
+        repo.write(unread, "unread\n");
+    }
+    for read in [
+        "package.json",
+        "pnpm-workspace.yaml",
+        "go.work",
+        "Cargo.toml",
+        "dev-requirements.txt",
+    ] {
+        repo.write(read, "read\n");
+    }
+    repo.write("app/src/a.rs", "pub fn a() {}\n");
+    let root = base.join("app");
+    let paths = octocode_runtime_base::test_support::workspace_policy(base);
+    let inputs = config_inputs(&paths, &root, &scope_dirs(&root, ["src/a.rs"]));
+    assert_eq!(
+        inputs.keys().collect::<Vec<_>>(),
+        [
+            "../Cargo.toml",
+            "../dev-requirements.txt",
+            "../go.work",
+            "../package.json",
+            "../pnpm-workspace.yaml"
+        ]
+    );
+}

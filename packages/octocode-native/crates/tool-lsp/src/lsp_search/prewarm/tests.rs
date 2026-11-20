@@ -25,28 +25,61 @@ fn a_previously_warm_server_can_be_warmed_again_after_cooldown() {
     assert!(state.begin("workspace"));
 }
 
+/// A policy whose workspace is `dir`.
+fn workspace_paths(dir: &std::path::Path) -> octocode_runtime_base::policy::path::PathPolicy {
+    octocode_runtime_base::policy::path::PathPolicy::new(
+        octocode_runtime_base::policy::path::PathPolicyConfig {
+            workspace_root: Some(dir.to_path_buf()),
+            ..octocode_runtime_base::policy::path::PathPolicyConfig::default()
+        },
+    )
+    .expect("path policy")
+}
+
+/// The top hit names the file, else a file query path. A local tool states
+/// hits workspace-relative, so a relative path resolves against the
+/// workspace, as the call itself would.
 #[test]
 fn anchor_prefers_the_top_hit_then_a_file_query_path() {
     let dir_dir = octocode_runtime_base::test_support::Fixture::new();
     let dir = dir_dir.0.clone();
     std::fs::create_dir_all(&dir).expect("dir");
+    let paths = workspace_paths(&dir);
     let hit = dir.join("hit.ts");
     let read = dir.join("read.ts");
     std::fs::write(&hit, "export const a = 1;\n").expect("hit");
     std::fs::write(&read, "export const b = 1;\n").expect("read");
     let search = json!({"path": dir});
     let data = json!({"files": [{"path": hit}, {"path": read}]});
-    assert_eq!(anchor_file(&search, &data), Some(hit.clone()));
-    assert_eq!(anchor_file(&json!({"path": read}), &json!({})), Some(read));
-    // A directory query with no hits, or relative paths, name no file.
+    assert_eq!(anchor_file(&paths, &search, &data), Some(hit.clone()));
     assert_eq!(
-        anchor_file(&search, &json_fixture(r#"{"files": []}"#)),
+        anchor_file(&paths, &json!({"path": read}), &json!({})),
+        Some(read.clone())
+    );
+    assert_eq!(
+        anchor_file(
+            &paths,
+            &search,
+            &json_fixture(r#"{"files": [{"path": "hit.ts"}]}"#)
+        ),
+        Some(hit.clone()),
+        "a workspace-relative hit resolves"
+    );
+    assert_eq!(
+        anchor_file(&paths, &json_fixture(r#"{"path": "read.ts"}"#), &json!({})),
+        Some(read),
+        "a workspace-relative read resolves"
+    );
+    // A directory query with no hits, or a path to no file, names no file.
+    assert_eq!(
+        anchor_file(&paths, &search, &json_fixture(r#"{"files": []}"#)),
         None
     );
     assert_eq!(
         anchor_file(
-            &json_fixture(r#"{"path": "hit.ts"}"#),
-            &json_fixture(r#"{"files": [{"path": "hit.ts"}]}"#)
+            &paths,
+            &search,
+            &json_fixture(r#"{"files": [{"path": "gone.ts"}]}"#)
         ),
         None
     );
@@ -64,13 +97,7 @@ fn a_served_lsp_lead_points_at_its_anchor_file() {
     std::fs::create_dir_all(&dir).expect("dir");
     let file = dir.join("a.ts");
     std::fs::write(&file, "export const a = 1;\n").expect("file");
-    let paths = octocode_runtime_base::policy::path::PathPolicy::new(
-        octocode_runtime_base::policy::path::PathPolicyConfig {
-            workspace_root: Some(dir.clone()),
-            ..octocode_runtime_base::policy::path::PathPolicyConfig::default()
-        },
-    )
-    .expect("path policy");
+    let paths = workspace_paths(&dir);
     let tool = octocode_runtime_base::id::ToolId::LocalSearch;
     let served = |input: serde_json::Value, row: serde_json::Value| {
         let mut row = row;

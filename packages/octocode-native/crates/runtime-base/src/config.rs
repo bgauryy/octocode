@@ -20,7 +20,7 @@ pub use edit::{
 };
 pub use json_edit::{edit_config_json, parse_config_json};
 pub(crate) use loader::load_config;
-pub use manage::{edit_setting, inspect_management};
+pub use manage::{SettingEdit, edit_setting, inspect_management};
 pub use report::{SettingReport, known_env_report, setting_report, setting_reports};
 pub(crate) use resolver::get_config_value;
 #[cfg(test)]

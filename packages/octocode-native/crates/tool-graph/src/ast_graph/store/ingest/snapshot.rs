@@ -15,12 +15,23 @@ pub(super) struct Publish<'a> {
     pub argument_coverage: &'a Value,
     pub inputs: &'a BTreeMap<String, String>,
     pub input_proof: Option<&'a str>,
+    /// What changed after the build read it, if anything did.
+    pub changed: Option<Changed>,
     pub scope_proof: Option<&'a Value>,
     pub build_ms: u64,
     pub registry: RegistryView<'a>,
     pub registry_identity: &'a str,
     pub build_identity: &'a str,
     pub limits: &'a Limits,
+}
+
+/// Sources and configs that changed after the build read them.
+pub(super) struct Changed {
+    pub files: usize,
+    /// The scope as graphQuery names it.
+    pub path: String,
+    /// The same graphBuild, which reads them again.
+    pub rebuild: Option<Value>,
 }
 
 /// A build whose extraction paused at its call's budget: a partial answer
@@ -162,7 +173,35 @@ pub(super) fn publish_snapshot(
         &mut receipt,
         uncheckpointed_warning(&job.built.construction),
     );
+    if let Some(changed) = &job.changed {
+        changed_meanwhile(&mut receipt, &id, changed);
+    }
     answer(receipt)
+}
+
+/// A snapshot of files that changed after the build read them: the warning
+/// counts them, and the related graphQuery stale lists each while the
+/// related graphBuild reads them again (only they are parsed again).
+fn changed_meanwhile(receipt: &mut Value, id: &str, changed: &Changed) {
+    octocode_runtime_base::response::paging::push_warnings(
+        receipt,
+        [format!(
+            "{} while the graph was built: the snapshot holds them as first read, so graphQuery stale lists them. Once the edits settle, the same graphBuild links their new content, parsing only the changed files again.",
+            octocode_engine::text::counted(changed.files, "file changed", "files changed")
+        )],
+    );
+    let stale = json!({"operation": "stale", "graph": id, "path": changed.path});
+    let leads = std::iter::once(
+        octocode_runtime_base::response::result::Continuation::related(
+            octocode_runtime_base::id::ToolId::GraphQuery,
+            stale,
+        )
+        .build(),
+    )
+    .chain(changed.rebuild.clone());
+    for lead in leads {
+        octocode_runtime_base::response::result::attach_related(receipt, lead);
+    }
 }
 
 /// The files this build linked without a checkpoint, past the job's disk or

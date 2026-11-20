@@ -16,10 +16,12 @@ use octocode_runtime_base::response::result::{Continuation, query_row};
 /// file's history, since the text may live only on a branch or pull
 /// request: the commits that changed the path, and pull requests whose
 /// text names the literal (approximate: their discussion, not their
-/// diffs). A regex has no literal to search.
+/// diffs). A regex has no literal to search. `outline`: the outline is
+/// not offered yet (the shared miss offers it as its `read` when it can).
 pub(super) fn empty_match_leads(
     query: &GhGetFileContentQuery,
     local: &LocalFetchQuery,
+    outline: bool,
 ) -> Vec<(&'static str, Value)> {
     let literals = local_fetch_query::match_strings(local);
     let Some(first) = literals.first().map(|first| first.trim()) else {
@@ -40,7 +42,7 @@ pub(super) fn empty_match_leads(
     let pulls =
         json!({"operation": "pullRequest", "owner": owner, "repo": repo, "keywords": [first]});
     let mut leads = Vec::new();
-    if has_outline(access::path(query)) {
+    if outline && has_outline(access::path(query)) {
         let mut symbols = json!({
             "owner": owner, "repo": repo, "path": access::path(query), "view": "symbols"
         });

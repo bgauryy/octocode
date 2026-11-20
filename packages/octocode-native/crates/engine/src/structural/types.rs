@@ -97,29 +97,45 @@ pub enum StructuralDemand<'a> {
     /// in match order, and a page rebuilds the matches it shows
     /// ([`super::file_matches`]).
     Priced(&'a (dyn Fn(&StructuralDetailedMatch) -> u32 + Sync)),
-    /// [`Self::Priced`], and the window ends after the files the caller's
-    /// page 1 needs ([`PageFilled`]), or later to read at least as many
-    /// candidates as the windows before it, resuming after it
-    /// ([`super::search_files`]'s `scan_resume`, with `page_filled`): a
-    /// window bounded by the page it shows, not by its scope.
-    Paged(
-        &'a (dyn Fn(&StructuralDetailedMatch) -> u32 + Sync),
-        &'a PageFilled<'a>,
-    ),
+    /// [`Self::Priced`], and the window ends at a start of one of the
+    /// caller's pages ([`PagedWindow`]): a window bounded by the pages it
+    /// shows, not by its scope, each of them whole.
+    Paged(PagedWindow<'a>),
     /// Whether the scope holds any match: each file's count, as
     /// [`Self::Count`], and the scan ends at the first chunk that holds a
     /// match, resuming after it ([`super::search_files`]'s `scan_resume`).
     Exists,
 }
 
-/// Where the files a [`StructuralDemand::Paged`] scan evaluated fill its
-/// caller's page 1: called once per chunk, serially, with that chunk's
-/// evaluated files in candidate order (a caller keeps what earlier chunks
-/// held, so it sees every file once, in walk order), until it names how many
-/// of the chunk's files page 1 needs, once a match after page 1's last
-/// exists: the files after them start page 2.
-pub type PageFilled<'a> =
-    dyn Fn(&[&StructuralSearchDetailedFileResult]) -> Option<usize> + Sync + 'a;
+/// A [`StructuralDemand::Paged`] window: each match priced, and the window
+/// ends at the first start of a page of the caller's past page 1 that lies
+/// at least as many candidates in as the windows before it read, once a
+/// match lies past it in another file (with none, the window ends with the
+/// scope), so a walk takes a number of windows logarithmic in its scope and
+/// every page a window shows is whole. A start inside a file ends the window
+/// with that file ([`StructuralSearchFilesDetailedResult::page_split`]): the
+/// next window, resumed with `resumes_inside`, reads it again and lists its
+/// matches from there. A window its time cuts ends at the last page start it
+/// met, else at its time.
+#[derive(Clone, Copy)]
+pub struct PagedWindow<'a> {
+    pub price: &'a (dyn Fn(&StructuralDetailedMatch) -> u32 + Sync),
+    pub page_starts: &'a PageStarts<'a>,
+    /// The window before ended inside candidate `skip_files - 1`: this
+    /// window evaluates it again, first.
+    pub resumes_inside: bool,
+}
+
+/// Where the caller's pages start among the files a
+/// [`StructuralDemand::Paged`] window evaluated: called once per chunk,
+/// serially, with that chunk's evaluated files in candidate order, each with
+/// its position from the window's first candidate (a caller keeps what
+/// earlier chunks held, so it sees every file once, in walk order). It
+/// returns each start of a page past the first that these files hold, in
+/// order, as (position, index of the page's first match in that file's
+/// matches).
+pub type PageStarts<'a> =
+    dyn Fn(&[(usize, &StructuralSearchDetailedFileResult)]) -> Vec<(usize, usize)> + Sync + 'a;
 
 /// What a file search kept of one file's matches, by its
 /// [`StructuralDemand`].
@@ -254,9 +270,16 @@ pub struct StructuralSearchDetailedFileResult {
 
 pub struct StructuralSearchFilesDetailedResult {
     pub scan_truncated: bool,
-    /// The scan stopped because a [`StructuralDemand::Paged`] page filled,
+    /// The scan stopped at a start of a [`StructuralDemand::Paged`] page,
     /// not at its time budget: what it skipped is pagination, not a gap.
     pub page_filled: bool,
+    /// The page start the window ended at is inside its last evaluated file:
+    /// its pages hold this many of that file's matches, and the window
+    /// resumed with [`PagedWindow::resumes_inside`] lists the rest.
+    pub page_split: Option<u32>,
+    /// The file the window before ended inside was evaluated again: it is
+    /// the first of `files`.
+    pub resumed_inside: bool,
     /// Where a truncated scan resumes: the walk-order index of the first
     /// unevaluated candidate (pass it back as `skip_files`). `None` when the
     /// scan is complete, or was cut by an explicit `max_files`.

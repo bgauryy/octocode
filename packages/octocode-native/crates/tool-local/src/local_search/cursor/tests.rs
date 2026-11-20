@@ -17,6 +17,7 @@ fn scan() -> (Vec<TextSearchFile>, TextSearchStats) {
     };
     let files = vec![
         TextSearchFile {
+            sort_time: None,
             term_counts: Vec::new(),
             path: "src/a.rs".into(),
             match_count: 2,
@@ -30,6 +31,7 @@ fn scan() -> (Vec<TextSearchFile>, TextSearchStats) {
             }),
         },
         TextSearchFile {
+            sort_time: None,
             term_counts: Vec::new(),
             path: "src/b.rs".into(),
             match_count: 1,

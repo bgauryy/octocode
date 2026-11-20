@@ -10,40 +10,24 @@ use octocode_runtime_base::policy::path::PathPolicy;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-/// Config files hashed in full up to this size; a larger one (a lockfile)
-/// is fingerprinted by size and modification time.
+/// Config files hashed in full up to this size; a larger one is
+/// fingerprinted by size and modification time.
 const MAX_DIGESTED_CONFIG_BYTES: usize = 16 << 20;
 
 /// Files whose change invalidates everything below their directory: the
-/// manifests, lockfiles and compiler configs module resolution reads.
+/// manifests, workspace lists and compiler configs a linking step reads
+/// (module resolution, workspace discovery, `cargo metadata --no-deps`).
+/// A file no step reads, such as a lockfile, changes nothing in the graph.
 pub(crate) fn is_global_config(path: &str) -> bool {
+    use super::store::workspace::{MANIFEST_FILES, REQUIREMENTS_FILES};
     let name = path.rsplit('/').next().unwrap_or(path);
-    matches!(
-        name,
-        "package.json"
-            | "package-lock.json"
-            | "yarn.lock"
-            | "pnpm-lock.yaml"
-            | "bun.lockb"
-            | "bun.lock"
-            | "Cargo.toml"
-            | "Cargo.lock"
-            | "go.mod"
-            | "go.sum"
-            | "pyproject.toml"
-            | "setup.py"
-            | "setup.cfg"
-            | "poetry.lock"
-            | "uv.lock"
-            | "Pipfile.lock"
-            | "build.gradle"
-            | "build.gradle.kts"
-            | "pom.xml"
-            | "CMakeLists.txt"
-            | "compile_commands.json"
-    ) || (name.starts_with("tsconfig") && name.ends_with(".json"))
-        || name == "jsconfig.json"
-        || (name.starts_with("requirements") && name.ends_with(".txt"))
+    MANIFEST_FILES.contains(&name)
+        || REQUIREMENTS_FILES.contains(&name)
+        || matches!(
+            name,
+            "pnpm-workspace.yaml" | "go.work" | "compile_commands.json" | "jsconfig.json"
+        )
+        || (name.starts_with("tsconfig") && name.ends_with(".json"))
 }
 
 /// The directories a build of `root` read: `root`, every directory holding
@@ -106,6 +90,32 @@ pub(crate) fn config_inputs(
         }
     }
     inputs
+}
+
+/// The configs of `inputs` (keyed as [`config_inputs`] keys them) that lie
+/// in one of `dirs`: what a read of those directories alone would record.
+pub(crate) fn inputs_in(
+    inputs: &BTreeMap<String, String>,
+    root: &Path,
+    dirs: &BTreeSet<PathBuf>,
+) -> BTreeMap<String, String> {
+    let prefixes = dirs
+        .iter()
+        .filter_map(|dir| relative_dir(root, dir))
+        .collect::<BTreeSet<_>>();
+    inputs
+        .iter()
+        .filter(|(key, _)| {
+            let prefix = key.rsplit_once('/').map_or("", |(dir, _)| dir);
+            let prefix = if prefix.is_empty() {
+                String::new()
+            } else {
+                format!("{prefix}/")
+            };
+            prefixes.contains(&prefix)
+        })
+        .map(|(key, digest)| (key.clone(), digest.clone()))
+        .collect()
 }
 
 /// `dir` relative to `root` as a key prefix (`""`, `src/`, `../`); `None`

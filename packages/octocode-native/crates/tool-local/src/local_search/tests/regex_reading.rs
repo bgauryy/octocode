@@ -91,3 +91,23 @@ fn a_term_that_reads_the_same_as_a_regex_gets_no_offer() {
         assert!(!row["hints"].to_string().contains("as a regex"), "{row}");
     }
 }
+
+/// A term whose regex reading is one other fixed text (`pub(crate) fn`
+/// reads as `pubcrate fn`, `arr[i]` as `arri`) is code written literally:
+/// neither an empty row nor a dead term beside a hit offers the regex
+/// reading.
+#[test]
+fn a_term_whose_regex_reading_is_one_fixed_text_gets_no_offer() {
+    for terms in [vec!["pub(crate) fn alpha"], vec!["arr[i]"]] {
+        let row = search_fixture(&FILES, literal(&terms));
+        assert_eq!(row["files"], serde_json::json!([]), "{terms:?}: {row}");
+        assert!(!offers_regex(&row), "{terms:?}: {row}");
+        assert!(!row["hints"].to_string().contains("as a regex"), "{row}");
+    }
+    let row = search_fixture(&FILES, literal(&["fn alpha", "pub(crate) fn beta7"]));
+    assert_eq!(row["matchCount"], 1, "{row}");
+    assert!(
+        !row["warnings"].to_string().contains("regex syntax"),
+        "{row}"
+    );
+}

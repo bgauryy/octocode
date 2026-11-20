@@ -2,58 +2,44 @@
 use super::*;
 use octocode_test_support::json_fixture;
 
-/// Until the host allows build scripts (`lsp.allowBuildScripts`), the same
-/// partial row offers no rerun that would be refused: it keeps its reason,
-/// and the opt-in is the `rustContext.buildScripts` field's, said once.
+/// Build-script output the server does not load: the row keeps its reason,
+/// offers no rerun (the server's own configuration decides what it loads),
+/// and the reason is the whole statement.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn build_scripts_off_offers_no_rerun_until_allowed() {
+async fn build_scripts_off_offers_no_rerun() {
     let dir = include_fixture();
     let root = dir.path().canonicalize().expect("root");
     let method = "impl R { fn include_diff(&self) -> bool { true } }\n";
     let generated = format!("include!(concat!(env!(\"OUT_DIR\"), \"/gen.rs\"));\n{method}");
-    let options = octocode_engine::lsp::config::rust_analyzer_headless_options();
-    let refused = rust_row_gated(
-        &root,
-        &generated,
-        json!({}),
-        &["lib.rs"],
-        options.clone(),
-        false,
-    )
-    .await;
+    let row = rust_row(&root, &generated, json!({}), &["lib.rs"]).await;
     assert_eq!(
-        refused["partialReasons"],
+        row["partialReasons"],
         json!([BUILD_SCRIPTS_REASON]),
-        "{refused}"
+        "{row}"
     );
-    assert!(refused.get("notices").is_none(), "{refused}");
-    octocode_runtime_base::test_support::checks::assert_no_reason_meaning(&refused);
-    assert!(
-        !refused["related"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|call| call["tool"] == "lspSearch"),
-        "{refused}"
-    );
-    let allowed = rust_row_gated(&root, &generated, json!({}), &["lib.rs"], options, true).await;
-    assert!(
-        allowed["related"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|call| call["tool"] == "lspSearch"),
-        "{allowed}"
-    );
+    assert!(row.get("notices").is_none(), "{row}");
+    octocode_runtime_base::test_support::checks::assert_no_reason_meaning(&row);
+    assert!(!offers(&row, "lspSearch"), "{row}");
+}
+
+/// Whether `row` offers a `tool` call.
+fn offers(row: &Value, tool: &str) -> bool {
+    octocode_runtime_base::test_support::checks::find_related_call(row, tool, |_| true).is_some()
+}
+
+/// `options` of a server configured to run build scripts.
+fn build_scripts_on() -> Value {
+    let mut options = octocode_engine::lsp::config::rust_analyzer_headless_options();
+    options["cargo"]["buildScripts"]["enable"] = json!(true);
+    options
 }
 
 /// A method reached through `Deref` to a type the package `include!`s
 /// does not resolve while rust-analyzer cannot load that source: the
 /// server answers with the declaration alone. Files that use the name in
 /// code and are missing from that answer make the row partial; the
-/// reason says which load is missing, the build-script rerun is offered
-/// only where it helps and only on a partial first page, and the static
-/// prose is stated once. A comment mention is no missed use.
+/// reason says which load is missing, the text lead reads the missed files,
+/// and the static prose is stated once. A comment mention is no missed use.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unloaded_includes_flag_unanswered_files() {
     let dir = include_fixture();
@@ -67,8 +53,8 @@ async fn unloaded_includes_flag_unanswered_files() {
         json!([BUILD_SCRIPTS_REASON]),
         "{first}"
     );
-    // The code is the whole statement: its meaning is core's and the
-    // rerun's cost the field's; the lead carries the call.
+    // The code is the whole statement: its meaning is core's; the text lead
+    // carries the call.
     assert!(first.get("notices").is_none(), "{first}");
     assert!(first.get("warnings").is_none(), "{first}");
     octocode_runtime_base::test_support::checks::assert_no_reason_meaning(&first);
@@ -76,16 +62,8 @@ async fn unloaded_includes_flag_unanswered_files() {
         first["coverage"]["textOnlyFiles"], 1,
         "comments and strings are no uses: {first}"
     );
-    let rerun =
-        &octocode_runtime_base::test_support::checks::related_call(&first, "lspSearch", |input| {
-            input["queries"][0]["rustContext"]["buildScripts"] == true
-        })["input"]["queries"][0];
-    assert_eq!(
-        rerun["rustContext"],
-        json_fixture(r#"{"buildScripts": true}"#),
-        "{first}"
-    );
-    assert_eq!(rerun["symbolName"], "include_diff", "{first}");
+    assert!(offers(&first, "localSearch"), "{first}");
+    assert!(!offers(&first, "lspSearch"), "{first}");
 
     let later_fields = json_fixture(r#"{"page": 2}"#);
     let later = rust_row(&root, &generated, later_fields.clone(), &["lib.rs"]).await;
@@ -99,15 +77,7 @@ async fn unloaded_includes_flag_unanswered_files() {
         shaped["data"], later,
         "row assembly preserves producer coverage guidance"
     );
-    assert!(
-        !later["related"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|call| call["tool"] == "lspSearch"
-                && call["input"]["queries"][0]["rustContext"]["buildScripts"] == true),
-        "{later}"
-    );
+    assert!(!offers(&later, "lspSearch"), "{later}");
 
     let complete = rust_row(&root, &generated, json!({}), &["lib.rs", "user.rs"]).await;
     assert!(complete.get("isPartial").is_none(), "{complete}");
@@ -117,11 +87,12 @@ async fn unloaded_includes_flag_unanswered_files() {
     );
     assert_eq!(complete["coverage"]["textOnlyFiles"], 0, "{complete}");
 
-    let ran = rust_row(
+    let ran = rust_row_configured(
         &root,
         &generated,
-        json_fixture(r#"{"rustContext": {"buildScripts": true}}"#),
+        json!({}),
         &["lib.rs"],
+        build_scripts_on(),
     )
     .await;
     assert!(ran.get("isPartial").is_none(), "{ran}");
@@ -130,8 +101,12 @@ async fn unloaded_includes_flag_unanswered_files() {
     assert_eq!(ran["coverage"]["textOnlyFiles"], 0, "{ran}");
 }
 
+/// The server's configured settings decide the coverage: one that runs build
+/// scripts under every feature loads the generated source and the gated use
+/// (complete); the headless defaults load neither (both reasons), and no
+/// row offers a rerun.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn rust_coverage_uses_inherited_settings_and_preserves_explicit_overrides() {
+async fn rust_coverage_follows_the_configured_settings() {
     let dir = include_fixture();
     let root = dir.path().canonicalize().expect("root");
     std::fs::write(
@@ -140,85 +115,21 @@ async fn rust_coverage_uses_inherited_settings_and_preserves_explicit_overrides(
     )
     .expect("gated use");
     let lib = "include!(concat!(env!(\"OUT_DIR\"), \"/gen.rs\"));\nimpl R { fn include_diff(&self) {} }\n";
-    let mut options = octocode_engine::lsp::config::rust_analyzer_headless_options();
+    let mut options = build_scripts_on();
     options["cargo"]["features"] = json!("all");
-    options["cargo"]["buildScripts"]["enable"] = json!(true);
     options["procMacro"]["enable"] = json!(true);
-    let inherited = rust_row_configured(&root, lib, json!({}), &["lib.rs"], options.clone()).await;
-    let explicit = rust_row_configured(
-        &root,
-        lib,
-        json_fixture(
-            r#"{
-                "rustContext": {
-                    "features": "all",
-                    "buildScripts": true,
-                    "procMacros": true
-                }
-            }"#,
-        ),
-        &["lib.rs"],
-        options.clone(),
-    )
-    .await;
-    assert_eq!(inherited, explicit);
+    let inherited = rust_row_configured(&root, lib, json!({}), &["lib.rs"], options).await;
     assert!(inherited.get("partialReasons").is_none(), "{inherited}");
     assert_eq!(inherited["coverage"]["textOnlyFiles"], 0, "{inherited}");
-    assert!(
-        octocode_runtime_base::test_support::checks::find_related_call(
-            &inherited,
-            "lspSearch",
-            |_| true
-        )
-        .is_none(),
-        "{inherited}"
-    );
+    assert!(!offers(&inherited, "lspSearch"), "{inherited}");
 
-    let disabled = rust_row_configured(
-        &root,
-        lib,
-        json_fixture(
-            r#"{
-                "rustContext": {"features": [], "buildScripts": false, "procMacros": false}
-            }"#,
-        ),
-        &["lib.rs"],
-        options.clone(),
-    )
-    .await;
+    let headless = rust_row(&root, lib, json!({}), &["lib.rs"]).await;
     assert_eq!(
-        disabled["partialReasons"],
+        headless["partialReasons"],
         json!([BUILD_SCRIPTS_REASON, "cfgGatedFiles"]),
-        "{disabled}"
+        "{headless}"
     );
-    let build = &octocode_runtime_base::test_support::checks::related_call(
-        &disabled,
-        "lspSearch",
-        |input| input["queries"][0]["rustContext"]["buildScripts"] == true,
-    )["input"]["queries"][0];
-    assert_eq!(
-        build["rustContext"],
-        json_fixture(r#"{"features": [], "buildScripts": true, "procMacros": false}"#)
-    );
-    let features = &octocode_runtime_base::test_support::checks::related_call(
-        &disabled,
-        "lspSearch",
-        |input| input["queries"][0]["rustContext"]["features"] == "all",
-    )["input"]["queries"][0];
-    assert_eq!(
-        features["rustContext"],
-        json_fixture(
-            r#"{
-                "features": "all",
-                "buildScripts": false,
-                "procMacros": false
-            }"#
-        )
-    );
-    for rerun in [build, features] {
-        assert!(rerun.get("page").is_none() && rerun.get("snapshot").is_none());
-        configured_rust(&query(rerun.clone()), options.clone());
-    }
+    assert!(!offers(&headless, "lspSearch"), "{headless}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -228,15 +139,10 @@ async fn outside_includes_keep_partial_coverage_without_build_script_reruns() {
     let method = "impl R { fn include_diff(&self) -> bool { true } }\n";
     let outside = format!("include!(\"../../contract/types.rs\");\n{method}");
 
-    // No build context loads a file outside the package: the rerun
-    // stays partial, with the lexical lead and no rerun of its own.
-    let outside_row = rust_row(
-        &root,
-        &outside,
-        json_fixture(r#"{"rustContext": {"buildScripts": true}}"#),
-        &["lib.rs"],
-    )
-    .await;
+    // No build context loads a file outside the package: a server that runs
+    // build scripts stays partial, with the lexical lead and no rerun.
+    let outside_row =
+        rust_row_configured(&root, &outside, json!({}), &["lib.rs"], build_scripts_on()).await;
     assert_eq!(
         outside_row["partialReasons"],
         json!([OUTSIDE_INCLUDE_REASON]),
@@ -248,26 +154,11 @@ async fn outside_includes_keep_partial_coverage_without_build_script_reruns() {
             .is_some_and(|notice| notice.contains("contract/types.rs")),
         "{outside_row}"
     );
-    assert!(
-        outside_row["related"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|call| call["tool"] == "localSearch"),
-        "{outside_row}"
-    );
-    assert!(
-        !outside_row["related"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|call| call["tool"] == "lspSearch"
-                && call["input"]["queries"][0]["rustContext"]["buildScripts"] == true),
-        "{outside_row}"
-    );
+    assert!(offers(&outside_row, "localSearch"), "{outside_row}");
+    assert!(!offers(&outside_row, "lspSearch"), "{outside_row}");
 
-    // Both loads missing: which one hides a file is unknown, so the
-    // text check leads and the ~2 GB rerun is named, not offered.
+    // Both loads missing: which one hides a file is unknown; the text check
+    // leads.
     let both = format!(
         "include!(concat!(env!(\"OUT_DIR\"), \"/gen.rs\"));\ninclude!(\"../../contract/types.rs\");\n{method}"
     );
@@ -277,23 +168,8 @@ async fn outside_includes_keep_partial_coverage_without_build_script_reruns() {
         json!([OUTSIDE_INCLUDE_REASON, BUILD_SCRIPTS_REASON]),
         "{both_row}"
     );
-    assert!(
-        both_row["related"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|call| call["tool"] == "localSearch"),
-        "{both_row}"
-    );
-    assert!(
-        !both_row["related"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|call| call["tool"] == "lspSearch"
-                && call["input"]["queries"][0]["rustContext"]["buildScripts"] == true),
-        "{both_row}"
-    );
+    assert!(offers(&both_row, "localSearch"), "{both_row}");
+    assert!(!offers(&both_row, "lspSearch"), "{both_row}");
     // Both reasons are the whole statement; only the outside include's
     // files are this answer's own note.
     assert_eq!(

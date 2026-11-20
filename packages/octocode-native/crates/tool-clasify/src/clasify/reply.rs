@@ -130,14 +130,16 @@ pub struct Price {
     pub room: u64,
 }
 
-/// A row whose ceiling is over its `maxRequests`, priced before anything
-/// was sent: how many units it holds, its price, the input tokens its first
-/// round costs at most, and the cap.
+/// A row whose requests, before any transient retry, are over its
+/// `maxRequests`, priced before anything was sent: how many units it holds,
+/// its price (its ceiling with every transient retry it shares), the input
+/// tokens its first round costs at most (`None` while nothing bounds them),
+/// and the cap.
 #[derive(Clone, Copy, Debug)]
 pub struct OverBudget {
     pub units: usize,
     pub price: Price,
-    pub input_tokens_at_most: u64,
+    pub input_tokens_at_most: Option<u64>,
     pub max: u64,
     /// The transient retries the row's ceiling counts.
     pub room: u64,
@@ -194,11 +196,18 @@ pub(super) fn past_ceiling(calls: u64, ceiling: u64) -> Option<String> {
     ))
 }
 
-/// A row refused before anything was sent: its ceiling is over
-/// `maxRequests`. It states the price and offers the same row with
-/// `maxRequests` raised to the ceiling (`next.confirm`, billed).
+/// Why a price states no `inputTokensAtMost`: the provider bills its own
+/// prompt beside each request body, and nothing bounds it before it has
+/// answered a request ([`octocode_tools_shared::judgment::Evaluator::tokens_at_most`]).
+pub(super) const UNPRICED_TOKENS: &str = "inputTokensAtMost is not stated: the provider bills its own prompt beside each request, and nothing bounds it until it has answered a request in this process; requestsPlanned and requestsCeiling still hold.";
+
+/// A row refused before anything was sent: its requests, before any
+/// transient retry, are over `maxRequests`. It states the price and offers
+/// the same row with `maxRequests` raised to the ceiling, its transient
+/// retries included (`next.confirm`, billed).
 pub(super) fn over_budget(row: &Row, over: &OverBudget, can_resume: bool) -> Value {
     let ceiling = over.price.ceiling.unwrap_or(over.price.planned);
+    let at_most = ceiling.saturating_sub(over.room);
     let what = if over.units == 1 {
         "This source".to_owned()
     } else {
@@ -212,7 +221,7 @@ pub(super) fn over_budget(row: &Row, over: &OverBudget, can_resume: bool) -> Val
     let mut failure = json!({
         "errorCode": ErrorCode::ClassificationOverBudget,
         "error": format!(
-            "{what} would send {} provider {}, at most {ceiling} with every re-ask and split a refusal can add{retries}; maxRequests is {}, so nothing was sent.",
+            "{what} would send {} provider {}, at most {at_most} with every re-ask and split a refusal can add; maxRequests is {}, so nothing was sent.",
             over.price.planned,
             if over.price.planned == 1 { "request" } else { "requests" },
             over.max
@@ -220,11 +229,19 @@ pub(super) fn over_budget(row: &Row, over: &OverBudget, can_resume: bool) -> Val
     });
     let mut usage = Map::new();
     usage.insert("calls".into(), json!(0));
-    usage.extend(price_fields(over.price, Some(over.input_tokens_at_most)));
+    usage.extend(price_fields(over.price, over.input_tokens_at_most));
     failure["usage"] = Value::Object(usage);
+    if over.input_tokens_at_most.is_none() {
+        octocode_runtime_base::response::paging::push_warnings(
+            &mut failure,
+            [UNPRICED_TOKENS.to_owned()],
+        );
+    }
     octocode_runtime_base::response::result::add_hints(
         &mut failure,
-        vec!["next.confirm runs the same row with maxRequests at the ceiling (billed); or narrow the source: fewer files, hits or resources.".to_owned()],
+        vec![format!(
+            "next.confirm runs the same row with maxRequests at its ceiling, {ceiling}: those requests{retries} (billed); or narrow the source: fewer files, hits or resources."
+        )],
     );
     if let Some(mut query) = row.query.as_object().cloned() {
         query.insert("maxRequests".into(), json!(ceiling));

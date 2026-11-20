@@ -208,6 +208,8 @@ mod empty_pages;
 mod large_sources;
 mod limit;
 mod long_line_rows;
+#[cfg(unix)]
+mod lsp_lead;
 mod match_list;
 mod output_fields;
 mod pages;
@@ -218,6 +220,7 @@ mod scope;
 mod secrets;
 mod seek;
 mod sort_match_count;
+mod sort_times;
 #[cfg(unix)]
 mod special_files;
 mod stored;

@@ -65,11 +65,29 @@ export function toolHelpSection(definition: Definition): string {
     lines.push('', 'Required fields, by operation:');
     // Each row names every operation it takes, so none is left unlisted.
     // Variants that differ only in their example (one per ecosystem) share
-    // one row: the examples above show them.
+    // one row: the examples above show them. A form whose operations another
+    // form also takes with strictly fewer required fields is a sub-form an
+    // optional field selects (graphQuery deps with view): its row is labelled
+    // "(with <field>)", so that field reads as required only when sent.
+    const selectors = (variant: (typeof variants)[number]): string[] => {
+      if (variant.operations.length === 0) return [];
+      const covering = variants
+        .filter(
+          other =>
+            other !== variant &&
+            variant.operations.every(operation => other.operations.includes(operation)) &&
+            other.requires.length < variant.requires.length &&
+            other.requires.every(field => variant.requires.includes(field))
+        )
+        .sort((a, b) => b.requires.length - a.requires.length)[0];
+      return covering ? variant.requires.filter(field => !covering.requires.includes(field)) : [];
+    };
     const forms = [
       ...new Map(
         variants.map(variant => {
-          const label = variant.operations.join(', ') || variant.name;
+          const selected = selectors(variant);
+          const operations = variant.operations.join(', ') || variant.name;
+          const label = selected.length ? `${operations} (with ${selected.join(', ')})` : operations;
           const requires = variant.requires.join(', ');
           return [`${label}\0${requires}`, { label, requires }] as const;
         })

@@ -317,8 +317,57 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
     exact.remove("version");
     let searchable =
         (error.code == ErrorCode::NotFound && !error.missing_version) || error.searchable_name;
+    let kind = artifact_search_query::artifact_type(query);
+    let near = error
+        .near
+        .take()
+        .filter(|near| searchable && !near.names.is_empty());
+    // The registry has names one edit away: the spelling meant is most
+    // likely one of them, most downloaded first.
+    let near_lead = near.map(|near| {
+        let limit =
+            octocode_runtime_base::contracts::batch_limit(ToolId::ArtifactSearch).unwrap_or(1);
+        let read = &near.names[..near.names.len().min(limit)];
+        error.message = format!(
+            "{}; {kind} has {} one edit away{}",
+            error.message.trim_end_matches('.'),
+            counted(read, near.measure),
+            match near.names.len() - read.len() {
+                0 => String::new(),
+                more => format!(", and {more} more with fewer"),
+            }
+        );
+        let mut row = exact.clone();
+        row.remove("packageName");
+        let queries = read
+            .iter()
+            .map(|(other, _)| {
+                let mut row = row.clone();
+                row.insert("packageName".into(), json!(other));
+                Value::Object(row)
+            })
+            .collect::<Vec<_>>();
+        (
+            "repair",
+            Continuation::related_input(ToolId::ArtifactSearch, json!({ "queries": queries }))
+                .build(),
+        )
+    });
     let lead = match error.code {
-        _ if searchable && artifact_search_query::artifact_type(query) != ArtifactType::Pypi => {
+        _ if near_lead.is_some() => near_lead,
+        // A scoped npm name: the packages its scope holds, which npm's search
+        // lists for the scope's name.
+        _ if searchable && kind == ArtifactType::Npm && name.starts_with('@') => {
+            let scope = name.split('/').next().unwrap_or(name);
+            exact.remove("packageName");
+            exact.insert("operation".into(), json!("search"));
+            exact.insert("keywords".into(), json!([scope]));
+            Some((
+                "broadenSearch",
+                Continuation::related(ToolId::ArtifactSearch, Value::Object(exact)).build(),
+            ))
+        }
+        _ if searchable && kind != ArtifactType::Pypi => {
             exact.remove("packageName");
             exact.insert("operation".into(), json!("search"));
             exact.insert("keywords".into(), json!([name]));
@@ -375,6 +424,62 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
         None => {}
     }
     error
+}
+
+/// `names` with their counts: `express (207355162 last-week downloads)`.
+fn counted(names: &[(String, u64)], measure: &str) -> String {
+    names
+        .iter()
+        .map(|(name, count)| format!("{name} ({count} {measure})"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// An exact row whose name has a far more downloaded name one edit away
+/// (the policy's `lookalikeDownloadsRatio`) warns that it may be a
+/// typosquat or a misspelling, and leads to that name; a count that could
+/// not be read says no lookalike was checked.
+pub(super) fn lookalike(
+    data: &mut Value,
+    query: &ArtifactSearchQuery,
+    name: &str,
+    near: Result<crate::artifact::lookalike::Near, ArtifactError>,
+) {
+    let near = match near {
+        Ok(near) => near,
+        Err(error) => {
+            octocode_runtime_base::response::paging::push_warnings(
+                data,
+                [format!(
+                    "{name}: the names one edit away could not be counted ({}), so no lookalike was checked.",
+                    octocode_runtime_base::security::quoted(&error.message)
+                )],
+            );
+            return;
+        }
+    };
+    let Ok(contract) = octocode_runtime_base::contracts::security::security_contract() else {
+        return;
+    };
+    let ratio = contract.policy.lookalike_downloads_ratio;
+    let Some((other, count)) = near.lookalike(ratio) else {
+        return;
+    };
+    let kind = artifact_search_query::artifact_type(query);
+    octocode_runtime_base::response::paging::push_warnings(
+        data,
+        [format!(
+            "{name}: {kind} has {other}, one edit away, with {count} {} against {} (at least {ratio} times, policy lookalikeDownloadsRatio): a possible typosquat or misspelling of {other}.",
+            near.measure,
+            near.own.unwrap_or(0)
+        )],
+    );
+    let mut row = copied(query);
+    row.insert("packageName".into(), json!(other));
+    row.remove("version");
+    data["calls"]["resolveLookalike"] =
+        Continuation::related(ToolId::ArtifactSearch, Value::Object(row)).build();
+    octocode_runtime_base::response::result::finish_calls(data);
 }
 
 /// An empty keyword discovery, broadened ([`broaden`]): one variant per

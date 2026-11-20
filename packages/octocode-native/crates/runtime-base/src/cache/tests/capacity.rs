@@ -465,7 +465,9 @@ fn writable(dir: &Path) {
 }
 
 /// A store the filesystem refuses access to says so, instead of "busy": a
-/// busy store clears by itself, a read-only one does not.
+/// busy store clears by itself, a read-only one does not. A reuse write
+/// leaves its call's answer whole, so the cause goes to the operator's log
+/// (the call's notice scope) and never into the call's result.
 #[cfg(unix)]
 #[test]
 fn a_read_only_store_says_it_is_not_writable_rather_than_busy() {
@@ -475,12 +477,18 @@ fn a_read_only_store_says_it_is_not_writable_rather_than_busy() {
     }
     let store = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
     let notes = octocode_io::notice::ResultNotes::default();
-    let entered = notes.enter();
+    let log = octocode_io::notice::Scope::default();
+    let (entered, logged) = (notes.enter(), log.enter());
     let (_, saved) = store.put_confirmed(key("x", "x"), "v".into(), 1, volatile(60));
-    drop(entered);
+    drop((entered, logged));
     writable(dir.path());
     assert!(!saved);
-    let said = notes.take();
+    assert_eq!(
+        notes.take(),
+        Vec::<String>::new(),
+        "the result says nothing"
+    );
+    let said = log.notices();
     assert_eq!(said.len(), 1, "{said:?}");
     assert!(said[0].contains("not writable"), "{said:?}");
     assert!(!said[0].contains("busy"), "{said:?}");

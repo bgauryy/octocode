@@ -258,6 +258,30 @@ fn review_selection_packs_source_files_by_churn() {
     assert_eq!(literal_patch_window(Some(20_000)), 16_000);
 }
 
+/// Example programs show a change in use, as tests show it checked: the
+/// pick leads with the changed library source, never an example's larger
+/// diff (axum#1882: examples/testing/src/main.rs +203 -189 led the pick
+/// over axum-core/src/body.rs +63 -83).
+#[test]
+fn review_selection_leads_with_source_over_larger_example_diffs() {
+    let f = |name: &str, changed: u64| json!({"filename":name,"additions":changed,"deletions":0});
+    let files = vec![
+        f("examples/testing/src/main.rs", 392),
+        f("example/demo/main.go", 300),
+        f("axum-core/src/body.rs", 146),
+        f("axum/src/serve.rs", 106),
+    ];
+    let pick = review_selection(&files, 15_000);
+    assert_eq!(
+        pick.first().map(String::as_str),
+        Some("axum-core/src/body.rs")
+    );
+    assert!(
+        pick.iter().all(|path| !path.starts_with("example")),
+        "{pick:?}"
+    );
+}
+
 #[test]
 fn changed_file_globs_do_not_widen_literal_paths_or_case() {
     use super::super::super::filter::PathPattern;

@@ -83,3 +83,50 @@ fn typed_member_and_receiver_declarations_are_declarations() {
         assert_ne!(rank(line, token), DECLARATION_RANK, "{line}");
     }
 }
+
+/// A search that is a declaration head names its last word; the walk that
+/// marks a hit line `declaration` decides, so modifiers, annotations, `mut`
+/// and a Go receiver lead to the name as they do on a source line.
+#[test]
+fn a_declaration_head_names_its_last_word() {
+    for (head, name) in [
+        ("fn merge", "merge"),
+        ("pub fn push_warnings", "push_warnings"),
+        ("pub(crate) fn walk_builder", "walk_builder"),
+        ("pub async fn run", "run"),
+        ("export default class Merge", "Merge"),
+        ("async def handler", "handler"),
+        ("let mut limit", "limit"),
+        ("@Override public String toString", "toString"),
+        ("func (r *Engine) exec", "exec"),
+        ("func (Engine) exec", "exec"),
+        ("#define MAX_DEPTH", "MAX_DEPTH"),
+        ("  fn  spaced  ", "spaced"),
+    ] {
+        assert_eq!(declared_name(head), Some(name), "{head}");
+        // The same text on a source line is the declaration the search names.
+        assert_eq!(rank(head, name), DECLARATION_RANK, "{head}");
+    }
+    // A head written up to its signature's opening names the identifier its
+    // last word starts with.
+    for (head, name) in [
+        ("pub fn walk_builder(", "walk_builder"),
+        ("fn apply<T>(", "apply"),
+        ("def handler(self", "handler"),
+    ] {
+        assert_eq!(declared_name(head), Some(name), "{head}");
+    }
+    for text in [
+        "merge",
+        "pub fn",
+        "foo bar",
+        "pub use merge",
+        "let x = 1",
+        "class Foo extends Bar",
+        "impl Parser for Config",
+        "return merge",
+        "",
+    ] {
+        assert_eq!(declared_name(text), None, "{text}");
+    }
+}

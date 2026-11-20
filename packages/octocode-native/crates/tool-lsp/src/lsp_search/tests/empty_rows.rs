@@ -2,37 +2,24 @@ use super::*;
 use octocode_test_support::json_fixture;
 use serde_json::json;
 
-/// `annotate_empty_includes` on an empty row, with `allowed` the host's
-/// `lsp.allowBuildScripts`.
-fn annotated_empty_gated(
-    query: &LspSearchQuery,
-    category: &str,
-    message: &str,
-    available: bool,
-    allowed: bool,
-) -> serde_json::Value {
-    let config = super::server_context::rust_server_config(
-        lsp_search_query::rust_context(query)
-            .map_or(serde_json::Value::Null, |context| json!(context)),
-    );
-    let mut row = empty(query, category, message, available);
-    annotate_empty_includes(
-        &mut row,
-        query,
-        RustAnalysis::of(&config).allowing_build_scripts(allowed),
-        &|| false,
-    );
-    row
-}
-
-/// The host allows build scripts: an executable rerun is offered.
+/// `annotate_empty_includes` on an empty row, under the headless defaults
+/// (no build scripts).
 fn annotated_empty(
     query: &LspSearchQuery,
     category: &str,
     message: &str,
     available: bool,
 ) -> serde_json::Value {
-    annotated_empty_gated(query, category, message, available, true)
+    let config = super::server_context::rust_server_config(json!({}));
+    let mut row = empty(query, category, message, available);
+    annotate_empty_includes(&mut row, query, RustAnalysis::of(&config), &|| false);
+    row
+}
+
+/// Whether `row` offers any `lspSearch` call.
+fn offers_lsp_search(row: &serde_json::Value) -> bool {
+    octocode_runtime_base::test_support::checks::find_related_call(row, "lspSearch", |_| true)
+        .is_some()
 }
 
 #[test]
@@ -150,69 +137,33 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
         "{declared}"
     );
     std::fs::remove_file(package.path().join("src/declared.rs")).expect("remove");
-    // The executable rerun carries the call; the reason is the whole
-    // statement (its meaning is core's, the rerun's cost the field's).
+    // The cause is the row's partial reason, as on every operation, and the
+    // whole statement (its meaning is core's): no hint, and no rerun.
     let tipped = annotated_empty(&scripted, "noLocations", "none", true);
     assert!(tipped.get("hints").is_none(), "{tipped}");
     octocode_runtime_base::test_support::checks::assert_no_reason_meaning(&tipped);
-    assert_eq!(
-        tipped["related"][0]["input"]["queries"][0]["rustContext"],
-        json_fixture(r#"{"buildScripts": true}"#),
-        "{tipped}"
-    );
-    // The cause is the row's partial reason, as on every operation.
+    assert!(!offers_lsp_search(&tipped), "{tipped}");
     assert_eq!(tipped["isPartial"], true, "{tipped}");
     assert_eq!(
         tipped["partialReasons"],
         json_fixture(r#"["buildScriptsOff"]"#),
         "{tipped}"
     );
-    // The host has not allowed build scripts: the same row offers no lead
-    // that would be refused and stays partial; the opt-in is the field's.
-    let refused = annotated_empty_gated(&scripted, "noLocations", "none", true, false);
-    assert!(
-        octocode_runtime_base::test_support::checks::find_related_call(
-            &refused,
-            "lspSearch",
-            |_| true
-        )
-        .is_none(),
-        "{refused}"
-    );
-    assert_eq!(
-        refused["partialReasons"],
-        json_fixture(r#"["buildScriptsOff"]"#),
-        "{refused}"
-    );
-    assert!(refused.get("hints").is_none(), "{refused}");
-    octocode_runtime_base::test_support::checks::assert_no_reason_meaning(&refused);
-    let built = requery(
-        &scripted,
-        json_fixture(r#"{"rustContext": {"buildScripts": true}}"#),
-    );
-    let built = annotated_empty(&built, "noLocations", "none", true);
-    assert!(built.get("hints").is_none(), "{built}");
-    assert!(built.get("partialReasons").is_none(), "{built}");
+    // A server configured to run build scripts loads their output: no
+    // reason, no hint, no rerun.
     let configured = super::server_context::rust_server_config(json_fixture(
-        r#"{"buildScripts": true, "procMacros": true}"#,
+        r#"{"cargo": {"buildScripts": {"enable": true}}, "procMacro": {"enable": true}}"#,
     ));
     let mut inherited = super::super::failure::empty(&scripted, "noLocations", "none", true);
     annotate_empty_includes(
         &mut inherited,
         &scripted,
-        RustAnalysis::of(&configured).allowing_build_scripts(true),
+        RustAnalysis::of(&configured),
         &|| false,
     );
     assert!(inherited.get("hints").is_none(), "{inherited}");
-    assert!(
-        octocode_runtime_base::test_support::checks::find_related_call(
-            &inherited,
-            "lspSearch",
-            |_| true
-        )
-        .is_none(),
-        "{inherited}"
-    );
+    assert!(inherited.get("partialReasons").is_none(), "{inherited}");
+    assert!(!offers_lsp_search(&inherited), "{inherited}");
     let mut unavailable = failure(
         &scripted,
         "",
@@ -224,8 +175,7 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
     annotate_empty_includes(
         &mut unavailable,
         &scripted,
-        RustAnalysis::of(&super::server_context::rust_server_config(json!({})))
-            .allowing_build_scripts(true),
+        RustAnalysis::of(&super::server_context::rust_server_config(json!({}))),
         &|| false,
     );
     assert_eq!(
@@ -235,7 +185,7 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
 }
 
 /// Source a package `include!`s from outside its directory never loads:
-/// its own partial reason, and no build-script rerun it may defeat.
+/// its own partial reason, and no rerun.
 #[test]
 fn an_outside_include_is_partial_without_a_build_script_rerun() {
     let package = tempfile::tempdir().expect("package");
@@ -265,17 +215,8 @@ fn an_outside_include_is_partial_without_a_build_script_rerun() {
         json_fixture(r#"["includeOutsidePackage"]"#),
         "{outside}"
     );
-    assert!(
-        !outside["related"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|call| call["tool"] == "lspSearch"
-                && call["input"]["queries"][0]["rustContext"]["buildScripts"] == true),
-        "{outside}"
-    );
-    // Both: both reasons, and no ~2 GB rerun the outside include may
-    // defeat.
+    assert!(!offers_lsp_search(&outside), "{outside}");
+    // Both: both reasons, and no rerun.
     std::fs::write(
         package.path().join("src/lib.rs"),
         "include!(concat!(env!(\"OUT_DIR\"), \"/gen.rs\"));\ninclude!(\"../../elsewhere/types.rs\");\n",
@@ -289,20 +230,12 @@ fn an_outside_include_is_partial_without_a_build_script_rerun() {
         "{both}"
     );
     octocode_runtime_base::test_support::checks::assert_no_reason_meaning(&both);
-    assert!(
-        !both["related"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|call| call["tool"] == "lspSearch"
-                && call["input"]["queries"][0]["rustContext"]["buildScripts"] == true),
-        "{both}"
-    );
+    assert!(!offers_lsp_search(&both), "{both}");
 }
 /// A name a dependency crate `include!`s from outside its directory (D2:
 /// `SkippedPaths`, from `contract-types`) has no location for that reason,
 /// not for the anchor crate's build scripts: the outside-include tip with
-/// the include target as the lead, and no build-script opt-in.
+/// the include target as the lead.
 #[test]
 fn a_name_from_a_dependency_s_outside_include_is_attributed_to_that_include() {
     let root = tempfile::tempdir().expect("workspace");
@@ -330,40 +263,32 @@ fn a_name_from_a_dependency_s_outside_include_is_attributed_to_that_include() {
         "symbolName": "SkippedPaths",
         "line": 1
     }));
-    for allowed in [false, true] {
-        let row = annotated_empty_gated(&q, "noLocations", "none", true, allowed);
-        assert_eq!(
-            row["partialReasons"],
-            json_fixture(r#"["includeOutsidePackage"]"#),
-            "{row}"
-        );
-        let hints = row["hints"].as_array().expect("hints");
-        assert_eq!(hints.len(), 1, "{row}");
-        assert!(
-            hints[0].as_str().is_some_and(
-                |hint| hint.contains("crate types include!s") && !hint.contains("build script")
-            ),
-            "{row}"
-        );
-        let lead =
-            octocode_runtime_base::test_support::checks::related_call(&row, "localSearch", |_| {
-                true
-            });
-        assert_eq!(
-            lead["input"]["queries"][0]["path"],
-            root.join("shared/types.rs").to_string_lossy().as_ref(),
-            "{row}"
-        );
-        assert!(
-            octocode_runtime_base::test_support::checks::find_related_call(
-                &row,
-                "lspSearch",
-                |_| true
-            )
+    let row = annotated_empty(&q, "noLocations", "none", true);
+    assert_eq!(
+        row["partialReasons"],
+        json_fixture(r#"["includeOutsidePackage"]"#),
+        "{row}"
+    );
+    let hints = row["hints"].as_array().expect("hints");
+    assert_eq!(hints.len(), 1, "{row}");
+    assert!(
+        hints[0].as_str().is_some_and(
+            |hint| hint.contains("crate types include!s") && !hint.contains("build script")
+        ),
+        "{row}"
+    );
+    let lead =
+        octocode_runtime_base::test_support::checks::related_call(&row, "localSearch", |_| true);
+    assert_eq!(
+        lead["input"]["queries"][0]["path"],
+        root.join("shared/types.rs").to_string_lossy().as_ref(),
+        "{row}"
+    );
+    assert!(
+        octocode_runtime_base::test_support::checks::find_related_call(&row, "lspSearch", |_| true)
             .is_none(),
-            "{row}"
-        );
-    }
+        "{row}"
+    );
 }
 /// rust-analyzer indexes no Rust file outside a Cargo package (or
 /// `rust-project.json`), whatever other marker (`.git`) sits above it: an

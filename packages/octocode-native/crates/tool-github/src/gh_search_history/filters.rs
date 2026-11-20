@@ -1,12 +1,10 @@
 //! Direct translation of canonical typed history filters into provider constraints.
 use super::GhSearchHistoryQuery as Q;
-use octocode_contract_types::{
-    DateRange, GhSearchHistoryQueryPullRequestFilters, GitHubArchive, NumericRange,
-};
+use octocode_contract_types::{GhSearchHistoryQueryPullRequestFilters, GitHubArchive};
 use octocode_tools_shared::gh_shared::ranges;
 use octocode_tools_shared::variant_field::variant_field;
 
-/// Provider-ready typed constraints; all exclusions remain separate terms.
+/// Provider-ready typed constraints.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(super) struct Filters {
     pub assignee: Option<String>,
@@ -40,8 +38,6 @@ pub(super) struct Filters {
     pub merged: Option<String>,
     pub head: Option<String>,
     pub base: Option<String>,
-    /// `-key:value` terms: rows matching them are excluded (search only).
-    pub excluded: Vec<(String, String)>,
 }
 
 impl Filters {
@@ -70,42 +66,9 @@ fn review_request_key(value: &str) -> &'static str {
     }
 }
 
-/// A positive value and its exclusions: the exclusions join `denied` as
-/// `-key:value` terms; a field and its `not<Field>` both reach GitHub.
-fn text(
-    key: &str,
-    value: Option<&impl ToString>,
-    not: &[impl ToString],
-    denied: &mut Vec<(String, String)>,
-) -> Option<String> {
-    denied.extend(not.iter().map(|value| (key.to_owned(), value.to_string())));
+/// A filter value as its provider text.
+fn text(value: Option<&impl ToString>) -> Option<String> {
     value.map(ToString::to_string)
-}
-fn date(
-    key: &str,
-    value: Option<&DateRange>,
-    not: &[DateRange],
-    denied: &mut Vec<(String, String)>,
-) -> Option<String> {
-    denied.extend(
-        not.iter()
-            .filter_map(ranges::date)
-            .map(|value| (key.to_owned(), value)),
-    );
-    value.and_then(ranges::date)
-}
-fn count(
-    key: &str,
-    value: Option<&NumericRange>,
-    not: &[NumericRange],
-    denied: &mut Vec<(String, String)>,
-) -> Option<String> {
-    denied.extend(
-        not.iter()
-            .filter_map(ranges::numeric)
-            .map(|value| (key.to_owned(), value)),
-    );
-    value.and_then(ranges::numeric)
 }
 fn archive(value: Option<GitHubArchive>) -> Option<bool> {
     match value {
@@ -151,12 +114,7 @@ impl Filters {
         if let Q::CommitKeywords(query) = query
             && let Some(source) = &query.filters
         {
-            self.committed = date(
-                "committer-date",
-                source.committed_at.as_ref(),
-                &[],
-                &mut self.excluded,
-            );
+            self.committed = source.committed_at.as_ref().and_then(ranges::date);
         }
     }
 
@@ -164,25 +122,20 @@ impl Filters {
     fn item_filters(&mut self, query: &Q) {
         variant_field!(query, each [Q::Issue, Q::PullRequest] query => {
             let Some(source) = &query.filters else { return };
-            let denied = &mut self.excluded;
-            self.author = text("author", source.author.as_ref(), &source.not_author, denied);
-            self.assignee = text("assignee", source.assignee.as_ref(), &source.not_assignee, denied);
-            self.commenter = text("commenter", source.commenter.as_ref(), &source.not_commenter, denied);
-            self.mentions = text("mentions", source.mentions.as_ref(), &source.not_mentions, denied);
-            self.created = date("created", source.created_at.as_ref(), &source.not_created_at, denied);
-            self.updated = date("updated", source.updated_at.as_ref(), &source.not_updated_at, denied);
-            self.closed = date("closed", source.closed_at.as_ref(), &source.not_closed_at, denied);
-            self.comments = count("comments", source.comments_count.as_ref(), &source.not_comments_count, denied);
-            self.reactions = count("reactions", source.reaction_count.as_ref(), &source.not_reaction_count, denied);
+            self.author = text(source.author.as_ref());
+            self.assignee = text(source.assignee.as_ref());
+            self.commenter = text(source.commenter.as_ref());
+            self.mentions = text(source.mentions.as_ref());
+            self.created = source.created_at.as_ref().and_then(ranges::date);
+            self.updated = source.updated_at.as_ref().and_then(ranges::date);
+            self.closed = source.closed_at.as_ref().and_then(ranges::date);
+            self.comments = source.comments_count.as_ref().and_then(ranges::numeric);
+            self.reactions = source.reaction_count.as_ref().and_then(ranges::numeric);
             self.state = source.state.map(|value| value.to_string());
             self.archived = archive(source.archive);
             self.match_kinds = source.match_in.iter().map(ToString::to_string).collect();
             self.label = source.labels.iter().map(ToString::to_string).collect();
-            denied.extend(
-                source.not_labels.iter().map(|value| ("label".into(), value.to_string())),
-            );
             self.linked = source.linked.as_ref().map(linked_term);
-            denied.extend(source.not_linked.as_ref().map(|value| ("linked".into(), linked_term(value))));
         }, else => {});
     }
 
@@ -193,48 +146,12 @@ impl Filters {
             Some(false) => self.unmerged = Some(true),
             None => {}
         }
-        let denied = &mut self.excluded;
-        self.head = text(
-            "head",
-            source.head_ref.as_ref(),
-            &source.not_head_ref,
-            denied,
-        );
-        self.base = text(
-            "base",
-            source.base_ref.as_ref(),
-            &source.not_base_ref,
-            denied,
-        );
-        self.review_requested = source.review_requested.as_ref().map(ToString::to_string);
-        denied.extend(source.not_review_requested.iter().map(|value| {
-            let value = value.to_string();
-            (review_request_key(&value).to_owned(), value)
-        }));
-        self.reviewed_by = text(
-            "reviewed-by",
-            source.reviewed_by.as_ref(),
-            &source.not_reviewed_by,
-            denied,
-        );
-        self.merged = date(
-            "merged",
-            source.merged_at.as_ref(),
-            &source.not_merged_at,
-            denied,
-        );
-        self.review =
-            text("review", source.review.as_ref(), &source.not_review, denied).map(review);
-        self.status = text(
-            "status",
-            source.check_status.as_ref(),
-            &source.not_check_status,
-            denied,
-        );
-        for (key, value) in denied.iter_mut() {
-            if key == "review" {
-                *value = review(std::mem::take(value));
-            }
-        }
+        self.head = text(source.head_ref.as_ref());
+        self.base = text(source.base_ref.as_ref());
+        self.review_requested = text(source.review_requested.as_ref());
+        self.reviewed_by = text(source.reviewed_by.as_ref());
+        self.merged = source.merged_at.as_ref().and_then(ranges::date);
+        self.review = text(source.review.as_ref()).map(review);
+        self.status = text(source.check_status.as_ref());
     }
 }

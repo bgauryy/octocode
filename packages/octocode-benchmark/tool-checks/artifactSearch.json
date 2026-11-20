@@ -1,0 +1,8 @@
+{"tool": "artifactSearch", "steps": [
+ {"name": "resolve a monorepo crate version", "tool": "artifactSearch", "args": {"operation": "resolve", "ecosystem": "crates", "packageName": "grep-searcher", "version": "0.1.6"}, "expect": {"contains": ["grep-searcher-0.1.6"], "offers": "related:securityCheck"}},
+ {"name": "follow: securityCheck before trusting it", "follow": "related:securityCheck", "expect": {"has": ["data.affected"]}},
+ {"name": "resolve npm latest", "tool": "artifactSearch", "args": {"operation": "resolve", "ecosystem": "npm", "packageName": "axios"}, "expect": {"contains": ["axios"]}},
+ {"name": "PyPI old release finds its repo", "tool": "artifactSearch", "args": {"operation": "resolve", "ecosystem": "pypi", "packageName": "requests", "version": "2.19.1"}, "expect": {"contains": ["psf"]}},
+ {"name": "search by keywords", "tool": "artifactSearch", "args": {"operation": "search", "ecosystem": "npm", "keywords": ["markdown parser"], "limit": 3}, "expect": {"maxChars": 20000}},
+ {"name": "missing package", "tool": "artifactSearch", "args": {"operation": "resolve", "ecosystem": "npm", "packageName": "zzqx-no-such-package-42"}, "expect": {"error": "notFound"}}
+]}

@@ -113,7 +113,7 @@ pub(super) fn judge(
     if let Some(model) = whole.model {
         output["model"] = json!(model);
     }
-    let lines = deciding_lines(
+    let lines = read_lines(
         output["answers"]
             .as_object()
             .into_iter()
@@ -309,10 +309,33 @@ fn coverage(sections: &[JudgedSection]) -> Value {
 
 /// The deciding lines of `answers`, adjacent spans merged: every answer that
 /// names lines but a `noul` no, which decides nothing to read.
-pub(super) fn deciding_lines<'a>(answers: impl IntoIterator<Item = &'a Value>) -> Vec<(u64, u64)> {
+fn deciding_lines<'a>(answers: impl IntoIterator<Item = &'a Value>) -> Vec<(u64, u64)> {
+    named_lines(
+        answers
+            .into_iter()
+            .filter(|answer| answer["noul"].as_f64().is_none_or(|noul| noul >= YES)),
+    )
+}
+
+/// The lines a read of `answers` cites: their deciding lines
+/// ([`deciding_lines`]); with none, the lines a `noul` no names, the part or
+/// section that came nearest to a yes, so the negative is checked where it
+/// was closest. Empty when no answer names lines.
+pub(super) fn read_lines<'a>(
+    answers: impl IntoIterator<Item = &'a Value> + Clone,
+) -> Vec<(u64, u64)> {
+    let deciding = deciding_lines(answers.clone());
+    if deciding.is_empty() {
+        named_lines(answers)
+    } else {
+        deciding
+    }
+}
+
+/// The lines `answers` name, adjacent spans merged.
+fn named_lines<'a>(answers: impl IntoIterator<Item = &'a Value>) -> Vec<(u64, u64)> {
     let mut lines: Vec<(u64, u64)> = answers
         .into_iter()
-        .filter(|answer| answer["noul"].as_f64().is_none_or(|noul| noul >= YES))
         .filter_map(|answer| {
             let lines = &answer["lines"];
             Some((lines["startLine"].as_u64()?, lines["endLine"].as_u64()?))

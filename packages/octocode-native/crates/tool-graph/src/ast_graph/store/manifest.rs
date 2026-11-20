@@ -95,6 +95,38 @@ fn unresolved_call_names(tables: &format::GraphTables) -> BTreeMap<String, u64> 
         .collect()
 }
 
+/// Per calling node, how many of its call sites link no edge though their
+/// name is declared in this repository (the in-repo reasons of
+/// [`tables::INTERNAL_REASONS`]): the callees `graphQuery callees` cannot
+/// list. `[node, count]` pairs in node order, so the manifest grows with the
+/// callers that have such sites, not with their names.
+fn unresolved_calls_from(tables: &format::GraphTables) -> Vec<[u64; 2]> {
+    let mut counts = BTreeMap::<u32, u64>::new();
+    for site in &tables.unresolved {
+        if site.relation == format::EdgeKind::Calls
+            && tables::INTERNAL_REASONS.contains(&tables.str(site.reason))
+        {
+            *counts.entry(site.src).or_default() += 1;
+        }
+    }
+    counts
+        .into_iter()
+        .map(|(node, count)| [u64::from(node), count])
+        .collect()
+}
+
+/// [`unresolved_calls_from`]'s count for `node` in a manifest.
+pub(super) fn unresolved_calls_of(manifest: &Value, node: u32) -> u64 {
+    let pairs = manifest["unresolvedCallsFrom"].as_array();
+    let pairs = pairs.map_or(&[][..], Vec::as_slice);
+    let node = u64::from(node);
+    pairs
+        .binary_search_by_key(&node, |pair| pair[0].as_u64().unwrap_or(u64::MAX))
+        .ok()
+        .and_then(|at| pairs[at][1].as_u64())
+        .unwrap_or(0)
+}
+
 pub(super) struct ManifestInput<'a> {
     pub(super) id: &'a str,
     pub(super) scope: &'a str,
@@ -197,6 +229,7 @@ pub(super) fn manifest(input: &ManifestInput) -> Value {
         },
         "calls": input.projection.calls,
         "unresolvedCallNames": unresolved_call_names(tables),
+        "unresolvedCallsFrom": unresolved_calls_from(tables),
         "argumentCoverage": input.argument_coverage,
         "extraction": {
             "parsedFiles": input.built.parsed_files,

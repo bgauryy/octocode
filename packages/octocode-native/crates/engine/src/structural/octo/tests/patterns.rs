@@ -101,6 +101,37 @@ fn multi_capture_preserves_argument_separators() {
     );
 }
 
+/// A `$$$` capture lists a span per captured node but its punctuation: each
+/// span is one of the capture's values, and every value that spells a word
+/// has its span; the values keep the separators, so the text is whole.
+#[test]
+fn multi_capture_spans_leave_out_their_separators() {
+    for (source, ext, pattern) in [
+        ("log(1, 2, 3);\n", "js", "log($$$ARGS)"),
+        ("fn main() { log(a, b, c); }\n", "rs", "log($$$ARGS)"),
+        ("log(a, b, c)\n", "py", "log($$$ARGS)"),
+        ("function f(a, b, c) {}\n", "ts", "function f($$$ARGS) {}"),
+    ] {
+        let matches = run_pattern(source, ext, pattern);
+        assert_eq!(matches.len(), 1, "{ext}");
+        let values = &matches[0].metavars["ARGS"];
+        let spans = &matches[0].metavar_ranges["ARGS"];
+        let words = values
+            .iter()
+            .filter(|value| value.chars().any(char::is_alphanumeric))
+            .collect::<Vec<_>>();
+        assert!(
+            values.len() > words.len(),
+            "{ext}: the values keep separators"
+        );
+        assert_eq!(
+            spans.iter().map(|span| &span.text).collect::<Vec<_>>(),
+            words,
+            "{ext}: a span per word, in order"
+        );
+    }
+}
+
 #[test]
 fn capture_env_rollback_removes_bindings_since_the_checkpoint() {
     let mut env = CaptureEnv::default();
@@ -108,8 +139,8 @@ fn capture_env_rollback_removes_bindings_since_the_checkpoint() {
     let checkpoint = env.checkpoint();
     assert!(env.capture_one("B", "b", (1, 0, 1, 1, 0, 0, 0)));
     assert!(env.capture_many("C", ["c1", "c2"].into_iter(), || vec![
-        (2, 0, 2, 1, 0, 0, 0);
-        2
+        (0, (2, 0, 2, 1, 0, 0, 0)),
+        (1, (2, 2, 2, 3, 0, 0, 0)),
     ]));
     // A backreference check that fails binds nothing.
     assert!(!env.capture_one("A", "other", (4, 0, 4, 5, 0, 0, 0)));
@@ -119,7 +150,7 @@ fn capture_env_rollback_removes_bindings_since_the_checkpoint() {
     assert!(env.capture_one("A", "a", (0, 0, 0, 1, 0, 0, 0)), "A kept");
     let (values, ranges) = env.into_maps();
     assert_eq!(values.keys().collect::<Vec<_>>(), ["A"]);
-    assert_eq!(ranges["A"], vec![(0, 0, 0, 1, 0, 0, 0)]);
+    assert_eq!(ranges["A"], vec![(0, (0, 0, 0, 1, 0, 0, 0))]);
 }
 
 #[test]

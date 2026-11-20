@@ -5,6 +5,7 @@ use super::gaps::ScopeGaps;
 use super::query::MatchQuery;
 use super::reads::row_file;
 use super::rows::diag;
+use super::snapshot::WindowStart;
 use super::stream::StreamPage;
 use super::types::{
     Group, Grouped, Scan, ScanCut, Scope, recovered_bodies_notice, recovered_notice,
@@ -56,16 +57,20 @@ fn budget_cut(scan: &Scan) -> bool {
 }
 
 pub(super) fn render_match_page(
-    q: MatchQuery<'_>,
+    (build, q): (&str, MatchQuery<'_>),
     scope: &Scope,
     scan: &Scan,
     mut grouped: Grouped,
     snapshot: &str,
     gaps: ScopeGaps,
-    presentation: (&StreamPage, super::super::RowPaths<'_>),
+    presentation: (
+        &StreamPage,
+        super::super::RowPaths<'_>,
+        super::stream::Bounds,
+    ),
     cancel: &dyn octocode_runtime_base::execution::cancel::CancellationCheck,
 ) -> Result<Value, octocode_runtime_base::response::result::ToolError> {
-    let (page, row_paths) = presentation;
+    let (page, row_paths, bounds) = presentation;
     let truncated = scan.truncated;
     let cut = budget_cut(scan);
     let diagnostics = octocode_tools_shared::ast_rule::group_diagnostics(merge_diagnostics(
@@ -78,18 +83,28 @@ pub(super) fn render_match_page(
     // (`countScope: loaded`), as a text search's traversal states it. The
     // window that ends the scope counts every window's rows.
     let floor = scan.truncated;
-    let before = super::snapshot::listed_before(q);
+    let start = super::snapshot::listed_before(q);
+    // The rows this window lists: in the file views its files, else its
+    // stream's matches (past what the window before listed of a file it
+    // ended inside, up to where this one ends inside one).
+    let listed = if super::file_list(q) {
+        groups.len() as u64
+    } else {
+        bounds.total(&groups) as u64
+    };
     // A caller who set `limit` chose the page size: advice to read fewer is
     // noise; the windows before this one are counted, not paged here.
-    let narrow = (q.limit().is_none() && !floor && before == 0)
+    let narrow = (q.limit().is_none() && !floor && start == WindowStart::default())
         .then(|| narrowing_notice(grouped.total_matches, groups.len(), page))
         .flatten();
     let page_groups = &groups[page.window.clone()];
     let more = page.more;
     let mut out = if floor {
         json!({})
+    } else if super::file_list(q) {
+        json!({"matchCount": grouped.total_matches.saturating_add(start.before)})
     } else {
-        json!({"matchCount": grouped.total_matches.saturating_add(before)})
+        json!({"matchCount": listed.saturating_add(start.before)})
     };
     if let Some(inferred) = &scope.inferred {
         out["inferredLanguage"] = json!(inferred);
@@ -204,15 +219,20 @@ pub(super) fn render_match_page(
     if !groups.is_empty() && !incomplete && !truncated && scan.skipped.withheld.total() == 0 {
         out["coverage"] = json!({"state": "complete"});
     }
-    // The next window counts on after this one's rows.
-    let listed = if super::file_list(q) {
-        groups.len() as u64
-    } else {
-        grouped.total_matches
-    };
+    // The next window counts on after this one's rows, and lists the file
+    // this one ended inside from where its pages stopped.
+    // A window that ends inside a file binds its pin to this build, whose
+    // matches of that file the next window's carry counts.
+    let listed_through = scan.listed_through.clone().unwrap_or_default();
     let pin = super::snapshot::counted(
-        scan.listed_through.clone().unwrap_or_default(),
-        before.saturating_add(listed),
+        match scan.page_split {
+            Some(_) => super::snapshot::built(&listed_through, build),
+            None => listed_through,
+        },
+        WindowStart {
+            before: start.before.saturating_add(listed),
+            carry: scan.page_split.map_or(0, u64::from),
+        },
     );
     attach_match_continuations(
         q,

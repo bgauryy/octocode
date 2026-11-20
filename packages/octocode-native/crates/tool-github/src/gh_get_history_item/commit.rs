@@ -103,6 +103,12 @@ pub(super) async fn commit(
         out["status"] = json!("empty");
     }
     let leads = commit_leads(query, &commit, page);
+    // Which pull request merged the commit is the next fact a reader needs:
+    // when the message names none, the warning says so and requires its
+    // search, which a successful row otherwise leaves out of related[].
+    if leads.iter().any(|(name, _)| name == FIND_PULL_REQUEST) {
+        push_warnings(&mut out, [NO_PULL_REQUEST_NAMED.to_owned()]);
+    }
     lead_first(&mut out, leads);
     remove_nulls(&mut out);
     Ok(ToolData::from(out))
@@ -236,18 +242,45 @@ fn commit_file_page(
     )
 }
 
+/// The lead that searches for the pull request of a commit whose message
+/// names none.
+const FIND_PULL_REQUEST: &str = "findPullRequest";
+
+/// The note beside [`FIND_PULL_REQUEST`].
+pub(in crate::gh_get_history_item) const NO_PULL_REQUEST_NAMED: &str = "This commit's message names no pull request: the related[] ghSearchHistory search by its SHA finds the one that holds it.";
+
 /// A commit read's leads in rank order: the unfiltered read when a
-/// `matchString` hit nothing, the pull request the commit names (the route
-/// to its discussion, ahead of the diff's side reads), then both sides of
-/// the diff; the response keeps the first ones its lead cap allows.
+/// `matchString` hit nothing, the pull request that holds the commit (the
+/// route to its discussion, ahead of the diff's side reads: the one its
+/// message names, else GitHub's pull-request search by its SHA), then both
+/// sides of the diff; the response keeps the first ones its lead cap allows.
 fn commit_leads(query: &HistoryItemRequest, commit: &CommitFacts<'_>, page: FilePage) -> Vec<Lead> {
     let mut leads = Vec::from_iter(page.without_match);
-    leads.extend(
-        commit_pull_request_lead(commit.message, query)
-            .map(|lead| ("readPullRequest".to_owned(), lead)),
-    );
+    let pull_request = match commit_pull_request_lead(commit.message, query) {
+        Some(read) => Some(("readPullRequest", read)),
+        None => find_pull_request(query, &commit.sha).map(|find| (FIND_PULL_REQUEST, find)),
+    };
+    leads.extend(pull_request.map(|(name, lead)| (name.to_owned(), lead)));
     leads.extend(page.side_reads);
     leads
+}
+
+/// GitHub's pull-request search for `sha` in the read's repository: the
+/// pull request holding a commit whose message names none (ghSearchHistory
+/// leads its commit rows the same way).
+fn find_pull_request(query: &HistoryItemRequest, sha: &str) -> Option<Value> {
+    if sha.is_empty() {
+        return None;
+    }
+    let search = octocode_runtime_base::response::result::wire_query::<
+        octocode_contract_types::GhSearchHistoryQuery,
+    >(json!({
+        "operation": "pullRequest",
+        "owner": gh_get_history_item_query::owner(query),
+        "repo": gh_get_history_item_query::repo(query),
+        "keywords": [sha],
+    }))?;
+    Some(octocode_runtime_base::response::result::Continuation::related_query(search).build())
 }
 
 /// The committer, unless GitHub's web-flow committed for the author (a

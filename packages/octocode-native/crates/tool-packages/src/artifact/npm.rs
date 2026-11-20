@@ -81,11 +81,9 @@ async fn exact(
             && let Some(packument) = packument(&encoded, registry, client, dns_pin).await?
         {
             let published = Published::of(&packument);
-            return Err(version_not_found(
-                ArtifactType::Npm,
-                name,
-                asked,
-                &published.versions,
+            return Err(super::versions::discouraged_last(
+                version_not_found(ArtifactType::Npm, name, asked, &published.versions),
+                |version| published.deprecated.contains(version),
             ));
         }
         return Ok(not_found_page(registry));

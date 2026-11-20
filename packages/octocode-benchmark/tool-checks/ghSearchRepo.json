@@ -1,0 +1,6 @@
+{"tool": "ghSearchRepo", "steps": [
+ {"name": "find repos by keyword", "tool": "ghSearchRepo", "args": {"operation": "search", "keywords": ["ripgrep"], "limit": 3}, "expect": {"contains": ["BurntSushi"]}},
+ {"name": "one repo's facts", "tool": "ghSearchRepo", "args": {"operation": "get", "owner": "sharkdp", "repo": "fd"}, "expect": {"contains": ["fd"]}},
+ {"name": "then its structure", "tool": "ghStructure", "args": {"operation": "tree", "owner": "sharkdp", "repo": "fd", "maxDepth": 1}, "expect": {"contains": ["README.md"]}},
+ {"name": "missing repo", "tool": "ghSearchRepo", "args": {"operation": "get", "owner": "sharkdp", "repo": "no-such-repo-zzqx"}, "expect": {"error": "notFound"}}
+]}

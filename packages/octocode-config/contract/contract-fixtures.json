@@ -4031,13 +4031,8 @@
             "labels": [
               "good first issue"
             ],
-            "notLabels": [
-              "bug"
-            ],
             "headRef": "feature",
-            "notReview": [
-              "approved"
-            ],
+            "review": "approved",
             "createdAt": {
               "from": "2026-01-01T00:00:00Z"
             }
@@ -4061,12 +4056,7 @@
             "labels": [
               "good first issue"
             ],
-            "notLabels": [
-              "bug"
-            ],
-            "notReview": [
-              "approved"
-            ],
+            "review": "approved",
             "isMerged": false,
             "isDraft": false,
             "headRef": "feature"
@@ -4087,9 +4077,7 @@
           "repo": "r",
           "filters": {
             "linked": "pullRequest",
-            "notAuthor": [
-              "bot"
-            ]
+            "author": "alice"
           }
         }
       ]
@@ -4103,9 +4091,7 @@
           "owner": "o",
           "repo": "r",
           "filters": {
-            "notAuthor": [
-              "bot"
-            ],
+            "author": "alice",
             "linked": "pullRequest"
           }
         }
@@ -4275,8 +4261,7 @@
     }
   },
   {
-    "id": "history-search.linked-both",
-    "diagnostics": true,
+    "id": "history-search.negated-filter-retired",
     "tool": "ghSearchHistory",
     "accepted": false,
     "input": {
@@ -4286,23 +4271,13 @@
           "owner": "o",
           "repo": "r",
           "filters": {
-            "linked": "pullRequest",
-            "notLinked": "pullRequest"
+            "notAuthor": [
+              "bot"
+            ]
           }
         }
       ]
-    },
-    "issues": [
-      {
-        "path": [
-          "queries",
-          0,
-          "filters",
-          "notLinked"
-        ],
-        "message": "Set linked or notLinked, not both."
-      }
-    ]
+    }
   },
   {
     "id": "history-search.wrapped-filter",
@@ -5061,94 +5036,6 @@
     }
   },
   {
-    "id": "lsp.rust-no-macros",
-    "tool": "lspSearch",
-    "accepted": true,
-    "input": {
-      "queries": [
-        {
-          "path": "src/LIB.RS",
-          "operation": "diagnostic",
-          "rustContext": {
-            "procMacros": false
-          }
-        }
-      ]
-    },
-    "normalized": {
-      "queries": [
-        {
-          "rustContext": {
-            "procMacros": false
-          },
-          "page": 1,
-          "path": "src/LIB.RS",
-          "operation": "diagnostic"
-        }
-      ]
-    }
-  },
-  {
-    "id": "lsp.rust-macros-inherited-builds",
-    "tool": "lspSearch",
-    "accepted": true,
-    "input": {
-      "queries": [
-        {
-          "path": "src/lib.rs",
-          "operation": "diagnostic",
-          "rustContext": {
-            "procMacros": true
-          }
-        }
-      ]
-    },
-    "normalized": {
-      "queries": [
-        {
-          "rustContext": {
-            "procMacros": true
-          },
-          "page": 1,
-          "path": "src/lib.rs",
-          "operation": "diagnostic"
-        }
-      ]
-    }
-  },
-  {
-    "id": "lsp.rust-macros-build-disabled",
-    "tool": "lspSearch",
-    "accepted": false,
-    "input": {
-      "queries": [
-        {
-          "path": "src/lib.rs",
-          "operation": "diagnostic",
-          "rustContext": {
-            "procMacros": true,
-            "buildScripts": false
-          }
-        }
-      ]
-    }
-  },
-  {
-    "id": "lsp.rust-without-file",
-    "tool": "lspSearch",
-    "accepted": false,
-    "input": {
-      "queries": [
-        {
-          "operation": "workspaceSymbol",
-          "workspaceRoot": ".",
-          "symbolFuzzy": "Cache",
-          "rustContext": {}
-        }
-      ]
-    }
-  },
-  {
     "id": "ast-search.match",
     "tool": "astSearch",
     "accepted": true,
@@ -5550,42 +5437,6 @@
     }
   },
   {
-    "id": "lsp.rust-context",
-    "tool": "lspSearch",
-    "accepted": true,
-    "input": {
-      "queries": [
-        {
-          "path": "src/lib.rs",
-          "operation": "diagnostic",
-          "rustContext": {
-            "buildScripts": true,
-            "procMacros": true,
-            "features": [
-              "cache"
-            ]
-          }
-        }
-      ]
-    },
-    "normalized": {
-      "queries": [
-        {
-          "rustContext": {
-            "features": [
-              "cache"
-            ],
-            "buildScripts": true,
-            "procMacros": true
-          },
-          "page": 1,
-          "path": "src/lib.rs",
-          "operation": "diagnostic"
-        }
-      ]
-    }
-  },
-  {
     "id": "lsp.anchor",
     "tool": "lspSearch",
     "accepted": false,
@@ -5619,22 +5470,7 @@
     }
   },
   {
-    "id": "lsp.non-rust-context",
-    "tool": "lspSearch",
-    "accepted": false,
-    "input": {
-      "queries": [
-        {
-          "path": "src/cache.ts",
-          "operation": "diagnostic",
-          "rustContext": {}
-        }
-      ]
-    }
-  },
-  {
-    "id": "lsp.proc-macros",
-    "diagnostics": true,
+    "id": "lsp.rust-context-retired",
     "tool": "lspSearch",
     "accepted": false,
     "input": {
@@ -5643,23 +5479,13 @@
           "path": "src/lib.rs",
           "operation": "diagnostic",
           "rustContext": {
-            "procMacros": true,
-            "buildScripts": false
+            "features": [
+              "cache"
+            ]
           }
         }
       ]
-    },
-    "issues": [
-      {
-        "path": [
-          "queries",
-          0,
-          "rustContext",
-          "procMacros"
-        ],
-        "message": "procMacros requires buildScripts:true in effective configuration."
-      }
-    ]
+    }
   },
   {
     "id": "lsp.callers-depth-zero",

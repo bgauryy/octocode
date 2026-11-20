@@ -30,6 +30,8 @@ pub enum Link {
 #[cfg(any(test, feature = "test-hooks"))]
 thread_local! {
     static STAMP_STATS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static PATH_STATS: std::cell::RefCell<std::collections::BTreeMap<PathBuf, usize>> =
+        const { std::cell::RefCell::new(std::collections::BTreeMap::new()) };
 }
 
 /// Stamps this thread read from the file system.
@@ -39,11 +41,21 @@ pub fn stamp_stats() -> usize {
     STAMP_STATS.with(std::cell::Cell::get)
 }
 
+/// Stamps this thread read of `path` from the file system.
+#[cfg(any(test, feature = "test-hooks"))]
+#[must_use]
+pub fn stamp_stats_of(path: &Path) -> usize {
+    PATH_STATS.with(|stats| stats.borrow().get(path).copied().unwrap_or(0))
+}
+
 /// `path`'s [`cache_stamp`]; with `settled_before`, only when it was last
 /// written at least [`SourceStamp::settle_for`] before then.
 fn stamp_of(path: &Path, link: Link, settled_before: Option<SystemTime>) -> Option<SourceStamp> {
     #[cfg(any(test, feature = "test-hooks"))]
-    STAMP_STATS.with(|stats| stats.set(stats.get() + 1));
+    {
+        STAMP_STATS.with(|stats| stats.set(stats.get() + 1));
+        PATH_STATS.with(|stats| *stats.borrow_mut().entry(path.to_path_buf()).or_default() += 1);
+    }
     let meta = match link {
         Link::Follow => std::fs::metadata(path),
         Link::Itself => std::fs::symlink_metadata(path),
@@ -231,6 +243,30 @@ impl Proof {
             stamps_read: read.into_inner(),
             index: Arc::default(),
         })
+    }
+
+    /// [`Self::capture`] of `paths`, joined by `taken`: stamps a walk read
+    /// itself as `link` reads ([`cache_stamp`]), which cost no stat of their
+    /// own. They meet the capture's rules: `None` when one proves nothing,
+    /// or, with `settled_before`, was written within its
+    /// [`SourceStamp::settle_for`] window before it.
+    #[must_use]
+    pub fn capture_with_taken(
+        paths: impl IntoIterator<Item = PathBuf>,
+        taken: Vec<(PathBuf, SourceStamp)>,
+        link: Link,
+        settled_before: Option<SystemTime>,
+    ) -> Option<Self> {
+        let admitted = |stamp: &SourceStamp| {
+            provable(*stamp).is_some()
+                && settled_before.is_none_or(|started| {
+                    epoch_nanos(started).is_some_and(|now| stamp.settled_by(now))
+                })
+        };
+        if !taken.iter().all(|(_, stamp)| admitted(stamp)) {
+            return None;
+        }
+        Some(Self::capture(paths, link, settled_before)?.with_taken(link, taken))
     }
 
     /// This proof with `taken` too: stamps a walk read itself (`link` says

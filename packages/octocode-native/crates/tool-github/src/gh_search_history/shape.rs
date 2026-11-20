@@ -236,11 +236,6 @@ fn only_the_path_narrows(query: &HistorySearch) -> bool {
 pub(super) fn keeps_created(query: &HistorySearch) -> bool {
     gh_search_history_query::sort(query).as_deref() == Some("created")
         || query.filters().created.is_some()
-        || query
-            .filters()
-            .excluded
-            .iter()
-            .any(|(key, _)| key == "created")
 }
 
 /// The row keys that carry a body: a pull request's or issue's `body`, a

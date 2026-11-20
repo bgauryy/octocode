@@ -145,7 +145,12 @@ pub(super) fn link_file(
         facts,
     };
     linker.declarations(&p.edges, p.declarations);
-    for import in p.imports {
+    let imports = if lang == Linker::Rust {
+        rust_binding_order(p.imports)
+    } else {
+        p.imports
+    };
+    for import in imports {
         linker.import(import, &p.modules);
     }
     if linker.lang == Linker::Java {
@@ -278,4 +283,46 @@ pub(super) struct FileLink<'x, 'g> {
     pub(super) lang: Linker,
     pub(super) node: FileGraphNode,
     pub(super) facts: FileFacts,
+}
+
+/// Rust `use` declarations in an order that links each binding before a
+/// `use` whose path starts at it (`use scanned::streamed;` before `use
+/// streamed::walk_cut;`, wherever each is written), else in source order.
+fn rust_binding_order(
+    imports: Vec<octocode_engine::graph::GraphFactImport>,
+) -> Vec<octocode_engine::graph::GraphFactImport> {
+    let bound = |import: &octocode_engine::graph::GraphFactImport| {
+        import
+            .local_name
+            .clone()
+            .or_else(|| import.imported_name.clone())
+    };
+    let mut pending = imports;
+    let mut ordered = Vec::with_capacity(pending.len());
+    loop {
+        // A `use` waits while another pending one binds its first segment.
+        let waits = (0..pending.len())
+            .map(|at| {
+                let head = pending[at].specifier.split("::").next().unwrap_or_default();
+                !matches!(head, "" | "crate" | "self" | "super")
+                    && pending.iter().enumerate().any(|(other, import)| {
+                        other != at && bound(import).as_deref() == Some(head)
+                    })
+            })
+            .collect::<Vec<_>>();
+        if waits.iter().all(|wait| *wait) {
+            // Nothing left, or bindings that wait on each other.
+            ordered.extend(pending);
+            return ordered;
+        }
+        let mut kept = Vec::new();
+        for (import, wait) in pending.into_iter().zip(waits) {
+            if wait {
+                kept.push(import);
+            } else {
+                ordered.push(import);
+            }
+        }
+        pending = kept;
+    }
 }

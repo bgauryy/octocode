@@ -85,7 +85,7 @@ async fn a_text_answer_is_its_values_and_ceiling_by_default() {
                     "kind": {"choice": "ops"},
                     "risk": {"score": 1.5}
                 },
-                "usage": {"requestsCeiling": 1}
+                "usage": {"calls": 1, "requestsCeiling": 1}
             }"#
         ),
         "{summary}"
@@ -369,11 +369,10 @@ async fn an_absent_view_is_a_summary_on_cli_and_mcp() {
 }
 
 /// Two identical rows share one request: the first row paid, the second
-/// shows `calls: 0`, and the summary states `calls` on both so a reader sees
-/// who paid. A single row states no usage.
+/// shows `calls: 0`, so a reader sees who paid. A lone row states its calls
+/// beside its ceiling too: what it spent of it.
 #[tokio::test]
-async fn a_summary_states_calls_on_every_row_when_a_sibling_shows_zero_and_a_lone_row_its_ceiling()
-{
+async fn a_summary_states_every_rows_calls_and_its_ceiling() {
     let server = provider().await;
     let workspace = Workspace::new();
     let runtime = clasify_runtime(&workspace, &server, &[]);
@@ -407,7 +406,7 @@ async fn a_summary_states_calls_on_every_row_when_a_sibling_shows_zero_and_a_lon
     .await;
     assert_eq!(
         single["results"][0]["data"]["usage"],
-        json!({"requestsCeiling": 1}),
+        json!({"calls": 1, "requestsCeiling": 1}),
         "{single}"
     );
     runtime.close().await;

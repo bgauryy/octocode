@@ -10,6 +10,7 @@ mod nested_continuation;
 mod part_metadata;
 mod recursive_symbols;
 mod required_text;
+mod restated_evidence;
 mod scope;
 mod section_walks;
 mod selection;

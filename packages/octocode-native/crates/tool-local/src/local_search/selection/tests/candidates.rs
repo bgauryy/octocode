@@ -170,6 +170,7 @@ fn hits_are_ordered_by_source_position() {
         window_start: None,
     };
     let file = TextSearchFile {
+        sort_time: None,
         term_counts: Vec::new(),
         path: "a.rs".into(),
         match_count: 4,

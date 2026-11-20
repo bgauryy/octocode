@@ -168,6 +168,59 @@ fn a_value_is_served_while_its_proof_holds_and_evicted_when_refused() {
     assert!(memo.contents().0.is_empty());
 }
 
+/// A watch captured with its walk's stamps stats each walked file no second
+/// time: the file joins the proof with the walk's stamp, its directory is
+/// stamped, and an edit of the file still fails the proof. A path the walk
+/// stamped twice, differently, changed under it: the proof fails.
+#[test]
+fn a_watch_takes_the_walks_stamps_instead_of_a_second_stat() {
+    use octocode_engine::stamp::stamp_stats_of;
+    let root = tempfile::tempdir().expect("fixture");
+    let root = root.path();
+    let dir = root.join("src");
+    std::fs::create_dir(&dir).expect("dir");
+    let files = ["a.rs", "b.rs", "c.rs"].map(|name| dir.join(name));
+    let mut taken = Vec::new();
+    for file in &files {
+        std::fs::write(file, "x").expect("file");
+        let meta = std::fs::symlink_metadata(file).expect("meta");
+        taken.push((
+            file.clone(),
+            octocode_engine::stamp::cache_stamp(&meta).expect("stamp"),
+        ));
+    }
+    let watch = Watch {
+        root,
+        sources: &[],
+        rules: &[],
+        markers: &[],
+    };
+    let proof = watch
+        .capture_with_taken(Link::Itself, None, taken.clone())
+        .expect("proof");
+    assert_eq!(proof.stamps_read(), 2, "the root and src/, no file");
+    assert!(files.iter().all(|file| stamp_stats_of(file) == 0));
+    assert_eq!(stamp_stats_of(&dir), 1);
+    assert!(proof.holds());
+
+    let mut changed = taken.clone();
+    changed.push((
+        files[0].clone(),
+        SourceStamp {
+            size: 9,
+            ..taken[0].1
+        },
+    ));
+    let changed = watch
+        .capture_with_taken(Link::Itself, None, changed)
+        .expect("proof");
+    assert!(!changed.holds(), "one path, two stamps");
+
+    std::thread::sleep(Duration::from_millis(20));
+    std::fs::write(&files[2], "y").expect("edit");
+    assert!(!proof.holds(), "a taken file is watched");
+}
+
 /// `value` stored under policy `a` as if put `age` ago.
 fn put_aged(memo: &PageMemo<()>, age: Duration) {
     let stored_at = std::time::Instant::now()

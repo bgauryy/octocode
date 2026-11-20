@@ -8,6 +8,8 @@ use std::path::Path;
 pub(in crate::ast_graph::store) enum Point {
     /// Before scanning, parsing and projecting.
     Build,
+    /// Built and projected, before the build checks what it read is unchanged.
+    Settle,
     /// Built and projected, before taking the build lock.
     Publish,
 }

@@ -6,18 +6,16 @@ use octocode_test_support::json_fixture;
 use serde_json::json;
 use std::time::Duration;
 
-/// A workspace with one TypeScript file whose language server is a script
-/// that writes a marker file `start_delay` seconds after it starts, and a
-/// `targeted` server over it. The delay stands in for a host too loaded to
-/// start the server at once.
-fn marker_server(start_delay: u32) -> (Server, std::path::PathBuf, std::path::PathBuf, Workspace) {
+/// A language server script that writes `marker` `start_delay` seconds after
+/// it starts. The delay stands in for a host too loaded to start it at once.
+fn marker_script(
+    root: &std::path::Path,
+    name: &str,
+    start_delay: u32,
+) -> (std::path::PathBuf, std::path::PathBuf) {
     use std::os::unix::fs::PermissionsExt;
-    let workspace = Workspace::new();
-    let root = workspace.workspace.clone();
-    std::fs::write(root.join("package.json"), "{}\n").unwrap();
-    std::fs::write(root.join("a.ts"), "export function target() {}\n").unwrap();
-    let marker = root.join("server-started");
-    let script = root.join("fake-lsp.sh");
+    let marker = root.join(format!("{name}-started"));
+    let script = root.join(format!("{name}-lsp.sh"));
     std::fs::write(
         &script,
         format!(
@@ -27,16 +25,41 @@ fn marker_server(start_delay: u32) -> (Server, std::path::PathBuf, std::path::Pa
     )
     .unwrap();
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    (script, marker)
+}
+
+/// The start markers of [`marker_server`]'s two languages.
+struct Markers {
+    ts: std::path::PathBuf,
+    py: std::path::PathBuf,
+}
+
+/// A workspace with one TypeScript file (`target`) and one Python file
+/// (`other`), each language served by a [`marker_script`], and a server under
+/// `prewarm` over it.
+fn marker_server(
+    prewarm: &str,
+    start_delay: u32,
+) -> (Server, Markers, std::path::PathBuf, Workspace) {
+    let workspace = Workspace::new();
+    let root = workspace.workspace.clone();
+    std::fs::write(root.join("package.json"), "{}\n").unwrap();
+    std::fs::write(root.join("pyproject.toml"), "[project]\nname = \"b\"\n").unwrap();
+    std::fs::write(root.join("a.ts"), "export function target() {}\n").unwrap();
+    std::fs::write(root.join("b.py"), "def other():\n    pass\n").unwrap();
+    let (ts_script, ts) = marker_script(&root, "ts", start_delay);
+    let (py_script, py) = marker_script(&root, "py", start_delay);
     let config = workspace.home.join("lsp-servers.json");
     std::fs::write(
         &config,
-        json!({"languageServers": {".ts": {
-            "command": script.to_string_lossy(), "args": [], "languageId": "typescript"
-        }}})
+        json!({"languageServers": {
+            ".ts": {"command": ts_script.to_string_lossy(), "args": [], "languageId": "typescript"},
+            ".py": {"command": py_script.to_string_lossy(), "args": [], "languageId": "python"}
+        }})
         .to_string(),
     )
     .unwrap();
-    let mut server = Server::start_with(&workspace, &[("OCTOCODE_LSP_PREWARM", "targeted")]);
+    let mut server = Server::start_with(&workspace, &[("OCTOCODE_LSP_PREWARM", prewarm)]);
     server.request(
         "initialize",
         json_fixture(
@@ -50,7 +73,7 @@ fn marker_server(start_delay: u32) -> (Server, std::path::PathBuf, std::path::Pa
     server.send(&json_fixture(
         r#"{"jsonrpc": "2.0", "method": "notifications/initialized"}"#,
     ));
-    (server, marker, root, workspace)
+    (server, Markers { ts, py }, root, workspace)
 }
 
 /// One localSearch over `root`, answered as its evidence JSON.
@@ -100,47 +123,82 @@ fn serves_lsp_lead(evidence: &serde_json::Value) -> bool {
         .any(|call| call["tool"] == "lspSearch")
 }
 
-/// Targeted prewarm follows the response the agent receives: a lead the
-/// response stage stripped (the matched symbol is already stated by the
-/// request) has no visible cause, so it starts no language server.
+/// Targeted prewarm warms the language of the file a search hit names, as an
+/// editor starts a server when a file of its language opens: the TypeScript
+/// server starts before any lspSearch call, even with no lspSearch lead in the
+/// response, and the Python server, which no row names, does not. A later hit
+/// in the Python file starts its server: both are configured.
 #[test]
-fn a_stripped_lead_starts_no_language_server() {
-    let (mut server, marker, root, _workspace) = marker_server(0);
+fn a_search_hit_starts_its_files_language_server_and_no_other() {
+    let (mut server, markers, root, _workspace) = marker_server("targeted", 4);
     let evidence = search(
         &mut server,
         &root,
         json_fixture(r#"{"matchString": ["target"]}"#),
     );
-    let data = &evidence["results"][0]["data"];
-    assert_eq!(data["files"][0]["path"], "a.ts", "{evidence}");
+    assert_eq!(
+        evidence["results"][0]["data"]["files"][0]["path"], "a.ts",
+        "{evidence}"
+    );
     assert!(!serves_lsp_lead(&evidence), "{evidence}");
+    started(&markers.ts);
     assert!(
-        !started_within(&marker, Duration::from_secs(3)),
-        "no lspSearch lead is served, so no server starts"
+        !started_within(&markers.py, Duration::from_secs(3)),
+        "no row names a Python file, so its server stays down"
+    );
+    let evidence = search(
+        &mut server,
+        &root,
+        json_fixture(r#"{"matchString": ["other"]}"#),
+    );
+    assert_eq!(
+        evidence["results"][0]["data"]["files"][0]["path"], "b.py",
+        "{evidence}"
+    );
+    started(&markers.py);
+    assert!(server.finish().success());
+}
+
+/// `off` starts no server for a search hit.
+#[test]
+fn prewarm_off_starts_no_language_server_for_a_search_hit() {
+    let (mut server, markers, root, _workspace) = marker_server("off", 0);
+    let evidence = search(
+        &mut server,
+        &root,
+        json_fixture(r#"{"matchString": ["target"]}"#),
+    );
+    assert_eq!(
+        evidence["results"][0]["data"]["files"][0]["path"], "a.ts",
+        "{evidence}"
+    );
+    assert!(
+        !started_within(&markers.ts, Duration::from_secs(3)),
+        "prewarm off starts no server"
     );
     assert!(server.finish().success());
 }
 
-/// Positive control: a served lspSearch lead (the symbol it names is not
-/// stated by the request, which names it after a declaration keyword) starts its server before any
-/// lspSearch call, however slowly a loaded host starts it.
+/// A served lspSearch lead (the symbol it names is not stated by the
+/// request, which names it after a declaration keyword) starts its server
+/// before any lspSearch call, however slowly a loaded host starts it.
 #[test]
 fn a_served_lead_starts_its_language_server_before_a_following_lookup() {
-    let (mut server, marker, root, _workspace) = marker_server(4);
+    let (mut server, markers, root, _workspace) = marker_server("targeted", 4);
     let evidence = search(
         &mut server,
         &root,
         json_fixture(r#"{"matchString": ["function target"]}"#),
     );
     assert!(serves_lsp_lead(&evidence), "{evidence}");
-    started(&marker);
+    started(&markers.ts);
     assert!(server.finish().success());
 }
 
 /// `lsp.prewarm` all starts the workspace's language server in the background
 /// after `initialize`, before any call names a file. `targeted` waits for a
-/// result that offers an lspSearch call: a session that never needs one starts
-/// no whole-project index. `off` starts none.
+/// result that names a file or offers an lspSearch call: a session that never
+/// reads source starts no whole-project index. `off` starts none.
 #[test]
 fn only_prewarm_all_starts_the_workspace_language_server_at_initialize() {
     use std::os::unix::fs::PermissionsExt;

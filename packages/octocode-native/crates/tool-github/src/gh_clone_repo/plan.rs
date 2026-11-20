@@ -8,6 +8,7 @@ use super::{
 use octocode_contract_types::ErrorCode;
 use octocode_runtime_base::policy::PolicyErrorCode;
 use octocode_tools_shared::gh_git::endpoint::{repository_url, web_root};
+use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 
 /// One clone request's resolved checkout identity and destination.
@@ -55,16 +56,50 @@ impl Plan<'_> {
         )
     }
 
+    /// The served row of the checkout at `clone_dir`: where it is and what it
+    /// holds. Requested sparse paths the commit lacks are named in a warning
+    /// with their recovery lead; the checkout holds the others.
     pub(super) fn result(&self, commit: &str, clone_dir: &Path, checkout: Checkout) -> CloneResult {
         let bytes = checkout.size;
+        let missing = self.missing_paths(clone_dir, &checkout.withheld);
+        let paths = self.sparse.as_ref().map(|sparse| {
+            sparse
+                .paths()
+                .iter()
+                .filter(|path| !missing.contains(&path.as_str()))
+                .cloned()
+                .collect()
+        });
+        let path = clone_dir.to_string_lossy().into_owned();
+        let mut calls = Map::new();
+        let mut warnings = Vec::new();
+        if !missing.is_empty() {
+            warnings.push(format!(
+                "Path does not exist: {} in {}/{}@{}; the checkout holds the other paths.",
+                missing
+                    .iter()
+                    .map(|path| format!("\"{path}\""))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                self.query.owner,
+                self.query.repo,
+                checkout.commit_sha
+            ));
+            if let Some(Value::Object(recovery)) =
+                super::recovery::sparse_next(self.context, clone_dir, self.query, &missing)
+            {
+                calls.extend(recovery);
+            }
+        }
         CloneResult {
             bytes,
-            calls: None,
-            warnings: Vec::new(),
+            calls: (!calls.is_empty()).then_some(Value::Object(calls)),
+            warnings,
             location: CloneLocation {
-                path: clone_dir.to_string_lossy().into_owned(),
+                path,
                 commit_sha: checkout.commit_sha,
                 ref_: commit.to_owned(),
+                paths,
                 symlinks: (!checkout.symlinks.is_empty()).then_some(checkout.symlinks),
                 skipped: (!checkout.withheld.is_empty()).then_some(checkout.withheld),
                 history_depth: (self.depth > 1).then_some(self.depth),
@@ -72,6 +107,22 @@ impl Plan<'_> {
                 reused: false,
             },
         }
+    }
+
+    /// The requested sparse paths absent from the checkout at `dir`: neither
+    /// checked out under that spelling nor withheld credential files.
+    pub(super) fn missing_paths<'p>(&'p self, dir: &Path, withheld: &[String]) -> Vec<&'p str> {
+        self.sparse
+            .as_ref()
+            .map(Sparse::paths)
+            .into_iter()
+            .flatten()
+            .filter(|path| {
+                !super::checkout::checked_out(dir, path)
+                    && !super::checkout::is_withheld(withheld, path)
+            })
+            .map(String::as_str)
+            .collect()
     }
 }
 

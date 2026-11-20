@@ -161,17 +161,20 @@ pub(super) fn disclose_completeness(
     }
 }
 
-/// The page's `pagination` when the search pages: it starts after the files
-/// the walk's earlier pages listed and holds this page's files, out of the
-/// reachable total. The merged searches page together, so the page count is
-/// the longest search's; `hasMore` says whether another search page follows;
-/// a page shown in parts continues as the response.
+/// The page's `pagination` when the search pages or the page is shown in
+/// parts (`parted`): it starts after the files the walk's earlier pages
+/// listed and holds this page's files, out of the reachable total, so every
+/// part states how many files the search found. The merged searches page
+/// together, so the page count is the longest search's; `hasMore` says
+/// whether another search page follows; a page shown in parts continues as
+/// the response.
 pub(super) fn pagination(
     data: &SearchPage,
     current: usize,
     past_end: bool,
+    parted: bool,
 ) -> Option<serde_json::Value> {
-    (data.pages > 1 || past_end).then(|| {
+    (data.pages > 1 || past_end || parted).then(|| {
         octocode_runtime_base::response::pages::PageFacts::open(
             data.listed.earlier_count(),
             data.items.len(),
@@ -216,7 +219,8 @@ pub(super) fn skeleton(
 ) -> usize {
     let more = current < data.pages || continues;
     let mut value = json!({"files": []});
-    if let Some(pagination) = pagination(data, current, past_end) {
+    let parted = continues || data.listed.continues_page();
+    if let Some(pagination) = pagination(data, current, past_end, parted) {
         value["pagination"] = pagination;
     }
     let hoisted = if continues {

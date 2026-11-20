@@ -35,6 +35,9 @@ pub struct CautionRule {
 pub struct SecurityPolicy {
     pub low_traction_stars: u64,
     pub unmaintained_after_days: u64,
+    /// How many times a package's downloads a name one edit away needs for
+    /// the `lookalikeName` caution.
+    pub lookalike_downloads_ratio: u64,
 }
 
 #[derive(Debug, Deserialize)]

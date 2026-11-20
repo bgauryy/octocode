@@ -73,30 +73,75 @@ pub(super) fn interrupted_rescan(q: MatchQuery<'_>, scan: &Scan) -> Option<ToolE
     Some(error)
 }
 
+/// Where a later window's stream starts: the rows the windows before it
+/// listed, so its pages count from where the walk stands
+/// (`pagination.offset` advances across windows), and, when the window
+/// before ended inside the file this window reads first, how many of that
+/// file's matches it listed (its stream starts after them).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct WindowStart {
+    pub(super) before: u64,
+    pub(super) carry: u64,
+}
+
 /// A later window's cursor state: its pin or snapshot, then after `~` the
-/// rows the windows before it listed, so its pages count from where the
-/// walk stands (`pagination.offset` advances across windows).
-pub(super) fn counted(snapshot: String, before: u64) -> String {
-    if before == 0 {
-        snapshot
-    } else {
-        format!("{snapshot}~{before}")
+/// rows before it, and after a second `~` its carry ([`WindowStart`]).
+pub(super) fn counted(snapshot: String, start: WindowStart) -> String {
+    match start {
+        WindowStart {
+            before: 0,
+            carry: 0,
+        } => snapshot,
+        WindowStart { before, carry: 0 } => format!("{snapshot}~{before}"),
+        WindowStart { before, carry } => format!("{snapshot}~{before}~{carry}"),
     }
 }
 
-/// [`counted`]'s pin or snapshot, and the rows before its window.
-pub(super) fn uncounted(snapshot: &str) -> (&str, u64) {
-    snapshot
-        .rsplit_once('~')
-        .and_then(|(bare, before)| Some((bare, before.parse().ok()?)))
-        .unwrap_or((snapshot, 0))
+/// The pin of a window that resumes inside the file the window before
+/// ended in: its carry counts that file's matches as the build `build`
+/// matched them, so a window of another build restarts instead of listing
+/// that file's matches from two matchers.
+pub(super) fn built(pin: &str, build: &str) -> String {
+    let build = octocode_engine::digest::sha256(build.as_bytes());
+    let tag = build.get(..16).unwrap_or(&build);
+    format!("{pin}+{tag}")
 }
 
-/// The rows the windows before `q`'s listed ([`counted`]).
-pub(super) fn listed_before(q: MatchQuery<'_>) -> u64 {
+/// [`counted`]'s pin or snapshot, and where its window's stream starts.
+pub(super) fn uncounted(snapshot: &str) -> (&str, WindowStart) {
+    let number = |text: &str| text.parse::<u64>().ok();
+    let Some((rest, last)) = snapshot.rsplit_once('~') else {
+        return (snapshot, WindowStart::default());
+    };
+    let Some(last) = number(last) else {
+        return (snapshot, WindowStart::default());
+    };
+    match rest
+        .rsplit_once('~')
+        .and_then(|(bare, before)| Some((bare, number(before)?)))
+    {
+        Some((bare, before)) => (
+            bare,
+            WindowStart {
+                before,
+                carry: last,
+            },
+        ),
+        None => (
+            rest,
+            WindowStart {
+                before: last,
+                carry: 0,
+            },
+        ),
+    }
+}
+
+/// Where `q`'s window's stream starts ([`counted`]).
+pub(super) fn listed_before(q: MatchQuery<'_>) -> WindowStart {
     q.snapshot()
         .filter(|_| q.scan_offset() > 0)
-        .map_or(0, |snapshot| uncounted(&snapshot).1)
+        .map_or_else(WindowStart::default, |snapshot| uncounted(&snapshot).1)
 }
 
 /// Fingerprint over the query shape, ordered result set and scanned source bytes.

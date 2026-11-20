@@ -34,11 +34,11 @@ pub(super) fn annotate_rust(
     if gated.matches == 0 && !gated.incomplete() {
         return;
     }
-    // Gated files found: the rerun page and the partial reason say it all.
-    // Only an incomplete scan that found none needs the prose.
+    // Gated files found: the partial reason and the count say it all. Only
+    // an incomplete scan that found none needs the prose.
     if gated.matches > 0 {
         flag_partial(row, query, CFG_REASON, None, scope);
-        // The count lets a reader weigh the rerun, which walks every feature.
+        // The count says how many files the answer may miss.
         if lists_reason(row, CFG_REASON)
             && let Some(fields) = row.as_object_mut()
         {
@@ -56,15 +56,6 @@ pub(super) fn annotate_rust(
         if flagged_with(row, &[CFG_REASON]) {
             octocode_runtime_base::response::paging::push_notice(row, warning);
         }
-        return;
-    }
-    // The rerun repeats the whole walk under every feature: offered once,
-    // on the walk's first page.
-    if continues_a_page(query) {
-        return;
-    }
-    if let Some(rerun) = super::super::failure::next_action(query, CFG_REASON) {
-        octocode_runtime_base::response::result::attach_related(row, rerun);
     }
 }
 

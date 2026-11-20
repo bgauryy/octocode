@@ -93,6 +93,7 @@ impl PageView {
 /// `file` without its rows (its path and counts moved out of it).
 pub(super) fn header_of(file: &mut TextSearchFile) -> TextSearchFile {
     TextSearchFile {
+        sort_time: file.sort_time,
         term_counts: std::mem::take(&mut file.term_counts),
         path: std::mem::take(&mut file.path),
         match_count: file.match_count,
@@ -232,8 +233,7 @@ impl PageView {
         let mut shown = Vec::with_capacity(entries.len());
         let mut redacted = super::verify::Redacted::new();
         let mut key_scans = Vec::new();
-        for at in entries {
-            let entry = packed.entry(at, cancelled)?;
+        for entry in packed.entries(entries, cancelled)? {
             for row in &entry.redacted {
                 let hit = entry.file.matches.get(*row as usize)?;
                 redacted.insert((entry.file.path.clone(), hit.line, hit.column));

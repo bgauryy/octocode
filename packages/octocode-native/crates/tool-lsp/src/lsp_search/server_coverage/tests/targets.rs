@@ -1,7 +1,7 @@
 //! Rust target gates: a missed file whose uses a `cfg` of another target
-//! leaves out is blamed on that gate, with a rerun under a target where it
-//! holds, and never on build scripts that did not run.
-use super::super::targets::{AnalysisTarget, Predicate, TargetFacts, cfg_predicates};
+//! leaves out is blamed on that gate, and never on build scripts that did
+//! not run.
+use super::super::targets::{AnalysisTarget, TargetFacts, cfg_predicates};
 use super::*;
 use octocode_test_support::json_fixture;
 
@@ -39,8 +39,9 @@ fn package(lib: &str, files: &[(&str, &str)]) -> (tempfile::TempDir, std::path::
 }
 
 /// The `references` row of `write_atomic` after the server answered
-/// `lib.rs` alone, under the query's `rustContext`.
-async fn row(root: &Path, rust_context: Option<Value>) -> Value {
+/// `lib.rs` alone, from a server configured for `target` (`cargo.target`;
+/// none: the host).
+async fn row(root: &Path, target: Option<&str>) -> Value {
     let package = root.join("pkg");
     let lib_path = package.join("src/lib.rs").to_string_lossy().into_owned();
     let policy = octocode_runtime_base::test_support::workspace_policy(root);
@@ -54,16 +55,13 @@ async fn row(root: &Path, rust_context: Option<Value>) -> Value {
         .await
         .expect("scan");
     scope.answer([lib_path.clone()]);
-    let mut fields = json!({"path": lib_path, "operation": "references",
-        "symbolName": "write_atomic", "line": 2});
-    if let Some(context) = rust_context {
-        fields["rustContext"] = context;
+    let q = query(json!({"path": lib_path, "operation": "references",
+        "symbolName": "write_atomic", "line": 2}));
+    let mut options = octocode_engine::lsp::config::rust_analyzer_headless_options();
+    if let Some(target) = target {
+        options["cargo"]["target"] = json!(target);
     }
-    let q = query(fields);
-    let config = configured_rust(
-        &q,
-        octocode_engine::lsp::config::rust_analyzer_headless_options(),
-    );
+    let config = configured_rust(options);
     let mut row = json_fixture(
         r#"{
             "operation": "references",
@@ -80,30 +78,22 @@ async fn row(root: &Path, rust_context: Option<Value>) -> Value {
             root: &package_text,
         },
         &scope,
-        crate::lsp_search::receipt::RustAnalysis::of(&config).allowing_build_scripts(true),
+        crate::lsp_search::receipt::RustAnalysis::of(&config),
         &|| false,
     );
     row
 }
 
-fn reruns(row: &Value) -> Vec<String> {
-    row["related"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|call| call["tool"] == "lspSearch")
-        .filter_map(|call| {
-            call["input"]["queries"][0]["rustContext"]["target"]
-                .as_str()
-                .map(str::to_owned)
-        })
-        .collect()
+/// Whether `row` offers an `lspSearch` call: no rerun recovers a gated file.
+fn offers_rerun(row: &Value) -> bool {
+    octocode_runtime_base::test_support::checks::find_related_call(row, "lspSearch", |_| true)
+        .is_some()
 }
 
 /// A module declared under a gate of another target is missing from the
 /// answer because of that gate: the row names the gate and the file, leads
-/// to a rerun under a target the gate holds for, and does not blame the
-/// build scripts the package also has.
+/// to the text check, offers no rerun, and does not blame the build scripts
+/// the package also has.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_module_behind_another_targets_gate_is_blamed_on_the_gate() {
     let (off, _) = family_gates();
@@ -119,15 +109,19 @@ async fn a_module_behind_another_targets_gate_is_blamed_on_the_gate() {
         warnings.contains(&format!("cfg({off})")) && warnings.contains("pkg/src/other.rs"),
         "{row}"
     );
-    assert!(!row.to_string().contains("build scripts"), "{row}");
-    let reruns = reruns(&row);
-    assert_eq!(reruns.len(), 1, "{row}");
-    let target = TargetFacts::of_triple(&reruns[0]).expect("a listed target");
-    assert_eq!(
-        Predicate::Flag(off.into()).holds(target),
-        Some(true),
-        "the rerun's target compiles the gated file in: {row}"
+    assert!(
+        warnings.contains("rust-analyzer analyzes one target.") && !warnings.contains("rerun"),
+        "{row}"
     );
+    assert!(!row.to_string().contains("build scripts"), "{row}");
+    assert!(
+        octocode_runtime_base::test_support::checks::find_related_call(&row, "localSearch", |_| {
+            true
+        })
+        .is_some(),
+        "the text check reads the gated file: {row}"
+    );
+    assert!(!offers_rerun(&row), "{row}");
 }
 
 /// A gate on the item that holds every use explains the file as a gate on
@@ -154,7 +148,7 @@ async fn a_gate_explains_a_file_only_when_it_holds_every_use() {
         json!([BUILD_SCRIPTS_REASON]),
         "{row_mixed}"
     );
-    assert!(reruns(&row_mixed).is_empty(), "{row_mixed}");
+    assert!(!offers_rerun(&row_mixed), "{row_mixed}");
 
     let (_dir, root) = package(
         &format!("mod item;\n#[cfg({off})]\nmod other;\n"),
@@ -169,11 +163,11 @@ async fn a_gate_explains_a_file_only_when_it_holds_every_use() {
         json!([BUILD_SCRIPTS_REASON, CFG_REASON]),
         "{both}"
     );
-    assert_eq!(reruns(&both).len(), 1, "{both}");
+    assert!(!offers_rerun(&both), "{both}");
 }
 
 /// A gate that holds for the analyzed target hides nothing: on the host,
-/// and under a `rustContext.target` it holds for. An unlisted target's
+/// and under a configured `cargo.target` it holds for. An unlisted target's
 /// `cfg` is not known, so no gate is judged against it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_gate_that_holds_for_the_analyzed_target_explains_nothing() {
@@ -198,17 +192,13 @@ async fn a_gate_that_holds_for_the_analyzed_target_explains_nothing() {
     } else {
         "x86_64-unknown-linux-gnu"
     };
-    let named = row(&root, Some(json!({"target": holding}))).await;
+    let named = row(&root, Some(holding)).await;
     assert_eq!(
         named["partialReasons"],
         json!([BUILD_SCRIPTS_REASON]),
         "{named}"
     );
-    let unlisted = row(
-        &root,
-        Some(json_fixture(r#"{"target": "riscv64gc-unknown-none-elf"}"#)),
-    )
-    .await;
+    let unlisted = row(&root, Some("riscv64gc-unknown-none-elf")).await;
     assert_eq!(
         unlisted["partialReasons"],
         json!([BUILD_SCRIPTS_REASON]),

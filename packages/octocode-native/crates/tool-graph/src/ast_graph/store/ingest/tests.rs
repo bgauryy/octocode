@@ -384,3 +384,96 @@ fn an_unchanged_scope_reuses_its_current_snapshot() {
         id(&edited)
     );
 }
+
+/// A source or linking config edited while the graph was built does not
+/// lose the build: the snapshot publishes what the build read, its warning
+/// counts the edited files and names graphQuery stale, which lists each one
+/// with its config flag, and the related same graphBuild links the new
+/// content, parsing only the edited sources again.
+#[test]
+fn an_edit_during_the_build_publishes_what_was_read_and_marks_it_stale() {
+    let dir = workspace();
+    let root = dir.0.to_path_buf();
+    dir.write("a/tsconfig.json", "{}");
+    octocode_engine::stamp::settle_written_so_far();
+    let edits = [
+        (
+            root.join("a/lib.ts"),
+            "export function f() { return 42; }\n",
+        ),
+        (root.join("a/tsconfig.json"), "{\"compilerOptions\":{}}"),
+    ];
+    let edited = Rc::new(std::cell::Cell::new(false));
+    let once = Rc::clone(&edited);
+    hooks::set(move |point, _| {
+        if point == Point::Settle && !once.replace(true) {
+            for (path, text) in &edits {
+                std::fs::write(path, text).expect("edit");
+            }
+        }
+    });
+    let built = run(&root, "a", &NeverCancel);
+    hooks::set(|_, _| {});
+    assert!(edited.get(), "the settle point was reached");
+    assert_eq!(built.class, ExitClass::Success, "{}", built.value);
+    let warnings = built.value["warnings"].to_string();
+    assert!(
+        warnings.contains("2 files changed") && warnings.contains("graphQuery stale"),
+        "{}",
+        built.value
+    );
+    let related = built.value["related"].as_array().expect("related");
+    let (stale, rebuild) = (
+        related.iter().find(|call| call["tool"] == "graphQuery"),
+        related.iter().find(|call| call["tool"] == "graphBuild"),
+    );
+    let stale = &stale.expect("stale lead")["input"]["queries"][0];
+    assert_eq!(stale["operation"], "stale", "{stale}");
+    assert_eq!(stale["graph"], built.value["id"], "{stale}");
+    assert_eq!(
+        rebuild.expect("rebuild lead")["input"]["queries"][0]["path"],
+        "a"
+    );
+
+    let rows = query(
+        &QueryOptions {
+            op: "stale".into(),
+            graph: built.value["id"].as_str().map(str::to_owned),
+            workspace: Some(root.clone()),
+            ..QueryOptions::default()
+        },
+        &workspace_policy(&root),
+    );
+    let mut changed = rows.value["rows"]
+        .as_array()
+        .expect("stale rows")
+        .iter()
+        .map(|row| {
+            (
+                row["path"].clone(),
+                row["status"].clone(),
+                row["config"].clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    changed.sort_by_key(|row| row.0.to_string());
+    assert_eq!(
+        changed,
+        [
+            (json!("a/lib.ts"), json!("changed"), Value::Null),
+            (json!("a/tsconfig.json"), json!("changed"), json!(true)),
+        ],
+        "{}",
+        rows.value
+    );
+
+    let again = run(&root, "a", &NeverCancel);
+    assert_eq!(again.class, ExitClass::Success, "{}", again.value);
+    assert_ne!(id(&again), id(&built));
+    assert!(again.value.get("warnings").is_none(), "{}", again.value);
+    assert_eq!(
+        again.value["extraction"]["parsedFiles"], 1,
+        "{}",
+        again.value
+    );
+}

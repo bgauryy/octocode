@@ -173,12 +173,6 @@ pub(super) fn without_users(q: &GhSearchHistoryQuery) -> Option<Value> {
         "commenter",
         "reviewedBy",
         "reviewRequested",
-        "notAuthor",
-        "notAssignee",
-        "notMentions",
-        "notCommenter",
-        "notReviewedBy",
-        "notReviewRequested",
     ] {
         removed |= filters.remove(key).is_some();
     }

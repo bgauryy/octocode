@@ -85,6 +85,7 @@ mod path_scope;
 mod ref_commits;
 mod repeat_reads;
 mod requests;
+mod shared_rows;
 mod walk;
 mod window;
 mod withheld;

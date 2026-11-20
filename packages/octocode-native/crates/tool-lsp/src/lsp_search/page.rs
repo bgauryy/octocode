@@ -18,8 +18,6 @@ pub(super) struct Target {
     pub(super) root_note: Option<String>,
     /// What is wrong with the configuration behind this route.
     pub(super) config_notes: Vec<String>,
-    /// `lsp.allowBuildScripts`: whether a `rustContext` may run build scripts.
-    pub(super) allow_build_scripts: bool,
 }
 
 impl Target {
@@ -366,6 +364,7 @@ pub(super) async fn run_target(
         anchor.resolved_symbol,
         &|| cancel.check().is_err(),
     );
+    octocode_runtime_base::response::paging::push_warnings(&mut result, anchor.warning);
     if answers_sites {
         failure::flag_answer_gaps(&mut result, query, &scope, paths);
     }

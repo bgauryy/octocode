@@ -71,6 +71,10 @@ pub struct TextSearchFile {
     /// or the matched lines holding it (count-lines). Empty unless a count
     /// view searched two or more terms.
     pub term_counts: Vec<u32>,
+    /// The time [`TextSearchOptions::sort`] ranked the file by (modified,
+    /// accessed or created), as the walk read it before the search did;
+    /// `None` under any other order.
+    pub sort_time: Option<std::time::SystemTime>,
 }
 
 /// What a search counted in one file ([`TextSearchFile::counted`]): its

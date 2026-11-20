@@ -121,6 +121,14 @@ pub(super) async fn execute_tree(
         traversal.missed(),
         materialize_resume,
     )?;
+    // The first page of a listing orients: one read of its folder's guide,
+    // at the listed commit. A materialize's reads are local.
+    if page.current == 1
+        && query.materialize != Some(true)
+        && let Some(read) = guide_read(query, &scope, &traversal.entries, &commit_sha)
+    {
+        value["calls"]["readGuide"] = read;
+    }
     // A resumed materialize is anchored by `location`: its first call already
     // listed these entries, and its `nextPage` reads the rest of the listing.
     let resumed = query.materialize == Some(true)

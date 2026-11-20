@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use super::RawRange;
+use super::{CapturedRanges, ListedRange, RawRange};
 
 /// Metavariable bindings for one candidate match, with an undo log.
 ///
@@ -15,7 +15,9 @@ use super::RawRange;
 #[derive(Default)]
 pub(in crate::structural::octo) struct CaptureEnv {
     values: HashMap<String, Vec<String>>,
-    ranges: HashMap<String, Vec<RawRange>>,
+    /// Each name's spans, with the index of the value each one is: a `$$$`
+    /// capture lists no span for its punctuation ([`super::listed_ranges`]).
+    ranges: CapturedRanges,
     /// The names bound since the start, in binding order: rollback removes
     /// them. A bound name is never rebound.
     undo: Vec<String>,
@@ -38,7 +40,7 @@ impl CaptureEnv {
         }
     }
 
-    fn insert(&mut self, name: &str, values: Vec<String>, ranges: Vec<RawRange>) {
+    fn insert(&mut self, name: &str, values: Vec<String>, ranges: Vec<ListedRange>) {
         self.values.insert(name.to_owned(), values);
         self.ranges.insert(name.to_owned(), ranges);
         self.undo.push(name.to_owned());
@@ -55,18 +57,19 @@ impl CaptureEnv {
         match self.values.get(name) {
             Some(existing) => existing.len() == 1 && existing[0] == text,
             None => {
-                self.insert(name, vec![text.to_owned()], vec![range]);
+                self.insert(name, vec![text.to_owned()], vec![(0, range)]);
                 true
             }
         }
     }
 
     /// Bind `name` to a node sequence, or check it equals the existing binding.
+    /// `ranges` lists the sequence's spans, each with its value's index.
     pub(in crate::structural::octo) fn capture_many<'s>(
         &mut self,
         name: &str,
         texts: impl ExactSizeIterator<Item = &'s str> + Clone,
-        ranges: impl FnOnce() -> Vec<RawRange>,
+        ranges: impl FnOnce() -> Vec<ListedRange>,
     ) -> bool {
         match self.values.get(name) {
             Some(existing) => {
@@ -86,12 +89,12 @@ impl CaptureEnv {
 
     /// The trees the captured nodes sit in ([`super::super::source_context::tree_id`]).
     pub(in crate::structural::octo) fn trees(&self) -> impl Iterator<Item = usize> + '_ {
-        self.ranges.values().flatten().map(|range| range.6)
+        self.ranges.values().flatten().map(|(_, range)| range.6)
     }
 
     pub(in crate::structural::octo) fn into_maps(
         self,
-    ) -> (HashMap<String, Vec<String>>, HashMap<String, Vec<RawRange>>) {
+    ) -> (HashMap<String, Vec<String>>, CapturedRanges) {
         (self.values, self.ranges)
     }
 

@@ -178,7 +178,7 @@ fn an_outline_agrees_with_independent_declaration_requests() {
 }
 
 #[test]
-fn symbols_are_bare_identifiers_or_follow_a_declaration_keyword() {
+fn symbols_are_bare_identifiers_or_named_by_a_declaration_head() {
     assert_eq!(searched_symbol("toValidURL"), Some("toValidURL"));
     assert_eq!(
         searched_symbol("fn merge_near_windows"),
@@ -186,6 +186,26 @@ fn symbols_are_bare_identifiers_or_follow_a_declaration_keyword() {
     );
     assert_eq!(searched_symbol("$scope"), Some("$scope"));
     assert!(declaration_search("def handler"));
+    // Modifiers before the keyword name the same declaration.
+    for (head, name) in [
+        ("pub fn push_warnings", "push_warnings"),
+        ("pub(crate) fn walk_builder", "walk_builder"),
+        ("export default class Cache", "Cache"),
+        ("async def handler", "handler"),
+    ] {
+        assert_eq!(searched_symbol(head), Some(name), "{head}");
+        assert!(declaration_search(head), "{head}");
+    }
+    // A head written up to its signature's opening names the identifier
+    // the declared word starts with.
+    for (head, name) in [
+        ("pub fn walk_builder(", "walk_builder"),
+        ("fn apply<T>(", "apply"),
+        ("def handler(self", "handler"),
+    ] {
+        assert_eq!(searched_symbol(head), Some(name), "{head}");
+        assert!(declaration_search(head), "{head}");
+    }
     // Every keyword the relevance ranking reads as a declaration counts.
     for text in ["mod walk", "object Cache", "val limit", "macro_rules! row"] {
         assert!(declaration_search(text), "{text}");
@@ -198,6 +218,8 @@ fn symbols_are_bare_identifiers_or_follow_a_declaration_keyword() {
         "a|b",
         "let x = 1",
         "foo bar",
+        "pub use walk",
+        "pub fn",
         "9lives",
         "",
     ] {

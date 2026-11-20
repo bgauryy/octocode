@@ -2,6 +2,7 @@ mod crates;
 mod go;
 mod http;
 mod link_directory;
+pub mod lookalike;
 mod maven;
 mod npm;
 mod npmrc;

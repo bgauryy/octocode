@@ -347,3 +347,54 @@ async fn dotenv_patch_rows_are_withheld_and_keep_their_path() {
         assert!(out["files"][at].get("patch").is_none(), "{out}");
     }
 }
+
+/// A commit leads to the pull request that holds it: the one its message
+/// names is read; with none named, GitHub's pull-request search by the
+/// commit's SHA finds it (`findPullRequest`), as ghSearchHistory's commit
+/// rows lead, never both.
+#[tokio::test]
+async fn a_commit_leads_to_its_pull_request_read_or_its_sha_search() {
+    for (message, named) in [("Fix parser (#12)", true), ("Fix parser", false)] {
+        let server = MockServer::builder().start().await;
+        let mut raw = commit_raw(HEAD, message);
+        raw["parents"] = json!([{"sha": BASE}]);
+        raw["files"] = json!([changed_file("src/a.rs")]);
+        mount_json(
+            &server,
+            format!("/api/v3/repos/o/r/commits/{HEAD}"),
+            200,
+            raw,
+        )
+        .await;
+        let row = json!({"operation": "commit", "owner": "o", "repo": "r", "ref": HEAD});
+        let out = read(&server, row.clone()).await;
+        let pull_request_read = checks::find_related_call(&out, "ghGetHistoryItem", |input| {
+            input["queries"][0]["operation"] == "pullRequest"
+        });
+        let sha_search = checks::find_related_call(&out, "ghSearchHistory", |input| {
+            input["queries"][0]["keywords"] == json!([HEAD])
+        });
+        assert_eq!(pull_request_read.is_some(), named, "{out}");
+        assert_eq!(sha_search.is_some(), !named, "{out}");
+        if let Some(read) = pull_request_read {
+            assert_eq!(read["input"]["queries"][0]["number"], 12, "{out}");
+        }
+        if let Some(search) = sha_search {
+            let row = &search["input"]["queries"][0];
+            assert_eq!(row["operation"], "pullRequest", "{out}");
+            assert_eq!((&row["owner"], &row["repo"]), (&json!("o"), &json!("r")));
+        }
+        // The search is required by a warning, so the served row keeps it:
+        // the shared guidance pass drops an advisory related call once a
+        // row has evidence.
+        let mut served = json!({"results": [{"index": 0, "data": out.clone()}]});
+        octocode_runtime_base::response::workflow_lead::retain_guidance(
+            ToolId::GhGetHistoryItem,
+            &mut served,
+            &json!({"queries": [row]}),
+        );
+        let kept =
+            checks::find_related_call(&served["results"][0]["data"], "ghSearchHistory", |_| true);
+        assert_eq!(kept.is_some(), !named, "{served}");
+    }
+}

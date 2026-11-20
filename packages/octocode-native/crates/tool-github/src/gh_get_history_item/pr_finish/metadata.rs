@@ -17,6 +17,10 @@ const SECTION_HEADER: &[&str] = &[
     "mergeCommitSha",
 ];
 
+/// The raw pull request's key for GitHub's whole comment count, set when a
+/// summary read it (GraphQL `totalCommentsCount`); REST has no such field.
+pub(in crate::gh_get_history_item) const WHOLE_COUNT_KEY: &str = "total_comments";
+
 /// Characters a summary's `bodyPreview` shows.
 const BODY_PREVIEW_CHARS: usize = 300;
 
@@ -91,12 +95,15 @@ pub(in crate::gh_get_history_item) fn pr_metadata(
         // Only a merged PR has a real merge commit (open PRs expose GitHub's
         // test-merge SHA, which is not on the base branch).
         "mergeCommitSha": merged.then(|| str_at(raw,"/merge_commit_sha")).flatten().filter(|v|!v.is_empty()),
-        // GitHub's whole count (conversation, inline review comments and
-        // review bodies) once the read has it (`whole_comment_count`), the
-        // count ghSearchHistory states; else REST's conversation count.
+        // Each count is the entries of the section its name says: the
+        // conversation (`comments`) and the inline review comments
+        // (`reviewComments`), as REST counts them.
         "commentsCount": nonzero(raw.get("comments")),
-        // REST's inline review comments, part of the whole count.
         "reviewCommentsCount": nonzero(raw.get("review_comments")),
+        // GitHub's whole count (conversation, inline review comments and
+        // review bodies), the one ghSearchHistory sorts and filters by,
+        // once the read has it (`whole_comment_count`).
+        "totalCommentsCount": nonzero(raw.get(WHOLE_COUNT_KEY)),
         "commitCount": nonzero(raw.get("commits")),
         // Review threads (GraphQL only): REST counts review comments, a
         // different unit, so a REST read leaves this out.

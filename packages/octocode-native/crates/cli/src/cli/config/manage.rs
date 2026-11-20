@@ -40,7 +40,7 @@ pub(crate) fn manage(
         .get("revision")
         .and_then(serde_json::Value::as_str)
         .ok_or("File revision is required; inspect before saving.")?;
-    let changed = match operation {
+    let (changed, notice) = match operation {
         "setEnv" | "removeEnv" => {
             let value = if operation == "setEnv" {
                 Some(
@@ -52,14 +52,15 @@ pub(crate) fn manage(
             } else {
                 None
             };
-            edit_scoped_env(
+            let changed = edit_scoped_env(
                 &directory.join(".env"),
                 key,
                 value,
                 scope == "workspace",
                 Some(revision),
             )
-            .map_err(|e| ManageError::from_edit(&e, "Cannot safely write configuration."))?
+            .map_err(|e| ManageError::from_edit(&e, "Cannot safely write configuration."))?;
+            (changed, None)
         }
         "setSetting" | "removeSetting" => {
             let value = if operation == "setSetting" {
@@ -67,18 +68,23 @@ pub(crate) fn manage(
             } else {
                 None
             };
-            edit_setting(
+            let edit = edit_setting(
                 &directory.join(".octocoderc"),
                 key,
                 value,
                 revision,
                 scope == "workspace",
             )
-            .map_err(|e| ManageError::from_edit(&e, &e.to_string()))?
+            .map_err(|e| ManageError::from_edit(&e, &e.to_string()))?;
+            (edit.changed(), edit.notice(key))
         }
         _ => return Err("Unknown configuration operation.".into()),
     };
-    Ok(json!({"success":true,"changed":changed,"key":key,"scope":scope}))
+    let mut response = json!({"success":true,"changed":changed,"key":key,"scope":scope});
+    if let Some(notice) = notice {
+        response["notice"] = json!(notice);
+    }
+    Ok(response)
 }
 
 /// The generated native contract is the one metadata source for the browser

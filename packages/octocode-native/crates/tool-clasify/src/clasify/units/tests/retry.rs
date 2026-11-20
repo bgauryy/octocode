@@ -200,6 +200,32 @@ fn spent_shared_retries_leave_transient_units_that_next_retry_asks_again_alone()
     assert!(second["next"].get("retry").is_none(), "{second:#}");
 }
 
+/// A cap that holds every planned request but not the shared retries
+/// admits the row with the retries it leaves room for: one item under
+/// `maxRequests: 1` is judged, its stated ceiling the cap, never refused
+/// for retries it may not need.
+#[test]
+fn a_cap_that_holds_the_planned_requests_admits_the_row_with_fewer_retries() {
+    let provider = Transient::start();
+    let reader = Judging {
+        evaluator: provider.evaluator(3),
+        handle: provider.executor.handle().clone(),
+    };
+    let query = json!({
+        "operation": "evaluate",
+        "perItem": true,
+        "content": ["a fine entry"],
+        "questions": {"keep": {"type": "noul", "instructions": "Is the entry fine?"}},
+        "maxRequests": 1
+    });
+    let row = judged(&reader, &query, true);
+    assert!(row.get("errorCode").is_none(), "{row:#}");
+    assert_eq!(provider.bodies().len(), 1, "{row:#}");
+    assert_eq!(row["usage"]["calls"], 1, "{row:#}");
+    assert_eq!(row["usage"]["requestsCeiling"], 1, "{row:#}");
+    assert_eq!(row["units"]["0"]["keep"], json!({"noul": 0.9}), "{row:#}");
+}
+
 /// A runtime that keeps nothing cannot carry `retryUnits`: its related
 /// retry is the whole row at the row's ceiling, and its hint says so.
 #[test]
@@ -237,4 +263,56 @@ fn without_saved_work_the_retry_is_the_whole_row_at_its_ceiling() {
                 .is_some_and(|hint| hint.contains("asks every unit"))),
         "{first:#}"
     );
+}
+
+/// A retry names at most the input gate's array bound of unit keys, so its
+/// own cursor is admitted: more unanswered units take more retries
+/// (`next.retry`, `next.retry2`, …), each priced alone.
+#[test]
+fn unanswered_units_past_the_array_bound_take_more_retries() {
+    let query = json!({
+        "operation": "evaluate",
+        "perItem": true,
+        "content": ["a", "b", "c"],
+        "questions": {"keep": {"type": "noul", "instructions": "Is the entry fine?"}}
+    });
+    let row = super::super::super::rows::parse_rows(std::slice::from_ref(&query))
+        .pop()
+        .expect("one row");
+    let mut outcome = UnitsOutcome {
+        output: json!({"units": {}}),
+        spends: Vec::new(),
+        refused: 0,
+        deciding: Vec::new(),
+        price: reply::Price {
+            planned: 3,
+            ceiling: Some(6),
+            room: 3,
+        },
+        retries: vec![
+            Retry {
+                keys: vec!["0".into()],
+                ceiling: 4,
+            },
+            Retry {
+                keys: vec!["1".into(), "2".into()],
+                ceiling: 5,
+            },
+        ],
+    };
+    outcome.offer_retry(&row, true);
+    let next = &outcome.output["next"];
+    let part = |name: &str| next[name]["input"]["queries"][0].clone();
+    assert_eq!(part("retry")["retryUnits"], json!(["0"]), "{next:#}");
+    assert_eq!(part("retry")["maxRequests"], 4, "{next:#}");
+    assert_eq!(part("retry2")["retryUnits"], json!(["1", "2"]), "{next:#}");
+    assert_eq!(part("retry2")["maxRequests"], 5, "{next:#}");
+    let hint = outcome.output["hints"][0].as_str().expect("hint");
+    assert!(
+        hint.contains("next.retry through next.retry2")
+            && hint.contains(&format!("{RETRY_KEYS} units each"))
+            && hint.contains("at most 9 requests"),
+        "{hint}"
+    );
+    assert_eq!(RETRY_KEYS, octocode_runtime_base::id::MAX_INPUT_ARRAY_ITEMS);
 }

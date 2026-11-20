@@ -31,7 +31,7 @@ pub use syntax_tree::{
     SyntaxTreeInspectOptions, SyntaxTreeInspectResult, SyntaxTreeNode, inspect_with_extension,
 };
 pub use types::{
-    FileMatches, JudgeText, KeepLine, PageFilled, RecoveredBody, StructuralDemand,
+    FileMatches, JudgeText, KeepLine, PageStarts, PagedWindow, RecoveredBody, StructuralDemand,
     StructuralDetailedMatch, StructuralDiagnostic, StructuralSearchDetailedFileResult,
     StructuralSearchDetailedResult, StructuralSearchFilesDetailedResult,
     StructuralSearchFilesOptions, TextJudge, WalkErrors, WalkSkipped,
@@ -219,13 +219,17 @@ pub fn restore_texts(matches: &mut [StructuralDetailedMatch], masked: &str, raw:
             restate(header, &span.range);
         }
         for (name, ranges) in &mut matched.metavar_ranges {
+            // The spans are some of the values, in order (a `$$$` capture
+            // lists no span for its punctuation): each restates the next
+            // value it was.
             let values = matched.metavars.get_mut(name);
             let mut values = values.map(|values| values.iter_mut());
             for range in ranges {
                 let before = range.text.clone();
                 restate(&mut range.text, &range.source_span.range);
-                if let Some(value) = values.as_mut().and_then(Iterator::next)
-                    && *value == before
+                if let Some(value) = values
+                    .as_mut()
+                    .and_then(|values| values.find(|value| **value == before))
                 {
                     value.clone_from(&range.text);
                 }
