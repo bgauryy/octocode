@@ -73,6 +73,35 @@ fn a_hidden_key_keeps_the_parse_and_every_match() {
     }
 }
 
+/// A body written after a BEGIN armor on the line of a format string
+/// (`"…KEY-----\n{body}\n");`, a test that builds a key file, or the key
+/// itself) hides without the string's closing quote: every call after it is
+/// still found, with no key byte shown.
+#[test]
+fn a_key_after_an_armor_in_a_string_keeps_every_later_match() {
+    const BODY: &str = "MIIEpQIBAAKCAQEAunterminatedKeyBodyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    let root = Fixture::new();
+    let path = root.write(
+        "k.rs",
+        format!(
+            "fn t() {{\n    let file = format!(\"ok\\n-----BEGIN OPENSSH PRIVATE KEY-----\\n{{body}}\\n\");\n    let a = file.clone();\n    let b = a.clone();\n}}\n\nfn u() {{\n    let key = f(\"-----BEGIN OPENSSH PRIVATE KEY-----\\n{BODY}\\n\");\n    let c = key.clone();\n}}\n"
+        ),
+    );
+    for row in [
+        json!({"operation":"match","path":path,"rule":{"pattern":"$X.clone()"}}),
+        json!({"operation":"match","path":path,"rule":{"pattern":"$X.clone()"},"view":"countMatches"}),
+        json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"$X.clone()"}}),
+    ] {
+        let out = run(&root.0, row.clone()).expect("match");
+        let shown = out.to_string();
+        assert!(shown.contains("\"matchCount\":3"), "{row}: {shown}");
+        for piece in BODY.as_bytes().chunks(8) {
+            let piece = std::str::from_utf8(piece).unwrap_or_default();
+            assert!(!shown.contains(piece), "{row}: key bytes {piece} shown: {shown}");
+        }
+    }
+}
+
 /// Two keys on one line with code between them hide as one span, which can
 /// leave a quote unpaired: the parse that may hide a match is disclosed, and
 /// nothing of either key shows.

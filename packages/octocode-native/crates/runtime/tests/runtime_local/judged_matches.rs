@@ -118,20 +118,24 @@ async fn a_search_never_matches_what_a_read_withholds() {
         }
     }
     // The placeholders a read shows are text it wrote, not the file's: the
-    // read shows them, a search for them matches nothing in any view, and
-    // its empty row says masked secrets are not searched.
+    // read shows them, no `matchString` of a read or a search matches their
+    // spelling in any view, and the empty row says masked secrets are not
+    // searched.
     let placeholder = "\\[REDACTED-";
+    let shown = run("localFetch", json!({})).await;
+    assert!(
+        shown["content"]
+            .as_str()
+            .is_some_and(|content| content.contains("[REDACTED-")),
+        "{shown}"
+    );
     let fetched = run(
         "localFetch",
         json!({"matchString": [placeholder], "regexEngine": "rust"}),
     )
     .await;
-    assert!(
-        fetched["selectedMatchCount"]
-            .as_u64()
-            .is_some_and(|read| read > 0),
-        "{fetched}"
-    );
+    assert_eq!(fetched["content"], "", "{fetched}");
+    assert!(fetched.get("selectedMatchCount").is_none(), "{fetched}");
     for view in VIEWS {
         let query = json!({"matchString": [placeholder], "regexEngine": "rust", "view": view});
         let outcome = call(&runtime, "localSearch", query_path(&path, query.clone()))

@@ -14,6 +14,7 @@ previous version and the stored baselines.
 
 | Version | Date | Build | Round (scorecard or stored folder) | Headline |
 |---|---|---|---|---|
+| 20.2.0 | 2026-11-21 | dev build `e246ff42…a405f` (`20.2.0+56f67471`, after fix round 5) | [Rating round 4](rounds/20.2.0-2026-11-21-ratings-round-4/SCORECARD.md) | Not ready: rater average 8.6 (round 3 8.2), gated 8.1 (7.6), correct 9.5; 34 round-3 issues fixed, 12 partly; lspSearch uncapped; astSearch and graphQuery still capped at 4 (R4-K1 silent miss after an unterminated key block, R4-G1 symbol impact wrong both ways); R4-C1 search `classification` bills without a cap; 42 findings in FINDINGS.md |
 | 20.2.0 | 2026-11-20 | dev build `cb4b7786…a422` (`20.2.0+4476eb38`, after fix round 4) | [Rating round 3](rounds/20.2.0-2026-11-20-ratings-round-3/SCORECARD.md) | Not ready: rater average 8.2 (round 2 8.0), correct 9.4; every re-tested round-2 issue fixed or partly fixed; astSearch, lspSearch and graphQuery capped at 4 by new silent misses or a wrong count (R3-K1, R3-K2, R3-G1); 48 findings in FINDINGS.md |
 | 20.2.0 | 2026-11-20 | dev build `c6e1e3ab…10cd` (`20.2.0+69024e9f`, dirty tree) | [Independent ratings, 12 dimensions](rounds/20.2.0-2026-11-20-independent-ratings/SCORECARD.md) | Not ready: 8 independent raters, all 17 tools; rater average 8.0 (previous 7.8), correct 9.4; lspSearch, securityCheck and ghStructure capped at 4 by the correctness gate (K1, K2, P1, GR1); 58 findings frozen in FINDINGS.md |
 | 20.2.0 | 2026-11-18 | release pin `3d691596…14a4` (round 3 `bin-r4l`, snapshot of the dirty tree) | [17-tool ratings](rounds/20.2.0-2026-11-18-tool-ratings/SCORECARD.md) | Not ready: ghSearchCode and securityCheck capped at 4 (walk refused after 625 files; false "no fix" for prerelease-only fixes); others 6.7–9.4; graphQuery cap lifted; 42 defects (2 blockers, 4 major) |
@@ -48,6 +49,9 @@ report, `per_question_summary.json`, the visual `index.html`) are also tracked o
 Every folder under `rounds/` is listed here; add a line when a round lands. Keep the newest scorecards; fold older ones into a timeline row.
 
 `rounds/<version>-<date>/SCORECARD.md`, one per round, from the [scorecard template](../briefs/SCORECARD.md).
+- [20.2.0 — rating round 4, 2026-11-21](rounds/20.2.0-2026-11-21-ratings-round-4/SCORECARD.md): the same 8 lanes and
+  12 dimensions after fix round 5; findings in [FINDINGS.md](rounds/20.2.0-2026-11-21-ratings-round-4/FINDINGS.md),
+  each lane's report in [lanes/](rounds/20.2.0-2026-11-21-ratings-round-4/lanes/).
 - [20.2.0 — rating round 3, 2026-11-20](rounds/20.2.0-2026-11-20-ratings-round-3/SCORECARD.md): the same 8 lanes and
   12 dimensions after fix round 4; findings in [FINDINGS.md](rounds/20.2.0-2026-11-20-ratings-round-3/FINDINGS.md).
 - [20.2.0 — independent ratings on 12 dimensions, 2026-11-20](rounds/20.2.0-2026-11-20-independent-ratings/SCORECARD.md):

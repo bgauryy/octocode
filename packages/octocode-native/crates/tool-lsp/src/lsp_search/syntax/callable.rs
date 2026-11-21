@@ -5,7 +5,7 @@
 //! (`references`) and its implementors (`implementation`).
 use super::super::*;
 use super::File;
-use crate::lsp_search::render::wire_kind;
+use crate::lsp_search::render::{wire_kind, with_article};
 
 /// Declaration kinds of the graph facts that no call expression names.
 const NON_CALLABLE: &[&str] = &[
@@ -22,7 +22,8 @@ const NON_CALLABLE: &[&str] = &[
 /// The reason of the row, naming the declaration's kind.
 fn reason(operation: &str, kind: &str) -> String {
     format!(
-        "The anchor declares a {kind}, which no call names, so {operation} has nothing to list; its uses come from references, its implementors from implementation."
+        "The anchor declares {}, which no call names, so {operation} has nothing to list; its uses come from references, its implementors from implementation.",
+        with_article(kind)
     )
 }
 

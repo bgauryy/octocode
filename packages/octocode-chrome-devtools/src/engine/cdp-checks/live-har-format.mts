@@ -1,8 +1,27 @@
 // What live-har-monitor writes: redacted HAR 1.2 entries, the network summary, and the page's
 // performance snapshot (navigation timing, resource timing and long tasks).
 import type { Session } from '../cdp-connection.mjs';
+import {
+  CREDENTIAL_NAME,
+  cookieRows,
+  harCookies,
+  headerCookieRows,
+  mergeHeaders,
+  type CookieRow,
+} from './net-headers.mjs';
 
 type Headers = Record<string, string | number>;
+
+/** What requestWillBeSentExtraInfo adds to one request hop: the wire headers and the cookies considered. */
+export type RequestExtra = { headers?: Headers; associatedCookies?: unknown };
+/** What responseReceivedExtraInfo adds to one response hop: the wire headers (Set-Cookie) and blocked cookies. */
+export type ResponseExtra = {
+  headers?: Headers;
+  statusCode?: number;
+  blockedCookies?: unknown;
+};
+/** The extra-info events of one requestId, in arrival order: one entry per redirect hop. */
+export type ExtraInfo = { request: RequestExtra[]; response: ResponseExtra[] };
 
 /** One request live-har-monitor observed, built from CDP Network events. */
 export type NetworkRecord = {
@@ -17,6 +36,9 @@ export type NetworkRecord = {
     headers?: Headers;
     postData?: string;
   };
+  /** Extra-info events of this requestId (shared by every redirect hop) and this record's hop number. */
+  extras?: ExtraInfo;
+  hop?: number;
   method: string;
   url: string;
   start: number;
@@ -73,16 +95,53 @@ export function safeUrl(raw: string | undefined) {
   }
 }
 
-// CDP Network.Headers: header name to value, stringified for HAR.
+// CDP Network.Headers: header name to value, stringified for HAR. Credential headers keep their
+// name; the value is replaced by its length.
 function headerPairs(headers: Headers = {}) {
-  return Object.entries(headers)
-    .filter(
-      ([name]) =>
-        !/cookie|authorization|proxy-authorization|x-api-key|token|secret/i.test(
-          name
-        )
-    )
-    .map(([name, value]) => ({ name, value: String(value) }));
+  return Object.entries(headers).map(([name, raw]) => {
+    const value = String(raw);
+    return {
+      name,
+      value: CREDENTIAL_NAME.test(name)
+        ? `[redacted ${value.length} chars]`
+        : value,
+    };
+  });
+}
+
+/** The extra-info of this record's hop; a response extra whose status disagrees belongs to another hop. */
+function hopExtras(record: NetworkRecord) {
+  const hop = record.hop ?? 0;
+  const request = record.extras?.request[hop];
+  const response = record.extras?.response[hop];
+  const status = record.response?.status;
+  return {
+    request,
+    response:
+      response &&
+      (status === undefined ||
+        response.statusCode === undefined ||
+        response.statusCode === status)
+        ? response
+        : undefined,
+  };
+}
+
+/** Cookie names this hop sent and set, with domain, path and block reasons; never values. */
+function cookieEvidence(record: NetworkRecord): CookieRow[] {
+  const { request, response } = hopExtras(record);
+  const sent = request?.associatedCookies
+    ? cookieRows('request', request.associatedCookies)
+    : headerCookieRows(
+        'request',
+        mergeHeaders(record.request?.headers, request?.headers)
+      );
+  const blocked = cookieRows('response', response?.blockedCookies);
+  const set = headerCookieRows(
+    'response',
+    mergeHeaders(record.response?.headers, response?.headers)
+  ).filter(row => !blocked.some(other => other.name === row.name));
+  return [...sent, ...set, ...blocked];
 }
 
 function mimeToContent(mimeType = '') {
@@ -114,12 +173,16 @@ function queryString(url: string) {
 
 function harRequest(record: NetworkRecord, url: string) {
   const request = record.request ?? {};
+  const headers = mergeHeaders(
+    request.headers,
+    hopExtras(record).request?.headers
+  );
   return {
     method: request.method ?? record.method ?? 'GET',
     url,
     httpVersion: 'HTTP/2',
-    cookies: [],
-    headers: headerPairs(request.headers),
+    cookies: harCookies('request', headers),
+    headers: headerPairs(headers),
     queryString: queryString(url),
     headersSize: -1,
     bodySize: request.postData ? request.postData.length : 0,
@@ -128,12 +191,16 @@ function harRequest(record: NetworkRecord, url: string) {
 
 function harResponse(record: NetworkRecord) {
   const response = record.response ?? {};
+  const headers = mergeHeaders(
+    response.headers,
+    hopExtras(record).response?.headers
+  );
   return {
     status: response.status ?? (record.failed ? 0 : -1),
     statusText: response.statusText ?? record.errorText ?? '',
     httpVersion: response.protocol ?? 'HTTP/2',
-    cookies: [],
-    headers: headerPairs(response.headers),
+    cookies: harCookies('response', headers),
+    headers: headerPairs(headers),
     content: mimeToContent(response.mimeType),
     redirectURL: response.headers?.location ?? '',
     headersSize: -1,
@@ -154,6 +221,7 @@ function harExtensions(record: NetworkRecord) {
     _errorText: record.errorText ?? null,
     _blockedReason: record.blockedReason ?? null,
     _initiator: record.initiator?.type ?? null,
+    _cookies: cookieEvidence(record),
   };
 }
 

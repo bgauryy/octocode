@@ -5,11 +5,11 @@ description: "Load this skill first when a live Chrome page must be driven: log 
 
 # Chrome DevTools
 
-Use the connected MCP tools, or run `npx -y @octocodeai/octocode-chrome-devtools /cli` from the workspace (`octocode-chrome-devtools /cli` if installed). The bare command starts MCP with the research preset (`open`, `cleanup`, `targets`, `run`, `cdp`, `protocol`, `snapshot`, `screenshot`, `flow`, `schema`, `artifact`, `query`, `skill`); `--mcp --preset slim` keeps `open`, `cleanup`, `run`, `query`, `skill`; `--mcp --preset full` (or `/cli`) adds `dev-check`, `check`, `script`, `cookies` and the other helpers named below. Requires Chrome and Node 24.x, 24.15 or later.
+Use the connected MCP tools, or run `npx -y @octocodeai/octocode-chrome-devtools /cli` from the workspace (`octocode-chrome-devtools /cli` if installed). The bare command starts MCP with the research preset (`open`, `cleanup`, `targets`, `run`, `cdp`, `protocol`, `flow`, `schema`, `artifact`, `query`, `skill`); `--mcp --preset slim` keeps `open`, `cleanup`, `run`, `query`, `skill`; `--mcp --preset full` (or `/cli`) adds `snapshot`, `screenshot`, `dev-check`, `check`, `script`, `cookies` and the other helpers named below. Requires Chrome and Node 24.x, 24.15 or later.
 
 ## Quickstart
 
-First action without reading any guide: `open` (headless, optional `url`) → `run` with a plan whose `act` steps target controls by `role` + `name` (or a `ref` from a prior `snapshot`) with a visible-text or URL postcondition, ending in `snapshot` and `screenshot` steps. Mark a step `optional: true` to record its failure and continue. Run `schema --command run` for exact plan fields; load `operating` only when this fails or the task is not a plain page transition.
+First action without reading any guide: `open` (headless, optional `url`) → `run` with a plan whose `act` steps target controls by `role` + `name` (or a `ref` from an earlier `snapshot` step) with a visible-text or URL postcondition, ending in `snapshot` and `screenshot` plan steps. Mark a step `optional: true` to record its failure and continue. Run `schema --command run` for exact plan fields; load `operating` only when this fails or the task is not a plain page transition.
 
 ## Discover inputs
 
@@ -18,10 +18,10 @@ Read `operating` first with `/cli skill --json` or MCP `skill`; it serves guides
 | Need | Topics and commands |
 |---|---|
 | Plan a transition or find an operation; reuse or save a flow | `intents`, `browser-execution`, `/cli schema --command run` (add `--operation goto`); `flows` (`flow` tool: `list`, `show`, `run`, `save`) |
-| Research or cite a capture; inspect a failed or uncertain action | `web-research`, `clasify-screen`; `recovery` |
+| Research or cite a capture; search saved page data (HAR, HTML, storage, console, step results); inspect a failed action | `web-research`, `clasify-screen`, `evidence-files`; `recovery` |
 | Script sources and source maps; storage, IndexedDB, WebSocket/SSE, throttling and mocks; coverage, trace, heap, PDF | `check --recipe` (full preset or `/cli`): `scripts-and-sourcemaps`, `storage-and-network`, `coverage-trace-flags` |
-| Tools a page declares (WebMCP: prefer over DOM clicks, same authority as clicks); raw CDP or scripts | `intents` (WebMCP), `/cli check --recipe webmcp-tools`; `cdp-protocol`, `cdp-checks`, `script-patterns` |
-| Transport, launch flags, stealth (opt-in); several tabs, attach, origins; live CDP for another client | `mcp-cli`, `coverage-trace-flags`, `launch-stealth`; `tabs-and-policy` (`open` fields `urls`, `attach`, `allowOrigins`, `noSandbox`); `cdp-proxy` (full preset) |
+| Tools a page declares (WebMCP: prefer over DOM clicks, same authority as clicks); raw CDP or scripts; which domain to enable | `intents` (WebMCP), `/cli check --recipe webmcp-tools`; `cdp-protocol`, `cdp-checks`, `cdp-domains` (`protocol *`, `check --recipe cdp-domain`), `script-patterns` |
+| Transport, launch flags, stealth (opt-in); several tabs, attach, origins; live CDP for another client | `mcp-cli`, `coverage-trace-flags`, `launch-stealth`; `tabs-and-policy` (`group` tab groups; `open` fields `attach`, `allowOrigins`, `noSandbox`); `cdp-proxy` (full preset) |
 
 ## Act on a page
 
@@ -40,7 +40,7 @@ Replies carry a pointer or a small inline page; the evidence is saved files unde
 | You know | Use |
 |---|---|
 | The file plus a JSON pointer, URL, status or role/name | `query` (filter, then page) or `artifact` with `pointer` |
-| A word, error text, URL fragment, header or id, not where | Octocode `localSearch` on the capture folder (shell: `rg -F -l <text> <folder>`, `jq` for JSON), then `localFetch` that range |
+| A word, error text, URL fragment, header or id, not where | Octocode `localSearch` with `includeHidden:true, includeIgnored:true, defaultExcludes:false` on the reply's `files`/`evidence` paths (shell: `rg -F -l <text> <path>`, `jq`), then `localFetch` that range |
 | Many captures, long logs, scripts, HAR bodies or screenshots, and a question about meaning ("which request sets the auth cookie?") | Octocode `clasify` when it is enabled: pass the saved paths and questions, read only what it flags (`next.read`). Not enabled: `localSearch`. |
 | One small inline page | Read it |
 

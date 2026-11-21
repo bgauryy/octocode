@@ -115,6 +115,7 @@ fn judge_at(
     let (mut usage, mut failures) = (ClassificationUsage::default(), Vec::new());
     let decisions = evaluator.select_grouped(
         JudgeCall {
+            max_requests: u64::MAX,
             failures: &mut failures,
             candidates: &candidates,
             admitted: &admitted,

@@ -17,6 +17,34 @@ fn pem(lines: &[String]) -> String {
     out.join("\n")
 }
 
+/// A BEGIN armor in a string with a body written after it on the same line
+/// (`"…KEY-----\n{body}\n");`) hides that body, not the string's closing
+/// quote and the code after it: hiding them would leave the string open, so a
+/// parse of the shown text would read every later line as its text.
+#[test]
+fn a_key_after_an_armor_keeps_the_code_that_closes_its_line() {
+    let ph = key_fragment_placeholder();
+    let key = &body('k', 1)[0];
+    let inline = format!("x = f(\"-----BEGIN RSA PRIVATE KEY-----\\n{key}\\n\")");
+    for (line, shown) in [
+        (
+            "    let file = format!(\"ok\\n-----BEGIN OPENSSH PRIVATE KEY-----\\n{body}\\n\");",
+            format!("    let file = format!(\"ok\\n-----BEGIN OPENSSH PRIVATE KEY-----{ph}\");"),
+        ),
+        (
+            inline.as_str(),
+            format!("x = f(\"-----BEGIN RSA PRIVATE KEY-----{ph}\")"),
+        ),
+    ] {
+        assert_eq!(hide_key_line(line), shown, "{line}");
+    }
+    // The lines after it read as written: the block it opens holds no key.
+    let source = "fn t() {\n    let file = format!(\"ok\\n-----BEGIN OPENSSH PRIVATE KEY-----\\n{body}\\n\");\n    let (out, changed) = f(&file);\n}\n";
+    let (out, _) = redact_private_key_blocks(source);
+    assert_eq!(out.matches('"').count(), source.matches('"').count(), "{out}");
+    assert!(out.contains("    let (out, changed) = f(&file);\n}\n"), "{out}");
+}
+
 /// Whether any of `secrets` is still in the redacted `text`.
 fn shown(text: &str, secrets: &[String]) -> Vec<String> {
     let (out, _) = redact_private_key_blocks(text);

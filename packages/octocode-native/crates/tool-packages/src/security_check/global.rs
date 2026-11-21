@@ -19,6 +19,9 @@ pub(super) struct Global {
     end: End,
     /// Ids GitHub matches to the version that OSV does not list.
     others: Vec<String>,
+    /// The `others` OSV lists for the package's module, in records that name
+    /// other packages of it and not this one.
+    module_listed: Vec<String>,
     /// Ids OSV does not list that GitHub withdrew, with when: never counted.
     withdrawn: Vec<(String, String)>,
     /// What GitHub states of each record beyond its row: its withdrawal and
@@ -133,6 +136,7 @@ pub(super) async fn read(confirmed: &Confirmed, net: &Net<'_>) -> Option<Global>
         rows,
         end,
         others: Vec::new(),
+        module_listed: Vec::new(),
         withdrawn: Vec::new(),
         notes,
         unreviewed,
@@ -195,6 +199,22 @@ impl Global {
             .filter(|row| !twins.iter().any(|twin| twin.id == row.id))
             .partition(|row| row.withdrawn.is_some());
         self.others = others.into_iter().map(|row| row.id.clone()).collect();
+        let apart = results
+            .iter()
+            .flat_map(|result| &result.module_only)
+            .flat_map(|row| std::iter::once(&row.id).chain(&row.aliases))
+            .collect::<Vec<_>>();
+        self.module_listed = self
+            .rows
+            .iter()
+            .filter(|row| self.others.contains(&row.id))
+            .filter(|row| {
+                std::iter::once(&row.id)
+                    .chain(&row.aliases)
+                    .any(|id| apart.contains(&id))
+            })
+            .map(|row| row.id.clone())
+            .collect();
         self.withdrawn = withdrawn
             .into_iter()
             .map(|row| (row.id.clone(), row.withdrawn.clone().unwrap_or_default()))
@@ -218,6 +238,7 @@ impl Global {
     /// states it, so neither it nor its CVE is counted.
     pub(super) fn stand_alone(&mut self, results: &mut Vec<SourceResult>) {
         self.others.clear();
+        self.module_listed.clear();
         let (withdrawn, matched): (Vec<_>, Vec<_>) =
             self.rows.iter().partition(|row| row.withdrawn.is_some());
         self.withdrawn = withdrawn
@@ -288,16 +309,30 @@ impl Global {
             super::source::source_failed(data, &[why]);
         }
         let mut warnings = Vec::from_iter(not_covered);
-        if !self.others.is_empty() {
-            let listed = self
-                .others
-                .iter()
+        let (module, unlisted): (Vec<&String>, Vec<&String>) = self
+            .others
+            .iter()
+            .partition(|id| self.module_listed.contains(id));
+        let stated = |ids: &[&String]| {
+            ids.iter()
                 .map(|id| super::answer::stated_id(id))
-                .collect::<Vec<_>>();
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let pronoun = |count: usize| if count == 1 { "it" } else { "them" };
+        if !unlisted.is_empty() {
             warnings.push(format!(
                 "GitHub's advisory database matches {} to this version and OSV does not list {}: GitHub's word, not counted in answer; related reads each.",
-                listed.join(", "),
-                if listed.len() == 1 { "it" } else { "them" }
+                stated(&unlisted),
+                pronoun(unlisted.len())
+            ));
+        }
+        if !module.is_empty() {
+            warnings.push(format!(
+                "GitHub's advisory database matches {} to this version; OSV lists {} for the module, in {} naming other packages of it and not this one: GitHub's word, not counted in answer; related reads each.",
+                stated(&module),
+                pronoun(module.len()),
+                if module.len() == 1 { "a record" } else { "records" }
             ));
         }
         // A withdrawn record that is also unreviewed gets one warning naming

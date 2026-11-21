@@ -13,12 +13,15 @@ test('capture inventory pages every artifact and preserves all findings and logs
     }
     lines.push(lines[0], '[FINDING] pending request remains unobserved');
     const result = await shape(work, lines.join('\n'));
-    assert.equal(result.capture.artifacts, 60);
-    assert.equal(result.capture.findings, 1);
+    assert.deepEqual(result.warnings, [
+      '[FINDING] pending request remains unobserved',
+    ]);
     assert(!JSON.stringify(result).includes('row-59'));
     assert(Buffer.byteLength(JSON.stringify(result)) < 2500);
+    for (const dropped of ['capture', 'logs', 'search', 'root', 'exitCode'])
+      assert(!(dropped in result), dropped);
     let next = result.next.artifacts,
-      paths = result.artifacts.map(x => resolve(result.root, x.path));
+      paths = result.files.map(path => resolve(work, path));
     while (next) {
       const r = await call(client, next);
       assert(r.data);
@@ -27,13 +30,17 @@ test('capture inventory pages every artifact and preserves all findings and logs
     }
     assert.equal(paths.length, 60);
     assert.equal(new Set(paths).size, 60);
-    let page = await call(client, result.next.capture),
+    let page = await call(client, {
+        tool: 'artifact',
+        query: { file: result.evidence, format: 'json', length: 2000 },
+      }),
       text = page.data.content;
     while (page.data.next) {
       page = await call(client, page.data.next);
       text += page.data.content;
     }
     const manifest = JSON.parse(text);
+    assert.equal(manifest.artifacts.length, 60);
     assert.deepEqual(manifest.findings, [
       '[FINDING] pending request remains unobserved',
     ]);
@@ -52,7 +59,7 @@ test('JSON reader pages and oversized values keep MCP/CLI routes and reject sour
     const first = (
       await client.callTool({
         name: 'query',
-        arguments: { args: ['--file', file, '--limit', '1'] },
+        arguments: { file, limit: 1 },
       })
     ).structuredContent;
     assert(first.ok);

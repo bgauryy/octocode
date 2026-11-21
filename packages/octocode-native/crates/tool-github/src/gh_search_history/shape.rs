@@ -2,6 +2,7 @@
 //! partial state.
 use super::{HistoryOperation, HistorySearch, leads, rows};
 use crate::gh_search_history::gh_search_history_query;
+use crate::qualifier_keywords::{Qualifier, qualifier};
 use octocode_github::HistoryPage;
 use octocode_runtime_base::id::ToolId;
 use octocode_runtime_base::response::result::remove_null_fields;
@@ -229,36 +230,23 @@ pub(super) fn shape(
 /// The search qualifiers a keyword can spell, with the `filters` field that
 /// carries each: a keyword matches text, so `author:ada` finds nothing a
 /// filter would.
-const QUALIFIER_FILTERS: &[(&str, &str)] = &[
-    ("author", "author"),
-    ("committer", "committer"),
-    ("assignee", "assignee"),
-    ("mentions", "mentions"),
-    ("commenter", "commenter"),
-    ("reviewed-by", "reviewedBy"),
-    ("review-requested", "reviewRequested"),
-    ("label", "label"),
-    ("base", "base"),
-    ("head", "head"),
+const QUALIFIER_FILTERS: &[Qualifier] = &[
+    qualifier!(["author"] => "filters.author"),
+    qualifier!(["committer"] => "filters.committer"),
+    qualifier!(["assignee"] => "filters.assignee"),
+    qualifier!(["mentions"] => "filters.mentions"),
+    qualifier!(["commenter"] => "filters.commenter"),
+    qualifier!(["reviewed-by"] => "filters.reviewedBy"),
+    qualifier!(["review-requested"] => "filters.reviewRequested"),
+    qualifier!(["label"] => "filters.label"),
+    qualifier!(["base"] => "filters.base"),
+    qualifier!(["head"] => "filters.head"),
 ];
 
 /// A hint per keyword spelled as a qualifier (`author:sharkdp`) that names
 /// the `filters` field carrying it.
 pub(super) fn qualifier_keyword_hints(keywords: &[&str]) -> Vec<String> {
-    keywords
-        .iter()
-        .filter_map(|keyword| {
-            let (key, value) = keyword.trim().split_once(':')?;
-            let (_, field) = QUALIFIER_FILTERS
-                .iter()
-                .find(|(name, _)| name.eq_ignore_ascii_case(key))?;
-            (!value.is_empty()).then(|| {
-                format!(
-                    "Keyword `{keyword}` matches text, not the {key} qualifier: set `filters.{field}` to `{value}` and drop it from keywords."
-                )
-            })
-        })
-        .collect()
+    crate::qualifier_keywords::hints(keywords, QUALIFIER_FILTERS)
 }
 
 /// Whether a commit listing is narrowed by its path alone: no author,
@@ -325,6 +313,30 @@ fn commit_body(item: &Value) -> Option<String> {
     commit::message_body(item).map(str::to_owned)
 }
 
+/// The pull-request fields only a ghGetHistoryItem read carries: neither
+/// GitHub's search nor its pull-request list returns them, so no search row
+/// can. A pick of one names where it lives.
+const ITEM_ONLY_FIELDS: [&str; 1] = ["mergedBy"];
+
+/// Warns, for each picked field of [`ITEM_ONLY_FIELDS`], that search rows
+/// never carry it and which call does.
+fn point_item_only_fields(value: &mut Value, fields: &[String]) {
+    let picked = ITEM_ONLY_FIELDS
+        .into_iter()
+        .filter(|field| fields.iter().any(|picked| picked == field))
+        .collect::<Vec<_>>();
+    if picked.is_empty() {
+        return;
+    }
+    octocode_runtime_base::response::paging::push_warnings(
+        value,
+        [format!(
+            "{} is not in search rows (GitHub's search returns no such field): read the pull request with ghGetHistoryItem (operation pullRequest, its number) for it.",
+            picked.join(", ")
+        )],
+    );
+}
+
 fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms: String) -> Value {
     let fields = gh_search_history_query::fields(query);
     let state = query.state();
@@ -369,6 +381,7 @@ fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms:
         &fields,
     );
     rows::drop_filtered_labels(&mut v, "pullRequests", &query.filters().label);
+    point_item_only_fields(&mut v, &fields);
     // The count call is the same on every page: offered once, on page 1.
     if paging.listed
         && paging.more

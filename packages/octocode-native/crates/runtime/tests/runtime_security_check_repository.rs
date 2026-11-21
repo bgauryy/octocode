@@ -279,7 +279,10 @@ async fn a_rate_limited_advisory_page_fails_with_its_reset_time() {
     .await;
     let data = read(&server, "o/r").await;
     let source = &data["sources"][0];
-    assert_eq!(source["status"], "partial", "{data}");
+    // No advisory was read: the source did not answer, though the
+    // repository's facts stay and the row is retryable.
+    assert_eq!(source["status"], "failed", "{data}");
+    assert_eq!(data["retryable"], true, "{data}");
     assert_eq!(source["errorCode"], "rateLimited", "{data}");
     // The entry names what was left unread; the reset time is the rate
     // limit's, said once for the response, in warnings, never in `why`.

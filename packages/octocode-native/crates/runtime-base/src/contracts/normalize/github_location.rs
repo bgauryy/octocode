@@ -76,14 +76,12 @@ fn location(sent: &str) -> Option<(&str, Option<&str>)> {
         .or_else(|| text.strip_prefix("http://"))
         .unwrap_or(text);
     let text = text.strip_prefix("www.").unwrap_or(text);
-    let hosted = text
+    let hosted_path = text
         .get(..HOST.len() + 1)
-        .is_some_and(|head| head.eq_ignore_ascii_case(&format!("{HOST}/")));
-    let path = if hosted {
-        &text[HOST.len() + 1..]
-    } else {
-        text
-    };
+        .filter(|head| head.eq_ignore_ascii_case(&format!("{HOST}/")))
+        .and_then(|_| text.get(HOST.len() + 1..));
+    let hosted = hosted_path.is_some();
+    let path = hosted_path.unwrap_or(text);
     let path = path.strip_suffix('/').unwrap_or(path);
     let path = path.strip_suffix(".git").unwrap_or(path);
     let mut names = path.split('/');

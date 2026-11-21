@@ -8,6 +8,7 @@ import { chromeCommands } from './chrome-contract.mjs';
 import { errorMessage } from './error-message.mjs';
 import {
   describe,
+  summarize,
   expandFlow,
   getFlow,
   loadFlows,
@@ -148,16 +149,23 @@ export async function flowMain(args: string[], workspace = process.cwd()) {
     const rank = (area?: string) =>
       area === undefined ? order.length : order.indexOf(area);
     const sorted = flows
-      .map(({ def, source }) => describe(def, source))
+      .map(({ def, source }) => ({
+        area: def.area,
+        row: summarize(def, source),
+      }))
       .sort((a, b) => rank(a.area) - rank(b.area));
-    const areas: Record<string, string[]> = {};
-    for (const item of sorted)
-      (areas[item.area ?? 'custom'] ??= []).push(item.name);
-    print({
-      areas,
-      flows: sorted,
-      ...(invalid.length ? { invalid } : {}),
-    });
+    const areas: Record<string, unknown[]> = {};
+    for (const { area, row } of sorted)
+      (areas[area ?? 'custom'] ??= []).push(row);
+    // Compact on purpose: the whole list is one inline reply; params live in `flow show`.
+    process.stdout.write(
+      `${JSON.stringify({
+        areas,
+        source: 'built-in unless a row says workspace',
+        next: 'flow show <name> returns params, expects and the steps to splice',
+        ...(invalid.length ? { invalid } : {}),
+      })}\n`
+    );
     return 0;
   }
   if (action === 'save') {
@@ -174,25 +182,42 @@ export async function flowMain(args: string[], workspace = process.cwd()) {
   const { def, source } = getFlow(workspace, name);
   if (action === 'show') {
     const { values, missing } = resolveParams(def, params, true);
+    // A sensitive flow is not ready until the caller confirms it.
+    if (
+      def.sensitive &&
+      values.acknowledge !== true &&
+      !missing.includes('acknowledge')
+    )
+      missing.push('acknowledge');
     const { plan } = expandFlow(def, values, { redact: true, missing });
-    let valid = true,
+    let expandedOk = true,
       error: string | undefined;
     try {
       validateExpanded(plan, secretValues(def, values));
     } catch (cause) {
-      valid = false;
+      expandedOk = false;
       error = errorMessage(cause);
     }
+    const {
+      name: flowName,
+      description,
+      area,
+      sensitive,
+    } = describe(def, source);
     print({
-      flow: describe(def, source),
-      ...(def.repeat ? { repeat: def.repeat } : {}),
-      template: def.plan,
+      name: flowName,
+      description,
+      source,
+      ...(area ? { area } : {}),
+      ...(sensitive ? { sensitive } : {}),
+      params: def.params,
+      expects: def.expects,
+      // True only when no required param is missing and the expanded steps pass the plan validator.
+      valid: missing.length === 0 && expandedOk,
       missing,
-      plan,
       // Paste `steps` into a larger run plan; $step numbers count from the first step of that plan.
       spliceable: true,
       steps: (plan as { steps?: unknown }).steps,
-      valid,
       ...(error ? { error } : {}),
     });
     return 0;

@@ -200,15 +200,22 @@ struct ProjectFiles {
     roots: Vec<std::path::PathBuf>,
     include: Option<globset::GlobSet>,
     exclude: Option<globset::GlobSet>,
+    /// The config is a tsconfig that does not compile JavaScript
+    /// (`allowJs`/`checkJs` unset): a `.js`/`.cjs` its `include` matches is
+    /// no file of the project, and a server opening it loads an inferred
+    /// project instead.
+    skips_js: bool,
 }
 
 impl ProjectFiles {
     fn read(root: &Path) -> Self {
-        let Some(config) = ["tsconfig.json", "jsconfig.json"]
+        let Some((name, text)) = ["tsconfig.json", "jsconfig.json"]
             .iter()
-            .find_map(|name| std::fs::read_to_string(root.join(name)).ok())
-            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+            .find_map(|name| Some((*name, read_config(&root.join(name))?)))
         else {
+            return Self::default();
+        };
+        let Some(config) = serde_json::from_str::<Value>(&text).ok() else {
             return Self::default();
         };
         let patterns = |keys: &[&str]| {
@@ -224,6 +231,7 @@ impl ProjectFiles {
             roots: include_roots(root, &included),
             include: glob_set(&included),
             exclude: glob_set(&patterns(&["exclude"])),
+            skips_js: name == "tsconfig.json" && !compiles_js(root, &text, &config),
         }
     }
 
@@ -233,6 +241,11 @@ impl ProjectFiles {
         let Ok(relative) = path.strip_prefix(root) else {
             return false;
         };
+        if self.skips_js
+            && JS_EXTENSIONS.contains(&extension_of(&path.to_string_lossy(), true, "").as_str())
+        {
+            return false;
+        }
         self.include
             .as_ref()
             .is_none_or(|set| set.is_match(relative))
@@ -241,6 +254,48 @@ impl ProjectFiles {
                 .as_ref()
                 .is_some_and(|set| set.is_match(relative))
     }
+}
+
+/// JavaScript file extensions a tsconfig compiles only with `allowJs`.
+const JS_EXTENSIONS: &[&str] = &["js", "jsx", "mjs", "cjs"];
+
+/// Whether the tsconfig `text` (read from `root`) compiles JavaScript: it
+/// or a config it `extends` (relative paths, read as text: a shared base is
+/// often JSONC) sets `allowJs` or `checkJs` to `true`.
+fn compiles_js(root: &Path, text: &str, config: &Value) -> bool {
+    let extended = match &config["extends"] {
+        Value::String(path) => vec![path.as_str()],
+        Value::Array(paths) => paths.iter().filter_map(Value::as_str).collect(),
+        _ => Vec::new(),
+    };
+    sets_js(text)
+        || extended
+            .into_iter()
+            .filter(|path| path.starts_with('.'))
+            .any(|path| {
+                let mut base = root.join(path);
+                if base.extension().is_none() {
+                    base.set_extension("json");
+                }
+                read_config(&base).is_some_and(|text| sets_js(&text))
+            })
+}
+
+/// A project config file's text.
+fn read_config(path: &Path) -> Option<String> {
+    std::fs::read_to_string(path).ok()
+}
+
+/// Whether config text sets `allowJs` or `checkJs` to `true`.
+fn sets_js(text: &str) -> bool {
+    ["\"allowJs\"", "\"checkJs\""].iter().any(|key| {
+        text.match_indices(key).any(|(at, _)| {
+            text.get(at + key.len()..)
+                .map(str::trim_start)
+                .and_then(|rest| rest.strip_prefix(':'))
+                .is_some_and(|rest| rest.trim_start().starts_with("true"))
+        })
+    })
 }
 
 /// tsconfig globs: `*` stays within one path segment, and a pattern names

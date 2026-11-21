@@ -9,6 +9,7 @@ import { dirname, join, resolve } from 'node:path';
 import { before, test } from 'node:test';
 import { localScriptImports } from './bundled-imports.mjs';
 import { readJson } from '../packages/octocode/scripts/build-plugin.mjs';
+import { PACKAGE_SKILLS } from '../packages/octocode/scripts/stage-skills.mjs';
 
 export interface PluginPackage {
   packageRoot: string;
@@ -55,11 +56,17 @@ export function definePluginPackageTests(plugin: PluginPackage): void {
 
   test('all public skills ship with their local script imports', () => {
     const bundled = join(packageRoot, 'skills');
-    assert.deepEqual(skillNames(bundled), skillNames(join(repoRoot, 'skills')));
-    for (const name of skillNames(join(repoRoot, 'skills'))) {
+    // Staging ships the public skills plus each package-owned skill folder.
+    const sources = new Map(
+      ['skills', ...PACKAGE_SKILLS].flatMap(dir =>
+        skillNames(join(repoRoot, dir)).map(name => [name, join(repoRoot, dir, name)] as const)
+      )
+    );
+    assert.deepEqual(skillNames(bundled), [...sources.keys()].sort());
+    for (const [name, source] of sources) {
       assert.equal(
         readFileSync(join(bundled, name, 'SKILL.md'), 'utf8'),
-        readFileSync(join(repoRoot, 'skills', name, 'SKILL.md'), 'utf8')
+        readFileSync(join(source, 'SKILL.md'), 'utf8')
       );
     }
     for (const path of filesUnder(bundled)) {

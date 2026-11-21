@@ -49,7 +49,7 @@ type TargetFlags = {
   strict?: boolean;
   /** The tab `open --url` selected: the default page while it exists. */
   preferredId?: string;
-  /** A tab group opened with `open --urls` on `port`, and the zero-based tab within it. */
+  /** A tab group made with the `group` command on `port`, and the zero-based tab within it. */
   group?: string;
   groupIndex?: number;
   port?: string;
@@ -165,7 +165,7 @@ async function targetByGroup(
   if (!ids) {
     const known = Object.keys(groups);
     return {
-      error: `[CDP_RUNNER] Unknown group "${sel.group}" on port ${port}. Groups: ${known.length ? known.join(', ') : '(none; open --urls creates one)'}`,
+      error: `[CDP_RUNNER] Unknown group "${sel.group}" on port ${port}. Groups: ${known.length ? known.join(', ') : '(none; group open creates one)'}`,
     };
   }
   const live = await chrome.targets();
@@ -359,10 +359,19 @@ export async function listTargets(
     lastListedTargetsAt: nowIso,
     updatedAt: nowIso,
   });
-  const groups = Object.entries(readSessionMeta(port).groups ?? {});
+  const groupMeta = readSessionMeta(port);
+  const groups = Object.entries(groupMeta.groups ?? {});
   const rows = targets.map(t => {
     const member = groups.flatMap(([name, ids]) =>
-      ids.includes(t.id) ? [{ group: name, groupIndex: ids.indexOf(t.id) }] : []
+      ids.includes(t.id)
+        ? [
+            {
+              group: name,
+              groupIndex: ids.indexOf(t.id),
+              private: Boolean(groupMeta.contexts?.[name]),
+            },
+          ]
+        : []
     )[0];
     return {
       id: t.id,

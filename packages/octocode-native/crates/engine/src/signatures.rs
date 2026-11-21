@@ -83,7 +83,9 @@ pub(crate) mod receiver_fields;
 /// a block-scope C/C++ function prototype bind no local value.
 /// v34: the path of a restricted visibility (`pub(in crate::x)`) is no
 /// path reference, so it links no import of that module.
-pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 34;
+/// v35: an unextracted argument group (a macro invocation's token tree) lists
+/// the identifiers written inside it (`names`).
+pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 35;
 
 /// The declaration kinds an `extends`/`implements` clause can name or
 /// declare: the nodes of a type hierarchy. One list for the graph's linking

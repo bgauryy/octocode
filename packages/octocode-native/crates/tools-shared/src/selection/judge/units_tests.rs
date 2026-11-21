@@ -606,7 +606,10 @@ fn the_plan_matches_the_requests_sent() {
     assert_eq!(plan.body_bytes, provider.body_bytes());
     // Before the provider answered here, only its window bounds a request.
     assert!(plan.input_tokens_at_most > 0);
-    assert!(plan.input_tokens_at_most <= provider.evaluator.request_window(false) * plan.requests_at_most);
+    assert!(
+        plan.input_tokens_at_most
+            <= provider.evaluator.request_window(false) * plan.requests_at_most
+    );
     let learned = provider
         .evaluator
         .plan_units_at(&call(&units, &questions), 1);

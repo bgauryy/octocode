@@ -36,7 +36,8 @@ Position convention: generated line is 1-based and column is 0-based (Chrome's c
 Map access:
 
 - `data:` URIs (base64 or percent-encoded) decode locally.
-- `http(s)` maps are fetched through the sandbox's narrow resolver exemption, only when the map shares the script's origin. A different origin is refused (`SOURCEMAP_REFUSED`); network access is not widened.
+- `http(s)` maps load through the connected Chrome (`Network.loadNetworkResource` plus `IO.read`, with its cookies, cache and proxy), only when the map shares the script's origin. A different origin is refused (`SOURCEMAP_REFUSED`). A failed load reports the resource's `netError` or HTTP status; a Chrome without `Network.loadNetworkResource` fails naming that method, with no HTTP fallback.
+- The script sandbox has no network exemption: fetch, WebSocket, TCP, dns and dgram stay loopback-only, so recipe and custom code reach the network only through the browser.
 
 Output: `<script name>.map.json` (the map as served, `sourcesContent` kept), `source-map-index.json` (sources with `hasContent`, `savedAs`, and mapped positions), `[POSITION] 2:3 -> src/b.ts:6:2 name`, and `[SOURCE]` lines when listed.
 

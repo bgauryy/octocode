@@ -6,7 +6,8 @@
 //! - **Symbol seeds** (a changed declaration) propagate only through the
 //!   edges that bind that declaration (`calls`, `uses`, `inherits`,
 //!   `passes`). An importer whose linked references into the module name
-//!   only other items is skipped. One with no linked name at all
+//!   only other items is skipped, unless it holds code the extractor could
+//!   not read (a macro invocation's arguments). One with no linked name at all
 //!   (side-effect, namespace, glob or unlinked imports) is a module-level
 //!   `candidate`: listed, since it may reach the name, but neither proven
 //!   affected nor expanded as if its whole module changed.
@@ -21,6 +22,7 @@
 //! reads (manifest, workspace list, compiler config) affects every file below
 //! its directory.
 use super::super::classify::{ROLE_ENTRY, ROLE_TEST, role_names};
+use super::manifest::Unextracted;
 use super::format::{Confidence, EdgeKind, FLAG_TEST, GraphTables, NONE, NodeKind};
 use super::tables::MODULE_DETAIL;
 use serde_json::{Value, json};
@@ -96,9 +98,10 @@ pub(crate) fn run(
     t: &GraphTables,
     seeds: &[u32],
     global: &[(String, String)],
+    unextracted: &Unextracted,
     max_depth: u32,
 ) -> Impact {
-    let mut walk = Propagation::new(t);
+    let mut walk = Propagation::new(t, unextracted);
     let symbol_mode = walk.seed_changes(seeds, global);
     walk.symbol_precision = symbol_mode && global.is_empty();
     walk.propagate();
@@ -154,10 +157,15 @@ struct Propagation<'t> {
     /// (`uses`, `calls`, `inherits`, `passes`) across files, built on first
     /// use.
     referrers: std::cell::OnceCell<BTreeSet<(u32, u32)>>,
+    /// The names argument groups the extractor could not read may use, per
+    /// file: their linked names do not bound what they use.
+    unextracted: &'t Unextracted,
+    /// The symbol nodes of each file, built on first use.
+    file_symbols: std::cell::OnceCell<BTreeMap<u32, Vec<u32>>>,
 }
 
 impl<'t> Propagation<'t> {
-    fn new(t: &'t GraphTables) -> Self {
+    fn new(t: &'t GraphTables, unextracted: &'t Unextracted) -> Self {
         let n = t.nodes.len();
         Self {
             t,
@@ -171,6 +179,8 @@ impl<'t> Propagation<'t> {
                 .collect(),
             symbol_precision: false,
             referrers: std::cell::OnceCell::new(),
+            unextracted,
+            file_symbols: std::cell::OnceCell::new(),
         }
     }
 
@@ -296,6 +306,55 @@ impl<'t> Propagation<'t> {
             })
     }
 
+    /// Whether `importer` holds argument groups the extractor could not
+    /// read that name a symbol of `target` the change affects: no edge
+    /// records that use, so the importer stays a candidate.
+    fn names_affected(&self, importer: u32, target: u32) -> bool {
+        if self.unextracted.is_empty() {
+            return false;
+        }
+        let t = self.t;
+        let symbols = self.file_symbols.get_or_init(|| {
+            let mut by_file = BTreeMap::<u32, Vec<u32>>::new();
+            for (id, node) in t.node_ids().zip(&t.nodes) {
+                if node.kind == NodeKind::Symbol && node.file != NONE {
+                    by_file.entry(node.file).or_default().push(id);
+                }
+            }
+            by_file
+        });
+        // A symbol of the file reached so far, and every symbol of the file
+        // that calls it in turn: the walk may not have reached those yet.
+        let mut affected = BTreeSet::new();
+        let mut pending = symbols
+            .get(&target)
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|id| self.reach[*id as usize].is_some())
+            .collect::<Vec<_>>();
+        while let Some(id) = pending.pop() {
+            if !affected.insert(id) {
+                continue;
+            }
+            pending.extend(t.incoming(id).filter_map(|edge| {
+                let caller = &t.nodes[edge.src as usize];
+                let reaches = matches!(
+                    edge.kind,
+                    EdgeKind::Calls | EdgeKind::Uses | EdgeKind::Inherits | EdgeKind::Passes
+                );
+                (reaches && caller.kind == NodeKind::Symbol && caller.file == target)
+                    .then_some(edge.src)
+            }));
+        }
+        self.unextracted.may_name(
+            importer,
+            affected
+                .iter()
+                .map(|id| super::manifest::spelled_name(t.str(t.nodes[*id as usize].name))),
+        )
+    }
+
     fn referrers(&self) -> &BTreeSet<(u32, u32)> {
         self.referrers.get_or_init(|| {
             let t = self.t;
@@ -374,7 +433,9 @@ impl<'t> Propagation<'t> {
                 EdgeKind::Calls | EdgeKind::Uses | EdgeKind::Inherits | EdgeKind::Passes => true,
                 EdgeKind::Imports => {
                     node.kind == NodeKind::File
-                        && (self.whole[id as usize] || !self.binds(edge.src, id, edge.line))
+                        && (self.whole[id as usize]
+                            || !self.binds(edge.src, id, edge.line)
+                            || self.names_affected(edge.src, id))
                 }
                 // The parent module that declares this file (`mod x;`).
                 EdgeKind::Contains => {

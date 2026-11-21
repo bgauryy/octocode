@@ -3,7 +3,7 @@ import { join } from 'path';
 import type { RunnerSession } from '../cdp-runner-session.mjs';
 import { createSourceMapResolver } from '../sourcemap-resolver.mjs';
 import { run as monitor } from './live-har-monitor.mjs';
-import { run as screenshot } from './page-screenshot.mjs';
+import { run as screenshot, tileFile } from './page-screenshot.mjs';
 import type { MonitorEvent } from './live-har-format.mjs';
 import { pageOutcome } from './navigation-outcome.mjs';
 
@@ -75,7 +75,7 @@ function screenshotFiles(cdp: RunnerSession): string[] {
   const manifest = JSON.parse(
     readFileSync(join(cdp.outputDir, 'screenshot-manifest.json'), 'utf8')
   );
-  return manifest.tiles.map((tile: { file: string }) => tile.file);
+  return manifest.tiles.map((tile: { file: string }) => tileFile(tile.file));
 }
 
 export async function run(cdp: RunnerSession) {

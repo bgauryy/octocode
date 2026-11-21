@@ -1,6 +1,7 @@
 // Page-level plan steps: navigation, DOM actions and waits, and element extraction.
 // Each op takes the plan run state and the current step { step, index, timeout, row, target }.
 import { createDomOperations } from './dom-operations-check.mjs';
+import { stageSave } from './plan-save.mjs';
 import { actionabilityReason } from './dom-failure.mjs';
 import { exceptionMessage, waitCondition } from './plan-condition.mjs';
 import type { Handler } from '../cdp-connection.mjs';
@@ -70,12 +71,25 @@ async function domStep(state: PlanState, current: StepContext) {
   const { step, index, timeout, row, target } = current;
   const { plan } = state;
   const act = step.op === 'act';
+  // A wait on its `after` condition alone (no element, no text value) has no DOM operation to run.
+  if (
+    step.op === 'wait' &&
+    !(step.ref || step.selector || step.role || step.name || step.value) &&
+    step.after
+  ) {
+    row.condition = await waitCondition(target, step.after, timeout, state.log);
+    return;
+  }
   const operation = createDomOperations({
     steps: [{ ...step, action: act ? step.action : 'wait' }],
     waitMs: timeout,
+    // The step began at row.startedAt: a wait ends there + timeout, so WAIT_TIMEOUT is reported before the step deadline.
+    deadlineAt: Date.parse(row.startedAt) + timeout,
     settleMs: plan.settleMs ?? 0,
     waitText: act ? (step.after?.text ?? '') : '',
+    afterAwaited: act && Boolean(step.after?.selector || step.after?.url),
     traceEvents: plan.traceEvents ?? false,
+    dialog: plan.dialog,
     literalWaitText: true,
     diff: false,
     artifactName: `dom-step-${index + 1}.json`,
@@ -148,6 +162,7 @@ async function extract(state: PlanState, current: StepContext) {
   const rows = extractedRows(current, evaluated.result?.value);
   row.count = rows.length;
   row.artifact = state.cdp.saveArtifact(`extract-${index + 1}.json`, rows).file;
+  stageSave(current, rows);
 }
 
 export const pageOps: Record<string, PlanOp> = {

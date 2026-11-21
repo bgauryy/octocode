@@ -71,8 +71,20 @@ pub struct GraphArgumentSlot {
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum GraphArgumentGroupObservation {
     Slots { slots: Vec<GraphArgumentSlot> },
-    Unsupported { construct: String },
+    Unsupported {
+        construct: String,
+        /// Every identifier written inside the group, sorted and unique:
+        /// the names its unextracted code may call or use. `None` when the
+        /// extractor did not read them (or the group held more than
+        /// [`MAX_UNSUPPORTED_GROUP_NAMES`]): the group may name anything.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        names: Option<Vec<String>>,
+    },
 }
+
+/// Most identifier names kept for one unsupported argument group; a larger
+/// group keeps none, so it counts as naming anything.
+pub const MAX_UNSUPPORTED_GROUP_NAMES: usize = 256;
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]

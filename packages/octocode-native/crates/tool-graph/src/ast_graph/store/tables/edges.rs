@@ -159,6 +159,15 @@ impl<'a> Projector<'a> {
                     );
                 }
             }
+            // A Rust value path (`.map(m::f)`, a path in a `macro_rules!`
+            // body) uses the item it names, as a call of it would.
+            for (target, name, line) in &facts.rust_path_uses {
+                let found = resolver.exported_or_declared(target, name);
+                let confidence = confidence_for(&found, Confidence::High);
+                for dst in found {
+                    self.push(src, dst, EdgeKind::Uses, confidence, "path", *line);
+                }
+            }
             self.reexported_name_edges(resolver, src, facts);
         }
     }

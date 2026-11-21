@@ -73,6 +73,7 @@ test(
           '/raw',
           'cdp',
           'Runtime.evaluate',
+          '--acknowledge',
           '--params',
           JSON.stringify({ expression, returnByValue: true }),
           '--port',

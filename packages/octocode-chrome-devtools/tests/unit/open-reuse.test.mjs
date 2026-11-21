@@ -26,7 +26,14 @@ async function fakeBrowser(port) {
 const open = (port, args, env = {}) =>
   spawnSync(
     process.execPath,
-    [join(skill, 'dist/engine/open-browser.mjs'), '--port', port, ...args],
+    [
+      join(skill, 'dist/engine/open-browser.mjs'),
+      '--port',
+      port,
+      '--attach',
+      '--acknowledge',
+      ...args,
+    ],
     {
       cwd: root,
       encoding: 'utf8',
@@ -56,6 +63,8 @@ test('open --url on a reused browser opens the url instead of ignoring it', asyn
         join(skill, 'dist/engine/open-browser.mjs'),
         '--port',
         port,
+        '--attach',
+        '--acknowledge',
         '--url',
         url,
       ],
@@ -82,7 +91,13 @@ test('open without --url on a reused browser opens no tab', async () => {
   try {
     const result = spawnSync(
       process.execPath,
-      [join(skill, 'dist/engine/open-browser.mjs'), '--port', port],
+      [
+        join(skill, 'dist/engine/open-browser.mjs'),
+        '--port',
+        port,
+        '--attach',
+        '--acknowledge',
+      ],
       { cwd: root, encoding: 'utf8', timeout: 20000 }
     );
     assert.equal(result.status, 0, result.stderr);
@@ -159,6 +174,7 @@ const PLAN = JSON.stringify({
     {
       op: 'cdp',
       method: 'Runtime.evaluate',
+      acknowledge: true,
       params: { expression: 'document.title' },
     },
   ],

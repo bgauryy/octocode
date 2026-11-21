@@ -61,6 +61,12 @@ pub(super) struct Facts<'a> {
     pub unmatched: Vec<String>,
     /// Other databases' records of a listed advisory that do not list the version.
     pub disputed: Vec<String>,
+    /// The Go module a package path was read in: OSV keys Go by module, so its
+    /// records name the module's other packages too.
+    pub module: Option<&'a str>,
+    /// One id for each advisory OSV lists for the module whose records name
+    /// other packages and not this one: set apart, never counted.
+    pub module_only: Vec<String>,
 }
 
 impl Facts<'_> {
@@ -102,6 +108,14 @@ impl Facts<'_> {
                 cves.push(cve.to_owned());
             }
         }
+        let apart = results
+            .iter()
+            .flat_map(|result| &result.module_only)
+            .collect::<Vec<_>>();
+        let module_only = super::record::advisory_groups(&apart)
+            .iter()
+            .filter_map(|group| group.first().map(|row| row.id.clone()))
+            .collect();
         let mut disputed: Vec<String> = Vec::new();
         for id in records.iter().flat_map(|row| &row.disputed_by) {
             if !disputed.contains(id) {
@@ -134,6 +148,8 @@ impl Facts<'_> {
             unregistered: None,
             unregistered_clear: false,
             unregistered_name: None,
+            module: None,
+            module_only,
         }
     }
 }
@@ -189,6 +205,21 @@ fn ids_clause(ids: &[String]) -> String {
         .map(|id| stated_id(id))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// The advisories OSV lists for the package's module whose records name other
+/// packages of it: not counted, and one read away (`moduleOnly` of the
+/// `details` view).
+fn module_clause(facts: &Facts<'_>) -> String {
+    let (Some(module), false) = (facts.module, facts.module_only.is_empty()) else {
+        return String::new();
+    };
+    format!(
+        " OSV also lists {} for the module {} whose records name other packages of it and not this one ({}): they are not counted here; the details view's moduleOnly lists them.",
+        octocode_engine::text::counted(facts.module_only.len(), "advisory", "advisories"),
+        typed(module),
+        ids_clause(&facts.module_only)
+    )
 }
 
 /// What a package row discloses about how its version was matched and its name read.
@@ -308,6 +339,7 @@ pub(super) fn lead(target: &str, facts: &Facts<'_>) -> Value {
         ));
     }
     sentence.push_str(&evaluation_clause(facts));
+    sentence.push_str(&module_clause(facts));
     if let Some(version) = facts.upgrade_to {
         sentence.push_str(&format!(
             " Upgrade to {} to clear every one listed.",

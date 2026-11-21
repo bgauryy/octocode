@@ -5,7 +5,7 @@ use tree_sitter::Node;
 use crate::graph::{
     GraphArgumentBinding, GraphArgumentGroup, GraphArgumentGroupObservation,
     GraphArgumentObservation, GraphArgumentSlot, GraphFactArgumentSite, GraphParseAssessment,
-    GraphParseScope, argument_occurrence_id,
+    GraphParseScope, MAX_UNSUPPORTED_GROUP_NAMES, argument_occurrence_id,
 };
 use crate::signatures::arguments::{ArgumentAdapter, syntax};
 use crate::signatures::nodes::{call_callee, node_text};
@@ -107,6 +107,7 @@ pub(super) fn collect(
         } else {
             GraphArgumentGroupObservation::Unsupported {
                 construct: kind_of(group).to_owned(),
+                names: identifier_names(group, content),
             }
         };
         observations.push(GraphArgumentGroup {
@@ -270,4 +271,28 @@ pub(super) fn join_bindings(acc: &mut GraphAccumulator) {
             }
         }
     }
+}
+
+/// The identifiers written anywhere inside `group`, sorted and unique, or
+/// `None` past [`MAX_UNSUPPORTED_GROUP_NAMES`]. Comments and string text
+/// carry no identifier node, so they name nothing.
+fn identifier_names(group: Node<'_>, content: &str) -> Option<Vec<String>> {
+    let mut names = std::collections::BTreeSet::new();
+    let mut stack = vec![group];
+    while let Some(node) = stack.pop() {
+        if node.child_count() == 0 {
+            if kind_of(node).contains("identifier")
+                && let Some(name) = node_text(node, content)
+            {
+                names.insert(name.to_owned());
+                if names.len() > MAX_UNSUPPORTED_GROUP_NAMES {
+                    return None;
+                }
+            }
+            continue;
+        }
+        let mut cursor = node.walk();
+        stack.extend(node.children(&mut cursor));
+    }
+    Some(names.into_iter().collect())
 }

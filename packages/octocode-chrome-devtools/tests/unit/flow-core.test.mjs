@@ -188,7 +188,7 @@ test('a secret value never appears in list, show, errors or the printed expansio
     assert.match(show.stdout, /\[secret:passwordValue\]/);
     const shown = JSON.parse(show.stdout);
     assert.equal(shown.valid, true);
-    assert.ok(shown.plan.steps.some(step => step.name === 'User'));
+    assert.ok(shown.steps.some(step => step.name === 'User'));
     const wrong = flow(
       cwd,
       'show',
@@ -259,12 +259,14 @@ test('save, list and show round trip; collisions, overwrites and traversal are r
     assert.equal(savedOut.params.apiToken.secret, true);
 
     const list = JSON.parse(flow(cwd, 'list').stdout);
-    const mine = list.flows.find(item => item.name === 'my-flow');
+    const rows = Object.values(list.areas).flat();
+    const mine = rows.find(item => item.name === 'my-flow');
     assert.equal(mine.source, 'workspace');
     assert.equal(
-      list.flows.filter(item => item.source === 'built-in').length,
+      rows.filter(item => item.source === undefined).length,
       builtinFlows.length
     );
+    assert.match(list.source, /built-in/);
 
     const show = JSON.parse(
       flow(
@@ -275,7 +277,7 @@ test('save, list and show round trip; collisions, overwrites and traversal are r
         '{"target":"https://example.com/","apiToken":"tok-123456"}'
       ).stdout
     );
-    assert.equal(show.plan.steps[0].url, 'https://example.com/');
+    assert.equal(show.steps[0].url, 'https://example.com/');
     assert.ok(!JSON.stringify(show).includes('tok-123456'));
     assert.deepEqual(show.missing, []);
 

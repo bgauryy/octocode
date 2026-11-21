@@ -358,3 +358,34 @@ fn an_owner_listing_excludes_archived_unless_its_filter_includes_them() {
         GitHubArchive::Only
     );
 }
+
+/// A keyword spelled as a qualifier (`language:rust`, `stars:>1000`) matches
+/// text: an empty answer names the filter that carries it.
+#[test]
+fn an_empty_search_names_the_filter_for_a_qualifier_keyword() {
+    let query: GhSearchRepoQuery = serde_json::from_value(json_fixture(
+        r#"{"operation": "search", "keywords": ["language:rust", "stars:>1000", "parser"]}"#,
+    ))
+    .expect("query");
+    let empty = repository_output(
+        json_fixture(r#"{"repositories": []}"#),
+        &query,
+        true,
+        false,
+        false,
+    );
+    let hints = empty.data["hints"].to_string();
+    assert!(hints.contains("filters.language"), "{hints}");
+    assert!(hints.contains("filters.stars"), "{hints}");
+    assert!(hints.contains(r#"{\"min\":1001}"#), "{hints}");
+    assert!(!hints.contains("`parser`"), "{hints}");
+    // Rows found: nothing to explain.
+    let found = repository_output(
+        json_fixture(r#"{"repositories": []}"#),
+        &query,
+        false,
+        false,
+        false,
+    );
+    assert!(found.data.get("hints").is_none(), "{}", found.data);
+}

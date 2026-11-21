@@ -144,27 +144,57 @@ fn closes_block(line: &str) -> bool {
         || text.starts_with(['}', ')', ']'])
 }
 
+/// Whether `edge`, a line at or left of a block head's indent, does not end
+/// the block but carries its body on: a lone opening brace on its own line
+/// (Allman style: `{` under the head), or a closer that opens again
+/// (`) {` after a wrapped parameter list, `} else {`). A `)` closer that
+/// the next non-blank line answers with such a brace (`)` then `{`) carries
+/// on too.
+fn body_follows(lines: &[&str], edge: usize) -> bool {
+    let text = lines[edge].trim();
+    if text.starts_with('{') {
+        return !text.contains('}');
+    }
+    if text.starts_with(['}', ')']) && text.ends_with('{') {
+        return true;
+    }
+    text.starts_with(')')
+        && lines[edge + 1..]
+            .iter()
+            .find(|line| !line.trim().is_empty())
+            .is_some_and(|next| next.trim() == "{")
+}
+
 /// The 1-based last line of the block that starts at line `start`, judged by
 /// indentation alone: the first later non-blank line indented no deeper than
 /// the head ends it (a closing `end`/`}` is included, any other line is not).
-/// `None` when no later line does, so the block's edge is unknown.
+/// A line at that indent that only opens the body (an Allman `{`, see
+/// [`body_follows`]) does not end it: the scan goes on to the line that
+/// closes the body. `None` when no later line ends it, so the block's edge is
+/// unknown.
 fn indented_end(lines: &[&str], start: usize) -> Option<usize> {
     let head = lines.get(start.checked_sub(1)?)?;
     let depth = indent_of(head);
-    let (offset, edge) = lines[start..]
-        .iter()
-        .enumerate()
-        .find(|(_, line)| !line.trim().is_empty() && indent_of(line) <= depth)?;
-    let last = start + offset;
-    let end = if closes_block(edge) {
-        last + 1
-    } else {
-        // The block stops before the edge line and its blank lead-in.
-        (start..=last)
-            .rev()
-            .find(|line| !lines[line - 1].trim().is_empty())?
-    };
-    Some(end.max(start))
+    let mut from = start;
+    loop {
+        let offset = lines[from..]
+            .iter()
+            .position(|line| !line.trim().is_empty() && indent_of(line) <= depth)?;
+        let edge = from + offset;
+        if body_follows(lines, edge) {
+            from = edge + 1;
+            continue;
+        }
+        let end = if closes_block(lines[edge]) {
+            edge + 1
+        } else {
+            // The block stops before the edge line and its blank lead-in.
+            (start..=edge)
+                .rev()
+                .find(|line| !lines[line - 1].trim().is_empty())?
+        };
+        return Some(end.max(start));
+    }
 }
 
 /// A block read of a file with no declaration outline (no grammar for its

@@ -17,7 +17,7 @@ mod review;
 mod shaped;
 
 use missing_patch::inventory_patch_flag;
-pub(super) use missing_patch::{WITHHELD, missing_patch_reason};
+pub(super) use missing_patch::{WITHHELD, missing_patch_reason, source_readable_without_patch};
 pub(super) use review::review_selection;
 pub(super) use shaped::ShapedFiles;
 

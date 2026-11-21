@@ -18,7 +18,7 @@ import {
   typedCli,
   writeOutputs,
 } from './capture-fixture.mjs';
-test('native Octocode can search the hinted capture scope and fetch exact evidence', () =>
+test('native Octocode can search the capture files and fetch exact evidence', () =>
   fixture(async work => {
     const octo = resolve(
       import.meta.dirname,
@@ -30,13 +30,15 @@ test('native Octocode can search the hinted capture scope and fetch exact eviden
       JSON.stringify({ body: 'Needle in captured web content' }, null, 2)
     );
     const result = await shape(work, `[ARTIFACT] RESPONSE ${file}`);
+    // Replies carry workspace-relative `files`; they feed localSearch/localFetch unchanged.
+    assert.deepEqual(result.files, ['response.json']);
     const scope = {
-      ...result.search,
-      path: result.search.paths[0],
+      path: result.files[0],
+      includeHidden: true,
+      includeIgnored: true,
       matchString: ['Needle'],
       regexEngine: 'literal',
     };
-    delete scope.paths;
     const found = spawnSync(
       process.execPath,
       [octo, 'localSearch', JSON.stringify({ queries: [scope] })],
@@ -46,7 +48,11 @@ test('native Octocode can search the hinted capture scope and fetch exact eviden
     assert.match(found.stdout, /Needle in captured web content/);
     const read = spawnSync(
       process.execPath,
-      [octo, 'localFetch', JSON.stringify({ queries: [{ path: file }] })],
+      [
+        octo,
+        'localFetch',
+        JSON.stringify({ queries: [{ path: result.files[0] }] }),
+      ],
       { cwd: work, encoding: 'utf8' }
     );
     assert.equal(read.status, 0, read.stderr + read.stdout);
@@ -54,7 +60,7 @@ test('native Octocode can search the hinted capture scope and fetch exact eviden
   }));
 
 test('input acknowledgement omits event payloads but keeps exact evidence reachable', () =>
-  fixture(async (work, client) => {
+  fixture(async (work, _client) => {
     const action = join(work, 'action.json');
     const flow = join(work, 'browser-result.json');
     writeFileSync(
@@ -91,8 +97,9 @@ test('input acknowledgement omits event payloads but keeps exact evidence reacha
     assert(!JSON.stringify(result).includes('private typed value'));
     assert(!result.artifacts);
     assert(Buffer.byteLength(JSON.stringify(result)) < 1800);
-    const page = await call(client, result.next.steps);
-    assert.equal(page.data.rows[0].value.artifact, action);
+    // The acknowledged input's exact record stays reachable as a listed file.
+    assert.deepEqual(result.files, ['action.json']);
+    assert.equal(result.evidence, 'capture/capture.json');
     assert.equal(
       JSON.parse(readFileSync(action, 'utf8')).events[0].value,
       'private typed value'
@@ -100,7 +107,7 @@ test('input acknowledgement omits event payloads but keeps exact evidence reacha
   }));
 
 test('a completed input without a postcondition returns only an acknowledgement and full-evidence routes', () =>
-  fixture(async (work, client) => {
+  fixture(async (work, _client) => {
     const artifact = join(work, 'input.json'),
       flow = join(work, 'browser-result.json');
     writeFileSync(
@@ -125,8 +132,12 @@ test('a completed input without a postcondition returns only an acknowledgement 
     assert.deepEqual(result.flow.steps, []);
     assert(!JSON.stringify(result).includes('Do not echo this input'));
     assert(Buffer.byteLength(JSON.stringify(result)) < 1000);
-    const page = await call(client, result.next.steps);
-    assert.equal(page.data.rows[0].value.artifact, artifact);
+    assert.deepEqual(result.files, ['input.json']);
+    assert.equal(
+      JSON.parse(readFileSync(join(work, result.files[0]), 'utf8')).events[0]
+        .value,
+      'Do not echo this input'
+    );
   }));
 
 test('target inventories expose executable typed continuations through CLI and MCP', () =>
@@ -222,7 +233,7 @@ test('cdp and protocol plans return the reply value and Chrome error inline', ()
       assert(!result.error);
     }
   }));
-test('stderr is the error only for failures; success diagnostics stay in logs', async () => {
+test('stderr is the error only for failures; success diagnostics stay behind a stderr path', async () => {
   const work = mkdtempSync(join(tmpdir(), 'octo-capture-'));
   try {
     const artifact = join(work, 'snapshot.json');
@@ -234,6 +245,30 @@ test('stderr is the error only for failures; success diagnostics stay in logs', 
         stdout: `[ARTIFACT] snapshot ${artifact}`,
         stderr: '[CDP_SANDBOX] diagnostic',
       });
+      if (exitCode === 0) {
+        // Inline JSON data tolerates stderr: a banner leaves no trace, a real diagnostic keeps a path.
+        for (const [stderr, expected] of [
+          ['[CDP_SANDBOX] sandboxed (node 1, fs scoped)\n', undefined],
+          ['[BROWSER] note\n', 'capture-0/stderr.txt'],
+        ]) {
+          const inline = join(work, 'inline');
+          mkdirSync(inline, { recursive: true });
+          const reply = await captureResult(
+            { exitCode },
+            writeOutputs(inline, { stdout: '{"a":1}', stderr }),
+            inline,
+            'cleanup',
+            undefined,
+            work
+          );
+          assert.equal(JSON.stringify(reply.data), '{"a":1}');
+          assert.equal(
+            reply.stderr,
+            expected && expected.replace('capture-0', 'inline')
+          );
+          assert(!('capture' in reply) && !('next' in reply));
+        }
+      }
       const result = await captureResult(
         { exitCode },
         outputs,
@@ -243,7 +278,9 @@ test('stderr is the error only for failures; success diagnostics stay in logs', 
         work
       );
       assert.equal(result.ok, exitCode === 0);
-      assert.equal(result.logs.stderr, outputs.stderr.file);
+      if (exitCode === 0) {
+        assert(!('logs' in result) && !('stderr' in result), 'banner only');
+      } else assert.equal(result.logs.stderr, outputs.stderr.file);
       assert.equal(
         result.error,
         exitCode === 0 ? undefined : '[CDP_SANDBOX] diagnostic'

@@ -1,3 +1,4 @@
+import { connectionOverrideNote } from '../cdp-policy.mjs';
 import { redactPlanForEvidence } from './plan-redact.mjs';
 import {
   readFileSync,
@@ -10,9 +11,15 @@ import { run as monitor } from './live-har-monitor.mjs';
 import { jsonPointer, validatePlan } from './plan-validate.mjs';
 import { frameScope, scopedSession } from './plan-scopes.mjs';
 import { historyOps } from './plan-history-ops.mjs';
+import { commitSave } from './plan-save.mjs';
 import { pageOps } from './plan-page-ops.mjs';
 import { captureOps } from './plan-capture-ops.mjs';
-import { logQueryContinuation, protocolOps } from './plan-protocol-ops.mjs';
+import {
+  closeRouting,
+  enablePlanDomains,
+  logQueryContinuation,
+  protocolOps,
+} from './plan-protocol-ops.mjs';
 import type { Payload } from '../cdp-connection.mjs';
 import { originViolation, readSessionMeta } from '../session-meta.mjs';
 import { errorMessage } from '../error-message.mjs';
@@ -166,6 +173,32 @@ export async function run(connection: CheckSession, input?: unknown) {
   const failedOptionalSteps: Failure[] = [];
   const started = Date.now();
   // A { $step | $event, pointer } reference resolves to the value it selects.
+  const unavailable = (
+    step: unknown,
+    event: unknown,
+    pointer: unknown,
+    source?: unknown
+  ) => {
+    const tried = JSON.stringify(pointer ?? ''),
+      n = JSON.stringify(step);
+    const shape =
+      'use {"$step": N, "pointer": "/root/nodeId"}: the pointer is relative to that step\'s raw CDP response, as Chrome returns it (DOM.getDocument: /root/nodeId; Runtime.evaluate: /result/objectId), with nothing added around it';
+    if (step === undefined)
+      return new Error(
+        `Result reference is unavailable: event ${JSON.stringify(event)} has no matched event yet (pointer ${tried})`
+      );
+    if (source === undefined)
+      return new Error(
+        `Result reference is unavailable: step ${JSON.stringify(step)} has no saved result (steps with results: ${[...artifacts.keys()].join(', ') || 'none'}); ${shape}`
+      );
+    const keys =
+      source && typeof source === 'object' && !Array.isArray(source)
+        ? Object.keys(source)
+        : [];
+    return new Error(
+      `Result reference is unavailable: step ${n}, pointer ${tried} selects nothing; top-level keys of step ${n}'s result: ${keys.slice(0, 12).join(', ') || (Array.isArray(source) ? 'an array' : 'none')}${keys.length > 12 ? `, … (${keys.length} in all)` : ''}; ${shape}`
+    );
+  };
   const resolveReference = (
     step: unknown,
     event: unknown,
@@ -173,28 +206,23 @@ export async function run(connection: CheckSession, input?: unknown) {
   ) => {
     const artifact = step !== undefined ? artifacts.get(step) : undefined;
     if (step !== undefined && artifact === undefined)
-      throw new Error('Result reference is unavailable');
+      throw unavailable(step, event, pointer);
     const source =
       artifact !== undefined
         ? JSON.parse(readFileSync(artifact, 'utf8'))
         : typeof event === 'string'
           ? streams.get(event)?.last
           : undefined;
-    return jsonPointer(source, pointer ?? '');
+    const selected = jsonPointer(source, pointer ?? '');
+    if (selected === undefined) throw unavailable(step, event, pointer, source);
+    return selected;
   };
   const resolveParams = (value: unknown): unknown => {
     if (!value || typeof value !== 'object') return value;
     const step: unknown = Reflect.get(value, '$step'),
       event: unknown = Reflect.get(value, '$event');
     if (step !== undefined || event !== undefined) {
-      const selected = resolveReference(
-        step,
-        event,
-        Reflect.get(value, 'pointer')
-      );
-      if (selected === undefined)
-        throw new Error('Result reference is unavailable');
-      return selected;
+      return resolveReference(step, event, Reflect.get(value, 'pointer'));
     }
     return Array.isArray(value)
       ? value.map(resolveParams)
@@ -213,6 +241,7 @@ export async function run(connection: CheckSession, input?: unknown) {
     log,
   };
   const execute = async () => {
+    await enablePlanDomains(state);
     for (const [index, step] of plan.steps.entries()) {
       const timeout = step.timeoutMs ?? plan.waitMs ?? 8000,
         row: StepRow = {
@@ -267,14 +296,10 @@ export async function run(connection: CheckSession, input?: unknown) {
         };
         if (target.targetInfo.sessionId)
           row.sessionId = target.targetInfo.sessionId;
-        await (ops[step.op] ?? protocolOps.protocol)(state, {
-          step,
-          index,
-          timeout,
-          row,
-          target,
-        });
+        const current = { step, index, timeout, row, target };
+        await (ops[step.op] ?? protocolOps.protocol)(state, current);
         if (allowOrigins) await assertStayedOnAllowedOrigins(cdp, allowOrigins);
+        commitSave(state, current);
         row.status = 'complete';
       } catch (error) {
         const protocolError = protocolErrorOf(error);
@@ -305,6 +330,11 @@ export async function run(connection: CheckSession, input?: unknown) {
         journal(row);
       }
     }
+    // A last step that only set per-connection state leaves nothing behind for the next call.
+    const last = plan.steps.at(-1);
+    const note =
+      !failure && last?.op === 'cdp' && connectionOverrideNote(last.method);
+    if (note) log(note);
   };
   try {
     if (plan.observe?.network)
@@ -322,6 +352,7 @@ export async function run(connection: CheckSession, input?: unknown) {
       closeSync(stream.fd);
       logQueryContinuation(log, 'EVENTS', stream.file);
     }
+    closeRouting(state);
     for (const scope of sessionScopes.values()) scope.dispose();
     for (const { scope, sessionId } of scopes.values()) {
       scope.dispose();

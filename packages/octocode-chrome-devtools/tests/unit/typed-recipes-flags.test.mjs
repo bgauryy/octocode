@@ -55,6 +55,16 @@ const recipes = {
     'NETEVENTS_MATCH',
     'NETEVENTS_KINDS',
   ],
+  'page-html': [
+    'PAGEHTML_URL',
+    'PAGEHTML_SELECTOR',
+    'PAGEHTML_FRAMES',
+    'PAGEHTML_SHADOW',
+  ],
+  'page-archive': ['ARCHIVE_URL'],
+  'page-resources': ['RES_URL', 'RES_TYPES', 'RES_BINARY', 'RES_MATCH'],
+  'console-log': ['CONSOLE_URL', 'CONSOLE_MS', 'CONSOLE_LEVELS'],
+  downloads: ['DL_URL', 'DL_CLICK_SELECTOR', 'DL_MS', 'DL_ACKNOWLEDGE'],
   'network-conditions': [
     'NETCOND_URL',
     'NETCOND_OFFLINE',
@@ -75,18 +85,20 @@ test('typed launch fields become the exact engine argv', () => {
   assert.deepEqual(
     argv('open', {
       port: 9222,
-      enableFeatures: ['A', 'B'],
-      disableFeatures: ['C'],
-      blinkFeatures: ['D', 'E'],
-      windowSize: '1280x800',
-      userAgent: 'agent/1.0',
-      proxy: {
-        server: 'http://p:1',
-        bypassList: '<local>',
-        pacUrl: 'http://x/p.pac',
+      launch: {
+        enableFeatures: ['A', 'B'],
+        disableFeatures: ['C'],
+        blinkFeatures: ['D', 'E'],
+        windowSize: '1280x800',
+        userAgent: 'agent/1.0',
+        proxy: {
+          server: 'http://p:1',
+          bypassList: '<local>',
+          pacUrl: 'http://x/p.pac',
+        },
+        chromePath: '/usr/bin/chromium',
+        chromeFlags: ['--mute-audio', '--a=b'],
       },
-      chromePath: '/usr/bin/chromium',
-      chromeFlags: ['--mute-audio', '--a=b'],
     }).args,
     [
       '--port',
@@ -118,15 +130,34 @@ test('typed launch fields become the exact engine argv', () => {
 test('open refuses launch fields with attach, bad values and every denylisted flag', () => {
   const open = schema('open');
   for (const bad of [
-    { attach: true, port: 9222, windowSize: '1280x800' },
-    { attach: true, port: 9222, chromeFlags: ['--mute-audio'] },
-    { attach: true, port: 9222, proxy: { server: 'x' } },
-    { windowSize: 'big' },
-    { enableFeatures: ['A,B'] },
-    { proxy: {} },
-    { args: ['--headless'], userAgent: 'x' },
+    {
+      attach: true,
+      acknowledge: true,
+      port: 9222,
+      launch: { windowSize: '1280x800' },
+    },
+    {
+      attach: true,
+      acknowledge: true,
+      port: 9222,
+      launch: { chromeFlags: ['--mute-audio'] },
+    },
+    {
+      attach: true,
+      acknowledge: true,
+      port: 9222,
+      launch: { proxy: { server: 'x' } },
+    },
+    { launch: { windowSize: 'big' } },
+    { launch: { enableFeatures: ['A,B'] } },
+    { launch: { proxy: {} } },
+    { launch: { unknownOption: 1 } },
+    { windowSize: '1280x800' },
+    { args: ['--headless'], launch: { userAgent: 'x' } },
     ...chromeFlagDenylist.map(denied => ({
-      chromeFlags: [denied.prefix ? `${denied.flag}x` : denied.flag],
+      launch: {
+        chromeFlags: [denied.prefix ? `${denied.flag}x` : denied.flag],
+      },
     })),
   ])
     assert.equal(open.safeParse(bad).success, false, JSON.stringify(bad));

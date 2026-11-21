@@ -8,7 +8,7 @@ pub(crate) use arguments::argument_occurrence_id;
 pub use arguments::{
     ARGUMENT_DERIVATION, GraphArgumentBinding, GraphArgumentForm, GraphArgumentGroup,
     GraphArgumentGroupObservation, GraphArgumentObservation, GraphArgumentSlot,
-    GraphArgumentValueKind, GraphFactArgumentSite,
+    GraphArgumentValueKind, GraphFactArgumentSite, MAX_UNSUPPORTED_GROUP_NAMES,
 };
 pub use diagnostics::{GraphFactCode, GraphFactDiagnostic};
 pub use test_identity::{GraphTestIdentity, GraphTestKind};

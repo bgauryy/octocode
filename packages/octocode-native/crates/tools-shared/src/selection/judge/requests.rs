@@ -37,8 +37,7 @@ pub(super) struct Asking<'a> {
     pub(super) context: Option<&'a str>,
     /// Whether a hit's window rides in its own question instead of the
     /// file's shared state: each question then shows exactly what the hit's
-    /// own request would (clasify's units). The selection judge's hits share
-    /// the union of their windows, as they always have.
+    /// own request would, and no other hit's lines decide it.
     pub(super) own_windows: bool,
     /// The question text every unit of a packed request is asked, stated
     /// once in its state (`questions`), each question naming its entry
@@ -79,9 +78,8 @@ pub(super) struct Caps {
     /// Whole units one request holds at most.
     pub(super) group_units: usize,
     /// Whether a hit group closes at the two windows too, not only at
-    /// [`GROUP_STATE_CHARS`]: clasify's units, whose plan prices the requests
-    /// before any is sent. The selection judge's hit groups leave the windows
-    /// to the provider's refusal, as they always have.
+    /// [`GROUP_STATE_CHARS`]: hits whose windows ride in their questions,
+    /// whose plan prices the requests before any is sent.
     pub(super) hit_windows: bool,
 }
 
@@ -362,7 +360,7 @@ pub(super) fn requests(call: &JudgeCall<'_>, caps: Caps) -> Option<Vec<Request>>
         hit_scope: target_question()?,
         unit_scope: section_question()?,
         context: call.research_context,
-        own_windows: false,
+        own_windows: true,
         shared: None,
     };
     let units = call

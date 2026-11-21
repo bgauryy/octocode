@@ -91,18 +91,13 @@ test(
       assert.match(both(wrong), /Expected params:.*nodeId: DOM\.NodeId/);
       assert.match(both(wrong), /#method-querySelector/);
 
-      // A blocked method never reaches the browser, with or without --acknowledge; the browser still answers.
-      for (const extra of [[], ['--acknowledge']]) {
-        const blocked = engine(
-          'cdp',
-          'Browser.close',
-          '--browser',
-          ...extra,
-          ...P
-        );
-        assert.notEqual(blocked.status, 0);
-        assert.match(both(blocked), /Browser\.close is blocked/);
-      }
+      // A method with a heavy consequence is refused without --acknowledge and never reaches the browser.
+      const closed = engine('cdp', 'Browser.close', '--browser', ...P);
+      assert.notEqual(closed.status, 0);
+      assert.match(
+        both(closed),
+        /Browser\.close .*every tab.*user's permission.*acknowledge: true/s
+      );
       assert.equal(engine('targets', ...P).status, 0);
 
       // needsAck: refused without acknowledge before any browser call, sent with it.
@@ -121,7 +116,7 @@ test(
       assert.equal(sent.status, 0, both(sent));
       assert.match(sent.stdout, /\[ARTIFACT\]/);
 
-      // A plan refuses a blocked literal method at validation: no browser is needed (unused port).
+      // A plan refuses a literal method without permission at validation: no browser is needed (unused port).
       const offline = String(await freePort());
       const plan = engine(
         'run',
@@ -131,10 +126,10 @@ test(
         offline
       );
       assert.notEqual(plan.status, 0);
-      assert.match(both(plan), /Page\.crash is blocked/);
+      assert.match(both(plan), /Page\.crash .*user's permission/);
       assert.doesNotMatch(both(plan), /No Chrome|ECONNREFUSED/i);
 
-      // A script is raw except for blocked methods.
+      // A script is raw except for the hard-stop set: it cannot ask the user, so it cannot acknowledge.
       writeFileSync(
         join(cwd, '.octocode/close.mjs'),
         `export async function run(cdp) {
@@ -143,9 +138,59 @@ test(
 }\n`
       );
       const script = engine('script', '.octocode/close.mjs', ...P);
-      assert.match(both(script), /REFUSED .*Browser\.close is blocked/);
+      assert.match(
+        both(script),
+        /REFUSED .*Browser\.close is refused in scripts/
+      );
       assert.doesNotMatch(both(script), /SENT/);
       assert.equal(engine('targets', ...P).status, 0);
+    } finally {
+      engine('cleanup', '--port', String(port));
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  'Browser.close with acknowledge really closes a throwaway browser',
+  { skip, timeout: 120000 },
+  async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'octo-real-close-'));
+    const port = await freePort();
+    const engine = (...args) =>
+      spawnSync(process.execPath, [bin, '/raw', ...args], {
+        cwd,
+        encoding: 'utf8',
+      });
+    const listening = () =>
+      fetch(`http://127.0.0.1:${port}/json/version`, {
+        signal: AbortSignal.timeout(1000),
+      }).then(
+        () => true,
+        () => false
+      );
+    try {
+      assert.equal(
+        engine('open', '--headless', '--port', String(port)).status,
+        0
+      );
+      assert.equal(await listening(), true);
+      const closed = engine(
+        'cdp',
+        'Browser.close',
+        '--browser',
+        '--acknowledge',
+        '--port',
+        String(port)
+      );
+      assert.doesNotMatch(closed.stdout + closed.stderr, /\[POLICY\]/);
+      for (let tries = 0; tries < 50 && (await listening()); tries++)
+        await new Promise(resolve => setTimeout(resolve, 100));
+      assert.equal(
+        await listening(),
+        false,
+        'the acknowledged close ended the browser'
+      );
     } finally {
       engine('cleanup', '--port', String(port));
       rmSync(cwd, { recursive: true, force: true });

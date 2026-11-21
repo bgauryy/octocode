@@ -115,6 +115,64 @@ fn unresolved_calls_from(tables: &format::GraphTables) -> Vec<[u64; 2]> {
         .collect()
 }
 
+/// The files holding an argument group the extractor could not read, each
+/// with the declared names that code may use (`null`: any name), sorted by
+/// file node: a symbol change reaches such a file only when its code names
+/// the symbol.
+fn unextracted_arguments_in(projection: &tables::Projection) -> Vec<Value> {
+    projection
+        .unextracted
+        .iter()
+        .map(|(file, names)| json!([file, names]))
+        .collect()
+}
+
+/// [`unextracted_arguments_in`] of a manifest: the declared names a file's
+/// unextracted argument groups may use.
+#[derive(Default)]
+pub(crate) struct Unextracted {
+    /// `None`: any name.
+    files: BTreeMap<u32, Option<BTreeSet<String>>>,
+}
+
+impl Unextracted {
+    pub(super) fn is_empty(&self) -> bool {
+        self.files.is_empty()
+    }
+
+    /// Whether code of `file` that no edge covers may use a name of `names`.
+    pub(super) fn may_name<'n>(
+        &self,
+        file: u32,
+        mut names: impl Iterator<Item = &'n str>,
+    ) -> bool {
+        match self.files.get(&file) {
+            None => false,
+            Some(None) => true,
+            Some(Some(used)) => names.any(|name| used.contains(name)),
+        }
+    }
+}
+
+pub(super) fn unextracted_arguments_of(manifest: &Value) -> Unextracted {
+    let files = manifest["unextractedArgumentsIn"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let file = u32::try_from(entry[0].as_u64()?).ok()?;
+            let names = entry[1].as_array().map(|names| {
+                names
+                    .iter()
+                    .filter_map(|name| name.as_str().map(str::to_owned))
+                    .collect()
+            });
+            Some((file, names))
+        })
+        .collect();
+    Unextracted { files }
+}
+
 /// [`unresolved_calls_from`]'s count for `node` in a manifest.
 pub(super) fn unresolved_calls_of(manifest: &Value, node: u32) -> u64 {
     let pairs = manifest["unresolvedCallsFrom"].as_array();
@@ -230,6 +288,7 @@ pub(super) fn manifest(input: &ManifestInput) -> Value {
         "calls": input.projection.calls,
         "unresolvedCallNames": unresolved_call_names(tables),
         "unresolvedCallsFrom": unresolved_calls_from(tables),
+        "unextractedArgumentsIn": unextracted_arguments_in(input.projection),
         "argumentCoverage": input.argument_coverage,
         "extraction": {
             "parsedFiles": input.built.parsed_files,

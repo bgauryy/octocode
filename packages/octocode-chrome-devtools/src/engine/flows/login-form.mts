@@ -3,7 +3,7 @@ const flow: FlowDefinition = {
   name: 'login-form',
   area: 'input',
   description:
-    'Sign in through a labelled username/password form and wait for a success text. Omit url to use the current page.',
+    'Sign in through a labelled username/password form. It waits for a success text. Omit url to use the current page.',
   params: {
     url: { type: 'string', description: 'Page to open first (optional)' },
     userLabel: {

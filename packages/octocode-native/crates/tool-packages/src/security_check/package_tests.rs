@@ -513,6 +513,66 @@ async fn a_go_package_path_sends_its_module() {
     assert_eq!(data["packageName"], "golang.org/x/text");
 }
 
+/// OSV keys Go by module, so a package path inside it hears its module's other
+/// packages' advisories too: the summary names the package it checked, says the
+/// module has advisories it does not count, and leads to the `details` read
+/// that lists them (live: github.com/gin-gonic/gin/binding v1.9.0).
+#[tokio::test]
+async fn a_go_package_summary_names_its_package_and_leads_to_its_modules_advisories() {
+    const PACKAGE: &str = "golang.org/x/text/language";
+    let sibling = json!({"id": "GO-SIBLING", "aliases": ["GHSA-SIBLING"],
+        "affected": [{"package": {"name": "golang.org/x/text", "ecosystem": "Go"},
+            "ecosystem_specific": {"imports": [{"path": "golang.org/x/text/other"}]}}]});
+    let http = RouteHttp::new()
+        .status(
+            "/v1/module/golang.org/x/text/language",
+            400,
+            json_fixture(r#"{"message": "is a package"}"#),
+        )
+        .json(
+            "/v1/package/golang.org/x/text/language",
+            json_fixture(
+                r#"{"path": "golang.org/x/text/language",
+                    "modulePath": "golang.org/x/text", "version": "v0.3.5"}"#,
+            ),
+        )
+        .osv_pages(vec![(200, json!({"vulns": [sibling]}))]);
+    let data = answer_viewed(
+        &http,
+        ArtifactType::Go,
+        PACKAGE,
+        Some("v0.3.5"),
+        None,
+        octocode_contract_types::SecurityCheckView::Summary,
+    )
+    .await
+    .expect("row");
+    let answer = data["answer"].as_str().expect("answer");
+    assert!(answer.starts_with(&format!("{PACKAGE}@v0.3.5")), "{data}");
+    assert!(answer.contains("golang.org/x/text"), "the module: {data}");
+    assert!(answer.contains("GO-SIBLING"), "the advisory's id: {data}");
+    assert!(answer.contains("moduleOnly"), "where to read it: {data}");
+    assert_eq!(data["advisoryCount"], 0, "never counted: {data}");
+    let lead = data["related"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|call| call.pointer("/input/queries/0/view") == Some(&json!("details")))
+        .unwrap_or_else(|| panic!("a details lead: {data}"));
+    assert_eq!(
+        lead.pointer("/input/queries/0/packageName"),
+        Some(&json!(PACKAGE)),
+        "the lead reads the package, whose records the module list is set apart from"
+    );
+    let details = answer_for(&http, ArtifactType::Go, PACKAGE, Some("v0.3.5"), None)
+        .await
+        .expect("details");
+    assert_eq!(
+        details["moduleOnly"]["advisories"][0]["id"], "GO-SIBLING",
+        "{details}"
+    );
+}
+
 /// What a stopped row carries, for the row that resumes it.
 fn saved(token: &str) -> String {
     json!({"token": token, "pending": [], "read": [record("A")], "seen": [token]}).to_string()
@@ -1472,6 +1532,36 @@ fn global_record(id: &str, extra: Value) -> octocode_github::RepositoryAdvisory 
         fields.extend(more.clone());
     }
     serde_json::from_value(advisory).expect("advisory")
+}
+
+/// The details view states each copy of an advisory with the database it comes
+/// from: OSV and GitHub keep their own severity, text and dates under one id.
+#[tokio::test]
+async fn each_details_copy_of_an_advisory_names_its_database() {
+    const ID: &str = "GHSA-glob-twin-aaaa";
+    let data = global_page_row_of(ID, vec![global_record(ID, json!({"severity": "medium"}))]).await;
+    let databases = data["advisories"]
+        .as_array()
+        .expect("advisories")
+        .iter()
+        .filter(|row| row["id"] == ID)
+        .map(|row| {
+            row["database"]
+                .as_str()
+                .expect("every copy names its database")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        databases,
+        [
+            crate::security_check::record::OSV_DATABASE,
+            crate::security_check::record::GITHUB_DATABASE
+        ],
+        "{data}"
+    );
+    for row in data["advisories"].as_array().expect("advisories") {
+        assert!(row["database"].is_string(), "no copy is unlabeled: {row}");
+    }
 }
 
 /// The monorepo row with GitHub's database answering `records` at the version.

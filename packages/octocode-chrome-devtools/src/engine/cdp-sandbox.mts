@@ -11,6 +11,7 @@ import { octocodeOutputBase, packageTmpDir } from './engine-io.mjs';
 import { stageHelpers, pruneOldRunDirs } from './sandbox-staging.mjs';
 import { originViolation, readSessionMeta } from './session-meta.mjs';
 import { errorMessage } from './error-message.mjs';
+import { urlSchemeRefusal } from './cdp-policy.mjs';
 
 function requireNode24() {
   const [major] = process.versions.node.split('.').map(Number);
@@ -123,6 +124,9 @@ pruneOldRunDirs(RUNS_DIR, Date.now(), OUTPUT_DIR);
 // The port's origin allowlist (open --allow-origin) is a mistake guard: a plan or new tab that would
 // navigate elsewhere is refused here, before the runner connects to Chrome.
 async function refuseUnlistedOrigins() {
+  const newTabUrl = getArg('--new-tab');
+  const scheme = newTabUrl && urlSchemeRefusal(newTabUrl, '--new-tab', null);
+  if (scheme) refuse(scheme);
   const allowOrigins = readSessionMeta(PORT).allowOrigins;
   if (!allowOrigins) return;
   const urls: { url: string; where: string }[] = [];
@@ -190,6 +194,8 @@ const readPaths = [
       // The one CDP policy and the live-schema gate the runner and plan steps apply.
       'cdp-policy.mjs',
       'cdp-schema.mjs',
+      // Scope routing and dynamic enable for cdp plan steps.
+      'cdp-scope.mjs',
       'engine-io.mjs',
       'error-message.mjs',
       // The runner's own modules, and the page-owner lookup it shares with browser plans.
@@ -198,6 +204,7 @@ const readPaths = [
       'cdp-runner-targets.mjs',
       'session-registry.mjs',
       'session-meta.mjs',
+      'emulation-state.mjs',
       'target-owner.mjs',
       // Source maps for dev-server-check stacks.
       'sourcemap-resolver.mjs',

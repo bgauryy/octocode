@@ -172,6 +172,10 @@ pub(crate) struct FileFacts {
     /// `use super::*` may bind it from the parent module (see the graph's
     /// `inherit_parent_globs`).
     pub rust_unbound_paths: Vec<(String, u32)>,
+    /// Rust qualified paths outside call and `use` position (`.map(m::f)`,
+    /// a path in a `macro_rules!` body) that resolved to another file: that
+    /// file, the item the path names in it, and the line.
+    pub rust_path_uses: Vec<(String, String, u32)>,
     /// The sites projection reads: only reference and unsupported slots and
     /// unsupported groups ([`Self::argument_counts`] has the whole scan).
     pub argument_sites: Vec<octocode_engine::graph::GraphFactArgumentSite>,
@@ -216,6 +220,7 @@ impl FileFacts {
         self.reexport_lines.shrink_to_fit();
         self.calls.shrink_to_fit();
         self.rust_unbound_paths.shrink_to_fit();
+        self.rust_path_uses.shrink_to_fit();
         self.heritage.shrink_to_fit();
     }
 

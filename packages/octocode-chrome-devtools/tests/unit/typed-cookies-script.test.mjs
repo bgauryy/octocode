@@ -83,7 +83,7 @@ test('typed cookies input becomes the exact engine argv', () => {
   );
 });
 
-test('cookies rejects mixing typed fields with args, a missing acknowledgement and missing confirmDomains', () => {
+test('cookies has no legacy args, and refuses a missing acknowledgement and missing confirmDomains', () => {
   const cookies = schema('cookies');
   assert.equal(cookies.safeParse(typed).success, true);
   assert.equal(
@@ -99,15 +99,28 @@ test('cookies rejects mixing typed fields with args, a missing acknowledgement a
     assert.equal(cookies.safeParse({ ...typed, ...bad }).success, false);
 });
 
-test('script accepts a typed file with connection and refuses mixing with args', () => {
+test('script accepts an acknowledged typed file with connection, has no args and refuses an unacknowledged file', () => {
   const script = schema('script');
   assert.equal(
     script.safeParse({
       file: 'probe.mjs',
-      connection: { port: 9222, scriptTimeout: 5000 },
+      acknowledge: true,
+      connection: { port: 9222 },
     }).success,
     true
   );
+  assert.equal(script.safeParse({ file: 'probe.mjs' }).success, false);
+  // Engine-only connection flags are not typed; they stay reachable through /raw.
+  for (const field of ['scriptTimeout', 'dryRun', 'noReload', 'browser'])
+    assert.equal(
+      script.safeParse({
+        file: 'probe.mjs',
+        acknowledge: true,
+        connection: { [field]: true },
+      }).success,
+      false,
+      field
+    );
   assert.equal(
     script.safeParse({ file: 'probe.mjs', args: ['probe.mjs'] }).success,
     false

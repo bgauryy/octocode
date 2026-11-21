@@ -1,6 +1,7 @@
 //! An empty code search: the scope check, its leads and its default hints.
 use super::requested_ref;
 use crate::gh_search_code::{GhSearchCodeQuery, GhSearchCodeQueryMatchInItem};
+use crate::qualifier_keywords::{Qualifier, qualifier, set_to};
 use octocode_github::ProviderError;
 use octocode_github::{
     GitHubTransport, ProviderErrorKind, ProviderErrorReason, RepositoryMetadata, RequestContext,
@@ -225,6 +226,49 @@ pub(in crate::gh_search_code) fn unsearched_ref<'q>(
     default_branch: Option<&str>,
 ) -> Option<&'q str> {
     requested_ref(query).filter(|reference| default_branch != Some(*reference))
+}
+
+/// The code-search qualifiers a keyword can spell, with the field that
+/// carries each: a keyword matches text, so `language:rust` finds nothing
+/// `extensions` would.
+const QUALIFIER_FIELDS: &[Qualifier] = &[
+    Qualifier {
+        names: &["language", "lang"],
+        field: |value| {
+            format!(
+                "set `extensions` to the file extensions of {value} (no leading dot, e.g. `rs`, `py`; code search has no language field)"
+            )
+        },
+    },
+    Qualifier {
+        names: &["extension", "ext"],
+        field: |value| {
+            format!(
+                "set `extensions` to `[\"{}\"]` (no leading dot)",
+                value.trim_start_matches('.')
+            )
+        },
+    },
+    qualifier!(["path"] => "path"),
+    qualifier!(["filename"] => "nameContains"),
+    qualifier!(["user", "org"] => "owner"),
+    Qualifier {
+        names: &["repo"],
+        field: |value| match value.split_once('/') {
+            Some((owner, repo)) => format!("set `owner` to `{owner}` and `repo` to `{repo}`"),
+            None => set_to("repo", value),
+        },
+    },
+    Qualifier {
+        names: &["in"],
+        field: |value| format!("set `matchIn` to `[\"{value}\"]` (`content` or `path`)"),
+    },
+];
+
+/// A hint per keyword spelled as a code-search qualifier that names the
+/// field carrying it.
+pub(in crate::gh_search_code) fn qualifier_keyword_hints(keywords: &[&str]) -> Vec<String> {
+    crate::qualifier_keywords::hints(keywords, QUALIFIER_FIELDS)
 }
 
 /// What an empty code search says in its default hint: a requested ref the

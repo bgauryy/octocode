@@ -32,6 +32,26 @@ pub(in crate::gh_get_history_item) struct FileOutcome {
     pub(in crate::gh_get_history_item) clipped: Vec<(String, Vec<(usize, usize)>)>,
 }
 
+/// The files the cross-tool reads below cover, as loaded (shaping consumes
+/// them). A file page's first patch window reports every file GitHub sent
+/// without a patch, so each page leads to the source of its own: the first
+/// page also gets the optional code pick, a later page only those required
+/// reads (its files that have a patch cannot lead to a read). A later patch
+/// window of a page repeats none of it.
+fn lead_files(query: &HistoryItemRequest, loaded: &[Value]) -> Option<Vec<Value>> {
+    if gh_get_history_item_query::char_offset(query).is_some() {
+        return None;
+    }
+    let first_page = gh_get_history_item_query::page(query).is_none_or(|page| page <= 1);
+    Some(
+        loaded
+            .iter()
+            .filter(|file| first_page || file.get("patch").is_none())
+            .cloned()
+            .collect(),
+    )
+}
+
 pub(super) fn shape_files_section(
     row: &mut Value,
     pagination: &mut Map<String, Value>,
@@ -42,9 +62,7 @@ pub(super) fn shape_files_section(
     plan: &PrPlan,
 ) -> FileOutcome {
     let file_filter = plan.file_filter();
-    // The cross-tool reads below are first-page reads over the page's files
-    // as loaded: shaping consumes them.
-    let lead_files = (!gh_get_history_item_query::later_page(query)).then(|| loaded.items.clone());
+    let lead_files = lead_files(query, &loaded.items);
     let listed = loaded.state.skipped + loaded.items.len();
     let state = loaded.state;
     // An `include`/`status`/`minChanges` scope that matched no changed file at all.

@@ -3,7 +3,15 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cdpHttp, packageTmpDir } from './engine-io.mjs';
-import { classify, policyRefusal, type CdpPolicy } from './cdp-policy.mjs';
+import {
+  classify,
+  navigationParamRefusal,
+  parseWrappedCall,
+  policyRefusal,
+  twinEntries,
+  wrappedCallRefusal,
+  type CdpPolicy,
+} from './cdp-policy.mjs';
 
 type TypeSpec = {
   type?: string;
@@ -65,7 +73,11 @@ export type Described = {
   docsUrl: string;
 };
 export type Validation =
-  | { ok: true }
+  | {
+      ok: true;
+      /** Findings that never block: Chrome decides (e.g. a parameter newer than this schema). */
+      warnings?: string[];
+    }
   | {
       ok: false;
       errors: string[];
@@ -242,7 +254,8 @@ export function describeMember(
       'returns' in entry
         ? (entry.returns ?? []).map(f => param(f, domain.domain))
         : [],
-    policy: kind === 'method' ? classify(base.name) : 'free',
+    policy:
+      kind === 'method' ? classify(base.name, twinEntries(schema)) : 'free',
     docsUrl: docsUrl(domain.domain, kind, memberName),
   };
 }
@@ -262,8 +275,47 @@ const firstSentence = (text: string | undefined) => {
   return end < 0 ? line : line.slice(0, end + 1);
 };
 
+/** What `<Domain>.enable` is in the installed Chrome: absent, bare (no required params) or needing params. */
+export type EnableInfo = {
+  available: boolean;
+  /** True when `<Domain>.enable` can be sent without params. */
+  bare: boolean;
+  params: Param[];
+  /** The schema's declared dependencies: domains whose types this one uses (not always needed to enable). */
+  dependencies: string[];
+  /** The events the domain starts emitting once enabled. */
+  events: string[];
+};
+
+export function enableInfo(domain: Domain): EnableInfo {
+  const command = (domain.commands ?? []).find(c => c.name === 'enable');
+  const params = (command?.parameters ?? []).map(f => param(f, domain.domain));
+  return {
+    available: command !== undefined,
+    bare: command !== undefined && params.every(p => p.optional),
+    params,
+    dependencies: domain.dependencies ?? [],
+    events: (domain.events ?? []).map(e => e.name),
+  };
+}
+
+export const docsHash = (domain: string) => `${DOCS_ROOT}#/${domain}`;
+
+/** A short recipe for a domain: what to call in order (`Domain.method {key params}`) and what to watch for. */
+export type Playbook = { summary: string; steps: string[]; notes?: string };
+
+let playbooks: Record<string, Playbook> | undefined;
+/** The playbook of a domain from cdp-playbooks.json (shipped beside this file); undefined when it has none. */
+export function playbookOf(domain: string): Playbook | undefined {
+  playbooks ??= JSON.parse(
+    readFileSync(new URL('./cdp-playbooks.json', import.meta.url), 'utf8')
+  ) as Record<string, Playbook>;
+  return Object.hasOwn(playbooks, domain) ? playbooks[domain] : undefined;
+}
+
 /** A domain's methods and events as one-line entries with flags and policy. */
-export function describeDomain(domain: Domain) {
+export function describeDomain(domain: Domain, schema?: Schema) {
+  const twins = schema && twinEntries(schema);
   const line = (item: Command | Event, kind: MemberKind) => ({
     name: item.name,
     summary: firstSentence(item.description),
@@ -272,7 +324,7 @@ export function describeDomain(domain: Domain) {
       ...(item.deprecated ? ['deprecated'] : []),
     ],
     ...(kind === 'method'
-      ? { policy: classify(`${domain.domain}.${item.name}`) }
+      ? { policy: classify(`${domain.domain}.${item.name}`, twins) }
       : {}),
   });
   return {
@@ -285,7 +337,50 @@ export function describeDomain(domain: Domain) {
     methods: (domain.commands ?? []).map(c => line(c, 'method')),
     events: (domain.events ?? []).map(e => line(e, 'event')),
     types: (domain.types ?? []).map(t => t.id),
+    enable: enableInfo(domain),
+    startsEmitting: (domain.events ?? []).map(e => e.name),
+    ...(playbookOf(domain.domain)
+      ? { playbook: playbookOf(domain.domain) }
+      : {}),
     docsUrl: `${DOCS_ROOT}tot/${domain.domain}/`,
+    docsHash: docsHash(domain.domain),
+  };
+}
+
+export type DomainRow = {
+  name: string;
+  commands: number;
+  events: number;
+  needsEnable: boolean;
+  dependencies: string[];
+  experimental: boolean;
+};
+export type IndexPage = {
+  total: number;
+  offset: number;
+  domains: DomainRow[];
+  nextOffset?: number;
+};
+
+/** One compact row per domain of the installed Chrome, paged like search (nothing is silently capped). */
+export function domainIndex(
+  schema: Schema,
+  { offset = 0, limit = SEARCH_PAGE } = {}
+): IndexPage {
+  const rows = schema.domains.map(d => ({
+    name: d.domain,
+    commands: (d.commands ?? []).length,
+    events: (d.events ?? []).length,
+    needsEnable: (d.commands ?? []).some(c => c.name === 'enable'),
+    dependencies: d.dependencies ?? [],
+    experimental: d.experimental === true,
+  }));
+  const end = offset + limit;
+  return {
+    total: rows.length,
+    offset,
+    domains: rows.slice(offset, end),
+    ...(end < rows.length ? { nextOffset: end } : {}),
   };
 }
 
@@ -350,7 +445,9 @@ export function searchSchema(
         kind,
         summary: firstSentence(entry.description),
         score: value,
-        ...(kind === 'method' ? { policy: classify(name) } : {}),
+        ...(kind === 'method'
+          ? { policy: classify(name, twinEntries(schema)) }
+          : {}),
       });
   };
   for (const domain of schema.domains) {
@@ -404,6 +501,27 @@ export function nearestMethods(schema: Schema, method: string): string[] {
     .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
     .slice(0, 3)
     .map(([name]) => name);
+}
+
+/** Up to three domain names closest to a mistyped one (case-insensitive, prefixes count). */
+export function nearestDomains(schema: Schema, name: string): string[] {
+  const wanted = name.toLowerCase();
+  const scored = schema.domains.map(
+    ({ domain }) =>
+      [
+        domain,
+        domain.toLowerCase().startsWith(wanted) ||
+        wanted.startsWith(domain.toLowerCase())
+          ? 0
+          : editDistance(wanted, domain.toLowerCase()),
+      ] as [string, number]
+  );
+  const limit = Math.max(3, Math.ceil(wanted.length * 0.4));
+  return scored
+    .filter(([, distance]) => distance <= limit)
+    .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
+    .slice(0, 3)
+    .map(([domain]) => domain);
 }
 
 // ---------- validation ----------
@@ -531,11 +649,15 @@ export function validateParams(
     lookupMember(schema, method) as Extract<Found, { kind: 'method' }>
   ).entry;
   const fields = command.parameters ?? [],
-    errors: string[] = [];
+    errors: string[] = [],
+    warnings: string[] = [];
   const domain = expected.domain;
+  // A newer Chrome adds parameters and Chrome rejects a real unknown itself, so this never blocks.
   for (const key of Object.keys(params))
     if (!fields.some(f => f.name === key))
-      errors.push(`params.${key}: unknown parameter`);
+      warnings.push(
+        `params.${key}: not a parameter of ${method} in the installed Chrome's schema; sent as is`
+      );
   for (const field of fields) {
     const value = params[field.name],
       at = `params.${field.name}`;
@@ -543,13 +665,20 @@ export function validateParams(
       if (!field.optional) errors.push(`${at}: required`);
     } else checkValue(schema, domain, field, value, at, errors);
   }
-  return errors.length ? { ok: false, errors, expected } : { ok: true };
+  if (errors.length) return { ok: false, errors, expected };
+  return warnings.length ? { ok: true, warnings } : { ok: true };
 }
 
 /** The refusal text of invalid params, with the expected shape, docs link and typo suggestions. */
-export function validationRefusal(method: string, result: Validation) {
+export function validationRefusal(
+  method: string,
+  result: Validation,
+  wrappedIn?: string
+) {
   if (result.ok) return undefined;
-  const lines = [`[INVALID] ${method}: ${result.errors.join('; ')}`];
+  const lines = [
+    `[INVALID] ${method}${wrappedIn ? ` (wrapped in ${wrappedIn})` : ''}: ${result.errors.join('; ')}`,
+  ];
   if (result.nearest?.length)
     lines.push(`Did you mean: ${result.nearest.join(', ')}`);
   if (result.expected) {
@@ -579,7 +708,8 @@ export function flagWarning(schema: Schema, method: string) {
 
 /**
  * The runtime gate of one raw call: policy first, then the live schema. A refusal is an Error message
- * to throw; warnings (experimental, deprecated, schema unavailable) are printed and never block.
+ * to throw; warnings (experimental, deprecated, unknown parameter, schema unavailable) are printed and
+ * never block. A `Target.sendMessageToTarget` is judged by the call it wraps, exactly as a direct call.
  */
 export async function gateCdpCall(
   call: { method: string; params: unknown; acknowledge?: boolean },
@@ -587,16 +717,35 @@ export async function gateCdpCall(
   warn: (line: string) => void,
   options: LoadOptions = {}
 ): Promise<string | undefined> {
-  const policy = policyRefusal(call.method, call.acknowledge);
-  if (policy) return policy;
   const { schema, note } = await trySchema(port, options);
+  // A deprecated twin inherits the policy of the method that replaced it, so the live schema is read first.
+  const twins = schema ? twinEntries(schema) : undefined;
+  const policy =
+    policyRefusal(call.method, call.acknowledge, twins) ??
+    navigationParamRefusal(call.method, call.params, call.acknowledge) ??
+    wrappedCallRefusal(call.method, call.params, call.acknowledge, twins);
+  if (policy) return policy;
   if (!schema) {
     if (note) warn(`[NOTE] ${note}`);
     return undefined;
   }
-  const result = validateParams(schema, call.method, call.params);
-  if (!result.ok) return validationRefusal(call.method, result);
-  const warning = flagWarning(schema, call.method);
-  if (warning) warn(warning);
+  const checked = (method: string, params: unknown, wrapped?: string) => {
+    const result = validateParams(schema, method, params);
+    if (!result.ok) return validationRefusal(method, result, wrapped);
+    for (const line of result.warnings ?? []) warn(`[WARNING] ${line}`);
+    const warning = flagWarning(schema, method);
+    if (warning) warn(warning);
+    return undefined;
+  };
+  const refusal = checked(call.method, call.params);
+  if (refusal || call.method !== 'Target.sendMessageToTarget') return refusal;
+  let inner = parseWrappedCall(call.params);
+  // The policy gate above already refused a malformed or unacceptable wrapped call.
+  while (inner.ok) {
+    const problem = checked(inner.method, inner.params, call.method);
+    if (problem || inner.method !== 'Target.sendMessageToTarget')
+      return problem;
+    inner = parseWrappedCall(inner.params);
+  }
   return undefined;
 }

@@ -144,7 +144,21 @@ pub(in super::super) fn with_next(query: &LspSearchQuery, mut value: Value) -> V
             && lsp_search_query::op(query) != crate::lsp_search::Op::WorkspaceSymbol
             && !matches!(category, Some("noDiagnostics" | "diagnosticsNotPublished"))
         {
-            attach_recovery_next(&mut value, query);
+            // Nothing found for a named symbol: its anchor file only uses it,
+            // so the lead searches the workspace root for its spelling.
+            let search = lsp_search_query::symbol_name(query)
+                .filter(|name| !name.trim().is_empty())
+                .zip(value.get("workspaceRoot").and_then(Value::as_str))
+                .and_then(|(name, root)| text_search_lead(name, root, &[], None));
+            match search {
+                Some(lead) => {
+                    octocode_runtime_base::response::result::attach_related(
+                        &mut value,
+                        lead.build(),
+                    );
+                }
+                None => attach_recovery_next(&mut value, query),
+            }
         }
     }
     value

@@ -15,7 +15,7 @@ export async function call(
   return invoke(name, chromeSchemaFor(name).parse(input), options.signal);
 }
 
-/** One function per command: `chrome.open({...})`, `chrome.snapshot({...})`, `chrome['har-pager']({...})`. */
+/** One function per command: `chrome.open({...})`, `chrome.snapshot({...})`, `chrome.helper({ name: 'prune', args: [...] })`. */
 export const chrome = Object.fromEntries(
   Object.keys(chromeCommands).map(name => [
     name,

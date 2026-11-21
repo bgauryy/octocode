@@ -136,11 +136,27 @@ test('a run to an unlisted origin fails before connecting to any browser', async
   meta.removeSessionMeta(port, root);
 });
 
+test('open --attach without --acknowledge is refused by the engine, naming the field', async () => {
+  const port = await freePort();
+  const refused = engine('open', '--port', port, '--attach');
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stdout, /--acknowledge/);
+  assert.match(refused.stdout, /acknowledge: true/);
+  assert.equal(await listening(port), false);
+});
+
 test('open --attach to a closed port fails naming the port and launches nothing', async () => {
   const port = await freePort();
-  const result = engine('open', '--port', port, '--attach', '--headless');
+  const result = engine(
+    'open',
+    '--port',
+    port,
+    '--attach',
+    '--acknowledge',
+    '--headless'
+  );
   assert.notEqual(result.status, 0);
-  const noLaunch = engine('open', '--port', port, '--attach');
+  const noLaunch = engine('open', '--port', port, '--attach', '--acknowledge');
   assert.notEqual(noLaunch.status, 0);
   const message = JSON.parse(noLaunch.stdout.trim().split('\n').pop()).message;
   assert.match(message, new RegExp(`port ${port}`));
@@ -174,4 +190,17 @@ test('noSandbox adds the sandbox-off flags on any OS and a sandbox failure says 
   );
   assert.ok(!isNoSandboxFailure('some other failure'));
   assert.match(NO_SANDBOX_HINT, /noSandbox: true/);
+});
+
+test('open --emulation is refused by the engine for a bad value or a missing consent', () => {
+  const run = emulation =>
+    engine('open', '--port', '9', '--emulation', emulation);
+  const bad = run('{"colorScheme":"sepia"}');
+  assert.equal(bad.status, 2);
+  assert.match(bad.stdout, /colorScheme/);
+  const geo = run('{"geolocation":{"latitude":1,"longitude":2}}');
+  assert.match(geo.stdout, /--acknowledge/);
+  const range = run('{"cpuThrottle":0.5}');
+  assert.equal(range.status, 2);
+  assert.match(range.stdout, /cpuThrottle/);
 });

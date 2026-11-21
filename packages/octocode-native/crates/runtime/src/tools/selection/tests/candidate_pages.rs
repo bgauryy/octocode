@@ -274,7 +274,7 @@ fn a_provider_page_discloses_its_long_context_retries() {
             "owner": "o",
             "repo": "r",
             "keywords": ["fn"],
-            "classification": {"predicates": ["Does this define a function?"]}
+            "classification": {"predicates": ["Does this define a function?"], "maxRequests": 10}
         }"#,
     );
     apply_code_rows(
@@ -314,7 +314,7 @@ fn a_replayed_candidate_page_keeps_its_retry_notice_without_claiming_the_billing
         Candidate::new(Some(json_fixture(r#"{"content": "first"}"#))),
         Candidate::new(Some(json_fixture(r#"{"content": "second"}"#))),
     ];
-    let query = json_fixture(r#"{"classification": {"predicates": ["find evidence"]}}"#);
+    let query = json_fixture(r#"{"classification": {"predicates": ["find evidence"], "maxRequests": 10}}"#);
     let run = |prior| {
         select_source(
             &window.selection,
@@ -369,7 +369,7 @@ fn a_long_window_answer_without_usage_is_refused_not_billed_as_a_number() {
             "owner": "o",
             "repo": "r",
             "keywords": ["fn"],
-            "classification": {"predicates": ["Does this define a function?"]}
+            "classification": {"predicates": ["Does this define a function?"], "maxRequests": 10}
         }"#,
     );
     apply_code_rows(

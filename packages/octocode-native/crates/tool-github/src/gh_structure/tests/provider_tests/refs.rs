@@ -551,6 +551,16 @@ async fn a_glob_ref_lists_only_the_matching_tags_and_branches() {
         "{}",
         none.data
     );
+    // Every field the warning names is one the row carries.
+    let warning = none.data["warnings"][0].as_str().unwrap_or_default();
+    for named in warning.split('`').skip(1).step_by(2) {
+        let field = named.split('.').next().unwrap_or_default();
+        assert!(
+            none.data.get(field).is_some(),
+            "the warning names `{named}`, which the row lacks: {}",
+            none.data
+        );
+    }
     let lead = &none.data["related"][0];
     assert_eq!(lead["tool"], "ghStructure", "{}", none.data);
     assert!(

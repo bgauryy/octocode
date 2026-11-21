@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import {
   checks,
   helpers,
+  rawCommands,
   connection,
   launchBooleans,
   launchValues,
@@ -30,13 +31,15 @@ import {
   runnerArgs,
 } from './cli-options.mjs';
 import { errorMessage } from './error-message.mjs';
+import { recipeEnv } from './cdp-checks/recipe-options.mjs';
 import { schemaOutput } from './cli-schema.mjs';
-import { chromeCommands } from './chrome-contract.mjs';
+import { chromeHelperDescriptions } from './chrome-contract.mjs';
 import { resolvePort, stateDirFor } from './session-registry.mjs';
 import { packageTmpDir } from './engine-io.mjs';
 import {
   describeDomain,
   describeMember,
+  domainIndex,
   loadSchema,
   lookupMember,
   nearestMethods,
@@ -44,9 +47,7 @@ import {
 } from './cdp-schema.mjs';
 
 const scripts = dirname(fileURLToPath(import.meta.url));
-const usage = `octocode-cdp <command> [options]\n${Object.entries(
-  chromeCommands
-)
+const usage = `octocode-cdp <command> [options]\n${Object.entries(rawCommands)
   .map(([name, desc]) => `  ${name.padEnd(17)} ${desc}`)
   .join('\n')}\n
 Examples (use absolute package path from the workspace cwd):
@@ -158,6 +159,35 @@ async function protocolInline(
     );
     return 1;
   }
+  if (target === '*') {
+    if (search !== undefined)
+      return fail(
+        'protocol * lists domains; use protocol --search <keyword> to search'
+      );
+    const offset = Number(offsetText ?? 0),
+      page = domainIndex(schema, { offset });
+    const next =
+      page.nextOffset === undefined
+        ? {}
+        : {
+            next: {
+              continue: {
+                command: process.execPath,
+                args: [
+                  fileURLToPath(import.meta.url),
+                  'protocol',
+                  '*',
+                  '--offset',
+                  String(page.nextOffset),
+                  '--port',
+                  String(port),
+                ],
+              },
+            },
+          };
+    console.log(JSON.stringify({ ...page, ...next }, null, 2));
+    return 0;
+  }
   const [domainName] = (target ?? '').split('.');
   if (search !== undefined) {
     const scoped = domainName
@@ -202,7 +232,7 @@ async function protocolInline(
   }
   const found = lookupMember(schema, target ?? '');
   if (found?.kind === 'domain')
-    console.log(JSON.stringify(describeDomain(found.domain), null, 2));
+    console.log(JSON.stringify(describeDomain(found.domain, schema), null, 2));
   else if (found)
     console.log(JSON.stringify(describeMember(schema, target!), null, 2));
   else {
@@ -214,12 +244,19 @@ async function protocolInline(
   return 0;
 }
 async function main(argv: string[]) {
-  const [command, ...args] = argv;
+  let [command, ...args] = argv;
+  // `helper <name> [args]` is the typed gateway's form of `<name> [args]`.
+  if (
+    command === 'helper' &&
+    args[0] &&
+    Object.hasOwn(chromeHelperDescriptions, args[0])
+  )
+    [command, ...args] = args;
   if (!command || ['--help', '-h', 'help'].includes(command)) {
     console.log(usage);
     return 0;
   }
-  if (!isOwnKey(chromeCommands, command))
+  if (!Object.hasOwn(rawCommands, command))
     return fail(`Unknown command ${command}; use --help`);
   if (command === 'schema') {
     console.log(
@@ -250,7 +287,7 @@ async function main(argv: string[]) {
   }
   if (args.includes('--help') || args.includes('-h')) {
     console.log(
-      `${command}: ${chromeCommands[command]}\n${Object.entries(connection)
+      `${command}: ${rawCommands[command]}\n${Object.entries(connection)
         .map(([key, value]) => `  ${key} ${value}`)
         .join(
           '\n'
@@ -270,6 +307,8 @@ async function main(argv: string[]) {
       '--options',
       '--search',
       '--offset',
+      '--enable',
+      '--scope',
     ],
     [...commonBooleans, '--acknowledge']
   );
@@ -283,11 +322,18 @@ async function main(argv: string[]) {
       fail(`${command} does not accept ${key}`);
   if (opts['--acknowledge'] && command !== 'cdp')
     fail(`${command} does not accept --acknowledge`);
+  for (const key of ['--enable', '--scope'])
+    if (opts[key] !== undefined && command !== 'cdp')
+      fail(`${command} does not accept ${key}`);
   for (const key of ['--search', '--offset'])
     if (opts[key] !== undefined && command !== 'protocol')
       fail(`${command} does not accept ${key}`);
-  if (opts['--offset'] !== undefined && opts['--search'] === undefined)
-    fail('--offset needs --search');
+  if (
+    opts['--offset'] !== undefined &&
+    opts['--search'] === undefined &&
+    positional[0] !== '*'
+  )
+    fail('--offset needs --search or protocol *');
   if (tail.length && !['check', 'script'].includes(command))
     fail(`${command} does not accept trailing recipe flags`);
   const { args: runner, port } = await connectionArgs(opts),
@@ -336,25 +382,12 @@ async function main(argv: string[]) {
       options = optionsText ? json(optionsText, '--options') : {};
     if (!options || typeof options !== 'object' || Array.isArray(options))
       return fail('--options needs an object');
-    for (const [key, value] of Object.entries(options))
-      if (
-        !spec.options.includes(key) ||
-        !['string', 'number', 'boolean', 'object'].includes(typeof value) ||
-        value === null
-      )
-        fail(`Unsupported ${name} option ${key}; use schema check ${name}`);
-    const env = Object.fromEntries(
-      Object.entries(options).map(([key, value]) => [
-        key,
-        typeof value === 'boolean'
-          ? value
-            ? '1'
-            : '0'
-          : typeof value === 'object'
-            ? JSON.stringify(value)
-            : String(value),
-      ])
-    );
+    let env;
+    try {
+      env = recipeEnv(name, options);
+    } catch (error) {
+      return fail(`${errorMessage(error)}; use schema check ${name}`);
+    }
     return execute(
       'cdp-sandbox.mjs',
       [join(scripts, spec.file), ...runner, ...tail],
@@ -377,11 +410,20 @@ async function main(argv: string[]) {
           method: positional[0],
           params: json(paramsText(optionValue(opts, '--params')), '--params'),
           ...(opts['--acknowledge'] ? { acknowledge: true } : {}),
+          ...(opts['--enable'] === undefined
+            ? {}
+            : { enable: optionValue(opts, '--enable')!.split(',') }),
+          ...(opts['--scope'] === undefined
+            ? {}
+            : { scope: optionValue(opts, '--scope') }),
         },
       ],
     };
   } else if (command === 'protocol') {
-    const search = optionValue(opts, '--search');
+    // search '*' asks for everything: the domain index, as member '*' does.
+    const wildcard = optionValue(opts, '--search') === '*';
+    if (wildcard && !positional[0]) positional[0] = '*';
+    const search = wildcard ? undefined : optionValue(opts, '--search');
     if (!positional[0] && search === undefined)
       return execute(
         'cdp-sandbox.mjs',

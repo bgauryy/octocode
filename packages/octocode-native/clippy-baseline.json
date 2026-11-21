@@ -454,7 +454,6 @@
       "crates/tools-shared/src/source_sections.rs": 11,
       "crates/tools-shared/src/source_sections/grouped.rs": 1,
       "crates/tools-shared/src/source_view/extraction/lines.rs": 1,
-      "crates/tools-shared/src/source_view/extraction/spans.rs": 2,
       "crates/tools-shared/src/source_view/key_outline/json.rs": 4,
       "crates/tools-shared/src/source_view/key_outline/yaml.rs": 5,
       "crates/tools-shared/src/source_view/outline.rs": 1,

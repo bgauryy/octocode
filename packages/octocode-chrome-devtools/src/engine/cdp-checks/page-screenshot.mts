@@ -1,6 +1,6 @@
 import { readTargetSnapshot } from './snapshot-resource.mjs';
 import { writeFileSync } from 'fs';
-import { join } from 'path';
+import { isAbsolute, join, relative, resolve } from 'path';
 import type { CheckSession } from '../cdp-runner-session.mjs';
 
 // Screenshot of the attached tab: viewport (default), full page, or one element.
@@ -13,28 +13,44 @@ import type { CheckSession } from '../cdp-runner-session.mjs';
 //   SHOT_ANNOTATE=1      draw the latest page-snapshot refs (eN boxes) on the image; removed after capture
 //                        SHOT_ANNOTATE=e20-e80 limits it to a ref range (dense pages)
 
-const FULL = process.env.SHOT_FULL === '1';
-const SELECTOR = process.env.SHOT_SELECTOR || '';
-const FORMAT = process.env.SHOT_FORMAT === 'png' ? 'png' : 'jpeg';
-const QUALITY = Math.max(
-  30,
-  Math.min(95, Number.parseInt(process.env.SHOT_QUALITY ?? '70', 10) || 70)
-);
+/** A tile path as the manifest records it: relative to the workspace (the cwd) when inside it. */
+export const manifestPath = (file: string) => {
+  const path = relative(process.cwd(), file);
+  return path.startsWith('..') || isAbsolute(path) ? file : path;
+};
+/** The absolute file of a manifest tile path (relative ones are the workspace's). */
+export const tileFile = (file: string) => resolve(process.cwd(), file);
+
+type Env = Record<string, string | undefined>;
 const MAX_HEIGHT = 8000;
-const SCALE = Math.max(
-  0.25,
-  Math.min(1, Number.parseFloat(process.env.SHOT_SCALE ?? '1') || 1)
-);
-const ANNOTATE_SPEC = process.env.SHOT_ANNOTATE ?? '';
-const ANNOTATE = ANNOTATE_SPEC === '1' || /^e\d+-e?\d+$/.test(ANNOTATE_SPEC);
-const [RANGE_LO, RANGE_HI] = /^e(\d+)-e?(\d+)$/
-  .exec(ANNOTATE_SPEC)
-  ?.slice(1)
-  .map(Number) ?? [1, Infinity];
+
+/** The recipe's settings from SHOT_* variables: the process env standalone, the validated options in a plan. */
+function readConfig(env: Env) {
+  const spec = env.SHOT_ANNOTATE ?? '';
+  const range = /^e(\d+)-e?(\d+)$/.exec(spec)?.slice(1).map(Number);
+  return {
+    full: env.SHOT_FULL === '1',
+    selector: env.SHOT_SELECTOR || '',
+    format: env.SHOT_FORMAT === 'png' ? 'png' : 'jpeg',
+    quality: Math.max(
+      30,
+      Math.min(95, Number.parseInt(env.SHOT_QUALITY ?? '70', 10) || 70)
+    ),
+    scale: Math.max(
+      0.25,
+      Math.min(1, Number.parseFloat(env.SHOT_SCALE ?? '1') || 1)
+    ),
+    annotate: spec === '1' || range !== undefined,
+    rangeLo: range?.[0] ?? 1,
+    rangeHi: range?.[1] ?? Infinity,
+  };
+}
+type Config = ReturnType<typeof readConfig>;
 const MAX_LABELS = 250;
 
 // Box every snapshot ref that is on screen (page coordinates, so full-page shots work too).
-async function annotate(cdp: CheckSession) {
+async function annotate(cdp: CheckSession, config: Config) {
+  const { full, selector, rangeLo, rangeHi } = config;
   let refs;
   try {
     const snapshot = readTargetSnapshot(cdp);
@@ -49,7 +65,7 @@ async function annotate(cdp: CheckSession) {
   const { cssVisualViewport: v, cssContentSize: c } = await cdp.send(
     'Page.getLayoutMetrics'
   );
-  const whole = FULL || SELECTOR; // element shots may lie outside the current viewport
+  const whole = full || selector; // element shots may lie outside the current viewport
   const bottom = whole
     ? Math.min(c.height, MAX_HEIGHT)
     : v.pageY + v.clientHeight;
@@ -60,7 +76,7 @@ async function annotate(cdp: CheckSession) {
   )) {
     if (boxes.length >= MAX_LABELS) break;
     const n = Number(ref.slice(1));
-    if (n < RANGE_LO || n > RANGE_HI) continue;
+    if (n < rangeLo || n > rangeHi) continue;
     const q = (
       await cdp
         .send('DOM.getContentQuads', { backendNodeId: entry.backendDOMNodeId })
@@ -100,7 +116,9 @@ async function annotate(cdp: CheckSession) {
   return boxes.length;
 }
 
-export async function run(cdp: CheckSession) {
+export async function run(cdp: CheckSession, env: Env = process.env) {
+  const config = readConfig(env);
+  const { full, selector, format, quality, scale, annotate: marks } = config;
   await cdp.send('Page.enable');
   const evaluate = async (expression: string) =>
     (await cdp.send('Runtime.evaluate', { expression, returnByValue: true }))
@@ -113,20 +131,20 @@ export async function run(cdp: CheckSession) {
     await new Promise(r => setTimeout(r, 250));
 
   let clip;
-  if (SELECTOR) {
+  if (selector) {
     const box =
-      await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(SELECTOR)}); if (!el) return null;
+      await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return null;
       el.scrollIntoView({ block: 'center' }); const r = el.getBoundingClientRect();
       return { x: r.x + scrollX, y: r.y + scrollY, width: r.width, height: r.height }; })()`);
     if (!box || !box.width || !box.height) {
       console.log(
-        `[FINDING] SHOT_SELECTOR_MISSING ${SELECTOR} not found or zero-size`
+        `[FINDING] SHOT_SELECTOR_MISSING ${selector} not found or zero-size`
       );
       process.exitCode = 1;
       return;
     }
-    clip = { ...box, scale: SCALE };
-  } else if (FULL) {
+    clip = { ...box, scale: scale };
+  } else if (full) {
     const { cssContentSize, cssLayoutViewport } = await cdp.send(
       'Page.getLayoutMetrics'
     );
@@ -134,23 +152,23 @@ export async function run(cdp: CheckSession) {
       Math.max(cssLayoutViewport?.clientWidth || 0, cssContentSize.width)
     );
     const height = Math.ceil(cssContentSize.height);
-    clip = { x: 0, y: 0, width, height, scale: SCALE };
-  } else if (SCALE < 1) {
+    clip = { x: 0, y: 0, width, height, scale: scale };
+  } else if (scale < 1) {
     const { cssVisualViewport: v } = await cdp.send('Page.getLayoutMetrics');
     clip = {
       x: v.pageX,
       y: v.pageY,
       width: v.clientWidth,
       height: v.clientHeight,
-      scale: SCALE,
+      scale: scale,
     };
   }
 
-  const labels = ANNOTATE ? await annotate(cdp) : 0;
+  const labels = marks ? await annotate(cdp, config) : 0;
   const tiles = [],
     total =
-      clip && (FULL || SELECTOR) ? Math.ceil(clip.height / MAX_HEIGHT) : 1;
-  const stem = `screenshot${SELECTOR ? '-element' : FULL ? '-full' : ''}`;
+      clip && (full || selector) ? Math.ceil(clip.height / MAX_HEIGHT) : 1;
+  const stem = `screenshot${selector ? '-element' : full ? '-full' : ''}`;
   let bytes = 0;
   try {
     for (let index = 0; index < total; index++) {
@@ -163,15 +181,15 @@ export async function run(cdp: CheckSession) {
             }
           : clip;
       const { data } = await cdp.send('Page.captureScreenshot', {
-        format: FORMAT,
-        ...(FORMAT === 'jpeg' ? { quality: QUALITY } : {}),
+        format: format,
+        ...(format === 'jpeg' ? { quality: quality } : {}),
         ...(tile ? { clip: tile, captureBeyondViewport: true } : {}),
       });
       const buf = Buffer.from(data, 'base64');
       bytes += buf.length;
       const file = join(
         cdp.outputDir,
-        `${stem}${index ? `-${index + 1}` : ''}.${FORMAT === 'png' ? 'png' : 'jpg'}`
+        `${stem}${index ? `-${index + 1}` : ''}.${format === 'png' ? 'png' : 'jpg'}`
       );
       writeFileSync(file, buf, { mode: 0o600 });
       tiles.push({
@@ -184,26 +202,26 @@ export async function run(cdp: CheckSession) {
         console.log(`[PROGRESS] SCREENSHOT tile=${index + 1}/${total}`);
     }
   } finally {
-    if (ANNOTATE)
+    if (marks)
       await cdp
         .send('Runtime.evaluate', {
           expression: "document.getElementById('__octo_marks')?.remove()",
         })
         .catch(() => {});
     const manifest = {
-      mode: SELECTOR ? 'element' : FULL ? 'full' : 'viewport',
+      mode: selector ? 'element' : full ? 'full' : 'viewport',
       scope: clip || null,
       complete: tiles.length === total,
       expectedTiles: total,
       captureMode: 'sequential',
       pageMayChangeBetweenTiles: total > 1,
-      tiles,
+      tiles: tiles.map(tile => ({ ...tile, file: manifestPath(tile.file) })),
     };
     cdp.saveArtifact('screenshot-manifest.json', manifest);
   }
   const title = await evaluate('document.title');
   console.log(
-    `[METRIC] SCREENSHOT bytes=${bytes} tiles=${tiles.length} mode=${SELECTOR ? 'element' : FULL ? 'full' : 'viewport'}${clip ? ` size=${Math.round(clip.width * clip.scale)}x${Math.round(clip.height * clip.scale)}` : ''} title="${String(title ?? '').slice(0, 80)}"${ANNOTATE ? ` labels=${labels}` : ''}`
+    `[METRIC] SCREENSHOT bytes=${bytes} tiles=${tiles.length} mode=${selector ? 'element' : full ? 'full' : 'viewport'}${clip ? ` size=${Math.round(clip.width * clip.scale)}x${Math.round(clip.height * clip.scale)}` : ''} title="${String(title ?? '').slice(0, 80)}"${marks ? ` labels=${labels}` : ''}`
   );
   console.log(`[SCREENSHOT] ${tiles[0].file}`);
 }

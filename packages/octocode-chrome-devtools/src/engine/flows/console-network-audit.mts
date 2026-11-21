@@ -3,7 +3,7 @@ const flow: FlowDefinition = {
   name: 'console-network-audit',
   area: 'audits',
   description:
-    'Load a page while recording its network requests, console calls and uncaught exceptions, then save a snapshot and a screenshot.',
+    'Load a page and record network, console and exceptions. Then save a snapshot and a screenshot.',
   params: {
     url: { type: 'string', required: true, description: 'Page to audit' },
   },

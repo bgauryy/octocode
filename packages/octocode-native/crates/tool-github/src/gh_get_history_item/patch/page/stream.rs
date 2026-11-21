@@ -1,6 +1,8 @@
 //! One window over a file page's patch stream: where it ends and the
 //! rows it shows.
-use crate::gh_get_history_item::inventory::{WITHHELD, file_metadata, missing_patch_reason};
+use crate::gh_get_history_item::inventory::{
+    WITHHELD, file_metadata, missing_patch_reason, source_readable_without_patch,
+};
 use crate::gh_get_history_item::util::{clean_char_cut, str_at};
 use octocode_runtime_base::response::result::remove_nulls;
 use serde_json::{Value, json};
@@ -51,7 +53,7 @@ impl PatchStream<'_> {
                     match missing_patch_reason(file) {
                         // A pure rename changes no content: its diff is empty.
                         None => row["patch"] = json!(""),
-                        Some(reason) => mark_patchless(&mut row, reason),
+                        Some(reason) => mark_patchless(&mut row, file, reason),
                     }
                 }
                 Some(_) if len == 0 => match self.same_as[i] {
@@ -134,13 +136,17 @@ impl PatchStream<'_> {
 
 /// A changed file shown without its patch says why (`patchUnavailable`).
 /// A patch GitHub did not send (too large, binary, omitted) leaves the row
-/// partial at a limit no read lifts; a credential file's patch the path
+/// partial. The diff is gone, but a file whose source a read reaches
+/// (`source_readable_without_patch`) leads to that read, so the limit is
+/// not terminal; a binary file's is. A credential file's patch the path
 /// policy withheld is the whole served answer for it: its path, status and
 /// counts are shown and nothing is missing that a read could add.
-pub(super) fn mark_patchless(row: &mut Value, reason: &'static str) {
+pub(super) fn mark_patchless(row: &mut Value, file: &Value, reason: &'static str) {
     if reason != WITHHELD {
         octocode_runtime_base::response::paging::set_partial(row, true);
-        row["terminalLimit"] = json!(true);
+        if !source_readable_without_patch(file) {
+            row["terminalLimit"] = json!(true);
+        }
     }
     row["patchUnavailable"] = json!(reason);
 }

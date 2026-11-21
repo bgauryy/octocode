@@ -1,5 +1,6 @@
 //! Where a repository page leads: the top repository, archived rows, a broadened empty search.
 use super::{FILTERS, GhSearchRepoQuery};
+use crate::qualifier_keywords::{Qualifier, qualifier};
 use octocode_runtime_base::id::ToolId;
 use octocode_runtime_base::response::result::{Continuation, ToolData, query_row};
 use octocode_tools_shared::leads::broaden::{Broaden, broaden, set_broadened, set_no_broader};
@@ -116,6 +117,42 @@ pub(super) fn repository_output(
             }
         }
     }
+    if repositories_empty && !provider_capped {
+        let keywords = super::access::keywords(query);
+        let keywords: Vec<&str> = keywords.iter().map(String::as_str).collect();
+        octocode_runtime_base::response::result::add_hints(
+            &mut output.data,
+            qualifier_keyword_hints(&keywords),
+        );
+    }
     octocode_runtime_base::response::result::finish_calls(&mut output.data);
     output
+}
+
+/// The repository-search qualifiers a keyword can spell, with the field that
+/// carries each: a keyword matches text, so `language:rust` or
+/// `stars:>1000` finds nothing the filter would.
+const QUALIFIER_FIELDS: &[Qualifier] = &[
+    qualifier!(["language", "lang"] => "filters.language"),
+    qualifier!(["stars"] => range "filters.stars"),
+    qualifier!(["forks"] => range "filters.forks"),
+    qualifier!(["size"] => range "filters.sizeKiB"),
+    qualifier!(["followers"] => range "filters.followerCount"),
+    qualifier!(["topics"] => range "filters.topicCount"),
+    qualifier!(["good-first-issues"] => range "filters.goodFirstIssueCount"),
+    qualifier!(["help-wanted-issues"] => range "filters.helpWantedIssueCount"),
+    qualifier!(["topic"] => "filters.topics"),
+    qualifier!(["license"] => "filters.license"),
+    qualifier!(["created"] => "filters.createdAt" ("`{from, to}` date-times")),
+    qualifier!(["pushed"] => "filters.pushedAt" ("`{from, to}` date-times")),
+    qualifier!(["archived"] => "filters.archive" ("`exclude`, `include` or `only`")),
+    qualifier!(["is", "visibility"] => "filters.visibility" ("`public`, `private` or `internal`")),
+    qualifier!(["in"] => "matchIn" ("`name`, `description`, `readme` or `topics`")),
+    qualifier!(["user", "org"] => "owner" ("with operation `list`")),
+];
+
+/// A hint per keyword spelled as a repository-search qualifier that names the
+/// field carrying it.
+fn qualifier_keyword_hints(keywords: &[&str]) -> Vec<String> {
+    crate::qualifier_keywords::hints(keywords, QUALIFIER_FIELDS)
 }

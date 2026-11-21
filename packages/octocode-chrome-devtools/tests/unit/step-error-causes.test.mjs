@@ -46,7 +46,13 @@ test('a request cut short by the step budget names the budget, not a tiny CDP ti
     const failure = await failureOf(cdp, read, {
       commandMs: 5000,
       steps: [
-        { op: 'cdp', method: 'Runtime.evaluate', params: {}, timeoutMs: 40 },
+        {
+          op: 'cdp',
+          method: 'Runtime.evaluate',
+          params: {},
+          acknowledge: true,
+          timeoutMs: 40,
+        },
       ],
     });
     assert.match(failure.error, /step budget exhausted/);
@@ -64,7 +70,13 @@ test('a request that times out within the step budget keeps its CDP timeout mess
     const failure = await failureOf(cdp, read, {
       commandMs: 20,
       steps: [
-        { op: 'cdp', method: 'Runtime.evaluate', params: {}, timeoutMs: 5000 },
+        {
+          op: 'cdp',
+          method: 'Runtime.evaluate',
+          params: {},
+          acknowledge: true,
+          timeoutMs: 5000,
+        },
       ],
     });
     assert.match(failure.error, /CDP timeout \(20ms\) for: Runtime\.evaluate/);
@@ -79,6 +91,40 @@ test('a missed text wait names the text it waited for', async () =>
     assert.match(failure.error, /WAIT_TIMEOUT/);
     assert.match(failure.error, /Prompt cache ready/);
     assert.match(failure.error, /200ms/);
+  }));
+
+// A selector wait whose setup reads are slow: the wait loop starts late, so measured from its own start it would
+// run past the step deadline and the first read after it fails as a generic deadline error.
+test('a selector wait on a slow page fails with WAIT_TIMEOUT naming the target, not the step deadline', async () =>
+  fixture(async ({ cdp, read }) => {
+    pageReporting(cdp, { found: false, visible: false, canOperate: false });
+    const reads = cdp.send;
+    cdp.send = async (...args) => {
+      await new Promise(resolve => setTimeout(resolve, 40));
+      return reads(...args);
+    };
+    const failure = await failureOf(cdp, read, {
+      steps: [{ op: 'wait', selector: '#never', timeoutMs: 300 }],
+    });
+    assert.match(failure.error, /WAIT_TIMEOUT/);
+    assert.match(failure.error, /#never/);
+    assert.doesNotMatch(failure.error, /step deadline/);
+  }));
+
+test('a step deadline hit before a click finds its target still names the deadline', async () =>
+  fixture(async ({ cdp, read }) => {
+    pageReporting(cdp, { found: false, visible: false, canOperate: false });
+    const reads = cdp.send;
+    cdp.send = async (...args) => {
+      await new Promise(resolve => setTimeout(resolve, 120));
+      return reads(...args);
+    };
+    const failure = await failureOf(cdp, read, {
+      steps: [
+        { op: 'act', action: 'click', selector: '#never', timeoutMs: 100 },
+      ],
+    });
+    assert.match(failure.error, /step deadline|step budget/);
   }));
 
 /** @type {Array<[string, object, object, RegExp, RegExp]>} */

@@ -5,7 +5,7 @@ and the Chrome DevTools MCP tools ([package](../octocode-chrome-devtools/README.
 rules as [SKILLS.md](SKILLS.md) and [CHECKS.md](CHECKS.md): a fresh agent gets the prompt only (no skill name, no
 steps), you read the transcript and apply the pass rules. No driver scripts. Setup: [TESTING_ENV.md](TESTING_ENV.md).
 
-Tool names used below are the package's own; the default MCP surface is the research preset, so `check` and `cdp` need `--mcp --preset full` (or `/cli`): `open`, `snapshot`, `run` (plan ops `goto`, `act`, `wait`, `extract`,
+Tool names used below are the package's own; the default MCP surface is the research preset, so `check`, `snapshot` and `screenshot` need `--mcp --preset full` (or `/cli`; in the default preset use `snapshot` and `screenshot` plan steps): `open`, `snapshot`, `run` (plan ops `goto`, `act`, `wait`, `extract`,
 `cdp`), `screenshot`, `check` (recipes `page-screenshot`, `storage-measure-check`, `live-har-monitor`,
 `network-measure-check`), `query`, `artifact`, `targets`, `cleanup`, `schema`, `skill`
 ([execution](../octocode-chrome-devtools/docs/browser-execution.md), [checks](../octocode-chrome-devtools/docs/cdp-checks.md),
@@ -48,7 +48,7 @@ and tell me the name of the cookie the site set and what the page says afterward
 | The plan has a visible-text postcondition (`after.text` `Welcome, demo`) | the `run` plan |
 | Answer names `octo_session` and `Welcome, demo`; the cookie **value** is not printed unless asked | final answer |
 | A screenshot artifact exists and is cited | `screenshot` result path |
-| At most 6 tool calls: `open`, `snapshot`, `run`, `screenshot` plus two for recovery or a cookie name read | call count |
+| At most 6 tool calls: `open`, `run` (plan ending in `snapshot` and `screenshot` steps; or the full preset's `snapshot` and `screenshot` tools) plus recovery or a cookie name read | call count |
 
 ### B2. Paginated list: collect every row
 

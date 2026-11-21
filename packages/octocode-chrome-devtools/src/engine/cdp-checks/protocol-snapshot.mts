@@ -6,4 +6,5 @@ export async function run(cdp: CheckSession) {
     `[METRIC] CDP domains=${protocol.domains.length} version=${JSON.stringify(protocol.version)}`
   );
   cdp.saveArtifact('cdp-protocol.json', protocol);
+  console.log("[NOTE] use member:'*' for the domain index");
 }

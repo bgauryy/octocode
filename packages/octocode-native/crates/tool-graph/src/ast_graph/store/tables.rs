@@ -20,6 +20,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 mod argument_bindings;
 mod arguments;
+pub(crate) use arguments::UnextractedNames;
 mod assemble;
 mod names;
 mod naming;
@@ -40,6 +41,10 @@ pub(super) const MODULE_DETAIL: &str = "module";
 /// resolves to no declaration (`export * as ns from './x'`). It records
 /// what the file makes public; it is no use of the declaration.
 pub(super) const REEXPORTED_NAME: &str = "reexported-name";
+/// Reason of an unresolved `passes` record for an argument group the
+/// extractor could not read (a macro invocation's token tree): the calls
+/// and names inside it are not in the graph.
+pub(super) const UNSUPPORTED_ARGUMENT_GROUP: &str = "unsupported-argument-group";
 /// Interned strings, each stored once: a lookup walks the ids that share the
 /// string's hash, newest first, and compares the stored text.
 #[derive(Default)]
@@ -103,6 +108,9 @@ pub(crate) struct Projection {
     /// Import tallies by [`ImportOutcome`] after projection: the build's
     /// tally with every relinked import moved from unresolved to resolved.
     pub imports: [u32; 6],
+    /// Per file holding an argument group the extractor could not read: the
+    /// declared names its unextracted code may use (`None`: any name).
+    pub unextracted: BTreeMap<u32, UnextractedNames>,
 }
 
 struct FileIndex<'a> {
@@ -244,6 +252,8 @@ struct Projector<'a> {
     edges: Vec<EdgeRec>,
     witnesses: Vec<WitnessRec>,
     unresolved: Vec<UnresolvedRec>,
+    /// See [`Projection::unextracted`], before the declared-name filter.
+    unextracted: BTreeMap<u32, UnextractedNames>,
     declarations: Vec<DeclarationRec>,
     file_nodes: BTreeMap<&'a str, u32>,
     roles: HashMap<&'a str, Roles>,

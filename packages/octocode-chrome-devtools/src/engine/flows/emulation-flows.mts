@@ -6,7 +6,7 @@ const emulateDevice: FlowDefinition = {
   name: 'emulate-device',
   area: 'emulation',
   description:
-    'Override viewport size, device scale factor, mobile mode, touch input and (optionally) the user agent.',
+    'Override viewport, pixel ratio, touch, user agent. The user agent is optional.',
   params: {
     width: {
       type: 'number',
@@ -67,7 +67,7 @@ const emulateDevice: FlowDefinition = {
     ],
   },
   expects: [
-    'window.innerWidth and innerHeight equal the requested size; matchMedia("(pointer: coarse)") is true when touch is true',
+    'The emulated viewport is width x height: with mobile false, window.innerWidth/innerHeight and visualViewport report it. With mobile true the mobile layout of Chrome can report a different innerWidth (about 980 px for a page without <meta name=viewport>), so read it to confirm, while screen.width/height report the emulated size. matchMedia("(pointer: coarse)") is true when touch is true',
     FRAGMENT,
   ],
 };
@@ -75,8 +75,7 @@ const emulateDevice: FlowDefinition = {
 const emulateMedia: FlowDefinition = {
   name: 'emulate-media',
   area: 'emulation',
-  description:
-    'Override the prefers-color-scheme and prefers-reduced-motion media features. Pass at least one.',
+  description: 'Override color scheme and reduced motion. Pass at least one.',
   params: {
     colorScheme: {
       type: 'string',
@@ -112,8 +111,7 @@ const emulateMedia: FlowDefinition = {
 const cpuThrottle: FlowDefinition = {
   name: 'cpu-throttle',
   area: 'emulation',
-  description:
-    'Slow the CPU by a factor (1 = no throttling, 4 = four times slower).',
+  description: 'Slow the CPU by a factor (1 = none).',
   params: {
     rate: {
       type: 'number',
@@ -142,7 +140,7 @@ const emulateGeolocation: FlowDefinition = {
   area: 'emulation',
   sensitive: true,
   description:
-    'Override the position pages read through navigator.geolocation. Sensitive: needs acknowledge true and a granted geolocation permission (see grant-permission).',
+    'Override navigator.geolocation. Sensitive: needs acknowledge true and a granted geolocation permission (see grant-permission).',
   params: {
     latitude: {
       type: 'number',
@@ -193,7 +191,8 @@ const emulateGeolocation: FlowDefinition = {
 const emulateTimezoneLocale: FlowDefinition = {
   name: 'emulate-timezone-locale',
   area: 'emulation',
-  description: 'Override the time zone and/or the locale. Pass at least one.',
+  description:
+    'Override the time zone and/or the locale. Pass at least one; a time zone needs acknowledge true.',
   params: {
     timezone: {
       type: 'string',
@@ -203,12 +202,18 @@ const emulateTimezoneLocale: FlowDefinition = {
       type: 'string',
       description: 'BCP 47 locale, e.g. de-DE (optional)',
     },
+    acknowledge: {
+      type: 'boolean',
+      description:
+        'Must be true together with timezone: changing the time zone sites see needs the user permission',
+    },
   },
   plan: {
     steps: [
       {
         op: 'cdp',
         method: 'Emulation.setTimezoneOverride',
+        acknowledge: '{{acknowledge}}',
         params: { timezoneId: '{{timezone}}' },
       },
       {

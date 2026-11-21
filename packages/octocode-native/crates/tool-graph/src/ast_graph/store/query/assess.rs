@@ -135,7 +135,8 @@ impl Query<'_> {
         seeds.sort_unstable();
         seeds.dedup();
         let max_depth = self.flags.depth.unwrap_or(DEFAULT_IMPACT_DEPTH);
-        let impact = super::super::impact::run(&g.t, &seeds, &global, max_depth);
+        let unextracted = super::super::manifest::unextracted_arguments_of(&g.manifest);
+        let impact = super::super::impact::run(&g.t, &seeds, &global, &unextracted, max_depth);
         let mut extra = Map::new();
         let mut summary = impact.summary;
         summary["maxDepth"] = json!(max_depth);

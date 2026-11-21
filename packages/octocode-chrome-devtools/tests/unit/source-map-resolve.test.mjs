@@ -48,17 +48,31 @@ test('malformed maps are named, not decoded', () => {
   assert.throws(() => parseSourceMap('{"sections":[]}'), /indexed/);
 });
 
+// A refused or local map never reaches the session.
+const noSession = {
+  send() {
+    throw new Error('session must not be used');
+  },
+};
+
 test('data: URI maps decode locally; a foreign-origin map is refused without a fetch', async () => {
   const text = JSON.stringify(handMap);
   const b64 = `data:application/json;base64,${Buffer.from(text).toString('base64')}`;
-  assert.equal(await readScriptMapText(b64, 'http://127.0.0.1:1/a.js'), text);
+  assert.equal(
+    await readScriptMapText(noSession, b64, 'http://127.0.0.1:1/a.js'),
+    text
+  );
   const plain = `data:application/json,${encodeURIComponent(text)}`;
-  assert.equal(await readScriptMapText(plain, ''), text);
+  assert.equal(await readScriptMapText(noSession, plain, ''), text);
   await assert.rejects(
-    readScriptMapText('http://other.invalid/a.map', 'http://127.0.0.1:1/a.js'),
+    readScriptMapText(
+      noSession,
+      'http://other.invalid/a.map',
+      'http://127.0.0.1:1/a.js'
+    ),
     /Refused.*origin/
   );
-  await assert.rejects(readScriptMapText('a.js.map', ''), /Refused/);
+  await assert.rejects(readScriptMapText(noSession, 'a.js.map', ''), /Refused/);
 });
 
 test('saved source paths can never escape the output dir', () => {

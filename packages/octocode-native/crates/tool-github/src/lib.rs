@@ -21,6 +21,7 @@ pub mod gh_search_code;
 pub mod gh_search_history;
 pub mod gh_search_repo;
 pub mod gh_structure;
+mod qualifier_keywords;
 #[cfg(test)]
 mod provider_backed;
 #[cfg(any(test, feature = "test-support"))]

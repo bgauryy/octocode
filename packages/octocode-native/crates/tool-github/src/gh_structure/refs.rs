@@ -240,7 +240,7 @@ pub(super) async fn refs(
         push_warning_front(
             &mut value,
             format!(
-                "No branch or tag of {owner}/{repo} matches the glob {glob:?}: `calls.listRefs` lists the refs without it."
+                "No branch or tag of {owner}/{repo} matches the glob {glob:?}; the `related` ghStructure call lists the refs without it."
             ),
         );
         let mut unfiltered = query_row(query, &["page"]);

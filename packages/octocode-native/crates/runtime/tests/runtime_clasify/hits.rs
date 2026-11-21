@@ -7,9 +7,9 @@ use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
-/// `TARGET-LINE` when `question` names a target, and the state's text of that
-/// line, else the text its label quotes; otherwise the whole state: what a
-/// judge may look at.
+/// `TARGET-LINE` when `question` names a target, and the text of that line in
+/// the state or in the window under its label, else the text its label
+/// quotes; otherwise the whole state: what a judge may look at.
 fn judged_text(state: &Value, question: &Value) -> String {
     let target = question["instructions"]["target"].as_str().unwrap_or("");
     let line = target.strip_prefix("line ").map(|rest| {
@@ -20,11 +20,13 @@ fn judged_text(state: &Value, question: &Value) -> String {
     let Some(line) = line.and_then(|line| line.parse::<u64>().ok()) else {
         return state.to_string();
     };
+    let (label, window) = target.split_once('\n').unwrap_or((target, ""));
     let lines = state["lines"].as_str().unwrap_or_default();
     lines
         .lines()
+        .chain(window.lines())
         .find(|row| row.split('\t').next().and_then(|n| n.parse::<u64>().ok()) == Some(line))
-        .or_else(|| target.split_once(": ").map(|(_, quoted)| quoted))
+        .or_else(|| label.split_once(": ").map(|(_, quoted)| quoted))
         .unwrap_or_default()
         .to_owned()
 }
@@ -168,13 +170,12 @@ async fn hits_of_one_file_are_one_provider_call_with_one_question_each() {
     runtime.close().await;
 }
 
-/// Each source line reaches the shared state once: every hit's own line and
-/// each context line, even one that informs two neighbours. Each question's
-/// label names its hit by line number and quotes it (B58 measures dropping
-/// the quote), so a hit's text appears once in the state and once in its
-/// own label, never in another hit's.
+/// Each hit is asked with its own window and no other hit's: its label names
+/// it by line number and quotes it (B58 measures dropping the quote), its
+/// window rides under that label, and no shared state pools the windows, so
+/// a hit's text appears only in its own question.
 #[tokio::test]
-async fn each_hit_line_is_sent_once() {
+async fn each_hit_line_is_sent_only_in_its_own_question() {
     let server = provider().await;
     let workspace = Workspace::new();
     let file = workspace.write("dense.txt", DENSE);
@@ -193,7 +194,10 @@ async fn each_hit_line_is_sent_once() {
     let sent = crate::runtime_clasify::sent(&server).await;
     assert_eq!(sent.len(), 2, "{sent:?}");
     for (request, context) in sent.iter().zip([0, 1]) {
-        let state = request["state"]["lines"].as_str().unwrap_or_default();
+        assert!(
+            request["state"].get("lines").is_none(),
+            "context {context}: no pooled state: {request}"
+        );
         let labels = request["questions"]
             .as_object()
             .expect("questions")
@@ -209,39 +213,21 @@ async fn each_hit_line_is_sent_once() {
             (3, "needle drop two"),
             (9, "needle KEEP five"),
         ] {
-            assert_eq!(
-                state
-                    .lines()
-                    .filter(|record| *record == format!("{line}\t{text}"))
-                    .count(),
-                1,
-                "context {context}: the state holds line {line} once: {request}"
-            );
             let quoting = labels
                 .iter()
                 .filter(|label| label.contains(text))
                 .collect::<Vec<_>>();
             assert_eq!(
-                quoting,
-                [&format!("line {line}: {text}")],
-                "context {context}: only its own label quotes line {line}: {request}"
+                quoting.len(),
+                1,
+                "context {context}: one question shows line {line}: {request}"
             );
-            assert_eq!(
-                request.to_string().matches(text).count(),
-                2,
-                "context {context}: state and label, nowhere else: {request}"
+            assert!(
+                quoting[0].starts_with(&format!("line {line}: {text}")),
+                "context {context}: and it is line {line}'s own: {request}"
             );
         }
     }
-    // With one line of context, line 2 (blank) informs both neighbours and
-    // is still sent once.
-    let state = sent[1]["state"]["lines"].as_str().unwrap_or_default();
-    assert_eq!(
-        state.lines().filter(|line| line.starts_with("2\t")).count(),
-        1,
-        "{:?}",
-        sent[1]
-    );
     runtime.close().await;
 }
 
@@ -390,7 +376,8 @@ async fn a_large_search_walks_every_hit_once() {
     let file = workspace.write("large.txt", &body);
     let runtime = support::clasify_runtime(&workspace, &server, &[]);
     let mut query = json!({"path":file,"matchString":["needle"],
-        "contextLines":{"before":0,"after":0},"classification":{"predicates":[PREDICATE]}});
+        "contextLines":{"before":0,"after":0},
+        "classification":{"predicates":[PREDICATE],"maxRequests":1000}});
     let mut kept = Vec::new();
     let mut decided;
     let mut pages = 0;

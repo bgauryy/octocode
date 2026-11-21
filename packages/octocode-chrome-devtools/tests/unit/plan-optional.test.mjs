@@ -127,6 +127,7 @@ test('optional is accepted on every operation and rejected unless boolean, befor
     act: { action: 'click', selector: 'a' },
     wait: { selector: 'a' },
     extract: { selector: 'a' },
+    evaluate: { expression: 'document.title' },
     cdp: { method: 'Runtime.enable' },
     protocol: { domain: 'Runtime' },
     listen: { id: 'l', event: 'Page.loadEventFired' },

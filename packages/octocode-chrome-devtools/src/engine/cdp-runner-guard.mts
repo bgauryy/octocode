@@ -3,21 +3,12 @@
 // ws clients too), dns lookups/resolves and dgram send/connect.
 // NOT a complete boundary: child_process, worker threads that load their own
 // copies, native addons, and in-process opt-outs are not covered.
-// Deliberate, narrow exception: sourcemap-resolver.mjs fetches .map files via
-// node:http(s) from the page's own real domain. It wraps that one call in
-// the scope found at globalThis[Symbol.for(EXEMPT_KEY)], which this module
-// installs. A script can use the same scope, so this is a guard against
-// generated code becoming a network client, not against hostile code.
+// No exemptions: source maps load through CDP Network.loadNetworkResource.
 
 import dgram from 'node:dgram';
 import dns from 'node:dns';
 import { syncBuiltinESMExports } from 'node:module';
 import net from 'node:net';
-import { AsyncLocalStorage } from 'node:async_hooks';
-
-export const EXEMPT_KEY = 'octocode.chrome-devtools.sandbox-exempt';
-const exempt = new AsyncLocalStorage<boolean>();
-(globalThis as Record<symbol, unknown>)[Symbol.for(EXEMPT_KEY)] = exempt;
 
 /** True for a loopback hostname or address; a name is judged as written, never resolved. */
 export function isLoopbackHost(host: unknown) {
@@ -38,7 +29,6 @@ function refuse(what: string, target: unknown): never {
 }
 
 function checkHost(what: string, host: unknown) {
-  if (exempt.getStore()) return;
   if (!isLoopbackHost(host)) refuse(what, host);
 }
 
@@ -51,7 +41,7 @@ function connectHost(args: unknown[]): string | null {
     const o = first as { path?: string; host?: string; lookup?: unknown };
     if (o.path) return null;
     // A custom lookup picks the address after this check, so the name alone proves nothing.
-    if (o.lookup && !exempt.getStore()) refuse('net', 'custom lookup');
+    if (o.lookup) refuse('net', 'custom lookup');
     return o.host ?? 'localhost';
   }
   if (typeof first === 'string' && Number.isNaN(Number(first))) return null;

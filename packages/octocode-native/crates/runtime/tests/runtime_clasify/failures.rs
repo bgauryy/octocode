@@ -202,7 +202,7 @@ async fn a_provider_that_is_down_under_clasify_context_shows_reads_and_code_page
         &server,
         &[("GITHUB_API_URL", format!("{}/api/v3", github.uri()))],
     );
-    let context = json_fixture(r#"{"predicates": ["Does it add hints?"]}"#);
+    let context = json_fixture(r#"{"predicates": ["Does it add hints?"], "maxRequests": 10}"#);
     for (tool, query, shown) in [
         (
             "localFetch",

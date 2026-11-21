@@ -31,7 +31,7 @@ Attaches listeners before the optional load, then observes for `NETEVENTS_MS`. A
 - `network-events.jsonl`: one event per line (`n`, `t` ms since start, `kind`, `type`, `requestId`, `url`, plus fields per type). Kinds: `websocket` (created, handshakeRequest, handshakeResponse, frame-sent, frame-received, frame-error, closed), `sse` (message), `http` (request, request-extra, response, response-extra, finished, failed; with initiator and timing).
 - `payloads/<n>.txt` (text) or `.bin` (binary frames, decoded) hold each frame or SSE message whole; the event line names it in `payloadFile` and `payloadBytes`. Nothing is truncated.
 - `NETEVENTS_MATCH` keeps events whose URL contains the substring; `NETEVENTS_KINDS` is a JSON array of `websocket|sse|http`. `filteredOut` in the metric counts events dropped by the filter.
-- Header values for `Authorization`, `Cookie`, `Set-Cookie` and `Proxy-Authorization` are saved and printed as `[redacted N chars]`; names stay. **Payload sidecars are raw evidence and may contain tokens**, like HAR bodies; handle them as secrets.
+- Header values for `Authorization`, `Cookie`, `Set-Cookie` and `Proxy-Authorization` are saved and printed as `[redacted N chars]`; names stay. `request-extra` and `response-extra` rows add `cookies: [{direction, name, domain, path, blockedReasons}]`: the cookies a request carried or a response set, and why one was withheld, never a value. **Payload sidecars are raw evidence and may contain tokens**, like HAR bodies; handle them as secrets.
 - Stdout shows counts per kind and the first 10 events, then a `[NEXT]` call that pages the jsonl with `evidence-query` (`--format jsonl --cursor 10`). Add `--where` (for example `kind=websocket`) to filter.
 
 ## network-conditions

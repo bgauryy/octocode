@@ -102,7 +102,10 @@ test('validateParams checks required, types, enums, $ref, arrays and unknown nam
   bad({ id: 1.5, selector: 'a' }, /expected integer/);
   bad({ ...ok, flag: 'yes' }, /params\.flag: expected boolean/);
   bad({ ...ok, level: 'c' }, /not one of a, b/);
-  bad({ ...ok, extra: 1 }, /params\.extra: unknown parameter/);
+  // An unknown name is a warning: a newer Chrome adds parameters and Chrome rejects real unknowns itself.
+  const unknown = validateParams(schema, 'Thing.find', { ...ok, extra: 1 });
+  assert.equal(unknown.ok, true);
+  assert.match(unknown.warnings.join('\n'), /params\.extra: not a parameter/);
   bad({ ...ok, boxes: 'x' }, /expected array/);
   bad(
     { ...ok, boxes: [{ x: 1 }, { mode: 'fast' }] },
@@ -211,7 +214,16 @@ test('gateCdpCall refuses by policy and schema, and never blocks when the schema
       () => {},
       unavailable
     ),
-    /blocked/
+    /user's permission/
+  );
+  assert.equal(
+    await gateCdpCall(
+      { method: 'Browser.close', params: {}, acknowledge: true },
+      9,
+      () => {},
+      unavailable
+    ),
+    undefined
   );
   assert.equal(
     await gateCdpCall(
@@ -252,6 +264,80 @@ test('gateCdpCall refuses by policy and schema, and never blocks when the schema
     );
   } finally {
     clearSchemaMemo();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('gateCdpCall prints an unknown parameter as a warning and sends the call', async () => {
+  const warnings = [];
+  const dir = mkdtempSync(join(tmpdir(), 'octo-gate-unknown-'));
+  try {
+    const refusal = await gateCdpCall(
+      { method: 'Thing.find', params: { id: 1, selector: 'a', newer: true } },
+      9,
+      line => warnings.push(line),
+      {
+        cacheDir: dir,
+        fetchJson: async path =>
+          path === '/json/version' ? { Browser: 'Fake/1' } : schema,
+      }
+    );
+    assert.equal(refusal, undefined);
+    assert.match(warnings.join('\n'), /\[WARNING\] params\.newer/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('gateCdpCall judges a Target.sendMessageToTarget by the call it wraps', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'octo-gate-wrap-'));
+  const options = {
+    cacheDir: dir,
+    fetchJson: async path =>
+      path === '/json/version'
+        ? { Browser: 'Fake/2' }
+        : {
+            domains: [
+              ...schema.domains,
+              { domain: 'Browser', commands: [{ name: 'close' }] },
+              {
+                domain: 'Target',
+                commands: [
+                  {
+                    name: 'sendMessageToTarget',
+                    parameters: [{ name: 'message', type: 'string' }],
+                  },
+                ],
+              },
+            ],
+          },
+  };
+  const wrap = (method, params) => ({
+    message: JSON.stringify({ id: 1, method, params }),
+  });
+  const gate = (params, acknowledge) =>
+    gateCdpCall(
+      { method: 'Target.sendMessageToTarget', params, acknowledge },
+      9,
+      () => {},
+      options
+    );
+  try {
+    assert.match(
+      await gate(wrap('Browser.close', {}), false),
+      /Browser\.close.*user's permission/
+    );
+    assert.equal(await gate(wrap('Browser.close', {}), true), undefined);
+    assert.match(await gate({ message: 'nope' }, true), /not valid JSON/);
+    assert.match(
+      await gate(wrap('Thing.find', { id: 'x', selector: 'a' }), false),
+      /\[INVALID\] Thing\.find \(wrapped in Target\.sendMessageToTarget\).*id: expected integer/s
+    );
+    assert.equal(
+      await gate(wrap('Thing.find', { id: 1, selector: 'a' }), false),
+      undefined
+    );
+  } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });

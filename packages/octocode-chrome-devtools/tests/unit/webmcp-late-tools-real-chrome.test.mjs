@@ -85,7 +85,13 @@ test(
         options,
       });
       assert.equal(out.ok, true, JSON.stringify(out));
-      return readFileSync(out.logs.stdout, 'utf8');
+      return (
+        out.stdout ??
+        readFileSync(
+          JSON.parse(readFileSync(join(cwd, out.evidence), 'utf8')).logs.stdout,
+          'utf8'
+        )
+      );
     };
     try {
       const opened = await cli('open', {

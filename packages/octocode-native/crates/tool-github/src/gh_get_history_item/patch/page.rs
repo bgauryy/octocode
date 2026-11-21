@@ -210,7 +210,7 @@ fn patchless_rows_chars(files: &[Value], views: &[Option<String>], lengths: &[us
         .map(|(file, (view, _))| {
             let mut row = file_metadata(file);
             match (view, missing_patch_reason(file)) {
-                (None, Some(reason)) => mark_patchless(&mut row, reason),
+                (None, Some(reason)) => mark_patchless(&mut row, file, reason),
                 _ => row["patch"] = json!(""),
             }
             remove_nulls(&mut row);

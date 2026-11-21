@@ -573,3 +573,17 @@ async fn an_empty_search_of_an_archived_repo_proves_no_absence() {
         live.data
     );
 }
+
+/// A keyword spelled as a qualifier matches text; the empty answer names the
+/// field that carries it.
+#[tokio::test]
+async fn an_empty_search_names_the_field_for_a_qualifier_keyword() {
+    let output = run_empty(json_fixture(
+        r#"{"owner": "a", "repo": "b", "keywords": ["language:rust", "parse"]}"#,
+    ))
+    .await;
+    let hints = output.data["hints"].to_string();
+    assert!(hints.contains("`language:rust`"), "{hints}");
+    assert!(hints.contains("`extensions`"), "{hints}");
+    assert!(!hints.contains("`parse`"), "{hints}");
+}

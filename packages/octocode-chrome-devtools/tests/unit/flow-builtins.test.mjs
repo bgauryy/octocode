@@ -10,6 +10,7 @@ const { builtinFlows } = await import(join(dist, 'flows/index.mjs'));
 const { validatePlan } = await import(
   join(dist, 'cdp-checks/plan-validate.mjs')
 );
+const { INLINE_STDOUT_BYTES } = await import(join(dist, 'capture-result.mjs'));
 const command = join(dist, 'flow-command.mjs');
 const flow = (...args) =>
   spawnSync(process.execPath, [command, ...args], { encoding: 'utf8' });
@@ -49,11 +50,9 @@ test('a whole-value placeholder yields the typed value; an embedded one stays te
   });
   assert.equal(withAgent.steps[2].params.userAgent, 'UA/1');
   const dialog = expand('handle-dialog', { trigger: 'alert(1)' });
-  const evaluate = dialog.steps.find(
-    step => step.method === 'Runtime.evaluate'
-  );
-  assert.equal(typeof evaluate.params.expression, 'string');
-  assert.match(evaluate.params.expression, /alert\(1\)/);
+  const evaluate = dialog.steps.find(step => step.op === 'evaluate');
+  assert.equal(typeof evaluate.expression, 'string');
+  assert.match(evaluate.expression, /alert\(1\)/);
   const wait = dialog.steps.find(step => step.op === 'waitEvent');
   assert.equal(wait.timeoutMs, def('handle-dialog').params.ms.default);
   assert.equal(typeof wait.timeoutMs, 'number');
@@ -65,7 +64,7 @@ test('absent optional params drop their step, key or list item', () => {
     { name: 'prefers-color-scheme', value: 'dark' },
   ]);
   const dialog = expand('handle-dialog', { accept: false });
-  assert.ok(!dialog.steps.some(step => step.method === 'Runtime.evaluate'));
+  assert.ok(!dialog.steps.some(step => step.op === 'evaluate'));
   const handle = dialog.steps.find(
     step => step.method === 'Page.handleJavaScriptDialog'
   );
@@ -164,26 +163,201 @@ test('flow run refuses a missing acknowledge or unknown param before connecting'
   assert.match(unknown.stderr, /Unknown param/);
 });
 
-test('flow show is spliceable and flow list groups by area and marks sensitive flows', () => {
+test('flow show returns the definition once and is spliceable', () => {
   const show = JSON.parse(
     flow('show', 'cpu-throttle', '--params', '{"rate":4}').stdout
   );
+  assert.deepEqual(Object.keys(show).sort(), [
+    'area',
+    'description',
+    'expects',
+    'missing',
+    'name',
+    'params',
+    'source',
+    'spliceable',
+    'steps',
+    'valid',
+  ]);
   assert.equal(show.spliceable, true);
   assert.equal(show.valid, true);
-  assert.deepEqual(show.steps, show.plan.steps);
+  assert.deepEqual(show.missing, []);
   assert.equal(show.steps[0].params.rate, 4);
-  const list = JSON.parse(flow('list').stdout);
-  for (const [area, names] of Object.entries(list.areas))
-    for (const name of names)
-      assert.equal(
-        list.flows.find(item => item.name === name).area ?? 'custom',
-        area
+});
+
+test('flow show is not valid while a required param is missing or a sensitive flow is unconfirmed', () => {
+  const bare = JSON.parse(flow('show', 'emulate-device').stdout);
+  assert.equal(bare.valid, false);
+  assert.deepEqual(bare.missing.sort(), ['height', 'width']);
+  const partial = JSON.parse(
+    flow('show', 'emulate-device', '--params', '{"width":300}').stdout
+  );
+  assert.equal(partial.valid, false);
+  assert.deepEqual(partial.missing, ['height']);
+  const full = JSON.parse(
+    flow('show', 'emulate-device', '--params', '{"width":300,"height":500}')
+      .stdout
+  );
+  assert.equal(full.valid, true);
+  const geo = '{"latitude":1,"longitude":2,"acknowledge":false}';
+  const unconfirmed = JSON.parse(
+    flow('show', 'emulate-geolocation', '--params', geo).stdout
+  );
+  assert.equal(unconfirmed.valid, false);
+  assert.ok(unconfirmed.missing.includes('acknowledge'));
+  const confirmed = JSON.parse(
+    flow(
+      'show',
+      'emulate-geolocation',
+      '--params',
+      geo.replace('false', 'true')
+    ).stdout
+  );
+  assert.equal(confirmed.valid, true);
+});
+
+test('flow list is one compact inline reply grouped by area', () => {
+  const out = flow('list').stdout;
+  const list = JSON.parse(out);
+  assert.equal(out.trim().split('\n').length, 1, 'one line');
+  assert.ok(
+    Buffer.byteLength(out) <= INLINE_STDOUT_BYTES,
+    `${Buffer.byteLength(out)} bytes exceed the inline limit ${INLINE_STDOUT_BYTES}`
+  );
+  const rows = Object.values(list.areas).flat();
+  assert.equal(rows.length, builtinFlows.length);
+  for (const [area, items] of Object.entries(list.areas))
+    for (const item of items) {
+      const source = def(item.name);
+      assert.equal(source.area, area);
+      assert.deepEqual(
+        Object.keys(item).filter(key => key !== 'sensitive'),
+        ['name', 'description']
       );
-  assert.ok(list.flows.filter(item => item.sensitive).length >= 3);
-  assert.ok(
-    list.flows.find(item => item.name === 'emulate-geolocation').sensitive
+      assert.equal(item.sensitive, source.sensitive);
+      assert.ok(item.description.length <= core.LIST_DESCRIPTION_MAX);
+      assert.ok(!item.description.endsWith('…'), `${item.name} is cut`);
+      assert.ok(source.description.startsWith(item.description));
+      assert.ok(!('params' in item) && !('expects' in item));
+    }
+  assert.match(list.next, /flow show/);
+});
+
+test('firstSentence keeps whole sentences and cuts long ones at a word', () => {
+  assert.equal(core.firstSentence('One. Two.'), 'One.');
+  assert.equal(core.firstSentence('No period here'), 'No period here');
+  const long = `${'word '.repeat(40)}end.`;
+  const cut = core.firstSentence(long);
+  assert.ok(cut.length <= core.LIST_DESCRIPTION_MAX && cut.endsWith('…'));
+});
+
+test('the data flows exist, validate, and their sensitive ones refuse a missing or false acknowledge', () => {
+  const names = [
+    'dom-snapshot',
+    'indexeddb-dump',
+    'cache-storage-dump',
+    'service-worker-state',
+    'network-mock',
+    'block-urls',
+    'system-info',
+    'storage-quota',
+  ];
+  for (const name of names) {
+    assert.ok(def(name), name);
+    validatePlan(core.expandFlow(def(name), core.sampleParams(def(name))).plan);
+  }
+  for (const name of [
+    'indexeddb-dump',
+    'cache-storage-dump',
+    'network-mock',
+    'block-urls',
+  ]) {
+    assert.equal(def(name).sensitive, true, name);
+    const sample = core.sampleParams(def(name));
+    assert.throws(
+      () => core.resolveParams(def(name), { ...sample, acknowledge: false }),
+      /sensitive/,
+      name
+    );
+    // Every step that Chrome's policy gates carries the acknowledge.
+    for (const step of core.expandFlow(def(name), sample).plan.steps)
+      if (
+        step.op === 'cdp' &&
+        step.method !== 'Network.enable' &&
+        step.method !== 'Fetch.disable'
+      )
+        assert.equal(step.acknowledge, true, `${name}: ${step.method}`);
+  }
+  for (const name of [
+    'system-info',
+    'service-worker-state',
+    'dom-snapshot',
+    'storage-quota',
+  ])
+    assert.ok(!def(name).sensitive, name);
+});
+
+test('data flow steps are typed and spliceable: saved names, typed numbers, absent optionals dropped', () => {
+  const snapshot = expand('dom-snapshot', {});
+  assert.deepEqual(snapshot.steps[0].params.computedStyles, ['display']);
+  assert.equal(snapshot.steps[0].save, 'dom-snapshot.json');
+  assert.equal(expand('system-info', {}).steps[0].save, 'system-info.json');
+  const quota = expand('storage-quota', { origin: 'https://example.com' });
+  assert.equal(quota.steps[0].params.origin, 'https://example.com');
+  assert.throws(
+    () => core.resolveParams(def('storage-quota'), { origin: 'file:///x' }),
+    /match/
   );
+  const idb = expand('indexeddb-dump', {
+    origin: 'https://example.com',
+    acknowledge: true,
+  });
+  const data = idb.steps.find(step => step.method === 'IndexedDB.requestData');
+  assert.equal(typeof data.params.pageSize, 'number');
+  const chained = JSON.stringify(idb.steps).match(/"\$step":\d+/g);
+  assert.ok(chained.length >= 2);
+  const mock = expand('network-mock', {
+    pattern: '*://*/api',
+    acknowledge: true,
+  });
   assert.ok(
-    !('sensitive' in list.flows.find(item => item.name === 'cpu-throttle'))
+    !mock.steps.some(step => step.op === 'evaluate'),
+    'no trigger, no evaluate step'
   );
+  const fulfil = mock.steps.find(
+    step => step.method === 'Fetch.fulfillRequest'
+  );
+  assert.equal(fulfil.params.responseCode, 200);
+  assert.ok(!('body' in fulfil.params), 'absent body is dropped');
+  assert.deepEqual(fulfil.params.requestId, {
+    $event: 'paused',
+    pointer: '/requestId',
+  });
+  const withBody = expand('network-mock', {
+    pattern: 'x',
+    body: 'aGk=',
+    trigger: 'fetch("/a")',
+    acknowledge: true,
+  });
+  assert.equal(
+    withBody.steps.find(step => step.method === 'Fetch.fulfillRequest').params
+      .body,
+    'aGk='
+  );
+  assert.ok(withBody.steps.some(step => step.op === 'evaluate'));
+});
+
+test('a time zone needs acknowledge (Emulation.setTimezoneOverride is gated); a locale alone does not', () => {
+  const zone = expand('emulate-timezone-locale', {
+    timezone: 'Asia/Tokyo',
+    acknowledge: true,
+  });
+  assert.equal(zone.steps[0].acknowledge, true);
+  assert.throws(
+    () => expand('emulate-timezone-locale', { timezone: 'Asia/Tokyo' }),
+    /needs acknowledge together with timezone/
+  );
+  const locale = expand('emulate-timezone-locale', { locale: 'de-DE' });
+  assert.equal(locale.steps.length, 1);
+  assert.equal(locale.steps[0].method, 'Emulation.setLocaleOverride');
 });

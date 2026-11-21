@@ -92,6 +92,8 @@ export function createDomOperations(options: DomOptions = {}) {
   const WAIT_TEXT = cfg.waitText;
   const ACCEPT_DIALOG = cfg.acceptDialog;
   const DIFF = cfg.diff;
+  // The last step's effect may arrive after the action settles: a no-effect verdict waits for the post-action text, and a caller-awaited condition (selector, URL) replaces it.
+  let deferredNoEffect: string | undefined;
   const STEPS = readSteps(options, WAIT_TEXT);
   // Typed text must not reach any line this check prints (logs are persisted as captures).
   const secrets = typedValues(STEPS);
@@ -174,14 +176,19 @@ export function createDomOperations(options: DomOptions = {}) {
         mutations === 0 &&
         a.url === details.location;
       details.noEffect = noEffect;
+      const last = step === STEPS.at(-1);
       if (
         noEffect &&
+        !(last && options.afterAwaited) &&
         ['click', 'dblclick', 'press', 'drag'].includes(step.action)
       ) {
         const finding =
           'NO_VISIBLE_EFFECT nothing changed in the DOM or URL; the target may need another action, or the handler is async (set after.text to wait for the result, or raise timeoutMs)';
-        details.error = finding;
-        emit(`[FINDING] ${prefix}${finding}`);
+        if (last && WAIT_TEXT) deferredNoEffect = `${prefix}${finding}`;
+        else {
+          details.error = finding;
+          emit(`[FINDING] ${prefix}${finding}`);
+        }
       }
       return details.verified !== false;
     }
@@ -218,6 +225,7 @@ export function createDomOperations(options: DomOptions = {}) {
   }
 
   async function run(cdp: OperationSession) {
+    deferredNoEffect = undefined;
     await cdp.send('Runtime.enable');
     await cdp.send('DOM.enable');
     await cdp.send('Accessibility.enable');
@@ -328,6 +336,13 @@ export function createDomOperations(options: DomOptions = {}) {
           : `[FINDING] ${timeout}`
       );
       const last = results.at(-1);
+      // The text never came, so the inert click is the likely cause: report it before the timeout.
+      // Assigned inside the step callback, which control-flow analysis cannot see.
+      const noEffect = deferredNoEffect as string | undefined;
+      if (!hit && noEffect) {
+        emit(`[FINDING] ${noEffect}`);
+        if (last?.details) last.details.error = noEffect.replace(/^#\d+ /, '');
+      }
       if (!hit && last?.details)
         last.details.error = [last.details.error, timeout]
           .filter(Boolean)

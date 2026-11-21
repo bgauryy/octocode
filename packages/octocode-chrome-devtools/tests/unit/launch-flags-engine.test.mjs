@@ -161,6 +161,7 @@ test('the engine refuses denylisted flags and attach with launch flags when call
       '--port',
       port,
       '--attach',
+      '--acknowledge',
       '--chrome-flags',
       '--mute-audio'
     );

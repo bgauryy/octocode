@@ -76,7 +76,10 @@ pub(super) fn report(
         }
     }
     // Test functions reached (inline Rust test modules, pytest functions,
-    // functions in test files): the precise tests to run.
+    // functions in test files): the precise tests to run. A test is a
+    // function or method the runner calls and code does not: a test-code
+    // constant, or a function code calls, passes or uses, is support code
+    // (of anonymous `test("…", () => helper())` cases too).
     let mut test_functions = t
         .node_ids()
         .filter(|id| {
@@ -85,6 +88,13 @@ pub(super) fn report(
                 && node.flags & FLAG_TEST != 0
                 && reach[*id as usize].is_some()
                 && !(node.file != NONE && helper(node.file))
+                && matches!(t.str(node.detail), "function" | "method")
+                && !t.incoming(*id).any(|edge| {
+                    matches!(
+                        edge.kind,
+                        EdgeKind::Calls | EdgeKind::Passes | EdgeKind::Uses
+                    )
+                })
         })
         .map(|id| (reach[id as usize].map_or(0, |r| r.depth), id))
         .collect::<Vec<_>>();

@@ -1,3 +1,4 @@
+use super::sample::{placeholder, sampled};
 use super::{ContractValidationError, ValidationIssue, query_label, sibling_requirement};
 use serde_json::Value;
 
@@ -185,27 +186,6 @@ fn picked_by(tool_name: &str, issue: &ValidationIssue, sent: &Value) -> Option<V
     (!picked.is_empty()).then_some(picked)
 }
 
-/// A visible placeholder for a required `field` the rejected row lacks, in
-/// the shape of the example's `value`: the field's name in capitals
-/// (`repo` → `REPO`, `matchString` → `MATCH_STRING`), never a value that
-/// reads as a real name. `None` for a value that is not text.
-fn placeholder(field: &str, value: &Value) -> Option<Value> {
-    let mut name = String::new();
-    for (at, character) in field.chars().enumerate() {
-        if at > 0 && character.is_ascii_uppercase() {
-            name.push('_');
-        }
-        name.push(character.to_ascii_uppercase());
-    }
-    match value {
-        Value::String(_) => Some(Value::String(name)),
-        Value::Array(items) if items.first().is_some_and(Value::is_string) => {
-            Some(Value::Array(vec![Value::String(name)]))
-        }
-        _ => None,
-    }
-}
-
 /// The row's own `value` of a field whose issues all lie inside it, as the
 /// candidates an example may show, the plainest first: each key at fault
 /// removed (`source.query.bogusField`); then with the keys the row lacks, filled with a visible placeholder
@@ -344,7 +324,12 @@ fn in_row_terms(tool_name: &str, example: &Value, rejected: Option<&Rejected<'_>
                 // core's example value, which beside the row's own values
                 // could name something that does not exist (core's owner
                 // with the row's repository).
-                let mut candidates = without_faults(own, &inside);
+                let mut candidates = if inside.iter().any(|fault| fault.len() == 1) {
+                    Vec::new()
+                } else {
+                    sampled(tool_name, own, &inside)
+                };
+                candidates.extend(without_faults(own, &inside));
                 if candidates.is_empty() {
                     candidates.extend(placeholder(field, value));
                 }
@@ -369,16 +354,45 @@ fn in_row_terms(tool_name: &str, example: &Value, rejected: Option<&Rejected<'_>
         }
     }
     let state = crate::id::ToolId::from_name(tool_name).map(crate::contracts::state_fields);
+    let is_of_the_call = |field: &String| {
+        crate::contracts::BRIEF_FIELDS.contains(&field.as_str())
+            || state.is_some_and(|state| state.contains(field))
+    };
     for (field, value) in row.iter() {
-        let of_the_call = crate::contracts::BRIEF_FIELDS.contains(&field.as_str())
-            || state.is_some_and(|state| state.contains(field));
-        if of_the_call || shown.contains_key(field) || faulted.contains(field) {
+        if is_of_the_call(field) || shown.contains_key(field) || faulted.contains(field) {
             continue;
         }
         let mut candidate = shown.clone();
         candidate.insert(field.clone(), value.clone());
         if accepted(&candidate) {
             shown = candidate;
+        }
+    }
+    // A field at fault that the example does not set stays in the example,
+    // in a shape its schema accepts.
+    for field in faulted {
+        if shown.contains_key(field) || is_of_the_call(field) {
+            continue;
+        }
+        let Some(own) = row.get(field) else {
+            continue;
+        };
+        let inside = faults
+            .iter()
+            .filter(|fault| fault.first() == Some(field))
+            .map(Vec::as_slice)
+            .collect::<Vec<_>>();
+        let mut candidates = sampled(tool_name, own, &inside);
+        if !inside.iter().any(|fault| fault.len() == 1) {
+            candidates.extend(without_faults(own, &inside));
+        }
+        for value in candidates {
+            let mut candidate = shown.clone();
+            candidate.insert(field.clone(), value);
+            if accepted(&candidate) {
+                shown = candidate;
+                break;
+            }
         }
     }
     // A field at fault by values whose meaning the messages name: the

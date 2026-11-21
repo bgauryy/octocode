@@ -52,7 +52,8 @@ pub(in crate::lsp_search) fn class_uses_warning(
             .then(|| symbol_kind_name(root.get("kind")))
     })?;
     Some(format!(
-        "The anchor is a {kind}: callers lists its uses (symbols that construct, hold or extend it), not calls; each row's `kind` and `detail` name the user."
+        "The anchor is {}: callers lists its uses (symbols that construct, hold or extend it), not calls; each row's `kind` and `detail` name the user.",
+        crate::lsp_search::render::with_article(&kind)
     ))
 }
 

@@ -598,10 +598,12 @@ fn last_key_byte_end(bytes: &[u8], from: usize) -> usize {
 /// escapes (`\`) beside it (padding, a JSON `\/`, the `\` of a `\n`), past
 /// `span` too: a run's end that stops before its `/` or `+` hides them all the
 /// same. What stays outside holds no base64 letter or digit and is set off
-/// from the key by a byte no key holds: no key byte. A span with no such
-/// run, or whose key would still hold a quote, bracket or separator (code,
-/// not a key's text: `"MIIE…", "MIIE…"`), is no narrower than given:
-/// hiding half of a pair would leave the other unpaired.
+/// from the key by a byte no key holds: no key byte. A key that holds a
+/// quote, bracket or separator (code, not a key's text: `"MIIE…", "MIIE…"`,
+/// a format's `{body}`) hides with them when they pair among themselves, so
+/// what closes the line (`");`) stays. A span with no such run, or whose key
+/// would hold half of a pair, is no narrower than given: hiding half of a
+/// pair would leave the other unpaired.
 fn key_text_span(bytes: &[u8], span: std::ops::Range<usize>) -> std::ops::Range<usize> {
     let keyish = |byte: &u8| matches!(byte, b'+' | b'/' | b'=' | b'\\');
     let Some(piece) = bytes.get(span.clone()) else {
@@ -655,10 +657,23 @@ fn key_text_span(bytes: &[u8], span: std::ops::Range<usize>) -> std::ops::Range<
                 | b';'
         )
     };
-    if shown.iter().any(paired) {
+    if shown.iter().any(paired) && !pairs_within(&shown) {
         return span.start.min(key.start)..span.end.max(key.end);
     }
     key
+}
+
+/// Whether every quote and bracket of `bytes` pairs within it: each quote
+/// an even number of times, each bracket closed as often as opened. Hiding
+/// such bytes leaves the delimiters around them paired as written.
+fn pairs_within(bytes: &[u8]) -> bool {
+    let count = |delimiter: u8| bytes.iter().filter(|byte| **byte == delimiter).count();
+    b"\"'`"
+        .iter()
+        .all(|quote| count(*quote) % 2 == 0)
+        && [(b'(', b')'), (b'[', b']'), (b'{', b'}'), (b'<', b'>')]
+            .into_iter()
+            .all(|(open, close)| count(open) == count(close))
 }
 
 /// Where `needle` occurs in `bytes`, in order, without overlap.

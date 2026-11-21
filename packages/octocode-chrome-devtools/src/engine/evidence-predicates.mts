@@ -2,8 +2,8 @@
 // where/select inputs that filter and project rows before pagination.
 import { compareNumeric } from './evidence-numeric.mjs';
 
-/** One --where predicate: { path, op: eq|ne|contains|gte|lte|exists, value }. */
-export type Predicate = { path: string; op: string; value: unknown };
+/** One --where predicate: { path, op: eq|ne|contains|gte|lte|exists, value }; `value` may be left out for exists (true). */
+export type Predicate = { path: string; op: string; value?: unknown };
 /** A number JSON.rawJSON keeps as its exact source text. */
 type RawJson = { rawJSON: string };
 
@@ -148,7 +148,8 @@ function expectedValue(filter: Predicate, actual: unknown) {
 function matchesFilter(row: unknown, filter: Predicate): boolean {
   if (filter.op === 'ne') return !matchesFilter(row, { ...filter, op: 'eq' });
   const actual = pointer(row, filter.path);
-  if (filter.op === 'exists') return (actual !== undefined) === filter.value;
+  if (filter.op === 'exists')
+    return (actual !== undefined) === (filter.value ?? true);
   if (filter.op === 'contains')
     return (
       typeof actual === 'string' &&
@@ -186,18 +187,35 @@ function validatePredicate(f: Predicate) {
     throw new Error(`${f.op} needs a scalar value`);
   f.path = toPointer(f.path);
   pointer({}, f.path);
-  if (f.op === 'exists' && typeof f.value !== 'boolean')
-    throw new Error('exists needs a boolean');
+  if (
+    f.op === 'exists' &&
+    f.value !== undefined &&
+    typeof f.value !== 'boolean'
+  )
+    throw new Error('exists needs a boolean value (or none: true)');
   if (f.op === 'contains' && typeof f.value !== 'string')
     throw new Error('contains needs text');
   if (['gte', 'lte'].includes(f.op) && !isNumericValue(f.value))
     throw new Error('Numeric predicate needs a number or integer string');
 }
 
+const WHERE_SHAPE = `Expected an array like [{"path":"/status","op":"eq","value":200}]; ops: ${OPS.join(', ')}; each needs path, op, value (exists: value optional, default true).`;
+
 /** Checks --where predicates: [{ path, op: eq|ne|contains|gte|lte|exists, value }]; dotted paths become pointers. */
 export function validatePredicates(
   filters: unknown
 ): asserts filters is Predicate[] {
+  try {
+    checkPredicates(filters);
+  } catch (error) {
+    throw new Error(
+      `Invalid --where: ${error instanceof Error ? error.message : String(error)}. ${WHERE_SHAPE}`,
+      { cause: error }
+    );
+  }
+}
+
+function checkPredicates(filters: unknown): asserts filters is Predicate[] {
   if (
     !Array.isArray(filters) ||
     filters.some(
@@ -205,7 +223,7 @@ export function validatePredicates(
         !f ||
         typeof f.path !== 'string' ||
         !OPS.includes(f.op) ||
-        !Object.hasOwn(f, 'value')
+        (f.op !== 'exists' && !Object.hasOwn(f, 'value'))
     )
   )
     throw new Error('Invalid predicates');

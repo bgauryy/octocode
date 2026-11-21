@@ -98,6 +98,9 @@ pub struct JudgeCall<'a> {
     pub admitted: &'a [usize],
     pub predicates: &'a [String],
     pub(crate) research_context: Option<&'a str>,
+    /// The most provider requests this page may send
+    /// (`classification.maxRequests`, unset: 1); a plan over it sends none.
+    pub(crate) max_requests: u64,
     pub(crate) long_context: crate::judgment::LongContext,
     pub handle: &'a tokio::runtime::Handle,
     pub context: &'a ExecutionContext,
@@ -259,6 +262,11 @@ pub enum Failure {
 
 pub struct ProviderFailure {
     pub error: ProviderError,
+    /// On a plan over `classification.maxRequests` (nothing sent): the
+    /// requests ceiling the caller may confirm, and that confirmation as an
+    /// executable call ([`confirm_row`]).
+    pub confirm_ceiling: Option<u64>,
+    pub confirm: Option<Value>,
     /// The finished `unavailable` outcome: nothing judged, its plan
     /// recording the provider's code, so a later page replays it without
     /// another provider call.
@@ -282,7 +290,7 @@ pub fn unless_transient(
                 failure.error.code,
             ) =>
         {
-            let ProviderFailure { error, outcome } = *failure;
+            let ProviderFailure { error, outcome, .. } = *failure;
             Ok((outcome, Some(error)))
         }
         selected => selected.map(|outcome| (outcome, None)),
@@ -433,9 +441,13 @@ impl ProviderFailure {
             message,
             hints,
         } = self.error;
+        let mut calls = json!({ "unfiltered": unfiltered });
+        if let Some(confirm) = self.confirm {
+            calls["confirm"] = confirm;
+        }
         octocode_runtime_base::response::result::ToolError {
             hints,
-            calls: Some(Box::new(json!({ "unfiltered": unfiltered }))),
+            calls: Some(Box::new(calls)),
             selection: Some(Box::new(self.outcome.receipt)),
             ..octocode_runtime_base::response::result::ToolError::new(code, message)
         }
@@ -452,6 +464,17 @@ impl ProviderFailure {
         }
         data
     }
+}
+
+/// The same row, progress kept, with `classification.maxRequests` at
+/// `ceiling`: the consent a plan over the caller's cap asks for.
+pub fn confirm_row(query: &Value, ceiling: u64) -> Value {
+    let mut classification = query["classification"].clone();
+    classification["maxRequests"] = json!(ceiling);
+    octocode_runtime_base::response::result::with_changes(
+        query.clone(),
+        &json!({ "classification": classification }),
+    )
 }
 
 /// The one unfiltered recovery row: the classified read as an ordinary read

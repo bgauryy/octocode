@@ -73,6 +73,10 @@ pub struct NextCalls {
         default
     )]
     pub next_candidate_page: Option<FetchCall>,
+    /// The same classified read with `classification.maxRequests` raised to
+    /// the ceiling of the plan that exceeded it (nothing was sent); billed.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub confirm: Option<FetchCall>,
     #[serde(rename = "nextPage", skip_serializing_if = "Option::is_none")]
     pub continue_window: Option<FetchCall>,
     #[serde(rename = "readBoundedLines", skip_serializing_if = "Option::is_none")]
@@ -149,6 +153,7 @@ impl NextCalls {
         "unfiltered" Page unfiltered,
         "unfilteredUnknown" Page unfiltered_unknown,
         "nextCandidatePage" Page next_candidate_page,
+        "confirm" Page confirm,
         "nextPage" Page continue_window,
         "readBoundedLines" Current read_bounded_lines,
         "restart" Current restart,

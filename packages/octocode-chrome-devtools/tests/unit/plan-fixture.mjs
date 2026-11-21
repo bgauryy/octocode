@@ -4,10 +4,14 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+// Raw script execution needs the user's acknowledgement; these fixtures stand in for an approved call.
+const ACK_METHODS =
+  /^Runtime\.(evaluate|callFunctionOn|compileScript|runScript)$/;
 export const call = (method, params = {}, extra = {}) => ({
   op: 'cdp',
   method,
   params,
+  ...(ACK_METHODS.test(method) ? { acknowledge: true } : {}),
   ...extra,
 });
 export async function fixture(fn) {

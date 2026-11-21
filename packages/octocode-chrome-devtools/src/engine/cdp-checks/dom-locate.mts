@@ -3,6 +3,7 @@ import { readTargetSnapshot } from './snapshot-resource.mjs';
 import { collectRefs } from '../ax-snapshot.mjs';
 import { coreBodyJs } from './dom-page-scripts.mjs';
 import { observedDomFailure } from './dom-failure.mjs';
+import { waitEndsAt } from './dom-config.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { Payload, Session } from '../cdp-connection.mjs';
 import type {
@@ -274,6 +275,6 @@ export async function locateWhenReady(
       );
     }
     await sleep(150);
-  } while (Date.now() - start < ctx.cfg.waitMs);
+  } while (Date.now() < waitEndsAt(ctx.cfg, start));
   return result;
 }

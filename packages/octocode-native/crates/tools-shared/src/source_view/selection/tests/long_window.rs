@@ -11,7 +11,7 @@ fn a_long_context_retry_is_disclosed_on_the_classified_read() {
     let query: LocalFetchQuery = serde_json::from_value(json_fixture(
         r#"{
             "path": "source.txt",
-            "classification": {"predicates": ["Is it kept?"]}
+            "classification": {"predicates": ["Is it kept?"], "maxRequests": 100}
         }"#,
     ))
     .unwrap();

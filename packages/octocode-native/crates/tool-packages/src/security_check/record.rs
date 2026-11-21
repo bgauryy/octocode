@@ -15,6 +15,11 @@ pub(super) struct SecurityAdvisory {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub related: Vec<String>,
     pub link: String,
+    /// The database this copy of the advisory comes from. Each database keeps
+    /// its own record, with its own severity, text and dates: the copies of
+    /// one id are told apart by this field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub database: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
     /// GitHub's class of the record (`reviewed`, `unreviewed`, `malware`);
@@ -59,6 +64,13 @@ pub(super) struct SecurityAdvisory {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub references: Vec<Value>,
 }
+
+/// OSV's record of an advisory.
+pub(super) const OSV_DATABASE: &str = "OSV";
+/// GitHub's global advisory database (`github.com/advisories`).
+pub(super) const GITHUB_DATABASE: &str = "GitHub advisory database";
+/// A repository's own advisory on GitHub (`<repo>/security/advisories`).
+pub(super) const GITHUB_REPOSITORY_DATABASE: &str = "GitHub repository advisory";
 
 /// Which `affected` entries a row states as its own.
 pub(super) enum Selection<'a> {
@@ -459,6 +471,7 @@ pub(super) fn advisory(
     }
     let database = fields.get("database_specific");
     Ok(SecurityAdvisory {
+        database: Some(OSV_DATABASE.to_owned()),
         link: record_url(&id),
         source: own
             .iter()

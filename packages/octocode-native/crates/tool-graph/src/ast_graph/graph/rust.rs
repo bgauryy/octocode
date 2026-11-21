@@ -103,6 +103,20 @@ pub(super) fn rust_local_target(
 /// one whose `super`s stay within those modules names this file (`None`);
 /// otherwise the path with the inline climbs removed, resolved from the
 /// file's own module.
+/// The module item a qualified Rust path names: its first type-cased segment
+/// after the head (`Kind` of `m::Kind::A`, `T` of `m::T::new`), else its last
+/// segment (`f` of `crate::m::f`). A path of one segment names no module item.
+pub(super) fn rust_path_item(path: &str) -> Option<&str> {
+    let mut segments = path.split("::").filter(|segment| !segment.is_empty());
+    segments.next()?;
+    let rest = segments.collect::<Vec<_>>();
+    let item = rest
+        .iter()
+        .find(|segment| segment.starts_with(|c: char| c.is_uppercase()))
+        .or(rest.last())?;
+    (!item.contains(['<', '{', '*', '(']) && *item != "Self").then_some(*item)
+}
+
 pub(super) fn rust_inline_path(path: &str, depth: u32) -> Option<&str> {
     if depth == 0 {
         return Some(path);

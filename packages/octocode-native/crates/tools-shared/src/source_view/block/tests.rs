@@ -498,3 +498,58 @@ fn a_block_with_no_outline_and_no_edge_leads_to_the_rest_of_the_file() {
     );
     assert_eq!(local_fetch_query::path(&read.query), "lib/app.rb");
 }
+
+/// The block a no-outline file's hit widens to: its window's end line.
+fn indented_block_end(source: &str, path: &str, hit: usize) -> usize {
+    let mut warnings = vec![];
+    let windows = widen_matches(
+        source,
+        path,
+        &[hit],
+        vec![LineRange {
+            start: hit,
+            end: hit,
+        }],
+        &mut warnings,
+        &mut vec![],
+        &mut NextCalls::default(),
+    );
+    assert!(warnings[0].contains("estimate"), "{warnings:?}");
+    windows[0].end
+}
+
+/// A brace on its own line under the head (Allman) opens the body: the block
+/// runs to the brace that closes it, not to the head line.
+#[test]
+fn an_allman_brace_block_runs_to_its_closing_brace() {
+    let php = "<?php\nclass Str\n{\n    public static function slug($title)\n    {\n        $title = trim($title);\n\n        return $title;\n    }\n\n    public static function other()\n    {\n        return 1;\n    }\n}\n";
+    assert_eq!(indented_block_end(php, "src/Str.php", 4), 9);
+    assert_eq!(indented_block_end(php, "src/Str.php", 2), 15);
+    let cs = "namespace A\n{\n    class B\n    {\n        void M()\n        {\n            Go();\n        }\n    }\n}\n";
+    assert_eq!(indented_block_end(cs, "src/B.zig", 5), 8);
+}
+
+/// A wrapped parameter list closes at the head's indent: the body brace after
+/// it (on the same line or the next) carries the block on.
+#[test]
+fn a_wrapped_signature_does_not_end_a_brace_block() {
+    let same = "class A\n{\n    function f(\n        $a,\n        $b\n    ) {\n        return 1;\n    }\n\n    function g()\n    {\n    }\n}\n";
+    assert_eq!(indented_block_end(same, "src/A.php", 3), 8);
+    let next =
+        "class A\n{\n    function f(\n        $a\n    ): int\n    {\n        return 1;\n    }\n}\n";
+    assert_eq!(indented_block_end(next, "src/A.php", 3), 8);
+}
+
+/// A chain closing and opening again (`} else {`) stays one block.
+#[test]
+fn an_else_chain_stays_one_block() {
+    let zig = "fn f() void {\n    if (a) {\n        b();\n    } else {\n        c();\n    }\n}\n";
+    assert_eq!(indented_block_end(zig, "src/f.zig", 2), 6);
+}
+
+/// A one-line declaration followed by a K&R one is not merged with it.
+#[test]
+fn a_one_line_declaration_does_not_swallow_the_next_brace_block() {
+    let php = "class A\n{\n    function a() { return 1; }\n    function b() {\n        return 2;\n    }\n}\n";
+    assert_eq!(indented_block_end(php, "src/A.php", 3), 3);
+}

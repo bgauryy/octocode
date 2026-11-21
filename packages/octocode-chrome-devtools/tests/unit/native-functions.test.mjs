@@ -15,6 +15,9 @@ test('every command is a native function, named exactly as in MCP and /cli', () 
     Object.keys(chromeCommands).sort()
   );
   for (const fn of Object.values(chrome)) assert.equal(typeof fn, 'function');
+  assert.equal(typeof chrome.helper, 'function');
+  assert.equal(typeof chrome.group, 'function');
+  assert.equal(chrome['har-pager'], undefined);
 });
 
 test('a native call validates input with the command schema and runs the engine', async () => {
@@ -23,6 +26,10 @@ test('a native call validates input with the command schema and runs the engine'
   process.chdir(cwd);
   try {
     await assert.rejects(() => call('targets', { extra: true }));
+    await assert.rejects(() => call('helper', { name: 'cookies' }));
+    // A helper runs through the gateway: its usage is the reply.
+    const usage = await chrome.helper({ name: 'prune', args: ['--help'] });
+    assert.equal(usage.ok, true);
     const reply = await chrome.schema({});
     assert.equal(reply.ok, true);
   } finally {

@@ -35,7 +35,7 @@ test('shutdown bounds an engine that ignores SIGTERM and preserves its captured 
     );
     writeFileSync(
       join(directory, 'fixture.mjs'),
-      `import {invoke,stopEngine} from './invocation.mjs';import {existsSync,readFileSync} from 'node:fs';import assert from 'node:assert/strict';const result=invoke('schema',{}).catch(error=>error);while(!existsSync(${JSON.stringify(pidFile)}))await new Promise(resolve=>setTimeout(resolve,10));stopEngine();stopEngine();const error=await result;const capture=JSON.parse(error.message);assert.equal(capture.ok,false);assert.equal(capture.signal,'SIGKILL');assert.match(readFileSync(capture.logs.stdout,'utf8'),/shutdown evidence/);console.log('bounded shutdown verified');`
+      `import {invoke,stopEngine} from './invocation.mjs';import {existsSync,readFileSync} from 'node:fs';import assert from 'node:assert/strict';const result=invoke('schema',{}).catch(error=>error);while(!existsSync(${JSON.stringify(pidFile)}))await new Promise(resolve=>setTimeout(resolve,10));stopEngine();stopEngine();const error=await result;const failure=JSON.parse(error.message);assert.equal(failure.ok,false);assert.ok(failure.next.query.file);const capture=JSON.parse(readFileSync(failure.next.query.file,'utf8'));assert.equal(capture.signal,'SIGKILL');assert.match(readFileSync(capture.logs.stdout,'utf8'),/shutdown evidence/);console.log('bounded shutdown verified');`
     );
     const result = await promisify(execFile)(
       process.execPath,
@@ -79,7 +79,7 @@ test('cancellation stops an active engine, retains evidence, and never launches 
     );
     writeFileSync(
       join(directory, 'fixture.mjs'),
-      `import {invoke} from './invocation.mjs';import {existsSync,readFileSync} from 'node:fs';import assert from 'node:assert/strict';const active=new AbortController();const pending=new AbortController();const first=invoke('schema',{},active.signal).catch(e=>e);const second=invoke('targets',{},pending.signal).catch(e=>e);while(!existsSync('ready'))await new Promise(r=>setTimeout(r,10));pending.abort();active.abort();const capture=JSON.parse((await first).message);assert.equal(capture.cancelled,true);assert.equal(capture.outcomeUncertain,true);assert.match(readFileSync(capture.logs.stdout,'utf8'),/partial evidence/);assert.equal((await second).name,'AbortError');assert.equal(readFileSync('launches','utf8'),'schema\\n');console.log('cancellation verified');`
+      `import {invoke} from './invocation.mjs';import {existsSync,readFileSync} from 'node:fs';import assert from 'node:assert/strict';const active=new AbortController();const pending=new AbortController();const first=invoke('schema',{},active.signal).catch(e=>e);const second=invoke('targets',{},pending.signal).catch(e=>e);while(!existsSync('ready'))await new Promise(r=>setTimeout(r,10));pending.abort();active.abort();const failure=JSON.parse((await first).message);assert.equal(failure.cancelled,true);assert.equal(failure.outcomeUncertain,true);const capture=JSON.parse(readFileSync(failure.next.query.file,'utf8'));assert.match(readFileSync(capture.logs.stdout,'utf8'),/partial evidence/);assert.equal((await second).name,'AbortError');assert.equal(readFileSync('launches','utf8'),'schema\\n');console.log('cancellation verified');`
     );
     const result = await promisify(execFile)(
       process.execPath,

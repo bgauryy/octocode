@@ -36,16 +36,26 @@ if (positionalHar && fileFlag)
 const harArg = positionalHar ?? fileFlag;
 if (!harArg) throw new Error('A HAR file is required');
 
-const page = Math.max(1, Number.parseInt(getArg('--page', '1'), 10));
-const pageSize = Math.max(
-  1,
-  Math.min(200, Number.parseInt(getArg('--page-size', '25'), 10))
-);
+/** A whole number at or above `min`: a malformed paging flag is refused, never turned into NaN or clamped silently. */
+function wholeNumber(flag: string, fallback: string, min: number) {
+  const text = getArg(flag, fallback);
+  const value = Number(text);
+  if (!/^\d+$/.test(text) || !Number.isSafeInteger(value) || value < min)
+    throw new Error(`${flag} must be a whole number of at least ${min}`);
+  return value;
+}
+const page = wholeNumber('--page', '1', 1);
+const pageSize = Math.min(200, wholeNumber('--page-size', '25', 1));
 const filter = getArg('--filter', 'all');
+if (
+  !['all', 'failures', 'slow'].includes(filter) &&
+  !filter.startsWith('domain:')
+)
+  throw new Error('--filter must be all, failures, slow or domain:<host>');
 const kindFilter = getLowerArg('--kind');
 const statusFilter = getArg('--status', '');
 const urlRegexStr = getArg('--url-regex', '');
-const minMs = Math.max(0, Number.parseInt(getArg('--min-ms', '1000'), 10));
+const minMs = wholeNumber('--min-ms', '1000', 0);
 const format = getArg('--format', 'text');
 const harPath = resolve(process.cwd(), harArg);
 const har: HarFile = JSON.parse(readFileSync(harPath, 'utf8'));

@@ -1,5 +1,6 @@
 // Built-in flows: one data file each; flow-core validates every one against the real plan validator.
 import type { FlowDefinition } from './flow-types.mjs';
+import { dataFlows } from './data-flows.mjs';
 import { emulationFlows } from './emulation-flows.mjs';
 import { inspectionFlows } from './inspection-flows.mjs';
 import { windowFlows } from './window-flows.mjs';
@@ -19,5 +20,6 @@ export const builtinFlows: FlowDefinition[] = [
   consoleNetworkAudit,
   ...emulationFlows,
   ...inspectionFlows,
+  ...dataFlows,
   ...windowFlows,
 ];

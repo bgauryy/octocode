@@ -232,6 +232,16 @@ pub(super) fn wire_kind(kind: &str) -> &str {
     }
 }
 
+/// `name` with its indefinite article: `an enum`, `an interface`, `a struct`.
+pub(super) fn with_article(name: &str) -> String {
+    let article = if name.starts_with(['a', 'e', 'i', 'o', 'u']) {
+        "an"
+    } else {
+        "a"
+    };
+    format!("{article} {name}")
+}
+
 /// Evidence rows cut by the character budget, pinned to one result digest.
 pub(super) struct Pages<'a> {
     pub(super) paging: Paging,

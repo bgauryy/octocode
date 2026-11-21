@@ -42,22 +42,29 @@ type SavedRef = Pick<RefUnit, 'backendDOMNodeId' | 'role' | 'name'> & {
 //   SNAPSHOT_STDOUT    summary keeps refs on disk
 //   SNAPSHOT_DEPTH     max AX tree depth (default unlimited)
 
-const int = (name: string, fallback: number) =>
-  Number.parseInt(process.env[name] ?? String(fallback), 10);
-const DEPTH = int('SNAPSHOT_DEPTH', -1);
-const MAX_REFS = Math.max(1, Math.min(300, int('SNAPSHOT_MAX', 60) || 60));
-const PAGE = Math.max(1, int('SNAPSHOT_PAGE', 1) || 1);
-const ROOT = (process.env.SNAPSHOT_ROOT ?? '').trim();
-const VIEWPORT = process.env.SNAPSHOT_VIEWPORT === '1';
-const OUTLINE = process.env.SNAPSHOT_OUTLINE === '1';
-const CONTEXT = process.env.SNAPSHOT_CONTEXT !== '0';
-const URLS = process.env.SNAPSHOT_URLS === '1';
-const CLICKABLE = process.env.SNAPSHOT_CLICKABLE !== '0';
-const SUMMARY = process.env.SNAPSHOT_STDOUT === 'summary';
-const MAX_CONTEXT = 110;
-const TEXT_CHARS = Math.max(0, Math.min(4000, int('SNAPSHOT_TEXT', 0) || 0));
+type Env = Record<string, string | undefined>;
 
-async function rootBackendId(cdp: CheckSession): Promise<number> {
+/** The recipe's settings from SNAPSHOT_* variables: the process env standalone, the validated options in a plan. */
+function readConfig(env: Env) {
+  const int = (name: string, fallback: number) =>
+    Number.parseInt(env[name] ?? String(fallback), 10);
+  return {
+    DEPTH: int('SNAPSHOT_DEPTH', -1),
+    MAX_REFS: Math.max(1, Math.min(300, int('SNAPSHOT_MAX', 60) || 60)),
+    PAGE: Math.max(1, int('SNAPSHOT_PAGE', 1) || 1),
+    ROOT: (env.SNAPSHOT_ROOT ?? '').trim(),
+    VIEWPORT: env.SNAPSHOT_VIEWPORT === '1',
+    OUTLINE: env.SNAPSHOT_OUTLINE === '1',
+    CONTEXT: env.SNAPSHOT_CONTEXT !== '0',
+    URLS: env.SNAPSHOT_URLS === '1',
+    CLICKABLE: env.SNAPSHOT_CLICKABLE !== '0',
+    SUMMARY: env.SNAPSHOT_STDOUT === 'summary',
+    TEXT_CHARS: Math.max(0, Math.min(4000, int('SNAPSHOT_TEXT', 0) || 0)),
+  };
+}
+const MAX_CONTEXT = 110;
+
+async function rootBackendId(cdp: CheckSession, ROOT: string): Promise<number> {
   if (/^[er]\d+$/.test(ROOT)) {
     const prev = readTargetSnapshot(cdp)?.data;
     const entry = ROOT.startsWith('e')
@@ -170,19 +177,29 @@ async function enrich(
   }
 }
 
-export async function run(cdp: CheckSession) {
+export async function run(cdp: CheckSession, env: Env = process.env) {
+  const {
+    DEPTH,
+    MAX_REFS,
+    PAGE,
+    ROOT,
+    VIEWPORT,
+    OUTLINE,
+    CONTEXT,
+    URLS,
+    CLICKABLE,
+    SUMMARY,
+    TEXT_CHARS,
+  } = readConfig(env);
   const ready = await waitForPageReady(
     cdp,
-    Number(process.env.SNAPSHOT_WAIT_MS || 8000),
+    Number(env.SNAPSHOT_WAIT_MS || 8000),
     {
-      selector: process.env.SNAPSHOT_WAIT_SELECTOR || '',
-      text: process.env.SNAPSHOT_WAIT_TEXT || '',
+      selector: env.SNAPSHOT_WAIT_SELECTOR || '',
+      text: env.SNAPSHOT_WAIT_TEXT || '',
     }
   );
-  if (
-    !ready &&
-    (process.env.SNAPSHOT_WAIT_SELECTOR || process.env.SNAPSHOT_WAIT_TEXT)
-  )
+  if (!ready && (env.SNAPSHOT_WAIT_SELECTOR || env.SNAPSHOT_WAIT_TEXT))
     process.exitCode = 1;
   if (!ready)
     console.log(
@@ -192,7 +209,7 @@ export async function run(cdp: CheckSession) {
   const viewport = VIEWPORT
     ? (await cdp.send('Page.getLayoutMetrics')).cssVisualViewport
     : null;
-  const selectedRootBackendId = ROOT ? await rootBackendId(cdp) : null;
+  const selectedRootBackendId = ROOT ? await rootBackendId(cdp, ROOT) : null;
   const { useful, regions, totalNodes, findings } = await collectRefs(cdp, {
     rootBackendId: selectedRootBackendId,
     viewport,

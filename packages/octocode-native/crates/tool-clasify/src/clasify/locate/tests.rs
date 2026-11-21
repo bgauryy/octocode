@@ -1,6 +1,50 @@
 //! A whole-window text cut into parts, and the lines its answers name.
 use super::*;
+use octocode_runtime_base::response::numbered::{Omitted, omission_marker};
 use octocode_test_support::json_fixture;
+
+/// `mark` of a text with no gap markers.
+fn mark(
+    text: &str,
+    page_chars: usize,
+    at: Option<&[usize]>,
+    companions: usize,
+) -> Option<(String, Parts)> {
+    mark_with_gaps(text, page_chars, at, companions, &[])
+}
+
+/// The text a reader returns for `windows` (sorted, disjoint 1-based
+/// inclusive spans) of a file of `line N` lines: one gap marker between
+/// non-adjacent windows.
+fn ranged(windows: &[(usize, usize)]) -> String {
+    let mut text = String::new();
+    for (index, &(start, end)) in windows.iter().enumerate() {
+        if index > 0 {
+            let previous = windows[index - 1].1;
+            text.push_str(&omission_marker(
+                previous + 1,
+                start - 1,
+                Omitted::NotRequested,
+            ));
+        }
+        text.extend((start..=end).map(|n| format!("line {n}\n")));
+    }
+    text
+}
+
+/// A source that reads `ranges` (`[[start, end], ...]`) of `out.log`.
+fn ranged_source(ranges: &[[usize; 2]]) -> Value {
+    json!({
+        "tool": "localFetch",
+        "query": {
+            "path": "out.log",
+            "ranges": ranges
+                .iter()
+                .map(|[start, end]| json!({"startLine": start, "endLine": end}))
+                .collect::<Vec<_>>()
+        }
+    })
+}
 
 fn noul() -> Value {
     json_fixture(r#"{"type": "noul", "instructions": "Does a test fail?"}"#)
@@ -493,22 +537,84 @@ fn a_range_selection_is_located_in_file_lines() {
     assert!(located.parts.iter().all(|&(s, e)| 100 <= s && e <= 139));
     let marked = located.state["text"].as_str().expect("text");
     assert!(marked.contains("<lines 100-"), "{marked}");
-    // Several ranges map line by line, across the gap.
-    let target = Target::Source(json_fixture(
-        r#"{
-            "tool": "localFetch",
-            "query": {
-                "path": "out.log",
-                "ranges": [
-                    {"startLine": 10, "endLine": 29},
-                    {"startLine": 200, "endLine": 219}
-                ]
-            }
-        }"#,
-    ));
+    // Several ranges map line by line, across the gap the reader marks.
+    let target = Target::Source(ranged_source(&[[10, 29], [200, 219]]));
+    let state = json!({"source":{"path":"out.log"},"text":ranged(&[(10, 29), (200, 219)])});
     let located = locate(&target, &state, &[noul()], PAGE).expect("two ranges");
     let (first, last) = (located.parts[0].0, located.parts.last().expect("part").1);
     assert_eq!((first, last), (10, 219));
+}
+
+/// A read of two ranges names the deciding line of the second in the file's
+/// own numbering: the gap marker the reader puts between them is no file
+/// line, so the parts and the answer's lines skip it, and the narrowed read
+/// counts only the lines it returns.
+#[test]
+fn a_deciding_line_in_the_second_of_two_ranges_is_named_in_file_lines() {
+    let windows = [(10, 29), (200, 219)];
+    let source = ranged_source(&[[10, 29], [200, 219]]);
+    let text = ranged(&windows);
+    let state = json!({"source":{"path":"out.log"},"text":text});
+    // One line to a part: every part is a file line, never the gap.
+    let located = locate(&Target::Source(source.clone()), &state, &[noul()], 1)
+        .expect("a two-range read names lines");
+    assert!(located.parts.iter().all(|&(start, end)| {
+        start == end && windows.iter().any(|&(a, b)| a <= start && end <= b)
+    }));
+    let marked = located.state["text"].as_str().expect("text");
+    let gap = omission_marker(30, 199, Omitted::NotRequested);
+    assert_eq!(marked.matches(&gap).count(), 1, "{marked}");
+    assert!(
+        marked.contains(&format!("<lines 200-200>\n{gap}line 200\n")),
+        "the gap stands before the line after it, inside its part: {marked}"
+    );
+    // The judge picks the part holding line 205.
+    let mut answers = [json!({"type": "noul", "noul": 0.9})];
+    let choice = json!({"choice": label((205, 205)), "probabilities": {}});
+    located.attach(&mut answers, &[choice]);
+    assert_eq!(
+        answers[0]["lines"],
+        json!({"startLine": 205, "endLine": 205})
+    );
+    // Its read reads just that line, and `readChars` counts it alone.
+    let whole = source_capture::read_lead(
+        octocode_runtime_base::id::ToolId::LocalFetch,
+        &json!({"path":"out.log","ranges":[{"startLine":10,"endLine":29},{"startLine":200,"endLine":219}]}),
+        Some(&"a1".repeat(32)),
+    );
+    let mut captured = Captured {
+        state: Value::Null,
+        read: whole,
+        read_chars: text.chars().count(),
+        read_pages: false,
+        source: None,
+        pin: None,
+    };
+    narrow_read(&mut captured, &source, &state, &answers, true, PAGE);
+    assert_eq!(
+        captured.read["input"]["queries"][0]["ranges"],
+        json!([{"startLine":205,"endLine":205}])
+    );
+    assert_eq!(captured.read_chars, "line 205\n".chars().count());
+}
+
+/// The line check stays: ranges are sorted and merged as the reader does,
+/// and a text that is not exactly that selection (a gap marker that states
+/// other lines, a missing marker, lines left over) is located nowhere.
+#[test]
+fn a_text_that_is_not_the_selection_is_located_nowhere() {
+    let locate_text = |ranges: &[[usize; 2]], text: &str| {
+        let state = json!({"source":{"path":"out.log"},"text":text});
+        locate(&Target::Source(ranged_source(ranges)), &state, &[noul()], 1)
+            .map(|located| located.parts)
+    };
+    // Unsorted and overlapping ranges read as the reader merges them.
+    let merged = ranged(&[(10, 29), (200, 219)]);
+    let parts = locate_text(&[[200, 219], [10, 20], [15, 29]], &merged).expect("merged");
+    assert_eq!((parts[0].0, parts.last().expect("part").1), (10, 219));
+    assert!(locate_text(&[[10, 29], [200, 219]], &merged.replace("30-199", "30-198")).is_none());
+    assert!(locate_text(&[[10, 29], [200, 219]], &log(40)).is_none());
+    assert!(locate_text(&[[10, 29], [200, 219]], &format!("{merged}line 220\n")).is_none());
 }
 
 #[test]

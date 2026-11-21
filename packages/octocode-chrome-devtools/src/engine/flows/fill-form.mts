@@ -23,7 +23,7 @@ const flow: FlowDefinition = {
   name: 'fill-form',
   area: 'input',
   description:
-    'Fill up to six labelled textboxes (fieldNLabel/fieldNValue pairs; a pair needs both), optionally click submit and wait for a text.',
+    'Fill up to six labelled textboxes. Pass fieldNLabel/fieldNValue pairs (a pair needs both), then optionally click submit and wait for a text.',
   params: {
     url: { type: 'string', description: 'Page to open first (optional)' },
     ...[1, 2, 3, 4, 5, 6].reduce((all, n) => ({ ...all, ...pair(n) }), {}),

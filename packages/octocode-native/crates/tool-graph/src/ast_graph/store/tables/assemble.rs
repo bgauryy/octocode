@@ -204,10 +204,12 @@ impl<'a> Projector<'a> {
             ..Default::default()
         };
         tables.index();
+        let unextracted = super::arguments::declared_unextracted(self.unextracted, &tables);
         Projection {
             tables,
             calls,
             imports,
+            unextracted,
         }
     }
 }

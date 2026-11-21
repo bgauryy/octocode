@@ -56,6 +56,36 @@ fn impact_is_symbol_precise_for_symbols_and_transitive_for_files() {
     );
 }
 
+/// Anonymous `test("…", () => …)` cases declare no function: the test file
+/// is listed, and the helper they call is no test to run.
+#[test]
+fn impact_names_no_helper_as_a_test_function() {
+    let dir = git_app(&[
+        ("package.json", "{\"name\":\"app\"}"),
+        (
+            "src/add.ts",
+            "export function add(a: number, b: number) {\n  return a + b;\n}\n",
+        ),
+        (
+            "src/add.test.ts",
+            "import { add } from './add';\nconst ONE = add(0, 1);\nfunction sum(a: number) {\n  return add(a, a);\n}\ntest('adds', () => {\n  expect(sum(ONE)).toBe(2);\n});\ntest('adds twice', () => {\n  expect(sum(2)).toBe(4);\n});\n",
+        ),
+    ]);
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let out = ask(root, "impact", Some("src/add.ts#add"), |_| {});
+    assert_eq!(out.value["summary"]["testFunctions"], 0, "{}", out.value);
+    let tests = summary_list(root, Some("src/add.ts#add"), "testsToRun", |_| {});
+    assert_eq!(tests.len(), 1, "{tests:?}");
+    assert!(
+        tests[0]["path"]
+            .as_str()
+            .is_some_and(|p| p.ends_with("src/add.test.ts")),
+        "{tests:?}"
+    );
+    assert!(tests[0].get("functions").is_none(), "helper sum: {tests:?}");
+}
+
 #[test]
 fn impact_lists_inline_rust_test_functions() {
     let dir = Fixture::new();

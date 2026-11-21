@@ -85,7 +85,7 @@ pub(super) fn judged_over(
         Duration::from_secs(20),
     );
     let mut query = json!({"path": root.path(), "matchString": [".catch("],
-        "classification": {"predicates": ["Does this discard the error without handling it?"]}});
+        "classification": {"predicates": ["Does this discard the error without handling it?"], "maxRequests": 1000}});
     for (key, value) in fields.as_object().into_iter().flatten() {
         query[key] = value.clone();
     }
@@ -109,22 +109,25 @@ pub(super) fn judged_over(
     (result, bodies)
 }
 
-/// The line numbers a request's questions name as targets.
-fn targets(body: &Value) -> Vec<u64> {
+/// Each question's target label, with the numbered window lines that follow
+/// it, keyed by the line the label names.
+fn targets(body: &Value) -> Vec<(u64, String)> {
     body["questions"]
         .as_object()
         .expect("questions")
         .values()
         .filter_map(|question| {
             let label = question["instructions"]["target"].as_str()?;
-            label.strip_prefix("line ")?.split(':').next()?.parse().ok()
+            let line = label.strip_prefix("line ")?.split(':').next()?.parse().ok()?;
+            Some((line, label.to_owned()))
         })
         .collect()
 }
 
-/// Every hit's own line reaches its state at any context: `sign-in.ts:88`
-/// and `:89` (identical code) see the same evidence, and each of the five
-/// `.catch(` hits is kept by a judge that finds direct evidence.
+/// Every hit is judged over its own line alone: its question carries that
+/// line (`sign-in.ts:88` and `:89` have identical code), no pooled state holds
+/// other hits' lines, and each of the five `.catch(` hits is kept by a judge
+/// that finds direct evidence.
 #[test]
 fn every_corpus_hit_is_judged_over_its_own_line() {
     for after in [0, 1, 3] {
@@ -132,14 +135,16 @@ fn every_corpus_hit_is_judged_over_its_own_line() {
         assert_eq!(bodies.len(), 2, "one request per file");
         let mut asked = Vec::new();
         for body in &bodies {
-            let lines = body["state"]["lines"].as_str().unwrap_or_default();
-            for target in targets(body) {
-                let own = format!("{target}\t");
+            assert!(
+                body["state"]["lines"].as_str().unwrap_or_default().is_empty(),
+                "after {after}: hits share no pooled lines"
+            );
+            for (target, label) in targets(body) {
+                let own = format!("\n{target}\t");
                 assert!(
-                    lines
-                        .lines()
-                        .any(|line| line.starts_with(&own) && line.contains(".catch(")),
-                    "after {after}: {} line {target} missing from its state:\n{lines}",
+                    label.lines().next().is_some_and(|head| head.contains(".catch("))
+                        || label.contains(&own),
+                    "after {after}: {} line {target} missing from its question:\n{label}",
                     body["state"]["path"]
                 );
                 asked.push((body["state"]["path"].to_string(), target));

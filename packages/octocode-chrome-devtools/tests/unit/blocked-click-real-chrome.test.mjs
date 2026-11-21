@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { freePort } from '../fixtures/free-port.mjs';
 
 const bin = join(import.meta.dirname, '../../bin/octocode-chrome-devtools.mjs');
@@ -51,9 +51,11 @@ test(
         connection: { port },
         plan: { waitMs: 1500, steps },
       });
-      const result = JSON.parse(
-        readFileSync(join(cwd, out.next.steps.query.file), 'utf8')
-      );
+      // A success names its capture manifest; a failure keeps one continuation to it. Either lists the plan result artifact.
+      const file = JSON.parse(
+        readFileSync(join(cwd, out.evidence ?? out.next.query.file), 'utf8')
+      ).artifacts.find(row => row.path.endsWith('/browser-result.json')).path;
+      const result = JSON.parse(readFileSync(resolve(cwd, file), 'utf8'));
       return { out, result };
     };
     const counter = () => {
@@ -85,6 +87,7 @@ test(
         {
           op: 'cdp',
           method: 'Runtime.evaluate',
+          acknowledge: true,
           params: { expression: "document.getElementById('cover').remove()" },
         },
         { op: 'act', action: 'click', selector: '#b' },

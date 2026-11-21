@@ -4,7 +4,11 @@ import type { Session } from '../cdp-connection.mjs';
 import type { RunnerSession } from '../cdp-runner-session.mjs';
 import { errorMessage } from '../error-message.mjs';
 import { observeFrameEvents } from '../frame-events.mjs';
-import type { MonitorEvent, NetworkRecord } from './live-har-format.mjs';
+import type {
+  ExtraInfo,
+  MonitorEvent,
+  NetworkRecord,
+} from './live-har-format.mjs';
 import { printFindings, waitWindow } from './live-har-wait.mjs';
 import { mainDocument } from './navigation-outcome.mjs';
 import type { NavigationOutcome } from './navigation-outcome.mjs';
@@ -92,6 +96,32 @@ function watchNetwork(
     JSON.stringify([meta.sessionId || null, requestId]);
   let hop = 0;
   let slowPrinted = 0;
+  // Cookie headers and cookie verdicts arrive in extra-info events, before or after the main event.
+  const extras = new Map<string, ExtraInfo>();
+  const extrasOf = (key: string) => {
+    let found = extras.get(key);
+    if (!found) extras.set(key, (found = { request: [], response: [] }));
+    return found;
+  };
+  cdp.on(
+    'Network.requestWillBeSentExtraInfo',
+    ({ requestId, headers, associatedCookies }, meta = {}) => {
+      extrasOf(requestKey(requestId, meta)).request.push({
+        headers,
+        associatedCookies,
+      });
+    }
+  );
+  cdp.on(
+    'Network.responseReceivedExtraInfo',
+    ({ requestId, headers, statusCode, blockedCookies }, meta = {}) => {
+      extrasOf(requestKey(requestId, meta)).response.push({
+        headers,
+        statusCode,
+        blockedCookies,
+      });
+    }
+  );
   cdp.on(
     'Network.requestWillBeSent',
     (
@@ -115,6 +145,8 @@ function watchNetwork(
         records.set(`${requestKey(requestId, meta)}:redirect:${hop++}`, prior);
       }
       records.set(requestKey(requestId, meta), {
+        extras: extrasOf(requestKey(requestId, meta)),
+        hop: prior && redirectResponse ? (prior.hop ?? 0) + 1 : 0,
         requestId,
         frameId,
         sessionId: meta.sessionId ?? null,

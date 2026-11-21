@@ -16,7 +16,7 @@ function inGuardedProcess(body) {
     import https from 'node:https';
     import http from 'node:http';
     import dns from 'node:dns';
-    const server = net.createServer(s => s.end('ok')).listen(0, '127.0.0.1');
+    const server = net.createServer(s => { s.on('error', () => {}); s.end('ok'); }).listen(0, '127.0.0.1');
     await new Promise(r => server.once('listening', r));
     const port = server.address().port;
     restrictNetworkToLocalhost();
@@ -56,17 +56,13 @@ test('guard: loopback TCP and http still work', () => {
   assert.equal(r.stdout.trim().split('\n').pop(), 'ok');
 });
 
-test('guard: the source-map exemption scope lets a remote connect past the guard', () => {
+test('guard: no global exemption symbol exists inside a guarded process', () => {
   const r = inGuardedProcess(`
-    const scope = globalThis[Symbol.for('octocode.chrome-devtools.sandbox-exempt')];
-    // Past the guard means any error is a network error, never [SANDBOX].
-    const msg = await attempt(() => scope.run(true, () => new Promise((res, rej) => {
-      const c = net.connect(1, '192.0.2.1'); c.on('error', rej); c.destroy(); res();
-    })));
-    console.log(msg.startsWith('[SANDBOX]') ? 'blocked' : 'passed');
+    const keys = Object.getOwnPropertySymbols(globalThis).map(String).filter(k => /exempt/i.test(k));
+    console.log(JSON.stringify(keys));
   `);
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout.trim().split('\n').pop(), 'passed');
+  assert.deepEqual(JSON.parse(r.stdout.trim().split('\n').pop()), []);
 });
 
 test('guard: IP literals through net.connect, http.get and a custom lookup are refused too', () => {

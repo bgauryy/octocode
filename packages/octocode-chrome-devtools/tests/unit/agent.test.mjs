@@ -9,7 +9,7 @@ test('shared input validation rejects invalid windows and recipe discovery in CL
     for (const [name, input] of [
       ['skill', { length: 20001 }],
       ['schema', { recipe: 'page-snapshot' }],
-      ['open', { args: ['--port', '9222'], headless: false }],
+      ['open', { args: ['--port', '9222'], headless: false }], // legacy args field is gone
     ]) {
       const reply = await client.callTool({ name, arguments: input });
       assert.equal(reply.isError, true);
@@ -36,14 +36,17 @@ test('shared input validation rejects invalid windows and recipe discovery in CL
 test('missing requested measurement evidence fails through CLI and MCP', () =>
   fixture(
     async ({ client, cwd, skill }) => {
-      const input = { args: ['--perf', join(cwd, 'missing.json')] };
-      const reply = await client.callTool({
+      const input = {
         name: 'measure-query',
+        args: ['--perf', join(cwd, 'missing.json')],
+      };
+      const reply = await client.callTool({
+        name: 'helper',
         arguments: input,
       });
       assert.equal(reply.isError, true);
       assert.match(JSON.stringify(reply), /Cannot read measurement artifact/);
-      const cli = typedCli(skill, ['measure-query', '--input', '-', '--json'], {
+      const cli = typedCli(skill, ['helper', '--input', '-', '--json'], {
         cwd,
         input: JSON.stringify(input),
       });
@@ -103,16 +106,16 @@ test('focused public schema agrees across transports and rejects conflicting con
     ]);
     for (const [name, example] of Object.entries(reply.data.inputExamples)) {
       if (name !== 'run') continue;
-      const validated = data(
-        await client.callTool({
-          name,
-          arguments: {
-            ...example,
-            connection: { ...example.connection, dryRun: true },
-          },
-        })
-      );
-      assert.equal(validated.ok, true);
+      // Valid input passes the contract and reaches the engine, which finds no browser.
+      const probe = await client.callTool({
+        name,
+        arguments: {
+          ...example,
+          connection: { ...example.connection, port: 9 },
+        },
+      });
+      assert.equal(probe.isError, true);
+      assert.match(probe.content[0].text, /No Chrome on port 9/);
     }
   }));
 
@@ -127,14 +130,9 @@ test('MCP exact numeric continuations retain predicate lexemes; typed unsafe num
       await client.callTool({
         name: 'query',
         arguments: {
-          args: [
-            '--file',
-            file,
-            '--where',
-            '[{"path":"/value","op":"gte","value":9007199254740993}]',
-            '--limit',
-            '1',
-          ],
+          file,
+          where: [{ path: '/value', op: 'gte', value: '9007199254740993' }],
+          limit: 1,
         },
       })
     );
@@ -142,7 +140,12 @@ test('MCP exact numeric continuations retain predicate lexemes; typed unsafe num
     assert.equal(result.data.matched, 2);
     assert.equal(result.data.rows[0].value.id, 'equal');
     const route = result.data.next;
-    assert(route.query.args, 'numeric filter must retain exact CLI text');
+    assert.equal(
+      route.query.where[0].value,
+      '9007199254740993',
+      'numeric filter must retain the exact integer as a string'
+    );
+    assert.equal(route.query.args, undefined, 'no legacy args field');
     result = data(
       await client.callTool({ name: route.tool, arguments: route.query })
     );

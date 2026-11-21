@@ -11,7 +11,8 @@ mod index_ref;
 mod line_plan;
 
 pub(super) use empty_scope::{
-    empty_hints, empty_scope, owner_exists, path_mode_given_code, unsearched_ref,
+    empty_hints, empty_scope, owner_exists, path_mode_given_code, qualifier_keyword_hints,
+    unsearched_ref,
 };
 pub(super) use hit_commits::{index_commits, line_commit, plan_lines, requested_ref, row_repo};
 pub(super) use index_ref::{disclose_index_ref, index_head};

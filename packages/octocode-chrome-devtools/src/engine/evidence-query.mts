@@ -64,7 +64,7 @@ async function sourceDigest(file: string) {
 }
 if (args.includes('--help') || args.includes('-h')) {
   console.log(
-    'Usage: evidence-query.mjs --file <JSON|JSONL> [--format json|jsonl] [--pointer /rows] [--where <conditions>] [--select <paths>] [--cursor 0] [--limit 50] [--sha256 <digest>]\nFilters before pagination; builds a reusable lossless offset index. Paths are JSON pointers (/response/status) or dotted (response.status). --where takes conditions joined by &&: path=value, path!=value, path>=n, path<=n, path~text, path (exists), !path (missing); example: response.status=0 && request.url~login. It also takes JSON predicates: [{path:"/status",op:"eq|ne|contains|gte|lte|exists",value:...}]. --select takes comma-separated paths or a JSON array, an opt-in projection keyed by pointer. Oversized rows have executable full-value continuations.'
+    'Usage: evidence-query.mjs --file <JSON|JSONL> [--format json|jsonl] [--pointer /rows] [--where <conditions>] [--select <paths>] [--cursor 0] [--limit 50] [--sha256 <digest>]\nFilters before pagination; builds a reusable lossless offset index. Paths are JSON pointers (/response/status) or dotted (response.status). --where takes conditions joined by &&: path=value, path!=value, path>=n, path<=n, path~text, path (exists), !path (missing); example: response.status=0 && request.url~login. It also takes JSON predicates: [{path:"/status",op:"eq|ne|contains|gte|lte|exists",value:...}] (exists: value optional, default true). --select takes comma-separated paths or a JSON array, an opt-in projection keyed by pointer. Oversized rows have executable full-value continuations.'
   );
   process.exit(0);
 }

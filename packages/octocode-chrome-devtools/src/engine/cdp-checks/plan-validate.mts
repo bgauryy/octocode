@@ -3,11 +3,17 @@ import {
   chromePlanOperations,
   chromeExtractionFields,
 } from '../chrome-contract.mjs';
+import { CAPTURE_RECIPES, recipeEnv } from './recipe-options.mjs';
 import { validateHistory } from './plan-history-validate.mjs';
 import { DOM_ACTIONS, readDomConfig, readSteps } from './dom-config.mjs';
 import type { RawStep } from './dom-types.mjs';
 import type { Plan } from './plan-types.mjs';
-import { policyRefusal } from '../cdp-policy.mjs';
+import {
+  navigationParamRefusal,
+  policyRefusal,
+  urlSchemeRefusal,
+  wrappedCallRefusal,
+} from '../cdp-policy.mjs';
 import { originViolation } from '../session-meta.mjs';
 
 type Json = Record<string, unknown>;
@@ -26,6 +32,8 @@ const PLAN_FIELDS = [
   'waitMs',
   'settleMs',
   'traceEvents',
+  'dialog',
+  'enable',
   'observe',
   'commandMs',
 ];
@@ -37,6 +45,7 @@ const STEP_FIELDS: readonly string[] = [
   'optional',
   'frame',
   'session',
+  'options',
   ...Object.values(chromePlanOperations).flat(),
 ];
 const AFTER_OPS = [
@@ -46,9 +55,10 @@ const AFTER_OPS = [
   'act',
   'wait',
   'extract',
+  'evaluate',
   'cdp',
 ];
-const FRAME_OPS = ['act', 'wait', 'extract', 'cdp', 'listen'];
+const FRAME_OPS = ['act', 'wait', 'extract', 'evaluate', 'cdp', 'listen'];
 const SESSION_OPS = [
   ...AFTER_OPS,
   'listen',
@@ -57,7 +67,7 @@ const SESSION_OPS = [
   'screenshot',
 ];
 // These recipes write fixed file names into the run folder; a second step would overwrite the first.
-const SINGLE_OPS = ['snapshot', 'screenshot'];
+const SINGLE_OPS = Object.keys(CAPTURE_RECIPES);
 const TEXT_FIELDS = [
   'ref',
   'selector',
@@ -160,6 +170,16 @@ function validateReferences(value: unknown, scope: ReferenceScope) {
   else for (const v of Object.values(value)) validateReferences(v, scope);
 }
 
+const DOMAIN_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+/** A list of CDP domain names to enable; the names are checked against the live Chrome when they run. */
+function validateEnable(value: unknown, label: string) {
+  if (
+    !Array.isArray(value) ||
+    value.some(name => typeof name !== 'string' || !DOMAIN_NAME.test(name))
+  )
+    throw new Error(`${label} must be a list of CDP domain names`);
+}
+
 function validatePlanOptions(
   plan: unknown
 ): asserts plan is Json & { steps: unknown[] } {
@@ -172,6 +192,13 @@ function validatePlanOptions(
   integer(plan.settleMs ?? 0, 'settleMs');
   if (plan.traceEvents !== undefined && typeof plan.traceEvents !== 'boolean')
     throw new Error('traceEvents must be boolean');
+  if (
+    plan.dialog !== undefined &&
+    (typeof plan.dialog !== 'string' ||
+      !['accept', 'dismiss'].includes(plan.dialog))
+  )
+    throw new Error('dialog must be accept or dismiss');
+  if (plan.enable !== undefined) validateEnable(plan.enable, 'plan enable');
   if (plan.observe === undefined) return;
   fields(plan.observe, ['network', 'afterMs'], 'observe');
   if (
@@ -189,6 +216,7 @@ const opFields = (op: PlanOperation) => [
   ...(AFTER_OPS.includes(op) ? ['after'] : []),
   ...(FRAME_OPS.includes(op) ? ['frame'] : []),
   ...(SESSION_OPS.includes(op) ? ['session'] : []),
+  ...(op in CAPTURE_RECIPES ? ['options'] : []),
   ...chromePlanOperations[op],
 ];
 
@@ -205,6 +233,16 @@ function validateStepShape(
   integer(step.timeoutMs ?? plan.waitMs ?? 8000, 'timeoutMs', 1);
   if (step.optional !== undefined && typeof step.optional !== 'boolean')
     throw new Error('optional must be boolean');
+}
+
+const SAVE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/;
+function validateSave(step: StepRecord, saves: Set<string>) {
+  if (step.save === undefined) return;
+  if (typeof step.save !== 'string' || !SAVE_NAME.test(step.save))
+    throw new Error('save needs a file name only: letters, digits, . _ -');
+  if (saves.has(step.save))
+    throw new Error(`save "${step.save}" repeats; names are unique per plan`);
+  saves.add(step.save);
 }
 
 function validateSession(step: StepRecord, scope: ReferenceScope) {
@@ -250,6 +288,11 @@ function validateReadStream(step: StepRecord) {
     throw new Error('close must be boolean');
 }
 
+/** A `wait` with no element target waits on its `after` condition (or, as before, a text `value`). */
+export const waitsOnCondition = (step: StepRecord) =>
+  Boolean(step.value) ||
+  (isRecord(step.after) && Object.keys(step.after).length > 0);
+
 function validateDomTarget(step: StepRecord) {
   if (
     step.op === 'act' &&
@@ -257,8 +300,12 @@ function validateDomTarget(step: StepRecord) {
   )
     throw new Error('act needs a supported action');
   const target = step.ref || step.selector || step.role || step.name;
-  if (!target && !(step.op === 'wait' && step.value))
-    throw new Error('Action needs an explicit target; wait may use text value');
+  if (!target && step.op === 'wait' && !waitsOnCondition(step))
+    throw new Error(
+      'wait needs after: {text|selector|url} (or value for text)'
+    );
+  if (!target && step.op !== 'wait')
+    throw new Error('Action needs an explicit target');
   for (const key of TEXT_FIELDS)
     if (step[key] !== undefined && !nonemptyText(step[key]))
       throw new Error(`${key} needs nonempty text`);
@@ -291,6 +338,13 @@ function validateDomValue(plan: Json, step: StepRecord) {
     throw new Error('value needs text, a number or boolean');
   const waitMs = step.timeoutMs ?? plan.waitMs ?? 8000;
   integer(waitMs, 'timeoutMs', 1); // already checked by validateStepShape
+  // A wait on `after` alone has no DOM operation: the condition is the whole step.
+  if (
+    step.op === 'wait' &&
+    !(step.ref || step.selector || step.role || step.name) &&
+    !step.value
+  )
+    return;
   const afterText = jsonPointer(step.after, '/text');
   const options = {
     steps: [domStep(step)],
@@ -323,10 +377,17 @@ function validateStepOps(plan: Json, step: StepRecord, scope: ReferenceScope) {
     integer(step.count ?? 1, 'count', 1);
   }
   if (step.op === 'readStream') validateReadStream(step);
+  if (step.options !== undefined)
+    recipeEnv(CAPTURE_RECIPES[step.op], step.options);
   validateReferences(step.handle, scope);
   validateReferences(step.params, scope);
   if (step.op === 'goto' && !nonemptyText(step.url))
     throw new Error('goto needs url');
+  if (step.op === 'goto') {
+    // goto cannot carry the user's consent; a cdp Page.navigate with acknowledge can.
+    const refusal = urlSchemeRefusal(String(step.url), 'goto', null);
+    if (refusal) throw new Error(refusal);
+  }
   if (step.op === 'history' || step.op === 'reload') validateHistory(step);
   if (['act', 'wait'].includes(step.op)) {
     validateDomTarget(step);
@@ -335,7 +396,15 @@ function validateStepOps(plan: Json, step: StepRecord, scope: ReferenceScope) {
   if (step.op === 'extract') validateExtract(step);
 }
 
+function validateEvaluate(step: StepRecord) {
+  if (step.op === 'evaluate' && !nonemptyText(step.expression))
+    throw new Error('evaluate needs expression');
+  if (step.awaitPromise !== undefined && typeof step.awaitPromise !== 'boolean')
+    throw new Error('awaitPromise must be boolean');
+}
+
 function validateCdpFields(step: StepRecord) {
+  validateEvaluate(step);
   if (
     step.op === 'cdp' &&
     (typeof step.method !== 'string' || !protocolMember.test(step.method))
@@ -343,6 +412,12 @@ function validateCdpFields(step: StepRecord) {
     throw new Error('cdp needs Domain.method');
   if (step.acknowledge !== undefined && typeof step.acknowledge !== 'boolean')
     throw new Error('acknowledge must be boolean');
+  if (step.enable !== undefined) validateEnable(step.enable, 'enable');
+  if (
+    step.scope !== undefined &&
+    !(['auto', 'page', 'browser'] as readonly unknown[]).includes(step.scope)
+  )
+    throw new Error('scope must be auto, page or browser');
   if (step.op === 'cdp') {
     // Literal methods are judged before any browser call; the schema check runs with the live browser.
     const refusal = policyRefusal(
@@ -350,6 +425,21 @@ function validateCdpFields(step: StepRecord) {
       step.acknowledge === true
     );
     if (refusal) throw new Error(refusal);
+    const scheme =
+      navigationParamRefusal(
+        String(step.method),
+        step.params,
+        step.acknowledge === true
+      ) ??
+      // A `message` that is a $step reference resolves at run time, where the gate judges it.
+      (isRecord(step.params) && typeof step.params.message !== 'string'
+        ? undefined
+        : wrappedCallRefusal(
+            String(step.method),
+            step.params,
+            step.acknowledge === true
+          ));
+    if (scheme) throw new Error(scheme);
   }
   if (step.params !== undefined && !isRecord(step.params))
     throw new Error('params must be an object');
@@ -418,7 +508,8 @@ export function validatePlan(
 function assertPlan(plan: unknown): asserts plan is Plan {
   validatePlanOptions(plan);
   const listeners = new Set<unknown>(),
-    singles = new Set<string>();
+    singles = new Set<string>(),
+    saves = new Set<string>();
   for (const [index, step] of plan.steps.entries()) {
     validateStepShape(plan, step, index);
     if (SINGLE_OPS.includes(step.op)) {
@@ -428,6 +519,7 @@ function assertPlan(plan: unknown): asserts plan is Plan {
     }
     validateStepOps(plan, step, { index, steps: plan.steps, listeners });
     validateCdpFields(step);
+    validateSave(step, saves);
     if (step.after !== undefined) {
       fields(step.after, ['text', 'selector', 'url'], 'after');
       if (!allNonemptyText(step.after))

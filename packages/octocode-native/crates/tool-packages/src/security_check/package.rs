@@ -1295,6 +1295,23 @@ fn pinned_calls(data: &mut Value, package: &Package<'_>, pins: &[Pin]) {
     }
 }
 
+/// The summary leaves out `moduleOnly`: a ready `details` read of the same
+/// package names the advisories OSV lists for its module and not for it.
+fn module_call(
+    data: &mut Value,
+    package: &Package<'_>,
+    name: &str,
+    version: Option<&str>,
+    facts: &answer::Facts<'_>,
+) {
+    if facts.module_only.is_empty() || package.view != SecurityCheckView::Summary {
+        return;
+    }
+    let row = summary::with_details(package_row(package, name, version));
+    data["calls"]["moduleOnly"] =
+        Continuation::related_input(ToolId::SecurityCheck, json!({ "queries": [row] })).build();
+}
+
 /// The advisories the sources listed, as the answer counts them.
 fn facts_count(results: &[SourceResult]) -> usize {
     answer::Facts::of(results).count
@@ -1413,8 +1430,12 @@ fn respond(
 ) -> Value {
     let name = confirmed.name.as_str();
     let version = confirmed.version.as_deref();
-    let target = version.map_or_else(|| name.to_owned(), |version| format!("{name}@{version}"));
+    // A Go package path is the package checked; its module is where OSV keys
+    // the records.
+    let shown = confirmed.import.as_deref().unwrap_or(name);
+    let target = version.map_or_else(|| shown.to_owned(), |version| format!("{shown}@{version}"));
     let mut facts = answer::Facts::of(results);
+    facts.module = confirmed.import.as_ref().map(|_| name);
     facts.upgrade_to = upgrade.to.as_deref();
     facts.upgrade_note = upgrade.note.as_deref();
     facts.version_evaluated = version.is_some();
@@ -1469,6 +1490,7 @@ fn respond(
     }
     answer::read_disputing(&mut data, results, &package.brief);
     pinned_calls(&mut data, package, &notes.pinned);
+    module_call(&mut data, package, shown, version, &facts);
     paging::push_warnings(&mut data, notes.prerelease_warning);
     // Stated once per call however many rows it holds for.
     paging::push_warnings(&mut data, answer::unconfirmed_warning(&facts));

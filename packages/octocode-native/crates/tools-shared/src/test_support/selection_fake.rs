@@ -98,3 +98,33 @@ impl SelectionJudge for WordJudge {
             .collect())
     }
 }
+
+/// A judge that prices one request per admitted candidate, as the evaluator
+/// does: a plan over the page's `maxRequests` sends nothing and fails with
+/// its price; within it, [`WordJudge`] decides, and `calls` counts the
+/// requests it stands for.
+#[derive(Default)]
+pub struct CappedJudge {
+    pub calls: std::sync::atomic::AtomicU64,
+}
+
+impl SelectionJudge for CappedJudge {
+    fn identity(&self) -> serde_json::Value {
+        serde_json::json!({"test":"capped"})
+    }
+    fn select(&self, call: JudgeCall<'_>) -> Judgments {
+        let planned = u64::try_from(call.admitted.len()).unwrap_or(u64::MAX);
+        call.usage.requests_planned = Some(planned);
+        call.usage.requests_ceiling = Some(planned);
+        if planned > call.max_requests {
+            return Err(JudgeFailure::Provider(ProviderError {
+                code: ErrorCode::ClassificationOverBudget,
+                message: format!("needs {planned} requests"),
+                hints: Vec::new(),
+            }));
+        }
+        self.calls
+            .fetch_add(planned, std::sync::atomic::Ordering::Relaxed);
+        WordJudge { fail: None }.select(call)
+    }
+}

@@ -56,6 +56,10 @@ function timing(options: DomOptions) {
   };
 }
 
+/** When a wait that began at `start` gives up: its own length, or the caller's deadline if that comes first. */
+export const waitEndsAt = (cfg: DomConfig, start: number) =>
+  Math.min(start + cfg.waitMs, cfg.deadlineAt);
+
 /** Run-wide settings; an option wins over its DOM_* environment variable. */
 export function readDomConfig(options: DomOptions): DomConfig {
   const env = process.env;
@@ -63,6 +67,7 @@ export function readDomConfig(options: DomOptions): DomConfig {
   return {
     mode,
     ...timing(options),
+    deadlineAt: options.deadlineAt ?? Infinity,
     waitText: options.waitText ?? env.DOM_WAIT_TEXT ?? '',
     acceptDialog: (options.dialog ?? env.DOM_DIALOG) === 'accept',
     diff: options.diff ?? env.DOM_DIFF !== '0',

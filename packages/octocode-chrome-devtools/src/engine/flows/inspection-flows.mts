@@ -5,8 +5,7 @@ import { FRAGMENT, ref } from './fragment.mjs';
 const cssStyles: FlowDefinition = {
   name: 'css-styles',
   area: 'inspection',
-  description:
-    'Computed and matched CSS rules of the first element matching a selector.',
+  description: 'Computed and matched CSS of an element.',
   params: {
     selector: {
       type: 'string',
@@ -28,16 +27,18 @@ const cssStyles: FlowDefinition = {
         op: 'cdp',
         method: 'CSS.getComputedStyleForNode',
         params: { nodeId: ref(4, '/nodeId') },
+        save: 'css-styles.json',
       },
       {
         op: 'cdp',
         method: 'CSS.getMatchedStylesForNode',
         params: { nodeId: ref(4, '/nodeId') },
+        save: 'css-matched.json',
       },
     ],
   },
   expects: [
-    'cdp-5.json lists computedStyle {name, value}; cdp-6.json holds the matched rules',
+    'saved/css-styles.json lists computedStyle {name, value}; saved/css-matched.json holds the matched rules',
     'A selector that matches nothing gives nodeId 0 and the style steps fail',
     FRAGMENT,
   ],
@@ -46,17 +47,20 @@ const cssStyles: FlowDefinition = {
 const accessibilityTree: FlowDefinition = {
   name: 'accessibility-tree',
   area: 'inspection',
-  description:
-    'The full accessibility tree of the page (roles, names, values).',
+  description: 'The full accessibility tree of the page.',
   params: {},
   plan: {
     steps: [
       { op: 'cdp', method: 'Accessibility.enable' },
-      { op: 'cdp', method: 'Accessibility.getFullAXTree' },
+      {
+        op: 'cdp',
+        method: 'Accessibility.getFullAXTree',
+        save: 'ax-tree.json',
+      },
     ],
   },
   expects: [
-    'cdp-2.json lists every accessibility node with role and name',
+    'saved/ax-tree.json lists every accessibility node with role and name',
     FRAGMENT,
   ],
 };
@@ -65,17 +69,21 @@ const pageMetrics: FlowDefinition = {
   name: 'page-metrics',
   area: 'inspection',
   description:
-    'Performance metrics (JS heap, layout counts, timestamps) and DOM object counters.',
+    'Performance metrics and DOM object counters. Metrics cover JS heap, layout counts, timestamps.',
   params: {},
   plan: {
     steps: [
       { op: 'cdp', method: 'Performance.enable' },
-      { op: 'cdp', method: 'Performance.getMetrics' },
+      {
+        op: 'cdp',
+        method: 'Performance.getMetrics',
+        save: 'metrics.json',
+      },
       { op: 'cdp', method: 'Memory.getDOMCounters' },
     ],
   },
   expects: [
-    'cdp-2.json holds metrics [{name, value}] including JSHeapUsedSize; cdp-3.json holds documents, nodes and jsEventListeners',
+    'saved/metrics.json holds metrics [{name, value}] including JSHeapUsedSize; cdp-3.json holds documents, nodes and jsEventListeners',
     FRAGMENT,
   ],
 };
@@ -99,11 +107,12 @@ const securityInfo: FlowDefinition = {
         op: 'cdp',
         method: 'Network.getCertificate',
         params: { origin: '{{origin}}' },
+        save: 'security.json',
       },
     ],
   },
   expects: [
-    'cdp-2.json lists the DER-encoded certificate chain as tableNames',
+    'saved/security.json lists the DER-encoded certificate chain as tableNames',
     FRAGMENT,
   ],
 };
@@ -112,7 +121,7 @@ const eventListeners: FlowDefinition = {
   name: 'event-listeners',
   area: 'inspection',
   description:
-    'Event listeners (type, handler source location, capture) registered on the first element matching a selector.',
+    'Event listeners of an element. Each has type, handler source location, capture.',
   params: {
     selector: {
       type: 'string',
@@ -137,11 +146,12 @@ const eventListeners: FlowDefinition = {
         op: 'cdp',
         method: 'DOMDebugger.getEventListeners',
         params: { objectId: ref(3, '/object/objectId') },
+        save: 'event-listeners.json',
       },
     ],
   },
   expects: [
-    'cdp-4.json lists listeners [{type, useCapture, scriptId, lineNumber}]',
+    'saved/event-listeners.json lists listeners [{type, useCapture, scriptId, lineNumber}]',
     FRAGMENT,
   ],
 };

@@ -32,7 +32,11 @@ const typedFlagCommands = [
 ];
 /** Engine argv of a typed `cookies` call; the schema already requires the acknowledgement. */
 export function cookieArgs(input: ChromeInvocation): string[] {
-  const from: Record<string, string | number | undefined> = input.from ?? {};
+  // The schema validated the source shapes before this runs.
+  const from = (input.from ?? {}) as Record<
+    string,
+    string | number | undefined
+  >;
   return [
     ...(input.acknowledgeSecrets ? ['--i-understand-secrets'] : []),
     ...flags({
@@ -53,18 +57,21 @@ export function cookieArgs(input: ChromeInvocation): string[] {
 }
 /** The whole engine deadline, covering a dev-check wait ceiling. */
 const engineDeadline = (input: ChromeInvocation) =>
-  (input.connection?.scriptTimeout ??
-    Math.max(300000, (input.timeoutMs ?? 0) + 60000)) + 10000;
+  Math.max(300000, (input.timeoutMs ?? 0) + 60000) + 10000;
 const CAUSE_CHARS = 300;
 const oneLine = (text: string) =>
   text.replace(/\s+/g, ' ').trim().slice(0, CAUSE_CHARS);
 /** First actionable cause plus the exact next call that reads the rest. */
 type FailedResult = {
   error?: unknown;
+  // Engines that report a refusal as JSON on stdout (open, group, proxy, flow ...) carry it here.
+  data?: { status?: unknown; message?: unknown } | null;
   flow?: {
     failure?: { step?: number; error?: unknown };
     failedOptionalSteps?: { step?: number; error?: unknown }[];
   };
+  stdout?: unknown;
+  summary?: unknown;
   timedOut?: boolean;
   cancelled?: boolean;
   exitCode?: number | null;
@@ -72,30 +79,64 @@ type FailedResult = {
 };
 // Engine stderr opens with the sandbox banner and Node warnings; the cause is a later line.
 const NOISE =
-  /sandboxed \(node |ExperimentalWarning|--trace-warnings|^\[CDP_SANDBOX\]/;
+  /sandboxed \(node |ExperimentalWarning|--trace-warnings|^\[CDP_SANDBOX\]|^\[CDP_RUNNER\] (Using |.*\btarget\b)/;
 const CAUSE_MARK =
   /FATAL|Refusing|blocked|Ambiguous|not found|No Chrome|Error:/i;
-/** The line of multi-line stderr that names the failure: a marked line, else the first non-noise one. */
-function causeLine(text: string) {
-  const lines = text
+// A [FINDING]/[ERROR] line that opens with an UPPER_SNAKE code (SOURCEMAP_POSITION_INVALID ...) names the cause exactly.
+const CODED_FINDING = /^\[(FINDING|ERROR)\] [A-Z][A-Z0-9]*_[A-Z0-9_]+/;
+const nonNoise = (text: string) =>
+  text
     .split('\n')
     .map(line => line.trim())
     .filter(line => line && !NOISE.test(line));
-  return lines.find(line => CAUSE_MARK.test(line)) ?? lines[0] ?? text;
+/** The line of multi-line stderr that names the failure: a finding, else a marked line, else the first non-noise one. */
+function causeLine(text: string) {
+  const lines = nonNoise(text);
+  return (
+    lines.find(line => CODED_FINDING.test(line)) ??
+    lines.find(line => /^\[(FINDING|ERROR)\]/.test(line)) ??
+    lines.find(line => CAUSE_MARK.test(line)) ??
+    lines[0] ??
+    text
+  );
 }
-export function failureSummary(result: FailedResult) {
+/** A coded finding the failed call printed to stdout (inline `stdout` or reply `summary` lines), for stderr without a cause. */
+function stdoutFinding(result: FailedResult) {
+  const text = [
+    typeof result.stdout === 'string' ? result.stdout : '',
+    ...(Array.isArray(result.summary) ? result.summary : []),
+  ].join('\n');
+  return nonNoise(text).find(line => CODED_FINDING.test(line));
+}
+const hasCause = (line: string) =>
+  CAUSE_MARK.test(line) || /^\[(FINDING|ERROR)\]/.test(line);
+/** The one-line first cause of a failure: stderr, else the failed plan step, else timeout, cancellation or exit status. */
+export function failureCause(result: FailedResult) {
   const failed = result.flow?.failure;
-  const cause =
-    typeof result.error === 'string' && result.error.trim()
-      ? oneLine(causeLine(result.error))
-      : typeof failed?.error === 'string' && failed.error.trim()
-        ? `step ${failed.step ?? '?'}: ${oneLine(failed.error)}`
+  if (typeof result.error === 'string' && result.error.trim()) {
+    const line = causeLine(result.error);
+    // Stderr with no named cause yields to a coded finding the stdout carries.
+    return oneLine((!hasCause(line) && stdoutFinding(result)) || line);
+  }
+  return stdoutFinding(result) && !failed
+    ? oneLine(stdoutFinding(result) as string)
+    : typeof failed?.error === 'string' && failed.error.trim()
+      ? `step ${failed.step ?? '?'}: ${oneLine(failed.error)}`
+      : typeof result.data?.message === 'string' && result.data.message.trim()
+        ? oneLine(result.data.message)
         : result.timedOut
           ? 'timed out'
           : result.cancelled
             ? 'cancelled'
             : `exit ${result.exitCode ?? 'unknown'}`;
-  const call = result.next?.stderr ?? result.next?.capture;
+}
+/** The single most useful continuation of a failure: the stderr reader, else the capture manifest. */
+const failureNext = (result: FailedResult) =>
+  result.next?.stderr ?? result.next?.capture;
+/** One line: the cause, skipped optional steps, and (unless `withNext` is false) the call that reads the rest. */
+export function failureSummary(result: FailedResult, withNext = true) {
+  const cause = failureCause(result);
+  const call = withNext ? failureNext(result) : undefined;
   const skipped = Array.isArray(result.flow?.failedOptionalSteps)
     ? result.flow.failedOptionalSteps
         .map(
@@ -107,6 +148,34 @@ export function failureSummary(result: FailedResult) {
   return `Failed: ${cause}${skipped ? `; optional steps failed earlier: ${skipped}` : ''}${
     call?.tool ? `; next: ${call.tool} ${JSON.stringify(call.query)}` : ''
   }`;
+}
+/**
+ * What a failed call throws: the summary, status, first cause and the one continuation that reads the
+ * rest. The capture envelope (logs, search scope, artifacts, other continuations) stays behind that
+ * continuation; a plan failure or a skipped optional step also keeps its `flow` summary.
+ */
+export function failurePayload(result: FailedResult & { ok?: boolean }) {
+  const next = failureNext(result);
+  const flow = result.flow;
+  const keepFlow = Boolean(flow?.failure || flow?.failedOptionalSteps?.length);
+  const status: Record<string, unknown> = {
+    timedOut: result.timedOut,
+    cancelled: result.cancelled,
+    outcomeUncertain: (result as { outcomeUncertain?: boolean })
+      .outcomeUncertain,
+  };
+  return {
+    // The payload carries `next` itself; the summary does not repeat it.
+    summary: failureSummary(result, false),
+    ok: false,
+    exitCode: result.exitCode,
+    error: failureCause(result),
+    ...Object.fromEntries(
+      Object.entries(status).filter(([, value]) => value === true)
+    ),
+    ...(next ? { next } : {}),
+    ...(keepFlow ? { flow } : {}),
+  };
 }
 const children = new Map<ChildProcessWithoutNullStreams, () => void>();
 let shuttingDown = false;
@@ -191,8 +260,30 @@ export function flowArgs(input: ChromeInvocation): string[] {
     ...(input.plan === undefined ? [] : ['--plan', '-']),
   ];
 }
+/** Engine argv of a typed `group` call: action, then its fields; private is the default, `--no-private` opts out. */
+export function groupArgs(input: ChromeInvocation): string[] {
+  return [
+    input.action!,
+    ...flags({
+      name: input.name,
+      urls: input.urls?.join(','),
+      noPrivate: input.private === false,
+      background: input.background,
+      newWindow: input.newWindow,
+      tab: input.tab,
+      port: input.port,
+    }),
+  ];
+}
 /** Engine command, argv and stdin of one typed call. */
 export function engineArgs(command: string, input: ChromeInvocation) {
+  // The `helper` gateway runs the named helper's engine command with its own arguments.
+  if (command === 'helper')
+    return {
+      command: input.name!,
+      args: [...(input.args ?? [])],
+      stdin: undefined,
+    };
   let args = flags(input.connection),
     stdin: string | undefined;
   if (command === 'run') {
@@ -206,6 +297,8 @@ export function engineArgs(command: string, input: ChromeInvocation) {
   else if (command === 'cdp') {
     args.unshift(input.method!, '--params', '-');
     if (input.acknowledge) args.push('--acknowledge');
+    if (input.enable?.length) args.push('--enable', input.enable.join(','));
+    if (input.scope) args.push('--scope', input.scope);
     stdin = JSON.stringify(input.params ?? {});
   } else if (command === 'protocol') {
     if (input.member) args.unshift(input.member);
@@ -213,6 +306,7 @@ export function engineArgs(command: string, input: ChromeInvocation) {
   } else if (command === 'check') args.unshift(input.recipe!);
   else if (command === 'cookies') args = cookieArgs(input);
   else if (command === 'proxy') args = proxyArgs(input);
+  else if (command === 'group') args = groupArgs(input);
   else if (command === 'flow') {
     args = [...flowArgs(input), ...args];
     if (input.plan !== undefined) stdin = JSON.stringify(input.plan);
@@ -223,15 +317,15 @@ export function engineArgs(command: string, input: ChromeInvocation) {
       value => value !== undefined
     );
   if (typedFlagCommands.includes(command)) {
-    const { args: _args, ...typed } = input;
-    const entries = Object.entries(typed).filter(
+    // `open.launch` flattens to the same engine flags the fields once had.
+    const { launch, ...typed } = input;
+    const entries = Object.entries({ ...typed, ...launch }).filter(
       ([, value]) => value !== undefined && value !== false
     );
     args.push(...entries.flatMap(([key, value]) => openEntryFlags(key, value)));
   }
   if (input.options !== undefined)
     args.push('--options', JSON.stringify(input.options));
-  if (input.args) args.push(...input.args);
   return { command, args, stdin };
 }
 
@@ -317,19 +411,9 @@ async function invokeEngine(
       scripts
     );
     if (!result.ok)
-      throw Object.assign(
-        Error(
-          JSON.stringify({
-            summary: failureSummary(result),
-            ...Object.fromEntries(
-              Object.entries(result).filter(([key]) => key !== 'summary')
-            ),
-          })
-        ),
-        {
-          exitCode: status.exitCode,
-        }
-      );
+      throw Object.assign(Error(JSON.stringify(failurePayload(result))), {
+        exitCode: status.exitCode,
+      });
     return result;
   } finally {
     if (abort) signal?.removeEventListener('abort', abort);

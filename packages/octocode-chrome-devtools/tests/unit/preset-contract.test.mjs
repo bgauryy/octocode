@@ -22,7 +22,12 @@ const GENERIC = new Set(['run', 'open', 'query', 'check', 'schema', 'skill']);
 for (const [name, preset] of Object.entries(presets)) {
   const names = preset.commands.map(command => command.name);
   const text = preset.instructions;
-  const body = text.slice(0, text.indexOf(HEADING));
+  // The plan-op cheat sheet names plan operations, which share names with tools.
+  const body = text
+    .slice(0, text.indexOf(HEADING))
+    .split('\n')
+    .filter(line => !line.startsWith('Plan ops:'))
+    .join('\n');
   test(`${name}: instructions name only tools this preset exports`, () => {
     for (const absent of Object.keys(chromeCommands).filter(
       tool => !names.includes(tool)
@@ -68,14 +73,22 @@ for (const [name, preset] of Object.entries(presets)) {
   });
 }
 
-test('default preset holds cdp and protocol; slim holds neither', () => {
+test('default preset holds cdp, protocol and group; slim holds none; only full holds helper', () => {
   const has = (preset, tool) =>
     preset.commands.some(command => command.name === tool);
-  for (const tool of ['cdp', 'protocol']) {
+  for (const tool of ['cdp', 'protocol', 'group']) {
     assert(has(presets.research, tool));
     assert(has(presets.full, tool));
     assert(!has(presets.slim, tool));
   }
+  // Plan ops and the page-snapshot and page-screenshot recipes capture the same evidence, so the standalone tools are /cli only.
+  for (const tool of ['snapshot', 'screenshot'])
+    for (const preset of Object.values(presets))
+      assert(!has(preset, tool), tool);
+  assert(has(presets.research, 'run') && has(presets.slim, 'run'));
+  assert(has(presets.full, 'helper'));
+  assert(!has(presets.research, 'helper'));
+  assert(!has(presets.slim, 'helper'));
 });
 
 test('the step command is gone from /cli', () => {
@@ -96,6 +109,9 @@ test('the annotation table classifies every tool; read-only tools are idempotent
     }
     assert(!(annotations.readOnlyHint && annotations.destructiveHint), name);
   }
+  // helper reaches prune, api-replay and har-redact; group opens and closes tabs.
+  for (const name of ['helper', 'group'])
+    assert.equal(annotationRules[name].kind, 'destructive', name);
   assert.deepEqual(
     Object.keys(annotationRules).toSorted(),
     spec.commands.map(command => command.name).toSorted()

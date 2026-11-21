@@ -16,7 +16,17 @@ fn selection_failure(q: &LocalFetchQuery, failure: crate::selection::Failure) ->
             "Selection was cancelled".into(),
         ),
         crate::selection::Failure::Provider(failure) => {
-            let crate::selection::ProviderFailure { error, outcome } = *failure;
+            let crate::selection::ProviderFailure {
+                error,
+                outcome,
+                confirm_ceiling,
+                ..
+            } = *failure;
+            let confirm = match confirm_ceiling.map(|ceiling| confirm_read(q, ceiling)) {
+                Some(Ok(read)) => Some(read),
+                Some(Err(error)) => return invalid_continuation(q, error),
+                None => None,
+            };
             let mut result = LocalFetchResult::error(
                 local_fetch_query::path(q).to_owned(),
                 error.code,
@@ -29,6 +39,7 @@ fn selection_failure(q: &LocalFetchQuery, failure: crate::selection::Failure) ->
                     Ok(read) => Some(read),
                     Err(error) => return invalid_continuation(q, error),
                 },
+                confirm,
                 ..NextCalls::default()
             });
             result
@@ -259,6 +270,18 @@ fn unfiltered_read(q: &LocalFetchQuery) -> Result<FetchCall, String> {
     let row = crate::selection::unfiltered_row(
         &octocode_runtime_base::response::result::query_value(q),
         &[],
+    );
+    serde_json::from_value(row)
+        .map(FetchCall::continued)
+        .map_err(|error| error.to_string())
+}
+
+/// The same read with `classification.maxRequests` at `ceiling`
+/// ([`crate::selection::confirm_row`]).
+fn confirm_read(q: &LocalFetchQuery, ceiling: u64) -> Result<FetchCall, String> {
+    let row = crate::selection::confirm_row(
+        &octocode_runtime_base::response::result::query_value(q),
+        ceiling,
     );
     serde_json::from_value(row)
         .map(FetchCall::continued)

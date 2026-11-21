@@ -280,6 +280,154 @@ fn rust_member_calls_on_a_local_named_like_a_module_do_not_link_by_namespace() {
     );
 }
 
+/// A qualified path names one item of its module, in call position, as a
+/// value (`.map(crate::num::f)`) or in a `macro_rules!` body: symbol impact
+/// of that item lists the file, and a file whose paths name only a sibling
+/// item of the module stays out.
+#[test]
+fn symbol_impact_follows_qualified_paths_to_the_named_item() {
+    let dir = git_app(&[
+        (
+            "Cargo.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        ),
+        (
+            "src/lib.rs",
+            "pub mod num;\npub mod called;\npub mod valued;\npub mod sibling;\npub mod both;\npub mod expanded;\n",
+        ),
+        (
+            "src/num.rs",
+            "pub fn narrow(v: u64) -> u32 { v as u32 }\npub fn widen(v: u64) -> usize { v as usize }\n",
+        ),
+        (
+            "src/called.rs",
+            "pub fn f() -> u32 {\n    crate::num::narrow(1)\n}\n",
+        ),
+        (
+            "src/valued.rs",
+            "pub fn f(v: Option<u64>) -> Option<u32> {\n    drop(vec![1]);\n    v.map(crate::num::narrow)\n}\n",
+        ),
+        (
+            "src/sibling.rs",
+            "pub fn f(v: Option<u64>) -> Option<usize> {\n    drop(vec![1]);\n    v.map(crate::num::widen)\n}\n",
+        ),
+        (
+            "src/both.rs",
+            "pub fn f() -> usize {\n    crate::num::widen(1)\n}\npub fn g(v: Option<u64>) -> Option<u32> {\n    v.map(crate::num::narrow)\n}\n",
+        ),
+        (
+            "src/expanded.rs",
+            "pub trait Narrow {\n    fn narrowed(&self) -> Option<u32>;\n}\nmacro_rules! narrowing {\n    ($t:ty) => {\n        impl Narrow for $t {\n            fn narrowed(&self) -> Option<u32> {\n                self.0.map(|v| crate::num::narrow(v))\n            }\n        }\n    };\n}\npub struct Q(Option<u64>);\nnarrowing!(Q);\n",
+        ),
+    ]);
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let out = ask(root, "impact", Some("src/num.rs#narrow"), |o| {
+        o.depth = Some(1);
+    });
+    let rows = out.value["rows"].as_array().cloned().unwrap_or_default();
+    let risk = |file: &str| {
+        rows.iter()
+            .find(|row| row["id"] == format!("app/src/{file}.rs"))
+            .map(|row| row["risk"].as_str().unwrap_or_default().to_owned())
+    };
+    for file in ["called", "valued", "both", "expanded"] {
+        assert_eq!(
+            risk(file).as_deref(),
+            Some("direct"),
+            "{file} names narrow: {}",
+            out.value
+        );
+    }
+    let files = impacted(&out)
+        .into_iter()
+        .map(|(file, _)| file)
+        .collect::<Vec<_>>();
+    assert!(
+        !files.contains(&"app/src/sibling.rs".to_owned()),
+        "sibling names only widen; its `vec!` group names no changed item: {}",
+        out.value
+    );
+}
+
+/// An importer whose linked names into the changed module are all other
+/// items is dropped from symbol impact unless a macro invocation's
+/// arguments, an unextracted token tree, write the changed symbol's name
+/// (or an alias that renames it): then it stays a `candidate`. Groups that
+/// write no changed name (`format!`, `vec!`) keep nothing.
+#[test]
+fn symbol_impact_keeps_importers_with_unextracted_arguments_as_candidates() {
+    let dir = git_app(&[
+        (
+            "Cargo.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        ),
+        ("src/lib.rs", "pub mod num;\npub mod outer;\npub mod plain;\npub mod formatted;\npub mod aliased;\n"),
+        (
+            "src/outer.rs",
+            "use crate::num::narrow;\npub mod macroed;\npub fn g(v: u64) -> u32 {\n    narrow(v)\n}\n",
+        ),
+        (
+            "src/num.rs",
+            "pub fn narrow(v: u64) -> u32 { v as u32 }\npub fn widen(v: u64) -> usize { v as usize }\n",
+        ),
+        (
+            "src/outer/macroed.rs",
+            "use super::*;\nmacro_rules! keep {\n    ($e:expr) => { $e };\n}\npub fn f(v: Option<u64>) -> (u32, Option<usize>) {\n    (keep!(narrow(1)), keep!(v.map(|v| crate::num::widen(v))))\n}\n",
+        ),
+        (
+            "src/plain.rs",
+            "pub fn f(v: u64) -> usize {\n    crate::num::widen(v)\n}\n",
+        ),
+        (
+            "src/formatted.rs",
+            "pub fn f(v: u64) -> String {\n    assert!(v > 0, \"{}\", v);\n    let _ = vec![1, v as u8];\n    format!(\"{} {}\", v, crate::num::widen(v))\n}\n",
+        ),
+        (
+            "src/aliased.rs",
+            "use crate::num::narrow as small;\nmacro_rules! keep {\n    ($e:expr) => { $e };\n}\npub fn f(v: u64) -> (u32, usize) {\n    (keep!(small(1)), crate::num::widen(v))\n}\n",
+        ),
+    ]);
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let out = ask(root, "impact", Some("src/num.rs#narrow"), |o| {
+        o.depth = Some(1);
+    });
+    let risk = |file: &str| {
+        out.value["rows"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|row| row["id"] == format!("app/src/{file}.rs"))
+            .map(|row| row["risk"].as_str().unwrap_or_default().to_owned())
+    };
+    assert_eq!(
+        risk("outer/macroed").as_deref(),
+        Some("candidate"),
+        "macro arguments may call narrow: {}",
+        out.value
+    );
+    // The renaming `use` itself links `narrow` (direct); a macro group that
+    // writes the alias never drops the importer.
+    assert!(
+        risk("aliased").is_some(),
+        "`small` renames narrow inside a macro group: {}",
+        out.value
+    );
+    assert_eq!(
+        risk("plain"),
+        None,
+        "plain names only widen, all extracted: {}",
+        out.value
+    );
+    assert_eq!(
+        risk("formatted"),
+        None,
+        "its `format!`, `assert!` and `vec!` groups name no changed item: {}",
+        out.value
+    );
+}
+
 /// A module file another crate also mounts by `#[path]` (a fuzz target, a
 /// bench sharing the source) keeps its home crate's links: `crate::` and
 /// `super::` paths resolve through the module tree that declares it with a

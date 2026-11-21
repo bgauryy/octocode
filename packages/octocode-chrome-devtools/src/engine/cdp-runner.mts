@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { connectCDP, type Payload } from './cdp-connection.mjs';
-import { blockedRefusal } from './cdp-policy.mjs';
+import { scriptRefusal } from './cdp-policy.mjs';
 import { errorMessage } from './error-message.mjs';
+import { applyStoredEmulation } from './emulation-state.mjs';
 
 import { isAbsolute, join, relative, resolve } from 'path';
 import { existsSync } from 'fs';
@@ -214,6 +215,7 @@ async function main() {
     ),
     { sessionMetaDir, sessionMetaFile, targetSnapshotFile }
   );
+  await applyStoredEmulation(cdp, PORT, process.cwd());
   if (openedTabId) await confirmTabLoaded(cdp, line => console.error(line));
 
   const outputDir = ENV_OUTPUT_DIR || createRunDir(OCTOCODE_OUTPUT_BASE);
@@ -268,14 +270,22 @@ async function main() {
     finalizeRun('interrupted', { signal });
   };
   cdp.outputDir = outputDir;
-  // Scripts are raw by design: only methods the policy blocks are refused; needsAck is not enforced here.
-  const sendRaw = cdp.send.bind(cdp);
-  cdp.send = (method, ...rest) => {
-    const refusal = blockedRefusal(method);
-    return refusal
-      ? Promise.reject(new Error(refusal))
-      : sendRaw(method, ...rest);
-  };
+  // A user script is raw by design: it cannot acknowledge, so only the scriptRefusal hard-stop set is
+  // refused; needsAck is not enforced. This package's own modules (plans and recipes, which gate every
+  // call themselves and carry the user's acknowledge) are not scripts and send everything.
+  const ownModule = relative(
+    import.meta.dirname,
+    resolve(process.cwd(), scriptArg)
+  );
+  if (ownModule.startsWith('..') || isAbsolute(ownModule)) {
+    const sendRaw = cdp.send.bind(cdp);
+    cdp.send = (method, ...rest) => {
+      const refusal = scriptRefusal(method);
+      return refusal
+        ? Promise.reject(new Error(refusal))
+        : sendRaw(method, ...rest);
+    };
+  }
   if (VERBOSE) {
     console.error(`[CDP_RUNNER] Output dir: ${outputDir}`);
     console.error(`[CDP_RUNNER] Session meta dir: ${sessionMetaDir}`);

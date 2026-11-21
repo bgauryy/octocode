@@ -78,6 +78,7 @@ impl<'a> Projector<'a> {
             edges: Vec::new(),
             witnesses: Vec::new(),
             unresolved: Vec::new(),
+            unextracted: BTreeMap::new(),
             declarations: Vec::new(),
             file_nodes: BTreeMap::new(),
             roles: HashMap::new(),

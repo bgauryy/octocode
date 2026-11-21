@@ -11,7 +11,8 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromeCommands } from '../../dist/engine/chrome-contract.mjs';
+import * as chromeContract from '../../dist/engine/chrome-contract.mjs';
+const { chromeCommands } = chromeContract;
 import { copyPackage } from '../copy-package.mjs';
 const skill = join(dirname(fileURLToPath(import.meta.url)), '../..');
 function fixture(fn) {
@@ -110,6 +111,7 @@ test('file, stdin and inline plans have identical validated execution', () =>
         {
           op: 'cdp',
           method: 'Runtime.evaluate',
+          acknowledge: true,
           params: { expression: '1+1', returnByValue: true },
         },
       ],
@@ -315,3 +317,34 @@ test('the CLI and MCP report the package version', async () => {
   );
   assert.equal(spec.version, manifest.version);
 });
+
+test('schema run lists every operation in one short line; an operation guide repeats nothing shared', () =>
+  fixture(call => {
+    const {
+      chromePlanOperationGuides: guides,
+      chromePlanOperations: operations,
+    } = chromeContract;
+    const tokens = value => Math.ceil(JSON.stringify(value).length / 4);
+    const overview = JSON.parse(call(['schema', 'run']).stdout).plan;
+    assert.deepEqual(Object.keys(overview.operations), Object.keys(operations));
+    for (const [name, line] of Object.entries(overview.operations)) {
+      assert.equal(typeof line, 'string', name);
+      for (const field of guides[name].required)
+        assert(line.includes(field), `${name} lists ${field}`);
+    }
+    assert(tokens(overview.operations) <= 600, tokens(overview.operations));
+    assert.equal(overview.guides, undefined);
+    for (const name of Object.keys(operations)) {
+      const plan = JSON.parse(call(['schema', 'run', name]).stdout).plan;
+      const guide = plan.guides[name];
+      // every field the validator accepts stays discoverable: own fields plus the shared names
+      assert.deepEqual(
+        [...Object.keys(guide.fields), ...guide.shared].sort(),
+        Object.keys(guides[name].fields).sort(),
+        name
+      );
+      assert.deepEqual(Object.keys(plan.shared), guide.shared, name);
+      for (const key of guide.shared) assert(!(key in guide.fields));
+      assert(plan.examples.length === 1);
+    }
+  }));

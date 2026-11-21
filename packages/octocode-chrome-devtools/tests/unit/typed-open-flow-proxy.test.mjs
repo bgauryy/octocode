@@ -53,39 +53,29 @@ test('typed open fields become the exact engine argv', () => {
     ]
   );
   assert.deepEqual(
-    argv('open', {
-      urls: ['https://a.example.com', 'about:blank'],
-      background: true,
-      newWindow: true,
-      isolated: true,
-    }).args,
-    [
-      '--urls',
-      'https://a.example.com,about:blank',
-      '--background',
-      '--new-window',
-      '--isolated',
-    ]
+    argv('open', { attach: true, acknowledge: true, port: 9222 }).args,
+    ['--port', '9222', '--attach', '--acknowledge']
   );
-  assert.deepEqual(argv('open', { attach: true, port: 9222 }).args, [
-    '--port',
-    '9222',
-    '--attach',
-  ]);
 });
 
-test('open refuses attach with launch fields, urls with url, bad origins and commas', () => {
+test('open refuses attach with launch fields, tab-group fields, bad origins and commas', () => {
   const open = schema('open');
   for (const bad of [
     { attach: true },
-    { attach: true, port: 9222, url: 'https://a.example.com' },
-    { attach: true, port: 9222, urls: ['https://a.example.com'] },
-    { attach: true, port: 9222, headless: true },
-    { attach: true, port: 9222, noSandbox: true },
-    { url: 'https://a.example.com', urls: ['https://b.example.com'] },
-    { urls: ['https://a.example.com,https://b.example.com'] },
-    { urls: ['file:///etc/passwd'] },
+    { attach: true, port: 9222 },
+    { attach: true, acknowledge: true },
+    {
+      attach: true,
+      acknowledge: true,
+      port: 9222,
+      url: 'https://a.example.com',
+    },
+    { attach: true, acknowledge: true, port: 9222, headless: true },
+    { attach: true, acknowledge: true, port: 9222, noSandbox: true },
+    { urls: ['https://a.example.com'] },
     { background: true },
+    { newWindow: true },
+    { isolated: true },
     { allowOrigins: ['https://a.example.com/path'] },
     { allowOrigins: ['https://a.example.com,https://b.example.com'] },
   ])
@@ -190,7 +180,9 @@ test('the mapped argv reaches the real proxy and flow engines', () => {
   assert.equal(JSON.parse(proxy.stdout).status, 'PROXY_NOT_RUNNING');
   const flow = place('flow-command.mjs', argv('flow', { action: 'list' }).args);
   assert.equal(flow.status, 0, flow.stderr);
-  const flowNames = JSON.parse(flow.stdout).flows.map(row => row.name);
+  const flowNames = Object.values(JSON.parse(flow.stdout).areas)
+    .flat()
+    .map(row => row.name);
   assert.ok(flowNames.includes('login-form'));
 });
 
@@ -247,17 +239,55 @@ test('the skill quickstart and shared instructions name only tools the default s
   const research = names(researchSpec);
   const named = (text, list) =>
     list.filter(name => new RegExp(`(^|[^\\w-])${name}([^\\w-]|$)`).test(text));
-  for (const name of named(firstFlow, [
-    'open',
-    'run',
-    'snapshot',
-    'screenshot',
-  ]))
+  // snapshot and screenshot are plan steps in the default surface; their tools are full-only.
+  for (const name of named(firstFlow, ['open', 'run']))
     assert.ok(research.includes(name), name);
+  assert.ok(!research.includes('snapshot') && !research.includes('screenshot'));
+  assert.match(firstFlow, /`snapshot` and `screenshot` plan steps/);
   // Hyphenated names cannot be confused with ordinary words (step, check, script).
   const outside = names(spec).filter(
     name => !research.includes(name) && name.includes('-')
   );
   // The default preset's own instructions name no tool outside the default surface.
   assert.deepEqual(named(researchSpec.instructions, outside), []);
+});
+
+test('open emulation travels as one JSON flag; geolocation needs acknowledge; reset stands alone', () => {
+  const emulation = { colorScheme: 'dark', width: 390, height: 844 };
+  const { args } = argv('open', { port: 9222, emulation });
+  assert.equal(
+    args[args.indexOf('--emulation') + 1],
+    JSON.stringify(emulation)
+  );
+  const open = schema('open');
+  const geolocation = { latitude: 48.8, longitude: 2.3 };
+  for (const bad of [
+    { emulation: { geolocation } },
+    { emulation: { reset: true, width: 1 } },
+    { emulation: { colorScheme: 'sepia' } },
+    { emulation: { bogus: 1 } },
+  ])
+    assert.equal(open.safeParse(bad).success, false, JSON.stringify(bad));
+  assert.equal(
+    open.safeParse({ emulation: { geolocation }, acknowledge: true }).success,
+    true
+  );
+});
+
+test('cdp enable and scope map to --enable and --scope and are checked for shape', () => {
+  const call = { method: 'Page.enable', connection: { port: 9222 } };
+  const { args } = argv('cdp', {
+    ...call,
+    enable: ['Network', 'Page'],
+    scope: 'browser',
+  });
+  assert.equal(args[args.indexOf('--enable') + 1], 'Network,Page');
+  assert.equal(args[args.indexOf('--scope') + 1], 'browser');
+  const cdp = schema('cdp');
+  for (const bad of [
+    { enable: ['network'] },
+    { enable: ['A', 'A'] },
+    { scope: 'tab' },
+  ])
+    assert.equal(cdp.safeParse({ ...call, ...bad }).success, false);
 });

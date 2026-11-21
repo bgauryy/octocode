@@ -1,7 +1,8 @@
-//! A row held to a `maxRequests` that a default-window refusal spends: the
-//! long-window retry it has no request left for is not sent, and the row
-//! never dead-ends. It states one price (its text names `requestsCeiling`,
-//! past the spent cap) and `next.confirm` runs it within that price.
+//! A row held to a `maxRequests` that a default-window refusal would spend:
+//! the cap leaves no request for the long-window retry the refusal leads to,
+//! so nothing is sent and the row never dead-ends. It states one price before
+//! any spend (its text names `requestsCeiling`, past the cap) and
+//! `next.confirm` runs it within that price.
 
 use super::{Typed, clasify, noul};
 use crate::support::{Workspace, clasify_runtime};
@@ -52,10 +53,9 @@ async fn a_spent_cap_offers_a_priced_confirm_instead_of_a_dead_end() {
     let out = clasify(&runtime, vec![row]).await;
     let data = &out["results"][0]["data"];
     let sent = server.received_requests().await.unwrap();
-    assert!(sent.len() as u64 <= cap, "the cap holds: {out}");
     assert!(
-        sent.iter().all(|request| request.headers.get(LONG).is_none()),
-        "no long-window retry past the cap: {out}"
+        sent.is_empty(),
+        "a request whose refusal the cap cannot follow is priced, not sent: {out}"
     );
     assert_eq!(data["errorCode"], "classificationOverBudget", "{out}");
     assert_eq!(data["usage"]["calls"], json!(sent.len()), "{out}");
@@ -87,7 +87,10 @@ async fn a_spent_cap_offers_a_priced_confirm_instead_of_a_dead_end() {
     assert!(data.get("errorCode").is_none(), "{confirmed}");
     assert!(data["answers"]["copied"].is_object(), "{confirmed}");
     let spent = server.received_requests().await.unwrap().len() - before;
-    assert!(spent as u64 <= ceiling, "{spent} past {ceiling}: {confirmed}");
+    assert!(
+        spent as u64 <= ceiling,
+        "{spent} past {ceiling}: {confirmed}"
+    );
     assert_eq!(data["usage"]["calls"], json!(spent), "{confirmed}");
     runtime.close().await;
 }

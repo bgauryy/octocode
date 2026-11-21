@@ -132,6 +132,7 @@ pub(super) fn collect(
             || GraphArgumentGroupObservation::Slots { slots },
             |_| GraphArgumentGroupObservation::Unsupported {
                 construct: "tagged-template".to_owned(),
+                names: None,
             },
         );
         sites.push(GraphFactArgumentSite {

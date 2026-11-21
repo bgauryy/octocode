@@ -132,13 +132,22 @@ const SHARED_LAYERS: &[Layer] = &[
 
 /// The modules of a tool family crate that are not tools, lowest layer first,
 /// with their reasons; every other top-level module of a family is a tool.
-const NON_TOOLS: &[(&str, &[Layer])] = &[(
-    "tool-packages",
-    &[&[(
-        "artifact",
-        "the package-registry providers artifactSearch and securityCheck read",
-    )]],
-)];
+const NON_TOOLS: &[(&str, &[Layer])] = &[
+    (
+        "tool-github",
+        &[&[(
+            "qualifier_keywords",
+            "which field carries a search qualifier a keyword spells: ghSearchCode, ghSearchHistory and ghSearchRepo name it in an empty answer",
+        )]],
+    ),
+    (
+        "tool-packages",
+        &[&[(
+            "artifact",
+            "the package-registry providers artifactSearch and securityCheck read",
+        )]],
+    ),
+];
 
 /// Where `module` sits in `layers`, or `None` for a tool.
 fn layer_in(layers: &[Layer], module: &str) -> Option<usize> {

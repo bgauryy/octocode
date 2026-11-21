@@ -85,7 +85,14 @@ export async function run(cdp: CheckSession) {
   const script = found.script;
   if (!script) {
     out(
-      `[FINDING] SOURCEMAP_SCRIPT_NOT_FOUND ${JSON.stringify({ query, scriptsSeen: scripts.size })}`
+      `[FINDING] SOURCEMAP_SCRIPT_NOT_FOUND ${JSON.stringify({
+        query,
+        scriptsSeen: scripts.size,
+        scriptUrls: [
+          ...new Set([...scripts.values()].map(row => row.url).filter(Boolean)),
+        ].slice(0, 5),
+        hint: `load the page first (goto, or SOURCEMAP… recipe after navigation); scripts seen: ${scripts.size}; list them with check script-sources`,
+      })}`
     );
     process.exitCode = 1;
     return;
@@ -106,7 +113,7 @@ export async function run(cdp: CheckSession) {
   let mapText: string;
   let parsed;
   try {
-    mapText = await readScriptMapText(script.sourceMapURL, script.url);
+    mapText = await readScriptMapText(cdp, script.sourceMapURL, script.url);
     parsed = parseSourceMap(mapText);
   } catch (error) {
     const message = errorMessage(error);

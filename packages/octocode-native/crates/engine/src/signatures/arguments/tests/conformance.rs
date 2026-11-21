@@ -245,3 +245,53 @@ fn advertised_member_and_qualified_forms_have_positive_controls() {
         }
     }
 }
+
+fn unsupported_group_names(source: &str) -> Vec<Option<Vec<String>>> {
+    facts(source, "rs")
+        .argument_sites
+        .iter()
+        .flat_map(|site| &site.groups)
+        .filter_map(|group| match &group.observation {
+            GraphArgumentGroupObservation::Unsupported { names, .. } => Some(names.clone()),
+            GraphArgumentGroupObservation::Slots { .. } => None,
+        })
+        .collect()
+}
+
+/// A macro invocation's token tree is unextracted, so its group lists every
+/// identifier written inside it (sorted, unique): what the code there may
+/// call. String text and literals name nothing.
+#[test]
+fn an_unsupported_group_lists_the_identifiers_written_inside_it() {
+    let groups = unsupported_group_names(
+        "fn f(x: u64) { keep!(saturating_like(1), x.map(|v| helper::deep(v)), saturating_like(2)); println!(\"hidden {}\", 5); }",
+    );
+    let names = |at: usize| groups[at].clone().expect("names observed");
+    assert_eq!(groups.len(), 2, "{groups:?}");
+    assert_eq!(
+        names(0),
+        ["deep", "helper", "map", "saturating_like", "v", "x"],
+        "{groups:?}"
+    );
+    assert!(names(1).is_empty(), "{groups:?}");
+}
+
+/// A group past the name bound keeps none: it counts as naming anything
+/// rather than silently dropping names.
+#[test]
+fn an_unsupported_group_past_the_name_bound_lists_no_names() {
+    let many = (0..=crate::graph::MAX_UNSUPPORTED_GROUP_NAMES)
+        .map(|i| format!("n{i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    assert_eq!(
+        unsupported_group_names(&format!("fn f() {{ keep!({many}); }}")),
+        [None]
+    );
+    let within = (0..crate::graph::MAX_UNSUPPORTED_GROUP_NAMES)
+        .map(|i| format!("n{i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let groups = unsupported_group_names(&format!("fn f() {{ keep!({within}); }}"));
+    assert_eq!(groups[0].as_ref().map(Vec::len), Some(crate::graph::MAX_UNSUPPORTED_GROUP_NAMES));
+}

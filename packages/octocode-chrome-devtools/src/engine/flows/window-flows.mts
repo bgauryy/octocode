@@ -24,7 +24,7 @@ const grantPermission: FlowDefinition = {
   area: 'permissions',
   sensitive: true,
   description:
-    'Grant one browser permission to one origin without a prompt. Sensitive: needs acknowledge true.',
+    'Grant one permission to one origin. Sensitive: needs acknowledge true.',
   params: {
     permission: {
       type: 'string',
@@ -72,7 +72,7 @@ const handleDialog: FlowDefinition = {
   name: 'handle-dialog',
   area: 'input',
   description:
-    'Wait for a JavaScript dialog (alert, confirm, prompt, beforeunload) and accept or dismiss it. Optional `trigger` is JavaScript run after the listener exists that opens the dialog.',
+    'Accept or dismiss a JavaScript dialog. Covers alert, confirm, prompt and beforeunload. Optional `trigger` is JavaScript run after the listener exists that opens the dialog.',
   params: {
     accept: {
       type: 'boolean',
@@ -99,10 +99,10 @@ const handleDialog: FlowDefinition = {
     steps: [
       { op: 'cdp', method: 'Page.enable' },
       { op: 'listen', id: 'dialog', event: 'Page.javascriptDialogOpening' },
+      // The trigger is the caller's own script, so it runs as the evaluate op, not as acknowledged raw CDP.
       {
-        op: 'cdp',
-        method: 'Runtime.evaluate',
-        params: { expression: 'setTimeout(function () { {{trigger}} }, 0)' },
+        op: 'evaluate',
+        expression: 'setTimeout(function () { {{trigger}} }, 0)',
       },
       { op: 'waitEvent', listener: 'dialog', timeoutMs: '{{ms}}' },
       {
@@ -122,7 +122,7 @@ const auditsWindow: FlowDefinition = {
   name: 'audits-window',
   area: 'audits',
   description:
-    'Collect DevTools Issues (cookies, mixed content, CORS, deprecations) reported during a time window.',
+    'Collect DevTools Issues in a time window. Covers cookies, mixed content, CORS, deprecations.',
   params: { ms: ms('issues') },
   plan: {
     steps: [
@@ -139,7 +139,7 @@ const webauthn: FlowDefinition = {
   area: 'permissions',
   sensitive: true,
   description:
-    'Attach a virtual WebAuthn authenticator so pages can create and use passkeys. Sensitive: needs acknowledge true.',
+    'Attach a virtual WebAuthn authenticator. Pages can create and use them. Sensitive: needs acknowledge true.',
   params: {
     protocol: {
       type: 'string',
@@ -182,7 +182,7 @@ const animationTimeline: FlowDefinition = {
   name: 'animation-timeline',
   area: 'audits',
   description:
-    'Record animation events (started, updated, canceled) during a time window.',
+    'Record animation events during a time window. Covers started, updated, canceled.',
   params: { ms: ms('animations') },
   plan: {
     steps: [
@@ -199,8 +199,7 @@ const animationTimeline: FlowDefinition = {
 const mediaEvents: FlowDefinition = {
   name: 'media-events',
   area: 'audits',
-  description:
-    'Record media player events and property changes during a time window.',
+  description: 'Record media player events in a time window.',
   params: { ms: ms('media players') },
   plan: {
     steps: [
@@ -220,8 +219,7 @@ const mediaEvents: FlowDefinition = {
 const layerTree: FlowDefinition = {
   name: 'layer-tree',
   area: 'inspection',
-  description:
-    'The compositing layer tree: a forced frame makes LayerTree report the current layers as an event.',
+  description: 'The compositing layer tree after a forced frame.',
   params: {
     ms: {
       type: 'number',

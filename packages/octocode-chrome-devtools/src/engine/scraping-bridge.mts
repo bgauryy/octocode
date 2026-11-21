@@ -34,7 +34,10 @@ export function resolveScrapingTool(
       JSON.stringify({
         ok: false,
         code: 'OPTIONAL_DEPENDENCY_MISSING',
-        error: missing,
+        error:
+          index >= 0
+            ? `No octocode-scraping skill at ${directory}: scripts/${tool}.mjs is missing. Point --scraping-skill-dir at the folder of the octocode-scraping skill.`
+            : missing,
       })
     );
     process.exit(1);

@@ -80,6 +80,9 @@ pub(super) fn evaluate_row(
     // A source or content judged whole is what the row names, every
     // question included: its first round is the row's own.
     let plan = prepared.plan(evaluator, row);
+    if let Some(over) = unfollowed_refusal(evaluator, row, plan) {
+        return RowOutcome::OverBudget(over);
+    }
     let admitted =
         match super::admission::admit(row.max_requests, plan, plan.first, evaluator.retry_room()) {
             Ok(admitted) => admitted,
@@ -98,6 +101,41 @@ pub(super) fn evaluate_row(
         gate,
         can_resume,
     )
+}
+
+/// The price of a row whose first round its window may refuse while its
+/// `maxRequests` holds none of the requests a refusal adds (the long-window
+/// retry, the per-question re-asks): a refusal it cannot follow answers
+/// nothing, and no window bound survives the process that learned it
+/// ([`octocode_tools_shared::judgment::windows`]), so nothing is sent and the
+/// row states the whole price first. Each added request is taken at most as
+/// large as the long window.
+fn unfollowed_refusal(
+    evaluator: &Evaluator,
+    row: &Row,
+    plan: super::admission::Plan,
+) -> Option<Box<super::reply::OverBudget>> {
+    let max = row.max_requests?;
+    if !plan.bounded || plan.first > max || plan.at_most <= max {
+        return None;
+    }
+    let retries = evaluator.retry_room();
+    let added = plan.at_most - plan.first;
+    Some(Box::new(super::reply::OverBudget {
+        units: plan.units,
+        price: super::reply::Price {
+            planned: plan.first,
+            ceiling: Some(RequestCap::ceiling(plan.at_most, retries)),
+            room: retries,
+            tokens: Some(
+                plan.tokens
+                    .saturating_add(added.saturating_mul(evaluator.request_window(true))),
+            ),
+        },
+        limit: super::reply::Limit::Max(max),
+        room: retries,
+        spent: 0,
+    }))
 }
 
 /// A row's state, captured and ready to judge: its capture, its assets,

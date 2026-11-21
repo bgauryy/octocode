@@ -30,7 +30,7 @@ const listNames = async args => {
     throw error;
   }
 };
-test('default MCP surface is the research preset; slim is a subset of it and --preset full exports the entire CLI registry', async () => {
+test('default MCP surface is the research preset; slim is a subset of it and --preset full exports the registry except the CLI-only snapshot and screenshot', async () => {
   const research = await listNames([]);
   try {
     assert.deepEqual(
@@ -62,8 +62,9 @@ test('default MCP surface is the research preset; slim is a subset of it and --p
   try {
     assert.deepEqual(
       full.tools.map(tool => tool.name),
-      Object.keys(chromeCommands)
+      presets.full.commands.map(command => command.name)
     );
+    assert(!full.tools.some(tool => tool.name === 'snapshot'));
     const command = full.tools.find(tool => tool.name === 'cdp');
     assert(command.inputSchema.properties.method);
     assert(command.inputSchema.properties.connection);
@@ -82,7 +83,7 @@ test('an unknown MCP preset is refused with usage text naming every preset', asy
   for (const preset of Object.keys(presets))
     assert.match(result.stderr, new RegExp(preset));
 });
-test('success text is one line naming the structuredContent keys; failure text leads with cause and next call', async () =>
+test('success text is the one-line compact reply itself; failure text leads with cause and next call', async () =>
   fixture(async ({ client }) => {
     const ok = await client.callTool({
       name: 'schema',
@@ -91,10 +92,17 @@ test('success text is one line naming the structuredContent keys; failure text l
     assert.notEqual(ok.isError, true);
     const text = ok.content[0].text;
     assert(!text.includes('\n'));
-    assert(text.startsWith('OK; data in structuredContent: '));
-    for (const key of Object.keys(ok.structuredContent))
-      assert(text.includes(key), key);
-    assert(text.length < 500);
+    // A text-only client sees the whole reply: the text is the structured content.
+    assert.deepEqual(JSON.parse(text), ok.structuredContent);
+    assert.equal(ok.structuredContent.ok, true);
+    for (const dropped of [
+      'exitCode',
+      'signal',
+      'isPartial',
+      'capture',
+      'logs',
+    ])
+      assert(!(dropped in ok.structuredContent), dropped);
     const failure = await client.callTool({
       name: 'run',
       arguments: { plan: { steps: [{ op: 'waitEvent', listener: 'none' }] } },
@@ -141,7 +149,7 @@ test('malformed tool schemas and plans fail without contacting Chrome', async ()
       assert.doesNotMatch(result.content[0].text, /ECONNREFUSED/);
     }
   }));
-test('core typed CLI and MCP dry-run plans produce identical invocations', async () =>
+test('core typed CLI and MCP report the same failure for a plan with no browser', async () =>
   fixture(async ({ client, cwd, skill, work }) => {
     const input = {
       plan: {
@@ -149,19 +157,39 @@ test('core typed CLI and MCP dry-run plans produce identical invocations', async
           {
             op: 'cdp',
             method: 'Runtime.evaluate',
+            acknowledge: true,
             params: { expression: '42' },
           },
         ],
       },
-      connection: { dryRun: true, port: 9999 },
+      connection: { port: 9 },
     };
-    const mcp = data(await client.callTool({ name: 'run', arguments: input }));
+    const mcp = await client.callTool({ name: 'run', arguments: input });
+    assert.equal(mcp.isError, true);
+    const { error } = JSON.parse(mcp.content[0].text);
+    assert.match(error, /No Chrome on port 9/);
     const file = join(work, 'input.json');
     writeFileSync(file, JSON.stringify(input));
     const cli = typedCli(skill, ['run', '--input', file, '--json'], { cwd });
-    assert.equal(cli.status, 0, cli.stderr);
-    const typed = JSON.parse(cli.stdout).structuredContent;
-    assert.deepEqual(typed.data, mcp.data);
+    assert.notEqual(cli.status, 0);
+    assert.ok((cli.stdout + cli.stderr).includes(error), cli.stderr);
+  }));
+test('a policy refusal fails with a small payload that keeps one continuation', async () =>
+  fixture(async ({ client }) => {
+    const refused = await client.callTool({
+      name: 'cdp',
+      arguments: { method: 'Browser.close' },
+    });
+    assert.equal(refused.isError, true);
+    const text = refused.content[0].text;
+    assert.ok(text.length < 700, `${text.length} chars`);
+    const body = JSON.parse(text);
+    assert.equal(Object.keys(body)[0], 'summary');
+    assert.equal(body.ok, false);
+    assert.equal(typeof body.exitCode, 'number');
+    assert.ok(body.next.query.file, 'one executable continuation remains');
+    for (const dropped of ['capture', 'logs', 'search', 'artifacts', 'root'])
+      assert.equal(Object.hasOwn(body, dropped), false, dropped);
   }));
 test('MCP-to-CLI discovery and success retain structure; MCP failures retain evidence', async () =>
   fixture(async ({ client }) => {
@@ -194,25 +222,17 @@ test('MCP-to-CLI discovery and success retain structure; MCP failures retain evi
     assert.match(data(failure).error, /earlier listener/);
   }));
 test('large MCP output is bounded and its continuation reconstructs every byte', async () =>
-  fixture(async ({ client }) => {
-    const plan = {
-      steps: [
-        {
-          op: 'cdp',
-          method: 'Runtime.evaluate',
-          params: { expression: 'x'.repeat(30000) },
-        },
-      ],
-    };
+  fixture(async ({ client, cwd }) => {
+    // The default schema document is the largest browser-free engine output.
     const result = data(
-      await client.callTool({
-        name: 'run',
-        arguments: { plan, connection: { dryRun: true } },
-      })
+      await client.callTool({ name: 'schema', arguments: {} })
     );
     assert(Buffer.byteLength(JSON.stringify(result)) <= 16000);
     assert(result.next.stdout);
-    const expected = readFileSync(result.logs.stdout, 'utf8');
+    const expected = readFileSync(
+      join(cwd, result.next.stdout.query.file),
+      'utf8'
+    );
     let next = result.next.stdout,
       restored = '';
     for (let page = 0; next; page++) {

@@ -352,6 +352,14 @@ pub(super) fn row(
         .html_url
         .clone()
         .unwrap_or_else(|| format!("https://github.com/advisories/{}", advisory.ghsa_id));
+    row.database = Some(
+        if row.link.starts_with("https://github.com/advisories/") {
+            record::GITHUB_DATABASE
+        } else {
+            record::GITHUB_REPOSITORY_DATABASE
+        }
+        .to_owned(),
+    );
     // GitHub's page is both the link and the database's file: stated once.
     if row.source.as_deref() == Some(row.link.as_str()) {
         row.source = None;

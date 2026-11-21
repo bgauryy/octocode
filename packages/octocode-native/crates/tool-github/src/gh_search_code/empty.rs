@@ -43,6 +43,15 @@ pub(super) async fn page(
             value["calls"]["read"] = read;
         }
     }
+    let keywords: Vec<&str> = query
+        .keywords
+        .iter()
+        .map(|keyword| keyword.as_str())
+        .collect();
+    octocode_runtime_base::response::result::add_hints(
+        value,
+        code_output::qualifier_keyword_hints(&keywords),
+    );
     if let Some(broader) = broader {
         octocode_tools_shared::leads::broaden::set_broadened(
             value,

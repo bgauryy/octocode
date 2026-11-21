@@ -103,10 +103,14 @@ pub(super) struct ManifestDiff {
     pub read: bool,
 }
 
+/// The largest working-tree manifest compared key by key; a larger one
+/// counts as read, so a bound can only widen what a change seeds.
+const MANIFEST_MAX_BYTES: u64 = 8 << 20;
+
 /// The diff of the root-relative manifest `path` between `rev` and the
 /// working tree. `None` when either side cannot be compared key by key
-/// (another manifest form, an added or deleted file, a parse failure):
-/// the change then counts as read.
+/// (another manifest form, an added or deleted file, a parse failure, a
+/// manifest past [`MANIFEST_MAX_BYTES`]): the change then counts as read.
 pub(super) fn manifest_diff(
     root: &Path,
     rev: &str,
@@ -123,7 +127,8 @@ pub(super) fn manifest_diff(
         return None;
     }
     let old = git(root, &["show", &format!("{rev}:./{path}")], cancel).ok()?;
-    let new = std::fs::read(root.join(path)).ok()?;
+    let file = std::fs::File::open(root.join(path)).ok()?;
+    let new = octocode_io::read::read_limited(file, MANIFEST_MAX_BYTES).ok()??;
     let (old, new) = (flatten(name, &old)?, flatten(name, &new)?);
     let keys = old
         .keys()

@@ -37,6 +37,10 @@ test('a complete small snapshot page is inlined with its refs', async () => {
     '[PAGE] "T" http://x/\n[METRIC] SNAPSHOT refs=1 showing=e1-e1 page=1/1 totalAxNodes=3\n[SNAPSHOT] [e1] button "Go"\n';
   const result = await reply(page + artifact);
   assert.match(result.snapshot, /\[e1\] button "Go"/);
+  // The saved page-nodes file outside the workspace keeps its absolute path.
+  assert.deepEqual(result.files, ['/tmp/page-nodes.txt']);
+  assert(result.evidence);
+  assert(!('stdout' in result));
 });
 
 test('a paged snapshot keeps its continuation instead of inlining a partial page', async () => {
@@ -44,7 +48,8 @@ test('a paged snapshot keeps its continuation instead of inlining a partial page
     '[METRIC] SNAPSHOT refs=900 showing=e1-e100 page=1/9 totalAxNodes=3000\n[SNAPSHOT] [e1] button "Go"\n';
   const result = await reply(page + artifact);
   assert.equal(result.snapshot, undefined);
-  assert.ok(result.next.capture);
+  assert.deepEqual(result.files, ['/tmp/page-nodes.txt']);
+  assert.ok(result.evidence);
 });
 
 test('a snapshot page over the inline bound is not inlined', async () => {
@@ -64,8 +69,18 @@ test('short artifact-free output is returned whole, long output stays behind nex
   );
   const short = await reply('not json: ["sid"]\n');
   assert.equal(short.stdout, 'not json: ["sid"]\n');
-  assert.equal(short.next.stdout, undefined);
+  assert.equal(short.next, undefined);
   const long = await reply('x'.repeat(INLINE_STDOUT_BYTES + 1));
   assert.equal(long.stdout, undefined);
   assert.ok(long.next.stdout);
+});
+
+test('files are always plain workspace-relative path strings, also with several artifact kinds', async () => {
+  const stdout =
+    '[METRIC] SNAPSHOT refs=1 showing=e1-e1 page=1/1 totalAxNodes=3\n[SNAPSHOT] [e1] button "Go"\n' +
+    '[ARTIFACT] PAGE_SNAPSHOT /tmp/run/page-snapshot.json\n[ARTIFACT] PAGE_NODES /tmp/run/page-nodes.txt\n';
+  const result = await reply(stdout);
+  assert.ok(Array.isArray(result.files) && result.files.length === 2);
+  for (const file of result.files)
+    assert.equal(typeof file, 'string', JSON.stringify(file));
 });

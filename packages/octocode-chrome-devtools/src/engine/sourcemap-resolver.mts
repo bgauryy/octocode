@@ -17,7 +17,13 @@ type Segment = {
   ni: number;
 };
 /** `Debugger.scriptParsed` event params the resolver reads. */
-type ScriptParsed = { scriptId: string; url: string; sourceMapURL?: string };
+type ScriptParsed = {
+  scriptId: string;
+  url: string;
+  sourceMapURL?: string;
+  executionContextId?: number;
+  executionAuxData?: { frameId?: string };
+};
 export type ParsedMap = {
   segments: Segment[];
   sources: (string | null)[];
@@ -125,43 +131,64 @@ export function originalPositionFor(
   };
 }
 
-/** Runs fn inside the guard's narrow network exemption when the sandbox guard is installed. */
-function withSandboxExemption<T>(fn: () => T): T {
-  const scope = (globalThis as Record<symbol, unknown>)[
-    Symbol.for('octocode.chrome-devtools.sandbox-exempt')
-  ] as { run<R>(store: boolean, f: () => R): R } | undefined;
-  return scope ? scope.run(true, fn) : fn();
+const MAP_BYTES_PER_READ = 1 << 20;
+
+/** The frame a map load is made for: the given one, else the page's main frame. */
+async function frameIdOf(cdp: Session, frameId?: string) {
+  if (frameId) return frameId;
+  const tree = await cdp.send('Page.getFrameTree');
+  const id = tree?.frameTree?.frame?.id;
+  if (typeof id !== 'string')
+    throw new Error('Source map load needs a page frame');
+  return id;
 }
 
-async function fetchText(url: string, timeoutMs = 4000) {
-  const { get } = url.startsWith('https')
-    ? await import('https')
-    : await import('http');
-  return new Promise<string>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('timeout')), timeoutMs);
-    withSandboxExemption(() =>
-      get(url, res => {
-        if (res.statusCode !== 200) {
-          clearTimeout(timer);
-          res.resume();
-          return reject(new Error(`HTTP ${res.statusCode}`));
-        }
-        const chunks: Buffer[] = [];
-        res.on('data', c => chunks.push(c));
-        res.on('end', () => {
-          clearTimeout(timer);
-          resolve(Buffer.concat(chunks).toString('utf8'));
-        });
-        res.on('error', e => {
-          clearTimeout(timer);
-          reject(e);
-        });
-      })
-    ).on('error', e => {
-      clearTimeout(timer);
-      reject(e);
+/** Loads a URL with Chrome's own network stack (cookies, cache, proxy) and reads the whole body. */
+async function loadNetworkText(cdp: Session, url: string, frameId?: string) {
+  let loaded;
+  try {
+    loaded = await cdp.send('Network.loadNetworkResource', {
+      frameId: await frameIdOf(cdp, frameId),
+      url,
+      options: { disableCache: false, includeCredentials: true },
     });
-  });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/wasn.t found|not found|not supported/i.test(message))
+      throw new Error(
+        `Network.loadNetworkResource is unavailable in this Chrome (${message}); source maps cannot be loaded`,
+        { cause: error }
+      );
+    throw error;
+  }
+  const resource = loaded?.resource;
+  if (!resource?.success || !resource.stream) {
+    const why = [
+      resource?.netError !== undefined
+        ? `netError ${resource.netError}${resource.netErrorName ? ` ${resource.netErrorName}` : ''}`
+        : null,
+      resource?.httpStatusCode !== undefined
+        ? `HTTP ${resource.httpStatusCode}`
+        : null,
+    ].filter(Boolean);
+    throw new Error(`Source map load failed: ${why.join(', ') || 'no stream'}`);
+  }
+  const chunks: Buffer[] = [];
+  try {
+    for (;;) {
+      const part = await cdp.send('IO.read', {
+        handle: resource.stream,
+        size: MAP_BYTES_PER_READ,
+      });
+      chunks.push(
+        Buffer.from(part.data ?? '', part.base64Encoded ? 'base64' : 'utf8')
+      );
+      if (part.eof) break;
+    }
+  } finally {
+    await cdp.send('IO.close', { handle: resource.stream }).catch(() => {});
+  }
+  return Buffer.concat(chunks).toString('utf8');
 }
 
 /** Source map text to a decoder; throws a clear error for invalid JSON, missing mappings or an indexed map. */
@@ -189,13 +216,15 @@ function originOf(url: string) {
 }
 
 /**
- * A script's map text: a data: URI decodes locally; an http(s) map is fetched through the sandbox
- * exemption only when it shares the script's origin. A foreign origin, or a relative URL with no
+ * A script's map text: a data: URI decodes locally; an http(s) map loads through the page's Chrome
+ * (Network.loadNetworkResource) only when it shares the script's origin. A foreign origin, or a relative URL with no
  * script URL, is refused so the recipe never widens network access.
  */
 export async function readScriptMapText(
+  cdp: Session,
   sourceMapURL: string,
-  scriptUrl: string
+  scriptUrl: string,
+  frameId?: string
 ): Promise<string> {
   if (sourceMapURL.startsWith('data:')) {
     const text = decodeDataUri(sourceMapURL);
@@ -211,7 +240,7 @@ export async function readScriptMapText(
     throw new Error(
       `Refused: source map origin ${originOf(mapUrl)} differs from script origin ${originOf(scriptUrl)}`
     );
-  return fetchText(mapUrl);
+  return loadNetworkText(cdp, mapUrl, frameId);
 }
 
 /** The text of a data: URI (base64 or percent-encoded); null when malformed. */
@@ -228,12 +257,6 @@ function decodeDataUri(sourceMapURL: string): string | null {
   } catch {
     return null;
   }
-}
-
-/** The map a script names: inline data or a fetch relative to the script; null for malformed inline data. */
-function readMapText(sourceMapURL: string, url: string) {
-  if (sourceMapURL.startsWith('data:')) return decodeDataUri(sourceMapURL);
-  return fetchText(url ? new URL(sourceMapURL, url).href : sourceMapURL);
 }
 
 export async function createSourceMapResolver(cdp: Session) {
@@ -257,8 +280,14 @@ export async function createSourceMapResolver(cdp: Session) {
 
     const loadMap = async () => {
       try {
-        const mapText = await readMapText(sourceMapURL, url);
-        if (mapText === null) return;
+        const mapText = await readScriptMapText(
+          cdp,
+          sourceMapURL,
+          url,
+          event.executionContextId === undefined
+            ? undefined
+            : event.executionAuxData?.frameId
+        );
         const mapJson = JSON.parse(mapText);
         const parsed = parseMap(mapJson);
         parsedMaps.set(scriptId, parsed);

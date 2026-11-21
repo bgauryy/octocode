@@ -1,4 +1,8 @@
-import { chromeCommands, chromeRecipeOptionNames } from './chrome-contract.mjs';
+import {
+  chromeCommands,
+  chromeHelperDescriptions,
+  chromeRecipeOptionNames,
+} from './chrome-contract.mjs';
 // Option names come from the typed recipe options in the shared contract.
 const recipe = (file: string, description: string, name = file) => ({
   file: `cdp-checks/${file}.mjs`,
@@ -61,6 +65,36 @@ export const checks = {
     'Record WebSocket, SSE and HTTP events in a bounded window',
     'network-events'
   ),
+  'cdp-domain': recipe(
+    'cdp-domain-check',
+    'Enable one CDP domain; dump its getters and record its events to files',
+    'cdp-domain'
+  ),
+  'page-html': recipe(
+    'page-html-check',
+    'Save page or element HTML, frames and shadow roots as files',
+    'page-html'
+  ),
+  'page-archive': recipe(
+    'page-archive-check',
+    'Save the page as one MHTML archive',
+    'page-archive'
+  ),
+  'page-resources': recipe(
+    'page-resources-check',
+    'Save the page resources with an index',
+    'page-resources'
+  ),
+  'console-log': recipe(
+    'console-log-check',
+    'Record console messages in a bounded window to a jsonl file',
+    'console-log'
+  ),
+  downloads: recipe(
+    'downloads-check',
+    'Save files a page downloads (needs user consent)',
+    'downloads'
+  ),
   'network-conditions': recipe(
     'network-conditions-check',
     'Load a page offline, throttled, blocked or mocked',
@@ -120,13 +154,19 @@ const helperFiles = {
   session: 'session-cli.mjs',
   proxy: 'cdp-proxy.mjs',
   flow: 'flow-command.mjs',
+  group: 'group-command.mjs',
   'dev-check': 'dev-check.mjs',
+};
+/** Every command the engine CLI runs: the typed commands plus the helpers the `helper` tool reaches. */
+export const rawCommands: Record<string, string> = {
+  ...chromeCommands,
+  ...chromeHelperDescriptions,
 };
 export const helpers: Record<string, [file: string, description: string]> =
   Object.fromEntries(
     Object.entries(helperFiles).map(([name, file]) => [
       name,
-      [file, chromeCommands[name as keyof typeof chromeCommands]],
+      [file, rawCommands[name]],
     ])
   );
 export const connection = {
@@ -134,7 +174,7 @@ export const connection = {
   '--target': 'Exact target id',
   '--target-url': 'Unique URL substring',
   '--target-type': 'Target type (page by default)',
-  '--group': 'Select a tab of a group opened with --urls',
+  '--group': 'Select a tab of a group made with the group command',
   '--group-index': 'Zero-based tab within --group (0)',
   '--new-tab': 'Open a tab at URL',
   '--browser': 'Use browser WebSocket',
@@ -165,17 +205,15 @@ export const launchValues = [
   '--proxyPacUrl',
   '--config',
   '--allow-origin',
-  '--urls',
+  '--emulation',
 ];
-/** Boolean `open` flags; --allow-origin and --urls take comma lists. */
+/** Boolean `open` flags; --allow-origin takes a comma list. */
 export const launchBooleans = [
   '--headless',
   '--dry-run',
   '--attach',
+  '--acknowledge',
   '--no-sandbox',
-  '--background',
-  '--new-window',
-  '--isolated',
 ];
 export const planInputs = {
   run: ['--plan', '--json'],

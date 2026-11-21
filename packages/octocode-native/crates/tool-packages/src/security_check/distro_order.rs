@@ -109,7 +109,7 @@ fn apk_of(value: &str) -> Option<Apk> {
         .chars()
         .last()
         .filter(char::is_ascii_lowercase)
-        .inspect(|_| head = &head[..head.len() - 1]);
+        .inspect(|letter| head = head.strip_suffix(*letter).unwrap_or(head));
     let numbers = head
         .split('.')
         .map(|number| number.parse().ok())
@@ -129,7 +129,7 @@ fn apk_of(value: &str) -> Option<Apk> {
                 "p" => 5,
                 _ => return None,
             };
-            let number = &suffix[name.len()..];
+            let number = suffix.strip_prefix(name).unwrap_or_default();
             Some((rank, if number.is_empty() { 0 } else { number.parse().ok()? }))
         })
         .collect::<Option<Vec<_>>>()?;

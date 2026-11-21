@@ -1,12 +1,12 @@
 # Intents
 
-> MCP note: the default `--mcp` surface is the research preset. Outside it (`check` recipes, `measure-query` and `cookies`), use `--mcp --preset full` or the typed `/cli` and `/raw` commands.
+> MCP note: the default `--mcp` surface is the research preset. Outside it (`check` recipes, the `helper` tool for `measure-query` and the other saved-evidence helpers, and `cookies`), use `--mcp --preset full` or the typed `/cli` and `/raw` commands.
 
 Load when choosing what to capture or do. Why: Match the capture to the task. Use a ready check (`cdp-checks.md`) when it fits; combine checks or write a custom script for the evidence the task needs.
 
 ## Debug
 
-- **page health**: measure trio + `measure-query` (`cdp-checks.md`).
+- **page health**: measure trio + `helper` `measure-query` (`cdp-checks.md`).
 - **network**: `network-measure-check`; custom scripts log URL, method, status, type, initiator, timing, never auth headers or cookies. Bodies: HAR section of `cdp-checks.md`.
 - **console**: emit exceptions with source URL:line. **performance**: `MEASURE_URL=<url>`; clear cache for cold loads.
 - **memory / coverage**: heap samples around one suspect action; coverage starts before navigation and stops at a stable state.
@@ -23,7 +23,7 @@ For many ambiguous saved records or images, load `clasify-screen`: exact fields 
 
 ## Storage and consent
 
-`storage-measure-check` → `measure-query --view cookies|keys|findings`. Names, counts, and flags only unless values are approved. Consent: report banner selectors; click accept/reject only when asked.
+`storage-measure-check` → `helper` `{name: "measure-query", args: ["--view","cookies"]}` (or `keys`, `findings`). Names, counts, and flags only unless values are approved. Consent: report banner selectors; click accept/reject only when asked.
 
 ## Automate
 
@@ -44,7 +44,7 @@ octocode-chrome-devtools /raw cookies --i-understand-secrets --confirm-domains a
 octocode-chrome-devtools /raw cookies --i-understand-secrets --confirm-domains app.example.com --from-port 9333 --export-storage-state .octocode/octocode-chrome-devtools/tmp/auth.json --dry-run
 ```
 
-Typed MCP and `/cli` input for the same transfers (`acknowledgeSecrets: true` is required; `confirmDomains` needs at least one domain for `from.port` and `from.profile`; do not mix with `args`):
+Typed MCP and `/cli` input for the same transfers (`acknowledgeSecrets: true` is required; `confirmDomains` needs at least one domain for `from.port` and `from.profile`; there is no `args` field):
 
 ```json
 {"from":{"port":9333},"to":{"port":9222},"confirmDomains":["app.example.com"],"urls":["https://app.example.com"],"acknowledgeSecrets":true}

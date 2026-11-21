@@ -1,6 +1,6 @@
 # Scout unread browser evidence
 
-> MCP note: the default `--mcp` surface is the research preset. Outside it (`check`, `har-pager`, `measure-query` and `snapshot-query`), use `--mcp --preset full` or the typed `/cli` and `/raw` commands.
+> MCP note: the default `--mcp` surface is the research preset. Outside it (`check` and the `helper` tool that runs `har-pager`, `measure-query` and `snapshot-query`), use `--mcp --preset full` or the typed `/cli` and `/raw` commands.
 
 Load when many plausible capture passages, resources or images remain after exact filtering. Browser tools preserve evidence and execute actions; Octocode retrieves it locally; optional JEV classification decides what the host should inspect. A small known answer needs ordinary retrieval only.
 
@@ -21,8 +21,8 @@ Classification cannot establish WCAG conformance, keyboard behavior, reachabilit
 
 1. Capture once. `SNAPSHOT_STDOUT=summary` keeps large snapshot refs on disk; if returned refs or previews already answer, stop. Save source URL, frame and stable record identity with the complete evidence.
 2. Response-content questions need `network-body-har-fetch-check` with the observed `BODY_URL`/`BODY_MATCH`, or suitable raw CDP body capture; see `cdp-checks`. `run` network observation and `live-har-monitor` capture metadata only. Subscribe before the relevant load/action; if missing bodies cannot be recaptured, keep that gap explicit.
-3. Use `query` for saved JSON/JSONL, `snapshot-query` for controls, and `har-pager`/`measure-query` for their supported record views. Filter before paging. These return structured pages; they do not automatically export decoded prose for classification.
-4. Use returned `search.paths` with Octocode `localSearch`, including the supplied hidden/ignored-path flags. Narrow with literal terms before adding a classifier. Use `localFetch` for a known span or a large source whose relevant location remains unknown.
+3. Use `query` for saved JSON/JSONL, `helper` with `snapshot-query` for controls, and `har-pager`/`measure-query` for their supported record views. Filter before paging. These return structured pages; they do not automatically export decoded prose for classification.
+4. Use the returned `files`/`evidence` paths with Octocode `localSearch`, with `includeHidden`, `includeIgnored` and `defaultExcludes: false`. Narrow with literal terms before adding a classifier. Use `localFetch` for a known span or a large source whose relevant location remains unknown.
 5. For escaped, minified or oversized records, create a readable capture or deterministic projection with the existing script API (`script-patterns`). Preserve original bytes and map every projected record/line back to its original pointer, URL and ID. Decode only an identified field/encoding; a projection is not the original record. Save it directly to disk so its body need not enter the host first. A missing HAR body is unavailable evidence, not an empty response.
 
 Do not send raw credential-bearing HARs. Select the authorized fields/bodies before external classification. Large binary files and PDFs are not text sources: extract text or render admitted image pages with an appropriate tool and preserve page mapping. Direct PDF, audio and video classification is not established.

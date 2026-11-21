@@ -92,6 +92,11 @@ test(
         { TRACE_URL: `${base}/`, TRACE_MS: 800 },
         /\[METRIC\] TRACE bytes=[1-9]/,
       ],
+      [
+        'cdp-domain',
+        { CDPDOM_DOMAIN: 'Performance', CDPDOM_MODE: 'dump' },
+        /\[METRIC\] CDP_DOMAIN domain=Performance methods=1 ok=1/,
+      ],
       ['heap-snapshot', {}, /\[METRIC\] HEAP_SNAPSHOT bytes=[1-9]/],
       ['page-pdf', {}, /\[METRIC\] PAGE_PDF bytes=[1-9]/],
     ];
@@ -120,7 +125,14 @@ test(
         );
         const stdout =
           data.stdout ??
-          (data.logs?.stdout ? readFileSync(data.logs.stdout, 'utf8') : '');
+          // A reply with files names its capture manifest; the manifest names the stdout log.
+          (data.evidence
+            ? readFileSync(
+                JSON.parse(readFileSync(join(cwd, data.evidence), 'utf8')).logs
+                  .stdout,
+                'utf8'
+              )
+            : '');
         assert.match(
           stdout,
           pattern,

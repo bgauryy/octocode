@@ -11,7 +11,7 @@ export const exceptionMessage = (details: Payload): string =>
 const conditionExpression = (condition: PageCondition) => `(() => {
         const c = ${JSON.stringify(condition)};
         const visible = el => { const r = el.getBoundingClientRect(), s = getComputedStyle(el); return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden' && Number(s.opacity || '1') > 0; };
-        return { ready: document.readyState !== 'loading', url: location.href,
+        return { ready: document.readyState !== 'loading', url: location.href, title: document.title,
           matched: (!c.url || location.href === c.url) && (!c.selector || [...document.querySelectorAll(c.selector)].some(visible)) && (!c.text || document.body?.innerText.includes(c.text)) };
       })()`;
 
@@ -36,7 +36,11 @@ async function evaluateCondition(
   }
 }
 
-/** Polls until the condition holds; returns { ready, url, matched, elapsedMs } or throws on timeout. */
+/** Where the page was at the last poll, for the timeout message. */
+const pageState = (value: { url?: string; title?: string; ready?: boolean }) =>
+  `; page was ${value.ready ? 'ready' : 'still loading'} at ${JSON.stringify(value.url ?? '')} titled ${JSON.stringify(value.title ?? '')}`;
+
+/** Polls until the condition holds; returns { ready, url, matched, elapsedMs } or throws on timeout naming the page state. */
 export async function waitCondition(
   cdp: Pick<Session, 'send'>,
   condition: PageCondition,
@@ -45,12 +49,15 @@ export async function waitCondition(
 ): Promise<ConditionResult> {
   const started = Date.now();
   let progress = 0;
+  let observed: { url?: string; title?: string; ready?: boolean } | undefined;
   do {
     const response = await evaluateCondition(cdp, condition);
     if (response?.exceptionDetails)
       throw new Error(exceptionMessage(response.exceptionDetails));
-    if (response?.result?.value?.ready && response.result.value.matched)
-      return { ...response.result.value, elapsedMs: Date.now() - started };
+    const { title, ...state } = response?.result?.value ?? {};
+    if (response?.result?.value) observed = { ...state, title };
+    if (state.ready && state.matched)
+      return { ...state, elapsedMs: Date.now() - started };
     if (Date.now() - started >= progress) {
       log(
         `[PROGRESS] waiting condition=${JSON.stringify(condition)} elapsedMs=${Date.now() - started}`
@@ -59,5 +66,7 @@ export async function waitCondition(
     }
     await sleep(100);
   } while (Date.now() - started < timeoutMs);
-  throw new Error(`Condition timed out: ${JSON.stringify(condition)}`);
+  throw new Error(
+    `Condition timed out: ${JSON.stringify(condition)}${observed ? pageState(observed) : ''}`
+  );
 }

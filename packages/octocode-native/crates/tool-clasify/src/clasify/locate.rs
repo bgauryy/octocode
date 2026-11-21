@@ -52,6 +52,7 @@
 //! [`RuntimeLimits::auto_page_chars`]: octocode_runtime_base::execution::RuntimeLimits::auto_page_chars
 use super::Target;
 use super::combined::{abstains, read_lines};
+use lines::{file_lines, without_gaps};
 use octocode_tools_shared::source_capture::{self, Captured};
 use serde_json::{Map, Value, json};
 
@@ -101,14 +102,11 @@ pub(super) fn locate(
     let (text, at) = match target {
         Target::Source(source) => {
             let text = state.get("text")?.as_str()?;
-            (
-                text,
-                file_lines(source, text.split_inclusive('\n').count())?,
-            )
+            (text, file_lines(source, text)?)
         }
         Target::Content(Value::String(text)) => (
             text.as_str(),
-            (1..=text.split_inclusive('\n').count()).collect(),
+            (1..=text.split_inclusive('\n').count()).map(Some).collect(),
         ),
         _ => return None,
     };
@@ -125,7 +123,14 @@ pub(super) fn locate(
     if clean.split_inclusive('\n').count() != text.split_inclusive('\n').count() {
         return None;
     }
-    let (marked, parts) = mark(clean, page_chars, Some(&at), serves.len())?;
+    let gapped = without_gaps(clean, &at);
+    let (marked, parts) = mark_with_gaps(
+        &gapped.text,
+        page_chars,
+        Some(&gapped.at),
+        serves.len(),
+        &gapped.gaps,
+    )?;
     match &mut screened {
         Value::String(text) => *text = marked,
         other => other["text"] = json!(marked),
@@ -141,26 +146,6 @@ pub(super) fn locate(
         parts: parts.spans,
         serves,
     })
-}
-
-/// The file line of each line of a source's text: its own numbers for a
-/// whole read, the lines its `ranges` name, in order, for a selection. `None`
-/// when the text does not hold exactly those lines (a range cut at the end of
-/// the file, or markers between ranges), so no label could name a wrong line.
-fn file_lines(source: &Value, count: usize) -> Option<Vec<usize>> {
-    let Some(ranges) = source["query"].get("ranges") else {
-        return Some((1..=count).collect());
-    };
-    let mut at = Vec::new();
-    for range in ranges.as_array()? {
-        let line = |key: &str| usize::try_from(range[key].as_u64()?).ok();
-        let (start, end) = (line("startLine")?, line("endLine")?);
-        if start == 0 || end < start {
-            return None;
-        }
-        at.extend(start..=end);
-    }
-    (at.len() == count).then_some(at)
 }
 
 /// The questions one request sends: the asked ones, then the companions.
@@ -363,13 +348,17 @@ fn spans(lines: &[&str], page_chars: usize, companions: usize) -> Parts {
 /// parts; `None` for a text of one line. A part that carries on the block
 /// the part before it ends in opens saying so: `<lines 41-80 continues>`.
 /// `at` gives the file line of each text line (`None`: the text's own
-/// numbers); parts and markers name file lines. `companions` is how many
-/// companion questions list the parts ([`part_count`]).
-fn mark(
+/// numbers); parts and markers name file lines. `gaps` are the gap marker
+/// lines of a selection of ranges, each with the index of the text line it
+/// precedes: they are no part's line, so a part never opens or ends on one,
+/// and each stands in the part that holds the line after it. `companions` is
+/// how many companion questions list the parts ([`part_count`]).
+fn mark_with_gaps(
     text: &str,
     page_chars: usize,
     at: Option<&[usize]>,
     companions: usize,
+    gaps: &[(usize, &str)],
 ) -> Option<(String, Parts)> {
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
     if lines.len() < 2 {
@@ -383,6 +372,7 @@ fn mark(
         }
     }
     let mut marked = String::with_capacity(text.len() + parts.spans.len() * 24);
+    let mut pending = gaps.iter().copied().peekable();
     for ((&(start, end), &(first, last)), &continues) in
         local.iter().zip(&parts.spans).zip(&parts.continues)
     {
@@ -392,7 +382,10 @@ fn mark(
         } else {
             marked.push_str(&format!("<{name}>\n"));
         }
-        for line in &lines[start - 1..end] {
+        for (index, line) in lines.iter().enumerate().take(end).skip(start - 1) {
+            while let Some((_, gap)) = pending.next_if(|(before, _)| *before == index) {
+                marked.push_str(gap);
+            }
             marked.push_str(line);
         }
         if !marked.ends_with('\n') {
@@ -500,20 +493,18 @@ pub(super) fn narrow_read(
     let Some(read) = source_capture::narrowed_read(&captured.read, &lines) else {
         return;
     };
-    let text: Vec<&str> = state["text"]
-        .as_str()
-        .unwrap_or_default()
-        .split_inclusive('\n')
-        .collect();
+    let whole = state["text"].as_str().unwrap_or_default();
+    let text: Vec<&str> = whole.split_inclusive('\n').collect();
     // The deciding lines are file lines; a selection of `ranges` holds
     // only some of them, in order.
-    let at = file_lines(source, text.len()).unwrap_or_default();
+    let at = file_lines(source, whole).unwrap_or_default();
     let chars = text
         .iter()
         .zip(&at)
         .filter(|&(_, &line)| {
             lines.iter().any(|&(start, end)| {
-                u64::try_from(line).is_ok_and(|line| start <= line && line <= end)
+                line.and_then(|line| u64::try_from(line).ok())
+                    .is_some_and(|line| start <= line && line <= end)
             })
         })
         .map(|(line, _)| line.chars().count())
@@ -537,5 +528,6 @@ fn names_lines(answer: &Value) -> bool {
     }
 }
 
+mod lines;
 #[cfg(test)]
 mod tests;

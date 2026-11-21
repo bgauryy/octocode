@@ -550,6 +550,70 @@ fn a_scan_whose_key_read_failed_is_not_stored_by_page() {
     assert!(!page.files.is_empty());
 }
 
+/// A classified search whose plan exceeds its cap (unset: 1) bills nothing:
+/// its row offers next.unfiltered (every hit, unbilled) and next.confirm (the
+/// same row with classification.maxRequests at the plan's ceiling), and that
+/// confirmation judges the page within the raised cap.
+#[test]
+fn a_classified_search_over_its_cap_sends_nothing_until_confirmed() {
+    use octocode_tools_shared::test_support::selection_fake::{self, CappedJudge};
+    use std::sync::atomic::Ordering;
+    let root = tempfile::tempdir().expect("fixture");
+    let files = 3_u64;
+    for file in 0..files {
+        fs::write(root.path().join(format!("a{file}.ts")), "const keep = 1;\n").expect("file");
+    }
+    settle();
+    let (policy, security) = policy_for(root.path());
+    let executor = tokio::runtime::Runtime::new().expect("runtime");
+    let judge = std::sync::Arc::new(CappedJudge::default());
+    let mut selection = selection_fake::runtime(
+        CappedJudge::default(),
+        executor.handle().clone(),
+        std::time::Duration::from_secs(5),
+    );
+    selection.judge = judge.clone();
+    let mut row = json_fixture(
+        r#"{"matchString": ["keep"], "classification": {"predicates": ["Is this kept?"]}}"#,
+    );
+    row["path"] = root.path().to_string_lossy().into_owned().into();
+    let run = |row: serde_json::Value| {
+        execute_local_search(
+            octocode_runtime_base::test_support::BUILD_IDENTITY,
+            &ls_query(row, None),
+            &policy,
+            &security,
+            &NeverCancel,
+            None,
+            Some(&selection),
+        )
+    };
+    let Err(error) = run(row) else {
+        panic!("a plan over the cap is the row's error");
+    };
+    assert_eq!(judge.calls.load(Ordering::Relaxed), 0, "nothing billed");
+    assert_eq!(
+        error.code,
+        octocode_contract_types::ErrorCode::ClassificationOverBudget
+    );
+    let calls = serde_json::to_value(error.calls.expect("leads")).expect("calls");
+    let unfiltered = &calls["unfiltered"]["input"]["queries"][0];
+    assert!(
+        unfiltered.get("classification").is_none(),
+        "unfiltered: unbilled"
+    );
+    let confirm = calls["confirm"]["input"]["queries"][0].clone();
+    assert_eq!(confirm["classification"]["maxRequests"], files);
+    let page = run(confirm).expect("the confirmed row is judged");
+    assert_eq!(
+        judge.calls.load(Ordering::Relaxed),
+        files,
+        "within the raised cap"
+    );
+    let receipt = page.selection.expect("receipt");
+    assert_eq!(receipt.selected_items, i64::try_from(files).expect("count"));
+}
+
 /// A classification page keeps its scan whole (it judged rows before its
 /// cut). A continuation without classification takes that scan, cuts its
 /// page from it again, and equals the same call served fresh.

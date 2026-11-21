@@ -32,6 +32,10 @@ export type PlanStep = {
   session?: string | ResultReference;
   fields?: string[];
   allowEmpty?: boolean;
+  /** evaluate, cdp, extract: file name under saved/ that receives the step result. */
+  save?: string;
+  expression?: string;
+  awaitPromise?: boolean;
   method?: string;
   acknowledge?: boolean;
   params?: Record<string, unknown>;
@@ -45,6 +49,11 @@ export type PlanStep = {
   handle?: string | ResultReference;
   size?: number;
   close?: boolean;
+  /** snapshot and screenshot: the standalone tool's recipe options. */
+  options?: Record<string, unknown>;
+  /** cdp: domains to enable first, and where the method runs. */
+  enable?: string[];
+  scope?: 'auto' | 'page' | 'browser';
 };
 
 export type Plan = {
@@ -52,6 +61,10 @@ export type Plan = {
   waitMs?: number;
   settleMs?: number;
   traceEvents?: boolean;
+  /** act steps: accept or dismiss JavaScript dialogs (default dismiss). */
+  dialog?: 'accept' | 'dismiss';
+  /** CDP domains to enable first. */
+  enable?: string[];
   observe?: { network?: boolean; afterMs?: number };
   commandMs?: number;
 };
@@ -85,15 +98,23 @@ export type StepRow = {
   sessionId?: string;
   source?: Record<string, unknown>;
   artifact?: string;
+  /** The file a `save` step wrote under saved/. */
+  saved?: string;
   error?: string;
   condition?: StepCondition;
   count?: number;
   note?: string;
+  /** A cdp step that ran on the browser connection: `browser` (a page-scoped run leaves it unset). */
+  scope?: 'browser';
+  /** Domains enabled for this step (explicit, automatic, or a listener's), in the order sent. */
+  enabled?: string[];
   chunks?: number;
   complete?: boolean;
   cleanupError?: string;
   observed?: number;
   matched?: number;
+  /** What an evaluate step read: { result } is the page value. */
+  data?: { result: unknown };
 };
 
 export type EventStream = {

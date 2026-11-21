@@ -13,6 +13,7 @@ mod pattern_tests;
 mod repair;
 #[cfg(test)]
 mod repair_tests;
+mod sample;
 mod schema;
 mod union;
 

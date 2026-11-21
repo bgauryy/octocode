@@ -22,6 +22,8 @@ const chromeCandidates = [
   ),
 ];
 const skip = !chromeCandidates.some(existsSync) && 'no Chrome installed';
+const bare =
+  '<!doctype html><title>Bare</title><div id=box>no viewport meta</div>';
 const page = `<!doctype html><title>Fixture</title><meta name=viewport content="width=device-width"><style>#box{display:flex}</style>
 <div id=box>box</div><button id=go>Press me</button>
 <script>document.getElementById('go').addEventListener('click', function clickHandler() {});</script>`;
@@ -48,7 +50,7 @@ test(
       process.execPath,
       [
         '-e',
-        `require('node:http').createServer((_, r) => { r.setHeader('content-type', 'text/html'); r.end(${JSON.stringify(page)}); }).listen(0, '127.0.0.1', function () { console.log(this.address().port); });`,
+        `require('node:http').createServer((q, r) => { r.setHeader('content-type', 'text/html'); r.end(q.url === '/nometa' ? ${JSON.stringify(bare)} : ${JSON.stringify(page)}); }).listen(0, '127.0.0.1', function () { console.log(this.address().port); });`,
       ],
       { stdio: ['ignore', 'pipe', 'inherit'] }
     );
@@ -79,10 +81,14 @@ test(
       return out.steps;
     };
     /** goto + flow steps + optional extra steps; returns the saved JSON of each cdp step. */
-    const run = (flowSteps, extra = []) => {
+    const run = (flowSteps, extra = [], path = '') => {
       const before = 1; // the goto
       const plan = {
-        steps: [{ op: 'goto', url }, ...shift(flowSteps, before), ...extra],
+        steps: [
+          { op: 'goto', url: url + path },
+          ...shift(flowSteps, before),
+          ...extra,
+        ],
       };
       const r = spawnSync(
         process.execPath,
@@ -104,6 +110,7 @@ test(
     const evaluate = expression => ({
       op: 'cdp',
       method: 'Runtime.evaluate',
+      acknowledge: true,
       params: { expression, returnByValue: true },
     });
     try {
@@ -128,6 +135,48 @@ test(
         412,
         true,
       ]);
+
+      // The emulated viewport is WxH (innerWidth/innerHeight and visualViewport); with mobile true the
+      // screen reports it too, also for a page without <meta name=viewport> (measured on this Chrome).
+      const probe = evaluate(
+        'JSON.stringify([innerWidth, innerHeight, visualViewport.width, visualViewport.height, screen.width, screen.height])'
+      );
+      const measured = (flowArgs, path) => {
+        const out = run(show('emulate-device', flowArgs), [probe], path);
+        const lastStep = Math.max(
+          ...Object.keys(out.saved).map(k => Number(/\d+/.exec(k)?.[0]))
+        );
+        return JSON.parse(out.step(lastStep).result.value);
+      };
+      const desktop = measured({ width: 412, height: 800 }, '/nometa');
+      // [innerWidth, innerHeight, visualViewport.width, visualViewport.height, screen.width, screen.height]
+      assert.deepEqual(desktop.slice(0, 4), [412, 800, 412, 800]);
+      assert.notDeepEqual(
+        desktop.slice(4),
+        [412, 800],
+        'without mobile the screen keeps the window size'
+      );
+      const mobileBare = measured(
+        { width: 412, height: 800, mobile: true },
+        '/nometa'
+      );
+      // Mobile layout belongs to Chrome and varies by version (a page without a viewport meta may lay
+      // out wider than requested): assert only that the probe measures a real viewport and the screen follows.
+      for (const size of [
+        mobileBare,
+        measured({ width: 412, height: 800, mobile: true }),
+      ]) {
+        assert.equal(size.length, 6);
+        assert.ok(
+          size.every(n => Number.isFinite(n) && n > 0),
+          JSON.stringify(size)
+        );
+        assert.deepEqual(
+          size.slice(4),
+          [412, 800],
+          'with mobile the screen reports the emulated size'
+        );
+      }
 
       // emulate-media
       const media = run(show('emulate-media', { colorScheme: 'dark' }), [

@@ -234,7 +234,7 @@
     "url": "https://api.github.com/graphql",
     "accept": "application/vnd.github+json",
     "body": {
-     "query": "query($owner:String!,$repo:String!,$number:Int!,$files:Int!){ repository(owner:$owner,name:$repo){ pullRequest(number:$number){ number title url state isDraft author { login } baseRefName baseRefOid headRefName headRefOid createdAt updatedAt closedAt mergedAt mergeCommit { oid } comments { totalCount } changedFiles additions deletions commitsCount: commits { totalCount } reviewThreads { totalCount } files(first:$files){ pageInfo{ hasNextPage endCursor } nodes{ path additions deletions changeType } } } } }",
+     "query": "query($owner:String!,$repo:String!,$number:Int!,$files:Int!){ repository(owner:$owner,name:$repo){ pullRequest(number:$number){ number title url state isDraft author { login } baseRefName baseRefOid headRefName headRefOid createdAt updatedAt closedAt mergedAt mergedBy { login } mergeCommit { oid } comments { totalCount } changedFiles additions deletions commitsCount: commits { totalCount } reviewThreads { totalCount } files(first:$files){ pageInfo{ hasNextPage endCursor } nodes{ path additions deletions changeType } } } } }",
      "variables": {
       "owner": "octocat",
       "repo": "Hello-World",

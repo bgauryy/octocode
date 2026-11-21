@@ -159,7 +159,7 @@ fn selection_preserves_sibling_decisions_and_accounts_for_every_request() {
         octocode_runtime_base::id::ToolId::LocalFetch,
         &json_fixture(
             r#"{
-                "classification": {"predicates": ["Does this contain relevant evidence?"]}
+                "classification": {"predicates": ["Does this contain relevant evidence?"], "maxRequests": 100}
             }"#,
         ),
         "test-source",

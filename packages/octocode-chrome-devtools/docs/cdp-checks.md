@@ -25,7 +25,7 @@ Load when running a check, reading its artifacts, or capturing HAR. Why: Choose 
 | `stealth-check` / `affiliates-stealth-check` | Stealth self-test plus the detector page's own verdicts (`DETECTOR_FAILED`) | `--stealth`, `STEALTH_CHECK_URL`, `AFFILIATES_CHECK_URL` |
 | `webmcp-tools` | List or invoke WebMCP tools | `WEBMCP_ACTION`, `WEBMCP_TOOL`, `WEBMCP_INPUT`, `WEBMCP_FRAME`, `WEBMCP_WAIT_MS` |
 
-The raw CLI dispatches offline helpers without the browser sandbox: `query`, `artifact`, `snapshot-query`, `measure-query`, `har-pager`, `har-redact` and `api-replay`. Run `octocode-chrome-devtools /raw <command> --help` for their inputs.
+The raw CLI dispatches offline helpers without the browser sandbox (MCP and typed CLI reach the saved-evidence ones through `helper` with `{name, args}`; `args: ["--help"]` shows usage): `query`, `artifact`, `snapshot-query`, `measure-query`, `har-pager`, `har-redact` and `api-replay`. Run `octocode-chrome-devtools /raw <command> --help` for their inputs.
 
 ## Page health → query
 

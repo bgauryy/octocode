@@ -1,5 +1,7 @@
 import {
   chromeCommands,
+  chromeHelperDescriptions,
+  chromeHelperNames,
   chromeGuideTopics,
   chromeOutputLimits,
   chromePlanOperations,
@@ -11,6 +13,11 @@ import {
   chromeDomActions,
   chromeRecipeOptionNames,
   chromeFlagDenylist,
+  chromeLaunchGuide,
+  chromeEmulationGuide,
+  chromePlanOperationGuides,
+  chromeRecipeGuides,
+  chromeDomainFamilies,
 } from '@octocodeai/config/chrome';
 import { build } from 'esbuild';
 import {
@@ -73,6 +80,8 @@ files.set(
   Buffer.from(
     `${Object.entries({
       chromeCommands,
+      chromeHelperDescriptions,
+      chromeHelperNames,
       chromeGuideTopics,
       chromeOutputLimits,
       chromePlanOperations,
@@ -84,6 +93,11 @@ files.set(
       chromeDomActions,
       chromeRecipeOptionNames,
       chromeFlagDenylist,
+      chromeLaunchGuide,
+      chromeEmulationGuide,
+      chromePlanOperationGuides,
+      chromeRecipeGuides,
+      chromeDomainFamilies,
     })
       .map(
         ([name, value]) => `export const ${name} = ${JSON.stringify(value)};`

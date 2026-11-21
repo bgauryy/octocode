@@ -603,3 +603,113 @@ async fn reviews_folded_into_their_comments_are_counted() {
         .count();
     assert_eq!(notes, 1, "{out}");
 }
+
+/// A page of files holding some GitHub sent without a patch, read on its own
+/// (`page` past the first): its window lists them, and each leads to a read
+/// at the head and the base; the diff is gone, the source is not, so the row
+/// is partial without a terminal limit. A later page's files that have a
+/// patch lead to no read.
+#[tokio::test]
+async fn a_later_page_reads_its_withheld_patches_and_claims_no_terminal_limit() {
+    for page in [1, 2] {
+        let server = MockServer::builder().start().await;
+        mount_pr(
+            &server,
+            json_fixture(
+                r#"[
+                    {
+                        "filename": "vendor/big.go",
+                        "status": "modified",
+                        "additions": 4500,
+                        "deletions": 4,
+                        "sha": "1"
+                    },
+                    {
+                        "filename": "vendor/gone.go",
+                        "status": "removed",
+                        "additions": 0,
+                        "deletions": 900,
+                        "sha": "2"
+                    },
+                    {
+                        "filename": "src/a.go",
+                        "status": "modified",
+                        "additions": 1,
+                        "deletions": 1,
+                        "sha": "3",
+                        "patch": "@@ -1,2 +1,2 @@\n keep\n-old\n+new"
+                    },
+                    {
+                        "filename": "assets/logo.png",
+                        "status": "modified",
+                        "additions": 0,
+                        "deletions": 0,
+                        "sha": "4"
+                    }
+                ]"#,
+            ),
+        )
+        .await;
+        let out = read(
+            &server,
+            json!({
+                "operation": "pullRequest",
+                "owner": "o",
+                "repo": "r",
+                "number": 1,
+                "sections": ["patches"],
+                "page": page
+            }),
+        )
+        .await;
+        let row = &out["pullRequests"][0];
+        let files = row["files"].as_array().expect("files");
+        let limited = |path: &str| {
+            files
+                .iter()
+                .find(|file| file["path"] == path)
+                .unwrap_or_else(|| panic!("{path} listed: {out}"))
+        };
+        for path in ["vendor/big.go", "vendor/gone.go"] {
+            assert_eq!(limited(path)["patchUnavailable"], "tooLarge", "{out}");
+            assert_eq!(limited(path)["isPartial"], true, "{out}");
+            assert!(limited(path).get("terminalLimit").is_none(), "{out}");
+        }
+        // A binary file has no source to read: its limit is terminal.
+        assert_eq!(limited("assets/logo.png")["terminalLimit"], true, "{out}");
+        let reads: Vec<(String, String)> = checks::leads(&out)
+            .into_iter()
+            .filter(|lead| lead.tool == "ghGetFileContent")
+            .flat_map(|lead| {
+                lead.query["queries"]
+                    .as_array()
+                    .expect("queries")
+                    .iter()
+                    .map(|read| {
+                        (
+                            read["path"].as_str().expect("path").to_owned(),
+                            read["ref"].as_str().expect("ref").to_owned(),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        for want in [
+            ("vendor/big.go", HEAD),
+            ("vendor/big.go", BASE),
+            ("vendor/gone.go", BASE),
+        ] {
+            assert!(
+                reads.contains(&(want.0.to_owned(), want.1.to_owned())),
+                "page {page} lacks the read {want:?}: {out}"
+            );
+        }
+        // A later page's patched files lead to no read.
+        if page > 1 {
+            assert!(
+                !reads.iter().any(|(path, _)| path == "src/a.go"),
+                "{reads:?}"
+            );
+        }
+    }
+}

@@ -211,6 +211,51 @@ fn workspace_root_representative_source_matches_the_full_include_glob() {
     assert!(found.ends_with("vitest.config.ts"), "{found}");
 }
 
+/// A tsconfig that does not compile JavaScript (`allowJs` unset, here or in
+/// the config it extends) has no `.cjs` among its project's files: the
+/// representative is a TypeScript source, so the server loads the project
+/// that knows the workspace's symbols. With `allowJs` the script stands.
+#[test]
+fn workspace_root_representative_source_skips_javascript_a_tsconfig_does_not_compile() {
+    let dir = tempfile::tempdir().expect("root");
+    let root = dir.path().to_path_buf();
+    std::fs::create_dir_all(root.join("scripts")).expect("scripts");
+    std::fs::create_dir_all(root.join("src")).expect("src");
+    std::fs::write(root.join("scripts/check.cjs"), "").expect("script");
+    std::fs::write(root.join("scripts/generate.ts"), "").expect("typed script");
+    std::fs::write(
+        root.join("base.json"),
+        "{ // shared options\n \"compilerOptions\": { \"strict\": true } }",
+    )
+    .expect("base");
+    let config = |extra: &str| {
+        std::fs::write(
+            root.join("tsconfig.json"),
+            format!(r#"{{"extends": "./base.json", {extra} "include": ["scripts/**/*", "src/**/*"]}}"#),
+        )
+        .expect("tsconfig");
+    };
+    config("");
+    let found = workspace_root_representative_source(&root.to_string_lossy())
+        .expect("a TypeScript source");
+    assert!(found.ends_with("scripts/generate.ts"), "{found}");
+
+    config(r#""compilerOptions": {"allowJs": true},"#);
+    let found = workspace_root_representative_source(&root.to_string_lossy())
+        .expect("a compiled source");
+    assert!(found.ends_with("scripts/check.cjs"), "{found}");
+
+    config("");
+    std::fs::write(
+        root.join("base.json"),
+        "{ // shared options\n \"compilerOptions\": { \"allowJs\" : true } }",
+    )
+    .expect("base");
+    let found = workspace_root_representative_source(&root.to_string_lossy())
+        .expect("a compiled source");
+    assert!(found.ends_with("scripts/check.cjs"), "{found}");
+}
+
 /// A directory routes by its own markers, else by the languages of its
 /// files (most files first, at the first level that holds any), else by the
 /// workspace root's markers: a folder of Python scripts under a TypeScript

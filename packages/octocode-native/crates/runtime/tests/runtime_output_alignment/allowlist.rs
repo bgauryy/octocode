@@ -45,6 +45,9 @@ const WAVE_4: &[&str] = &[
 const UNRANKED: &[&str] = &[
     "B5 stated once | ghSearchHistory | pullRequests[].state",
     "B5 stated once | graphQuery | rows[].sites",
+    // Source record shown whole as published: the database name every
+    // advisory of the fixture page shares.
+    "B5 stated once | securityCheck | advisories[].database",
 ];
 
 /// Equal to a request value by design or by the fixture, and kept: a listing

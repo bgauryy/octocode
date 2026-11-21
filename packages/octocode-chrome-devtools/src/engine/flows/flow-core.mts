@@ -407,6 +407,29 @@ export const describe = (
   expects: def.expects,
 });
 
+/** The longest one-line description `flow list` carries. */
+export const LIST_DESCRIPTION_MAX = 100;
+
+/** The first sentence of a description, cut at a word when it still exceeds the list limit. */
+export function firstSentence(text: string, max = LIST_DESCRIPTION_MAX) {
+  const line = text.split('\n')[0] ?? '';
+  const sentence = /^.*?[.!?](?=\s|$)/.exec(line)?.[0] ?? line;
+  if (sentence.length <= max) return sentence;
+  const cut = sentence.slice(0, max - 1);
+  return `${cut.slice(0, cut.lastIndexOf(' ') > 0 ? cut.lastIndexOf(' ') : undefined)}…`;
+}
+
+/** One `flow list` row: no params and no expects (`flow show <name>` has them); `source` only for a workspace flow, since the list names the built-in default once. */
+export const summarize = (
+  def: FlowDefinition,
+  source: 'built-in' | 'workspace'
+) => ({
+  name: def.name,
+  description: firstSentence(def.description),
+  ...(def.sensitive ? { sensitive: true } : {}),
+  ...(source === 'workspace' ? { source } : {}),
+});
+
 export type LoadedFlow = {
   def: FlowDefinition;
   source: 'built-in' | 'workspace';

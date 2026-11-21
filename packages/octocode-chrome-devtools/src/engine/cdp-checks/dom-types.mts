@@ -21,7 +21,11 @@ export type DomOptions = {
   stabilityMs?: number | string;
   settleMs?: number | string;
   waitMs?: number | string;
+  /** Epoch ms after which no read may start (the caller's own step deadline); waits end at it, not past it. */
+  deadlineAt?: number;
   waitText?: string;
+  /** The caller waits for a page condition (selector, URL) after the last step and fails the step when it never holds. */
+  afterAwaited?: boolean;
   dialog?: string;
   diff?: boolean;
   traceEvents?: boolean;
@@ -36,6 +40,7 @@ export type DomConfig = {
   stabilityMs: number;
   settleMs: number;
   waitMs: number;
+  deadlineAt: number;
   waitText: string;
   acceptDialog: boolean;
   diff: boolean;

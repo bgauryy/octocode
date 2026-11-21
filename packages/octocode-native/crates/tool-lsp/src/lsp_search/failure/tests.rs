@@ -125,3 +125,57 @@ fn a_complete_bounded_row_states_only_its_root() {
         "{bounded}"
     );
 }
+
+/// A kind named in a sentence takes the article its sound needs.
+#[test]
+fn a_kind_takes_the_article_its_sound_needs() {
+    use crate::lsp_search::render::with_article;
+    for (kind, phrase) in [
+        ("enum", "an enum"),
+        ("interface", "an interface"),
+        ("struct", "a struct"),
+        ("type", "a type"),
+        ("object", "an object"),
+    ] {
+        assert_eq!(with_article(kind), phrase);
+    }
+}
+
+/// An empty answer for a named symbol (a definition of generated code the
+/// server does not index) leads with a text search of the workspace root for
+/// the symbol, not a read of the anchor file, which only uses the name.
+#[test]
+fn an_empty_named_symbol_leads_with_a_workspace_text_search() {
+    let dir = tempfile::tempdir().expect("workspace");
+    let root = dir.path().to_string_lossy().into_owned();
+    let file = dir.path().join("use.rs");
+    std::fs::write(&file, "fn run() { generated_symbol(); }\n").expect("source");
+    let query: LspSearchQuery = serde_json::from_value(json!({
+        "operation": "definition",
+        "path": file.to_string_lossy(),
+        "symbolName": "generated_symbol",
+        "line": 1
+    }))
+    .expect("query");
+    let row = with_next(
+        &query,
+        json!({"status": "empty", "category": "noLocations", "workspaceRoot": root}),
+    );
+    let related = row["related"].as_array().expect("a related lead");
+    let search = related
+        .iter()
+        .find(|call| call["tool"] == "localSearch")
+        .unwrap_or_else(|| panic!("a workspace text search: {row}"));
+    let search_query = &search["input"]["queries"][0];
+    assert_eq!(search_query["path"], root, "{row}");
+    assert!(
+        search_query["matchString"][0]
+            .as_str()
+            .is_some_and(|pattern| pattern.contains("generated_symbol")),
+        "{row}"
+    );
+    assert!(
+        related.iter().all(|call| call["tool"] != "localFetch"),
+        "{row}"
+    );
+}

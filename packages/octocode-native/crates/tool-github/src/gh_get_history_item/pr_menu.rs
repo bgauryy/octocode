@@ -174,15 +174,7 @@ pub(super) struct ChangeSides<'a> {
 pub(super) fn unpatched(files: &[Value], selected: impl Fn(&Value) -> bool) -> Vec<&Value> {
     files
         .iter()
-        .filter(|file| {
-            selected(file)
-                && file.get("patch").is_none()
-                && file.get("sha").is_some()
-                && matches!(
-                    super::inventory::missing_patch_reason(file),
-                    Some("tooLarge" | "omitted")
-                )
-        })
+        .filter(|file| selected(file) && super::inventory::source_readable_without_patch(file))
         .collect()
 }
 

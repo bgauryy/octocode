@@ -16,12 +16,8 @@ import {
 import { propagateOctocodeEnv } from './octocode-config.mjs';
 import { browserMajorVersion, planRealProfile } from './real-profile.mjs';
 import { flagArgs } from './cli-flags.mjs';
-import {
-  disposeBrowserContexts,
-  generatedGroupName,
-  openSelectedTab,
-  openTabGroup,
-} from './open-tab.mjs';
+import { openSelectedTab } from './open-tab.mjs';
+import { disposeAllGroupContexts } from './group-tabs.mjs';
 import {
   normalizeOrigin,
   originAndPath,
@@ -32,7 +28,13 @@ import {
 } from './session-meta.mjs';
 import { chromeEndpoint } from './cdp-runner-targets.mjs';
 import { OPEN_BROWSER_HELP } from './open-browser-help.mjs';
+import {
+  emulationReply,
+  parseEmulation,
+  type Emulation,
+} from './emulation-state.mjs';
 import { errorMessage } from './error-message.mjs';
+import { urlSchemeRefusal } from './cdp-policy.mjs';
 import {
   findChrome,
   removeDirWithRetry,
@@ -93,14 +95,8 @@ const PROXY_BYPASS_LIST = getArg('--proxyBypassList', '');
 const PROXY_PAC_URL = getArg('--proxyPacUrl', '');
 const CONFIG_PATH = getArg('--config', '');
 const ATTACH = hasFlag('--attach');
+const ACKNOWLEDGE = hasFlag('--acknowledge');
 const NO_SANDBOX = hasFlag('--no-sandbox');
-const URLS = getArg('--urls', '')
-  .split(',')
-  .map(url => url.trim())
-  .filter(Boolean);
-const BACKGROUND = hasFlag('--background');
-const NEW_WINDOW = hasFlag('--new-window');
-const ISOLATED = hasFlag('--isolated');
 const ALLOW_ORIGIN_ARG = getArg('--allow-origin', '');
 
 function ok(payload: Record<string, unknown>) {
@@ -141,12 +137,11 @@ function writeSession(pid: number | undefined, wsUrl?: string) {
   );
 }
 
-/** Disposes the isolated browser contexts `open --isolated` made on this port; returns how many. */
+/** Disposes the private groups' browser contexts on this port; returns how many. */
 async function disposeGroupContexts(): Promise<number> {
-  const contexts = readSessionMeta(PORT, WORKSPACE).contexts ?? [];
-  if (!contexts.length || DRY_RUN) return 0;
+  if (DRY_RUN) return 0;
   try {
-    return await disposeBrowserContexts(PORT, contexts);
+    return await disposeAllGroupContexts(PORT, WORKSPACE);
   } catch {
     return 0;
   }
@@ -166,7 +161,11 @@ async function cleanupSession() {
         `[BROWSER] No tracked session found for port ${PORT} (${found.reason})`
       );
       if (disposedContexts)
-        updateSessionMeta(PORT, { contexts: undefined }, WORKSPACE);
+        updateSessionMeta(
+          PORT,
+          { contexts: undefined, groups: undefined },
+          WORKSPACE
+        );
       ok({
         status: 'NO_TRACKED_SESSION',
         port: PORT,
@@ -318,11 +317,12 @@ try {
 }
 if (hasFlag('--allow-origin') && !allowOrigins)
   err('--allow-origin needs a comma-separated list of origins');
-if (URL_ARG && URLS.length) err('Use --url or --urls, not both');
-if ((BACKGROUND || NEW_WINDOW || ISOLATED) && !URLS.length)
-  err('--background, --new-window and --isolated apply to --urls');
 if (ATTACH) {
   if (!hasFlag('--port')) err('--attach needs --port');
+  if (!ACKNOWLEDGE)
+    err(
+      "--attach needs --acknowledge (acknowledge: true): attaching exposes the browser's logged-in pages and cookies; only with the user's explicit consent"
+    );
   const launching = [
     HEADLESS && '--headless',
     REAL_PROFILE && '--profile',
@@ -339,6 +339,26 @@ if (ATTACH) {
       `--attach never launches a browser, so ${launching.join(', ')} cannot apply`
     );
 }
+
+let emulation: Emulation | undefined;
+if (hasFlag('--emulation')) {
+  try {
+    emulation = parseEmulation(getArg('--emulation', ''), {
+      acknowledged: ACKNOWLEDGE,
+    });
+  } catch (e) {
+    console.log(JSON.stringify({ status: 'ERROR', message: errorMessage(e) }));
+    process.exit(2);
+  }
+}
+/** What the session meta holds after this call: the new object, nothing for a reset, no change when absent. */
+const emulationPatch =
+  emulation === undefined
+    ? {}
+    : { emulation: emulation.reset === true ? undefined : emulation };
+const emulationReport = emulation
+  ? { emulation: emulationReply(emulation) }
+  : {};
 
 async function openTab(
   url: string,
@@ -368,9 +388,11 @@ if (ATTACH && !existing)
 const effectiveOrigins = existing
   ? (allowOrigins ?? readSessionMeta(PORT, WORKSPACE).allowOrigins)
   : allowOrigins;
-for (const url of URL_ARG ? [URL_ARG, ...URLS] : URLS) {
-  const violation = originViolation(url, effectiveOrigins);
-  if (violation) err(`${url}: ${violation}`);
+if (URL_ARG) {
+  const scheme = urlSchemeRefusal(URL_ARG, '--url', null);
+  if (scheme) err(scheme);
+  const violation = originViolation(URL_ARG, effectiveOrigins);
+  if (violation) err(`${URL_ARG}: ${violation}`);
 }
 
 /**
@@ -407,44 +429,6 @@ async function enforceLaunchUrlOrigin() {
   }
 }
 
-/** Opens the --urls group, records it in the session metadata and returns the reply fields. */
-async function openGroup() {
-  let group;
-  try {
-    group = await openTabGroup(
-      PORT,
-      URLS,
-      {
-        background: BACKGROUND,
-        newWindow: NEW_WINDOW,
-        isolated: ISOLATED,
-        allowOrigins: effectiveOrigins,
-      },
-      line => console.error(line)
-    );
-  } catch (e) {
-    return err(
-      `Chrome on port ${PORT} could not open the tab group: ${errorMessage(e)}`
-    );
-  }
-  const name = generatedGroupName();
-  const meta = readSessionMeta(PORT, WORKSPACE);
-  updateSessionMeta(
-    PORT,
-    {
-      groups: {
-        ...meta.groups,
-        [name]: group.tabs.map(tab => tab.targetId),
-      },
-      contexts: group.contextId
-        ? [...(meta.contexts ?? []), group.contextId]
-        : meta.contexts,
-    },
-    WORKSPACE
-  );
-  return { group: name, tabs: group.tabs, isolatedContext: ISOLATED };
-}
-
 /** What an attached endpoint is, from what Chrome and this workspace's session file say; never a guess. */
 function profileKind(browser: string, isolatedSession: boolean) {
   if (isolatedSession) return 'isolated (launched by octocode open)';
@@ -472,6 +456,11 @@ async function attachedFacts(
 if (existing) {
   // Report which workspace's isolated session owns the reused browser, if any.
   const owner = await discoverListenerSession(existing, PORT);
+  // A listener this package did not launch holds someone's logged-in pages and cookies: attach only on consent.
+  if (!owner.session && !ATTACH)
+    err(
+      `A browser this package did not launch is listening on port ${PORT}. Attaching exposes its logged-in pages and cookies: ask the user, then retry with attach: true and acknowledge: true.`
+    );
   const notApplied = [
     proxyRequested && 'proxy settings',
     ENABLE_FEATURES && '--enableFeatures',
@@ -481,14 +470,18 @@ if (existing) {
     NO_SANDBOX && '--no-sandbox',
     ...typedLaunchFlags,
   ].filter(Boolean);
-  if (allowOrigins) updateSessionMeta(PORT, { allowOrigins }, WORKSPACE);
+  if (allowOrigins || emulation)
+    updateSessionMeta(
+      PORT,
+      { ...(allowOrigins ? { allowOrigins } : {}), ...emulationPatch },
+      WORKSPACE
+    );
   // A reused browser keeps its tabs: the requested URL opens in a new tab that later commands
   // without a target use, and the result reports it.
   const targetId = URL_ARG
     ? await openTab(URL_ARG, effectiveOrigins)
     : undefined;
-  const group = URLS.length ? await openGroup() : undefined;
-  const selectedId = targetId ?? group?.tabs[0]?.targetId;
+  const selectedId = targetId;
   // Commands without a port use this browser next, unless another workspace owns it.
   if (!owner.workspace || owner.workspace === WORKSPACE)
     recordActiveSession(CHROME_STATE_DIR, {
@@ -498,7 +491,7 @@ if (existing) {
       reused: true,
       targetId: selectedId,
     });
-  // Facts about the attached endpoint are read after the url or group tabs opened: they are part of it.
+  // Facts about the attached endpoint are read after the url tab opened: they are part of it.
   const attachedReply = ATTACH
     ? await attachedFacts(existing, Boolean(owner.session))
     : {};
@@ -508,8 +501,8 @@ if (existing) {
     port: PORT,
     reused: true,
     ...attachedReply,
+    ...emulationReport,
     ...(targetId ? { url: URL_ARG, targetId } : {}),
-    ...group,
     browser: existing.Browser,
     ...(effectiveOrigins ? { allowOrigins: effectiveOrigins } : {}),
     ...(owner.session
@@ -635,7 +628,13 @@ const launchOutput = () => {
 // A fresh browser starts with this call's origin list and no groups from an earlier browser.
 updateSessionMeta(
   PORT,
-  { allowOrigins, groups: undefined, contexts: undefined },
+  {
+    allowOrigins,
+    groups: undefined,
+    contexts: undefined,
+    emulation: undefined,
+    ...emulationPatch,
+  },
   WORKSPACE
 );
 
@@ -649,13 +648,11 @@ while (attempts < 40) {
     if (usingIsolatedProfile)
       writeSession(child.pid, info.webSocketDebuggerUrl);
     if (URL_ARG && allowOrigins) await enforceLaunchUrlOrigin();
-    const group = URLS.length ? await openGroup() : undefined;
     recordActiveSession(CHROME_STATE_DIR, {
       port: PORT,
       pid: child.pid,
       wsUrl: info.webSocketDebuggerUrl,
       reused: false,
-      targetId: group?.tabs[0]?.targetId,
     });
     ok({
       status: 'BROWSER_READY',
@@ -674,7 +671,7 @@ while (attempts < 40) {
       windowSize: WINDOW_SIZE || undefined,
       ...launchedFlags,
       ...(allowOrigins ? { allowOrigins } : {}),
-      ...group,
+      ...emulationReport,
     });
     rmSync(launchLog, { force: true });
     process.exit(0);

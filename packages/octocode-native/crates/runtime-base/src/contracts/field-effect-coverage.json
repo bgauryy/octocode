@@ -158,6 +158,9 @@
         "classification": [
           "selection"
         ],
+        "classification.maxRequests": [
+          "execution"
+        ],
         "extensions": [
           "filter"
         ],
@@ -283,6 +286,9 @@
         "classification": [
           "selection"
         ],
+        "classification.maxRequests": [
+          "execution"
+        ],
         "contextLines": [
           "view"
         ],
@@ -330,6 +336,9 @@
         "classification": [
           "selection"
         ],
+        "classification.maxRequests": [
+          "execution"
+        ],
         "fields": [
           "view"
         ],
@@ -372,6 +381,9 @@
       "fields": {
         "classification": [
           "selection"
+        ],
+        "classification.maxRequests": [
+          "execution"
         ],
         "baseRef": [
           "navigation"
@@ -559,6 +571,9 @@
         "classification": [
           "selection"
         ],
+        "classification.maxRequests": [
+          "execution"
+        ],
         "contextLines": [
           "view"
         ],
@@ -652,6 +667,9 @@
       "fields": {
         "classification": [
           "selection"
+        ],
+        "classification.maxRequests": [
+          "execution"
         ],
         "access": [
           "filter"
@@ -855,6 +873,9 @@
         ],
         "classification": [
           "selection"
+        ],
+        "classification.maxRequests": [
+          "execution"
         ],
         "contextLines": [
           "view"

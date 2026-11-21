@@ -48,6 +48,17 @@ pub(in crate::gh_get_history_item) fn missing_patch_reason(file: &Value) -> Opti
     })
 }
 
+/// Whether a changed file GitHub sent without a patch has source a read
+/// reaches: a REST entry (it carries a blob `sha`) whose patch was too large
+/// or omitted. A binary file has no text to read, a withheld file's text is
+/// kept out by the path policy, and a GraphQL node says nothing about its
+/// patch.
+pub(in crate::gh_get_history_item) fn source_readable_without_patch(file: &Value) -> bool {
+    file.get("patch").is_none()
+        && file.get("sha").is_some()
+        && matches!(missing_patch_reason(file), Some("tooLarge" | "omitted"))
+}
+
 /// The reason a credential file's patch is absent: the path policy, not
 /// GitHub, kept it out, so the row is whole as served (no limit, nothing
 /// partial).

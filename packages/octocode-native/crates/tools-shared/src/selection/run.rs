@@ -55,6 +55,11 @@ pub fn binding(
             map.remove(field);
         }
         map.remove("path");
+        // The cap bounds what a page may spend, not what it judges: a
+        // confirmed or raised cap keeps the plan its page saved.
+        if let Some(classification) = map.get_mut("classification").and_then(Value::as_object_mut) {
+            classification.remove("maxRequests");
+        }
     }
     octocode_runtime_base::digest::json_sha256(&octocode_engine::digest::canonical_json(
         json!({
@@ -194,6 +199,8 @@ pub(super) fn select_scoped(
         admitted: &admitted,
         predicates: &predicates,
         research_context: context["context"].as_str(),
+        // Unset: one request, as a search row names one source.
+        max_requests: context["maxRequests"].as_u64().unwrap_or(1),
         long_context: crate::judgment::LongContext::from_field(context["longContext"].as_bool()),
         handle: &runtime.handle,
         context: &runtime.context,
@@ -225,8 +232,22 @@ pub(super) fn select_scoped(
             plan.status = SelectionStatus::Unavailable;
             plan.unjudged.clear();
             plan.reason = Some(error.code.to_string());
+            // A plan over the caller's cap sent nothing: its price stands in
+            // the receipt, and next.confirm raises the cap to its ceiling.
+            let confirm_ceiling = usage.requests_ceiling.filter(|_| {
+                error.code == octocode_contract_types::ErrorCode::ClassificationOverBudget
+            });
+            let confirm = confirm_ceiling.map(|ceiling| {
+                octocode_runtime_base::response::result::Continuation::continued(
+                    tool,
+                    super::confirm_row(query, ceiling),
+                )
+                .build()
+            });
             return Err(Failure::Provider(Box::new(ProviderFailure {
                 error,
+                confirm_ceiling,
+                confirm,
                 outcome: finish(plan, &usage),
             })));
         }

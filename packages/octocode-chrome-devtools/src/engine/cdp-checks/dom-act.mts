@@ -1,6 +1,6 @@
 // One DOM step end to end: locate, act (trusted input when pending), settle, then verify the effect.
 import { waitForPageReady } from '../dom-actionability.mjs';
-import { DONE } from './dom-config.mjs';
+import { DONE, waitEndsAt } from './dom-config.mjs';
 import { locateWhenReady } from './dom-locate.mjs';
 import {
   PAGE_STATE_JS,
@@ -82,7 +82,8 @@ export async function waitForText(
   const start = Date.now();
   let lastProgress = -Infinity;
   const fn = textWaitFn(wanted);
-  while (Date.now() - start < cfg.waitMs) {
+  const endsAt = waitEndsAt(cfg, start);
+  while (Date.now() < endsAt) {
     const hit = (await readText(cdp, fn, objectId))?.result?.value;
     if (hit) return { hit, ms: Date.now() - start };
     if (Date.now() - start - lastProgress >= 1000) {

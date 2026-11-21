@@ -41,7 +41,9 @@ arrival order, so the snapshot is never held in memory. Load the file in the Dev
 
 `Page.printToPDF` with `transferMode: ReturnAsStream`, falling back to the base64 reply when Chrome refuses it.
 
-## Typed `open` launch flags
+## Typed `open.launch` flags
+
+These fields sit inside the one `launch` object of the typed `open` input (`{"launch": {"windowSize": "1280x800"}}`); the engine flags below are what they become.
 
 | Field | Engine flag | Effect |
 |---|---|---|

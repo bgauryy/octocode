@@ -140,7 +140,14 @@ impl FileLink<'_, '_> {
             self.note_unbound_path(&p.path, p.line);
         }
         match &target {
-            Some(t) if *t != self.file => self.edge(t, super::super::edges::RUST_PATH, p.line),
+            Some(t) if *t != self.file => {
+                self.edge(t, super::super::edges::RUST_PATH, p.line);
+                if let Some(item) = rust_path_item(&p.path) {
+                    self.facts
+                        .rust_path_uses
+                        .push((t.clone(), item.to_owned(), p.line));
+                }
+            }
             Some(_) => {}
             None if rust_internal_specifier(&p.path) => {
                 let outside = self.bare_target(&p.path) == BareTarget::OutsideRoot

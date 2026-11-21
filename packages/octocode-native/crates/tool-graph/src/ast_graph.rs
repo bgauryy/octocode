@@ -78,7 +78,15 @@ use octocode_tools_shared::import_resolution::{aliases, js_paths, paths};
 /// `crate::` and `super::` through its home crate's plain `mod`; a method
 /// call on a receiver of a type the repository does not declare is
 /// `not-declared-in-repo`, outside the linkage ratio.
-const ANALYSIS_VERSION: u32 = 41;
+/// 42: a resolved Rust path outside call and `use` position (a value path,
+/// a path in a `macro_rules!` body) is a `uses` edge with via `path` to the
+/// item it names, so a file naming only a sibling item binds its module.
+/// 43: the manifest lists the files with unextracted argument groups, so
+/// symbol impact keeps such an importer as a candidate.
+/// 44: each such file lists the declared names its unextracted groups write
+/// (`null`: any name), so symbol impact keeps the importer only when one
+/// names an affected symbol.
+const ANALYSIS_VERSION: u32 = 44;
 
 /// graphBuild's and graphQuery's recovery for the shared response stages.
 pub struct Output;

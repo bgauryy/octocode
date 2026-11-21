@@ -82,7 +82,9 @@ impl Source<'_> {
                 continue;
             }
             let start = offsets.start(line - 1);
-            let text = &self.text[start..offsets.start(line)];
+            let Some(text) = self.text.get(start..offsets.start(line)) else {
+                continue;
+            };
             written.extend(
                 written_placeholder()
                     .find_iter(text)

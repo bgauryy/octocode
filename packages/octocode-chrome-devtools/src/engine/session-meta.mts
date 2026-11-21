@@ -8,10 +8,12 @@ import { stateDirFor } from './session-registry.mjs';
 export type SessionMeta = {
   /** Origins plans and new tabs may navigate to; unset means unrestricted. */
   allowOrigins?: string[];
-  /** Tab groups opened with `open --urls`: name to target ids, in url order. */
+  /** Tab groups made with the `group` command: name to target ids, in open order. */
   groups?: Record<string, string[]>;
-  /** Isolated browser contexts `open --isolated` created; `cleanup` disposes them. */
-  contexts?: string[];
+  /** Browser context of each private group, by group name; `group close` and `cleanup` dispose them. */
+  contexts?: Record<string, string>;
+  /** Validated `open --emulation` object the runner re-applies on every connection to this port. */
+  emulation?: Record<string, unknown>;
 };
 
 export const metaFileIn = (stateDir: string, port: string | number) =>
@@ -20,22 +22,31 @@ export const metaFileIn = (stateDir: string, port: string | number) =>
 const isStringList = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every(item => typeof item === 'string');
 
+/** The plain object stored under `key`, if any. */
+const recordAt = (raw: object, key: string): object | undefined => {
+  const value = (raw as Record<string, unknown>)[key];
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value
+    : undefined;
+};
+
 /** Keeps only well-formed fields: a damaged or foreign file reads as empty metadata. */
 function sanitize(raw: unknown): SessionMeta {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
   const meta: SessionMeta = {};
   if ('allowOrigins' in raw && isStringList(raw.allowOrigins))
     meta.allowOrigins = raw.allowOrigins;
-  if ('contexts' in raw && isStringList(raw.contexts))
-    meta.contexts = raw.contexts;
-  if (
-    'groups' in raw &&
-    typeof raw.groups === 'object' &&
-    raw.groups !== null &&
-    !Array.isArray(raw.groups)
-  )
+  const contexts = recordAt(raw, 'contexts');
+  if (contexts)
+    meta.contexts = Object.fromEntries(
+      Object.entries(contexts).filter(([, id]) => typeof id === 'string')
+    );
+  const emulation = recordAt(raw, 'emulation');
+  if (emulation) meta.emulation = emulation as Record<string, unknown>;
+  const groups = recordAt(raw, 'groups');
+  if (groups)
     meta.groups = Object.fromEntries(
-      Object.entries(raw.groups).filter(([, ids]) => isStringList(ids))
+      Object.entries(groups).filter(([, ids]) => isStringList(ids))
     );
   return meta;
 }

@@ -48,8 +48,8 @@ test('a package-owned skill stages beside the public ones, self-contained and wi
       const staged = join(installed, name);
       assert.ok(existsSync(join(staged, 'SKILL.md')), `${name} is staged`);
       assert.equal(existsSync(join(staged, 'scripts')), false, `${name} bundles no shared scripts`);
-      for (const file of readdirSync(staged, { recursive: true }).filter(f => f.endsWith('.md')))
-        for (const link of readFileSync(join(staged, file), 'utf8').matchAll(/\]\(((?!https?:|#)[^)#]+)/g))
-          assert.ok(existsSync(join(staged, file, '..', link[1])), `${name}/${file} links ${link[1]}`);
+      for (const file of readdirSync(staged, { recursive: true, encoding: 'utf8' }).filter(f => f.endsWith('.md')))
+        for (const [, target = ''] of readFileSync(join(staged, file), 'utf8').matchAll(/\]\(((?!https?:|#)[^)#]+)/g))
+          assert.ok(existsSync(join(staged, file, '..', target)), `${name}/${file} links ${target}`);
     }
 });

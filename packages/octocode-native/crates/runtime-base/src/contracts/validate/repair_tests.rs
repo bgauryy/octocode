@@ -1047,3 +1047,52 @@ fn the_example_takes_the_literal_a_near_miss_means() {
             .unwrap_or_else(|error| panic!("{tool}: {shown} is rejected: {error}"));
     }
 }
+
+/// The `Example:` request `tool` answers `input` with.
+fn example_of(tool: &str, input: &Value) -> Value {
+    let error = match prepare_rows(tool, input.clone()) {
+        Err(error) => error,
+        Ok(rows) => rows.into_iter().find_map(Result::err).expect("rejected"),
+    };
+    let line = format_input_error(tool, &error, &[], input)["details"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .find_map(|line| line.strip_prefix("Example: ").map(str::to_owned))
+        .unwrap_or_else(|| panic!("{tool}: an example for {input}"));
+    serde_json::from_str(&line).expect("request")
+}
+
+/// A field sent with the wrong shape stays in the example, in a shape its
+/// schema accepts, wherever it sits (a row field, a nested object, a field
+/// of a form chosen by another field): the example repairs the field, it
+/// does not drop it.
+#[test]
+fn the_example_keeps_a_wrongly_shaped_field_in_a_valid_shape() {
+    let cases = [
+        (
+            "localSearch",
+            json!({"queries": [{"path": ".", "matchString": ["x"], "contextLines": "abc"}]}),
+            "/queries/0/contextLines",
+        ),
+        (
+            "ghSearchHistory",
+            json!({"queries": [{"operation": "pullRequest", "owner": "a", "repo": "b",
+                "filters": {"createdAt": "2024-01-01"}}]}),
+            "/queries/0/filters/createdAt",
+        ),
+        (
+            "structureSearch",
+            json!({"queries": [{"operation": "files", "path": ".", "modifiedAt": "P1D"}]}),
+            "/queries/0/modifiedAt",
+        ),
+    ];
+    for (tool, input, pointer) in cases {
+        let example = example_of(tool, &input);
+        assert!(example.pointer(pointer).is_some(), "{tool}: {example}");
+        assert_ne!(example.pointer(pointer), input.pointer(pointer), "{tool}");
+        crate::contracts::validate(tool, example.clone())
+            .unwrap_or_else(|error| panic!("{tool}: {example} is rejected: {error}"));
+    }
+}

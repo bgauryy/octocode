@@ -536,7 +536,7 @@ fn a_long_context_retry_is_disclosed_on_the_scout_row() {
     let window = LongWindow::start();
     let query: LocalSearchQuery = serde_json::from_value(json!({
         "path": root.path(), "matchString": ["needle"],
-        "classification": {"predicates": ["Is this kept?"]},
+        "classification": {"predicates": ["Is this kept?"], "maxRequests": 1000},
     }))
     .expect("query");
     let result = execute_local_search(

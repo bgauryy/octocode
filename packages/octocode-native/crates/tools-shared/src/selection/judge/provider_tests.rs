@@ -101,6 +101,7 @@ fn evaluator_receives_context_and_long_context_and_keeps_success_after_failure()
         let decisions = evaluator
             .select_grouped(
                 JudgeCall {
+                    max_requests: u64::MAX,
                     failures: &mut failures,
                     candidates: &candidates,
                     admitted: &[0, 1],
@@ -196,6 +197,7 @@ fn a_provider_failing_every_candidate_is_a_typed_error_not_unknown() {
     let context = context(Duration::from_secs(10));
     let failure = evaluator
         .select(JudgeCall {
+            max_requests: u64::MAX,
             failures: &mut Vec::new(),
             candidates: &candidates,
             admitted: &[0, 1],
@@ -240,6 +242,7 @@ fn a_refused_connection_is_named_not_the_circuit_it_opens() {
     let context = context(Duration::from_secs(20));
     let failure = evaluator
         .select(JudgeCall {
+            max_requests: u64::MAX,
             failures: &mut Vec::new(),
             candidates: &candidates,
             admitted: &admitted,
@@ -290,28 +293,12 @@ pub(super) fn direct_answers(request: &Request) -> ResponseTemplate {
     }))
 }
 
-/// The `lines` of every state the provider received.
-fn sent_lines(executor: &tokio::runtime::Runtime, server: &MockServer) -> Vec<String> {
-    executor
-        .block_on(server.received_requests())
-        .expect("requests")
-        .iter()
-        .map(|request| {
-            let body: Value = request.body_json().expect("request");
-            body["state"]["lines"]
-                .as_str()
-                .unwrap_or_default()
-                .to_owned()
-        })
-        .collect()
-}
-
-/// The hits of one file share a state that holds the union of their windows,
-/// each hit's own line included: a target whose line is missing from the
-/// state is judged from its label alone. Two hits with identical text (the
-/// reporter's `sign-in.ts:88`/`:89`) see the same evidence.
+/// Each hit of a file is judged with its own window and no other hit's
+/// lines: a union of overlapping windows lets a neighbour's line decide a
+/// hit. Two hits with identical text (the reporter's `sign-in.ts:88`/`:89`)
+/// each see their own window.
 #[test]
-fn a_shared_state_holds_every_hits_own_line() {
+fn each_hit_is_judged_with_its_own_window_only() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let server = executor.block_on(MockServer::start());
     executor.block_on(
@@ -336,6 +323,7 @@ fn a_shared_state_holds_every_hits_own_line() {
     let context = context(Duration::from_secs(10));
     evaluator
         .select(JudgeCall {
+            max_requests: u64::MAX,
             failures: &mut Vec::new(),
             candidates: &candidates,
             admitted: &[0, 1, 2],
@@ -347,20 +335,39 @@ fn a_shared_state_holds_every_hits_own_line() {
             usage: &mut ClassificationUsage::default(),
         })
         .expect("judged");
-    let states = sent_lines(&executor, &server);
-    assert_eq!(states.len(), 1, "one file, one shared state");
-    let lines = states[0].lines().collect::<Vec<_>>();
-    assert_eq!(
-        lines,
-        [
-            "82\tstore.catch(() => {});",
-            "83\treturn token;",
-            &format!("88\t{same}"),
-            &format!("89\t{same}"),
-            "90\tdone();",
-        ],
-        "every target line and every window line, once each"
-    );
+    let requests = executor
+        .block_on(server.received_requests())
+        .expect("requests");
+    assert!(requests.len() <= candidates.len(), "at most one per hit");
+    // Every window a hit's question or its request's shared state shows.
+    let windows = [vec![82, 83], vec![88, 89], vec![89, 90]];
+    let shown = |text: &str, line: u64| {
+        text.lines()
+            .any(|row| row.starts_with(&format!("{line}\t")))
+    };
+    let mut seen = vec![false; windows.len()];
+    for request in &requests {
+        let body: Value = request.body_json().expect("request");
+        let state = body["state"]["lines"].as_str().unwrap_or_default();
+        for question in body["questions"].as_object().expect("questions").values() {
+            let asked = serde_json::to_string(question).expect("question");
+            let text = format!(
+                "{state}\n{}",
+                asked.replace("\\n", "\n").replace("\\t", "\t")
+            );
+            let lines = (82..=90)
+                .filter(|&line| shown(&text, line))
+                .collect::<Vec<_>>();
+            let own = windows
+                .iter()
+                .position(|window| *window == lines)
+                .unwrap_or_else(|| {
+                    panic!("a question sees one hit's window, not {lines:?}: {body}")
+                });
+            seen[own] = true;
+        }
+    }
+    assert!(seen.iter().all(|&seen| seen), "every hit asked: {seen:?}");
 }
 
 /// A filter page states its price: the requests its first round sends and
@@ -386,6 +393,7 @@ fn a_filter_page_states_its_price() {
     let mut usage = ClassificationUsage::default();
     evaluator
         .select(JudgeCall {
+            max_requests: u64::MAX,
             failures: &mut Vec::new(),
             candidates: &candidates,
             admitted: &[0, 1, 2],
@@ -415,6 +423,81 @@ fn a_filter_page_states_its_price() {
     );
 }
 
+/// Hits of `files` distinct files: one request each, so the plan needs
+/// `files` requests; judged under `max_requests` against a fake endpoint.
+/// Returns what was judged, the usage and how many requests the endpoint got.
+fn judged_under_cap(files: usize, max_requests: u64) -> (Judgments, ClassificationUsage, usize) {
+    let executor = tokio::runtime::Runtime::new().expect("runtime");
+    let server = executor.block_on(MockServer::start());
+    executor.block_on(
+        Mock::given(method("POST"))
+            .respond_with(direct_answers)
+            .mount(&server),
+    );
+    let evaluator = evaluator("test-key", server.uri());
+    let candidates = (0..files)
+        .map(|file| {
+            Candidate::new(Some(json!({
+                "path":format!("f{file}.ts"), "target":{"line":1,"text":"call()"},
+            })))
+        })
+        .collect::<Vec<_>>();
+    let admitted = (0..files).collect::<Vec<_>>();
+    let context = context(Duration::from_secs(10));
+    let mut usage = ClassificationUsage::default();
+    let judged = evaluator.select(JudgeCall {
+        max_requests,
+        failures: &mut Vec::new(),
+        candidates: &candidates,
+        admitted: &admitted,
+        predicates: &["Does this discard the error?".to_owned()],
+        research_context: None,
+        long_context: crate::judgment::LongContext::Never,
+        handle: executor.handle(),
+        context: &context,
+        usage: &mut usage,
+    });
+    let sent = executor
+        .block_on(server.received_requests())
+        .expect("requests")
+        .len();
+    (judged, usage, sent)
+}
+
+/// A plan over the caller's cap sends nothing: the page answers with its
+/// price (requests planned and ceiling, no call) and the over-budget code.
+#[test]
+fn a_filter_plan_over_its_cap_sends_nothing_and_states_its_price() {
+    let files = 3;
+    let (judged, usage, sent) = judged_under_cap(files, 1);
+    assert_eq!(sent, 0, "no request reaches the provider");
+    let Err(JudgeFailure::Provider(error)) = judged else {
+        panic!("an over-budget plan is the page's error");
+    };
+    assert_eq!(error.code, ErrorCode::ClassificationOverBudget);
+    let files = u64::try_from(files).expect("count");
+    assert_eq!(usage.calls, 0);
+    assert_eq!(usage.requests_planned, Some(files));
+    assert!(
+        usage
+            .requests_ceiling
+            .is_some_and(|ceiling| ceiling >= files)
+    );
+}
+
+/// A cap that holds the plan judges every candidate within it.
+#[test]
+fn a_filter_plan_within_its_cap_is_judged_within_it() {
+    let files = 3;
+    let cap = u64::try_from(files).expect("count");
+    let (judged, usage, sent) = judged_under_cap(files, cap);
+    let decisions = judged.expect("judged");
+    assert_eq!(decisions.len(), files, "every candidate is decided");
+    assert_eq!(sent, files);
+    assert!(usage.calls <= cap, "never past the cap");
+    assert!(usage.requests_ceiling.is_some_and(|ceiling| ceiling <= cap));
+}
+
 /// A target's label names the declaration and the key path its line sits
 /// in, so a judge reading one bare line still sees which section holds it.
 #[test]
@@ -442,6 +525,7 @@ fn a_target_label_names_its_declaration_and_key_path() {
     let context = context(Duration::from_secs(10));
     evaluator
         .select(JudgeCall {
+            max_requests: u64::MAX,
             failures: &mut Vec::new(),
             candidates: &candidates,
             admitted: &[0],
@@ -469,7 +553,9 @@ fn a_target_label_names_its_declaration_and_key_path() {
             "line 15: \"x\": \"^1.0.0\" (in object devDependencies) (key devDependencies.x)"
         )]
     );
-    assert_eq!(body["state"]["lines"], "15\t    \"x\": \"^1.0.0\"");
+    // A hit's window rides in its question: the label shows its one line,
+    // and no shared state repeats it.
+    assert!(body["state"]["lines"].is_null(), "{body}");
 }
 
 /// Candidates with identical states in one call are one evaluation: one
@@ -516,6 +602,7 @@ fn identical_candidate_states_in_one_call_share_one_request() {
     let mut decisions = evaluator
         .select_grouped(
             JudgeCall {
+                max_requests: u64::MAX,
                 failures: &mut Vec::new(),
                 candidates: &candidates,
                 admitted: &[0, 1, 2],

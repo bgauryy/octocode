@@ -3,7 +3,7 @@
 //! probability policy selects, excludes or leaves it unknown before host output.
 use super::{Decision, JudgeCall, JudgeFailure, Judgments, ProviderError, SelectionJudge};
 use crate::judgment::{
-    ClassificationError, EvaluationInput, Evaluator, stats::ClassificationUsage,
+    ClassificationError, EvaluationInput, Evaluator, RequestCap, stats::ClassificationUsage,
 };
 use futures_util::{StreamExt as _, stream};
 use octocode_contract_types::ErrorCode;
@@ -235,6 +235,20 @@ fn selection_failure(
     })
 }
 
+/// A page whose first round needs `planned` requests, over the caller's
+/// `max`: nothing was sent.
+fn over_budget(planned: u64, max: u64) -> ProviderError {
+    ProviderError {
+        code: ErrorCode::ClassificationOverBudget,
+        message: format!(
+            "This page's classification needs {planned} provider requests, over classification.maxRequests {max}; none was sent."
+        ),
+        hints: vec![
+            "next.confirm sends it with maxRequests at selection.usage.requestsCeiling (billed); next.unfiltered shows every unit, unbilled.".into(),
+        ],
+    }
+}
+
 impl SelectionJudge for Evaluator {
     fn identity(&self) -> Value {
         json!({
@@ -284,7 +298,7 @@ impl Evaluator {
                 .bytes
                 .min(body),
             group_units,
-            hit_windows: false,
+            hit_windows: true,
         };
         let requests = requests::requests(&call, caps)
             .ok_or(JudgeFailure::from("invalidClassificationRequest"))?;
@@ -310,6 +324,25 @@ impl Evaluator {
                         ceiling.saturating_add(sends.at_most),
                     )
                 });
+        // Priced before any request: a plan over the caller's cap sends
+        // nothing and answers with its price; within it, every send, re-ask,
+        // split and retry is held to the cap (clasify's admission rule).
+        let retries = self.retry_room();
+        let max = call.max_requests;
+        if planned > max {
+            *call.usage = ClassificationUsage {
+                requests_planned: Some(planned),
+                requests_ceiling: Some(RequestCap::ceiling(ceiling, retries)),
+                ..ClassificationUsage::default()
+            };
+            return Err(JudgeFailure::Provider(over_budget(planned, max)));
+        }
+        // The first round's sends, then what the cap leaves for re-asks,
+        // splits and transient retries: never past the caller's cap.
+        let at_most = ceiling.min(max);
+        let room = max - at_most;
+        let cap = RequestCap::held(at_most, room);
+        let cap = &cap;
         let gate = self.gate();
         let long_context = call.long_context;
         let context = call.context;
@@ -332,7 +365,7 @@ impl Evaluator {
                                     assets: None,
                                     long_context,
                                     companions: 0,
-                                    cap: None,
+                                    cap: Some(cap),
                                 },
                                 None,
                                 &budget,
@@ -400,7 +433,8 @@ impl Evaluator {
             }
         }
         usage.requests_planned = Some(planned);
-        usage.requests_ceiling = Some(ceiling);
+        // The plan's own ceiling, its retries included, held to the cap.
+        usage.requests_ceiling = Some(RequestCap::ceiling(ceiling, retries).min(max));
         *call.usage = usage;
         // A provider that failed every candidate gave no answer at all: its
         // typed error (credential, quota, transport, too slow) is the row's

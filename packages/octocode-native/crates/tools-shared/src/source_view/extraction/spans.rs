@@ -105,8 +105,9 @@ fn append_held(found: &mut RegexSpans, spans: &[(usize, usize)]) -> bool {
 /// (alphanumeric or `_`) touches either side, as in localSearch `wholeWord`.
 fn is_whole_word(content: &str, start: usize, end: usize) -> bool {
     let word = |c: char| c.is_alphanumeric() || c == '_';
-    !content[..start].chars().next_back().is_some_and(word)
-        && !content[end..].chars().next().is_some_and(word)
+    let before = content.get(..start).and_then(|head| head.chars().next_back());
+    let after = content.get(end..).and_then(|tail| tail.chars().next());
+    !before.is_some_and(word) && !after.is_some_and(word)
 }
 
 /// A pattern that does not compile names its item, so the fix lands on the
@@ -341,7 +342,7 @@ fn sensitive_ranges(content: &str, pattern: &str, written: &[Range<usize>]) -> V
         |text: &str, at| {
             Ok::<_, std::convert::Infallible>(
                 (!pattern.is_empty())
-                    .then(|| text[at..].find(pattern))
+                    .then(|| text.get(at..).and_then(|rest| rest.find(pattern)))
                     .flatten()
                     .map(|found| at + found..at + found + pattern.len()),
             )
@@ -377,7 +378,11 @@ fn folded_ranges(folded: &Folded<'_>, pattern: &str, written: &[Range<usize>]) -
         let start = at + found;
         let span = folded.span(start..start + needle.len());
         if octocode_engine::search::text_search::written::takes(written, span.clone()) {
-            at = start + text[start..].chars().next().map_or(1, char::len_utf8);
+            at = start
+                + text
+                    .get(start..)
+                    .and_then(|rest| rest.chars().next())
+                    .map_or(1, char::len_utf8);
             continue;
         }
         spans.push((span.start, span.end));

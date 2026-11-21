@@ -1,5 +1,7 @@
 export {
   chromeCommands,
+  chromeHelperDescriptions,
+  chromeHelperNames,
   chromeGuideTopics,
   chromeOutputLimits,
   chromePlanOperations,
@@ -11,4 +13,9 @@ export {
   chromeDomActions,
   chromeRecipeOptionNames,
   chromeFlagDenylist,
+  chromeLaunchGuide,
+  chromeEmulationGuide,
+  chromePlanOperationGuides,
+  chromeRecipeGuides,
+  chromeDomainFamilies,
 } from '@octocodeai/config/chrome';

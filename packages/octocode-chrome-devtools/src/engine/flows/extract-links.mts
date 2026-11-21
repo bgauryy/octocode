@@ -3,7 +3,7 @@ const flow: FlowDefinition = {
   name: 'extract-links',
   area: 'inspection',
   description:
-    'Extract text and href of every element matching a selector (default: all links).',
+    'Extract text and href of matching elements. The default selector matches all links.',
   params: {
     url: { type: 'string', description: 'Page to open first (optional)' },
     selector: {

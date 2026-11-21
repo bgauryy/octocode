@@ -28,6 +28,16 @@ const query = (
 });
 const argumentsFor = (input: any) =>
   Object.entries(input).flatMap(([key, value]) => [`--${key}`, String(value)]);
+/** Integer lexemes beyond the safe range travel as integer strings: the typed `where` contract's exact form. */
+const exactPredicates = (text: string) =>
+  JSON.parse(text, (_key, value, context) =>
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    !Number.isSafeInteger(value) &&
+    /^-?\d+$/.test(context?.source ?? '')
+      ? context!.source
+      : value
+  );
 export const readerRoute = (
   args: string[],
   tool: string,
@@ -39,24 +49,11 @@ export const readerRoute = (
       value = args[i + 1];
     query[key] = ['cursor', 'limit', 'offset', 'length'].includes(key)
       ? Number(value)
-      : ['where', 'select'].includes(key)
-        ? JSON.parse(value)
-        : value;
-    // Preserve numeric predicate lexemes in legacy args instead of rounding them
-    // while converting a continuation to typed JSON inputs.
-    if (key === 'where') {
-      let numeric = false;
-      JSON.parse(value, (_key, item) => {
-        if (typeof item === 'number') numeric = true;
-        return item;
-      });
-      if (numeric) {
-        const exact = [...args];
-        const fileAt = exact.indexOf('--file') + 1;
-        if (fileAt) exact[fileAt] = capturePath(exact[fileAt], workspace);
-        return { tool, query: { args: exact } };
-      }
-    }
+      : key === 'where'
+        ? exactPredicates(value)
+        : key === 'select'
+          ? JSON.parse(value)
+          : value;
   }
   if (query.file) query.file = capturePath(query.file, workspace);
   return { tool, query };
@@ -79,8 +76,13 @@ export async function flowPage(
   if (!Array.isArray(flow.steps)) throw Error('Browser result needs steps');
   const steps: any[] = [];
   const sources: any[] = [];
+  // True when the page stops before the last step: the rest sits behind next.steps.
+  let more = false;
   for (const source of flow.steps) {
-    if (steps.length >= limits.steps) break;
+    if (steps.length >= limits.steps) {
+      more = true;
+      break;
+    }
     // Completed input operations need acknowledgement, not an echoed event/target record.
     if (
       source.status === 'complete' &&
@@ -162,7 +164,10 @@ export async function flowPage(
       row.status === 'complete' &&
       row.op === 'cdp' &&
       !row.data &&
-      !row.condition
+      !row.condition &&
+      !row.scope &&
+      !row.enabled &&
+      !row.note
     )
       continue;
     if (Buffer.byteLength(JSON.stringify(row)) > limits.stepBytes) {
@@ -174,8 +179,10 @@ export async function flowPage(
     if (
       steps.length &&
       Buffer.byteLength(JSON.stringify([...steps, row])) > limits.stepBytes
-    )
+    ) {
+      more = true;
       break;
+    }
     steps.push(row);
   }
   return {
@@ -211,7 +218,7 @@ export async function flowPage(
       steps,
     },
     next: {
-      steps: pageQuery(file, '/steps', 0, limits.steps),
+      ...(more ? { steps: pageQuery(file, '/steps', 0, limits.steps) } : {}),
       ...(flow.eventCoverage?.length > limits.steps
         ? {
             events: pageQuery(

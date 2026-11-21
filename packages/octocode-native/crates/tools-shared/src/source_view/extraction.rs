@@ -105,7 +105,7 @@ pub fn line_count(s: &str) -> usize {
     octocode_engine::text::LineCount::of(s.as_bytes())
 }
 /// The view `q` selects of `content`; `written` are the byte ranges of it
-/// its redactions wrote ([`super::written`]): no pattern matches their own
+/// its redactions wrote ([`super::prepare::Source::written`]): no pattern matches their own
 /// spelling.
 pub fn extract(
     q: &LocalFetchQuery,

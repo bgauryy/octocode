@@ -1,0 +1,502 @@
+{
+  "chrome": "158.0.8127.36 headless=new",
+  "rows": [
+    {
+      "name": "SystemInfo.getInfo",
+      "cls": "BROWSER_ONLY",
+      "page": {
+        "code": -32000,
+        "msg": "SystemInfo.getInfo is only supported on the browser target"
+      },
+      "browser": {
+        "ok": true,
+        "result": "{\"gpu\":{\"devices\":[{\"vendorId\":4203,\"deviceId\":0,\"vendorString\":\"Google Inc. (Apple)\",\"deviceString\":\"ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Pro, Version 26.5.2 (Build 25F84))\",\"driverVendor\":\"A"
+      },
+      "params": {}
+    },
+    {
+      "name": "Target.createBrowserContext",
+      "cls": "BROWSER_ONLY",
+      "page": {
+        "code": -32000,
+        "msg": "Not allowed"
+      },
+      "browser": {
+        "ok": true,
+        "result": "{\"browserContextId\":\"4325EE4396903831F5DC6A6F5A120B30\"}"
+      },
+      "params": {}
+    },
+    {
+      "name": "Target.getBrowserContexts",
+      "cls": "BROWSER_ONLY",
+      "page": {
+        "code": -32000,
+        "msg": "Not allowed"
+      },
+      "browser": {
+        "ok": true,
+        "result": "{\"browserContextIds\":[\"4325EE4396903831F5DC6A6F5A120B30\"],\"defaultBrowserContextId\":\"58D417A1CF90610B40D02100DAD37C1D\"}"
+      },
+      "params": {}
+    },
+    {
+      "name": "Target.disposeBrowserContext",
+      "cls": "BROWSER_ONLY",
+      "page": {
+        "code": -32000,
+        "msg": "Not allowed"
+      },
+      "browser": {
+        "code": -32000,
+        "msg": "Failed to find context with id x"
+      },
+      "params": {
+        "browserContextId": "x"
+      }
+    },
+    {
+      "name": "Tethering.bind",
+      "cls": "BROWSER_ONLY",
+      "page": {
+        "code": -32601,
+        "msg": "'Tethering.bind' wasn't found"
+      },
+      "browser": {
+        "code": -32602,
+        "msg": "port"
+      },
+      "params": {
+        "port": 0
+      }
+    },
+    {
+      "name": "BluetoothEmulation.enable",
+      "cls": "BROWSER_ONLY",
+      "page": {
+        "code": -32601,
+        "msg": "'BluetoothEmulation.enable' wasn't found"
+      },
+      "browser": {
+        "ok": true,
+        "result": "{}"
+      },
+      "params": {
+        "state": "absent",
+        "leSupported": false
+      }
+    },
+    {
+      "name": "BluetoothEmulation.setSimulatedCentralState",
+      "cls": "BROWSER_ONLY",
+      "page": {
+        "code": -32601,
+        "msg": "'BluetoothEmulation.setSimulatedCentralState' wasn't found"
+      },
+      "browser": {
+        "code": -32000,
+        "msg": "BluetoothEmulation not enabled"
+      },
+      "params": {
+        "state": "absent"
+      }
+    },
+    {
+      "name": "Browser.addMockCamera",
+      "cls": "BROWSER_ONLY",
+      "page": {
+        "code": -32000,
+        "msg": "Browser.addMockCamera is only supported on the browser target"
+      },
+      "browser": {
+        "ok": true,
+        "result": "{}"
+      },
+      "params": {
+        "deviceId": "x"
+      }
+    },
+    {
+      "name": "BluetoothEmulation.disable",
+      "cls": "BROWSER_ONLY",
+      "page": {
+        "code": -32601,
+        "msg": "'BluetoothEmulation.disable' wasn't found"
+      },
+      "browser": {
+        "ok": true,
+        "result": "{}"
+      },
+      "params": {}
+    },
+    {
+      "name": "BluetoothEmulation.removeCharacteristic",
+      "cls": "BROWSER_ONLY",
+      "page": {
+        "code": -32601,
+        "msg": "'BluetoothEmulation.removeCharacteristic' wasn't found"
+      },
+      "browser": {
+        "code": -32000,
+        "msg": "BluetoothEmulation not enabled"
+      },
+      "params": {
+        "characteristicId": "x"
+      }
+    },
+    {
+      "name": "DOM.getDocument",
+      "cls": "PAGE_OK",
+      "page": {
+        "ok": true,
+        "result": "{\"root\":{\"nodeId\":1,\"backendNodeId\":1,\"nodeType\":9,\"nodeName\":\"#document\",\"localName\":\"\",\"nodeValue\":\"\",\"childNodeCount\":1,\"children\":[{\"nodeId\":2,\"parentId\":1,\"backendNodeId\":2,\"nodeType\":1,\"nodeName"
+      },
+      "browser": {
+        "code": -32601,
+        "msg": "'DOM.getDocument' wasn't found"
+      },
+      "params": {}
+    },
+    {
+      "name": "Runtime.evaluate",
+      "cls": "PAGE_OK",
+      "page": {
+        "ok": true,
+        "result": "{\"result\":{\"type\":\"object\",\"subtype\":\"error\",\"className\":\"ReferenceError\",\"description\":\"ReferenceError: x is not defined\\n    at <anonymous>:1:1\",\"objectId\":\"1072040234696535060.1.1\"},\"exceptionDetai"
+      },
+      "browser": {
+        "code": -32601,
+        "msg": "'Runtime.evaluate' wasn't found"
+      },
+      "params": {
+        "expression": "x"
+      }
+    },
+    {
+      "name": "Page.navigate",
+      "cls": "PAGE_OK",
+      "page": {
+        "code": -32000,
+        "msg": "Cannot navigate to invalid URL"
+      },
+      "browser": {
+        "code": -32601,
+        "msg": "'Page.navigate' wasn't found"
+      },
+      "params": {
+        "url": "x"
+      }
+    },
+    {
+      "name": "Accessibility.disable",
+      "cls": "PAGE_OK",
+      "page": {
+        "ok": true,
+        "result": "{}"
+      },
+      "browser": {
+        "code": -32601,
+        "msg": "'Accessibility.disable' wasn't found"
+      },
+      "params": {}
+    },
+    {
+      "name": "DOM.describeNode",
+      "cls": "PAGE_OK",
+      "page": {
+        "code": -32000,
+        "msg": "Either nodeId, backendNodeId or objectId must be specified"
+      },
+      "browser": {
+        "code": -32601,
+        "msg": "'DOM.describeNode' wasn't found"
+      },
+      "params": {}
+    },
+    {
+      "name": "Emulation.setCPUThrottlingRate",
+      "cls": "PAGE_OK",
+      "page": {
+        "ok": true,
+        "result": "{}"
+      },
+      "browser": {
+        "code": -32601,
+        "msg": "'Emulation.setCPUThrottlingRate' wasn't found"
+      },
+      "params": {
+        "rate": 0
+      }
+    },
+    {
+      "name": "Log.enable",
+      "cls": "PAGE_OK",
+      "page": {
+        "ok": true,
+        "result": "{}"
+      },
+      "browser": {
+        "code": -32601,
+        "msg": "'Log.enable' wasn't found"
+      },
+      "params": {}
+    },
+    {
+      "name": "Page.enable",
+      "cls": "PAGE_OK",
+      "page": {
+        "ok": true,
+        "result": "{}"
+      },
+      "browser": {
+        "code": -32601,
+        "msg": "'Page.enable' wasn't found"
+      },
+      "params": {}
+    },
+    {
+      "name": "WebAuthn.addCredential",
+      "cls": "PAGE_OK",
+      "page": {
+        "code": -32602,
+        "msg": "Invalid parameters",
+        "data": "Failed to deserialize params.credential.credentialId - BINDINGS: invalid base64 string at position 58"
+      },
+      "browser": {
+        "code": -32601,
+        "msg": "'WebAuthn.addCredential' wasn't found"
+      },
+      "params": {
+        "authenticatorId": "x",
+        "credential": {
+          "credentialId": "x",
+          "isResidentCredential": false,
+          "privateKey": "x",
+          "signCount": 0
+        }
+      }
+    },
+    {
+      "name": "Browser.getVersion",
+      "cls": "BOTH",
+      "page": {
+        "ok": true,
+        "result": "{\"protocolVersion\":\"1.3\",\"product\":\"Chrome/158.0.8127.36\",\"revision\":\"@14d6f648e8cd7ad750a4044200ce94d3321be260\",\"userAgent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML,"
+      },
+      "browser": {
+        "ok": true,
+        "result": "{\"protocolVersion\":\"1.3\",\"product\":\"Chrome/158.0.8127.36\",\"revision\":\"@14d6f648e8cd7ad750a4044200ce94d3321be260\",\"userAgent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML,"
+      },
+      "params": {}
+    },
+    {
+      "name": "Browser.grantPermissions",
+      "cls": "BOTH",
+      "page": {
+        "ok": true,
+        "result": "{}"
+      },
+      "browser": {
+        "ok": true,
+        "result": "{}"
+      },
+      "params": {
+        "permissions": []
+      }
+    },
+    {
+      "name": "Fetch.disable",
+      "cls": "BOTH",
+      "page": {
+        "ok": true,
+        "result": "{}"
+      },
+      "browser": {
+        "ok": true,
+        "result": "{}"
+      },
+      "params": {}
+    },
+    {
+      "name": "Storage.setCookies",
+      "cls": "BOTH",
+      "page": {
+        "ok": true,
+        "result": "{}"
+      },
+      "browser": {
+        "ok": true,
+        "result": "{}"
+      },
+      "params": {
+        "cookies": []
+      }
+    },
+    {
+      "name": "SmartCardEmulation.enable",
+      "cls": "UNSUPPORTED",
+      "page": {
+        "code": -32601,
+        "msg": "'SmartCardEmulation.enable' wasn't found"
+      },
+      "browser": {
+        "code": -32601,
+        "msg": "'SmartCardEmulation.enable' wasn't found"
+      },
+      "params": {}
+    },
+    {
+      "name": "HeadlessExperimental.beginFrame",
+      "cls": "UNSUPPORTED",
+      "page": {
+        "code": -32601,
+        "msg": "'HeadlessExperimental.beginFrame' wasn't found"
+      },
+      "browser": {
+        "code": -32601,
+        "msg": "'HeadlessExperimental.beginFrame' wasn't found"
+      },
+      "params": {}
+    },
+    {
+      "name": "PWA.getOsAppState",
+      "cls": "UNSUPPORTED",
+      "page": {
+        "code": -32601,
+        "msg": "'PWA.getOsAppState' wasn't found"
+      },
+      "browser": {
+        "code": -32601,
+        "msg": "'PWA.getOsAppState' wasn't found"
+      },
+      "params": {
+        "manifestId": "x"
+      }
+    },
+    {
+      "name": "HeadlessExperimental.disable",
+      "cls": "UNSUPPORTED",
+      "page": {
+        "code": -32601,
+        "msg": "'HeadlessExperimental.disable' wasn't found"
+      },
+      "browser": {
+        "code": -32601,
+        "msg": "'HeadlessExperimental.disable' wasn't found"
+      },
+      "params": {}
+    },
+    {
+      "name": "PWA.openCurrentPageInApp",
+      "cls": "UNSUPPORTED",
+      "page": {
+        "code": -32601,
+        "msg": "'PWA.openCurrentPageInApp' wasn't found"
+      },
+      "browser": {
+        "code": -32601,
+        "msg": "'PWA.openCurrentPageInApp' wasn't found"
+      },
+      "params": {
+        "manifestId": "x"
+      }
+    },
+    {
+      "name": "SmartCardEmulation.reportListReadersResult",
+      "cls": "UNSUPPORTED",
+      "page": {
+        "code": -32601,
+        "msg": "'SmartCardEmulation.reportListReadersResult' wasn't found"
+      },
+      "browser": {
+        "code": -32601,
+        "msg": "'SmartCardEmulation.reportListReadersResult' wasn't found"
+      },
+      "params": {
+        "requestId": "x",
+        "readers": []
+      }
+    },
+    {
+      "name": "Browser.setPermission",
+      "cls": "NEITHER_VALID",
+      "page": {
+        "code": -32602,
+        "msg": "Invalid PermissionDescriptor name: x"
+      },
+      "browser": {
+        "code": -32602,
+        "msg": "Invalid PermissionDescriptor name: x"
+      },
+      "params": {
+        "permission": {
+          "name": "x"
+        },
+        "setting": "granted"
+      }
+    },
+    {
+      "name": "Browser.cancelDownload",
+      "cls": "NEITHER_VALID",
+      "page": {
+        "code": -32602,
+        "msg": "No download item found for the given GUID"
+      },
+      "browser": {
+        "code": -32602,
+        "msg": "No download item found for the given GUID"
+      },
+      "params": {
+        "guid": "x"
+      }
+    },
+    {
+      "name": "Extensions.setStorageItems",
+      "cls": "NEITHER_VALID",
+      "page": {
+        "code": -32600,
+        "msg": "Extension not found."
+      },
+      "browser": {
+        "code": -32600,
+        "msg": "No associated browser context."
+      },
+      "params": {
+        "id": "x",
+        "storageArea": "session",
+        "values": {}
+      }
+    },
+    {
+      "name": "Storage.overrideQuotaForOrigin",
+      "cls": "NEITHER_VALID",
+      "page": {
+        "code": -32602,
+        "msg": "x is not a valid URL"
+      },
+      "browser": {
+        "code": -32603,
+        "msg": "Internal error"
+      },
+      "params": {
+        "origin": "x"
+      }
+    },
+    {
+      "name": "Page.deleteCookie",
+      "cls": "UNSUPPORTED",
+      "page": {
+        "code": -32601,
+        "msg": "'Network.deleteCookie' wasn't found"
+      },
+      "browser": {
+        "code": -32601,
+        "msg": "'Page.deleteCookie' wasn't found"
+      },
+      "params": {
+        "cookieName": "x",
+        "url": "x"
+      }
+    }
+  ]
+}

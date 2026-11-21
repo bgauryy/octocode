@@ -9,7 +9,12 @@ import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Payload, Session } from '../cdp-connection.mjs';
-import { redactHeaders } from './net-headers.mjs';
+import {
+  cookieRows,
+  headerCookieRows,
+  mergeHeaders,
+  redactHeaders,
+} from './net-headers.mjs';
 
 const env = process.env;
 const KINDS = ['websocket', 'sse', 'http'] as const;
@@ -181,6 +186,10 @@ export async function run(cdp: Session) {
     if (wanted('http', urls.get(p.requestId)))
       record('http', 'request-extra', p.requestId, {
         headers: redactHeaders(p.headers),
+        // Cookie names and why one was withheld; never a value.
+        cookies: p.associatedCookies
+          ? cookieRows('request', p.associatedCookies)
+          : headerCookieRows('request', mergeHeaders(p.headers)),
       });
   });
   cdp.on('Network.responseReceived', (p: Payload) => {
@@ -201,6 +210,10 @@ export async function run(cdp: Session) {
       record('http', 'response-extra', p.requestId, {
         status: p.statusCode,
         headers: redactHeaders(p.headers),
+        cookies: [
+          ...headerCookieRows('response', mergeHeaders(p.headers)),
+          ...cookieRows('response', p.blockedCookies),
+        ],
       });
   });
   cdp.on('Network.loadingFinished', (p: Payload) => {

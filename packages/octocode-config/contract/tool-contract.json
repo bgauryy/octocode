@@ -39,10 +39,10 @@
               "additionalProperties": false,
               "properties": {
                 "owner": {
-                  "$ref": "#/$defs/_h7"
+                  "$ref": "#/$defs/_h8"
                 },
                 "path": {
-                  "$ref": "#/$defs/_h42"
+                  "$ref": "#/$defs/_h43"
                 },
                 "ref": {
                   "$ref": "#/$defs/_h17"
@@ -112,7 +112,7 @@
               "$ref": "#/$defs/_h45"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "ref": {
               "$ref": "#/$defs/_h45"
@@ -164,7 +164,7 @@
           "$ref": "#/$defs/TextMatchTerms"
         },
         "minChanges": {
-          "$ref": "#/$defs/_h168"
+          "$ref": "#/$defs/_h169"
         },
         "offset": {
           "$ref": "#/$defs/_h239"
@@ -173,7 +173,7 @@
           "const": "compare"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "page": {
           "$ref": "#/$defs/_h92"
@@ -274,7 +274,7 @@
           "type": "boolean"
         },
         "classification": {
-          "$ref": "#/$defs/_h4"
+          "$ref": "#/$defs/_h3"
         },
         "fileStatus": {
           "$ref": "#/$defs/_h68"
@@ -289,10 +289,10 @@
           "$ref": "#/$defs/_h24"
         },
         "minChanges": {
-          "$ref": "#/$defs/_h168"
+          "$ref": "#/$defs/_h169"
         },
         "number": {
-          "$ref": "#/$defs/_h168"
+          "$ref": "#/$defs/_h169"
         },
         "offset": {
           "$ref": "#/$defs/_h239"
@@ -301,7 +301,7 @@
           "const": "pullRequest"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "page": {
           "$ref": "#/$defs/_h92"
@@ -353,7 +353,7 @@
           "$ref": "#/$defs/TextMatchTerms"
         },
         "minChanges": {
-          "$ref": "#/$defs/_h168"
+          "$ref": "#/$defs/_h169"
         },
         "offset": {
           "$ref": "#/$defs/_h239"
@@ -362,7 +362,7 @@
           "const": "commit"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "page": {
           "$ref": "#/$defs/_h92"
@@ -410,7 +410,7 @@
           "default": "smart"
         },
         "classification": {
-          "$ref": "#/$defs/_h4"
+          "$ref": "#/$defs/_h3"
         },
         "contextLines": {
           "$ref": "#/$defs/_h38"
@@ -422,7 +422,7 @@
           "$ref": "#/$defs/TextMatchTerms"
         },
         "number": {
-          "$ref": "#/$defs/_h168"
+          "$ref": "#/$defs/_h169"
         },
         "offset": {
           "$ref": "#/$defs/_h239"
@@ -431,7 +431,7 @@
           "const": "issue"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "page": {
           "$ref": "#/$defs/_h92"
@@ -791,7 +791,7 @@
           "default": "smart"
         },
         "classification": {
-          "$ref": "#/$defs/_h4"
+          "$ref": "#/$defs/_h3"
         },
         "contextLines": {
           "$ref": "#/$defs/_h38"
@@ -803,10 +803,10 @@
           "$ref": "#/$defs/TextMatchTerms"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "path": {
-          "$ref": "#/$defs/_h42"
+          "$ref": "#/$defs/_h43"
         },
         "ranges": {
           "$ref": "#/$defs/_h97"
@@ -907,7 +907,7 @@
           "default": "smart"
         },
         "classification": {
-          "$ref": "#/$defs/_h4"
+          "$ref": "#/$defs/_h3"
         },
         "contextLines": {
           "$ref": "#/$defs/_h38"
@@ -1029,7 +1029,7 @@
           "$ref": "#/$defs/AstParserGlobs"
         },
         "path": {
-          "$ref": "#/$defs/_h41"
+          "$ref": "#/$defs/_h42"
         },
         "reasoning": {
           "$ref": "#/$defs/_h24"
@@ -1111,7 +1111,7 @@
           "$ref": "#/$defs/_h116"
         },
         "line": {
-          "$ref": "#/$defs/_h39"
+          "$ref": "#/$defs/_h40"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h24"
@@ -1126,7 +1126,7 @@
           "$ref": "#/$defs/_h72"
         },
         "path": {
-          "$ref": "#/$defs/_h41"
+          "$ref": "#/$defs/_h42"
         },
         "reasoning": {
           "$ref": "#/$defs/_h24"
@@ -1144,7 +1144,7 @@
           "$ref": "#/$defs/_h288"
         },
         "workspaceRoot": {
-          "$ref": "#/$defs/_h64"
+          "$ref": "#/$defs/_h65"
         }
       },
       "required": [
@@ -1175,7 +1175,7 @@
           "$ref": "#/$defs/_h24"
         },
         "minChanges": {
-          "$ref": "#/$defs/_h168"
+          "$ref": "#/$defs/_h169"
         },
         "offset": {
           "$ref": "#/$defs/_h239"
@@ -1184,7 +1184,7 @@
           "const": "compare"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "page": {
           "$ref": "#/$defs/_h92"
@@ -1327,7 +1327,7 @@
       "additionalProperties": false,
       "properties": {
         "classification": {
-          "$ref": "#/$defs/_h4"
+          "$ref": "#/$defs/_h3"
         },
         "fields": {
           "$ref": "#/$defs/_h26"
@@ -1345,7 +1345,7 @@
           "const": "commit"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "page": {
           "$ref": "#/$defs/_h72"
@@ -1582,7 +1582,7 @@
           "$ref": "#/$defs/_h116"
         },
         "line": {
-          "$ref": "#/$defs/_h39"
+          "$ref": "#/$defs/_h40"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h24"
@@ -1597,7 +1597,7 @@
           "$ref": "#/$defs/_h72"
         },
         "path": {
-          "$ref": "#/$defs/_h41"
+          "$ref": "#/$defs/_h42"
         },
         "reasoning": {
           "$ref": "#/$defs/_h24"
@@ -1615,7 +1615,7 @@
           "const": "files"
         },
         "workspaceRoot": {
-          "$ref": "#/$defs/_h64"
+          "$ref": "#/$defs/_h65"
         }
       },
       "required": [
@@ -1683,7 +1683,7 @@
           "const": "list"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "page": {
           "$ref": "#/$defs/_h72"
@@ -1725,7 +1725,7 @@
       "additionalProperties": false,
       "properties": {
         "classification": {
-          "$ref": "#/$defs/_h4"
+          "$ref": "#/$defs/_h3"
         },
         "fields": {
           "$ref": "#/$defs/_h26"
@@ -1746,7 +1746,7 @@
           "const": "commit"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "page": {
           "$ref": "#/$defs/_h72"
@@ -1798,7 +1798,7 @@
           "$ref": "#/$defs/_h24"
         },
         "minChanges": {
-          "$ref": "#/$defs/_h168"
+          "$ref": "#/$defs/_h169"
         },
         "offset": {
           "$ref": "#/$defs/_h239"
@@ -1807,7 +1807,7 @@
           "const": "commit"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "page": {
           "$ref": "#/$defs/_h92"
@@ -1843,13 +1843,13 @@
           "type": "boolean"
         },
         "classification": {
-          "$ref": "#/$defs/_h4"
+          "$ref": "#/$defs/_h3"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h24"
         },
         "number": {
-          "$ref": "#/$defs/_h168"
+          "$ref": "#/$defs/_h169"
         },
         "offset": {
           "$ref": "#/$defs/_h239"
@@ -1858,7 +1858,7 @@
           "const": "issue"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "page": {
           "$ref": "#/$defs/_h92"
@@ -1920,7 +1920,7 @@
           "$ref": "#/$defs/_h116"
         },
         "line": {
-          "$ref": "#/$defs/_h39"
+          "$ref": "#/$defs/_h40"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h24"
@@ -1935,7 +1935,7 @@
           "$ref": "#/$defs/_h72"
         },
         "path": {
-          "$ref": "#/$defs/_h41"
+          "$ref": "#/$defs/_h42"
         },
         "reasoning": {
           "$ref": "#/$defs/_h24"
@@ -1950,7 +1950,7 @@
           "$ref": "#/$defs/_h288"
         },
         "workspaceRoot": {
-          "$ref": "#/$defs/_h64"
+          "$ref": "#/$defs/_h65"
         }
       },
       "required": [
@@ -1974,7 +1974,7 @@
           "$ref": "#/$defs/_h116"
         },
         "line": {
-          "$ref": "#/$defs/_h39"
+          "$ref": "#/$defs/_h40"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h24"
@@ -1989,7 +1989,7 @@
           "$ref": "#/$defs/_h72"
         },
         "path": {
-          "$ref": "#/$defs/_h41"
+          "$ref": "#/$defs/_h42"
         },
         "reasoning": {
           "$ref": "#/$defs/_h24"
@@ -2004,7 +2004,7 @@
           "$ref": "#/$defs/TestCode"
         },
         "workspaceRoot": {
-          "$ref": "#/$defs/_h64"
+          "$ref": "#/$defs/_h65"
         }
       },
       "required": [
@@ -2164,7 +2164,7 @@
           "type": "boolean"
         },
         "partialReasons": {
-          "$ref": "#/$defs/_h63"
+          "$ref": "#/$defs/_h64"
         },
         "root": {
           "type": "string"
@@ -2240,7 +2240,7 @@
           "$ref": "#/$defs/_h116"
         },
         "line": {
-          "$ref": "#/$defs/_h39"
+          "$ref": "#/$defs/_h40"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h24"
@@ -2255,7 +2255,7 @@
           "$ref": "#/$defs/_h72"
         },
         "path": {
-          "$ref": "#/$defs/_h41"
+          "$ref": "#/$defs/_h42"
         },
         "reasoning": {
           "$ref": "#/$defs/_h24"
@@ -2267,7 +2267,7 @@
           "$ref": "#/$defs/_h45"
         },
         "workspaceRoot": {
-          "$ref": "#/$defs/_h64"
+          "$ref": "#/$defs/_h65"
         }
       },
       "required": [
@@ -2309,7 +2309,7 @@
           "$ref": "#/$defs/_h116"
         },
         "line": {
-          "$ref": "#/$defs/_h39"
+          "$ref": "#/$defs/_h40"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h24"
@@ -2324,7 +2324,7 @@
           "$ref": "#/$defs/_h72"
         },
         "path": {
-          "$ref": "#/$defs/_h41"
+          "$ref": "#/$defs/_h42"
         },
         "reasoning": {
           "$ref": "#/$defs/_h24"
@@ -2339,7 +2339,7 @@
           "const": "files"
         },
         "workspaceRoot": {
-          "$ref": "#/$defs/_h64"
+          "$ref": "#/$defs/_h65"
         }
       },
       "required": [
@@ -2454,7 +2454,7 @@
           "$ref": "#/$defs/_h116"
         },
         "line": {
-          "$ref": "#/$defs/_h39"
+          "$ref": "#/$defs/_h40"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h24"
@@ -2472,7 +2472,7 @@
           "$ref": "#/$defs/_h72"
         },
         "path": {
-          "$ref": "#/$defs/_h41"
+          "$ref": "#/$defs/_h42"
         },
         "reasoning": {
           "$ref": "#/$defs/_h24"
@@ -2484,7 +2484,7 @@
           "$ref": "#/$defs/_h45"
         },
         "workspaceRoot": {
-          "$ref": "#/$defs/_h64"
+          "$ref": "#/$defs/_h65"
         }
       },
       "required": [
@@ -2766,7 +2766,7 @@
           "const": "get"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "reasoning": {
           "$ref": "#/$defs/_h24"
@@ -3052,16 +3052,16 @@
           "type": "boolean"
         },
         "classification": {
-          "$ref": "#/$defs/_h4"
+          "$ref": "#/$defs/_h3"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h24"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "path": {
-          "$ref": "#/$defs/_h42"
+          "$ref": "#/$defs/_h43"
         },
         "ranges": {
           "$ref": "#/$defs/_h97"
@@ -3094,13 +3094,17 @@
       "type": "object"
     },
     "_h165": {
+      "pattern": "^(?:nextPage|body|reviewBody|commentBody|patches|files|comments|reviewComments|reviews|commits|unfiltered(?:[2-9]|[1-9][0-9]+)?|unfilteredUnknown|confirm|nextCandidatePage(?:[2-9]|[1-9][0-9]+)?|continueCommitFiles(?:[2-9]|[1-9][0-9]+)?|readCommitFiles(?:[2-9]|[1-9][0-9]+)?|listCommits(?:[2-9]|[1-9][0-9]+)?|readAtCommit(?:[2-9]|[1-9][0-9]+)?|readParent(?:[2-9]|[1-9][0-9]+)?|searchUnpatchedFile(?:[2-9]|[1-9][0-9]+)?|expandContext(?:[2-9]|[1-9][0-9]+)?|retry(?:[2-9]|[1-9][0-9]+)?|restart(?:[2-9]|[1-9][0-9]+)?)$",
+      "type": "string"
+    },
+    "_h166": {
       "additionalProperties": false,
       "properties": {
         "block": {
           "type": "boolean"
         },
         "classification": {
-          "$ref": "#/$defs/_h4"
+          "$ref": "#/$defs/_h3"
         },
         "limit": {
           "$ref": "#/$defs/_h116"
@@ -3136,7 +3140,7 @@
       ],
       "type": "object"
     },
-    "_h166": {
+    "_h167": {
       "additionalProperties": false,
       "properties": {
         "ecosystem": {
@@ -3169,7 +3173,7 @@
       "title": "resolve maven",
       "type": "object"
     },
-    "_h167": {
+    "_h168": {
       "additionalProperties": false,
       "properties": {
         "graph": {
@@ -3210,12 +3214,18 @@
       "title": "GraphQueryCochange",
       "type": "object"
     },
-    "_h168": {
+    "_h169": {
       "maximum": 1000000000,
       "minimum": 1,
       "type": "integer"
     },
-    "_h169": {
+    "_h17": {
+      "minLength": 1,
+      "pattern": "^[^\\s\\x00-\\x1F\\x7F]+$",
+      "type": "string",
+      "x-patternMessage": "Set a ref without whitespace or control characters."
+    },
+    "_h170": {
       "items": {
         "anyOf": [
           {
@@ -3271,13 +3281,7 @@
       },
       "type": "array"
     },
-    "_h17": {
-      "minLength": 1,
-      "pattern": "^[^\\s\\x00-\\x1F\\x7F]+$",
-      "type": "string",
-      "x-patternMessage": "Set a ref without whitespace or control characters."
-    },
-    "_h170": {
+    "_h171": {
       "additionalProperties": {},
       "properties": {
         "advisories": {
@@ -3292,10 +3296,6 @@
         "advisories"
       ],
       "type": "object"
-    },
-    "_h171": {
-      "pattern": "^(?:nextPage|body|reviewBody|commentBody|patches|files|comments|reviewComments|reviews|commits|unfiltered(?:[2-9]|[1-9][0-9]+)?|unfilteredUnknown|nextCandidatePage(?:[2-9]|[1-9][0-9]+)?|continueCommitFiles(?:[2-9]|[1-9][0-9]+)?|readCommitFiles(?:[2-9]|[1-9][0-9]+)?|listCommits(?:[2-9]|[1-9][0-9]+)?|readAtCommit(?:[2-9]|[1-9][0-9]+)?|readParent(?:[2-9]|[1-9][0-9]+)?|searchUnpatchedFile(?:[2-9]|[1-9][0-9]+)?|expandContext(?:[2-9]|[1-9][0-9]+)?|retry(?:[2-9]|[1-9][0-9]+)?|restart(?:[2-9]|[1-9][0-9]+)?)$",
-      "type": "string"
     },
     "_h172": {
       "additionalProperties": false,
@@ -3379,7 +3379,7 @@
           "$ref": "#/$defs/_h116"
         },
         "line": {
-          "$ref": "#/$defs/_h39"
+          "$ref": "#/$defs/_h40"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h24"
@@ -3394,7 +3394,7 @@
           "$ref": "#/$defs/_h72"
         },
         "path": {
-          "$ref": "#/$defs/_h41"
+          "$ref": "#/$defs/_h42"
         },
         "reasoning": {
           "$ref": "#/$defs/_h24"
@@ -3406,7 +3406,7 @@
           "$ref": "#/$defs/_h45"
         },
         "workspaceRoot": {
-          "$ref": "#/$defs/_h64"
+          "$ref": "#/$defs/_h65"
         }
       },
       "required": [
@@ -3577,7 +3577,7 @@
           "const": "languages"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "reasoning": {
           "$ref": "#/$defs/_h24"
@@ -3700,7 +3700,7 @@
           "const": "refs"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "page": {
           "$ref": "#/$defs/_h92"
@@ -3729,16 +3729,16 @@
       "additionalProperties": false,
       "properties": {
         "classification": {
-          "$ref": "#/$defs/_h4"
+          "$ref": "#/$defs/_h3"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h24"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "path": {
-          "$ref": "#/$defs/_h42"
+          "$ref": "#/$defs/_h43"
         },
         "readProgress": {
           "$ref": "#/$defs/_h235"
@@ -3770,7 +3770,7 @@
       "additionalProperties": false,
       "properties": {
         "classification": {
-          "$ref": "#/$defs/_h4"
+          "$ref": "#/$defs/_h3"
         },
         "limit": {
           "$ref": "#/$defs/_h116"
@@ -3847,10 +3847,10 @@
           "$ref": "#/$defs/_h24"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "path": {
-          "$ref": "#/$defs/_h42"
+          "$ref": "#/$defs/_h43"
         },
         "ranges": {
           "$ref": "#/$defs/_h97"
@@ -3896,7 +3896,7 @@
           "$ref": "#/$defs/_h72"
         },
         "path": {
-          "$ref": "#/$defs/_h41"
+          "$ref": "#/$defs/_h42"
         },
         "reasoning": {
           "$ref": "#/$defs/_h24"
@@ -3908,7 +3908,7 @@
           "$ref": "#/$defs/_h45"
         },
         "workspaceRoot": {
-          "$ref": "#/$defs/_h64"
+          "$ref": "#/$defs/_h65"
         }
       },
       "required": [
@@ -4046,7 +4046,7 @@
           "$ref": "#/$defs/AstParser"
         },
         "path": {
-          "$ref": "#/$defs/_h41"
+          "$ref": "#/$defs/_h42"
         },
         "reasoning": {
           "$ref": "#/$defs/_h24"
@@ -4126,7 +4126,7 @@
         "$ref": "#/$defs/ghSearchHistoryContinueCall"
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h44"
+        "$ref": "#/$defs/_h39"
       },
       "type": "object"
     },
@@ -4171,7 +4171,7 @@
           "$ref": "#/$defs/_h45"
         },
         "workspaceRoot": {
-          "$ref": "#/$defs/_h64"
+          "$ref": "#/$defs/_h65"
         }
       },
       "required": [
@@ -4322,6 +4322,13 @@
           "cwes": {
             "$ref": "#/$defs/_h27"
           },
+          "database": {
+            "enum": [
+              "OSV",
+              "GitHub advisory database",
+              "GitHub repository advisory"
+            ]
+          },
           "details": {
             "type": "string"
           },
@@ -4447,7 +4454,7 @@
           "$ref": "#/$defs/_h72"
         },
         "path": {
-          "$ref": "#/$defs/_h41"
+          "$ref": "#/$defs/_h42"
         },
         "reasoning": {
           "$ref": "#/$defs/_h24"
@@ -4456,7 +4463,7 @@
           "$ref": "#/$defs/_h53"
         },
         "workspaceRoot": {
-          "$ref": "#/$defs/_h64"
+          "$ref": "#/$defs/_h65"
         }
       },
       "required": [
@@ -4601,10 +4608,10 @@
           "$ref": "#/$defs/_h24"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "path": {
-          "$ref": "#/$defs/_h42"
+          "$ref": "#/$defs/_h43"
         },
         "readProgress": {
           "$ref": "#/$defs/_h235"
@@ -4637,10 +4644,10 @@
           "$ref": "#/$defs/_h24"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "path": {
-          "$ref": "#/$defs/_h42"
+          "$ref": "#/$defs/_h43"
         },
         "readProgress": {
           "$ref": "#/$defs/_h235"
@@ -4673,10 +4680,10 @@
           "additionalProperties": false,
           "properties": {
             "owner": {
-              "$ref": "#/$defs/_h7"
+              "$ref": "#/$defs/_h8"
             },
             "path": {
-              "$ref": "#/$defs/_h42"
+              "$ref": "#/$defs/_h43"
             },
             "ranges": {
               "$ref": "#/$defs/_h97"
@@ -5099,7 +5106,7 @@
     },
     "_h225": {
       "additionalProperties": {
-        "$ref": "#/$defs/_h3"
+        "$ref": "#/$defs/_h4"
       },
       "minProperties": 1,
       "propertyNames": {
@@ -5245,7 +5252,7 @@
         "$ref": "#/$defs/localSearchContinueCall"
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h44"
+        "$ref": "#/$defs/_h39"
       },
       "type": "object"
     },
@@ -5483,23 +5490,18 @@
       "type": "object"
     },
     "_h248": {
-      "pattern": "^(?:nextPage|cycle(?:0|[1-9][0-9]*)|affectedEntrypoints(?:[2-9]|[1-9][0-9]+)?|testsToRun(?:[2-9]|[1-9][0-9]+)?|unmapped(?:[2-9]|[1-9][0-9]+)?|retry(?:[2-9]|[1-9][0-9]+)?|restart(?:[2-9]|[1-9][0-9]+)?)$",
+      "pattern": "^(?:nextPage|unfiltered(?:[2-9]|[1-9][0-9]+)?|unfilteredUnknown|confirm|nextCandidatePage(?:[2-9]|[1-9][0-9]+)?|readHits(?:[2-9]|[1-9][0-9]+)?|retry(?:[2-9]|[1-9][0-9]+)?|restart(?:[2-9]|[1-9][0-9]+)?)$",
       "type": "string"
     },
     "_h249": {
-      "additionalProperties": {
-        "type": "string"
-      },
-      "propertyNames": {
-        "type": "string"
-      },
-      "type": "object"
+      "pattern": "^(?:nextPage|cycle(?:0|[1-9][0-9]*)|affectedEntrypoints(?:[2-9]|[1-9][0-9]+)?|testsToRun(?:[2-9]|[1-9][0-9]+)?|unmapped(?:[2-9]|[1-9][0-9]+)?|retry(?:[2-9]|[1-9][0-9]+)?|restart(?:[2-9]|[1-9][0-9]+)?)$",
+      "type": "string"
     },
     "_h25": {
       "additionalProperties": false,
       "properties": {
         "classification": {
-          "$ref": "#/$defs/_h4"
+          "$ref": "#/$defs/_h3"
         },
         "fields": {
           "$ref": "#/$defs/_h26"
@@ -5631,7 +5633,7 @@
           "const": "pullRequest"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "page": {
           "$ref": "#/$defs/_h72"
@@ -5821,6 +5823,15 @@
       ]
     },
     "_h250": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "_h251": {
       "items": {
         "allOf": [
           {
@@ -5838,7 +5849,7 @@
       "minItems": 1,
       "type": "array"
     },
-    "_h251": {
+    "_h252": {
       "$ref": "#/$defs/ghCloneRepoNext",
       "additionalProperties": {
         "$ref": "#/$defs/ghCloneRepoContinueCall"
@@ -5847,10 +5858,6 @@
         "$ref": "#/$defs/_h329"
       },
       "type": "object"
-    },
-    "_h252": {
-      "pattern": "^(?:nextPage|unfiltered(?:[2-9]|[1-9][0-9]+)?|unfilteredUnknown|nextCandidatePage(?:[2-9]|[1-9][0-9]+)?|readHits(?:[2-9]|[1-9][0-9]+)?|retry(?:[2-9]|[1-9][0-9]+)?|restart(?:[2-9]|[1-9][0-9]+)?)$",
-      "type": "string"
     },
     "_h253": {
       "additionalProperties": false,
@@ -6179,7 +6186,7 @@
         "$ref": "#/$defs/ghGetFileContentContinueCall"
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h44"
+        "$ref": "#/$defs/_h39"
       },
       "type": "object"
     },
@@ -6205,7 +6212,7 @@
         "$ref": "#/$defs/structureSearchContinueCall"
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h44"
+        "$ref": "#/$defs/_h39"
       },
       "type": "object"
     },
@@ -6284,7 +6291,7 @@
         "$ref": "#/$defs/localFetchContinueCall"
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h44"
+        "$ref": "#/$defs/_h39"
       },
       "type": "object"
     },
@@ -6394,17 +6401,25 @@
       ]
     },
     "_h3": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/_h238"
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/ClassificationContext"
         },
-        {
-          "$ref": "#/$defs/_h208"
+        "longContext": {
+          "type": "boolean"
         },
-        {
-          "$ref": "#/$defs/_h173"
+        "maxRequests": {
+          "$ref": "#/$defs/_h29"
+        },
+        "predicates": {
+          "$ref": "#/$defs/_h81"
         }
-      ]
+      },
+      "required": [
+        "predicates"
+      ],
+      "type": "object"
     },
     "_h30": {
       "anyOf": [
@@ -7633,30 +7648,29 @@
       "type": "object"
     },
     "_h39": {
+      "pattern": "^(?:nextPage|unfiltered(?:[2-9]|[1-9][0-9]+)?|unfilteredUnknown|confirm|nextCandidatePage(?:[2-9]|[1-9][0-9]+)?|retry(?:[2-9]|[1-9][0-9]+)?|restart(?:[2-9]|[1-9][0-9]+)?)$",
+      "type": "string"
+    },
+    "_h4": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/_h238"
+        },
+        {
+          "$ref": "#/$defs/_h208"
+        },
+        {
+          "$ref": "#/$defs/_h173"
+        }
+      ]
+    },
+    "_h40": {
       "maximum": 1000000000,
       "minimum": 1,
       "type": "integer",
       "x-requiredMessage": "the 1-based line where symbolName appears; find it with localSearch or astSearch"
     },
-    "_h4": {
-      "additionalProperties": false,
-      "properties": {
-        "context": {
-          "$ref": "#/$defs/ClassificationContext"
-        },
-        "longContext": {
-          "type": "boolean"
-        },
-        "predicates": {
-          "$ref": "#/$defs/_h81"
-        }
-      },
-      "required": [
-        "predicates"
-      ],
-      "type": "object"
-    },
-    "_h40": {
+    "_h41": {
       "items": {
         "additionalProperties": {},
         "properties": {
@@ -7707,12 +7721,12 @@
       },
       "type": "array"
     },
-    "_h41": {
+    "_h42": {
       "pattern": "\\S",
       "type": "string",
       "x-patternMessage": "Set a non-blank path."
     },
-    "_h42": {
+    "_h43": {
       "allOf": [
         {
           "$ref": "#/$defs/_h324"
@@ -7724,7 +7738,7 @@
       "minLength": 1,
       "type": "string"
     },
-    "_h43": {
+    "_h44": {
       "additionalProperties": false,
       "properties": {
         "fields": {
@@ -7802,7 +7816,7 @@
           "const": "search"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "page": {
           "$ref": "#/$defs/_h72"
@@ -7937,10 +7951,6 @@
         }
       ]
     },
-    "_h44": {
-      "pattern": "^(?:nextPage|unfiltered(?:[2-9]|[1-9][0-9]+)?|unfilteredUnknown|nextCandidatePage(?:[2-9]|[1-9][0-9]+)?|retry(?:[2-9]|[1-9][0-9]+)?|restart(?:[2-9]|[1-9][0-9]+)?)$",
-      "type": "string"
-    },
     "_h45": {
       "minLength": 1,
       "type": "string"
@@ -7965,7 +7975,7 @@
           "x-listing": "metadata"
         },
         "classification": {
-          "$ref": "#/$defs/_h4"
+          "$ref": "#/$defs/_h3"
         },
         "defaultExcludes": {
           "$ref": "#/$defs/DefaultExcludes",
@@ -8029,7 +8039,7 @@
           "$ref": "#/$defs/_h72"
         },
         "path": {
-          "$ref": "#/$defs/_h41"
+          "$ref": "#/$defs/_h42"
         },
         "permissions": {
           "pattern": "^[0-7]{3,4}$",
@@ -8924,6 +8934,42 @@
       "type": "object"
     },
     "_h62": {
+      "$ref": "#/$defs/ghSearchCodeNext",
+      "additionalProperties": {
+        "$ref": "#/$defs/_h315"
+      },
+      "patternProperties": {
+        "^(?:confirm)$": {
+          "$ref": "#/$defs/ghSearchCodeContinueCall"
+        },
+        "^(?:nextCandidatePage(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/ghSearchCodeContinueCall"
+        },
+        "^(?:nextPage)$": {
+          "$ref": "#/$defs/ghSearchCodeContinueCall"
+        },
+        "^(?:readHits(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/ghGetFileContentContinueCall"
+        },
+        "^(?:restart(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/ghSearchCodeContinueCall"
+        },
+        "^(?:retry(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/ghSearchCodeContinueCall"
+        },
+        "^(?:unfiltered(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/ghSearchCodeContinueCall"
+        },
+        "^(?:unfilteredUnknown)$": {
+          "$ref": "#/$defs/ghSearchCodeContinueCall"
+        }
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/_h248"
+      },
+      "type": "object"
+    },
+    "_h63": {
       "additionalProperties": {},
       "properties": {
         "archived": {
@@ -8979,49 +9025,16 @@
       "title": "SecurityRepository",
       "type": "object"
     },
-    "_h63": {
+    "_h64": {
       "items": {
         "$ref": "#/$defs/PartialReason"
       },
       "type": "array"
     },
-    "_h64": {
+    "_h65": {
       "pattern": "\\S",
       "type": "string",
       "x-patternMessage": "Set a non-blank workspaceRoot."
-    },
-    "_h65": {
-      "$ref": "#/$defs/ghSearchCodeNext",
-      "additionalProperties": {
-        "$ref": "#/$defs/_h315"
-      },
-      "patternProperties": {
-        "^(?:nextCandidatePage(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/ghSearchCodeContinueCall"
-        },
-        "^(?:nextPage)$": {
-          "$ref": "#/$defs/ghSearchCodeContinueCall"
-        },
-        "^(?:readHits(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/ghGetFileContentContinueCall"
-        },
-        "^(?:restart(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/ghSearchCodeContinueCall"
-        },
-        "^(?:retry(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/ghSearchCodeContinueCall"
-        },
-        "^(?:unfiltered(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/ghSearchCodeContinueCall"
-        },
-        "^(?:unfilteredUnknown)$": {
-          "$ref": "#/$defs/ghSearchCodeContinueCall"
-        }
-      },
-      "propertyNames": {
-        "$ref": "#/$defs/_h252"
-      },
-      "type": "object"
     },
     "_h66": {
       "additionalProperties": false,
@@ -9040,7 +9053,7 @@
       "additionalProperties": false,
       "properties": {
         "classification": {
-          "$ref": "#/$defs/_h4"
+          "$ref": "#/$defs/_h3"
         },
         "fields": {
           "$ref": "#/$defs/_h26"
@@ -9109,7 +9122,7 @@
           "const": "issue"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "page": {
           "$ref": "#/$defs/_h72"
@@ -9201,9 +9214,85 @@
       "type": "array"
     },
     "_h7": {
-      "pattern": "^(?:\\w[\\w.-]*|\\.[\\w-][\\w.-]*|\\.\\.[\\w.-]+)$",
-      "type": "string",
-      "x-patternMessage": "Set one GitHub user or organization name."
+      "$ref": "#/$defs/ghGetHistoryItemNext",
+      "additionalProperties": {
+        "$ref": "#/$defs/_h312"
+      },
+      "patternProperties": {
+        "^(?:body)$": {
+          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
+        },
+        "^(?:commentBody)$": {
+          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
+        },
+        "^(?:comments)$": {
+          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
+        },
+        "^(?:commits)$": {
+          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
+        },
+        "^(?:confirm)$": {
+          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
+        },
+        "^(?:continueCommitFiles(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
+        },
+        "^(?:expandContext(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/ghGetFileContentContinueCall"
+        },
+        "^(?:files)$": {
+          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
+        },
+        "^(?:listCommits(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
+        },
+        "^(?:nextCandidatePage(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
+        },
+        "^(?:nextPage)$": {
+          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
+        },
+        "^(?:patches)$": {
+          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
+        },
+        "^(?:readAtCommit(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/ghGetFileContentContinueCall"
+        },
+        "^(?:readCommitFiles(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
+        },
+        "^(?:readParent(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/ghGetFileContentContinueCall"
+        },
+        "^(?:restart(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
+        },
+        "^(?:retry(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
+        },
+        "^(?:reviewBody)$": {
+          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
+        },
+        "^(?:reviewComments)$": {
+          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
+        },
+        "^(?:reviews)$": {
+          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
+        },
+        "^(?:searchUnpatchedFile(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/ghGetFileContentContinueCall"
+        },
+        "^(?:unfiltered(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
+        },
+        "^(?:unfilteredUnknown)$": {
+          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
+        }
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/_h165"
+      },
+      "type": "object"
     },
     "_h70": {
       "additionalProperties": false,
@@ -9517,7 +9606,7 @@
           "default": "smart"
         },
         "classification": {
-          "$ref": "#/$defs/_h4"
+          "$ref": "#/$defs/_h3"
         },
         "defaultExcludes": {
           "$ref": "#/$defs/DefaultExcludes"
@@ -9568,7 +9657,7 @@
           "$ref": "#/$defs/_h72"
         },
         "path": {
-          "$ref": "#/$defs/_h41"
+          "$ref": "#/$defs/_h42"
         },
         "reasoning": {
           "$ref": "#/$defs/_h24"
@@ -9629,7 +9718,7 @@
           "default": "smart"
         },
         "classification": {
-          "$ref": "#/$defs/_h4"
+          "$ref": "#/$defs/_h3"
         },
         "contextLines": {
           "$ref": "#/$defs/_h38"
@@ -9683,7 +9772,7 @@
           "$ref": "#/$defs/_h72"
         },
         "path": {
-          "$ref": "#/$defs/_h41"
+          "$ref": "#/$defs/_h42"
         },
         "reasoning": {
           "$ref": "#/$defs/_h24"
@@ -9728,82 +9817,9 @@
       "type": "object"
     },
     "_h8": {
-      "$ref": "#/$defs/ghGetHistoryItemNext",
-      "additionalProperties": {
-        "$ref": "#/$defs/_h312"
-      },
-      "patternProperties": {
-        "^(?:body)$": {
-          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
-        },
-        "^(?:commentBody)$": {
-          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
-        },
-        "^(?:comments)$": {
-          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
-        },
-        "^(?:commits)$": {
-          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
-        },
-        "^(?:continueCommitFiles(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
-        },
-        "^(?:expandContext(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/ghGetFileContentContinueCall"
-        },
-        "^(?:files)$": {
-          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
-        },
-        "^(?:listCommits(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
-        },
-        "^(?:nextCandidatePage(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
-        },
-        "^(?:nextPage)$": {
-          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
-        },
-        "^(?:patches)$": {
-          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
-        },
-        "^(?:readAtCommit(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/ghGetFileContentContinueCall"
-        },
-        "^(?:readCommitFiles(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
-        },
-        "^(?:readParent(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/ghGetFileContentContinueCall"
-        },
-        "^(?:restart(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
-        },
-        "^(?:retry(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
-        },
-        "^(?:reviewBody)$": {
-          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
-        },
-        "^(?:reviewComments)$": {
-          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
-        },
-        "^(?:reviews)$": {
-          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
-        },
-        "^(?:searchUnpatchedFile(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/ghGetFileContentContinueCall"
-        },
-        "^(?:unfiltered(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
-        },
-        "^(?:unfilteredUnknown)$": {
-          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
-        }
-      },
-      "propertyNames": {
-        "$ref": "#/$defs/_h171"
-      },
-      "type": "object"
+      "pattern": "^(?:\\w[\\w.-]*|\\.[\\w-][\\w.-]*|\\.\\.[\\w.-]+)$",
+      "type": "string",
+      "x-patternMessage": "Set one GitHub user or organization name."
     },
     "_h80": {
       "$ref": "#/$defs/ghStructureNext",
@@ -9879,7 +9895,7 @@
           "$ref": "#/$defs/_h72"
         },
         "path": {
-          "$ref": "#/$defs/_h41"
+          "$ref": "#/$defs/_h42"
         },
         "reasoning": {
           "$ref": "#/$defs/_h24"
@@ -9983,7 +9999,7 @@
       "additionalProperties": false,
       "properties": {
         "classification": {
-          "$ref": "#/$defs/_h4"
+          "$ref": "#/$defs/_h3"
         },
         "defaultExcludes": {
           "$ref": "#/$defs/DefaultExcludes",
@@ -10031,7 +10047,7 @@
           "$ref": "#/$defs/_h72"
         },
         "path": {
-          "$ref": "#/$defs/_h41"
+          "$ref": "#/$defs/_h42"
         },
         "reasoning": {
           "$ref": "#/$defs/_h24"
@@ -10070,7 +10086,7 @@
           "default": "smart"
         },
         "classification": {
-          "$ref": "#/$defs/_h4"
+          "$ref": "#/$defs/_h3"
         },
         "contextLines": {
           "$ref": "#/$defs/_h38"
@@ -10091,10 +10107,10 @@
           "$ref": "#/$defs/TextMatchTerms"
         },
         "minChanges": {
-          "$ref": "#/$defs/_h168"
+          "$ref": "#/$defs/_h169"
         },
         "number": {
-          "$ref": "#/$defs/_h168"
+          "$ref": "#/$defs/_h169"
         },
         "offset": {
           "$ref": "#/$defs/_h239"
@@ -10103,7 +10119,7 @@
           "const": "pullRequest"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "page": {
           "$ref": "#/$defs/_h92"
@@ -10227,7 +10243,7 @@
           "$ref": "#/$defs/AstParserGlobs"
         },
         "path": {
-          "$ref": "#/$defs/_h41"
+          "$ref": "#/$defs/_h42"
         },
         "reasoning": {
           "$ref": "#/$defs/_h24"
@@ -10283,7 +10299,7 @@
       "additionalProperties": false,
       "properties": {
         "include": {
-          "$ref": "#/$defs/_h250"
+          "$ref": "#/$defs/_h251"
         },
         "limit": {
           "default": 300,
@@ -10306,7 +10322,7 @@
           "const": "tree"
         },
         "owner": {
-          "$ref": "#/$defs/_h7"
+          "$ref": "#/$defs/_h8"
         },
         "page": {
           "$ref": "#/$defs/_h92"
@@ -10395,7 +10411,7 @@
           "$ref": "#/$defs/AstParserGlobs"
         },
         "path": {
-          "$ref": "#/$defs/_h41"
+          "$ref": "#/$defs/_h42"
         },
         "reasoning": {
           "$ref": "#/$defs/_h24"
@@ -10780,7 +10796,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -10851,7 +10867,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -11334,7 +11350,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "path": {
               "type": "string"
@@ -11462,7 +11478,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "path": {
               "type": "string"
@@ -11590,7 +11606,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "path": {
               "type": "string"
@@ -11718,7 +11734,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "path": {
               "type": "string"
@@ -11846,7 +11862,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "path": {
               "type": "string"
@@ -11961,7 +11977,7 @@
                             "$ref": "#/$defs/AstParserGlobsContinuationInput"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h41"
+                            "$ref": "#/$defs/_h42"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -12026,7 +12042,7 @@
                             "$ref": "#/$defs/AstParserGlobsContinuationInput"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h41"
+                            "$ref": "#/$defs/_h42"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -12080,7 +12096,7 @@
                             "$ref": "#/$defs/AstParser"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h41"
+                            "$ref": "#/$defs/_h42"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -12126,7 +12142,7 @@
                             "$ref": "#/$defs/AstParserGlobsContinuationInput"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h41"
+                            "$ref": "#/$defs/_h42"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -13011,10 +13027,10 @@
                                         "additionalProperties": false,
                                         "properties": {
                                           "owner": {
-                                            "$ref": "#/$defs/_h7"
+                                            "$ref": "#/$defs/_h8"
                                           },
                                           "path": {
-                                            "$ref": "#/$defs/_h42"
+                                            "$ref": "#/$defs/_h43"
                                           },
                                           "ranges": {
                                             "$ref": "#/$defs/_h153"
@@ -13376,7 +13392,7 @@
               "type": "array"
             },
             "source": {
-              "$ref": "#/$defs/_h3"
+              "$ref": "#/$defs/_h4"
             },
             "sourceDigest": {
               "$ref": "#/$defs/_h45"
@@ -13413,7 +13429,7 @@
               "$ref": "#/$defs/_h348"
             },
             "source": {
-              "$ref": "#/$defs/_h3"
+              "$ref": "#/$defs/_h4"
             },
             "sourceDigest": {
               "$ref": "#/$defs/_h45"
@@ -13448,7 +13464,7 @@
               "$ref": "#/$defs/_h348"
             },
             "source": {
-              "$ref": "#/$defs/_h3"
+              "$ref": "#/$defs/_h4"
             },
             "sourceDigest": {
               "$ref": "#/$defs/_h45"
@@ -13877,7 +13893,7 @@
               "type": "object"
             },
             "next": {
-              "$ref": "#/$defs/_h251"
+              "$ref": "#/$defs/_h252"
             },
             "observedAt": {
               "type": "string"
@@ -13889,7 +13905,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "path": {
               "not": {}
@@ -13964,7 +13980,7 @@
           "type": "boolean"
         },
         "next": {
-          "$ref": "#/$defs/_h251"
+          "$ref": "#/$defs/_h252"
         },
         "observedAt": {
           "type": "string"
@@ -13973,7 +13989,7 @@
           "$ref": "#/$defs/OutputPagination"
         },
         "partialReasons": {
-          "$ref": "#/$defs/_h63"
+          "$ref": "#/$defs/_h64"
         },
         "rateLimit": {
           "$ref": "#/$defs/_h9"
@@ -14030,7 +14046,7 @@
                         "$ref": "#/$defs/_h24"
                       },
                       "owner": {
-                        "$ref": "#/$defs/_h7"
+                        "$ref": "#/$defs/_h8"
                       },
                       "paths": {
                         "$ref": "#/$defs/_h102"
@@ -14148,7 +14164,7 @@
               "$ref": "#/$defs/_h218"
             },
             "matchKeys": {
-              "$ref": "#/$defs/_h249"
+              "$ref": "#/$defs/_h250"
             },
             "matchNotFound": {
               "const": true
@@ -14169,7 +14185,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "path": {
               "type": "string"
@@ -14279,7 +14295,7 @@
               "$ref": "#/$defs/_h218"
             },
             "matchKeys": {
-              "$ref": "#/$defs/_h249"
+              "$ref": "#/$defs/_h250"
             },
             "matchNotFound": {
               "const": true
@@ -14300,7 +14316,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "path": {
               "type": "string"
@@ -14369,7 +14385,7 @@
         "$ref": "#/$defs/ghGetFileContentContinueCall"
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h44"
+        "$ref": "#/$defs/_h39"
       },
       "type": "object"
     },
@@ -14388,16 +14404,16 @@
                         "additionalProperties": false,
                         "properties": {
                           "classification": {
-                            "$ref": "#/$defs/_h4"
+                            "$ref": "#/$defs/_h3"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h24"
                           },
                           "owner": {
-                            "$ref": "#/$defs/_h7"
+                            "$ref": "#/$defs/_h8"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h42"
+                            "$ref": "#/$defs/_h43"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -14426,16 +14442,16 @@
                             "type": "boolean"
                           },
                           "classification": {
-                            "$ref": "#/$defs/_h4"
+                            "$ref": "#/$defs/_h3"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h24"
                           },
                           "owner": {
-                            "$ref": "#/$defs/_h7"
+                            "$ref": "#/$defs/_h8"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h42"
+                            "$ref": "#/$defs/_h43"
                           },
                           "ranges": {
                             "$ref": "#/$defs/_h153"
@@ -14471,7 +14487,7 @@
                             "$ref": "#/$defs/CaseMode"
                           },
                           "classification": {
-                            "$ref": "#/$defs/_h4"
+                            "$ref": "#/$defs/_h3"
                           },
                           "contextLines": {
                             "$ref": "#/$defs/_h56"
@@ -14483,10 +14499,10 @@
                             "$ref": "#/$defs/TextMatchTerms"
                           },
                           "owner": {
-                            "$ref": "#/$defs/_h7"
+                            "$ref": "#/$defs/_h8"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h42"
+                            "$ref": "#/$defs/_h43"
                           },
                           "ranges": {
                             "$ref": "#/$defs/_h153"
@@ -14525,10 +14541,10 @@
                             "$ref": "#/$defs/_h24"
                           },
                           "owner": {
-                            "$ref": "#/$defs/_h7"
+                            "$ref": "#/$defs/_h8"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h42"
+                            "$ref": "#/$defs/_h43"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -14561,10 +14577,10 @@
                             "$ref": "#/$defs/_h24"
                           },
                           "owner": {
-                            "$ref": "#/$defs/_h7"
+                            "$ref": "#/$defs/_h8"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h42"
+                            "$ref": "#/$defs/_h43"
                           },
                           "ranges": {
                             "$ref": "#/$defs/_h153"
@@ -14598,10 +14614,10 @@
                             "$ref": "#/$defs/_h24"
                           },
                           "owner": {
-                            "$ref": "#/$defs/_h7"
+                            "$ref": "#/$defs/_h8"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h42"
+                            "$ref": "#/$defs/_h43"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -14706,7 +14722,7 @@
               "type": "boolean"
             },
             "next": {
-              "$ref": "#/$defs/_h8"
+              "$ref": "#/$defs/_h7"
             },
             "observedAt": {
               "type": "string"
@@ -14715,7 +14731,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "providerLimit": {
               "additionalProperties": {},
@@ -14829,7 +14845,7 @@
                         "type": "string"
                       },
                       "partialReasons": {
-                        "$ref": "#/$defs/_h63"
+                        "$ref": "#/$defs/_h64"
                       },
                       "repo": {
                         "type": "string"
@@ -14924,7 +14940,7 @@
                         "type": "string"
                       },
                       "partialReasons": {
-                        "$ref": "#/$defs/_h63"
+                        "$ref": "#/$defs/_h64"
                       },
                       "repo": {
                         "type": "string"
@@ -15170,7 +15186,7 @@
               "type": "array"
             },
             "next": {
-              "$ref": "#/$defs/_h8"
+              "$ref": "#/$defs/_h7"
             },
             "observedAt": {
               "type": "string"
@@ -15179,7 +15195,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -15296,7 +15312,7 @@
               "type": "string"
             },
             "next": {
-              "$ref": "#/$defs/_h8"
+              "$ref": "#/$defs/_h7"
             },
             "observedAt": {
               "type": "string"
@@ -15311,7 +15327,7 @@
               "$ref": "#/$defs/_h27"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -15447,7 +15463,7 @@
               "type": "boolean"
             },
             "next": {
-              "$ref": "#/$defs/_h8"
+              "$ref": "#/$defs/_h7"
             },
             "observedAt": {
               "type": "string"
@@ -15459,7 +15475,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -15536,7 +15552,7 @@
           "type": "boolean"
         },
         "next": {
-          "$ref": "#/$defs/_h8"
+          "$ref": "#/$defs/_h7"
         },
         "observedAt": {
           "type": "string"
@@ -15545,7 +15561,7 @@
           "$ref": "#/$defs/OutputPagination"
         },
         "partialReasons": {
-          "$ref": "#/$defs/_h63"
+          "$ref": "#/$defs/_h64"
         },
         "rateLimit": {
           "$ref": "#/$defs/_h9"
@@ -15592,6 +15608,9 @@
           "$ref": "#/$defs/ghGetHistoryItemContinueCall"
         },
         "^(?:commits)$": {
+          "$ref": "#/$defs/ghGetHistoryItemContinueCall"
+        },
+        "^(?:confirm)$": {
           "$ref": "#/$defs/ghGetHistoryItemContinueCall"
         },
         "^(?:continueCommitFiles(?:[2-9]|[1-9][0-9]+)?)$": {
@@ -15650,7 +15669,7 @@
         }
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h171"
+        "$ref": "#/$defs/_h165"
       },
       "type": "object"
     },
@@ -15672,7 +15691,7 @@
                             "type": "boolean"
                           },
                           "classification": {
-                            "$ref": "#/$defs/_h4"
+                            "$ref": "#/$defs/_h3"
                           },
                           "fileStatus": {
                             "$ref": "#/$defs/_h68"
@@ -15684,16 +15703,16 @@
                             "$ref": "#/$defs/_h24"
                           },
                           "minChanges": {
-                            "$ref": "#/$defs/_h168"
+                            "$ref": "#/$defs/_h169"
                           },
                           "number": {
-                            "$ref": "#/$defs/_h168"
+                            "$ref": "#/$defs/_h169"
                           },
                           "operation": {
                             "const": "pullRequest"
                           },
                           "owner": {
-                            "$ref": "#/$defs/_h7"
+                            "$ref": "#/$defs/_h8"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -15723,7 +15742,7 @@
                             "$ref": "#/$defs/CaseMode"
                           },
                           "classification": {
-                            "$ref": "#/$defs/_h4"
+                            "$ref": "#/$defs/_h3"
                           },
                           "contextLines": {
                             "$ref": "#/$defs/_h56"
@@ -15741,16 +15760,16 @@
                             "$ref": "#/$defs/TextMatchTerms"
                           },
                           "minChanges": {
-                            "$ref": "#/$defs/_h168"
+                            "$ref": "#/$defs/_h169"
                           },
                           "number": {
-                            "$ref": "#/$defs/_h168"
+                            "$ref": "#/$defs/_h169"
                           },
                           "operation": {
                             "const": "pullRequest"
                           },
                           "owner": {
-                            "$ref": "#/$defs/_h7"
+                            "$ref": "#/$defs/_h8"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -15784,19 +15803,19 @@
                             "type": "boolean"
                           },
                           "classification": {
-                            "$ref": "#/$defs/_h4"
+                            "$ref": "#/$defs/_h3"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h24"
                           },
                           "number": {
-                            "$ref": "#/$defs/_h168"
+                            "$ref": "#/$defs/_h169"
                           },
                           "operation": {
                             "const": "issue"
                           },
                           "owner": {
-                            "$ref": "#/$defs/_h7"
+                            "$ref": "#/$defs/_h8"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -15826,7 +15845,7 @@
                             "$ref": "#/$defs/CaseMode"
                           },
                           "classification": {
-                            "$ref": "#/$defs/_h4"
+                            "$ref": "#/$defs/_h3"
                           },
                           "contextLines": {
                             "$ref": "#/$defs/_h56"
@@ -15838,13 +15857,13 @@
                             "$ref": "#/$defs/TextMatchTerms"
                           },
                           "number": {
-                            "$ref": "#/$defs/_h168"
+                            "$ref": "#/$defs/_h169"
                           },
                           "operation": {
                             "const": "issue"
                           },
                           "owner": {
-                            "$ref": "#/$defs/_h7"
+                            "$ref": "#/$defs/_h8"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -15884,13 +15903,13 @@
                             "$ref": "#/$defs/_h24"
                           },
                           "minChanges": {
-                            "$ref": "#/$defs/_h168"
+                            "$ref": "#/$defs/_h169"
                           },
                           "operation": {
                             "const": "commit"
                           },
                           "owner": {
-                            "$ref": "#/$defs/_h7"
+                            "$ref": "#/$defs/_h8"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -15935,13 +15954,13 @@
                             "$ref": "#/$defs/TextMatchTerms"
                           },
                           "minChanges": {
-                            "$ref": "#/$defs/_h168"
+                            "$ref": "#/$defs/_h169"
                           },
                           "operation": {
                             "const": "commit"
                           },
                           "owner": {
-                            "$ref": "#/$defs/_h7"
+                            "$ref": "#/$defs/_h8"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -15990,13 +16009,13 @@
                             "$ref": "#/$defs/_h24"
                           },
                           "minChanges": {
-                            "$ref": "#/$defs/_h168"
+                            "$ref": "#/$defs/_h169"
                           },
                           "operation": {
                             "const": "compare"
                           },
                           "owner": {
-                            "$ref": "#/$defs/_h7"
+                            "$ref": "#/$defs/_h8"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -16045,13 +16064,13 @@
                             "$ref": "#/$defs/TextMatchTerms"
                           },
                           "minChanges": {
-                            "$ref": "#/$defs/_h168"
+                            "$ref": "#/$defs/_h169"
                           },
                           "operation": {
                             "const": "compare"
                           },
                           "owner": {
-                            "$ref": "#/$defs/_h7"
+                            "$ref": "#/$defs/_h8"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -16163,7 +16182,7 @@
               "type": "boolean"
             },
             "next": {
-              "$ref": "#/$defs/_h65"
+              "$ref": "#/$defs/_h62"
             },
             "observedAt": {
               "type": "string"
@@ -16175,7 +16194,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -16246,7 +16265,7 @@
               "type": "boolean"
             },
             "next": {
-              "$ref": "#/$defs/_h65"
+              "$ref": "#/$defs/_h62"
             },
             "observedAt": {
               "type": "string"
@@ -16258,7 +16277,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -16303,6 +16322,9 @@
         "$ref": "#/$defs/_h315"
       },
       "patternProperties": {
+        "^(?:confirm)$": {
+          "$ref": "#/$defs/ghSearchCodeContinueCall"
+        },
         "^(?:nextCandidatePage(?:[2-9]|[1-9][0-9]+)?)$": {
           "$ref": "#/$defs/ghSearchCodeContinueCall"
         },
@@ -16326,7 +16348,7 @@
         }
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h252"
+        "$ref": "#/$defs/_h248"
       },
       "type": "object"
     },
@@ -16343,7 +16365,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "classification": {
-                        "$ref": "#/$defs/_h4"
+                        "$ref": "#/$defs/_h3"
                       },
                       "contextLines": {
                         "$ref": "#/$defs/_h56"
@@ -16378,7 +16400,7 @@
                         "$ref": "#/$defs/_h264"
                       },
                       "owner": {
-                        "$ref": "#/$defs/_h7"
+                        "$ref": "#/$defs/_h8"
                       },
                       "path": {
                         "$ref": "#/$defs/_h49"
@@ -16493,7 +16515,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "pullRequests": {
               "items": {
@@ -16669,7 +16691,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -16787,7 +16809,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -16867,7 +16889,7 @@
           "$ref": "#/$defs/OutputPagination"
         },
         "partialReasons": {
-          "$ref": "#/$defs/_h63"
+          "$ref": "#/$defs/_h64"
         },
         "rateLimit": {
           "$ref": "#/$defs/_h9"
@@ -16904,7 +16926,7 @@
         "$ref": "#/$defs/ghSearchHistoryContinueCall"
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h44"
+        "$ref": "#/$defs/_h39"
       },
       "type": "object"
     },
@@ -16923,7 +16945,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "classification": {
-                            "$ref": "#/$defs/_h4"
+                            "$ref": "#/$defs/_h3"
                           },
                           "fields": {
                             "$ref": "#/$defs/_h26"
@@ -17023,7 +17045,7 @@
                             "const": "pullRequest"
                           },
                           "owner": {
-                            "$ref": "#/$defs/_h7"
+                            "$ref": "#/$defs/_h8"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -17044,7 +17066,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "classification": {
-                            "$ref": "#/$defs/_h4"
+                            "$ref": "#/$defs/_h3"
                           },
                           "fields": {
                             "$ref": "#/$defs/_h26"
@@ -17113,7 +17135,7 @@
                             "const": "issue"
                           },
                           "owner": {
-                            "$ref": "#/$defs/_h7"
+                            "$ref": "#/$defs/_h8"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -17136,7 +17158,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "classification": {
-                            "$ref": "#/$defs/_h4"
+                            "$ref": "#/$defs/_h3"
                           },
                           "fields": {
                             "$ref": "#/$defs/_h26"
@@ -17157,7 +17179,7 @@
                             "const": "commit"
                           },
                           "owner": {
-                            "$ref": "#/$defs/_h7"
+                            "$ref": "#/$defs/_h8"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -17178,7 +17200,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "classification": {
-                            "$ref": "#/$defs/_h4"
+                            "$ref": "#/$defs/_h3"
                           },
                           "fields": {
                             "$ref": "#/$defs/_h26"
@@ -17196,7 +17218,7 @@
                             "const": "commit"
                           },
                           "owner": {
-                            "$ref": "#/$defs/_h7"
+                            "$ref": "#/$defs/_h8"
                           },
                           "path": {
                             "$ref": "#/$defs/_h49"
@@ -17311,7 +17333,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -17385,7 +17407,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -17516,7 +17538,7 @@
                             "const": "search"
                           },
                           "owner": {
-                            "$ref": "#/$defs/_h7"
+                            "$ref": "#/$defs/_h8"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -17587,7 +17609,7 @@
                             "const": "list"
                           },
                           "owner": {
-                            "$ref": "#/$defs/_h7"
+                            "$ref": "#/$defs/_h8"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -17734,7 +17756,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -17841,7 +17863,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -17948,7 +17970,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -18055,7 +18077,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -18162,7 +18184,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -18269,7 +18291,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -18339,7 +18361,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "include": {
-                            "$ref": "#/$defs/_h250"
+                            "$ref": "#/$defs/_h251"
                           },
                           "limit": {
                             "$ref": "#/$defs/_h116"
@@ -18357,7 +18379,7 @@
                             "const": "tree"
                           },
                           "owner": {
-                            "$ref": "#/$defs/_h7"
+                            "$ref": "#/$defs/_h8"
                           },
                           "path": {
                             "$ref": "#/$defs/_h309"
@@ -18408,7 +18430,7 @@
                             "const": "refs"
                           },
                           "owner": {
-                            "$ref": "#/$defs/_h7"
+                            "$ref": "#/$defs/_h8"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -18712,7 +18734,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "progress": {
               "$ref": "#/$defs/_h216"
@@ -18816,7 +18838,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "progress": {
               "$ref": "#/$defs/_h216"
@@ -18920,7 +18942,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "progress": {
               "$ref": "#/$defs/_h216"
@@ -19438,7 +19460,7 @@
                 "$ref": "#/$defs/graphQueryContinueCall"
               },
               "propertyNames": {
-                "$ref": "#/$defs/_h248"
+                "$ref": "#/$defs/_h249"
               },
               "type": "object"
             },
@@ -19458,7 +19480,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "path": {
               "items": {
@@ -21172,7 +21194,7 @@
         "$ref": "#/$defs/graphQueryContinueCall"
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h248"
+        "$ref": "#/$defs/_h249"
       },
       "type": "object"
     },
@@ -22153,7 +22175,7 @@
               "$ref": "#/$defs/_h218"
             },
             "matchKeys": {
-              "$ref": "#/$defs/_h249"
+              "$ref": "#/$defs/_h250"
             },
             "matchRanges": {
               "$ref": "#/$defs/_h226"
@@ -22168,7 +22190,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "path": {
               "type": "string"
@@ -22275,7 +22297,7 @@
               "$ref": "#/$defs/_h218"
             },
             "matchKeys": {
-              "$ref": "#/$defs/_h249"
+              "$ref": "#/$defs/_h250"
             },
             "matchRanges": {
               "$ref": "#/$defs/_h226"
@@ -22290,7 +22312,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "path": {
               "type": "string"
@@ -22359,7 +22381,7 @@
         "$ref": "#/$defs/localFetchContinueCall"
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h44"
+        "$ref": "#/$defs/_h39"
       },
       "type": "object"
     },
@@ -22378,7 +22400,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "classification": {
-                            "$ref": "#/$defs/_h4"
+                            "$ref": "#/$defs/_h3"
                           },
                           "limit": {
                             "$ref": "#/$defs/_h116"
@@ -22408,7 +22430,7 @@
                             "type": "boolean"
                           },
                           "classification": {
-                            "$ref": "#/$defs/_h4"
+                            "$ref": "#/$defs/_h3"
                           },
                           "limit": {
                             "$ref": "#/$defs/_h116"
@@ -22445,7 +22467,7 @@
                             "$ref": "#/$defs/CaseMode"
                           },
                           "classification": {
-                            "$ref": "#/$defs/_h4"
+                            "$ref": "#/$defs/_h3"
                           },
                           "contextLines": {
                             "$ref": "#/$defs/_h56"
@@ -22677,7 +22699,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -22778,7 +22800,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -22879,7 +22901,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -22927,7 +22949,7 @@
         "$ref": "#/$defs/localSearchContinueCall"
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h44"
+        "$ref": "#/$defs/_h39"
       },
       "type": "object"
     },
@@ -22949,7 +22971,7 @@
                             "$ref": "#/$defs/CaseMode"
                           },
                           "classification": {
-                            "$ref": "#/$defs/_h4"
+                            "$ref": "#/$defs/_h3"
                           },
                           "contextLines": {
                             "$ref": "#/$defs/_h56"
@@ -23004,7 +23026,7 @@
                             ]
                           },
                           "path": {
-                            "$ref": "#/$defs/_h41"
+                            "$ref": "#/$defs/_h42"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -23087,7 +23109,7 @@
                             ]
                           },
                           "path": {
-                            "$ref": "#/$defs/_h41"
+                            "$ref": "#/$defs/_h42"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -23122,7 +23144,7 @@
                             "$ref": "#/$defs/CaseMode"
                           },
                           "classification": {
-                            "$ref": "#/$defs/_h4"
+                            "$ref": "#/$defs/_h3"
                           },
                           "defaultExcludes": {
                             "$ref": "#/$defs/DefaultExcludesContinuationInput"
@@ -23174,7 +23196,7 @@
                             ]
                           },
                           "path": {
-                            "$ref": "#/$defs/_h41"
+                            "$ref": "#/$defs/_h42"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -23357,7 +23379,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "path": {
               "type": "string"
@@ -23402,7 +23424,7 @@
               "$ref": "#/$defs/_h66"
             },
             "unexpandedParents": {
-              "$ref": "#/$defs/_h40"
+              "$ref": "#/$defs/_h41"
             },
             "warnings": {
               "$ref": "#/$defs/_h27"
@@ -23488,7 +23510,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "path": {
               "type": "string"
@@ -23533,7 +23555,7 @@
               "$ref": "#/$defs/_h66"
             },
             "unexpandedParents": {
-              "$ref": "#/$defs/_h40"
+              "$ref": "#/$defs/_h41"
             },
             "warnings": {
               "$ref": "#/$defs/_h27"
@@ -23619,7 +23641,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "path": {
               "type": "string"
@@ -23664,7 +23686,7 @@
               "$ref": "#/$defs/_h66"
             },
             "unexpandedParents": {
-              "$ref": "#/$defs/_h40"
+              "$ref": "#/$defs/_h41"
             },
             "warnings": {
               "$ref": "#/$defs/_h27"
@@ -23750,7 +23772,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "path": {
               "type": "string"
@@ -23795,7 +23817,7 @@
               "$ref": "#/$defs/_h66"
             },
             "unexpandedParents": {
-              "$ref": "#/$defs/_h40"
+              "$ref": "#/$defs/_h41"
             },
             "warnings": {
               "$ref": "#/$defs/_h27"
@@ -23881,7 +23903,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "path": {
               "type": "string"
@@ -23926,7 +23948,7 @@
               "$ref": "#/$defs/_h66"
             },
             "unexpandedParents": {
-              "$ref": "#/$defs/_h40"
+              "$ref": "#/$defs/_h41"
             },
             "warnings": {
               "$ref": "#/$defs/_h27"
@@ -24012,7 +24034,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "path": {
               "type": "string"
@@ -24057,7 +24079,7 @@
               "$ref": "#/$defs/_h66"
             },
             "unexpandedParents": {
-              "$ref": "#/$defs/_h40"
+              "$ref": "#/$defs/_h41"
             },
             "warnings": {
               "$ref": "#/$defs/_h27"
@@ -24129,7 +24151,7 @@
                             "$ref": "#/$defs/_h116"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h39"
+                            "$ref": "#/$defs/_h40"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h24"
@@ -24141,7 +24163,7 @@
                             "$ref": "#/$defs/_h371"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h41"
+                            "$ref": "#/$defs/_h42"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -24153,7 +24175,7 @@
                             "const": "content"
                           },
                           "workspaceRoot": {
-                            "$ref": "#/$defs/_h64"
+                            "$ref": "#/$defs/_h65"
                           }
                         },
                         "required": [
@@ -24170,7 +24192,7 @@
                             "$ref": "#/$defs/_h116"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h39"
+                            "$ref": "#/$defs/_h40"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h24"
@@ -24182,7 +24204,7 @@
                             "$ref": "#/$defs/_h371"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h41"
+                            "$ref": "#/$defs/_h42"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -24194,7 +24216,7 @@
                             "const": "files"
                           },
                           "workspaceRoot": {
-                            "$ref": "#/$defs/_h64"
+                            "$ref": "#/$defs/_h65"
                           }
                         },
                         "required": [
@@ -24218,7 +24240,7 @@
                             "$ref": "#/$defs/_h116"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h39"
+                            "$ref": "#/$defs/_h40"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h24"
@@ -24230,7 +24252,7 @@
                             "const": "references"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h41"
+                            "$ref": "#/$defs/_h42"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -24245,7 +24267,7 @@
                             "const": "content"
                           },
                           "workspaceRoot": {
-                            "$ref": "#/$defs/_h64"
+                            "$ref": "#/$defs/_h65"
                           }
                         },
                         "required": [
@@ -24266,7 +24288,7 @@
                             "$ref": "#/$defs/_h116"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h39"
+                            "$ref": "#/$defs/_h40"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h24"
@@ -24278,7 +24300,7 @@
                             "const": "references"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h41"
+                            "$ref": "#/$defs/_h42"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -24293,7 +24315,7 @@
                             "const": "files"
                           },
                           "workspaceRoot": {
-                            "$ref": "#/$defs/_h64"
+                            "$ref": "#/$defs/_h65"
                           }
                         },
                         "required": [
@@ -24315,7 +24337,7 @@
                             "$ref": "#/$defs/_h116"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h39"
+                            "$ref": "#/$defs/_h40"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h24"
@@ -24327,7 +24349,7 @@
                             "const": "callers"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h41"
+                            "$ref": "#/$defs/_h42"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -24339,7 +24361,7 @@
                             "$ref": "#/$defs/TestCode"
                           },
                           "workspaceRoot": {
-                            "$ref": "#/$defs/_h64"
+                            "$ref": "#/$defs/_h65"
                           }
                         },
                         "required": [
@@ -24360,7 +24382,7 @@
                             "$ref": "#/$defs/_h116"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h39"
+                            "$ref": "#/$defs/_h40"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h24"
@@ -24375,7 +24397,7 @@
                             ]
                           },
                           "path": {
-                            "$ref": "#/$defs/_h41"
+                            "$ref": "#/$defs/_h42"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -24384,7 +24406,7 @@
                             "$ref": "#/$defs/_h45"
                           },
                           "workspaceRoot": {
-                            "$ref": "#/$defs/_h64"
+                            "$ref": "#/$defs/_h65"
                           }
                         },
                         "required": [
@@ -24405,7 +24427,7 @@
                             "$ref": "#/$defs/_h116"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h39"
+                            "$ref": "#/$defs/_h40"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h24"
@@ -24417,7 +24439,7 @@
                             "const": "subtypes"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h41"
+                            "$ref": "#/$defs/_h42"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -24426,7 +24448,7 @@
                             "$ref": "#/$defs/_h45"
                           },
                           "workspaceRoot": {
-                            "$ref": "#/$defs/_h64"
+                            "$ref": "#/$defs/_h65"
                           }
                         },
                         "required": [
@@ -24444,7 +24466,7 @@
                             "$ref": "#/$defs/_h116"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h39"
+                            "$ref": "#/$defs/_h40"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h24"
@@ -24456,7 +24478,7 @@
                             "const": "hover"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h41"
+                            "$ref": "#/$defs/_h42"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -24465,7 +24487,7 @@
                             "$ref": "#/$defs/_h45"
                           },
                           "workspaceRoot": {
-                            "$ref": "#/$defs/_h64"
+                            "$ref": "#/$defs/_h65"
                           }
                         },
                         "required": [
@@ -24492,13 +24514,13 @@
                             ]
                           },
                           "path": {
-                            "$ref": "#/$defs/_h41"
+                            "$ref": "#/$defs/_h42"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
                           },
                           "workspaceRoot": {
-                            "$ref": "#/$defs/_h64"
+                            "$ref": "#/$defs/_h65"
                           }
                         },
                         "required": [
@@ -24520,7 +24542,7 @@
                             "const": "workspaceSymbol"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h41"
+                            "$ref": "#/$defs/_h42"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -24529,7 +24551,7 @@
                             "$ref": "#/$defs/_h45"
                           },
                           "workspaceRoot": {
-                            "$ref": "#/$defs/_h64"
+                            "$ref": "#/$defs/_h65"
                           }
                         },
                         "required": [
@@ -24558,7 +24580,7 @@
                             "$ref": "#/$defs/_h45"
                           },
                           "workspaceRoot": {
-                            "$ref": "#/$defs/_h64"
+                            "$ref": "#/$defs/_h65"
                           }
                         },
                         "required": [
@@ -26381,7 +26403,7 @@
       "$ref": "#/$defs/_h33"
     },
     "QueryClasifySource": {
-      "$ref": "#/$defs/_h3"
+      "$ref": "#/$defs/_h4"
     },
     "QueryEvaluateSource": {
       "$ref": "#/$defs/_h84"
@@ -26589,7 +26611,7 @@
               "type": "string"
             },
             "moduleOnly": {
-              "$ref": "#/$defs/_h170"
+              "$ref": "#/$defs/_h171"
             },
             "next": {
               "$ref": "#/$defs/_h101"
@@ -26607,7 +26629,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -26622,7 +26644,7 @@
               "$ref": "#/$defs/_h50"
             },
             "repository": {
-              "$ref": "#/$defs/_h62"
+              "$ref": "#/$defs/_h63"
             },
             "retryable": {
               "type": "boolean"
@@ -26729,7 +26751,7 @@
               "type": "string"
             },
             "moduleOnly": {
-              "$ref": "#/$defs/_h170"
+              "$ref": "#/$defs/_h171"
             },
             "next": {
               "$ref": "#/$defs/_h101"
@@ -26747,7 +26769,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -26762,7 +26784,7 @@
               "$ref": "#/$defs/_h50"
             },
             "repository": {
-              "$ref": "#/$defs/_h62"
+              "$ref": "#/$defs/_h63"
             },
             "retryable": {
               "type": "boolean"
@@ -26869,7 +26891,7 @@
               "type": "string"
             },
             "moduleOnly": {
-              "$ref": "#/$defs/_h170"
+              "$ref": "#/$defs/_h171"
             },
             "next": {
               "$ref": "#/$defs/_h101"
@@ -26887,7 +26909,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -26902,7 +26924,7 @@
               "$ref": "#/$defs/_h50"
             },
             "repository": {
-              "$ref": "#/$defs/_h62"
+              "$ref": "#/$defs/_h63"
             },
             "retryable": {
               "type": "boolean"
@@ -27009,7 +27031,7 @@
               "type": "string"
             },
             "moduleOnly": {
-              "$ref": "#/$defs/_h170"
+              "$ref": "#/$defs/_h171"
             },
             "next": {
               "$ref": "#/$defs/_h101"
@@ -27027,7 +27049,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -27042,7 +27064,7 @@
               "$ref": "#/$defs/_h50"
             },
             "repository": {
-              "$ref": "#/$defs/_h62"
+              "$ref": "#/$defs/_h63"
             },
             "retryable": {
               "type": "boolean"
@@ -27149,7 +27171,7 @@
               "type": "string"
             },
             "moduleOnly": {
-              "$ref": "#/$defs/_h170"
+              "$ref": "#/$defs/_h171"
             },
             "next": {
               "$ref": "#/$defs/_h101"
@@ -27167,7 +27189,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h9"
@@ -27182,7 +27204,7 @@
               "$ref": "#/$defs/_h50"
             },
             "repository": {
-              "$ref": "#/$defs/_h62"
+              "$ref": "#/$defs/_h63"
             },
             "retryable": {
               "type": "boolean"
@@ -27734,7 +27756,7 @@
               "$ref": "#/$defs/ErrorCode"
             },
             "files": {
-              "$ref": "#/$defs/_h169"
+              "$ref": "#/$defs/_h170"
             },
             "filesScanned": {
               "$ref": "#/$defs/_h0"
@@ -27758,7 +27780,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "path": {
               "type": "string"
@@ -27838,7 +27860,7 @@
               "$ref": "#/$defs/ErrorCode"
             },
             "files": {
-              "$ref": "#/$defs/_h169"
+              "$ref": "#/$defs/_h170"
             },
             "filesScanned": {
               "$ref": "#/$defs/_h0"
@@ -27862,7 +27884,7 @@
               "$ref": "#/$defs/OutputPagination"
             },
             "partialReasons": {
-              "$ref": "#/$defs/_h63"
+              "$ref": "#/$defs/_h64"
             },
             "path": {
               "type": "string"
@@ -27922,7 +27944,7 @@
         "$ref": "#/$defs/structureSearchContinueCall"
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h44"
+        "$ref": "#/$defs/_h39"
       },
       "type": "object"
     },
@@ -27941,7 +27963,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "classification": {
-                            "$ref": "#/$defs/_h4"
+                            "$ref": "#/$defs/_h3"
                           },
                           "defaultExcludes": {
                             "type": "boolean"
@@ -27980,7 +28002,7 @@
                             "const": "tree"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h41"
+                            "$ref": "#/$defs/_h42"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h24"
@@ -28011,7 +28033,7 @@
                             "$ref": "#/$defs/NumericRangeContinuationInput"
                           },
                           "classification": {
-                            "$ref": "#/$defs/_h4"
+                            "$ref": "#/$defs/_h3"
                           },
                           "defaultExcludes": {
                             "type": "boolean"
@@ -28062,7 +28084,7 @@
                             "const": "files"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h41"
+                            "$ref": "#/$defs/_h42"
                           },
                           "permissions": {
                             "pattern": "^[0-7]{3,4}$",
@@ -28251,6 +28273,7 @@
         "selection"
       ],
       "row": {
+        "confirm": "single",
         "nextCandidatePage": "branch",
         "nextPage": "linear",
         "unfiltered": "branch",
@@ -28270,6 +28293,7 @@
         "commentBody": "linear",
         "comments": "linear",
         "commits": "linear",
+        "confirm": "single",
         "continueCommitFiles": "branch",
         "expandContext": {
           "kind": "branch",
@@ -28313,6 +28337,7 @@
         "selection"
       ],
       "row": {
+        "confirm": "single",
         "nextCandidatePage": "branch",
         "nextPage": "linear",
         "readHits": {
@@ -28330,6 +28355,7 @@
         "selection"
       ],
       "row": {
+        "confirm": "single",
         "nextCandidatePage": "branch",
         "nextPage": "linear",
         "unfiltered": "branch",
@@ -28374,6 +28400,7 @@
         "selection"
       ],
       "row": {
+        "confirm": "single",
         "nextCandidatePage": "branch",
         "nextPage": "linear",
         "unfiltered": "branch",
@@ -28386,6 +28413,7 @@
         "selection"
       ],
       "row": {
+        "confirm": "single",
         "nextCandidatePage": "branch",
         "nextPage": "linear",
         "unfiltered": "branch",
@@ -28427,6 +28455,7 @@
         "selection"
       ],
       "row": {
+        "confirm": "single",
         "nextCandidatePage": "branch",
         "nextPage": "linear",
         "unfiltered": "branch",
@@ -28527,7 +28556,7 @@
     "restart": "branch",
     "retry": "branch"
   },
-  "fingerprint": "56f67471140fbfbdc8483fdaa87e2fcbce985180505ecad59a74d0ba8f8bf933",
+  "fingerprint": "4a1bf680fef0fe538fd8cba67b9b4b8c3fd45f3472b73b243f96dde7eb17f461",
   "limits": {
     "defaultReadContextLines": 0,
     "defaultResponseChars": 20000,
@@ -29150,7 +29179,7 @@
                       "$ref": "#/$defs/_h126"
                     },
                     {
-                      "$ref": "#/$defs/_h167"
+                      "$ref": "#/$defs/_h168"
                     },
                     {
                       "$ref": "#/$defs/_h172"
@@ -29854,7 +29883,7 @@
             "$ref": "#/$defs/_h126"
           },
           {
-            "$ref": "#/$defs/_h167"
+            "$ref": "#/$defs/_h168"
           },
           {
             "$ref": "#/$defs/_h172"
@@ -31164,7 +31193,7 @@
                 "items": {
                   "oneOf": [
                     {
-                      "$ref": "#/$defs/_h43"
+                      "$ref": "#/$defs/_h44"
                     },
                     {
                       "$ref": "#/$defs/_h132"
@@ -31324,7 +31353,7 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "oneOf": [
           {
-            "$ref": "#/$defs/_h43"
+            "$ref": "#/$defs/_h44"
           },
           {
             "$ref": "#/$defs/_h132"
@@ -31477,7 +31506,7 @@
                   "additionalProperties": false,
                   "properties": {
                     "classification": {
-                      "$ref": "#/$defs/_h4"
+                      "$ref": "#/$defs/_h3"
                     },
                     "contextLines": {
                       "$ref": "#/$defs/_h38"
@@ -31513,7 +31542,7 @@
                       "$ref": "#/$defs/_h264"
                     },
                     "owner": {
-                      "$ref": "#/$defs/_h7"
+                      "$ref": "#/$defs/_h8"
                     },
                     "page": {
                       "$ref": "#/$defs/_h72"
@@ -31794,7 +31823,7 @@
                               "type": "boolean"
                             },
                             "next": {
-                              "$ref": "#/$defs/_h65"
+                              "$ref": "#/$defs/_h62"
                             },
                             "observedAt": {
                               "type": "string"
@@ -31803,7 +31832,7 @@
                               "$ref": "#/$defs/OutputPagination"
                             },
                             "partialReasons": {
-                              "$ref": "#/$defs/_h63"
+                              "$ref": "#/$defs/_h64"
                             },
                             "rateLimit": {
                               "$ref": "#/$defs/_h9"
@@ -31968,7 +31997,7 @@
         "additionalProperties": false,
         "properties": {
           "classification": {
-            "$ref": "#/$defs/_h4"
+            "$ref": "#/$defs/_h3"
           },
           "contextLines": {
             "$ref": "#/$defs/_h38"
@@ -32004,7 +32033,7 @@
             "$ref": "#/$defs/_h264"
           },
           "owner": {
-            "$ref": "#/$defs/_h7"
+            "$ref": "#/$defs/_h8"
           },
           "page": {
             "$ref": "#/$defs/_h72"
@@ -34200,7 +34229,7 @@
                       "$ref": "#/$defs/_h131"
                     },
                     {
-                      "$ref": "#/$defs/_h166"
+                      "$ref": "#/$defs/_h167"
                     },
                     {
                       "$ref": "#/$defs/_h163"
@@ -34379,7 +34408,7 @@
             "$ref": "#/$defs/_h131"
           },
           {
-            "$ref": "#/$defs/_h166"
+            "$ref": "#/$defs/_h167"
           },
           {
             "$ref": "#/$defs/_h163"
@@ -34593,7 +34622,7 @@
                       "$ref": "#/$defs/_h24"
                     },
                     "owner": {
-                      "$ref": "#/$defs/_h7"
+                      "$ref": "#/$defs/_h8"
                     },
                     "paths": {
                       "$ref": "#/$defs/_h102"
@@ -34781,7 +34810,7 @@
             "$ref": "#/$defs/_h24"
           },
           "owner": {
-            "$ref": "#/$defs/_h7"
+            "$ref": "#/$defs/_h8"
           },
           "paths": {
             "$ref": "#/$defs/_h102"
@@ -36541,7 +36570,7 @@
                       "$ref": "#/$defs/_h186"
                     },
                     {
-                      "$ref": "#/$defs/_h165"
+                      "$ref": "#/$defs/_h166"
                     },
                     {
                       "$ref": "#/$defs/_h120"
@@ -36735,7 +36764,7 @@
             "$ref": "#/$defs/_h186"
           },
           {
-            "$ref": "#/$defs/_h165"
+            "$ref": "#/$defs/_h166"
           },
           {
             "$ref": "#/$defs/_h120"

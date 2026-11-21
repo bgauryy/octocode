@@ -16,7 +16,13 @@ pub(super) struct ArgumentResult {
     targets: Vec<u32>,
     detail: &'static str,
     confidence: Confidence,
+    /// Set for an unextracted argument group: what it may name.
+    unextracted: Option<UnextractedGroup>,
 }
+
+/// The identifiers written inside one unextracted argument group; `None`
+/// when the extractor did not list them, so the group may name anything.
+struct UnextractedGroup(Option<Vec<String>>);
 
 impl ArgumentResult {
     fn apply_binding(
@@ -59,7 +65,7 @@ pub(super) fn link_arguments(
                 },
             };
             let slots = match &group.observation {
-                GraphArgumentGroupObservation::Unsupported { construct } => {
+                GraphArgumentGroupObservation::Unsupported { construct, names } => {
                     output.push(ArgumentResult {
                         src,
                         occurrence: format!("{}:group:{}", site.id, group.index),
@@ -72,8 +78,9 @@ pub(super) fn link_arguments(
                             ..base
                         },
                         targets: Vec::new(),
-                        detail: "unsupported-argument-group",
+                        detail: super::UNSUPPORTED_ARGUMENT_GROUP,
                         confidence: Confidence::Low,
+                        unextracted: Some(UnextractedGroup(names.clone())),
                     });
                     continue;
                 }
@@ -89,6 +96,7 @@ pub(super) fn link_arguments(
                     targets: Vec::new(),
                     detail: "scope-not-assessed",
                     confidence: Confidence::Low,
+                    unextracted: None,
                 };
                 match &slot.observation {
                     GraphArgumentObservation::NonReference { .. } => continue,
@@ -183,9 +191,50 @@ pub(super) fn link_arguments(
     }
 }
 
+/// What a file's unextracted argument groups may name, by file node: the
+/// union of their identifiers, `None` once any group may name anything.
+pub(crate) type UnextractedNames = Option<BTreeSet<String>>;
+
+/// The most declared names kept for one file: past it the file may name
+/// anything, as a file with an unlisted group does.
+const MAX_FILE_NAMES: usize = 256;
+
 impl Projector<'_> {
+    /// Adds `group`'s names to its file. A name an import renames
+    /// (`use a::f as g`, `g` written in the group) also counts as the name
+    /// it renames, the one a changed declaration has.
+    fn note_unextracted(&mut self, src: u32, group: UnextractedGroup) {
+        let file = match self.nodes[src as usize].kind {
+            NodeKind::File => src,
+            _ => self.nodes[src as usize].file,
+        };
+        if file == NONE {
+            return;
+        }
+        let names = group.0.map(|mut names| {
+            let path = self.strings.strings[self.nodes[file as usize].key as usize].as_str();
+            if let Some(facts) = self.built.facts.get(path) {
+                for import in &facts.imports {
+                    let renamed = import.local_name.as_deref();
+                    if renamed.is_some_and(|local| names.iter().any(|name| name == local)) {
+                        names.push(import.imported_name.clone());
+                    }
+                }
+            }
+            names
+        });
+        let entry = self.unextracted.entry(file).or_insert_with(|| Some(BTreeSet::new()));
+        match (entry.as_mut(), names) {
+            (Some(known), Some(names)) => known.extend(names),
+            _ => *entry = None,
+        }
+    }
+
     pub(super) fn push_arguments(&mut self, arguments: Vec<ArgumentResult>) {
         for result in arguments {
+            if let Some(group) = result.unextracted {
+                self.note_unextracted(result.src, group);
+            }
             let file = &self.nodes[self.nodes[result.src as usize].file as usize];
             let path = &self.strings.strings[file.key as usize];
             let metadata = result.metadata.map_spans(|span| StoredSpan {
@@ -229,4 +278,32 @@ impl Projector<'_> {
             }
         }
     }
+}
+
+/// `unextracted` reduced to the names a changed declaration can have: those
+/// some symbol of the snapshot is named, capped per file.
+pub(super) fn declared_unextracted(
+    unextracted: BTreeMap<u32, UnextractedNames>,
+    tables: &GraphTables,
+) -> BTreeMap<u32, UnextractedNames> {
+    let declared = tables
+        .nodes
+        .iter()
+        .filter(|node| node.kind == NodeKind::Symbol)
+        .map(|node| super::super::manifest::spelled_name(tables.str(node.name)))
+        .collect::<HashSet<_>>();
+    unextracted
+        .into_iter()
+        .map(|(file, names)| {
+            let names = names
+                .map(|names| {
+                    names
+                        .into_iter()
+                        .filter(|name| declared.contains(name.as_str()))
+                        .collect::<BTreeSet<_>>()
+                })
+                .filter(|names| names.len() <= MAX_FILE_NAMES);
+            (file, names)
+        })
+        .collect()
 }
