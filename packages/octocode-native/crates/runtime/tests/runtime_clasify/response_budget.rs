@@ -16,13 +16,13 @@ async fn a_twelve_unit_row_pages_within_response_chars_or_says_oversized() {
 }
 
 async fn check(shape: &str) {
-    let server = super::provider(if shape == "questions" { 1 } else { 12 }).await;
+    // Twelve questions of one unit, or twelve units of one question: either
+    // shares one request.
+    let server = super::provider(1).await;
     let workspace = Workspace::new();
     let runtime = clasify_runtime(&workspace, &server, &[]);
     let budget = 500;
-    let items: Vec<_> = (0..12)
-        .map(|at| json!(format!("comment {at}")))
-        .collect();
+    let items: Vec<_> = (0..12).map(|at| json!(format!("comment {at}"))).collect();
     let row = match shape {
         "units" => json!({"operation":"evaluate","view":"details","perItem":true,
             "content":items,"questions":{"keep":noul("The comment is marked to keep.")}}),
@@ -64,7 +64,7 @@ async fn check(shape: &str) {
                 units.insert(key.clone());
             }
         }
-        let next = page["responsePagination"]["next"]["input"].clone();
+        let next = page["next"]["input"].clone();
         if next.is_null() {
             break;
         }
@@ -76,7 +76,10 @@ async fn check(shape: &str) {
             .into_value();
     }
     // A summary keeps only the units that said yes: none here, so it fits.
-    assert!(shape == "summary-units" || shape == "questions" || pages > 1, "{shape}: a 12-unit row does not fit one {budget}-char page");
+    assert!(
+        shape == "summary-units" || shape == "questions" || pages > 1,
+        "{shape}: a 12-unit row does not fit one {budget}-char page"
+    );
     if shape == "units" {
         assert_eq!(units.len(), 12, "every unit reaches the reader once");
     }
@@ -110,7 +113,10 @@ async fn a_file_of_many_hit_answers_wider_than_response_chars_says_oversized() {
     for pages in 1..40 {
         let size = octocode_engine::json_size::utf16_units(&page).expect("size");
         let within = size <= budget || page["oversized"] == true;
-        assert!(within, "page {pages} is {size} chars and does not say oversized: {page}");
+        assert!(
+            within,
+            "page {pages} is {size} chars and does not say oversized: {page}"
+        );
         for line in page["results"][0]["data"]["files"]["dense.txt"]
             .as_object()
             .into_iter()
@@ -118,7 +124,7 @@ async fn a_file_of_many_hit_answers_wider_than_response_chars_says_oversized() {
         {
             assert!(lines.insert(line.clone()), "line {line} repeated");
         }
-        let next = page["responsePagination"]["next"]["input"].clone();
+        let next = page["next"]["input"].clone();
         if next.is_null() {
             break;
         }

@@ -1,7 +1,7 @@
 //! The match page a query renders: its page of the stream, coverage diagnostics,
 //! warnings and partial reasons, and why an empty page is empty.
 use super::continuations::{anchor_line, attach_match_continuations, tree_lead};
-use super::gaps::ScopeGaps;
+use super::gaps::{ScopeGaps, SkippedWalk};
 use super::query::MatchQuery;
 use super::reads::row_file;
 use super::rows::diag;
@@ -12,18 +12,37 @@ use super::types::{
 };
 use serde_json::{Value, json};
 
+/// What the literal prefilter says of an empty scan, in the terms of the
+/// `filesScanned` beside it: the `scanned` files were read (parsed, or
+/// found to lack a literal every match needs and so not parsed), and
+/// `unparsed` of them are the latter.
+fn prefilter_note(unparsed: u32, scanned: u32) -> String {
+    use octocode_engine::text::counted;
+    if unparsed >= scanned {
+        format!(
+            "No scanned file spells a literal every match needs: {} read as text, none parsed.",
+            counted(u64::from(scanned), "file", "files")
+        )
+    } else {
+        format!(
+            "{unparsed} of {} scanned lack a literal every match needs and were not parsed.",
+            counted(u64::from(scanned), "file", "files")
+        )
+    }
+}
+
 /// Scan-level coverage diagnostics the per-file groups do not carry. The
 /// prefilter's count is the scan's census, said on the scan's first `page`
 /// like the rest of it: a later page of the same scan (same snapshot)
 /// reads the same files, while a scan window starts its own page 1. The
 /// count only explains a result with no match (the skipped files hold none
 /// by construction); beside matches it is an optimisation note that decides
-/// no next call, so it is not said.
+/// no next call, so it is not said. `scanned` is the row's `filesScanned`.
 pub(super) fn scan_diagnostics(
     scope: &Scope,
     scan: &Scan,
     page: u32,
-    has_matches: bool,
+    (has_matches, scanned): (bool, u32),
 ) -> Vec<Value> {
     let mut diagnostics = vec![];
     if scan.skipped_by_prefilter > 0 && page <= 1 && !has_matches {
@@ -31,7 +50,7 @@ pub(super) fn scan_diagnostics(
             "code":"structural.prefilter.skipped",
             "severity":"info",
             "stage":"scan",
-            "message":format!("Literal prefilter skipped AST parsing for {} file(s) that lack a literal every match needs.", scan.skipped_by_prefilter),
+            "message":prefilter_note(scan.skipped_by_prefilter, scanned),
         }));
     }
     diagnostics.extend(scan.diagnostics.iter().map(diag));
@@ -75,7 +94,12 @@ pub(super) fn render_match_page(
     let truncated = scan.truncated;
     let diagnostics = octocode_tools_shared::ast_rule::group_diagnostics(merge_diagnostics(
         std::mem::take(&mut grouped.diagnostics),
-        scan_diagnostics(scope, scan, q.page(), grouped.total_matches > 0),
+        scan_diagnostics(
+            scope,
+            scan,
+            q.page(),
+            (grouped.total_matches > 0, grouped.scanned_files),
+        ),
     ));
     let groups = std::mem::take(&mut grouped.groups);
     // A window that ends before its scope does (its page filled, or its
@@ -101,7 +125,11 @@ pub(super) fn render_match_page(
     } else {
         json!({"matchCount": listed.saturating_add(start.before)})
     };
-    if let Some(inferred) = &scope.inferred {
+    // Matches name their files, whose grammar is plain: the inferred
+    // grammar qualifies only an answer that is empty or partial.
+    if let Some(inferred) = &scope.inferred
+        && (grouped.total_matches == 0 || scan.truncated)
+    {
         out["inferredLanguage"] = json!(inferred);
     }
     if let Some(excluded) = scan.test_code_excluded.stated() {
@@ -149,12 +177,13 @@ pub(super) fn render_match_page(
     // lead.
     let mut include_skipped = None;
     if groups.is_empty() {
-        explain_empty(
+        include_skipped = explain_empty(
             q,
             &mut out,
             EmptyFacts {
                 parsed: grouped.parsed_files,
                 scanned: grouped.scanned_files,
+                withheld: scan.skipped.withheld.total(),
                 diagnosed: !diagnostics.is_empty(),
             },
             gaps,
@@ -199,9 +228,7 @@ pub(super) fn render_match_page(
     );
     attach_match_continuations(
         q,
-        scope,
         &mut out,
-        page_groups,
         ScanCut {
             truncated,
             filled: scan.filled,
@@ -228,7 +255,10 @@ pub(super) fn render_match_page(
     }
     // A first window with no match and no page after it says how each pattern
     // parsed, beside the syntax lead: a reader compares the two in one step.
-    if groups.is_empty() && !more && q.scan_offset() == 0 {
+    // A scan that parsed no file because none spells the pattern's literals
+    // has no node to compare a shape with: its prefilter note is the answer.
+    let text_absent = grouped.parsed_files == 0 && scan.skipped_by_prefilter > 0;
+    if groups.is_empty() && !more && q.scan_offset() == 0 && !text_absent {
         attach_pattern_shapes(q, scope, &mut out);
     }
     attach_source_evidence(&mut out, page_groups, cancel)?;
@@ -340,7 +370,7 @@ fn attach_syntax_lead(
 ) {
     let near = first_parsed
         .and_then(|path| row_file(scope, &json!({"path": path})))
-        .and_then(|file| anchor_line(q, &file).map(|line| (file, Some(line))));
+        .and_then(|file| anchor_line(q, scope, &file).map(|line| (file, Some(line))));
     let tree = if scope.is_file {
         Some(near.unwrap_or_else(|| (scope.canonical.clone(), None)))
     } else {
@@ -388,13 +418,18 @@ pub(super) fn merge_diagnostics(mut diagnostics: Vec<Value>, scan: Vec<Value>) -
 /// What a scan's first page carries besides its rows: what the walk left
 /// out (`skippedPaths`, on its first window's), the static notes (files
 /// without a grammar, recovered parses, how to narrow a multi-page set),
-/// which the response stage says once, and the skipped-grammar counts.
+/// which the response stage says once, and the counts of what the rule did
+/// not search: per grammar it does not compile in, and per format no
+/// grammar reads.
 /// The page cut charges page 1 for it ([`Census::page`]), so page 1 and
 /// its census fit the window every later page fills.
 pub(super) struct Census {
     skipped_paths: Option<Value>,
     notices: Vec<String>,
+    /// Source files per grammar the query does not compile in.
     skipped_grammars: Option<Value>,
+    /// Files per format no grammar reads (json, toml, markdown).
+    skipped_formats: Option<Value>,
     /// How to narrow a set over one page, once the cut says it is.
     narrow: Option<String>,
 }
@@ -432,22 +467,43 @@ impl Census {
         } else {
             None
         };
-        // The files no grammar parses and the skipped-grammar counts are the
-        // walk's to this window's end, and each window walks from the first
+        // The files no grammar parses and the skipped counts are the walk's
+        // to this window's end, and each window walks from the first
         // candidate: the first window says them, and the final window, whose
         // walk met every file, says them whole; a window between would repeat
         // them.
-        let (unparsed, skipped_grammars) = if q.scan_offset() == 0 || !scan.truncated {
-            scan.unparsed.disclosed(
-                &super::types::SEARCH,
-                Some(&read),
-                grouped.skipped_grammars.clone(),
-            )
+        let whole = q.scan_offset() == 0 || !scan.truncated;
+        // The files of a known format no grammar reads are counted apart
+        // from the source files of a grammar the query does not compile in:
+        // the first hold no source, the second hold source left unsearched.
+        // The first window's `skippedPaths` (above) names each such file
+        // while they are few, so its warning counts them and names none
+        // again; a later final window publishes no `skippedPaths`, so its
+        // warning names examples.
+        let (unparsed, skipped_formats) = if q.scan_offset() == 0 {
+            scan.unparsed
+                .disclosed_beside_paths(&super::types::SEARCH, Some(&read), None)
+        } else if whole {
+            scan.unparsed
+                .disclosed(&super::types::SEARCH, Some(&read), None)
         } else {
             (None, None)
         };
+        // `parser` narrowed the walk to one grammar's files: a file of
+        // another format is outside the request, so no count of it is
+        // stated; a file of that grammar the query does not compile in
+        // (`.ts` beside a JSX pattern) still is.
+        let named = q.language().is_some();
+        // Files of other formats and grammars beside matches did not change
+        // the answer: their counts qualify an empty or partial one.
+        let qualifies = grouped.total_matches == 0 || scan.truncated;
+        let skipped_formats = skipped_formats.filter(|_| !named && qualifies);
+        let skipped_grammars = ((whole || named) && qualifies)
+            .then(|| grouped.skipped_grammars.clone())
+            .flatten();
         let notices = [
             unparsed,
+            grouped.uncompiled.clone(),
             recovered_notice(&grouped.recovered),
             recovered_bodies_notice(&grouped.recovered_bodies),
         ]
@@ -458,6 +514,7 @@ impl Census {
             skipped_paths,
             notices,
             skipped_grammars,
+            skipped_formats,
             narrow: None,
         })
     }
@@ -471,6 +528,9 @@ impl Census {
         }
         if let Some(counts) = &self.skipped_grammars {
             census.insert("skippedGrammars".to_owned(), counts.clone());
+        }
+        if let Some(counts) = &self.skipped_formats {
+            census.insert("skippedFormats".to_owned(), counts.clone());
         }
         let notes = self
             .notices
@@ -537,6 +597,9 @@ impl Census {
         }
         if let Some(counts) = self.skipped_grammars {
             out["skippedGrammars"] = counts;
+        }
+        if let Some(counts) = self.skipped_formats {
+            out["skippedFormats"] = counts;
         }
     }
 }
@@ -618,6 +681,8 @@ fn listed_rows(page_groups: &[Group], row_paths: super::super::RowPaths<'_>) -> 
 pub(super) struct EmptyFacts {
     pub(super) parsed: u32,
     pub(super) scanned: u32,
+    /// Entries the security path policy withheld from the walk.
+    pub(super) withheld: usize,
     pub(super) diagnosed: bool,
 }
 
@@ -629,11 +694,12 @@ pub(super) fn explain_empty(
     out: &mut Value,
     facts: EmptyFacts,
     gaps: ScopeGaps,
-) {
+) -> Option<SkippedWalk> {
     // Earlier windows may have parsed what this one did not.
     let unparsed = facts.parsed == 0 && !facts.diagnosed && q.scan_offset() == 0;
     // include/exclude left the walk no file: the globs, not the grammar, are
-    // why nothing parsed, unless a skipped walk holds the files.
+    // why nothing parsed, unless a skipped walk holds the files. Globs that
+    // matched only files the path policy withholds say that instead.
     let glob_miss = unparsed
         && facts.scanned == 0
         && gaps.skipped.is_none()
@@ -641,14 +707,18 @@ pub(super) fn explain_empty(
     if glob_miss {
         octocode_runtime_base::response::result::add_hints(
             out,
-            [octocode_runtime_base::policy::include::GLOB_MISS_HINT],
+            [octocode_runtime_base::policy::include::glob_miss_hint(
+                facts.withheld,
+            )],
         );
-        if let Some(listing) = octocode_tools_shared::leads::files_listing::scope_listing(
-            &q.path(),
-            Default::default(),
-            q.include_ignored() == Some(true),
-            !q.default_excludes(),
-        ) {
+        if let Some(listing) = q.path().and_then(|path| {
+            octocode_tools_shared::leads::files_listing::scope_listing(
+                &path,
+                Default::default(),
+                q.include_ignored() == Some(true),
+                !q.default_excludes(),
+            )
+        }) {
             out["calls"]["viewTree"] = listing;
         }
     } else if unparsed {
@@ -659,10 +729,11 @@ pub(super) fn explain_empty(
             out,
             [format!("No{language} file under this path was parsed.")],
         );
-    } else if facts.scanned > 0 || facts.diagnosed {
+    } else if (facts.scanned > 0 || facts.diagnosed) && q.content().is_none() {
         // `matchCount: 0` and `filesScanned` state the coverage (none, when
         // every candidate was refused: its diagnostic says why); a hint
-        // only names what the scan skipped.
+        // only names what the scan skipped. Inline source is no walk: its
+        // one source is the row's own `content`.
         out["filesScanned"] = json!(facts.scanned);
     }
     // The grammars the scope does hold, each a query that runs: the direct
@@ -670,7 +741,7 @@ pub(super) fn explain_empty(
     if unparsed && let Some(repair) = gaps.repair {
         out["calls"]["repair"] = repair;
     }
-    if let Some(skipped) = gaps.skipped {
-        skipped.attach(out);
-    }
+    // Attached once the row's status is settled: the status picks the
+    // sentence's channel.
+    gaps.skipped
 }

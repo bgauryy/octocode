@@ -6,7 +6,6 @@ use super::rows::row_sizes;
 use octocode_contract_types::AstSearchQuerySymbols;
 use octocode_engine::graph::{GraphFactCode, GraphFactDiagnostic};
 use octocode_runtime_base::execution::cancel::CancellationCheck;
-use octocode_runtime_base::id::ToolId;
 use octocode_runtime_base::response::result::ToolError;
 use octocode_tools_shared::leads::skipped;
 use serde_json::{Value, json};
@@ -94,10 +93,6 @@ pub(super) fn select(
             })
         })
         .collect::<Vec<_>>();
-    let references = match (&filter, declarations.as_slice()) {
-        (Some(_), [row]) => references_lead(q, canonical, row),
-        _ => None,
-    };
     for row in &mut declarations {
         if let Some(fields) = row.as_object_mut() {
             fields.remove("typeName");
@@ -112,6 +107,7 @@ pub(super) fn select(
         &q.symbol_filter,
         ast_search_query_symbols::kinds(q),
         ast_search_query_symbols::exclude(q),
+        ast_search_query_symbols::include(q),
         ast_search_query_symbols::scan_offset(q),
         &q.test_code,
         &declarations,
@@ -128,7 +124,6 @@ pub(super) fn select(
     let spans = octocode_runtime_base::response::symbol_outline::top_level_spans(&declarations);
     let sizes = row_sizes(&declarations, &spans, per_row_path.then_some(row_paths));
     Ok(SymbolSet {
-        references,
         text_search,
         path: canonical.to_string_lossy().into_owned(),
         snapshot,
@@ -242,35 +237,6 @@ fn place_notes(
     }
 }
 
-/// One declaration a name filter singles out: its callers (a callable) or
-/// references, under the query's `testCode`, are the usual next question,
-/// and only a level above `syntax` (the editor or a language server)
-/// answers it; none is offered when neither would.
-fn references_lead(
-    q: &AstSearchQuerySymbols,
-    canonical: &std::path::Path,
-    row: &Value,
-) -> Option<Value> {
-    let file = row["path"].as_str().map_or_else(
-        || canonical.to_path_buf(),
-        |shown| canonical.parent().unwrap_or(canonical).join(shown),
-    );
-    // A trait impl (`Trait for Type`) anchors on its type, like an inherent impl.
-    let query = octocode_tools_shared::leads::lsp::verify_query(
-        &file.to_string_lossy(),
-        row["typeName"].as_str().or_else(|| row["name"].as_str())?,
-        row["line"].as_u64()?,
-        octocode_tools_shared::leads::lsp::Verify::for_kind(
-            row["kind"].as_str().unwrap_or_default(),
-        ),
-        q.test_code,
-    )?;
-    Some(
-        octocode_runtime_base::response::result::Continuation::related(ToolId::LspSearch, query)
-            .build(),
-    )
-}
-
 /// A text search for the `symbolFilter.terms` values under the outlined path: the
 /// completion when a recovered parse or a skipped file may hide one.
 fn text_search_lead(q: &AstSearchQuerySymbols, canonical: &std::path::Path) -> Option<Value> {
@@ -293,8 +259,6 @@ fn text_search_lead(q: &AstSearchQuerySymbols, canonical: &std::path::Path) -> O
 /// Every declaration of one symbols query, before paging.
 #[derive(Clone)]
 pub(crate) struct SymbolSet {
-    /// `next.findCallers` or `next.findReferences` for a single named declaration.
-    pub(super) references: Option<Value>,
     /// `next.findText` for the name when the outline may be incomplete.
     pub(super) text_search: Option<Value>,
     pub(super) path: String,
@@ -344,7 +308,6 @@ impl SymbolSet {
     /// An empty directory outline whose scan the time budget cut at `resume`.
     pub(in crate::ast_search) fn cut_at(path: String, resume: u32) -> Self {
         Self {
-            references: None,
             text_search: None,
             path,
             snapshot: "s".to_owned(),

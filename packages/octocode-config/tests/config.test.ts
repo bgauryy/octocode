@@ -79,6 +79,8 @@ const CANONICAL = [
   'OCTOCODE_REDACT_UUID',
   // Opens credential-named files to local reads: only narrowed by a workspace.
   'OCTOCODE_CREDENTIAL_FILES',
+  // The form of every MCP reply: a repository must not change what a client parses.
+  'OCTOCODE_MCP_RESULT',
 ];
 
 describe('PROTECTED_KEYS', () => {

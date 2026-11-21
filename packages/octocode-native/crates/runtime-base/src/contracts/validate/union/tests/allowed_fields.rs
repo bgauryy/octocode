@@ -8,7 +8,7 @@ use octocode_test_support::json_fixture;
 fn unknown_field_error(tool: &str, row: Value) -> String {
     let error = prepare_rows(tool, json!({ "queries": [row] })).expect_err("unknown field");
     let shown =
-        crate::contracts::validate::format_input_error(tool, &error, &[], &serde_json::Value::Null);
+        crate::contracts::validate::format_input_error(tool, &error, &serde_json::Value::Null);
     shown["error"].as_str().unwrap_or_default().to_owned()
 }
 
@@ -34,7 +34,6 @@ fn an_unknown_field_lists_every_field_of_the_forms_the_row_selects() {
         for field in [
             "block",
             "caseMode",
-            "classification",
             "contextLines",
             "matchString",
             "ranges",
@@ -44,7 +43,7 @@ fn an_unknown_field_lists_every_field_of_the_forms_the_row_selects() {
         ] {
             assert!(fields.contains(&field), "{field} missing: {message}");
         }
-        for state in ["snapshot", "readProgress", "selection"] {
+        for state in ["snapshot", "readProgress"] {
             assert!(!fields.contains(&state), "{state} listed: {message}");
         }
     }
@@ -127,9 +126,11 @@ fn the_row_s_other_fields_narrow_the_allowed_forms() {
         fields.sort();
         fields
     };
+    // A row that sends no `view` may still send one: the form it would
+    // select (`outline` of `view: "symbols"`) is one the row may author.
     assert_eq!(
         known(json_fixture(r#"{"path": "a", "bogus": 1}"#)),
-        ["caseMode", "path", "ranges", "terms", "view"]
+        ["caseMode", "outline", "path", "ranges", "terms", "view"]
     );
     assert_eq!(
         known(json_fixture(r#"{"path": "a", "terms": "x", "bogus": 1}"#)),
@@ -156,7 +157,6 @@ fn an_unknown_field_is_never_corrected_to_a_field_already_sent() {
     let message = crate::contracts::validate::format_input_error(
         "localSearch",
         &error,
-        &[],
         &serde_json::Value::Null,
     )["error"]
         .as_str()
@@ -187,8 +187,7 @@ fn a_value_choosing_no_form_names_every_form_with_an_example() {
     let questions = json_fixture(r#"{"q": {"type": "noul", "instructions": "Is it ok?"}}"#);
     let shown = |row: Value| {
         let error = prepare_rows("clasify", json!({ "queries": [row] })).expect_err("no form");
-        crate::contracts::validate::format_input_error("clasify", &error, &[], &Value::Null)
-            .to_string()
+        crate::contracts::validate::format_input_error("clasify", &error, &Value::Null).to_string()
     };
     for (row, at) in [
         (

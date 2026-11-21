@@ -18,10 +18,9 @@ fn rejected_row(
     tool: ToolId,
     index: usize,
     error: &contracts::ContractValidationError,
-    unpublished: &[String],
     sent: &Value,
 ) -> (usize, Value) {
-    let formatted = contracts::format_input_error(tool.as_str(), error, unpublished, sent);
+    let formatted = contracts::format_input_error(tool.as_str(), error, sent);
     let mut data = json!({"error": formatted["error"], "errorCode": ErrorCode::InvalidInput});
     if let Some(details) = formatted
         .get("details")
@@ -40,13 +39,14 @@ fn rejected_row(
     (index, rows::result_row(index, data, Some("error")))
 }
 
-fn invalid_input_error(
+/// The invalid-input error for `tool`, with identical cause and repair
+/// guidance on every surface.
+pub(super) fn invalid_input_error(
     tool: &str,
     error: contracts::ContractValidationError,
-    unpublished: &[String],
     sent: &Value,
 ) -> RuntimeError {
-    let mut payload = contracts::format_input_error(tool, &error, unpublished, sent);
+    let mut payload = contracts::format_input_error(tool, &error, sent);
     payload["errorCode"] = json!(ErrorCode::InvalidInput);
     RuntimeError {
         code: ErrorCode::InvalidInput,
@@ -77,16 +77,6 @@ pub(super) fn output_contract_error(
 }
 
 impl ToolRuntime {
-    /// The row fields `tool`'s published schema lacks on this runtime: its
-    /// classification fields while no provider is available.
-    pub(super) fn unpublished_fields(&self, tool: &str) -> Vec<String> {
-        if self.selection_available {
-            Vec::new()
-        } else {
-            checked::selection_only_fields(tool)
-        }
-    }
-
     /// The tool behind `tool` when this surface may run it, else the
     /// actionable reason it may not.
     pub(super) fn admit_tool(&self, tool: &str, mcp: bool) -> Result<ToolId, RuntimeError> {
@@ -147,17 +137,6 @@ impl ToolRuntime {
     /// Validated, security-checked rows to run, and the rows rejected by
     /// index. Every tool isolates invalid rows; a call with no valid row
     /// fails as a whole.
-    /// [`invalid_input_error`] for `tool` as this runtime publishes it, to
-    /// every surface with identical cause and repair guidance.
-    pub(super) fn invalid_input(
-        &self,
-        tool: &str,
-        error: contracts::ContractValidationError,
-        sent: &Value,
-    ) -> RuntimeError {
-        invalid_input_error(tool, error, &self.unpublished_fields(tool), sent)
-    }
-
     pub(super) fn admit_queries(
         &self,
         id: ToolId,
@@ -169,7 +148,7 @@ impl ToolRuntime {
         let PreparedRows {
             valid: prepared,
             mut invalid,
-        } = prepare_queries(tool, input, saved, &self.unpublished_fields(tool))?;
+        } = prepare_queries(tool, input, saved)?;
         let mcp_availability = (mcp && id.is_clasify()).then(|| {
             octocode_runtime_base::execution::availability::ToolAvailability::resolve(
                 &self.config,
@@ -183,24 +162,6 @@ impl ToolRuntime {
             // What the row asks of the runtime, read before the gate rewrites
             // it in place.
             let mut later = Vec::new();
-            // A selection plan (sealed in a cursor) is classification's own page.
-            let judged = contracts::PROVIDER_FIELDS
-                .into_iter()
-                .find(|field| query.get(*field).is_some());
-            if let Some(field) = judged.filter(|_| !self.selection_available) {
-                let mut path = prefix.clone();
-                path.push(field.into());
-                later.push(octocode_runtime_base::contracts::ValidationIssue {
-                    rule_id: "classification.available".into(),
-                    schema: None,
-                    received: None,
-                    path,
-                    message: format!(
-                        "{field} needs {}; set it, or omit {field}.",
-                        octocode_runtime_base::config::field::CLASSIFICATION_API.display_name()
-                    ),
-                });
-            }
             if id.is_clasify() {
                 later.extend(octocode_tool_clasify::clasify::unavailable_source_issues(
                     &query,
@@ -208,15 +169,7 @@ impl ToolRuntime {
                     reader_availability,
                 ));
             }
-            let policy = if id.is_clasify() {
-                InputPolicy::ClasifyEvidence {
-                    content_limit: octocode_runtime_base::id::clasify_policy::REQUEST_BYTES,
-                }
-            } else if id.is_local() {
-                InputPolicy::LocalQuery
-            } else {
-                InputPolicy::Query
-            };
+            let policy = InputPolicy::of(id);
             // A row a cursor restored carries the runtime's private progress,
             // which its gate leaves as written.
             let gated = if saved {
@@ -245,16 +198,15 @@ impl ToolRuntime {
                 .into_iter()
                 .flat_map(|(_, error)| error.issues)
                 .collect();
-            return Err(self.invalid_input(
+            return Err(invalid_input_error(
                 tool,
                 contracts::ContractValidationError { issues },
                 input,
             ));
         }
-        let unpublished = self.unpublished_fields(tool);
         let rejected = invalid
             .iter()
-            .map(|(index, error)| rejected_row(id, *index, error, &unpublished, input))
+            .map(|(index, error)| rejected_row(id, *index, error, input))
             .collect();
         Ok(AdmittedRows { queries, rejected })
     }
@@ -276,14 +228,9 @@ struct PreparedRows {
 /// Contract-validated rows by input index, and the invalid ones. Row
 /// isolation: when only some rows of a batch are invalid, the valid rows
 /// still run and the rest become indexed error rows.
-fn prepare_queries(
-    tool: &str,
-    input: &Value,
-    saved: bool,
-    unpublished: &[String],
-) -> Result<PreparedRows, RuntimeError> {
+fn prepare_queries(tool: &str, input: &Value, saved: bool) -> Result<PreparedRows, RuntimeError> {
     let rows = checked::prepared_rows(tool, input, saved)
-        .map_err(|error| invalid_input_error(tool, error, unpublished, input))?;
+        .map_err(|error| invalid_input_error(tool, error, input))?;
     let mut prepared = PreparedRows {
         valid: Vec::with_capacity(rows.len()),
         invalid: Vec::new(),

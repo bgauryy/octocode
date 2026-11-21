@@ -24,15 +24,13 @@ const FUNCTIONS_PER_FILE: usize = 3;
 struct Read {
     values: BTreeMap<String, String>,
     query_pages: u64,
-    /// Where the last query page read starts.
-    page_offset: u64,
     /// Matches read when the walk ended.
     end: u64,
     /// The exact total the pages stated.
     total_items: Option<u64>,
-    /// Pages that stated a floor of it (`countScope: loaded`).
+    /// Pages that read on and stated no count yet.
     floors: usize,
-    /// Whether the last page read said more remains.
+    /// Whether the last reply read carried a `next`.
     more: bool,
     continued: usize,
 }
@@ -61,8 +59,8 @@ fn join(read: &mut Read, row: &Value, mcp: bool) {
     }
 }
 
-/// Walks `first` under `responseChars`: response pages first, then the
-/// query's next page, until neither remains.
+/// Walks `first` under `responseChars`, following the reply's `next` until
+/// no reply carries one.
 async fn walk(runtime: &ToolRuntime, mcp: bool, first: Value, chars: u64) -> Read {
     let mut read = Read::default();
     let mut input = json!({"queries": [first], "responseChars": chars});
@@ -70,36 +68,31 @@ async fn walk(runtime: &ToolRuntime, mcp: bool, first: Value, chars: u64) -> Rea
         assert!(calls < 2000, "mcp={mcp}: the walk terminates");
         let envelope = call(runtime, mcp, calls, input.clone()).await;
         let row = &envelope["results"][0];
-        if let Some(pagination) = row["data"].get("pagination") {
-            let offset = pagination["offset"].as_u64().expect("query offset");
-            // Each query page starts where the matches read so far end; the
-            // rows listed are its length, which no field states.
-            if read.query_pages == 0 || offset != read.page_offset {
-                assert_eq!(
-                    offset,
-                    read.values.len() as u64,
-                    "mcp={mcp}: query pages advance"
-                );
-                read.query_pages += 1;
-                read.page_offset = offset;
-            }
-            let items = pagination["total"].as_u64().expect("total");
-            if pagination.get("countScope").is_some() {
-                assert_eq!(
-                    pagination["countScope"], "loaded",
+        assert!(
+            row["data"].pointer("/next/nextPage").is_none(),
+            "mcp={mcp}: the reply's next is the one walk: {row}"
+        );
+        let next = envelope.get("next");
+        match row["data"].get("pagination") {
+            Some(pagination) => {
+                assert!(
+                    pagination.get("hasMore").is_none() && pagination.get("countScope").is_none(),
                     "mcp={mcp}: {pagination}"
                 );
-                read.floors += 1;
-            } else {
-                assert_eq!(*read.total_items.get_or_insert(items), items, "mcp={mcp}");
+                // A stated total is exact: the same wherever it is stated.
+                if let Some(items) = pagination["total"].as_u64() {
+                    assert_eq!(*read.total_items.get_or_insert(items), items, "mcp={mcp}");
+                }
             }
-            read.more = pagination["hasMore"] == true;
+            // A page that reads on and states no count: the scan has not
+            // reached the end of its scope.
+            None if next.is_some() => read.floors += 1,
+            None => {}
         }
+        read.query_pages += 1;
+        read.more = next.is_some();
         join(&mut read, row, mcp);
         read.end = read.values.len() as u64;
-        let next = envelope
-            .pointer("/responsePagination/next")
-            .or_else(|| row["data"]["next"].get("nextPage"));
         match next {
             Some(next) => input = next["input"].clone(),
             None => break,
@@ -143,7 +136,7 @@ async fn a_match_walk_through_the_response_pager_reads_each_match_once_across_wi
         let read = walk(&runtime, mcp, first, 6000).await;
         assert!(read.query_pages > 1, "mcp={mcp}: several pages");
         assert!(read.floors > 0, "mcp={mcp}: the walk crossed windows");
-        assert!(!read.more, "mcp={mcp}: the walk ends with hasMore false");
+        assert!(!read.more, "mcp={mcp}: the walk ends with no next");
         assert_eq!(
             Some(read.end),
             read.total_items,
@@ -170,7 +163,7 @@ async fn a_match_larger_than_a_page_joins_back_from_its_row_parts() {
             "rule": {"kind": "function_declaration"}, "includeCaptures": true, "limit": 7});
         let read = walk(&runtime, mcp, first, 6000).await;
         assert!(read.continued > 0, "mcp={mcp}: the big match was split");
-        assert!(!read.more, "mcp={mcp}: the walk ends with hasMore false");
+        assert!(!read.more, "mcp={mcp}: the walk ends with no next");
         assert_eq!(read.total_items, Some(MATCHES as u64 + 1), "mcp={mcp}");
         assert_eq!(
             read.values.len(),

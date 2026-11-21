@@ -68,13 +68,19 @@ fn without_match_read(data: &Value) -> Option<&Value> {
     .map(|call| &call["input"]["queries"][0])
 }
 
-/// The recovery the warning promises survives the response stage: the served
-/// row (the dropped-literal note names `related`) keeps the read without it.
+/// A narrowed discussion is what was asked: its dropped-entries note counts
+/// them and names no call, since the read without the literal is the
+/// caller's own request and the response stage keeps no such lead.
 fn assert_without_match_served(out: &Value) {
-    octocode_runtime_base::test_support::assert_lead_served(
-        ToolId::GhGetHistoryItem,
-        out,
-        |input| input["queries"][0].get("matchString").is_none(),
+    let notes = out["warnings"]
+        .as_array()
+        .expect("the dropped-entries note");
+    assert!(
+        notes
+            .iter()
+            .filter_map(Value::as_str)
+            .all(|note| !note.contains("related")),
+        "{out}"
     );
 }
 
@@ -428,8 +434,8 @@ async fn without_a_match_string_the_issue_comment_read_is_unchanged() {
     assert_eq!(requests_to(&server, ISSUE_PATH).await, 1);
 }
 
-/// A pull request's comments that no body matches: the warning promises the
-/// read without the literal, and the served row keeps it.
+/// A pull request's comments that no body matches: the warning counts the
+/// dropped comments and names no call.
 #[tokio::test]
 async fn a_pull_request_match_string_with_no_hit_keeps_its_recovery() {
     // Real-looking names: a one-letter owner is a substring of any note.

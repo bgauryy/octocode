@@ -5,7 +5,7 @@
 //! a git tree, its target is read from its own blob (which holds only the
 //! target path), and the target's bytes are asked for only by the target's
 //! name, once the caller's rules allow that name.
-use super::file::Links;
+use super::file::{Links, RAW_MEDIA_TYPE};
 use super::payload::{resolve_link_target, symlink_chain_refused, symlink_refused};
 use super::{ContentRequest, GitHubProvider};
 use crate::{ProviderError, ProviderErrorKind, RequestContext, RequestSpec};
@@ -18,9 +18,6 @@ const MAX_LINK_HOPS: usize = 8;
 
 /// The git file mode of a symlink.
 const SYMLINK_MODE: &str = "120000";
-
-/// GitHub's raw media type: a blob's own bytes instead of a JSON payload.
-const RAW_MEDIA_TYPE: &str = "application/vnd.github.raw";
 
 /// What a file read may ask for once the links on its path are known.
 pub(super) enum Checked {

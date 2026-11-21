@@ -10,7 +10,7 @@ use serde_json::json;
 /// next page; a failed inspection is an error row.
 pub(super) fn render_tree_page(
     q: &AstSearchQuerySyntaxTree,
-    display_path: &str,
+    display_path: Option<&str>,
     TreePage { r, more, facts }: &TreePage,
     snapshot: &str,
 ) -> serde_json::Value {
@@ -63,9 +63,14 @@ pub(super) fn render_tree_page(
         let message = first
             .and_then(|diagnostic| diagnostic["message"].as_str())
             .unwrap_or("The syntax tree could not be built.");
-        let mut out = json!({"operation":"syntaxTree","path":display_path,"status":"error","errorCode":code,"error":message});
+        let mut out =
+            json!({"operation":"syntaxTree","status":"error","errorCode":code,"error":message});
+        state_path(&mut out, display_path);
         if code == ErrorCode::LanguageUnsupported
-            && let Some(read) = super::super::output::unsupported_read(q.path.as_str())
+            && let Some(read) = q
+                .path
+                .as_ref()
+                .and_then(|path| super::super::output::unsupported_read(path.as_str()))
         {
             octocode_runtime_base::response::result::attach_related(&mut out, read);
         }
@@ -74,8 +79,8 @@ pub(super) fn render_tree_page(
     let page = ast_search_query_syntax_tree::page(q);
     let pagination = facts.to_value();
     // The snapshot pins the next page through its cursor only.
-    let mut out =
-        json!({"operation":"syntaxTree","path":display_path,"nodes":nodes,"pagination":pagination});
+    let mut out = json!({"operation":"syntaxTree","nodes":nodes,"pagination":pagination});
+    state_path(&mut out, display_path);
     // More pages are pagination (`hasMore` and the next page), never
     // partial coverage: only a partial walk is partial.
     octocode_runtime_base::response::paging::set_partial(&mut out, r.status != "ok");
@@ -122,6 +127,14 @@ pub(super) fn render_tree_page(
     out
 }
 
+/// The file a tree's row names, right after its `operation`; a tree of
+/// inline `code` names none.
+fn state_path(out: &mut serde_json::Value, display_path: Option<&str>) {
+    if let (Some(path), Some(row)) = (display_path, out.as_object_mut()) {
+        row.shift_insert(1, "path".to_owned(), json!(path));
+    }
+}
+
 /// How a tree of `total` nodes, `shown` on its first page, is read in part.
 fn narrowing_notice(total: u32, shown: usize) -> String {
     format!(
@@ -146,9 +159,10 @@ fn partial_reason(code: &str) -> Option<octocode_runtime_base::response::paging:
     }
 }
 
-/// One node's line alone: what a row is unless provenance was asked for.
+/// One node's line alone, a plain string: what a row is unless provenance
+/// was asked for (only a provenance row has fields beside the line).
 pub(super) fn plain_node_row(n: &octocode_engine::structural::SyntaxTreeNode) -> serde_json::Value {
-    json!({"node": node_line(n)})
+    serde_json::Value::String(node_line(n))
 }
 
 fn node_line(n: &octocode_engine::structural::SyntaxTreeNode) -> String {

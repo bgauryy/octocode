@@ -5,7 +5,7 @@
 use super::listing::Listing;
 use octocode_contract_types::StructureSearchQuery;
 use octocode_runtime_base::response::result::{Continuation, ToolError};
-use octocode_tools_shared::empty_walk::{Cause, Walk};
+use octocode_tools_shared::empty_walk::Walk;
 use serde_json::{Value, json};
 
 use octocode_contract_types::ErrorCode;
@@ -29,9 +29,7 @@ pub(super) fn note_empty(
         return;
     }
     let causes = seen.unproven(walk);
-    let Some(disclosure) =
-        octocode_tools_shared::leads::skipped::unsearched(&causes, &seen.named(&causes))
-    else {
+    let Some(disclosure) = octocode_tools_shared::leads::skipped::unsearched(&causes) else {
         return;
     };
     let lead = octocode_tools_shared::leads::skipped::lead(
@@ -42,35 +40,23 @@ pub(super) fn note_empty(
     octocode_tools_shared::leads::skipped::attach(out, &disclosure, lead);
 }
 
-/// A non-empty first page whose walk left out entries leads to the same
-/// listing with the causes it skipped by lifted, in one call: every
-/// ignored or dot entry its `skippedPaths` names is reachable. Default-pruned
-/// directories (dependencies, build output) are lifted only for a `filtered`
-/// listing (one looking for names, types or metadata), where more of what it
-/// looks for may sit. An empty page gets its lead from [`note_empty`].
-pub(super) fn lead_to_skipped(
-    out: &mut Value,
-    query: &impl serde::Serialize,
-    seen: &Uncovered,
-    walk: Walk,
-    filtered: bool,
-) {
-    if out["status"] == "empty" || out["calls"].get("includeSkipped").is_some() {
+/// An empty listing whose `nameRegex` holds a `/` says why such a pattern
+/// lists nothing: the regex reads an entry's name, and no name holds a `/`.
+/// Whatever else the listing skipped, this cause is the pattern's own.
+pub(super) fn note_path_in_name_regex(out: &mut Value, query: &impl serde::Serialize) {
+    if out["status"] != "empty" {
         return;
     }
-    let mut causes = seen.skipped(walk);
-    if !filtered {
-        causes.retain(|cause| *cause != Cause::DefaultExcluded);
+    let row = octocode_runtime_base::response::result::query_value(query);
+    if row["nameRegex"]
+        .as_str()
+        .is_some_and(|pattern| pattern.contains('/'))
+    {
+        octocode_runtime_base::response::result::add_hints(out, [PATH_IN_NAME_REGEX.to_owned()]);
     }
-    if causes.is_empty() {
-        return;
-    }
-    out["calls"]["includeSkipped"] = octocode_tools_shared::leads::skipped::lead(
-        octocode_runtime_base::id::ToolId::StructureSearch,
-        query,
-        &causes,
-    );
 }
+
+pub(super) const PATH_IN_NAME_REGEX: &str = "nameRegex holds a `/`, and it matches an entry's name, which never holds one: a pattern that needs a `/` lists nothing. Keep the name part in nameRegex and select directories with include (a path glob).";
 
 /// An empty listing that skipped nothing worth lifting (no `includeSkipped`)
 /// and filtered by name, else by metadata, leads to the same listing without

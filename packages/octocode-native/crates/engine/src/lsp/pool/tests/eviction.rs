@@ -259,3 +259,48 @@ async fn a_pool_without_a_memory_budget_is_never_over_budget() {
         .expect("start");
     assert_eq!(pool.over_budget().await, None);
 }
+
+/// Pools that share one budget (one per daemon of a user) each keep its
+/// equal part: with N sharers a pool evicts at a budget of one Nth, so the
+/// pools together stay within the budget one pool alone would have.
+#[tokio::test]
+async fn a_budget_shared_by_several_pools_evicts_at_each_pools_part() {
+    const BUDGET: u64 = 4_000;
+    const SERVER: u64 = 600;
+    for sharers in [1_usize, 2, 4, 8] {
+        let pool = pool_with_memory_budget(BUDGET);
+        pool.share_memory_budget(sharers);
+        for id in 1..=6_usize {
+            let _ = pool
+                .acquire(id.to_string(), id.to_string(), || async move {
+                    Ok(Some(FakeClient::new(id).resident(SERVER)))
+                })
+                .await
+                .expect("start")
+                .expect("client");
+        }
+        let part = BUDGET / sharers as u64;
+        // The servers a part holds, and always the one just acquired.
+        let kept = (part / SERVER).clamp(1, 6) as usize;
+        assert_eq!(pool.len(), kept, "{sharers} sharers");
+        assert!(
+            pool.len() as u64 * SERVER <= part.max(SERVER),
+            "{sharers} sharers stay within their part"
+        );
+    }
+}
+
+/// Sharing never turns a budget off (a part of zero would read as "no
+/// budget") nor on (no budget stays none), and no sharer count below one
+/// applies.
+#[tokio::test]
+async fn sharing_keeps_a_budget_a_budget_and_no_budget_none() {
+    let pool = pool_with_memory_budget(10);
+    pool.share_memory_budget(1_000);
+    assert_eq!(pool.budgeted().max_resident_bytes, 1);
+    pool.share_memory_budget(0);
+    assert_eq!(pool.budgeted().max_resident_bytes, 10);
+    let unbounded = pool_with_memory_budget(0);
+    unbounded.share_memory_budget(8);
+    assert_eq!(unbounded.budgeted().max_resident_bytes, 0);
+}

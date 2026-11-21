@@ -93,7 +93,11 @@ fn assert_aligned(rule: &str, (new, fixed): (Vec<String>, Vec<String>)) {
 /// list. The roast also named the history commit, the pull request and
 /// issue comments: the recorded commit and pull request now fit, and no
 /// recording holds issue comments.
-const LARGER_THAN_JSON: &[&str] = &["securityCheck advisory hit"];
+///
+/// The same holds for the commit check recorded with `view: "details"`: its
+/// advisories are a list of records with nested lists (aliases, cvss,
+/// references), the shape this printer repeats keys on.
+const LARGER_THAN_JSON: &[&str] = &["securityCheck advisory hit", "securityCheck commit hit"];
 
 /// Text stdout is no larger than the JSON of the same result.
 #[test]
@@ -121,24 +125,25 @@ fn stdout_misses_a_fact(call: &Recorded) -> bool {
     });
     status_missing
         || continuation_missing
-        || out.matches("hasMore").count() < page_states(&call.result)
+        || out.to_lowercase().matches("pagination").count() < page_states(&call.result)
 }
 
 /// Removed by Wave 1 (non-breaking, text renderer).
 const STDOUT_MISSES_A_FACT: &[&str] = &[];
 
-/// With stderr dropped, stdout states status, `hasMore` and a runnable
-/// continuation.
+/// With stderr dropped, stdout states status, every page state and a
+/// runnable continuation.
 #[test]
 fn recorded_stdout_alone_says_whether_the_answer_is_whole() {
     assert_aligned(
-        "stdout alone misses status, hasMore or a continuation",
+        "stdout alone misses status, a page state or a continuation",
         drift(STDOUT_MISSES_A_FACT, stdout_misses_a_fact),
     );
 }
 
 /// Every string under a `path` key and every number under a key that names a
-/// line (`line`, `startLine`, `lines`, `matchedLines`), at any depth.
+/// line (`line`, `startLine`, `lines`, `matchedLines`), at any depth; and the
+/// line a line-first row string opens with (`"15\tfunction name"`).
 fn locators(value: &Value, key: &str, paths: &mut BTreeSet<String>, lines: &mut BTreeSet<u64>) {
     match value {
         Value::Object(fields) => {
@@ -151,6 +156,11 @@ fn locators(value: &Value, key: &str, paths: &mut BTreeSet<String>, lines: &mut 
             .for_each(|item| locators(item, key, paths, lines)),
         Value::String(text) if key == "path" => {
             paths.insert(text.clone());
+        }
+        Value::String(text) => {
+            if let Some((number, _)) = text.split_once('\t') {
+                lines.extend(number.trim_start().parse::<u64>().ok());
+            }
         }
         Value::Number(number) if matches!(key, "line" | "startLine" | "lines" | "matchedLines") => {
             lines.extend(number.as_u64());
@@ -205,7 +215,7 @@ fn recorded_path_numbers_are_lines() {
 fn batch_differs(call: &Recorded) -> bool {
     let row = &call.result["results"][0];
     // A response page of its own belongs to the envelope, not to the row.
-    if call.result.get("responsePagination").is_some() || row.is_null() {
+    if call.result.get("next").is_some() || row.is_null() {
         return false;
     }
     !prints_alike_in_a_batch(call.tool, row, &call.query["queries"][0])

@@ -384,10 +384,10 @@ __metadata:
 
 "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
   version: 21.2.0
-  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=3811ce&locator=octocode-monorepo%40workspace%3A."
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=62e4be&locator=octocode-monorepo%40workspace%3A."
   dependencies:
     zod: "npm:^4.6.2"
-  checksum: 10c0/9f7e2e1e773ba8aac5d652c1c77cad114445c76d1bcbe4d660b9016b5e54521f442b2995a5bd45e3f20e32e14ac78b2793be391b183652862be3ab95092b5e95
+  checksum: 10c0/995e69c1f9d8aedc94df1e7ea9ae9ffc25312b3d65ccbe7f1d2453a24242bffa8a00a68d0f1f46af597e570cb84ff6633a4e2bd221496116e6a94223a676b877
   languageName: node
   linkType: hard
 

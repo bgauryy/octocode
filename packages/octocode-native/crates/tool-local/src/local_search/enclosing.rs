@@ -16,7 +16,7 @@
 //! declaration is among the hits also yields a ready lspSearch references
 //! lead.
 
-use super::{handoff::*, types::*};
+use super::types::*;
 use octocode_runtime_base::security::ContentSecurity;
 
 mod match_keys;
@@ -262,23 +262,20 @@ pub(super) fn row_lines(row: &SearchMatch) -> Vec<u32> {
     }
 }
 
-/// Name the enclosing declaration of every hit row of a page's files
-/// and find the first shown hit that declares `symbol`. A file lists each
+/// Name the enclosing declaration of every hit row of a page's files. A file lists each
 /// declaration once and a hit names its own by index.
 /// Each file is parsed once. The page cut charged the names' size, so a
 /// name is never traded for budget; rows of a file over 1 MiB are counted
 /// in the returned note, never dropped silently.
 pub(super) fn annotate_enclosing(
     files: &mut [SearchFile],
-    symbol: Option<&str>,
     declaring: Option<&str>,
     output_root: &std::path::Path,
     expected: &dyn Fn(&std::path::Path) -> super::sources::Expected,
     mut outlines: super::verify::Outlines,
     security: &ContentSecurity,
-) -> (Option<Definition>, Option<String>) {
+) -> Option<String> {
     let mut names: Vec<Vec<Vec<Option<super::types::Enclosing>>>> = Vec::with_capacity(files.len());
-    let mut definition = None;
     let mut oversized_rows = 0usize;
     for file in files.iter() {
         let Some(matches) = file.matches.as_ref().filter(|rows| !rows.is_empty()) else {
@@ -303,21 +300,6 @@ pub(super) fn annotate_enclosing(
             names.push(Vec::new());
             continue;
         };
-        if definition.is_none()
-            && let Some(symbol) = symbol
-            && let Some((line, (kind, start, end))) = matches
-                .iter()
-                .flat_map(row_lines)
-                .find_map(|line| Some((line, outline.declaration(symbol, line)?)))
-        {
-            definition = Some(Definition {
-                source: source.to_string_lossy().into_owned(),
-                line,
-                kind: kind.to_owned(),
-                start,
-                end,
-            });
-        }
         names.push(row_owners(&outline, matches, declaring));
     }
     for (file, names) in files.iter_mut().zip(names) {
@@ -328,14 +310,13 @@ pub(super) fn annotate_enclosing(
         file.declarations = declarations;
     }
 
-    let note = (oversized_rows > 0).then(|| {
+    (oversized_rows > 0).then(|| {
         format!(
             "Enclosing declarations (enclosing) are not named in files over 1 MiB; {} there {} none.",
             hit_rows(oversized_rows),
             have(oversized_rows)
         )
-    });
-    (definition, note)
+    })
 }
 
 /// `1 hit row`, `3 hit rows`.

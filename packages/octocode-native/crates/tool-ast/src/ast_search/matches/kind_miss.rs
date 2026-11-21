@@ -49,7 +49,7 @@ fn kinds_in(
         return Some(kinds(file.matches.held()));
     }
     let path = row_file(scope, &json!({"path": file.path}))?;
-    let bytes = super::super::source::read_parse_source(&path).ok()??;
+    let bytes = scope.parse_source(&path).ok()??;
     let source = super::super::source::matched_text(&path, &bytes).ok()?;
     let parser = Some(file.parser.as_str()).filter(|parser| !parser.is_empty());
     let found = octocode_engine::structural::search_detailed(
@@ -103,6 +103,8 @@ pub(super) fn attach_kind_miss(
             ),
         }),
     );
-    out["calls"]["broadenSearch"] = lead_call(query, asked_view(q).as_ref()).build();
+    // The diagnostic counts matches this rule leaves out: the row needs the
+    // rule that returns them.
+    out["calls"]["broadenSearch"] = lead_call(query, asked_view(q).as_ref()).required().build();
     true
 }

@@ -189,14 +189,17 @@ async fn clasify_exits_by_worst_row_outcome_and_states_its_ceiling() {
     let answered = json_output(&memory);
     let data = &answered["results"][0]["data"];
     assert_eq!(data["answers"]["q"]["noul"], 0.8, "{answered}");
-    // A summary leaves the token counts to the details view and states the
-    // requests sent and the ceiling: the one request and the row's 3 shared
-    // transient retries (the CLI's default retry count).
+    // A summary states the requests sent, the tokens they cost and the
+    // ceiling: the one request and the row's 3 shared transient retries (the
+    // CLI's default retry count).
     assert_eq!(
-        data["usage"],
-        serde_json::json!({"calls": 1, "requestsCeiling": 4}),
+        (&data["usage"]["calls"], &data["usage"]["requestsCeiling"]),
+        (&serde_json::json!(1), &serde_json::json!(4)),
         "{answered}"
     );
+    for tokens in ["inputTokens", "outputTokens"] {
+        assert!(data["usage"][tokens].as_u64() > Some(0), "{answered}");
+    }
     assert!(data.get("related").is_none(), "{answered}");
     assert!(data.get("next").is_none(), "{answered}");
     assert!(!answered.to_string().contains("cursor"), "{answered}");

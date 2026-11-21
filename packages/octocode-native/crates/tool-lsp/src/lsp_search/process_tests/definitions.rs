@@ -118,16 +118,27 @@ fn a_definition_outside_the_read_roots_is_reported_withheld() {
     }
     let (_dir, root, script) = fixture();
     let outside = tempfile::tempdir().expect("outside");
-    let target = outside.path().join("dep.ts");
-    std::fs::write(&target, "export const a = 1;\n").expect("target");
-    let target_uri =
-        octocode_engine::lsp::uri::path_to_uri(&target.to_string_lossy()).expect("uri");
+    // A source file, and a file the policy withholds by its name.
+    let names = ["dep.ts", ".env"];
+    let locations = names
+        .iter()
+        .map(|name| {
+            let target = outside.path().join(name);
+            std::fs::write(&target, "export const a = 1;\n").expect("target");
+            let uri =
+                octocode_engine::lsp::uri::path_to_uri(&target.to_string_lossy()).expect("uri");
+            format!(
+                "{{ uri: '{uri}', range: {{ start: {{ line: 0, character: 13 }}, end: {{ line: 0, character: 14 }} }} }}"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
     let server = FAKE_SERVER
         .replace("hoverProvider: true", "definitionProvider: true")
         .replace(
             "  } else if (msg.method === 'textDocument/hover') {\n    process.exit(3);",
             &format!(
-                "  }} else if (msg.method === 'textDocument/definition') {{\n    send({{ jsonrpc: '2.0', id: msg.id, result: [{{ uri: '{target_uri}', range: {{ start: {{ line: 0, character: 13 }}, end: {{ line: 0, character: 14 }} }} }}] }});"
+                "  }} else if (msg.method === 'textDocument/definition') {{\n    send({{ jsonrpc: '2.0', id: msg.id, result: [{locations}] }});"
             ),
         );
     crate::lsp_search::tests::write_executable(&script, &server);
@@ -170,12 +181,29 @@ fn a_definition_outside_the_read_roots_is_reported_withheld() {
         })
         .unwrap_or_else(|error| panic!("the server answers: {error:?}"));
     assert_eq!(row["category"], "locationsWithheld", "{row}");
+    let reason = row["reason"].as_str().expect("reason");
     assert!(
-        row["reason"]
-            .as_str()
-            .is_some_and(|reason| reason.starts_with("1 location")),
+        reason.starts_with(&format!("{} location", names.len())),
+        "every withheld location is counted: {row}"
+    );
+    // The source file is named, so the reader knows what to allow; a
+    // credential file's name stays unsaid, and no outside directory is shown.
+    assert!(reason.contains(names[0]), "{row}");
+    assert!(!reason.contains(names[1]), "{row}");
+    assert!(
+        !reason.contains(&*outside.path().to_string_lossy()),
         "{row}"
     );
+    // No call can read what lies outside the roots: the reason is the lead.
+    let row = crate::lsp_search::failure::with_next(&query_of(&path), row);
+    assert!(row.get("related").is_none(), "{row}");
+}
+
+fn query_of(path: &str) -> LspSearchQuery {
+    serde_json::from_value(serde_json::json!({
+        "operation": "definition", "path": path, "symbolName": "a", "line": 1
+    }))
+    .expect("query")
 }
 
 /// A server that logs every definition position it is asked and answers

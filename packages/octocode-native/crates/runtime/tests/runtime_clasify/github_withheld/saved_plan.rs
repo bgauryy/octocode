@@ -67,7 +67,7 @@ async fn a_plan_saved_before_the_rule_sends_nothing_more_and_is_dropped() {
     let settings = github_api(&github);
     let runtime = clasify_runtime(&workspace, &provider, &settings);
     let first = first_page(&runtime, json!({"big":source("docs/big.txt")})).await;
-    let resume = first["results"][0]["data"]["next"]["nextPage"]["input"].clone();
+    let resume = first["next"]["input"].clone();
     assert!(!resume.is_null(), "the plan must take several batches");
     runtime.close().await;
     let judged = sent(&provider).await.len();
@@ -120,7 +120,7 @@ async fn a_refused_resource_does_not_stop_its_siblings_next_batch() {
         .run(
             "resume".into(),
             "clasify".into(),
-            data["next"]["nextPage"]["input"].clone(),
+            first["next"]["input"].clone(),
         )
         .await
         .expect("resume")

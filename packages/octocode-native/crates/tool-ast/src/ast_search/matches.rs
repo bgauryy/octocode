@@ -243,6 +243,7 @@ fn run_match_under(
     let row_paths = super::RowPaths::new(paths, &scope.canonical, scope.is_file);
     let mut grouped = group_files(q, &scan.files, row_paths, cancel)?;
     grouped.skipped_grammars = inapplicable.counts();
+    grouped.uncompiled = inapplicable.kinds_notice(q);
     // Group paths are rooted at the scope's parent; the notice names them as
     // the response names rows.
     grouped.recovered = grouped
@@ -338,7 +339,9 @@ fn run_match_under(
     if let Some(qualified) = qualified {
         qualified.attach(&mut out);
     }
+    // Inline source is rescanned by each page: nothing on disk names it.
     if fresh
+        && scope.inline.is_none()
         && out["calls"]
             .as_object()
             .is_some_and(|next| next.contains_key("nextPage"))

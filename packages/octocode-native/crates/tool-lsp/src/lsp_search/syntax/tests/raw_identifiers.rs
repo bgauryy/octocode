@@ -35,7 +35,7 @@ async fn rust_raw_identifier_definitions_accept_canonical_and_source_spelling() 
         assert_eq!(rows[0]["line"], line, "{name}: {rows:?}");
         assert_eq!(rows[0]["column"], 4, "{name}: {rows:?}");
         assert!(
-            rows[0]["content"]
+            rows[0]["value"]
                 .as_str()
                 .is_some_and(|text| text.contains(source)),
             "{name}: {rows:?}"

@@ -352,7 +352,7 @@ fn record_url(id: &str) -> String {
 /// NuGet, case-insensitive with `-` equal to `_` on crates.io, exact elsewhere.
 pub(super) fn comparable(ecosystem: Ecosystem, name: &str) -> String {
     match ecosystem {
-        Ecosystem::PyPi => {
+        Ecosystem::Pypi => {
             let mut folded = String::with_capacity(name.len());
             for part in name.split(['-', '_', '.']).filter(|part| !part.is_empty()) {
                 if !folded.is_empty() {
@@ -362,8 +362,8 @@ pub(super) fn comparable(ecosystem: Ecosystem, name: &str) -> String {
             }
             folded
         }
-        Ecosystem::NuGet => name.to_ascii_lowercase(),
-        Ecosystem::CratesIo => name.to_ascii_lowercase().replace('_', "-"),
+        Ecosystem::Nuget => name.to_ascii_lowercase(),
+        Ecosystem::Crates => name.to_ascii_lowercase().replace('_', "-"),
         _ => name.to_owned(),
     }
 }
@@ -386,8 +386,10 @@ fn scope(entry: &Value, selection: &Selection<'_>) -> Scope {
     let stated_ecosystem = package
         .and_then(|package| package.get("ecosystem"))
         .and_then(Value::as_str);
-    let same_ecosystem = stated_ecosystem
-        .is_some_and(|stated| stated.split(':').next() == Some(&ecosystem.to_string()));
+    // A record states OSV's name; the selection holds the input's.
+    let asked = super::ecosystem::osv(*ecosystem);
+    let same_ecosystem =
+        stated_ecosystem.is_some_and(|stated| stated.split(':').next() == Some(asked.as_str()));
     let same_package = package
         .and_then(|package| package.get("name"))
         .and_then(Value::as_str)
@@ -593,7 +595,9 @@ fn also_affects(other: &[&Value]) -> Vec<String> {
 }
 
 /// The source's package identity fields and their flat output names.
-/// Missing identity stays missing; no ecosystem or purl is inferred.
+/// Missing identity stays missing; no ecosystem or purl is inferred. The
+/// ecosystem is shown as the `ecosystem` input spells it
+/// ([`super::ecosystem::as_input`]), so a row's value runs as the next call's.
 const PACKAGE_IDENTITY: [(&str, &str); 3] = [
     ("name", "packageName"),
     ("ecosystem", "ecosystem"),
@@ -611,7 +615,13 @@ fn affected_row(entry: &Value) -> Value {
             .and_then(|package| package.get(from))
             .filter(|value| value.is_string())
         {
-            row.insert(to.to_owned(), value.clone());
+            let value = match value.as_str() {
+                Some(stated) if from == "ecosystem" => {
+                    json!(super::ecosystem::as_input(stated))
+                }
+                _ => value.clone(),
+            };
+            row.insert(to.to_owned(), value);
         }
     }
     for (from, to) in [

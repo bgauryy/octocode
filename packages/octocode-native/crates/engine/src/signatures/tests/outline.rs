@@ -548,11 +548,15 @@ fn an_item_macro_call_with_an_unreadable_body_keeps_a_marked_row() {
         "pub fn first() {}\n\nlisting_fields!(Query {\n    const LAYOUT: &'static str = \"x\";\n    fn sort(&self) {}\n});\n\n",
     );
     for i in 0..40 {
-        source.push_str(&format!("pub fn run{i}(value: usize) -> usize {{\n    value\n}}\n"));
+        source.push_str(&format!(
+            "pub fn run{i}(value: usize) -> usize {{\n    value\n}}\n"
+        ));
     }
     let outline = extract_signatures_inner(&source, "lib.rs").expect("outline");
     assert!(
-        outline.lines().any(|row| row == "3\tlisting_fields!(Query { …"),
+        outline
+            .lines()
+            .any(|row| row == "3\tlisting_fields!(Query { …"),
         "{outline}"
     );
 }

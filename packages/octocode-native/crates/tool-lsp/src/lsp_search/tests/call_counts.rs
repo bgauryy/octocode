@@ -237,3 +237,102 @@ fn only_a_spelled_rename_is_parsed_for_aliases() {
         assert!(!super::super::recovery::may_rename(plain, "foo"), "{plain}");
     }
 }
+
+/// A server that answers `incomingCalls` from references (rust-analyzer)
+/// lists a function-local `use` as a site of the function around it. Every
+/// site of `callee` in `source`, grouped by the function `owners` names for
+/// its line, is one incoming call.
+struct ReferenceCallers {
+    uri: String,
+    source: &'static str,
+    owners: &'static [(&'static str, std::ops::Range<usize>)],
+}
+
+impl HierarchySource for ReferenceCallers {
+    async fn expand(
+        &self,
+        _: Expansion,
+        _: serde_json::Value,
+    ) -> Result<serde_json::Value, LspFailure> {
+        Ok(serde_json::json!(
+            self.owners
+                .iter()
+                .map(|(owner, lines)| {
+                    let sites = self
+                        .source
+                        .lines()
+                        .enumerate()
+                        .filter(|(line, _)| lines.contains(line))
+                        .flat_map(|(line, text)| {
+                            text.match_indices("callee").map(move |(at, name)| {
+                                serde_json::json!({
+                                    "start": {"line": line, "character": at},
+                                    "end": {"line": line, "character": at + name.len()}
+                                })
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    serde_json::json!({
+                        "from": node_at(owner, Some(&self.uri)),
+                        "fromRanges": sites
+                    })
+                })
+                .collect::<Vec<_>>()
+        ))
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn a_function_local_import_is_not_a_call_site() {
+    const SOURCE: &str = "fn calls() {\n    use crate::port::{callee, other};\n    callee(1);\n    callee(2);\n}\nfn imports_only() {\n    use crate::port::callee;\n    let _ = 1;\n}\nfn grouped() {\n    use crate::port::{\n        callee,\n        other,\n    };\n    callee(3);\n}\n";
+    let (_dir, root, paths) = temp_workspace();
+    let file = root.join("lib.rs");
+    std::fs::write(&file, SOURCE).expect("source");
+    let server = ReferenceCallers {
+        uri: octocode_engine::lsp::uri::path_to_uri(&file.to_string_lossy()).expect("uri"),
+        source: SOURCE,
+        owners: &[("calls", 0..5), ("imports_only", 5..9), ("grouped", 9..16)],
+    };
+    let walk = walk_hierarchy(
+        &server,
+        &[node("root")],
+        Expansion::IncomingCalls,
+        1,
+        &paths,
+        &octocode_runtime_base::execution::cancel::NeverCancel,
+    )
+    .await
+    .expect("walk");
+    let sites = walk
+        .edges
+        .iter()
+        .map(|edge| {
+            let lines = edge
+                .sites
+                .iter()
+                .filter_map(|site| {
+                    site.pointer("/start/line")
+                        .and_then(serde_json::Value::as_u64)
+                })
+                .collect::<Vec<_>>();
+            (
+                edge.node["name"].as_str().unwrap_or_default().to_owned(),
+                lines,
+            )
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let calls = |range: std::ops::Range<usize>| {
+        SOURCE
+            .lines()
+            .enumerate()
+            .filter(|(line, text)| range.contains(line) && text.contains("callee("))
+            .map(|(line, _)| line as u64)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(sites.get("calls"), Some(&calls(0..5)), "{sites:?}");
+    assert_eq!(sites.get("grouped"), Some(&calls(9..16)), "{sites:?}");
+    assert!(
+        !sites.contains_key("imports_only"),
+        "a function that only imports the symbol is no caller: {sites:?}"
+    );
+}

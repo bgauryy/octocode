@@ -64,9 +64,10 @@ async fn tool_continuations_preserve_nonzero_indices_and_every_source_line() {
                 }
             }
         }
-        if let Some(input) = output.pointer("/responsePagination/next/input") {
+        if let Some(input) = output.pointer("/next/input") {
             crate::support::assert_cursor_only(input);
             assert!(seen.insert(input.to_string()), "response pages never cycle");
+            tool_pages += 1;
             pending.push_front(input.clone());
         }
     }
@@ -182,7 +183,7 @@ async fn rejected_rows_and_admitted_evidence_keep_original_indices_across_pages(
             }
             pages += 1;
             assert!(pages < 300, "finite response pages");
-            next = output.pointer("/responsePagination/next/input").cloned();
+            next = output.pointer("/next/input").cloned();
             if let Some(input) = &next {
                 crate::support::assert_cursor_only(input);
             }

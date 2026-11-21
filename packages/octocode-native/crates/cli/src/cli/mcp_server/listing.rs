@@ -27,15 +27,6 @@ fn available(catalog: &Value) -> Vec<&str> {
         .collect()
 }
 
-/// The variant of `tool` this runtime lists: selection when on.
-fn variant(tool: &Value, selection: bool) -> &Value {
-    if selection {
-        tool.get("selection").unwrap_or(tool)
-    } else {
-        tool
-    }
-}
-
 /// One tool's `tools/list` entry from its presentation `mcp` definition.
 fn entry(name: &str, mcp: &Value, lsp_servers: Option<&[&str]>) -> Value {
     let mut description = mcp["description"].clone();
@@ -62,26 +53,20 @@ pub(super) fn build(presentation: &Value, catalog: &Value) -> Result<Listing, St
     if names.is_empty() {
         return Err("No native tools are available".into());
     }
-    let selection = catalog["presentation"]["selection"] == true;
     let lsp_servers = catalog["lspServers"]
         .as_array()
         .map(|servers| servers.iter().filter_map(Value::as_str).collect::<Vec<_>>());
     let mut tools = Vec::new();
     for name in &names {
         let mcp = super::super::schema::tool_entry(presentation, name)
-            .map(|tool| &variant(tool, selection)["mcp"])
+            .map(|tool| &tool["mcp"])
             .filter(|mcp| mcp.is_object())
             .ok_or_else(|| format!("Native catalog tool has no contract: {name}"))?;
         tools.push(entry(name, mcp, lsp_servers.as_deref()));
     }
     Ok(Listing {
         tools,
-        // The Clasify block explains the `classification` option, so it
-        // follows the predicate that shows the option (`selection`), not
-        // whether a tool filter hides `clasify` itself.
-        instructions: instructions(presentation, |name| {
-            names.contains(&name) || (selection && name == "clasify")
-        }),
+        instructions: instructions(presentation, |name| names.contains(&name)),
     })
 }
 

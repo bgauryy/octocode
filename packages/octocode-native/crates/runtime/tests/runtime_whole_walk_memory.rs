@@ -26,8 +26,8 @@ fn source() -> String {
 
 /// The next input of a page: the response's split first, else the row's.
 fn next_input(payload: &Value) -> Option<Value> {
-    let split = &payload["responsePagination"]["next"]["input"];
-    let row = &payload["results"][0]["data"]["next"]["nextPage"]["input"];
+    let split = &payload["next"]["input"];
+    let row = &payload["next"]["input"];
     [split, row]
         .into_iter()
         .find(|next| next.is_object())

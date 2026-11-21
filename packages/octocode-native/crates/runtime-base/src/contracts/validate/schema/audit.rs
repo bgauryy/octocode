@@ -100,13 +100,6 @@ fn visit(root: &Value, schema: &Value) -> Result<(), ContractValidationError> {
             "minimum" | "maximum" => require(value.is_number(), "Schema bound must be numeric")?,
             "x-checks" => checks(value)?,
             "x-order" => order(value)?,
-            "x-sum" => {
-                diagnostic(value)?;
-                require(
-                    value["total"].is_string() && !strings(&value["terms"])?.is_empty(),
-                    "x-sum requires total and terms",
-                )?;
-            }
             "x-numericTokens" => {
                 diagnostic(value)?;
                 for field in ["ignore", "pattern"] {

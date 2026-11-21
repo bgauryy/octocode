@@ -1,7 +1,8 @@
-//! What text states once instead of on every row, checked as invariants:
-//! every fact of the JSON stays recoverable from the text (a path joined
-//! with its printed root, each counter, each page's numbers, each constant),
-//! and a fact said once is not said again per row. Driven by the recorded
+//! How text lays out what the response states, checked as invariants: every
+//! fact of the JSON stays recoverable from the text (a path as its printed
+//! root, `/` and the printed path; each counter, each page's numbers, each
+//! constant), a root said once is not repeated on a path, and text shares
+//! across a batch's rows only what the response states once (`shared.data`). Driven by the recorded
 //! results where they hold the shape, else by rows shaped as tools return
 //! them.
 use super::recorded_results::recorded;
@@ -32,11 +33,22 @@ fn printed_root(out: &str) -> Option<&str> {
     out.lines().find_map(|line| line.strip_prefix("# root: "))
 }
 
-/// Every file path of a line-format row reads back as the stated root
-/// joined with the printed path, and no printed line repeats the root.
+/// The path the result names for `path` of a row whose `data` may state the
+/// `root` its paths are named from.
+fn named(data: &Value, path: &str) -> String {
+    match data["root"].as_str() {
+        Some(root) => format!("{root}/{path}"),
+        None => path.to_owned(),
+    }
+}
+
+/// The one layout rule for paths: for every file path of a line-format row,
+/// the printed root, `/` and the printed path are the path the result names
+/// (the path alone when no root prints), and no printed line repeats the
+/// root.
 #[test]
-fn every_file_path_is_its_printed_root_joined_with_the_printed_path() {
-    let mut rooted = 0;
+fn a_printed_root_joined_with_a_printed_path_is_the_rows_path() {
+    let (mut rooted, mut whole) = (0, 0);
     for call in recorded() {
         let row = &call.result["results"][0];
         if !line_format(call.tool) || row["status"] == "error" {
@@ -45,38 +57,37 @@ fn every_file_path_is_its_printed_root_joined_with_the_printed_path() {
         let out = render(call.tool, &call.result, &call.query, None)
             .expect("text")
             .out;
-        let paths = file_paths(&row["data"]);
-        let Some(root) = printed_root(&out) else {
-            // Without a root every path prints as the result names it.
-            for path in &paths {
-                assert!(
-                    out.contains(path.as_str()),
-                    "{} lost {path}:\n{out}",
-                    call.label
-                );
-            }
-            continue;
-        };
-        rooted += 1;
-        for path in &paths {
-            let relative = path
-                .strip_prefix(&format!("{root}/"))
-                .unwrap_or_else(|| panic!("{}: {path} is not under {root}", call.label));
+        let root = printed_root(&out);
+        for path in file_paths(&row["data"]) {
+            let full = named(&row["data"], &path);
+            let printed = match root {
+                Some(root) => full
+                    .strip_prefix(&format!("{root}/"))
+                    .unwrap_or_else(|| panic!("{}: {full} is not under {root}", call.label)),
+                None => full.as_str(),
+            };
             // A heading, a `path:N` line, or a count table's `N path` row.
             let names = |line: &str| {
                 line.split_whitespace()
-                    .any(|word| word == relative || word.starts_with(&format!("{relative}:")))
+                    .any(|word| word == printed || word.starts_with(&format!("{printed}:")))
             };
             assert!(out.lines().any(names), "{} lost {path}:\n{out}", call.label);
         }
-        assert!(
-            !out.lines()
-                .any(|line| line.starts_with(&format!("{root}/"))),
-            "{} repeats its root:\n{out}",
-            call.label
-        );
+        match root {
+            Some(root) => {
+                rooted += 1;
+                assert!(
+                    !out.lines()
+                        .any(|line| line.starts_with(&format!("{root}/"))),
+                    "{} repeats its root:\n{out}",
+                    call.label
+                );
+            }
+            None => whole += 1,
+        }
     }
     assert!(rooted > 0, "no recorded row shares a directory");
+    assert!(whole > 0, "no recorded row prints its paths whole");
 }
 
 /// A row's counters are one note that names each with its value.
@@ -122,11 +133,11 @@ fn a_rows_counters_are_one_note() {
 fn page_blocks(value: &Value, out: &mut Vec<(String, u64, u64, Option<u64>)>) {
     match value {
         Value::Object(fields) => {
-            if let (Some(unit), Some(offset), Some(length), Some(_)) = (
+            if let (Some(unit), Some(offset), Some(length), true) = (
                 fields.get("unit").and_then(Value::as_str),
                 fields.get("offset").and_then(Value::as_u64),
                 fields.get("length").and_then(Value::as_u64),
-                fields.get("hasMore"),
+                follow::is_page(fields),
             ) {
                 out.push((
                     unit.to_owned(),
@@ -142,10 +153,11 @@ fn page_blocks(value: &Value, out: &mut Vec<(String, u64, u64, Option<u64>)>) {
     }
 }
 
-/// A page reads as its count: `10 of 37 lines`, `after N` when it starts
-/// later in the list; its offset, length and total stay recoverable.
+/// A recorded page reads as its place: `lines 21-30 of 37`, first item to
+/// last, so its offset, length and total stay recoverable and none reads as
+/// "delivered so far"; an empty page reads as its count.
 #[test]
-fn a_page_reads_as_its_count() {
+fn a_page_reads_as_its_place() {
     let mut checked = 0;
     for call in recorded() {
         let mut pages = Vec::new();
@@ -155,13 +167,19 @@ fn a_page_reads_as_its_count() {
             .out;
         for (unit, offset, length, total) in pages {
             checked += 1;
-            let mut count = match total {
-                Some(total) => format!("{length} of {total} {unit}"),
-                None => format!("{length} {unit}"),
+            let count = if length > 0 {
+                let place = format!("{unit} {}-{}", offset + 1, offset + length);
+                total.map_or(place.clone(), |total| format!("{place} of {total}"))
+            } else {
+                let mut count = match total {
+                    Some(total) => format!("{length} of {total} {unit}"),
+                    None => format!("{length} {unit} this page"),
+                };
+                if offset > 0 {
+                    count.push_str(&format!(" after {offset}"));
+                }
+                count
             };
-            if offset > 0 {
-                count.push_str(&format!(" after {offset}"));
-            }
             assert!(out.contains(&count), "{} {count}:\n{out}", call.label);
         }
         assert!(!out.contains("unit "), "{}:\n{out}", call.label);
@@ -331,39 +349,24 @@ fn graph_batch() -> (Value, Value) {
     (result, asked)
 }
 
-/// A field every row of a batch shares prints once, before the first row;
-/// each row keeps the rest.
+/// Text shares across a batch's rows only what the response states once
+/// (`shared.data`): a field every row happens to hold alike prints on each
+/// row, as the JSON states it.
 #[test]
-fn a_field_every_batch_row_shares_prints_once() {
+fn a_field_every_batch_row_holds_prints_on_each_row() {
     let (result, asked) = graph_batch();
+    let rows = result["results"].as_array().expect("rows").len();
     let out = render(ToolId::GraphQuery, &result, &asked, None)
         .expect("text")
         .out;
     let first_row = out.find("## results[0]").expect("a heading");
-    for shared in ["20261113T192541Z-src-d9b10b", "analysisCurrent"] {
-        assert_eq!(out.matches(shared).count(), 1, "{shared}:\n{out}");
-        assert!(out.find(shared).is_some_and(|at| at < first_row), "{out}");
+    for held in ["20261113T192541Z-src-d9b10b", "analysisCurrent"] {
+        assert_eq!(out.matches(held).count(), rows, "{held}:\n{out}");
+        assert!(out.find(held).is_some_and(|at| at > first_row), "{out}");
     }
     for own in ["src/a.ts", "src/b.ts", "## results[2]"] {
         assert!(out.contains(own), "{own}:\n{out}");
     }
-    // A failed row shares nothing: every row states its own fields.
-    let mut failed = result.clone();
-    failed["results"][2] = json_fixture(
-        r#"{
-            "index": 2,
-            "status": "error",
-            "data": {"errorCode": "notFound", "error": "gone"}
-        }"#,
-    );
-    let out = render(ToolId::GraphQuery, &failed, &asked, None)
-        .expect("text")
-        .out;
-    assert_eq!(
-        out.matches("20261113T192541Z-src-d9b10b").count(),
-        2,
-        "{out}"
-    );
 }
 
 /// The batch as native sends it once a snapshot's facts are stated once
@@ -398,36 +401,30 @@ fn graph_batch_stated_once(snapshots: [&str; 3]) -> (Value, Value) {
 }
 
 /// A later row whose `graph` names only a snapshot an earlier row stated
-/// prints nothing new: one snapshot's graph prints once, before the rows.
-/// Rows of different snapshots each name their own, a later one by its id
-/// alone.
+/// prints what it states: the snapshot's id on every row that names it, and
+/// each fact the response stated once for that snapshot exactly once.
 #[test]
-fn a_later_row_naming_only_a_stated_snapshot_prints_nothing_new() {
-    let (result, asked) = graph_batch_stated_once(["one", "one", "one"]);
-    let out = render(ToolId::GraphQuery, &result, &asked, None)
-        .expect("text")
-        .out;
-    let first_row = out.find("## results[0]").expect("a heading");
-    for once in ["snapone", "ROOTone", "TIMEone"] {
-        assert_eq!(out.matches(once).count(), 1, "{once}:\n{out}");
-        assert!(out.find(once).is_some_and(|at| at < first_row), "{out}");
+fn a_later_row_naming_only_a_stated_snapshot_prints_what_it_states() {
+    for snapshots in [["one", "one", "one"], ["one", "two", "one"]] {
+        let (result, asked) = graph_batch_stated_once(snapshots);
+        let out = render(ToolId::GraphQuery, &result, &asked, None)
+            .expect("text")
+            .out;
+        let json = result.to_string();
+        for id in BTreeSet::from(snapshots) {
+            for fact in [
+                format!("snap{id}"),
+                format!("ROOT{id}"),
+                format!("TIME{id}"),
+            ] {
+                assert_eq!(
+                    out.matches(&fact).count(),
+                    json.matches(&fact).count(),
+                    "{fact}:\n{out}"
+                );
+            }
+        }
     }
-    // A fact outside the graph prints where its row states it.
-    assert_eq!(out.matches("analysisCurrent").count(), 1, "{out}");
-    let (result, asked) = graph_batch_stated_once(["one", "two", "one"]);
-    let out = render(ToolId::GraphQuery, &result, &asked, None)
-        .expect("text")
-        .out;
-    let last_row = out.find("## results[2]").expect("a heading");
-    for (fact, count) in [
-        ("snapone", 2),
-        ("ROOTone", 1),
-        ("TIMEone", 1),
-        ("snaptwo", 1),
-    ] {
-        assert_eq!(out.matches(fact).count(), count, "{fact}:\n{out}");
-    }
-    assert!(out[last_row..].contains("snapone"), "{out}");
 }
 
 /// A batch row is headed by its query's place, on the page that holds it
@@ -447,9 +444,7 @@ fn a_batch_row_is_named_by_its_query_on_every_line() {
                 "unit": "items",
                 "offset": 0,
                 "length": 1,
-                "total": 4,
-                "hasMore": true
-            }"#,
+                "total": 4}"#,
         );
         row["data"]["warnings"] = json_fixture(r#"["renamed"]"#);
         let page = json!({"results":[row]});
@@ -532,7 +527,8 @@ fn skipped_paths_read_the_same_beside_content_and_alone() {
             assert!(line.contains(&value), "{value}: {line}");
         }
     }
-    // Entries under the root a row prints read relative to it.
+    // Skipped entries read by the same join as the row's files: the printed
+    // root, `/` and the printed path, the root itself as `.`.
     let rooted = json_fixture(
         r#"{
             "matchCount": 2,
@@ -551,37 +547,34 @@ fn skipped_paths_read_the_same_beside_content_and_alone() {
     );
     let result = json!({"results": [{"index": 0, "data": rooted}]});
     let text = render(ToolId::LocalSearch, &result, &asked, None).expect("text");
-    // The directory a withheld entry names holds the files, so the root
-    // stays theirs, and that entry reads as the root itself.
     let root = printed_root(&text.out).unwrap_or_else(|| panic!("{}", text.out));
-    assert_eq!(root, "pkg/src", "{}", text.out);
     let both = format!("{}\n{}", text.out, text.notes);
     let line = skipped_lines(&both)[0];
-    assert!(
-        line.contains("withheld: . [reason credential file]"),
-        "{line}"
-    );
-    for path in ["pkg/src/vendor", "pkg/src/.cache"] {
-        let relative = path
-            .strip_prefix(&format!("{root}/"))
-            .unwrap_or_else(|| panic!("{path} is not under {root}"));
+    for entry in result["results"][0]["data"]["skippedPaths"]["entries"]
+        .as_array()
+        .expect("entries")
+    {
+        let path = entry["path"].as_str().expect("path");
+        let printed = if path == root {
+            "."
+        } else {
+            path.strip_prefix(&format!("{root}/"))
+                .unwrap_or_else(|| panic!("{path} is not under {root}"))
+        };
         assert!(
-            line.split([' ', ',', ';']).any(|word| word == relative),
-            "{line}"
+            line.split([' ', ',', ';']).any(|word| word == printed),
+            "{path} as {printed}: {line}"
         );
     }
     assert!(!line.contains(&format!("{root}/")), "{line}");
 }
 
 /// A graph answer names its files and symbol ids from the workspace root,
-/// the scope the query asked included. Its text states that scope once, as
-/// the row's root, and every path under it relative to it, a symbol id's
-/// file alike; a value that is no path under it (a package key, a URL with
-/// an anchor, an issue `#123`, a Markdown anchor or a symbol id elsewhere)
-/// prints as the result spells it, and the calls keep the result's exact
-/// paths.
+/// the scope the query asked included, and its text prints each as the
+/// result spells it: no root the row did not state, no path rewritten, so a
+/// printed path or symbol id is the one a call takes.
 #[test]
-fn graph_rows_name_files_under_the_scope_once() {
+fn graph_rows_print_paths_as_the_result_names_them() {
     let scope = "packages/native/crates/io";
     let deep = json!({"results":[{"index":0,"data":{
         "graph":{"id":"20261118T011419Z-io-015ce9"},
@@ -596,99 +589,37 @@ fn graph_rows_name_files_under_the_scope_once() {
         "related":[{"tool":"graphQuery","input":{"queries":[
             {"operation":"dependents","path":scope,"target":format!("{scope}/src/http.rs")}]}}]}}]});
     let deep_asked = json!({"queries":[{"operation":"hubs","path":scope}]});
-    let (deep_kept, deep_kept_asked) = (deep.clone(), deep_asked.clone());
     let mut cases: Vec<(String, Value, Value)> = recorded()
         .into_iter()
         .filter(|call| call.tool == ToolId::GraphQuery)
         .map(|call| (call.label, call.query, call.result))
         .collect();
     cases.push(("deep scope".into(), deep_asked, deep));
-    let mut rooted = 0;
+    let mut named = 0;
     for (label, asked, result) in cases {
         let Some(scope) = asked["queries"][0]["path"].as_str() else {
             continue;
         };
+        let data = &result["results"][0]["data"];
         let mut paths = Vec::new();
-        under(&result["results"][0]["data"], scope, &mut paths);
+        under(data, scope, &mut paths);
         let text = render(ToolId::GraphQuery, &result, &asked, None).expect("text");
         let both = format!("{}\n{}", text.out, text.notes);
-        if paths.is_empty() {
-            assert!(printed_root(&text.out).is_none(), "{label}:\n{both}");
-            continue;
-        }
-        rooted += 1;
-        let stated: Vec<&str> = text
-            .out
-            .lines()
-            .filter_map(|line| line.strip_prefix("# root: "))
-            .collect();
-        assert_eq!(stated, [scope], "{label}:\n{both}");
-        let mut calls = Vec::new();
-        super::done_facts::commands(&result, &mut calls);
-        for (command, _) in &calls {
-            assert!(
-                both.contains(command.as_str()),
-                "{label} {command}:\n{both}"
-            );
-        }
-        let content: Vec<&str> = both
-            .lines()
-            .filter(|line| !line.contains("octocode graphQuery "))
-            .collect();
-        for path in &paths {
-            let relative = path.strip_prefix(&format!("{scope}/")).unwrap_or(".");
-            assert!(
-                content.iter().any(|line| line
-                    .split([' ', ','])
-                    .any(|word| word == relative || word.starts_with(&format!("{relative}:")))),
-                "{label} lost {path} as {relative}:\n{both}"
-            );
-        }
-        assert!(
-            !content
-                .iter()
-                .any(|line| line.contains(&format!("{scope}/"))),
-            "{label} repeats its scope:\n{both}"
+        assert_eq!(
+            printed_root(&text.out),
+            data["root"].as_str(),
+            "{label}:\n{both}"
         );
+        for path in &paths {
+            named += 1;
+            assert!(both.contains(path.as_str()), "{label} lost {path}:\n{both}");
+        }
+        for kept in data["evidence"]["kept"].as_array().into_iter().flatten() {
+            let kept = kept.as_str().expect("kept text");
+            assert!(both.contains(kept), "{label}: {kept} rewritten:\n{both}");
+        }
     }
-    assert!(rooted > 1, "no graph row names a file under its scope");
-    let deep = render(ToolId::GraphQuery, &deep_kept, &deep_kept_asked, None).expect("text");
-    let both = format!("{}\n{}", deep.out, deep.notes);
-    for kept in deep_kept["results"][0]["data"]["evidence"]["kept"]
-        .as_array()
-        .expect("kept")
-    {
-        let kept = kept.as_str().expect("kept text");
-        assert!(both.contains(kept), "{kept} rewritten:\n{both}");
-    }
-    // A symbol id under the scope prints relative to it, as its file does.
-    let text = render(
-        ToolId::GraphQuery,
-        &json_fixture(
-            r#"{
-                "results": [
-                    {
-                        "index": 0,
-                        "data": {
-                            "rows": [
-                                {"id": "src/src/x.ts#f", "kind": "function", "path": "src/src/x.ts", "line": 1},
-                                {"id": "src/a.ts#g", "kind": "function", "path": "src/a.ts", "line": 2}
-                            ]
-                        }
-                    }
-                ]
-            }"#,
-        ),
-        &json_fixture(r#"{"queries": [{"operation": "find", "path": "src"}]}"#),
-        None,
-    )
-    .expect("text");
-    let words: Vec<&str> = text.out.split_whitespace().collect();
-    for word in ["src/x.ts#f", "a.ts#g", "src/x.ts", "a.ts"] {
-        assert!(words.contains(&word), "{word}:\n{}", text.out);
-    }
-    assert!(!text.out.contains("src/src/"), "{}", text.out);
-    assert_eq!(printed_root(&text.out), Some("src"), "{}", text.out);
+    assert!(named > 1, "no graph row names a file under its scope");
 }
 
 /// Every string of `value` outside its calls and its snapshot reference

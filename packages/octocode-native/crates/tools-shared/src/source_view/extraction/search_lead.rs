@@ -1,9 +1,8 @@
 //! localSearch leads for exactly what a read looked for.
 use super::super::types::local_fetch_query;
 use octocode_contract_types::{
-    AscOrder, CaseMode, ContentView, LocalFetchQuery, LocalSearchQueryContent,
-    LocalSearchQueryMultiline, LocalSearchSort, RegexEngine, SearchSortAscOnly, TextMatchTerms,
-    TraversalBy,
+    CaseMode, ContentView, LocalFetchQuery, LocalSearchQueryContent, LocalSearchQueryMultiline,
+    RegexEngine, TextMatchTerms,
 };
 
 /// A content localSearch of `terms` under `path` with every other field at
@@ -15,7 +14,6 @@ pub fn text_search_query(path: &str, terms: &[&str]) -> Option<LocalSearchQueryC
         .collect::<Option<Vec<_>>>()?;
     Some(LocalSearchQueryContent {
         case_mode: CaseMode::Smart,
-        classification: None,
         context_lines: None,
         default_excludes: None,
         exclude: Vec::new(),
@@ -38,12 +36,9 @@ pub fn text_search_query(path: &str, terms: &[&str]) -> Option<LocalSearchQueryC
         regex_engine: RegexEngine::Literal,
         row_offset: None,
         scan_offset: None,
-        selection: None,
         snapshot: None,
-        sort: LocalSearchSort::AscOnly(SearchSortAscOnly {
-            by: TraversalBy::Traversal,
-            order: AscOrder::Asc,
-        }),
+        // Walk order, the contract's default sort.
+        sort: serde_json::from_value(serde_json::json!({ "by": "traversal" })).ok()?,
         test_code: None,
         view: ContentView::Content,
         walk_offset: None,

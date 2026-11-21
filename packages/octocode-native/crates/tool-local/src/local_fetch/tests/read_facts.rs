@@ -7,7 +7,7 @@ fn wire_pages(query: &LocalFetchQuery, paths: &Paths, window: usize) -> Vec<serd
     let mut pages = Vec::new();
     let mut query = query.clone();
     loop {
-        let page = execute_local_fetch(&query, paths, &Safe, &NeverCancel, Some(window), None);
+        let page = execute_local_fetch(&query, paths, &Safe, &NeverCancel, Some(window), false);
         assert_eq!(page.error_code, None, "{page:?}");
         pages.push(serde_json::to_value(&page).expect("wire form"));
         assert!(pages.len() < 500, "walk does not end");
@@ -96,4 +96,55 @@ fn unordered_overlapping_ranges_read_once_in_file_order() {
         "one gap between the runs: {read:?}"
     );
     assert_eq!(shown[8..], lines(20..=22).collect::<Vec<_>>(), "{read:?}");
+}
+
+/// L17, B6: a range cut at the file's last line is named on a page that
+/// does not show that line (the cut is not on it), and not on the page that
+/// does: its numbered lines and `totalLines` say where the file ends. The
+/// lines returned are the same either way.
+#[test]
+fn a_range_clip_is_named_only_where_the_page_does_not_show_the_file_end() {
+    let fixture = Fixture::new();
+    let total = 300;
+    let source = (1..=total)
+        .map(|n| format!("line {n}\n"))
+        .collect::<String>();
+    let file = fixture.write("lines.txt", &source);
+    let paths = Paths(fixture.0.clone());
+    let clipped = |page: &serde_json::Value| {
+        page["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|warning| {
+                warning
+                    .as_str()
+                    .is_some_and(|text| text.contains("file end"))
+            })
+    };
+    let ends_file = |page: &serde_json::Value| {
+        page["sourceLineRanges"]
+            .as_array()
+            .and_then(|ranges| ranges.last())
+            .is_some_and(|range| range["endLine"] == total)
+    };
+    let query = qj(
+        &file,
+        serde_json::json!({"ranges": [{"startLine": 2, "endLine": total + 700}]}),
+    );
+    let one = fetch(&query, &paths);
+    let one = serde_json::to_value(&one).expect("wire form");
+    assert!(ends_file(&one), "the fixture fits one default page: {one}");
+    assert_eq!(one["totalLines"], total, "{one}");
+    assert!(!clipped(&one), "{one}");
+    let pages = wire_pages(&query, &paths, 1500);
+    assert!(pages.len() > 1, "the fixture pages");
+    for page in &pages {
+        assert_eq!(clipped(page), !ends_file(page), "{page}");
+    }
+    let walked = pages
+        .iter()
+        .map(|page| page["content"].as_str().expect("content"))
+        .collect::<String>();
+    assert_eq!(walked, source["line 1\n".len()..], "every line once");
 }

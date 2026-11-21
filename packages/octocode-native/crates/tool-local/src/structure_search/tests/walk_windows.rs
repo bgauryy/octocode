@@ -187,9 +187,17 @@ fn the_last_window_of_a_long_listing_keeps_its_pagination() {
         octocode_runtime_base::id::ToolId::StructureSearch,
         pages.last().expect("a page"),
     );
+    // The producer still says this is a later window's page (a loaded
+    // count, nothing after it); the served page states no floor and no
+    // walk of its own, and the reply carries no `next`.
+    let produced = &pages.last().expect("a page")["pagination"];
+    assert_eq!(produced["hasMore"], false, "{produced}");
+    assert_eq!(produced["countScope"], "loaded", "{produced}");
     let block = &last["results"][0]["data"]["pagination"];
-    assert_eq!(block["hasMore"], false, "{last}");
-    assert_eq!(block["countScope"], "loaded", "{last}");
+    assert!(
+        block.get("hasMore").is_none() && block.get("countScope").is_none(),
+        "{last}"
+    );
 }
 
 /// A ranked listing (sorted by size) walks its whole scope, so its sort

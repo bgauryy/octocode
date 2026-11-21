@@ -1,7 +1,5 @@
 //! Release-source labels, source leads and repair leads.
-use super::{
-    advisory_lead, label_release_source, retraction_warning, source_leads, source_warning,
-};
+use super::{label_release_source, retraction_warning, source_warning};
 use crate::artifact::types::Retraction;
 use crate::artifact::{ArtifactItem, TagAbsence};
 use octocode_contract_types::ArtifactType;
@@ -12,89 +10,6 @@ fn item(artifact_type: ArtifactType, repository: &str) -> ArtifactItem {
     let mut item = ArtifactItem::new(artifact_type, "x".into(), "https://registry/x".into());
     item.repository = Some(repository.into());
     item
-}
-
-/// The leads of an exact row, labeled the way `respond` labels it.
-fn leads_of(row: &ArtifactItem) -> serde_json::Map<String, serde_json::Value> {
-    let mut row = row.clone();
-    label_release_source(&mut row, true);
-    source_leads(&row)
-}
-
-#[test]
-fn a_row_without_a_release_ref_leads_to_the_default_branch_only() {
-    let leads = leads_of(&item(ArtifactType::Pypi, "https://github.com/psf/requests"));
-    assert_eq!(leads.keys().collect::<Vec<_>>(), vec!["viewRepo"]);
-    assert_eq!(
-        leads["viewRepo"]["input"]["queries"][0],
-        json_fixture(r#"{"operation": "tree", "owner": "psf", "repo": "requests"}"#)
-    );
-    // The row labels the default branch; the lead does not repeat it.
-    assert!(leads["viewRepo"].get("verification").is_none());
-    assert!(leads_of(&item(ArtifactType::Npm, "https://gitlab.com/o/r")).is_empty());
-}
-
-#[test]
-fn the_release_lead_leads_to_the_package_directory() {
-    let mut row = item(ArtifactType::Pypi, "https://github.com/o/r");
-    row.source_ref = Some("v1.2.3".into());
-    let leads = leads_of(&row);
-    assert_eq!(leads.keys().collect::<Vec<_>>(), vec!["viewReleaseSource"]);
-    assert_eq!(
-        leads["viewReleaseSource"]["input"]["queries"][0],
-        json_fixture(
-            r#"{
-                "operation": "tree",
-                "owner": "o",
-                "repo": "r",
-                "ref": "v1.2.3"
-            }"#
-        )
-    );
-    // The package directory is the registry's, never the built entry's.
-    row.repository_directory = Some("packages/x".into());
-    row.source_attested = true;
-    let lead = &leads_of(&row)["viewReleaseSource"];
-    assert_eq!(lead["input"]["queries"][0]["path"], "packages/x");
-}
-
-/// The row is the one source of the release ref's label: no lead at
-/// that ref repeats it.
-#[test]
-fn leads_at_the_release_ref_do_not_repeat_the_rows_label() {
-    let mut row = item(ArtifactType::Npm, "https://github.com/o/r");
-    row.source_ref = Some("abc123".into());
-    for lead in leads_of(&row).values() {
-        assert!(lead.get("verification").is_none(), "{lead}");
-    }
-}
-
-/// Rubygems names its release as a `/tree/<tag>` URL: the lead
-/// reads that tag, not the default branch; a branch URL stays unpinned.
-#[test]
-fn a_repository_url_naming_the_versions_tag_pins_the_release_lead() {
-    let mut row = item(
-        ArtifactType::Rubygems,
-        "https://github.com/rails/rails/tree/v8.1.4",
-    );
-    row.version = Some("8.1.4".into());
-    let leads = leads_of(&row);
-    let tree = &leads["viewReleaseSource"]["input"]["queries"][0];
-    assert_eq!(
-        tree,
-        &json_fixture(
-            r#"{
-                "operation": "tree",
-                "owner": "rails",
-                "repo": "rails",
-                "ref": "v8.1.4"
-            }"#
-        )
-    );
-    row.repository = Some("https://github.com/rails/rails/tree/main".into());
-    assert_eq!(leads_of(&row).keys().collect::<Vec<_>>(), vec!["viewRepo"]);
-    row.repository = Some("https://github.com/rails/rails/tree/v8.1.3".into());
-    assert_eq!(leads_of(&row).keys().collect::<Vec<_>>(), vec!["viewRepo"]);
 }
 
 /// A versioned row whose source resolves to the default branch (a
@@ -254,46 +169,6 @@ fn a_moved_repository_still_names_a_release_tag_at_another_commit() {
     assert!(warning.contains(differs), "{warning} lacks {differs}");
 }
 
-/// A moved repository's source lead names it as GitHub does now (the name
-/// its redirect leads to), so the lead runs unchanged; while that name is
-/// unknown the lead keeps the registry's, which GitHub redirects.
-#[test]
-fn a_moved_repository_leads_under_the_name_github_redirects_to() {
-    use crate::artifact::RepositoryStatus;
-    let mut row = item(ArtifactType::Npm, "https://github.com/a/b");
-    row.version = Some("1.0.0".into());
-    row.source_ref = Some("abc".into());
-    row.repository_directory = Some("packages/x".into());
-    row.repository_status = Some(RepositoryStatus::Moved);
-    let lead =
-        |row: &ArtifactItem| leads_of(row)["viewReleaseSource"]["input"]["queries"][0].clone();
-    assert_eq!(
-        lead(&row),
-        json_fixture(
-            r#"{
-                "operation": "tree",
-                "owner": "a",
-                "repo": "b",
-                "path": "packages/x",
-                "ref": "abc"
-            }"#
-        )
-    );
-    row.successor_repository = Some("c/d".into());
-    assert_eq!(
-        lead(&row),
-        json_fixture(
-            r#"{
-                "operation": "tree",
-                "owner": "c",
-                "repo": "d",
-                "path": "packages/x",
-                "ref": "abc"
-            }"#
-        )
-    );
-}
-
 /// The row is the one source of the label; a discovery row
 /// without a ref gets none, and a rubygems tag URL is a registry ref.
 #[test]
@@ -366,62 +241,6 @@ fn peer_dependencies_are_one_list_shape() {
     );
 }
 
-/// An exact row leads to the advisories OSV lists for the version it resolved,
-/// on every registry; a row with no version leads to none.
-#[test]
-fn an_exact_row_leads_to_its_advisories() {
-    let mut row = item(ArtifactType::Pypi, "https://github.com/o/r");
-    assert!(advisory_lead(&row).is_none());
-    row.version = Some("1.2.3".into());
-    let lead = advisory_lead(&row).expect("lead");
-    assert_eq!(lead["tool"], "securityCheck", "{lead}");
-    assert_eq!(
-        lead["input"]["queries"][0],
-        json_fixture(
-            r#"{
-                "operation": "package",
-                "ecosystem": "PyPI",
-                "packageName": "x",
-                "version": "1.2.3"
-            }"#
-        )
-    );
-}
-
-/// The lead names OSV's case-sensitive ecosystem, never the registry's
-/// spelling: every registry's lead is a valid `securityCheck` query
-/// (building it asserts the contract in debug builds) that runs with no
-/// repair note.
-#[test]
-fn every_registry_leads_with_an_osv_ecosystem() {
-    for kind in [
-        ArtifactType::Npm,
-        ArtifactType::Pypi,
-        ArtifactType::Crates,
-        ArtifactType::Maven,
-        ArtifactType::Nuget,
-        ArtifactType::Go,
-        ArtifactType::Packagist,
-        ArtifactType::Rubygems,
-    ] {
-        let mut row = item(kind, "https://github.com/o/r");
-        row.version = Some("1.2.3".into());
-        let lead = advisory_lead(&row).expect("lead");
-        let ecosystem = lead["input"]["queries"][0]["ecosystem"]
-            .as_str()
-            .expect("ecosystem");
-        assert_eq!(
-            ecosystem,
-            crate::artifact::query::artifact_type::osv_ecosystem(kind).to_string()
-        );
-        let (_, repairs) = octocode_runtime_base::contracts::normalized_input(
-            "securityCheck",
-            lead["input"].clone(),
-        );
-        assert!(repairs.is_empty(), "{kind}: {lead} {repairs:?}");
-    }
-}
-
 /// Final round, item 4: a module's retraction reason is the module's text,
 /// quoted as judged: a credential in it shows as the placeholder a read
 /// shows, and the reason's words stay.
@@ -446,24 +265,4 @@ fn a_retraction_reason_is_quoted_as_judged() {
         warning.ends_with("go.mod: published by mistake."),
         "{warning}"
     );
-}
-
-/// The advisory lead of an exact row names the ecosystem as securityCheck
-/// takes it, for every ecosystem artifactSearch takes: following it never
-/// meets the input repair's note.
-#[test]
-fn the_advisory_lead_spells_the_ecosystem_as_security_check_takes_it() {
-    use crate::test_spelling::{artifact_ecosystems, runs_as_sent};
-    for kind in artifact_ecosystems() {
-        let mut row = item(kind, "https://github.com/o/r");
-        row.package_name = match kind {
-            ArtifactType::Maven => "org.example:x".into(),
-            ArtifactType::Go => "github.com/o/r".into(),
-            ArtifactType::Packagist => "o/r".into(),
-            _ => "x".into(),
-        };
-        row.version = Some("1.0.0".into());
-        let lead = advisory_lead(&row).expect("lead");
-        runs_as_sent("securityCheck", &lead["input"]);
-    }
 }

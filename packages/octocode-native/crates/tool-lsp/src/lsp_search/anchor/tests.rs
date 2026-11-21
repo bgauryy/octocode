@@ -178,38 +178,62 @@ fn a_line_far_from_every_spelling_names_the_nearest_one_beside_the_declaration()
     assert_eq!(receipt["foundAtLine"], 1, "{receipt}");
     let lines = alternative_lines(&receipt);
     assert_eq!(lines.first(), Some(&near), "{receipt}");
-    assert!(
-        anchor.warning.is_none(),
-        "the line is in the file: {receipt}"
-    );
+    // The anchor moved off the asked line: the row says so, names the line
+    // used and the other spellings, since the answer may be another's.
+    let warning = anchor.warning.expect("a moved anchor warns");
+    assert!(warning.contains(&asked.to_string()), "{warning}");
+    assert!(warning.contains("line 1"), "{warning}");
+    assert!(warning.contains(&near.to_string()), "{warning}");
 }
 
-/// A line past the end of the file names no line of it: the row warns,
-/// stating the file's length, and the receipt names the spelling nearest
-/// the end beside the one chosen.
+/// A name found on its own line is the anchor asked for: no warning, and no
+/// line stated beyond the request's. One found off its line with no other
+/// spelling warns of the line used and names no alternative.
 #[test]
-fn a_line_past_the_end_warns_and_names_the_spelling_nearest_the_end() {
+fn only_a_moved_anchor_warns() {
+    let source = format!("fn only() {{}}\n{}", "// filler\n".repeat(6));
+    let anchor = |line: u32| {
+        resolve_anchor(
+            &line_query("only", line),
+            "/w/a.rs",
+            "file:///w/a.rs",
+            Some(&source),
+        )
+        .expect("anchor")
+    };
+    assert!(anchor(1).warning.is_none());
+    let moved = anchor(3);
+    let warning = moved.warning.expect("a moved anchor warns");
+    assert!(warning.contains("line 3") && warning.contains("line 1"), "{warning}");
+    assert!(!warning.contains("alternatives"), "{warning}");
+}
+
+/// A line past the end of the file names no line of it: the read is
+/// refused, stating the file's length and the lines that spell the name, so
+/// no identity is chosen by name alone.
+#[test]
+fn a_line_past_the_end_is_refused_naming_the_length_and_the_spellings() {
     let source = "fn check() {}\nfn a() { check(); }\nfn b() { check(); }\n";
     let length = source.lines().count();
     let asked = u32::try_from(length).expect("lines") + 1_000;
-    let anchor = resolve_anchor(
+    let refused = resolve_anchor(
         &line_query("check", asked),
         "/w/a.rs",
         "file:///w/a.rs",
         Some(source),
     )
-    .expect("anchor");
-    let receipt = anchor.resolved_symbol.expect("receipt");
-    let found = receipt["foundAtLine"].as_u64().expect("found");
+    .err()
+    .expect("a line outside the file anchors nothing");
+    assert!(refused.contains(&asked.to_string()), "{refused}");
+    assert!(refused.contains(&format!("{length} lines")), "{refused}");
+    for line in 1..=length {
+        assert!(refused.contains(&line.to_string()), "{line}: {refused}");
+    }
+    // The file's last line is still a line of it.
     let last = u32::try_from(length).expect("lines");
-    let lines = alternative_lines(&receipt);
     assert!(
-        u64::from(last) == found || lines.contains(&last),
-        "the spelling nearest the end is chosen or named: {receipt}"
+        resolve_anchor(&line_query("check", last), "/w/a.rs", "file:///w/a.rs", Some(source)).is_ok()
     );
-    let warning = anchor.warning.expect("a warning");
-    assert!(warning.contains(&asked.to_string()), "{warning}");
-    assert!(warning.contains(&length.to_string()), "{warning}");
 }
 
 fn line_query(name: &str, line: u32) -> LspSearchQuery {

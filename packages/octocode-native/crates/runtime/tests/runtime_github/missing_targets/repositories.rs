@@ -3,6 +3,18 @@ use octocode_test_support::json_fixture;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+/// `GET /users/{login}` answers: the login exists, so a repository under it
+/// that does not resolve is a missing repository, not a missing owner.
+async fn owner_exists(server: &MockServer, login: &str) {
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v3/users/{login}")))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({ "login": login })),
+        )
+        .mount(server)
+        .await;
+}
+
 /// ghSearchCode on a repository that does not exist is notFound
 /// (exit 3), not an empty partial search.
 #[tokio::test]
@@ -62,6 +74,7 @@ async fn gh_clone_repo_classifies_a_missing_repository_before_git() {
         )
         .mount(&server)
         .await;
+    owner_exists(&server, "ghost").await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     let outcome = call(
@@ -91,12 +104,14 @@ async fn gh_clone_repo_classifies_a_missing_repository_before_git() {
         .filter(|path| path.starts_with("/api/"))
         .collect();
     api_calls.sort();
-    // The two pinning reads answered; nothing followed them.
+    // The two pinning reads answered; only the read of the owner's login
+    // (a missing owner answers like a missing repository) followed them.
     assert_eq!(
         api_calls,
         [
             "/api/v3/repos/ghost/nope",
-            "/api/v3/repos/ghost/nope/commits/HEAD"
+            "/api/v3/repos/ghost/nope/commits/HEAD",
+            "/api/v3/users/ghost"
         ],
         "{api_calls:?}"
     );
@@ -121,6 +136,7 @@ async fn gh_file_read_on_a_missing_repository_reports_repository_access() {
         )))
         .mount(&server)
         .await;
+    owner_exists(&server, "ghost").await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     let outcome = call(
@@ -242,6 +258,7 @@ async fn a_missing_repository_row_is_the_same_on_every_repository_tool() {
         )))
         .mount(&server)
         .await;
+    owner_exists(&server, "ghost").await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     for (tool, input) in [
@@ -261,6 +278,16 @@ async fn a_missing_repository_row_is_the_same_on_every_repository_tool() {
             "ghSearchCode",
             json_fixture(r#"{"owner": "ghost", "repo": "nope", "keywords": ["needle"]}"#),
         ),
+        (
+            "ghSearchHistory",
+            json_fixture(r#"{"operation": "commit", "owner": "ghost", "repo": "nope"}"#),
+        ),
+        (
+            "ghGetHistoryItem",
+            json_fixture(
+                r#"{"operation": "pullRequest", "owner": "ghost", "repo": "nope", "number": 1}"#,
+            ),
+        ),
     ] {
         let outcome = call(&runtime, tool, input).await.expect("error row");
         let data = row_data(&outcome);
@@ -278,6 +305,91 @@ async fn a_missing_repository_row_is_the_same_on_every_repository_tool() {
             data["hints"],
             json_fixture(r#"["Confirm the owner before using a related[] repository."]"#),
             "{tool}: {data}"
+        );
+    }
+    runtime.close().await;
+}
+
+/// G9: a repository under a login GitHub does not know reads the same on
+/// every tool that takes a repository: the row names the owner (GitHub
+/// answers it exactly like a missing repository), and no related[] call
+/// asks for that owner, since each would fail the same way.
+#[tokio::test]
+async fn a_missing_owner_row_is_the_same_on_every_repository_tool() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/code"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"total_count": 0, "incomplete_results": true, "items": []}"#,
+        )))
+        .mount(&server)
+        .await;
+    // Every other request, the login's read too, answers 404.
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    for (tool, input) in [
+        (
+            "ghCloneRepo",
+            json_fixture(r#"{"owner": "ghost", "repo": "nope"}"#),
+        ),
+        (
+            "ghGetFileContent",
+            json_fixture(r#"{"owner": "ghost", "repo": "nope", "path": "README.md"}"#),
+        ),
+        (
+            "ghStructure",
+            json_fixture(r#"{"operation": "tree", "owner": "ghost", "repo": "nope"}"#),
+        ),
+        (
+            "ghStructure",
+            json_fixture(r#"{"operation": "refs", "owner": "ghost", "repo": "nope"}"#),
+        ),
+        (
+            "ghSearchCode",
+            json_fixture(r#"{"owner": "ghost", "repo": "nope", "keywords": ["needle"]}"#),
+        ),
+        (
+            "ghSearchHistory",
+            json_fixture(r#"{"operation": "commit", "owner": "ghost", "repo": "nope"}"#),
+        ),
+        (
+            "ghSearchHistory",
+            json_fixture(
+                r#"{"operation": "commit", "owner": "ghost", "repo": "nope", "ref": "main"}"#,
+            ),
+        ),
+        (
+            "ghGetHistoryItem",
+            json_fixture(
+                r#"{"operation": "pullRequest", "owner": "ghost", "repo": "nope", "number": 1}"#,
+            ),
+        ),
+        (
+            "ghSearchRepo",
+            json_fixture(r#"{"operation": "get", "owner": "ghost", "repo": "nope"}"#),
+        ),
+    ] {
+        let outcome = call(&runtime, tool, input.clone())
+            .await
+            .expect("error row");
+        let data = row_data(&outcome);
+        assert_eq!(data["errorCode"], "notFound", "{tool} {input}: {data}");
+        assert_eq!(
+            data["error"],
+            octocode_tools_shared::gh_shared::owner_not_found_message("ghost"),
+            "{tool} {input}: {data}"
+        );
+        for lead in data["related"].as_array().into_iter().flatten() {
+            for row in lead["input"]["queries"].as_array().into_iter().flatten() {
+                assert!(
+                    row.get("owner").is_none(),
+                    "a lead asks for the missing owner: {tool} {input}: {data}"
+                );
+            }
+        }
+        assert!(
+            data.get("related").is_some() || data.get("hints").is_some(),
+            "the row leads somewhere: {tool} {input}: {data}"
         );
     }
     runtime.close().await;

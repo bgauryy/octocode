@@ -17,6 +17,7 @@
 //! Nothing is dropped: a value some rows lack stays on the rows that state
 //! it, and a one-row response moves nothing but keyed facts.
 use super::plan::{Batch, Keyed};
+use crate::response::notices::guidance_in_hints;
 use serde_json::{Map, Value, json};
 
 /// States once what `batch` lets the rows under `structured["results"]`
@@ -28,6 +29,7 @@ pub(crate) fn apply(batch: &Batch, structured: &mut Value) {
     }
     shared(structured, batch);
     if batch.hints {
+        error_guidance(structured);
         hints(structured);
     }
     if batch.related {
@@ -56,7 +58,7 @@ pub(crate) fn warnings(structured: &mut Value) {
 /// rows are empty or failed, are said once in the envelope's `hints`.
 fn hints(structured: &mut Value) {
     let lists = rows(structured)
-        .filter(|row| guidance_row(row))
+        .filter(|row| guidance_in_hints(row))
         .map(|row| list(row, "/data/hints"))
         .collect::<Vec<_>>();
     let shared = common(&lists);
@@ -64,7 +66,7 @@ fn hints(structured: &mut Value) {
         return;
     }
     for row in structured["results"].as_array_mut().into_iter().flatten() {
-        if guidance_row(row)
+        if guidance_in_hints(row)
             && let Some(data) = row.get_mut("data").and_then(Value::as_object_mut)
         {
             strip(data, "hints", &shared);
@@ -73,12 +75,57 @@ fn hints(structured: &mut Value) {
     append(structured, "hints", shared);
 }
 
-/// Whether `row` states its guidance in `hints`: an empty or failed row.
-fn guidance_row(row: &Value) -> bool {
-    matches!(
-        row["status"].as_str(),
-        Some("error" | "empty" | "outOfRange")
-    )
+/// The sentences two or more failed rows all end their `error` with, word
+/// for word (a refusal's "use … instead; also readable: …"), are guidance
+/// of the call: said once, in the envelope's `hints`, ahead of the hints
+/// the rows share. Each row's `error` keeps the sentences that are its own
+/// (what failed, on which input), so no row loses a fact; a response whose
+/// failed rows do not all share an ending, or with one failed row, moves
+/// nothing.
+fn error_guidance(structured: &mut Value) {
+    let failed = rows(structured)
+        .filter(|row| row["status"] == "error")
+        .map(|row| row.pointer("/data/error").and_then(Value::as_str))
+        .collect::<Option<Vec<_>>>();
+    let Some(tail) = failed.as_deref().and_then(shared_ending).map(str::to_owned) else {
+        return;
+    };
+    for row in structured["results"].as_array_mut().into_iter().flatten() {
+        if row["status"] == "error"
+            && let Some(Value::String(error)) = row.pointer_mut("/data/error")
+            && let Some(own) = error
+                .strip_suffix(tail.as_str())
+                .and_then(|own| own.strip_suffix(SENTENCE_GAP))
+        {
+            *error = own.to_owned();
+        }
+    }
+    append(structured, "hints", vec![Value::String(tail)]);
+}
+
+/// Where one sentence of an `error` ends and the next starts.
+const END: &str = ". ";
+/// The space of [`END`]: what a row's `error` loses, with the shared
+/// ending, when that ending moves to the envelope, so the row's `error`,
+/// this space and the hint are the original text.
+const SENTENCE_GAP: char = ' ';
+
+/// The longest run of whole sentences every one of two or more `errors`
+/// ends with, each keeping at least one sentence of its own before it. A
+/// sentence starts after `". "` with a capital letter.
+fn shared_ending<'a>(errors: &[&'a str]) -> Option<&'a str> {
+    let (first, rest) = errors.split_first().filter(|(_, rest)| !rest.is_empty())?;
+    first
+        .match_indices(END)
+        .filter_map(|(at, _)| first.get(at + END.len()..))
+        .filter(|tail| tail.starts_with(char::is_uppercase))
+        .find(|tail| {
+            rest.iter().all(|error| {
+                error
+                    .strip_suffix(tail)
+                    .is_some_and(|own| own.ends_with(END))
+            })
+        })
 }
 
 /// The fields `batch.shared` lists that two or more rows all state with one
@@ -154,7 +201,7 @@ pub(crate) fn keyed(results: &mut [Value], groups: &[Keyed]) {
 /// states that one recovery once, in its order; otherwise each keeps its
 /// recovery whole, in its own order.
 fn related(structured: &mut Value) {
-    let recovers = rows(structured).map(guidance_row).collect::<Vec<_>>();
+    let recovers = rows(structured).map(guidance_in_hints).collect::<Vec<_>>();
     let mut merged = Vec::new();
     let mut taken: Vec<(usize, usize)> = Vec::new();
     for recovery in [false, true] {

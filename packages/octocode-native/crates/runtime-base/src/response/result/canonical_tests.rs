@@ -139,19 +139,90 @@ fn sample(schema: &Value, defs: &Value) -> Option<Value> {
     }
 }
 
-/// The required properties of an object schema (its `parts`), plus what
-/// `minProperties` and its unconditional `x-checks` ask for; with
-/// `defaults`, every optional property that declares a default, stated at
-/// that default. `None` when a required property has no sample.
-fn object(parts: &[&Value], defs: &Value, defaults: bool) -> Option<Value> {
+/// The fields one branch of a check's `assert` requires.
+fn asked(branch: &Value) -> Vec<String> {
+    branch["required"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect()
+}
+
+/// What meets a check that asks for one of several field sets: the first
+/// set whose fields `properties` declares, each sampled. `None` when the
+/// check asks for no such set.
+fn asked_sample(
+    check: &Value,
+    properties: &Map<String, Value>,
+    defs: &Value,
+) -> Option<Vec<(String, Value)>> {
+    check["assert"]["anyOf"]
+        .as_array()?
+        .iter()
+        .find_map(|branch| {
+            asked(branch)
+                .into_iter()
+                .map(|field| Some((field.clone(), sample(properties.get(&field)?, defs)?)))
+                .collect::<Option<Vec<_>>>()
+        })
+}
+
+/// The properties an object schema's `parts` declare, the first
+/// declaration of each.
+fn declared(parts: &[&Value]) -> Map<String, Value> {
     let mut properties = Map::new();
-    let mut required = Vec::new();
     for part in parts {
         for (field, schema) in part["properties"].as_object().into_iter().flatten() {
             properties
                 .entry(field.clone())
                 .or_insert_with(|| schema.clone());
         }
+    }
+    properties
+}
+
+/// A check of the whole row union (one that holds only for some forms, by
+/// its `when`) is met as a form's own check is: while the contract's
+/// validator names such a check as what refuses `row`, the fields it asks
+/// for are added. The validator decides whether a check applies, so no
+/// `when` is read here.
+fn meet_union_checks(
+    tool: ToolId,
+    row: &mut Value,
+    properties: &Map<String, Value>,
+    checks: &[Value],
+    defs: &Value,
+) {
+    for _ in checks {
+        let Err(error) = crate::contracts::validate_built_query(tool.as_str(), row.clone()) else {
+            return;
+        };
+        let added = checks
+            .iter()
+            .filter(|check| {
+                error
+                    .issues
+                    .iter()
+                    .any(|issue| check["id"].as_str() == Some(&*issue.rule_id))
+            })
+            .find_map(|check| asked_sample(check, properties, defs));
+        match (added, row.as_object_mut()) {
+            (Some(added), Some(fields)) => fields.extend(added),
+            _ => return,
+        }
+    }
+}
+
+/// The required properties of an object schema (its `parts`), plus what
+/// `minProperties` and its unconditional `x-checks` ask for; with
+/// `defaults`, every optional property that declares a default, stated at
+/// that default. `None` when a required property has no sample.
+fn object(parts: &[&Value], defs: &Value, defaults: bool) -> Option<Value> {
+    let properties = declared(parts);
+    let mut required = Vec::new();
+    for part in parts {
         required.extend(
             part["required"]
                 .as_array()
@@ -180,28 +251,13 @@ fn object(parts: &[&Value], defs: &Value, defaults: bool) -> Option<Value> {
         let Some(branches) = check["assert"]["anyOf"].as_array() else {
             continue;
         };
-        let asked = |branch: &Value| -> Vec<String> {
-            branch["required"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .map(str::to_owned)
-                .collect()
-        };
         if branches
             .iter()
             .any(|branch| asked(branch).iter().all(|field| row.contains_key(field)))
         {
             continue;
         }
-        let added = branches.iter().find_map(|branch| {
-            asked(branch)
-                .into_iter()
-                .map(|field| Some((field.clone(), sample(properties.get(&field)?, defs)?)))
-                .collect::<Option<Vec<_>>>()
-        })?;
-        row.extend(added);
+        row.extend(asked_sample(check, &properties, defs)?);
     }
     let least = keyword(parts, defs, "minProperties")
         .and_then(Value::as_u64)
@@ -266,9 +322,19 @@ pub fn variants(tool: ToolId) -> Variants {
         skipped: Vec::new(),
         rows: Vec::new(),
     };
+    // Checks on the union itself hold for every form they apply to.
+    let union_checks = resolve_ref(&contract["querySchema"], defs)["x-checks"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     for variant in forms_found {
         let parts = parts(variant, defs);
-        match (object(&parts, defs, true), object(&parts, defs, false)) {
+        let sampled = |defaults| {
+            let mut row = object(&parts, defs, defaults)?;
+            meet_union_checks(tool, &mut row, &declared(&parts), &union_checks, defs);
+            Some(row)
+        };
+        match (sampled(true), sampled(false)) {
             (Some(stated), Some(omitted)) => found.rows.push(Sampled { stated, omitted }),
             _ => found.skipped.push(variant.to_string()),
         }

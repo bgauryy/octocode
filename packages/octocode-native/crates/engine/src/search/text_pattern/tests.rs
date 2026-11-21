@@ -1,16 +1,6 @@
 use super::*;
 
 #[test]
-fn a_regex_spells_itself_only_when_it_parses_to_its_own_text() {
-    for pattern in ["defects-queue", "plain words", "#tag", "a&b", "x~y", "é-ü"] {
-        assert!(regex_spells_itself(pattern), "{pattern}");
-    }
-    for pattern in ["a.b", r"a\.b", "a|b", "x[0-9]", "^fn", "a+", "(a)", "call("] {
-        assert!(!regex_spells_itself(pattern), "{pattern}");
-    }
-}
-
-#[test]
 fn a_regex_widens_only_past_one_fixed_text_or_with_an_escape() {
     for pattern in [
         "a|b",

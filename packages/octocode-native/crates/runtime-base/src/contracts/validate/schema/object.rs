@@ -88,38 +88,41 @@ pub(super) fn object_shape(root: &Value, schema: &Value, depth: usize) -> Option
 
 /// For an object sent a scalar that several of its fields would take (a
 /// rule sent as the text of its pattern, kind or regex): the scalar is one
-/// field's value and nothing says which, so the repair names the fields.
-/// `None` when no field takes it.
+/// field's value and nothing says which, so the repair names the fields,
+/// those of every one of the object's `forms`. `None` when no field takes
+/// it.
 fn one_field_value(
     root: &Value,
-    schema: &Value,
+    forms: &[&Value],
     received: &Value,
 ) -> Result<Option<String>, ContractValidationError> {
     if !(received.is_string() || received.is_number() || received.is_boolean()) {
         return Ok(None);
     }
     let defs = &root["$defs"];
-    let Some(properties) = super::super::super::resolve_ref(schema, defs)
-        .get("properties")
-        .and_then(Value::as_object)
-    else {
-        return Ok(None);
-    };
     let _speculation = union::Speculation::enter();
-    let mut fields = Vec::new();
-    for (name, property) in properties {
-        if !authored_property(root, property) {
+    let mut fields: Vec<&str> = Vec::new();
+    for form in forms {
+        let Some(properties) = super::super::super::resolve_ref(form, defs)
+            .get("properties")
+            .and_then(Value::as_object)
+        else {
             continue;
-        }
-        let taken = super::probe(validate_with_mode(
-            root,
-            property,
-            &mut received.clone(),
-            &mut Vec::new(),
-            ValidationMode::ReadOnly,
-        ))?;
-        if taken {
-            fields.push(name.as_str());
+        };
+        for (name, property) in properties {
+            if !authored_property(root, property) || fields.contains(&name.as_str()) {
+                continue;
+            }
+            let taken = super::probe(validate_with_mode(
+                root,
+                property,
+                &mut received.clone(),
+                &mut Vec::new(),
+                ValidationMode::ReadOnly,
+            ))?;
+            if taken {
+                fields.push(name.as_str());
+            }
         }
     }
     if fields.is_empty() {
@@ -133,11 +136,15 @@ fn one_field_value(
 }
 
 /// The message for a value that is no object: the expected shape, then the
-/// one repair that reads it. A speculative probe reads only pass/fail: no
+/// one repair that reads it. `forms` are the object schemas the value may
+/// take: `schema` alone, or every form of the union `schema` composes, so
+/// the shape lists each literal the forms pin a field to and the repair is
+/// the first a form offers. A speculative probe reads only pass/fail: no
 /// shape and no repair.
 fn not_an_object(
     root: &Value,
     schema: &Value,
+    forms: &[&Value],
     received: &Value,
 ) -> Result<String, ContractValidationError> {
     if union::speculative() {
@@ -147,14 +154,60 @@ fn not_an_object(
         Some(shape) => format!("Expected object {shape}"),
         None => "Expected object".to_owned(),
     };
-    let repair = match super::super::repair::object(schema, &root["$defs"], received) {
+    let repair = match forms
+        .iter()
+        .find_map(|form| super::super::repair::object(form, &root["$defs"], received))
+    {
         Some(fix) => Some(fix),
-        None => one_field_value(root, schema, received)?,
+        None => one_field_value(root, forms, received)?,
     };
     Ok(match repair {
         Some(repair) => format!("{message}; {repair}"),
         None => message,
     })
+}
+
+/// A value that is no object, refused by a union whose every form is an
+/// object: the form the union's diagnosis chose says only its own shape
+/// (`{type: noul, …}`), so its issue at `path` takes the union's, which
+/// names every literal the forms pin a field to (`type:
+/// noul|choice|score|box`). Any other failure is left as it is.
+pub(in super::super) fn name_object_forms(
+    issues: &mut [ValidationIssue],
+    root: &Value,
+    branches: &[Value],
+    received: &Value,
+    path: &[String],
+) -> Result<(), ContractValidationError> {
+    if received.is_object() || branches.len() < 2 {
+        return Ok(());
+    }
+    let defs = &root["$defs"];
+    let forms = branches
+        .iter()
+        .map(|branch| super::super::super::resolve_ref(branch, defs))
+        .collect::<Vec<_>>();
+    if !forms
+        .iter()
+        .all(|form| form.get("type").and_then(Value::as_str) == Some("object"))
+    {
+        return Ok(());
+    }
+    let Some(issue) = issues
+        .iter_mut()
+        .find(|issue| issue.rule_id == "schema.type" && issue.path == path)
+    else {
+        return Ok(());
+    };
+    let whole = serde_json::json!({ "anyOf": branches });
+    issue.message = not_an_object(root, &whole, &forms, received)?;
+    Ok(())
+}
+
+/// What a `schema.required` issue says before any stage adds why the field
+/// is required here.
+pub(in crate::contracts::validate) fn missing_required_text(field: &str) -> String {
+    format!("Missing required field: {field}")
 }
 
 pub(super) fn validate_object(
@@ -180,7 +233,7 @@ pub(super) fn validate_object(
                     received,
                 ));
             }
-            let message = not_an_object(root, schema, received)?;
+            let message = not_an_object(root, schema, &[schema], received)?;
             return Err(schema_issue(
                 "schema.type",
                 path.clone(),
@@ -367,7 +420,7 @@ fn missing_required(
                 schema_issue(
                     "schema.required",
                     field_path,
-                    format!("Missing required field: {required}"),
+                    missing_required_text(required),
                     crate::contracts::resolve_ref(
                         properties
                             .and_then(|items| items.get(required))

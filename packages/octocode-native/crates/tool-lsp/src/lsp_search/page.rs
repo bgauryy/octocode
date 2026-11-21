@@ -168,6 +168,17 @@ fn anchor_unresolved(
     text: Option<&str>,
     error: &str,
 ) -> Exit {
+    // The error is the whole answer: it states the fix, the name and line
+    // are located, and no server was asked. Nothing is missing, so the row
+    // is an input to correct, with no recovery of a lookup.
+    if anchor::misses_only_by_occurrence(query, &target.path, text) {
+        return Exit::Row(json!({
+            "status": "error",
+            "errorCode": ErrorCode::InvalidInput,
+            "error": error,
+            "path": render::uri_to_path(&target.uri),
+        }));
+    }
     let mut row = failure(
         query,
         &target.uri,
@@ -265,7 +276,7 @@ pub(super) async fn run_target(
     // answers, which were judged when they were asked.
     let mut result = loop {
         let asked = session.client.asked_at().await;
-        let mut row = ops::Operation {
+        let operation = ops::Operation {
             client: &session.client,
             query,
             sources: &mut sources,
@@ -280,16 +291,22 @@ pub(super) async fn run_target(
             budget: octocode_runtime_base::response::page_windows::page_budget(response_window),
             security,
             anchor_opened: session.open_readiness.is_some(),
-        }
-        .run()
-        .await
-        .map_err(|failure| session_failed(query, target, &session, failure))?;
+        };
+        // A cold server may take most of a minute on its first question,
+        // and the load an empty answer waits out as long: both say so.
+        let mut row = reporting(ASKING, &session.config, operation.run())
+            .await
+            .map_err(|failure| session_failed(query, target, &session, failure))?;
         if lsp_search_query::snapshot(query).is_some() || !claims_absence(&row) {
             break row;
         }
-        match cancellable(
-            cancel,
-            session.client.judge_empty_answer(asked, load_deadline),
+        match reporting(
+            LOADING,
+            &session.config,
+            cancellable(
+                cancel,
+                session.client.judge_empty_answer(asked, load_deadline),
+            ),
         )
         .await?
         {

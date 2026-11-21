@@ -4,6 +4,8 @@ use octocode_test_support::json_fixture;
 fn source_row() -> Row {
     Row {
         context: None,
+        goal: None,
+        background: None,
         model: None,
         keys: vec![],
         questions: vec![],
@@ -23,6 +25,7 @@ fn source_row() -> Row {
         source_progress: None,
         max_requests: None,
         per_hit: false,
+        collapse: false,
         retry_units: None,
         query: Value::Null,
     }
@@ -172,41 +175,6 @@ fn an_input_refusal_carries_only_its_input_fix() {
         hints.contains(&json!(notice("imageInspection"))),
         "{failed}"
     );
-}
-
-/// An image given as a text source gets the same questions as a ready
-/// call with it under assets.
-#[test]
-fn a_binary_source_offers_the_same_questions_with_the_file_under_assets() {
-    let mut row = source_row();
-    row.keys = vec!["q".into()];
-    row.questions = vec![json_fixture(
-        r#"{"type": "noul", "instructions": "Is a popup shown?"}"#,
-    )];
-    let mut failure = json_fixture(
-        r#"{
-            "errorCode": "binaryFileUnsupported",
-            "hints": ["Reader advice."]
-        }"#,
-    );
-    add(&row, None, &mut failure, true);
-    let hints = failure["hints"].as_array().unwrap();
-    assert_eq!(hints[0], json!(IMAGE_SOURCE_HINT), "{failure}");
-    assert!(hints.contains(&json!("Reader advice.")), "{failure}");
-    let call = failure["related"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|lead| lead["tool"] == "clasify")
-        .expect("assets call");
-    let query = &call["input"]["queries"][0];
-    assert_eq!(
-        query["assets"]["image"]["source"],
-        json_fixture(r#"{"tool": "localFetch", "query": {"path": "source.rs"}}"#),
-        "{failure}"
-    );
-    assert_eq!(query["content"], "image");
-    assert_eq!(query["questions"]["q"], row.questions[0]);
 }
 
 /// A glob in `source` names no file; the row says globs go

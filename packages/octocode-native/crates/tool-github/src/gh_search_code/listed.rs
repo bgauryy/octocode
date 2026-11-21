@@ -90,6 +90,11 @@ impl Listed {
         self.earlier.len() / 16
     }
 
+    /// How many files of this page its earlier parts showed.
+    pub(super) fn shown_count(&self) -> usize {
+        self.shown.len()
+    }
+
     /// Each merged search's match count as the walk last stated it; `None`
     /// when the walk carries none (a first page, or a page asked for directly).
     pub(super) fn totals(&self) -> Option<&[usize]> {

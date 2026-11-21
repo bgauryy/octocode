@@ -12,7 +12,7 @@ Frame the question, corpus/revision and evidence that would settle it. Read a kn
 ## Research loop
 
 1. Find with paths, text or AST; use LSP for identity and callers. Resolve dependencies at the version in use. Discover only schemas needed for the next call.
-2. Exact-read deciding spans and trace producers → state → output → consumers. Scout large unread evidence with `classification` or `clasify` only when judgment by meaning helps; exact lookups skip it.
+2. Exact-read deciding spans and trace producers → state → output → consumers. Scout large unread evidence with `clasify` only when judgment by meaning helps; exact lookups skip it.
 3. Try to disprove consequential findings with their strongest rival. A bug needs a violated supported contract; a root cause also needs mechanism, trigger and the first divergent boundary. Runtime claims need execution evidence.
 4. After each result, ask which missing fact could change the answer. Read that next, or finish with anchors, confidence and gaps.
 

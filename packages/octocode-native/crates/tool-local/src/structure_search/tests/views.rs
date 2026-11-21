@@ -1,12 +1,20 @@
 use super::*;
 
+/// Every entry text of the page: a group's entries, or a flat entry itself.
 fn entries(out: &Value) -> Vec<&str> {
     out["files"]
         .as_array()
-        .expect("groups")
+        .expect("files")
         .iter()
-        .flat_map(|group| group["files"].as_array().expect("entries"))
-        .map(|entry| entry.as_str().expect("entry"))
+        .flat_map(|item| match item.as_str() {
+            Some(entry) => vec![entry],
+            None => item["files"]
+                .as_array()
+                .expect("entries")
+                .iter()
+                .map(|entry| entry.as_str().expect("entry"))
+                .collect(),
+        })
         .collect()
 }
 

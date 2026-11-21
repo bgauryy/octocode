@@ -272,16 +272,6 @@ pub(super) fn fetch_streamed(
     security: &impl ContentScan,
     cancel: &impl CancellationCheck,
 ) -> LocalFetchResult {
-    if local_fetch_query::has_classification(q) {
-        return unsupported_selection(
-            q,
-            "Streamed files cannot use inline selection, even with ranges. Read the unfiltered window, then use clasify with bounded state or source ranges.",
-            None,
-        );
-    }
-    if local_fetch_query::selection(q).is_some() {
-        return stale_snapshot(q);
-    }
     let path = &file.canonical;
     let mut result = octocode_tools_shared::large_source::fetch_window(
         q, path, source, meta, share, security, cancel,
@@ -330,9 +320,7 @@ fn directory_tree(path: &str) -> Option<serde_json::Value> {
         StructureSearchQueryTree, StructureSearchQueryTreeOperation, StructureSearchView,
     };
     let query = StructureSearchQueryTree {
-        classification: None,
         default_excludes: None,
-        selection: None,
         entry_type: None,
         exclude: Vec::new(),
         extensions: Vec::new(),
@@ -376,6 +364,15 @@ fn path_failure(q: &LocalFetchQuery, failure: PathFailure) -> LocalFetchResult {
         format!(
             "Path does not exist: {display}. It lies in a sparse checkout, so it may exist outside the checked-out paths: re-clone with a path that covers it, or read it with ghGetFileContent."
         )
+    } else if let Some(bare) = failure
+        .corrected
+        .as_deref()
+        .filter(|_| failure.listing_entry)
+    {
+        format!(
+            "Path does not exist: {display}. {}",
+            octocode_tools_shared::root_read::listing_entry_note(bare)
+        )
     } else if failure.resource_missing {
         format!("Path does not exist: {display}")
     } else {
@@ -387,20 +384,19 @@ fn path_failure(q: &LocalFetchQuery, failure: PathFailure) -> LocalFetchResult {
     // A name several entries share has no missing path, but the parent's
     // listing still shows those entries, so a failure that carries one gets it.
     if failure.resource_missing || failure.view_tree.is_some() {
-        // The parent's tree shows a mistyped name's siblings; the listing
-        // finds a file moved elsewhere or under another extension; the read
-        // of the one close sibling fixes a mistyped name in one call.
+        // One call: the read of the one close sibling fixes a mistyped name;
+        // else the checkout that covers the path; else the parent's tree,
+        // which shows what is there.
+        let read = failure
+            .corrected
+            .and_then(|path| local_fetch_query::updated(q, serde_json::json!({"path":path})).ok())
+            .map(FetchCall::related);
+        let reclone = reclone.filter(|_| read.is_none());
         let next = NextCalls {
-            view_tree: failure.view_tree,
-            find_file: failure.search_root.as_deref().and_then(|root| {
-                octocode_tools_shared::leads::find_file::find_file(root, local_fetch_query::path(q))
-            }),
-            read: failure
-                .corrected
-                .and_then(|path| {
-                    local_fetch_query::updated(q, serde_json::json!({"path":path})).ok()
-                })
-                .map(FetchCall::related),
+            view_tree: failure
+                .view_tree
+                .filter(|_| read.is_none() && reclone.is_none()),
+            read,
             reclone,
             ..NextCalls::default()
         };

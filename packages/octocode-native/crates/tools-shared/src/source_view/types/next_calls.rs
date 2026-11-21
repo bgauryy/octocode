@@ -11,6 +11,10 @@ pub struct FetchCall {
     /// The row's own page walk (`next.nextPage`): built and checked by
     /// [`octocode_runtime_base::response::collection::walk_query`].
     walk: bool,
+    /// A related read the row needs ([`Continuation::required`]).
+    ///
+    /// [`Continuation::required`]: octocode_runtime_base::response::result::Continuation::required
+    required: bool,
 }
 impl FetchCall {
     /// The call that reads the next page of the result (`next.nextPage`).
@@ -19,6 +23,7 @@ impl FetchCall {
             query,
             continuing: true,
             walk: true,
+            required: false,
         }
     }
     pub fn continued(query: LocalFetchQuery) -> Self {
@@ -26,6 +31,7 @@ impl FetchCall {
             query,
             continuing: true,
             walk: false,
+            required: false,
         }
     }
     pub fn related(query: LocalFetchQuery) -> Self {
@@ -33,6 +39,15 @@ impl FetchCall {
             query,
             continuing: false,
             walk: false,
+            required: false,
+        }
+    }
+    /// A related read of text the row was asked for and does not state:
+    /// it stays on an evidence row.
+    pub fn needed(query: LocalFetchQuery) -> Self {
+        Self {
+            required: true,
+            ..Self::related(query)
         }
     }
 }
@@ -45,7 +60,10 @@ impl Serialize for FetchCall {
                 self.query.clone(),
             )
         } else {
-            octocode_runtime_base::response::result::Continuation::related_query(self.query.clone())
+            let call = octocode_runtime_base::response::result::Continuation::related_query(
+                self.query.clone(),
+            );
+            if self.required { call.required() } else { call }
         }
         .build()
         .serialize(serializer)
@@ -87,9 +105,6 @@ pub struct NextCalls {
     /// A structureSearch tree of a path that is a directory, not a file.
     #[serde(rename = "viewTree", skip_serializing_if = "Option::is_none", default)]
     pub view_tree: Option<serde_json::Value>,
-    /// A structureSearch listing that finds a missing file by its stem.
-    #[serde(rename = "findFile", skip_serializing_if = "Option::is_none", default)]
-    pub find_file: Option<serde_json::Value>,
     /// The same read matched case-insensitively, after a case-sensitive
     /// matchString selected no line.
     #[serde(
@@ -173,7 +188,6 @@ impl NextCalls {
         }
         for (mine, theirs) in [
             (&mut self.view_tree, other.view_tree),
-            (&mut self.find_file, other.find_file),
             (&mut self.text_search, other.text_search),
             (&mut self.reclone, other.reclone),
         ] {

@@ -46,7 +46,7 @@ async fn inventory_cursors_keep_identity_and_reach_each_file_once() {
         seen.extend(inventory_paths(&row["files"]));
         let next = result
             .structured_content
-            .pointer("/responsePagination/next")
+            .pointer("/next")
             .or_else(|| data.pointer("/pullRequests/0/next/files"));
         let Some(next) = next else { break };
         assert_eq!(next.get("kind"), None);
@@ -84,7 +84,7 @@ async fn patch_window_does_not_repeat_the_file_cursor_in_content_pagination() {
     let pages = &row["sectionPagination"];
     // The window is stated once, on the section; the file row repeats none.
     assert!(row["files"][0].get("patchPagination").is_none(), "{row}");
-    assert_eq!(pages["patches"]["hasMore"], true, "{row}");
+    assert!(pages["patches"].get("hasMore").is_none(), "{row}");
     // The finished single-page file list states no block (one page holds
     // its complete result), and the cursor copy adds nothing.
     assert!(pages.get("files").is_none(), "{pages}");
@@ -167,7 +167,7 @@ async fn pr_views_are_verbatim_by_default() {
 /// selection: summary, body + inventory, inventory, patch read and a later
 /// file page all carry `state:"merged"` and the `mergeCommitSha`; a read that
 /// names no section (the summary, a bare `matchString`) also carries
-/// `mergedAt`, `baseBranch` and the labels (never `closedAt`).
+/// `mergedAt`, `baseRef` and the labels (never `closedAt`).
 #[tokio::test]
 async fn merged_pr_rows_keep_merge_state_on_every_read() {
     let server = MockServer::builder().start().await;
@@ -210,14 +210,14 @@ async fn merged_pr_rows_keep_merge_state_on_every_read() {
         // request and its commits, and leaves the rest to the summary.
         if full_header {
             assert_eq!(row["mergedAt"], "2024-01-03T00:00:00Z", "{label}: {row}");
-            assert_eq!(row["baseBranch"], "main", "{label}: {row}");
+            assert_eq!(row["baseRef"], "main", "{label}: {row}");
             assert_eq!(
                 row["labels"],
                 json_fixture(r#"["refactor"]"#),
                 "{label}: {row}"
             );
         } else {
-            for summary_only in ["mergedAt", "baseBranch", "labels", "title", "author"] {
+            for summary_only in ["mergedAt", "baseRef", "labels", "title", "author"] {
                 assert!(row.get(summary_only).is_none(), "{label}: {row}");
             }
         }
@@ -457,7 +457,7 @@ async fn file_page_continuations_continue_the_same_grid_in_any_batch() {
             let data = &content["results"][0]["data"];
             seen.extend(inventory_paths(&data["pullRequests"][0]["files"]));
             let next = content
-                .pointer("/responsePagination/next")
+                .pointer("/next")
                 .or_else(|| data.pointer("/pullRequests/0/next/files"));
             let Some(next) = next else { break };
             assert!(next["input"]["cursor"].is_string(), "{next}");

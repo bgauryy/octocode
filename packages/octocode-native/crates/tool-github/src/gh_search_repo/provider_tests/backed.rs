@@ -45,45 +45,9 @@ async fn picked_rows_keep_the_repository_id() {
         "{}",
         out.data
     );
-    // The page's one lead is the first row's tree, whatever fields are picked.
-    assert_eq!(
-        out.data["related"].as_array().map(Vec::len),
-        Some(1),
-        "{}",
-        out.data
-    );
-}
-
-/// A page of repositories carries one lead, not one per row: the root
-/// tree of its first repository (S-2: the route to ghStructure is
-/// lead-driven).
-#[tokio::test]
-async fn a_repository_page_leads_to_its_first_repositorys_tree_only() {
-    let server = MockServer::builder().start().await;
-    mount_json(
-        &server,
-        "/api/v3/search/repositories",
-        200,
-        json!({
-            "total_count":2,"incomplete_results":false,
-            "items":[repo_item("top", false), repo_item("second", false)]
-        }),
-    )
-    .await;
-    let out = run(
-        &server,
-        json_fixture(r#"{"operation": "search", "keywords": ["x"]}"#),
-    )
-    .await
-    .expect("search");
-    let related = out.data["related"].as_array().expect("one lead");
-    assert_eq!(related.len(), 1, "{}", out.data);
-    let call = related[0].to_string();
-    assert!(
-        call.contains("ghStructure") && call.contains("top"),
-        "{call}"
-    );
-    assert!(!call.contains("second"), "{call}");
+    // An answered page carries no call: each row states the owner and repo
+    // every next tool takes.
+    assert!(out.data.get("related").is_none(), "{}", out.data);
 }
 
 /// ghSearchRepo rows carry decision facts only, topics
@@ -236,13 +200,9 @@ async fn repositories_lead_nowhere_and_an_empty_search_broadens() {
     )
     .await
     .expect("search");
-    // Repo-discovery words are not code keywords: the one lead is the tree.
+    // An answered page leads nowhere: its rows name the repositories.
     assert!(out.data["next"].get("searchCode").is_none(), "{}", out.data);
-    assert!(
-        out.data["related"].to_string().contains("ghStructure"),
-        "{}",
-        out.data
-    );
+    assert!(out.data.get("related").is_none(), "{}", out.data);
     let empty = run(
         &server,
         json_fixture(

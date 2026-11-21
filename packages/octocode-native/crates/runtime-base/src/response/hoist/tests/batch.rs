@@ -224,6 +224,71 @@ fn identity_and_disclosure_every_row_states_alike_are_shared_once() {
     assert_eq!(super::hoisted(&plan, &mixed, &super::optional), mixed);
 }
 
+/// B4: the sentences every failed row of a batch ends its error with are
+/// guidance of the call, said once in the envelope's `hints`; each row keeps
+/// the sentences that are its own, and joining a row's error to the moved
+/// text gives back the error it was built with. Rows that share no ending,
+/// one failed row, or a row that ends alike but mid-sentence move nothing.
+#[test]
+fn guidance_every_failed_row_ends_its_error_with_is_said_once() {
+    let guidance = "Use a path inside the workspace. Also readable: ~/other.";
+    let error = |path: &str| format!("Path '{path}' is outside allowed directories. {guidance}");
+    let failed = |index: usize, error: String| {
+        row(
+            index,
+            Some("error"),
+            json!({"error": error, "errorCode": "outsideAllowedRoots", "hints": ["Set the root."]}),
+        )
+    };
+    let paths = ["/etc/hosts", "/etc/passwd", "/a. B/c"];
+    let mut rows = paths
+        .iter()
+        .enumerate()
+        .map(|(index, path)| failed(index, error(path)))
+        .collect::<Vec<_>>();
+    rows.push(row(3, None, json!({"files": ["a"]})));
+    let sent = json!({"results": rows});
+    let stated = super::hoisted(&batch_plan(&[], true, false), &sent, &super::optional);
+    assert_eq!(
+        stated["hints"],
+        json!([guidance, "Set the root."]),
+        "{stated}"
+    );
+    for (index, path) in paths.iter().enumerate() {
+        let own = stated["results"][index]["data"]["error"]
+            .as_str()
+            .expect("error");
+        assert_eq!(format!("{own} {guidance}"), error(path));
+    }
+    assert_eq!(stated["results"][3], sent["results"][3]);
+    for unshared in [
+        vec![failed(0, error("/a"))],
+        vec![
+            failed(0, error("/a")),
+            failed(1, "Path '/b' does not exist.".to_owned()),
+        ],
+        vec![
+            failed(0, "No such ref: main".to_owned()),
+            failed(1, "No such ref: not main".to_owned()),
+        ],
+        vec![
+            failed(0, error("/a")),
+            row(1, Some("error"), json!({"errorCode": "notFound"})),
+        ],
+    ] {
+        let sent = json!({"results": unshared});
+        let stated = super::hoisted(&batch_plan(&[], true, false), &sent, &super::optional);
+        for (row, built) in stated["results"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .zip(sent["results"].as_array().into_iter().flatten())
+        {
+            assert_eq!(row["data"].get("error"), built["data"].get("error"));
+        }
+    }
+}
+
 /// Hoist M03 and L-B: the hints every empty or failed row states alike go
 /// to the envelope's `hints`; a row with evidence keeps none of them moved,
 /// and a hint one empty row lacks stays where it is.

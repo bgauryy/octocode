@@ -11,8 +11,8 @@ mod targets;
 mod text_leads;
 
 /// An empty workspace-symbol answer leads to the text search alone: its
-/// anchor file only picked the project, so neither its outline nor a read
-/// of it stands in for the search (local-flows F10).
+/// anchor file only picked the project, so no read of it stands in for the
+/// search (local-flows F10).
 #[test]
 fn an_empty_workspace_symbol_answer_leads_only_to_the_text_search() {
     let scope = Scope::new("/w".into(), vec!["*.ts".into()]);
@@ -21,14 +21,7 @@ fn an_empty_workspace_symbol_answer_leads_only_to_the_text_search() {
     }))
     .expect("query");
     let mut empty = json_fixture(r#"{"status": "empty", "category": "noLocations"}"#);
-    workspace_symbols(
-        &mut empty,
-        &query,
-        "walkSkipLedger",
-        &scope,
-        Some("/w/a.ts"),
-        None,
-    );
+    workspace_symbols(&mut empty, &query, "walkSkipLedger", &scope, None);
     let empty = crate::lsp_search::failure::with_next(&query, empty);
     let tools = empty["related"]
         .as_array()
@@ -37,17 +30,6 @@ fn an_empty_workspace_symbol_answer_leads_only_to_the_text_search() {
         .map(|call| call["tool"].as_str().expect("tool"))
         .collect::<Vec<_>>();
     assert_eq!(tools, ["localSearch"], "{empty}");
-    // An answer with symbols still offers the anchor's outline.
-    let mut found = json_fixture(r#"{"matches": [{"symbolName": "walkSkipLedger"}]}"#);
-    workspace_symbols(
-        &mut found,
-        &query,
-        "walkSkipLedger",
-        &scope,
-        Some("/w/a.ts"),
-        None,
-    );
-    assert!(found.to_string().contains("documentSymbols"), "{found}");
 }
 
 /// The protocol has no completeness marker on any workspace-symbol answer:
@@ -58,24 +40,10 @@ fn workspace_coverage_preserves_errors_and_avoids_a_directory_document_hint() {
     let scope = Scope::new("/w".into(), vec!["*.ts".into()]);
     let mut stale = json_fixture(r#"{"status": "error", "errorCode": "staleSnapshot"}"#);
     let before = stale.clone();
-    workspace_symbols(
-        &mut stale,
-        &first_page("Shared"),
-        "Shared",
-        &scope,
-        Some("/w/a.ts"),
-        None,
-    );
+    workspace_symbols(&mut stale, &first_page("Shared"), "Shared", &scope, None);
     assert_eq!(stale, before);
     let mut empty = json_fixture(r#"{"status": "empty"}"#);
-    workspace_symbols(
-        &mut empty,
-        &first_page("Shared"),
-        "Shared",
-        &scope,
-        None,
-        None,
-    );
+    workspace_symbols(&mut empty, &first_page("Shared"), "Shared", &scope, None);
     assert!(empty.get("isPartial").is_none(), "{empty}");
     assert!(empty.get("partialReasons").is_none(), "{empty}");
     assert!(empty.get("notices").is_none(), "{empty}");
@@ -93,7 +61,6 @@ fn workspace_coverage_preserves_errors_and_avoids_a_directory_document_hint() {
         &first_page("ToolRunt"),
         "ToolRunt",
         &scope,
-        None,
         None,
     );
     let text =
@@ -146,14 +113,7 @@ fn a_later_workspace_symbol_page_repeats_no_note_or_lead() {
     ))
     .expect("query");
     let mut row = json_fixture(r#"{"kind": "symbols"}"#);
-    workspace_symbols(
-        &mut row,
-        &later,
-        "Shared",
-        &scope,
-        Some("/w/a.ts"),
-        Some((100, "raise it")),
-    );
+    workspace_symbols(&mut row, &later, "Shared", &scope, Some((100, "raise it")));
     assert!(row.get("notices").is_none(), "{row}");
     assert!(row.get("related").is_none(), "{row}");
     assert_eq!(
@@ -162,14 +122,7 @@ fn a_later_workspace_symbol_page_repeats_no_note_or_lead() {
         "{row}"
     );
     let mut first = json_fixture(r#"{"kind": "symbols"}"#);
-    workspace_symbols(
-        &mut first,
-        &first_page("Shared"),
-        "Shared",
-        &scope,
-        Some("/w/a.ts"),
-        None,
-    );
+    workspace_symbols(&mut first, &first_page("Shared"), "Shared", &scope, None);
     assert!(first.get("notices").is_none(), "{first}");
     assert!(first.get("related").is_some(), "{first}");
 }

@@ -366,9 +366,8 @@ fn a_run_beside_a_label_right_after_begin_opens_the_block() {
         (format!("k = foo({R}) + bar({R2})"), "k = foo("),
         (format!("logo: {R} {R2}"), "logo: "),
     ] {
-        let source = format!(
-            "-----BEGIN RSA PRIVATE KEY-----\n{line}\n-----END RSA PRIVATE KEY-----\n"
-        );
+        let source =
+            format!("-----BEGIN RSA PRIVATE KEY-----\n{line}\n-----END RSA PRIVATE KEY-----\n");
         assert_eq!(
             private_key_block_line_ranges(&source),
             vec![(1, 3)],

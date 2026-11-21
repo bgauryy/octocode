@@ -54,6 +54,13 @@ impl Window<'_> {
         }
     }
 
+    /// The most the fragment this window opens may hold on a page of its
+    /// own: `head` is only the room left on the page a split row starts on,
+    /// and a first fragment that outgrows it moves to the next page whole.
+    pub(in crate::response::row_pages) fn own_page(self) -> usize {
+        self.head.max(self.later_limit(0))
+    }
+
     pub(in crate::response::row_pages) fn later_limit(self, marker: usize) -> usize {
         self.budget
             .saturating_sub(self.continuation_chars.max(marker))

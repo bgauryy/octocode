@@ -30,7 +30,6 @@ impl GitHubServices {
         context: &ExecutionContext,
         security: &ContentSecurity,
         paths: &PathPolicy,
-        selection: &octocode_tools_shared::selection::Runtime,
     ) -> Result<DomainResult, ExecutionError> {
         context.check()?;
         // Generated query types carry the meta fields, so every tool parses
@@ -94,7 +93,6 @@ impl GitHubServices {
                 let shaping = gh_get_file_content::Shaping {
                     security: security.clone(),
                     context: context.clone(),
-                    selection: selection.clone(),
                 };
                 match gh_get_file_content::run(
                     &self.provider,

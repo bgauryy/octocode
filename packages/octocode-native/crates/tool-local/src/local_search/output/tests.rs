@@ -10,8 +10,9 @@ fn pagination_producers_follow_the_public_output_contract() {
     let output = json!({"results":[{"index":0,"data":{
         "files":[{"path":"src/lib.rs","pagination":file}],"pagination":outer
     }}]});
-    octocode_runtime_base::contracts::validate_output("localSearch", &output)
-        .expect("serialized producer pages satisfy the canonical schema");
+    // The producer's own flag (`hasMore`) is its private page fact; the
+    // served form states none, and that form is what the schema checks.
+    octocode_runtime_base::test_support::checks::assert_output_contract("localSearch", &output);
     assert_eq!(
         output["results"][0]["data"]["pagination"],
         json_fixture(

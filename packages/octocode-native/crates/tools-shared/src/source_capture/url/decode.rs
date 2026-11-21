@@ -34,7 +34,7 @@ pub(super) fn decode(reply: &Reply) -> Result<(String, String), ClassificationEr
         .trim()
         .to_ascii_lowercase();
     if !media.is_empty() && !is_text(&media) {
-        return Err(unsupported(&format!("The page is {media}, not text.")));
+        return Err(binary(&format!("The page is {media}, not text.")));
     }
     let charset = parameters.find_map(|parameter| {
         let (name, value) = parameter.split_once('=')?;
@@ -60,18 +60,29 @@ pub(super) fn decode(reply: &Reply) -> Result<(String, String), ClassificationEr
     // dropped, and only Unicode text decoded.
     match octocode_engine::text::admit(&reply.body, octocode_engine::text::Decoding::Unicode) {
         Ok(decoded) => Ok((media, decoded.text.into_owned())),
-        Err(octocode_engine::text::Refusal::Binary) => Err(unsupported("The page body is binary.")),
+        Err(octocode_engine::text::Refusal::Binary) => Err(binary("The page body is binary.")),
         Err(octocode_engine::text::Refusal::NotUnicode) => {
             Err(unsupported("The page body is not valid UTF-8."))
         }
     }
 }
 
+/// A body that is no text, under the code a binary file read meets: clasify
+/// judges a PNG or JPEG among them as an image, whatever type its server
+/// declared.
+fn binary(message: &str) -> ClassificationError {
+    ClassificationError::new(
+        ErrorCode::BinaryFileUnsupported,
+        message,
+        "This reader takes text; a PNG or JPEG is judged as an image by clasify.",
+    )
+}
+
 fn unsupported(message: &str) -> ClassificationError {
     ClassificationError::new(
         ErrorCode::ClassificationContextUnavailable,
         message,
-        "This reader takes text; supply it as content, or as an image under assets.",
+        "This reader takes text; supply it as content.",
     )
 }
 

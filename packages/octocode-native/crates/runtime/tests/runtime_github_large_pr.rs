@@ -48,31 +48,12 @@ impl Respond for Recording {
     }
 }
 
-/// Every related[] call of the inventory `data` is an optional fresh read of
-/// more of the same pull request (#9 of a/b), runnable as written: never
-/// required pagination, never another item.
-fn related_reads_only_this_pr(data: &Value) {
+/// An inventory answers what was asked and carries no optional lead: the
+/// patches read of the same pull request is the description's to name, and
+/// every identity it needs (owner, repo, number) the request states.
+fn no_optional_lead(data: &Value) {
     support::checks::assert_leads_valid(data);
-    let calls = data["related"]
-        .as_array()
-        .expect("an inventory states related reads");
-    assert!(!calls.is_empty(), "no related read to check: {data}");
-    for call in calls {
-        assert_eq!(call.get("kind"), None, "{call}");
-        assert_eq!(call["tool"], "ghGetHistoryItem", "{call}");
-        for query in call["input"]["queries"].as_array().into_iter().flatten() {
-            assert_eq!(
-                (
-                    &query["operation"],
-                    &query["owner"],
-                    &query["repo"],
-                    &query["number"]
-                ),
-                (&json!("pullRequest"), &json!("a"), &json!("b"), &json!(9)),
-                "{call}"
-            );
-        }
-    }
+    assert!(data.get("related").is_none(), "{data}");
 }
 
 /// No page and no lead: `next` is absent and `hints` holds at most prose.

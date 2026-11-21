@@ -60,43 +60,37 @@ impl<'q> Alternates<'q> {
         }
     }
 
-    /// The hint of an empty search whose case rule may have decided it: a term
-    /// is case-sensitive as written (`caseMode:"sensitive"`, or `smart` with an
-    /// uppercase letter; a list runs joined as one case-sensitive alternation
-    /// whatever its terms say). `None` for a page that lists files without the
-    /// term, whose page is empty because the term is there.
-    ///
-    /// A page whose files hold masked spans (`masked`) and whose terms read a
-    /// placeholder's spelling gets none: the placeholders are never matched
-    /// in any case, so the case rule did not decide it.
-    pub(in crate::local_search) fn case_hint(
-        &self,
-        query: &LocalSearchQuery,
-        masked: bool,
-    ) -> Option<String> {
+    /// The hint of an empty search whose case rule may have decided it. The
+    /// rule is general: case decided nothing unless the search ran
+    /// case-sensitive without the caller asking for it (`smart` with an
+    /// uppercase letter; an explicit `caseMode:"sensitive"` is the caller's
+    /// choice), and ignoring case reaches another spelling only for a term
+    /// that mixes upper and lower case (`getUser`, `HttpClient`): a term of
+    /// one case throughout (`MAX_RETRIES`, an environment name) or without
+    /// letters is written the one way its convention has. `None` for a page
+    /// that lists files without the term, whose page is empty because the
+    /// term is there.
+    pub(in crate::local_search) fn case_hint(&self, query: &LocalSearchQuery) -> Option<String> {
         let written = self.written;
         let terms = &local_search_query::patterns(written).0;
+        // A term holding regex syntax (`alph\S`) is offered as a regex: its
+        // letters may be class escapes, not a spelling.
+        let mixes_case = |term: &String| {
+            term.chars().any(char::is_uppercase)
+                && term.chars().any(char::is_lowercase)
+                && !octocode_engine::search::text_pattern::regex_widens(term)
+        };
+        let chosen =
+            local_search_query::case_mode(written) == octocode_contract_types::CaseMode::Sensitive;
         (local_search_query::view(query) != View::FilesWithout
+            && !chosen
             && terms
                 .iter()
-                .any(|term| local_search_query::case_sensitive(written, term))
-            && !(masked && terms.iter().any(|term| self.reads_a_placeholder(term))))
+                .any(|term| mixes_case(term) && local_search_query::case_sensitive(written, term)))
         .then(|| {
-            "No case-sensitive match; the related[] call with caseMode \"insensitive\" runs the same search with case ignored."
+            "No case-sensitive match; the related[] call runs the same search with caseMode \"insensitive\"."
                 .to_owned()
         })
-    }
-
-    /// Whether `term`, as the request reads it, matches the spelling of a
-    /// placeholder a read shows in place of a secret.
-    fn reads_a_placeholder(&self, term: &str) -> bool {
-        const SPELLINGS: [&str; 2] = ["[REDACTED]", "[REDACTED-GITHUBTOKENS]"];
-        match local_search_query::regex_mode(self.written) {
-            RegexEngine::Literal => SPELLINGS.iter().any(|spelling| spelling.contains(term)),
-            RegexEngine::Rust => regex::Regex::new(term)
-                .is_ok_and(|regex| SPELLINGS.iter().any(|spelling| regex.is_match(spelling))),
-            _ => false,
-        }
     }
 
     /// Offer the regex reading of an empty literal search whose terms hold
@@ -112,6 +106,10 @@ impl<'q> Alternates<'q> {
         let Some(reading) = self.regex_reading() else {
             return;
         };
+        // One recovery per empty page: an earlier cause keeps its place.
+        if !row.hints.is_empty() {
+            return;
+        }
         let lead = octocode_tools_shared::leads::skipped::lead(
             octocode_runtime_base::id::ToolId::LocalSearch,
             &reading,
@@ -121,7 +119,7 @@ impl<'q> Alternates<'q> {
             map.insert("asRegex".into(), lead);
         }
         row.hints.push(
-            "No literal match; the terms hold regex syntax: the related[] call with regexEngine \"rust\" reads them as a regex."
+            "No literal match; the terms hold regex syntax: the related[] call reads them with regexEngine \"rust\"."
                 .to_owned(),
         );
     }

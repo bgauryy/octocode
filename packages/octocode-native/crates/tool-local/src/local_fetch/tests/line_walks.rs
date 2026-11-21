@@ -100,80 +100,6 @@ fn line_walk_over_an_oversized_line_covers_every_byte_once() {
     assert!(text == source, "pages join into the source exactly once");
 }
 
-#[test]
-fn selected_line_walk_keeps_byte_fallback_and_every_source_byte() {
-    use octocode_tools_shared::selection::{Decision, JudgeCall, SelectionJudge};
-    use serde_json::Value;
-
-    use std::time::Duration;
-
-    struct SourceOrderJudge;
-    impl SelectionJudge for SourceOrderJudge {
-        fn identity(&self) -> Value {
-            json_fixture(r#"{"backend": "source-order-test"}"#)
-        }
-        fn select(&self, call: JudgeCall<'_>) -> octocode_tools_shared::selection::Judgments {
-            Ok(call
-                .admitted
-                .iter()
-                .map(|&ordinal| (ordinal, Decision::Selected))
-                .collect())
-        }
-    }
-
-    let t = Fixture::new();
-    let paths = Paths(t.0.clone());
-    let file = t.0.join("selected-giant.txt");
-    let mut source = (1..=1_164)
-        .map(|line| format!("var line_{line} = {line};\n"))
-        .collect::<String>();
-    source.push_str(&format!("    CSS: '{}',\n", "x".repeat(42_830)));
-    source.push_str("last line without newline");
-    fs::write(&file, &source).expect("fixture");
-    let executor = tokio::runtime::Runtime::new().expect("runtime");
-    let selection = octocode_tools_shared::test_support::selection_fake::runtime(
-        SourceOrderJudge,
-        executor.handle().clone(),
-        Duration::from_secs(10),
-    );
-    let mut query = qj(&file, serde_json::json!({}));
-    amend(
-        &mut query,
-        serde_json::json!({"classification":serde_json::json!({"predicates":["find CSS"]})}),
-    );
-    let (mut text, mut units, mut pages) = (String::new(), Vec::new(), 0);
-    loop {
-        let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, None, Some(&selection));
-        assert_eq!(page.error_code, None, "{page:?}");
-        assert_eq!(
-            page.selection.as_ref().map(|receipt| receipt.status),
-            Some(octocode_contract_types::SelectionStatus::Complete)
-        );
-        pages += 1;
-        assert!(pages < 40, "runaway paging");
-        units.push(page.pagination.as_ref().map(|pagination| pagination.unit));
-        text.push_str(page.content.as_deref().unwrap_or_default());
-        match page.next.and_then(|next| next.continue_window) {
-            Some(next) => query = next.query,
-            None => break,
-        }
-    }
-    assert!(
-        units
-            .windows(2)
-            .any(|pair| pair == [Some(ReadProgressUnit::Lines), Some(ReadProgressUnit::Bytes)])
-    );
-    assert!(
-        units
-            .windows(2)
-            .any(|pair| pair == [Some(ReadProgressUnit::Bytes), Some(ReadProgressUnit::Lines)])
-    );
-    assert_eq!(
-        text, source,
-        "selection and mixed units preserve every source byte"
-    );
-}
-
 /// A path-only read of a minified (one huge line) file pages by bytes;
 /// every continuation carries the unit of the page it continues, so walking
 /// `next.nextPage` verbatim reaches the end byte-identical.
@@ -234,7 +160,7 @@ fn full_content_resumes_numbered_lines_after_one_oversized_line() {
     );
     let mut pages = Vec::new();
     loop {
-        let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(20_000), None);
+        let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(20_000), false);
         assert_eq!(page.error_code, None, "{page:?}");
         let next = page.next.clone().and_then(|next| next.continue_window);
         pages.push(page);

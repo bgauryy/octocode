@@ -76,8 +76,13 @@ pub fn flag_partial(
                 if let Some(related) = row.get_mut("related").and_then(Value::as_array_mut) {
                     related.retain(|call| call["tool"] != ToolId::LocalSearch.as_str());
                 }
+                // The row is partial for files the server did not answer:
+                // the text check reads them, so the row needs it.
                 for lead in leads {
-                    octocode_runtime_base::response::result::attach_related(row, lead.build());
+                    octocode_runtime_base::response::result::attach_related(
+                        row,
+                        lead.required().build(),
+                    );
                 }
             }
         }
@@ -183,7 +188,7 @@ pub fn flag_answer_gaps(
             row,
             octocode_runtime_base::response::paging::PartialReason::ServerUnanswered,
             &[format!(
-                "The server's answer leaves out {} where `{name}` names the anchor as a {kind}, in files it answers: {}. The text lead reads them.",
+                "The server's answer leaves out {} where `{name}` names the anchor as a {kind}, in files it answers: {}. The related text search reads them.",
                 octocode_engine::text::counted(left_out_count, "line", "lines"),
                 left_out
             )],
@@ -194,7 +199,7 @@ pub fn flag_answer_gaps(
         octocode_runtime_base::response::paging::push_warnings(
             row,
             [format!(
-                "{} in files the answer covers spell `{name}` in code and are not in it: {}. The server did not say what they name, so they are unverified (another symbol of that name, or code it does not analyze), not missing {kind}s. The text lead reads them.",
+                "{} in files the answer covers spell `{name}` in code and are not in it: {}. The server did not say what they name, so they are unverified (another symbol of that name, or code it does not analyze), not missing {kind}s. The related text search reads them.",
                 octocode_engine::text::counted(unverified_count, "line", "lines"),
                 unverified
             )],
@@ -213,6 +218,17 @@ pub fn flag_answer_gaps(
             text_search_lead(name, &lead_root(name, scope), &scope.include, Some(&shown))
     {
         octocode_runtime_base::response::result::attach_related(row, lead.build());
+    }
+    // The warnings send the reader to the text search for the lines the
+    // answer leaves out: the row needs it.
+    for call in row
+        .get_mut("related")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+        .filter(|call| call["tool"] == ToolId::LocalSearch.as_str())
+    {
+        *call = octocode_runtime_base::response::result::required_call(call.take());
     }
 }
 

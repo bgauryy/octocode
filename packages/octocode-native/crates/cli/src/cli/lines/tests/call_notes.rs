@@ -18,9 +18,7 @@ fn nested_file_fields_are_words() {
                                     "unit": "matches",
                                     "offset": 0,
                                     "length": 1,
-                                    "total": 471,
-                                    "hasMore": true
-                                }
+                                    "total": 471}
                             }
                         ]
                     }
@@ -30,10 +28,7 @@ fn nested_file_fields_are_words() {
     );
     let lines = render(ToolId::LocalSearch, &paged, &json!({}), None).expect("lines");
     // A file's own fields follow its path, on stdout with its hits.
-    assert_eq!(
-        lines.out,
-        "a.rs  [pagination 1 of 471 matches hasMore]\n3:x"
-    );
+    assert_eq!(lines.out, "a.rs  [pagination matches 1-1 of 471]\n3:x");
     assert_eq!(lines.notes, "");
 }
 
@@ -116,7 +111,7 @@ fn served_calls_without_kind_print_by_the_channel_that_holds_them() {
         "source":lookalike,
         "next":{"read":{"tool":"localFetch","input":{"cursor":"issued"}}},
         "related":[{"tool":"localSearch","input":{"queries":[{"path":".","matchString":["x"]}]}}]
-    }}],"responsePagination":{"next":{"tool":"localFetch","input":{"cursor":"page-2"}}}});
+    }}],"next":{"tool":"localFetch","input":{"cursor":"page-2"}}});
     let (display, calls) = follow::separate_calls(ToolId::LocalFetch, &structured).expect("schema");
     let found: Vec<_> = calls
         .iter()
@@ -127,7 +122,7 @@ fn served_calls_without_kind_print_by_the_channel_that_holds_them() {
         [
             (Some(0), "next.read", false),
             (Some(0), "related[0]", true),
-            (None, "responsePagination.next", false),
+            (None, "next", false),
         ]
     );
     // Only a declared position holds a call: the lookalike stays evidence.
@@ -139,9 +134,7 @@ fn served_calls_without_kind_print_by_the_channel_that_holds_them() {
         lines.out
     );
     assert!(
-        lines
-            .out
-            .contains("# responsePagination.next: octocode localFetch"),
+        lines.out.contains("# next: octocode localFetch"),
         "{}",
         lines.out
     );
@@ -260,7 +253,7 @@ fn warnings_and_hints_print_in_the_stdout_trailer_of_every_row_shape() {
     // A line format.
     let hits = json!({"results":[{"index":0,"data":advice(json_fixture(r#"{
         "matchCount": 1,
-        "pagination": {"unit": "items", "offset": 0, "length": 1, "hasMore": true},
+        "pagination": {"unit": "items", "offset": 0, "length": 1},
         "next": {
             "nextPage": {
                 "tool": "localSearch",
@@ -274,7 +267,7 @@ fn warnings_and_hints_print_in_the_stdout_trailer_of_every_row_shape() {
     assert_eq!(
         lines.out,
         format!(
-            "a.rs:3:x\n# pagination: 1 items hasMore\n{ADVICE}\n# warnings: From the envelope.\n# next.nextPage: octocode localSearch '{{\"cursor\":\"c\"}}'"
+            "a.rs:3:x\n# pagination: items 1-1\n{ADVICE}\n# warnings: From the envelope.\n# next.nextPage: octocode localSearch '{{\"cursor\":\"c\"}}'"
         )
     );
     assert_eq!(lines.notes, "# matchCount 1");

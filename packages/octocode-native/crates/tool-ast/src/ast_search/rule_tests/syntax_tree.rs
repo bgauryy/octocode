@@ -67,7 +67,7 @@ fn syntax_tree_starts_at_the_node_covering_a_line() {
         json!({"operation":"syntaxTree","path":file,"line":3}),
     )
     .expect("row");
-    let first = out["nodes"][0]["node"].as_str().expect("node row");
+    let first = out["nodes"][0].as_str().expect("node row");
     assert!(first.contains("return_statement 3:"), "{out}");
     assert!(!out.to_string().contains("program"), "{out}");
 }
@@ -112,7 +112,7 @@ fn syntax_tree_blank_line_snaps_to_the_next_item_and_notes_it_once() {
         1,
     )
     .expect("row");
-    let node = first["nodes"][0]["node"].as_str().expect("node row");
+    let node = first["nodes"][0].as_str().expect("node row");
     assert!(node.contains("function_declaration 3:"), "{first}");
     assert_eq!(
         first["diagnostics"][0]["code"], "syntaxTree.options.lineBlank",
@@ -257,4 +257,41 @@ fn syntax_tree_snapshot_detects_edits_hidden_by_redaction() {
     std::fs::write(&file, source("b")).expect("edit synthetic token");
     let resumed = crate::ast_search::test_rows::run_window(&root.0, next, 1).expect("stale row");
     assert_eq!(resumed["errorCode"], "staleSnapshot", "{resumed}");
+}
+
+/// `syntaxTree` of a directory says what it reads (one file) and leads to
+/// the listing of that directory, where the file to pass is a row; the
+/// message names the path as the caller wrote it.
+#[test]
+fn syntax_tree_of_a_directory_says_one_file_and_lists_it() {
+    let root = Fixture::new();
+    root.write("src/a.ts", "const a = 1;\n");
+    let paths = octocode_runtime_base::test_support::workspace_policy(&root.0);
+    let security = octocode_runtime_base::security::ContentSecurity::new();
+    let error = execute_row(
+        json_fixture(r#"{"operation": "syntaxTree", "path": "src"}"#),
+        &paths,
+        &security,
+        &octocode_runtime_base::execution::cancel::NeverCancel,
+    )
+    .expect_err("a directory");
+    assert_eq!(error.code, ErrorCode::NotAFile);
+    assert!(
+        error.message.contains("one file") && error.message.contains("directory"),
+        "{}",
+        error.message
+    );
+    assert!(
+        !error
+            .message
+            .contains(&root.0.to_string_lossy().into_owned()),
+        "{}",
+        error.message
+    );
+    let lead = &error.calls.as_ref().expect("a listing lead")["viewTree"];
+    assert_eq!(lead["tool"], "structureSearch", "{lead}");
+    let listing = &lead["input"]["queries"][0];
+    assert_eq!(listing["path"], "src", "{lead}");
+    octocode_runtime_base::contracts::validate_built_query("structureSearch", listing.clone())
+        .expect("a listing that runs");
 }

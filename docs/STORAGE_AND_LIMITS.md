@@ -70,7 +70,7 @@ The command removes saved pages, provider answers, captures and materialized fil
 
 | Limit | Value |
 |---|---|
-| Response page | 20,000 characters by default. Set a positive integer `responseChars` on a new request to change it. Follow `responsePagination.next` before any tool-level continuation. A single value larger than the target can exceed it. [Continuations](TOOL_DATA_CONTRACT.md#executable-continuations) |
+| Response page | 20,000 characters by default. Set a positive integer `responseChars` on a new request to change it. A reply that carries a top-level `next` is unfinished: run it until none is left. A single value larger than the target can exceed it. [Continuations](TOOL_DATA_CONTRACT.md#executable-continuations) |
 | Network stall | A GitHub or registry request, or a Git transfer, ends after 30 seconds without progress. Git also ends a transfer that stays below one byte per second for 30 seconds |
 | Retries | Up to 3 retries for retryable GitHub and registry failures. Retry-After values are honored |
 | Classification concurrency | Up to 10 requests in flight per process, shared across calls. Throttling lowers this. A provider's `Retry-After` pauses new requests |

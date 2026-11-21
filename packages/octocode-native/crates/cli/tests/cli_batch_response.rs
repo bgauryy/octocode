@@ -77,11 +77,7 @@ fn cli_pages_follow_only_the_cursor_across_processes() {
                 files.push(file["path"].as_str().unwrap().to_owned());
             }
         }
-        let call = if value["responsePagination"]["next"].is_object() {
-            &value["responsePagination"]["next"]
-        } else {
-            &value["results"][0]["data"]["next"]["nextPage"]
-        };
+        let call = &value["next"];
         if call.is_null() {
             break;
         }

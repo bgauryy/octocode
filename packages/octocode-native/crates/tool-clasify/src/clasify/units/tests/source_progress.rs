@@ -92,3 +92,29 @@ fn private_progress_in_a_callers_source_query_is_named() {
     let public = json!({"keywords":["x"],"owner":"o","repo":"r"});
     assert_eq!(private_field(ToolId::GhSearchCode, &public), None);
 }
+
+/// A page of a tool's rows that has a next page says what the reply's `next`
+/// costs: the next page is judged, so it bills as this page did. The count
+/// of rows left is stated only from an exact total, offset and length.
+#[test]
+fn a_page_with_a_next_page_says_its_next_bills() {
+    let counted = json!({"pagination": {"total": 179, "offset": 20, "length": 20}});
+    let note = billed_next_note("artifactSearch", 1, 20, &counted, true);
+    assert!(note.contains("bills again"), "{note}");
+    assert!(note.contains("1 judge request for 20 rows"), "{note}");
+    assert!(note.contains("139 of artifactSearch's rows remain"), "{note}");
+    assert!(note.starts_with("The reply's next "), "{note}");
+    for uncounted in [
+        json!({}),
+        json!({"pagination": {"offset": 20}}),
+        json!({"pagination": {"total": 179, "offset": 20, "length": 20, "countScope": "capped"}}),
+        // A total below what was already read is no count of what is left.
+        json!({"pagination": {"total": 30, "offset": 20, "length": 20}}),
+    ] {
+        let note = billed_next_note("ghSearchCode", 3, 12, &uncounted, false);
+        assert!(note.contains("3 judge requests for 12 rows"), "{note}");
+        assert!(note.contains("more of ghSearchCode's rows remain"), "{uncounted}: {note}");
+        // Without saved work the page's call is the row's related call.
+        assert!(note.starts_with("The related[] call "), "{note}");
+    }
+}

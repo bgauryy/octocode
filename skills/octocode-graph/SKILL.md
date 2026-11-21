@@ -9,7 +9,7 @@ The graph is a syntax snapshot of one scope: files, symbols and packages joined 
 
 Call `graphBuild` and `graphQuery` over MCP when the tool list has them; MCP lists them only with `OCTOCODE_BETA=true`. Otherwise use the CLI, which always offers them: `OCTO='node packages/octocode/out/octocode.js'` from the Octocode checkout (elsewhere the installed `octocode`, `octocode-cli` in Octocode Code agent shells, or `npx -y octocode`), then `$OCTO graphBuild '{"queries":[{"path":"."}]}'` and `$OCTO schema graphQuery` for the exact fields. To graph a `ghCloneRepo` checkout, set `OCTOCODE_GRAPH_HOME` in the home environment first: without it graphBuild builds only scopes inside the workspace.
 
-Build over a `path` that contains the target's possible consumers (often the repository root), and use the same `path` for every query. After edits, check `stale` and run its `reingest` call when not fresh. Follow `responsePagination.next` before `next.*`, copying calls unchanged. For an empty or surprising answer, query at `medium` and inspect `unresolved` before claiming absence. [Build and read](references/build-and-read.md) covers long builds, confidence, weights and gaps.
+Build over a `path` that contains the target's possible consumers (often the repository root), and use the same `path` for every query. After edits, check `stale` and run its `reingest` call when not fresh. A reply with a top-level `next` is unfinished: run it unchanged until none is left, then the row's `next.*` branches. For an empty or surprising answer, query at `medium` and inspect `unresolved` before claiming absence. [Build and read](references/build-and-read.md) covers long builds, confidence, weights and gaps.
 
 ## Question → operation
 

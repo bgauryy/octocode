@@ -1,20 +1,13 @@
-use super::sample::{placeholder, sampled};
+use super::sample::{placeholder, sample, sampled, schemas_at};
 use super::{ContractValidationError, ValidationIssue, query_label, sibling_requirement};
 use serde_json::Value;
 
 /// Projects transport-neutral validation issues into the stable tool-error
-/// envelope. `unpublished` names the row fields the schema this runtime
-/// publishes lacks (a classification field without a provider): no repair
-/// offers one. `sent` is the request as the caller sent it: the example
+/// envelope. `sent` is the request as the caller sent it: the example
 /// shown is of the form its rejected row comes nearest. Every surface
 /// receives the same cause and repair guidance.
 #[must_use]
-pub fn format_input_error(
-    tool_name: &str,
-    error: &ContractValidationError,
-    unpublished: &[String],
-    sent: &Value,
-) -> Value {
+pub fn format_input_error(tool_name: &str, error: &ContractValidationError, sent: &Value) -> Value {
     // A request field inside a row explains every other issue of that row
     // (the row lacks its own fields because it was never a row).
     let misplaced = error
@@ -23,12 +16,20 @@ pub fn format_input_error(
         .filter(|issue| misplaced_request_field(tool_name, issue).is_some())
         .filter_map(|issue| issue.path.get(..2))
         .collect::<Vec<_>>();
+    let renamed = renamed_row(tool_name, error, sent);
     let mut issues = error
         .issues
         .iter()
         .filter(|issue| {
             misplaced_request_field(tool_name, issue).is_some()
                 || !misplaced.iter().any(|row| issue.path.starts_with(row))
+        })
+        // A field a rename supplies is not also missing.
+        .filter(|issue| {
+            !(issue.rule_id == "schema.required"
+                && renamed
+                    .as_ref()
+                    .is_some_and(|renamed| renamed.supplies(&issue.path)))
         })
         .collect::<Vec<_>>();
     // A request that mixes the form a field holds alone (`cursor`) with
@@ -63,7 +64,6 @@ pub fn format_input_error(
                         operation: row_operation(issue, sent),
                         request: sent,
                     },
-                    unpublished,
                 );
             }
             if let Some(message) = mixed_with_whole_request(tool_name, issue) {
@@ -90,12 +90,168 @@ pub fn format_input_error(
         .collect::<Vec<_>>();
     // A request field sent inside a row, or a refused value, has one repair,
     // stated whole: a fresh example beside it would point away from it.
-    let reference = if misplaced.is_empty() && !value_refused {
-        call_reference(tool_name, sent_row(error, sent).as_ref())
-    } else {
+    let reference = if !misplaced.is_empty() || value_refused {
         Vec::new()
+    } else {
+        match renamed {
+            None => call_reference(tool_name, sent_row(error, sent).as_ref()),
+            // A value that does not carry over to the field meant: an
+            // example without the field would run something else.
+            Some(Renamed { request: None, .. }) => Vec::new(),
+            Some(Renamed {
+                request: Some(request),
+                ..
+            }) => match super::validate(tool_name, request.clone()) {
+                Ok(_) => vec![format!("{EXAMPLE}{request}")],
+                // What else the row gets wrong, in the renamed row's terms.
+                Err(rest) => call_reference(tool_name, sent_row(&rest, &request).as_ref()),
+            },
+        }
     };
     issues_error(details, reference)
+}
+
+/// The first rejected row with each field its issues refuse by one declared
+/// name (`…; use '<field>'.`) sent under that name.
+struct Renamed {
+    /// The row's path (`queries`, `<n>`).
+    row: Vec<String>,
+    /// The declared fields the renames supply.
+    fields: Vec<String>,
+    /// The request of that row alone, each renamed field holding the value
+    /// sent, as it is or in the one typed reading its schema gives
+    /// ([`super::repair::lenient_value`]: the reading a declared field gets);
+    /// `None` when a value carries over in neither.
+    request: Option<Value>,
+}
+
+impl Renamed {
+    /// Whether a rename supplies the field at `path`.
+    fn supplies(&self, path: &[String]) -> bool {
+        path.split_last()
+            .is_some_and(|(field, row)| row == self.row.as_slice() && self.fields.contains(field))
+    }
+}
+
+/// The one declared field an unknown field's `message` says to use
+/// ([`unknown_field_message`]); `None` for a choice of several or any other
+/// repair.
+fn meant_field(message: &str) -> Option<&str> {
+    let (_, after) = message.split_once("; use '")?;
+    after
+        .strip_suffix("'.")
+        .filter(|field| !field.contains('\''))
+}
+
+/// [`Renamed`] of the first rejected row of `sent`; `None` when none of its
+/// fields is refused by one declared name.
+fn renamed_row(tool_name: &str, error: &ContractValidationError, sent: &Value) -> Option<Renamed> {
+    let [queries, index, ..] = error.issues.first()?.path.as_slice() else {
+        return None;
+    };
+    let row = sent
+        .get(queries)?
+        .get(index.parse::<usize>().ok()?)?
+        .as_object()?;
+    let renames = error
+        .issues
+        .iter()
+        .filter(|issue| issue.rule_id == "schema.unknown-field")
+        .filter_map(|issue| {
+            let [at, n, field] = issue.path.as_slice() else {
+                return None;
+            };
+            if at != queries || n != index {
+                return None;
+            }
+            let message = unknown_field_message(
+                tool_name,
+                issue,
+                Row {
+                    unselected: unselected_row(error, issue),
+                    operation: row_operation(issue, sent),
+                    request: sent,
+                },
+            );
+            Some((field.as_str(), meant_field(&message)?.to_owned()))
+        })
+        .collect::<Vec<_>>();
+    if renames.is_empty() {
+        return None;
+    }
+    let state = crate::id::ToolId::from_name(tool_name).map(crate::contracts::state_fields);
+    // The call's brief and page position describe the call, not its form.
+    let mut shown = row
+        .iter()
+        .filter(|(field, _)| {
+            !crate::contracts::BRIEF_FIELDS.contains(&field.as_str())
+                && !state.is_some_and(|state| state.contains(*field))
+        })
+        .map(|(field, value)| (field.clone(), value.clone()))
+        .collect::<serde_json::Map<_, _>>();
+    let mut carried = true;
+    for (field, meant) in &renames {
+        let Some(value) = row.get(*field) else {
+            continue;
+        };
+        // In place, so the row reads as it was sent.
+        let with = |shown: &serde_json::Map<String, Value>, value: &Value| {
+            shown
+                .iter()
+                .map(|(name, held)| {
+                    if name == field {
+                        (meant.clone(), value.clone())
+                    } else {
+                        (name.clone(), held.clone())
+                    }
+                })
+                .collect::<serde_json::Map<_, _>>()
+        };
+        let stands = |candidate: &serde_json::Map<String, Value>| match super::validate(
+            tool_name,
+            serde_json::json!({ "queries": [candidate] }),
+        ) {
+            Ok(_) => true,
+            Err(error) => !error
+                .issues
+                .iter()
+                .any(|issue| issue.path.get(2) == Some(meant)),
+        };
+        match readings(tool_name, meant, value)
+            .iter()
+            .map(|reading| with(&shown, reading))
+            .find(stands)
+        {
+            Some(next) => shown = next,
+            None => carried = false,
+        }
+    }
+    Some(Renamed {
+        row: vec![queries.clone(), index.clone()],
+        fields: renames.into_iter().map(|(_, meant)| meant).collect(),
+        request: carried.then(|| serde_json::json!({ "queries": [shown] })),
+    })
+}
+
+/// `sent` as the row field `field` of `tool_name` may hold it: as it is,
+/// then in the one typed reading each schema of the field gives.
+fn readings(tool_name: &str, field: &str, sent: &Value) -> Vec<Value> {
+    let mut readings = vec![sent.clone()];
+    let Some(tool) = crate::id::ToolId::from_name(tool_name)
+        .and_then(|id| crate::contracts::tool_contract(id).ok())
+    else {
+        return readings;
+    };
+    let schema = super::super::resolve_ref(&tool["querySchema"], &Value::Null);
+    let defs = &schema["$defs"];
+    for schema in schemas_at(schema, defs, &[field.to_owned()]) {
+        if let Some(read) = super::repair::lenient_value(schema, defs, sent)
+            && !readings.contains(&read)
+        {
+            readings.push(read);
+        }
+    }
+    readings
 }
 
 /// The line a call reference starts with: one request the tool accepts.
@@ -111,16 +267,67 @@ const EXAMPLE: &str = "Example: ";
 /// request field or a refused value (`security.*`) is the whole repair.
 fn call_reference(tool_name: &str, rejected: Option<&Rejected<'_>>) -> Vec<String> {
     let row = rejected.map(|rejected| rejected.row);
-    let example =
-        tool_variants(tool_name).and_then(|variants| nearest_form(variants, row)?.get("example"));
-    let Some(example) = example else {
-        return Vec::new();
+    let example = rejected.and_then(|rejected| with_missing_fields(tool_name, rejected));
+    let example = match example {
+        Some(example) => example,
+        None => {
+            let form = tool_variants(tool_name)
+                .and_then(|variants| nearest_form(variants, row)?.get("example"));
+            let Some(form) = form else {
+                return Vec::new();
+            };
+            in_row_terms(tool_name, form, rejected)
+        }
     };
-    let example = in_row_terms(tool_name, example, rejected);
+    // An example applies the fix its causes state. Where a cause states
+    // the form to send and the example does not hold the value sent (a
+    // number for an object of several members: which one?), only the cause
+    // can state the fix.
+    if rejected.is_some_and(|rejected| !rejected.holds_mistyped(&example)) {
+        return Vec::new();
+    }
     vec![format!(
         "{EXAMPLE}{}",
         serde_json::json!({ "queries": [example] })
     )]
+}
+
+/// The rejected row itself, when all it gets wrong is lacking required row
+/// fields: each one set to a value its schema accepts ([`sample`]: a
+/// placeholder for text, the first literal of a choice), every field sent
+/// kept (its brief and page position aside). `None` when the row has any
+/// other fault or the result is still refused.
+fn with_missing_fields(tool_name: &str, rejected: &Rejected<'_>) -> Option<Value> {
+    if rejected.faults.is_empty()
+        || !rejected
+            .faults
+            .iter()
+            .all(|fault| matches!(fault.as_slice(), [field] if !rejected.row.contains_key(field)))
+    {
+        return None;
+    }
+    let tool = crate::id::ToolId::from_name(tool_name)?;
+    let contract = crate::contracts::tool_contract(tool).ok()?;
+    let schema = super::super::resolve_ref(&contract["querySchema"], &Value::Null);
+    let defs = &schema["$defs"];
+    let state = crate::contracts::state_fields(tool);
+    let mut shown = rejected
+        .row
+        .iter()
+        .filter(|(field, _)| {
+            !crate::contracts::BRIEF_FIELDS.contains(&field.as_str()) && !state.contains(*field)
+        })
+        .map(|(field, value)| (field.clone(), value.clone()))
+        .collect::<serde_json::Map<_, _>>();
+    for field in &rejected.missing {
+        let value = schemas_at(schema, defs, std::slice::from_ref(field))
+            .into_iter()
+            .find_map(|schema| sample(schema, defs, field))?;
+        shown.insert(field.clone(), value);
+    }
+    super::validate(tool_name, serde_json::json!({ "queries": [shown] }))
+        .is_ok()
+        .then_some(Value::Object(shown))
 }
 
 /// The forms `tool_name` publishes (`schema <tool> --view variants`): each
@@ -139,7 +346,9 @@ fn tool_variants(tool_name: &str) -> Option<&'static [Value]> {
 /// The row fields that picked the form a missing required field belongs
 /// to: each one only forms that require the field take, sent in the row
 /// that lacks it (clasify `perHit` needs `source`). `None` when the field
-/// is required whatever the row sends, or no sent field decided it.
+/// is required whatever the row sends, no sent field decided it, or the
+/// issue already states why (the union names the sent field and the value
+/// it requires, [`super::union`]): one reason, once.
 fn picked_by(tool_name: &str, issue: &ValidationIssue, sent: &Value) -> Option<Vec<String>> {
     if issue.rule_id != "schema.required" {
         return None;
@@ -151,7 +360,7 @@ fn picked_by(tool_name: &str, issue: &ValidationIssue, sent: &Value) -> Option<V
         .get(queries)?
         .get(index.parse::<usize>().ok()?)?
         .as_object()?;
-    if row.contains_key(field) {
+    if row.contains_key(field) || issue.message != super::schema::missing_required_text(field) {
         return None;
     }
     let names = |variant: &Value, list: &str, name: &str| {
@@ -190,7 +399,8 @@ fn picked_by(tool_name: &str, issue: &ValidationIssue, sent: &Value) -> Option<V
 /// candidates an example may show, the plainest first: each key at fault
 /// removed (`source.query.bogusField`); then with the keys the row lacks, filled with a visible placeholder
 /// ([`placeholder`]) as text or a list of text, and an `http://` value
-/// removed for its scheme spelled `https://`. Empty when an issue names the
+/// removed for its scheme spelled `https://` when its host is a name
+/// ([`names_reachable_host`]). Empty when an issue names the
 /// field itself or a fault is not an object key.
 fn without_faults(value: &Value, faults: &[&[String]]) -> Vec<Value> {
     let mut plain = value.clone();
@@ -227,6 +437,7 @@ fn without_faults(value: &Value, faults: &[&[String]]) -> Vec<Value> {
         let removed = fields.shift_remove(leaf);
         if let Some(Value::String(text)) = &removed
             && let Some(rest) = text.strip_prefix("http://")
+            && names_reachable_host(text)
         {
             upgraded.push((fault.to_vec(), Value::String(format!("https://{rest}"))));
         }
@@ -273,6 +484,24 @@ fn without_faults(value: &Value, faults: &[&[String]]) -> Vec<Value> {
     candidates
 }
 
+/// Whether `url` names its host: an address literal or `localhost` (RFC
+/// 6761: always loopback) names a machine, which the runtime reaches only
+/// when the address is public (`policy::network`, a layer above this one).
+/// No example changes the scheme of such a url: the request could be
+/// refused whatever its scheme.
+fn names_reachable_host(url: &str) -> bool {
+    let Ok(url) = url::Url::parse(url) else {
+        return false;
+    };
+    match url.host() {
+        Some(url::Host::Domain(name)) => {
+            let name = name.trim_end_matches('.');
+            name != "localhost" && !name.ends_with(".localhost")
+        }
+        Some(url::Host::Ipv4(_) | url::Host::Ipv6(_)) | None => false,
+    }
+}
+
 /// `example` in the rejected row's own terms, so copying it runs what the
 /// row asked: the row's value of each field the example sets that the row
 /// sent without an issue (a graphBuild of `src` is shown a graphBuild of
@@ -301,6 +530,7 @@ fn in_row_terms(tool_name: &str, example: &Value, rejected: Option<&Rejected<'_>
             faulted,
             faults,
             meant,
+            ..
         }),
         Some(fields),
     ) = (rejected, example.as_object())
@@ -395,6 +625,40 @@ fn in_row_terms(tool_name: &str, example: &Value, rejected: Option<&Rejected<'_>
             }
         }
     }
+    // A field the row lacks that fields it sent need (`view` for `unique`):
+    // the first literal its schema names that lets one of them stand, with
+    // every sent field that then stands.
+    let pending = row
+        .iter()
+        .filter(|(field, _)| {
+            !is_of_the_call(field) && !shown.contains_key(*field) && !faulted.contains(field)
+        })
+        .collect::<Vec<_>>();
+    for field in faulted {
+        if pending.is_empty()
+            || shown.contains_key(field)
+            || row.contains_key(field)
+            || is_of_the_call(field)
+        {
+            continue;
+        }
+        for literal in super::sample::literals(tool_name, std::slice::from_ref(field)) {
+            let mut candidate = shown.clone();
+            candidate.insert(field.clone(), literal);
+            let alone = candidate.len();
+            for (name, value) in &pending {
+                let mut with = candidate.clone();
+                with.insert((*name).clone(), (*value).clone());
+                if accepted(&with) {
+                    candidate = with;
+                }
+            }
+            if candidate.len() > alone {
+                shown = candidate;
+                break;
+            }
+        }
+    }
     // A field at fault by values whose meaning the messages name: the
     // row's own, each such value replaced by the literal it means.
     let mut repaired = Value::Object((*row).clone());
@@ -478,6 +742,39 @@ struct Rejected<'a> {
     /// Each value outside its enum whose message names the one literal it
     /// means (`use "modifiedAt"`): its path under the row, and that literal.
     meant: Vec<(Vec<String>, Value)>,
+    /// The row fields an issue names that the row lacks.
+    missing: Vec<String>,
+    /// Each text, number or boolean sent where another type is declared,
+    /// whose message states the form to send (`…; send [\"x\"], not \"x\"`):
+    /// its path under the row, and the value.
+    mistyped: Vec<(Vec<String>, Value)>,
+}
+
+impl Rejected<'_> {
+    /// Whether `example` (a row) holds each mistyped value where it was
+    /// sent, as it is or inside the value shown there (`"x"` in `["x"]`,
+    /// `5` as `"5"`).
+    fn holds_mistyped(&self, example: &Value) -> bool {
+        fn text(value: &Value) -> String {
+            match value {
+                Value::String(text) => text.clone(),
+                other => other.to_string(),
+            }
+        }
+        fn holds(shown: &Value, sent: &str) -> bool {
+            match shown {
+                Value::Array(items) => items.iter().any(|item| holds(item, sent)),
+                Value::Object(fields) => fields.values().any(|value| holds(value, sent)),
+                Value::Null => false,
+                scalar => text(scalar) == sent,
+            }
+        }
+        self.mistyped.iter().all(|(path, sent)| {
+            example
+                .pointer(&crate::json_pointer::of(path))
+                .is_some_and(|shown| holds(shown, &text(sent)))
+        })
+    }
 }
 
 /// The one literal an enum issue's message says its value means
@@ -525,6 +822,8 @@ fn sent_row<'a>(error: &ContractValidationError, sent: &'a Value) -> Option<Reje
     let mut faulted = Vec::new();
     let mut faults = Vec::new();
     let mut meant = Vec::new();
+    let mut missing = Vec::new();
+    let mut mistyped = Vec::new();
     for issue in &error.issues {
         if let [queries, at, field, ..] = issue.path.as_slice()
             && queries == "queries"
@@ -532,6 +831,16 @@ fn sent_row<'a>(error: &ContractValidationError, sent: &'a Value) -> Option<Reje
         {
             if let Some(literal) = meant_literal(issue) {
                 meant.push((issue.path[2..].to_vec(), literal));
+            }
+            if issue.path.len() == 3 && !row.contains_key(field) && !missing.contains(field) {
+                missing.push(field.clone());
+            }
+            if issue.rule_id == "schema.type"
+                && issue.message.contains("send ")
+                && let Some(sent) = issue.received.as_ref()
+                && (sent.is_string() || sent.is_number() || sent.is_boolean())
+            {
+                mistyped.push((issue.path[2..].to_vec(), sent.clone()));
             }
             let field = field.split(['.', '[']).next().unwrap_or(field);
             faulted.push(field.to_owned());
@@ -545,6 +854,8 @@ fn sent_row<'a>(error: &ContractValidationError, sent: &'a Value) -> Option<Reje
         faulted,
         faults,
         meant,
+        missing,
+        mistyped,
     })
 }
 
@@ -641,10 +952,59 @@ fn unselected_row(error: &ContractValidationError, issue: &ValidationIssue) -> b
     })
 }
 
-/// The repair for one unknown field: the branch that declares it, a
-/// top-level row field to move, the row field it belongs inside, or removal
-/// with the closest known field. In a row without its selector, the fields
-/// of every form are the allowed ones.
+/// Words other tools and command lines use for a declared field, which no
+/// spelling distance finds, each with the declared fields it may mean, most
+/// likely first. Data only: a pair applies to a tool whose row declares the
+/// target ([`unknown_field_message`]), and nothing is read by it.
+pub(crate) const FOREIGN_WORDS: &[(&str, &[&str])] = &[
+    ("pattern", &["matchString", "keywords", "nameRegex"]),
+    ("query", &["matchString", "keywords"]),
+    ("regex", &["matchString", "nameRegex"]),
+    ("keywords", &["matchString"]),
+    ("matchString", &["keywords"]),
+    ("branch", &["ref"]),
+    ("tag", &["ref"]),
+    ("sha", &["ref"]),
+    ("commit", &["ref"]),
+    ("commitSha", &["ref"]),
+    ("glob", &["include"]),
+    ("globs", &["include"]),
+    ("lang", &["fileType", "parser"]),
+    ("language", &["fileType", "parser"]),
+    ("file", &["path"]),
+    ("filename", &["path"]),
+    ("dir", &["path"]),
+    ("directory", &["path"]),
+    ("folder", &["path"]),
+    ("lines", &["ranges"]),
+    ("pr", &["number"]),
+    ("issue", &["number"]),
+    ("since", &["modifiedAt", "filters"]),
+    ("until", &["modifiedAt", "filters"]),
+    ("maxResults", &["limit"]),
+    ("code", &["content"]),
+    ("snippet", &["content"]),
+    ("context", &["background", "contextLines"]),
+    ("baseBranch", &["baseRef"]),
+    ("headBranch", &["headRef"]),
+    ("repository", &["repo"]),
+];
+
+/// The declared fields `sent` may mean as another tool's word
+/// ([`FOREIGN_WORDS`]), in any case or separator style.
+fn foreign_word(sent: &str) -> &'static [&'static str] {
+    FOREIGN_WORDS
+        .iter()
+        .find(|(word, _)| super::repair::same_name(word, sent))
+        .map_or(&[], |(_, meant)| meant)
+}
+
+/// The one line an unknown field is refused with: where it goes (the form
+/// that declares it, beside `queries`, inside the rows, inside the row field
+/// that holds it), else the declared field to use ([`FOREIGN_WORDS`], the
+/// nearest spelling, a name sharing its words), else the allowed fields. In
+/// a row without its selector, the fields of every form are the allowed
+/// ones.
 fn unknown_field_message(
     tool_name: &str,
     issue: &ValidationIssue,
@@ -653,7 +1013,6 @@ fn unknown_field_message(
         operation,
         request,
     }: Row<'_>,
-    unpublished: &[String],
 ) -> String {
     // A field of the request itself (`queries` beside `cursor`) is said of
     // the request, never of a row.
@@ -665,7 +1024,7 @@ fn unknown_field_message(
     if let Some(alone) = misplaced_request_field(tool_name, issue) {
         return if alone {
             format!(
-                "'{field}' is a whole request, not a query field: send {{\"{field}\":\"…\"}} alone, as next.nextPage or responsePagination.next gives it, without queries."
+                "'{field}' is a whole request, not a query field: send {{\"{field}\":\"…\"}} alone, as the reply's next gives it, without queries."
             )
         } else {
             format!("'{field}' is a request field: put it beside queries, not in {query}.")
@@ -696,19 +1055,15 @@ fn unknown_field_message(
             && let Some(alone) = whole_request_field(tool_name).filter(|alone| alone != field)
         {
             return format!(
-                "'{field}' is not allowed beside {alone}: send {{\"{alone}\":\"…\"}} alone, as next.nextPage or responsePagination.next gives it; '{field}' requires {requires}, in a new request."
+                "'{field}' is not allowed beside {alone}: send {{\"{alone}\":\"…\"}} alone, as the reply's next gives it; '{field}' requires {requires}, in a new request."
             );
         }
         return format!(
             "'{field}' is not allowed in this form of {query}; it requires {requires}."
         );
     }
-    let published = |name: &&str| !unpublished.iter().any(|hidden| hidden == name);
     let row_fields = if issue.path.len() == 3 {
         authored_row_fields(tool_name)
-            .into_iter()
-            .filter(|name| published(&name.as_str()))
-            .collect()
     } else {
         Vec::new()
     };
@@ -722,7 +1077,6 @@ fn unknown_field_message(
             .into_iter()
             .flatten()
             .filter_map(Value::as_str)
-            .filter(|name| issue.path.len() != 3 || published(name))
             .collect::<Vec<_>>()
     };
     // A field the object already carries is never the one meant instead.
@@ -738,28 +1092,44 @@ fn unknown_field_message(
         .iter()
         .copied()
         .chain(row_fields.iter().map(String::as_str))
-        .filter(|name| !sent.contains(name));
-    // A known guess with more than one reading names its field (a guess with
-    // one reading never gets here: it was read as that field), in the row or
-    // in the row field's object that holds it, where the row's operation
-    // takes that field: a securityCheck `name` beside a repository names no
-    // `packageName`.
-    if let ["queries", _, within @ .., _] = issue
-        .path
-        .iter()
-        .map(String::as_str)
-        .collect::<Vec<_>>()
-        .as_slice()
-        && let Some((meant, takes)) =
-            crate::contracts::meant_field(tool_name, &within.join("."), field)
-        && (!within.is_empty() || operation_takes(tool_name, operation, meant))
-    {
-        return match takes {
-            Some(takes) => format!("Unknown field '{field}' in {query}; use '{meant}': {takes}."),
-            None => format!("Unknown field '{field}' in {query}; use '{meant}'."),
-        };
+        .filter(|name| !sent.contains(name))
+        .collect::<Vec<_>>();
+    // A field of the query a `{tool, query}` value holds, sent beside its
+    // tool: it goes inside that query.
+    if let Some(message) = tool_query_field(issue, request, &known, field, &query) {
+        return message;
     }
-    match super::repair::nearest(field, candidates).as_slice() {
+    // A row field a caller authors, sent beside `queries`: it goes in the
+    // rows.
+    if let [_] = issue.path.as_slice()
+        && authored_row_fields(tool_name)
+            .iter()
+            .any(|name| name == field)
+    {
+        return format!(
+            "'{field}' goes inside each query: {{\"queries\":[{{…,\"{field}\":\"…\"}}]}}."
+        );
+    }
+    // Another tool's word for a field this row declares.
+    if let Some(meant) = foreign_word(field)
+        .iter()
+        .find(|meant| candidates.contains(meant) && operation_takes(tool_name, operation, meant))
+    {
+        return format!("Unknown field '{field}' in {query}; use '{meant}'.");
+    }
+    // The nearest spelling, else a declared field the sent name is part of
+    // or holds (`context` of `contextLines`).
+    let mut near = super::repair::nearest(field, candidates.iter().copied());
+    if near.is_empty() {
+        near = super::repair::sharing_words(
+            field,
+            candidates
+                .iter()
+                .copied()
+                .filter(|name| operation_takes(tool_name, operation, name)),
+        );
+    }
+    match near.as_slice() {
         [] => {}
         [meant] => return format!("Unknown field '{field}' in {query}; use '{meant}'."),
         [rest @ .., last] => {
@@ -771,10 +1141,19 @@ fn unknown_field_message(
             return format!("Unknown field '{field}' in {query}; use {rest} or '{last}'.");
         }
     }
-    if let Some(owner) = owning_row_field(tool_name, &row_fields, field) {
-        return format!(
-            "'{field}' is a field of {owner}, not of {query}: send {owner}:{{\"{field}\":…}}."
-        );
+    match owning_row_fields(tool_name, &row_fields, field).as_slice() {
+        [] => {}
+        [owner] => {
+            return format!(
+                "'{field}' is a field of {owner}, not of {query}: send {owner}:{{\"{field}\":…}}."
+            );
+        }
+        [rest @ .., last] => {
+            return format!(
+                "'{field}' is a field of {} or {last}, not of {query}: send it inside the one meant, as {last}:{{\"{field}\":…}}.",
+                rest.join(", ")
+            );
+        }
     }
     if let [_, _, _] = issue.path.as_slice() {
         let owners = partner_tools_declaring(tool_name, field);
@@ -950,17 +1329,58 @@ fn partner_tools_declaring(tool_name: &str, field: &str) -> Vec<&'static str> {
         .collect()
 }
 
-/// The row field (of any form) whose object value declares `field`, such as
-/// astSearch `rule` for `pattern`.
-fn owning_row_field<'a>(tool_name: &str, row_fields: &'a [String], field: &str) -> Option<&'a str> {
-    let tool = crate::id::ToolId::from_name(tool_name)?;
-    let contract = crate::contracts::tool_contract(tool).ok()?;
+/// The row fields (of any form) whose object value declares `field`, such as
+/// astSearch `rule` for `pattern`, or each of structureSearch's date ranges
+/// for `from`: every one, so none is named as the only place it goes.
+fn owning_row_fields<'a>(tool_name: &str, row_fields: &'a [String], field: &str) -> Vec<&'a str> {
+    let Some(contract) = crate::id::ToolId::from_name(tool_name)
+        .and_then(|tool| crate::contracts::tool_contract(tool).ok())
+    else {
+        return Vec::new();
+    };
     let (query, defs) = (&contract["querySchema"], &contract["querySchema"]["$defs"]);
     let facts = &crate::contracts::schema_facts::property_schemas;
-    row_fields.iter().map(String::as_str).find(|name| {
-        facts(query, defs, name).into_iter().any(|schema| {
-            crate::contracts::schema_facts::property_names(schema, defs).contains(field)
+    row_fields
+        .iter()
+        .map(String::as_str)
+        .filter(|name| {
+            facts(query, defs, name).into_iter().any(|schema| {
+                crate::contracts::schema_facts::property_names(schema, defs).contains(field)
+            })
         })
+        .collect()
+}
+
+/// For an unknown `field` beside the tool of a `{tool, query}` value (a
+/// clasify `source`), which the named tool's query declares: where it goes.
+/// `known` are the fields the value's object declares, `query` its label.
+fn tool_query_field(
+    issue: &ValidationIssue,
+    request: &Value,
+    known: &[&str],
+    field: &str,
+    query: &str,
+) -> Option<String> {
+    let (tool_field, query_field) = super::tool_query_pair(known)?;
+    let [queries, _, within @ .., _] = issue.path.as_slice() else {
+        return None;
+    };
+    if queries != "queries" || within.is_empty() {
+        return None;
+    }
+    let holder = request
+        .pointer(&crate::json_pointer::of(
+            &issue.path[..issue.path.len() - 1],
+        ))?
+        .as_object()?;
+    let tool = holder.get(tool_field)?.as_str()?;
+    let declares = crate::id::ToolId::from_name(tool)
+        .is_some_and(|id| crate::contracts::query_declares(id, field));
+    let at = within.join(".");
+    declares.then(|| {
+        format!(
+            "'{field}' is a field of the {tool} query, not of {query}: send {at}.{query_field}.{field}, as {at}:{{\"{tool_field}\":\"{tool}\",\"{query_field}\":{{\"{field}\":…}}}}."
+        )
     })
 }
 
@@ -1002,7 +1422,7 @@ fn alone_rule(alone: &str, others: &[&str]) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        "A {alone} call takes the {alone} alone: send {{\"{alone}\":\"…\"}} as next.nextPage or responsePagination.next gives it, without {others}; a new request sends {others} without {alone}."
+        "A {alone} call takes the {alone} alone: send {{\"{alone}\":\"…\"}} as the reply's next gives it, without {others}; a new request sends {others} without {alone}."
     )
 }
 

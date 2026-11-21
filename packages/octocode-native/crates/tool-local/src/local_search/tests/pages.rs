@@ -55,6 +55,42 @@ fn every_view_delivers_each_matching_file_or_line_once_at_multiple_budgets() {
     }
 }
 
+/// L3: a list page fills its budget whatever order lists it. The traversal
+/// walk and the path sort list the same name-sorted files, so their first
+/// pages hold the same files: a traversal page priced on paths longer than
+/// the ones it shows (the scan's, from the filesystem root) would stop
+/// early, the more so the deeper the searched directory.
+#[test]
+fn a_traversal_list_page_fills_its_budget_as_a_sorted_one_does() {
+    let root = tempfile::tempdir().expect("fixture");
+    let scope = root.path().join("a/deeply/nested/search/scope");
+    fs::create_dir_all(&scope).expect("scope");
+    for file in 0..600 {
+        fs::write(scope.join(format!("f{file:03}.txt")), "needle\n").expect("file");
+    }
+    for view in ["files", "countLines", "countMatches"] {
+        for budget in [2_500, 9_000] {
+            let first_page = |sort: &str| {
+                let (_, pages) = walk_search(
+                    root.path(),
+                    serde_json::json!({
+                        "path":scope,"matchString":["needle"],"view":view,
+                        "sort":{"by":sort,"order":"asc"}
+                    }),
+                    Some(budget),
+                );
+                assert!(pages.len() > 1, "{view} {sort}: the fixture pages");
+                pages[0]["files"].as_array().expect("files").len()
+            };
+            assert_eq!(
+                first_page("traversal"),
+                first_page("path"),
+                "{view} budget {budget}"
+            );
+        }
+    }
+}
+
 /// One file's spans span many pages, with no count per file bounding them:
 /// walking its matchOnly pages reaches every span exactly once, across
 /// every page edge inside the file.
@@ -442,7 +478,7 @@ fn a_one_file_scan_past_its_held_bound_leads_to_a_read_of_that_file() {
             &security,
             &octocode_runtime_base::execution::cancel::NeverCancel,
             None,
-            None,
+            false,
         );
         assert_eq!(page.error_code, None, "{view}: {page:?}");
         let content = page.content.as_deref().expect("page 1");
@@ -478,115 +514,6 @@ fn a_continuing_file_reports_its_total_without_a_line_preview() {
             assert!(pagination.get(key).is_none(), "{key} in {pagination}");
         }
     }
-}
-
-/// The count request a large result offers is a `related[]` call that names
-/// itself; no hint restates it.
-#[test]
-fn a_large_result_offers_its_count_call_without_a_hint_restating_it() {
-    let root = tempfile::tempdir().expect("fixture");
-    let rows = crate::local_search::leads::LARGE_RESULT_MATCHES as usize + 1;
-    fs::write(root.path().join("a.txt"), "needle\n".repeat(rows)).expect("source");
-    let (_, pages) = walk_search(
-        root.path(),
-        serde_json::json!({"path":root.path(),"matchString":["needle"]}),
-        None,
-    );
-    let first = pages[0].to_string();
-    assert!(!first.contains("related[]"), "{first}");
-}
-
-/// The read a search hands off windows its hits by the hit lines and the
-/// handoff context alone: it never reads the file to learn its length, and
-/// localFetch clips a window that runs past the end.
-#[test]
-fn the_read_handoff_windows_hits_without_reading_the_file() {
-    use crate::local_search::handoff::{READ_HANDOFF_CONTEXT, read_handoff};
-    let root = tempfile::tempdir().expect("fixture");
-    let hit = 9_u32;
-    // A file shorter than the window: a clamp would end it at its last line.
-    fs::write(root.path().join("a.txt"), "x\n".repeat(hit as usize)).expect("source");
-    let query = ls_query(
-        serde_json::json!({"path":root.path(),"matchString":["x"]}),
-        None,
-    );
-    let file = crate::local_search::types::SearchFile {
-        sorted_at: None,
-        path: "a.txt".into(),
-        match_keys: Vec::new(),
-        declarations: Vec::new(),
-        matches: Some(vec![crate::local_search::types::SearchMatch {
-            line: hit,
-            column: None,
-            value: "x".into(),
-            window_start: None,
-            byte_offset: 0,
-            first_line: hit,
-            end_line: None,
-            match_lines: None,
-            match_bytes: Vec::new(),
-            count: None,
-            enclosing: None,
-            declaration: None,
-        }]),
-        total_occurrences: None,
-        total_matched_lines: None,
-        term_counts: None,
-        pagination: None,
-        next: None,
-        lines: None,
-    };
-    let read = read_handoff(&query, root.path(), &file).expect("a read lead");
-    let range = &read["input"]["queries"][0]["ranges"][0];
-    assert_eq!(range["startLine"], hit - READ_HANDOFF_CONTEXT, "{read}");
-    assert_eq!(range["endLine"], hit + READ_HANDOFF_CONTEXT, "{read}");
-}
-
-/// A search page reads each shown file, so the read it hands off ends at the
-/// file's last line, whatever its language: a window past the end made
-/// localFetch warn that it adjusted the range.
-#[test]
-fn the_read_handoff_ends_at_the_last_line_of_a_file_the_page_read() {
-    for name in ["notes.txt", "bundle.js"] {
-        let body = search_fixture(
-            &[(name, "one\nneedle\nthree\n")],
-            ls_query(json_fixture(r#"{"matchString": ["needle"]}"#), None),
-        );
-        let read = body["related"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|call| call["tool"] == "localFetch")
-            .unwrap_or_else(|| panic!("{name}: a read lead: {body}"));
-        let range = &read["input"]["queries"][0]["ranges"][0];
-        assert_eq!(range["startLine"], 1, "{name}: {read}");
-        assert_eq!(range["endLine"], 3, "{name}: {read}");
-    }
-}
-
-/// The read handed off for a file longer than a page reads whole ends at its
-/// last line too: the search counts lines in the read it already makes of
-/// every kept file, whatever its size.
-#[test]
-fn the_read_handoff_ends_at_the_last_line_of_a_file_past_the_whole_read_limit() {
-    let line = "2026-11-14T00:00:00Z info a log line that holds no hit\n";
-    let limits = octocode_runtime_base::security::SourceLimits::SMALL;
-    let lines = limits.whole_source / line.len() + 2;
-    let source = format!("{}needle\n", line.repeat(lines - 1));
-    assert!(source.len() > limits.whole_source);
-    let body = search_fixture_at(
-        &[("big.log", source.as_str())],
-        ls_query(json_fixture(r#"{"matchString": ["needle"]}"#), None),
-        limits,
-    );
-    let read = body["related"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|call| call["tool"] == "localFetch")
-        .unwrap_or_else(|| panic!("a read lead: {body}"));
-    let range = &read["input"]["queries"][0]["ranges"][0];
-    assert_eq!(range["endLine"], lines, "{read}");
 }
 
 /// A searched file's `declarations` arrive before the hits naming them on
@@ -667,77 +594,6 @@ fn response_pages_deliver_a_files_declarations_before_its_hits() {
             }
         }
         assert_eq!((declarations, hits), (9, 9), "budget {budget}");
-    }
-}
-
-/// The read a search hands off reaches every shown hit of its file, however
-/// many: windows around each while one read holds them, else the search's own
-/// `matchString` read, which localFetch pages.
-#[test]
-fn the_read_handoff_reaches_every_shown_hit_at_any_count() {
-    use crate::local_search::handoff::{READ_HANDOFF_CONTEXT, read_handoff};
-    use octocode_runtime_base::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS;
-    let root = tempfile::tempdir().expect("fixture");
-    // Hits far enough apart that no two windows merge.
-    let gap = 2 * READ_HANDOFF_CONTEXT + 2;
-    for count in [1, RANGES_MAX_ITEMS, RANGES_MAX_ITEMS + 1] {
-        let lines = (1..=count).map(|index| gap * u32::try_from(index).expect("count"));
-        let query = ls_query(
-            serde_json::json!({"path":root.path(),"matchString":["x"]}),
-            None,
-        );
-        let file = crate::local_search::types::SearchFile {
-            sorted_at: None,
-            path: "a.txt".into(),
-            match_keys: Vec::new(),
-            declarations: Vec::new(),
-            matches: Some(
-                lines
-                    .clone()
-                    .map(|line| crate::local_search::types::SearchMatch {
-                        line,
-                        column: None,
-                        value: "x".into(),
-                        window_start: None,
-                        byte_offset: 0,
-                        first_line: line,
-                        end_line: None,
-                        match_lines: None,
-                        match_bytes: Vec::new(),
-                        count: None,
-                        enclosing: None,
-                        declaration: None,
-                    })
-                    .collect(),
-            ),
-            total_occurrences: None,
-            total_matched_lines: None,
-            term_counts: None,
-            pagination: None,
-            next: None,
-            lines: None,
-        };
-        let read = read_handoff(&query, root.path(), &file)
-            .unwrap_or_else(|| panic!("{count} hits: a read lead"));
-        let row = &read["input"]["queries"][0];
-        let ranges = row["ranges"].as_array().cloned().unwrap_or_default();
-        if ranges.is_empty() {
-            assert_eq!(
-                row["matchString"],
-                json_fixture(r#"["x"]"#),
-                "{count}: {read}"
-            );
-            continue;
-        }
-        for line in lines {
-            assert!(
-                ranges.iter().any(|range| {
-                    range["startLine"].as_u64() <= Some(u64::from(line))
-                        && Some(u64::from(line)) <= range["endLine"].as_u64()
-                }),
-                "{count} hits: line {line} unread by {read}"
-            );
-        }
     }
 }
 

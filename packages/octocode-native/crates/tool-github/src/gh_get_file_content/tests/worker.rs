@@ -34,8 +34,6 @@ async fn unclassified_content_is_shaped_away_from_the_async_worker() {
     .expect("query");
     let main_thread = std::thread::current().id();
     let scan = ThreadScan::default();
-    let selection =
-        shaping(octocode_tools_shared::test_support::selection_fake::SelectAll).selection;
     let result = execute(
         &provider,
         &query,
@@ -43,8 +41,7 @@ async fn unclassified_content_is_shaped_away_from_the_async_worker() {
         Some(50_000),
         Shaping {
             security: scan.clone(),
-            context: selection.context.clone(),
-            selection,
+            context: test_context(),
         },
         &|_| false,
         &mut None,

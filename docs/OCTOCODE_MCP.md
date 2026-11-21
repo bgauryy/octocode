@@ -29,8 +29,9 @@ The contract has 17 tools. The MCP server starts with 12. Graph tools, cloning, 
 
 | MCP operation | What the client gets |
 |---|---|
+| `initialize` | Instructions for the enabled tools; with `output.mcpResult: text` they end with a block that says how to read text replies. |
 | `tools/list` | Enabled tool names, descriptions and input schemas. |
-| `tools/call` | One text block with the JSON result. Check each row for errors, empty results and remaining evidence. |
+| `tools/call` | One text block with the JSON result (default), or with the text view when [`output.mcpResult`](CONFIGURATION.md) is `text`: content lines, `# key: value` fields, and each next call as `{"tool","input"}` JSON on its `# next.*` line. Check each row for errors, empty results and remaining evidence. |
 | `resources/list`, `resources/read` | Research guides such as `octocode://research/tool-flow`, and output-field definitions at `octocode://contract/output/<tool>`. |
 
 ### Example: a localFetch call

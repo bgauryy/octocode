@@ -375,6 +375,14 @@ async fn an_ignored_language_filter_is_named() {
 #[tokio::test]
 async fn search_failures_lead_to_their_repair() {
     let server = MockServer::builder().start().await;
+    // The owner's login exists: only the repository is missing.
+    wiremock::Mock::given(wiremock::matchers::path_regex("/users/[^/]+$"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"login": "owner"})),
+        )
+        .mount(&server)
+        .await;
     mount_json(
         &server,
         "/api/v3/repos/o/missing",
@@ -453,42 +461,6 @@ async fn a_partly_withheld_repository_search_warns_to_authorize_the_token() {
         warnings.contains("SAML") && warnings.contains("21955855"),
         "{}",
         out.data
-    );
-}
-
-/// The first page leads from its first repository to that repository's
-/// tree, once; a later page leads nowhere new.
-#[tokio::test]
-async fn the_first_page_leads_to_the_first_repositorys_tree() {
-    let server = MockServer::builder().start().await;
-    mount_json(
-        &server,
-        "/api/v3/search/repositories",
-        200,
-        page(vec![repo_item("first", false), repo_item("second", false)]),
-    )
-    .await;
-    let out = run(
-        &server,
-        json_fixture(r#"{"keywords": ["x"], "operation": "search"}"#),
-    )
-    .await;
-    let leads = out.data["related"].to_string();
-    assert!(leads.contains("ghStructure"), "{}", out.data);
-    assert!(
-        leads.contains("first") && !leads.contains("second"),
-        "{}",
-        out.data
-    );
-    let later = run(
-        &server,
-        json_fixture(r#"{"keywords": ["x"], "page": 2, "operation": "search"}"#),
-    )
-    .await;
-    assert!(
-        !later.data["related"].to_string().contains("ghStructure"),
-        "{}",
-        later.data
     );
 }
 

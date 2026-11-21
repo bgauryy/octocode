@@ -10,42 +10,6 @@ use serde_json::{Map, Value, json};
 use crate::contracts::envelope::NOTICES;
 use crate::id::ToolId;
 
-/// What a candidate page changes in its query: private progress dropped
-/// (never the scan's `snapshot` pin, which the page keeps), the
-/// `selection` token set, and a newer `snapshot` when the caller has one.
-pub fn candidate_page_changes(tool: ToolId, selection: &str, snapshot: Option<&str>) -> Value {
-    let mut changes = Map::new();
-    for field in crate::contracts::state_fields(tool)
-        .iter()
-        .filter(|field| *field != "snapshot")
-    {
-        changes.insert(field.clone(), Value::Null);
-    }
-    if let Some(snapshot) = snapshot {
-        changes.insert("snapshot".into(), json!(snapshot));
-    }
-    changes.insert("selection".into(), json!(selection));
-    Value::Object(changes)
-}
-
-/// The continuation that judges the candidates a page left unjudged: `query`
-/// with [`candidate_page_changes`], replayed as `tool`. `None` only when
-/// `query` is not an object.
-pub fn next_candidate_page_call(
-    tool: ToolId,
-    query: Value,
-    selection: &str,
-    snapshot: Option<&str>,
-) -> Option<Value> {
-    query.is_object().then(|| {
-        let row = crate::response::result::with_changes(
-            query,
-            &candidate_page_changes(tool, selection, snapshot),
-        );
-        crate::response::result::Continuation::continued(tool, row).build()
-    })
-}
-
 /// A row the partial owners write: a JSON row, or its object a tool is
 /// still building. A non-object row is left alone.
 pub trait RowFields {

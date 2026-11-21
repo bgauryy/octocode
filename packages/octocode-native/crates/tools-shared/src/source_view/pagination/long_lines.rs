@@ -23,17 +23,14 @@ pub(in crate::source_view) struct LongLines<'a> {
 impl<'a> LongLines<'a> {
     /// The policy of a raw view of a source held whole (a streamed window's
     /// line may reach past the window, and a transformed view is not the
-    /// source's bytes). `classified`: a classifier chose the view's chunks,
-    /// so it is not the text the extraction's match windows count in, nor
-    /// the selection `placement` places.
+    /// source's bytes).
     pub(in crate::source_view) fn of(
         ext: &'a crate::source_view::extraction::Extraction,
-        classified: bool,
         placement: Option<&'a Placement<'a>>,
     ) -> Self {
         Self {
-            match_windows: if classified { &[] } else { &ext.match_windows },
-            placement: placement.filter(|_| !classified),
+            match_windows: &ext.match_windows,
+            placement,
         }
     }
 }
@@ -249,7 +246,8 @@ impl MatchFirst {
     /// it that `room` still holds whole, each behind a [`gap_marker`] naming
     /// the bytes it skips (they come with the rest of the line), so one page
     /// shows as many hits as fit; its length counts the bytes it shows. After
-    /// the line's last byte, line paging resumes.
+    /// the line's last byte, or after a first page that holds every window of
+    /// the line (the rest is the line's optional read), line paging resumes.
     pub(super) fn page(&self, content: &str, at: usize, room: usize) -> Page {
         let (run_end, after) = self.walk.run(at);
         let end = octocode_runtime_base::response::cut::window_end(content, at, room).min(run_end);
@@ -287,13 +285,11 @@ impl MatchFirst {
             next = self.walk.after_windows(taken);
             every_window = held == 0 && taken == windows.len();
         }
-        // The first page of the walk holds every match window of the view's
-        // last line: the rest of that line answers nothing asked, so it is an
-        // optional read of the whole line, not a page every reader must take.
-        let rest_of_line = every_window
-            && at == self.walk.first()
-            && self.walk.line.end >= content.len()
-            && next.is_some();
+        // The first page of the walk holds every match window of the line:
+        // the rest of that line answers nothing asked, so it is an optional
+        // read of the whole line, not pages every reader must take before the
+        // view's next lines (which hold the next matches).
+        let rest_of_line = every_window && at == self.walk.first() && next.is_some();
         for ((from, to), window) in joined {
             if rest_of_line {
                 text.push_str(&unshown_marker(from, to));
@@ -308,9 +304,7 @@ impl MatchFirst {
         let line = octocode_engine::text::line_containing(content, at);
         let (next_offset, resume_line) = match next {
             Some(byte) => (Some(byte), None),
-            None if !rest_of_line && self.walk.line.end < content.len() => {
-                (Some(self.walk.line.end), Some(line))
-            }
+            None if self.walk.line.end < content.len() => (Some(self.walk.line.end), Some(line)),
             None => (None, None),
         };
         Page {
@@ -330,6 +324,7 @@ impl MatchFirst {
             view_lines: (line, line),
             out_of_range: false,
             rest_of_line,
+            opens_inside: at > self.walk.line.start,
         }
     }
 }
@@ -400,9 +395,12 @@ pub(super) fn filled_page(
 ) -> Option<Page> {
     long_lines?;
     let room = budget.line.max(super::MIN_BYTE_PAGE);
-    let left = room.checked_sub(octocode_runtime_base::response::cut::escaped_len(
-        content.get(lines.clone())?,
-    ))?;
+    // Each line the page shows, and the long line it ends with, renders
+    // behind its gutter.
+    let gutters = (taken + 1).saturating_mul(budget.gutter);
+    let left = room.checked_sub(
+        octocode_runtime_base::response::cut::escaped_len(content.get(lines.clone())?) + gutters,
+    )?;
     if left == 0 || MatchFirst::of(content, long_lines, lines.end, room).is_some() {
         return None;
     }
@@ -429,6 +427,7 @@ pub(super) fn filled_page(
         view_lines: (first + 1, first + taken + 1),
         out_of_range: false,
         rest_of_line: false,
+        opens_inside: false,
     })
 }
 

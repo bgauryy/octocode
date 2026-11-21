@@ -299,8 +299,8 @@ impl Query<'_> {
                 .filter(|found| *found < min_tier)
                 .min();
             // The call that lists them is named by what tells it apart, on
-            // every page that lists findings or none: a warning that names
-            // `related` keeps it beside the rows.
+            // every page that lists findings or none: a graphQuery call, a
+            // link the tool's contract promises, so it stays beside the rows.
             if let Some(lowest) = reveal {
                 warnings.push(format!(
                     "{filters} hid {hidden} findings; the related graphQuery call with minTier {lowest} lists them."

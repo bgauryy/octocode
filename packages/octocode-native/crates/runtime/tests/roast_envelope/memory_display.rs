@@ -55,10 +55,7 @@ async fn served_whole(extra: &[(&str, String)]) {
     .expect("the call is served, not refused for a continuation");
     runtime.close().await;
     assert_eq!(hits(&output), 80, "every hit is in the one result");
-    assert!(
-        output.pointer("/responsePagination/next").is_none(),
-        "{output}"
-    );
+    assert!(output.pointer("/next").is_none(), "{output}");
     assert!(
         !output.to_string().contains("\"cursor\""),
         "no cursor is offered: {output}"

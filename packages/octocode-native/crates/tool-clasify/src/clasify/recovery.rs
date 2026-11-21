@@ -12,9 +12,6 @@ use serde_json::{Value, json};
 /// re-reads its images.
 const IMAGE_WINDOW_HINT: &str = "Each image question re-reads its images: ask fewer image questions per call, or crop the image.";
 
-/// What a binary source needs when it is an image.
-const IMAGE_SOURCE_HINT: &str = "source takes text; a PNG or JPEG image is judged under assets, as the clasify call in related[] does.";
-
 /// What a `source` whose path is a glob needs: it reads one file.
 const GLOB_SOURCE_HINT: &str = "A source reads one file; a glob goes in resources, one resource per file, as the clasify call in related[] does.";
 
@@ -54,16 +51,6 @@ pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value, c
         && let Some(split) = sections_call(row, source, can_resume)
     {
         octocode_runtime_base::response::result::attach_related(failure, split);
-    }
-    // A binary source is no text to judge: an image is judged under assets.
-    if acquisition
-        && octocode_runtime_base::id::error_code_of(failure)
-            == Some(ErrorCode::BinaryFileUnsupported)
-        && let Input::Judge(Target::Source(source)) = &row.input
-        && let Some(call) = assets_call(row, source)
-    {
-        octocode_runtime_base::response::result::attach_related(failure, call);
-        octocode_runtime_base::response::result::prepend_hints(failure, [IMAGE_SOURCE_HINT]);
     }
     // A localFetch source path with glob characters that names no file is a
     // glob: its files are read as resources.
@@ -146,13 +133,7 @@ pub(super) fn sections_call(row: &Row, source: &Value, can_resume: bool) -> Opti
         .filter(|(_, question)| question["type"] != "box")
         .map(|(key, question)| (key.clone(), question.clone()))
         .collect::<serde_json::Map<_, _>>();
-    sections_over(
-        questions,
-        row.context.as_deref(),
-        row.model.as_deref(),
-        vec![(None, source.clone())],
-        can_resume,
-    )
+    sections_over(questions, row, vec![(None, source.clone())], can_resume)
 }
 
 /// `questions` over every one of `sources` as one ready `sections` call. A
@@ -164,8 +145,7 @@ pub(super) fn sections_call(row: &Row, source: &Value, can_resume: bool) -> Opti
 /// (`can_resume` false) refuses a plan, so it offers none.
 pub(super) fn sections_over(
     questions: serde_json::Map<String, Value>,
-    context: Option<&str>,
-    model: Option<&str>,
+    row: &Row,
     sources: Vec<(Option<String>, Value)>,
     can_resume: bool,
 ) -> Option<Value> {
@@ -205,10 +185,8 @@ pub(super) fn sections_over(
         resources.insert(key, source);
     }
     let mut call = json!({"operation":"sections","resources":resources,"questions":questions});
-    if let Some(context) = context {
-        call["context"] = json!(context);
-    }
-    if let Some(model) = model {
+    super::rows::carry_brief(row, &mut call);
+    if let Some(model) = &row.model {
         call["model"] = json!(model);
     }
     Some(
@@ -231,9 +209,7 @@ pub(super) fn rerun_resource(row: &Row, key: &str, source: &Value) -> Option<Val
     let mut resources = serde_json::Map::new();
     resources.insert(key.to_owned(), source.clone());
     let mut call = json!({"operation":"evaluate","resources":resources,"questions":questions});
-    if let Some(context) = &row.context {
-        call["context"] = json!(context);
-    }
+    super::rows::carry_brief(row, &mut call);
     if let Some(model) = &row.model {
         call["model"] = json!(model);
     }
@@ -245,40 +221,6 @@ pub(super) fn rerun_resource(row: &Row, key: &str, source: &Value) -> Option<Val
     }
     octocode_runtime_base::contracts::validate_built_query(ToolId::Clasify.as_str(), call.clone())
         .ok()?;
-    Some(
-        octocode_runtime_base::response::result::Continuation::related(ToolId::Clasify, call)
-            .build(),
-    )
-}
-
-/// The same questions over a file `source` as an image under assets, named
-/// by the one-line content: the route for an image a text source refuses.
-fn assets_call(row: &Row, source: &Value) -> Option<Value> {
-    const KEY: &str = "image";
-    let tool = ToolId::from_name(source["tool"].as_str()?)?;
-    let identity: &[&str] = match tool {
-        ToolId::LocalFetch => &["path"],
-        ToolId::GhGetFileContent => &["owner", "repo", "path", "ref"],
-        _ => return None,
-    };
-    let query = identity
-        .iter()
-        .filter_map(|field| Some(((*field).to_owned(), source["query"].get(*field)?.clone())))
-        .collect::<serde_json::Map<_, _>>();
-    let questions = row
-        .keys
-        .iter()
-        .cloned()
-        .zip(row.questions.iter().cloned())
-        .collect::<serde_json::Map<_, _>>();
-    let mut call = json!({"operation":"evaluate","content":KEY,
-        "assets":{KEY:{"source":{"tool":tool.as_str(),"query":query}}},"questions":questions});
-    if let Some(context) = &row.context {
-        call["context"] = json!(context);
-    }
-    if let Some(model) = &row.model {
-        call["model"] = json!(model);
-    }
     Some(
         octocode_runtime_base::response::result::Continuation::related(ToolId::Clasify, call)
             .build(),

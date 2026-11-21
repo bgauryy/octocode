@@ -5,7 +5,6 @@ use octocode_io::{
     retry::header_u64,
 };
 use serde_json::Value;
-use std::time::Instant;
 
 use super::attempts::{secondary_cooldown, secondary_wait, spent_bucket_reset};
 use super::execute::Obtained;
@@ -216,13 +215,7 @@ impl GitHubTransport {
                 let wait = secondary_wait(&page.headers, config, &self.retry, attempt);
                 let limit =
                     secondary_cooldown(&state, &page.headers, wait, GitHubResource::Graphql);
-                if attempt + 1 < self.retry.max_attempts
-                    && wait
-                        < context
-                            .budget
-                            .deadline
-                            .saturating_duration_since(Instant::now())
-                {
+                if attempt + 1 < self.retry.max_attempts && context.wait_limit().takes(wait) {
                     attempt += 1;
                     continue;
                 }
@@ -256,11 +249,7 @@ impl GitHubTransport {
                 let wait = self.budget.config().reset_wait(reset);
                 if crate::budget::waits_out_spent(GitHubResource::Graphql.bucket())
                     && attempt + 1 < self.retry.max_attempts
-                    && wait
-                        < context
-                            .budget
-                            .deadline
-                            .saturating_duration_since(Instant::now())
+                    && context.wait_limit().takes(wait)
                 {
                     attempt += 1;
                     continue;

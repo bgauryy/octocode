@@ -307,9 +307,9 @@ const WORKSPACE_SYMBOL_CAPPED_REASON: octocode_runtime_base::response::paging::P
 /// `scope`, the check no page of this answer can make.
 /// `capped_at` is the server's own result limit when its answer reached it
 /// ([`NativeLspClient::workspace_symbol_limit`]): a fact of this answer, so
-/// the row is partial and a warning says it outright. Both leads are the
-/// whole answer's: a later page of `query` (whose first page carried them)
-/// repeats none of them.
+/// the row is partial and a warning says it outright. The lead is the
+/// whole answer's: a later page of `query` (whose first page carried it)
+/// does not repeat it.
 ///
 /// [`NativeLspClient::workspace_symbol_limit`]: octocode_engine::lsp::client::NativeLspClient::workspace_symbol_limit
 pub(super) fn workspace_symbols(
@@ -317,7 +317,6 @@ pub(super) fn workspace_symbols(
     query: &LspSearchQuery,
     name: &str,
     scope: &Scope,
-    anchor: Option<&str>,
     capped_at: Option<(usize, &str)>,
 ) {
     if row.get("status").and_then(Value::as_str) == Some("error") {
@@ -344,23 +343,6 @@ pub(super) fn workspace_symbols(
     // description's, said once; the row leads to the check.
     if let Some(lead) = super::failure::term_search_lead(name, &scope.root, &scope.include) {
         octocode_runtime_base::response::result::attach_related(row, lead.build());
-    }
-    // This is an optional lead, moved to hints by continuation shaping;
-    // it is not a page that recovers an exhaustive workspace result. An
-    // empty answer has no declaration the anchor's outline could show: its
-    // file only picked the project.
-    if let Some(path) = anchor
-        && row.get("status").and_then(Value::as_str) != Some("empty")
-        && let Some(outline) = lsp_search_query::document_lead(
-            octocode_contract_types::LspDocumentOperation::DocumentSymbols,
-            path,
-            None,
-        )
-    {
-        octocode_runtime_base::response::result::attach_related(
-            row,
-            octocode_runtime_base::response::result::Continuation::related_query(outline).build(),
-        );
     }
 }
 

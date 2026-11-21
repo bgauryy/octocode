@@ -79,7 +79,7 @@ async fn explicit_response_page_sizes_patch_walk_windows() {
                 text.push_str(patch);
             }
             let next = content
-                .pointer("/responsePagination/next")
+                .pointer("/next")
                 .or_else(|| data.pointer("/pullRequests/0/next/patches"))
                 .or_else(|| data.pointer("/pullRequests/0/next/files"));
             let Some(next) = next else { break };
@@ -183,7 +183,7 @@ async fn default_large_pr_patch_walk_reaches_every_patch_once() {
         // A default patch window fits its response page: the row never
         // splits into response parts.
         assert!(
-            content.get("responsePagination").is_none(),
+            content.get("next").is_none(),
             "call {calls}: {}",
             content["responsePagination"]
         );
@@ -203,7 +203,7 @@ async fn default_large_pr_patch_walk_reaches_every_patch_once() {
             );
             text.push_str(file["patch"].as_str().unwrap_or(""));
         }
-        let next = content["responsePagination"]["next"]["input"]
+        let next = content["next"]["input"]
             .as_object()
             .or_else(|| data["pullRequests"][0]["next"]["patches"]["input"].as_object())
             .or_else(|| data["pullRequests"][0]["next"]["files"]["input"].as_object());

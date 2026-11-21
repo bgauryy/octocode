@@ -52,7 +52,10 @@ fn holds_value_over_with_mode(
     paging: bool,
 ) -> bool {
     page.iter().any(|(key, value)| match key.as_str() {
-        "responsePagination" | OVERSIZED => false,
+        crate::response::continuations::RESPONSE_NEXT
+        | crate::response::continuations::RESPONSE_EXPIRES_AT
+        | crate::response::continuations::RESPONSE_REPLAYED
+        | OVERSIZED => false,
         "results" => value
             .as_array()
             .into_iter()
@@ -76,7 +79,9 @@ fn value_over(value: &Value, tool: ToolId, budget: usize, at: &str, paging: bool
             octocode_engine::json_size::utf16_units(value).is_some_and(|chars| chars > budget)
         }
         Value::Object(_) | Value::Array(_)
-            if page_context_fields(tool).collection_routes.is_whole_member(at)
+            if page_context_fields(tool)
+                .collection_routes
+                .is_whole_member(at)
                 && octocode_engine::json_size::utf16_units(&without_free_text(
                     value, tool, at, paging,
                 ))
@@ -116,7 +121,9 @@ fn without_free_text(value: &Value, tool: ToolId, at: &str, paging: bool) -> Val
             items
                 .iter()
                 .enumerate()
-                .map(|(index, item)| without_free_text(item, tool, &format!("{at}/{index}"), paging))
+                .map(|(index, item)| {
+                    without_free_text(item, tool, &format!("{at}/{index}"), paging)
+                })
                 .collect(),
         ),
         other => other.clone(),

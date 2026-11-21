@@ -147,8 +147,20 @@ fn only_a_multi_word_maven_search_names_the_whole_word_limit() {
             None,
         )
     };
-    assert!(matches_whole_name_words(&search("maven", serde_json::json!(["jackson", "yaml"]))));
-    assert!(matches_whole_name_words(&search("maven", serde_json::json!(["jackson yaml"]))));
-    assert!(!matches_whole_name_words(&search("maven", serde_json::json!(["guava"]))));
-    assert!(!matches_whole_name_words(&search("nuget", serde_json::json!(["jackson", "yaml"]))));
+    assert!(matches_whole_name_words(&search(
+        "maven",
+        serde_json::json!(["jackson", "yaml"])
+    )));
+    assert!(matches_whole_name_words(&search(
+        "maven",
+        serde_json::json!(["jackson yaml"])
+    )));
+    assert!(!matches_whole_name_words(&search(
+        "maven",
+        serde_json::json!(["guava"])
+    )));
+    assert!(!matches_whole_name_words(&search(
+        "nuget",
+        serde_json::json!(["jackson", "yaml"])
+    )));
 }

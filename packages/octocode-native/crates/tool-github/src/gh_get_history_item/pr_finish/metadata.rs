@@ -82,8 +82,8 @@ pub(in crate::gh_get_history_item) fn pr_metadata(
         "labels": (!labels.is_empty()).then_some(labels),
         // Summary labels come from REST; section headers omit label fields.
         "labelsClipped": raw.get("labels_truncated").and_then(Value::as_bool).filter(|v| *v),
-        "baseBranch": str_at(raw,"/base/ref").filter(|v|!v.is_empty()),
-        "headBranch": str_at(raw,"/head/ref").filter(|v|!v.is_empty()),
+        "baseRef": str_at(raw,"/base/ref").filter(|v|!v.is_empty()),
+        "headRef": str_at(raw,"/head/ref").filter(|v|!v.is_empty()),
         "headCommitSha": str_at(raw,"/head/sha").filter(|v|!v.is_empty()),
         // The target-branch tip GitHub recorded for the PR: not the diff's
         // old side (that is the merge base, which `readParent` reads).

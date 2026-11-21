@@ -22,5 +22,27 @@ pub fn parent_glob_warning(include: &[String], exclude: &[String]) -> Option<Str
 /// text for every tool that walks a scope (localSearch, astSearch).
 pub const GLOB_MISS_HINT: &str = "Nothing searched: include/exclude matched no file. A glob with `/` matches from `path`, not the workspace root, so `src/*.rs` is `path`/src/*.rs: start it with `**/` to match at any depth. The related[] structureSearch request lists the names to fix the globs.";
 
+/// The empty result's fact when the only files include/exclude matched are
+/// `withheld` ones the security path policy keeps from every walk: the
+/// globs did match, so [`GLOB_MISS_HINT`]'s advice to fix them would send
+/// the caller respelling a glob that already works. It states the count and
+/// the cause, and names no file: a withheld name is disclosed only where the
+/// path policy itself discloses it. With nothing withheld it is
+/// [`GLOB_MISS_HINT`].
+pub fn glob_miss_hint(withheld: usize) -> std::borrow::Cow<'static, str> {
+    if withheld == 0 {
+        return GLOB_MISS_HINT.into();
+    }
+    let (files, them) = if withheld == 1 {
+        ("1 withheld file".to_owned(), "it")
+    } else {
+        (format!("{withheld} withheld files"), "them")
+    };
+    format!(
+        "Nothing searched: include/exclude matched {files} and no other file. The security path policy withholds {them} (credential-named files and sensitive directories), and no query field lifts that: do not respell the globs to reach {them}."
+    )
+    .into()
+}
+
 #[cfg(test)]
 mod tests;

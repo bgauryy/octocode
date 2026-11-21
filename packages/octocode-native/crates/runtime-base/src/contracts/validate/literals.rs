@@ -45,7 +45,7 @@ fn quoted_choice(names: &[String]) -> String {
 /// ecosystem enum, the contract's purl type of that name (`cargo`, `golang`,
 /// `deb`, `rpm`): its ecosystems, all of them when the type spans several
 /// distributions. Else the nearest spelling, else the one literal it is the
-/// start of (`crates` for `crates.io`).
+/// start of (`rocky` for `Rocky Linux`).
 fn meant(sent: &str, literals: &[Value], replaced: Option<&Value>) -> Vec<String> {
     let names = || literals.iter().filter_map(Value::as_str);
     if let Some(now) = replaced

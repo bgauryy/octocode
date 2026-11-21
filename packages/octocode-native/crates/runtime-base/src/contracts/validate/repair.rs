@@ -48,7 +48,7 @@ pub(super) fn array(received: &Value, fits: bool, item_shape: Option<&str>) -> S
 }
 
 /// The repaired `queries` value. A string holding the array and a lone
-/// object are repaired before validation (`normalize::shaped`).
+/// object are read before validation (`normalize::shaped`).
 pub(crate) fn queries(received: &Value) -> String {
     format!(
         "send \"queries\":[{{…}}], not \"queries\":{}",
@@ -140,24 +140,39 @@ pub(super) fn selection_overflow(schema: &Value, defs: &Value, received: &Value)
         .then(|| format!("Value length {length} exceeds the maximum of {maximum}"))
 }
 
-/// The value `received` means where `schema` takes another type, when it has
-/// one reading: a JSON string's own value, one item as a list, a selection's
-/// values as its `include`, a scalar as
-/// every required property of an object, a scalar's text, a one-item list's
-/// item. Validation of the result decides whether it fits.
-pub(crate) fn repaired_value(schema: &Value, defs: &Value, received: &Value) -> Option<Value> {
+/// The value `received` is read as where `schema` declares another type,
+/// when the schema alone gives it one typed reading: a text holding JSON of
+/// the declared type is that JSON value, and a value where a list is
+/// declared is the one-item list. Validation of the result decides whether
+/// it fits.
+pub(crate) fn lenient_value(schema: &Value, defs: &Value, received: &Value) -> Option<Value> {
+    let schema = super::super::resolve_ref(schema, defs);
+    let wanted: fn(&Value) -> bool = match schema.get("type").and_then(Value::as_str)? {
+        "array" => Value::is_array,
+        "object" => Value::is_object,
+        "integer" | "number" => Value::is_number,
+        "boolean" => Value::is_boolean,
+        _ => return None,
+    };
+    if holds_json(received, wanted) {
+        return serde_json::from_str(received.as_str()?).ok();
+    }
+    (wanted(&Value::Array(Vec::new())) && !received.is_array() && !received.is_null())
+        .then(|| Value::Array(vec![received.clone()]))
+}
+
+/// The value an error's example shows for `received` where `schema` takes
+/// another type: its lenient reading ([`lenient_value`]), else the fix the
+/// error line names, which the caller makes: a selection's values as its
+/// `include`, a scalar as every required property of an object, a scalar's
+/// text, a one-item list's item.
+pub(super) fn repaired_value(schema: &Value, defs: &Value, received: &Value) -> Option<Value> {
+    if let Some(read) = lenient_value(schema, defs, received) {
+        return Some(read);
+    }
     let schema = super::super::resolve_ref(schema, defs);
     match schema.get("type").and_then(Value::as_str)? {
-        "array" => {
-            if holds_json(received, Value::is_array) {
-                return serde_json::from_str(received.as_str()?).ok();
-            }
-            (!received.is_array()).then(|| Value::Array(vec![received.clone()]))
-        }
         "object" => {
-            if holds_json(received, Value::is_object) {
-                return serde_json::from_str(received.as_str()?).ok();
-            }
             if selection_overflow(schema, defs, received).is_some() {
                 return None;
             }
@@ -179,10 +194,6 @@ pub(crate) fn repaired_value(schema: &Value, defs: &Value, received: &Value) -> 
             },
             _ => None,
         },
-        "integer" | "number" | "boolean" => {
-            let parsed = serde_json::from_str::<Value>(received.as_str()?).ok()?;
-            (parsed.is_number() || parsed.is_boolean()).then_some(parsed)
-        }
         _ => None,
     }
 }
@@ -244,6 +255,50 @@ pub(super) fn nearest<'a>(
                 least = Some(distance);
                 found = vec![candidate];
             }
+        }
+    }
+    found
+}
+
+/// The words of a field name, lower-cased: `pullNumber` and `pull_number`
+/// are `pull`, `number`.
+fn words(name: &str) -> Vec<String> {
+    let mut words: Vec<String> = Vec::new();
+    let mut start = true;
+    for character in name.chars() {
+        if matches!(character, '_' | '-' | ' ' | '.') {
+            start = true;
+            continue;
+        }
+        if start || character.is_uppercase() || words.is_empty() {
+            words.push(String::new());
+        }
+        start = false;
+        if let Some(word) = words.last_mut() {
+            word.extend(character.to_lowercase());
+        }
+    }
+    words
+}
+
+/// The candidates whose name holds `sent`'s words in a row, or whose words
+/// `sent` holds in a row (`context` for `contextLines`, `pullNumber` for
+/// `number`), each once in candidate order: a name that is part of another
+/// names the same thing more or less exactly. For a field no candidate is
+/// within two edits of ([`nearest`]).
+pub(super) fn sharing_words<'a>(
+    sent: &str,
+    candidates: impl IntoIterator<Item = &'a str>,
+) -> Vec<&'a str> {
+    let sent = words(sent);
+    let holds = |whole: &[String], part: &[String]| {
+        !part.is_empty() && whole.windows(part.len()).any(|window| window == part)
+    };
+    let mut found = Vec::new();
+    for candidate in candidates {
+        let named = words(candidate);
+        if (holds(&named, &sent) || holds(&sent, &named)) && !found.contains(&candidate) {
+            found.push(candidate);
         }
     }
     found

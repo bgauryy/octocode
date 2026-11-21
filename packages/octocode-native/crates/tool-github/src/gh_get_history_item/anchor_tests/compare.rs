@@ -62,17 +62,20 @@ async fn compare_row_names_both_resolved_commits_and_each_commit_sha() {
         .respond_with(ResponseTemplate::new(200).set_body_string(HEAD))
         .mount(&server)
         .await;
-    mount_json(
-        &server,
-        format!("/api/v3/repos/o/r/compare/v1...{HEAD}"),
-        200,
-        json!({"ahead_by":1,"behind_by":0,"total_commits":1,
-            "permalink_url":"https://github.com/o/r/compare/o:1111111...o:2222222",
-            "base_commit":{"sha":BASE},"merge_base_commit":{"sha":MERGE_BASE},
-            "commits":[commit_raw(HEAD, "Add feature")],
-            "files":[changed_file("src/a.rs")]}),
-    )
-    .await;
+    // The comparison as asked (`v1`) and as its continuations pin it.
+    for base in ["v1", BASE] {
+        mount_json(
+            &server,
+            format!("/api/v3/repos/o/r/compare/{base}...{HEAD}"),
+            200,
+            json!({"ahead_by":1,"behind_by":0,"total_commits":1,
+                "permalink_url":"https://github.com/o/r/compare/o:1111111...o:2222222",
+                "base_commit":{"sha":BASE},"merge_base_commit":{"sha":MERGE_BASE},
+                "commits":[commit_raw(HEAD, "Add feature")],
+                "files":[changed_file("src/a.rs")]}),
+        )
+        .await;
+    }
     let out = read(
         &server,
         json_fixture(
@@ -90,18 +93,22 @@ async fn compare_row_names_both_resolved_commits_and_each_commit_sha() {
     assert_eq!(out["baseCommitSha"], BASE, "{out}");
     assert_eq!(out["headCommitSha"], HEAD, "{out}");
     assert!(out.get("commitsScope").is_none(), "{out}");
-    assert_eq!(
-        out["files"],
-        json_fixture(r#"["M +1 -1 src/a.rs"]"#),
+    // The summary lists neither files nor commits; its files page is read
+    // at the same two commits, and the commits section lists each by its SHA.
+    assert!(
+        out.get("files").is_none() && out.get("commits").is_none(),
         "{out}"
     );
-    // The unfiltered summary lists the range's first commit page beside its
-    // files; the commits section lists each by its SHA too.
-    assert_eq!(out["commits"][0]["commitSha"], HEAD, "{out}");
-    assert_eq!(out["sectionPagination"]["commits"]["length"], 1, "{out}");
+    let files = read(&server, out["next"]["files"]["input"]["queries"][0].clone()).await;
     assert_eq!(
-        out["sectionPagination"]["commits"]["hasMore"], false,
-        "{out}"
+        files["files"],
+        json_fixture(r#"["M +1 -1 src/a.rs"]"#),
+        "{files}"
+    );
+    assert_eq!(
+        (&files["baseCommitSha"], &files["headCommitSha"]),
+        (&out["baseCommitSha"], &out["headCommitSha"]),
+        "{files}"
     );
     let listed = read(
         &server,
@@ -204,8 +211,8 @@ async fn mount_long_compare(server: &MockServer, files: Value) {
 /// its file page, and the range's commits (not scoped by either filter)
 /// are not listed by default. Their section states the count, `unshown`
 /// with no page number, and `sectionPagination.commits.next.nextPage` lists them from the
-/// first page, losslessly. An unfiltered read lists the first commit page
-/// beside its files, and its continuation names the second.
+/// first page, losslessly. The commits section lists the first commit page,
+/// and its continuation names the second.
 #[tokio::test]
 async fn compare_file_filters_page_the_commits_apart() {
     let server = MockServer::builder().start().await;
@@ -270,34 +277,6 @@ async fn compare_file_filters_page_the_commits_apart() {
         assert_eq!(listed["commits"].as_array().map(Vec::len), Some(100));
         assert_eq!(listed["sectionPagination"]["commits"]["offset"], 0);
     }
-    // The unfiltered summary lists the first commit page as the commits
-    // section does, and continues with the second.
-    let summary = read(
-        &server,
-        json!({"operation":"compare","owner":"o","repo":"r","baseRef":BASE,"headRef":HEAD}),
-    )
-    .await;
-    assert_eq!(
-        summary["commits"].as_array().map(Vec::len),
-        Some(100),
-        "{summary}"
-    );
-    assert_eq!(
-        summary["sectionPagination"]["commits"]["total"], 337,
-        "{summary}"
-    );
-    assert_eq!(
-        summary["files"].as_array().map(Vec::len),
-        Some(2),
-        "{summary}"
-    );
-    let second = &summary["next"]["commits"]["input"]["queries"][0];
-    assert_eq!(second["page"], 2, "{summary}");
-    assert_eq!(
-        second["sections"],
-        json_fixture(r#"["commits"]"#),
-        "{summary}"
-    );
     let plain = read(
         &server,
         json!({"operation":"compare","owner":"o","repo":"r","baseRef":BASE,"headRef":HEAD,
@@ -310,6 +289,87 @@ async fn compare_file_filters_page_the_commits_apart() {
         "{plain}"
     );
     assert_eq!(plain["next"]["commits"]["input"]["queries"][0]["page"], 2);
+}
+
+/// A comparison read with no `sections` (and no file filter or literal) is
+/// the summary row: both commits, how far each side is ahead, and the sizes
+/// of its two lists, with neither list in the row. Each list's continuation
+/// reads it from its first item, so the summary and its two walks hold every
+/// file and commit once.
+#[tokio::test]
+async fn compare_without_sections_is_the_summary_row() {
+    let server = MockServer::builder().start().await;
+    let files = json!([changed_file("src/a.rs"), changed_file("docs/b.md")]);
+    let changed = files.as_array().map_or(0, Vec::len);
+    mount_long_compare(&server, files).await;
+    let asked = json!({"operation":"compare","owner":"o","repo":"r","baseRef":BASE,"headRef":HEAD});
+    let summary = read(&server, asked.clone()).await;
+    assert!(
+        summary.get("files").is_none() && summary.get("commits").is_none(),
+        "{summary}"
+    );
+    assert_eq!(
+        (&summary["baseCommitSha"], &summary["headCommitSha"]),
+        (&json!(BASE), &json!(HEAD)),
+        "{summary}"
+    );
+    assert_eq!(summary["aheadBy"], 337, "{summary}");
+    assert_eq!(summary["changedFileCount"], changed, "{summary}");
+    for (section, total) in [("files", changed), ("commits", 337)] {
+        let page = &summary["sectionPagination"][section];
+        assert_eq!(
+            (&page["length"], &page["total"], &page["hasMore"]),
+            (&json!(0), &json!(total), &json!(true)),
+            "{section}: {summary}"
+        );
+        let first = &summary["next"][section]["input"]["queries"][0];
+        assert_eq!(first["sections"], json!([section]), "{summary}");
+        assert!(first.get("page").is_none(), "{summary}");
+        let listed = read(&server, first.clone()).await;
+        assert_eq!(
+            listed["sectionPagination"][section]["offset"], 0,
+            "{listed}"
+        );
+        assert!(
+            listed[section]
+                .as_array()
+                .is_some_and(|rows| !rows.is_empty()),
+            "{listed}"
+        );
+    }
+    let listed = read(&server, {
+        let mut both = asked;
+        both["sections"] = json!(["commits", "files"]);
+        both
+    })
+    .await;
+    assert!(
+        summary.to_string().len() < listed.to_string().len() / 4,
+        "the summary holds no list: {summary}"
+    );
+}
+
+/// At GitHub's file cap the summary's file count is a floor: the files
+/// section says so and the row claims no `changedFileCount`.
+#[tokio::test]
+async fn a_capped_compare_summary_claims_no_file_count() {
+    let server = MockServer::builder().start().await;
+    let cap = crate::gh_get_history_item::window::COMPARE_FILE_LIMIT;
+    let files = (0..cap)
+        .map(|n| changed_file(&format!("src/f{n}.rs")))
+        .collect::<Vec<_>>();
+    mount_long_compare(&server, json!(files)).await;
+    let summary = read(
+        &server,
+        json!({"operation":"compare","owner":"o","repo":"r","baseRef":BASE,"headRef":HEAD}),
+    )
+    .await;
+    assert!(summary.get("changedFileCount").is_none(), "{summary}");
+    let page = &summary["sectionPagination"]["files"];
+    assert_eq!(page["countScope"], "partial", "{summary}");
+    assert_eq!(page["total"], cap, "{summary}");
+    assert!(summary["next"]["files"].is_object(), "{summary}");
+    assert!(summary.get("files").is_none(), "{summary}");
 }
 
 /// A file GitHub sent without a patch is searched at the comparison head
@@ -357,10 +417,10 @@ async fn compare_unpatched_file_read_survives_the_comparison_pages() {
 }
 
 /// A comparison whose head is behind its base changes nothing that way
-/// round: the answer says so (it is not an empty row) and leads with the
-/// swapped comparison.
+/// round: the answer says so (it is not an empty row), tells how to compare
+/// the other way, and names no call it does not carry.
 #[tokio::test]
-async fn a_reversed_compare_leads_with_the_swapped_refs() {
+async fn a_reversed_compare_says_how_to_compare_the_other_way() {
     let server = MockServer::builder().start().await;
     // The head resolves to its commit before the comparison.
     mount_json(
@@ -392,40 +452,11 @@ async fn a_reversed_compare_leads_with_the_swapped_refs() {
     )
     .await;
     assert!(out.get("status").is_none(), "{out}");
-    assert_eq!(
-        out["warnings"],
-        json_fixture(
-            r#"[
-                "head is behind base by 45: nothing ahead; related compares the other way."
-            ]"#
-        ),
-        "{out}"
-    );
+    let warnings = out["warnings"].as_array().expect("warnings");
+    assert_eq!(warnings.len(), 1, "{out}");
+    let warning = warnings[0].as_str().unwrap_or_default();
+    assert!(warning.contains("behind base by 45"), "{out}");
+    assert!(!warning.contains("related"), "{out}");
+    assert!(out.get("related").is_none(), "{out}");
     assert_eq!(out["behindBy"], 45, "{out}");
-    let swap = octocode_runtime_base::test_support::checks::related_call(
-        &out,
-        "ghGetHistoryItem",
-        |input| input["queries"][0]["operation"] == "compare",
-    );
-    assert_eq!(swap["tool"], "ghGetHistoryItem", "{out}");
-    // The warning promises it, so the served row keeps it.
-    octocode_runtime_base::test_support::assert_lead_served(
-        ToolId::GhGetHistoryItem,
-        &out,
-        |input| input["queries"][0]["baseRef"] == "v1",
-    );
-    assert_eq!(
-        swap["input"]["queries"][0],
-        // `pageSize` is private page state (`x-cursor`): a fresh lead drops it.
-        json_fixture(
-            r#"{
-                "operation": "compare",
-                "owner": "o",
-                "repo": "r",
-                "baseRef": "v1",
-                "headRef": "v2"
-            }"#
-        ),
-        "{out}"
-    );
 }

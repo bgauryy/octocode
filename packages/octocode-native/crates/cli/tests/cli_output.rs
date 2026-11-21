@@ -147,7 +147,7 @@ fn terminal_cursor_commands_execute_in_a_later_process() {
     }
 }
 
-/// The command a text page prints for `label` (`next.nextPage`), parsed back
+/// The command a text page prints for `label` (`next`), parsed back
 /// to its JSON input.
 fn printed_call(text: &str, label: &str) -> Value {
     let line = text
@@ -201,11 +201,11 @@ fn a_continuation_page_prints_in_its_first_pages_line_format() {
         // absent while more pages remain); the counters it does state are scanned.
         assert!(!first_notes.contains("matchCount"), "{first_notes}");
         assert!(first_notes.contains("# filesScanned"), "{first_notes}");
-        let (second, second_notes) = page(&printed_call(&first, "next.nextPage"));
+        let (second, second_notes) = page(&printed_call(&first, "next"));
         assert!(second.starts_with("src/notes.txt"), "{second}");
         assert!(second.contains(expected), "{second}");
         assert!(second.contains("\n# pagination: "), "{second}");
-        assert!(second.contains("\n# next.nextPage: "), "{second}");
+        assert!(second.contains("\n# next: "), "{second}");
         assert!(
             !second.contains("value:") && !second.contains("matchCount"),
             "{second}"

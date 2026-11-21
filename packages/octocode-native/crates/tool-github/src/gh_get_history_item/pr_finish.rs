@@ -13,8 +13,8 @@ use crate::gh_get_history_item::sections::Section;
 use octocode_contract_types::{
     GhGetFileContentQuery, GhGetHistoryItemChannel, GhGetHistoryItemQuery,
 };
-use octocode_runtime_base::response::paging::{mark_partial, push_warnings};
 use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::response::paging::{mark_partial, push_warnings};
 use octocode_runtime_base::response::result::wire_query;
 use octocode_runtime_base::response::result::{Continuation, ToolData, insert_next};
 use octocode_tools_shared::gh_shared::ensure_calls;
@@ -166,10 +166,6 @@ pub(super) fn finish_pr(
     // A miss already leads to its recovery reads; the menu would offer the
     // whole-PR patches the miss was narrowing away from.
     let menu = menu.filter(|_| out["status"] != "empty");
-    if let Some(note) = super::pr_menu::hunk_read_warning(plan.needle.is_some(), &files.side_reads)
-    {
-        push_warnings(&mut out, [note]);
-    }
     attach_leads(&mut out, files.side_reads, menu);
     lead_with_comment_reads(&mut out, comment_reads);
     ToolData::from(out)
@@ -257,7 +253,8 @@ pub(super) fn attach_unsearched_reads(
             .iter()
             .filter_map(|read| serde_json::to_value(read).ok())
             .collect::<Vec<_>>();
-        let call = Continuation::continued_input(ToolId::GhGetFileContent, json!({"queries": rows}));
+        let call =
+            Continuation::continued_input(ToolId::GhGetFileContent, json!({"queries": rows}));
         if index == 0 {
             insert_next(&mut out["calls"], channel, call);
         } else {

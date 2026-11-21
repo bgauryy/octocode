@@ -13,14 +13,14 @@ mod pattern;
 mod predicates;
 mod relationships;
 pub(crate) use pattern::pattern_matches;
-pub(crate) use relationships::tool_query_fields;
+pub(crate) use relationships::tool_query_pair;
 mod scalar;
 use super::{ContractValidationError, issue, schema_issue, union};
 use kinds::declared_kind;
 #[cfg(test)]
 use kinds::known_type;
-pub(super) use object::authored_property;
 use object::validate_object;
+pub(super) use object::{authored_property, missing_required_text, name_object_forms};
 use pattern::{compiled_pattern, describe_unreadable_pattern, pattern_message};
 use predicates::predicate_root;
 pub(super) use predicates::probe;

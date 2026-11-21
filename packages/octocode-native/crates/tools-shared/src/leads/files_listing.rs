@@ -1,7 +1,6 @@
 //! The base of the structureSearch `files` listings a lead offers.
 use octocode_contract_types::{
-    SortOrder, StructureSearchQueryFiles, StructureSearchQueryFilesOperation, StructureSearchSort,
-    StructureSearchSortAnyOrder, StructureSearchSortAnyOrderBy, StructureSearchView,
+    StructureSearchQueryFiles, StructureSearchQueryFilesOperation, StructureSearchView,
 };
 use std::num::NonZeroU64;
 
@@ -38,9 +37,7 @@ pub fn files_listing(path: &str) -> Option<StructureSearchQueryFiles> {
         access: None,
         accessed_at: None,
         bytes: None,
-        classification: None,
         default_excludes: None,
-        selection: None,
         empty: None,
         entry_type: None,
         exclude: Vec::new(),
@@ -61,10 +58,8 @@ pub fn files_listing(path: &str) -> Option<StructureSearchQueryFiles> {
         reasoning: None,
         scan_offset: None,
         snapshot: None,
-        sort: StructureSearchSort::AnyOrder(StructureSearchSortAnyOrder {
-            by: StructureSearchSortAnyOrderBy::Path,
-            order: SortOrder::Asc,
-        }),
+        // The path rank in its own order, as the contract states it.
+        sort: serde_json::from_value(serde_json::json!({ "by": "path" })).ok()?,
         test_code: None,
         view: StructureSearchView::Details,
         walk_offset: None,

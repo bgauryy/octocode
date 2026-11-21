@@ -271,8 +271,7 @@ pub(super) fn unlisted_warning(name: &str, version: &str, ids: &[String]) -> Str
     )
 }
 
-const STOPPED: &str =
-    "the source stopped before its last page, so this is not an answer yet: follow next.nextPage.";
+const STOPPED: &str = "the source stopped before its last page, so this is not an answer yet: follow the reply's next.";
 
 /// The lead fields, in reading order: `answer`, `affected`, `upgradeTo`, `upgradeNote`, `cves`.
 pub(super) fn lead(target: &str, facts: &Facts<'_>) -> Value {
@@ -787,18 +786,21 @@ pub(super) fn read_disputing(
             ids.push(id);
         }
     }
-    advisory_calls(data, "readDisputing", &ids, brief);
+    advisory_calls(data, "readDisputing", &ids, brief, false);
 }
 
 /// Ready `advisory` calls under `{key}{index}`, one row per id the published
 /// contract takes as an `id`. An id a source states is data: one the contract
 /// refuses (a space, prose) stays named on its row and gets no call, as no
-/// call could carry it.
+/// call could carry it. `needed`: the row names these records and states
+/// nothing else of them, so their reads stay on an answer
+/// ([`Continuation::required`]).
 pub(super) fn advisory_calls(
     data: &mut Value,
     key: &str,
     ids: &[&str],
     brief: &Map<String, Value>,
+    needed: bool,
 ) {
     let rows = ids
         .iter()
@@ -821,8 +823,12 @@ pub(super) fn advisory_calls(
     // read: a lean row leaves its text and ranges to that read.
     let per_call = octocode_runtime_base::response::result::rows_per_call(ToolId::SecurityCheck);
     for (index, chunk) in rows.chunks(per_call).enumerate() {
-        data["calls"][format!("{key}{index}")] =
-            Continuation::related_input(ToolId::SecurityCheck, json!({ "queries": chunk })).build();
+        let call = Continuation::related_input(ToolId::SecurityCheck, json!({ "queries": chunk }));
+        data["calls"][format!("{key}{index}")] = if needed {
+            call.required().build()
+        } else {
+            call.build()
+        };
     }
 }
 

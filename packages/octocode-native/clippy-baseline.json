@@ -458,7 +458,6 @@
       "crates/tools-shared/src/source_view/key_outline/yaml.rs": 5,
       "crates/tools-shared/src/source_view/outline.rs": 1,
       "crates/tools-shared/src/source_view/pagination.rs": 4,
-      "crates/tools-shared/src/source_view/selection.rs": 2,
       "crates/tools-shared/src/test_code/rust_scan/tokens.rs": 4,
       "crates/tools-shared/src/test_code/rust_source.rs": 6
     }

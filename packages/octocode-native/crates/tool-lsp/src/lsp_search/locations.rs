@@ -143,16 +143,16 @@ pub(super) async fn salted_locations(
 ) -> Value {
     // Defense in depth: the engine already refused unauthorized snippet
     // reads; any location still naming an unauthorized path is dropped.
-    let mut out_of_policy = 0usize;
+    let mut out_of_policy = Vec::new();
     let mut locations = snippets
         .into_iter()
         .map(|snippet| serde_json::to_value(snippet).unwrap_or(Value::Null))
         .filter(|location| {
-            let authorized = location
-                .get("uri")
-                .and_then(Value::as_str)
-                .is_some_and(|uri| sources.uri_authorized(uri));
-            out_of_policy += usize::from(!authorized);
+            let uri = location.get("uri").and_then(Value::as_str);
+            let authorized = uri.is_some_and(|uri| sources.uri_authorized(uri));
+            if !authorized {
+                out_of_policy.push(uri.unwrap_or_default().to_owned());
+            }
             authorized
         })
         .collect::<Vec<_>>();
@@ -164,8 +164,12 @@ pub(super) async fn salted_locations(
     locations.dedup_by(|a, b| location_sort_key(a) == location_sort_key(b));
     let mut row = if locations.is_empty() {
         // Locations exist but policy withheld them: not an absence.
-        if out_of_policy > 0 {
-            withheld(query, out_of_policy)
+        if !out_of_policy.is_empty() {
+            withheld(
+                query,
+                &super::recovery::Withheld::of(out_of_policy),
+                sources.policy(),
+            )
         } else {
             no_answer(
                 query,
@@ -251,7 +255,7 @@ async fn location_page(
                         .pointer("/range/start/line")
                         .and_then(Value::as_u64),
                 ),
-                location.get("content").and_then(Value::as_str),
+                location.get("value").and_then(Value::as_str),
             )
         })
     };
@@ -306,7 +310,7 @@ async fn location_page(
             .map(|((location, judged), shares_line)| {
                 let mut location = public_location(location);
                 // The numbered text is the judged lines with their numbers.
-                if let (Some(judged), Some(content)) = (judged, location["content"].as_str()) {
+                if let (Some(judged), Some(content)) = (judged, location["value"].as_str()) {
                     files.show(judged.path(), content);
                 }
                 if shares_line {
@@ -376,12 +380,18 @@ async fn location_page(
 
 /// The empty row of an answer whose every location the read policy
 /// withheld (outside the allowed read roots).
-pub(super) fn withheld(query: &LspSearchQuery, withheld: usize) -> Value {
+pub(super) fn withheld(
+    query: &LspSearchQuery,
+    withheld: &super::recovery::Withheld,
+    paths: &octocode_runtime_base::policy::path::PathPolicy,
+) -> Value {
     empty(
         query,
         "locationsWithheld",
         &format!(
-            "{withheld} location(s) outside the allowed read roots were omitted; add the path to ALLOWED_PATHS to read them."
+            "{} location(s) outside the allowed read roots were omitted{}; add the path to ALLOWED_PATHS to read them.",
+            withheld.count(),
+            withheld.listed(paths)
         ),
         true,
     )

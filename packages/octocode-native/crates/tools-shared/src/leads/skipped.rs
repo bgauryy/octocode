@@ -1,9 +1,9 @@
 //! The one disclosure of what a local walk skipped (`localSearch`,
 //! `structureSearch`, `astSearch` symbols and match, `graphBuild`): the typed
 //! `skippedPaths` record of the paths themselves ([`SkippedEntry`],
-//! [`skipped_paths`]), the sentence an empty answer says of them
-//! ([`unsearched`]), and the `includeSkipped` lead that lifts exactly their
-//! causes. Each tool's own walk records what it left out, in the admission
+//! [`skipped_paths`]), the one sentence an empty answer says of them
+//! ([`unsearched`]), and the one `includeSkipped` lead that lifts exactly
+//! their causes. Each tool's own walk records what it left out, in the admission
 //! ledger (`policy::discovery::WalkAdmission`); nothing behind a skipped
 //! path is read to say so.
 
@@ -132,11 +132,11 @@ pub fn ledger_entries<'a>(
 }
 
 /// [`unsearched`] of a walk's ledger: the causes it skipped paths by
-/// ([`skipped_causes`]), named by their counts (`2 ignored, 1 hidden`).
+/// ([`skipped_causes`]).
 pub fn unsearched_ledger(
     skipped: &octocode_runtime_base::policy::discovery::WalkSkips,
 ) -> Option<Disclosure> {
-    unsearched(&skipped_causes(skipped), &skipped.counts())
+    unsearched(&skipped_causes(skipped))
 }
 
 /// What the path policy withheld from a walk of `root`: each policy
@@ -628,11 +628,13 @@ pub struct Disclosure {
     pub text: String,
 }
 
-/// What the `includeSkipped` lead costs: it lifts the causes for the whole
-/// scope, so it walks everything they hide. The sentence names the lead as
-/// the agent finds it: the `related[]` request that sets exactly the flags
-/// lifting `causes` ([`lead`]).
-pub fn walks_all_skipped(causes: &[Cause]) -> String {
+/// An empty answer's word on the paths its walk skipped by `causes`: the
+/// row's `skippedPaths` names and counts them, so the sentence states only
+/// that they were not searched and what the one `related[]` request does
+/// (the same request with exactly the flags that lift `causes`, [`lead`]),
+/// which walks everything those flags hide. Nothing behind them is read, as
+/// ripgrep leaves `-u` to its user. `None` when the walk skipped nothing.
+pub fn unsearched(causes: &[Cause]) -> Option<Disclosure> {
     let flags = causes
         .iter()
         .map(|cause| {
@@ -641,22 +643,10 @@ pub fn walks_all_skipped(causes: &[Cause]) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ");
-    format!(
-        "The related[] request with {flags} walks everything those causes hide, not only these files, and can take far longer than this search."
-    )
-}
-
-/// An empty answer's word on the paths its walk skipped by `causes` (`named`
-/// as the sentence names them: `2 ignored, 1 hidden`, `node_modules/`):
-/// they were not searched, so absence there is unproven, and the lead
-/// searches them with those causes lifted. Nothing behind them is read, as
-/// ripgrep leaves `-u` to its user. `None` when the walk skipped nothing.
-pub fn unsearched(causes: &[Cause], named: &str) -> Option<Disclosure> {
     (!causes.is_empty()).then(|| Disclosure {
         causes: causes.to_vec(),
         text: format!(
-            "Skipped paths ({named}) were not searched, so absence there is unproven. {}",
-            walks_all_skipped(causes)
+            "skippedPaths were not searched; the related[] request searches them too ({flags}), which can take far longer."
         ),
     })
 }
@@ -675,12 +665,21 @@ pub fn lead(tool: ToolId, query: &impl serde::Serialize, causes: &[Cause]) -> Va
     Continuation::related(tool, row).build()
 }
 
-/// Place `disclosure` on an internal result: the explicit related call in
-/// its call bundle and the sentence as a warning. The requested scope was
-/// walked whole, so the skipped paths leave it complete.
+/// Place `disclosure` on an internal result whose `status` is settled, by
+/// the one rule of every tool: an empty row carries the sentence as its
+/// hint beside the call (its recovery); a row with evidence carries it as a
+/// warning (it limits what the evidence proves absent), with the call
+/// marked as one the row needs. The requested scope was walked whole, so
+/// the skipped paths leave it complete.
 pub fn attach(out: &mut Value, disclosure: &Disclosure, lead: Value) {
-    out["calls"]["includeSkipped"] = lead;
-    octocode_runtime_base::response::paging::push_warnings(out, [disclosure.text.clone()]);
+    if out["status"] == "empty" {
+        out["calls"]["includeSkipped"] = lead;
+        octocode_runtime_base::response::result::add_hints(out, [disclosure.text.as_str()]);
+    } else {
+        out["calls"]["includeSkipped"] =
+            octocode_runtime_base::response::result::required_call(lead);
+        octocode_runtime_base::response::paging::push_warnings(out, [disclosure.text.clone()]);
+    }
 }
 
 #[cfg(test)]

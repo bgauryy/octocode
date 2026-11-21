@@ -1,7 +1,8 @@
 //! B75 over real stdio: an MCP call has no fixed request deadline, and
 //! `notifications/cancelled` is what ends one in flight. A GitHub code search
-//! that meets a spent quota waits for its reset, which makes a call that
-//! stays in flight for as long as the test needs.
+//! that meets a spent quota waits for its reset when that comes within the
+//! MCP reply budget, which makes a call that stays in flight for as long as
+//! the test needs; a reset past the budget is answered with the wait (G3).
 
 use super::server::{REPLY_TIMEOUT, Server};
 use crate::support::Workspace;
@@ -97,11 +98,16 @@ fn cancel(server: &mut Server, id: u64) {
     );
 }
 
-/// A quota that resets past the old 300 s request budget is waited for: the
-/// call reports the wait as progress instead of answering a refusal at once.
+/// What an MCP call's waits may take when its caller set no budget.
+const REPLY_BUDGET: Duration =
+    octocode_runtime_base::execution::RuntimeLimits::DEFAULT.mcp_reply_budget;
+
+/// A quota that resets within the MCP reply budget is waited for: the call
+/// reports the wait as progress instead of answering a refusal at once, and
+/// stays in flight until it is cancelled.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_wait_past_the_old_300_s_budget_is_waited_for() {
-    let github = spent_github(Duration::from_secs(400)).await;
+async fn a_wait_within_the_reply_budget_is_waited_for() {
+    let github = spent_github(REPLY_BUDGET / 2).await;
     let api = format!("{}/api/v3", github.uri());
     let first = tokio::task::spawn_blocking(move || {
         let workspace = Workspace::new();
@@ -118,6 +124,55 @@ async fn a_wait_past_the_old_300_s_budget_is_waited_for() {
     );
     let line = first["params"]["message"].as_str().expect("a line");
     assert!(line.contains("reset"), "{line}");
+}
+
+/// G3: a host stops listening after its own request timeout (60 s by
+/// default), so a quota wait that would outlast the reply budget is not sat
+/// out on MCP: the call answers at once with `rateLimited`, the wait as
+/// `retryAfterSeconds` and the call that runs it again, and the search is
+/// not sent again. (Before the reply budget this call waited out any reset,
+/// with a host long gone.)
+#[tokio::test(flavor = "multi_thread")]
+async fn a_wait_past_the_reply_budget_answers_with_the_wait() {
+    let reset_in = REPLY_BUDGET * 8;
+    let github = spent_github(reset_in).await;
+    let api = format!("{}/api/v3", github.uri());
+    let (id, first) = tokio::task::spawn_blocking(move || {
+        let workspace = Workspace::new();
+        let (server, id, first) = start_search(&workspace, &api);
+        assert!(server.finish().success());
+        (id, first)
+    })
+    .await
+    .expect("stdio exchange");
+    assert_eq!(first["id"], id, "the call answers, with no wait: {first}");
+    assert_eq!(first["result"]["isError"], true, "{first}");
+    let text = first["result"]["content"][0]["text"]
+        .as_str()
+        .expect("the result text");
+    let payload: Value = serde_json::from_str(text).expect("the JSON result");
+    let data = &payload["results"][0]["data"];
+    assert_eq!(data["errorCode"], "rateLimited", "{payload}");
+    let retry_after = data["rateLimit"]["retryAfterSeconds"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("the wait is named: {payload}"));
+    assert!(
+        retry_after > REPLY_BUDGET.as_secs() && retry_after <= reset_in.as_secs() + 1,
+        "the named wait is the quota's: {payload}"
+    );
+    assert_eq!(data["next"]["retry"]["tool"], "ghSearchCode", "{payload}");
+    assert!(
+        data.get("clientWaits").is_none(),
+        "nothing was slept: {payload}"
+    );
+    let searches = github
+        .received_requests()
+        .await
+        .expect("recorded")
+        .iter()
+        .filter(|request| request.url.path() == "/api/v3/search/code")
+        .count();
+    assert_eq!(searches, 1, "the search is not sent again");
 }
 
 /// `notifications/cancelled` stops the call in flight: the search waiting for

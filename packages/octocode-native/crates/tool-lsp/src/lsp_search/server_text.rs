@@ -75,8 +75,7 @@ const RUNTIME_BLOCKS: [&str; 3] = ["next", "related", "pagination"];
 /// Row fields whose string the runtime wrote: a file's name, text cut from
 /// the judged source by position ([`super::locations::judge_content`]), and
 /// the row's own discriminators.
-const RUNTIME_LEAVES: [&str; 7] = [
-    "content",
+const RUNTIME_LEAVES: [&str; 6] = [
     "path",
     "uri",
     "workspaceRoot",
@@ -84,6 +83,14 @@ const RUNTIME_LEAVES: [&str; 7] = [
     "status",
     "errorCode",
 ];
+
+/// The text of a hit row: the runtime's own, cut from the judged source by
+/// position ([`super::locations::judge_content`]), where the row states the
+/// line it was cut at ([`LOCATED_BY`]).
+const HIT_TEXT: &str = "value";
+/// The fields a located row states its place by: a public row its `line`,
+/// a row as the server answered it its `uri` and `range`.
+const LOCATED_BY: [&str; 3] = ["line", "uri", "range"];
 
 /// What kind of text a leaf is, which decides the string literals in it
 /// that need a judged file to hold them ([`withhold_unread`]).
@@ -124,8 +131,12 @@ fn server_leaves<'v>(
             }
         }
         Value::Object(fields) => {
+            // A located row's hit text is cut from the judged source by
+            // position; a `value` anywhere else (a hover's marked text) is
+            // the server's.
+            let located = LOCATED_BY.iter().any(|place| fields.contains_key(*place));
             for (name, field) in fields {
-                if RUNTIME_BLOCKS.contains(&name.as_str()) {
+                if RUNTIME_BLOCKS.contains(&name.as_str()) || (located && name == HIT_TEXT) {
                     continue;
                 }
                 let wrote = if name == "hover" { Wrote::Types } else { wrote };

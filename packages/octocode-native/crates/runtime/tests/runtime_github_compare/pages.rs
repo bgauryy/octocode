@@ -127,7 +127,7 @@ async fn compare_file_continuations_answer_from_cursor_owned_evidence() {
             .unwrap_or_else(|error| panic!("{query}: {error:?}"))
             .structured_content
             .into_value();
-        let replayed = output["responsePagination"]["replayed"] == true;
+        let replayed = output["replayed"] == true;
         let sent = compare_reads(&server).await - before;
         assert_eq!(sent, usize::from(first), "{query}: {output}");
         if replayed {

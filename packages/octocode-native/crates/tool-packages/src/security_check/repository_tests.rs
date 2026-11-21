@@ -103,7 +103,7 @@ async fn row(read: RepoRead, repo: &str) -> Result<Value, ArtifactError> {
     let fake = Double::repo(read).page(None, Vec::new(), None);
     let config = crate::security_check::tests::default_config();
     run(
-        repo,
+        repo.split_once('/').expect("owner/name"),
         None,
         serde_json::Map::new(),
         octocode_contract_types::SecurityCheckView::Details,
@@ -149,14 +149,6 @@ async fn a_found_repository_states_facts_policy_and_the_day_read() {
     assert_eq!(data["cautions"][0]["rule"], "lowTraction");
     // Described, with no advisory: none known, not "found".
     assert_eq!(data["sources"][0]["status"], "noneKnown");
-}
-
-#[tokio::test]
-async fn a_name_that_is_not_a_github_repository_is_refused() {
-    for bad in ["justaname", "a/b/c", "/r", "o/"] {
-        let error = row(RepoRead::Missing, bad).await.expect_err("refused");
-        assert_eq!(error.code, ErrorCode::InvalidInput, "{bad}");
-    }
 }
 
 #[test]
@@ -235,7 +227,7 @@ async fn a_github_transport_that_could_not_be_built_says_why_on_the_row() {
     let config = crate::security_check::tests::default_config();
     let failed = FailedRepository("transport broke".into());
     let data = run(
-        "o/r",
+        ("o", "r"),
         None,
         serde_json::Map::new(),
         octocode_contract_types::SecurityCheckView::Details,
@@ -363,7 +355,7 @@ async fn an_advisory_walk_that_stops_reads_on_from_its_cursor_with_no_repeat_or_
             }),
         );
     let stopped = query_row(
-        json_fixture(r#"{"operation": "repository", "repo": "o/r"}"#),
+        json_fixture(r#"{"operation": "repository", "owner": "o", "repo": "r"}"#),
         &stopping,
     )
     .await;
@@ -412,7 +404,7 @@ async fn a_resumed_advisory_walk_refused_at_its_first_page_keeps_its_cursor() {
         .page(None, recorded_advisories(1), Some("c2"))
         .page_read(Some("c2"), refused());
     let stopped = query_row(
-        json_fixture(r#"{"operation": "repository", "repo": "o/r"}"#),
+        json_fixture(r#"{"operation": "repository", "owner": "o", "repo": "r"}"#),
         &stopping,
     )
     .await;
@@ -434,7 +426,8 @@ async fn a_repository_summary_counts_and_links_and_details_lists() {
     use crate::security_check::github_double::recorded_advisories;
     let github =
         || Double::repo(RepoRead::Found(named("o", "r"))).page(None, recorded_advisories(1), None);
-    let query = |view: &str| json!({"operation": "repository", "repo": "o/r", "view": view});
+    let query =
+        |view: &str| json!({"operation": "repository", "owner": "o", "repo": "r", "view": view});
     let summary = query_row(query("summary"), &github()).await;
     let details = query_row(query("details"), &github()).await;
     let listed = details["advisories"].as_array().expect("advisories");

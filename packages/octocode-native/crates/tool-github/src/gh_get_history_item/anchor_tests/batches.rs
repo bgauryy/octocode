@@ -192,9 +192,16 @@ async fn commit_file_boundary_is_a_lower_bound_with_or_without_a_final_link() {
                 last["sectionPagination"]["files"]["countScope"], "partial",
                 "{last}"
             );
-            assert_eq!(
-                last["changedFileCount"], 3000,
-                "only observed files, never an invented total"
+            // The cap ends the list early: no count is stated (the files
+            // read are a floor), and a warning says the cap in words.
+            assert!(last.get("changedFileCount").is_none(), "{last}");
+            assert!(
+                last["warnings"]
+                    .as_array()
+                    .is_some_and(|warnings| warnings.iter().any(|warning| warning
+                        .as_str()
+                        .is_some_and(|text| text.contains("at most 3000 changed files")))),
+                "{last}"
             );
         } else {
             assert_ne!(last["terminalLimit"], true, "{last}");

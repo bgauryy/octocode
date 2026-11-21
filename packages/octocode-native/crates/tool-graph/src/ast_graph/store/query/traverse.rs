@@ -208,7 +208,7 @@ impl Query<'_> {
             let (named, lead) = self.unresolved_callers(&seeds)?;
             if named > 0 {
                 // The `unresolved` lead (by callee name) lists those sites;
-                // the note promises it so the served row keeps it.
+                // a graphQuery call, a link the contract promises.
                 let reach = if lead.is_some() {
                     "related lists them by name; text search may find more"
                 } else {
@@ -227,8 +227,8 @@ impl Query<'_> {
                 .map(|seed| super::super::manifest::unresolved_calls_of(&g.manifest, *seed))
                 .sum::<u64>();
             if unlinked > 0 {
-                // The note promises the `unresolved` read scoped to the
-                // target, so the served row keeps it.
+                // The `unresolved` read scoped to the target: a graphQuery
+                // call, a link the contract promises.
                 let (sites, verb) = call_sites(unlinked);
                 let verb = if verb == "name" { "link" } else { "links" };
                 unresolved = Some(format!(

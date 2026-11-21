@@ -172,14 +172,13 @@ fn continuation_state_is_never_judged() {
                 "nextPage": walk(json!({"queries": [{
                     "path": format!("/repo/{token}.min.js"),
                     "snapshot": token,
-                    "selection": token,
                     "readProgress": {"unit": "bytes", "offset": 3},
                 }]})),
                 "quiet": {"kind": "continue", "tool": "clasify", "input": {"queries": [{"operation": "sections", "assessment": token}]}},
             },
             "related": [{"kind": "related", "tool": "localSearch", "input": {"queries": [{"path": "src", "matchString": token}]}}],
         }}],
-        "responsePagination": {"hasMore": true, "next": walk(json!({"cursor": handle}))},
+        "next": walk(json!({"cursor": handle})),
     });
     assert!(
         ContentSecurity::new().sanitize_leaf(&token).is_some(),
@@ -188,10 +187,9 @@ fn continuation_state_is_never_judged() {
     let sealed = seal(response.clone(), false);
     for pointer in [
         "/results/0/data/next/nextPage/input/queries/0/snapshot",
-        "/results/0/data/next/nextPage/input/queries/0/selection",
         "/results/0/data/next/nextPage/input/queries/0/readProgress",
         "/results/0/data/next/quiet/input/queries/0/assessment",
-        "/responsePagination/next/input/cursor",
+        "/next/input/cursor",
     ] {
         assert_eq!(
             sealed.pointer(pointer),
@@ -495,7 +493,7 @@ fn a_refused_request_value_is_never_admitted_text() {
     let evidence = format!("deploy with {token}");
     let row = ContentSecurity::new()
         .check_input(
-            json!({"content": evidence, "context": "review"}),
+            json!({"content": evidence, "background": "review"}),
             crate::security::InputPolicy::ClasifyEvidence {
                 content_limit: 32_000,
             },
@@ -504,7 +502,7 @@ fn a_refused_request_value_is_never_admitted_text() {
     assert_eq!(
         Admitted::of([&row]),
         Admitted::of([&crate::security::CheckedQuery::checked(json_fixture(
-            r#"{"context": "review"}"#
+            r#"{"background": "review"}"#
         ))])
     );
 }

@@ -53,7 +53,7 @@ async fn a_cargo_pin_without_build_metadata_checks_the_listed_release() {
             ),
         )
         .osv_pages(vec![(200, json!({}))]);
-    checked(&http, "crates.io", "wasi", "0.10.0").await;
+    checked(&http, "crates", "wasi", "0.10.0").await;
     assert_eq!(
         http.osv_queries()[0]["version"],
         "0.10.0+wasi-snapshot-preview1"

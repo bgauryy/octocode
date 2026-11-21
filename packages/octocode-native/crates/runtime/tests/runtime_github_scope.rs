@@ -277,10 +277,18 @@ async fn issue_closing_references_past_the_read_limit_are_disclosed() {
             .is_some_and(|w| w.contains("25 of 31")),
         "{data}"
     );
-    assert!(
-        data["next"]["readPullRequest"].get("confidence").is_none(),
-        "leads carry no confidence: {data}"
+    let calls = data["related"].as_array().into_iter().flatten().chain(
+        data["next"]
+            .as_object()
+            .into_iter()
+            .flat_map(|next| next.values()),
     );
+    for call in calls {
+        assert!(
+            call.get("confidence").is_none(),
+            "leads carry no confidence: {data}"
+        );
+    }
     runtime.close().await;
 }
 

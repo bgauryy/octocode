@@ -15,7 +15,8 @@ pub use selected::Output;
 mod tests;
 
 use failures::{
-    at_default_branch, follow_rename, history_failure, missing_scope_failure, window_failure,
+    at_default_branch, at_missing_owner, follow_rename, history_failure, missing_scope_failure,
+    window_failure,
 };
 use fetch::{Fetched, fetch};
 use filters::Filters;
@@ -139,7 +140,8 @@ pub async fn execute(
         Ok(fetched) => fetched,
         Err(error) => {
             let failure = missing_scope_failure(error, &query);
-            return Err(at_default_branch(provider, failure, &query, context).await);
+            let failure = at_default_branch(provider, failure, &query, context).await;
+            return Err(at_missing_owner(provider, failure, &query, context).await);
         }
     };
     // A REST list follows a rename redirect itself: the rows are the

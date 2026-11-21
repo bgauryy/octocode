@@ -106,8 +106,10 @@ async function runCall(entry, { hosts, answer, token }) {
       let output;
       try { output = JSON.parse(run.stdout); } catch { return { outputs, failure: `not JSON, exit ${run.status}: ${(run.stdout + run.stderr).slice(0, 200)}` }; }
       outputs.push(output);
-      // A split response finishes; the provider's next page is another request, not this case.
-      input = output.responsePagination?.next?.input;
+      // A split row finishes (its parts ride the reply's `next`); the provider's next page is another
+      // request, not this case.
+      const split = (output.results ?? []).some((row) => row.rowPart && row.rowPart.part < row.rowPart.of);
+      input = split ? output.next?.input : undefined;
     }
     return { outputs, denied: proxy.denied };
   } finally {

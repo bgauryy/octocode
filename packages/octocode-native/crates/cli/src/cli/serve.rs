@@ -26,7 +26,8 @@
 //!   own [`octocode_io::notice::Scope`], which its row work carries to
 //!   other threads; the client prints its own configuration warnings. An MCP
 //!   server (`Remote`, `mcp_server/warm.rs`) is answered as an MCP result
-//!   from `mcp_result`, so its text is the in-process server's bytes; its
+//!   from `mcp_server/reply.rs`, so its text is the in-process server's
+//!   bytes in either `output.mcpResult` format; its
 //!   notices stay on the server, and its prewarm is a request the server
 //!   answers once the runtime exists.
 //!   The call's progress lines (quota waits, language-server start) are
@@ -45,7 +46,9 @@
 //!   silent for `READ_STALL` and leaves the cache uncleared. A starting server never stops another, so one
 //!   agent's warm language servers survive another's first call; the
 //!   language servers themselves are bounded by the shared pool's idle
-//!   timeout and memory budget. A server marks its socket's modification
+//!   timeout and memory budget, which the servers of one user share: each
+//!   request restates how many server sockets there are, and a server's
+//!   pool keeps that part of the budget (`sockets::server_socket_count`). A server marks its socket's modification
 //!   time (`touch`) on each request it reads.
 //!   Windows has no server (every call runs in process), so no count or
 //!   expiry applies there.

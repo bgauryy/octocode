@@ -129,7 +129,7 @@ async fn research_context_wraps_the_state_once_and_changes_the_cache_identity() 
     let runtime = clasify_runtime(&workspace, &server, &[]);
     for context in ["  Current production behavior\n", "Historical behavior"] {
         let mut row = content_row();
-        row["context"] = json!(context);
+        row["background"] = json!(context);
         clasify(&runtime, vec![row.clone()]).await;
         let requests = sent(&server).await;
         let request = requests.last().unwrap();
@@ -183,7 +183,7 @@ async fn identical_rows_in_one_call_share_one_provider_request() {
     let mut other_model = content_row();
     other_model["model"] = json!("jev-1.14.0");
     let mut other_context = content_row();
-    other_context["context"] = json!("Historical behavior");
+    other_context["background"] = json!("Historical behavior");
     let rows = vec![
         content_row(),
         other_model,

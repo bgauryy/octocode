@@ -326,20 +326,12 @@ fn fallback_subtypes_page_the_anchor_candidates_by_window() {
     );
     let last = pages.last().expect("final page");
     assert!(last.get("isPartial").is_none(), "{last}");
-    // No page remains; the one lead walks one level deeper from the start.
+    // No page remains, and the listed last level carries no call.
     assert!(
         last["next"]
             .as_object()
             .is_none_or(serde_json::Map::is_empty),
         "no remaining required work: {last}"
     );
-    let deeper =
-        &octocode_runtime_base::test_support::checks::related_call(last, "lspSearch", |input| {
-            input["queries"][0]["depth"] == 2
-        })["input"]["queries"][0];
-    assert_eq!(deeper["depth"], 2, "{last}");
-    assert!(
-        deeper.get("candidatePage").is_none(),
-        "from the start: {last}"
-    );
+    assert!(last.get("related").is_none(), "{last}");
 }

@@ -86,17 +86,11 @@ impl Kept {
             } else {
                 " scanned so far"
             };
-            let warning = super::filter::match_dropped_warning(
+            super::filter::match_dropped_warning(
                 dropped,
                 self.listed,
                 &format!("{noun}{scanned}"),
                 "body",
-            );
-            // The read always builds its recovery (the same read without the
-            // literal); the note promises it, so the served row keeps it.
-            format!(
-                "{}; related reads them without matchString.",
-                warning.trim_end_matches('.')
             )
         })
     }

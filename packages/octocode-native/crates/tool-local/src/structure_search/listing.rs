@@ -2,7 +2,7 @@
 //! a first page stored), bind the page cut to a snapshot, cut and render the
 //! page, and probe an empty listing. An operation contributes only its
 //! query: the walk it asks the engine for ([`Listing`]).
-use super::probe::{FilterProbe, broaden_empty, deepen_empty, lead_to_skipped, note_empty};
+use super::probe::{FilterProbe, broaden_empty, deepen_empty, note_empty, note_path_in_name_regex};
 use super::walked::{PageCut, Walked, push_warnings};
 use super::{listing_prefix, memo, restart_if_stale, rows, validated_root, walked, windows};
 use octocode_runtime_base::response::result::ToolError;
@@ -258,11 +258,13 @@ pub(super) fn execute_listing<Q: Listing>(
     let prefix = listing_prefix(paths, root);
     let deferred_detail = q.view() == StructureSearchView::Details
         && super::files::sort_key(&q.sort())
-            != Some(octocode_contract_types::StructureSearchSortAnyOrderBy::TotalLines);
+            != Some(crate::structure_search::files::SortKey::TotalLines);
+    let flat = rows::lists_flat(&q.sort()).then(|| super::flat_prefix(paths, root));
     let pages = walk.pages(PageCut {
         prefix: prefix.clone(),
         view: q.view(),
         deferred_detail,
+        flat: flat.as_ref().map(|(prefix, _)| prefix.clone()),
         budget,
         limit: q.page_rows(),
     });
@@ -274,11 +276,12 @@ pub(super) fn execute_listing<Q: Listing>(
         &walk,
         &pages,
         snapshot,
-        (root, &prefix),
+        (root, &prefix, flat.as_ref()),
         requested,
         (deferred_detail.then_some(paths), cancel),
     )?;
     let walk_flags = q.walk().under(paths.global_ignore());
+    note_path_in_name_regex(&mut out, q);
     note_empty(&mut out, q, &walk.meta.uncovered, walk_flags);
     deepen_empty(&mut out, q)?;
     broaden_empty(&mut out, &q.broadening())?;
@@ -292,7 +295,11 @@ fn listing_page<Q: Listing>(
     walk: &Walked,
     pages: &[std::ops::Range<usize>],
     snapshot: String,
-    (root, prefix): (&std::path::Path, &str),
+    (root, prefix, flat): (
+        &std::path::Path,
+        &str,
+        Option<&(String, Option<std::path::PathBuf>)>,
+    ),
     requested: usize,
     (detail, cancel): (Option<&PathPolicy>, &dyn CancellationCheck),
 ) -> Result<Value, ToolError> {
@@ -309,20 +316,18 @@ fn listing_page<Q: Listing>(
     );
     let shown = pages.get(page - 1).cloned().unwrap_or(total..total);
     let shown_rows = rows::page_entries(&walk.rows[shown.clone()], q.view(), detail, cancel)?;
-    let files = rows::dir_groups(
-        &shown_rows,
-        prefix,
-        matches!(
-            super::files::sort_key(&q.sort()),
-            None | Some(octocode_contract_types::StructureSearchSortAnyOrderBy::Path)
-        ),
-    );
+    let files = rows::listed(&shown_rows, prefix, flat.map(|(prefix, _)| prefix.as_str()));
     // The listing's snapshot rides its continuations' cursors only: no
     // input takes it from the row.
     let mut out = json!({
         "path": prefix,
         "files": files,
     });
+    // Flat entries outside the workspace are named from their tree's root,
+    // which the row states as every local row does.
+    if let Some((_, Some(tree))) = flat {
+        out["root"] = json!(tree.to_string_lossy());
+    }
     // Every page states its block; the response stage keeps it unless the
     // block is one complete first page (`response::pages::publish`'s
     // `complete`).
@@ -383,7 +388,6 @@ fn listing_page<Q: Listing>(
         {
             fields.remove("summary");
         }
-        lead_to_skipped(&mut out, q, &walk.meta.uncovered, q.walk(), q.filtered());
     }
     let (include, exclude) = q.globs();
     let query_notes = octocode_runtime_base::policy::include::parent_glob_warning(include, exclude)

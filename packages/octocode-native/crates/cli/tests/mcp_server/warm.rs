@@ -385,10 +385,17 @@ fn the_workspace_prewarm_runs_on_the_warm_server() {
     let mut server = Server::start_persistent(&persistent, &[("OCTOCODE_LSP_PREWARM", "all")]);
     initialize(&mut server);
     let began = std::time::Instant::now();
-    while !marker.exists() && began.elapsed() < Duration::from_secs(20) {
+    // The script creates the marker, then writes its parent's pid: wait for
+    // the pid, not for the file.
+    let written = || {
+        std::fs::read_to_string(&marker)
+            .ok()
+            .filter(|pid| !pid.trim().is_empty())
+    };
+    while written().is_none() && began.elapsed() < Duration::from_secs(20) {
         std::thread::sleep(Duration::from_millis(50));
     }
-    let parent = std::fs::read_to_string(&marker).expect("the language server started");
+    let parent = written().expect("the language server started");
     let pids = persistent.server_pids();
     assert_eq!(pids.len(), 1, "a warm server exists");
     assert_eq!(

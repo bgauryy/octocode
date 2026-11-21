@@ -165,20 +165,23 @@ fn unsupported_content_is_refused_not_judged() {
             "text/html",
             r#"<div id="root"></div><script src="/app.js"></script>"#,
         );
-    for (path, needle) in [
-        ("doc.pdf", "application/pdf"),
-        ("invalid", "UTF-8"),
-        ("binary", "binary"),
-        ("app", "scripts"),
+    // A body that is no text meets the code a binary file does (an image
+    // among them is judged as one); text that cannot be read stays
+    // unavailable.
+    let (binary, unavailable) = (
+        ErrorCode::BinaryFileUnsupported,
+        ErrorCode::ClassificationContextUnavailable,
+    );
+    for (path, needle, code) in [
+        ("doc.pdf", "application/pdf", binary),
+        ("invalid", "UTF-8", unavailable),
+        ("binary", "binary", binary),
+        ("app", "scripts", unavailable),
     ] {
         let error = run(&fake, &format!("https://e.example.org/{path}"), 1_000)
             .err()
             .unwrap();
-        assert_eq!(
-            error.code,
-            ErrorCode::ClassificationContextUnavailable,
-            "{path}"
-        );
+        assert_eq!(error.code, code, "{path}");
         assert!(error.message.contains(needle), "{path}: {}", error.message);
     }
     let empty = Fake::default().page("https://e.example.org/blank", "text/html", "<p> </p>");

@@ -167,19 +167,26 @@ fn symbols_outline_data_keys_and_name_why_an_outline_is_missing() {
     let text = t.0.join("notes.txt");
     fs::write(&text, "plain\n".repeat(100)).expect("fixture");
     let r = fetch(&qj(&text, json_fixture(r#"{"view": "symbols"}"#)), &paths);
-    // No outline, and a compact view would only lose whitespace (no grammar
-    // reads `.txt`): the row says both reasons and leads to the lines,
-    // instead of near-raw text labelled compact.
-    assert_eq!(r.error_code, Some(ErrorCode::SymbolsUnsupported), "{r:?}");
-    assert_eq!(r.content, None, "{r:?}");
-    assert!(
-        r.error
-            .as_deref()
-            .is_some_and(|error| error.contains("unsupported-language; whitespace-only-no-grammar")),
+    // L6: no outline, and a compact view would only lose whitespace (no
+    // grammar reads `.txt`): the content view is served as what it is (not
+    // near-raw text labelled compact, nor an error), and `viewFallback`
+    // names the view served and both reasons.
+    assert_eq!(r.status, ReadStatus::Success, "{r:?}");
+    assert_eq!(r.view, None, "the content view: {r:?}");
+    let content = fetch(&q(&text), &paths);
+    assert_eq!(r.content, content.content, "the content view's page");
+    let fallback = r.view_fallback.as_ref().expect("viewFallback");
+    assert_eq!(
+        (fallback.requested, fallback.applied),
+        (ReadView::Symbols, ReadView::Content),
         "{r:?}"
     );
-    let read = r.next.as_ref().and_then(|next| next.read.as_ref());
-    assert!(read.is_some(), "{r:?}");
+    assert!(
+        fallback
+            .reason
+            .contains("unsupported-language; whitespace-only-no-grammar"),
+        "{r:?}"
+    );
 }
 
 /// A symbols outline from a recovered parse (Flow types) says which lines
@@ -412,8 +419,8 @@ fn a_paged_compact_note_measures_the_whole_selection() {
 
 /// A compact view no smaller than the content view of the same lines (here
 /// nothing to remove) is not served as compact: the content view is, with
-/// `viewFallback` saying why, and the first page still says what compact
-/// would keep.
+/// `viewFallback` saying why. L17: no size comparison rides along: one
+/// that removed nothing tells the reader nothing `viewFallback` does not.
 #[test]
 fn a_compact_view_no_smaller_than_the_content_view_serves_the_content() {
     let t = Fixture::new();
@@ -437,11 +444,35 @@ fn a_compact_view_no_smaller_than_the_content_view_serves_the_content() {
     // The content view as the runtime serves it; the response numbers it.
     assert_eq!(r.content.as_deref(), Some(source));
     assert!(
-        r.warnings
+        !r.warnings
             .iter()
-            .any(|warning| warning
-                .starts_with("compact view: 24 of 24 bytes the content view serves")),
+            .any(|warning| warning.starts_with("compact view: ")),
         "{:?}",
         r.warnings
     );
+}
+
+/// L17: `viewFallback` names a view served in place of the one requested.
+/// A compact read served compact carries none, whatever its compaction
+/// could remove (here a file no grammar reads: whitespace only).
+#[test]
+fn a_view_served_as_requested_carries_no_fallback() {
+    let t = Fixture::new();
+    let p = t.0.join("notes.txt");
+    fs::write(&p, "one   \n\n\n\ntwo\t\t\n\n\n\nthree\n").expect("fixture");
+    let r = fetch(
+        &qj(&p, json_fixture(r#"{"view": "compact"}"#)),
+        &Paths(t.0.clone()),
+    );
+    assert_eq!(r.view, Some(ReadView::Compact), "{r:?}");
+    assert_eq!(r.view_fallback, None, "{r:?}");
+    for r in [
+        fetch(&q(&p), &Paths(t.0.clone())),
+        fetch(
+            &qj(&p, json_fixture(r#"{"view": "content"}"#)),
+            &Paths(t.0.clone()),
+        ),
+    ] {
+        assert_eq!(r.view_fallback, None, "{r:?}");
+    }
 }

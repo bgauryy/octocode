@@ -69,6 +69,11 @@ pub struct PathRecovery {
     /// The folder tree the wanted name was missing from is one GitHub
     /// truncated: the name may sit past the cut.
     pub truncated: bool,
+    /// The requested path was a whole listing entry (`<path> (<fields>)`,
+    /// [`entry_fields`]) and `file` is the entry's own path.
+    ///
+    /// [`entry_fields`]: octocode_runtime_base::response::groups::entry_fields
+    pub listing_entry: bool,
 }
 
 /// The most entries the Contents API lists of one directory.
@@ -172,6 +177,18 @@ pub async fn locate_path(
         .resolve_reference(at.owner, at.repo, at.reference, context)
         .await
         .ok()?;
+    // A whole listing entry pasted as the path: its own path is walked
+    // first, and answers when it is a file.
+    if let Some((bare, _)) = octocode_runtime_base::response::groups::entry_fields(at.path) {
+        let bare: Vec<&str> = bare.split('/').filter(|part| !part.is_empty()).collect();
+        let found = walk_trees(provider, at, &bare, &commit, context).await;
+        if let Some(found) = found.filter(|found| found.file.is_some()) {
+            return Some(PathRecovery {
+                listing_entry: true,
+                ..found
+            });
+        }
+    }
     walk_trees(provider, at, &segments, &commit, context).await
 }
 
@@ -227,6 +244,7 @@ async fn walk_trees(
                 directory,
                 file: Some(path),
                 truncated: false,
+                listing_entry: false,
             });
         }
         if entry.kind != "tree" {
@@ -248,6 +266,7 @@ async fn walk_trees(
         directory,
         file: None,
         truncated,
+        listing_entry: false,
     })
 }
 

@@ -172,34 +172,5 @@ pub(super) fn document_symbols_payload(
         "pagination": pagination
     });
     offer_next_page(query, &mut row, next_page);
-    if let (Some(path), Some(window)) = (lsp_search_query::path(query), outline_read(&page))
-        && let Some(read) =
-            octocode_tools_shared::source_view::local_fetch_query::ranges_lead(path, &[window])
-    {
-        octocode_runtime_base::response::result::attach_related(
-            &mut row,
-            octocode_runtime_base::response::result::Continuation::related_query(read).build(),
-        );
-    }
     row
-}
-
-/// The line range of an outline page's first top-level multi-line
-/// declaration (its name line to its last line), else its first symbol's.
-pub(super) fn outline_read(page: &[Value]) -> Option<(u64, u64)> {
-    let span = |symbol: &Value| {
-        let line = symbol.get("line")?.as_u64()?;
-        let end = symbol
-            .get("endLine")
-            .and_then(Value::as_u64)
-            .unwrap_or(line);
-        Some((line, end.max(line)))
-    };
-    let (line, end) = page
-        .iter()
-        .filter(|symbol| symbol.get("parent").is_none())
-        .filter_map(span)
-        .find(|(line, end)| end > line)
-        .or_else(|| page.iter().find_map(span))?;
-    Some((line, end))
 }

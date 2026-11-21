@@ -24,7 +24,7 @@ fn walk_local_fetch(
             &security,
             &octocode_runtime_base::execution::cancel::NeverCancel,
             None,
-            None,
+            false,
         );
         assert_eq!(page.error_code, None, "{page:?}");
         joined.push_str(page.content.as_deref().expect("content"));
@@ -83,7 +83,7 @@ async fn huge_line_window(extra: serde_json::Value, anchor: &str) {
         vec![serde_json::json!({
             "uri": uri,
             "range": {"start": {"line": 0, "character": column + 9}, "end": {"line": 0, "character": column + 15}},
-            "content": line,
+            "value": line,
             "displayRange": {"startLine": 1, "endLine": 1, "startCharacter": column + 1}
         })],
         budget,
@@ -96,7 +96,7 @@ async fn huge_line_window(extra: serde_json::Value, anchor: &str) {
     let location = rows.first().expect("one location");
     let units = octocode_engine::json_size::utf16_units(location).expect("size");
     assert!(units <= budget, "the row fits its page budget: {units}");
-    let content = location["content"].as_str().expect("content");
+    let content = location["value"].as_str().expect("value");
     let window = content
         .split('\n')
         .find_map(|record| record.strip_prefix("1\t"))
@@ -165,7 +165,7 @@ async fn a_long_declaration_shows_its_first_lines_and_reads_the_rest() {
         vec![serde_json::json!({
             "uri": format!("file://{}", file.to_string_lossy()),
             "range": {"start": {"line": 0, "character": 9}, "end": {"line": 0, "character": 15}},
-            "content": declaration,
+            "value": declaration,
             "displayRange": {"startLine": 1, "endLine": lines}
         })],
         600,
@@ -173,7 +173,7 @@ async fn a_long_declaration_shows_its_first_lines_and_reads_the_rest() {
     )
     .await;
     let rows = location_rows(&row);
-    let content = rows[0]["content"].as_str().expect("content");
+    let content = rows[0]["value"].as_str().expect("value");
     let shown = content
         .split('\n')
         .filter_map(|record| record.split_once('\t').map(|(_, text)| text))

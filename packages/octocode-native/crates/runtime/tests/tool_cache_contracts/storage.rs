@@ -115,12 +115,7 @@ async fn clone_receipts_are_complete_without_saved_response_cache() {
         2,
         "clone receipts are never saved for later replay"
     );
-    assert!(
-        outcome
-            .structured_content
-            .pointer("/responsePagination/next")
-            .is_none()
-    );
+    assert!(outcome.structured_content.pointer("/next").is_none());
     for dir in ["response", "response-pages", "continuations", "outline"] {
         assert!(
             !workspace.home.join("tmp").join(dir).exists(),

@@ -51,16 +51,13 @@ pub(in super::super) fn non_callable(query: &LspSearchQuery, path: &str) -> Opti
     // Only an anchor on the declaration itself decides; a name the file also
     // declares as a callable (a same-named function, a tuple struct's
     // constructor in another declaration) leaves the server to decide.
-    let anchored = named
-        .iter()
-        .find(|declaration| {
-            declaration.kind != "impl" && declaration.selection_range.start.line + 1 == line
-        })?;
+    let anchored = named.iter().find(|declaration| {
+        declaration.kind != "impl" && declaration.selection_range.start.line + 1 == line
+    })?;
     // An `impl` block names its type but is no callable either.
     if !named.iter().all(|declaration| {
         declaration.kind == "impl" || NON_CALLABLE.contains(&declaration.kind.as_str())
-    })
-    {
+    }) {
         return None;
     }
     let mut row = failure::empty(

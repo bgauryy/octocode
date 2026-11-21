@@ -8,7 +8,7 @@ const path = require('node:path');
 const { test } = require('node:test');
 
 const SCRIPT = path.join(__dirname, '..', 'scripts', 'build-slot.cjs');
-const { COUNT_ENV, HELD_ENV, acquireSlot, slotCount, withSlot } = require(SCRIPT);
+const { COUNT_ENV, HELD_ENV, LANE_ENV, REGEN_KIND, acquireSlot, heldEnv, slotCount, status, withSlot } = require(SCRIPT);
 
 /** A private slot dir per test: no test ever takes or waits for the machine's real slots. */
 function slotDir(t) {
@@ -202,4 +202,91 @@ test('a slot hands its children its share of the cores, unless the caller chose'
   assert.equal(chosen.NEXTEST_TEST_THREADS, '6');
   // Never below one, however many slots share the machine.
   assert.equal(shareCores({}, 8, 4).RUST_TEST_THREADS, '1');
+});
+
+test('status names each holder with its lane and reads a dead owner\'s slot as free', async t => {
+  const dir = slotDir(t);
+  const env = { [COUNT_ENV]: '2', [HELD_ENV]: '', [LANE_ENV]: 'fixer-a' };
+  assert.match(status({ dir, env }), /slot 1: free\n\s+slot 2: free\n\s+regen 1: free$/);
+  const slot = await acquireSlot('focused tests', { dir, env });
+  const held = status({ dir, env });
+  assert.match(held, new RegExp(`slot ${slot.slot}: pid ${process.pid} lane fixer-a "focused tests"`));
+  assert.equal(record(dir, slot.slot).lane, 'fixer-a');
+  slot.release();
+  // A record left by a process that no longer runs is not a holder.
+  const gone = spawnSync(process.execPath, ['-e', '']);
+  writeFileSync(path.join(dir, 'slot-1.json'), `${JSON.stringify({ pid: gone.pid, label: 'left behind', cwd: '/', since: new Date().toISOString(), token: 't' })}\n`);
+  assert.match(status({ dir, env }), /slot 1: free \(stale record of pid \d+\)/);
+  // A caller that names no lane writes none.
+  const plain = await acquireSlot('build', { dir, env: { [COUNT_ENV]: '2', [HELD_ENV]: '' } });
+  assert.equal(record(dir, plain.slot).lane, undefined);
+  assert.doesNotMatch(status({ dir, env }), / lane undefined/);
+  plain.release();
+});
+
+test('the CLI prints the status and takes no slot', t => {
+  const tmp = mkdtempSync(path.join(tmpdir(), 'octocode-slot-test-'));
+  t.after(() => rmSync(tmp, { recursive: true, force: true }));
+  const run = spawnSync(process.execPath, [SCRIPT, '--status'], { env: { ...process.env, TMPDIR: tmp, [HELD_ENV]: '' }, encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stderr);
+  assert.match(run.stdout, /2 machine-wide Rust build slots/);
+  assert.deepEqual(slotFiles(path.join(tmp, 'octocode-build-slots')), []);
+});
+
+test('waiters take a freed slot in the order they began to wait', async t => {
+  const dir = slotDir(t);
+  const env = { [COUNT_ENV]: '1', [HELD_ENV]: '' };
+  const options = { dir, env, pollMs: 5, log() {} };
+  const first = await acquireSlot('holder', options);
+  const order = [];
+  const waiters = [];
+  for (const label of ['a', 'b', 'c', 'd']) {
+    waiters.push(acquireSlot(label, options).then(slot => {
+      order.push(label);
+      return slot;
+    }));
+    // Tickets sort by the millisecond the wait began: start them apart.
+    await new Promise(resolve => setTimeout(resolve, 3));
+  }
+  assert.match(status({ dir, env }), /4 waiting for a slot/);
+  first.release();
+  for (const waiter of waiters) (await waiter).release();
+  assert.deepEqual(order, ['a', 'b', 'c', 'd']);
+  // No ticket outlives its waiter.
+  assert.deepEqual(readdirSync(dir).filter(name => name.startsWith('wait-')), []);
+});
+
+test('a waiter that died does not hold the queue', async t => {
+  const dir = slotDir(t);
+  const env = { [COUNT_ENV]: '1', [HELD_ENV]: '' };
+  const holder = await acquireSlot('holder', { dir, env });
+  const gone = spawnSync(process.execPath, ['-e', '']);
+  writeFileSync(path.join(dir, 'wait-slot-000000000000001-dead.json'), `${JSON.stringify({ pid: gone.pid, label: 'gone', cwd: '/', since: new Date().toISOString(), token: 'dead' })}\n`);
+  const waiter = acquireSlot('live', { dir, env, pollMs: 5, log() {} });
+  holder.release();
+  assert.equal(await settledWithin(waiter, 2000), true, 'the live waiter is served past the dead ticket');
+  (await waiter).release();
+  assert.equal(existsSync(path.join(dir, 'wait-slot-000000000000001-dead.json')), false);
+});
+
+test('the regeneration lock admits one holder and is apart from the build slots', async t => {
+  const dir = slotDir(t);
+  const env = { [COUNT_ENV]: '2', [HELD_ENV]: '' };
+  const regen = { dir, env, kind: REGEN_KIND, count: 1, pollMs: 5, log() {} };
+  const build = await acquireSlot('build', { dir, env });
+  // A held build slot is no regeneration lock, and takes none of its room.
+  const first = await acquireSlot('contracts:regen', { ...regen, env: build.env });
+  assert.equal(first.slot, 1);
+  assert.ok(first.env[heldEnv(REGEN_KIND)], 'children inherit the regeneration lock under its own variable');
+  assert.equal(first.env[HELD_ENV], build.env[HELD_ENV], 'the build slot stays inherited');
+  const second = acquireSlot('contracts:regen', regen);
+  assert.equal(await settledWithin(second, 100), false, 'a second regeneration waits');
+  assert.match(status({ dir, env }), /regen 1: pid \d+ "contracts:regen"/);
+  // Both build slots are still usable while the regeneration lock is held.
+  const other = await acquireSlot('tests', { dir, env });
+  first.release();
+  (await second).release();
+  build.release();
+  other.release();
+  assert.deepEqual(slotFiles(dir), []);
 });

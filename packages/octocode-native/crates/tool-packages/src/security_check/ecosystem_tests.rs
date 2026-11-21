@@ -83,12 +83,37 @@ fn the_contract_s_readers_are_the_native_reader_set() {
     }
 }
 
+/// `Display` is the input's spelling; OSV is asked by its own name, which
+/// the contract states for each registry artifactSearch reads and which is
+/// the same word everywhere else. A release is joined with a colon, and a
+/// stated OSV name reads back as the input's spelling, release kept.
 #[test]
-fn display_is_the_osv_name_and_a_release_is_joined_with_a_colon() {
+fn display_is_the_input_spelling_and_osv_is_asked_by_its_own_name() {
+    let contract = security_contract().expect("contract");
+    let named = &contract.ecosystems.osv_names;
+    assert!(!named.is_empty());
     for ecosystem in every_ecosystem() {
-        assert!(enum_values().contains(&ecosystem.to_string()));
-        assert_eq!(osv_name(ecosystem, None), ecosystem.to_string());
-        assert_eq!(osv_name(ecosystem, Some("r")), format!("{ecosystem}:r"));
+        let input = ecosystem.to_string();
+        assert!(enum_values().contains(&input));
+        let asked = osv(ecosystem);
+        assert_eq!(asked, *named.get(&input).unwrap_or(&input), "{input}");
+        assert_eq!(osv_name(ecosystem, None), asked);
+        assert_eq!(osv_name(ecosystem, Some("r")), format!("{asked}:r"));
+        assert_eq!(as_input(&asked), input);
+        assert_eq!(as_input(&format!("{asked}:r")), format!("{input}:r"));
+        // Only a registry a provider reads has a name of OSV's own.
+        if named.contains_key(&input) {
+            assert!(provider(ecosystem).is_some(), "{input}");
+        }
+    }
+    // Every registry artifactSearch reads is spelled as artifactSearch does.
+    for kind in crate::test_spelling::artifact_ecosystems() {
+        let ecosystem = crate::artifact::query::artifact_type::osv_ecosystem(kind);
+        assert_eq!(
+            ecosystem.to_string(),
+            crate::artifact::query::artifact_type::as_str(kind)
+        );
+        assert!(named.contains_key(&ecosystem.to_string()), "{ecosystem}");
     }
 }
 

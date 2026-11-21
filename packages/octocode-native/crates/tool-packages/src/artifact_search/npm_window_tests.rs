@@ -328,7 +328,8 @@ async fn npm_terms(total: u64, matching: &'static [u64]) -> wiremock::MockServer
 
 /// Every page of an ANDed `["json","parser"]` walk from page 1 at `limit`
 /// rows, each next page taken from the previous page's `next.nextPage`:
-/// the rows' names in order and the number of pages.
+/// the rows' names in order and the number of pages. A page that leads to
+/// another holds rows: the walk never answers an empty page with more to come.
 async fn npm_terms_walk(server: &wiremock::MockServer, limit: u64) -> (Vec<String>, usize) {
     let mut query = json!({"operation":"search",
         "ecosystem": "npm",
@@ -346,8 +347,14 @@ async fn npm_terms_walk(server: &wiremock::MockServer, limit: u64) -> (Vec<Strin
             names.push(row["packageName"].as_str().expect("name").to_owned());
         }
         let Some(next) = data.pointer("/next/nextPage/input/queries/0") else {
+            assert_ne!(data["pagination"]["hasMore"], true, "{data}");
             return (names, pages);
         };
+        assert_ne!(
+            data["artifacts"],
+            json!([]),
+            "an empty page leads on: {data}"
+        );
         query = next.clone();
     }
 }
@@ -369,14 +376,15 @@ async fn npm_sizes(server: &wiremock::MockServer) -> Vec<u64> {
         .collect()
 }
 
-/// A window holding no row with every term is not absence: it says more
-/// remains, and the walk reaches each match exactly once, whichever of
-/// `name`, `description` or `keywords` spells the terms.
+/// A window holding no row with every term is not a page: the page reads
+/// on to the next window, so the first page already holds matches, and the
+/// walk reaches each match exactly once, whichever of `name`, `description`
+/// or `keywords` spells the terms.
 #[tokio::test]
-async fn npm_keywords_are_anded_and_a_window_without_a_match_is_not_absence() {
+async fn npm_keywords_are_anded_and_a_window_without_a_match_is_read_past() {
     let server = npm_terms(600, &[321, 325, 545]).await;
     let first = npm_terms_page(&server, 1).await;
-    assert_eq!(first["artifacts"], json!([]), "{first}");
+    assert_ne!(first["artifacts"], json!([]), "{first}");
     assert!(first.get("status").is_none(), "{first}");
     assert_eq!(first["pagination"]["hasMore"], true, "{first}");
     assert!(first["next"]["nextPage"].is_object(), "{first}");
@@ -387,6 +395,16 @@ async fn npm_keywords_are_anded_and_a_window_without_a_match_is_not_absence() {
         names,
         ["@acme/json-parser-321", "by-keywords-325", "by-text-545"]
     );
+}
+
+/// A search whose matches end before npm's rows do ends on a page with no
+/// row and no next page: the walk is finite however many windows hold none.
+#[tokio::test]
+async fn an_anded_npm_walk_with_only_empty_windows_left_ends() {
+    let server = npm_terms(2_000, &[3]).await;
+    let (names, pages) = npm_terms_walk(&server, 20).await;
+    assert_eq!(names.len(), 1, "{names:?}");
+    assert_eq!(pages, 2);
 }
 
 /// ALL-TOOLS-C D13: npm matches any one keyword, so an ANDed page reads

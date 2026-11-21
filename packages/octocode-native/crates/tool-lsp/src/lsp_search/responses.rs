@@ -226,7 +226,7 @@ pub(super) fn annotate(
         scope,
     );
     let rust = receipt::RustAnalysis::of(&session.config);
-    failure::annotate_empty_includes(result, query, rust, stopped);
+    failure::annotate_empty_includes(result, query, rust, scope.anchor_resolved(), stopped);
     server_coverage::annotate(
         result,
         query,

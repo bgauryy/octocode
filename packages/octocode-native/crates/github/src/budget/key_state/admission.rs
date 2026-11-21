@@ -2,15 +2,12 @@
 //! releasing a reservation.
 use super::{Admission, KeyFacts, KeyState};
 use crate::budget::slots::{Queued, Reserved, ReservedSlot, SlotPlan, Subject};
-use crate::budget::{ClientWaits, ExecutorConfig, Group, acquire, now_ms, waits};
+use crate::budget::{ClientWaits, ExecutorConfig, Group, WaitLimit, acquire, now_ms, waits};
 use crate::{ProviderError, ProviderErrorKind};
 use octocode_contract_base::ClientWaitKind;
 use octocode_io::budget::pause_reporting;
 use octocode_io::cancellation::Cancellation;
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Duration};
 use tokio::sync::OwnedSemaphorePermit;
 
 impl KeyState {
@@ -22,10 +19,12 @@ impl KeyState {
         self: &Arc<Self>,
         resource: &str,
         config: &ExecutorConfig,
-        deadline: Instant,
+        limit: impl Into<WaitLimit>,
         cancellation: &Cancellation,
         client_waits: &ClientWaits,
     ) -> Result<(), ProviderError> {
+        let limit = limit.into();
+        let deadline = limit.deadline;
         self.refresh_off_thread().await;
         for _ in 0..4 {
             let Some(block) = self.blocked(resource, config) else {
@@ -33,7 +32,7 @@ impl KeyState {
             };
             let now = now_ms();
             let wait = block.wait(now);
-            if !block.waited_out() || wait >= deadline.saturating_duration_since(Instant::now()) {
+            if !block.waited_out() || !limit.takes(wait) {
                 return Err(block.error(now));
             }
             client_waits
@@ -59,10 +58,11 @@ impl KeyState {
         self: &Arc<Self>,
         group: Option<Group>,
         config: &ExecutorConfig,
-        deadline: Instant,
+        limit: impl Into<WaitLimit>,
         cancellation: &Cancellation,
         client_waits: &ClientWaits,
     ) -> Result<Admission, ProviderError> {
+        let limit = limit.into();
         let resource = match group {
             Some(Group::Auth) => "auth",
             Some(group) => group.bucket(),
@@ -70,19 +70,12 @@ impl KeyState {
         };
         for _ in 0..4 {
             if let Some(admission) = self
-                .try_admit(
-                    group,
-                    resource,
-                    config,
-                    deadline,
-                    cancellation,
-                    client_waits,
-                )
+                .try_admit(group, resource, config, limit, cancellation, client_waits)
                 .await?
             {
                 return Ok(admission);
             }
-            self.wait_unblocked(resource, config, deadline, cancellation, client_waits)
+            self.wait_unblocked(resource, config, limit, cancellation, client_waits)
                 .await?;
         }
         match self.blocked(resource, config) {
@@ -101,13 +94,14 @@ impl KeyState {
         group: Option<Group>,
         resource: &str,
         config: &ExecutorConfig,
-        deadline: Instant,
+        limit: WaitLimit,
         cancellation: &Cancellation,
         client_waits: &ClientWaits,
     ) -> Result<Option<Admission>, ProviderError> {
+        let deadline = limit.deadline;
         let (reservation, mut permits) = match group {
             Some(group) => {
-                self.reserve_group_slot(group, config, deadline, cancellation, client_waits)
+                self.reserve_group_slot(group, config, limit, cancellation, client_waits)
                     .await?
             }
             None => (None, Vec::with_capacity(1)),
@@ -154,15 +148,18 @@ impl KeyState {
         self: &Arc<Self>,
         group: Group,
         config: &ExecutorConfig,
-        deadline: Instant,
+        limit: WaitLimit,
         cancellation: &Cancellation,
         client_waits: &ClientWaits,
     ) -> Result<(Option<Reserved>, Vec<OwnedSemaphorePermit>), ProviderError> {
+        // The request's deadline ends a wait under way (a permit, the shared
+        // lock, the decided sleep); `limit` decides whether a sleep starts.
+        let deadline = limit.deadline;
         // A group's start gap, fixed or derived from the reported quota, is
         // routine spacing: how every request of the group is sent.
         let kind = ClientWaitKind::Spacing;
         let mut permits = Vec::with_capacity(2);
-        let plan = SlotPlan::new(group, config, 1, deadline);
+        let plan = SlotPlan::new(group, config, 1, limit);
         let persisted = matches!(group, Group::Search | Group::CodeSearch | Group::Graphql);
         let lane = self.groups.get(group.name());
         let mut queued = None;

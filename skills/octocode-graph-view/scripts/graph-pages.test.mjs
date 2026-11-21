@@ -12,21 +12,35 @@ import { tempDir } from './test-tmp.mjs';
 const response = (data) => ({ results: [{ index: 0, data: { graph: { id: 'snapshot' }, ...data } }] });
 const more = (cursor) => ({ kind: 'continue', tool: 'graphQuery', input: { cursor } });
 // A fake CLI that answers a fresh query with `first` and each continuation cursor from `pages`.
+// The runtime serves a row's page walk as the reply's one `next` (it continues every unfinished row): a fixture
+// that writes the walk on its row (`next.nextPage`) is served the same way.
+const served = (page) => {
+  if (!page || page.next || !Array.isArray(page.results)) return page;
+  const out = structuredClone(page);
+  for (const result of out.results) {
+    const walk = result?.data?.next?.nextPage;
+    if (!walk) continue;
+    delete result.data.next.nextPage;
+    if (!Object.keys(result.data.next).length) delete result.data.next;
+    out.next ??= walk;
+  }
+  return out;
+};
 const fake = (first, pages, received = []) => async (tool, input) => {
   received.push({ tool, input });
-  return input.cursor ? pages[input.cursor] : first;
+  return served(input.cursor ? pages[input.cursor] : first);
 };
 // One page of `total` (pagination.total) rows in all; `next` present means more pages follow.
-const page = (n, total, rows, next) => response({ pagination: { unit: "items", offset: 0, length: rows.length, total, hasMore: !!next }, rows, ...(next ? { next } : {}) });
+const page = (n, total, rows, next) => response({ pagination: { unit: "items", offset: 0, length: rows.length, total }, rows, ...(next ? { next } : {}) });
 
 test('graph pages retain Unicode, long values, nested lists and cycle members exactly once', async () => {
   const long = 'שלום🙂'.repeat(1000);
-  const first = response({ pagination: { unit: "items", offset: 0, length: 1, total: 2, hasMore: true }, rows: [{ title: long, nodes: ['a'], nodesTruncated: true }], summary: { witnesses: ['w1'] }, next: { nextPage: more('p2'), cycle0: more('c1'), 'summary.witnesses': more('w1') } });
+  const first = response({ pagination: { unit: "items", offset: 0, length: 1, total: 2 }, rows: [{ title: long, nodes: ['a'], nodesTruncated: true }], summary: { witnesses: ['w1'] }, next: { nextPage: more('p2'), cycle0: more('c1'), 'summary.witnesses': more('w1') } });
   const pages = {
-    c1: response({ pagination: { unit: "items", offset: 0, length: 1, total: 3, hasMore: true }, rows: ['b'], next: { nextPage: more('c2') } }),
-    c2: response({ pagination: { unit: "items", offset: 0, length: 1, total: 3, hasMore: false }, rows: ['c'] }),
-    w1: response({ pagination: { unit: "items", offset: 0, length: 1, total: 2, hasMore: false }, rows: ['w2'] }),
-    p2: response({ pagination: { unit: "items", offset: 0, length: 1, total: 2, hasMore: false }, rows: [{ title: 'second', nodes: ['d'] }] }),
+    c1: response({ pagination: { unit: "items", offset: 0, length: 1, total: 3 }, rows: ['b'], next: { nextPage: more('c2') } }),
+    c2: response({ pagination: { unit: "items", offset: 0, length: 1, total: 3 }, rows: ['c'] }),
+    w1: response({ pagination: { unit: "items", offset: 0, length: 1, total: 2 }, rows: ['w2'] }),
+    p2: response({ pagination: { unit: "items", offset: 0, length: 1, total: 2 }, rows: [{ title: 'second', nodes: ['d'] }] }),
   };
   const saved = [];
   const received = [];
@@ -42,8 +56,8 @@ test('graph pages retain Unicode, long values, nested lists and cycle members ex
 });
 
 test('row paths from the workspace root come back as snapshot keys; the raw page is saved as served', async () => {
-  const first = { results: [{ index: 0, data: { graph: { id: 'snapshot', root: 'packages/cli' }, pagination: { unit: 'items', offset: 0, length: 2, total: 3, hasMore: true }, rows: [{ id: 'src/a.ts#f', path: 'packages/cli/src/a.ts', line: 3 }, { path: 'packages/package.json', status: 'changed' }], next: { nextPage: more('p2') } } }] };
-  const pages = { p2: { results: [{ index: 0, data: { graph: { id: 'snapshot', root: 'packages/cli' }, pagination: { unit: 'items', offset: 0, length: 1, total: 3, hasMore: false }, rows: [{ from: 'src/b.ts', path: 'packages/cli/src/b.ts', sites: [{ path: 'packages/cli/src/c.ts', line: 1 }] }], related: [{ kind: 'related', tool: 'lspSearch', input: { queries: [{ path: 'packages/cli/src/b.ts' }] } }] } }] } };
+  const first = { results: [{ index: 0, data: { graph: { id: 'snapshot', root: 'packages/cli' }, pagination: { unit: 'items', offset: 0, length: 2, total: 3 }, rows: [{ id: 'src/a.ts#f', path: 'packages/cli/src/a.ts', line: 3 }, { path: 'packages/package.json', status: 'changed' }], next: { nextPage: more('p2') } } }] };
+  const pages = { p2: { results: [{ index: 0, data: { graph: { id: 'snapshot', root: 'packages/cli' }, pagination: { unit: 'items', offset: 0, length: 1, total: 3 }, rows: [{ from: 'src/b.ts', path: 'packages/cli/src/b.ts', sites: [{ path: 'packages/cli/src/c.ts', line: 1 }] }], related: [{ kind: 'related', tool: 'lspSearch', input: { queries: [{ path: 'packages/cli/src/b.ts' }] } }] } }] } };
   const saved = [];
   const result = await readGraph({ operation: 'symbols', path: 'packages/cli' }, { run: fake(first, pages), save: (input, raw, data) => saved.push({ raw: structuredClone(raw), data }) });
   assert.deepEqual(result.rows.map((r) => r.path), ['src/a.ts', '../package.json', 'src/b.ts']);
@@ -55,15 +69,16 @@ test('row paths from the workspace root come back as snapshot keys; the raw page
 
 test('a fresh query carries the response budget; continuations go back unchanged', async () => {
   const received = [];
-  const first = response({ pagination: { unit: "items", offset: 0, length: 1, total: 2, hasMore: true }, rows: [1], next: { nextPage: more('c') } });
-  const result = await readGraph({ operation: 'unresolved', target: ['a.rs', 'b.rs'], reasons: ['not-declared-in-repo'] }, { run: fake(first, { c: response({ pagination: { unit: "items", offset: 0, length: 1, total: 2, hasMore: false }, rows: [2] }) }, received) });
+  const first = response({ pagination: { unit: "items", offset: 0, length: 1, total: 2 }, rows: [1], next: { nextPage: more('c') } });
+  const result = await readGraph({ operation: 'unresolved', target: ['a.rs', 'b.rs'], reasons: ['not-declared-in-repo'] }, { run: fake(first, { c: response({ pagination: { unit: "items", offset: 0, length: 1, total: 2 }, rows: [2] }) }, received) });
   assert.deepEqual(result.rows, [1, 2]);
   assert.deepEqual(received.map((r) => r.input), [{ queries: [{ operation: 'unresolved', target: ['a.rs', 'b.rs'], reasons: ['not-declared-in-repo'] }], responseChars: RESPONSE_CHARS }, { cursor: 'c' }]);
 });
 
-test('a serialized-response page continues before the row page', async () => {
-  const first = { ...response({ pagination: { unit: "items", offset: 0, length: 1, total: 3, hasMore: true }, rows: [1], next: { nextPage: more('row') } }), responsePagination: { next: { tool: 'graphQuery', input: { cursor: 'rp' } } } };
-  const pages = { rp: response({ pagination: { unit: "items", offset: 0, length: 1, total: 3, hasMore: true }, rows: [2], next: { nextPage: more('row') } }), row: response({ pagination: { unit: "items", offset: 0, length: 1, total: 3, hasMore: false }, rows: [3] }) };
+test('a split row and its later page are read through the reply\'s one next', async () => {
+  // The first reply splits its row in two parts; the second part's reply carries the call for the row's next page.
+  const first = { ...response({ pagination: { unit: "items", offset: 0, length: 1, total: 3 }, rows: [1] }), next: { tool: 'graphQuery', input: { cursor: 'rp' } } };
+  const pages = { rp: { ...response({ pagination: { unit: "items", offset: 0, length: 1, total: 3 }, rows: [2] }), next: more('row') }, row: response({ pagination: { unit: "items", offset: 0, length: 1, total: 3 }, rows: [3] }) };
   const received = [];
   first.results[0].rowPart = { part: 1, of: 2 };
   pages.rp.results[0].rowPart = { part: 2, of: 2 };

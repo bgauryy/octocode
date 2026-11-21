@@ -61,7 +61,6 @@ fn stored_page_after(
         security,
         &NeverCancel,
         scan,
-        None,
         &alternates,
     )
 }
@@ -200,16 +199,51 @@ fn row_ids(body: &serde_json::Value) -> Vec<String> {
     ids
 }
 
+/// The calls `row` offers that start new work (kind `related`), wherever it
+/// holds them. A continuation (kind `continue`) reads on in the same answer
+/// and is no guidance.
+fn related_calls(
+    row: &serde_json::Value,
+) -> Vec<octocode_runtime_base::test_support::checks::Lead> {
+    octocode_runtime_base::test_support::checks::leads(row)
+        .into_iter()
+        .filter(|lead| lead.kind == "related")
+        .collect()
+}
+
+/// Guidance by row type: a row that returns evidence states no hint and
+/// offers no related call; what to read next is written from its rows.
+fn assert_evidence_row_guides_nothing(row: &serde_json::Value) {
+    assert!(row.get("hints").is_none(), "an evidence row hints: {row}");
+    assert!(
+        related_calls(row).is_empty(),
+        "an evidence row offers a related call: {row}"
+    );
+}
+
+/// Guidance by row type: an empty row states at most one hint and offers at
+/// most one related call, and never a call without the hint that explains
+/// it. Returns the call's first query, when the row offers one.
+fn one_recovery(row: &serde_json::Value) -> Option<serde_json::Value> {
+    let hints = row["hints"].as_array().map_or(0, Vec::len);
+    let mut calls = related_calls(row);
+    assert!(hints <= 1, "an empty row states one hint at most: {row}");
+    assert!(
+        calls.len() <= hints,
+        "an empty row offers one related call at most, with its hint: {row}"
+    );
+    calls.pop().map(|call| call.query["queries"][0].clone())
+}
+
 mod binaries;
 mod build_identity;
 mod changed;
 mod churned_pages;
 mod empty_pages;
+mod guidance_by_row_type;
 mod large_sources;
 mod limit;
 mod long_line_rows;
-#[cfg(unix)]
-mod lsp_lead;
 mod match_list;
 mod output_fields;
 mod pages;

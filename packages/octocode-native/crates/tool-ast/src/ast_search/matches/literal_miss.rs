@@ -101,7 +101,7 @@ fn spelled_in_sources(
         let Some(path) = row_file(scope, &json!({"path": file.path})) else {
             continue;
         };
-        let Ok(Some(bytes)) = super::super::source::read_parse_source(&path) else {
+        let Ok(Some(bytes)) = scope.parse_source(&path) else {
             continue;
         };
         let held = tokens

@@ -123,17 +123,5 @@ pub(in crate::runtime::engine) fn prepared_rows(
     )
 }
 
-/// [`contracts::selection_only_fields`]: they depend on the tool's contract
-/// alone.
-pub(in crate::runtime::engine) fn selection_only_fields(tool: &str) -> Vec<String> {
-    static FIELDS: Remembered<Vec<String>> = Remembered::new();
-    FIELDS.get_or(
-        tool,
-        &Value::Null,
-        || contracts::selection_only_fields(tool),
-        |fields| fields.iter().map(String::len).sum(),
-    )
-}
-
 #[cfg(test)]
 mod tests;

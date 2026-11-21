@@ -55,17 +55,13 @@ fn calls_with_kind(value: &Value, found: &mut Vec<Value>) {
 }
 
 /// The channel of a call at `path`: the key that holds it (`related` for an
-/// item of `related[]`, the `next` key, or `responsePagination.next`).
+/// item of `related[]`, a row's `next` key, or the reply's `next`).
 fn channel(path: &[String]) -> String {
-    match path {
-        [first, second] if first == "responsePagination" => format!("{first}.{second}"),
-        _ => path
-            .iter()
-            .rev()
-            .find(|part| part.parse::<usize>().is_err())
-            .cloned()
-            .unwrap_or_default(),
-    }
+    path.iter()
+        .rev()
+        .find(|part| part.parse::<usize>().is_err())
+        .cloned()
+        .unwrap_or_default()
 }
 
 /// Walk `start` on `on` to its end, following every continuation a page
@@ -143,7 +139,7 @@ async fn served_calls_state_no_kind_on_either_transport_and_still_run() {
                 channels.insert(channel);
             }
         }
-        for expected in ["nextPage", "related", "responsePagination.next"] {
+        for expected in ["next", "related"] {
             assert!(
                 channels.contains(expected),
                 "{on:?}: no served {expected} call: {channels:?}"

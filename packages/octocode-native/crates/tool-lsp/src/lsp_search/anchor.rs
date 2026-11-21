@@ -61,6 +61,9 @@ pub(super) fn resolve_anchor(
         let source = source.ok_or_else(|| {
             "symbolName anchors require a readable source file in path".to_owned()
         })?;
+        if let Some(asked) = lsp_search_query::anchor_line(query) {
+            past_the_end(source, name, asked)?;
+        }
         let resolved = resolve_symbol(
             path,
             source,
@@ -95,7 +98,8 @@ pub(super) fn resolve_anchor(
             disclose_rival_lines(&mut symbol, path, source, name, asked, &resolved);
         }
         let warning = lsp_search_query::anchor_line(query)
-            .and_then(|asked| past_the_end(source, name, asked, &resolved, &symbol));
+            .filter(|_| resolved.line_offset != 0)
+            .map(|asked| moved_anchor(name, asked, &resolved, &symbol));
         return Ok(Anchor {
             line: resolved.position.line,
             character: resolved.position.character,
@@ -136,31 +140,74 @@ fn disclose_same_line(symbol: &mut Value, resolved: &LspResolvedSymbol, name: &s
     symbol["alternatives"] = json!(alternatives);
 }
 
-/// The warning of a one-based `asked` line past the end of `source`: it
-/// names no line of the file, so the anchor `resolved` was chosen by name
-/// alone, and the receipt's alternatives (in `symbol`) are as likely meant.
-fn past_the_end(
-    source: &str,
-    name: &str,
-    asked: u32,
-    resolved: &LspResolvedSymbol,
-    symbol: &Value,
-) -> Option<String> {
+/// Lines a refusal or a warning lists at most; the rest are counted.
+const LISTED_LINES: usize = 8;
+
+/// `lines` as text, the first [`LISTED_LINES`] named and the rest counted.
+fn listed_lines(lines: &[u32]) -> String {
+    let named = lines
+        .iter()
+        .take(LISTED_LINES)
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+    match lines.len().saturating_sub(LISTED_LINES) {
+        0 => named,
+        more => format!("{named} and {more} more"),
+    }
+}
+
+/// A one-based `asked` line past the end of `source` names no line of the
+/// file: anchoring on it would choose an identity by name alone, so the read
+/// is refused, stating the file's length and the lines that spell the name.
+fn past_the_end(source: &str, name: &str, asked: u32) -> Result<(), String> {
     let length = source.lines().count();
     if usize::try_from(asked).is_ok_and(|asked| asked <= length) {
-        return None;
+        return Ok(());
     }
-    let others = match symbol.get("alternatives").and_then(Value::as_array) {
-        Some(listed) if !listed.is_empty() => {
-            "; resolvedSymbol.alternatives names other lines that spell it"
-        }
-        _ => "",
+    let mut lines = super::importers::occurrences(source, name)
+        .into_iter()
+        .map(|(line, _, _)| line + 1)
+        .collect::<Vec<_>>();
+    lines.sort_unstable();
+    lines.dedup();
+    let spelled = if lines.is_empty() {
+        format!("`{name}` is not spelled in it")
+    } else {
+        format!("`{name}` is spelled on line(s) {}", listed_lines(&lines))
     };
-    Some(format!(
-        "Line {asked} is past the end of the file ({}): `{name}` was anchored on line {} by name alone{others}.",
-        octocode_engine::text::counted(length, "line", "lines"),
-        resolved.found_at_line
+    Err(format!(
+        "Line {asked} is out of range (file has {}); {spelled}",
+        octocode_engine::text::counted(length, "line", "lines")
     ))
+}
+
+/// The warning of an anchor that moved: the name is not on the one-based
+/// `asked` line, so the answer is for the spelling on the line `resolved`
+/// names. When other lines spell the name too (the receipt's
+/// `alternatives`, in `symbol`), the answer may be for another identity
+/// than the one meant, and the warning lists them.
+fn moved_anchor(name: &str, asked: u32, resolved: &LspResolvedSymbol, symbol: &Value) -> String {
+    let others = symbol
+        .get("alternatives")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|alternative| alternative.get("foundAtLine").and_then(Value::as_u64))
+        .filter_map(|line| u32::try_from(line).ok())
+        .collect::<Vec<_>>();
+    let rivals = if others.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "; it is also spelled on line(s) {} (resolvedSymbol.alternatives), so this answer may be for another identity: send the line of the one meant",
+            listed_lines(&others)
+        )
+    };
+    format!(
+        "`{name}` is not on line {asked}: anchored on line {}{rivals}.",
+        resolved.found_at_line
+    )
 }
 
 /// A name that is not on its `line` resolved to the nearest line that
@@ -252,6 +299,28 @@ fn qualified_at(line: &str, at: usize, name: &str) -> Option<String> {
         .last()
         .map(|(byte, _)| byte)?;
     Some(format!("{}{separator}{name}", &rest[start..]))
+}
+
+/// Whether the request's anchor fails only by its `occurrence`: the name
+/// stands on the requested line, which the same resolution without the
+/// `occurrence` finds. The resolver's error then states the whole fix (how
+/// many occurrences the line has), and nothing about the name or the line
+/// is left to locate.
+pub(super) fn misses_only_by_occurrence(
+    query: &LspSearchQuery,
+    path: &str,
+    source: Option<&str>,
+) -> bool {
+    let (Some(name), Some(source), Some(line)) = (
+        lsp_search_query::symbol_name(query),
+        source,
+        lsp_search_query::anchor_line(query),
+    ) else {
+        return false;
+    };
+    lsp_search_query::occurrence(query).is_some_and(|occurrence| occurrence > 0)
+        && resolve_symbol(path, source, name, Some(line), None)
+            .is_ok_and(|resolved| resolved.line_offset == 0 && resolved.found_at_line == line)
 }
 
 /// Resolve `name` near `line_hint`. A member-qualified name (`this.ns`,

@@ -4,6 +4,7 @@ use super::*;
 use crate::ProviderErrorReason;
 use reqwest::StatusCode;
 use reqwest::header::AUTHORIZATION;
+use std::time::Instant;
 
 /// A loopback API (a test server, a local proxy to GHES) is reached
 /// directly: no system proxy lookup, which is the first client's

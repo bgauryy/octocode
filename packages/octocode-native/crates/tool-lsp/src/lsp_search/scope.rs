@@ -180,9 +180,34 @@ pub struct Scope {
     /// Language server discovery of the request: what roots each scanned
     /// file's own server ([`Self::project_root_of`]).
     discovery: octocode_engine::lsp::config::LspDiscoveryOptions,
+    /// What the server resolved at the anchor of an empty type answer
+    /// ([`Self::note_anchor_resolved`]).
+    anchor_resolved: std::sync::OnceLock<AnchorResolved>,
+}
+
+/// What the language server resolved at the anchor of an answer that names
+/// no type location: an empty answer is then no sign of unloaded source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum AnchorResolved {
+    /// The server names the anchor's type: the type has no source
+    /// declaration to show (a primitive or built-in type).
+    Type,
+    /// The server places the anchor name's own declaration in source it
+    /// loaded: the name is not one unloaded source declares.
+    Name,
 }
 
 impl Scope {
+    /// Record what the server resolved at the anchor of an empty answer.
+    pub(super) fn note_anchor_resolved(&self, resolved: AnchorResolved) {
+        let _ = self.anchor_resolved.set(resolved);
+    }
+
+    /// What [`Self::note_anchor_resolved`] recorded.
+    pub(super) fn anchor_resolved(&self) -> Option<AnchorResolved> {
+        self.anchor_resolved.get().copied()
+    }
+
     pub fn new(root: String, include: Vec<String>) -> Self {
         Self {
             root,
@@ -207,6 +232,7 @@ impl Scope {
             gaps: Mutex::new(None),
             dependents: std::sync::OnceLock::new(),
             discovery: octocode_engine::lsp::config::LspDiscoveryOptions::default(),
+            anchor_resolved: std::sync::OnceLock::new(),
         }
     }
 

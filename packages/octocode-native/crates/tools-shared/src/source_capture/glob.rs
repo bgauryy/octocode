@@ -103,7 +103,9 @@ pub fn expand(
                 expanded.notices.push(notice);
             }
         }
-        if let Some(listing) = listing
+        // The walk left files of the glob unjudged: the listing names
+        // them, so a row that judged the rest needs it.
+        if let Some(listing) = listing.map(octocode_runtime_base::response::result::required_call)
             && !expanded.related.contains(&listing)
         {
             expanded.related.push(listing);

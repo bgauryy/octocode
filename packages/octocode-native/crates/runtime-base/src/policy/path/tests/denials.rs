@@ -247,3 +247,41 @@ fn outside_denial_names_the_allowed_roots_redacted_once_each() {
         "Path '/nowhere/at/all.txt' is outside allowed directories. Use a path relative to the workspace root, or absolute inside it: structureSearch path \".\" lists the root. Also readable: ~/.octocode."
     );
 }
+
+#[test]
+fn names_many_sibling_roots_by_their_parent() {
+    let workspace = fixture();
+    let home = fixture();
+    let skills = home.join("skills");
+    let few = home.join("few");
+    let mut additional_roots = Vec::new();
+    for name in ["a", "b", "c", "d", "e"] {
+        std::fs::create_dir_all(skills.join(name)).expect("skill dir");
+        additional_roots.push(skills.join(name));
+    }
+    for name in ["x", "y"] {
+        std::fs::create_dir_all(few.join(name)).expect("few dir");
+        additional_roots.push(few.join(name));
+    }
+    let policy = PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some(workspace.clone()),
+        additional_roots,
+        home_dir: Some(home.clone()),
+        ..Default::default()
+    })
+    .expect("policy");
+    let message = policy
+        .validate("/nowhere/at/all.txt")
+        .expect_err("outside path")
+        .message;
+    assert!(
+        message.contains(&format!("{}/* (5 folders)", policy.redact(&skills))),
+        "{message}"
+    );
+    assert!(message.contains(&policy.redact(few.join("x"))), "{message}");
+    assert!(message.contains(&policy.redact(few.join("y"))), "{message}");
+    assert!(
+        !message.contains(&policy.redact(skills.join("a"))),
+        "{message}"
+    );
+}

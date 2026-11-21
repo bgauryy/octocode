@@ -72,12 +72,14 @@ pub(super) fn path_failure(
             };
             // The listing lead targets the deepest existing prefix; only a
             // case-only difference is a fact the lead does not state.
-            let hint = if found.file.is_some() {
-                Some("The path names a file (its case differs).")
+            let hint = if let Some(file) = found.file.as_deref().filter(|_| found.listing_entry) {
+                Some(octocode_tools_shared::root_read::listing_entry_note(file))
+            } else if found.file.is_some() {
+                Some("The path names a file (its case differs).".to_owned())
             } else if found.directory.eq_ignore_ascii_case(requested) {
-                Some(octocode_tools_shared::gh_shared::CASE_DIFFERS_HINT)
+                Some(octocode_tools_shared::gh_shared::CASE_DIFFERS_HINT.to_owned())
             } else if found.truncated {
-                Some(octocode_tools_shared::gh_shared::LISTING_MAY_BE_CUT_HINT)
+                Some(octocode_tools_shared::gh_shared::LISTING_MAY_BE_CUT_HINT.to_owned())
             } else {
                 None
             };

@@ -22,12 +22,9 @@ fn every_keyword_line_is_numbered_case_insensitively() {
                 "4\t    await wrap_app(s)".into()
             ],
             matched: vec![2, 4],
-            first: 2,
-            last: 4,
             best: 2,
             total: 2,
             line_count: 4,
-            declaration: None,
             redacted: 0,
         }
     );
@@ -89,8 +86,8 @@ fn a_utf16_file_scans_like_a_local_read() {
         Window::default(),
         &Passthrough,
     ) {
-        FileHits::Lines { first, lines, .. } => {
-            assert_eq!(first, 2);
+        FileHits::Lines { matched, lines, .. } => {
+            assert_eq!(matched.first(), Some(&2));
             assert!(
                 lines.iter().any(|line| line.contains("the needle")),
                 "{lines:?}"
@@ -178,7 +175,10 @@ fn hit_lines_that_lowercase_to_other_boundaries_list_verbatim() {
 fn many_hits_are_all_retained() {
     let text = "needle\n".repeat(30);
     let FileHits::Lines {
-        lines, total, last, ..
+        lines,
+        total,
+        matched,
+        ..
     } = scan(
         text.as_bytes(),
         "a.rs",
@@ -192,7 +192,7 @@ fn many_hits_are_all_retained() {
     };
     assert_eq!(lines.len(), total);
     assert_eq!(total, 30);
-    assert_eq!(last, 30);
+    assert_eq!(matched.last(), Some(&30));
 }
 
 /// A long hit line is sanitized whole, including a secret far from the keyword.

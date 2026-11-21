@@ -293,7 +293,7 @@ where
 /// The one warning a read states for a renamed repository.
 pub fn renamed_warning(owner: &str, repo: &str, to: &(String, String)) -> String {
     format!(
-        "Repository {owner}/{repo} was renamed to {}/{}; leads use the canonical name.",
+        "Repository {owner}/{repo} was renamed to {}/{}: use that name.",
         to.0, to.1
     )
 }

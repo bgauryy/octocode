@@ -123,6 +123,13 @@ async fn an_oversized_source_is_judged_in_sections_and_answered_once_per_questio
     // Coverage: every section answered both questions.
     let sections = data["coverage"]["totalSections"].as_u64().unwrap();
     assert!(sections > 1, "{out}");
+    // Every part states its own answers: a choice is never quiet, so all
+    // of them are listed.
+    assert_eq!(
+        data["sections"].as_array().map(Vec::len),
+        Some(sections as usize),
+        "{out}"
+    );
     assert_eq!(data["coverage"]["answered"], json!(sections * 2), "{out}");
     // Spend: the refused whole-source request and one request per section;
     // `refused` says which of the calls was the whole source.
@@ -499,17 +506,73 @@ async fn a_row_whose_every_question_failed_alike_reports_that_reason_and_the_spe
     runtime.close().await;
 }
 
-/// C1: a source over the window sends its one named request whole; its
-/// sections are its own expansion, so without `maxRequests` none is sent:
-/// the row states their price and `next.confirm` runs them. C3: in the same
-/// process the refused size is known, and the same row sends nothing.
+/// C1: a source over the window is the source the row named, part by part:
+/// without `maxRequests` its parts are judged in the same call, and the row
+/// states each part's lines and its own answer, so no second call learns
+/// where. A summary leaves the quiet parts out and counts them.
 #[tokio::test]
-async fn an_oversized_sources_sections_wait_for_a_bound_that_holds_them() {
+async fn an_oversized_source_is_judged_part_by_part_out_of_the_box() {
+    let server = windowed().await;
+    let workspace = Workspace::new();
+    let (lines, planted) = (6_000, 4_321);
+    workspace.write("big.txt", source(lines, planted));
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let row = |view: &str| {
+        json!({"operation":"evaluate","view":view,
+        "source":{"tool":"localFetch","query":{"path":"big.txt"}},
+        "questions":{"socket":noul("The text says the worker opens a socket.")}})
+    };
+    // The details row lists every part, quiet ones too.
+    let whole = clasify(&runtime, vec![row("details")]).await;
+    let whole = &whole["results"][0]["data"];
+    assert_eq!(
+        whole["sections"].as_array().map(Vec::len) as Option<usize>,
+        whole["coverage"]["totalSections"]
+            .as_u64()
+            .map(|n| n as usize),
+        "{whole}"
+    );
+    let out = clasify(&runtime, vec![row("summary")]).await;
+    let data = &out["results"][0]["data"];
+    assert!(data.get("errorCode").is_none(), "{out}");
+    assert_eq!(data["answers"]["socket"]["noul"], 0.96, "{out}");
+    let total = data["coverage"]["totalSections"].as_u64().unwrap();
+    assert!(total > 1, "{out}");
+    // The parts shown are the ones that answered yes or undecided; every
+    // other part is counted, never dropped silently.
+    let parts = data["sections"].as_array().expect("the parts");
+    let quiet = data["coverage"]["quiet"].as_u64().unwrap_or(0);
+    assert_eq!(parts.len() as u64 + quiet, total, "{out}");
+    let holding = parts
+        .iter()
+        .filter(|part| {
+            let lines = &part["target"]["lines"];
+            let (start, end) = (
+                lines["startLine"].as_u64().unwrap() as usize,
+                lines["endLine"].as_u64().unwrap() as usize,
+            );
+            (start..=end).contains(&planted)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(holding.len(), 1, "one part holds the planted line: {out}");
+    assert_eq!(holding[0]["answers"]["socket"]["noul"], 0.96, "{out}");
+    // Every part is one request; the size the window refused is known by
+    // now, so the whole source is not uploaded again.
+    assert_eq!(data["usage"]["calls"], json!(total), "{out}");
+    assert_eq!(whole["usage"]["calls"], json!(total + 1), "{whole}");
+    runtime.close().await;
+}
+
+/// A `maxRequests` that does not hold the parts sends none of them: the row
+/// states their price and `next.confirm` runs them. C3: in the same process
+/// the refused size is known, and the same row sends nothing.
+#[tokio::test]
+async fn an_oversized_sources_parts_wait_for_a_max_requests_that_holds_them() {
     let server = windowed().await;
     let workspace = Workspace::new();
     workspace.write("big.txt", source(6_000, 4_321));
     let runtime = clasify_runtime(&workspace, &server, &[]);
-    let row = json!({"operation":"evaluate",
+    let row = json!({"operation":"evaluate","maxRequests":2,
         "source":{"tool":"localFetch","query":{"path":"big.txt"}},
         "questions":{"socket":noul("The text says the worker opens a socket.")}});
     let requests = || async { server.received_requests().await.unwrap().len() as u64 };
@@ -524,7 +587,7 @@ async fn an_oversized_sources_sections_wait_for_a_bound_that_holds_them() {
         .as_u64()
         .expect("a ceiling");
     assert!(
-        data["usage"]["requestsPlanned"].as_u64().expect("a plan") > 1,
+        data["usage"]["requestsPlanned"].as_u64().expect("a plan") > 2,
         "{out}"
     );
     let confirm = &data["next"]["confirm"];

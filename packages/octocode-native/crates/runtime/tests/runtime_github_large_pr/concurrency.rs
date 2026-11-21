@@ -78,12 +78,12 @@ async fn patch_rows_in_one_call_share_one_budget() {
         .expect("two patch rows");
     let content = &outcome.structured_content;
     assert!(
-        content["responsePagination"].get("expiresAt").is_none(),
-        "two rows overflowed the page: {}",
-        content["responsePagination"]
+        content.get("expiresAt").is_none(),
+        "two rows overflowed the page: {content}"
     );
-    // An unpaged response leaves each row its own section walk.
-    assert!(content.get("responsePagination").is_none(), "{content}");
+    // An unpaged response leaves each row its own section walk: a row
+    // branch, not the reply's next.
+    assert!(content.get("next").is_none(), "{content}");
     for index in 0..2 {
         let data = &content["results"][index]["data"];
         let taken = data["pullRequests"][0]["sectionPagination"]["patches"]["length"]
@@ -91,8 +91,10 @@ async fn patch_rows_in_one_call_share_one_budget() {
             .unwrap_or(0);
         // Half the default window each (one budget), not a whole window each.
         assert!((4_000..=20_000).contains(&taken), "row {index}: {taken}");
-        assert_eq!(
-            data["pullRequests"][0]["sectionPagination"]["patches"]["hasMore"], true,
+        assert!(
+            data["pullRequests"][0]["sectionPagination"]["patches"]
+                .get("hasMore")
+                .is_none(),
             "row {index}: {data}"
         );
         assert!(
@@ -188,7 +190,7 @@ async fn match_string_review_comment_pages_read_each_provider_batch_once() {
         );
         let next = result
             .structured_content
-            .pointer("/responsePagination/next")
+            .pointer("/next")
             .or_else(|| data.pointer("/pullRequests/0/next/reviewComments"));
         let Some(next) = next else { break };
         assert!(next["input"]["cursor"].is_string());

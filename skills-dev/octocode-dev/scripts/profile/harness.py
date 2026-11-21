@@ -219,15 +219,15 @@ _CHANNEL = re.compile(r'^(?:nextPage|' + '|'.join(SECTIONS) + r'|(?:' + '|'.join
 
 
 def continuations(content, tool=None):
-    """Every next call of a walk, as [(channel, input)], in the contract's order: a response split alone when
-    there is one; else each row's `next.nextPage` and same-claim branches, then every history section's
+    """Every next call of a walk, as [(channel, input)], in the contract's order: the reply's one `next` alone
+    when there is one (it continues every unfinished row); else each row's same-claim branches, then every history section's
     `next.<section>` (comments, files, patches, commits, ...), wherever it sits in the row. A call owned by another tool (`read`, `related`) is no page of this walk."""
     if not isinstance(content, dict):
         return []
-    split = content.get('responsePagination')
-    if isinstance(split, dict) and split.get('hasMore') and isinstance(split.get('next'), dict):
-        found = _as_input(split['next'])
-        return [('responsePagination', found)] if found else []
+    reply = content.get('next')
+    if isinstance(reply, dict):
+        found = _as_input(reply)
+        return [('next', found)] if found else []
     out = []
 
     def channel_of(holder, where):

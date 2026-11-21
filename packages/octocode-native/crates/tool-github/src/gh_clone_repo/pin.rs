@@ -80,7 +80,26 @@ async fn refused(
     request: &RequestContext,
 ) -> CloneFailure {
     let missing_ref = api.reason == Some(ProviderErrorReason::RefNotFound);
+    let missing_repository = api.kind == ProviderErrorKind::NotFound && !missing_ref;
     let mut failure = api_refusal(query, reference, api).unwrap_or_else(CloneFailure::Provider);
+    // A repository that did not resolve names its owner when no such login
+    // exists, as every read does.
+    if missing_repository
+        && let CloneFailure::Clone(error) = &mut failure
+        && octocode_tools_shared::gh_shared::failed_read::owner_missing(
+            provider,
+            &query.owner,
+            request,
+        )
+        .await
+    {
+        octocode_tools_shared::gh_shared::failed_read::state_missing_owner(
+            &mut error.message,
+            &mut error.hints,
+            &mut error.calls,
+            &query.owner,
+        );
+    }
     if missing_ref
         && let CloneFailure::Clone(error) = &mut failure
         && let Some(retry) = octocode_tools_shared::gh_shared::default_branch_retry(

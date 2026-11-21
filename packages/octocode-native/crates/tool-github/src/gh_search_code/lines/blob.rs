@@ -32,15 +32,6 @@ impl Hit {
     }
 }
 
-/// Where a read anchors: the first and last anchoring lines and the best
-/// hit, as line numbers (0: none), and the covering window (hit indexes)
-/// when no line holds every keyword.
-pub(super) struct Anchor {
-    pub(super) first: u32,
-    pub(super) last: u32,
-    pub(super) best: u32,
-}
-
 /// One scanned blob: its lines, as read and lowercased, the private-key
 /// blocks no listed line may show, and the declarations its grammar
 /// outlines on its keyword lines ([`hit_declarations`]; none for a file
@@ -152,10 +143,11 @@ impl Blob<'_> {
             .any(|&(start, end)| (start..=end).contains(&number))
     }
 
-    /// The read anchors where the listing does: on lines holding every
-    /// keyword when any exist; else on the smallest window holding every
-    /// keyword (one opened by a declaration first); else on any keyword line.
-    pub(super) fn anchor(&self, hits: &[Hit], needles: &[String]) -> Anchor {
+    /// The hit a cut row's listing centers on, as its line number (0: none):
+    /// the best-scoring line holding every keyword when any exist; else the
+    /// first hit of the smallest window holding every keyword (one opened by
+    /// a declaration first); else the best-scoring keyword line.
+    pub(super) fn anchor(&self, hits: &[Hit], needles: &[String]) -> u32 {
         let any_every = hits.iter().any(|hit| hit.every);
         let window = (!any_every && needles.len() > 1)
             .then(|| {
@@ -164,30 +156,16 @@ impl Blob<'_> {
                 })
             })
             .flatten();
-        if let Some((start, end)) = window {
-            let first = hits[start].number();
-            return Anchor {
-                first,
-                last: hits[end].number(),
-                best: first,
-            };
+        if let Some((start, _)) = window {
+            return hits[start].number();
         }
-        let (mut first, mut last, mut best) = (0, 0, (0, (0, 0)));
+        let mut best: Option<(u32, _)> = None;
         for hit in hits.iter().filter(|hit| !any_every || hit.every) {
-            let number = hit.number();
-            if first == 0 || hit.score > best.1 {
-                best = (number, hit.score);
+            if best.is_none_or(|(_, score)| hit.score > score) {
+                best = Some((hit.number(), hit.score));
             }
-            if first == 0 {
-                first = number;
-            }
-            last = number;
         }
-        Anchor {
-            first,
-            last,
-            best: best.0,
-        }
+        best.map_or(0, |(number, _)| number)
     }
 
     /// Every keyword line with its `window` of context, from the sealed view
@@ -242,15 +220,6 @@ impl Blob<'_> {
             "{number}{}{shown}",
             octocode_runtime_base::response::numbered::SEPARATOR
         )
-    }
-
-    /// The best hit's declaration line, unless it sits in a private-key block.
-    pub(super) fn declaration(&self, hits: &[Hit], best: u32) -> Option<String> {
-        let hit = hits.iter().find(|hit| hit.number() == best)?;
-        if self.in_key_block(best) {
-            return None;
-        }
-        self.declared_head(hit)
     }
 
     /// The hit line as a `matchString` when its keyword is the name of a

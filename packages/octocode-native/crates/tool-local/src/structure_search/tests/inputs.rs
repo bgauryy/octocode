@@ -98,6 +98,17 @@ fn a_file_tree_root_leads_to_reading_the_file() {
         assert_eq!(row["path"], "src/lib.rs", "{error:?}");
         assert_eq!(row["view"], "symbols", "{error:?}");
     }
+    // L6: a file whose type has no outline leads to its content, never to
+    // an outline it cannot give.
+    std::fs::write(root.0.join("src/notes.txt"), "plain\n").expect("file");
+    let error = run(
+        &root.0,
+        json!({"operation":"tree","path":root.0.join("src/notes.txt")}),
+    )
+    .expect_err("a file is not a directory");
+    let row = &error.calls.as_ref().expect("lead")["read"]["input"]["queries"][0];
+    assert_eq!(row["path"], "src/notes.txt", "{error:?}");
+    assert_ne!(row["view"], "symbols", "{error:?}");
 }
 
 /// A path refusal with no shared code (here a symlink loop) uses the local

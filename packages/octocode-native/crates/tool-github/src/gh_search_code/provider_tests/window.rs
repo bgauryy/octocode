@@ -78,7 +78,11 @@ async fn the_code_search_window_ends_at_its_last_whole_page() {
     )
     .await
     .expect("first page");
-    assert_eq!(first.data["pagination"]["total"], 1000, "{}", first.data);
+    assert!(
+        first.data["pagination"]["total"].is_null(),
+        "{}",
+        first.data
+    );
     let last = execute(
         &provider,
         &at(20),
@@ -150,35 +154,43 @@ async fn an_owner_wide_capped_search_leads_to_the_owners_repositories() {
 }
 
 /// A merged multi-`extensions` page is page N of each extension's own
-/// search of `ceil(pageSize / k)` files, so the window is that search's: at
-/// 50 files over 3 extensions (17 each) page 58 is the last, and page 59
-/// repairs to it. The error states the caller's page size and the merged
-/// reachable total (3 × 986), as page 1 does, never the per-search size.
+/// search of `floor(limit / k)` files, so the window is that search's: its
+/// last whole page is the last, and the page after repairs to it. The error
+/// states the caller's `limit` and the merged reachable total (every
+/// search's), as page 1 does, never the per-search size.
 #[tokio::test]
 async fn a_multi_extension_window_is_each_searchs_own() {
+    use octocode_tools_shared::gh_shared::SearchWindow;
     let server = MockServer::builder().start().await;
-    mount_counted_search(&server, 5000).await;
+    let matched = 5000;
+    mount_counted_search(&server, matched).await;
     let provider = one_shot_provider(&server);
+    let extensions = ["rs", "ts", "go"];
     let at = |page: usize| -> GhSearchCodeQuery {
         serde_json::from_value(json!({
-            "owner":"a","repo":"b","keywords":["needle"],"extensions":["rs","ts","go"],
+            "owner":"a","repo":"b","keywords":["needle"],"extensions":extensions,
             "page":page,"fields":["path"]
         }))
         .expect("query")
     };
+    let limit = octocode_engine::num::saturating_usize(at(1).limit.get());
+    let per_search = limit / extensions.len();
+    let last = SearchWindow::PageEnd.last_page(per_search);
+    let reachable = extensions.len() * SearchWindow::PageEnd.reach(matched, per_search).total;
     let context = default_context();
-    execute(
+    let page = execute(
         &provider,
-        &at(58),
+        &at(last),
         &context,
         &Passthrough,
         &octocode_runtime_base::policy::discovery::is_sensitive_repository_file,
     )
     .await
     .expect("the last page");
+    assert!(paths_of(&page).len() <= limit, "{}", page.data);
     let Err(failure) = super::super::run(
         &provider,
-        &at(59),
+        &at(last + 1),
         Ok(&context),
         &Passthrough,
         &octocode_runtime_base::policy::discovery::is_sensitive_repository_file,
@@ -190,10 +202,16 @@ async fn a_multi_extension_window_is_each_searchs_own() {
     };
     assert_eq!(
         failure.message,
-        "Page 59 is past GitHub's search window: at limit 50, page 58 is the last, reaching the first 2958 results."
+        format!(
+            "Page {} is past GitHub's search window: at limit {limit}, page {last} is the last, reaching the first {reachable} results.",
+            last + 1
+        )
     );
     let next = failure.calls.expect("repair");
-    assert_eq!(next["repair"]["input"]["queries"][0]["page"], 58, "{next}");
+    assert_eq!(
+        next["repair"]["input"]["queries"][0]["page"], last,
+        "{next}"
+    );
 }
 
 /// `fields:["path","matchCount"]` states each file's hit count without

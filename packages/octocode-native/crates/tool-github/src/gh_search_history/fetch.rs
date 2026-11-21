@@ -22,8 +22,6 @@ pub(super) struct RenameEnd {
     pub(super) previous_path: String,
     /// The commit's first parent: the last state under the previous path.
     pub(super) parent: Option<String>,
-    /// The rename changed no lines, so its patch is empty.
-    pub(super) pure: bool,
 }
 
 pub(super) async fn fetch(
@@ -100,7 +98,6 @@ async fn rename_end(
         commit: commit.to_owned(),
         previous_path: file["previous_filename"].as_str()?.to_owned(),
         parent: read["parents"][0]["sha"].as_str().map(str::to_owned),
-        pure: file["changes"] == 0,
     })
 }
 

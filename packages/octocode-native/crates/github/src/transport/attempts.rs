@@ -149,9 +149,9 @@ impl<'a> Attempts<'a> {
     async fn admit(&mut self) -> Result<Admission, ProviderError> {
         self.context.check()?;
         // Admission waits (a rate-limit block, search pacing, a permit) run
-        // within the request deadline; only a wait that ends past it is
-        // refused.
-        let wait_deadline = self.context.budget.deadline;
+        // within the request's wait limit (its deadline, and its sooner
+        // wait bound for a new sleep); only a wait past it is refused.
+        let wait_deadline = self.context.wait_limit();
         self.state
             .wait_unblocked(
                 self.resource.bucket(),
@@ -285,10 +285,9 @@ impl<'a> Attempts<'a> {
     ) -> Result<(), ProviderError> {
         let retry = &self.transport.retry;
         let budget = &self.context.budget;
-        // Every wait is bounded by the request deadline alone (a rate
+        // Every wait is bounded by the request's wait limit alone (a rate
         // limit's by the next turn's admission too).
-        if *self.attempt + 1 >= retry.max_attempts
-            || backoff.wait >= budget.deadline.saturating_duration_since(Instant::now())
+        if *self.attempt + 1 >= retry.max_attempts || !self.context.wait_limit().takes(backoff.wait)
         {
             return Err(error);
         }

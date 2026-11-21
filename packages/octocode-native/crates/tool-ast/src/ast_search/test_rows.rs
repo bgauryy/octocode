@@ -258,3 +258,55 @@ pub(super) fn assert_copied_row(
     }
     assert_eq!(*row, expected);
 }
+
+/// A row's word on what its walk skipped: the one shared sentence
+/// for exactly `causes`, which names the `skippedPaths` ledger and the
+/// `related[]` request, beside the one lead that sets each cause's flag.
+pub(super) fn assert_unsearched(
+    out: &serde_json::Value,
+    causes: &[octocode_tools_shared::empty_walk::Cause],
+) {
+    let said = octocode_tools_shared::leads::skipped::unsearched(causes)
+        .expect("a walk that skipped paths")
+        .text;
+    for named in ["skippedPaths", "related[]"] {
+        assert!(said.contains(named), "{named}: {said}");
+    }
+    // One channel by the row's status: an empty row's recovery hint, a
+    // warning on a row with evidence.
+    let (channel, other) = if out["status"] == "empty" {
+        ("hints", "warnings")
+    } else {
+        ("warnings", "hints")
+    };
+    let stated = |channel: &str| {
+        out[channel]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|text| text.as_str() == Some(said.as_str()))
+    };
+    assert!(stated(channel), "{channel} lacks {said}: {out}");
+    assert!(!stated(other), "{other} repeats {said}: {out}");
+    let call = skipped_call(out).unwrap_or_else(|| panic!("missing skipped-scope lead: {out}"));
+    let lead = &call["input"]["queries"][0];
+    for cause in causes {
+        let (field, value) = cause.flag();
+        assert_eq!(lead[field], value, "{field}: {out}");
+    }
+}
+
+/// The fields that qualify an empty or partial match answer: the inferred
+/// grammar and the counts of the grammars and formats the rule did not
+/// search.
+pub(super) const QUALIFIERS: [&str; 3] = ["inferredLanguage", "skippedGrammars", "skippedFormats"];
+
+/// A complete answer with matches states none of [`QUALIFIERS`]: its
+/// matches name their files, and what it did not search did not change it.
+pub(super) fn assert_unqualified(out: &serde_json::Value) {
+    assert!(out["matchCount"].as_u64() > Some(0), "{out}");
+    assert!(out.get("isPartial").is_none(), "{out}");
+    for field in QUALIFIERS {
+        assert!(out.get(field).is_none(), "{field}: {out}");
+    }
+}

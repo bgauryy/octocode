@@ -282,19 +282,27 @@ fn review_selection_leads_with_source_over_larger_example_diffs() {
     );
 }
 
+/// The one include rule (`include_globs::tests::RULE`) over changed-file
+/// paths from the repository root; a rename is kept by either of its paths.
 #[test]
-fn changed_file_globs_do_not_widen_literal_paths_or_case() {
-    use super::super::super::filter::PathPattern;
-    for (pattern, yes, no) in [
-        ("src", "src", vec!["src/a.rs", "other/src"]),
-        ("*.rs", "lib.rs", vec!["src/lib.rs", "LIB.RS"]),
-        ("src/**", "src/deep/lib.rs", vec!["other/lib.rs"]),
-    ] {
-        let matcher = PathPattern::parse(pattern).expect("glob");
-        assert!(matcher.matches(yes));
-        for path in no {
-            assert!(!matcher.matches(path), "{pattern} widened to {path}");
-        }
+fn changed_file_globs_follow_the_one_include_rule_from_the_repository_root() {
+    for (glob, path, kept) in crate::include_globs::tests::RULE {
+        let query = inventory_request(json!({ "include": [glob] }));
+        let scope = FileScope::from_query(&query)
+            .expect("valid file filter")
+            .expect("a scope");
+        assert_eq!(
+            scope.matches(&listed(path, "modified", 1, 0, true)),
+            *kept,
+            "{glob} on {path}"
+        );
+        let mut renamed = listed("elsewhere/renamed.txt", "renamed", 1, 0, true);
+        renamed["previous_filename"] = json!(path);
+        assert_eq!(
+            scope.matches(&renamed),
+            *kept,
+            "{glob} on a rename from {path}"
+        );
     }
 }
 

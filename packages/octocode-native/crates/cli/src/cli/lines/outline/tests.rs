@@ -10,7 +10,7 @@ fn leaves(value: &Value, out: &mut Vec<String>) {
         Value::Object(fields) => fields
             .iter()
             .filter(|(key, value)| {
-                !(*key == "offset" && **value == 0 && fields.contains_key("hasMore"))
+                !(*key == "offset" && **value == 0 && super::super::follow::is_page(fields))
             })
             .for_each(|(_, value)| leaves(value, out)),
         Value::Array(items) => items.iter().for_each(|item| leaves(item, out)),
@@ -69,7 +69,7 @@ fn a_tool_without_a_line_format_prints_every_field_as_text() {
                         "path": "README.md",
                         "content": "1\t# Title\n2\t\n3\tbody, with: colons",
                         "totalLines": 120,
-                        "pagination": {"unit": "lines", "offset": 0, "length": 3, "hasMore": true},
+                        "pagination": {"unit": "lines", "offset": 0, "length": 3},
                         "matchedLines": [1, 3],
                         "hints": ["Read on with next.nextPage."],
                         "empty": "",
@@ -99,7 +99,7 @@ fn a_tool_without_a_line_format_prints_every_field_as_text() {
             "empty: \"\"",
             "symbols[]: name line doc",
             "  Title 1 two words",
-            "# pagination: 3 lines hasMore",
+            "# pagination: lines 1-3",
             "# hints: Read on with next.nextPage.",
             "# next.nextPage: octocode localFetch '{\"cursor\":\"issued-page\"}'",
         ]
@@ -129,9 +129,7 @@ fn every_tool_prints_text_and_loses_no_leaf() {
                             "unit": "items",
                             "offset": 0,
                             "length": 1,
-                            "total": 4,
-                            "hasMore": true
-                        }
+                            "total": 4}
                     }
                 }
             ]
@@ -181,11 +179,9 @@ fn a_batch_prints_each_row_under_its_heading_in_its_line_format() {
                     "data": {"errorCode": "notFound", "error": "No such path"}
                 }
             ],
-            "responsePagination": {
-                "next": {
-                    "tool": "localSearch",
-                    "input": {"cursor": "cursor-envelope"}
-                }
+            "next": {
+                "tool": "localSearch",
+                "input": {"cursor": "cursor-envelope"}
             }
         }"#,
     );
@@ -208,7 +204,7 @@ fn a_batch_prints_each_row_under_its_heading_in_its_line_format() {
             "errorCode: notFound",
             "error: No such path",
             "# results[1] status: error",
-            "# responsePagination.next: octocode localSearch '{\"cursor\":\"cursor-envelope\"}'",
+            "# next: octocode localSearch '{\"cursor\":\"cursor-envelope\"}'",
         ]
         .join("\n")
     );
@@ -335,38 +331,21 @@ fn rows_a_table_cannot_hold_keep_their_fields() {
     }
 }
 
-/// A page's count reads `length of total unit` beside the `countScope`
-/// that says the total is a floor, never a key the JSON lacks.
+/// A page reads as its place, `unit first-last of total`: a stated total is
+/// exact, and no scope word qualifies it.
 #[test]
-fn a_loaded_count_prints_under_the_json_names() {
-    let page = |extra: Value| {
-        let mut pagination = json_fixture(
-            r#"{
-                "unit": "items",
-                "offset": 0,
-                "length": 2,
-                "total": 2,
-                "hasMore": true
-            }"#,
-        );
-        pagination
-            .as_object_mut()
-            .unwrap()
-            .extend(extra.as_object().unwrap().clone());
-        let fetched = json!({"results":[{"index":0,"data":{"pagination":pagination}}]});
-        render(ToolId::LocalFetch, &fetched, &json!({}), None)
-            .expect("text")
-            .out
-    };
-    for scope in ["loaded", "partial", "capped"] {
-        let floor = page(json!({"countScope":scope}));
-        assert!(floor.contains("2 of 2 items"), "{floor}");
-        assert!(floor.contains(&format!("countScope {scope}")), "{floor}");
-        assert!(!floor.contains("AtLeast"), "{floor}");
-    }
-    let exact = page(json!({}));
+fn a_page_count_prints_under_the_json_names() {
+    let fetched = json!({"results":[{"index":0,"data":{"pagination":
+        {"unit": "lines", "offset": 0, "length": 2, "total": 2}}}]});
+    let exact = render(ToolId::LocalFetch, &fetched, &json!({}), None)
+        .expect("text")
+        .out;
     assert!(
-        exact.contains("2 of 2 items") && !exact.contains("AtLeast"),
+        exact.contains("lines 1-2 of 2") && !exact.contains("AtLeast"),
+        "{exact}"
+    );
+    assert!(
+        !exact.contains("countScope") && !exact.contains("hasMore"),
         "{exact}"
     );
 }
@@ -386,7 +365,7 @@ fn a_replayed_answer_states_when_it_was_observed_in_the_trailer() {
     let replayed = json!({"results":[{"index":0,"data":{
         "repositories": rows,
         "observedAt":"2026-11-12T06:00:00Z",
-        "pagination":{"unit":"items","offset":0,"length":2,"total":9,"hasMore":true}}}]});
+        "pagination":{"unit":"items","offset":0,"length":2,"total":9}}}]});
     let out = render(ToolId::GhSearchRepo, &replayed, &asked, None)
         .expect("text")
         .out;

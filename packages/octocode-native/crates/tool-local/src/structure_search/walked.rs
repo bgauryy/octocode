@@ -34,6 +34,9 @@ pub(super) struct PageCut {
     pub(super) view: StructureSearchView,
     /// Each file's entry reserves the detail fields a page adds.
     pub(super) deferred_detail: bool,
+    /// The page lists its entries flat ([`rows::lists_flat`]): the listed
+    /// path as their row paths spell it ([`super::flat_prefix`]).
+    pub(super) flat: Option<String>,
     /// Serialized chars a page holds.
     pub(super) budget: usize,
     /// Rows a page holds, when capped.
@@ -172,7 +175,13 @@ impl Walked {
             #[cfg(test)]
             COST_PASSES.with(|passes| passes.set(passes.get() + 1));
             page_ranges(
-                &rows::costs(&self.rows, &cut.prefix, cut.view, cut.deferred_detail),
+                &rows::costs(
+                    &self.rows,
+                    &cut.prefix,
+                    cut.view,
+                    cut.deferred_detail,
+                    cut.flat.as_deref(),
+                ),
                 cut.budget,
                 cut.limit,
             )

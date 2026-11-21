@@ -78,6 +78,8 @@ pub(super) fn attach_relation_miss(
             ),
         }),
     );
-    out["calls"]["broadenSearch"] = lead_call(query, asked_view(q).as_ref()).build();
+    // The diagnostic counts matches this rule leaves out: the row needs the
+    // rule that returns them.
+    out["calls"]["broadenSearch"] = lead_call(query, asked_view(q).as_ref()).required().build();
     true
 }

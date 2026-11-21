@@ -157,7 +157,7 @@ fn a_read_outside_the_sparse_paths_leads_to_the_clone() {
         &security,
         &NeverCancel,
         None,
-        None,
+        false,
     );
     let error = read.error.as_deref().unwrap_or_default();
     assert!(error.contains("sparse paths (src)"), "{error}");

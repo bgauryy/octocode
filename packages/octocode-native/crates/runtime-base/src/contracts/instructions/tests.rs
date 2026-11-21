@@ -1,4 +1,4 @@
-use super::compose_instructions;
+use super::{compose_instructions, setting_instructions};
 use crate::contracts::cli_presentation;
 use crate::contracts::parsed_contract;
 use serde_json::Value;
@@ -32,7 +32,9 @@ fn composition_equals_core_for_every_enabled_set() {
             .iter()
             .filter_map(Value::as_str)
             .collect();
-        let composed = compose_instructions(presentation, |name| enabled.contains(&name));
+        let settings = &fixture["settings"];
+        let composed = compose_instructions(presentation, |name| enabled.contains(&name))
+            + &setting_instructions(presentation, |setting| settings.get(setting).cloned());
         assert_eq!(
             composed,
             fixture["text"].as_str().expect("text"),
@@ -75,6 +77,26 @@ fn every_set_stays_within_the_core_ceiling() {
             text.chars().count() as u64 <= ceiling,
             "{}",
             fixture["name"]
+        );
+    }
+}
+
+/// Every settings block is exercised by a fixture, so its text is compared
+/// with core's and counted against the ceiling.
+#[test]
+fn every_settings_block_has_a_fixture_that_serves_it() {
+    let presentation = cli_presentation().expect("presentation");
+    let blocks = presentation["instructions"]["settings"]
+        .as_array()
+        .expect("settings");
+    assert!(!blocks.is_empty());
+    for block in blocks {
+        let setting = block["setting"].as_str().expect("setting");
+        assert!(
+            fixtures()
+                .iter()
+                .any(|fixture| fixture["settings"][setting] == block["value"]),
+            "{setting}"
         );
     }
 }

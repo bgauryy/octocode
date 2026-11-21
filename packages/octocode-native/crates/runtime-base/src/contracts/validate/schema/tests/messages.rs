@@ -201,7 +201,6 @@ fn a_value_outside_its_format_names_the_format_not_its_pattern() {
     let shown = crate::contracts::validate::format_input_error(
         "ghSearchHistory",
         &error,
-        &[],
         &serde_json::Value::Null,
     );
     assert_eq!(
@@ -235,7 +234,7 @@ fn validate_input_schema_for_test(
 fn first_error(tool: &str, row: Value) -> String {
     let error =
         crate::contracts::prepare_rows(tool, json!({"queries": [row]})).expect_err("invalid row");
-    crate::contracts::validate::format_input_error(tool, &error, &[], &serde_json::Value::Null)["error"]
+    crate::contracts::validate::format_input_error(tool, &error, &serde_json::Value::Null)["error"]
         .as_str()
         .expect("message")
         .to_owned()
@@ -341,7 +340,7 @@ fn a_string_is_judged_by_the_string_form_of_its_union() {
 fn a_misplaced_field_names_every_operation_that_takes_it() {
     let shown = first_error(
         "clasify",
-        json_fixture(r#"{"operation": "models", "context": "x"}"#),
+        json_fixture(r#"{"operation": "models", "background": "x"}"#),
     );
     assert!(shown.contains("\"evaluate\""), "{shown}");
     assert!(shown.contains("\"sections\""), "{shown}");

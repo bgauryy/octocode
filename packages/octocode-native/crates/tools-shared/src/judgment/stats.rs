@@ -35,24 +35,9 @@ pub struct ClassificationUsage {
 }
 
 impl ClassificationUsage {
-    /// What a replay of this page reports: the work it did not bill again
-    /// is zero, what describes the page stays (the models, the price of the
-    /// rest of the walk, the long-context retries it took).
-    pub(crate) fn replayed(&self) -> Self {
-        Self {
-            calls: 0,
-            known_usage_calls: 0,
-            unknown_usage_calls: 0,
-            input_tokens: 0,
-            output_tokens: 0,
-            replay: true,
-            ..self.clone()
-        }
-    }
-
-    pub fn output(&self) -> octocode_contract_types::SelectionUsage {
+    pub fn output(&self) -> octocode_contract_types::ClasifySectionsUsage {
         let count = |value| saturating_i64(value);
-        octocode_contract_types::SelectionUsage {
+        octocode_contract_types::ClasifySectionsUsage {
             calls: count(self.calls),
             known_usage_calls: count(self.known_usage_calls),
             unknown_usage_calls: count(self.unknown_usage_calls),

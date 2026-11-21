@@ -22,7 +22,7 @@ fn the_repair_fits_the_field_that_held_the_credential() {
         "mainGoal",
         "reasoning",
         "instructions",
-        "context",
+        "background",
         "criteria",
         "questions.q1",
     ] {

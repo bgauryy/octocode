@@ -32,12 +32,14 @@ Chain for a call site: `localSearch` finds the text, `lspSearch` resolves the sy
 
 Lists files and directories, finds a half-known path, or ranks files by size, lines or date.
 
-- `operation:"tree"` lists a directory. `operation:"files"` is needed for sorts and filters on size, date or name.
+- `operation` is required: `"tree"` lists a directory; `"files"` takes the sorts and the filters on size, date or name. `path` defaults to `"."`, the workspace root.
+- `sort.order` is optional: names (`path`, `name`) ascend, measures (`bytes`, `totalLines`, `modifiedAt`) list the largest or newest first.
 - `view:"paths"` gives names. `view:"details"` adds bytes, lines and modified time, and reads each file to count lines.
+- A listing in directory order groups entries under their directory. A listing ranked by name, size, lines or date lists each entry as one string: its path in the form every local row takes (workspace-relative, or from the row's `root` outside the workspace), then the same fields. The path runs unchanged as `localFetch` `path`.
 - Check skipped paths when the answer depends on coverage.
 
 ```json
-{"queries":[{"operation":"files","path":".","entryType":"file","sort":{"by":"bytes","order":"desc"},"limit":1}]}
+{"queries":[{"operation":"files","entryType":"file","sort":{"by":"bytes"},"limit":1}]}
 ```
 
 ### `localSearch`
@@ -46,7 +48,7 @@ Finds text, lists the files that have or lack it, or counts occurrences.
 
 - Only `view:"content"` returns source. Read a long match's original line with `localFetch`.
 - Nothing is ranked. To find where a name is defined, use `lspSearch` or `astSearch`.
-- The default traversal returns pages in file-name order. Until the last page, `pagination.total` is a floor, and `matchCount`, `matchedLineCount` and `matchedFiles` are absent. For exact totals use `view:"countMatches"`, `view:"countLines"` or `sort:{"by":"matchCount","order":"desc"}`. These scan the whole scope before page 1.
+- The default traversal returns pages in file-name order. `pagination.total` (hit lines), `matchCount` (occurrences), `matchedLineCount` and `matchedFiles` appear once every file is counted, which can be before the last reply; a stated total is exact. For totals on the first page use `view:"countMatches"`, `view:"countLines"` or `sort:{"by":"matchCount","order":"desc"}`. These scan the whole scope before page 1.
 
 ```json
 {"queries":[{"path":"packages/octocode/src","matchString":["runCLI"]}]}
@@ -56,9 +58,11 @@ Finds text, lists the files that have or lack it, or counts occurrences.
 
 Reads a known file.
 
-- `ranges` takes up to 100 inclusive, 1-based ranges; past the end they clip with a warning. Without `ranges` or `matchString`, the whole file is read, paged.
+- `ranges` takes up to 100 inclusive, 1-based ranges; past the end they clip to `totalLines`. Without `ranges` or `matchString`, the whole file is read, paged.
 - `matchString` with `block:true` reads the enclosing declaration. For a signature only, use `contextLines`.
-- `viewFallback` names the view that was served when the requested one could not be.
+- `viewFallback` names the view that was served when the requested one could not be. A `symbols` read of a file with no outline serves the content.
+- With `block:true`, a match anywhere in a declaration reads the whole declaration with its doc comment; `blocks` names it, with `docStartLine` when the shown lines start above its name `line`.
+- A line too long for one page is read in byte pages in the same numbered format: a page that opens inside the line states `continuesLine` and its first row has no `N<TAB>` gutter.
 
 | `view` | Use |
 |---|---|
@@ -74,13 +78,17 @@ Matches code shape, not spelling: calls, imports, inheritance, declarations, and
 |---|---|
 | `match` | Nodes that fit a `rule` |
 | `syntaxTree` | Node kinds of one file, to write a rule |
-| `symbols` | Declarations by name and kind; `symbolFilter` narrows them |
+| `symbols` | Declarations by name and kind; `symbolFilter` narrows them, `include` narrows the files of a directory |
 
-- Rules use metavariables: `$X` matches one node, `$$$ARGS` zero or more.
+- Rules use metavariables: `$X` matches one node, `$$$ARGS` zero or more. Parts of a rule that share a metavariable go in `all`, which keeps their order.
+- `syntaxTree` rows are strings, one node each; with `includeProvenance` they are objects that add the byte span.
+- `content` with `parser` runs `syntaxTree` or `match` on an inline snippet in place of `path`, to test a rule before searching files. A credential in the snippet is redacted before it is parsed, as a file read shows it. Its match group names no `path`, and `includeProvenance` is refused with it.
+- `skippedGrammars` counts source files of grammars the rule does not compile in; search each with `parser`. `skippedFormats` counts files no grammar reads, such as JSON or Markdown.
 - Supported grammars: TypeScript, TSX, JavaScript, Python, Go, Rust, Java, C, Assembly, Scala, C++, CUDA and C#. A parser does not imply a language server or cross-file linking. AST matches are candidates until `lspSearch` or the source confirms them.
 
 ```json
 {"queries":[{"operation":"match","path":"packages/octocode/src","rule":{"pattern":"runCLI()"}}]}
+{"queries":[{"operation":"match","content":"foo(1); bar(2)","parser":"typescript","rule":{"pattern":"foo($A)"}}]}
 ```
 
 ### `graphBuild` and `graphQuery`
@@ -140,6 +148,7 @@ Chain for a change: `ghSearchHistory` finds the commit, `ghGetHistoryItem` reads
 Finds repositories by keyword or filter, lists an owner's repositories, or gets one.
 
 - Archived repositories are excluded unless `filters.archive` says otherwise.
+- `fields` takes only the row's own keys (the schema lists them); on `ghSearchCode` and `ghSearchHistory` too, per operation. Another key is refused before the call runs.
 - Carry the returned `owner` and `repo` into later calls.
 
 ### `ghSearchCode`
@@ -148,12 +157,18 @@ Finds a term, path or file name in GitHub's code index.
 
 - `ref` re-reads hit lines at that revision, but which files match is still decided on the default branch. For a file that exists only on another branch, start with `ghStructure`.
 - The index may not cover every file. An empty search does not prove absence.
+- Files whose hit lines are identical share one row: one `path`, the others in `alsoAt`. Count `alsoAt` entries as files. Smaller pages fold fewer files, so the row count changes with page size while the file set does not.
+- No `pagination.total` is stated when a search spans several GitHub result pages: GitHub's own count changes between pages of one search.
+- An owner-wide search states the commit that two or more rows of one repository share once, in `repoCommits` (`"<repo> <commitSha>"`); those rows omit `commitSha`.
 
 ### `ghStructure`
 
 Browses a tree, lists refs, or reports languages.
 
 - Use `ref` for another branch, tag or commit. The result names the commit; keep it with your findings.
+- `refs` without `ref` lists branch and tag names only; a glob `ref` (`"v4.*"`, or `"*"` for every ref) adds each commit SHA, and one ref name returns its `commitSha`.
+- A tree groups entries under their directory. A directory with one entry on the page is listed as that entry's repo-relative path.
+- `include` globs are relative to `path` (the repository root when omitted), as on the local tools: `"*.rs"` matches at any depth, `"src/*.rs"` only in `src` below `path`. Row paths stay repo-relative.
 - `materialize:true` downloads the selected files for local tools. `location` reports coverage and skipped files. Use it when a few paths need many searches. [Materialized store](STORAGE_AND_LIMITS.md#materialize-git-store)
 
 ### `ghGetFileContent`
@@ -175,8 +190,10 @@ Finds pull requests, issues or commits, for why, when or who questions.
 
 Reads one pull request, issue or commit, or compares two refs.
 
-- Omit `sections` for the summary. Up to 8 sections per call.
-- One file's diff: `sections:["patches"]` with `include` (a root-anchored glob).
+- Omit `sections` for the summary. Up to 8 sections per call. A `compare` summary holds both commits, their merge base (`mergeBaseCommitSha`, the old side of the diff), the ahead and behind counts and the changed file count; `next.files` and `next.commits` open the lists. `aheadBy: 0` means the base ref contains the head commit: comparing a tag (base) with a commit (head) answers whether that release holds it.
+- A commit states the pull request its message names as `pullRequest`; when it names none, the row warns and carries the search by SHA in `related`.
+- One file's diff: `sections:["patches"]` with `include`. Its globs follow the one `include` rule, read from the repository root: `"*.rs"` matches at any depth, `"src/*.rs"` only in `src`.
+- A pull request's summary names its branches `baseRef` and `headRef`, the names the `ghSearchHistory` filters and `compare` take.
 - A paged section appears in `sectionPagination`, with a matching `next.<section>` call.
 
 ### `ghCloneRepo`
@@ -213,6 +230,8 @@ Checks known advisories and published fixes for a package version, purl, URL, ad
 
 - The summary gives `affected`, `upgradeTo` and `advisoryCount` when established. `advisoryCount` 0 means no known advisory, not proof of safety. `error` means not checked. `view:"details"` gives records, sources and affected ranges.
 - Without `version`, the latest stable release is checked where the registry is read; otherwise every version is.
+- `ecosystem` spells the eight registries as `artifactSearch` does (`npm`, `pypi`, `crates`, `maven`, `nuget`, `go`, `packagist`, `rubygems`), in input and output, so one tool's row feeds the other; ecosystems only OSV covers keep OSV's names (`Debian`, `Pub`).
+- A repository is `owner` + `repo`, as on every GitHub tool; a commit is `ref` (a full SHA). `operation:"url"` takes a registry page, a purl or a GitHub URL.
 - **Availability:** the CLI offers it by default. Over MCP it is off until you set `tools.enableSecurityCheck` (or `OCTOCODE_SECURITY_CHECKS=true`) and restart. [Settings](CONFIGURATION.md#all-settings-and-defaults)
 - What each operation sends: [Advisory egress](SECURITY.md#advisory-egress).
 
@@ -220,13 +239,13 @@ Checks known advisories and published fixes for a package version, purl, URL, ad
 
 ### `clasify`
 
-Judges content that exact search cannot split, such as long documents, logs or many files, using a classification key and a configured provider.
+Reads ahead and classifies for the agent: long documents, logs, many files, paths, web pages, browser captures and PNG or JPEG images, which exact search cannot split by meaning. It needs a classification key and a configured provider.
 
 - Fresh evaluations send evidence to the provider and cost usage.
 - A row's `next.read` leads to the supporting lines. Cite those lines, not the classification.
-- Before you claim absence after a classification, check `next.nextCandidatePage` (billed), `next.unfilteredUnknown` and `next.unfiltered`.
+- A low answer is not absence: before you claim that nothing matches, run an exact search over the same scope.
 - [Setup, examples and costs](OCTOCODE_CLASIFY.md)
 
-### Context selection
+### Keep rows by meaning
 
-`classification` is supported by `localSearch`, `localFetch`, `ghSearchCode`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem` and `structureSearch`. Use a predicate to filter hits, source chunks, paths or discussion rows before you read them. Check the receipt for excluded and unknown units. [Classification guide](OCTOCODE_CLASIFY.md)
+No search or read tool takes an inline filter. Give the tool's query to `clasify` as `source: {tool, query}` with `predicates`, and each hit, path or row is answered per predicate. [Classification guide](OCTOCODE_CLASIFY.md#filter-search-hits)

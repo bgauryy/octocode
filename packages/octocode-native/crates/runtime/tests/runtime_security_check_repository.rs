@@ -18,6 +18,7 @@ fn repository(full_name: &str) -> Value {
 
 /// One `securityCheck` repository row against `server`, as the row's data.
 async fn read(server: &MockServer, repo: &str) -> Value {
+    let (owner, name) = repo.split_once('/').expect("owner/name");
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[
         ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
@@ -27,7 +28,7 @@ async fn read(server: &MockServer, repo: &str) -> Value {
         &runtime,
         "securityCheck",
         // The whole row: these tests read the repository's facts and sources.
-        json!({"operation": "repository", "repo": repo, "view": "details"}),
+        json!({"operation": "repository", "owner": owner, "repo": name, "view": "details"}),
     )
     .await
     .expect("securityCheck row");
@@ -73,7 +74,7 @@ async fn a_found_repository_reads_as_its_facts() {
     )
     .await;
     mount_no_advisories(&server, "/api/v3/repos/o/r/security-advisories").await;
-    let data = read(&server, "https://github.com/o/r?tab=readme").await;
+    let data = read(&server, "o/r").await;
     // GitHub described the repository and lists no advisory: none known.
     assert_eq!(data["sources"][0]["status"], "noneKnown", "{data}");
     assert_eq!(data["repository"]["owner"], "o", "{data}");
@@ -175,7 +176,8 @@ async fn a_spent_rate_limit_is_a_failed_source_never_clean() {
     assert_eq!(data["sources"][0]["errorCode"], "rateLimited", "{data}");
 }
 
-/// Text that names no repository is refused before GitHub is asked.
+/// A name GitHub's rules refuse is no repository: the row is refused before
+/// GitHub is asked.
 #[tokio::test]
 async fn text_that_is_no_repository_never_reaches_github() {
     let server = MockServer::builder().start().await;
@@ -187,12 +189,11 @@ async fn text_that_is_no_repository_never_reaches_github() {
     let outcome = call(
         &runtime,
         "securityCheck",
-        json_fixture(r#"{"operation": "repository", "repo": "../user"}"#),
+        json_fixture(r#"{"operation": "repository", "owner": "..", "repo": "user"}"#),
     )
     .await
-    .expect("securityCheck row");
-    let data = row_data(&outcome);
-    assert_eq!(data["errorCode"], "invalidInput", "{data}");
+    .expect_err("an invalid owner is refused");
+    assert_eq!(format!("{:?}", outcome.code), "InvalidInput", "{outcome:?}");
     assert!(
         server
             .received_requests()
@@ -328,7 +329,7 @@ async fn a_github_url_reads_as_the_repository_operation_in_a_mixed_batch() {
         json_fixture(
             r#"{
                 "queries": [
-                    {"operation": "repository", "repo": "o/r"},
+                    {"operation": "repository", "owner": "o", "repo": "r"},
                     {
                         "operation": "url",
                         "url": "https://github.com/o/r/tree/main"

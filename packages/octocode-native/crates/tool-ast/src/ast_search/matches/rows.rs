@@ -17,10 +17,6 @@ use std::sync::Arc;
 pub(super) struct MatchRow {
     pub(super) value: Value,
     pub(super) source_descriptors: Option<Arc<SourceDescriptors>>,
-    /// The lean row withheld something `includeCaptures:true` returns: a
-    /// multi-line match cut to its header (signature) followed by `…`, or
-    /// capture text the value does not show.
-    pub(super) withheld: bool,
     /// The matched node: its kind and where it lies.
     pub(super) node: MatchedNode,
 }
@@ -57,13 +53,6 @@ fn display_value(m: &StructuralDetailedMatch, capture_text: bool) -> MatchRow {
         None => m.text.clone(),
     };
     if !capture_text {
-        let hidden = |capture: &str| !capture.is_empty() && !text.contains(capture);
-        let withheld = header.is_some()
-            || m.metavar_ranges
-                .values()
-                .flatten()
-                .any(|range| hidden(&range.text))
-            || m.metavars.values().flatten().any(|value| hidden(value));
         // A row is an object named like the inputs that take it; a
         // multi-line match states its last line.
         let mut value = json!({
@@ -80,7 +69,6 @@ fn display_value(m: &StructuralDetailedMatch, capture_text: bool) -> MatchRow {
         return MatchRow {
             source_descriptors: None,
             value,
-            withheld,
             node: MatchedNode::of(m),
         };
     }
@@ -144,7 +132,6 @@ fn display_value(m: &StructuralDetailedMatch, capture_text: bool) -> MatchRow {
     MatchRow {
         source_descriptors: None,
         value,
-        withheld: false,
         node: MatchedNode::of(m),
     }
 }

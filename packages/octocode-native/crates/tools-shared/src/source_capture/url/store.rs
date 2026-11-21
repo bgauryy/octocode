@@ -101,7 +101,6 @@ impl<'a> Store<'a> {
             .ok_or_else(|| unreadable(format!("{file} has no lines")))?;
         let read = LocalFetchQueryContentRanges {
             block: None,
-            classification: None,
             limit: None,
             main_goal: None,
             path: file
@@ -113,7 +112,6 @@ impl<'a> Store<'a> {
             }],
             read_progress: None,
             reasoning: None,
-            selection: None,
             snapshot: Some(
                 snapshot
                     .parse()

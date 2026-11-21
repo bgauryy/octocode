@@ -42,7 +42,6 @@ pub fn search_in(
         security,
         &NeverCancel,
         window,
-        None,
     )
 }
 

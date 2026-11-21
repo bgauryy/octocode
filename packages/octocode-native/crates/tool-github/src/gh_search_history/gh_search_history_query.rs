@@ -55,11 +55,6 @@ pub(crate) fn keywords(query: &GhSearchHistoryQuery) -> Vec<&str> {
 pub(crate) fn fields(query: &GhSearchHistoryQuery) -> Vec<String> {
     each_query!(query, row => row.fields.iter().map(ToString::to_string).collect())
 }
-/// Whether classification judges this page's rows: `classification` is set,
-/// or a `selection` token replays or continues one.
-pub(crate) fn judged(query: &GhSearchHistoryQuery) -> bool {
-    each_query!(query, row => row.classification.is_some() || row.selection.is_some())
-}
 pub(crate) fn page(query: &GhSearchHistoryQuery) -> Option<usize> {
     each_query!(query, row => Some(saturating_usize(row.page.get())))
 }

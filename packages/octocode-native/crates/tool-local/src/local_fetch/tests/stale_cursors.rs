@@ -77,7 +77,7 @@ fn answers_after_changes(
                     octocode_engine::stamp::settle_written_so_far();
                 }
                 let page = |query: &LocalFetchQuery| {
-                    execute_local_fetch(query, &paths, &SmallSafe, &NeverCancel, Some(2_000), None)
+                    execute_local_fetch(query, &paths, &SmallSafe, &NeverCancel, Some(2_000), false)
                 };
                 let first = page(&qj(&file, fields.clone()));
                 assert_eq!(first.error_code, None, "{read}: {:?}", first.error);

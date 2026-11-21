@@ -99,12 +99,9 @@ pub(super) fn walked(
     }
 }
 
-/// The page's reads: `read` (the top hit) and `readHits`, `readHits2`, …,
-/// one per file whose hit lines were capped or cut.
+/// The page's reads: `readHits`, `readHits2`, …, one per file whose hit
+/// lines were capped, cut or not resolved.
 pub(super) fn add_reads(value: &mut serde_json::Value, reads: code_output::PageReads) {
-    if let Some(read) = reads.top {
-        value["calls"]["read"] = read;
-    }
     for (position, read) in reads.hits.into_iter().enumerate() {
         value["calls"][octocode_runtime_base::id::numbered("readHits", position)] = read;
     }
@@ -145,6 +142,8 @@ pub(super) fn disclose_completeness(
                 ToolId::GhSearchRepo,
                 json!({"operation": "list", "owner": query.owner}),
             )
+            // The only way to the matches past the window.
+            .required()
             .build();
         octocode_runtime_base::response::paging::push_warnings(
             value,
@@ -177,29 +176,52 @@ pub(super) fn disclose_completeness(
 }
 
 /// The page's `pagination` when the search pages or the page is shown in
-/// parts (`parted`): it starts after the files the walk's earlier pages
-/// listed and holds this page's files, out of the reachable total, so every
-/// part states how many files the search found. The merged searches page
-/// together, so the page count is the longest search's; `hasMore` says
-/// whether another search page follows; a page shown in parts continues as
-/// the response.
+/// parts (`part`): it starts after every file the walk has shown (the
+/// earlier pages' files and those the earlier parts of this page showed) and
+/// holds the files this response shows, out of the reachable total, so every
+/// response states where it stands in the walk. `hasMore` is true while any
+/// file of the walk is left: another search page, or the rest of this one
+/// (which continues as the response).
 pub(super) fn pagination(
     data: &SearchPage,
     current: usize,
     past_end: bool,
-    parted: bool,
+    part: Option<Part>,
 ) -> Option<serde_json::Value> {
-    (data.pages > 1 || past_end || parted).then(|| {
-        octocode_runtime_base::response::pages::PageFacts::open(
-            data.listed.earlier_count(),
-            data.items.len(),
-            current < data.pages,
-        )
-        .with_unit("files")
-        .with_total(data.total)
-        .out_of_range(past_end)
-        .to_value()
+    (data.pages > 1 || past_end || part.is_some()).then(|| {
+        let part = part.unwrap_or(Part {
+            shown: data.items.len(),
+            continues: false,
+        });
+        let before = data
+            .listed
+            .earlier_count()
+            .saturating_add(data.listed.shown_count());
+        let more = current < data.pages || part.continues;
+        let facts =
+            octocode_runtime_base::response::pages::PageFacts::open(before, part.shown, more)
+                .with_unit("files")
+                .out_of_range(past_end);
+        // Over several provider pages GitHub's match count is an estimate a
+        // walk need not deliver (rows repeat or shift between page reads),
+        // and the page's offset counts provider rows, not files delivered:
+        // no total is stated. A search that fits one provider page holds
+        // every file, so its count is exact on each part.
+        if data.pages <= 1 && !past_end {
+            facts.with_total(data.total).to_value()
+        } else {
+            facts.to_value()
+        }
     })
+}
+
+/// A response that shows part of a search page.
+#[derive(Clone, Copy)]
+pub(super) struct Part {
+    /// Files this response shows.
+    pub(super) shown: usize,
+    /// Whether files of the page are left after this response.
+    pub(super) continues: bool,
 }
 
 /// A search GitHub reported incomplete: the row is partial, with its
@@ -221,11 +243,12 @@ pub(super) fn disclose_incomplete(output: &mut ToolData, data: &SearchPage) {
 /// page states before any file is read (its `pagination`, continuation, read
 /// count, completeness and coverage) inside the response envelope, so the
 /// room left for its rows is the window less what this page adds. A part's
-/// continuation is the response's: the channel moves it to
-/// `responsePagination` ([`octocode_runtime_base::response::continuations::hoist`]), which
-/// also states the saved page's expiry, so it is measured as the pager
-/// publishes it ([`octocode_runtime_base::response::pager::continuing_block_chars`]), not as
-/// the row's `next.nextPage`.
+/// continuation is the response's: the channel states it as the reply's
+/// `next` ([`octocode_runtime_base::response::continuations::hoist`]), beside
+/// the saved page's expiry, so it is measured as the pager publishes it
+/// ([`octocode_runtime_base::response::pager::continuing_block_chars`]); a
+/// whole page's own walk is served the same way, and the page is measured
+/// as served ([`octocode_runtime_base::response::read_share::served_page_chars`]).
 pub(super) fn skeleton(
     query: &GhSearchCodeQuery,
     data: &SearchPage,
@@ -234,8 +257,11 @@ pub(super) fn skeleton(
 ) -> usize {
     let more = current < data.pages || continues;
     let mut value = json!({"files": []});
-    let parted = continues || data.listed.continues_page();
-    if let Some(pagination) = pagination(data, current, past_end, parted) {
+    let part = (continues || data.listed.continues_page()).then_some(Part {
+        shown: data.items.len(),
+        continues,
+    });
+    if let Some(pagination) = pagination(data, current, past_end, part) {
         value["pagination"] = pagination;
     }
     let hoisted = if continues {
@@ -263,7 +289,7 @@ pub(super) fn skeleton(
         },
     );
     let page = octocode_runtime_base::response::rows::envelope(ToolId::GhSearchCode, vec![row]);
-    octocode_engine::json_size::utf16_units(&page).unwrap_or(0) + hoisted
+    octocode_runtime_base::response::read_share::served_page_chars(page) + hoisted
 }
 
 /// The page's warnings about what its lines show: redacted values, rows the

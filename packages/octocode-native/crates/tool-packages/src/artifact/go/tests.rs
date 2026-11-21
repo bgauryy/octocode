@@ -370,8 +370,12 @@ fn a_go_mod_module_comment_marks_the_module_deprecated() {
         Some("Use the \"google.golang.org/protobuf\" module instead.")
     );
     let trailing = "module example.com/old // Deprecated: use example.com/new\n";
-    assert_eq!(go_deprecation(trailing).as_deref(), Some("use example.com/new"));
-    let unrelated = "// Package docs.\nmodule example.com/live\n// Deprecated: not the module comment\n";
+    assert_eq!(
+        go_deprecation(trailing).as_deref(),
+        Some("use example.com/new")
+    );
+    let unrelated =
+        "// Package docs.\nmodule example.com/live\n// Deprecated: not the module comment\n";
     assert_eq!(go_deprecation(unrelated), None);
 }
 
@@ -384,7 +388,11 @@ async fn a_package_path_takes_its_repository_and_checked_tag_from_the_proxy() {
     let rejection = json!({"code": 400, "message": "is a package, not a module"});
     let built = "bb548d0473d4e1c9b7bbfd6602c7bf12f7a84dd2";
     let http = RouteHttp::new()
-        .status("/v1/module/github.com/stretchr/testify/assert", 400, rejection)
+        .status(
+            "/v1/module/github.com/stretchr/testify/assert",
+            400,
+            rejection,
+        )
         .json(
             "/v1/package/github.com/stretchr/testify/assert",
             json!({"path": "github.com/stretchr/testify/assert",

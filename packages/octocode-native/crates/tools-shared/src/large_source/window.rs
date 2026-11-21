@@ -272,12 +272,6 @@ pub(super) fn serve_window(
             return result;
         }
         map_to_file(&mut result, &streamed);
-        if !chunked && requested_last > total {
-            // The in-memory read states the same clamp.
-            result.warnings.push(format!(
-                "Range {first}-{requested_last} adjusted to end at {total} (file end)."
-            ));
-        }
         // The read's last line: the file's for a chunk, the range's otherwise.
         let last = if chunked {
             total
@@ -287,6 +281,17 @@ pub(super) fn serve_window(
         // The lines the page returned, which the window's page budget may have
         // cut short of the window it held.
         let served = served_span(&result).unwrap_or((streamed.first, held_last));
+        if !chunked && requested_last > total && served.1 != total {
+            // The in-memory read states the same clamp, and like it only on
+            // a page that does not show the file's last line.
+            result
+                .warnings
+                .push(crate::source_view::extraction::clip_warning(
+                    first,
+                    requested_last,
+                    total,
+                ));
+        }
         if let Err(error) = continue_window(
             q,
             &mut result,

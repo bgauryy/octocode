@@ -177,7 +177,7 @@ async fn a_paged_partial_batch_discloses_oversized_pages_and_returns_rejections_
             .expect("isolated batch")
             .structured_content;
         support::checks::assert_output_contract("localSearch", &output);
-        let pagination = &output["responsePagination"];
+        let pagination = &output;
         // The rejected row rides page 1 outside its plan and measure.
         let mut planned = output.clone().into_value();
         if let Some(rows) = planned["results"].as_array_mut() {
@@ -260,8 +260,10 @@ async fn a_list_page_fits_beside_repair_notes_and_rejected_rows() {
         let output = &outcome.structured_content;
         let text = serde_json::to_string(output).expect("json");
         let first = &output["results"][0];
+        // The list page fits whole: the pager does not split it. Its own
+        // next page is the reply's `next`, served with no saved response.
         assert!(
-            first.get("rowPart").is_none() && output.get("responsePagination").is_none(),
+            first.get("rowPart").is_none() && output.get("expiresAt").is_none(),
             "{input}: the row was cut again: {text}"
         );
         assert!(
@@ -270,7 +272,7 @@ async fn a_list_page_fits_beside_repair_notes_and_rejected_rows() {
                 .is_some_and(|rows| rows.len() > 1),
             "{text}"
         );
-        assert!(first["data"]["next"]["nextPage"].is_object(), "{text}");
+        assert!(output["next"].is_object(), "{text}");
         assert!(text.len() <= window, "{input}: {} chars", text.len());
         assert!(
             output.get("warnings").is_some() || output["results"][1]["status"] == "error",

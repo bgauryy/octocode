@@ -55,7 +55,8 @@ async fn a_large_tree_lists_every_entry_once_through_opaque_continuations() {
         let page = data["files"][0]["files"].as_array().expect("entries");
         sizes.push(page.len());
         listed.extend(page.iter().map(|entry| entry.as_str().unwrap().to_owned()));
-        pending = data.pointer("/next/nextPage/input").cloned();
+        assert!(data.pointer("/next/nextPage").is_none(), "{data}");
+        pending = outcome.structured_content.pointer("/next/input").cloned();
         if let Some(input) = &pending {
             support::assert_cursor_only(input);
         }
@@ -108,9 +109,10 @@ async fn a_scoped_listing_names_repo_relative_dirs() {
     assert_eq!(
         data["files"],
         json_fixture(
+            // `pkg/src` lists one entry: its repo-relative path, flat.
             r#"[
                 {"dir": "pkg", "files": ["a.rs (1)", "src/"]},
-                {"dir": "pkg/src", "files": ["lib.rs (1)"]}
+                "pkg/src/lib.rs (1)"
             ]"#
         ),
         "{data}"
@@ -205,10 +207,8 @@ async fn a_size_rank_opens_every_level_and_leads_to_its_top_row() {
     assert_eq!(
         data["files"],
         json_fixture(
-            r#"[
-                {"dir": "node/plugins", "files": ["css.ts (1200)"]},
-                {"dir": "node", "files": ["config.ts (900)"]}
-            ]"#
+            // Each directory lists one entry here: its repo-relative path.
+            r#"["node/plugins/css.ts (1200)", "node/config.ts (900)"]"#
         ),
         "{data}"
     );
@@ -238,7 +238,14 @@ async fn walk_sorted(
         let outcome = call(runtime, "ghStructure", input).await.expect("listing");
         let data = row_data(&outcome);
         assert!(data.get("warnings").is_none(), "{data}");
-        for group in data["files"].as_array().expect("groups") {
+        for group in data["files"].as_array().expect("rows") {
+            // The root's one entry on a page is a flat row: its path, which
+            // for a root entry is its name.
+            if let Some(entry) = group.as_str() {
+                assert!(!entry.trim_end_matches('/').contains('/'), "{data}");
+                listed.push(entry.to_owned());
+                continue;
+            }
             assert_eq!(group["dir"], ".", "{data}");
             listed.extend(
                 group["files"]
@@ -249,7 +256,7 @@ async fn walk_sorted(
             );
         }
         pages += 1;
-        pending = data.pointer("/next/nextPage/input").cloned();
+        pending = outcome.structured_content.pointer("/next/input").cloned();
         if let Some(input) = &pending {
             support::assert_cursor_only(input);
         }
@@ -346,13 +353,15 @@ async fn a_sorted_tree_ranks_the_whole_listing_and_pages_it_stably() {
     )
     .await
     .expect("largest");
+    // The root's one entry on the page: its path, flat.
     assert_eq!(
         row_data(&outcome)["files"],
-        json_fixture(r#"[{"dir": ".", "files": ["b.rs (500)"]}]"#)
+        json_fixture(r#"["b.rs (500)"]"#)
     );
     // A cursor is its own request: a sort beside it is refused.
-    let cursor = row_data(&outcome)
-        .pointer("/next/nextPage/input/cursor")
+    let cursor = outcome
+        .structured_content
+        .pointer("/next/input/cursor")
         .cloned()
         .expect("cursor");
     let error = call(

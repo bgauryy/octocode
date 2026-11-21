@@ -128,6 +128,14 @@ fn api_refusals_name_what_is_missing() {
 #[tokio::test]
 async fn existing_checkout_is_not_served_to_a_caller_without_access() {
     let server = wiremock::MockServer::builder().start().await;
+    // The owner's login exists: only the repository is missing.
+    wiremock::Mock::given(wiremock::matchers::path_regex("/users/[^/]+$"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"login": "owner"})),
+        )
+        .mount(&server)
+        .await;
     let bench = Bench::at(mock_endpoint(&server));
     let provider = one_shot_provider(&server);
     answer_commit(&server, "main", ALICE, commit(&bench.fixture.first_commit)).await;
@@ -159,8 +167,15 @@ async fn existing_checkout_is_not_served_to_a_caller_without_access() {
         Path::new(&alice.location.path).join("README.md").is_file(),
         "Alice's checkout is kept"
     );
-    // Each caller pins the commit once, with their own token.
-    assert_eq!(api_calls(&server).await, [COMMITS_MAIN, COMMITS_MAIN]);
+    // Each caller pins the commit once, with their own token; Bob's missing
+    // repository then reads the owner's login (a missing owner answers
+    // like a missing repository).
+    let calls = api_calls(&server).await;
+    let (pins, owner_reads): (Vec<_>, Vec<_>) =
+        calls.iter().partition(|call| call.as_str() == COMMITS_MAIN);
+    assert_eq!(pins.len(), 2, "{calls:?}");
+    assert_eq!(owner_reads.len(), 1, "{calls:?}");
+    assert!(owner_reads[0].contains("/users/"), "{calls:?}");
 }
 
 /// A caller GitHub grants the repository is served the hit after one

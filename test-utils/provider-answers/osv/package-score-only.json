@@ -3,7 +3,7 @@
  "tool": "securityCheck",
  "query": {
   "operation": "package",
-  "ecosystem": "PyPI",
+  "ecosystem": "pypi",
   "packageName": "requests",
   "version": "2.19.0",
   "view": "details"

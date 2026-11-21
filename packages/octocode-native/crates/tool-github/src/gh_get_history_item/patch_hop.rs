@@ -6,26 +6,26 @@ use crate::gh_get_history_item::sections::Section;
 use octocode_contract_types::GhGetHistoryItemQuery;
 use octocode_runtime_base::id::ToolId;
 use octocode_runtime_base::response::result::Continuation;
-use octocode_runtime_base::response::result::wire_query;
-use octocode_tools_shared::gh_shared::commit::commit_pull_request;
 use octocode_tools_shared::gh_shared::ensure_calls;
 use serde_json::{Value, json};
 
-/// The paths of `paths` a selected-patch read of `target` can name: the
-/// ones its query contract admits in `include` (a file GitHub reported
-/// without a usable name, such as an empty one, is left out). A lead never
-/// carries a call its own tool would refuse.
+/// The `include` globs that name exactly each of `paths` in a
+/// selected-patch read of `target` ([`crate::include_globs::exact`]): the
+/// ones its query contract admits (a file GitHub reported without a usable
+/// name, such as an empty one, is left out). A lead never carries a call its
+/// own tool would refuse.
 pub(super) fn includable(target: &Value, paths: &[String]) -> Vec<String> {
     paths
         .iter()
-        .filter(|path| {
+        .filter(|path| !path.is_empty())
+        .map(|path| crate::include_globs::exact(path))
+        .filter(|glob| {
             let probe = super::util::merge(
                 target.clone(),
-                json!({"include": [path], "sections": ["patches"]}),
+                json!({"include": [glob], "sections": ["patches"]}),
             );
             serde_json::from_value::<GhGetHistoryItemQuery>(probe).is_ok()
         })
-        .cloned()
         .collect()
 }
 
@@ -173,10 +173,11 @@ pub(super) fn commit_query(q: &HistoryItemRequest, reference: &str) -> Value {
     }
     row["operation"] = serde_json::json!("commit");
     row["ref"] = serde_json::json!(reference);
+    // A diff read continues as a patches read; any other read keeps the
+    // sections it named, so a `files` walk stays a `files` read. A summary
+    // names none: its `next.files` opens the list ([`files_only`]).
     if q.include_diff() {
         row["sections"] = serde_json::json!(["patches"]);
-    } else if let Some(fields) = row.as_object_mut() {
-        fields.remove("sections");
     }
     row
 }
@@ -230,7 +231,12 @@ pub(super) fn attach_diff_continuations(
     // that finishes the patches offers the next file page.
     if let Some(page) = cursors.file_page.filter(|_| cursors.patch_offset.is_none()) {
         let mut nq = base.clone();
-        nq["page"] = json!(page);
+        // The first file page is the page a read without `page` lists.
+        if page > 1 {
+            nq["page"] = json!(page);
+        } else {
+            remove_key(&mut nq, "page");
+        }
         remove_key(&mut nq, "offset");
         files_only(&mut nq, operation);
         pin_file_page_size(&mut nq, q, q.include_diff());
@@ -263,6 +269,19 @@ pub(super) fn attach_diff_continuations(
 /// A comparison file or patch continuation reads files alone: the commit
 /// list was delivered with the page it continues.
 pub(super) fn files_only(query: &mut Value, operation: ItemOperation) {
+    // A commit read that named no section is its summary or a filtered file
+    // answer: the page that lists its files is a `files` read (a
+    // `matchString` reads patches), so the list opens instead of the
+    // summary answering again.
+    if matches!(operation, ItemOperation::Commit) && query.get("sections").is_none() {
+        let section = if query.get("matchString").is_some() {
+            "patches"
+        } else {
+            "files"
+        };
+        query["sections"] = json!([section]);
+        return;
+    }
     if !matches!(operation, ItemOperation::Compare) {
         return;
     }
@@ -287,21 +306,4 @@ pub(super) fn files_only(query: &mut Value, operation: ItemOperation) {
             vec![json!(section)]
         });
     query["sections"] = Value::Array(sections);
-}
-
-/// Commit → pull request: the PR the message names (a squash headline's
-/// `(#8506)`, a merge commit, or a `PR-URL:` trailer). A commit naming none
-/// states no route: the search by SHA is the contract's to say, not a guess
-/// lead. `message` is the whole commit message, which a patch read does not
-/// carry.
-pub(super) fn commit_pull_request_lead(message: &str, q: &HistoryItemRequest) -> Option<Value> {
-    let number = commit_pull_request(
-        message,
-        gh_get_history_item_query::owner(q),
-        gh_get_history_item_query::repo(q),
-    )?;
-    let read = wire_query::<GhGetHistoryItemQuery>(
-        json!({"operation":"pullRequest","owner":gh_get_history_item_query::owner(q),"repo":gh_get_history_item_query::repo(q),"number":number}),
-    )?;
-    Some(Continuation::related_query(read).build())
 }

@@ -1,4 +1,4 @@
-use super::leads::{declaration_read, hits_read, line_read, scoped_fragment_read, unlisted_read};
+use super::leads::{hits_read, unlisted_read};
 use super::{GhSearchCodeQuery, GhSearchCodeQueryMatchInItem, Withholds};
 use octocode_github::{CodeSearchItem, ProviderError};
 use octocode_runtime_base::security::scan::ContentScan;
@@ -18,9 +18,8 @@ pub(super) use hit_commits::{index_commits, line_commit, plan_lines, requested_r
 pub(super) use index_ref::{disclose_index_ref, index_head};
 pub(super) use line_plan::{LinePlan, Resolution};
 
-/// Optional top-hit exploration and required reads of unresolved source.
+/// The page's required reads of unresolved source, and what its lines show.
 pub(super) struct PageReads {
-    pub(super) top: Option<Value>,
     pub(super) hits: Vec<Value>,
     /// Secret-shaped values the page's lines show as placeholders.
     pub(super) redacted: usize,
@@ -41,46 +40,25 @@ fn reads_lines(query: &GhSearchCodeQuery) -> bool {
     query
         .match_in
         .contains(&GhSearchCodeQueryMatchInItem::Content)
-        && (query.classification.is_some()
-            || query.fields.is_empty()
-            || picks(query, "matches")
-            || picks(query, "matchCount"))
+        && (query.fields.is_empty() || picks(query, "matches") || picks(query, "matchCount"))
 }
 
 /// Whether this row's file stays unread, its lines and fragments unshown:
-/// the path policy withholds it under the current settings (`withholds`), or,
-/// on a classified page, the egress withholds its name whatever the setting,
-/// so nothing of it may become candidate evidence. The path is known before
-/// the read that would fetch or cache a copy.
-fn withheld_row(query: &GhSearchCodeQuery, withholds: Withholds<'_>, row: &Value) -> bool {
+/// the path policy withholds it under the current settings (`withholds`).
+/// The path is known before the read that would fetch or cache a copy.
+fn withheld_row(withholds: Withholds<'_>, row: &Value) -> bool {
     row.get("path")
         .and_then(Value::as_str)
-        .is_some_and(|path| withheld_path(query, withholds, path))
-}
-
-/// [`withheld_row`] for one path: a row's own, or the target of a symlink it
-/// reads through.
-pub(super) fn withheld_path(
-    query: &GhSearchCodeQuery,
-    withholds: Withholds<'_>,
-    path: &str,
-) -> bool {
-    if query.classification.is_some() || query.selection.is_some() {
-        octocode_runtime_base::policy::discovery::is_sensitive_repository_file(path)
-    } else {
-        withholds(path)
-    }
+        .is_some_and(withholds)
 }
 
 /// A `fields` pick names `field`.
 fn picks(query: &GhSearchCodeQuery, field: &str) -> bool {
-    query.fields.iter().any(|picked| picked.as_str() == field)
+    query
+        .fields
+        .iter()
+        .any(|picked| picked.to_string() == field)
 }
-
-/// The provider's index fragments of a row: they rank rows and feed the
-/// fallback read lead, and [`shape_files`] removes them before any row is
-/// listed.
-pub(super) const FRAGMENTS: &str = "fragments";
 
 /// A resolved listing as the row's `matches`: each listed line in the
 /// numbered-line form `"<line>\t<text>"`, as the scan holds it.
@@ -94,19 +72,6 @@ pub(super) fn shape_files(
     withholds: Withholds<'_>,
     resolution: Option<Resolution>,
 ) -> PageReads {
-    shape_rows(items, query, withholds, resolution, true)
-}
-
-/// [`shape_files`], with the page's top read lead only when `top_lead`: a
-/// row shaped alone to be measured ([`super::part`]) needs it only as the
-/// page's first row, and building a lead is most of a row's shaping.
-pub(super) fn shape_rows(
-    items: &mut [Value],
-    query: &GhSearchCodeQuery,
-    withholds: Withholds<'_>,
-    resolution: Option<Resolution>,
-    top_lead: bool,
-) -> PageReads {
     let mut hit_reads = Vec::new();
     let mut redacted = 0;
     // A withheld row lists its path only, whether or not lines were resolved:
@@ -118,7 +83,7 @@ pub(super) fn shape_rows(
     // Each row's path is judged once; shaping never changes a path.
     let unread = items
         .iter()
-        .map(|row| withheld_row(query, withholds, row))
+        .map(|row| withheld_row(withholds, row))
         .collect::<Vec<_>>();
     for (row, &unread) in items.iter_mut().zip(&unread) {
         let Some(row) = row.as_object_mut() else {
@@ -135,14 +100,6 @@ pub(super) fn shape_rows(
             }
         }
     }
-    // One read lead: the top resolved hit's lines; only without them, the
-    // index fragment (computed from the top row before it is reshaped), never
-    // a withheld file's.
-    let fragment = items
-        .first()
-        .filter(|_| top_lead && unread.first() == Some(&false))
-        .cloned();
-    let mut top = None;
     if let Some(resolution) = &resolution {
         let rows = items.iter_mut().zip(&resolution.hits).zip(&unread);
         for (at, ((row, (sha, hits)), &unread)) in rows.enumerate() {
@@ -160,13 +117,9 @@ pub(super) fn shape_rows(
                 super::lines::FileHits::Lines {
                     lines,
                     matched,
-                    first,
-                    last,
-                    best,
                     total,
-                    line_count,
-                    declaration,
                     redacted: shown_redacted,
+                    ..
                 } => {
                     redacted += shown_redacted;
                     row.insert("matches".into(), Value::Array(numbered_matches(lines)));
@@ -186,12 +139,6 @@ pub(super) fn shape_rows(
                         .and_then(|unlisted| unlisted_read(query, row, sha, unlisted))
                     {
                         hit_reads.push(read);
-                    }
-                    if top_lead && top.is_none() {
-                        top = Some(match declaration {
-                            Some(head) => declaration_read(query, row, head, sha),
-                            None => line_read(query, row, (*first, *last, *best), *line_count, sha),
-                        });
                     }
                 }
                 // A link to a withheld file: its path only, no read lead.
@@ -228,17 +175,7 @@ pub(super) fn shape_rows(
             }
         }
     }
-    // The index fragments only feed the fallback lead below; no row lists them.
-    for row in items.iter_mut().filter_map(Value::as_object_mut) {
-        row.shift_remove(FRAGMENTS);
-    }
-    let top = top.flatten().or_else(|| {
-        top_lead
-            .then(|| scoped_fragment_read(fragment.as_ref(), query, resolution.as_ref()))
-            .flatten()
-    });
     PageReads {
-        top,
         hits: hit_reads,
         redacted,
         withheld,
@@ -348,59 +285,34 @@ pub(super) fn files(
                 });
                 groups.len() - 1
             });
-        let mut matches = Vec::new();
+        let mut scores = Vec::new();
         if !path_only {
             for fragment in &item.text_matches {
-                if let Some(projected) =
-                    super::fragments::project(fragment, &item.path, &terms, security)?
-                {
-                    matches.push(projected);
-                }
+                scores.extend(super::fragments::score(
+                    fragment, &item.path, &terms, security,
+                )?);
             }
-            if matches.is_empty() {
-                matches.push((
-                    json!({"pathOnly":true}),
-                    super::ranking::score(&item.path, "", &terms),
-                ));
-            }
-        } else {
-            matches.push((json!({}), super::ranking::score(&item.path, "", &terms)));
         }
-        for (value, score) in matches {
+        if scores.is_empty() {
+            scores.push(super::ranking::score(&item.path, "", &terms));
+        }
+        for score in scores {
             groups[group_index].matches.push(super::ranking::Match {
                 path: item.path.clone(),
-                value,
                 score,
             });
         }
     }
     super::ranking::sort(&mut groups);
     let mut files: Vec<Value> = Vec::new();
-    let mut indices = HashMap::new();
+    let mut listed = std::collections::HashSet::new();
     for group in groups {
         let (owner, repo) = group.id.split_once('/').unwrap_or(("", &group.id));
         for matched in group.matches {
+            // One row per file, at its best-scoring match's rank.
             let key = (group.id.clone(), matched.path.clone());
-            let values = if path_only {
-                Vec::new()
-            } else {
-                vec![matched.value]
-            };
-            if let Some(&index) = indices.get(&key) {
-                if let Some(existing) = files
-                    .get_mut(index)
-                    .and_then(|v: &mut Value| v[FRAGMENTS].as_array_mut())
-                {
-                    existing.extend(values);
-                }
-            } else {
-                indices.insert(key, files.len());
-                let mut row = json!({"owner":owner,"repo":repo,"path":matched.path});
-                // Path matches carry no snippets.
-                if !path_only {
-                    row[FRAGMENTS] = json!(values);
-                }
-                files.push(row);
+            if listed.insert(key) {
+                files.push(json!({"owner":owner,"repo":repo,"path":matched.path}));
             }
         }
     }

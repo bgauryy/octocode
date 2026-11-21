@@ -102,30 +102,6 @@ fn the_cli_catalog_names_its_flow_command_and_no_resource() {
     assert_eq!(listed["commands"]["flow"], TOOL_FLOW_COMMAND, "{listed}");
 }
 
-#[test]
-fn selection_schema_follows_the_resolved_presentation_switch() {
-    let mut machine = machine(&[]);
-    for enabled in [false, true] {
-        machine["presentation"] = json!({ "selection": enabled });
-        for name in ["localSearch", "localFetch"] {
-            let row = tool_view(&machine, name, Some("query"), None).expect("schema");
-            let properties = &row["querySchema"]["properties"];
-            assert_eq!(properties.get("classification").is_some(), enabled);
-            assert!(
-                !row["querySchema"]["required"]
-                    .as_array()
-                    .expect("required")
-                    .contains(&json!("classification"))
-            );
-            // Private plan state is never a public row field.
-            assert!(properties.get("selection").is_none(), "{row}");
-            assert!(properties.get("cursor").is_none(), "{row}");
-        }
-    }
-    let full = tool_view(&machine, "localSearch", Some("full"), None);
-    assert!(message(full).starts_with("A tool's views"));
-}
-
 /// A second pair selects the row the presentation narrows to it; where the
 /// presentation has none, a pair a form of the operation admits selects the
 /// operation's row, and any other pair is a usage error that names the fix.
@@ -224,34 +200,6 @@ fn a_second_pair_serves_the_narrowed_row_of_the_contract() {
         assert_eq!(row["run"], whole["run"], "{name} {key}");
         assert_eq!(row["availability"], whole["availability"], "{name} {key}");
     }
-}
-
-/// Beside a classification provider `--select` serves the rows of the
-/// `selection` presentation, which carry the classification fields; without
-/// one it serves the plain rows, which carry none.
-#[test]
-fn select_follows_the_resolved_presentation_switch() {
-    let mut machine = machine(&[]);
-    let mut classified = 0;
-    let presentation = octocode_runtime_base::contracts::cli_presentation().expect("presentation");
-    for tool in super::tools(presentation) {
-        let name = tool["name"].as_str().expect("name");
-        let Some(rows) = tool["selection"]["selections"].as_object() else {
-            continue;
-        };
-        for (key, with_provider) in rows {
-            for (enabled, expected) in [(false, &tool["selections"][key]), (true, with_provider)] {
-                machine["presentation"] = json!({ "selection": enabled });
-                let row = tool_view(&machine, name, Some("query"), Some(key))
-                    .unwrap_or_else(|error| panic!("{name} {key}: {}", error.message));
-                assert_eq!(row["querySchema"], expected["querySchema"], "{name} {key}");
-                let fields = &row["querySchema"]["properties"]["classification"];
-                assert!(enabled || fields.is_null(), "{name} {key}: {fields}");
-                classified += usize::from(enabled && fields.is_object());
-            }
-        }
-    }
-    assert!(classified > 0, "no operation row takes classification");
 }
 
 #[test]

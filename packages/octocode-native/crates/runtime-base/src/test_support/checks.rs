@@ -4,10 +4,7 @@
     clippy::panic,
     reason = "fixtures for tests, compiled only for them (`test`, `test-support`): a broken fixture fails its test at once"
 )]
-use super::{
-    carried_identities, keep_workflow_lead, partial_reasons, publish_for_assertion,
-    validate_output, validate_test_input,
-};
+use super::{partial_reasons, publish_for_assertion, validate_output, validate_test_input};
 use serde_json::Value;
 
 /// No text of `response` says what a partial reason means: a row carries the
@@ -41,25 +38,24 @@ pub fn assert_output_contract(tool: &str, output: &Value) {
     validate_output(tool, &published)
         .unwrap_or_else(|error| panic!("{tool} output contract: {error:?}\n{published}"));
     assert_leads_valid(output);
-    assert_continued_listings_have_more(tool, output);
-    assert_no_fact_only_in_a_dropped_lead(tool, output);
+    assert_one_completion_rule(tool, &published);
     assert_related_promise_has_calls(tool, output);
 }
 
 /// A success row keeps what its warnings and notices promise: a note that
-/// sends the reader to `related` comes with calls there (the note is a
-/// promise `response::workflow_lead` keeps), and one that names a
-/// `next.<channel>` call comes with that call. Both hold for the row as built
-/// and as served, after the response stage drops leads (FB6 reflection: a
-/// note that names a field the row lacks costs the reader a guess).
+/// sends the reader to `related` comes with calls there, and one that names
+/// a `next.<channel>` call comes with that call. `output` is judged as
+/// given: the response stage reads and removes the producers' marks
+/// ([`crate::response::result::Continuation::required`]), so a served row
+/// cannot pass the stage's rule a second time (FB6 reflection: a note that
+/// names a field the row lacks costs the reader a guess).
 pub fn assert_related_promise_has_calls(tool: &str, output: &Value) {
     let names_related = |text: &str| {
         text.split_whitespace()
             .any(|word| word.trim_matches(|c: char| !c.is_alphanumeric()) == "related")
     };
-    let mut served = output.clone();
-    keep_workflow_lead(tool, &mut served);
-    for (stage, output) in [("built", output), ("served", &served)] {
+    {
+        let stage = "as given";
         for row in output["results"].as_array().into_iter().flatten() {
             let data = &row["data"];
             if row.get("status").is_some() || data.get("errorCode").is_some() {
@@ -103,68 +99,21 @@ fn next_channels(text: &str) -> impl Iterator<Item = &str> {
     })
 }
 
-/// No fact lives only in a lead the response stage drops: each identity a
-/// dropped related call carries (`carried_identities`) is stated by its row
-/// outside its calls, so the call is one documented request away.
-pub fn assert_no_fact_only_in_a_dropped_lead(tool: &str, output: &Value) {
-    fn states(value: &Value, identity: &str) -> bool {
-        match value {
-            Value::String(text) => text.contains(identity),
-            Value::Number(number) => number.to_string() == identity,
-            Value::Array(items) => items.iter().any(|item| states(item, identity)),
-            Value::Object(map) => map.iter().any(|(key, item)| {
-                !matches!(key.as_str(), "related" | "next") && states(item, identity)
-            }),
-            _ => false,
-        }
-    }
-    let mut lean = output.clone();
-    keep_workflow_lead(tool, &mut lean);
-    let rows = |value: &Value| value["results"].as_array().cloned().unwrap_or_default();
-    for (row, kept) in rows(output).iter().zip(rows(&lean)) {
-        let kept = kept["data"]["related"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
-        for call in row["data"]["related"].as_array().into_iter().flatten() {
-            if kept.contains(call) {
-                continue;
-            }
-            for identity in carried_identities(call) {
-                assert!(
-                    states(&row["data"], &identity),
-                    "{tool}: `{identity}` lives only in a dropped lead {call}\n{row}"
-                );
-            }
-        }
-    }
-}
-
-/// Leads that list more of the same listing a row's `pagination` counts.
-const SAME_LISTING: [&str; 3] = ["nextPage", "continueWalk", "expandScan"];
-
-/// A row whose `next.*` lists more of its own listing never says the
-/// listing ended: its `pagination.hasMore` is true.
-pub fn assert_continued_listings_have_more(tool: &str, output: &Value) {
+/// One completion rule on the wire: a served block states no `hasMore` and
+/// no `countScope` (whether more follows is the reply's top-level `next` to
+/// say, and a `total` is stated only when exact), and no reply carries the
+/// former `responsePagination` block. Checked on the published form, on
+/// every page a walk reads.
+pub fn assert_one_completion_rule(tool: &str, published: &Value) {
     fn visit(tool: &str, value: &Value) {
         match value {
             Value::Object(map) => {
-                if let (Some(pagination), Some(next)) = (
-                    map.get("pagination").filter(|p| p.get("hasMore").is_some()),
-                    map.get("next")
-                        .or_else(|| map.get("calls"))
-                        .and_then(Value::as_object),
-                ) {
-                    for name in SAME_LISTING {
-                        if next.get(name).is_some_and(|lead| lead["tool"] == tool) {
-                            assert_eq!(
-                                pagination["hasMore"], true,
-                                "{tool}: next.{name} lists more of this listing: {value}"
-                            );
-                        }
-                    }
-                }
                 for (key, child) in map {
+                    assert!(
+                        !matches!(key.as_str(), "hasMore" | "countScope"),
+                        "{tool}: a served block states {key}: {value}"
+                    );
+                    // Calls are inputs to run unchanged, not evidence.
                     if !matches!(key.as_str(), "next" | "calls" | "related") {
                         visit(tool, child);
                     }
@@ -174,7 +123,13 @@ pub fn assert_continued_listings_have_more(tool: &str, output: &Value) {
             _ => {}
         }
     }
-    visit(tool, output);
+    assert!(
+        published.get("responsePagination").is_none(),
+        "{tool}: the reply's continuation is its top-level next: {published}"
+    );
+    for row in published["results"].as_array().into_iter().flatten() {
+        visit(tool, &row["data"]);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

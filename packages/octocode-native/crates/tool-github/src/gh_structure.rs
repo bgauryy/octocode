@@ -244,26 +244,29 @@ impl Traversal {
 }
 
 /// What one listing covers: the requested directory, the depth, and the
-/// `include` globs (ORed: a path matching any is kept).
+/// `include` globs (ORed: a path matching any is kept), which read paths
+/// relative to that directory, as the local walks read theirs.
 struct Scope {
     path: String,
     depth: usize,
-    filter: Option<Vec<PathFilter>>,
+    filter: Option<crate::include_globs::IncludeGlobs>,
 }
 
 impl Scope {
     /// The listed entries of the walk: those the `include` globs keep
-    /// (matched against repository-relative paths), directory by
+    /// (matched against paths relative to the listed directory), directory by
     /// directory in path order, so a page of a deep listing carries each
     /// directory's files with its folders instead of every folder of the
     /// tree before the first file. An omitted entry stays named only when
     /// the globs keep its path too.
     fn select(&self, traversal: &mut Traversal) {
         if let Some(filter) = &self.filter {
-            let kept = |path: &str| filter.iter().any(|glob| glob.matches(path));
-            traversal.entries.retain(|entry| kept(&entry.path));
+            let kept = |path: &str, is_dir: bool| filter.matches(self.below(path), is_dir);
+            traversal
+                .entries
+                .retain(|entry| kept(&entry.path, entry.kind == EntryKind::Dir));
             for paths in traversal.omitted.values_mut() {
-                paths.retain(|path| kept(path));
+                paths.retain(|path| kept(path, false));
             }
             traversal.omitted.retain(|_, paths| !paths.is_empty());
         }
@@ -276,13 +279,28 @@ impl Scope {
         });
     }
 
+    /// `path` (repo-relative) as the globs read it: below the listed
+    /// directory.
+    fn below<'a>(&self, path: &'a str) -> &'a str {
+        if self.path.is_empty() {
+            return path;
+        }
+        path.strip_prefix(self.path.as_str())
+            .and_then(|rest| rest.strip_prefix('/'))
+            .unwrap_or(path)
+    }
+
     fn of(query: &GhStructureQueryTree) -> Result<Self, ProviderError> {
-        let filters = query
-            .include
-            .iter()
-            .map(|glob| PathFilter::new(glob))
-            .collect::<Result<Vec<_>, _>>()?;
-        let filter = (!filters.is_empty()).then_some(filters);
+        let filter = if query.include.is_empty() {
+            None
+        } else {
+            Some(
+                crate::include_globs::IncludeGlobs::new(
+                    query.include.iter().map(|glob| glob.as_str()),
+                )
+                .map_err(|error| ProviderError::new(ProviderErrorKind::Validation, error))?,
+            )
+        };
         let path = octocode_tools_shared::gh_shared::listing_path(
             query.path.as_deref().map_or("", String::as_str),
         )?;

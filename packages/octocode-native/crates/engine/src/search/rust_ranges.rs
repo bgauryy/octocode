@@ -62,7 +62,9 @@ pub fn rust_scan_ranges<S: SpanSink>(
     let Ok(()) = super::text_search::written::each_own_in(
         input,
         written,
-        |text: &str, at| Ok::<_, std::convert::Infallible>(regex.find_at(text, at).map(|m| m.range())),
+        |text: &str, at| {
+            Ok::<_, std::convert::Infallible>(regex.find_at(text, at).map(|m| m.range()))
+        },
         |found| sink.accept((found.start, found.end)),
     );
     Ok(sink)

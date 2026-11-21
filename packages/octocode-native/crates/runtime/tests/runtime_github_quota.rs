@@ -280,6 +280,163 @@ async fn a_cancel_ends_a_quota_wait_github_gives_no_reset_for() {
     runtime.close().await;
 }
 
+/// A code search against a quota spent until `reset_in` from now (then
+/// answered), under a reply budget far shorter than that wait.
+async fn spent_code_search_runtime(
+    workspace: &Workspace,
+    reset_in: std::time::Duration,
+) -> (MockServer, octocode_native::runtime::ToolRuntime) {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/code"))
+        .respond_with(spent(
+            "code_search",
+            Some(epoch_secs() + reset_in.as_secs()),
+        ))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/code"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"total_count": 0, "incomplete_results": false, "items": []}"#,
+        )))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"default_branch": "main", "full_name": "a/b"}"#,
+        )))
+        .mount(&server)
+        .await;
+    let runtime = workspace.runtime_with(
+        &[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))],
+        RuntimeLimits {
+            max_retries: 3,
+            mcp_reply_budget: reset_in / 20,
+            ..crate::support::FIXTURE_LIMITS
+        },
+    );
+    (server, runtime)
+}
+
+/// How many code searches `server` received.
+async fn code_searches(server: &MockServer) -> usize {
+    server
+        .received_requests()
+        .await
+        .expect("recorded requests")
+        .iter()
+        .filter(|request| request.url.path() == "/api/v3/search/code")
+        .count()
+}
+
+/// G3: an MCP host stops listening after its request timeout, so a row on
+/// the MCP channel whose caller set no budget does not sit out a quota wait
+/// longer than the reply budget: it answers `rateLimited` with the wait as
+/// `retryAfterSeconds` and the call that runs it again, having slept
+/// nothing (no `clientWaits`) and re-sent nothing.
+#[tokio::test]
+async fn an_mcp_row_is_refused_a_quota_wait_past_the_reply_budget() {
+    let reset_in = std::time::Duration::from_secs(3);
+    let workspace = Workspace::new();
+    let (server, runtime) = spent_code_search_runtime(&workspace, reset_in).await;
+    let asked = std::time::Instant::now();
+    let result = runtime
+        .run_mcp(
+            "mcp-quota".into(),
+            "ghSearchCode".into(),
+            crate::support::envelope(json_fixture(
+                r#"{"owner": "a", "repo": "b", "keywords": ["needle"]}"#,
+            )),
+        )
+        .await
+        .expect("the refused row");
+    let payload = crate::support::mcp_payload(&result);
+    let row = &payload["results"][0];
+    let data = &row["data"];
+    assert_eq!(row["status"], "error", "{payload}");
+    assert_eq!(data["errorCode"], "rateLimited", "{payload}");
+    let retry_after = data["rateLimit"]["retryAfterSeconds"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("the wait is named: {payload}"));
+    assert!(
+        (1..=reset_in.as_secs()).contains(&retry_after),
+        "the named wait is the quota's: {payload}"
+    );
+    assert_eq!(data["next"]["retry"]["tool"], "ghSearchCode", "{payload}");
+    assert!(
+        data.get("clientWaits").is_none(),
+        "nothing was slept: {payload}"
+    );
+    assert_eq!(code_searches(&server).await, 1, "the search is not re-sent");
+    assert!(
+        asked.elapsed() < reset_in,
+        "the row answered before the quota reset: {:?}",
+        asked.elapsed()
+    );
+    runtime.close().await;
+}
+
+/// G3: the reply budget is the MCP channel's default only. A caller's own
+/// budget on MCP says how long it listens, and the CLI's caller sets its own
+/// wait: both sit out the same quota wait and return the page, disclosing
+/// the wait as `clientWaits`.
+#[tokio::test]
+async fn a_caller_budget_and_the_cli_wait_out_the_quota_the_reply_budget_refuses() {
+    let reset_in = std::time::Duration::from_secs(3);
+    let query = || {
+        crate::support::envelope(json_fixture(
+            r#"{"owner": "a", "repo": "b", "keywords": ["needle"]}"#,
+        ))
+    };
+    let waited = |row: &serde_json::Value, shown: &serde_json::Value| {
+        assert_eq!(row["status"], "empty", "{shown}");
+        assert!(
+            row["data"]["clientWaits"]
+                .as_array()
+                .is_some_and(|waits| !waits.is_empty()),
+            "the wait is disclosed: {shown}"
+        );
+    };
+    // MCP, with the caller's own budget.
+    let workspace = Workspace::new();
+    let (server, runtime) = spent_code_search_runtime(&workspace, reset_in).await;
+    let runtime = runtime
+        .with_request_budget(reset_in * 20)
+        .expect("a caller budget");
+    let result = runtime
+        .run_mcp("mcp-budget".into(), "ghSearchCode".into(), query())
+        .await
+        .expect("the waited-for page");
+    let payload = crate::support::mcp_payload(&result);
+    waited(&payload["results"][0], &payload);
+    assert_eq!(
+        code_searches(&server).await,
+        2,
+        "sent again after the reset"
+    );
+    runtime.close().await;
+    // The CLI channel: no default bound.
+    let workspace = Workspace::new();
+    let (server, runtime) = spent_code_search_runtime(&workspace, reset_in).await;
+    let outcome = runtime
+        .run("cli-quota".into(), "ghSearchCode".into(), query())
+        .await
+        .expect("the waited-for page");
+    waited(
+        &outcome.structured_content["results"][0],
+        &outcome.structured_content,
+    );
+    assert_eq!(
+        code_searches(&server).await,
+        2,
+        "sent again after the reset"
+    );
+    runtime.close().await;
+}
+
 /// B91 r2: `clientWaits` belongs to the execution that waited. Page 1 waits
 /// out a spent code-search quota and says so; page 2, served after the
 /// quota reset, carries no wait of page 1's.
@@ -343,7 +500,7 @@ async fn a_continuation_page_carries_none_of_the_first_pages_waits() {
             .any(|wait| wait["kind"] == "quotaPacing" && wait["ms"].as_i64() > Some(0)),
         "page 1 keeps its own wait: {data}"
     );
-    let next = data["next"]["nextPage"]["input"].clone();
+    let next = first.structured_content["next"]["input"].clone();
     assert!(next.is_object(), "page 1 offers page 2: {data}");
     let second = call(&runtime, "ghSearchCode", next).await.expect("page 2");
     let data = row_data(&second);
@@ -548,17 +705,17 @@ async fn a_continuation_the_journal_answers_is_not_refused_for_a_spent_quota() {
     .await
     .expect("page 1");
     let data = row_data(&first);
-    let next = data["next"]["nextPage"]["input"].clone();
+    let next = first.structured_content["next"]["input"].clone();
     assert!(next.is_object(), "page 1 offers page 2: {data}");
     let second = call(&runtime, "ghSearchCode", next).await.expect("page 2");
     let data = row_data(&second);
-    let next = data["next"]["nextPage"]["input"].clone();
+    let next = second.structured_content["next"]["input"].clone();
     assert!(next.is_object(), "page 2 offers page 3: {data}");
     // Page 3 reads the provider page the walk doubles to, which holds page 4
     // too; its answers report the quota spent.
     let third = call(&runtime, "ghSearchCode", next).await.expect("page 3");
     let data = row_data(&third);
-    let next = data["next"]["nextPage"]["input"].clone();
+    let next = third.structured_content["next"]["input"].clone();
     assert!(next.is_object(), "page 3 offers page 4: {data}");
     let sent = server.received_requests().await.expect("recorded").len();
     let fourth = call(&runtime, "ghSearchCode", next).await.expect("page 4");
@@ -670,7 +827,9 @@ async fn a_clone_discloses_its_git_admission_cooldown_on_its_own_row() {
             .run(
                 "abuse-limited".into(),
                 "ghSearchRepo".into(),
-                crate::support::envelope(json_fixture(r#"{"keywords": ["needle"]}"#)),
+                crate::support::envelope(json_fixture(
+                    r#"{"operation": "search", "keywords": ["needle"]}"#,
+                )),
             )
             .await
             .expect("the search row");

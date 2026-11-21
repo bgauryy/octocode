@@ -364,6 +364,8 @@ fn stale_leads(value: &mut Value, empty: bool, manifest: &Value) {
         octocode_runtime_base::response::paging::push_warnings(value, [note.to_owned()]);
     }
     if let Some(lead) = health::reingest_call(manifest) {
+        // Current rows come only from a snapshot rebuilt on the tree.
+        let lead = octocode_runtime_base::response::result::required_call(lead);
         octocode_runtime_base::response::result::attach_related(value, lead);
     }
 }

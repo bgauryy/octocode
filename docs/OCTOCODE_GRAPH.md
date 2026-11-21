@@ -85,7 +85,7 @@ score = severity × confidence × (0.5 + 0.5 × rank)      ×1.1 (at most 1) per
 
 **Edges.** `calls` come from call sites. A named function passed as an argument gives a `passes` edge: an argument slot, not proof that it runs. Other value uses (assignment, return) give no edge. A bare call of a parameter, local variable or closure links to no same-named declaration and stays unresolved with reason `local-binding`. `unresolved` lists the unlinked sites and their reasons.
 
-**Pages.** Follow `responsePagination.next`, then `next.*`. A count with `hasMore` is a floor. See [continuations](TOOL_DATA_CONTRACT.md#executable-continuations).
+**Pages.** A reply with a top-level `next` is unfinished: run it until none is left. A stated `total` is exact. See [continuations](TOOL_DATA_CONTRACT.md#executable-continuations).
 
 ## Prove
 

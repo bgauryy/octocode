@@ -15,6 +15,11 @@ async fn not_found_elsewhere(server: &MockServer) {
         .await;
 }
 
+/// The login `a` exists (`GET /users/a`): only its repository is missing.
+async fn owner_exists(server: &MockServer) {
+    mount_json(server, "/api/v3/users/a", 200, json!({"login":"a"})).await;
+}
+
 async fn repository_reads(server: &MockServer) -> usize {
     server
         .received_requests()
@@ -28,6 +33,7 @@ async fn repository_reads(server: &MockServer) -> usize {
 #[tokio::test]
 async fn a_missing_repository_at_a_sha_leads_to_a_repository_search() {
     let server = MockServer::builder().start().await;
+    owner_exists(&server).await;
     not_found_elsewhere(&server).await;
     let provider = mock_provider(&server, RetryPolicy::default());
     let failure = run_default(
@@ -59,6 +65,7 @@ async fn a_missing_repository_at_a_sha_leads_to_a_repository_search() {
 #[tokio::test]
 async fn a_missing_repository_named_with_a_clone_suffix_is_repaired() {
     let server = MockServer::builder().start().await;
+    owner_exists(&server).await;
     not_found_elsewhere(&server).await;
     let provider = mock_provider(&server, RetryPolicy::default());
     let failure = run_default(
@@ -78,6 +85,41 @@ async fn a_missing_repository_named_with_a_clone_suffix_is_repaired() {
         json!(["b"]),
         "{calls}"
     );
+}
+
+/// A read under a login GitHub does not know names the owner, not the
+/// repository, and offers no call into that owner (its listing, the same
+/// read under another repository name): each would fail the same way. The
+/// name search across every owner stays.
+#[tokio::test]
+async fn a_missing_owner_is_named_and_no_lead_asks_for_it() {
+    for repo in ["b", "b.git"] {
+        let server = MockServer::builder().start().await;
+        not_found_elsewhere(&server).await;
+        let provider = mock_provider(&server, RetryPolicy::default());
+        let failure = run_default(
+            &provider,
+            json!({"owner":"a","repo":repo,"path":"README.md","ref":SHA}),
+        )
+        .await
+        .expect_err("missing owner");
+        assert_eq!(
+            failure.message,
+            octocode_tools_shared::gh_shared::owner_not_found_message("a"),
+            "{repo}"
+        );
+        let calls = failure.calls.as_deref().cloned().unwrap_or_default();
+        for (name, lead) in calls.as_object().into_iter().flatten() {
+            for row in lead["input"]["queries"].as_array().into_iter().flatten() {
+                assert!(
+                    row.get("owner").is_none(),
+                    "{name} asks for the owner: {calls}"
+                );
+            }
+        }
+        assert_eq!(calls["findRepository"]["tool"], "ghSearchRepo", "{calls}");
+        assert!(!failure.hints.is_empty(), "{repo}: the lead is labelled");
+    }
 }
 
 #[tokio::test]

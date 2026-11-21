@@ -27,7 +27,7 @@ fn a_byte_page_never_exceeds_the_callers_response_page() {
     let mut collected = String::new();
     let mut pages = 0;
     loop {
-        let read = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(500), None);
+        let read = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(500), false);
         assert_eq!(read.status, ReadStatus::Success, "{read:?}");
         let page = read.pagination.as_ref().expect("pagination");
         assert_eq!(page.unit, ReadProgressUnit::Bytes, "{page:?}");
@@ -339,8 +339,11 @@ fn a_plain_read_fills_its_page_into_the_long_line() {
     assert_eq!(page.unit, ReadProgressUnit::Bytes, "{page:?}");
     assert_eq!(page.offset, 0, "{page:?}");
     let full = octocode_tools_shared::source_view::pagination::LINE_PAGE_BYTES;
-    // The room counts text as it serializes: a line break is two characters.
-    assert_eq!(page.length + 1, full, "a full page: {page:?}");
+    // The room counts text as it serializes: a line break is two characters,
+    // and each of the page's two lines renders behind its gutter.
+    let gutters =
+        2 * octocode_tools_shared::source_view::pagination::gutter_chars(source.lines().count());
+    assert_eq!(page.length + 1 + gutters, full, "a full page: {page:?}");
     assert_eq!(
         read.source_line_ranges,
         vec![LineRange { start: 1, end: 2 }],
@@ -440,7 +443,7 @@ fn a_capture_reads_a_selection_within_its_budget_in_one_page() {
             &Safe,
             &NeverCancel,
             reader.response_window,
-            None,
+            false,
         );
         assert_eq!(read.status, ReadStatus::Success, "{name}: {read:?}");
         assert!(
@@ -495,10 +498,11 @@ fn required_pages_reconstruct_long_unicode_matched_lines_exactly_once() {
 }
 
 /// D1: a selection (`ranges` or `matchString`) that ends on a long line
-/// which is not the file's last walks that line to its end: the walk is the
-/// selection exactly once, its last page states `hasMore:false`, and every
-/// page that states `hasMore:true` carries its next call
-/// ([`walk_exactly_once`] checks the wire of each page).
+/// which is not the file's last reaches that line's end: the walk (with the
+/// line's optional read, for a match read whose first page shows every
+/// window) is the selection exactly once, its last page states
+/// `hasMore:false`, and every page that states `hasMore:true` carries its
+/// next call ([`walk_exactly_once`] checks the wire of each page).
 #[test]
 fn a_selection_ending_on_a_long_line_ends_its_walk() {
     let fixture = Fixture::new();
@@ -521,6 +525,66 @@ fn a_selection_ending_on_a_long_line_ends_its_walk() {
             let pages = walk_exactly_once(&query, &paths, window, &format!("{line}\n"));
             assert!(pages.len() > 1, "{selector} at {window:?}: a byte walk");
         }
+    }
+}
+
+/// L1: a matched long line that is not the read's last hit does not stand
+/// between its window and the next hit. Every required page holds a match
+/// (none is a page of the long line's unmatched bytes), the page after the
+/// long line's windows is the view's next line, and each long line's rest is
+/// its own optional read: the required pages and those reads are the
+/// selection exactly once ([`walk_exactly_once`] follows both).
+#[test]
+fn a_matched_long_line_does_not_delay_the_next_hit() {
+    let fixture = Fixture::new();
+    let filler = positional(48_000);
+    let long = |at: usize| format!("{}NEEDLE_HIT{}", &filler[..at], &filler[at..]);
+    let selected = format!(
+        "{}\nshort NEEDLE_HIT two\n{}\nNEEDLE_HIT last\n",
+        long(20_000),
+        long(30_000)
+    );
+    let path = fixture.write("hits.txt", format!("first\n{selected}after\n"));
+    let paths = Paths(fixture.0.clone());
+    let query = qj(
+        &path,
+        json_fixture(
+            r#"{
+                "matchString": ["NEEDLE_HIT"],
+                "contextLines": {"before": 0, "after": 0}
+            }"#,
+        ),
+    );
+    for window in [Some(2_500), None] {
+        let mut page_query = query.clone();
+        let (mut hits, mut lines_read) = (0, Vec::new());
+        loop {
+            let read = execute_local_fetch(&page_query, &paths, &Safe, &NeverCancel, window, false);
+            assert_eq!(read.status, ReadStatus::Success, "{read:?}");
+            let text = read.content.as_deref().expect("content");
+            let shown = text.matches("NEEDLE_HIT").count();
+            assert!(shown > 0, "{window:?}: a required page without a match");
+            hits += shown;
+            lines_read.extend(
+                related_rows(&read)
+                    .into_iter()
+                    .map(|row| row["ranges"].clone()),
+            );
+            let Some(next) = read.next.and_then(|next| next.continue_window) else {
+                break;
+            };
+            page_query = next.query;
+        }
+        assert_eq!(hits, selected.matches("NEEDLE_HIT").count(), "{window:?}");
+        assert_eq!(
+            lines_read,
+            [
+                serde_json::json!([{"startLine": 2, "endLine": 2}]),
+                serde_json::json!([{"startLine": 4, "endLine": 4}]),
+            ],
+            "{window:?}: each long line's rest is its own read"
+        );
+        walk_exactly_once(&query, &paths, window, &selected);
     }
 }
 

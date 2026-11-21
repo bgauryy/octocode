@@ -62,7 +62,7 @@ fn walk(
     let mut pages = Vec::new();
     let mut query = query.clone();
     loop {
-        let page = execute_local_fetch(&query, paths, scan, &NeverCancel, Some(window), None);
+        let page = execute_local_fetch(&query, paths, scan, &NeverCancel, Some(window), false);
         assert_eq!(page.error_code, None, "{page:?}");
         let next = page
             .next
@@ -94,7 +94,7 @@ fn joined(pages: &[LocalFetchResult]) -> String {
 
 /// The whole view in one page: the walk must reconstruct it exactly.
 fn one_page(query: &LocalFetchQuery, paths: &Paths) -> LocalFetchResult {
-    let page = execute_local_fetch(query, paths, &Safe, &NeverCancel, Some(50_000_000), None);
+    let page = execute_local_fetch(query, paths, &Safe, &NeverCancel, Some(50_000_000), false);
     assert_eq!(page.error_code, None, "{page:?}");
     assert!(
         page.next
@@ -274,7 +274,7 @@ fn only_a_continued_view_is_kept() {
             &Safe,
             &NeverCancel,
             Some(2_000),
-            None,
+            false,
         );
         assert_eq!(page.error_code, None, "{page:?}");
         let continues = page
@@ -322,14 +322,15 @@ fn a_changed_source_ends_a_retained_walk_as_stale() {
             &Safe,
             &NeverCancel,
             Some(2_000),
-            None,
+            false,
         );
         let next = first
             .next
             .and_then(|next| next.continue_window)
             .expect("next page");
         fs::write(&file, source.replace("value + 1", "value + 2")).expect("edit");
-        let page = execute_local_fetch(&next.query, &paths, &Safe, &NeverCancel, Some(2_000), None);
+        let page =
+            execute_local_fetch(&next.query, &paths, &Safe, &NeverCancel, Some(2_000), false);
         assert_eq!(page.error_code, Some(ErrorCode::StaleSnapshot), "{page:?}");
         assert_eq!(page.content, None);
     }

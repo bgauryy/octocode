@@ -50,20 +50,6 @@ pub(super) fn annotate_sibling_branch_fields(
         let Some(schema) = item.schema.as_mut().and_then(Value::as_object_mut) else {
             continue;
         };
-        // The one default every declaring form gives the field: a row that
-        // sends it says what omitting it says.
-        let defaults = declaring
-            .iter()
-            .map(|branch| {
-                crate::contracts::resolve_ref(&branch["properties"][field], &root["$defs"])
-                    .get("default")
-            })
-            .collect::<Vec<_>>();
-        if let Some(Some(default)) = defaults.first()
-            && defaults.iter().all(|other| *other == Some(*default))
-        {
-            schema.insert("siblingDefault".into(), (*default).clone());
-        }
         if let Some(requires) = sibling_missing_fields(root, &same_mode, value, field) {
             schema.insert("siblingRequires".into(), Value::Array(requires));
         } else if let Some(requires) = sibling_selector_values(root, &declaring, value, field) {

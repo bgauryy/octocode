@@ -32,8 +32,8 @@ fn normalised(page: &str) -> Value {
 
 fn next_input(page: &str) -> Option<Value> {
     let value: Value = serde_json::from_str(page).expect("JSON page");
-    let next = &value["responsePagination"]["next"]["input"];
-    let row = &value["results"][0]["data"]["next"]["nextPage"]["input"];
+    let next = &value["next"]["input"];
+    let row = &value["next"]["input"];
     [next, row]
         .into_iter()
         .find(|input| input.is_object())

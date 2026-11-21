@@ -1987,24 +1987,6 @@
     }
   },
   {
-    "id": "local-fetch.compact-classification",
-    "tool": "localFetch",
-    "accepted": false,
-    "input": {
-      "queries": [
-        {
-          "path": "src/cache.ts",
-          "view": "compact",
-          "classification": {
-            "predicates": [
-              "Does this expire keys?"
-            ]
-          }
-        }
-      ]
-    }
-  },
-  {
     "id": "local-fetch.byte-mode",
     "tool": "localFetch",
     "accepted": false,
@@ -2352,9 +2334,9 @@
     }
   },
   {
-    "id": "localSearch.classification",
+    "id": "localSearch.removed-classification",
     "tool": "localSearch",
-    "accepted": true,
+    "accepted": false,
     "input": {
       "queries": [
         {
@@ -2366,37 +2348,7 @@
             "predicates": [
               "Does this expire keys?"
             ],
-            "context": "Find cache expiry."
-          }
-        }
-      ]
-    },
-    "normalized": {
-      "queries": [
-        {
-          "path": "src",
-          "multiline": "off",
-          "sort": {
-            "by": "traversal",
-            "order": "asc"
-          },
-          "page": 1,
-          "matchString": [
-            "expire"
-          ],
-          "regexEngine": "literal",
-          "caseMode": "smart",
-          "wholeWord": false,
-          "classification": {
-            "predicates": [
-              "Does this expire keys?"
-            ],
-            "context": "Find cache expiry."
-          },
-          "view": "content",
-          "contextLines": {
-            "before": 0,
-            "after": 0
+            "background": "Find cache expiry."
           }
         }
       ]
@@ -2423,9 +2375,9 @@
     }
   },
   {
-    "id": "localFetch.classification",
+    "id": "localFetch.removed-classification",
     "tool": "localFetch",
-    "accepted": true,
+    "accepted": false,
     "input": {
       "queries": [
         {
@@ -2434,22 +2386,8 @@
             "predicates": [
               "Does this expire keys?"
             ],
-            "context": "Find cache expiry."
+            "background": "Find cache expiry."
           }
-        }
-      ]
-    },
-    "normalized": {
-      "queries": [
-        {
-          "path": "src/cache.ts",
-          "classification": {
-            "predicates": [
-              "Does this expire keys?"
-            ],
-            "context": "Find cache expiry."
-          },
-          "view": "content"
         }
       ]
     }
@@ -2472,9 +2410,9 @@
     }
   },
   {
-    "id": "ghSearchCode.classification",
+    "id": "ghSearchCode.removed-classification",
     "tool": "ghSearchCode",
-    "accepted": true,
+    "accepted": false,
     "input": {
       "queries": [
         {
@@ -2487,34 +2425,8 @@
             "predicates": [
               "Does this expire keys?"
             ],
-            "context": "Find cache expiry."
+            "background": "Find cache expiry."
           }
-        }
-      ]
-    },
-    "normalized": {
-      "queries": [
-        {
-          "owner": "o",
-          "repo": "r",
-          "keywords": [
-            "expire"
-          ],
-          "matchIn": [
-            "content"
-          ],
-          "contextLines": {
-            "before": 0,
-            "after": 0
-          },
-          "classification": {
-            "predicates": [
-              "Does this expire keys?"
-            ],
-            "context": "Find cache expiry."
-          },
-          "limit": 50,
-          "page": 1
         }
       ]
     }
@@ -2541,9 +2453,9 @@
     }
   },
   {
-    "id": "ghGetFileContent.classification",
+    "id": "ghGetFileContent.removed-classification",
     "tool": "ghGetFileContent",
-    "accepted": true,
+    "accepted": false,
     "input": {
       "queries": [
         {
@@ -2554,24 +2466,8 @@
             "predicates": [
               "Does this expire keys?"
             ],
-            "context": "Find cache expiry."
+            "background": "Find cache expiry."
           }
-        }
-      ]
-    },
-    "normalized": {
-      "queries": [
-        {
-          "owner": "o",
-          "repo": "r",
-          "path": "src/cache.ts",
-          "classification": {
-            "predicates": [
-              "Does this expire keys?"
-            ],
-            "context": "Find cache expiry."
-          },
-          "view": "content"
         }
       ]
     }
@@ -2953,7 +2849,7 @@
           "questions",
           "first"
         ],
-        "message": "A box question needs an image: add assets {<key>: {source}} and content that names each key."
+        "message": "A box question needs an image: an image source or resource, or assets {<key>: {source}} named in content."
       },
       {
         "path": [
@@ -2962,7 +2858,7 @@
           "questions",
           "last"
         ],
-        "message": "A box question needs an image: add assets {<key>: {source}} and content that names each key."
+        "message": "A box question needs an image: an image source or resource, or assets {<key>: {source}} named in content."
       }
     ]
   },
@@ -3111,57 +3007,6 @@
           "contextLines": {
             "before": 0,
             "after": 0
-          },
-          "limit": 50,
-          "page": 1
-        }
-      ]
-    }
-  },
-  {
-    "id": "github-code.classification-mixed-locations",
-    "tool": "ghSearchCode",
-    "accepted": true,
-    "input": {
-      "queries": [
-        {
-          "owner": "o",
-          "repo": "r",
-          "keywords": [
-            "expire"
-          ],
-          "matchIn": [
-            "path",
-            "content"
-          ],
-          "classification": {
-            "predicates": [
-              "Relevant?"
-            ]
-          }
-        }
-      ]
-    },
-    "normalized": {
-      "queries": [
-        {
-          "owner": "o",
-          "repo": "r",
-          "keywords": [
-            "expire"
-          ],
-          "matchIn": [
-            "path",
-            "content"
-          ],
-          "contextLines": {
-            "before": 0,
-            "after": 0
-          },
-          "classification": {
-            "predicates": [
-              "Relevant?"
-            ]
           },
           "limit": 50,
           "page": 1
@@ -3470,30 +3315,6 @@
         "message": "ref requires one repository."
       }
     ]
-  },
-  {
-    "id": "github-code.path-classification",
-    "tool": "ghSearchCode",
-    "accepted": false,
-    "input": {
-      "queries": [
-        {
-          "owner": "o",
-          "repo": "r",
-          "keywords": [
-            "x"
-          ],
-          "matchIn": [
-            "path"
-          ],
-          "classification": {
-            "predicates": [
-              "Relevant?"
-            ]
-          }
-        }
-      ]
-    }
   },
   {
     "id": "github-structure.tree",
@@ -5676,7 +5497,7 @@
           "content": {
             "instruction": "Restart the service after replacing credentials."
           },
-          "context": "Credential rotation",
+          "background": "Credential rotation",
           "questions": {
             "required": {
               "type": "noul",
@@ -5717,7 +5538,7 @@
     "normalized": {
       "queries": [
         {
-          "context": "Credential rotation",
+          "background": "Credential rotation",
           "questions": {
             "required": {
               "type": "noul",
@@ -6484,7 +6305,7 @@
           "questions",
           "where"
         ],
-        "message": "A box question needs an image: add assets {<key>: {source}} and content that names each key."
+        "message": "A box question needs an image: an image source or resource, or assets {<key>: {source}} named in content."
       }
     ]
   },

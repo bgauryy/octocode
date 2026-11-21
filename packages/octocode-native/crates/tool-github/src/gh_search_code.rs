@@ -1,6 +1,5 @@
 //! ghSearchCode: indexed default-branch code or path search.
 mod code_output;
-mod code_selection;
 mod cut;
 mod empty;
 mod fragments;
@@ -13,9 +12,8 @@ mod part;
 mod provider_tests;
 mod query;
 mod ranking;
+mod repo_commits;
 mod search_page;
-#[cfg(test)]
-mod selection_tests;
 
 use octocode_engine::num::saturating_usize;
 use octocode_github::{GitHubProvider, ProviderError, RequestContext};
@@ -30,7 +28,6 @@ use serde_json::json;
 
 use octocode_contract_types::{GhSearchCodeQuery, GhSearchCodeQueryMatchInItem};
 
-use code_selection::finish_code_selection;
 #[cfg(test)]
 use page_facts::index_max_file_bytes;
 use page_facts::{
@@ -112,12 +109,24 @@ pub async fn run(
                 row["page"] = json!(last);
             }
         }
-        match repo {
-            Some(repo) => with_ref_recovery(failure, &query.owner, repo),
+        match (repo, context) {
+            // A scoped search of a repository that did not resolve names
+            // the owner when no such login exists, as every read does.
+            (Some(repo), Some(context)) => {
+                octocode_tools_shared::gh_shared::failed_read::name_missing_owner(
+                    provider,
+                    with_ref_recovery(failure, &query.owner, repo),
+                    &query.owner,
+                    context,
+                )
+                .await
+            }
+            (Some(repo), None) => with_ref_recovery(failure, &query.owner, repo),
             // An owner-wide search that found no such login: the message
             // names the login, and its one hint is the spelling.
-            None if failure.error.reason
-                == Some(octocode_github::ProviderErrorReason::UserNotFound) =>
+            (None, _)
+                if failure.error.reason
+                    == Some(octocode_github::ProviderErrorReason::UserNotFound) =>
             {
                 GhFailure {
                     message: octocode_tools_shared::gh_shared::owner_not_found_message(
@@ -127,7 +136,7 @@ pub async fn run(
                 }
                 .hint(octocode_tools_shared::gh_shared::OWNER_SPELLING_HINT)
             }
-            None => failure,
+            (None, _) => failure,
         }
     })
 }
@@ -140,9 +149,12 @@ fn limit(query: &GhSearchCodeQuery) -> usize {
 
 /// Files each merged search lists per page: GitHub ANDs repeated
 /// `extension:` qualifiers, so each of `k` extensions is its own search of
-/// `ceil(per / k)` files on the same page number.
+/// `floor(per / k)` files on the same page number, and the merged page
+/// holds at most `per`. A search lists at least one file, so more
+/// extensions than `per` merge into more than `per` files: the page then
+/// shows `per` of them a part ([`execute_within`]).
 fn per_search(query: &GhSearchCodeQuery, per: usize) -> usize {
-    per.div_ceil(query.extensions.len().max(1)).max(1)
+    (per / query.extensions.len().max(1)).max(1)
 }
 
 /// [`execute_within`] with no response window: every row of the page.
@@ -232,16 +244,34 @@ async fn execute_within(
         withholds,
     )
     .await?;
+    // A response holds at most `limit` files: the merged searches of more
+    // extensions than `limit` list more ([`per_search`]), and the rest is
+    // the next part of the same page.
+    let held = items.len().min(per);
+    let capped = held < items.len();
     // The page reads the files of the rows its window holds; the rest is the
     // next part of the same page.
     let (resolution, unshown) = match plan {
         Some(mut plan) => {
             let endpoint = provider.transport.endpoint();
-            let room = part::budget(query, window, |continues| {
-                skeleton(query, &data, (current, past_end, continues), endpoint)
+            // A capped page is never shown whole: its rows have a part's room.
+            let room = part::budget(window, |continues| {
+                skeleton(
+                    query,
+                    &data,
+                    (current, past_end, continues || capped),
+                    endpoint,
+                )
             });
             let shown = part::read(
-                &mut plan, &items, query, withholds, room, provider, context, security,
+                &mut plan,
+                &items[..held],
+                query,
+                withholds,
+                room,
+                provider,
+                context,
+                security,
             )
             .await?;
             let unshown = items.split_off(shown.rows);
@@ -249,7 +279,7 @@ async fn execute_within(
             resolution.cut(&shown.cuts, plan.window());
             (Some(resolution), unshown)
         }
-        None => (None, Vec::new()),
+        None => (None, items.split_off(held)),
     };
     let within = (!unshown.is_empty()).then(|| {
         data.listed.state_within(items.iter().filter_map(|row| {
@@ -260,8 +290,8 @@ async fn execute_within(
             ))
         }))
     });
-    // `pagination` counts search pages; the rest of a page is this
-    // response's own continuation (`continues_page`).
+    // The rest of a page is this response's own continuation
+    // (`continues_page`); `pagination` counts it as files left.
     let more_pages = current < data.pages;
     let continues_page = within.is_some();
     let more = more_pages || continues_page;
@@ -273,16 +303,18 @@ async fn execute_within(
     }
     let reads = code_output::shape_files(&mut items, query, withholds, resolution);
     disclose_reads(&mut value, &reads, context);
+    // Rows of identical evidence merge into one; the page counts files.
+    let shown_files = items.len();
     code_output::merge_identical(&mut items);
     value["files"] = json!(items);
-    // The shared sanitizer and selector need the captured hit evidence.
-    // A classified response applies the caller's projection after selection.
-    if query.classification.is_none() {
-        let fields = field_names(&query.fields);
-        pick_rows(&mut value, "files", CODE_ROW_ID, &fields);
-    }
-    let parted = continues_page || data.listed.continues_page();
-    if let Some(pagination) = pagination(&data, current, past_end, parted) {
+    let fields = field_names(&query.fields);
+    pick_rows(&mut value, "files", CODE_ROW_ID, &fields);
+    repo_commits::state(&mut value);
+    let part = (continues_page || data.listed.continues_page()).then_some(page_facts::Part {
+        shown: shown_files,
+        continues: continues_page,
+    });
+    if let Some(pagination) = pagination(&data, current, past_end, part) {
         value["pagination"] = pagination;
     }
     // Every page of a ref search states the index scope (a page can be read
@@ -343,16 +375,6 @@ const CODE_ROW_ID: &[&str] = &[
     "commitSha",
 ];
 
-/// This tool's selection finish for the shared response stages.
+/// This tool's output for the shared response stages.
 pub struct Output;
-impl octocode_runtime_base::response::output::ToolOutput for Output {
-    fn finish_selection(
-        &self,
-        data: &mut serde_json::Value,
-        _query: &serde_json::Value,
-        hidden: &[serde_json::Value],
-        _removed: &[serde_json::Value],
-    ) {
-        finish_code_selection(data, hidden);
-    }
-}
+impl octocode_runtime_base::response::output::ToolOutput for Output {}

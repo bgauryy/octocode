@@ -23,7 +23,6 @@ fn run_rows(lead: &Value, root: &std::path::Path) -> Vec<usize> {
                 &ContentSecurity::new(),
                 &NeverCancel,
                 None,
-                None,
             )
             .expect("lead runs")
             .files

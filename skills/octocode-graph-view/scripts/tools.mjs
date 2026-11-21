@@ -1,5 +1,6 @@
-// Octocode tool calls followed to their end: responsePagination.next first, then every `next.*` continuation
-// of kind `continue` (one chain per result row). Reassembled responses reach onPage without duplicate fragments.
+// Octocode tool calls followed to their end: the reply's top-level `next` until no reply carries one (it
+// continues every unfinished row), then every row `next.*` branch of kind `continue`. Reassembled responses
+// reach onPage without duplicate fragments.
 import { octocode } from './lib.mjs';
 import { isDeepStrictEqual } from 'node:util';
 
@@ -130,23 +131,15 @@ function fragmentJoiner(tool, schema) {
   return { rows, add, finish };
 }
 
-// The serialized response's next page; null once it is complete. hasMore without a call is a defect.
+// The reply's one continuation; null once no reply carries it: the answer is then read to its end.
 function nextResponseCall(page, call) {
-  const next = page.responsePagination?.next;
-  if (next?.input) return { tool: next.tool ?? call.tool, input: next.input };
-  if (page.responsePagination?.hasMore) throw new Error('Response evidence ends without a required continuation');
-  return null;
+  const next = page.next;
+  return next?.input ? { tool: next.tool ?? call.tool, input: next.input } : null;
 }
 
-// The last row per query index states whether that query continues; a continuing row must carry its call.
-function requireRowContinuations(rows, tool) {
-  const last = new Map(rows.map((row) => [row.index,row]));
-  for (const row of last.values()) if ((row.data?.pagination?.hasMore || row.data?.hasMore) && !rowContinuations(row,tool).length) throw new Error(`${tool} evidence ends without a required continuation`);
-}
-
-// Finish the serialized response before following any tool-level branch. All consumers
+// Follow the reply's `next` to its end before following any row branch. All consumers
 // share this join so long strings and nested rows are never mistaken for extra results.
-// Complete slices from a hoisted tool walk keep the same index and remain separate.
+// Each later page of a row keeps the row's index and remains a separate slice.
 export async function readResponse(tool, input, { run = runTool, onPage = () => {}, collectionPaths, collectionRefs } = {}) {
   const seen = new Set();
   const fragments = fragmentJoiner(tool, collectionPaths ? {collectionPaths,collectionRefs} : undefined);
@@ -162,16 +155,15 @@ export async function readResponse(tool, input, { run = runTool, onPage = () => 
     call = nextResponseCall(page, call);
   }
   fragments.finish();
-  requireRowContinuations(fragments.rows, tool);
-  delete combined.responsePagination;
+  for (const key of ['next', 'expiresAt', 'replayed']) delete combined[key];
   return combined;
 }
 
-// Continuations a response hands back: the serialized-response page first (TOOL_DATA_CONTRACT), then each row's.
+// Continuations a response hands back: the reply's own `next` first (TOOL_DATA_CONTRACT), then each row's branches.
 const rowContinuations = (row, tool) => Object.values(row?.data?.next ?? {}).filter((c) => c?.kind === 'continue' && c.input).map((c) => ({ tool: c.tool ?? tool, input: c.input }));
 export function continuations(page, tool) {
-  const rp = page?.responsePagination?.next;
-  if (rp?.input) return [{ tool: rp.tool ?? tool, input: rp.input }];
+  const reply = page?.next;
+  if (reply?.input) return [{ tool: reply.tool ?? tool, input: reply.input }];
   return (page?.results ?? []).flatMap((row) => rowContinuations(row, tool));
 }
 

@@ -37,7 +37,7 @@ Use observed paths, lines, refs and identifiers. Shared fields have one form: `m
 
 Inspect schema availability, auth status and `lsp-server status <file>` as needed. Unavailable is a coverage gap, not an empty answer. `ghCloneRepo` requires persistent storage when invoked.
 
-Follow [configuration](configuration.md) for credentials/settings. Inline `classification:{predicates:[...],context?,longContext?}` requires `OCTOCODE_CLASSIFICATION_API` or classification.api. Without the key, both surfaces leave out clasify and those fields; a CLI call answers `missingConfiguration`. Discovery makes no provider request. No setting change is implied by a missing capability.
+Follow [configuration](configuration.md) for credentials/settings. `clasify` requires `OCTOCODE_CLASSIFICATION_API` or classification.api. Without the key, both surfaces leave out clasify; a CLI call answers `missingConfiguration`. Discovery makes no provider request. No setting change is implied by a missing capability.
 
 ## Read results and recover
 
@@ -45,12 +45,11 @@ Inspect every `results[]` row's index (its position in the request's `queries`),
 
 | Result signal | Required action / meaning |
 |---|---|
-| `responsePagination.next`, else `next.nextPage` | Run in that order until neither remains. Send `{tool,input:{cursor}}`'s `input` whole to its tool. |
-| `rowPart{part,of}` | Read every part of the split row and join them in order: `rowPart.continues` names the array element a part resumes, `rowPart.text` the string its value appends to. |
-| `pagination{hasMore}` or `sectionPagination.<collection>` | Continue the same loop; each file, patch, source, diagnostic or history collection can remain incomplete independently. |
-| Other `next.<name>` | Branch, not page. Run it before claiming what it covers. |
-| Claim complete | No `hasMore:true` or `next` covering that claim, with or without a paging object. |
-| `isPartial`, `countScope` other than `complete` | Incomplete: name the gap or narrow scope. `pagination.total` is then a floor; `capped` is the reachable count. |
+| Top-level `next` | The reply is unfinished: send `{tool,input:{cursor}}`'s `input` whole to its tool, and repeat until a reply carries none. One call continues every unfinished row; append its rows to the row with the same `index`. |
+| `rowPart{part,of}` | A row split over replies: join its parts in order. `rowPart.continues` names the array element a part resumes, `rowPart.text` the string its value appends to. |
+| A row's `next.<name>` | Branch, not page (another section, a recovery, a wider scan). Run it before claiming what it covers. |
+| Claim complete | No top-level `next` left, and no row branch covering that claim. |
+| `isPartial`, `partialReasons` | Incomplete: name the gap or narrow scope. A stated `pagination.total` is exact; while pages remain or a count is capped, none is stated. |
 | `warnings` | Read the factual disclosures; use the coverage fields to decide what remains unread. A warning alone does not mean incompleteness. |
 | `staleSnapshot` | Discard old snapshot pages; run `next.restart`. |
 
@@ -58,9 +57,9 @@ Use literal emitted keys. Finish every continuation needed for the claim or name
 
 `related[]` contains `{tool,input:{queries:[...]}}` for optional fresh work; its calls may widen scope (hidden or ignored paths). Successful answers omit routine advice while preserving calls with otherwise unstated identity or required by a warning. `hints[]` is prose recovery for empty results or errors. Input errors name fields to correct; no repair call silently changes scope. Terminal limits require a narrower or different query, never an invented cursor.
 
-Absence needs unfiltered pages: `includeHidden:true`, `includeIgnored:true`, `defaultExcludes:false` and no `classification`. `status:"empty"` with skipped paths or `unknownItems>0` is not absence.
+Absence needs an exact search over the whole scope: `includeHidden:true`, `includeIgnored:true`, `defaultExcludes:false`, never `clasify` answers. `status:"empty"` with skipped paths is not absence.
 
-Classification receipts describe candidate decisions, not corpus completeness. Selected, related, excluded and unknown evidence have different meanings. `next.nextCandidatePage` completes a selected list; use `next.unfilteredUnknown` to inspect unresolved candidates and `next.unfiltered` before an absence or count claim, including after an empty classified result; `next.read` is the read needed to cite clasify lines.
+`clasify` answers are judgments about the rows or sources it was given, not corpus completeness. To keep rows by meaning, give it the search or listing as `source:{tool, query}` with `predicates:[...]`: each row answers as `p1`, `p2`, … and `coverage` counts the units answered. the reply's `next` judges the source's next page (billed), `next.retry` reruns failed units, `next.confirm` runs a refused over-budget row, `next.quiet` lists units a summary left out; `next.read` is the read needed to cite clasify lines.
 
 Cursor handles are bound to tool, access context and saved state. Memory-mode handles die with the runtime; persistent state may resume across processes. Expired or foreign handles fail without contacting the provider. Restart explicitly from the original request when required.
 

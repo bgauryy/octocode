@@ -37,7 +37,7 @@ fn walk(query: LocalFetchQuery, paths: &Paths, window: usize) -> Vec<LocalFetchR
         )
         .expect("canonical input");
         let admitted = serde_json::from_value(row).expect("admitted");
-        let page = execute_local_fetch(&admitted, paths, &Safe, &NeverCancel, Some(window), None);
+        let page = execute_local_fetch(&admitted, paths, &Safe, &NeverCancel, Some(window), false);
         assert_eq!(page.error_code, None, "{:?}", page.error);
         call = page
             .next

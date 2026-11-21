@@ -8,7 +8,7 @@ use super::{ContentRequest, ContentResponse, GitHubProvider, is_full_sha};
 use crate::{ProviderError, ProviderErrorKind, RequestContext, RequestSpec, ResponsePage};
 
 /// GitHub's raw media type: a file's own bytes instead of a JSON payload.
-const RAW_MEDIA_TYPE: &str = "application/vnd.github.raw";
+pub(super) const RAW_MEDIA_TYPE: &str = "application/vnd.github.raw";
 
 impl GitHubProvider {
     /// A file's own bytes at a commit: the one GitHub file read (auth,

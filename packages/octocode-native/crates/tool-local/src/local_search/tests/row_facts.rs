@@ -135,34 +135,6 @@ fn a_merged_window_inside_one_declaration_names_it_once() {
     assert!(row["enclosing"].is_u64(), "{out}");
 }
 
-/// A miss under a narrowing file filter widens one folder up under the same
-/// filter: the lead keeps the include, so it claims nothing of the files the
-/// filter leaves out.
-#[test]
-fn a_miss_under_a_one_file_include_widens_under_the_include() {
-    let dir = tempfile::tempdir().expect("fixture");
-    let root = dir.path().canonicalize().expect("real root");
-    fs::create_dir_all(root.join("src")).expect("dir");
-    fs::write(root.join("src/two.rs"), "fn two() {}\n").expect("fixture");
-    fs::write(root.join("other.rs"), "const ZETA: u8 = 1;\n").expect("fixture");
-    let out = served(
-        &root,
-        json!({"path": root.join("src"), "include": ["two.rs"], "matchString": ["ZETA"]}),
-    );
-    let hints = data(&out)["hints"].to_string();
-    assert!(hints.contains("one folder up"), "{out}");
-    let lead = octocode_runtime_base::test_support::checks::related_call(
-        data(&out),
-        "localSearch",
-        |input| input["queries"][0]["path"] == ".",
-    );
-    assert_eq!(
-        lead["input"]["queries"][0]["include"],
-        json!(["two.rs"]),
-        "{out}"
-    );
-}
-
 /// A count view over two terms states each file's count per term on its
 /// first page, as on any other.
 #[test]
@@ -305,7 +277,11 @@ fn a_finished_walk_writes_no_sampled_key() {
     fs::write(root.join("a.txt"), "needle\n").expect("fixture");
     let (policy, security) = policy_for(&root);
     let searched = served(&root, json!({"path": root, "matchString": ["needle"]}));
-    let listed = list_structure(json!({"path": root}), &policy, &security);
+    let listed = list_structure(
+        json!({"operation": "tree", "path": root}),
+        &policy,
+        &security,
+    );
     for out in [data(&searched).to_string(), listed] {
         assert!(out.contains("skippedPaths"), "{out}");
         assert!(!out.contains("sampled"), "{out}");

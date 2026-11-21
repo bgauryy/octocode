@@ -6,7 +6,7 @@ use super::layout::*;
 use super::local_search_query;
 use super::types::*;
 use octocode_contract_types::LocalSearchQuery;
-use octocode_engine::num::{saturating_u32, saturating_usize};
+use octocode_engine::num::saturating_u32;
 use octocode_engine::types::CapReason;
 
 /// What the scan could not cover, and how the row says so.
@@ -242,109 +242,61 @@ impl Coverage {
         warnings
     }
 
-    /// Nothing this scan skipped explains an empty page: the same search
-    /// over a wider path would read what this one read, and more. A skipped
-    /// target (over a size ceiling, binary) would be skipped there again, and
-    /// so would the files a key path leaves out.
-    pub(super) fn plain_miss(&self) -> bool {
-        self.skip_hint.is_none() && self.key_path_miss.is_none()
+    /// The empty row's fact when include/exclude left the walk no file: the
+    /// globs matched none, or only files the security path policy withholds
+    /// ([`octocode_runtime_base::policy::include::glob_miss_hint`]).
+    fn scope_miss_hint(&self) -> String {
+        octocode_runtime_base::policy::include::glob_miss_hint(self.withheld).into_owned()
     }
 
-    /// A scope miss stands only while no skipped path may hold a match: then
-    /// the skip, not include/exclude, is why nothing was searched.
-    pub(super) fn skipped_paths_hold_matches(&mut self, hints: &mut Vec<String>) {
-        self.scope_miss = false;
-        hints.retain(|hint| hint != SCOPE_MISS_HINT);
+    /// The empty row's fact when `keyPath` left out every file in scope.
+    pub(super) fn key_path_miss_hint(&self) -> Option<String> {
+        self.key_path_miss.map(key_path_miss_hint)
     }
 
-    /// Remove the path and glob advice of a search that found nothing to
-    /// walk or filter: it does not hold where the scope is a checkout of
-    /// some of its repository.
-    pub(super) fn drop_generic_scope_hints(hints: &mut Vec<String>) {
-        hints.retain(|hint| hint != SCOPE_MISS_HINT && hint != NOTHING_WALKED_HINT);
-    }
-
-    /// An empty row's one per-call fact beyond `status` and `filesScanned`;
-    /// unreadable paths and a binary cut are stated once, in `warnings`. A
-    /// plain miss has none: the status and the scanned count already say it.
-    pub(super) fn empty_hints(&self, empty: bool) -> Vec<String> {
-        if !empty {
-            return vec![];
-        }
-        if let Some(left_out) = self.key_path_miss {
-            vec![key_path_miss_hint(left_out)]
+    /// An empty row's fact about its scope: include/exclude matched no
+    /// file, nothing was under the path, or the one target file was
+    /// skipped. `sparse`: the scope is a checkout of some of its
+    /// repository, where the path and glob advice does not hold (the row's
+    /// warning says what is on disk). Unreadable paths are stated in
+    /// `warnings`; a plain miss has none.
+    pub(super) fn scope_hint(&self, sparse: bool) -> Option<String> {
+        if self.key_path_miss.is_some() {
+            None
         } else if self.scope_miss {
-            vec![SCOPE_MISS_HINT.into()]
+            (!sparse).then(|| self.scope_miss_hint())
         } else if self.nothing_walked && self.withheld == 0 && self.error_count == 0 {
-            vec![NOTHING_WALKED_HINT.into()]
+            (!sparse).then(|| NOTHING_WALKED_HINT.into())
         } else if self.error_count > 0 {
-            vec![]
-        } else if let Some(hint) = &self.skip_hint {
-            vec![hint.clone()]
+            None
         } else {
-            vec![]
+            self.skip_hint.clone()
         }
-    }
-
-    /// An empty page's one absence sentence: what it searched and what it did
-    /// not, as counts, and the `step` its lead takes. Entries the path policy
-    /// withholds are counted, never hedged over: no setting lifts them, so no
-    /// search could read them. Text a read masks as a secret is never
-    /// matched ([`MASKED_UNSEARCHED`]): the sentence says so when the
-    /// searched files hold masked spans (`masked`), a count that does not
-    /// depend on the pattern, so it tells nothing of what a mask hides.
-    pub(super) fn absence(
-        &self,
-        view: super::local_search_query::View,
-        (files_searched, binary_skipped): (u32, u32),
-        masked: bool,
-        step: Option<String>,
-    ) -> String {
-        use octocode_engine::text::counted;
-        let withheld = self.withheld;
-        let files = counted(files_searched, "searched file", "searched files");
-        let mut sentence = if view == super::local_search_query::View::FilesWithout {
-            format!("Every one of {files} matches")
-        } else {
-            format!("No match in {files}")
-        };
-        let unsearched = [
-            (
-                saturating_usize(binary_skipped),
-                "binary file",
-                "binary files",
-            ),
-            (
-                withheld,
-                "entry the path policy withholds",
-                "entries the path policy withholds",
-            ),
-        ]
-        .into_iter()
-        .filter(|(count, ..)| *count > 0)
-        .map(|(count, one, many)| counted(count, one, many))
-        .collect::<Vec<_>>();
-        if !unsearched.is_empty() {
-            sentence.push_str("; not searched: ");
-            sentence.push_str(&unsearched.join(", "));
-        }
-        if masked {
-            sentence.push_str("; ");
-            sentence.push_str(MASKED_UNSEARCHED);
-        }
-        if let Some(step) = step {
-            sentence.push_str("; ");
-            sentence.push_str(&step);
-        }
-        sentence.push('.');
-        sentence
     }
 }
 
-/// What no search matches, stated on an empty page whose files hold masked
-/// spans: the text a read
-/// masks as a secret, and the placeholders it shows there.
-pub(super) const MASKED_UNSEARCHED: &str = "masked secrets are not searched";
+/// What an empty page over files holding `masked` masked spans says: text
+/// a read masks as a secret is matched by no search. With nothing else left
+/// out everything else was searched, so the absence is exact outside those
+/// values; when the walk also left paths out (`left_out`: withheld, ignored,
+/// hidden, excluded, unreadable or binary) the sentence leaves them out too
+/// and proves no absence beyond the text searched.
+pub(super) fn masked_hint(masked: u32, left_out: bool) -> String {
+    let masked = masked_unsearched(masked);
+    if left_out {
+        format!("No match in the searched text; {masked}, and skippedPaths were not searched.")
+    } else {
+        format!("No match in the searched text; {masked}, so absence is proven everywhere else.")
+    }
+}
+
+/// What a miss over `masked` masked spans leaves out, as a clause: the
+/// wording a read's miss uses too.
+pub(super) fn masked_unsearched(masked: u32) -> String {
+    octocode_tools_shared::source_view::masked_unsearched(
+        usize::try_from(masked).unwrap_or(usize::MAX),
+    )
+}
 
 /// The empty row's fact when the walk found no file at all, with no
 /// include/exclude, test-code scope or skip to blame.
@@ -359,9 +311,6 @@ fn key_path_miss_hint(left_out: u32) -> String {
         octocode_engine::text::counted(left_out, "file", "files")
     )
 }
-
-/// The empty row's fact when include/exclude left the walk no file.
-const SCOPE_MISS_HINT: &str = octocode_runtime_base::policy::include::GLOB_MISS_HINT;
 
 /// A query that explicitly targets a single file which the engine then skips
 /// (e.g. over the per-file byte ceiling, surfaced as `capReason:"fileTooLarge"`

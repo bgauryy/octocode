@@ -44,7 +44,7 @@ async fn row_in(github: &Double, view: octocode_contract_types::SecurityCheckVie
     let config = crate::security_check::tests::default_config();
     crate::security_check::commit(
         SHA,
-        Some("lodash/lodash"),
+        Some(("lodash", "lodash")),
         None,
         Map::new(),
         view,
@@ -98,7 +98,7 @@ async fn a_signed_commit_reads_as_its_facts_and_never_as_affected() {
     assert_eq!(data["advisories"], json!([]), "{data}");
     assert_eq!(
         data["related"][0]["input"]["queries"][0],
-        json_fixture(r#"{"operation": "repository", "repo": "lodash/lodash"}"#),
+        json_fixture(r#"{"operation": "repository", "owner": "lodash", "repo": "lodash"}"#),
         "{data}"
     );
 }
@@ -416,7 +416,7 @@ async fn row_with_osv_record(github: &Double, record: Value) -> Value {
     let config = crate::security_check::tests::default_config();
     crate::security_check::commit(
         SHA,
-        Some("lodash/lodash"),
+        Some(("lodash", "lodash")),
         None,
         Map::new(),
         octocode_contract_types::SecurityCheckView::Details,
@@ -599,7 +599,7 @@ fn osv_record_aliased(id: &str, alias: &str) -> Value {
 /// One `commit` call over `http`, resumed or not.
 async fn commit_call(
     http: &RouteHttp,
-    repo: Option<&str>,
+    repo: Option<(&str, &str)>,
     resume: Option<&str>,
     github: &Double,
 ) -> Value {
@@ -634,7 +634,7 @@ async fn an_unfinished_osv_walk_names_no_repository_advisory_as_not_known_to_aff
         .commit(signed(&["main"], Some(true)))
         .page(None, published.clone(), None);
     let http = first_page_then_a_failure(osv_record_aliased("OSV-1", &published[0].ghsa_id));
-    let data = commit_call(&http, Some("lodash/lodash"), None, &github).await;
+    let data = commit_call(&http, Some(("lodash", "lodash")), None, &github).await;
     assert!(
         data["sources"].to_string().contains("partial"),
         "the OSV walk is unfinished: {data}"
@@ -668,7 +668,7 @@ async fn the_final_page_of_an_osv_walk_merges_twins_and_names_the_others_from_th
             .page(None, published.clone(), None)
     };
     let first = first_page_then_a_failure(osv_record_aliased("OSV-1", &published[0].ghsa_id));
-    let stopped = commit_call(&first, Some("lodash/lodash"), None, &github()).await;
+    let stopped = commit_call(&first, Some(("lodash", "lodash")), None, &github()).await;
     let resume = stopped["next"]["nextPage"]["input"]["queries"][0]["resume"]
         .as_str()
         .expect("a call that reads on")
@@ -679,7 +679,7 @@ async fn the_final_page_of_an_osv_walk_merges_twins_and_names_the_others_from_th
         json!({"vulns": [osv_record_aliased("OSV-2", &published[1].ghsa_id)]}),
     )]);
     let finished = github();
-    let data = commit_call(&rest, Some("lodash/lodash"), Some(&resume), &finished).await;
+    let data = commit_call(&rest, Some(("lodash", "lodash")), Some(&resume), &finished).await;
     // Two advisories, counted once each; the details list OSV's two records
     // and GitHub's twin of each, whole.
     assert!(
@@ -702,24 +702,6 @@ async fn the_final_page_of_an_osv_walk_merges_twins_and_names_the_others_from_th
     assert!(
         data["next"]["nextPage"].is_null(),
         "the walk is finished: {data}"
-    );
-}
-
-#[tokio::test]
-async fn a_repo_that_is_not_on_github_says_it_was_not_read_there() {
-    use crate::security_check::osv_double::OsvPages;
-    let github = Double::repo(found());
-    let http = RouteHttp::new().osv_pages(vec![(200, json!({}))]);
-    let data = commit_call(&http, Some("https://gitlab.com/o/r"), None, &github).await;
-    let warnings = data["warnings"].to_string();
-    assert!(
-        warnings.contains("https://gitlab.com/o/r is not a GitHub repository")
-            && warnings.contains("not read on GitHub"),
-        "{data}"
-    );
-    assert!(
-        !data["sources"].to_string().contains("github"),
-        "no GitHub entry for a repository GitHub was never asked about: {data}"
     );
 }
 

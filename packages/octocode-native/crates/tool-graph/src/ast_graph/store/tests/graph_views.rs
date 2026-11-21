@@ -770,3 +770,153 @@ fn hubs_state_their_ranking_once_on_the_first_page() {
         assert!(later.value.get(header).is_none(), "{}", later.value);
     }
 }
+
+/// The spellings of one file's import of `b.ts`, each with whether any
+/// binding is a value: a type binding beside a value binding, in either
+/// order, is a value import.
+const B_IMPORTS: &[(&str, &str, bool)] = &[
+    (
+        "type first",
+        "import { type B, b } from './b.js';\nexport function a(x: B) { return b(x); }\n",
+        true,
+    ),
+    (
+        "value first",
+        "import { b, type B } from './b.js';\nexport function a(x: B) { return b(x); }\n",
+        true,
+    ),
+    (
+        "default beside a type",
+        "import d, { type B } from './b.js';\nexport function a(x: B) { return d(x); }\n",
+        true,
+    ),
+    (
+        "type import beside a namespace import",
+        "import type { B } from './b.js';\nimport * as ns from './b.js';\nexport function a(x: B) { return ns.b(x); }\n",
+        true,
+    ),
+    (
+        "re-export of a type and a value",
+        "export { type B, b } from './b.js';\n",
+        true,
+    ),
+    (
+        "type only",
+        "import type { B } from './b.js';\nexport function a(x: B) { return x; }\n",
+        false,
+    ),
+    (
+        "type-only re-export",
+        "export type { B } from './b.js';\n",
+        false,
+    ),
+];
+
+const B_SOURCE: &str =
+    "export type B = number;\nexport function b(x: B) { return x; }\nexport default b;\n";
+
+/// Whether an edge kind erases at compile time: the reading `typesOnly`
+/// gives an agent.
+fn erased(via: &str) -> bool {
+    crate::ast_graph::edges::load(via) == crate::ast_graph::edges::Load::TypeOnly
+}
+
+/// Two files joined by several import statements or bindings are stored as
+/// one edge per kind. Every answer that names the connection states its
+/// strongest kind and counts every occurrence, whatever order the bindings
+/// are written in: a value binding beside a type binding is a runtime
+/// dependency.
+#[test]
+fn a_connection_states_its_strongest_import_kind_and_every_occurrence() {
+    for (name, source, value) in B_IMPORTS {
+        let dir = git_app(&[("a.ts", source), ("b.ts", B_SOURCE)]);
+        let root = dir.0.as_path();
+        let built = ingest_root(root, &root.join("app"), None, false);
+        assert_eq!(built.class, ExitClass::Success, "{name}: {}", built.value);
+
+        // The occurrences the snapshot holds for a.ts → b.ts imports.
+        let witnesses = ask(root, "witnesses", Some("a.ts"), |_| {});
+        let occurrences = witnesses.value["rows"]
+            .as_array()
+            .expect("witness rows")
+            .iter()
+            .filter(|row| row["edge"] == "imports" && row["to"] == "app/b.ts")
+            .count() as u64;
+        assert!(occurrences > 0, "{name}: {}", witnesses.value);
+
+        for (op, target, row_id) in [
+            ("dependents", "b.ts", "app/a.ts"),
+            ("deps", "a.ts", "app/b.ts"),
+        ] {
+            let out = ask(root, op, Some(target), |_| {});
+            let rows = out.value["rows"].as_array().expect("rows");
+            let row = rows
+                .iter()
+                .find(|row| row["id"] == row_id)
+                .unwrap_or_else(|| panic!("{name} {op}: {}", out.value));
+            let via = row["via"].as_str().expect("via");
+            assert_eq!(erased(via), !value, "{name} {op}: via {via}: {}", out.value);
+            assert_eq!(row["sites"], occurrences, "{name} {op}: {}", out.value);
+        }
+
+        let path = ask(root, "path", Some("a.ts"), |o| o.to = Some("b.ts".into()));
+        let hop = &path.value["path"][1];
+        let via = hop["via"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{name}: {}", path.value));
+        assert_eq!(erased(via), !value, "{name} path: {}", path.value);
+
+        let impact = ask(root, "impact", Some("b.ts"), |_| {});
+        let hit = impact.value["rows"]
+            .as_array()
+            .expect("impact rows")
+            .iter()
+            .find(|row| row["id"] == "app/a.ts")
+            .unwrap_or_else(|| panic!("{name} impact: {}", impact.value));
+        assert_eq!(
+            hit.get("typesOnly").is_some(),
+            !value,
+            "{name} impact: {}",
+            impact.value
+        );
+        let via = hit["via"].as_str().expect("impact via");
+        assert_eq!(
+            via.contains("type"),
+            !value,
+            "{name} impact via: {}",
+            impact.value
+        );
+    }
+}
+
+/// A file reached through types only by one route and at runtime by a
+/// longer one is not types-only: the weaker route never hides the stronger.
+#[test]
+fn a_runtime_route_outranks_a_shorter_types_only_route() {
+    let dir = git_app(&[
+        (
+            "core.ts",
+            "export type T = number;\nexport const v: T = 1;\n",
+        ),
+        // top reads core's type directly and core's value through mid.
+        (
+            "mid.ts",
+            "import { v } from './core.js';\nexport const m = v + 1;\n",
+        ),
+        (
+            "top.ts",
+            "import type { T } from './core.js';\nimport { m } from './mid.js';\nexport const t: T = m;\n",
+        ),
+    ]);
+    let root = dir.0.as_path();
+    let built = ingest_root(root, &root.join("app"), None, false);
+    assert_eq!(built.class, ExitClass::Success, "{}", built.value);
+    let impact = ask(root, "impact", Some("core.ts"), |_| {});
+    let top = impact.value["rows"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .find(|row| row["id"] == "app/top.ts")
+        .unwrap_or_else(|| panic!("{}", impact.value));
+    assert!(top.get("typesOnly").is_none(), "{}", impact.value);
+}

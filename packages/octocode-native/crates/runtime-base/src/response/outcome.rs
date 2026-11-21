@@ -138,16 +138,12 @@ impl DomainResult {
 
 impl From<crate::response::result::ToolError> for DomainResult {
     fn from(error: crate::response::result::ToolError) -> Self {
-        let mut result = Self::failure(
+        Self::failure(
             error.code,
             error.message,
             error.hints,
             error.calls.map(|next| *next),
-        );
-        if let Some(selection) = error.selection {
-            result.data["selection"] = serde_json::to_value(*selection).unwrap_or(Value::Null);
-        }
-        result
+        )
     }
 }
 

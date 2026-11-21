@@ -414,10 +414,7 @@ async fn a_complete_answer_wider_than_a_tiny_budget_states_no_page_block() {
             json!({"queries":[{"path":file}],"responseChars":budget}),
         )
         .await;
-        assert!(
-            output.get("responsePagination").is_none(),
-            "{on:?}: {output}"
-        );
+        assert!(output.get("next").is_none(), "{on:?}: {output}");
         assert!(output.get("oversized").is_none(), "{on:?}: {output}");
         assert_eq!(read_text(&[output]), "one line\n");
     }
@@ -452,13 +449,14 @@ async fn whole_reads_over_the_automatic_page_never_state_a_fresh_end() {
                 json!({"queries":[{"path":file}]}),
             )
             .await;
-            for page in &pages {
-                if let Some(block) = page.get("responsePagination") {
-                    assert!(
-                        block["next"].is_object() || block["replayed"] == true,
-                        "{size} {on:?}: a fresh page states an end: {block}"
-                    );
-                }
+            // Every reply but the last carries the one continuation; the
+            // last states none.
+            for (at, page) in pages.iter().enumerate() {
+                assert_eq!(
+                    page["next"].is_object(),
+                    at + 1 < pages.len(),
+                    "{size} {on:?}: page {at}: {page}"
+                );
             }
             assert_eq!(read_text(&pages), body, "{size} {on:?}");
         }
@@ -466,9 +464,8 @@ async fn whole_reads_over_the_automatic_page_never_state_a_fresh_end() {
     runtime.close().await;
 }
 
-/// The documented rule: one walk on an unpaged response stays on its row,
-/// with no `responsePagination` block; a paged response states it once, as
-/// `responsePagination.next`, and the row keeps no copy.
+/// The documented rule: a walk is stated once, as the reply's `next`, and
+/// the row keeps no copy, whether the response pages or not.
 #[tokio::test]
 async fn a_single_walk_rides_its_row_unpaged_and_the_response_paged() {
     let workspace = Workspace::new();
@@ -483,13 +480,12 @@ async fn a_single_walk_rides_its_row_unpaged_and_the_response_paged() {
             json!({"queries":[row.clone()]}),
         )
         .await;
+        assert!(unpaged["next"].is_object(), "{on:?}: {unpaged}");
         assert!(
-            unpaged.get("responsePagination").is_none(),
+            unpaged["results"][0]["data"]
+                .pointer("/next/nextPage")
+                .is_none(),
             "{on:?}: {unpaged}"
-        );
-        assert!(
-            unpaged["results"][0]["data"]["next"]["nextPage"].is_object(),
-            "{unpaged}"
         );
         let paged = page(
             &runtime,
@@ -498,10 +494,7 @@ async fn a_single_walk_rides_its_row_unpaged_and_the_response_paged() {
             json!({"queries":[row.clone()],"responseChars":450}),
         )
         .await;
-        assert!(
-            paged["responsePagination"]["next"].is_object(),
-            "{on:?}: {paged}"
-        );
+        assert!(paged["next"].is_object(), "{on:?}: {paged}");
         assert!(!the_next_calls(&paged).is_empty());
     }
     runtime.close().await;

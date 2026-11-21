@@ -1,6 +1,5 @@
 //! Continuations: the read of a likely row, the next page, and the
 //! recovery from an empty search.
-use super::rows::{is_completed, is_merged, item_number, item_repo, read_target};
 use super::{GhSearchHistoryQuery, HistorySearch};
 use crate::gh_search_history::gh_search_history_query;
 use octocode_contract_types::GhGetHistoryItemQuery;
@@ -9,29 +8,6 @@ use octocode_runtime_base::response::result::wire_query;
 use octocode_runtime_base::response::result::{Continuation, edited_query, query_row};
 use octocode_tools_shared::leads::broaden::{Broaden, broaden};
 use serde_json::{Value, json};
-
-/// The default PR read as a wire row: body and the patch-free file inventory.
-fn pr_read_row(owner: &str, repo: &str, number: u64) -> Value {
-    json!({"operation":"pullRequest","owner":owner,"repo":repo,"number":number,
-        "sections":["body","files"]})
-}
-
-/// The default PR read: body and the patch-free file inventory.
-pub(super) fn pr_read_query(owner: &str, repo: &str, number: u64) -> Option<GhGetHistoryItemQuery> {
-    wire_query(pr_read_row(owner, repo, number))
-}
-
-/// The issue body and discussion.
-pub(super) fn issue_read_query(
-    owner: &str,
-    repo: &str,
-    number: u64,
-) -> Option<GhGetHistoryItemQuery> {
-    wire_query(
-        json!({"operation":"issue","owner":owner,"repo":repo,"number":number,
-        "sections":["body","comments"]}),
-    )
-}
 
 /// This search with `changes` applied ([`edited_query`]); a change the
 /// contract rejects yields no lead (debug and test builds panic).
@@ -48,88 +24,6 @@ fn edited(q: &GhSearchHistoryQuery, changes: &Value) -> Option<GhSearchHistoryQu
             None
         }
     }
-}
-
-/// Rows in GitHub's relevance order: a keyword search without an explicit
-/// sort. Any other order (a sort, a REST listing) says nothing about fit.
-fn best_match_order(q: &GhSearchHistoryQuery) -> bool {
-    !gh_search_history_query::keywords(q).is_empty()
-        && gh_search_history_query::sort(q).is_none_or(|sort| sort == "best-match")
-}
-
-/// The PR read: the best match (row 0) of a relevance-ordered search, else
-/// a merged row as the likely fix (the rows name every other readable
-/// number; the read takes any).
-pub(super) fn read_pull_request(q: &GhSearchHistoryQuery, items: &[Value]) -> Option<Value> {
-    let prefer: fn(&Value) -> bool = if best_match_order(q) {
-        |_| true
-    } else {
-        is_merged
-    };
-    let target = read_target(items, prefer)?;
-    let (owner, repo) = gh_search_history_query::owner(q)
-        .zip(gh_search_history_query::repo(q))
-        .map(|(owner, repo)| (owner.to_owned(), repo.to_owned()))
-        .or_else(|| item_repo(&items[target]))?;
-    let number = item_number(&items[target])?;
-    Some(Continuation::related_query(pr_read_query(&owner, &repo, number)?).build())
-}
-
-/// The PR a commit row's headline names (`(#N)` or `Merge pull request #N`): the first such row's read,
-/// scoped to the listed path (any other row's `(#N)` runs the same read).
-pub(super) fn read_commit_pull_request(q: &GhSearchHistoryQuery, rows: &[Value]) -> Option<Value> {
-    let (owner, repo) = gh_search_history_query::owner(q).zip(gh_search_history_query::repo(q))?;
-    let number = rows.iter().find_map(|row| {
-        row.get("messageHeadline")
-            .and_then(Value::as_str)
-            .and_then(|headline| {
-                octocode_tools_shared::gh_shared::commit::commit_pull_request(headline, owner, repo)
-            })
-    })?;
-    let mut read = pr_read_row(owner, repo, number);
-    if let Some(path) = gh_search_history_query::path(q) {
-        read["include"] = path_scope(path);
-    }
-    Some(Continuation::related_query(wire_query::<GhGetHistoryItemQuery>(read)?).build())
-}
-
-/// The PR holding a commit no headline names: issue search matches PRs
-/// by commit SHA (the first row's; any other row's SHA runs the same search).
-pub(super) fn find_commit_pull_request(q: &GhSearchHistoryQuery, sha: &str) -> Option<Value> {
-    let (owner, repo) = gh_search_history_query::owner(q).zip(gh_search_history_query::repo(q))?;
-    let search = wire_query::<GhSearchHistoryQuery>(
-        json!({"operation":"pullRequest","owner":owner,"repo":repo,"keywords":[sha]}),
-    )?;
-    Some(Continuation::related_query(search).build())
-}
-
-/// The issue read: a completed issue first.
-pub(super) fn read_issue(q: &GhSearchHistoryQuery, items: &[Value]) -> Option<Value> {
-    let target = read_target(items, is_completed)?;
-    let (owner, repo) = gh_search_history_query::owner(q).zip(gh_search_history_query::repo(q))?;
-    let number = item_number(&items[target])?;
-    Some(Continuation::related_query(issue_read_query(owner, repo, number)?).build())
-}
-
-/// The first commit's patches, scoped to the listed path in the read's
-/// published `include`; the read takes any row's sha as `ref`.
-pub(super) fn read_commit(q: &GhSearchHistoryQuery, sha: &str) -> Option<Value> {
-    let (owner, repo) = gh_search_history_query::owner(q).zip(gh_search_history_query::repo(q))?;
-    let mut read = json!({
-        "operation":"commit","owner":owner,"repo":repo,"ref":sha,"sections":["patches"]
-    });
-    if let Some(path) = gh_search_history_query::path(q) {
-        read["include"] = path_scope(path);
-    }
-    Some(Continuation::related_query(wire_query::<GhGetHistoryItemQuery>(read)?).build())
-}
-
-/// History's literal path may be a file or directory. Item reads take
-/// globs, so retain the exact path and its descendants without giving
-/// metacharacters in a repository path pattern semantics.
-fn path_scope(path: &str) -> Value {
-    let literal = octocode_engine::search::glob::literal(path.trim_end_matches('/'));
-    json!([literal, format!("{literal}/**")])
 }
 
 /// A PR search whose keywords are one bare issue number (`13786`, `#13786`)
@@ -190,8 +84,7 @@ pub(super) fn without_users(q: &GhSearchHistoryQuery) -> Option<Value> {
 
 /// A path history that ends at the commit which renamed the path: the
 /// warning names the previous path and the commit, and the same listing under
-/// the previous path, from the commit's first parent, is the way on. A pure
-/// rename has no patch or pull request worth reading, so its reads go.
+/// the previous path, from the commit's first parent, is the way on.
 pub(super) fn disclose_rename(
     q: &HistorySearch,
     value: &mut Value,
@@ -204,7 +97,7 @@ pub(super) fn disclose_rename(
     octocode_runtime_base::response::paging::push_warnings(
         value,
         [format!(
-            "The history of `{path}` ends at {short}, which renamed it from `{}`; earlier history is under that path.",
+            "The history of `{path}` ends at {short}, which renamed it from `{}`; the related search continues the history under that path.",
             rename.previous_path
         )],
     );
@@ -213,19 +106,8 @@ pub(super) fn disclose_rename(
         row["path"] = json!(rename.previous_path);
         row["ref"] = json!(parent);
         if let Some(search) = wire_query::<GhSearchHistoryQuery>(row) {
-            value["calls"]["olderPath"] = Continuation::related_query(search).build();
-        }
-    }
-    let first_is_rename = value
-        .pointer("/commits/0/commitSha")
-        .and_then(Value::as_str)
-        .is_some_and(|sha| sha == rename.commit);
-    if rename.pure
-        && first_is_rename
-        && let Some(calls) = value.get_mut("calls").and_then(Value::as_object_mut)
-    {
-        for lead in ["readCommit", "readPullRequest", "findPullRequest"] {
-            calls.remove(lead);
+            // The path's history goes on under its previous name.
+            value["calls"]["olderPath"] = Continuation::related_query(search).required().build();
         }
     }
 }
@@ -263,25 +145,6 @@ pub(super) fn broaden_search(q: &GhSearchHistoryQuery) -> Option<Value> {
     Some(lead)
 }
 
-/// A pull request list's count: the same filters searched, one row. The REST
-/// list states no total; a search does (`pagination.total`). Pull requests created
-/// since the epoch are every pull request, so the window only routes the same
-/// rows to search. `None` when the row does not validate.
-pub(super) fn count_listed(q: &HistorySearch) -> Option<Value> {
-    let mut row = same_query(q);
-    let window = &mut row["filters"]["createdAt"];
-    if window.is_null() {
-        *window = json!({ "from": "1970-01-01T00:00:00Z" });
-    }
-    row["limit"] = json!(1);
-    octocode_runtime_base::contracts::validate(
-        ToolId::GhSearchHistory.as_str(),
-        json!({ "queries": [row] }),
-    )
-    .ok()?;
-    Some(Continuation::related_query(wire_query::<GhSearchHistoryQuery>(row)?).build())
-}
-
 /// A capped search's narrowing (`narrowScope`), one call. Rows in a date
 /// order continue past GitHub's 1,000-result window from this page's last
 /// row: creation order narrows `filters.createdAt`, and update order narrows
@@ -291,7 +154,7 @@ pub(super) fn count_listed(q: &HistorySearch) -> Option<Value> {
 /// an update order whose existing filter owns the window, is re-sorted
 /// newest first, whose pages end in that continuation. `None` when a
 /// `filters.createdAt` owns a creation-ordered window or no row is dated.
-pub(super) fn narrow_capped(q: &HistorySearch, items: &[Value]) -> Option<Value> {
+pub(super) fn narrow_capped(q: &HistorySearch, items: &[Value]) -> Option<(PastWindow, Value)> {
     let (sort, order) = super::query::search_order(q);
     let newest_first = order.as_deref() != Some("asc");
     let last = |pointers: &[&str]| {
@@ -304,6 +167,7 @@ pub(super) fn narrow_capped(q: &HistorySearch, items: &[Value]) -> Option<Value>
         })
     };
     let mut row = same_query(q);
+    let mut route = PastWindow::FromLastRow;
     match sort.as_deref() {
         Some("committer-date") => {
             let date = last(&["/commit/committer/date", "/commit/author/date"])?;
@@ -321,6 +185,7 @@ pub(super) fn narrow_capped(q: &HistorySearch, items: &[Value]) -> Option<Value>
         }
         _ => {
             row["sort"] = json!({"by":"createdAt","order":"desc"});
+            route = PastWindow::Resorted;
         }
     }
     octocode_runtime_base::contracts::validate(
@@ -328,5 +193,49 @@ pub(super) fn narrow_capped(q: &HistorySearch, items: &[Value]) -> Option<Value>
         json!({ "queries": [row] }),
     )
     .ok()?;
-    Some(Continuation::related_query(wire_query::<GhSearchHistoryQuery>(row)?).build())
+    // The only call that reaches the results past the window: the row
+    // needs it.
+    Some((
+        route,
+        Continuation::related_query(wire_query::<GhSearchHistoryQuery>(row)?)
+            .required()
+            .build(),
+    ))
+}
+
+/// How a capped search's related call reaches past the reachable window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PastWindow {
+    /// The same search bounded at this page's last row's date: it continues
+    /// where the page ends (that instant included, so none is skipped).
+    FromLastRow,
+    /// The search has no date order to continue from: the call re-runs it
+    /// newest first, from its first row; that walk's own pages then narrow
+    /// by date. It replaces this walk instead of continuing it.
+    Resorted,
+}
+
+impl PastWindow {
+    /// What the row says of the call, in words that match what it runs.
+    pub(super) fn warning(self) -> &'static str {
+        match self {
+            Self::FromLastRow => {
+                "The related ghSearchHistory search continues past the reachable window: the same search bounded at this page's last row's date. That instant is included, so its rows show again."
+            }
+            Self::Resorted => {
+                "This order has no date to continue from past the reachable window: the related ghSearchHistory search re-runs the search newest first from its first row, and its last reachable page continues by date. For every match, run it instead of walking these pages."
+            }
+        }
+    }
+
+    /// Whether a page states the route. A continuation from the last row is
+    /// each page's own call. The re-sorted search is one call for the whole
+    /// walk: stated where the walk starts (it saves the walk) and where it
+    /// ends (the reader who walked needs it), never between.
+    pub(super) fn stated_on(self, page: usize, more: bool) -> bool {
+        match self {
+            Self::FromLastRow => true,
+            Self::Resorted => page <= 1 || !more,
+        }
+    }
 }

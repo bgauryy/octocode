@@ -167,7 +167,7 @@ fn a_budget_cut_page_holds_every_row_that_fits() {
             .expect("response page");
             let row = &response.value["results"][0];
             assert!(
-                row.get("rowPart").is_none() && response.value.get("responsePagination").is_none(),
+                row.get("rowPart").is_none() && response.value.get("next").is_none(),
                 "{operation} at {window}: the pager cut the page again: {}",
                 response.value
             );

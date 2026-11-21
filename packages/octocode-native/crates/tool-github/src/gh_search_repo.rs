@@ -35,32 +35,45 @@ pub async fn run(
     query: &GhSearchRepoQuery,
     request: Result<&RequestContext, ProviderError>,
 ) -> Result<ToolData, GhFailure> {
+    let context = request.as_ref().ok().copied();
     let result = match request {
         Ok(context) => execute(provider, query, context).await,
         Err(error) => Err(error),
     };
-    result.map_err(|error| {
-        // An owner listing's bare 404 is the login itself.
-        let missing_owner = owner_only(query).filter(|_| {
-            error.kind == octocode_github::ProviderErrorKind::NotFound && error.reason.is_none()
-        });
-        let failure = with_search_repair(
-            search_failure(error),
-            ToolId::GhSearchRepo,
-            query,
-            access::limit(query),
-            access::owner(query),
-            access::repo(query),
-        );
-        // The message names the login; no repair lead exists for it.
-        match missing_owner {
-            Some(owner) => GhFailure {
-                message: octocode_tools_shared::gh_shared::owner_not_found_message(owner),
-                ..failure
-            }
-            .hint(octocode_tools_shared::gh_shared::OWNER_SPELLING_HINT),
-            None => failure,
+    let error = match result {
+        Ok(output) => return Ok(output),
+        Err(error) => error,
+    };
+    // An owner listing's bare 404 is the login itself.
+    let missing_owner = owner_only(query).filter(|_| {
+        error.kind == octocode_github::ProviderErrorKind::NotFound && error.reason.is_none()
+    });
+    let failure = with_search_repair(
+        search_failure(error),
+        ToolId::GhSearchRepo,
+        query,
+        access::limit(query),
+        access::owner(query),
+        access::repo(query),
+    );
+    // The message names the login; no repair lead exists for it.
+    if let Some(owner) = missing_owner {
+        return Err(GhFailure {
+            message: octocode_tools_shared::gh_shared::owner_not_found_message(owner),
+            ..failure
         }
+        .hint(octocode_tools_shared::gh_shared::OWNER_SPELLING_HINT));
+    }
+    // A repository that did not resolve names its owner when no such login
+    // exists, as every read does.
+    Err(match (context, access::owner(query)) {
+        (Some(context), Some(owner)) => {
+            octocode_tools_shared::gh_shared::failed_read::name_missing_owner(
+                provider, failure, owner, context,
+            )
+            .await
+        }
+        _ => failure,
     })
 }
 
@@ -103,23 +116,6 @@ pub(crate) async fn execute(
             leads.len().min(1),
             ("includeArchived", include_archived(query)),
         );
-    }
-    // One lead per response, on page 1: the first repository's root tree.
-    if current == 1
-        && let Some(first) = data.items.first()
-    {
-        let (owner, repo) = first
-            .full_name
-            .split_once('/')
-            .unwrap_or(("", first.name.as_str()));
-        if !owner.is_empty() {
-            leads.push((
-                "viewTree",
-                octocode_tools_shared::gh_shared::RepoPath::root(owner, repo)
-                    .lead(ToolId::GhStructure)
-                    .build(),
-            ));
-        }
     }
     let wanted = wanted_topics(query);
     let fields = access::fields(query);

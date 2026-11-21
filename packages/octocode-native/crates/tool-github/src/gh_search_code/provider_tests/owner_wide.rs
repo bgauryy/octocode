@@ -38,8 +38,8 @@ async fn run_owner_wide(server: &MockServer) -> octocode_runtime_base::response:
 }
 
 /// Owner-wide rows are read at the commit each hit was indexed at
-/// (`html_url`): numbered `lines` replace fragments, and the top read is
-/// pinned to that commit instead of a `contextLines` fragment read.
+/// (`html_url`): numbered `lines` replace fragments, each row stating that
+/// commit.
 #[tokio::test]
 async fn owner_wide_rows_list_numbered_lines_at_the_indexed_commit() {
     let server = MockServer::builder().start().await;
@@ -72,15 +72,66 @@ async fn owner_wide_rows_list_numbered_lines_at_the_indexed_commit() {
         assert_eq!(row["owner"], "o", "{}", out.data);
         assert_eq!(row["commitSha"], SHA, "{}", out.data);
     }
-    let read = &octocode_runtime_base::test_support::checks::related_call(
-        &out.data,
-        "ghGetFileContent",
-        |_| true,
-    )["input"]["queries"][0];
-    assert_eq!(read["ref"], SHA, "{}", out.data);
-    assert_eq!(read["owner"], "o", "{}", out.data);
-    assert_eq!(read["repo"], "a", "{}", out.data);
-    assert!(read.get("contextLines").is_none(), "{}", out.data);
+}
+
+/// Owner-wide rows of one repository read at one commit state it once in
+/// `repoCommits`; a repository's lone row keeps its own. Every row still
+/// names its repository, in rank order, and finds its commit on the page.
+#[tokio::test]
+async fn owner_wide_rows_of_one_repository_state_their_commit_once() {
+    let server = MockServer::builder().start().await;
+    let item = |repo: &str, file: &str| {
+        json!({"name":file,"path":format!("src/{file}"),"sha":format!("{repo}{file}"),
+         "html_url": format!("https://github.com/o/{repo}/blob/{SHA}/src/{file}"),
+         "repository":{"full_name":format!("o/{repo}"),"html_url":"https://x","url":"https://x"},
+         "text_matches":[{"fragment":"class HTTPAdapter(BaseAdapter):\n    pass","matches":[{"text":"HTTPAdapter","indices":[6,17]}]}]})
+    };
+    let hits = [("a", "x.py"), ("b", "x.py"), ("a", "y.py")];
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/code"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "total_count":hits.len(),"incomplete_results":false,
+            "items":hits.iter().map(|(repo, file)| item(repo, file)).collect::<Vec<_>>()
+        })))
+        .mount(&server)
+        .await;
+    for (repo, file) in hits {
+        let at = format!("src/{file}");
+        octocode_test_support::mock_http::list_in_trees(&server, "o", repo, &at).await;
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/o/{repo}/contents/src%2F{file}")))
+            .and(wiremock::matchers::query_param("ref", SHA))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "type":"file","encoding":"base64",
+                "content":STANDARD.encode(format!("class HTTPAdapter(BaseAdapter):  # {repo} {file}\n    pass\n"))
+            })))
+            .mount(&server)
+            .await;
+    }
+    let out = run_owner_wide(&server).await;
+    let files = out.data["files"].as_array().expect("files");
+    assert_eq!(files.len(), hits.len(), "{}", out.data);
+    assert_eq!(
+        out.data["repoCommits"],
+        json!([format!("a {SHA}")]),
+        "{}",
+        out.data
+    );
+    for row in files {
+        assert_eq!(row["owner"], "o", "{}", out.data);
+        let own = row["commitSha"].as_str();
+        match row["repo"].as_str() {
+            Some("a") => assert_eq!(own, None, "{}", out.data),
+            Some("b") => assert_eq!(own, Some(SHA), "{}", out.data),
+            other => panic!("a row names its repository: {other:?}"),
+        }
+    }
+    // The page's reads stay pinned to the commit the rows were read at.
+    for call in out.data["related"].as_array().into_iter().flatten() {
+        for read in call["input"]["queries"].as_array().into_iter().flatten() {
+            assert_eq!(read["ref"], SHA, "{}", out.data);
+        }
+    }
 }
 
 /// A row whose file is gone at its indexed commit keeps its fragment

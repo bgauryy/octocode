@@ -1290,7 +1290,10 @@ fn pinned_calls(data: &mut Value, package: &Package<'_>, pins: &[Pin]) {
             .map(|pin| Value::Object(package_row(package, &pin.name, Some(&pin.version))))
             .collect::<Vec<_>>();
         data["calls"][format!("pinnedDependencies{index}")] =
+            // No field of the row names the pinned dependencies: the
+            // answer sends the reader to these checks, so the row needs them.
             Continuation::related_input(ToolId::SecurityCheck, json!({ "queries": queries }))
+                .required()
                 .build();
     }
 }
@@ -1524,18 +1527,10 @@ fn respond(
         trust.apply(&mut data, &package.brief);
     }
     if let Some(absent) = notes.absent {
-        let nearest = absent
-            .nearest
-            .iter()
-            .map(|near| Value::Object(package_row(package, name, Some(near))))
-            .collect::<Vec<_>>();
-        let nearest = (!nearest.is_empty()).then(|| {
-            Continuation::related_input(ToolId::SecurityCheck, json!({ "queries": nearest }))
-                .build()
-        });
         match version {
-            // OSV answered at a version its records name: an answer, with a
-            // check of the nearest published versions to move to.
+            // OSV answered at a version its records name: an answer, which
+            // states the nearest published versions to move to as evidence
+            // of its own (`nearestVersions`), not as a call.
             Some(version) if notes.unlisted => {
                 paging::push_warnings(
                     &mut data,
@@ -1545,8 +1540,8 @@ fn respond(
                         &counted_ids(results),
                     )],
                 );
-                if let Some(nearest) = nearest {
-                    data["calls"]["otherVersions"] = nearest;
+                if !absent.nearest.is_empty() {
+                    data["nearestVersions"] = json!(absent.nearest);
                 }
             }
             // A version the registry does not list is a failed lookup, so the
@@ -1560,7 +1555,17 @@ fn respond(
                     &mut data,
                     absent.hints.iter().cloned(),
                 );
-                if let Some(nearest) = nearest {
+                let nearest = absent
+                    .nearest
+                    .iter()
+                    .map(|near| Value::Object(package_row(package, name, Some(near))))
+                    .collect::<Vec<_>>();
+                if !nearest.is_empty() {
+                    let nearest = Continuation::related_input(
+                        ToolId::SecurityCheck,
+                        json!({ "queries": nearest }),
+                    )
+                    .build();
                     data["calls"]["repair"] = nearest;
                 }
             }
@@ -1579,7 +1584,7 @@ fn respond(
             &mut data,
             PartialReason::ProviderIncompleteResults,
             &[format!(
-                "{} next.nextPage reads on from there.",
+                "{} The reply's next reads on from there.",
                 resume.reason
             )],
         );

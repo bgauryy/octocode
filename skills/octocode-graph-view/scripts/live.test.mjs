@@ -120,9 +120,9 @@ test('the launcher stays in charge of OCTOCODE_NATIVE_BIN and of a missing resol
   assert.deepEqual(localCli(empty, {}), viaLauncher(empty));
 });
 
-test('tool pages follow responsePagination first, then every row continuation, in order', async () => {
+test('tool pages follow the reply\'s next first, then every row continuation, in order', async () => {
   const pages = {
-    first: { responsePagination: { next: { tool: 'astSearch', input: { cursor: 'rp' } } }, results: [{ data: { symbols: [{ n: 1 }] } }] },
+    first: { next: { tool: 'astSearch', input: { cursor: 'rp' } }, results: [{ data: { symbols: [{ n: 1 }] } }] },
     rp: { results: [{ data: { symbols: [{ n: 2 }], next: { more: { kind: 'continue', tool: 'astSearch', input: { cursor: 'row' } } } } }] },
     row: { results: [{ data: { symbols: [{ n: 3 }], next: { read: { kind: 'related', input: { cursor: 'ignored' } } } } }] },
   };
@@ -211,7 +211,7 @@ function fakeRepo() {
   const nodes = { file: [{ id: 'a.ts', kind: 'file', language: 'typescript' }, { id: 'b.ts', kind: 'file', language: 'typescript' }], symbol: [{ id: 'a.ts#f', path: 'a.ts', symbolName: 'f', kind: 'function', line: 2, endLine: 5, exported: true }, { id: 'b.ts#g', path: 'b.ts', symbolName: 'g', kind: 'function', line: 1, endLine: 3, exported: true }] };
   const cli = join(base, 'cli.mjs');
   writeFileSync(cli, `const a = process.argv.slice(2), print = (v) => console.log(JSON.stringify(v));
-const out = (data) => print({ results: [{ index: 0, data }] });
+const out = (data, next) => print({ results: [{ index: 0, data }], ...(next ? { next } : {}) });
 const W = ${JSON.stringify(witnesses)}, N = ${JSON.stringify(nodes)}, root = ${JSON.stringify(root)};
 const input = JSON.parse(a.find((x) => x.startsWith('{')) ?? '{}'), row = input.queries?.[0] ?? {};
 // One witness per page; a source-file target keeps the witnesses whose source is in that file. The cursor carries
@@ -219,9 +219,9 @@ const input = JSON.parse(a.find((x) => x.startsWith('{')) ?? '{}'), row = input.
 const witnessPage = (o, target) => {
   const list = target ? W.filter((w) => target.includes(w.from.split('#')[0])) : W;
   const more = o + 1 < list.length;
-  const next = more ? { next: { nextPage: { kind: 'continue', tool: 'graphQuery', input: { cursor: 'w' + (o + 1) + '|' + (target ?? []).join(',') } } } } : {};
-  const pagination = more || o > 0 ? { pagination: { unit: "items", offset: o, length: list.slice(o, o + 1).length, total: list.length, hasMore: more } } : {};
-  out({ graph: { id: 'snap' }, ...pagination, rows: list.slice(o, o + 1), ...next });
+  const next = more ? { kind: 'continue', tool: 'graphQuery', input: { cursor: 'w' + (o + 1) + '|' + (target ?? []).join(',') } } : undefined;
+  const pagination = more || o > 0 ? { pagination: { unit: "items", offset: o, length: list.slice(o, o + 1).length, total: list.length } } : {};
+  out({ graph: { id: 'snap' }, ...pagination, rows: list.slice(o, o + 1) }, next);
 };
 if (a[0] === 'schema') print({ querySchema: { properties: { target: { anyOf: [{ type: 'string' }, { type: 'array', maxItems: 100 }] } } } });
 else if (a[0] === 'structureSearch') out({ files: [{ dir: root, files: ['a.ts', 'b.ts', 'notes.md'] }], summary: { files: 3 } });

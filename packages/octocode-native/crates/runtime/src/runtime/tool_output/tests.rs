@@ -116,9 +116,9 @@ fn a_shared_error_hint_is_stated_once_per_response() {
 
 /// One `notFound` rule on every tool that states no recovery of its own
 /// ([`octocode_runtime_base::response::output::ToolOutput::error_hint`]). A
-/// row without hints of its own carries the shared hint, leads or not: a
-/// lead is a call (a parent listing, a search, the nearest nodes), the hint
-/// says what to do with its answer. The hint names no registry or version
+/// row without hints or a `related` call of its own carries the shared
+/// hint; a row with a call states none beside it (the call is the
+/// recovery). The hint names no registry or version
 /// and does not restate the instructions' caution that a miss is no absence
 /// elsewhere.
 #[test]
@@ -145,11 +145,13 @@ fn a_not_found_hint_fits_the_resource_and_repeats_no_caution() {
                 data["related"] = related.clone();
             }
             attach_error_hint(tool.output(), &mut data, &Value::Null);
-            assert_eq!(
-                data["hints"],
-                json!([octocode_runtime_base::response::output::NOT_FOUND_HINT]),
-                "{tool}: {data}"
-            );
+            // A row that offers a call states no hint beside it; a row
+            // without one states the shared hint.
+            let expected = match related {
+                Some(_) => Value::Null,
+                None => json!([octocode_runtime_base::response::output::NOT_FOUND_HINT]),
+            };
+            assert_eq!(data["hints"], expected, "{tool}: {data}");
         }
     }
     let hint = octocode_runtime_base::response::output::NOT_FOUND_HINT.to_lowercase();

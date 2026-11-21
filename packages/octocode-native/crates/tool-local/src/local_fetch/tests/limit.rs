@@ -100,7 +100,7 @@ fn budget_sized_pages_reconstruct_source_once_without_advice() {
             seen.insert(serde_json::to_string(&query).expect("query")),
             "repeated next call"
         );
-        let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(2_000), None);
+        let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(2_000), false);
         assert_eq!(page.error_code, None, "{page:?}");
         let content = page.content.as_deref().expect("selected source");
         let lines = content.lines().count();
@@ -141,7 +141,7 @@ fn a_page_with_a_reachable_continuation_is_not_partial() {
     let path = t.write("lines.txt", numbered(4000));
     for (limit, window) in [(2000, Some(2_000)), (10, Some(2_000)), (5000, None)] {
         let query = qj(&path, serde_json::json!({"limit": limit}));
-        let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, window, None);
+        let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, window, false);
         let pagination = page.pagination.as_ref().expect("pagination");
         assert!(pagination.has_more, "limit {limit}: {page:?}");
         assert!(

@@ -1,15 +1,16 @@
 //! Skipped entries: dot entries, default-pruned and ignored directories,
-//! withheld entries, walk warnings, and the leads that lift each.
+//! withheld entries, walk warnings, and the one call an empty listing offers
+//! to lift them.
 
 use super::*;
 use octocode_test_support::json_fixture;
 
-/// A tree without `hidden` skips dot entries, but says how many it skipped
-/// and, on a filtered listing, offers the one retry that lifts every cause it
-/// skipped by (`includeSkipped`); `.git`, which the path policy withholds,
-/// stays out of the count.
+/// A tree without `hidden` skips dot entries and counts how many it skipped
+/// in `skippedPaths`; a listing with entries, filtered or not, offers no
+/// call. `.git`, which the path policy withholds, stays out of the count,
+/// and `includeHidden` lists what the count names.
 #[test]
-fn tree_discloses_skipped_dot_entries_and_offers_include_hidden() {
+fn tree_counts_skipped_dot_entries_and_offers_no_call() {
     let root = Fixture::new();
     std::fs::create_dir_all(root.0.join(".git")).expect("git");
     std::fs::create_dir_all(root.0.join(".github")).expect("github");
@@ -27,35 +28,16 @@ fn tree_discloses_skipped_dot_entries_and_offers_include_hidden() {
         "{out}"
     );
     assert!(!out["files"].to_string().contains(".keep"), "{out}");
-    // Every counted dot entry is reachable: the lead lifts includeHidden.
     assert_eq!(skipped_count(&out, "hidden"), 3, "{out}");
-    let lead = &related(&out, "structureSearch")["input"]["queries"][0];
-    assert_eq!(lead["includeHidden"], true, "{out}");
-    assert!(lead.get("defaultExcludes").is_none(), "{out}");
-    let filtered = run(
-        &root.0,
-        json!({"operation":"tree","path":root.0,"maxDepth":2,"extensions":["rs"]}),
-    )
-    .expect("filtered tree");
-    // The lead is the fix: the summary keeps the count, not the flag.
+    assert_listing_guides_nothing(&out);
+    let query = json!({"operation":"tree","path":root.0,"maxDepth":2,"extensions":["rs"]});
+    let filtered = run(&root.0, query.clone()).expect("filtered tree");
     assert!(skipped_count(&filtered, "hidden") > 0, "{filtered}");
-    let retry = &related(&filtered, "structureSearch");
-    assert_eq!(retry["tool"], "structureSearch", "{out}");
-    assert_eq!(retry["input"]["queries"][0]["includeHidden"], true, "{out}");
-    assert!(
-        retry["input"]["queries"][0]
-            .get("defaultExcludes")
-            .is_none()
-            && retry["input"]["queries"][0].get("includeIgnored").is_none(),
-        "only the cause it hit: {out}"
-    );
-    assert!(
-        retry["input"]["queries"][0].get("snapshot").is_none(),
-        "{out}"
-    );
-    let all = run(&root.0, retry["input"]["queries"][0].clone()).expect("retry");
+    assert_listing_guides_nothing(&filtered);
+    // Every counted dot entry is reachable: `includeHidden` lifts the cause.
+    let all = run(&root.0, lifting(query, json!({"includeHidden": true}))).expect("lifted");
     assert_eq!(paths(&all), ["./src/lib.rs"], "{all}");
-    assert!(related(&all, "structureSearch").is_null(), "{all}");
+    assert_listing_guides_nothing(&all);
     assert_eq!(skipped_count(&all, "hidden"), 0, "{all}");
 }
 
@@ -85,15 +67,13 @@ fn default_pruned_directories_are_named_and_an_empty_listing_walks_them() {
     assert_eq!(files["status"], "empty", "{files}");
     assert!(skipped_count(&files, "default-excluded") > 0, "{files}");
     assert!(
-        files["warnings"][0]
-            .as_str()
-            .is_some_and(|h| h.contains("build/")),
+        skipped_names(&files, "default-excluded").contains(&"build".to_owned()),
         "{files}"
     );
-    let retry = &related(&files, "structureSearch")["input"]["queries"][0];
+    let retry = skipped_recovery(&files);
     assert_eq!(retry["defaultExcludes"], false, "{files}");
     assert!(retry.get("snapshot").is_none(), "{files}");
-    let found = run(&root.0, retry.clone()).expect("retry");
+    let found = run(&root.0, retry).expect("retry");
     assert_eq!(listed(&found).len(), 1, "{found}");
 }
 
@@ -140,8 +120,8 @@ fn withheld_entries_follow_the_walks_glob_dialect() {
 }
 
 /// A gitignored directory named like a default-pruned one is lifted
-/// in one hop: the retry lifts both the ignore rules and the prune, and the
-/// hint names the directory.
+/// in one hop: the retry lifts both the ignore rules and the prune, and
+/// `skippedPaths` names the directory.
 #[test]
 fn include_ignored_lead_lifts_gitignore_and_prune_in_one_hop() {
     let root = Fixture::new();
@@ -156,13 +136,12 @@ fn include_ignored_lead_lifts_gitignore_and_prune_in_one_hop() {
     )
     .expect("files");
     assert_eq!(out["status"], "empty", "{out}");
-    let retry = related(&out, "structureSearch")["input"]["queries"][0].clone();
+    let retry = skipped_recovery(&out);
     assert_eq!(retry["defaultExcludes"], false, "{out}");
     assert_eq!(retry["includeIgnored"], true, "{out}");
-    assert!(
-        out["warnings"][0]
-            .as_str()
-            .is_some_and(|h| h.contains("target/")),
+    assert_eq!(
+        skipped_names(&out, "ignored-default-excluded"),
+        ["target"],
         "{out}"
     );
     octocode_runtime_base::test_support::checks::assert_absent(&out["hints"], "target/");
@@ -222,31 +201,33 @@ fn walk_warnings_are_stated_on_the_first_page_only() {
     assert!(pages[1..].iter().all(|page| !withheld(page)), "{pages:?}");
 }
 
-/// A filtered listing whose walk pruned a default-excluded directory leads
-/// to the same listing with the prune lifted (outside a git work tree a
-/// listed name is pruned by name), and the lead reaches what it hid.
+/// A filtered listing whose walk pruned a default-excluded directory names
+/// it in `skippedPaths` (outside a git work tree a listed name is pruned by
+/// name) and, having entries, offers no call; the same listing with the
+/// prune lifted reaches what it hid.
 #[test]
-fn a_filtered_listing_leads_past_pruned_directories() {
+fn a_filtered_listing_names_pruned_directories_and_offers_no_call() {
     let root = Fixture::new();
     std::fs::create_dir_all(root.0.join("src/coverage")).expect("dir");
     std::fs::write(root.0.join("src/coverage/pass.rs"), "x\n").expect("pruned");
     std::fs::write(root.0.join("src/lib.rs"), "x\n").expect("visible");
     for operation in ["tree", "files"] {
-        let out = run(
-            &root.0,
-            json!({"operation":operation,"path":root.0,"extensions":["rs"],"maxDepth":10}),
-        )
-        .expect("listing");
+        let query = json!({"operation":operation,"path":root.0,"extensions":["rs"],"maxDepth":10});
+        let out = run(&root.0, query.clone()).expect("listing");
         assert!(
             !out["files"].to_string().contains("pass.rs"),
             "{operation}: {out}"
         );
-        let lead = related(&out, "structureSearch")["input"]["queries"][0].clone();
-        assert_eq!(lead["defaultExcludes"], false, "{operation}: {out}");
-        let all = run(&root.0, lead).expect("lead");
+        assert_eq!(
+            skipped_names(&out, "default-excluded"),
+            ["coverage"],
+            "{operation}: {out}"
+        );
+        assert_listing_guides_nothing(&out);
+        let all = run(&root.0, lifting(query, json!({"defaultExcludes": false}))).expect("lifted");
         assert!(
             all["files"].to_string().contains("pass.rs"),
-            "{operation}: the lead reaches the pruned file: {all}"
+            "{operation}: the lifted listing reaches the pruned file: {all}"
         );
     }
 }
@@ -275,9 +256,10 @@ fn files_hide_dot_entries_unless_include_hidden() {
     assert_eq!(listed(&query(true)).len(), 2);
 }
 /// In a git work tree the default prune skips only directories git ignores,
-/// so an ignored `target/` is behind both rules: the summary names it once
-/// with both causes, and one lead lifts both. Following it
-/// reaches the files there and leaves no second widening (no loop).
+/// so an ignored `target/` is behind both rules: `skippedPaths` names it
+/// once with both causes, and lifting both in one step (the one call an
+/// empty listing offers; a listing with entries offers none) reaches the
+/// files there and leaves no second widening (no loop).
 #[test]
 fn an_ignored_default_pruned_directory_is_named_and_reached_in_one_step() {
     let root = Fixture::new();
@@ -293,7 +275,7 @@ fn an_ignored_default_pruned_directory_is_named_and_reached_in_one_step() {
         }
         let out = run(
             &root.0,
-            json!({"operation":"files","path":root.0,"extensions":extensions}),
+            json!({"operation":"files","path":root.0,"extensions":extensions.clone()}),
         )
         .expect("listing");
         assert_eq!(
@@ -303,10 +285,19 @@ fn an_ignored_default_pruned_directory_is_named_and_reached_in_one_step() {
         );
         assert!(skipped_names(&out, "ignored").is_empty(), "{out}");
         assert!(skipped_names(&out, "default-excluded").is_empty(), "{out}");
-        let lead = related(&out, "structureSearch")["input"]["queries"][0].clone();
+        let query = json!({"operation":"files","path":root.0,"extensions":extensions});
+        let lead = if out["status"] == "empty" {
+            skipped_recovery(&out)
+        } else {
+            assert_listing_guides_nothing(&out);
+            lifting(
+                query,
+                json!({"includeIgnored": true, "defaultExcludes": false}),
+            )
+        };
         assert_eq!(lead["includeIgnored"], true, "{out}");
         assert_eq!(lead["defaultExcludes"], false, "{out}");
-        let all = run(&root.0, lead.clone()).expect("lead");
+        let all = run(&root.0, lead).expect("lead");
         assert!(
             listed(&all).iter().any(|row| row["path"]
                 .as_str()
@@ -315,15 +306,8 @@ fn an_ignored_default_pruned_directory_is_named_and_reached_in_one_step() {
         );
         assert_eq!(skipped_count(&all, "default-excluded"), 0, "{all}");
         assert_eq!(skipped_count(&all, "ignored"), 0, "{all}");
-        // What is left is a cause the first step did not lift (the hidden
-        // `.gitignore`), never the same widening again.
-        if let Some(again) = related(&all, "structureSearch")["input"]["queries"][0].as_object() {
-            let mut again = again.clone();
-            assert_eq!(again.remove("includeHidden"), Some(json!(true)), "{all}");
-            let mut first = lead.as_object().cloned().expect("lead");
-            first.remove("includeHidden");
-            assert_eq!(again, first, "{all}");
-        }
+        // The lifted listing has entries: it offers no widening again.
+        assert_listing_guides_nothing(&all);
     }
 }
 

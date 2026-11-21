@@ -139,3 +139,32 @@ fn the_row_finaliser_states_the_class_and_retryable_only_when_transient() {
     );
     assert_eq!(timeout["data"]["retryable"], json!(true));
 }
+
+/// An error row that offers a `related` call states no shared hint beside
+/// it, whatever its code: the error says what failed and the call is what to
+/// run. The same row without a call gets the code's shared recovery.
+#[test]
+fn an_error_row_with_a_related_call_gets_no_shared_hint() {
+    let tool = &crate::response::output::SharedOutput;
+    let query = json_fixture(r#"{"owner": "o", "repo": "r", "path": "src/missing.rs"}"#);
+    let call = json_fixture(
+        r#"{"tool": "ghStructure", "input": {"queries": [{"operation": "tree", "owner": "o", "repo": "r", "path": "src"}]}}"#,
+    );
+    for code in [
+        "notFound",
+        "fileAccessFailed",
+        "serverUnavailable",
+        "timeout",
+    ] {
+        let mut led = json!({"errorCode": code, "error": "x", "related": [call]});
+        attach_error_hint(tool, &mut led, &query);
+        assert_eq!(led.get("hints"), None, "{led}");
+        let mut bare = json!({"errorCode": code, "error": "x"});
+        attach_error_hint(tool, &mut bare, &query);
+        assert_eq!(
+            bare["hints"].as_array().map(Vec::len),
+            Some(1),
+            "one shared hint: {bare}"
+        );
+    }
+}

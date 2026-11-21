@@ -179,22 +179,6 @@ fn prewarm_off_starts_no_language_server_for_a_search_hit() {
     assert!(server.finish().success());
 }
 
-/// A served lspSearch lead (the symbol it names is not stated by the
-/// request, which names it after a declaration keyword) starts its server
-/// before any lspSearch call, however slowly a loaded host starts it.
-#[test]
-fn a_served_lead_starts_its_language_server_before_a_following_lookup() {
-    let (mut server, markers, root, _workspace) = marker_server("targeted", 4);
-    let evidence = search(
-        &mut server,
-        &root,
-        json_fixture(r#"{"matchString": ["function target"]}"#),
-    );
-    assert!(serves_lsp_lead(&evidence), "{evidence}");
-    started(&markers.ts);
-    assert!(server.finish().success());
-}
-
 /// `lsp.prewarm` all starts the workspace's language server in the background
 /// after `initialize`, before any call names a file. `targeted` waits for a
 /// result that names a file or offers an lspSearch call: a session that never

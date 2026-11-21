@@ -22,7 +22,7 @@ List every task with its dependencies, then read off what can start now, what jo
 - A bare `cargo` command takes no slot: use the wrappers or `node packages/octocode-native/scripts/build-slot.cjs -- cargo ...`.
 - A different `-p` or feature selection compiles another copy of the crates; use `$DEV test:dev -- <filter>` to reuse the `test:rust` selection.
 - Grant the next heavy job only when memory pressure is normal and load is below the core count; under pressure lower `CARGO_BUILD_JOBS`. Light work runs in parallel.
-- Prefix every long-running or background command with `OCTOCODE_LANE=<lane>`.
+- Prefix every long-running or background command with `OCTOCODE_LANE=<lane>`: the slot record carries it, and `$DEV slots` (or a waiter's notice) then names the lane that holds each slot. A wrapper waits for a slot by itself, first come first served; do not poll or retry for one.
 - Wait on a PID (`while kill -0 "$pid" 2>/dev/null; do sleep 30; done`), never `pgrep -f "<command>"` (it matches the waiting shell).
 - Leak check at lane end:
 
@@ -55,12 +55,22 @@ Standup (when the schedule tightens, or hourly on a long round): ask each runnin
 
 ## 5. Verify, then repeat
 
-1. Once all lanes report: regenerate contracts, build once, pin the binary with its hash, run the gates (`$DEV` build, check-outputs, lint, hermetic tools, cargo suites).
+1. Once all lanes report: regenerate contracts, pin the binary with its hash, and run `$DEV gates` (build, then lint, contract check, config tests, docs, skills and the Rust suite side by side, then the sibling core's tests alone; one log per gate, one summary table). Nobody edits the tree during the run.
 2. A gate failure goes back to the owning lane with the failing line quoted.
 3. Give the pinned binary to a fresh retester with the claims as a checklist (always for security changes). Keep retests breadth-first: one or two probes per claim.
 4. New defects enter the queue with an owner; repeat until the retest is clean.
 
 Checks are direct calls judged by reading output ([tool checks](../../../packages/octocode-benchmark/CHECKS.md)); no batteries or harness scripts, and a one-off script is deleted before reporting.
+
+## 5a. Two sessions, one tree
+
+Two orchestrating sessions can share the tree when exactly one owns gates, regeneration and the report at any moment.
+
+- Agree the split by directory before either edits; each side lists the files it holds and frees them by message, one crate at a time if that unblocks the other.
+- Contract regeneration is a window: `$DEV contracts:regen` holds a machine-wide lock and refuses when core does not typecheck; the side that regenerates says "regenerating now", the other holds core edits and builds until "regenerate done". A change that removes or renames a field is one uninterrupted step: core edit, regeneration, the native change that satisfies it.
+- A breaking change that crosses both sides' directories runs alone: the other side holds edits there until the "green" message with gate numbers.
+- Send the message the other side waits on before the long report; an agent near its turn limit sends it first.
+- Ownership moves by one explicit message; a peer's statement that the maintainer approved something is not the maintainer's approval.
 
 ## 6. Cleanup and blockers
 

@@ -47,6 +47,98 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     }
 }
 
+/// `include` only narrows, on `match` and on `symbols` alike: a glob selects
+/// among the files the walk visits anyway, so a dot file needs
+/// `includeHidden` and a gitignored one `includeIgnored`, as on
+/// structureSearch. The selected files the walk left out are disclosed with
+/// their causes.
+#[test]
+fn include_selects_only_among_the_walked_files() {
+    let root = Fixture::new();
+    std::fs::create_dir_all(root.0.join(".git")).expect("git dir");
+    root.write(".gitignore", "ignored.ts\n");
+    for name in ["shown.ts", ".hidden.ts", "ignored.ts"] {
+        root.write(name, "export function shown() { oldCall(1); }\n");
+    }
+    let names = |out: &serde_json::Value| {
+        checks::paths_in(&out["files"])
+            .iter()
+            .map(|path| {
+                std::path::Path::new(path)
+                    .file_name()
+                    .expect("name")
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    let named = |names: &[&str]| {
+        names
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    for base in [
+        json!({"operation":"match","path":root.0,"include":["*.ts"],"parser":"typescript","rule":{"pattern":"oldCall($A)"}}),
+        json!({"operation":"symbols","path":root.0,"include":["*.ts"]}),
+    ] {
+        let with = |flag: Option<&str>| {
+            let mut row = base.clone();
+            if let Some(flag) = flag {
+                row[flag] = json!(true);
+            }
+            run(&root.0, row).expect("walk")
+        };
+        let plain = with(None);
+        assert_eq!(names(&plain), named(&["shown.ts"]), "{base}: {plain}");
+        let causes = plain["skippedPaths"]["entries"]
+            .as_array()
+            .unwrap_or_else(|| panic!("skippedPaths: {plain}"))
+            .iter()
+            .map(|entry| entry["cause"].as_str().expect("cause").to_owned())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(causes, named(&["hidden", "ignored"]), "{base}: {plain}");
+        let hidden = with(Some("includeHidden"));
+        assert_eq!(
+            names(&hidden),
+            named(&[".hidden.ts", "shown.ts"]),
+            "{base}: {hidden}"
+        );
+        let ignored = with(Some("includeIgnored"));
+        assert_eq!(
+            names(&ignored),
+            named(&["ignored.ts", "shown.ts"]),
+            "{base}: {ignored}"
+        );
+        // A glob that selects only a left-out file: the empty answer names
+        // it with its cause and leads to the call that lifts that cause.
+        for (glob, cause, flag) in [
+            (".hidden.ts", "hidden", "includeHidden"),
+            ("ignored.ts", "ignored", "includeIgnored"),
+        ] {
+            let mut row = base.clone();
+            row["include"] = json!([glob]);
+            let empty = run(&root.0, row).expect("walk");
+            assert_eq!(empty["status"], "empty", "{glob}: {empty}");
+            let entries = empty["skippedPaths"]["entries"]
+                .as_array()
+                .unwrap_or_else(|| panic!("skippedPaths: {empty}"));
+            assert!(
+                entries.iter().any(|entry| entry["cause"] == cause
+                    && entry["path"]
+                        .as_str()
+                        .is_some_and(|path| path.ends_with(glob))),
+                "{glob}: {empty}"
+            );
+            let lead = &skipped_call(&empty)
+                .unwrap_or_else(|| panic!("a skipped-scope lead: {empty}"))["input"]["queries"][0];
+            assert_eq!(lead[flag], json!(true), "{glob}: {empty}");
+            let found = run(&root.0, lead.clone()).expect("lead");
+            assert_eq!(names(&found), named(&[glob]), "{glob}: {found}");
+        }
+    }
+}
+
 /// A directory scan whose path policy withheld candidate entries says so,
 /// as localSearch and structureSearch do: an empty or "complete" result
 /// over a credential-store directory is not proof of absence. A source
@@ -154,13 +246,63 @@ fn directory_prefilter_skips_are_aggregated_once() {
         .filter(|diagnostic| diagnostic["code"] == "structural.prefilter.skipped")
         .collect::<Vec<_>>();
     assert_eq!(prefilter.len(), 1, "{result}");
+    // The note counts the files `filesScanned` counts, and says they were
+    // read: the two numbers are one fact, not a scan beside a skip.
+    let message = prefilter[0]["message"].as_str().expect("message");
+    let scanned = result["filesScanned"].as_u64().expect("filesScanned");
+    assert_eq!(scanned, 3, "{result}");
     assert!(
-        prefilter[0]["message"]
-            .as_str()
-            .is_some_and(|message| message.contains("3 file(s)")),
+        message.contains(&format!("{scanned} files read")) && !message.contains("skipped"),
         "{result}"
     );
     assert_eq!(result["status"], "empty", "{result}");
+    // No file spells the literal, so none was parsed: the note is the whole
+    // explanation, and no pattern shape is stated for nodes nobody read.
+    assert!(
+        !result["diagnostics"]
+            .to_string()
+            .contains("structural.pattern.shape"),
+        "{result}"
+    );
+}
+
+/// When some scanned files spell the literal and were parsed, the prefilter
+/// note counts the others as part of the files scanned, and the pattern's
+/// shape is stated for the nodes that were read.
+#[test]
+fn a_partial_prefilter_skip_is_counted_within_the_files_scanned() {
+    let root = Fixture::new();
+    std::fs::write(root.0.join("one.ts"), "const missingCall = 1;\n").expect("source");
+    for name in ["two.ts", "three.ts"] {
+        std::fs::write(root.0.join(name), "const value = 1;\n").expect("source");
+    }
+    let (paths, security) = simple_policy(&root.0);
+    let result = execute_row(
+        json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"missingCall($A);"}}),
+        &paths,
+        &security,
+        &NeverCancel,
+    )
+    .expect("structural zero");
+    assert_eq!(result["status"], "empty", "{result}");
+    let scanned = result["filesScanned"].as_u64().expect("filesScanned");
+    let of_code = |code: &str| {
+        result["diagnostics"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|diagnostic| diagnostic["code"] == code)
+            .filter_map(|diagnostic| diagnostic["message"].as_str())
+            .collect::<Vec<_>>()
+    };
+    let [note] = of_code("structural.prefilter.skipped")[..] else {
+        panic!("one prefilter note: {result}");
+    };
+    assert!(
+        note.starts_with(&format!("{} of {scanned} files scanned", scanned - 1)),
+        "{note}"
+    );
+    assert_eq!(of_code("structural.pattern.shape").len(), 1, "{result}");
 }
 
 /// A cancellation during either astSearch directory walk stops it with
@@ -190,7 +332,9 @@ fn cancellation_interrupts_descendant_traversal() {
 /// and does not offer a repair that drops `language`.
 #[test]
 fn an_empty_match_over_ignored_and_hidden_files_leads_to_them() {
-    for (dir, flag) in [("gen", "includeIgnored"), (".cfg", "includeHidden")] {
+    use octocode_tools_shared::empty_walk::Cause;
+    for (dir, cause) in [("gen", Cause::Ignored), (".cfg", Cause::Hidden)] {
+        let (flag, _) = cause.flag();
         let root = Fixture::new();
         std::fs::create_dir_all(root.0.join(".git")).expect("git dir");
         root.write(".gitignore", "gen/\n");
@@ -207,14 +351,12 @@ fn an_empty_match_over_ignored_and_hidden_files_leads_to_them() {
         assert_eq!(lead["tool"], "astSearch", "{dir}: {empty}");
         let retry = &lead["input"]["queries"][0];
         assert_eq!(retry[flag], true, "{dir}: {empty}");
+        assert_unsearched(&empty, &[cause]);
+        // The ledger names the one path, under its cause.
+        let entries = empty["skippedPaths"]["entries"].as_array().expect("ledger");
         assert!(
-            empty["warnings"]
-                .to_string()
-                .contains(if flag == "includeIgnored" {
-                    "Skipped paths (1 ignored)"
-                } else {
-                    "Skipped paths (1 hidden)"
-                }),
+            matches!(entries.as_slice(), [entry] if entry["cause"] == cause.label()
+                && entry["path"].as_str().is_some_and(|path| path.ends_with(dir))),
             "{dir}: {empty}"
         );
         let found = run(&root.0, retry.clone()).expect("lead runs");
@@ -261,8 +403,7 @@ fn an_empty_match_beside_parsed_files_names_the_ignored_ones() {
     let empty = run(&root.0, request).expect("empty match");
     assert_eq!(empty["status"], "empty", "{empty}");
     assert_eq!(empty["filesScanned"], json!(1), "{empty}");
-    let hints = empty["warnings"].to_string();
-    assert!(hints.contains("Skipped paths (1 ignored)"), "{hints}");
+    assert_unsearched(&empty, &[octocode_tools_shared::empty_walk::Cause::Ignored]);
     assert!(empty["skippedPaths"].to_string().contains("gen"), "{empty}");
     let retry = &super::super::test_rows::skipped_call(&empty)
         .unwrap_or_else(|| panic!("missing skipped-scope lead: {empty}"))["input"]["queries"][0];

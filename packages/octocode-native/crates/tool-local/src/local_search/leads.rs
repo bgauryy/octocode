@@ -1,14 +1,11 @@
-//! The follow-up calls a search page offers (read, references, re-runs,
-//! listings), ranked; what the page could not cover is in `coverage`, the
-//! empty page's probes in `probes`.
+//! What a search page says beside its rows: the skipped-path ledger and
+//! the calls an empty or refused page offers; what the page could not cover
+//! is in `coverage`, the empty page's recovery in `probes`.
 
-use super::layout::*;
 use super::local_search_query;
+use super::probes::*;
 use super::types::*;
-use super::{binaries::*, handoff::*, probes::*};
 use octocode_contract_types::{LocalSearchQuery, SkippedPaths};
-use octocode_runtime_base::id::ToolId;
-use octocode_runtime_base::policy::path::PathPolicy;
 use octocode_runtime_base::policy::prune::DefaultsFlag;
 use octocode_runtime_base::response::result::{Continuation, ToolError};
 use octocode_tools_shared::empty_walk::Cause;
@@ -17,9 +14,6 @@ use serde_json::{Value, json};
 mod reads;
 mod skipped;
 
-/// The `next` name of the listing of binaries a walk skipped.
-pub(super) const BINARY_LISTING: &str = "binarySkipped";
-
 /// What a page's leads disclosed of the paths its walk skipped.
 pub(super) struct Disclosed {
     /// Skipped paths hold a match, or may: a retry over them reaches it.
@@ -27,15 +21,10 @@ pub(super) struct Disclosed {
     pub(super) skipped_paths: Option<SkippedPaths>,
 }
 
-/// A page's result, for its leads.
+/// A page's result, for what it says beside its rows.
 pub(super) struct Found<'a> {
     pub(super) query: &'a LocalSearchQuery,
     pub(super) root: &'a std::path::Path,
-    pub(super) output_root: &'a std::path::Path,
-    pub(super) files: &'a [SearchFile],
-    pub(super) layout: &'a Layout,
-    pub(super) definition: Option<&'a Definition>,
-    pub(super) symbol: Option<&'a str>,
     pub(super) scanned: &'a octocode_engine::types::TextSearchStats,
     /// What the walk left out: policy-withheld, default-excluded and hidden
     /// entries.
@@ -45,119 +34,65 @@ pub(super) struct Found<'a> {
     /// clear this.
     pub(super) walk_complete: bool,
     pub(super) empty: bool,
-    /// The scanner's limits, which say what a read of a source can serve.
-    pub(super) limits: octocode_runtime_base::security::SourceLimits,
 }
 
 impl Found<'_> {
-    /// Leads in the tool's own rank: a read of the top hit, the symbol's
-    /// lspSearch lead, then the skipped binaries
-    /// and the literal search. Returns what it disclosed of the skipped
-    /// paths.
+    /// What a page says beside its rows. A page with hits states only what
+    /// limits trust in them (`warnings`, `skippedPaths`): what to read or
+    /// ask next is written from its rows' own paths and lines. An empty
+    /// page offers `recovery` the causes it knows, in order. Returns what
+    /// it disclosed of the skipped paths.
     pub(super) fn add_leads(
         &self,
         stats: &mut SearchStats,
-        next: &mut Option<Value>,
-        hints: &mut Vec<String>,
+        recovery: &mut Recovery,
         warnings: &mut Vec<String>,
     ) -> Result<Disclosed, ToolError> {
         let query = self.query;
         let first_disclosure = self.first_page();
-        let mut add = |name: String, lead: Value| {
-            if let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut() {
-                map.insert(name, lead);
-            }
-        };
-        if let Some(read) = self.read_lead() {
-            add("read".into(), read);
-        }
-        if let (Some(symbol), Some(definition)) = (self.symbol, self.definition)
-            && let Some(row) = octocode_tools_shared::leads::lsp::verify_query(
-                &definition.source,
-                symbol,
-                u64::from(definition.line),
-                octocode_tools_shared::leads::lsp::Verify::for_kind(&definition.kind),
-                local_search_query::test_code(query),
-            )
-        {
-            add(
-                octocode_tools_shared::leads::lsp::lead_name(&row),
-                Continuation::related(ToolId::LspSearch, row).build(),
-            );
-        }
-        // Binaries were never text to search: every row states their count
-        // in `stats` (an empty row's absence sentence restates it). Only
-        // binary-cut files too many to name get a listing: their text past
-        // the NUL is unread.
-        if let Some(disclosure) = self.skipped_binaries() {
-            stats.binary_skipped = self.leading_binaries();
-            if let Some(listing) = disclosure.listing {
-                add(BINARY_LISTING.into(), listing);
-            }
-        }
+        // Binaries were never text to search. Their count qualifies an
+        // answer that is empty or partial; beside hits it changes nothing.
+        stats.binary_skipped = self.leading_binaries();
         // Directories the depth limit left unentered are coverage the walk
-        // never had: disclosed once, with the same search at every depth.
+        // never had: disclosed once.
         if first_disclosure
             && let Some(dirs) = self.scanned.depth_cut_dirs.filter(|count| *count > 0)
         {
             warnings.push(format!(
                 "{dirs} dir(s) at maxDepth were not entered; files below them were not searched."
             ));
-            add("expandDepth".into(), unlimited_depth_lead(query)?);
-        }
-        // What the walk left out is disclosed once, on the first page, in
-        // `skippedPaths` (the security policy's withheld entries, which
-        // nothing lifts, among them). The search over the paths a flag lifts
-        // is offered only where it applies: an empty page that proves which
-        // of them hold a match, in `disclose_unsearched`. A page with hits
-        // already answers; its skipped paths stay counted, not re-offered.
-        // Thousands of hits page for dozens of calls: one count call ranks
-        // the files first, so the next read or narrowing is chosen, not paged.
-        // A page that shows no hit rows (a `countAll` tally) pages nothing.
-        if self.first_page()
-            && !list_view(local_search_query::view(query))
-            && !self.files.is_empty()
-            && self
-                .scanned
-                .match_count
-                .is_some_and(|total| total >= LARGE_RESULT_MATCHES)
-        {
-            add("viewFileCount".into(), count_lead(query)?);
         }
         // Files whose match the `fileHas`/`fileLacks` terms removed: the
         // empty page is the filter's, not the pattern's.
         if self.empty
             && let Some(dropped) = self.scanned.file_terms_dropped.filter(|count| *count > 0)
         {
-            warnings.push(format!(
-                "{dropped} file(s) matched matchString but fileHas/fileLacks removed them."
-            ));
-            add("broadenSearch".into(), unfiltered_terms_lead(query)?);
+            recovery.offer(
+                format!(
+                    "{dropped} file(s) matched matchString but fileHas/fileLacks removed them; the related[] call searches without those terms."
+                ),
+                Some(("broadenSearch", unfiltered_terms_lead(query)?)),
+            );
         }
+        // What the walk left out is disclosed once, on the first page, in
+        // `skippedPaths` (the security policy's withheld entries, which
+        // nothing lifts, among them).
         let skipped_paths = if first_disclosure {
             self.skipped_paths()?
         } else {
             None
         };
         let unsearched = if self.discloses_skipped() {
-            let scoped = match &skipped_paths {
-                Some(skipped) => skipped::scoped_leads(query, self.root, skipped)?,
-                None => Vec::new(),
-            };
-            disclose_skipped(
-                query,
-                &Skipped {
-                    walk: self.skipped,
-                    causes: self.skipped_causes(),
-                },
-                scoped,
-                (next, hints),
-            )
+            skipped_recovery(query, self.skipped, &self.skipped_causes())
         } else {
-            Unsearched::default()
+            None
         };
+        let skipped_match = unsearched.is_some();
+        if let Some((hint, call)) = unsearched {
+            recovery.offer(hint, Some(call));
+        }
         Ok(Disclosed {
-            skipped_match: unsearched.may_hold_matches,
+            skipped_match,
             skipped_paths,
         })
     }
@@ -167,39 +102,10 @@ impl Found<'_> {
     }
 }
 
-/// The same search one folder up from `root` (the searched file or
-/// directory), from page 1, when `root` lies below the top of its tree
-/// ([`PathPolicy::tree_root`]: the workspace, a clone's checkout): the scope
-/// widens by one level, never to the whole tree at once. `None` at the top
-/// itself or outside every tree.
-pub(super) fn parent_folder_lead(
-    query: &LocalSearchQuery,
-    paths: &PathPolicy,
-    root: &std::path::Path,
-) -> Result<Option<Value>, ToolError> {
-    let parent = root.parent().filter(|parent| {
-        paths
-            .tree_root(root)
-            .is_some_and(|top| top.as_path() != root && parent.starts_with(&top))
-    });
-    match parent {
-        Some(parent) => restart_lead(query, json!({"path": paths.shown(parent)})).map(Some),
-        None => Ok(None),
-    }
-}
-
-/// The same search without its `maxDepth`, from page 1.
-fn unlimited_depth_lead(query: &LocalSearchQuery) -> Result<Value, ToolError> {
-    restart_lead(query, json!({"maxDepth": null}))
-}
-
 /// The same search without its `fileHas`/`fileLacks` terms, from page 1.
 fn unfiltered_terms_lead(query: &LocalSearchQuery) -> Result<Value, ToolError> {
     restart_lead(query, json!({"fileHas": null, "fileLacks": null}))
 }
-
-/// Matches at which a line view leads to its per-file counts.
-pub(super) const LARGE_RESULT_MATCHES: u32 = 1_000;
 
 /// The same search as per-file match counts, from page 1.
 pub(super) fn count_lead(query: &LocalSearchQuery) -> Result<Value, ToolError> {
@@ -211,7 +117,6 @@ pub(super) fn count_lead(query: &LocalSearchQuery) -> Result<Value, ToolError> {
             "view": "countMatches",
             "contextLines": null,
             "unique": null,
-            "classification": null,
         }),
     )
 }

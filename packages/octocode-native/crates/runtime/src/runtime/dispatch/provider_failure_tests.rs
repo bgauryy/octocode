@@ -159,7 +159,7 @@ fn typed_shape_mismatch_is_invalid_input_for_every_local_tool() {
                 cargo: None,
                 paths: &paths,
                 security: &security,
-                selection: None,
+                clasify: false,
                 graph_rows: None,
             },
         )
@@ -203,7 +203,7 @@ fn a_non_local_tool_is_a_routing_error() {
                 cargo: None,
                 paths: &paths,
                 security: &ContentSecurity::new(),
-                selection: None,
+                clasify: false,
                 graph_rows: None,
             },
         );

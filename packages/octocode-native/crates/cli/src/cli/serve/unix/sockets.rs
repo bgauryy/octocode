@@ -94,6 +94,24 @@ pub(super) fn live_servers(
     live
 }
 
+/// The server sockets in `dir`, this server's included: the server processes
+/// that share the language-server memory budget. A socket whose server was
+/// killed still counts until it is pruned, which only makes each part
+/// smaller.
+pub(super) fn server_socket_count(dir: &Path) -> usize {
+    std::fs::read_dir(dir).map_or(0, |entries| {
+        entries
+            .flatten()
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.starts_with("serve-") && name.ends_with(".sock"))
+            })
+            .count()
+    })
+}
+
 /// Ask the server on `stream` to stop.
 pub(super) fn ask_to_stop(mut stream: std::os::unix::net::UnixStream) {
     use std::io::Write as _;

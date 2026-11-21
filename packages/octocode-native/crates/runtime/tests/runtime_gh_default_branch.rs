@@ -108,9 +108,8 @@ async fn a_version_tag_spelled_with_or_without_v_leads_to_the_spelling_that_exis
             let data = row_data(&outcome);
             let message = data["error"].as_str().unwrap_or_default();
             assert!(message.contains(&format!("\"{exists}\" exists")), "{data}");
-            let lead = checks::related_call(data, tool, |input| {
-                input["queries"][0]["ref"] == exists
-            });
+            let lead =
+                checks::related_call(data, tool, |input| input["queries"][0]["ref"] == exists);
             assert_eq!(lead["input"]["queries"][0]["owner"], "a", "{data}");
         }
         runtime.close().await;

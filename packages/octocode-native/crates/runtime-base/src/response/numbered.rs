@@ -5,8 +5,15 @@
 //! `<line>\t<text>` per line, no padding. Line-omission markers between
 //! non-adjacent windows are separated by one `--` line.
 //! Only views whose lines map one-to-one onto original source lines are
-//! numbered; transformed views (`contentView`), byte windows, and content
-//! whose lines do not align with `sourceLineRanges` stay verbatim.
+//! numbered; transformed views (`contentView`) and content whose lines do
+//! not align with `sourceLineRanges` stay verbatim. A byte page (a window
+//! of a line too long for one page) is numbered the same way, so a walk
+//! keeps one format: each row that starts a source line carries its
+//! gutter, and a page that opens inside a line states `continuesLine` and
+//! leaves that first row bare. Byte offsets count the source text, never
+//! the gutters. A byte page of match windows joined by byte-gap markers
+//! does not map onto lines and stays verbatim beside its
+//! `sourceLineRanges`.
 
 mod view;
 use crate::id::ToolId;
@@ -34,13 +41,16 @@ pub const GAP: &str = "--\n";
 #[must_use]
 #[cfg(test)]
 fn number_lines(content: &str, ranges: &[(u64, u64)]) -> Option<String> {
-    number_lines_with_order(content, ranges, false)
+    number_lines_with_order(content, ranges, false, false)
 }
 
+/// `continues`: the content opens inside its first line, whose first row is
+/// a later piece of it and takes no gutter.
 fn number_lines_with_order(
     content: &str,
     ranges: &[(u64, u64)],
     reordered: bool,
+    continues: bool,
 ) -> Option<String> {
     if ranges.is_empty() {
         return None;
@@ -82,7 +92,11 @@ fn number_lines_with_order(
             if record.starts_with("... [") && record.contains(" omitted] ...") {
                 return None;
             }
-            push_numbered(&mut output, line, record);
+            if continues && index == 0 {
+                output.push_str(record);
+            } else {
+                push_numbered(&mut output, line, record);
+            }
             index += 1;
         }
     }
@@ -156,13 +170,16 @@ fn ranges_of(value: &Value) -> Option<Vec<(u64, u64)>> {
         .collect()
 }
 
-/// A transformed view, or a byte page: byte-page offsets count the returned
-/// text, so it stays verbatim for exact reassembly.
+/// A transformed view: its lines are not the source's.
 fn is_transformed(data: &Value) -> bool {
     data.get("contentView")
         .and_then(Value::as_str)
         .is_some_and(|view| view != "none")
-        || data.pointer("/pagination/unit").and_then(Value::as_str) == Some("bytes")
+}
+
+/// The line a byte page's content opens inside (`continuesLine`).
+fn continued_line(data: &Value) -> Option<u64> {
+    data.get("continuesLine").and_then(Value::as_u64)
 }
 
 /// Number one file-read row in place. The numbers replace `sourceLineRanges`;
@@ -171,6 +188,7 @@ fn number_file_row(data: &mut Value) -> bool {
     if is_transformed(data) {
         return false;
     }
+    let continues = continued_line(data);
     let Some(map) = data.as_object_mut() else {
         return false;
     };
@@ -183,10 +201,16 @@ fn number_file_row(data: &mut Value) -> bool {
     let Some(ranges) = map.get("sourceLineRanges").and_then(ranges_of) else {
         return false;
     };
+    // The line a page continues is the first it shows.
+    if continues.is_some_and(|line| ranges.first().map(|range| range.0) != Some(line)) {
+        return false;
+    }
     let Some(numbered) = map
         .get("content")
         .and_then(Value::as_str)
-        .and_then(|content| number_lines_with_order(content, &ranges, reordered))
+        .and_then(|content| {
+            number_lines_with_order(content, &ranges, reordered, continues.is_some())
+        })
     else {
         return false;
     };

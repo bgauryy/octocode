@@ -4,15 +4,9 @@ use super::*;
 use octocode_runtime_base::contracts::query_limits::gh_structure as limits;
 use octocode_test_support::json_fixture;
 
-/// Each `files` entry of one page, in order.
+/// Each `files` entry of one page under its repo-relative path, in order.
 fn entries(data: &Value) -> Vec<String> {
-    data["files"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .flat_map(|directory| directory["files"].as_array().into_iter().flatten())
-        .map(|entry| entry.as_str().expect("entry").to_owned())
-        .collect()
+    listed_paths(data)
 }
 
 /// Requests the mock server saw to `route`.
@@ -188,8 +182,8 @@ async fn a_materialize_without_a_depth_pages_its_whole_listing_once() {
         assert_eq!(pages, 3, "{root}");
         listed.sort();
         let mut expected = (0..total_files)
-            .map(|n| format!("f{n:02}.rs (8)"))
-            .chain(["src/", "deep/"].map(str::to_owned))
+            .map(|n| format!("{prefix}src/deep/f{n:02}.rs (8)"))
+            .chain(["src/", "src/deep/"].map(|dir| format!("{prefix}{dir}")))
             .collect::<Vec<_>>();
         expected.sort();
         assert_eq!(listed, expected, "{root}");
@@ -202,4 +196,89 @@ async fn a_materialize_without_a_depth_pages_its_whole_listing_once() {
             .count();
         assert_eq!(reads, total_files, "only the first page writes: {root}");
     }
+}
+
+/// An `include` that hits one file in most directories and several in a few
+/// walks flat rows and groups together: across the pages every matched file
+/// is listed exactly once under its repo-relative path, a directory with one
+/// entry on a page is a flat row and a directory with several a group (a
+/// directory a page boundary cuts is whichever its share of each page is).
+#[tokio::test]
+async fn a_walk_of_flat_rows_and_groups_lists_every_entry_once() {
+    let server = server().await;
+    let dirs = 9;
+    // Every third package holds two matches, the others one.
+    let files = (0..dirs)
+        .flat_map(|n| {
+            let dir = format!("packages/p{n}");
+            let twin = (n % 3 == 0).then(|| format!("{dir}/Cargo.lock"));
+            [Some(format!("{dir}/Cargo.toml")), twin]
+        })
+        .flatten()
+        .collect::<Vec<_>>();
+    let tree = files
+        .iter()
+        .map(|file| json!({"path":file,"type":"blob","size":7,"sha":"0"}))
+        .chain(
+            (0..dirs)
+                .map(|n| format!("packages/p{n}"))
+                .chain(["packages".to_owned()])
+                .map(|dir| json!({"path":dir,"type":"tree","sha":"0"})),
+        )
+        .collect::<Vec<_>>();
+    mount_json(
+        &server,
+        format!("/api/v3/repos/a/b/git/trees/{SHA}"),
+        200,
+        json!({"sha":SHA,"truncated":false,"tree":tree}),
+    )
+    .await;
+    let limit = 5;
+    let mut row = json!({"operation":"tree","owner":"a","repo":"b","ref":"main",
+        "include":["**/Cargo.*"],"limit":limit});
+    let mut listed = Vec::new();
+    let (mut flat_rows, mut groups) = (0, 0);
+    loop {
+        let out = list(&server, row).await.expect("tree page");
+        let data = &out.data;
+        octocode_runtime_base::test_support::assert_row_contract(ToolId::GhStructure, data);
+        let page = entries(data);
+        assert!(page.len() <= limit, "{data}");
+        let rows = data["files"].as_array().expect("files");
+        flat_rows += rows.iter().filter(|row| row.is_string()).count();
+        groups += rows.iter().filter(|row| row.is_object()).count();
+        // No directory is stated twice on a page: one flat row or one group.
+        let mut stated = rows
+            .iter()
+            .map(|row| match row.as_str() {
+                Some(path) => octocode_runtime_base::response::groups::split(
+                    octocode_tools_shared::selection::row_units::entry_name(path),
+                )
+                .0
+                .to_owned(),
+                None => row["dir"].as_str().expect("dir").to_owned(),
+            })
+            .collect::<Vec<_>>();
+        let count = stated.len();
+        stated.sort();
+        stated.dedup();
+        assert_eq!(stated.len(), count, "{data}");
+        listed.extend(page);
+        let Some(next) = data.pointer("/next/nextPage/input/queries/0") else {
+            break;
+        };
+        assert!(listed.len() < files.len(), "nonterminating tree: {data}");
+        row = next.clone();
+    }
+    let mut expected = files
+        .iter()
+        .map(|file| format!("{file} (7)"))
+        .collect::<Vec<_>>();
+    expected.sort();
+    listed.sort();
+    assert_eq!(listed, expected);
+    assert!(
+        flat_rows > 0 && groups > 0,
+        "{flat_rows} flat, {groups} groups"
+    );
 }

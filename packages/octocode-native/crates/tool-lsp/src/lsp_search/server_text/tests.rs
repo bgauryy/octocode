@@ -213,7 +213,7 @@ fn runtime_written_fields_and_readable_text_stay_as_they_are() {
         "operation": "hover",
         "status": "ok",
         "path": format!("/w/{PASSWORD}/cfg.ts"),
-        "matches": [{"content": format!("1\tpassword: \"{PASSWORD}\""), "uri": format!("file:///w/{PASSWORD}.ts")}],
+        "matches": [{"value": format!("1\tpassword: \"{PASSWORD}\""), "uri": format!("file:///w/{PASSWORD}.ts")}],
         "next": {"nextPage": {"input": {"queries": [{"symbolName": PASSWORD}]}}},
         "related": [{"input": {"queries": [{"matchString": PASSWORD}]}}],
         "pagination": {"note": PASSWORD},

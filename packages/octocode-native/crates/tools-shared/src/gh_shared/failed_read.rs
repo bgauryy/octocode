@@ -1,14 +1,15 @@
 //! What a failed read or listing names in its leads: the commit it resolved, its canonical name, a submodule's repository.
 use super::rename::{CanonicalScope, canonical_scope};
 use super::{
-    GhFailure, RenameCheck, RepoPath, missing_path, tree_recovery, with_default_branch,
-    with_ref_recovery, with_search_repair,
+    GhFailure, OWNER_SPELLING_HINT, RenameCheck, RepoPath, missing_path, owner_not_found_message,
+    repository_not_found, tree_recovery, with_default_branch, with_ref_recovery,
+    with_search_repair,
 };
 use octocode_github::{
     GitHubProvider, ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext,
 };
 use octocode_runtime_base::id::ToolId;
-use serde_json::json;
+use serde_json::{Value, json};
 
 /// The failed operation's resolved commit and current canonical repository,
 /// and its error as the repository's state explains it. The caller carries
@@ -88,8 +89,9 @@ pub async fn read_failure_scope(
 /// The recovery every read or listing of `owner/repo` shares for a failure
 /// that is not about its path: a missing ref lists the refs and names the
 /// default branch, a repository that did not resolve leads to a search for
-/// it, a page past the window to its repair. Any other failure is returned
-/// unchanged.
+/// it (or names its owner when no such login exists:
+/// [`name_missing_owner`]), a page past the window to its repair. Any other
+/// failure is returned unchanged.
 pub async fn with_read_recovery(
     provider: &GitHubProvider,
     failure: GhFailure,
@@ -101,7 +103,83 @@ pub async fn with_read_recovery(
 ) -> GhFailure {
     let failure = with_ref_recovery(failure, owner, repo);
     let failure = with_default_branch(provider, failure, tool, query, context).await;
-    with_search_repair(failure, tool, query, 1, Some(owner), Some(repo))
+    let failure = with_search_repair(failure, tool, query, 1, Some(owner), Some(repo));
+    name_missing_owner(provider, failure, owner, context).await
+}
+
+/// Whether no GitHub user or organization has the login `owner` (one
+/// request). GitHub answers a repository under such a login exactly like a
+/// missing repository, so every tool whose repository did not resolve asks
+/// this before it words the failure. A login that exists, or whose read did
+/// not answer, is not missing.
+pub async fn owner_missing(
+    provider: &GitHubProvider,
+    owner: &str,
+    context: &RequestContext,
+) -> bool {
+    matches!(
+        provider.transport.confirm_user(owner, context).await,
+        Err(error) if error.reason == Some(ProviderErrorReason::UserNotFound)
+    )
+}
+
+/// The failure of a repository that did not resolve, restated for an
+/// `owner` that is no login ([`owner_missing`]): the `message` names the
+/// owner, and no lead in `calls` asks for that owner (its listing, the same
+/// request under another repository name, its refs): each would fail the
+/// same way. The other leads and the `hints` that label them stay; with no
+/// lead left, the one hint is the owner's spelling.
+pub fn state_missing_owner(
+    message: &mut String,
+    hints: &mut Vec<String>,
+    calls: &mut Option<Box<Value>>,
+    owner: &str,
+) {
+    *message = owner_not_found_message(owner);
+    *calls = calls.take().and_then(|mut calls| {
+        let leads = calls.as_object_mut()?;
+        leads.retain(|_, lead| !asks_for(lead, owner));
+        (!leads.is_empty()).then_some(calls)
+    });
+    if calls.is_none() {
+        *hints = vec![OWNER_SPELLING_HINT.to_owned()];
+    }
+}
+
+/// `failure` of a request scoped to `owner`'s repository, every GitHub
+/// tool's one answer to a missing owner: a repository that did not resolve
+/// (`RepositoryNotFound`) reads the login once, and under a login nobody
+/// has it is [`state_missing_owner`]'s failure. Any other failure, and a
+/// login that exists, is returned unchanged.
+pub async fn name_missing_owner(
+    provider: &GitHubProvider,
+    mut failure: GhFailure,
+    owner: &str,
+    context: &RequestContext,
+) -> GhFailure {
+    if repository_not_found(&failure.error) && owner_missing(provider, owner, context).await {
+        state_missing_owner(
+            &mut failure.message,
+            &mut failure.hints,
+            &mut failure.calls,
+            owner,
+        );
+    }
+    failure
+}
+
+/// Whether a `lead`'s call names `owner` in any of its queries.
+fn asks_for(lead: &Value, owner: &str) -> bool {
+    lead.pointer("/input/queries")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .any(|query| {
+            query
+                .get("owner")
+                .and_then(Value::as_str)
+                .is_some_and(|asked| asked.eq_ignore_ascii_case(owner))
+        })
 }
 
 /// The failure of a request that named a submodule path (a read or a

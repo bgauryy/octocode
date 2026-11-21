@@ -126,7 +126,7 @@ fn unavailable_required_work_fails_and_optional_related_work_is_removed() {
     )
     .expect("optional unavailable lead");
     assert_eq!(output["results"][0]["data"]["related"], json!([]));
-    output["results"][0]["data"]["next"] = json!({"nextPage":Continuation::continued(ToolId::StructureSearch,json_fixture(r#"{"path": "src", "page": 2}"#)).build()});
+    output["results"][0]["data"]["next"] = json!({"nextPage":Continuation::continued(ToolId::StructureSearch,json_fixture(r#"{"operation": "tree", "path": "src", "page": 2}"#)).build()});
     assert!(
         finalize(
             &mut output,
@@ -184,7 +184,7 @@ fn named_evidence_channels_and_classification_resources_publish_issued_handles()
 fn removing_multiple_unavailable_related_requests_preserves_other_array_members() {
     let mut output = json!({"results":[{"index":0,"data":{"related":[
         Continuation::related(ToolId::LocalFetch,json_fixture(r#"{"path": "a"}"#)).build(),
-        Continuation::related(ToolId::StructureSearch,json_fixture(r#"{"path": "."}"#)).build(),
+        Continuation::related(ToolId::StructureSearch,json_fixture(r#"{"operation": "tree", "path": "."}"#)).build(),
         Continuation::related(ToolId::LocalFetch,json_fixture(r#"{"path": "b"}"#)).build()
     ]}}]});
     finalize(

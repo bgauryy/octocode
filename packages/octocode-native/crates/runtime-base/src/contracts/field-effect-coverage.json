@@ -68,10 +68,13 @@
         "assets": [
           "source"
         ],
-        "content": [
+        "background": [
           "selection"
         ],
-        "context": [
+        "collapse": [
+          "execution"
+        ],
+        "content": [
           "selection"
         ],
         "longContext": [
@@ -90,6 +93,9 @@
           "execution"
         ],
         "perItem": [
+          "selection"
+        ],
+        "predicates": [
           "selection"
         ],
         "questions": [
@@ -145,22 +151,9 @@
       "evidence": [
         "tool-github/src/gh_search_code/query.rs",
         "runtime/tests/runtime_github/refs.rs",
-        "tools-shared/src/selection/tests/plan_token.rs",
-        "tools-shared/src/selection/tests/plan_binding.rs",
-        "tools-shared/src/selection/tests/admission.rs",
-        "runtime/src/tools/selection/tests/candidate_pages.rs",
-        "runtime/src/tools/selection/tests/code_page.rs",
-        "runtime/src/tools/selection/tests/code_page_failures.rs",
-        "tools-shared/src/selection/judge/question_tests.rs",
         "tools-shared/src/selection/judge/provider_tests.rs"
       ],
       "fields": {
-        "classification": [
-          "selection"
-        ],
-        "classification.maxRequests": [
-          "execution"
-        ],
         "extensions": [
           "filter"
         ],
@@ -247,8 +240,6 @@
         "tool-github/src/gh_get_file_content/tests/windows.rs",
         "tool-github/src/gh_get_file_content/tests/continuations.rs",
         "tool-github/src/gh_get_file_content/tests/misses.rs",
-        "tool-local/src/local_fetch/tests/classified.rs",
-        "tool-local/src/local_fetch/tests/classified/recovery.rs",
         "tool-local/src/local_fetch/tests/declarations.rs",
         "tool-local/src/local_fetch/tests/line_walks.rs",
         "tool-local/src/local_fetch/tests/long_lines.rs",
@@ -267,13 +258,6 @@
         "tool-local/src/local_fetch/tests/wire.rs",
         "tools-shared/src/source_view/block/tests.rs",
         "runtime/tests/runtime_github/file_reads.rs",
-        "tools-shared/src/selection/tests/plan_token.rs",
-        "tools-shared/src/selection/tests/plan_binding.rs",
-        "tools-shared/src/selection/tests/admission.rs",
-        "runtime/src/tools/selection/tests/candidate_pages.rs",
-        "runtime/src/tools/selection/tests/code_page.rs",
-        "runtime/src/tools/selection/tests/code_page_failures.rs",
-        "tools-shared/src/selection/judge/question_tests.rs",
         "tools-shared/src/selection/judge/provider_tests.rs"
       ],
       "fields": {
@@ -282,12 +266,6 @@
         ],
         "caseMode": [
           "matcher"
-        ],
-        "classification": [
-          "selection"
-        ],
-        "classification.maxRequests": [
-          "execution"
         ],
         "contextLines": [
           "view"
@@ -329,16 +307,9 @@
         "tool-github/src/gh_search_history/tests/terms.rs",
         "tool-github/src/gh_search_history/tests/provider/request_fields.rs",
         "tool-github/src/gh_search_history/tests/provider/rows.rs",
-        "runtime/tests/runtime_github_history/search.rs",
-        "runtime/src/tools/selection/tests/row_pages.rs"
+        "runtime/tests/runtime_github_history/search.rs"
       ],
       "fields": {
-        "classification": [
-          "selection"
-        ],
-        "classification.maxRequests": [
-          "execution"
-        ],
         "fields": [
           "view"
         ],
@@ -375,16 +346,9 @@
       "evidence": [
         "tool-github/src/gh_get_history_item/tests.rs",
         "runtime/tests/runtime_github_history/commits.rs",
-        "runtime/tests/runtime_github_compare/pages.rs",
-        "runtime/src/tools/selection/tests/row_pages.rs"
+        "runtime/tests/runtime_github_compare/pages.rs"
       ],
       "fields": {
-        "classification": [
-          "selection"
-        ],
-        "classification.maxRequests": [
-          "execution"
-        ],
         "baseRef": [
           "navigation"
         ],
@@ -491,9 +455,6 @@
         "tool-packages/src/security_check/view_tests.rs"
       ],
       "fields": {
-        "commitSha": [
-          "source"
-        ],
         "ecosystem": [
           "source"
         ],
@@ -503,7 +464,13 @@
         "operation": [
           "dispatch"
         ],
+        "owner": [
+          "source"
+        ],
         "packageName": [
+          "source"
+        ],
+        "ref": [
           "source"
         ],
         "release": [
@@ -554,25 +521,12 @@
         "tool-local/src/local_search/tests/secrets.rs",
         "tool-local/src/local_search/tests/binaries.rs",
         "tool-local/src/local_search/tests/scope.rs",
-        "tools-shared/src/selection/tests/plan_token.rs",
-        "tools-shared/src/selection/tests/plan_binding.rs",
-        "tools-shared/src/selection/tests/admission.rs",
-        "runtime/src/tools/selection/tests/candidate_pages.rs",
-        "runtime/src/tools/selection/tests/code_page.rs",
-        "runtime/src/tools/selection/tests/code_page_failures.rs",
         "runtime/tests/runtime_local/local_search.rs",
-        "tools-shared/src/selection/judge/question_tests.rs",
         "tools-shared/src/selection/judge/provider_tests.rs"
       ],
       "fields": {
         "caseMode": [
           "matcher"
-        ],
-        "classification": [
-          "selection"
-        ],
-        "classification.maxRequests": [
-          "execution"
         ],
         "contextLines": [
           "view"
@@ -661,16 +615,9 @@
         "tool-local/src/structure_search/tests/summaries.rs",
         "tool-local/src/structure_search/tests/probes.rs",
         "runtime/tests/runtime_local/walks.rs",
-        "tool-local/src/structure_search/tests/views.rs",
-        "runtime/src/tools/selection/tests/row_pages.rs"
+        "tool-local/src/structure_search/tests/views.rs"
       ],
       "fields": {
-        "classification": [
-          "selection"
-        ],
-        "classification.maxRequests": [
-          "execution"
-        ],
         "access": [
           "filter"
         ],
@@ -754,9 +701,14 @@
         "engine/src/structural/octo/tests/patterns.rs",
         "engine/src/structural/octo/tests/rules.rs",
         "tool-ast/src/ast_search/region_tests.rs",
-        "engine/src/structural/octo/tests/rule_features.rs"
+        "engine/src/structural/octo/tests/rule_features.rs",
+        "tool-ast/src/ast_search/snippet_tests.rs",
+        "runtime/tests/runtime_ast_snippet.rs"
       ],
       "fields": {
+        "content": [
+          "source"
+        ],
         "defaultExcludes": [
           "filter"
         ],
@@ -827,8 +779,6 @@
     },
     "localFetch": {
       "evidence": [
-        "tool-local/src/local_fetch/tests/classified.rs",
-        "tool-local/src/local_fetch/tests/classified/recovery.rs",
         "tool-local/src/local_fetch/tests/declarations.rs",
         "tool-local/src/local_fetch/tests/line_walks.rs",
         "tool-local/src/local_fetch/tests/long_lines.rs",
@@ -849,19 +799,8 @@
         "tool-local/src/local_fetch/executor/tests/streamed.rs",
         "tool-local/src/local_fetch/executor/tests/secrets.rs",
         "tool-local/src/local_fetch/executor/tests/open.rs",
-        "tools-shared/src/source_view/selection/tests/chunks.rs",
-        "tools-shared/src/source_view/selection/tests/classified_reads.rs",
-        "tools-shared/src/source_view/selection/tests/provider.rs",
-        "tools-shared/src/source_view/selection/tests/state_budget.rs",
-        "tools-shared/src/selection/tests/plan_token.rs",
-        "tools-shared/src/selection/tests/plan_binding.rs",
-        "tools-shared/src/selection/tests/admission.rs",
-        "runtime/src/tools/selection/tests/candidate_pages.rs",
-        "runtime/src/tools/selection/tests/code_page.rs",
-        "runtime/src/tools/selection/tests/code_page_failures.rs",
         "runtime-base/src/response/numbered/tests.rs",
         "runtime/tests/runtime_local/local_fetch.rs",
-        "tools-shared/src/selection/judge/question_tests.rs",
         "tools-shared/src/selection/judge/provider_tests.rs"
       ],
       "fields": {
@@ -870,12 +809,6 @@
         ],
         "caseMode": [
           "matcher"
-        ],
-        "classification": [
-          "selection"
-        ],
-        "classification.maxRequests": [
-          "execution"
         ],
         "contextLines": [
           "view"

@@ -12,7 +12,7 @@ fn annotated_empty(
 ) -> serde_json::Value {
     let config = super::server_context::rust_server_config(json!({}));
     let mut row = empty(query, category, message, available);
-    annotate_empty_includes(&mut row, query, RustAnalysis::of(&config), &|| false);
+    annotate_empty_includes(&mut row, query, RustAnalysis::of(&config), None, &|| false);
     row
 }
 
@@ -159,6 +159,7 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
         &mut inherited,
         &scripted,
         RustAnalysis::of(&configured),
+        None,
         &|| false,
     );
     assert!(inherited.get("hints").is_none(), "{inherited}");
@@ -176,6 +177,7 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
         &mut unavailable,
         &scripted,
         RustAnalysis::of(&super::server_context::rust_server_config(json!({}))),
+        None,
         &|| false,
     );
     assert_eq!(

@@ -1,21 +1,19 @@
-//! `operation: "compare"`: a comparison's files (past GitHub's cap from the
-//! two trees), its commit page, and the range's identity.
+//! `operation: "compare"`: the range's identity and counts (the summary
+//! row), its files (past GitHub's cap from the two trees) and its commit
+//! page.
 use super::axis::Axis;
 use super::file_page::{first_page, lead_first};
 use super::patch_hop::{DiffCursors, attach_diff_continuations};
-use super::pr_menu::{base_public_query, remove_key};
 use super::util::{str_at, usize_at};
 use super::window::COMPARE_FILE_LIMIT;
 use super::{HistoryItemRequest, ItemOperation, fetch, validation};
 use crate::gh_get_history_item::Source;
 use crate::gh_get_history_item::gh_get_history_item_query;
 use crate::gh_get_history_item::sections::Section;
-use octocode_contract_types::GhGetHistoryItemQuery;
 use octocode_engine::num::saturating_u64;
 use octocode_github::{GitHubProvider, ProviderError, RequestContext};
 use octocode_runtime_base::response::paging::push_warnings;
-use octocode_runtime_base::response::result::wire_query;
-use octocode_runtime_base::response::result::{Continuation, ToolData};
+use octocode_runtime_base::response::result::ToolData;
 use serde_json::{Value, json};
 
 mod identity;
@@ -39,23 +37,21 @@ pub(super) async fn compare(
     let page = gh_get_history_item_query::page(query).unwrap_or(1);
     let per = gh_get_history_item_query::collection_page_size(query);
     // Named sections read what they name. Omitted sections answer with the
-    // range's files and, unfiltered, its first commit page (GitHub answers
-    // both in one read). A file filter (`include`, `fileStatus`,
-    // `minChanges`, `matchString`) does not scope the commits: a filtered
-    // read pages them apart, from their first page, by
+    // summary row: the range's identity and its counts, each list one
+    // section away (`sectionPagination.files` and `.commits` state their
+    // sizes with nothing shown, and continue to their first pages). A file
+    // filter (`include`, `fileStatus`, `minChanges`) or a `matchString`
+    // asks about files: it answers with its file page. Neither scopes the
+    // commits: a filtered read pages them apart, from their first page, by
     // `sectionPagination.commits` or `sections: ["commits"]`. A patch window
     // continues one file page's patches only.
     let window = gh_get_history_item_query::char_offset(query).is_some_and(|offset| offset > 0);
     let sections = query.sections();
     let named = gh_get_history_item_query::has_sections(query);
-    let files_asked = !named;
-    let lists_first_commits = files_asked
-        && first_page(query)
-        && !gh_get_history_item_query::has_file_filter(query)
-        && gh_get_history_item_query::match_strings(query).is_none();
-    let wants_commits =
-        !window && ((named && sections.has(Section::Commits)) || lists_first_commits);
-    let wants_files = !named || sections.lists_files();
+    let summary = sections.is_empty() && !gh_get_history_item_query::has_file_filter(query);
+    let files_asked = !named && !summary;
+    let wants_commits = !window && named && sections.has(Section::Commits);
+    let wants_files = files_asked || sections.lists_files();
     let Comparison {
         mut raw,
         total,
@@ -87,8 +83,9 @@ pub(super) async fn compare(
         .get("files")
         .and_then(Value::as_array)
         .is_none_or(Vec::is_empty);
-    let listed_files = raw.get_mut("files").map(Value::take);
+    let mut listed_files = raw.get_mut("files").map(Value::take);
     let mut out = json!({"baseCommitSha":base_sha,"headCommitSha":head_sha,
+        "mergeBaseCommitSha":str_at(&raw, "/merge_base_commit/sha"),
         "aheadBy":usize_at(&raw,"/ahead_by"),"behindBy":usize_at(&raw,"/behind_by")});
     if more {
         octocode_runtime_base::response::paging::set_partial(&mut out, true);
@@ -106,12 +103,18 @@ pub(super) async fn compare(
     }
     // Continuations read the same two commits.
     let pinned = query.with_compare_refs(&base_sha, &head_sha)?;
-    let file_page = wants_files
-        .then(|| {
-            let merge_base = str_at(&raw, "/merge_base_commit/sha");
-            attach_file_page(&mut out, listed_files, merge_base, &pinned, file_limit)
-        })
-        .transpose()?;
+    let file_page = if wants_files {
+        let merge_base = str_at(&raw, "/merge_base_commit/sha");
+        Some(attach_file_page(
+            &mut out,
+            listed_files.take(),
+            merge_base,
+            &pinned,
+            file_limit,
+        )?)
+    } else {
+        None
+    };
     let mut cursors = file_page
         .as_ref()
         .map_or_else(DiffCursors::default, |page| page.cursors);
@@ -127,7 +130,7 @@ pub(super) async fn compare(
         push_warnings(
             &mut out,
             [format!(
-                "head is behind base by {behind}: nothing ahead; related compares the other way."
+                "head is behind base by {behind}: nothing ahead; swap base and head to compare the other way."
             )],
         );
     }
@@ -146,19 +149,32 @@ pub(super) async fn compare(
         )
     });
     cursors.commit_page = more.then(|| saturating_u64(page + 1));
-    // A file answer leaves the range's commits to their own pages: the
-    // section states their count with none shown, and its page lists them
-    // from the first. An empty file answer is the whole answer.
-    if files_asked
-        && !lists_first_commits
-        && !window
-        && first_page(query)
-        && total > 0
-        && out["status"] != "empty"
-    {
+    // A file answer and the summary leave the range's commits to their own
+    // pages: the section states their count with none shown, and its page
+    // lists them from the first. An empty file answer is the whole answer.
+    let files_first = files_asked && !window && first_page(query);
+    if (files_first || summary) && total > 0 && out["status"] != "empty" {
         out["sectionPagination"][Axis::Commits.key()] =
             octocode_runtime_base::response::pages::PageFacts::unshown(total).to_value();
         cursors.commit_page = Some(1);
+    }
+    // The summary states the changed files the same way: their count, none
+    // shown, and the page that lists them from the first. At GitHub's cap
+    // the count is a floor, which the section says and no row count claims.
+    if summary && !no_files {
+        let listed = listed_files
+            .as_ref()
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len);
+        let mut files =
+            octocode_runtime_base::response::pages::PageFacts::unshown(listed).to_value();
+        if capped {
+            files["countScope"] = json!("partial");
+        } else {
+            out["changedFileCount"] = json!(listed);
+        }
+        out["sectionPagination"][Axis::Files.key()] = files;
+        cursors.file_page = Some(1);
     }
     attach_diff_continuations(&mut out, &pinned, ItemOperation::Compare, None, cursors);
     // A literal that hit nothing leads with its recovery, as on a commit.
@@ -166,11 +182,6 @@ pub(super) async fn compare(
         .map(|page| (page.without_match, page.side_reads))
         .unwrap_or_default();
     let mut leads = Vec::from_iter(without_match);
-    // A head behind its base (refs given in reverse) changes nothing this
-    // way round: the swapped comparison reads the `behindBy` commits.
-    if nothing_ahead && behind > 0 {
-        leads.extend(swapped_refs(query).map(|swap| ("swapRefs".to_owned(), swap)));
-    }
     leads.extend(capped_file_leads(
         query,
         &mut out,
@@ -203,17 +214,6 @@ pub(super) async fn compare(
     }
     lead_first(&mut out, leads);
     Ok(ToolData::from(out))
-}
-
-/// The same comparison with `baseRef` and `headRef` exchanged, from its first page.
-fn swapped_refs(query: &HistoryItemRequest) -> Option<Value> {
-    let mut swapped = base_public_query(query, ItemOperation::Compare);
-    for key in ["page", "offset"] {
-        remove_key(&mut swapped, key);
-    }
-    swapped["baseRef"] = json!(gh_get_history_item_query::head(query));
-    swapped["headRef"] = json!(gh_get_history_item_query::base(query));
-    Some(Continuation::related_query(wire_query::<GhGetHistoryItemQuery>(swapped)?).build())
 }
 
 /// One comparison page as GitHub answers it, with both ends pinned to

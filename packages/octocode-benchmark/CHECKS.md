@@ -78,9 +78,9 @@ The core tools come first: a round that has not checked them is not ready, whate
 | Answer | right for the selected question after all required pages; page 1 is useful and identifies how to continue |
 | Identity | the next call can be built from the row (path and line, owner/repo and commitSha, number, id) |
 | Lean | no request echo, no value under two names, no per-row constant, no static prose in results |
-| More | `responsePagination.next` first, then required `next.*` calls reach all selected evidence; `related[]` is optional guidance, not a replacement for pagination |
+| More | the reply's top-level `next`, run until none is left, reaches all selected evidence; a row's `next.*` are branches; `related[]` is optional guidance, not a replacement for pagination |
 | Paging | page 2 continues page 1 with no gap or repeat; a cursor with a changed request is refused |
-| Incomplete | `isPartial`, coverage, skipped paths or `countScope` say what was not covered |
+| Incomplete | `isPartial`, `partialReasons`, coverage or skipped paths say what was not covered; a stated `total` is exact |
 | Empty | an empty row says what was searched (`filesScanned`, coverage) and offers a lead |
 | Errors | a bad call returns one cause line and a runnable example; a credential refusal names the fix |
 | Redaction | a secret in a file shows as `[REDACTED-…]`, only the secret part, the same in every view |
@@ -143,8 +143,8 @@ Use the pinned binary on the CLI and on the MCP server (`node packages/octocode-
 7. **Pagination.** Take every collection the tool returns (rows, files, matches, lines, patches, comments,
    nested lists, `rowPart` pieces) and walk it to the end with its own continuation. Use a small `limit` and
    a small `responseChars` so every kind of page boundary occurs. Joined, the pages hold every item exactly
-   once, in order, with nothing truncated. `hasMore:false` comes only at the true end, and `hasMore:true`
-   always comes with a runnable `next`. A cursor resumes in a fresh process and on the other surface. A
+   once, in order, with nothing truncated. A reply carries a top-level `next` exactly while more remains, and none
+   at the true end. A cursor resumes in a fresh process and on the other surface. A
    cursor sent with an edited request is refused. Mixed batches page each row independently.
 8. **Stress.** Push each tool toward its edges and judge how it behaves there. Try:
    - very large scopes (a monorepo root, a repository with thousands of files);
@@ -201,8 +201,8 @@ Behavior, judged by reading, on both surfaces. The per-tool sections below list 
 - [ ] Successful output: optional hints appear only for empty/error recovery. Coverage warnings,
   source identity, required reads and every continuation survive concise output and transformed views.
 - [ ] clasify: a repeat call makes a new billed request and reports its usage; an edited source or changed
-  question is judged anew; a refused URL makes no request; `next.unfiltered` returns what classification
-  left out. Answers are judgments, so judge the framing, not the number: is each question one standalone
+  question is judged anew; a refused URL makes no request; a warning names the quiet units a summary leaves
+  out and `next.quiet` lists them. Answers are judgments, so judge the framing, not the number: is each question one standalone
   fact, does the judge see the hit line marked and its enclosing context, and does `next.read` lead to the
   deciding lines? A surprising answer is first a question about our wording or context.
 - [ ] ghCloneRepo: other `paths` or `historyDepth` give another checkout; a refresh over a local edit
@@ -230,7 +230,7 @@ Behavior, judged by reading, on both surfaces. The per-tool sections below list 
 - Calls: content search in a folder; `view: files`, `filesWithout`, `countMatches` with `limit` and
   `sort:{"by":"matchCount","order":"desc"}` (sorted by count); `matchOnly` with a regex; `contextLines`; `wholeWord`; `include`/`exclude`; a term that only matches
   as a regex (expect a hint).
-- Look for: hits grouped by file with line numbers, in walk (name) order; on a content page that has more, `pagination.total` is a floor (`countScope: loaded`) and no `matchCount`; a hit in a line over 4 KB shows a window with its column
+- Look for: hits grouped by file with line numbers, in walk (name) order; on a content page that has more, no `pagination.total` and no `matchCount` are stated; a hit in a line over 4 KB shows a window with its column
   and a ready read of the line; empty rows carry `files: []` and `filesScanned`, no zero counters.
 - Compare: the expert command and what "better" means are in [COMPARISONS.md](COMPARISONS.md#localsearch).
 
@@ -243,8 +243,9 @@ Behavior, judged by reading, on both surfaces. The per-tool sections below list 
 - Compare: the expert command and what "better" means are in [COMPARISONS.md](COMPARISONS.md#localfetch).
 
 #### structureSearch
-- Calls: tree default (names only); `maxDepth`; `operation: files` with `sort` by `sizeBytes`, `totalLines`,
-  `modifiedAt`; `nameRegex` of a parent and of its child; `view: details`.
+- Calls: `operation: tree` (names only); `maxDepth`; `operation: files` with `sort` by `bytes`, `totalLines`,
+  `modifiedAt` (no `order`: largest or newest first); `nameRegex` of a parent and of its child; `view: details`;
+  a ranked row's path pasted into `localFetch`.
 - Look for: every directory has its own row; a metric sort shows that one value per row; the parent and child
   filters give different listings.
 - Compare: the expert command and what "better" means are in [COMPARISONS.md](COMPARISONS.md#structuresearch).
@@ -273,11 +274,27 @@ Behavior, judged by reading, on both surfaces. The per-tool sections below list 
 #### clasify
 - Calls: `evaluate` with a small `content` and 3 questions; `source` as a large file; `source` as another
   tool's query (`{tool: "localSearch", query: {…}}`); `content` array with `perItem: true`; `sections` over a
-  folder glob with `next.nextPage`; an image with noul + choice + box; a choice question whose answer is in one
+  folder glob walked through the reply's `next`; an image with noul + choice + box; a choice question whose answer is in one
   section only.
 - Look for: one answer per question with the deciding `lines`; coverage counts; units keyed by path:line or
   number; the one knowing section wins over `unknown`; `view: details` adds probabilities and confidence;
   `usage` tokens and request count.
+- Fixed cases (rerun after any change to clasify, its description or how rows share requests; each passes only
+  on the stated answer):
+  - Abstain: 8 short support messages, 4 fitting one of 4 labels and 4 fitting none, one `choice` with
+    `unknown`. Pass: all 8 right.
+  - Pick one of many: about 70 file paths as `criteria` plus `none`, three descriptions that each match one
+    file and one that matches none. Pass: the three files chosen at confidence 0.9 or above; the fourth below 0.5.
+  - Extract a value: a manifest, candidates from a version-shaped search plus `none`, one value the file
+    states and one it does not. Pass: the stated value chosen; `none` for the other.
+  - Rows share requests: 48 paths from `structureSearch` as a `source`, one yes/no question. Pass: one request;
+    every file whose name states the topic ranks above every file whose name does not.
+  - Collapsed log: an 8,000-line access log with one 500 and two 404 lines, `collapse: true`. Pass: one
+    request; the 500 keyed by its own line number; the 404 keyed by its first line.
+  - Big file in parts: a log over the provider window, no `maxRequests`. Pass: one call; each planted failure
+    in the part whose lines hold it; quiet parts counted in `coverage.quiet`.
+  - Image as a source: a PNG as `source` with a question that says "the image". Pass: one request, and its
+    input tokens match the same question worded without that word.
 - Compare: the expert command and what "better" means are in [COMPARISONS.md](COMPARISONS.md#clasify).
 
 #### ghSearchRepo
@@ -293,7 +310,7 @@ Behavior, judged by reading, on both surfaces. The per-tool sections below list 
 - Compare: the expert command and what "better" means are in [COMPARISONS.md](COMPARISONS.md#ghsearchcode).
 
 #### ghStructure
-- Calls: `tree` of a folder, `maxDepth`, `include` glob, `sort {by: sizeBytes, order: desc}`; `refs`,
+- Calls: `tree` of a folder, `maxDepth`, `include` glob (`*.ext` under `path`, any depth), `sort {by: bytes}`; `refs`,
   `refs` with `refKinds: ["tags"]` and `limit`; `languages`; `materialize` on a few files.
 - Look for: sizes ranked over the whole listing; the repository's own release tags first; tags only when asked.
 - Compare: the expert command and what "better" means are in [COMPARISONS.md](COMPARISONS.md#ghstructure).
@@ -324,7 +341,8 @@ Behavior, judged by reading, on both surfaces. The per-tool sections below list 
 - Compare: the expert command and what "better" means are in [COMPARISONS.md](COMPARISONS.md#artifactsearch).
 
 #### securityCheck
-- Calls: `package` with a vulnerable version; `repository`; `commit` (one known, one unknown); `url` as a purl;
+- Calls: `package` with a vulnerable version (`ecosystem` as `artifactSearch` returned it); `repository` by
+  `owner` + `repo`; `commit` by `ref` (one known, one unknown); `url` as a purl;
   `advisory` by id; each with `view: details`.
 - Look for: `affected`, `upgradeTo`, advisory count, highest severity, one link; an unknown commit says that 0
   proves nothing; details lists every advisory with ranges and fixes.

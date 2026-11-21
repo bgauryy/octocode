@@ -107,3 +107,31 @@ fn a_recorded_clone_scope_rides_on_a_path_it_excludes() {
     let inside = missing(&policy, &sparse.join("src/absent.rs"));
     assert!(inside.clone_scope.is_none(), "{inside:?}");
 }
+
+/// A read given a whole listing entry is corrected to the entry's own path
+/// when that file exists; a file whose real name ends in `(…)` opens, and an
+/// entry of an absent file is an ordinary missing path.
+#[test]
+fn a_whole_listing_entry_is_corrected_to_its_existing_path() {
+    use octocode_runtime_base::response::groups::entry_text;
+    let root = Fixture::new();
+    fs::write(root.0.join("big.ts"), "x\n").expect("file");
+    fs::write(root.0.join("notes (old)"), "y\n").expect("file");
+    let policy = workspace_policy(&root.0);
+    let fields = ["700".to_owned()];
+
+    let failure = missing(&policy, &root.0.join(entry_text("big.ts", false, &fields)));
+    assert!(failure.listing_entry, "{failure:?}");
+    assert_eq!(
+        failure.corrected.as_deref().map(Path::new),
+        Some(root.0.join("big.ts").as_path())
+    );
+
+    assert!(PathAccess::validate_read(&policy, &root.0.join("notes (old)")).is_ok());
+
+    let failure = missing(&policy, &root.0.join(entry_text("gone.ts", false, &fields)));
+    assert!(
+        failure.resource_missing && !failure.listing_entry,
+        "{failure:?}"
+    );
+}

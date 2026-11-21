@@ -66,7 +66,7 @@ impl<C: PoolClient> GenericPool<C> {
                         // siblings only once it is installed: a failed start
                         // keeps the working sibling.
                         retired = retire_idle_siblings(&mut state, &family, &key);
-                        evicted = evict_overflow(&mut state, &self.options, &key);
+                        evicted = evict_overflow(&mut state, &self.budgeted(), &key);
                         self.count.store(state.entries.len(), Ordering::SeqCst);
                         state.inflight.remove(&key);
                         inflight.complete(Ok(Some(client.clone())));
@@ -230,7 +230,7 @@ impl<C: PoolClient> GenericPool<C> {
     /// until they are idle.
     pub(super) async fn over_budget(&self) -> Option<(u64, u64)> {
         let state = self.state.lock().await;
-        resident_over_budget(&state.entries, &self.options)
+        resident_over_budget(&state.entries, &self.budgeted())
     }
 
     pub(super) fn len(&self) -> usize {

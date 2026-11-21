@@ -167,7 +167,7 @@ impl FragmentArena {
         out: &mut Vec<Planned>,
         whole: &[String],
     ) -> Result<Option<Value>, DependencyError> {
-        let mut chosen = self.windowed_strings(&row, window.budget, row_chars, whole);
+        let (mut chosen, needed) = self.windowed_strings(&row, window, row_chars, whole);
         if chosen.is_empty() {
             return Ok(Some(row));
         }
@@ -242,13 +242,32 @@ impl FragmentArena {
         };
         // A string that fits one such window stays whole: a part of its own
         // would cost more than the page it saves. A row whose strings all
-        // fit is no longer than a balanced page, over the page only by its
-        // context; otherwise the rest is planned again with them whole.
+        // fit is no longer than a balanced page; otherwise the rest is
+        // planned again with them whole. A string the row fits its page
+        // only without (`needed`) moves when the row outgrows a page of its
+        // own by more than the fixed parts the extra parts repeat (each
+        // one's context, markers and envelope): a smaller excess costs less
+        // than those parts.
+        let excess = (row_chars + asked.tail).saturating_sub(asked.own_page());
+        // Each moved string takes a later part of its own.
+        let moved_parts = chosen
+            .iter()
+            .zip(&later_costs)
+            .filter(|(pointer, _)| needed.contains(pointer))
+            .map(|(_, (_, chars))| asked.continuation_chars + chars + asked.tail + asked.envelope)
+            .sum::<usize>();
+        let worth_the_parts = excess > moved_parts;
         let fitting: Vec<String> = chosen
             .iter()
             .zip(&texts)
             .zip(&later_costs)
-            .filter(|((_, text), (_, chars))| escaped_len(text) <= later_room(*chars))
+            .filter(|((pointer, text), (_, chars))| {
+                if needed.contains(pointer) {
+                    !worth_the_parts
+                } else {
+                    escaped_len(text) <= later_room(*chars)
+                }
+            })
             .map(|((pointer, _), _)| pointer.clone())
             .collect();
         if !fitting.is_empty() {
@@ -266,6 +285,28 @@ impl FragmentArena {
         }
         let mut first = true;
         for (string, text) in texts.iter().enumerate() {
+            // A string moved only to fit the row is no longer than a page:
+            // it is never cut. It arrives whole on a later part of its own
+            // (the first part shows it empty), unless that part's context
+            // leaves it no room.
+            let whole_later = needed.contains(&chosen[string])
+                && escaped_len(text) <= later_room(later_costs[string].1);
+            if whole_later && first {
+                out.push((
+                    Fragment {
+                        kind: FragmentKind::Text {
+                            split,
+                            string,
+                            range: 0..0,
+                            shown: None,
+                        },
+                        evidence: first_evidence.clone(),
+                        walks: Vec::new(),
+                    },
+                    first_chars,
+                ));
+                first = false;
+            }
             let mut start = 0;
             while start < text.len() {
                 window.check()?;
@@ -285,7 +326,11 @@ impl FragmentArena {
                         Some(chosen[string].clone()),
                     )
                 };
-                let end = window_end(text, start, room);
+                let end = if whole_later {
+                    text.len()
+                } else {
+                    window_end(text, start, room)
+                };
                 let piece = text
                     .get(start..end)
                     .ok_or(DependencyError::Invalid("text window is not a UTF-8 range"))?;
@@ -328,42 +373,71 @@ impl FragmentArena {
         Ok(None)
     }
 
-    /// The strings of `row` (`row_chars` long) to window at page room
-    /// `room`, largest first, all but those at `whole`.
+    /// The strings of `row` (`row_chars` long) to window in `window`, and
+    /// those of them the row needs out to fit its page.
+    ///
+    /// Only free text is windowed: a value the output schema bounds (enum,
+    /// const, format, pattern, length) or does not reach is meaningful only
+    /// whole, and one every part repeats (an identity, next or disclosure
+    /// field, or inside one) would arrive on each part again. All but those
+    /// at `whole`:
+    /// - every string longer than a whole page, largest first, while the
+    ///   rest of the row still takes more than half a page (the other half
+    ///   is the windows' room);
+    /// - with no such string, when the row outgrows a page of its own
+    ///   ([`Window::own_page`]) and shorter strings can make it fit, the
+    ///   largest of those until it does. A row whose skeleton alone outgrows
+    ///   the page keeps them: cutting would add parts and still not fit it.
     fn windowed_strings(
         &self,
         row: &Value,
-        room: usize,
+        window: Window<'_>,
         row_chars: usize,
         whole: &[String],
-    ) -> Vec<String> {
+    ) -> (Vec<String>, Vec<String>) {
+        let room = window.budget;
         let mut found = Vec::new();
         strings(row, &mut Vec::new(), &mut found);
-        // Only a string longer than a whole page is windowed, and only free
-        // text: a value the output schema bounds (enum, const, format,
-        // pattern, length) or does not reach is meaningful only whole, and
-        // one every part repeats (an identity, next or disclosure field, or
-        // inside one) would arrive on each part again.
-        found.retain(|(pointer, len)| {
-            *len > room
-                && !whole.contains(pointer)
+        found.retain(|(pointer, _)| {
+            !whole.contains(pointer)
                 && crate::contracts::output_fields::free_text_at(self.tool, pointer)
                 && !self.page_context.repeats_whole(pointer)
         });
         // Largest first; document order among equals keeps the plan stable.
         found.sort_by_key(|entry| std::cmp::Reverse(entry.1));
+        let long = found.iter().take_while(|(_, len)| *len > room).count();
+        let shorter = found.split_off(long);
         let mut skeleton = row_chars;
         let mut chosen = Vec::new();
         for (pointer, len) in found {
-            // A string is windowed while the rest of the row still takes
-            // more than half a page: the other half is the windows' room.
             if skeleton.saturating_mul(2) <= room && !chosen.is_empty() {
                 break;
             }
             skeleton -= len;
             chosen.push(pointer);
         }
-        chosen
+        // A window of the first string fills the room the skeleton leaves,
+        // so the skeleton fits only with room to spare.
+        let fits = |skeleton: usize| skeleton + window.tail < window.own_page();
+        // A string no longer than the marker naming it on a later part
+        // (`rowPart.text`) frees no room by moving there.
+        let movable = shorter
+            .into_iter()
+            .filter(|(pointer, len)| *len > text_marker_chars(pointer))
+            .collect::<Vec<_>>();
+        let mut needed = Vec::new();
+        let all = movable.iter().map(|(_, len)| len).sum::<usize>();
+        if chosen.is_empty() && !fits(skeleton) && fits(skeleton.saturating_sub(all)) {
+            for (pointer, len) in movable {
+                if fits(skeleton) {
+                    break;
+                }
+                skeleton -= len;
+                needed.push(pointer);
+            }
+        }
+        chosen.extend(needed.iter().cloned());
+        (chosen, needed)
     }
 
     /// The row value of a string window: its context with the window in

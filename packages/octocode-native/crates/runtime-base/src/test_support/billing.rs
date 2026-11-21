@@ -32,16 +32,7 @@ pub fn offered_calls(value: &Value) -> Vec<&Value> {
 /// is only clasify's own.
 pub fn assert_bills_only_itself(tool: crate::id::ToolId, value: &Value) {
     for call in offered_calls(value) {
-        let rows = call
-            .pointer("/input/queries")
-            .and_then(Value::as_array)
-            .map_or(&[][..], Vec::as_slice);
-        let billed = call["tool"] == crate::id::ToolId::Clasify.as_str()
-            || rows.iter().any(|row| {
-                crate::contracts::PROVIDER_FIELDS
-                    .iter()
-                    .any(|field| row.get(*field).is_some())
-            });
+        let billed = call["tool"] == crate::id::ToolId::Clasify.as_str();
         if !billed {
             continue;
         }

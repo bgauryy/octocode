@@ -2,7 +2,6 @@
 //! normal forms and symlinks.
 
 use super::*;
-use octocode_test_support::json_fixture;
 
 /// A directory is `notAFile` and leads to its tree.
 #[test]
@@ -43,70 +42,6 @@ fn a_policy_refusal_keeps_the_shared_code() {
         let result = fetch(&req, &workspace_policy(&t.0));
         assert_eq!(result.error_code, Some(code), "{result:?}");
     }
-}
-
-/// A missing file leads to a listing by its stem from the workspace root:
-/// a file moved to another tree (or a path that names the wrong package)
-/// is found at any depth, not only under the closest existing directory.
-#[test]
-fn missing_file_leads_to_files_by_stem() {
-    let t = Fixture::new();
-    fs::create_dir_all(t.0.join("src/a")).expect("dirs");
-    fs::create_dir_all(t.0.join("pkg/docs")).expect("dirs");
-    fs::write(t.0.join("pkg/docs/blok.ts"), "x\n").expect("moved");
-    let mut req = test_local_fetch_query();
-    local_fetch_query::set_path(&mut req, "src/a/blok.rs").expect("path");
-    let result = fetch(&req, &workspace_policy(&t.0));
-    assert_eq!(result.error_code, Some(ErrorCode::NotFound), "{result:?}");
-    let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
-    let listing = &next["findFile"]["input"]["queries"][0];
-    assert_eq!(listing["operation"], "files", "{next}");
-    assert_eq!(listing["path"], ".", "{next}");
-    assert_eq!(
-        listing["include"],
-        json_fixture(r#"["**/blok.*"]"#),
-        "{next}"
-    );
-    // The lead runs and lists the moved file.
-    let (paths, security) = octocode_runtime_base::test_support::simple_policy(&t.0);
-    let listed = crate::structure_search::execute_structure(
-        &serde_json::from_value(listing.clone()).expect("structureSearch row"),
-        &paths,
-        &security,
-        &octocode_runtime_base::execution::cancel::NeverCancel,
-        None,
-    )
-    .expect("listing");
-    assert!(
-        listed["files"]
-            .as_array()
-            .is_some_and(|dirs| dirs.iter().any(|dir| {
-                dir["dir"] == "pkg/docs"
-                    && dir["files"].as_array().is_some_and(|names| {
-                        names
-                            .iter()
-                            .any(|name| name.as_str().is_some_and(|n| n.starts_with("blok.ts")))
-                    })
-            })),
-        "{listed}"
-    );
-}
-
-/// The lead keeps the whole stem as a glob, so a short name (`x.md`)
-/// lists only `x.*`, never every name that contains an `x`.
-#[test]
-fn missing_file_lead_never_widens_to_names_containing_the_stem() {
-    let t = Fixture::new();
-    fs::create_dir_all(t.0.join("docs")).expect("dirs");
-    for name in ["x.txt", "box.md", "index.md"] {
-        fs::write(t.0.join("docs").join(name), "x\n").expect("fixture");
-    }
-    let mut req = test_local_fetch_query();
-    local_fetch_query::set_path(&mut req, "docs/x.md").expect("path");
-    let result = fetch(&req, &workspace_policy(&t.0));
-    let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
-    let listing = &next["findFile"]["input"]["queries"][0];
-    assert_eq!(listing["include"], json_fixture(r#"["**/x.*"]"#), "{next}");
 }
 
 /// The row names the file it read: `.` and `..` segments of the requested
@@ -262,27 +197,29 @@ fn a_case_only_difference_is_not_a_symlink() {
     assert_eq!(result.path, "src/Readme.md", "{result:?}");
 }
 
-/// A missing file leads to its parent's tree, where a mistyped name's
-/// siblings show, beside the listing that finds a moved file and the read
-/// of the one sibling its mistyped name is close to.
+/// A missing file offers one call: the read of the one sibling its mistyped
+/// name is close to, which runs; else its parent's tree, which shows what
+/// is there.
 #[test]
-fn a_missing_file_leads_to_its_parents_tree() {
+fn a_missing_file_offers_one_call_the_close_sibling_else_its_parents_tree() {
     let t = Fixture::new();
     fs::create_dir_all(t.0.join("src")).expect("dir");
     fs::write(t.0.join("src/executor.rs"), "fn a() {}\n").expect("fixture");
     let policy = workspace_policy(&t.0);
-    let r = fetch(
-        &qj(&t.0.join("src/exector.rs"), serde_json::json!({})),
-        &policy,
-    );
-    assert_eq!(r.error_code, Some(ErrorCode::NotFound), "{r:?}");
-    let next = serde_json::to_value(r.next.as_ref().expect("next")).expect("json");
-    let tree = &next["viewTree"]["input"]["queries"][0];
-    assert_eq!(tree["operation"], "tree", "{next}");
-    assert_eq!(tree["path"], "src", "{next}");
-    assert!(next.get("findFile").is_some(), "{next}");
-    assert!(!r.path.is_empty(), "an error row names its path");
-    let read = &r
+    let missing = |name: &str| {
+        let r = fetch(&qj(&t.0.join(name), serde_json::json!({})), &policy);
+        assert_eq!(r.error_code, Some(ErrorCode::NotFound), "{r:?}");
+        assert!(!r.path.is_empty(), "an error row names its path");
+        let next = serde_json::to_value(r.next.as_ref().expect("next")).expect("json");
+        assert_eq!(
+            octocode_runtime_base::test_support::billing::offered_calls(&next).len(),
+            1,
+            "{name}: one call: {next}"
+        );
+        (r, next)
+    };
+    let (mistyped, next) = missing("src/exector.rs");
+    let read = &mistyped
         .next
         .as_ref()
         .expect("next")
@@ -296,6 +233,56 @@ fn a_missing_file_leads_to_its_parents_tree() {
         "{next}"
     );
     assert_eq!(fetch(read, &policy).status, ReadStatus::Success);
+    let (_, next) = missing("src/zzqqxx.md");
+    let tree = &next["viewTree"]["input"]["queries"][0];
+    assert_eq!(tree["operation"], "tree", "{next}");
+    assert_eq!(tree["path"], "src", "{next}");
+}
+
+/// A whole listing entry given as the path says so and offers one call,
+/// the read of the entry's own path, which runs; a file whose real name
+/// ends in `(…)` opens.
+#[test]
+fn a_listing_entry_given_as_a_path_offers_the_read_of_its_path() {
+    use octocode_tools_shared::root_read::{entry_text, listing_entry_note};
+    let t = Fixture::new();
+    t.write("src/big.ts", "x\n");
+    t.write("src/notes (old)", "y\n");
+    let policy = workspace_policy(&t.0);
+    let entry = entry_text("big.ts", false, &["700".to_owned()]);
+    let r = fetch(
+        &qj(&t.0.join("src").join(entry), serde_json::json!({})),
+        &policy,
+    );
+    assert_eq!(r.error_code, Some(ErrorCode::NotFound), "{r:?}");
+    let next = serde_json::to_value(r.next.as_ref().expect("next")).expect("json");
+    assert_eq!(
+        octocode_runtime_base::test_support::billing::offered_calls(&next).len(),
+        1,
+        "{next}"
+    );
+    let read = &r
+        .next
+        .as_ref()
+        .expect("next")
+        .read
+        .as_ref()
+        .expect("read")
+        .query;
+    let bare = local_fetch_query::path(read);
+    assert_eq!(bare, t.0.join("src/big.ts").to_string_lossy());
+    assert!(
+        r.error
+            .as_deref()
+            .is_some_and(|error| error.ends_with(&listing_entry_note(bare))),
+        "{r:?}"
+    );
+    assert_eq!(fetch(read, &policy).status, ReadStatus::Success);
+    let real = fetch(
+        &qj(&t.0.join("src/notes (old)"), serde_json::json!({})),
+        &policy,
+    );
+    assert_eq!(real.status, ReadStatus::Success, "{real:?}");
 }
 
 /// A mistyped name close to a file the path policy withholds names no

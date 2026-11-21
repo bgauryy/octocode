@@ -82,9 +82,15 @@ pub(super) fn split_by_created(query: &GhSearchRepoQuery, now_secs: i64) -> Opti
             ToolId::GhSearchRepo,
             json!({"queries": [half("to", middle), half("from", middle + 1)]}),
         )
+        // The only call that reaches the matches past the window: the row
+        // needs it.
+        .required()
         .build(),
     )
 }
+
+/// What a capped search says of the call that reaches past its window.
+pub(super) const PAST_WINDOW_WARNING: &str = "The related ghSearchRepo searches reach the matches past the reachable window: the same search split in two by creation date.";
 
 pub(super) fn repository_output(
     value: Value,
@@ -101,6 +107,10 @@ pub(super) fn repository_output(
         && let Some(split) = split_by_created(query, octocode_runtime_base::civil_date::unix_secs())
     {
         output.data["calls"]["splitByCreated"] = split;
+        octocode_runtime_base::response::paging::push_warnings(
+            &mut output.data,
+            [PAST_WINDOW_WARNING.to_owned()],
+        );
     }
     // No rows is empty whether or not GitHub finished the search, as
     // ghSearchCode reports it: an incomplete page keeps its retry (the CLI

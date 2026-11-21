@@ -116,11 +116,9 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
         run(&root.0, json!({"operation":"syntaxTree","path":header})).expect(".h defaults to C");
     assert_eq!(default_tree["isPartial"], true, "{default_tree}");
     assert!(
-        tree["nodes"]
-            .as_array()
-            .is_some_and(|nodes| nodes.iter().any(|node| node["node"]
-                .as_str()
-                .and_then(|row| row.split(' ').nth(1))
+        tree["nodes"].as_array().is_some_and(|nodes| nodes
+            .iter()
+            .any(|node| node.as_str().and_then(|row| row.split(' ').nth(1))
                 == Some("class_specifier"))),
         "{tree}"
     );

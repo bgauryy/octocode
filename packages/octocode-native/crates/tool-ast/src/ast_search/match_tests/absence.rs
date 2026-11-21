@@ -12,7 +12,13 @@ fn no_hit_row(root: &std::path::Path) -> Value {
 }
 
 fn discloses(out: &Value) -> bool {
-    let hinted = out["warnings"].to_string().contains(UNCHECKED);
+    // An empty row says it as its hint, a row with evidence as a warning.
+    let channel = if out["status"] == "empty" {
+        "hints"
+    } else {
+        "warnings"
+    };
+    let hinted = out[channel].to_string().contains(UNCHECKED);
     assert_eq!(hinted, skipped_call(out).is_some(), "{out}");
     hinted
 }
@@ -70,8 +76,8 @@ fn a_window_with_hits_names_no_skipped_path() {
     assert!(!discloses(&walked[1]), "{}", walked[1]);
 }
 
-/// The last window states absence by what its walk skipped, counted by cause,
-/// with the lead that lifts it; nothing behind it was read.
+/// The last window states absence by what its walk skipped, with the lead
+/// that lifts its cause; nothing behind it was read.
 #[test]
 fn an_empty_last_window_names_its_skipped_paths() {
     let root = Fixture::new();
@@ -82,13 +88,10 @@ fn an_empty_last_window_names_its_skipped_paths() {
     let walked = windows(&root.0, no_hit_row(&root.0));
     let last = walked.last().expect("a window");
     assert_eq!(last["status"], "empty", "{walked:?}");
-    assert!(
-        last["warnings"]
-            .to_string()
-            .contains("Skipped paths (1 default-excluded) were not searched"),
-        "{last}"
+    assert_unsearched(
+        last,
+        &[octocode_tools_shared::empty_walk::Cause::DefaultExcluded],
     );
-    assert!(skipped_call(last).is_some(), "{last}");
 }
 
 /// A scan window cut before it parsed anything still names the paths its walk
@@ -170,6 +173,36 @@ fn an_include_glob_that_matches_no_file_gets_the_shared_glob_hint_and_lead() {
         lead["input"]["queries"][0].get("include").is_none(),
         "{out}"
     );
+}
+
+/// Globs that matched only files the security path policy withholds say
+/// that, as localSearch does, never that they matched no file: respelling
+/// them cannot reach the file. A withheld file the globs do not match is no
+/// part of the miss. A withheld dot file is withheld, not hidden: the row
+/// says the same with and without `includeHidden`.
+#[test]
+fn globs_that_match_only_a_withheld_file_say_so_and_name_no_file() {
+    let root = Fixture::new();
+    root.write("src/a.rs", "pub fn source() {}\n");
+    root.write(".env.rs", "pub fn key() {}\n");
+    let hints = |include: &str, hidden: bool| {
+        let mut row = no_hit_row(&root.0);
+        row["include"] = json!([include]);
+        if hidden {
+            row["includeHidden"] = json!(true);
+        }
+        let out = run(&root.0, row).expect("no file is read");
+        assert_eq!(out["status"], "empty", "{out}");
+        assert!(!out["hints"].to_string().contains(".env"), "{out}");
+        out["hints"].clone()
+    };
+    let miss = octocode_runtime_base::policy::include::GLOB_MISS_HINT;
+    let withheld = octocode_runtime_base::policy::include::glob_miss_hint(1);
+    assert_ne!(withheld, miss);
+    for hidden in [true, false] {
+        assert_eq!(hints(".env*", hidden), json!([withheld]));
+        assert_eq!(hints("absent/*.rs", hidden), json!([miss]));
+    }
 }
 
 /// A directory scan whose every candidate was refused as text (here

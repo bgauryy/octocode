@@ -2,7 +2,7 @@
 //! and the recovery `next` call.
 use super::*;
 use octocode_contract_types::{
-    CaseMode, ContentView, LocalFetchQuery, LocalFetchQueryContentMatchString, QueryContextLines,
+    CaseMode, ContentView, ContextLines, LocalFetchQuery, LocalFetchQueryContentMatchString,
     RegexEngine,
 };
 use octocode_tools_shared::source_view::local_fetch_query::{outline_lead, read_lead};
@@ -13,8 +13,7 @@ fn symbol_read(path: &str, symbol: &str, case_mode: CaseMode) -> Option<LocalFet
         LocalFetchQueryContentMatchString {
             block: None,
             case_mode,
-            classification: None,
-            context_lines: Some(QueryContextLines {
+            context_lines: Some(ContextLines {
                 after: 3,
                 before: 3,
             }),
@@ -26,7 +25,6 @@ fn symbol_read(path: &str, symbol: &str, case_mode: CaseMode) -> Option<LocalFet
             read_progress: None,
             reasoning: None,
             regex_engine: RegexEngine::Literal,
-            selection: None,
             snapshot: None,
             view: ContentView::Content,
             whole_word: false,
@@ -168,8 +166,8 @@ pub(in super::super) fn anchor_recovery(
 
 /// The anchor's `localFetch` read stays only when it finds `name`
 /// (case-sensitive, as the read asks). When the file holds `name` only in
-/// another case, the error names the nearest such line to the anchor and
-/// the read searches case-insensitively; with no occurrence at all, there
+/// another case, the error names the file's own spelling on the nearest
+/// such line to the anchor and the read searches case-insensitively; with no occurrence at all, there
 /// is nothing in the file to read, and only the workspace search remains.
 fn keep_reads_that_find(value: &mut Value, query: &LspSearchQuery, name: &str, source: &str) {
     if name.is_empty() || source.contains(name) {
@@ -184,20 +182,18 @@ fn keep_reads_that_find(value: &mut Value, query: &LspSearchQuery, name: &str, s
             !reads_name
         });
     }
-    let folded = name.to_lowercase();
     let anchor = lsp_search_query::anchor_line(query).unwrap_or(1);
-    let Some(line) = source
+    let Some((spelling, line)) = source
         .lines()
         .zip(1u32..)
-        .filter(|(text, _)| text.to_lowercase().contains(&folded))
-        .map(|(_, number)| number)
-        .min_by_key(|number| number.abs_diff(anchor))
+        .filter_map(|(text, number)| Some((spelled_in_another_case(text, name)?, number)))
+        .min_by_key(|(_, number)| number.abs_diff(anchor))
     else {
         return;
     };
     if let Some(error) = value["error"].as_str() {
         value["error"] = json!(format!(
-            "{error}; the file has '{name}' only in another case, nearest at line {line}"
+            "{error}; the nearest spelling in the file is '{spelling}', at line {line}"
         ));
     }
     let path = lsp_search_query::path(query)
@@ -209,4 +205,19 @@ fn keep_reads_that_find(value: &mut Value, query: &LspSearchQuery, name: &str, s
             octocode_runtime_base::response::result::Continuation::related_query(read).build(),
         );
     }
+}
+
+/// The first run of `line` that spells `name` when case is ignored, as the
+/// line spells it: the name to ask for.
+fn spelled_in_another_case<'a>(line: &'a str, name: &str) -> Option<&'a str> {
+    let folded = name.to_lowercase();
+    let length = name.chars().count();
+    line.char_indices().find_map(|(start, _)| {
+        let rest = line.get(start..)?;
+        let run = match rest.char_indices().nth(length) {
+            Some((end, _)) => rest.get(..end)?,
+            None => rest,
+        };
+        (run.to_lowercase() == folded).then_some(run)
+    })
 }

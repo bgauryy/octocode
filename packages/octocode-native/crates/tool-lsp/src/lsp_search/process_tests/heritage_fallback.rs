@@ -591,3 +591,92 @@ fn rust_supertypes_outside_the_read_policy_are_named_as_withheld() {
     assert!(warnings.contains("Send, Sync"), "{row}");
     assert!(!warnings.contains("octocode-outside-roots"), "{row}");
 }
+
+/// A server's implementation answer for an interface also lists the object
+/// literals of that type (tsserver). A literal declares nothing, so it is no
+/// subtype and no relation the walk failed to establish: the declared
+/// subtypes are the whole answer, and the row counts the values it left out.
+#[test]
+fn object_literals_among_implementation_candidates_are_not_expansion_failures() {
+    use crate::lsp_search::ops::Operation;
+    use crate::lsp_search::source::{SourceCache, snippet_policy};
+    use octocode_runtime_base::execution::cancel::NeverCancel;
+    use serde_json::json;
+    require_node();
+    let (_dir, root, script) = fixture();
+    std::fs::write(root.join("b.ts"), "export interface Base {}\n").expect("base");
+    std::fs::write(root.join("a.ts"), "export class Child implements Base {}\n").expect("child");
+    let literals = [
+        "export const value: Base = {};",
+        "export function make(): Base {\n  return {};\n}",
+    ];
+    std::fs::write(root.join("c.ts"), literals.join("\n") + "\n").expect("values");
+    let server = FAKE_SERVER
+        .replace(
+            "hoverProvider: true",
+            "implementationProvider: true, definitionProvider: true",
+        )
+        .replace(
+            "  } else if (msg.method === 'textDocument/hover') {\n    process.exit(3);",
+            r#"  } else if (msg.method === 'textDocument/implementation') {
+    const dir = msg.params.textDocument.uri.slice(0, msg.params.textDocument.uri.lastIndexOf('/') + 1);
+    const at = (name, line, character, length) => ({ uri: dir + name, range: { start: { line, character }, end: { line, character: character + length } } });
+    send({ jsonrpc: '2.0', id: msg.id, result: [at('a.ts', 0, 13, 5), at('c.ts', 0, 27, 2), at('c.ts', 2, 9, 2)] });
+  } else if (msg.method === 'textDocument/definition') {
+    const uri = msg.params.textDocument.uri;
+    const dir = uri.slice(0, uri.lastIndexOf('/') + 1);
+    send({ jsonrpc: '2.0', id: msg.id, result: uri.endsWith('/c.ts') ? [] : [{ uri: dir + 'b.ts', range: { start: { line: 0, character: 17 }, end: { line: 0, character: 21 } } }] });"#,
+        );
+    crate::lsp_search::tests::write_executable(&script, &server);
+    let paths = octocode_runtime_base::test_support::workspace_policy(&root);
+    tokio::runtime::Runtime::new().expect("rt").block_on(async {
+        let client = NativeLspClient::new(config(&root, &script, None));
+        client.start().await.expect("server starts");
+        let path = root.join("b.ts").to_string_lossy().into_owned();
+        let query = serde_json::from_value(json!({
+            "operation": "subtypes", "path": path, "symbolName": "Base", "line": 1
+        }))
+        .expect("query");
+        let mut sources = SourceCache::new(&paths);
+        let policy = snippet_policy(&paths);
+        let row = Operation {
+            client: &client,
+            query: &query,
+            sources: &mut sources,
+            snippet_policy: &policy,
+            cancel: &NeverCancel,
+            path: &path,
+            scope: &crate::lsp_search::scope::Scope::new(
+                root.to_string_lossy().into_owned(),
+                Vec::new(),
+            ),
+            root_only: false,
+            line: 0,
+            character: 17,
+            language_id: Some("typescript"),
+            budget: 16_000,
+            security: &octocode_runtime_base::security::ContentSecurity::new(),
+            anchor_opened: false,
+        }
+        .run()
+        .await
+        .expect("subtypes");
+        let listed = location_rows(&row)
+            .iter()
+            .map(|found| found["path"].as_str().unwrap_or_default().to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(listed.len(), 1, "{row}");
+        assert!(listed[0].ends_with("a.ts"), "{row}");
+        assert!(row.get("isPartial").is_none(), "{row}");
+        assert!(row.get("partialReasons").is_none(), "{row}");
+        assert!(row.get("expansionFailures").is_none(), "{row}");
+        let counted = row["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+            .any(|warning| warning.starts_with(&format!("{} ", literals.len())));
+        assert!(counted, "the values left out are counted: {row}");
+        client.stop().await.expect("fixture server closed");
+    });
+}

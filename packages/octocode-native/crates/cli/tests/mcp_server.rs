@@ -199,7 +199,7 @@ fn every_result_shape_sends_json_once_and_matches_cli() {
     assert!(
         paged["result"]["content"][0]["text"]
             .as_str()
-            .is_some_and(|text| text.contains("responsePagination"))
+            .is_some_and(|text| text.contains("\"next\":{\"tool\""))
     );
     assert!(server.finish().success());
 }

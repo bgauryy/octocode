@@ -270,7 +270,7 @@ async fn saved_history_item_pages_replay_after_a_persistent_restart() {
         )
         .await
         .expect("first page");
-    let mut pagination = first.structured_content["responsePagination"].clone();
+    let mut pagination = first.structured_content.clone().into_value();
     assert!(
         pagination["next"].is_object(),
         "{}",
@@ -293,7 +293,7 @@ async fn saved_history_item_pages_replay_after_a_persistent_restart() {
             .unwrap_or_else(|error| panic!("page {} after a restart: {error:?}", page + 1));
         runtime.close().await;
         page += 1;
-        pagination = replayed.structured_content["responsePagination"].clone();
+        pagination = replayed.structured_content.clone().into_value();
         files.extend(filenames(&replayed.structured_content));
         assert_eq!(pagination["replayed"], true, "{pagination}");
         assert_ne!(pagination["restart"], true, "{pagination}");

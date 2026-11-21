@@ -54,7 +54,7 @@ fn cancellation_is_checked_around_io() {
         &Safe,
         &Cancel(AtomicUsize::new(0)),
         None,
-        None,
+        false,
     );
     assert_eq!(r.error_code, Some(ErrorCode::Cancelled));
 }
@@ -204,7 +204,7 @@ fn a_large_source_walk_prepares_each_version_once() {
     fs::write(&p, line.repeat(4_000)).expect("fixture");
     let scan = CountingKeys(AtomicUsize::new(0));
     let read = |req: &LocalFetchQuery| {
-        execute_local_fetch(req, &Paths(t.0.clone()), &scan, &NeverCancel, None, None)
+        execute_local_fetch(req, &Paths(t.0.clone()), &scan, &NeverCancel, None, false)
     };
     let first = read(&q(&p));
     let next = first
@@ -279,7 +279,7 @@ fn concurrent_rows_own_independent_preparations() {
                 let (scan, start, paths) = (&scan, &start, Paths(t.0.clone()));
                 scope.spawn(move || {
                     start.wait();
-                    execute_local_fetch(row, &paths, scan, &NeverCancel, None, None)
+                    execute_local_fetch(row, &paths, scan, &NeverCancel, None, false)
                 })
             })
             .collect::<Vec<_>>();
@@ -355,7 +355,7 @@ fn a_race_for_one_kept_scan_gives_each_row_its_own_view() {
                 let (scan, start, paths) = (&scan, &start, Paths(t.0.clone()));
                 scope.spawn(move || {
                     start.wait();
-                    execute_local_fetch(row, &paths, scan, &NeverCancel, None, None)
+                    execute_local_fetch(row, &paths, scan, &NeverCancel, None, false)
                 })
             })
             .collect::<Vec<_>>();

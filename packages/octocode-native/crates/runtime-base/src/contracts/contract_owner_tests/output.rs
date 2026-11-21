@@ -133,7 +133,7 @@ fn next_rejects_keys_the_tool_registry_does_not_declare() {
             "next":{name:continued}
         }}]})
     };
-    validate_output("localFetch", &output("unfilteredUnknown")).expect("a declared branch");
+    validate_output("localFetch", &output("nextPage")).expect("a declared channel");
     for name in ["nextMatchPage", "undeclared"] {
         validate_output("localFetch", &output(name))
             .expect_err("an undeclared continuation key must fail output validation");
@@ -158,13 +158,13 @@ fn heritage_scan_rows_keep_their_label_under_the_lsp_contract() {
                     "path": "src/calls.ts",
                     "line": 3,
                     "column": 14,
-                    "content": "3\texport class SlowRunner implements Runner {\n"
+                    "value": "3\texport class SlowRunner implements Runner {\n"
                 },
                 {
                     "path": "src/other.ts",
                     "line": 5,
                     "column": 14,
-                    "content": "5\texport class Other implements Runner {\n",
+                    "value": "5\texport class Other implements Runner {\n",
                     "source": "native-graph-facts"
                 }
             ],
@@ -172,8 +172,7 @@ fn heritage_scan_rows_keep_their_label_under_the_lsp_contract() {
                 "unit": "items",
                 "offset": 0,
                 "length": 2,
-                "total": 2,
-                "hasMore": false
+                "total": 2
             }
         }"#,
     );

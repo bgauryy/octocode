@@ -511,7 +511,7 @@ fn listed(
         // severity and fixes.
         let mut row = brief.clone();
         row.insert("operation".into(), json!("repository"));
-        row.insert("repo".into(), json!(repo));
+        repository::name_in(&mut row, &facts.owner, &facts.name);
         data["calls"]["repositoryAdvisories"] = Continuation::related_input(
             ToolId::SecurityCheck,
             json!({ "queries": [Value::Object(row)] }),
@@ -534,17 +534,19 @@ fn listed(
         );
         let mut row = brief.clone();
         row.insert("operation".into(), json!("repository"));
-        row.insert("repo".into(), json!(repo));
+        repository::name_in(&mut row, &facts.owner, &facts.name);
+        // Uncompared advisories are named here and read only there.
         data["calls"]["repositoryAdvisories"] = Continuation::related_input(
             ToolId::SecurityCheck,
             json!({ "queries": [Value::Object(row)] }),
         )
+        .required()
         .build();
     } else if !listing.compared && !listing.rows.is_empty() {
         paging::push_warnings(
             data,
             [format!(
-                "The advisories of {repo} about this package are compared with OSV's records on the last page of OSV's walk: next.nextPage reads on, and none is named before then."
+                "The advisories of {repo} about this package are compared with OSV's records on the last page of OSV's walk: the reply's next reads on, and none is named before then."
             )],
         );
     }

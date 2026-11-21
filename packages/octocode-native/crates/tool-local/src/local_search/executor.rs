@@ -7,7 +7,7 @@ use super::layout::{Layout, NamePricing, Walking};
 use super::local_search_query;
 use super::page_view::{PageView, StoredPage};
 use super::probes::Alternates;
-use super::types::{LocalSearchResult, SearchStatus};
+use super::types::LocalSearchResult;
 use super::verify::{
     CutOutlines, Outlines, PageScope, Redacted, Redaction, check_key_scans, outline_for_cut,
     redact_scan, validate_matched, verify_shown,
@@ -29,14 +29,13 @@ pub(super) use scanned::search_options;
 #[cfg(test)]
 pub(super) use scanned::{JUDGED_PATHS, judge, test_held_limit};
 pub(super) use scanned::{Scanned, scan_resumed, streamed};
-use serde_json::json;
 pub(super) use settle::search_stats;
 use settle::{Page, settle_row};
 use std::sync::Arc;
 use streamed::{WalkCut, walk_cut};
 
-/// One localSearch row; `selection` judges it under `classification`. A list
-/// `matchString` runs as the one regex query that finds the same lines.
+/// One localSearch row. A list `matchString` runs as the one regex query
+/// that finds the same lines.
 pub fn execute_local_search(
     build: &'static str,
     query: &LocalSearchQuery,
@@ -44,7 +43,6 @@ pub fn execute_local_search(
     security: &ContentSecurity,
     cancel: &impl CancellationCheck,
     response_window: Option<usize>,
-    selection: Option<&octocode_tools_shared::selection::Runtime>,
 ) -> Result<LocalSearchResult, ToolError> {
     cancel.check().map_err(ToolError::cancelled)?;
     let (resumed, query) = super::window::resumed(query)?;
@@ -72,17 +70,8 @@ pub fn execute_local_search(
         return super::window::paused_row(build, query, pause, (&scan.query_key, &scan.policy_key));
     }
     let alternates = Alternates::new(query, &scan);
-    let mut row = page_of(
-        build,
-        joined,
-        paths,
-        security,
-        cancel,
-        scan,
-        selection,
-        &alternates,
-    )
-    .map_err(written)?;
+    let mut row =
+        page_of(build, joined, paths, security, cancel, scan, &alternates).map_err(written)?;
     alternates.offer_regex_reading(&mut row);
     alternates.offer_dead_terms(&mut row);
     // Spans that are the caller's one term state only where they are.
@@ -119,7 +108,6 @@ pub(super) fn page_of(
     security: &ContentSecurity,
     cancel: &impl CancellationCheck,
     mut scan: Scanned,
-    selection: Option<&octocode_tools_shared::selection::Runtime>,
     alternates: &Alternates<'_>,
 ) -> Result<LocalSearchResult, ToolError> {
     // The bytes a stored scan's secret check must read, or `None` when the
@@ -157,8 +145,6 @@ pub(super) fn page_of(
                 scan.stream.as_ref(),
             ),
             &scan.learned,
-            selection,
-            &scan.identity,
         )?,
     };
     let mut view = shaped.view;
@@ -174,10 +160,6 @@ pub(super) fn page_of(
             walked,
             learned: Arc::clone(&scan.learned),
         });
-    let selection_token = shaped
-        .selection
-        .as_ref()
-        .map(super::selection::Selected::token);
     let next = if scan.stream.is_some() {
         // A streamed page continues the walk, not a stored scan.
         super::cursor::walk_next(
@@ -193,7 +175,6 @@ pub(super) fn page_of(
             &scan.identity,
             reusable,
             std::mem::take(&mut scan.policy_key),
-            selection_token,
             &|| cancel.check().is_err(),
         )?
     };
@@ -217,31 +198,9 @@ pub(super) fn page_of(
         skipped: &scan.skipped,
         alternates,
         total_files: view.totals.files,
-        classified_hits: shaped
-            .selection
-            .as_ref()
-            .is_some_and(|selected| selected.receipt().total_items > 0),
     };
     let continuation_missing = next.is_none();
     let mut result = settle_row(&scope, &page, rows, next, continuation_missing)?;
-    if let Some(selected) = &shaped.selection {
-        let leads = selected.leads(query, &scan.identity)?;
-        if !leads.is_empty() {
-            let next = result.next.get_or_insert_with(|| json!({}));
-            for (name, lead) in leads {
-                next[name] = lead;
-            }
-        }
-        // The pre-selection totals hold for every page: said on the first.
-        if local_search_query::page(query).max(1) == 1 {
-            result.warnings.extend(selected.disclosure());
-        }
-        // Hits were judged and none kept: an empty row whose unfiltered
-        // lead is its recovery (zero kept is not absence).
-        if selected.receipt().total_items > 0 && result.files.is_empty() {
-            result.status = SearchStatus::Empty;
-        }
-    }
     for file in &mut result.files {
         let absolute = output_root.join(&file.path);
         // A row of a source whose shown rows the page's check all cut from
@@ -261,9 +220,6 @@ pub(super) fn page_of(
     result.warnings.extend(shaped.notes);
     result.unique_values = shaped.tally.map(|tally| tally.values);
     result.source_snapshot = Some(scan.identity);
-    result.selection = shaped
-        .selection
-        .and_then(super::selection::Selected::into_receipt);
     Ok(result)
 }
 
@@ -299,7 +255,6 @@ pub(super) struct Shaped {
     pub(super) redaction: Redaction,
     /// Outlines parsed from the verified reads (see [`verify_shown`]).
     pub(super) outlines: Outlines,
-    pub(super) selection: Option<super::selection::Selected>,
     /// `unique: "countAll"`: the scan's tally, shown in place of rows.
     pub(super) tally: Option<super::tally::Tally>,
     /// Scan-wide facts the row states (a `keyPath` scope's shared lines).
@@ -328,8 +283,6 @@ pub(super) fn shape_page(
         Option<&scanned::streamed::StreamFacts>,
     ),
     learned: &super::manifest::Learned,
-    selection: Option<&octocode_tools_shared::selection::Runtime>,
-    identity: &str,
 ) -> Result<Shaped, ToolError> {
     let PageScope {
         query,
@@ -352,8 +305,7 @@ pub(super) fn shape_page(
         shaped.notes = notes;
         return Ok(shaped);
     }
-    let whole = local_search_query::has_classification(query)
-        || super::layout::list_view(local_search_query::view(query));
+    let whole = super::layout::list_view(local_search_query::view(query));
     // A whole scan is encoded before the page reorders and fills it;
     // deflated only if the page's cursor keeps it (see
     // `manifest::put_checked`).
@@ -373,20 +325,12 @@ pub(super) fn shape_page(
         std::collections::HashSet::new()
     };
     order_files(query, &mut parsed.files);
-    let selection = super::selection::select_hits(
-        scope,
-        parsed,
-        selection,
-        identity,
-        (&mut redacted, &withheld),
-    )?;
     let mut cut = CutOutlines::new();
     let mut outline = |files: &[(usize, &octocode_engine::types::TextSearchFile)]| {
         outline_for_cut(scope, files, &mut cut)
     };
     let mut pricing = NamePricing::new(learned.prices.by_index(&parsed.files), &mut outline);
-    // A selection keeps other rows than the stored scan's cut was made of.
-    let cuts = (selection.is_none() && stream.is_none()).then_some(&learned.cuts);
+    let cuts = stream.is_none().then_some(&learned.cuts);
     let walking = stream.map(|facts| Walking {
         start_row: facts.start_row,
         ended: facts.ended,
@@ -454,7 +398,6 @@ pub(super) fn shape_page(
         redacted,
         redaction,
         outlines,
-        selection,
         tally: None,
         notes,
         walk,
@@ -476,11 +419,6 @@ fn shape_stored_page(
         cancel,
         ..
     } = *scope;
-    // A selection token continues only the classification page that
-    // issued it.
-    if local_search_query::selection(query).is_some() {
-        return Err(super::cursor::stale_snapshot(query));
-    }
     let Some(StoredPage {
         mut view,
         mut redacted,
@@ -511,7 +449,6 @@ fn shape_stored_page(
         redacted,
         redaction: Redaction::default(),
         outlines,
-        selection: None,
         tally: None,
         notes: Vec::new(),
         walk: None,

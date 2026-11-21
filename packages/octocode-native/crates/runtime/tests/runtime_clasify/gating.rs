@@ -80,31 +80,6 @@ async fn public_clasify_requires_a_nonblank_key_regardless_of_beta() {
     }
 }
 
-/// A read's `classification` with no key names the setting it needs.
-#[tokio::test]
-async fn classification_without_a_key_names_its_setting() {
-    let workspace = Workspace::new();
-    let file = workspace.write("a.txt", "needle\n");
-    let runtime = workspace.runtime(&[("OCTOCODE_CLASSIFICATION_API", " ".into())]);
-    let response = runtime
-        .run(
-            "no-key-classification".into(),
-            "localSearch".into(),
-            json!({"queries":[{"path":file,"matchString":["needle"],
-                "classification":{"predicates":["Is it a needle?"]}}]}),
-        )
-        .await;
-    let text = match response {
-        Ok(response) => response.structured_content.to_string(),
-        Err(error) => format!("{error:?}"),
-    };
-    assert!(
-        text.contains("classification needs classification.api (OCTOCODE_CLASSIFICATION_API)"),
-        "{text}"
-    );
-    runtime.close().await;
-}
-
 #[tokio::test]
 async fn configuration_resolution_does_not_contact_the_provider() {
     let server = provider(0).await;

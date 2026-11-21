@@ -26,24 +26,24 @@ pub mod paths;
 mod redaction;
 mod renamed;
 mod rows;
-mod selection;
 mod windows;
 mod worker;
 
-/// Shaping over the test scanner [`Safe`]; a ranked read judges with
-/// `judge` (a plain read never calls it).
-fn shaping(
-    judge: impl octocode_tools_shared::selection::SelectionJudge + 'static,
-) -> Shaping<Safe> {
-    let selection = octocode_tools_shared::test_support::selection_fake::runtime(
-        judge,
-        tokio::runtime::Handle::current(),
-        Duration::from_secs(10),
-    );
+/// A call context that ends in ten seconds.
+fn test_context() -> octocode_runtime_base::execution::ExecutionContext {
+    octocode_runtime_base::execution::ExecutionContext {
+        cancellation: octocode_io::cancellation::Cancellation::new(),
+        deadline: Some(std::time::Instant::now() + Duration::from_secs(10)),
+        response_window: None,
+        github_credential: None,
+    }
+}
+
+/// Shaping over the test scanner [`Safe`].
+fn shaping() -> Shaping<Safe> {
     Shaping {
         security: Safe,
-        context: selection.context.clone(),
-        selection,
+        context: test_context(),
     }
 }
 
@@ -53,13 +53,12 @@ async fn execute_default_regex(
     request_context: &RequestContext,
     window: Option<usize>,
 ) -> Result<GhGetFileContentResult, ProviderError> {
-    let select_all = octocode_tools_shared::test_support::selection_fake::SelectAll;
     execute(
         provider,
         query,
         request_context,
         window,
-        shaping(select_all),
+        shaping(),
         &|_| false,
         &mut None,
     )
@@ -94,7 +93,7 @@ async fn run_default(
         &query,
         Ok(&default_context()),
         None,
-        shaping(octocode_tools_shared::test_support::selection_fake::SelectAll),
+        shaping(),
         &|_| false,
     )
     .await

@@ -180,12 +180,20 @@ fn ranked(root: &Fixture, by: &str, order: &str) -> Vec<String> {
                "defaultExcludes":false,"sort":{"by":by,"order":order}}),
     )
     .expect("listing");
+    // A metric or name rank lists flat entries; a path rank groups them.
     out["files"]
         .as_array()
-        .expect("groups")
+        .expect("files")
         .iter()
-        .flat_map(|group| group["files"].as_array().expect("entries"))
-        .map(|entry| entry.as_str().expect("entry").to_owned())
+        .flat_map(|item| match item.as_str() {
+            Some(entry) => vec![entry.to_owned()],
+            None => item["files"]
+                .as_array()
+                .expect("entries")
+                .iter()
+                .map(|entry| entry.as_str().expect("entry").to_owned())
+                .collect(),
+        })
         .collect()
 }
 
@@ -282,4 +290,41 @@ fn a_test_code_listing_parses_only_what_could_change_its_verdict() {
         octocode_tools_shared::test_code::parses() - before
     };
     assert_eq!(parses(2), parses(16), "parses grew with production modules");
+}
+
+/// L20: a details page fills its budget as a paths page does. Its entries
+/// are priced before their line counts are read, each at the widest entry
+/// its file can become (a count no longer than its size in bytes), not at
+/// the widest any file could: every page before the last holds most of the
+/// budget, and the walk still lists every entry once.
+#[test]
+fn a_details_page_fills_its_budget() {
+    let root = Fixture::new();
+    for file in 0..600 {
+        root.write(&format!("src/f{file:03}.rs"), "one\ntwo\n");
+    }
+    let window = 6_000;
+    let budget = octocode_runtime_base::response::page_windows::page_budget(Some(window));
+    for view in ["paths", "details"] {
+        let pages = walk_pages_budget(
+            &root.0,
+            json!({"operation":"files","path":root.0,"view":view,"entryType":"file"}),
+            Some(window),
+        );
+        let (_, full) = pages.split_last().expect("a page");
+        assert!(!full.is_empty(), "{view}: the fixture pages");
+        for page in full {
+            let chars = octocode_engine::json_size::utf16_units(&page["files"]).expect("size");
+            assert!(
+                chars <= budget && 4 * chars >= 3 * budget,
+                "{view}: a page of {chars} chars in a {budget}-char budget"
+            );
+        }
+        let listed: usize = pages
+            .iter()
+            .flat_map(|page| page["files"].as_array().expect("files"))
+            .map(|group| group["files"].as_array().map_or(1, Vec::len))
+            .sum();
+        assert_eq!(listed, 600, "{view}");
+    }
 }

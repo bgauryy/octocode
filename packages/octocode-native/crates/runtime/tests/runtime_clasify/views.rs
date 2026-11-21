@@ -57,9 +57,9 @@ fn within(summary: &Value, details: &Value) -> bool {
     }
 }
 
-/// Three questions over a text: the summary is the three values and the
-/// request ceiling, within the owner's 250 characters; details adds the
-/// distribution, the legend, the model, the tokens and the request count.
+/// Three questions over a text: the summary is the three values and what the
+/// row billed (requests, tokens, ceiling), within the owner's 250
+/// characters; details adds the distribution, the legend and the model.
 #[tokio::test]
 async fn a_text_answer_is_its_values_and_ceiling_by_default() {
     let server = provider().await;
@@ -77,17 +77,34 @@ async fn a_text_answer_is_its_values_and_ceiling_by_default() {
         &details["results"][0]["data"],
     );
     assert_eq!(
-        short,
-        &json_fixture(
+        short["answers"],
+        json_fixture(
             r#"{
-                "answers": {
-                    "restart": {"noul": 0.9},
-                    "kind": {"choice": "ops"},
-                    "risk": {"score": 1.5}
-                },
-                "usage": {"calls": 1, "requestsCeiling": 1}
+                "restart": {"noul": 0.9},
+                "kind": {"choice": "ops"},
+                "risk": {"score": 1.5}
             }"#
         ),
+        "{summary}"
+    );
+    // What the row billed, as the details row states it; the plan that came
+    // true is the request count itself.
+    let billed = ["calls", "inputTokens", "outputTokens", "requestsCeiling"];
+    assert_eq!(
+        short["usage"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect::<Vec<_>>(),
+        billed,
+        "{summary}"
+    );
+    for field in billed {
+        assert_eq!(short["usage"][field], whole["usage"][field], "{field}");
+    }
+    assert_eq!(
+        short.as_object().unwrap().keys().collect::<Vec<_>>(),
+        ["answers", "usage"],
         "{summary}"
     );
     assert!(
@@ -204,11 +221,12 @@ async fn a_section_summary_is_its_lines_and_answers() {
     }
     assert_eq!(short["coverage"], whole["coverage"], "{summary}");
     assert_eq!(short["sourceDigest"], whole["sourceDigest"], "{summary}");
-    // The page's spend and its ceiling; its first round equals its calls.
+    // The page's spend, its tokens and its ceiling; its first round equals
+    // its calls.
     let usage = &summary["results"][0]["data"]["usage"];
     assert_eq!(
         usage.as_object().unwrap().keys().collect::<Vec<_>>(),
-        ["calls", "requestsCeiling"],
+        ["calls", "inputTokens", "outputTokens", "requestsCeiling"],
         "{summary}"
     );
     assert!(
@@ -404,10 +422,12 @@ async fn a_summary_states_every_rows_calls_and_its_ceiling() {
         )],
     )
     .await;
+    let usage = &single["results"][0]["data"]["usage"];
     assert_eq!(
-        single["results"][0]["data"]["usage"],
-        json!({"calls": 1, "requestsCeiling": 1}),
+        (&usage["calls"], &usage["requestsCeiling"]),
+        (&json!(1), &json!(1)),
         "{single}"
     );
+    assert!(usage["inputTokens"].as_u64() > Some(0), "{single}");
     runtime.close().await;
 }

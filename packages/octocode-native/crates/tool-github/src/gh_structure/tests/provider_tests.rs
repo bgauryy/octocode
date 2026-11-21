@@ -39,8 +39,7 @@ fn query(value: Value) -> GhStructureQuery {
     serde_json::from_value(value).expect("ghStructure query")
 }
 
-/// The tag names a refs listing's `tags` rows show, in order: each row is
-/// `"<name> <commitSha>"`, and a ref name holds no space.
+/// The tag names a refs listing's `tags` rows show, in order.
 fn tag_names(data: &Value) -> Vec<String> {
     data["tags"]
         .as_array()
@@ -50,14 +49,19 @@ fn tag_names(data: &Value) -> Vec<String> {
         .collect()
 }
 
-/// The name of a `"<name> <commitSha>"` ref row, checking the sha is whole.
+/// The name of a ref row: the row itself, or the name of a glob listing's
+/// `"<name> <commitSha>"` (a ref name holds no space), whose sha is whole.
 fn ref_name(row: &Value) -> &str {
-    let (name, sha) = row
+    let row = row
         .as_str()
-        .and_then(|row| row.split_once(' '))
-        .unwrap_or_else(|| panic!("a \"name sha\" ref row: {row}"));
-    assert!(octocode_github::is_full_sha(sha), "{row}");
-    name
+        .unwrap_or_else(|| panic!("a ref row is a string: {row}"));
+    match row.split_once(' ') {
+        Some((name, sha)) => {
+            assert!(octocode_github::is_full_sha(sha), "{row}");
+            name
+        }
+        None => row,
+    }
 }
 
 async fn list(server: &MockServer, value: Value) -> Result<ToolData, ProviderError> {

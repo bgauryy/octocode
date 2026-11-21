@@ -16,8 +16,8 @@ test('a retired continuation name is flagged against the live contract', () => {
 
 test('output fields, continuation channels and config keys are valid vocabulary', () => {
   const text = [
-    'Read `rows`, `pagination.total`, `pagination.hasMore` and `responsePagination.next`.',
-    'Then `next.nextPage`, `next.restart`, `next.unfiltered`, `related[]` and `lsp.autoInstall`.',
+    'Read `rows`, `pagination.total`, `pagination.offset` and `expiresAt`.',
+    'Then `next.nextPage`, `next.restart`, `related[]` and `lsp.autoInstall`.',
   ].join('\n');
   assert.deepEqual(findingsIn(text), []);
 });

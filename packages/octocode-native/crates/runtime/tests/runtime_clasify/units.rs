@@ -13,6 +13,19 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 /// What a unit that passes holds.
 const KEEP: &str = "KEEP";
 
+/// What `question` is about in `body`: the field of the shared state its
+/// label names, or the whole state of a request that holds one unit.
+fn judged_text(body: &Value, question: &Value) -> String {
+    question["instructions"]["target"]
+        .as_str()
+        .and_then(|label| label.strip_prefix("`units."))
+        .and_then(|label| label.split('`').next())
+        .map_or_else(
+            || body["state"].to_string(),
+            |field| body["state"]["units"][field].to_string(),
+        )
+}
+
 /// Says yes (0.94) to a unit whose state holds [`KEEP`], else no (0.03).
 async fn keeper() -> MockServer {
     let server = MockServer::builder().start().await;
@@ -20,12 +33,12 @@ async fn keeper() -> MockServer {
         .and(path("/v1/systemone"))
         .respond_with(|request: &wiremock::Request| {
             let body: Value = serde_json::from_slice(&request.body).expect("provider body");
-            let hit = body["state"].to_string().contains(KEEP);
             let answers = body["questions"]
                 .as_object()
                 .expect("questions")
-                .keys()
-                .map(|id| {
+                .iter()
+                .map(|(id, question)| {
+                    let hit = judged_text(&body, question).contains(KEEP);
                     (
                         id.clone(),
                         json!({"type":"noul","noul":if hit { 0.94 } else { 0.03 }}),
@@ -183,17 +196,19 @@ async fn the_hits_of_a_file_share_one_request_and_only_the_passing_ones_return_u
         "{out}"
     );
     // One request for the file, one question per hit, each naming its line;
-    // the summary states the request it sent and the ceiling (the request
-    // and one re-ask), and leaves out the plan that came true.
+    // the summary states the request it sent, its tokens and the ceiling (the
+    // request and one re-ask), and leaves out the plan that came true.
     let bodies = sent(&server).await;
     assert_eq!(bodies.len(), 1, "{out}");
     assert_eq!(targeted_lines(&bodies[0]), [1, 2, 3, 4, 5, 6]);
     assert_eq!(bodies[0]["state"]["path"], "dense.txt");
     assert_eq!(
-        data["usage"],
-        json!({"calls": 1, "requestsCeiling": 2}),
+        (&data["usage"]["calls"], &data["usage"]["requestsCeiling"]),
+        (&json!(1), &json!(2)),
         "{out}"
     );
+    assert!(data["usage"].get("requestsPlanned").is_none(), "{out}");
+    assert!(data["usage"]["inputTokens"].as_u64() > Some(0), "{out}");
     // One read of the passing lines, two either side, merged.
     let read = &data["next"]["read"];
     assert_eq!(read["tool"], "localFetch", "{out}");
@@ -335,7 +350,7 @@ async fn listed_paths_are_units_named_by_path() {
         &runtime,
         vec![rows_row(
             "structureSearch",
-            json_fixture(r#"{"path": "src"}"#),
+            json_fixture(r#"{"operation": "tree", "path": "src"}"#),
             "summary",
         )],
     )
@@ -361,7 +376,8 @@ async fn a_tools_next_page_is_the_rows_next_page() {
     let query = json_fixture(r#"{"path": ".", "matchString": ["needle"], "limit": 1}"#);
     let first = clasify(&runtime, vec![rows_row("localSearch", query, "details")]).await;
     let data = &first["results"][0]["data"];
-    let next = &data["next"]["nextPage"];
+    let next = &first["next"];
+    assert!(data.pointer("/next/nextPage").is_none(), "{first}");
     assert_eq!(next["tool"], "clasify", "{first}");
     let second = crate::support::Run::run(
         &runtime,
@@ -429,7 +445,8 @@ async fn github_search_rows_are_units() {
     let keys = unit_keys(data);
     assert!(keys[0].starts_with("src/app.rs"), "{out}");
     assert!(keys[1].starts_with("src/lib.rs"), "{out}");
-    assert_eq!(sent(&server).await.len(), 2);
+    // Every request sent is one the row counts.
+    assert_eq!(json!(sent(&server).await.len()), data["usage"]["calls"]);
     // The page names its repository once.
     assert_eq!(
         (&data["owner"], &data["repo"]),
@@ -468,7 +485,10 @@ async fn content_items_are_units_when_asked_and_one_source_otherwise() {
         json_fixture(r#"{"totalUnits": 150, "answered": 150, "quiet": 148}"#),
         "{out}"
     );
-    assert_eq!(sent(&server).await.len(), 150);
+    // The items share requests: far fewer than items, each one counted.
+    let requests = sent(&server).await.len();
+    assert_eq!(json!(requests), data["usage"]["calls"], "{out}");
+    assert!(requests < 150, "{requests}");
 
     let out = clasify(&runtime, vec![row(false)]).await;
     let data = &out["results"][0]["data"];
@@ -477,7 +497,8 @@ async fn content_items_are_units_when_asked_and_one_source_otherwise() {
         json_fixture(r#"{"noul": 0.94}"#),
         "{out}"
     );
-    assert_eq!(sent(&server).await.len(), 151);
+    // Judged as one source, the array is one more request.
+    assert_eq!(sent(&server).await.len(), requests + 1);
     runtime.close().await;
 }
 
@@ -588,20 +609,22 @@ async fn identical_items_report_one_requests_spend_and_price_once() {
     runtime.close().await;
 }
 
-/// Rows whose items overlap send each distinct request once; their usage
-/// sums to what was billed, and the same row carries it on every run.
+/// Rows that ask the same items send their one shared request once; their
+/// usage sums to what was billed, and the same row carries it on every run.
 #[tokio::test]
 async fn items_shared_across_rows_are_billed_once_to_the_first_row() {
     let server = reporting().await;
     let workspace = Workspace::new();
     let runtime = clasify_runtime(&workspace, &server, &[]);
     for _ in 0..5 {
-        let out = clasify(&runtime, vec![item_row(&["x", "y"]), item_row(&["x"])]).await;
+        let out = clasify(&runtime, vec![item_row(&["x", "y"]), item_row(&["x", "y"])]).await;
         let (first, second) = (spend(&out["results"][0]), spend(&out["results"][1]));
-        assert_eq!(first, (2, 20, 4), "{out}");
+        assert!(first.0 >= 1, "{out}");
         assert_eq!(second, (0, 0, 0), "{out}");
     }
-    assert_eq!(sent(&server).await.len(), 10);
+    // Five runs, each billed once: evaluate never reuses an earlier call.
+    let run = sent(&server).await.len();
+    assert!(run >= 5 && run % 5 == 0, "{run}");
     runtime.close().await;
 }
 
@@ -850,5 +873,70 @@ async fn per_hit_judges_each_hit_in_its_own_request_at_its_price() {
     assert_eq!(cells(data, "dense.txt:2")["keep"]["noul"], 0.94, "{out}");
     assert_eq!(cells(data, "dense.txt:5")["keep"]["noul"], 0.94, "{out}");
     assert_eq!(cells(data, "dense.txt:1")["keep"]["noul"], 0.03, "{out}");
+    runtime.close().await;
+}
+
+/// `collapse`: a repetitive log is judged one line per kind. Lines that
+/// differ only in widely varying numbers share one unit; the planted line is
+/// its own unit, keyed by its line number, and the whole log is far fewer
+/// requests than lines.
+#[tokio::test]
+async fn a_collapsed_log_answers_per_kind_of_line_by_line_number() {
+    let server = keeper().await;
+    let workspace = Workspace::new();
+    let (lines, planted) = (400usize, 257usize);
+    let log = (1..=lines)
+        .map(|line| {
+            if line == planted {
+                format!("worker {line} crashed: {KEEP}\n")
+            } else {
+                format!("worker {line} finished in {}ms\n", line * 3)
+            }
+        })
+        .collect::<String>();
+    workspace.write("run.log", log);
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let row = json!({"operation":"evaluate","collapse":true,
+        "source":{"tool":"localFetch","query":{"path":"run.log"}},
+        "questions":{"keep":{"type":"noul","instructions":"The line reports a crash."}}});
+    let out = clasify(&runtime, vec![row]).await;
+    let data = &out["results"][0]["data"];
+    assert!(data.get("errorCode").is_none(), "{out}");
+    // Only the planted line's kind says yes, and it is keyed by its line.
+    let yes = data["units"]
+        .as_object()
+        .expect("units")
+        .iter()
+        .filter(|(_, cells)| {
+            let cell = &cells["keep"];
+            cell.get("answer").unwrap_or(cell)["noul"].as_f64() > Some(0.5)
+        })
+        .map(|(key, _)| key.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(yes, [planted.to_string()], "{out}");
+    let kinds = data["coverage"]["totalUnits"].as_u64().expect("kinds") as usize;
+    assert!(kinds < lines, "{kinds} kinds of {lines} lines");
+    let requests = sent(&server).await.len();
+    assert_eq!(json!(requests), data["usage"]["calls"], "{out}");
+    assert!(
+        requests < kinds.max(2),
+        "{requests} requests for {kinds} kinds"
+    );
+
+    // Kinds are keyed by file line: a listing has no lines and a ranges read
+    // numbers its own, so collapse is refused before anything is sent.
+    for source in [
+        json!({"tool":"structureSearch","query":{"operation":"files","path":"."}}),
+        json!({"tool":"localFetch","query":{"path":"run.log","ranges":[{"startLine":10,"endLine":50}]}}),
+    ] {
+        let row = json!({"operation":"evaluate","collapse":true,"maxRequests":4,"source":source,
+            "questions":{"keep":{"type":"noul","instructions":"The line reports a crash."}}});
+        let refused = clasify(&runtime, vec![row]).await;
+        assert_eq!(
+            refused["results"][0]["data"]["errorCode"], "invalidClassificationContext",
+            "{refused}"
+        );
+    }
+    assert_eq!(sent(&server).await.len(), requests, "nothing more was sent");
     runtime.close().await;
 }

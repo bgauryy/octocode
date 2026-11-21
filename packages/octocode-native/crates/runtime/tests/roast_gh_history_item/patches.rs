@@ -50,7 +50,7 @@ async fn walk(server: &MockServer) -> Vec<Value> {
         let page = session.served(input).await;
         let next = data(&page)
             .pointer("/next/patches/input")
-            .or_else(|| page.pointer("/responsePagination/next/input"))
+            .or_else(|| page.pointer("/next/input"))
             .cloned();
         pages.push(page);
         let Some(next) = next else {

@@ -22,20 +22,6 @@ fn run(files: &[(&str, &str)], fields: serde_json::Value) -> serde_json::Value {
     search_fixture(files, ls_query(fields, None))
 }
 
-/// Every `endLine` a lead in `value` names.
-fn end_lines(value: &serde_json::Value, found: &mut Vec<u64>) {
-    match value {
-        serde_json::Value::Object(fields) => {
-            if let Some(end) = fields.get("endLine").and_then(serde_json::Value::as_u64) {
-                found.push(end);
-            }
-            fields.values().for_each(|inner| end_lines(inner, found));
-        }
-        serde_json::Value::Array(items) => items.iter().for_each(|inner| end_lines(inner, found)),
-        _ => {}
-    }
-}
-
 /// An empty directory's empty result says no file was there to search.
 #[test]
 fn an_empty_directory_says_nothing_was_searched() {
@@ -52,73 +38,53 @@ fn an_empty_directory_says_nothing_was_searched() {
     assert!(!missed.to_string().contains("Nothing searched"), "{missed}");
 }
 
-/// An empty case-sensitive search offers the same search with case ignored,
-/// from its terms alone and without running it; one that already ignored
-/// case does not.
+/// An empty search whose case rule may have decided it offers the same
+/// search with case ignored, from its terms alone and without running it: a
+/// term that mixes upper and lower case, searched case-sensitive without the
+/// caller asking for it. A term of one case throughout, a case rule the
+/// caller chose and a search that already ignored case get no offer.
 #[test]
-fn an_empty_case_sensitive_search_offers_case_mode() {
+fn an_empty_search_offers_case_mode_only_for_a_mixed_case_term() {
     let files = [("a.txt", "hello world\n")];
     for (fields, offered) in [
-        (
-            json_fixture(r#"{"matchString": ["HELLO"], "caseMode": "sensitive"}"#),
-            true,
-        ),
         (json_fixture(r#"{"matchString": ["Hello"]}"#), true),
+        (json_fixture(r#"{"matchString": ["HELLO"]}"#), false),
+        (
+            json_fixture(r#"{"matchString": ["Hello"], "caseMode": "sensitive"}"#),
+            false,
+        ),
         (
             json_fixture(r#"{"matchString": ["absent"], "caseMode": "insensitive"}"#),
             false,
         ),
     ] {
         let out = run(&files, fields.clone());
-        assert_eq!(
-            out.to_string()
-                .contains("caseMode \\\"insensitive\\\" runs the same search"),
-            offered,
-            "{fields}: {out}"
-        );
+        assert_eq!(out["files"], serde_json::json!([]), "{fields}: {out}");
+        let call = one_recovery(&out);
+        assert_eq!(call.is_some(), offered, "{fields}: {out}");
+        assert_eq!(out.get("hints").is_some(), offered, "{fields}: {out}");
     }
 }
 
-/// The hint's advice is a typed related call: the same search, same path,
-/// with `caseMode:"insensitive"`, not a wider scope.
+/// The hint's advice is a typed related call: the same search, same terms,
+/// with `caseMode:"insensitive"`, not a wider scope; run, it finds the
+/// match the case rule hid.
 #[test]
 fn the_case_hint_comes_with_the_insensitive_request_as_related() {
-    let out = run(
-        &[("a.txt", "hello world\n")],
-        json_fixture(r#"{"matchString": ["HELLO"]}"#),
-    );
-    let text = out.to_string();
-    assert!(text.contains("\"caseMode\":\"insensitive\""), "{out}");
-}
-
-/// The read lead around a hit near the end of a file ends at its last line,
-/// counted by the read the search already made of it (the file is not read
-/// again for its length): hit + context would run past the end. A file whose
-/// lines the search did not count keeps hit + context
-/// (`the_read_handoff_windows_hits_without_reading_the_file`).
-#[test]
-fn a_read_lead_ends_at_the_files_last_line() {
-    let body = (1..=10)
-        .map(|line| {
-            if line == 9 {
-                "needle\n".to_owned()
-            } else {
-                format!("line {line}\n")
-            }
-        })
-        .collect::<String>();
-    let out = run(
-        &[("a.txt", &body)],
-        json_fixture(r#"{"matchString": ["needle"]}"#),
-    );
-    let mut found = Vec::new();
-    end_lines(&out, &mut found);
-    let (hit, last) = (9, 10);
-    assert!(hit + u64::from(crate::local_search::handoff::READ_HANDOFF_CONTEXT) > last);
-    assert!(
-        found.contains(&last),
-        "the lead ends at the last line: {out}"
-    );
+    let root = tempfile::tempdir().expect("fixture");
+    fs::write(root.path().join("a.txt"), "hello world\n").expect("fixture");
+    let miss = search_root(root.path(), json_fixture(r#"{"matchString": ["Hello"]}"#));
+    let out = miss.to_row().expect("row");
+    assert_eq!(out["files"], serde_json::json!([]), "{out}");
+    let call = one_recovery(&out).unwrap_or_else(|| panic!("a call: {out}"));
+    assert_eq!(call["caseMode"], "insensitive", "{out}");
+    assert_eq!(call["matchString"], serde_json::json!(["Hello"]), "{out}");
+    let (policy, security) = policy_for(root.path());
+    let found = search_in(&ls_query(call, None), &policy, &security, None)
+        .expect("the offered search")
+        .to_row()
+        .expect("row");
+    assert_eq!(found["matchCount"], 1, "{found}");
 }
 
 #[test]

@@ -19,11 +19,15 @@ pub struct Page {
     /// positive offset into an empty one): the page is empty by construction,
     /// not because the view ended here.
     pub out_of_range: bool,
-    /// A byte page that shows every match window of the view's last line, a
-    /// line too long for one page ([`long_lines::MatchFirst`]): the rest of
-    /// that line is an optional read of the whole line, not a page of this
-    /// read.
+    /// A byte page that shows every match window of a line too long for one
+    /// page ([`long_lines::MatchFirst`]): the rest of that line is an
+    /// optional read of the whole line, not a page of this read, which goes
+    /// on with the view's next line.
     pub rest_of_line: bool,
+    /// A byte page whose text opens inside a source line: its first byte is
+    /// not that line's first, so its first row continues the line (the
+    /// row's `continuesLine`) and carries no gutter.
+    pub opens_inside: bool,
 }
 
 /// Bytes one line page may hold when the caller has no response window to
@@ -278,6 +282,12 @@ fn view_page_limited(
             // shorter line, or a hit's window, takes at least a long line's
             // length, so it holds that line or window whole.
             let floor = budget.line.max(MIN_BYTE_PAGE);
+            // The text's first line started before the page: earlier in the
+            // view, or before a streamed window's first byte.
+            let opens_inside = match offset.checked_sub(1) {
+                Some(before) => content.as_bytes().get(before) != Some(&b'\n'),
+                None => edges.lead > 0,
+            };
             let chunk_size = if long_line_at(content, offset, edges) {
                 budget.line.max(MIN_LONG_LINE_PAGE)
             } else {
@@ -299,6 +309,7 @@ fn view_page_limited(
             }
             let text = content[offset..end].to_owned();
             let last = first + line_count(&text).saturating_sub(1);
+            let opens_inside = opens_inside && !text.is_empty();
             Page {
                 text,
                 pagination: Pagination {
@@ -316,6 +327,7 @@ fn view_page_limited(
                 view_lines: (first, last),
                 out_of_range,
                 rest_of_line: false,
+                opens_inside,
             }
         }
         ReadProgressUnit::Lines => {
@@ -428,6 +440,7 @@ fn view_page_limited(
                 view_lines: (view_start + 1, view_start + page),
                 out_of_range,
                 rest_of_line: false,
+                opens_inside: false,
             }
         }
     }

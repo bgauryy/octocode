@@ -61,7 +61,11 @@ async fn renamed_repository_is_followed_with_every_filter() {
         octocode_tools_shared::gh_shared::renamed_warning("a", "b", &("c".into(), "d".into())),
         "one shared rename wording: {data}"
     );
-    octocode_tools_shared::gh_shared::test_support::assert_leads_canonical(data);
+    // The rows name the canonical repository (a row, or the page once).
+    for (key, canonical) in [("owner", "c"), ("repo", "d")] {
+        let stated = data["files"][0].get(key).or_else(|| data.get(key));
+        assert_eq!(stated, Some(&json!(canonical)), "{data}");
+    }
     let searched = server
         .received_requests()
         .await

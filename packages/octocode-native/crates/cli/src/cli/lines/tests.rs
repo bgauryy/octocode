@@ -43,11 +43,9 @@ fn sample() -> Value {
                 }
             ],
             "warnings": ["incomplete"],
-            "responsePagination": {
-                "next": {
-                    "tool": "localSearch",
-                    "input": {"cursor": "issued-response-page"}
-                }
+            "next": {
+                "tool": "localSearch",
+                "input": {"cursor": "issued-response-page"}
             },
             "root": "/nowhere"
         }"#,
@@ -73,6 +71,7 @@ mod control_chars;
 mod done_facts;
 mod hit_lines;
 mod listing_lines;
+mod mcp_form;
 mod recorded_results;
 mod served_locations;
 mod stated_once;

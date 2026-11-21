@@ -93,7 +93,7 @@ async fn the_default_branch_and_canonical_name_pin_the_checkout() {
     assert_eq!(
         cloned.warnings,
         [
-            "Repository old-owner/fixture-repo was renamed to fixture-owner/fixture-repo; leads use the canonical name."
+            "Repository old-owner/fixture-repo was renamed to fixture-owner/fixture-repo: use that name."
         ],
         "the rename is stated, as the other GitHub tools state it"
     );

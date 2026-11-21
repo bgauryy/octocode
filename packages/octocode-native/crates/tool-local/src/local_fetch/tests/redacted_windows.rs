@@ -34,7 +34,7 @@ fn walk(query: &LocalFetchQuery, paths: &Paths) -> Vec<(LocalFetchQuery, LocalFe
     let mut pages = Vec::new();
     let mut query = query.clone();
     loop {
-        let page = execute_local_fetch(&query, paths, &security, &NeverCancel, Some(WINDOW), None);
+        let page = execute_local_fetch(&query, paths, &security, &NeverCancel, Some(WINDOW), false);
         assert_eq!(page.error_code, None, "{page:?}");
         let next = page
             .next
@@ -268,5 +268,8 @@ fn a_match_read_states_the_masked_spans_whatever_it_matched() {
         );
     }
     assert_eq!(spans(&path, serde_json::json!({})), None);
-    assert_eq!(spans(&clean, serde_json::json!({"matchString": ["one"]})), None);
+    assert_eq!(
+        spans(&clean, serde_json::json!({"matchString": ["one"]})),
+        None
+    );
 }

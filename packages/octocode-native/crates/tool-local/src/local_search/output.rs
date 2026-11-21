@@ -12,9 +12,9 @@ impl ToolOutput for Output {
             ErrorCode::FileAccessFailed => {
                 "Check read access to the path; a broader search reads the same files."
             }
-            ErrorCode::InvalidPattern => {
-                "Correct the regex named in the error. If the intended match is literal text, set regexEngine to literal and keep matchString unchanged."
-            }
+            // A pattern's fix depends on its cause, which the check that
+            // found it states (`pattern::check_expression`).
+            ErrorCode::InvalidPattern => return None,
             _ => return None,
         })
     }

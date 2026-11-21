@@ -7,7 +7,7 @@ Every acceptance run covers the shared contract and tool-specific behavior:
 - `{queries:[...]}` with one to five independent same-tool rows, or only an issued `{cursor}`; CLI and MCP repair a shape with one lossless reading (a bare row) and reject ambiguous shapes and unknown fields;
 - zero-based result index alignment and isolated row failures;
 - authored operations, defaults and typed selectors from core;
-- `next.*`/responsePagination continue calls, related fresh calls and prose-only hints;
+- the reply's `next` and a row's `next.*` continue calls, related fresh calls and prose-only hints;
 - exact source evidence, complete reachable pagination and explicit terminal limits.
 
 Prefer behavior tests that execute the public request and its emitted calls; remove snapshots, prose equality and test-local schema interpreters. Assert selected evidence, scope, provider effects, source identity, replay isolation and complete walks. Keep coverage floors; never weaken a claim to hide a failure.
@@ -23,7 +23,7 @@ node packages/octocode/out/octocode.js schema
 node packages/octocode/out/octocode.js schema localFetch --view query
 ```
 
-- This shows the effective CLI and MCP catalog. A classification key enables `clasify` and inline `classification`; a CLI call without it answers `missingConfiguration`. MCP's other opt-ins: `OCTOCODE_BETA` (both graph tools), `OCTOCODE_ENABLE_CLONE`, `OCTOCODE_SECURITY_CHECKS`. Filters and trust rules: [configuration matrix](../../../docs/CONFIGURATION.md#tool-availability-cli-and-mcp). The CLI runs graph tools as generated tool commands.
+- This shows the effective CLI and MCP catalog. A classification key enables `clasify`; a CLI call without it answers `missingConfiguration`. MCP's other opt-ins: `OCTOCODE_BETA` (both graph tools), `OCTOCODE_ENABLE_CLONE`, `OCTOCODE_SECURITY_CHECKS`. Filters and trust rules: [configuration matrix](../../../docs/CONFIGURATION.md#tool-availability-cli-and-mcp). The CLI runs graph tools as generated tool commands.
 - Discovery makes no provider request. Test missing prerequisites and provider failures at invocation, separately from MCP visibility. An enabled clone in memory mode stays visible and reports its persistent-storage requirement when called. CLI ignores MCP visibility settings but keeps path and content security.
 - Record effective configuration and unavailable capabilities per run (enabling a tool installs no language server and grants no provider access). Test CLI and MCP when registration, schema projection, formatting or continuation rendering changes.
 
@@ -51,7 +51,7 @@ node packages/octocode/out/octocode.js schema localFetch --view query
 ### Lossless reachable pagination
 
 - Paginate before reducing response size: never clip or summarize requested evidence to meet a byte, token or `responseChars` target. Keep an indivisible oversized value whole and disclose it. Explicit transformed views and security redaction define the requested representation.
-- `hasMore:true` is insufficient: execute the returned continuations through the named tool and prove their union covers the fixture (termination, stable identities, no gaps, no repeats).
+- A `next` being present is insufficient: execute the returned continuations through the named tool and prove their union covers the fixture (termination, stable identities, no gaps, no repeats).
 - Cover every independent partial surface (lists, file/match pages, graph data, diagnostics, source lines, transformed characters, history collections, patches, response text). Continuations keep filters, operation, view, snapshot/ref and other pagination axes.
 - Requested length is a window target: validate actual offsets and coverage. Test tiny windows, boundary-crossing tokens, multibyte text, empty results, a short final page.
 - A provider or public cap that blocks continuation needs a typed terminal-limit diagnostic; a bare page number or cursor fails the contract.

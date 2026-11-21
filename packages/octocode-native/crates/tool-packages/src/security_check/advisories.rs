@@ -156,11 +156,13 @@ fn osv_shape(advisory: &RepositoryAdvisory, contract: &SecurityContract) -> Valu
         .map(|entry| {
             let mut row = json!({});
             if let Some(package) = &entry.package {
-                // An ecosystem the contract does not map stays as GitHub wrote it.
+                // An ecosystem the contract does not map stays as GitHub
+                // wrote it; a mapped one is named as OSV's records name it,
+                // the form every record here is compared in.
                 let ecosystem = package.ecosystem.as_deref().map(|name| {
                     contract
-                        .osv_ecosystem_of_github(name)
-                        .unwrap_or(name)
+                        .ecosystem_of_github(name)
+                        .map_or(name, |input| contract.osv_name_of(input))
                         .to_owned()
                 });
                 row["package"] = json!({
@@ -460,7 +462,7 @@ pub(super) fn unread_why(
         return super::source::unread_because(&format!("{subject} not read"), stopped);
     }
     let then = if reads_on {
-        "next.nextPage reads on from the page that failed."
+        "The reply's next reads on from the page that failed."
     } else {
         "A new call reads the list again from the start."
     };
@@ -593,7 +595,7 @@ pub(super) struct GhsaLookup {
 /// The GHSA id `id` on GitHub: the global database's record and, with `repo`,
 /// the repository's own (one GitHub has not reviewed into its database is
 /// found only there). Any other id, or no GitHub transport, asks nothing.
-pub(super) async fn ghsa(id: &str, repo: Option<&str>, net: &Net<'_>) -> GhsaLookup {
+pub(super) async fn ghsa(id: &str, repo: Option<(&str, &str)>, net: &Net<'_>) -> GhsaLookup {
     let mut lookup = GhsaLookup {
         asked: false,
         rows: Vec::new(),
@@ -604,19 +606,13 @@ pub(super) async fn ghsa(id: &str, repo: Option<&str>, net: &Net<'_>) -> GhsaLoo
     let is_ghsa = id
         .split_once('-')
         .is_some_and(|(prefix, _)| prefix.eq_ignore_ascii_case("GHSA"));
-    let repo = match repo.map(super::repository::parse) {
-        Some(Ok(parsed)) if is_ghsa => Some(parsed),
-        Some(Ok(_)) => {
+    let repo = match repo {
+        Some(named) if is_ghsa => Some(named),
+        Some(_) => {
             lookup.warnings.push(format!(
-                "repo is read for a GHSA id only; {} is not one, so no repository advisory was read.",
+                "owner and repo are read for a GHSA id only; {} is not one, so no repository advisory was read.",
                 super::answer::typed(id)
             ));
-            None
-        }
-        Some(Err(error)) => {
-            lookup
-                .warnings
-                .push(format!("{} It was not read on GitHub.", error.message));
             None
         }
         None => None,
@@ -625,9 +621,7 @@ pub(super) async fn ghsa(id: &str, repo: Option<&str>, net: &Net<'_>) -> GhsaLoo
         return lookup;
     };
     lookup.asked = true;
-    let own = repo
-        .as_ref()
-        .map(|(owner, name)| (owner.as_str(), name.as_str()));
+    let own = repo;
     let (global, own) = futures_util::join!(github.ghsa(None, id), async {
         match own {
             Some(at) => Some((

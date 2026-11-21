@@ -231,7 +231,7 @@ fn reads(path: &std::path::Path, dir: &std::path::Path) -> Vec<LocalFetchResult>
             &octocode_runtime_base::security::ContentSecurity::new(),
             &NeverCancel,
             None,
-            None,
+            false,
         )
     })
     .collect()

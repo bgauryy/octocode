@@ -100,6 +100,9 @@ pub(super) struct Fallback<'a, 'p> {
     /// Bases the source names whose declaration lies outside the read
     /// policy (`Send` in the toolchain's `core`), by name once each.
     withheld: Mutex<Vec<String>>,
+    /// Implementation candidates that name no declaration: values of the
+    /// type (object literals), counted and left out of the subtypes.
+    values: Mutex<usize>,
 }
 
 impl<'a, 'p> Fallback<'a, 'p> {
@@ -122,6 +125,7 @@ impl<'a, 'p> Fallback<'a, 'p> {
             initial: Mutex::new(None),
             candidate_capped: Mutex::new(Vec::new()),
             withheld: Mutex::new(Vec::new()),
+            values: Mutex::new(0),
         }
     }
 
@@ -199,11 +203,15 @@ impl<'a, 'p> Fallback<'a, 'p> {
         path: &str,
         line: u32,
         character: u32,
+        candidate: bool,
     ) -> Result<Vec<Value>, LspFailure> {
         match self.node(path, line, character).await {
             Ok(node) => Ok(vec![node]),
             Err(failure) if failure.is_cancelled() => Err(failure),
-            Err(_) => self.definitions(path, line, character, None).await,
+            Err(_) => {
+                self.definitions(path, line, character, None, candidate)
+                    .await
+            }
         }
     }
 
@@ -215,7 +223,7 @@ impl<'a, 'p> Fallback<'a, 'p> {
         initial: Option<Vec<LspCodeSnippet>>,
     ) -> Result<HierarchyWalk, LspFailure> {
         let roots = self
-            .resolved_nodes(anchor.path, anchor.line, anchor.character)
+            .resolved_nodes(anchor.path, anchor.line, anchor.character, false)
             .await?;
         if let Some(initial) = initial {
             match roots.as_slice() {
@@ -248,6 +256,7 @@ impl<'a, 'p> Fallback<'a, 'p> {
         let withheld = std::mem::take(&mut *self.withheld.lock().await);
         walk.out_of_policy += withheld.len();
         walk.withheld_names.extend(withheld);
+        walk.value_candidates = std::mem::take(&mut *self.values.lock().await);
         let capped = std::mem::take(&mut *self.candidate_capped.lock().await);
         self.resume_candidates(&mut walk, capped, depth).await;
         Ok(walk)

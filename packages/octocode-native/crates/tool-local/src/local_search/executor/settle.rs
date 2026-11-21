@@ -4,7 +4,8 @@ use crate::local_search::local_search_query::View;
 
 use super::super::coverage::Coverage;
 use super::super::layout::Layout;
-use super::super::leads::{BINARY_LISTING, Found, parent_folder_lead, restart_lead, scope_listing};
+use super::super::leads::{Found, restart_lead, scope_listing};
+use super::super::probes::Recovery;
 use super::super::types::{FileErrors, LocalSearchResult, Paging, SearchStats, SearchStatus};
 use super::super::verify::PageScope;
 use super::projection::Annotated;
@@ -26,16 +27,13 @@ pub(super) struct Page<'a> {
     pub(super) alternates: &'a super::super::probes::Alternates<'a>,
     /// Files the scan collected, on every page.
     pub(super) total_files: u32,
-    /// Classification judged hits of this scan: a page it kept none of is
-    /// no absence (its counts describe the kept hits, so they say zero).
-    pub(super) classified_hits: bool,
 }
 
 /// The row of one page: its status, coverage warnings, leads and limits.
 pub(super) fn settle_row(
     scope: &PageScope<'_, impl CancellationCheck>,
     page: &Page<'_>,
-    rows: Annotated<'_>,
+    rows: Annotated,
     mut next: Option<Value>,
     continuation_missing: bool,
 ) -> Result<LocalSearchResult, ToolError> {
@@ -43,7 +41,6 @@ pub(super) fn settle_row(
         query,
         paths,
         output_root,
-        security,
         ..
     } = *scope;
     let (layout, total_files) = (page.layout, page.total_files);
@@ -52,7 +49,7 @@ pub(super) fn settle_row(
     // row without reading on, so it offered this one. It is no miss.
     let walk_ended =
         total_files == 0 && layout.walk.is_some_and(|walk| walk.continued && !walk.more);
-    let empty = total_files == 0 && !page.classified_hits && !walk_ended;
+    let empty = total_files == 0 && !walk_ended;
     // A walk's page counts what the walk read so far: what the pages before
     // it counted (carried by its cursor) and its own scan. Its totals are
     // the search's once the walk ends; until then they are absent.
@@ -123,31 +120,14 @@ pub(super) fn settle_row(
         coverage.gap(),
         continuation_missing,
     );
-    let mut hints = coverage.empty_hints(empty);
-    // In a sparse checkout the warning above says what is on disk: the
-    // generic path and glob advice would send a caller after files the
-    // checkout does not hold.
-    if in_sparse_checkout {
-        Coverage::drop_generic_scope_hints(&mut hints);
-    }
+    // An empty page states one recovery: the first cause that explains the
+    // miss, proven causes first.
+    let mut recovery = Recovery::default();
     // A key path that left out every file in scope: the same search without
     // it reads them.
-    if empty && coverage.key_path_miss.is_some() {
+    if empty && let Some(hint) = coverage.key_path_miss_hint() {
         let lead = restart_lead(query, json!({"keyPath": null}))?;
-        lead_first(&mut next, "withoutKeyPath", lead);
-    }
-    if empty
-        && stats.files_searched > 0
-        && let Some(hint) = page
-            .alternates
-            .case_hint(query, stats.masked_spans.is_some_and(|spans| spans > 0))
-    {
-        hints.push(hint);
-        // The hint's advice as a call: the same scope with case ignored.
-        let lead = restart_lead(query, json!({"caseMode": "insensitive"}))?;
-        if let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut() {
-            map.insert("asInsensitive".into(), lead);
-        }
+        recovery.offer(hint, Some(("withoutKeyPath", lead)));
     }
     // A test-code scope that left code out may have left out every hit:
     // the same search over all code is offered, not run.
@@ -156,60 +136,84 @@ pub(super) fn settle_row(
             .is_some_and(|scope| scope != octocode_contract_types::TestCode::Include)
         && let Some(excluded) = stats.test_code_excluded
     {
-        hints.push(test_code_hint(excluded));
         let lead = restart_lead(query, json!({"testCode": "include"}))?;
-        if let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut() {
-            map.insert("includeTestCode".into(), lead);
-        }
+        recovery.offer(test_code_hint(excluded), Some(("includeTestCode", lead)));
     }
-    // Leads go in after the status is settled: they are optional follow-ups
-    // and never stand in for a page.
     let disclosed = Found {
         query,
         root: page.root,
-        output_root,
-        files: &rows.files,
-        layout,
-        definition: rows.definition.as_ref(),
-        symbol: rows.symbol,
         scanned: page.scanned,
         skipped: page.skipped,
         walk_complete: !coverage.walk_cut,
         empty,
-        limits: security.limits(),
     }
-    .add_leads(&mut stats, &mut next, &mut hints, &mut warnings)?;
-    if disclosed.skipped_match {
-        coverage.skipped_paths_hold_matches(&mut hints);
-    }
-    // A zero-match search cut by a binary file proved nothing about the cut
-    // files: the tree of the scope is the way to narrow it.
-    let lists_scope =
-        (coverage.scope_miss || (empty && coverage.binary_cut)).then_some(!coverage.scope_miss);
-    route_beyond_pages(query, lists_scope, &mut next);
-    // A plain miss (nothing skipped, filtered or cut explains it) under a
-    // narrower path: the same search one folder up is the step, offered and
-    // not run. Skipped binaries hold no text the search could match, so their
-    // listing never stands in for this lead: it follows it.
-    let mut beyond = None;
-    if status == SearchStatus::Empty
-        && only_binary_listing(next.as_ref())
-        && coverage.plain_miss()
-        && let Some(call) = parent_folder_lead(query, paths, page.root)?
+    .add_leads(&mut stats, &mut recovery, &mut warnings)?;
+    // A scope miss stands only while no skipped path may hold a match: then
+    // the skip, not include/exclude, is why nothing was searched. In a
+    // sparse checkout the warning above says what is on disk: the path and
+    // glob advice would send a caller after files the checkout does not
+    // hold.
+    if empty
+        && !disclosed.skipped_match
+        && let Some(hint) = coverage.scope_hint(in_sparse_checkout)
     {
-        lead_first(&mut next, "broadenSearch", call);
-        beyond = Some("related[] searches one folder up".to_owned());
+        // The globs matched no file: the listing shows what names exist.
+        let listing = coverage
+            .scope_miss
+            .then(|| scope_listing(query, false))
+            .flatten();
+        recovery.offer(hint, listing.map(|listing| ("viewTree", listing)));
     }
-    // An empty page that searched files and whose skipped paths hold nothing
-    // says what it covered in one sentence, before any other fact.
-    if status == SearchStatus::Empty && stats.files_searched > 0 && !disclosed.skipped_match {
-        let absence = coverage.absence(
-            local_search_query::view(query),
-            (stats.files_searched, stats.binary_skipped.unwrap_or(0)),
-            stats.masked_spans.is_some_and(|spans| spans > 0),
-            beyond,
+    // A plain miss over files that hold masked secrets says what that
+    // leaves out, so the absence it proves is exact: text a read masks is
+    // matched by no spelling. The case rule's recovery keeps its call, and
+    // its hint then says so too: the row's one hint never leaves a masked
+    // value out of what it claims. Which hint is stated follows from the
+    // term's spelling alone, never from what a masked value holds.
+    let masked = stats
+        .masked_spans
+        .filter(|spans| empty && stats.files_searched > 0 && *spans > 0);
+    if empty
+        && stats.files_searched > 0
+        && let Some(hint) = page.alternates.case_hint(query)
+    {
+        let hint = masked.map_or_else(
+            || hint.clone(),
+            |masked| {
+                format!(
+                    "{hint} {}.",
+                    super::super::coverage::masked_unsearched(masked)
+                )
+            },
         );
-        hints.insert(0, absence);
+        // The hint's advice as a call: the same scope with case ignored.
+        let lead = restart_lead(query, json!({"caseMode": "insensitive"}))?;
+        recovery.offer(hint, Some(("asInsensitive", lead)));
+    }
+    if let Some(masked) = masked {
+        // The absence claim covers only what was searched: a path the walk
+        // left out, whatever lifts it or nothing does, is not in it.
+        let skips = page.skipped;
+        let left_out = coverage.withheld > 0
+            || coverage.gap()
+            || stats.binary_skipped.is_some_and(|count| count > 0)
+            || !(skips.pruned.is_empty()
+                && skips.generated.is_empty()
+                && skips.hidden.is_empty()
+                && skips.ignored.is_empty());
+        recovery.offer(
+            super::super::coverage::masked_hint(masked, left_out),
+            None,
+        );
+    }
+    // Binaries beside hits change nothing; they qualify an empty or
+    // partial answer.
+    if !empty && !coverage.gap() && !capped {
+        stats.binary_skipped = None;
+    }
+    let mut hints = Vec::new();
+    if status == SearchStatus::Empty {
+        recovery.state(&mut hints, &mut next);
     }
     let is_partial = coverage.gap() || capped;
     // A partial scan's file count is not final.
@@ -233,19 +237,7 @@ pub(super) fn settle_row(
         warnings,
         skipped_paths: disclosed.skipped_paths,
         source_snapshot: None,
-        selection: None,
         derived_value: None,
-    })
-}
-
-/// Whether `next` holds no lead that explains the miss: none, or only the
-/// listing of skipped binaries and the other readings offered on any miss
-/// (case ignored, the terms as a regex), which claim nothing found.
-fn only_binary_listing(next: Option<&Value>) -> bool {
-    next.and_then(Value::as_object).is_none_or(|calls| {
-        calls
-            .keys()
-            .all(|name| matches!(name.as_str(), BINARY_LISTING | "asInsensitive" | "asRegex"))
     })
 }
 
@@ -263,39 +255,6 @@ fn test_code_hint(excluded: octocode_engine::types::TestCodeExcluded) -> String 
         "The testCode scope left out {} (testCodeExcluded); the related[] call with testCode \"include\" searches all code.",
         left_out.join(" and ")
     )
-}
-
-/// `lead` as `next`'s first call, before the ones already there.
-fn lead_first(next: &mut Option<Value>, name: &str, lead: Value) {
-    let mut calls = serde_json::Map::new();
-    calls.insert(name.to_owned(), lead);
-    if let Some(Value::Object(earlier)) = next.take() {
-        calls.extend(earlier);
-    }
-    *next = Some(Value::Object(calls));
-}
-
-/// The lead past the pages: a scope miss or an unproven empty result
-/// (`lists_scope`) leads to the scope's listing, with the search's globs
-/// when they matched files (`Some(true)`), without them when they matched
-/// none, so the listing shows what names exist.
-fn route_beyond_pages(
-    query: &LocalSearchQuery,
-    lists_scope: Option<bool>,
-    next: &mut Option<Value>,
-) {
-    if let Some(keep_globs) = lists_scope
-        && let Some(listing) = scope_listing(query, keep_globs)
-        && let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut()
-    {
-        map.insert("viewTree".into(), listing);
-    }
-    if next
-        .as_ref()
-        .is_some_and(|next| next.as_object().is_some_and(serde_json::Map::is_empty))
-    {
-        *next = None;
-    }
 }
 
 /// File paging, reported only when it routes somewhere: more pages, or a

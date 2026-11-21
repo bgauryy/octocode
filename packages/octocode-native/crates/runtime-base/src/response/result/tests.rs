@@ -122,39 +122,6 @@ fn restarts_remove_only_declared_private_progress_and_are_new_work() {
     );
 }
 
-/// A related call is fresh work the caller may run unasked, so it never
-/// bills: on every tool whose rows take a classification, the related call
-/// leaves it out, while continued work (the same call's saved page) keeps it.
-#[test]
-fn a_related_call_never_carries_a_billed_classification() {
-    let classification = json_fixture(r#"{"predicates": ["Relevant?"]}"#);
-    let mut judged = 0;
-    for tool in ToolId::ALL.iter().copied() {
-        if !crate::contracts::query_declares(tool, "classification") {
-            continue;
-        }
-        let fresh = crate::test_support::accepted_row(tool, &json!({}));
-        let row = with_changes(fresh, &json!({"classification": classification}));
-        if crate::contracts::validate_built_query(tool.as_str(), row.clone()).is_err() {
-            continue;
-        }
-        judged += 1;
-        let related = Continuation::related(tool, row.clone()).build();
-        assert!(
-            related["input"]["queries"][0]
-                .get("classification")
-                .is_none(),
-            "{tool:?}: {related}"
-        );
-        let continued = Continuation::continued(tool, row).build();
-        assert_eq!(
-            continued["input"]["queries"][0]["classification"], classification,
-            "{tool:?}"
-        );
-    }
-    assert!(judged > 1, "several tools take a classification");
-}
-
 /// Every tool's related call publishes without the private progress its
 /// contract marks `x-cursor`, whatever row it was built from; continued work
 /// keeps the progress its contract accepts, for its cursor.
@@ -244,7 +211,7 @@ fn typed_call_bundles_serialize_only_by_explicit_semantics() {
     }
     let calls=serde_json::json!({
         "arbitraryEvidenceName":Continuation::continued(ToolId::LocalFetch,json_fixture(r#"{"path": "a"}"#)).build(),
-        "nextPage":Continuation::related(ToolId::StructureSearch,json_fixture(r#"{"path": "."}"#)).build()
+        "nextPage":Continuation::related(ToolId::StructureSearch,json_fixture(r#"{"operation": "tree", "path": "."}"#)).build()
     }).as_object().unwrap().clone();
     let output = serde_json::to_value(Output { calls: Some(calls) }).unwrap();
     assert_eq!(output["next"]["arbitraryEvidenceName"]["kind"], "continue");

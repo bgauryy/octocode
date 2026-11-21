@@ -146,7 +146,7 @@ async fn every_tool_empty_and_error_row_meets_the_row_contract() {
         probe(
             "structureSearch",
             "error",
-            json_fixture(r#"{"path": "missing"}"#),
+            json_fixture(r#"{"operation": "tree", "path": "missing"}"#),
         ),
         probe(
             "astSearch",
@@ -243,7 +243,7 @@ async fn a_missing_path_gets_one_recovery_form_on_every_local_tool() {
         ("localFetch", json_fixture(r#"{"path": "src/missing.rs"}"#)),
         (
             "structureSearch",
-            json_fixture(r#"{"path": "src/missing"}"#),
+            json_fixture(r#"{"operation": "tree", "path": "src/missing"}"#),
         ),
         (
             "lspSearch",

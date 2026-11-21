@@ -85,7 +85,7 @@ async fn history_b_large_pr_lead_walk_is_lossless_at_the_first_page_size() {
             .expect("patch window");
         let content = &outcome.structured_content;
         assert!(
-            content["responsePagination"]["next"].is_null(),
+            content["next"].is_null(),
             "call {calls}: a patch window overflowed the page it asked for"
         );
         let data = &content["results"][0]["data"];
@@ -207,7 +207,7 @@ async fn overflowing_patch_hop_pages_by_rows_and_loses_nothing() {
             .await
             .unwrap_or_else(|error| panic!("call {calls} failed: {error:?}\n{envelope}"));
         let content = &outcome.structured_content;
-        let pagination = &content["responsePagination"];
+        let pagination = &content;
         let row = &content["results"][0];
         if row.get("rowPart").is_some() {
             split_parts += 1;

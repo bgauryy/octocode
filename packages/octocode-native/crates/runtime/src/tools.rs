@@ -6,7 +6,6 @@ mod leads;
 mod local_search;
 mod lsp_search;
 mod module_boundaries;
-mod selection;
 mod source_capture;
 mod structure_search;
 mod withheld_disclosure_tests;

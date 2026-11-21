@@ -302,7 +302,7 @@ async fn a_commit_summary_counts_and_links_and_details_lists() {
             json!({"vulns": [fixed("OSV-2020-1", "MEDIUM", &[]), fixed("CVE-2023-1", "HIGH", &[])]}),
         )])
     };
-    let query = |view: &str| json!({"operation": "commit", "commitSha": COMMIT, "view": view});
+    let query = |view: &str| json!({"operation": "commit", "ref": COMMIT, "view": view});
     let summary = answer(&http(), query("summary")).await.expect("summary");
     let details = answer(&http(), query("details")).await.expect("details");
     assert_eq!(
@@ -348,7 +348,7 @@ async fn a_stopped_walk_reads_on_in_the_view_it_began_with() {
         ]);
         let stopped = answer(
             &http,
-            json!({"operation": "commit", "commitSha": COMMIT, "view": view}),
+            json!({"operation": "commit", "ref": COMMIT, "view": view}),
         )
         .await
         .expect("stopped");

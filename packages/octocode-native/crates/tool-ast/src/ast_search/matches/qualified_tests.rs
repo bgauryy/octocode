@@ -293,6 +293,7 @@ fn a_file_without_a_source_is_unprobed_and_the_rest_still_count() {
         extensions: None,
         parsers: Default::default(),
         compiled: Vec::new(),
+        inline: None,
     };
     let pattern = "fn $N($A: Foo) {}";
     let rule = json!({"pattern": pattern});

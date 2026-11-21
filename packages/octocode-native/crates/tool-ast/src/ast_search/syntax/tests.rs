@@ -239,7 +239,7 @@ fn rendered_pages(text: &str, budget: usize) -> Vec<Value> {
         let page =
             read_page(&query, &source, budget, &snapshot, &mut maps, &NeverCancel).expect("page");
         let more = page.more;
-        pages.push(render_tree_page(&query, "tree.py", &page, &snapshot));
+        pages.push(render_tree_page(&query, Some("tree.py"), &page, &snapshot));
         if !more {
             return pages;
         }
@@ -317,7 +317,7 @@ fn a_whole_tree_over_pages_is_never_partial_and_page_one_names_line() {
         assert_eq!(names_line, at == 0, "page {at}: {row}");
         assert_eq!(notices, usize::from(at == 0), "page {at}: {row}");
         for node in row["nodes"].as_array().expect("nodes") {
-            let id = node["node"].as_str().expect("node row");
+            let id = node.as_str().expect("node row");
             assert!(ids.insert(id.to_owned()), "a node repeats: {id}");
         }
     }
@@ -356,7 +356,7 @@ fn a_walk_cut_by_its_deadline_stays_a_terminal_limit_with_its_recovery() {
     for diagnostic in &mut page.r.diagnostics {
         diagnostic.code = "syntaxTree.budget.deadline".into();
     }
-    let row = render_tree_page(&query, "tree.py", &page, &snapshot);
+    let row = render_tree_page(&query, Some("tree.py"), &page, &snapshot);
     assert_eq!(
         row["partialReasons"],
         json_fixture(r#"["deadline"]"#),
@@ -371,4 +371,48 @@ fn a_walk_cut_by_its_deadline_stays_a_terminal_limit_with_its_recovery() {
         panic!("one diagnostic: {row}");
     };
     assert!(diagnostic["recovery"].is_string(), "{row}");
+}
+
+/// Without provenance a node row is its line alone: a page spends its
+/// window on node lines, none of it on a wrapper per row, so it holds more
+/// nodes than the same window would of one-field objects.
+#[test]
+fn a_plain_tree_page_spends_its_window_on_node_lines_not_wrappers() {
+    let text = (0..400)
+        .map(|at| format!("value_{at} = call_{at}(left_{at}, right_{at})\n"))
+        .collect::<String>();
+    let budget = 19_000;
+    let pages = rendered_pages(&text, budget);
+    assert!(pages.len() > 1, "{}", pages.len());
+    let units = |value: &Value| octocode_engine::json_size::utf16_units(value).unwrap_or(0);
+    let lines = pages
+        .iter()
+        .flat_map(|page| page["nodes"].as_array().expect("nodes"))
+        .map(|node| node.as_str().expect("a plain node line"))
+        .collect::<Vec<_>>();
+    // What the same lines cost as one-field objects, cut by the same window.
+    let wrapped = |line: &&str| units(&json!({ "node": line })) + 1;
+    let mut used = 0;
+    let wrapped_first = lines
+        .iter()
+        .take_while(|line| {
+            used += wrapped(line);
+            used <= budget
+        })
+        .count();
+    let first = pages[0]["nodes"].as_array().expect("nodes");
+    assert!(
+        first.len() > wrapped_first,
+        "{} plain rows, {wrapped_first} wrapped",
+        first.len()
+    );
+    let plain = units(&pages[0]["nodes"]);
+    let as_objects = units(&json!(
+        first
+            .iter()
+            .map(|line| json!({ "node": line }))
+            .collect::<Vec<_>>()
+    ));
+    assert!(plain <= budget, "{plain}");
+    assert!(as_objects > plain, "{as_objects} {plain}");
 }

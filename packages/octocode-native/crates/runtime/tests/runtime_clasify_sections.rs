@@ -38,6 +38,12 @@ async fn provider() -> MockServer {
 }
 
 async fn sections(runtime: &ToolRuntime, resources: Value) -> Value {
+    sections_with_next(runtime, resources).await.0
+}
+
+/// [`sections`] with the input of the reply's one continuation (null when
+/// the reply is finished).
+async fn sections_with_next(runtime: &ToolRuntime, resources: Value) -> (Value, Value) {
     let out = clasify(
         runtime,
         vec![json!({
@@ -46,7 +52,10 @@ async fn sections(runtime: &ToolRuntime, resources: Value) -> Value {
         })],
     )
     .await;
-    out["results"][0]["data"].clone()
+    (
+        out["results"][0]["data"].clone(),
+        out["next"]["input"].clone(),
+    )
 }
 
 /// C5/D7: without `maxRequests` a sections plan sends one request per
@@ -91,7 +100,7 @@ async fn a_sections_plan_is_bounded_by_its_max_requests_per_page() {
         assert!(calls <= cap, "{calls} past the cap: {page}");
         spent += calls;
         pages += 1;
-        let Some(next) = data["next"].get("nextPage") else {
+        let Some(next) = page.get("next").cloned() else {
             break;
         };
         page = runtime

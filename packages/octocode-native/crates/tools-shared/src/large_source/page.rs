@@ -57,6 +57,9 @@ pub(super) fn map_to_file(result: &mut LocalFetchResult, streamed: &Streamed) {
         range.start += shift;
         range.end += shift;
     }
+    if let Some(line) = &mut result.continues_line {
+        *line += shift;
+    }
     result.start_line = result.source_line_ranges.first().map(|range| range.start);
     result.end_line = result.source_line_ranges.last().map(|range| range.end);
     let total = streamed.total_lines;

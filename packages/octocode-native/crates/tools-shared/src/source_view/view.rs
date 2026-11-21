@@ -9,17 +9,13 @@ use octocode_contract_types::{ErrorCode, LocalFetchQuery, ReadView};
 use octocode_runtime_base::execution::cancel::CancellationCheck;
 use octocode_runtime_base::security::scan::ContentScan;
 
-pub mod classified;
 mod compact;
 mod page;
 mod select;
 mod warnings;
 
-use classified::{SelectionInput, refused_selection_input, select_no_match, select_view_chunks};
 use page::{cut_page, page_result};
 use select::{Minified, Refused, select_view};
-
-pub use classified::unsupported_selection;
 
 /// Shared post-acquisition content processing. Callers own source authorization,
 /// binary/transport limits and provenance.
@@ -35,7 +31,7 @@ pub fn process_fetched_content(
         || ".".to_owned(),
         |name| name.to_string_lossy().into_owned(),
     );
-    process_fetched_content_selected(
+    process_fetched_content_as(
         q,
         bytes,
         source_path,
@@ -43,11 +39,12 @@ pub fn process_fetched_content(
         facts,
         security,
         cancel,
-        None,
     )
 }
 
-pub fn process_fetched_content_selected<S: ContentScan>(
+/// [`process_fetched_content`] of a source the provider names `provider_path`
+/// (the path a redaction scan judges the text as).
+pub fn process_fetched_content_as<S: ContentScan>(
     q: &LocalFetchQuery,
     bytes: &[u8],
     source_path: &std::path::Path,
@@ -55,14 +52,8 @@ pub fn process_fetched_content_selected<S: ContentScan>(
     facts: &SourceFacts,
     security: &S,
     cancel: &impl CancellationCheck,
-    selection: Option<&crate::selection::Runtime>,
 ) -> LocalFetchResult {
     let sha256 = octocode_engine::digest::sha256(bytes);
-    // Refused on its input alone: no decode, redaction or extraction runs;
-    // the digest binds the unfiltered lead to the version the refusal saw.
-    if let Some(refused) = refused_selection_input(q, &sha256) {
-        return refused;
-    }
     // A continuation page of these bytes replays the view its cursor's
     // first page built, and only cuts its own page from it.
     let retention =
@@ -72,7 +63,6 @@ pub fn process_fetched_content_selected<S: ContentScan>(
             source: &kept.source,
             ext: &kept.ext,
             view: &kept.view,
-            selection: None,
         };
         return render(q, page, facts, source_path, cancel);
     }
@@ -119,19 +109,11 @@ pub fn process_fetched_content_selected<S: ContentScan>(
         Ok(extraction) => extraction,
         Err(error) => return extraction_error(q, error, source.total_lines),
     };
-    let selection_input = SelectionInput {
-        q,
-        source_path,
-        provider_path,
-        sha256: &source.sha256,
-        runtime: selection,
-        query_json: std::cell::OnceCell::new(),
-    };
     if ext.count == Some(0) {
         // A misremembered declaration head reads the file's one declaration
         // of its name, as that read of the declaration's own line.
         if let Some((declared, warning)) = declared_read(q, &source.text, &source.written()) {
-            let mut read = process_fetched_content_selected(
+            let mut read = process_fetched_content_as(
                 &declared,
                 bytes,
                 source_path,
@@ -139,7 +121,6 @@ pub fn process_fetched_content_selected<S: ContentScan>(
                 facts,
                 security,
                 cancel,
-                selection,
             );
             read.warnings.insert(0, warning);
             return read;
@@ -148,52 +129,31 @@ pub fn process_fetched_content_selected<S: ContentScan>(
         if ext.match_limited {
             disclose_match_limit(&mut missed, ext);
         }
-        return select_no_match(&selection_input, missed);
+        return missed;
     }
-    let mut view = match select_view(q, &mut ext, &source.text, cancel) {
+    let view = match select_view(q, &mut ext, &source.text, cancel) {
         Ok(view) => view,
-        Err(Refused::NoOutline(reason)) => return no_outline(q, reason, source.total_lines),
         Err(Refused::Minified(minified)) => {
             return minified_text(q, minified, source.total_lines);
         }
     };
-    let selection_outcome = match select_view_chunks(
-        &selection_input,
-        &source.text,
-        &mut view,
-        &mut ext,
-        security,
-    ) {
-        Ok(outcome) => outcome,
-        Err(result) => return *result,
-    };
-    // A classified page's plan token, receipt and unfiltered leads ride the
-    // same row: the text window leaves room for them.
-    let selection = selection_outcome
-        .as_ref()
-        .map(|chosen| (chosen, chosen.row_chars(selection_input.query_json())));
     let page = Page {
         source: &source,
         ext: &ext,
         view: &view,
-        selection,
     };
     let result = render(q, page, facts, source_path, cancel);
-    if let Some(retention) = retention
-        && selection_outcome.is_none()
-    {
+    if let Some(retention) = retention {
         retention.keep(&result, source, ext, view);
     }
     result
 }
 
-/// The view a page is cut from, and a classified page's choice with the
-/// row characters it adds beside the text.
+/// The view a page is cut from.
 struct Page<'a> {
     source: &'a Source<'a>,
     ext: &'a super::extraction::Extraction,
     view: &'a View,
-    selection: Option<(&'a super::selection::Chosen, usize)>,
 }
 
 /// Cut this page from its view and build its row.
@@ -204,12 +164,7 @@ fn render(
     source_path: &std::path::Path,
     cancel: &impl CancellationCheck,
 ) -> LocalFetchResult {
-    let Page {
-        source,
-        ext,
-        view,
-        selection,
-    } = page;
+    let Page { source, ext, view } = page;
     if let Err(e) = cancel.check() {
         return LocalFetchResult::error(
             local_fetch_query::path(q).to_owned(),
@@ -228,26 +183,13 @@ fn render(
         ..facts.clone()
     };
     let facts = &own;
-    let classified_facts;
-    let facts = match selection {
-        Some((_, beside)) if facts.window.is_some() => {
-            classified_facts = SourceFacts {
-                window: facts
-                    .window
-                    .map(|window| window.saturating_sub(beside).max(1)),
-                ..facts.clone()
-            };
-            &classified_facts
-        }
-        _ => facts,
-    };
     // The first cut takes the row's whole share; a row wider than its share
     // as published is cut again to the share less its measured skeleton,
     // until it fits or holds one line. Each cut is a complete page with its
     // own continuation, so a shorter one loses nothing.
     let mut fill = None;
     loop {
-        let cut = match cut_page(q, view, ext, source, facts, fill, selection.is_some()) {
+        let cut = match cut_page(q, view, ext, source, facts, fill) {
             Ok(cut) => cut,
             Err(result) => return *result,
         };
@@ -259,15 +201,7 @@ fn render(
             );
         }
         let budget = cut.budget;
-        let result = page_result(
-            cut,
-            source,
-            ext,
-            view,
-            selection.map(|(chosen, _)| chosen),
-            source_path,
-            facts,
-        );
+        let result = page_result(cut, source, ext, view, source_path, facts);
         match facts.window.and_then(|share| refit(&result, budget, share)) {
             Some(less) => fill = Some(less),
             None => return result,
@@ -317,27 +251,6 @@ pub(super) struct View {
     pub(super) fallback: Option<ViewFallback>,
     /// The view's note for its first page (an outline's recovered parse).
     pub(super) note: Option<String>,
-}
-
-/// The row of a symbols read no outline or compaction can stand in for:
-/// the reason (the outline's, then the compact view's), and the reads that
-/// still answer: the file's own lines page by page, or its matching lines
-/// with `matchString`.
-fn no_outline(q: &LocalFetchQuery, reason: String, total_lines: usize) -> LocalFetchResult {
-    let path = local_fetch_query::path(q);
-    let mut result = LocalFetchResult::error(
-        path.to_owned(),
-        ErrorCode::SymbolsUnsupported,
-        format!(
-            "No symbols outline ({reason}). Read the lines with the related read, or select them with matchString."
-        ),
-    );
-    result.total_lines = Some(total_lines);
-    result.next = local_fetch_query::read_lead(path).map(|read| NextCalls {
-        read: Some(FetchCall::related(read)),
-        ..NextCalls::default()
-    });
-    result
 }
 
 /// The row of a compact or symbols read of minified text: neither view is
@@ -415,7 +328,7 @@ pub fn refuse_binary(q: &LocalFetchQuery, display_path: &str) -> LocalFetchResul
 
 /// [`refuse_binary`] for a read the caller judged: when its head is a PNG or
 /// JPEG that clasify can judge (`clasify_image`, decided by the caller, which
-/// may know clasify's assets), the refusal names the clasify `assets` route
+/// may know clasify's images), the refusal names the clasify `source` route
 /// instead of telling the caller to pick a text file. A hint, not a ready
 /// call: the questions are the caller's.
 pub fn refuse_binary_with_head(
@@ -427,7 +340,7 @@ pub fn refuse_binary_with_head(
     if clasify_image {
         let path = serde_json::Value::String(local_fetch_query::path(q).to_owned());
         result.hints = vec![format!(
-            "This is a PNG or JPEG image: judge it with clasify operation:\"evaluate\", assets {{\"image\":{{\"source\":{{\"tool\":\"localFetch\",\"query\":{{\"path\":{path}}}}}}}}} and content:\"image\", with your questions."
+            "This is a PNG or JPEG image: judge it with clasify operation:\"evaluate\", source {{\"tool\":\"localFetch\",\"query\":{{\"path\":{path}}}}}, with your questions."
         )];
     }
     result

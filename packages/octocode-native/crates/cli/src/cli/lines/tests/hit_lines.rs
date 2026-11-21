@@ -17,7 +17,7 @@ fn hits_print_like_rg_and_lose_no_field() {
             "997:  let sb = SearcherBuilder::new();  [function build 992-1016]",
             "# rowPart: part 1 of 2",
             "# warnings: incomplete",
-            "# responsePagination.next: octocode localSearch '{\"cursor\":\"issued-response-page\"}'",
+            "# next: octocode localSearch '{\"cursor\":\"issued-response-page\"}'",
             "# next.nextPage: octocode localSearch '{\"cursor\":\"issued-tool-page\"}'",
         ]
         .join("\n")
@@ -301,8 +301,8 @@ fn grouped_location_rows_print_as_hits() {
                             {
                                 "path": "a.rs",
                                 "matches": [
-                                    {"line": 2, "content": "2\tneedle();\n", "role": "call"},
-                                    {"line": 6, "content": "6\tneedle();\n", "role": "call"}
+                                    {"line": 2, "value": "2\tneedle();\n", "role": "call"},
+                                    {"line": 6, "value": "6\tneedle();\n", "role": "call"}
                                 ]
                             }
                         ]
@@ -323,7 +323,7 @@ fn grouped_location_rows_print_as_hits() {
 fn location_labels_state_once_per_run_and_columns_only_where_needed() {
     let hit = |line: u64, text: &str, column: u64, role: &str| {
         json!({"line":line,"column":column,
-            "content":format!("{line}\t{text}\n"),"role":role})
+            "value":format!("{line}\t{text}\n"),"role":role})
     };
     let result = json!({"results":[{"index":0,"data":{"operation":"references","files":[{
         "path":"a.ts",
@@ -379,30 +379,27 @@ fn location_labels_state_once_per_run_and_columns_only_where_needed() {
     );
 }
 
-/// `contextLines: N` is shorthand the runtime repairs to `{before:N,after:N}`
-/// before the call runs: its text is the object form's, one file line number
-/// on each line (`N:` a hit, `N-` context), never the value's own `N\t`
-/// prefix printed after the hit's line.
+/// A request shape the runtime repairs before the call runs (a scalar where
+/// a list is declared, a bare row) prints exactly as its contract form
+/// does: one file line number on each line (`N:` a hit, `N-` context),
+/// never the value's own `N\t` prefix printed after the hit's line.
 #[test]
-fn shorthand_context_lines_print_as_the_object_form() {
+fn a_repaired_request_shape_prints_as_its_contract_form() {
     let object = render(ToolId::LocalSearch, &sample(), &context(), None)
         .expect("lines")
         .out;
-    for shorthand in [
+    for repaired in [
         json_fixture(
             r#"{
-                "queries": [{"path": "s", "matchString": ["x"], "contextLines": 1}]
+                "queries": [{"path": "s", "matchString": "x", "contextLines": {"before": 1, "after": 1}}]
             }"#,
         ),
         json_fixture(
-            r#"{
-                "queries": [{"path": "s", "matchString": "x", "contextLines": 1}]
-            }"#,
+            r#"{"path": "s", "matchString": ["x"], "contextLines": {"before": 1, "after": 1}}"#,
         ),
-        json_fixture(r#"{"path": "s", "matchString": "x", "contextLines": 1}"#),
     ] {
-        let lines = render(ToolId::LocalSearch, &sample(), &shorthand, None).expect("lines");
-        assert_eq!(lines.out, object, "{shorthand}");
+        let lines = render(ToolId::LocalSearch, &sample(), &repaired, None).expect("lines");
+        assert_eq!(lines.out, object, "{repaired}");
     }
     assert!(object.contains("\n26:use SearcherBuilder;"), "{object}");
     for line in object
@@ -522,4 +519,29 @@ fn a_span_without_its_value_prints_the_one_term() {
     let several = query(json!(["needle", "pin"]));
     let printed = render(ToolId::LocalSearch, &omitted, &several, None).expect("lines");
     assert!(!printed.out.contains(":needle"), "{}", printed.out);
+}
+
+/// An `astSearch` group of the request's inline `code` names no file: its
+/// hits print as `line:text` rows under no path, in every view, and no
+/// field is lost.
+#[test]
+fn a_group_of_inline_code_prints_its_hits_without_a_path() {
+    let query = json!({"queries": [{"operation": "match", "code": "foo(1); foo(3)",
+        "parser": "typescript", "rule": {"pattern": "foo($A)"}}]});
+    let hits = json!({"results": [{"index": 0, "data": {"matchCount": 2, "files": [
+        {"matches": [{"line": 1, "value": "foo(1)"}, {"line": 1, "value": "foo(3)"}]}]}}]});
+    let counted = json!({"results": [{"index": 0, "data": {"matchCount": 2, "files": [
+        {"matchCount": 2}]}}]});
+    for form in [Form::TERMINAL, Form::MCP] {
+        let lines = render_as(ToolId::AstSearch, &hits, &query, None, form).expect("lines");
+        let rows: Vec<&str> = lines.out.lines().take(2).collect();
+        assert_eq!(rows, ["1:foo(1)", "1:foo(3)"], "{}", lines.out);
+        let lines = render_as(ToolId::AstSearch, &counted, &query, None, form).expect("lines");
+        assert!(lines.out.contains("matchCount 2"), "{}", lines.out);
+        assert!(!lines.out.contains("files"), "the rg layout: {}", lines.out);
+    }
+    // Only astSearch groups may lack a path: another tool's row without one
+    // prints in the generic layout, never under an empty name.
+    let other = render(ToolId::LocalSearch, &hits, &query, None).expect("lines");
+    assert!(other.out.contains("files"), "{}", other.out);
 }

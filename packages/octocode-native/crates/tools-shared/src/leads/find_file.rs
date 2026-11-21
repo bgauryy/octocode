@@ -1,36 +1,6 @@
 //! Recovery for a file a caller named that is not where it said: the
-//! structureSearch listing that finds it by stem, and the sibling a
-//! mistyped name was likely meant for.
-use super::files_listing::files_listing;
-use octocode_contract_types::{StructureSearchQuery, StructureSearchQueryFiles};
-use octocode_engine::search::glob;
-use octocode_runtime_base::response::result::Continuation;
-use serde_json::Value;
+//! sibling a mistyped name was likely meant for.
 use std::path::Path;
-
-/// A listing of files named like `requested` from `root`: its stem (the name
-/// without its extension) under any extension, at any depth, so a moved file
-/// or a changed extension shows. Never every name merely containing the
-/// stem. A name without an extension is matched as written. A name with a
-/// wildcard (`*`, `?`) is a glob, which no file is literally named after, so
-/// it offers none; a class or alternation (`[id].tsx`, `{a,b}`) is a real
-/// route-file spelling and is looked for as written.
-pub fn find_file(root: &str, requested: &str) -> Option<Value> {
-    let name = Path::new(requested).file_name()?.to_string_lossy();
-    if name.contains(['*', '?']) {
-        return None;
-    }
-    let include = match name.split_once('.') {
-        Some((stem, _)) if !stem.is_empty() => format!("{}.*", glob::name(stem)),
-        _ if name.is_empty() => return None,
-        _ => glob::name(&name),
-    };
-    let listing = StructureSearchQueryFiles {
-        include: vec![include],
-        ..files_listing(root)?
-    };
-    Some(Continuation::related_query(StructureSearchQuery::from(listing)).build())
-}
 
 /// Names [`closest_name`] reads at most: past them it cannot prove a name
 /// the unique closest, and names none.
@@ -38,8 +8,12 @@ const MAX_SIBLINGS: usize = 4096;
 
 /// The one file in `dir` whose name is closest to `name` (a mistyped file
 /// name); see [`closest_name`]. A directory is no file to read, so it is
-/// never a candidate.
+/// never a candidate. A name with a wildcard (`*`, `?`) is a glob, which no
+/// file is a mistyping of: it has none.
 pub fn close_name(dir: &Path, name: &str) -> Option<String> {
+    if name.contains(['*', '?']) {
+        return None;
+    }
     let files = std::fs::read_dir(dir)
         .ok()?
         .filter_map(Result::ok)

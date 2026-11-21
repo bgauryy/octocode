@@ -6,6 +6,5 @@ pub mod broaden;
 pub mod files_listing;
 pub mod find_file;
 pub mod gh_file_read;
-pub mod lsp;
 pub mod skipped;
 pub mod unparsed;

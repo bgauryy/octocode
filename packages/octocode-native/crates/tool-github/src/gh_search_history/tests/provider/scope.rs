@@ -14,6 +14,14 @@ async fn search_of_a_missing_repository_is_not_found() {
     use wiremock::MockServer;
 
     let server = MockServer::builder().start().await;
+    // The owner's login exists: only the repository is missing.
+    wiremock::Mock::given(wiremock::matchers::path_regex("/users/[^/]+$"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"login": "owner"})),
+        )
+        .mount(&server)
+        .await;
     let unsearchable = json_fixture(
         r#"{
             "message": "Validation Failed",
@@ -171,13 +179,12 @@ async fn rename_lookup_runs_only_when_the_search_finds_nothing() {
         octocode_tools_shared::gh_shared::renamed_warning("old", "r", &("new".into(), "r".into())),
         "one shared rename wording: {data}"
     );
-    let read = &octocode_runtime_base::test_support::checks::related_call(
-        &data,
-        "ghGetHistoryItem",
-        |input| input["queries"][0]["operation"] == "pullRequest",
-    )["input"]["queries"][0];
+    // The row is read under the canonical name: it states it.
     assert_eq!(
-        (&read["owner"], &read["repo"]),
+        (
+            &data["pullRequests"][0]["owner"],
+            &data["pullRequests"][0]["repo"]
+        ),
         (&json!("new"), &json!("r")),
         "{data}"
     );
@@ -191,6 +198,14 @@ async fn a_missing_listing_scope_names_its_repair() {
     use wiremock::MockServer;
 
     let server = MockServer::builder().start().await;
+    // The owner's login exists: only the repository is missing.
+    wiremock::Mock::given(wiremock::matchers::path_regex("/users/[^/]+$"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"login": "owner"})),
+        )
+        .mount(&server)
+        .await;
     mount_json(
         &server,
         "/api/v3/repos/o/r/commits",
@@ -317,12 +332,6 @@ async fn a_commit_listing_of_a_renamed_repository_names_the_canonical_repository
         (&json!("new"), &json!("r")),
         "{data}"
     );
-    let read = &octocode_runtime_base::test_support::checks::related_call(
-        &data,
-        "ghGetHistoryItem",
-        |input| input["queries"][0]["operation"] == "commit",
-    )["input"]["queries"][0];
-    assert_eq!(read["owner"], "new", "{data}");
 }
 
 /// Keywords are ANDed literals: a bare `OR`/`NOT` would be searched as a

@@ -39,7 +39,7 @@ round's issues to re-test.
 | Lane | Tools | Ground truth |
 |---|---|---|
 | Packages | artifactSearch, securityCheck | registry web APIs, api.osv.dev, GitHub tags |
-| clasify | clasify, and the `classification` option of search tools | hand-labelled items read in source; cited lines read with `sed -n` |
+| clasify | clasify, including a search or listing given as its `source` with `predicates` | hand-labelled items read in source; cited lines read with `sed -n` |
 | Local | structureSearch, localSearch, localFetch | `rg`, `find`, `git ls-files`, `sed -n`, `cmp` |
 | Code intelligence | astSearch, lspSearch | `rg` plus reading each site; text-only hits separated from real misses |
 | GitHub read | ghSearchRepo, ghSearchCode, ghStructure, ghGetFileContent | `gh api` (GET only), raw file reads |

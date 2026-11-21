@@ -102,7 +102,7 @@ async fn empty_code_search_hints_are_cause_specific() {
         renamed.data["warnings"],
         json_fixture(
             r#"[
-                "Repository a/old was renamed to c/d; leads use the canonical name."
+                "Repository a/old was renamed to c/d: use that name."
             ]"#
         ),
         "{}",

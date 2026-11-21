@@ -49,7 +49,63 @@ pub(super) async fn get_locations(
     .map(|(found, _)| found)
 }
 
-/// [`get_locations`], with how many locations the policy withheld (outside
+/// The locations the read policy withheld from one answer (outside the
+/// allowed read roots), by the file URI the server named: an answer missing
+/// them is partial, not smaller.
+#[derive(Clone, Debug, Default)]
+pub(super) struct Withheld(Vec<String>);
+
+impl Withheld {
+    pub(super) fn of(uris: Vec<String>) -> Self {
+        Self(uris)
+    }
+
+    pub(super) fn count(&self) -> usize {
+        self.0.len()
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The withheld files as a message may name them, each once in answer
+    /// order: as the policy shows a path outside its roots
+    /// ([`PathPolicy::redact`](octocode_runtime_base::policy::path::PathPolicy::redact):
+    /// from the workspace, from the home directory, else the file name
+    /// alone), and never one the policy withholds by name (a credential
+    /// file), which stays counted and unnamed.
+    pub(super) fn named(
+        &self,
+        paths: &octocode_runtime_base::policy::path::PathPolicy,
+    ) -> Vec<String> {
+        use octocode_runtime_base::policy::discovery::EntryKind;
+        let mut named = Vec::new();
+        for uri in &self.0 {
+            let path = super::render::uri_to_path(uri);
+            if paths.withholds(std::path::Path::new(&path), EntryKind::File) {
+                continue;
+            }
+            let shown = paths.redact(&path);
+            if !shown.is_empty() && !named.contains(&shown) {
+                named.push(shown);
+            }
+        }
+        named
+    }
+
+    /// `: a, b` after a count of withheld locations, or nothing when no
+    /// file may be named.
+    pub(super) fn listed(&self, paths: &octocode_runtime_base::policy::path::PathPolicy) -> String {
+        let named = self.named(paths);
+        if named.is_empty() {
+            String::new()
+        } else {
+            format!(": {}", named.join(", "))
+        }
+    }
+}
+
+/// [`get_locations`], with the locations the policy withheld (outside
 /// the allowed read roots): an answer of only those is not an absence.
 pub(super) async fn get_counted_locations(
     client: &NativeLspClient,
@@ -57,7 +113,7 @@ pub(super) async fn get_counted_locations(
     cancel: &dyn CancellationCheck,
     request: LocationRequest,
     position: (&str, u32, u32),
-) -> Result<(Vec<LspCodeSnippet>, usize), LspFailure> {
+) -> Result<(Vec<LspCodeSnippet>, Withheld), LspFailure> {
     settled_locations(client, snippet_policy, cancel, request, position, None).await
 }
 
@@ -70,7 +126,7 @@ async fn settled_locations(
     request: LocationRequest,
     position: (&str, u32, u32),
     settle: Option<Duration>,
-) -> Result<(Vec<LspCodeSnippet>, usize), LspFailure> {
+) -> Result<(Vec<LspCodeSnippet>, Withheld), LspFailure> {
     located(client, snippet_policy, cancel, request, position, settle)
         .await
         .map(|(found, _, withheld)| (found, withheld))
@@ -85,7 +141,7 @@ pub(super) async fn get_spelled_locations(
     cancel: &dyn CancellationCheck,
     request: LocationRequest,
     position: (&str, u32, u32),
-) -> Result<(Vec<LspCodeSnippet>, bool, usize), LspFailure> {
+) -> Result<(Vec<LspCodeSnippet>, bool, Withheld), LspFailure> {
     located(client, snippet_policy, cancel, request, position, None).await
 }
 
@@ -100,8 +156,8 @@ async fn located(
     request: LocationRequest,
     (path, line, character): (&str, u32, u32),
     settle: Option<Duration>,
-) -> Result<(Vec<LspCodeSnippet>, bool, usize), LspFailure> {
-    let mut snippets = cancellable(
+) -> Result<(Vec<LspCodeSnippet>, bool, Withheld), LspFailure> {
+    let snippets = cancellable(
         cancel,
         client.get_locations(
             request,
@@ -113,9 +169,10 @@ async fn located(
         ),
     )
     .await??;
-    let answered = snippets.len();
-    snippets.retain(|snippet| snippet.content != SNIPPET_CONTENT_WITHHELD);
-    let withheld = answered - snippets.len();
+    let (snippets, withheld): (Vec<_>, Vec<_>) = snippets
+        .into_iter()
+        .partition(|snippet| snippet.content != SNIPPET_CONTENT_WITHHELD);
+    let withheld = Withheld::of(withheld.into_iter().map(|snippet| snippet.uri).collect());
     let (snippets, respelled) = one_spelling(snippets);
     Ok((snippets, respelled, withheld))
 }
@@ -184,7 +241,7 @@ pub(super) async fn resolve_definition_chain(
     path: &str,
     line: u32,
     character: u32,
-) -> Result<(Vec<LspCodeSnippet>, Vec<String>, usize), LspFailure> {
+) -> Result<(Vec<LspCodeSnippet>, Vec<String>, Withheld), LspFailure> {
     let definition = |target: String, line: u32, character: u32| async move {
         get_locations(
             client,

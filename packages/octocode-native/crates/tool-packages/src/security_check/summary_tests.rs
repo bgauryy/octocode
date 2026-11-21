@@ -215,7 +215,7 @@ fn the_answer_and_the_coordinates_stay_only_when_they_say_something_new() {
     // A row that gives no verdict by design keeps its sentence: its count is
     // of its own records, and only the sentence says so.
     let mut repository = target(json_fixture(
-        r#"{"operation": "repository", "repo": "o/r"}"#,
+        r#"{"operation": "repository", "owner": "o", "repo": "r"}"#,
     ));
     repository.gives_verdict = false;
     let lean = apply(
@@ -251,7 +251,7 @@ fn the_leads_are_the_whole_row_and_the_pinned_dependency_checks() {
             }
         ]"#)),
         pinned.clone(),
-        call(json_fixture(r#"[{"operation": "repository", "repo": "lodash/lodash"}]"#)),
+        call(json_fixture(r#"[{"operation": "repository", "owner": "lodash", "repo": "lodash"}]"#)),
     ]});
     let lean = apply(SecurityCheckView::Summary, row, target(package()));
     assert_eq!(lean["related"], json!([pinned]), "{lean}");
@@ -389,7 +389,7 @@ fn a_found_source_that_names_a_failed_read_is_named() {
 #[test]
 fn a_row_with_no_list_keeps_its_sentence() {
     let mut repository = target(json_fixture(
-        r#"{"operation": "repository", "repo": "o/r"}"#,
+        r#"{"operation": "repository", "owner": "o", "repo": "r"}"#,
     ));
     repository.gives_verdict = false;
     let lean = apply(

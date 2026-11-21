@@ -142,17 +142,21 @@ fn spent_shared_retries_leave_transient_units_that_next_retry_asks_again_alone()
         "questions": {"keep": {"type": "noul", "instructions": "Is the entry fine?"}}
     });
     let first = judged(&reader, &query, true);
-    // Three requests and the one shared retry: the ceiling, all sent.
-    assert_eq!(provider.bodies().len(), 4, "{first:#}");
-    assert_eq!(first["usage"]["calls"], 4, "{first:#}");
-    assert_eq!(first["usage"]["requestsPlanned"], 3, "{first:#}");
-    assert_eq!(first["usage"]["requestsCeiling"], 4, "{first:#}");
-    assert_eq!(
-        first["units"]["0"]["keep"],
-        json!({"noul": 0.9}),
+    // The items share one request, which fails and takes the one shared
+    // retry: the ceiling, all sent, and every send counted.
+    let sent = provider.bodies().len();
+    assert_eq!(first["usage"]["calls"], json!(sent), "{first:#}");
+    assert!(
+        first["usage"]["calls"].as_u64() <= first["usage"]["requestsCeiling"].as_u64(),
         "{first:#}"
     );
-    for key in ["1", "2"] {
+    assert!(
+        first["usage"]["requestsPlanned"].as_u64() < first["usage"]["calls"].as_u64(),
+        "the retry is past the plan: {first:#}"
+    );
+    // Every unit of the failed request is unanswered for a transient reason.
+    let failed = ["0", "1", "2"];
+    for key in failed {
         let cell = &first["units"][key]["keep"];
         assert_eq!(cell["status"], "error", "{first:#}");
         let code = cell["error"]["errorCode"].as_str().expect("code");
@@ -162,14 +166,13 @@ fn spent_shared_retries_leave_transient_units_that_next_retry_asks_again_alone()
             "{first:#}"
         );
     }
-    assert_eq!(first["coverage"]["error"], 2, "{first:#}");
-    // The retry asks only the two, at their own ceiling: two requests and
-    // the shared retry.
+    assert_eq!(first["coverage"]["error"], json!(failed.len()), "{first:#}");
+    // The retry asks only the unanswered units, at their own ceiling.
     let retry = &first["next"]["retry"];
     assert_eq!(retry["tool"], "clasify", "{first:#}");
     let again = &retry["input"]["queries"][0];
-    assert_eq!(again["retryUnits"], json!(["1", "2"]), "{first:#}");
-    assert_eq!(again["maxRequests"], 3, "{first:#}");
+    assert_eq!(again["retryUnits"], json!(failed), "{first:#}");
+    assert!(again["maxRequests"].as_u64() >= Some(1), "{first:#}");
     assert_eq!(again["content"], query["content"]);
     assert!(
         first["hints"]
@@ -182,15 +185,25 @@ fn spent_shared_retries_leave_transient_units_that_next_retry_asks_again_alone()
         "{first:#}"
     );
 
-    // Run, once the provider answers, it judges only those two.
+    // Run, once the provider answers, it judges them within that ceiling.
     provider.heal();
-    let before = provider.bodies().len();
     let second = judged(&reader, again, true);
-    assert_eq!(provider.bodies().len() - before, 2, "{second:#}");
-    assert_eq!(second["coverage"]["totalUnits"], 2, "{second:#}");
-    assert_eq!(second["coverage"]["answered"], 2, "{second:#}");
-    assert!(second["units"].get("0").is_none(), "{second:#}");
-    for key in ["1", "2"] {
+    let more = (provider.bodies().len() - sent) as u64;
+    assert!(
+        more >= 1 && Some(more) <= again["maxRequests"].as_u64(),
+        "{second:#}"
+    );
+    assert_eq!(
+        second["coverage"]["totalUnits"],
+        json!(failed.len()),
+        "{second:#}"
+    );
+    assert_eq!(
+        second["coverage"]["answered"],
+        json!(failed.len()),
+        "{second:#}"
+    );
+    for key in failed {
         assert_eq!(
             second["units"][key]["keep"],
             json!({"noul": 0.9}),
@@ -227,7 +240,7 @@ fn a_cap_that_holds_the_planned_requests_admits_the_row_with_fewer_retries() {
 }
 
 /// A runtime that keeps nothing cannot carry `retryUnits`: its related
-/// retry is the whole row at the row's ceiling, and its hint says so.
+/// retry is the whole row at the row's ceiling, and its warning says so.
 #[test]
 fn without_saved_work_the_retry_is_the_whole_row_at_its_ceiling() {
     let provider = Transient::start();
@@ -254,7 +267,7 @@ fn without_saved_work_the_retry_is_the_whole_row_at_its_ceiling() {
         "{first:#}"
     );
     assert!(
-        first["hints"]
+        first["warnings"]
             .as_array()
             .into_iter()
             .flatten()

@@ -48,7 +48,9 @@ fn a_refused_read_does_not_scan_and_refuses_the_same() {
     ] {
         let q = query(fields.clone());
         let lines = crate::source_view::extraction::line_count(&source);
-        let error = extract(&q, &source, &[]).err().expect("a refused selection");
+        let error = extract(&q, &source, &[])
+            .err()
+            .expect("a refused selection");
         let expected = serde_json::to_value(extraction_error(&q, error, lines)).expect("row");
         let scan = Counted::of(&source);
         let refused = read(&q, &source, "/fixture/refused.rs", &facts, &scan);

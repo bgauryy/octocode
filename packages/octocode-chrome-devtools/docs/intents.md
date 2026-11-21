@@ -13,7 +13,7 @@ Load when choosing what to capture or do. Why: Match the capture to the task. Us
 
 ## Inspect
 
-For many ambiguous saved records or images, load `clasify-screen`: exact fields and local text search first, then optional semantic scouting by reference. Use inline selection to find useful passages; use standalone typed predicates for positive-only resource decisions. Preserve unknown scope and verify deciding evidence.
+For many ambiguous saved records or images, load `clasify-screen`: exact fields and local text search first, then optional semantic scouting by reference. Give `clasify` a search as its `source` with `predicates` to find useful passages; ask typed questions over resources for positive-only resource decisions. Preserve unknown scope and verify deciding evidence.
 
 - **security**: TLS, mixed content, CSP/security headers, cookie flags by name.
 - **websocket**: URL, frame counts, redacted samples (not in HAR).

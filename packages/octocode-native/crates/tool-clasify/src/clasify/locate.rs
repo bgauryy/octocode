@@ -468,11 +468,9 @@ impl Located {
                 .and_then(Value::as_f64)
                 .is_some_and(|probability| probability > even)
         });
-        Some(
-            likely.fold(picked, |(start, end), &(first, last)| {
-                (start.min(first), end.max(last))
-            }),
-        )
+        Some(likely.fold(picked, |(start, end), &(first, last)| {
+            (start.min(first), end.max(last))
+        }))
     }
 }
 

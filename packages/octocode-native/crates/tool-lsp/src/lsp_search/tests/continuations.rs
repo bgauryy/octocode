@@ -131,7 +131,7 @@ async fn reference_pages_reach_every_location_once_and_preserve_the_saved_reques
     let file = root.join("a.ts");
     std::fs::write(&file, "const run = 1; // 普通😀\n".repeat(90)).expect("source");
     let uri = octocode_engine::lsp::uri::path_to_uri(&file.to_string_lossy()).expect("uri");
-    let found = (0..90).map(|line| json!({"uri":uri,"content":"const run = 1; // 普通😀","range":{"start":{"line":line,"character":6},"end":{"line":line,"character":9}}})).collect::<Vec<_>>();
+    let found = (0..90).map(|line| json!({"uri":uri,"value":"const run = 1; // 普通😀","range":{"start":{"line":line,"character":6},"end":{"line":line,"character":9}}})).collect::<Vec<_>>();
     let initial = query(octocode_runtime_base::contracts::validate_query("lspSearch", json!({"operation":"references","path":file,"symbolName":"run","line":1,"occurrence":0,"includeDeclaration":false,"contextLines":{"before":0,"after":0}})).expect("first query"));
     for budget in [700, 2500, 4000] {
         let mut current = initial.clone();

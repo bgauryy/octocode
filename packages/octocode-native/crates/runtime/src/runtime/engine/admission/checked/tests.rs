@@ -76,9 +76,5 @@ fn remembered_checks_answer_as_the_checks_they_stand_for() {
                 contracts::normalized_input("localSearch", input.clone())
             );
         }
-        assert_eq!(
-            selection_only_fields("localSearch"),
-            contracts::selection_only_fields("localSearch")
-        );
     }
 }

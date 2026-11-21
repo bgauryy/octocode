@@ -5,14 +5,15 @@ use octocode_runtime_base::security::scan::ContentScan;
 pub use octocode_tools_shared::source_view::local_fetch_query;
 use octocode_tools_shared::source_view::*;
 
-/// One localFetch row; `selection` judges it under `classification`.
+/// One localFetch row. `clasify`: clasify is available, so a refused image
+/// names its route there.
 pub fn execute_local_fetch(
     q: &LocalFetchQuery,
     paths: &impl PathAccess,
     security: &impl ContentScan,
     cancel: &impl CancellationCheck,
     window: Option<usize>,
-    selection: Option<&octocode_tools_shared::selection::Runtime>,
+    clasify: bool,
 ) -> LocalFetchResult {
     if let Err(e) = cancel.check() {
         return LocalFetchResult::error(
@@ -22,7 +23,6 @@ pub fn execute_local_fetch(
         );
     }
     let limits = security.limits();
-    let clasify = selection.is_some_and(|runtime| runtime.available);
     // What is served is one version of the source: a read a write moved
     // while it was under way (a save in place may join the old version's
     // start to the new one's rest) is made again ([`settled`]), unless the
@@ -130,7 +130,7 @@ pub fn execute_local_fetch(
             error.to_string(),
         );
     }
-    let mut result = process_fetched_content_selected(
+    let mut result = process_fetched_content_as(
         &named_query,
         &bytes,
         path,
@@ -145,7 +145,6 @@ pub fn execute_local_fetch(
         },
         security,
         cancel,
-        selection,
     );
     if let Err(error) = bind_continuation_to_source(&mut result)
         .and_then(|()| name_read_file(&mut result, q, &validated))

@@ -82,7 +82,7 @@ async fn sections_runtime_resumes_replays_and_partitions_access_and_policy() {
             Channel::Cli
         };
         let first = section_call(&runtime, section_query(home.path()), channel, "caller-a").await;
-        let next = first["results"][0]["data"]["next"]["nextPage"]["input"].clone();
+        let next = first["next"]["input"].clone();
         assert_eq!(
             next.as_object()
                 .expect("cursor input")
@@ -222,7 +222,7 @@ async fn sections_runtime_refuses_changed_sources_and_a_one_shot_memory_run_befo
     let one_shot_calls = server.received_requests().await.unwrap().len();
     assert_eq!(one_shot_calls, 0, "{one_shot}");
     let first = section_call(&runtime, query, Channel::Mcp, "caller").await;
-    let next = first["results"][0]["data"]["next"]["nextPage"]["input"].clone();
+    let next = first["next"]["input"].clone();
     assert_eq!(
         next.as_object()
             .expect("cursor input")

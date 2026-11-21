@@ -80,29 +80,18 @@ async fn refs_list_every_branch_and_tag_once_with_the_default_branch() {
     let data = row_data(&first);
     assert_eq!(data["defaultBranch"], "main", "{data}");
     assert!(data.get("commitSha").is_none(), "{data}");
-    assert_eq!(
-        data["branches"],
-        json!([format!("dev {}", sha(1)), format!("main {}", sha(2))]),
-        "{data}"
-    );
-    assert_eq!(
-        data["tags"],
-        json!([format!("v1.0.0 {}", sha(4))]),
-        "{data}"
-    );
-    let next = data["next"]["nextPage"]["input"].clone();
+    assert_eq!(data["branches"], json!(["dev", "main"]), "{data}");
+    assert_eq!(data["tags"], json!(["v1.0.0"]), "{data}");
+    let next = first.structured_content["next"]["input"].clone();
     support::assert_cursor_only(&next);
     let second = call(&runtime, "ghStructure", next)
         .await
         .expect("refs page 2");
     let data = row_data(&second);
-    assert_eq!(
-        data["branches"],
-        json!([format!("release {}", sha(3))]),
-        "{data}"
-    );
+    assert_eq!(data["branches"], json!(["release"]), "{data}");
     assert_eq!(data["tags"], json!([]), "{data}");
     assert!(data.get("next").is_none(), "{data}");
+    assert!(second.structured_content.get("next").is_none());
     // The fresh first response leaves out the echoes of its query; the
     // page read through a cursor keeps them, because its request names none.
     for echo in ["owner", "repo"] {
@@ -114,8 +103,8 @@ async fn refs_list_every_branch_and_tag_once_with_the_default_branch() {
 
 /// A branch name is data, never a JSON key: a branch whose name ends in
 /// `-token-refresh` keeps its commit SHA verbatim through the output
-/// secret gate in its `"name sha"` row, with no redaction (the tester's
-/// bgauryy/octocode branch).
+/// secret gate in its `"name sha"` row (a glob listing: `"*"` is every ref),
+/// with no redaction (the tester's bgauryy/octocode branch).
 #[tokio::test]
 async fn a_credential_worded_branch_keeps_its_commit_sha_in_its_name_sha_row() {
     let server = MockServer::builder().start().await;
@@ -144,7 +133,7 @@ async fn a_credential_worded_branch_keeps_its_commit_sha_in_its_name_sha_row() {
     let out = call(
         &runtime,
         "ghStructure",
-        json_fixture(r#"{"owner": "a", "repo": "b", "operation": "refs"}"#),
+        json_fixture(r#"{"owner": "a", "repo": "b", "operation": "refs", "ref": "*"}"#),
     )
     .await
     .expect("refs");
@@ -283,8 +272,9 @@ async fn refs_with_ref_resolves_one_ref() {
 
 /// In a batch whose rows all fail with the same `notFound`, every row names
 /// its own ref; the rows' refs-listing recoveries are one envelope `related`
-/// call holding each row's query (hoist K-3), and no row keeps a copy; the
-/// generic recovery hint is stated once, on the first row (static notes once).
+/// call holding each row's query (hoist K-3), and no row keeps a copy. Each
+/// error names the default branch and a recovery call reads it, so no row
+/// (and not the envelope) adds the generic `notFound` hint to restate them.
 #[tokio::test]
 async fn the_not_found_rows_of_a_batch_share_one_recovery_call() {
     let server = MockServer::builder().start().await;
@@ -314,21 +304,13 @@ async fn the_not_found_rows_of_a_batch_share_one_recovery_call() {
     assert_eq!(rows.len(), 2);
     for (at, row) in rows.iter().enumerate() {
         assert_eq!(row["data"]["errorCode"], "notFound", "{row}");
-        // The row's message names its own ref and where it looked; its
-        // related[] leads (the refs listing) are the calls. The generic
-        // `notFound` hint (retry with a listed name) is stated once, on row 0.
+        // The row's message names its own ref, where it looked and the
+        // default branch; its related[] leads (the refs listing, the default
+        // branch's tree) are the calls: that is the whole recovery.
         let name = format!("nope-{}", at + 1);
         let error = row["data"]["error"].as_str().expect("row error");
         assert!(error.contains(&name), "{row}");
-        let retry = |row: &serde_json::Value| {
-            row["data"]["hints"].as_array().is_some_and(|hints| {
-                hints.iter().any(|hint| {
-                    hint.as_str()
-                        .is_some_and(|hint| hint.contains("retry with the exact listed"))
-                })
-            })
-        };
-        assert_eq!(retry(row), at == 0, "hint once, on the first row: {row}");
+        assert_eq!(row["data"].get("hints"), None, "no generic hint: {row}");
         let row_refs = row["data"]["related"]
             .as_array()
             .into_iter()
@@ -337,6 +319,12 @@ async fn the_not_found_rows_of_a_batch_share_one_recovery_call() {
             .count();
         assert_eq!(row_refs, 0, "no row keeps a copy of the shared call: {row}");
     }
+    assert_eq!(
+        outcome.structured_content.get("hints"),
+        None,
+        "{}",
+        outcome.structured_content
+    );
     // The one envelope call holds the rows' recovery reads once each: the
     // repository's refs listing (each row's ref is no ref of it) beside the
     // default branch's tree.

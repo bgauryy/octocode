@@ -42,41 +42,6 @@ fn broadening_drops_one_filter_group_or_keyword_and_keeps_public_scope() {
     }
 }
 
-/// A broader search is a fresh request: it bills no judgment the caller did
-/// not ask for, so the classification stays with the call that sent it.
-#[test]
-fn a_fresh_broader_search_never_carries_the_billed_classification() {
-    let row = json_fixture(
-        r#"{
-            "owner": "octo",
-            "repo": "demo",
-            "keywords": ["cache", "redis"],
-            "classification": {
-                "predicates": ["Does this implement cache eviction?"],
-                "context": "Trace expiration."
-            },
-            "page": 2
-        }"#,
-    );
-    let lead = broaden(
-        ToolId::GhSearchCode,
-        &row,
-        &Broaden {
-            strip: &[],
-            groups: &[],
-            split_lone_keyword: false,
-        },
-        5,
-    )
-    .expect("broader searches");
-    octocode_runtime_base::contracts::validate("ghSearchCode", lead["input"].clone())
-        .expect("authored input");
-    for variant in lead["input"]["queries"].as_array().unwrap() {
-        assert!(variant.get("classification").is_none(), "{variant}");
-        assert!(variant.get("page").is_none());
-    }
-}
-
 #[test]
 fn broadening_never_emits_a_request_with_no_search_target() {
     let row = json_fixture(

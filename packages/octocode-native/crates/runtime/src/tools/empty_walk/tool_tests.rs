@@ -110,7 +110,6 @@ fn local_search() -> Tool {
                 &security,
                 &NeverCancel,
                 None,
-                None,
             )
             .expect("search");
             // The row as published: its partial reasons are written by `to_row`.

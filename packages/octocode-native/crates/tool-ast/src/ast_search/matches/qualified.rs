@@ -430,7 +430,10 @@ fn file_probe(
     }
     let mut probe = Probe::new();
     let path = scope.canonical.to_string_lossy();
-    let text = source_text(&scope.canonical);
+    let text = match &scope.inline {
+        Some(code) => Some(code.clone()),
+        None => source_text(&scope.canonical),
+    };
     let matches = |rule: &Value| {
         let scan = rule_scan(
             &with_rule(q, scope, rule.clone())?,
@@ -622,6 +625,9 @@ impl QualifiedMiss {
                 ToolId::AstSearch,
                 json!({"queries": rows}),
             )
+            // The diagnostic says spellings were left out: the row needs the
+            // rule that lists them.
+            .required()
             .build(),
         );
     }

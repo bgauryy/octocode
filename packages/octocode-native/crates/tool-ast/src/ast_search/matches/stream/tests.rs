@@ -8,7 +8,6 @@ fn group(header: usize, sizes: &[usize]) -> Group {
         chars: header,
         sizes: sizes.to_vec(),
         held: None,
-        truncated_captures: false,
         nested: Default::default(),
         priced: None,
     }

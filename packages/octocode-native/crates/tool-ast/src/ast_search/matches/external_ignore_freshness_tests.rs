@@ -260,7 +260,7 @@ fn broken_ignore_symlinks_do_not_pin_absent_external_rules() {
 }
 
 #[test]
-fn implicit_grammar_filters_do_not_override_file_ignore_rules() {
+fn grammar_filters_and_include_globs_do_not_override_file_ignore_rules() {
     for name in [".ignore", ".gitignore"] {
         for language in [None, Some("typescript")] {
             let root = Fixture::new();
@@ -280,9 +280,11 @@ fn implicit_grammar_filters_do_not_override_file_ignore_rules() {
             row["include"] = json_fixture(r#"["**/*.ts"]"#);
             assert_eq!(
                 run_row(&row, &paths, &security)["matchCount"],
-                4,
-                "the caller's explicit include override keeps its existing semantics"
+                3,
+                "an include glob only narrows: the ignored file it selects stays out"
             );
+            row["includeIgnored"] = json!(true);
+            assert_eq!(run_row(&row, &paths, &security)["matchCount"], 4);
         }
     }
 }

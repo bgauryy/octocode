@@ -4,9 +4,23 @@ import { pagedTool, rowsOf } from './tools.mjs';
 import { graphBuild, readGraph } from './graph-pages.mjs';
 
 const next = (cursor, tool = 'lspSearch') => ({ kind: 'continue', tool, input: { cursor } });
-const response = (results, cursor, tool) => ({ results, ...(cursor ? { responsePagination: { next: next(cursor, tool) } } : {}) });
+const response = (results, cursor, tool) => ({ results, ...(cursor ? { next: next(cursor, tool) } : {}) });
 const row = (data, part, index = 0) => ({ index, data, ...(part ? { rowPart: part } : {}) });
-const fake = (pages, calls) => async (tool, input) => { calls.push(input.cursor ?? 'first'); return structuredClone(pages[input.cursor ?? 'first']); };
+// The runtime serves a row's page walk as the reply's one `next` (it continues every unfinished row): a fixture
+// that writes the walk on its row (`next.nextPage`) is served the same way.
+const served = (page) => {
+  if (!page || page.next || !Array.isArray(page.results)) return page;
+  const out = structuredClone(page);
+  for (const result of out.results) {
+    const walk = result?.data?.next?.nextPage;
+    if (!walk) continue;
+    delete result.data.next.nextPage;
+    if (!Object.keys(result.data.next).length) delete result.data.next;
+    out.next ??= walk;
+  }
+  return out;
+};
+const fake = (pages, calls) => async (tool, input) => { calls.push(input.cursor ?? 'first'); return served(structuredClone(pages[input.cursor ?? 'first'])); };
 const collectionPaths = ['/data/files','/data/files/*/matches','/data/files/*/matches/*/sites','/data/rows','/data/rows/*/nodes','/data/symbols'];
 
 test('tool response fragments reconstruct nested sites, text and mixed batch rows before tool pages', async () => {
@@ -61,10 +75,6 @@ test('a paused graph build without its continuation is an explicit failure', asy
   await assert.rejects(graphBuild({path:'src'}, {run:async()=>response([row({isPartial:true,progress:{committedFiles:1}})])}), /continuation|snapshot/i);
 });
 
-test('a graph page with an unknown total still requires its advertised continuation', async () => {
-  await assert.rejects(readGraph({operation:'find'}, {run:async()=>response([row({rows:[],pagination:{hasMore:true}})])}), /continuation/i);
-});
-
 test('nested fragments use joined indexes and escaped JSON pointer keys without duplicating siblings', async () => {
   const original = {files:[{path:'a.ts',matches:[{symbolName:'a'}]},{path:'b.ts',matches:[{symbolName:'b'},{symbolName:'c','detail/~':'שלום',sites:[{line:1}]}]}]};
   const pages = {
@@ -78,14 +88,10 @@ test('nested fragments use joined indexes and escaped JSON pointer keys without 
 
 test('a hoisted response walk retains every complete graph slice of one query', async () => {
   const pages = {
-    first:response([row({graph:{id:'s'},rows:[{id:'a'}],pagination:{offset:0,length:1,total:2,hasMore:true}})],'tail','graphQuery'),
-    tail:response([row({graph:{id:'s'},rows:[{id:'b'}],pagination:{offset:1,length:1,total:2,hasMore:false}})]),
+    first:response([row({graph:{id:'s'},rows:[{id:'a'}],pagination:{offset:0,length:1,total:2 }})],'tail','graphQuery'),
+    tail:response([row({graph:{id:'s'},rows:[{id:'b'}],pagination:{offset:1,length:1,total:2 }})]),
   };
   assert.deepEqual((await readGraph({operation:'find'}, {run:fake(pages,[])})).rows, [{id:'a'},{id:'b'}]);
-});
-
-test('tool pagination requires a continuation even without a known total', async () => {
-  await assert.rejects(pagedTool('lspSearch',{}, {run:async()=>response([row({files:[],pagination:{hasMore:true}})])}), /continuation/i);
 });
 
 test('text fragments preserve repeated atomic provenance arrays exactly once', async () => {

@@ -153,7 +153,7 @@ async fn the_repository_row_merges_github_with_osv_by_id_and_lists_each_advisory
     let (budget, reused) = (test_budget(), ReusedSince::default());
     let config = crate::security_check::tests::default_config();
     let data = crate::security_check::repository::run(
-        "lodash/lodash",
+        ("lodash", "lodash"),
         None,
         serde_json::Map::new(),
         octocode_contract_types::SecurityCheckView::Details,
@@ -192,7 +192,7 @@ async fn a_refused_page_leaves_the_row_partial_with_the_reset_time_and_no_adviso
     let (budget, reused) = (test_budget(), ReusedSince::default());
     let config = crate::security_check::tests::default_config();
     let data = crate::security_check::repository::run(
-        "lodash/lodash",
+        ("lodash", "lodash"),
         None,
         serde_json::Map::new(),
         octocode_contract_types::SecurityCheckView::Details,
@@ -237,7 +237,7 @@ async fn a_later_page_that_fails_keeps_the_advisories_read_and_marks_github_part
     let (budget, reused) = (test_budget(), ReusedSince::default());
     let config = crate::security_check::tests::default_config();
     let data = crate::security_check::repository::run(
-        "lodash/lodash",
+        ("lodash", "lodash"),
         None,
         serde_json::Map::new(),
         octocode_contract_types::SecurityCheckView::Details,
@@ -278,7 +278,7 @@ async fn a_private_repositorys_advisory_ids_are_never_sent_to_osv_and_the_row_sa
     let (budget, reused) = (test_budget(), ReusedSince::default());
     let config = crate::security_check::tests::default_config();
     let data = crate::security_check::repository::run(
-        "lodash/lodash",
+        ("lodash", "lodash"),
         None,
         serde_json::Map::new(),
         octocode_contract_types::SecurityCheckView::Details,
@@ -347,7 +347,7 @@ async fn a_repository_whose_visibility_github_did_not_state_never_has_advisory_i
     let (budget, reused) = (test_budget(), ReusedSince::default());
     let config = crate::security_check::tests::default_config();
     let data = crate::security_check::repository::run(
-        "lodash/lodash",
+        ("lodash", "lodash"),
         None,
         serde_json::Map::new(),
         octocode_contract_types::SecurityCheckView::Details,
@@ -380,7 +380,7 @@ async fn a_public_repositorys_advisories_are_still_merged_with_osv() {
     let (budget, reused) = (test_budget(), ReusedSince::default());
     let config = crate::security_check::tests::default_config();
     let data = crate::security_check::repository::run(
-        "lodash/lodash",
+        ("lodash", "lodash"),
         None,
         serde_json::Map::new(),
         octocode_contract_types::SecurityCheckView::Details,
@@ -417,7 +417,7 @@ async fn osv_asked_for_a_repositorys_advisories_is_a_source_even_when_it_knows_n
     let (budget, reused) = (test_budget(), ReusedSince::default());
     let config = crate::security_check::tests::default_config();
     let data = crate::security_check::repository::run(
-        "lodash/lodash",
+        ("lodash", "lodash"),
         None,
         serde_json::Map::new(),
         octocode_contract_types::SecurityCheckView::Details,
@@ -483,7 +483,7 @@ async fn the_advisories_are_asked_of_osv_together_not_one_after_another() {
         share: &crate::artifact::CallShare::new(),
     };
     let data = crate::security_check::repository::run(
-        "lodash/lodash",
+        ("lodash", "lodash"),
         None,
         serde_json::Map::new(),
         octocode_contract_types::SecurityCheckView::Details,
@@ -519,7 +519,7 @@ async fn an_osv_failure_for_one_advisory_keeps_github_rows_and_names_the_unread_
     let (budget, reused) = (test_budget(), ReusedSince::default());
     let config = crate::security_check::tests::default_config();
     let data = crate::security_check::repository::run(
-        "lodash/lodash",
+        ("lodash", "lodash"),
         None,
         serde_json::Map::new(),
         octocode_contract_types::SecurityCheckView::Details,
@@ -649,7 +649,7 @@ async fn a_repository_row_offers_each_advisory_osv_lacks_with_its_repo() {
     let (budget, reused) = (test_budget(), ReusedSince::default());
     let config = crate::security_check::tests::default_config();
     let data = crate::security_check::repository::run(
-        "lodash/lodash",
+        ("lodash", "lodash"),
         None,
         serde_json::Map::new(),
         octocode_contract_types::SecurityCheckView::Details,
@@ -657,6 +657,22 @@ async fn a_repository_row_offers_each_advisory_osv_lacks_with_its_repo() {
     )
     .await
     .expect("row");
+    // The row lists these advisories in brief and no other read reaches
+    // their text: each call is marked as one the row needs, so an answer
+    // keeps it.
+    let advisory_calls = data["related"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|call| call["input"]["queries"][0]["operation"] == "advisory")
+        .collect::<Vec<_>>();
+    assert!(!advisory_calls.is_empty(), "{data}");
+    assert!(
+        advisory_calls
+            .iter()
+            .all(|call| { call[octocode_runtime_base::response::result::REQUIRED_KEY] == true }),
+        "{data}"
+    );
     let rows = data["related"]
         .as_array()
         .into_iter()
@@ -671,7 +687,8 @@ async fn a_repository_row_offers_each_advisory_osv_lacks_with_its_repo() {
         .collect::<Vec<_>>();
     assert!(!rows.is_empty(), "{data}");
     assert!(
-        rows.iter().all(|row| row["repo"] == "lodash/lodash"),
+        rows.iter()
+            .all(|row| row["owner"] == "lodash" && row["repo"] == "lodash"),
         "{rows:?}"
     );
     assert!(
@@ -722,7 +739,7 @@ async fn a_repository_row_never_counts_a_withdrawn_advisory_as_published() {
     let (budget, reused) = (test_budget(), ReusedSince::default());
     let config = crate::security_check::tests::default_config();
     let data = crate::security_check::repository::run(
-        "lodash/lodash",
+        ("lodash", "lodash"),
         None,
         serde_json::Map::new(),
         octocode_contract_types::SecurityCheckView::Details,
@@ -755,7 +772,7 @@ async fn a_withdrawn_duplicate_never_hides_a_live_repository_advisory() {
     let (budget, reused) = (test_budget(), ReusedSince::default());
     let config = crate::security_check::tests::default_config();
     let data = crate::security_check::repository::run(
-        "lodash/lodash",
+        ("lodash", "lodash"),
         None,
         serde_json::Map::new(),
         octocode_contract_types::SecurityCheckView::Details,

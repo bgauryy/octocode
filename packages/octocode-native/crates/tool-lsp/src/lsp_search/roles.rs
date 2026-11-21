@@ -107,6 +107,41 @@ pub(super) async fn assign_roles(
     Ok(())
 }
 
+/// Whether each zero-based `(line, character)` site of `path` is an import
+/// binding (`use a::{f}`, `import { f }`), by the rules [`assign_roles`]
+/// reads: the declarations parse, else the text of the site's line. `None`
+/// when the file's source cannot be read here: no rule can classify it.
+pub(super) async fn import_sites(
+    sources: &mut SourceCache<'_>,
+    cancel: &dyn CancellationCheck,
+    path: &str,
+    sites: &[(u32, u32)],
+) -> Result<Option<Vec<bool>>, LspFailure> {
+    let Some(source) = sources.get(path).await else {
+        return Ok(None);
+    };
+    let starts = sites
+        .iter()
+        .map(|&(line, character)| GraphPosition { line, character })
+        .collect::<Vec<_>>();
+    let parsed = parsed_roles(cancel, path, &source, &starts)
+        .await?
+        .unwrap_or_default();
+    let lines = LineIndex::new(&source.content);
+    Ok(Some(
+        sites
+            .iter()
+            .enumerate()
+            .map(
+                |(index, &(line, _))| match parsed.get(index).copied().flatten() {
+                    Some(role) => role == "import",
+                    None => imports_on(line_text(&source.content, &lines, line)),
+                },
+            )
+            .collect(),
+    ))
+}
+
 /// Set `role: declaration` on each row of `indices` whose range is a
 /// declaration's own name in the server's `outline`.
 fn mark_declarations(rows: &mut [Value], indices: &[usize], outline: &Value) {

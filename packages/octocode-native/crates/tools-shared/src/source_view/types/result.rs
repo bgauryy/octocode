@@ -32,7 +32,6 @@ pub struct LocalFetchResult {
     pub resource_missing: bool,
     pub source_sha256: Option<String>,
     pub content: Option<String>,
-    pub selection: Option<octocode_contract_types::Selection>,
     pub view: Option<ReadView>,
     pub view_fallback: Option<ViewFallback>,
     pub error_code: Option<ErrorCode>,
@@ -43,6 +42,9 @@ pub struct LocalFetchResult {
     pub start_line: Option<usize>,
     pub end_line: Option<usize>,
     pub source_line_ranges: Vec<LineRange>,
+    /// The source line a byte page's text opens inside (`continuesLine`):
+    /// its first row is a later piece of that line, and takes no gutter.
+    pub continues_line: Option<usize>,
     pub match_ranges: Vec<LineRange>,
     pub matched_lines: Vec<usize>,
     /// JSON and TOML sources: each matched line's key path (`matchKeys`).
@@ -94,7 +96,6 @@ impl LocalFetchResult {
             resource_missing: false,
             source_sha256: None,
             content: None,
-            selection: None,
             view: None,
             view_fallback: None,
             error_code: None,
@@ -105,6 +106,7 @@ impl LocalFetchResult {
             start_line: None,
             end_line: None,
             source_line_ranges: vec![],
+            continues_line: None,
             match_ranges: vec![],
             matched_lines: vec![],
             match_keys: vec![],
@@ -285,13 +287,8 @@ impl LocalFetchResult {
     fn serialize_anchors<M: serde::ser::SerializeMap>(&self, map: &mut M) -> Result<(), M::Error> {
         opt(map, "totalLines", &self.read_wide(self.total_lines))?;
         opt(map, "maskedSpans", &self.read_wide(self.masked_spans))?;
-        // Under a classifier the count is this page's kept matches; else it
-        // counts the whole read, stated once.
-        let selected = if self.selection.is_some() {
-            self.selected_match_count
-        } else {
-            self.read_wide(self.selected_match_count)
-        };
+        // The count is the whole read's, stated once.
+        let selected = self.read_wide(self.selected_match_count);
         if self.has_no_text() {
             if !self.matched_lines.is_empty() {
                 map.serialize_entry("matchedLines", &self.matched_lines)?;
@@ -312,6 +309,7 @@ impl LocalFetchResult {
             opt(map, "endLine", &self.end_line)?;
         }
         list(map, "sourceLineRanges", &self.source_line_ranges)?;
+        opt(map, "continuesLine", &self.continues_line)?;
         let match_ranges = self.page_match_ranges();
         if !self.match_ranges_are_redundant(&match_ranges) {
             list(map, "matchRanges", &match_ranges)?;
@@ -354,7 +352,6 @@ impl Serialize for LocalFetchResult {
             map.serialize_entry("path", &self.path)?;
         }
         opt(&mut map, "content", &self.content)?;
-        opt(&mut map, "selection", &self.selection)?;
         // The file as is is the default view; only a transformed view is news.
         opt(&mut map, "view", &self.view)?;
         opt(&mut map, "viewFallback", &self.view_fallback)?;

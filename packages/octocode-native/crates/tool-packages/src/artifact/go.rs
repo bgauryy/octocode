@@ -282,7 +282,11 @@ fn go_deprecation(go_mod: &str) -> Option<String> {
         .collect::<Vec<_>>()
         .join(" ");
     let message = paragraph.trim_start_matches("Deprecated:").trim();
-    Some(if message.is_empty() { "Deprecated.".to_owned() } else { message.to_owned() })
+    Some(if message.is_empty() {
+        "Deprecated.".to_owned()
+    } else {
+        message.to_owned()
+    })
 }
 
 /// `require` directives of a `go.mod` as `module version`, in file order:

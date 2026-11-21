@@ -308,6 +308,7 @@ fn reference(
     {
         name_forms(&mut selected, &forms, path);
     }
+    super::schema::name_object_forms(&mut selected, root, branches, value, path)?;
     // A wrong or missing selector is the first repair: the other issues are
     // relative to the branch it picked. The sort is stable.
     let depth = path.len();

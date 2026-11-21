@@ -111,10 +111,11 @@ fn files_and_tree_report_the_same_totals() {
     );
 }
 
-/// A non-empty listing whose walk left out `.gitignore`d entries leads to
-/// the same listing over them.
+/// A non-empty listing whose walk left out `.gitignore`d entries counts them
+/// in `skippedPaths` and offers no call; the same listing with
+/// `includeIgnored` lists them and counts none.
 #[test]
-fn a_listing_with_ignored_entries_leads_to_include_ignored() {
+fn a_listing_with_ignored_entries_counts_them_and_offers_no_call() {
     let root = Fixture::new();
     std::fs::create_dir(root.0.join(".git")).expect("repository marker");
     std::fs::write(root.0.join(".gitignore"), "ign/\n").expect("gitignore");
@@ -122,13 +123,18 @@ fn a_listing_with_ignored_entries_leads_to_include_ignored() {
     std::fs::write(root.0.join("ign/secret.ts"), "x\n").expect("ignored");
     std::fs::write(root.0.join("main.rs"), "x\n").expect("file");
     for operation in ["tree", "files"] {
-        let out = run(&root.0, json!({"operation":operation,"path":root.0})).expect("listing");
+        let query = json!({"operation":operation,"path":root.0});
+        let out = run(&root.0, query.clone()).expect("listing");
         assert_eq!(skipped_count(&out, "ignored"), 1, "{operation}: {out}");
-        let lead = &related(&out, "structureSearch")["input"]["queries"][0];
-        assert_eq!(lead["includeIgnored"], true, "{operation}: {out}");
-        assert_eq!(lead["operation"], operation, "{out}");
-        let all = run(&root.0, lead.clone()).expect("relaxed listing");
-        assert!(related(&all, "structureSearch").is_null(), "{all}");
+        assert_listing_guides_nothing(&out);
+        let lifted = lifting(query, json!({"includeIgnored": true}));
+        let all = run(&root.0, lifted).expect("relaxed listing");
+        assert_eq!(skipped_count(&all, "ignored"), 0, "{operation}: {all}");
+        assert!(
+            all["files"].to_string().contains("ign"),
+            "{operation}: {all}"
+        );
+        assert_listing_guides_nothing(&all);
     }
 }
 

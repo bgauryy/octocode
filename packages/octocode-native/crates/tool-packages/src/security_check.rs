@@ -178,7 +178,7 @@ async fn operation(query: &SecurityCheckQuery, net: &Net<'_>) -> Result<Value, A
         }
         SecurityCheckQuery::Repository(row) => {
             repository::run(
-                &row.repo,
+                (&row.owner, &row.repo),
                 row.resume.as_deref().map(String::as_str),
                 brief(query),
                 view,
@@ -188,12 +188,12 @@ async fn operation(query: &SecurityCheckQuery, net: &Net<'_>) -> Result<Value, A
         }
         SecurityCheckQuery::Url(row) => from_url(&row.url, brief(query), view, net).await,
         SecurityCheckQuery::Advisory(row) => {
-            advisory(&row.id, row.repo.as_deref().map(String::as_str), view, net).await
+            advisory(&row.id, named(&row.owner, &row.repo), view, net).await
         }
         SecurityCheckQuery::Commit(row) => {
             commit(
-                &row.commit_sha,
-                row.repo.as_deref().map(String::as_str),
+                &row.ref_,
+                named(&row.owner, &row.repo),
                 row.resume.as_deref().map(String::as_str),
                 brief(query),
                 view,
@@ -202,6 +202,15 @@ async fn operation(query: &SecurityCheckQuery, net: &Net<'_>) -> Result<Value, A
             .await
         }
     }
+}
+
+/// The repository a row names: `owner` + `repo`, which the contract takes
+/// both or neither of.
+fn named<'a, T: std::ops::Deref<Target = String>>(
+    owner: &'a Option<T>,
+    repo: &'a Option<T>,
+) -> Option<(&'a str, &'a str)> {
+    Some((owner.as_deref()?.as_str(), repo.as_deref()?.as_str()))
 }
 
 /// A URL names a package and runs as one, a GitHub repository, commit or
@@ -217,18 +226,10 @@ async fn from_url(
             return advisory(&id, None, view, net).await;
         }
         Some(Ok(url_source::GithubUrl::Repository { owner, repo })) => {
-            return repository::run(&format!("{owner}/{repo}"), None, brief, view, net).await;
+            return repository::run((&owner, &repo), None, brief, view, net).await;
         }
         Some(Ok(url_source::GithubUrl::Commit { owner, repo, sha })) => {
-            return commit(
-                &sha,
-                Some(&format!("{owner}/{repo}")),
-                None,
-                brief,
-                view,
-                net,
-            )
-            .await;
+            return commit(&sha, Some((&owner, &repo)), None, brief, view, net).await;
         }
         Some(Err(why)) => return Err(ArtifactError::new(ErrorCode::InvalidInput, why.reason)),
         None => {}
@@ -273,7 +274,7 @@ fn canonical_advisory_id(id: &str) -> String {
 /// `repo` the repository's own, so an advisory OSV lacks is read whole there.
 async fn advisory(
     id: &str,
-    repo: Option<&str>,
+    repo: Option<(&str, &str)>,
     view: SecurityCheckView,
     net: &Net<'_>,
 ) -> Result<Value, ArtifactError> {
@@ -492,6 +493,8 @@ impl Aliases {
             .collect::<Vec<_>>();
         data["calls"]["readAlias"] =
             Continuation::related_input(ToolId::SecurityCheck, json!({ "queries": queries }))
+                // The alias's record is on no row.
+                .required()
                 .build();
     }
 }
@@ -501,7 +504,7 @@ impl Aliases {
 /// back from OSV are checked against it.
 async fn commit(
     commit: &str,
-    repo: Option<&str>,
+    repo: Option<(&str, &str)>,
     resume: Option<&str>,
     brief: Map<String, Value>,
     view: SecurityCheckView,
@@ -516,16 +519,10 @@ async fn commit(
     // nothing GitHub already said until OSV's walk is complete: then the row is
     // whole, with GitHub's advisories compared with all of OSV's records.
     let complete = results.iter().all(|result| result.resume.is_none());
-    let mut not_github = None;
-    let github = match repo.map(repository::parse) {
-        Some(Ok((owner, name))) if resume.is_none() || complete => {
-            let read =
-                commit::read_all((&owner, &name, commit), &mut results, complete, net).await?;
+    let github = match repo {
+        Some((owner, name)) if resume.is_none() || complete => {
+            let read = commit::read_all((owner, name, commit), &mut results, complete, net).await?;
             Some((owner, name, read))
-        }
-        Some(Err(error)) => {
-            not_github = Some(format!("{} It was not read on GitHub.", error.message));
-            None
         }
         _ => None,
     };
@@ -536,18 +533,15 @@ async fn commit(
     if let Some((owner, name, read)) = &github {
         commit::apply(&mut data, (owner, name, commit), read, &brief, view)?;
     }
-    if let Some(warning) = not_github {
-        paging::push_warnings(&mut data, [warning]);
-    }
     if let Some(warning) = repo.and_then(|repo| other_repository(repo, &results)) {
         paging::push_warnings(&mut data, [warning]);
     }
     if let Some(resumed) = results.iter().find_map(|result| result.resume.as_ref()) {
         let mut next = brief;
         next.insert("operation".into(), json!("commit"));
-        next.insert("commitSha".into(), json!(commit));
-        if let Some(repo) = repo {
-            next.insert("repo".into(), json!(repo));
+        next.insert("ref".into(), json!(commit));
+        if let Some((owner, name)) = repo {
+            repository::name_in(&mut next, owner, name);
         }
         summary::carry(view, &mut next);
         next.insert("resume".into(), json!(resumed.token));
@@ -560,7 +554,7 @@ async fn commit(
             &mut data,
             PartialReason::ProviderIncompleteResults,
             &[format!(
-                "{} next.nextPage reads on from there.",
+                "{} The reply's next reads on from there.",
                 resumed.reason
             )],
         );
@@ -581,8 +575,12 @@ async fn commit(
 
 /// A warning when no returned record names `repo`: the hash matched in another
 /// repository. Repositories compare by identity, not by spelling.
-fn other_repository(repo: &str, results: &[source::SourceResult]) -> Option<String> {
-    let wanted = repository::RepositoryId::of(repo)?;
+fn other_repository(
+    (owner, name): (&str, &str),
+    results: &[source::SourceResult],
+) -> Option<String> {
+    let repo = format!("{owner}/{name}");
+    let wanted = repository::RepositoryId::of(&repo)?;
     let rows = results.iter().flat_map(|result| &result.advisories);
     let mut named = rows.flat_map(record::repositories).peekable();
     named.peek()?;
@@ -605,7 +603,7 @@ impl octocode_runtime_base::response::output::ToolOutput for Output {
 }
 
 /// The recovery of a package, advisory id or repository not found.
-const NOT_FOUND_HINT: &str = "Check the name, id or repository as its registry or database writes it (the ecosystem's package name, a GHSA, CVE or OSV id, owner/name of a GitHub repository), then retry with that spelling.";
+const NOT_FOUND_HINT: &str = "Check the name, id or repository as its registry or database writes it (the ecosystem's package name, a GHSA, CVE or OSV id, owner and repo of a GitHub repository), then retry with that spelling.";
 
 #[cfg(test)]
 #[path = "security_check/advisory_id_tests.rs"]

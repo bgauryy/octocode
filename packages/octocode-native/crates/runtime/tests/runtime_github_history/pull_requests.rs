@@ -53,19 +53,14 @@ async fn squash_merge_commit_reads_its_pull_request_directly() {
             .contains(&format!("#{number}")),
         "{data}"
     );
-    // The message names the PR by number only: the row offers the one
-    // read of it as a related call (a numeric identity the row does not
-    // state keeps its lead) and never reads it itself.
-    assert_eq!(
-        data["related"],
-        json!([{"tool":"ghGetHistoryItem",
-            "input":{"queries":[{"owner":"a","repo":"b","operation":"pullRequest","number":number}]}}]),
-        "{data}"
-    );
+    // The row states the pull request its message names, carries no call
+    // for it and never reads it itself: the stated number is the read's input.
+    assert_eq!(data["pullRequest"], number, "{data}");
+    assert!(data.get("related").is_none(), "{data}");
     let linked = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"pullRequest","owner":"a","repo":"b","number":number}),
+        json!({"operation":"pullRequest","owner":"a","repo":"b","number":data["pullRequest"]}),
     )
     .await
     .expect("message-named PR executes");

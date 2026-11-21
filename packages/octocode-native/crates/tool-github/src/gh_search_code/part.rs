@@ -2,7 +2,7 @@
 //! rank order until the window is full, so a page that shows a few rows reads
 //! a few files. The rest of the page is the next part: the same page's
 //! continuation lists it from the same code-search answer ([`super::listed`]).
-use super::code_output::{LinePlan, Resolution, shape_rows, withheld_path};
+use super::code_output::{LinePlan, Resolution, shape_files};
 use super::cut::{Cut, Unlisted};
 use super::leads::unlisted_read;
 use super::lines::{FileHits, Window};
@@ -25,17 +25,8 @@ pub(super) struct Room {
 
 /// The [`Room`] `window` leaves once `skeleton(continues)`, the chars the
 /// page states besides its rows, is taken. `None` (every row of the page,
-/// read at once) without a window, or on a classified page: its judge keeps
-/// only some rows, so what the page shows is known only after every row is
-/// read and judged.
-pub(super) fn budget(
-    query: &GhSearchCodeQuery,
-    window: Option<usize>,
-    skeleton: impl Fn(bool) -> usize,
-) -> Option<Room> {
-    if query.classification.is_some() || query.selection.is_some() {
-        return None;
-    }
+/// read at once) without a window.
+pub(super) fn budget(window: Option<usize>, skeleton: impl Fn(bool) -> usize) -> Option<Room> {
     window.map(|window| Room {
         whole: window.saturating_sub(skeleton(false)),
         part: window.saturating_sub(skeleton(true)),
@@ -65,8 +56,7 @@ const READ_AHEAD: usize = 2;
 /// about `log3` round trips of the rows it reads.
 /// A row read past the window is not shown: the next part shows it. A row's
 /// size is what it adds to the published page; the first row's counts only
-/// until a second is measured, since it alone adds the page's top read lead
-/// and identity. Past the part's cut, reading goes on only while the rest of
+/// until a second is measured, since it alone adds the page's identity. Past the part's cut, reading goes on only while the rest of
 /// the page, at the smallest row measured, may still fit whole.
 pub(super) async fn read(
     plan: &mut LinePlan,
@@ -80,7 +70,7 @@ pub(super) async fn read(
 ) -> Result<Shown, ProviderError> {
     let total = items.len();
     // A symlink's target is judged as a row's own path is.
-    let read_withholds = |path: &str| withheld_path(query, withholds, path);
+    let read_withholds = withholds;
     let Some(room) = room else {
         plan.read(provider, 0..total, context, security, &read_withholds)
             .await?;
@@ -119,14 +109,7 @@ pub(super) async fn read(
         let resolution = plan.resolution(shown..end);
         for (row, hit) in items[shown..end].iter().zip(resolution.hits) {
             let runs = Runs::of(row, &hit, query, window);
-            let measured_row = row_chars(
-                row,
-                hit,
-                resolution.reference.clone(),
-                query,
-                withholds,
-                shown == 0,
-            );
+            let measured_row = row_chars(row, hit, resolution.reference.clone(), query, withholds);
             let before = used.fitted();
             let next = used.clone().with(measured_row.clone(), runs.floor());
             let added = next.fitted().saturating_sub(before);
@@ -258,8 +241,11 @@ impl Runs {
         else {
             return none;
         };
-        let listed =
-            query.fields.is_empty() || query.fields.iter().any(|field| field.as_str() == "matches");
+        let listed = query.fields.is_empty()
+            || query
+                .fields
+                .iter()
+                .any(|field| field.to_string() == "matches");
         let Some(row) = row.as_object().filter(|_| listed && matched.len() > 1) else {
             return none;
         };
@@ -273,7 +259,7 @@ impl Runs {
             + if query
                 .fields
                 .iter()
-                .any(|field| field.as_str() == "matchCount")
+                .any(|field| field.to_string() == "matchCount")
             {
                 0
             } else {
@@ -425,15 +411,14 @@ impl Used {
 }
 
 /// The response chars `row` takes once shaped with `hit` as the page shapes
-/// it: the row as its `fields` pick lists it, the read lead an unresolved
-/// row adds and, on the page's `first` row, the page's top read lead.
+/// it: the row as its `fields` pick lists it and the read lead an
+/// unresolved row adds.
 fn row_chars(
     row: &Value,
     hit: (String, super::lines::FileHits),
     reference: Option<String>,
     query: &GhSearchCodeQuery,
     withholds: Withholds<'_>,
-    first: bool,
 ) -> Measured {
     let mut rows = vec![row.clone()];
     let resolution = Resolution {
@@ -442,12 +427,11 @@ fn row_chars(
         hits: vec![hit],
         unlisted: Vec::new(),
     };
-    // Only the page's first row adds the page's top read lead.
-    let reads = shape_rows(&mut rows, query, withholds, Some(resolution), first);
+    let reads = shape_files(&mut rows, query, withholds, Some(resolution));
     let mut page = json!({ "files": rows });
     pick_rows(&mut page, "files", CODE_ROW_ID, &field_names(&query.fields));
     let lead = |read: &Value| utf16_units(read).unwrap_or(0) + 1;
-    let leads = reads.hits.iter().map(lead).sum::<usize>() + reads.top.as_ref().map_or(0, lead);
+    let leads = reads.hits.iter().map(lead).sum::<usize>();
     let full = utf16_units(&page["files"][0]).unwrap_or(0) + 1 + leads;
     let mut data = Map::new();
     data.insert("files".into(), page["files"].take());

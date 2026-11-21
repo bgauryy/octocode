@@ -353,21 +353,3 @@ pub fn editor_lock(
     }
     discover(home, Path::new(path), hints)
 }
-
-/// Whether the IDE rung would take a request for `path` (canonical) in
-/// `workspace` under `discovery`: a live editor with a trusted lock has the
-/// file's folder open. The rung's own gates ([`may_apply`],
-/// [`editor_lock`]), with no request made; a refused lock answers no.
-pub(super) fn editor_covers(
-    discovery: &octocode_engine::lsp::config::LspDiscoveryOptions,
-    path: &str,
-    workspace: &str,
-) -> bool {
-    discovery.octocode_home.as_deref().is_some_and(|home| {
-        may_apply(home)
-            && matches!(
-                editor_lock(discovery, home, path, workspace, Hints::default),
-                Discovery::Found(_)
-            )
-    })
-}

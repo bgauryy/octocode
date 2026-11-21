@@ -22,7 +22,12 @@ const uriOf = (file) => 'file://' + ROOT + '/' + file;
 const site = (file, line, character) => ({ uri: uriOf(file), range: { start: { line, character }, end: { line, character: character + 6 } } });
 function handle(msg) {
   if (msg.method === 'initialize') {
-    send({ jsonrpc: '2.0', id: msg.id, result: { capabilities: { definitionProvider: true, referencesProvider: true, textDocumentSync: 1 } } });
+    const types = HOVER === null ? {} : { typeDefinitionProvider: true, hoverProvider: true };
+    send({ jsonrpc: '2.0', id: msg.id, result: { capabilities: { definitionProvider: true, referencesProvider: true, textDocumentSync: 1, ...types } } });
+  } else if (msg.method === 'textDocument/hover' && HOVER !== null) {
+    send({ jsonrpc: '2.0', id: msg.id, result: { contents: { kind: 'markdown', value: HOVER } } });
+  } else if (msg.method === 'textDocument/typeDefinition') {
+    send({ jsonrpc: '2.0', id: msg.id, result: [] });
   } else if (msg.method === 'textDocument/references') {
     send({ jsonrpc: '2.0', id: msg.id, result: LISTED.map((s) => site(s[0], s[1], s[2])) });
   } else if (msg.method === 'textDocument/definition') {
@@ -62,6 +67,9 @@ struct Case {
     listed: Vec<(&'static str, u32, u32)>,
     declaration: (&'static str, u32, u32),
     unresolved: Vec<&'static str>,
+    /// The hover the server answers with; with one, it also answers
+    /// `typeDefinition`, always with no location.
+    hover: Option<&'static str>,
     query: Value,
 }
 
@@ -75,6 +83,7 @@ impl Case {
             listed: vec![(anchor, 0, 3)],
             declaration: (anchor, 0, 3),
             unresolved: Vec::new(),
+            hover: None,
             query: json_fixture(
                 r#"{
                     "operation": "references",
@@ -107,6 +116,15 @@ impl Case {
     }
 
     fn pages(self, lean: bool, count: usize) -> Vec<Value> {
+        self.envelopes(lean, count)
+            .into_iter()
+            .map(data_of)
+            .collect()
+    }
+
+    /// The published response of each page: the row with what the response
+    /// layer states beside it (its hints).
+    fn envelopes(self, lean: bool, count: usize) -> Vec<Value> {
         let dir = octocode_runtime_base::test_support::Fixture::new();
         let root = dir.0.canonicalize().expect("canonical root");
         if self.git {
@@ -125,11 +143,12 @@ impl Case {
             .collect::<Vec<_>>();
         let script = root.join("fake-lsp.js");
         let config = format!(
-            "const ROOT = {}; const LISTED = {}; const DECL = {}; const UNRESOLVED = {};",
+            "const ROOT = {}; const LISTED = {}; const DECL = {}; const UNRESOLVED = {}; const HOVER = {};",
             json(json!(root.to_string_lossy())),
             json(json!(sites)),
             json(json!(self.declaration)),
             json(json!(self.unresolved)),
+            json(json!(self.hover)),
         );
         write_executable(&script, SERVER.replace("/*CONFIG*/", &config).as_bytes());
         let extension = std::path::Path::new(self.anchor)
@@ -184,7 +203,7 @@ impl Case {
             if lean {
                 crate::lsp_search::wire::lean(&mut row, requested.as_deref());
             }
-            pages.push(data_of(public_row(&row)));
+            pages.push(public_row(&row));
         }
         runtime.block_on(pool.clear_all());
         pages
@@ -244,7 +263,7 @@ fn definition_row(budget: usize) -> (Value, Value) {
         vec![json!({
             "uri": uri,
             "range": {"start": {"line": 4, "character": 4}, "end": {"line": 4, "character": 12}},
-            "content": body,
+            "value": body,
             "displayRange": {"startLine": 5, "endLine": 88}
         })],
         budget,
@@ -255,8 +274,8 @@ fn definition_row(budget: usize) -> (Value, Value) {
 
 fn content_lines(row: &Value) -> Vec<String> {
     let content = row
-        .pointer("/matches/0/content")
-        .or_else(|| row.pointer("/files/0/matches/0/content"))
+        .pointer("/matches/0/value")
+        .or_else(|| row.pointer("/files/0/matches/0/value"))
         .and_then(Value::as_str)
         .unwrap_or_else(|| panic!("a definition body in {row}"));
     content.lines().map(str::to_owned).collect()
@@ -578,7 +597,10 @@ fn a_reference_whose_twin_is_on_the_next_page_keeps_its_column() {
     case.query =
         json_fixture(r#"{"operation": "references", "symbolName": "f", "line": 2, "limit": 1}"#);
     let page = case.served();
-    assert_eq!(page["pagination"]["hasMore"], true, "{page}");
+    assert!(
+        page.pointer("/next/nextPage").is_some(),
+        "the twin is on the next page: {page}"
+    );
     let rows = page["files"][0]["matches"].as_array().expect("rows");
     assert_eq!(rows.len(), 1, "{page}");
     assert_eq!(
@@ -660,4 +682,142 @@ fn a_sibling_project_that_never_spells_the_name_draws_no_sweep() {
         "{spelling}"
     );
     assert!(!related_search_paths(&spelling).is_empty(), "{spelling}");
+}
+
+/// A package that `include!`s a file from outside its directory, where that
+/// file declares the name of a parameter of the package's own function: the
+/// row of `typeDefinition` on that parameter, the server showing `hover` for
+/// it and placing the parameter itself unless `unplaced`.
+fn empty_type_case(hover: &'static str, unplaced: bool) -> Value {
+    let mut case = Case::rust(
+        vec![
+            ("p/Cargo.toml", "[package]\nname = \"p\"\n".to_owned()),
+            (
+                "p/src/lib.rs",
+                "include!(\"../../shared/types.rs\");\nfn f(value: i64) {}\n".to_owned(),
+            ),
+            ("shared/types.rs", "pub fn value() {}\n".to_owned()),
+        ],
+        "p/src/lib.rs",
+    );
+    case.declaration = ("p/src/lib.rs", 1, 5);
+    if unplaced {
+        case.unresolved = vec!["p/src/lib.rs"];
+    }
+    case.hover = Some(hover);
+    case.query = json_fixture(
+        r#"{
+            "operation": "typeDefinition",
+            "symbolName": "value",
+            "line": 2
+        }"#,
+    );
+    case.row()
+}
+
+fn names_the_include(row: &Value) -> bool {
+    row["hints"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .any(|hint| hint.contains("include!"))
+        || related_search_paths(row)
+            .iter()
+            .any(|path| path.ends_with("shared/types.rs"))
+}
+
+/// A parameter of a primitive type has no type location, and the server
+/// knows its type: an outside `include!` that happens to declare the
+/// parameter's name explains nothing, so the row is complete.
+#[test]
+fn an_empty_type_the_server_resolved_is_not_blamed_on_an_outside_include() {
+    let row = empty_type_case("```rust\nvalue: i64\n```", false);
+    assert_eq!(row["category"], "noLocations", "{row}");
+    assert!(!is_partial(&row), "{row}");
+    assert!(!names_the_include(&row), "{row}");
+    // The workspace spells the parameter, not its type: no text search is
+    // offered for a type answer.
+    assert!(related_search_paths(&row).is_empty(), "{row}");
+}
+
+/// A type the server could not resolve, on a name it places in the
+/// package's own source: the package's outside include may hold the type
+/// (partial), and it does not declare the name asked about (no include lead).
+#[test]
+fn an_unresolved_type_of_a_placed_name_is_partial_without_the_name_s_include_lead() {
+    let row = empty_type_case("```rust\nvalue: {unknown}\n```", false);
+    assert_eq!(
+        row["partialReasons"],
+        json!(["includeOutsidePackage"]),
+        "{row}"
+    );
+    assert!(!names_the_include(&row), "{row}");
+}
+
+/// A name the server places nowhere and an outside include declares: the
+/// include is the lead, as on `definition`.
+#[test]
+fn an_unresolved_type_of_an_unplaced_name_keeps_its_include_lead() {
+    let row = empty_type_case("```rust\nvalue: {unknown}\n```", true);
+    assert_eq!(
+        row["partialReasons"],
+        json!(["includeOutsidePackage"]),
+        "{row}"
+    );
+    assert!(names_the_include(&row), "{row}");
+}
+
+/// The row of `references` on `helper` at line 1 of a file that spells it
+/// once there, asked with `occurrence` and under `name`.
+fn anchor_row(name: &str, occurrence: u32) -> Value {
+    let mut case = Case::rust(
+        vec![("src/a.rs", "fn helper() {}\n".to_owned())],
+        "src/a.rs",
+    );
+    case.query = json!({
+        "operation": "references",
+        "symbolName": name,
+        "line": 1,
+        "occurrence": occurrence,
+    });
+    case.envelopes(false, 1).remove(0)
+}
+
+/// An `occurrence` past the name's occurrences on its line: the name and the
+/// line are found, and the error states how many there are. Nothing is left
+/// to locate, so the row is the error alone; an anchor whose name is missing
+/// keeps the calls that locate it.
+#[test]
+fn an_occurrence_past_the_line_s_own_is_answered_by_its_error_alone() {
+    let published = anchor_row("helper", 3);
+    assert!(
+        published.get("hints").is_none() && published.pointer("/shared/data").is_none(),
+        "no hint and no receipt beside the row: {published}"
+    );
+    let past = data_of(published);
+    assert_eq!(past["errorClass"], "correctInput", "{past}");
+    let stated = past
+        .as_object()
+        .expect("row")
+        .keys()
+        .filter(|key| {
+            !["status", "errorCode", "errorClass", "error", "path"].contains(&key.as_str())
+        })
+        .collect::<Vec<_>>();
+    assert!(stated.is_empty(), "nothing beside the error: {past}");
+    assert!(
+        past["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("occurrence")),
+        "{past}"
+    );
+    let missing = data_of(anchor_row("absent", 3));
+    assert_eq!(missing["errorCode"], "notFound", "{missing}");
+    assert!(
+        missing["related"]
+            .as_array()
+            .is_some_and(|calls| !calls.is_empty()),
+        "a name the line lacks keeps its leads: {missing}"
+    );
 }

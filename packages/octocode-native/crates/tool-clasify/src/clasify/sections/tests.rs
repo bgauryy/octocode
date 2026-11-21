@@ -379,7 +379,10 @@ fn work_token_is_bounded_and_does_not_accept_arbitrary_plan_keys() {
         value.len() <= 128,
         "work token exceeded the canonical bound"
     );
-    assert_eq!(decode(&value), Some((id.as_str(), Named::Batch(usize::MAX))));
+    assert_eq!(
+        decode(&value),
+        Some((id.as_str(), Named::Batch(usize::MAX)))
+    );
     assert_eq!(
         decode(&quiet_token(&id, usize::MAX)),
         Some((id.as_str(), Named::Quiet(usize::MAX)))

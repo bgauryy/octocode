@@ -278,9 +278,16 @@ fn host_of(authority: &str) -> String {
         .map_or(host.clone(), str::to_owned)
 }
 
-/// `owner/name`, or a github.com URL or git remote naming one, read by GitHub's
-/// name rules; any other text is refused here, so it never reads as a repository
-/// GitHub lacks.
+/// Names the repository `owner/name` in a securityCheck row a call carries:
+/// `owner` and `repo`, as every GitHub tool takes one.
+pub(super) fn name_in(row: &mut Map<String, Value>, owner: &str, name: &str) {
+    row.insert("owner".into(), json!(owner));
+    row.insert("repo".into(), json!(name));
+}
+
+/// The GitHub repository a registry or record names: `owner/name`, or a
+/// github.com URL or git remote naming one, read by GitHub's name rules; any
+/// other text is refused here, so it never reads as a repository GitHub lacks.
 pub(super) fn parse(text: &str) -> Result<(String, String), ArtifactError> {
     match RepositoryId::of(text).filter(RepositoryId::on_github) {
         Some(id) => Ok((id.owner, id.name)),
@@ -509,21 +516,20 @@ fn osv_failure(failed: &[(String, ArtifactError)]) -> String {
 /// The repository row; with `resume`, the advisory walk reads on from the
 /// page where an earlier call stopped, and this page lists only what it reads.
 pub(super) async fn run(
-    repo: &str,
+    (owner, name): (&str, &str),
     resume: Option<&str>,
     brief: Map<String, Value>,
     view: SecurityCheckView,
     net: &Net<'_>,
 ) -> Result<Value, ArtifactError> {
-    let (owner, name) = parse(repo)?;
     let from = resume.map(advisories::SavedWalk::parse).transpose()?;
     let contract =
         security_contract().map_err(|why| ArtifactError::new(ErrorCode::ProviderError, why))?;
     let now = octocode_runtime_base::civil_date::unix_millis();
     let today = octocode_runtime_base::civil_date::date_millis(now);
-    let (read, status) = read_github(&owner, &name, net).await;
+    let (read, status) = read_github(owner, name, net).await;
     let fired = cautions(contract, &read, now, &today);
-    let mut data = json!({ "answer": sentence(&owner, &name, &read, &fired) });
+    let mut data = json!({ "answer": sentence(owner, name, &read, &fired) });
     let mut source = github_source(&read, status, &today);
     let mut failure = match &read {
         RepoRead::Failed(failure) => Some(failure.clone()),
@@ -534,8 +540,8 @@ pub(super) async fn run(
     if let RepoRead::Found(facts) | RepoRead::Moved(facts) = &read {
         data["repository"] = repository_block(facts, &today);
         let listed = advisories::list(
-            &owner,
-            &name,
+            owner,
+            name,
             facts.visibility,
             net,
             &Selection::All,
@@ -562,19 +568,18 @@ pub(super) async fn run(
             .map(|status| json!({"source": "osv", "status": status}));
         // Each advisory OSV keeps no record of: GitHub's own, read whole with
         // `repo`. Only asked of a repository GitHub calls public, as OSV hears
-        // the id.
+        // the id. The row lists such an advisory in brief and no other read
+        // reaches its text (a bare `advisory` read asks OSV, which has none),
+        // so the row needs the call.
         if !listed.osv_lacks.is_empty() {
             let mut with_repo = brief.clone();
-            with_repo.insert(
-                "repo".into(),
-                json!(format!("{}/{}", facts.owner, facts.name)),
-            );
+            name_in(&mut with_repo, &facts.owner, &facts.name);
             let ids = listed
                 .osv_lacks
                 .iter()
                 .map(String::as_str)
                 .collect::<Vec<_>>();
-            super::answer::advisory_calls(&mut data, "readWhole", &ids, &with_repo);
+            super::answer::advisory_calls(&mut data, "readWhole", &ids, &with_repo, true);
         }
         if !listed.osv_failed.is_empty() {
             let why = osv_failure(&listed.osv_failed);
@@ -648,7 +653,7 @@ pub(super) async fn run(
     if let Some(saved) = reads_on {
         let mut next = brief;
         next.insert("operation".into(), json!("repository"));
-        next.insert("repo".into(), json!(repo));
+        name_in(&mut next, owner, name);
         super::summary::carry(view, &mut next);
         next.insert("resume".into(), json!(saved.token()));
         octocode_runtime_base::response::collection::insert_row_walk(
@@ -659,7 +664,7 @@ pub(super) async fn run(
         paging::mark_partial(
             &mut data,
             PartialReason::ProviderIncompleteResults,
-            &["The advisory list stopped at a page GitHub did not answer; next.nextPage reads on from there.".to_owned()],
+            &["The advisory list stopped at a page GitHub did not answer; the reply's next reads on from there.".to_owned()],
         );
     }
     octocode_runtime_base::response::result::finish_calls(&mut data);

@@ -17,6 +17,9 @@ pub(in crate::runtime) struct ResponseAccess {
     resumed: Option<(String, std::sync::Arc<ProviderEvidence>)>,
     /// What the call's rows observed, for the continuations it issues.
     observed: std::sync::Mutex<ProviderEvidence>,
+    /// When the call's client-side waits must have ended, for a call whose
+    /// caller set no deadline ([`Self::bound_waits`]).
+    wait_bound: Option<std::time::Instant>,
 }
 
 impl Default for ResponseAccess {
@@ -32,6 +35,7 @@ impl Default for ResponseAccess {
             selection: CallSelection::default(),
             resumed: None,
             observed: std::sync::Mutex::default(),
+            wait_bound: None,
         }
     }
 }
@@ -55,6 +59,27 @@ impl ResponseAccess {
         Self {
             resumed: Some((digest, evidence)),
             ..Self::default()
+        }
+    }
+
+    /// End the call's client-side GitHub waits at `bound` (the channel's
+    /// reply budget from the call's start, so every row of a batch answers
+    /// by the same instant); `None` leaves them to the request's deadline.
+    pub(in crate::runtime) fn bound_waits(&mut self, bound: Option<std::time::Instant>) {
+        self.wait_bound = bound;
+    }
+
+    /// `request` under this call's wait bound, unless the caller set a
+    /// `deadline` of its own: that deadline is the caller's word on how long
+    /// it listens, and it alone bounds the waits then.
+    pub(super) fn bounded(
+        &self,
+        request: RequestContext,
+        deadline: Option<std::time::Instant>,
+    ) -> RequestContext {
+        match (self.wait_bound, deadline) {
+            (Some(bound), None) => request.with_wait_bound(bound),
+            _ => request,
         }
     }
 

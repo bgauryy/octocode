@@ -73,7 +73,7 @@ export function onToolCall(fn) {
 }
 
 // A clasify-style `next.read` is a source read, not missing evidence (TOOL_DATA_CONTRACT "source-read continuations").
-const incomplete = (v) => v.kind === 'continue' || v.isPartial === true || v.hasMore === true;
+const incomplete = (v) => v.kind === 'continue' || v.isPartial === true;
 export function requireCompleteToolResponse(value) {
   if (!value || typeof value !== 'object') return;
   if (incomplete(value)) throw new Error('Incomplete tool evidence: follow the saved continuation or rerun a narrower query before judging this layer');

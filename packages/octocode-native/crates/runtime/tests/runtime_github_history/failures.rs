@@ -318,6 +318,12 @@ async fn gh_history_item_not_found_names_the_item() {
 #[tokio::test]
 async fn gh_history_item_in_a_missing_repository_leads_to_a_repository_search() {
     let server = MockServer::builder().start().await;
+    // The owner's login exists: only the repository is missing.
+    Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/api/v3/users/a"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(r#"{"login": "a"}"#)))
+        .mount(&server)
+        .await;
     Mock::given(wiremock::matchers::any())
         .respond_with(
             ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
@@ -352,6 +358,12 @@ async fn gh_history_item_in_a_missing_repository_leads_to_a_repository_search() 
 #[tokio::test]
 async fn gh_search_history_commit_not_found_names_the_scope() {
     let server = MockServer::builder().start().await;
+    // The owner's login exists: the repository or its ref is what is missing.
+    Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/api/v3/users/a"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(r#"{"login": "a"}"#)))
+        .mount(&server)
+        .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     for (query, named) in [

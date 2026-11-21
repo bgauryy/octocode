@@ -19,6 +19,28 @@ pub(super) struct Scope {
     /// Without `parser`: the parser extensions of the scan's own census whose
     /// grammar the query compiles in ([`super::scope::read_grammars`]).
     pub(super) compiled: Vec<String>,
+    /// Inline source (`content`) searched in place of a file: `canonical` is
+    /// then the name it is parsed and shown under
+    /// ([`super::super::source::INLINE_NAME`]), which no disk read takes.
+    pub(super) inline: Option<String>,
+}
+
+impl Scope {
+    /// The bytes `file`, a file of this scope, parses from
+    /// ([`super::super::source::read_parse_source`]); inline source is its
+    /// own bytes.
+    pub(super) fn parse_source(
+        &self,
+        file: &std::path::Path,
+    ) -> Result<
+        Option<std::borrow::Cow<'_, [u8]>>,
+        octocode_runtime_base::response::result::ToolError,
+    > {
+        match &self.inline {
+            Some(code) => Ok(Some(std::borrow::Cow::Borrowed(code.as_bytes()))),
+            None => Ok(super::super::source::read_parse_source(file)?.map(std::borrow::Cow::Owned)),
+        }
+    }
 }
 
 /// One scanned file.
@@ -205,7 +227,6 @@ pub(super) struct Group {
     pub(super) sizes: Vec<usize>,
     /// A held scan's rows, sliced when a page shows them.
     pub(super) held: Option<Vec<super::rows::MatchRow>>,
-    pub(super) truncated_captures: bool,
     /// The page's rows of the file that lie inside another of them, and
     /// the kinds of the innermost such rows.
     pub(super) nested: Nesting,
@@ -252,6 +273,9 @@ pub(super) struct Grouped {
     pub(super) skipped_files: u32,
     /// Files per grammar the query does not compile in.
     pub(super) skipped_grammars: Option<Value>,
+    /// Why a rule that spells no pattern left those grammars' files
+    /// unsearched ([`super::scope::Inapplicable::kinds_notice`]).
+    pub(super) uncompiled: Option<String>,
     /// Files whose recovered parse could hide a match.
     pub(super) recovered: NamedFiles,
     /// Macro bodies whose recovered re-parse could hide a match.

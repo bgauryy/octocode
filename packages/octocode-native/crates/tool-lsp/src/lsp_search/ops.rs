@@ -36,6 +36,7 @@ use serde_json::{Value, json};
 use std::collections::HashSet;
 
 mod diagnostics;
+mod empty_type;
 mod gaps;
 mod hierarchy;
 mod index_answer;
@@ -346,12 +347,27 @@ impl Operation<'_, '_> {
                     (self.path, self.line, self.character),
                 )
                 .await?;
-                if found.is_empty() && withheld > 0 {
-                    return Ok(super::locations::withheld(self.query, withheld));
+                if found.is_empty() && !withheld.is_empty() {
+                    return Ok(super::locations::withheld(
+                        self.query,
+                        &withheld,
+                        self.sources.policy(),
+                    ));
                 }
-                Ok(self
+                let resolved = if found.is_empty() {
+                    self.empty_type_resolution().await?
+                } else {
+                    None
+                };
+                let scope = self.scope;
+                let mut row = self
                     .locations("typeDefinition", "typeDefinitionProvider", found)
-                    .await)
+                    .await;
+                if let Some(resolved) = resolved {
+                    scope.note_anchor_resolved(resolved);
+                    empty_type::state(&mut row, resolved);
+                }
+                Ok(row)
             }
             Op::Implementation => self.implementation().await,
             Op::Hover => self.hover().await,

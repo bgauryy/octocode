@@ -26,6 +26,8 @@ mod outline;
 mod pattern;
 mod plan;
 
+pub(crate) use pattern::CALL_CHANNELS;
+
 use crate::contracts::output_fields::page_context_fields;
 use crate::id::ToolId;
 use serde_json::{Map, Value};

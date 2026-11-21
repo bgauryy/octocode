@@ -115,10 +115,13 @@ pub(super) async fn execute_tree(
     {
         *state = json!("partial");
     }
-    // A selection one call cannot finish, or a listing GitHub capped, is what
-    // a clone is for.
-    if traversal.contents_limit || materialize_resume.is_some() {
-        value["calls"]["cloneRepo"] = clone_lead(query, &scope, &commit_sha);
+    // A directory GitHub capped is complete only in a checkout: the clone
+    // reaches the entries this listing cannot, so the row needs it. A
+    // selection one call cannot finish is finished by its own continuation.
+    if traversal.contents_limit {
+        value["calls"]["cloneRepo"] = octocode_runtime_base::response::result::required_call(
+            clone_lead(query, &scope, &commit_sha),
+        );
     }
     if let Some(warning) = renamed_warning {
         push_warning_front(&mut value, warning);
@@ -131,14 +134,6 @@ pub(super) async fn execute_tree(
         traversal.missed(),
         materialize_resume,
     )?;
-    // The first page of a listing orients: one read of its folder's guide,
-    // at the listed commit. A materialize's reads are local.
-    if page.current == 1
-        && query.materialize != Some(true)
-        && let Some(read) = guide_read(query, &scope, &traversal.entries, &commit_sha)
-    {
-        value["calls"]["readGuide"] = read;
-    }
     // A resumed materialize is anchored by `location`: its first call already
     // listed these entries, and its `nextPage` reads the rest of the listing.
     let resumed = query.materialize == Some(true)
@@ -164,7 +159,7 @@ pub(super) async fn execute_tree(
                 octocode_runtime_base::response::result::add_hints(
                     &mut value,
                     [format!(
-                        "include globs match paths from the repository root, also with path set: the related[] ghStructure request's first query asks them under {root}/."
+                        "include globs are relative to path: the related[] ghStructure request's first query asks them without the leading {root}/."
                     )],
                 );
             }
@@ -194,7 +189,7 @@ pub(super) fn paused_listing(
         &mut value,
         octocode_runtime_base::response::paging::PartialReason::WalkDeadline,
         &[format!(
-            "The walk paused at this call's time budget after {reads} folder reads; it lists its entries once the walk ends: next.nextPage resumes it there."
+            "The walk paused at this call's time budget after {reads} folder reads; it lists its entries once the walk ends: the reply's next resumes it there."
         )],
     );
     if let Some(call) = octocode_runtime_base::response::collection::continued_page(
@@ -217,8 +212,9 @@ pub(super) fn paused_listing(
 /// An empty filtered listing, broadened ([`octocode_tools_shared::leads::broaden::broaden`]):
 /// the same commit's listing without its `include` globs, so what the tree
 /// holds names why they matched nothing; first, when a glob is written
-/// relative to the listed `path` ([`under_path`]), the same globs asked
-/// under it, and the listed path it names. Never a materialization.
+/// from the repository root though `path` is set ([`under_path`]), the same
+/// globs asked relative to it, and the listed path it names. Never a
+/// materialization.
 fn broaden_listing(pinned: &GhStructureQueryTree) -> Option<(Value, Option<String>)> {
     let mut lead = octocode_tools_shared::leads::broaden::broaden(
         ToolId::GhStructure,
@@ -244,12 +240,11 @@ fn broaden_listing(pinned: &GhStructureQueryTree) -> Option<(Value, Option<Strin
     Some((lead, rebased_under))
 }
 
-/// The listed `path` and the `include` globs asked under it, when a glob
-/// reads as written relative to `path`: globs match repository-relative
-/// paths also with `path` set (which carry no leading `/`), so a glob
-/// neither under `path` nor starting at any depth (`**`) matches nothing
-/// below it. Globs already under `path`, or at any depth, stay as written,
-/// less one leading `/`.
+/// The listed `path` and the `include` globs asked relative to it, when a
+/// glob restates `path`: globs read paths below the listed directory, as on
+/// the local tools, so a glob that starts with `path` itself matches nothing
+/// there. Such a glob loses that prefix (and one leading `/`); the others
+/// stay as written.
 fn under_path(pinned: &GhStructureQueryTree) -> Option<(String, Vec<String>)> {
     let root = pinned
         .path
@@ -260,11 +255,9 @@ fn under_path(pinned: &GhStructureQueryTree) -> Option<(String, Vec<String>)> {
     // `None` when the glob stands as written.
     let rebased = |glob: &str| {
         let bare = glob.strip_prefix('/').unwrap_or(glob);
-        if bare.starts_with(&prefix) || bare.starts_with("**") {
-            (bare != glob).then(|| bare.to_owned())
-        } else {
-            Some(format!("{prefix}{bare}"))
-        }
+        bare.strip_prefix(&prefix)
+            .filter(|rest| !rest.is_empty())
+            .map(str::to_owned)
     };
     if !pinned
         .include

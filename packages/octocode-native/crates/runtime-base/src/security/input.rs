@@ -26,6 +26,19 @@ const MAX_ARRAY_LENGTH: usize = crate::id::MAX_INPUT_ARRAY_ITEMS;
 const MAX_DEPTH: usize = 20;
 /// The field of a clasify row that holds the evidence under judgment.
 const EVIDENCE: &str = "content";
+/// The field of an astSearch row that holds inline source in place of a file.
+const SNIPPET: &str = "content";
+
+/// The one field of a row whose text is source or evidence, not the
+/// caller's own words: bounded by its own limit and redacted in place.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Evidence {
+    field: &'static str,
+    limit: usize,
+    /// Whether `limit` bounds the field's serialized JSON (any JSON value:
+    /// clasify `content`) or the characters of its string (a snippet).
+    serialized: bool,
+}
 
 /// A query row that passed [`ContentSecurity::check_input`]: its keys are
 /// safe, its strings are within bounds, and it holds no credential outside
@@ -35,10 +48,11 @@ const EVIDENCE: &str = "content";
 #[serde(transparent)]
 pub struct CheckedQuery(
     Value,
-    /// Whether the row's `content` is evidence the gate redacted in place
-    /// ([`InputPolicy::ClasifyEvidence`]), not the caller's own words.
+    /// The row's field the gate redacted in place as evidence or source
+    /// ([`InputPolicy::ClasifyEvidence`], [`InputPolicy::LocalSnippet`]), not
+    /// the caller's own words.
     #[serde(skip)]
-    bool,
+    Option<&'static str>,
     /// The row's private progress fields a saved row restored, which the
     /// gate left as the runtime wrote them: no caller's words either.
     #[serde(skip)]
@@ -92,9 +106,10 @@ impl Deref for CheckedQuery {
 pub struct Admitted(Vec<String>);
 
 impl Admitted {
-    /// The strings of `rows`. A clasify row's `content` is evidence the gate
-    /// redacts, not text it admits, and a saved row's private progress is
-    /// state the gate leaves unjudged: neither is any part of it.
+    /// The strings of `rows`. A clasify row's `content` and an astSearch
+    /// row's `code` are evidence the gate redacts, not text it admits, and a
+    /// saved row's private progress is state the gate leaves unjudged: none
+    /// is any part of it.
     pub fn of<'a>(rows: impl IntoIterator<Item = &'a CheckedQuery>) -> Self {
         fn leaves(value: &Value, out: &mut Vec<String>) {
             match value {
@@ -109,7 +124,7 @@ impl Admitted {
             match row {
                 Value::Object(fields) => fields
                     .iter()
-                    .filter(|(key, _)| !(*evidence && key.as_str() == EVIDENCE))
+                    .filter(|(key, _)| *evidence != Some(key.as_str()))
                     .filter(|(key, _)| !private.contains(key))
                     .for_each(|(_, field)| leaves(field, &mut own)),
                 other => leaves(other, &mut own),
@@ -235,9 +250,59 @@ pub enum InputPolicy {
     /// A clasify row: its `content` may be as long as `content_limit` serialized
     /// characters, and a credential inside `content` is redacted in place: it
     /// is the evidence under judgment, which holds what its source holds.
-    /// Every other string is the caller's own words (`questions`, `context`,
+    /// Every other string is the caller's own words (`questions`, `background`,
     /// a source's address), where a credential is refused as in any query.
     ClasifyEvidence { content_limit: usize },
+    /// An astSearch row: a local row ([`InputPolicy::LocalQuery`]) whose
+    /// `content` is inline source standing in for a file. It may be as long as
+    /// `content_limit` characters (the contract's own bound of the field), and
+    /// a credential inside it is redacted in place, as a read of a file with
+    /// that text shows it: the tool parses the redacted text, so positions
+    /// count what is shown, and no continuation, saved page or lead holds
+    /// what a read would hide.
+    LocalSnippet { content_limit: usize },
+}
+
+impl InputPolicy {
+    /// The policy of `tool`'s rows.
+    pub fn of(tool: crate::id::ToolId) -> Self {
+        if tool.is_clasify() {
+            return Self::ClasifyEvidence {
+                content_limit: crate::id::clasify_policy::REQUEST_BYTES,
+            };
+        }
+        let snippet_limit = (tool == crate::id::ToolId::AstSearch)
+            .then(|| crate::contracts::query_schema_number(tool, None, SNIPPET, "maxLength"))
+            .flatten();
+        match snippet_limit {
+            Some(limit) => Self::LocalSnippet {
+                content_limit: octocode_engine::num::saturating_usize(limit),
+            },
+            None if tool.is_local() => Self::LocalQuery,
+            None => Self::Query,
+        }
+    }
+
+    fn evidence(self) -> Option<Evidence> {
+        match self {
+            Self::Query | Self::LocalQuery => None,
+            Self::ClasifyEvidence { content_limit } => Some(Evidence {
+                field: EVIDENCE,
+                limit: content_limit,
+                serialized: true,
+            }),
+            Self::LocalSnippet { content_limit } => Some(Evidence {
+                field: SNIPPET,
+                limit: content_limit,
+                serialized: false,
+            }),
+        }
+    }
+
+    /// Whether a path field may hold a credential-shaped name.
+    fn local_paths(self) -> bool {
+        matches!(self, Self::LocalQuery | Self::LocalSnippet { .. })
+    }
 }
 
 /// The facts one walk found.
@@ -314,17 +379,14 @@ impl ContentSecurity {
         query: Value,
         policy: InputPolicy,
     ) -> Result<CheckedQuery, Vec<ValidationIssue>> {
-        let content_limit = match policy {
-            InputPolicy::Query | InputPolicy::LocalQuery => None,
-            InputPolicy::ClasifyEvidence { content_limit } => Some(content_limit),
-        };
-        let paths = policy == InputPolicy::LocalQuery;
-        let checked = self.walk(query, content_limit, paths);
-        let issues = input_issues(&checked, content_limit.is_some());
+        let evidence = policy.evidence();
+        let checked = self.walk(query, evidence, policy.local_paths());
+        let field = evidence.map(|evidence| evidence.field);
+        let issues = input_issues(&checked, field);
         if issues.is_empty() {
             Ok(CheckedQuery(
                 Value::Object(checked.sanitized_params),
-                content_limit.is_some(),
+                field,
                 Vec::new(),
             ))
         } else {
@@ -382,33 +444,50 @@ impl ContentSecurity {
         params: &Value,
         content_limit: usize,
     ) -> ValidationResult {
-        self.walk(params.clone(), Some(content_limit), false)
+        self.walk(
+            params.clone(),
+            InputPolicy::ClasifyEvidence { content_limit }.evidence(),
+            false,
+        )
     }
 
-    fn walk(&self, params: Value, content_limit: Option<usize>, paths: bool) -> ValidationResult {
+    fn walk(&self, params: Value, evidence: Option<Evidence>, paths: bool) -> ValidationResult {
         let Value::Object(mut object) = params else {
             return ValidationResult {
                 sanitized_params: Map::new(),
                 verdict: Verdict::invalid("Invalid parameters: must be an object"),
             };
         };
-        if let (Some(limit), Some(state)) = (content_limit, object.get(EVIDENCE))
-            && state.to_string().chars().count() > limit
+        if let Some(Evidence {
+            field,
+            limit,
+            serialized,
+        }) = evidence
+            && let Some(state) = object.get(field)
         {
-            return ValidationResult {
-                sanitized_params: Map::new(),
-                verdict: Verdict::invalid(format!(
-                    "Parameter content exceeds maximum serialized length ({limit} characters)"
-                )),
+            let refusal = match state {
+                _ if serialized => (state.to_string().chars().count() > limit).then(|| {
+                    format!(
+                        "Parameter {field} exceeds maximum serialized length ({limit} characters)"
+                    )
+                }),
+                Value::String(text) => (text.chars().count() > limit).then(|| snippet_limit(limit)),
+                _ => None,
             };
+            if let Some(refusal) = refusal {
+                return ValidationResult {
+                    sanitized_params: Map::new(),
+                    verdict: Verdict::invalid(refusal),
+                };
+            }
         }
-        let mut verdict = self.walk_object(&mut object, 0, MAX_STRING_LENGTH, content_limit, paths);
+        let mut verdict = self.walk_object(&mut object, 0, MAX_STRING_LENGTH, evidence, paths);
         // The evidence is judged as text of no known file, in place. Text
         // only some other file's rules would hide (a manifest quoted in a
         // question) is no credential the caller is known to have written:
         // it is hidden in place and refuses nothing.
-        if content_limit.is_some() {
-            verdict.has_secrets |= self.hide_provider_text(&mut object, EVIDENCE);
+        if let Some(evidence) = evidence {
+            verdict.has_secrets |= self.hide_provider_text(&mut object, evidence.field);
         }
         ValidationResult {
             sanitized_params: object,
@@ -423,9 +502,14 @@ impl ContentSecurity {
         object: &mut Map<String, Value>,
         depth: usize,
         limit: usize,
-        content_limit: Option<usize>,
+        evidence: Option<Evidence>,
         paths: bool,
     ) -> Verdict {
+        let evidence_limit = |key: &str| {
+            evidence
+                .filter(|evidence| evidence.field == key)
+                .map(|evidence| evidence.limit)
+        };
         if depth > MAX_DEPTH {
             object.clear();
             return Verdict::invalid("Maximum nesting depth exceeded");
@@ -442,11 +526,7 @@ impl ContentSecurity {
             // Ordinary parameter limits count UTF-16 units. The complete state
             // was bounded in Unicode scalar values; allow both UTF-16 units of
             // an astral character without rejecting valid evidence.
-            let limit = if key == EVIDENCE {
-                content_limit.map_or(limit, |bound| bound.saturating_mul(2))
-            } else {
-                limit
-            };
+            let limit = evidence_limit(key).map_or(limit, |bound| bound.saturating_mul(2));
             if key.trim().is_empty() {
                 out.refused(format!("Invalid parameter key: {key}"));
                 return false;
@@ -466,7 +546,7 @@ impl ContentSecurity {
                     // The evidence under judgment is no request text: it is
                     // judged as text of no known file is, in place
                     // ([`ContentSecurity::hide_provider_text`]).
-                    let evidence = key == EVIDENCE && content_limit.is_some();
+                    let evidence = evidence_limit(key).is_some();
                     if !evidence
                         && !(paths && PATH_FIELDS.contains(&key.as_str()))
                         && holds_credential(text)
@@ -486,7 +566,7 @@ impl ContentSecurity {
                     // The evidence under judgment is bounded whole, by its
                     // serialized length (checked before this walk): its
                     // items are data, however many, never a parameter list.
-                    let evidence = key == EVIDENCE && content_limit.is_some();
+                    let evidence = evidence_limit(key).is_some();
                     self.walk_array(key, values, depth, limit, !evidence, paths, &mut out)
                 }
                 Value::Object(nested) => {
@@ -602,12 +682,20 @@ fn hidden(redacted: std::borrow::Cow<'_, str>) -> String {
     }
 }
 
+/// The refusal of an inline snippet longer than `limit` characters: it names
+/// the limit and what reads longer source.
+fn snippet_limit(limit: usize) -> String {
+    format!(
+        "Parameter {SNIPPET} is over its limit of {limit} characters: send a shorter snippet, or save it as a file and search that with path"
+    )
+}
+
 /// A walk's refusals as field issues, so they isolate and render like any
-/// other invalid field. Only clasify `content` may be redacted in place: it
-/// is the evidence. Any other rewritten value would silently change what a
+/// other invalid field. Only a row's evidence (clasify `content`, astSearch
+/// `code`) may be redacted in place. Any other rewritten value would silently change what a
 /// tool reads or what a question asks, and leak the placeholder into
 /// continuations.
-fn input_issues(checked: &ValidationResult, clasify: bool) -> Vec<ValidationIssue> {
+fn input_issues(checked: &ValidationResult, evidence: Option<&str>) -> Vec<ValidationIssue> {
     let issue = |rule_id: &str, field: Option<&str>, message: String| ValidationIssue {
         rule_id: rule_id.into(),
         path: field.map(str::to_owned).into_iter().collect(),
@@ -633,10 +721,11 @@ fn input_issues(checked: &ValidationResult, clasify: bool) -> Vec<ValidationIssu
         );
     }
     let redactable = |field: &str| {
-        clasify
-            && (field == EVIDENCE
-                || field.starts_with(&format!("{EVIDENCE}."))
-                || field.starts_with(&format!("{EVIDENCE}[")))
+        evidence.is_some_and(|evidence| {
+            field == evidence
+                || field.starts_with(&format!("{evidence}."))
+                || field.starts_with(&format!("{evidence}["))
+        })
     };
     issues.extend(
         checked
@@ -658,13 +747,13 @@ fn input_issues(checked: &ValidationResult, clasify: bool) -> Vec<ValidationIssu
 }
 
 /// The fields whose text is the caller's prose (a goal, a reasoning, a
-/// task's instructions, context or criteria, a question): nothing searches
+/// task's instructions, background or criteria, a question): nothing searches
 /// it, so its repair is the text without the credential.
 const PROSE_FIELDS: [&str; 6] = [
     "mainGoal",
     "reasoning",
     "instructions",
-    "context",
+    "background",
     "criteria",
     "questions",
 ];
@@ -693,3 +782,5 @@ fn credential_repair(field: &str) -> &'static str {
 mod credential_repair_tests;
 #[cfg(test)]
 mod saved_state_tests;
+#[cfg(test)]
+mod snippet_tests;

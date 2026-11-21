@@ -127,25 +127,6 @@ pub(super) fn shape(
         HistoryOperation::Issue => issues(query, &items, paging, terms),
         HistoryOperation::Commit => commits(query, items, paging),
     };
-    if gh_search_history_query::operation(query) == HistoryOperation::Commit
-        && let Some(sha) = value
-            .pointer("/commits/0/commitSha")
-            .and_then(Value::as_str)
-        && let Some(read) = leads::read_commit(query, sha)
-    {
-        value["calls"]["readCommit"] = read;
-    }
-    if let Some(rows) = value.get("commits").and_then(Value::as_array) {
-        if let Some(read) = leads::read_commit_pull_request(query, rows) {
-            value["calls"]["readPullRequest"] = read;
-        } else if let Some(sha) = value
-            .pointer("/commits/0/commitSha")
-            .and_then(Value::as_str)
-            && let Some(find) = leads::find_commit_pull_request(query, sha)
-        {
-            value["calls"]["findPullRequest"] = find;
-        }
-    }
     if !warnings.is_empty() {
         value["warnings"] = json!(warnings);
     }
@@ -267,22 +248,9 @@ pub(super) fn keeps_created(query: &HistorySearch) -> bool {
         || query.filters().created.is_some()
 }
 
-/// The row keys that carry a body: a pull request's or issue's `body`, a
-/// commit's `messageBody` (the name ghGetHistoryItem uses).
-pub(super) const ROW_BODIES: [&str; 2] = ["body", "messageBody"];
-
-/// Whether rows carry `key`: the caller picked it in `fields`, or
-/// classification judges the page and reads it (a judged-only body leaves
-/// at the end of selection, [`super::Output::strip_judge_only`](octocode_runtime_base::response::output::ToolOutput::strip_judge_only)).
-fn carries(query: &HistorySearch, fields: &[String], key: &str) -> bool {
-    gh_search_history_query::judged(query) || fields.iter().any(|field| field == key)
-}
-
-/// The `id` keys of a row pick: the row's identity, and `key` when the judge
-/// reads it, so a `fields` pick that leaves it out does not hide it from
-/// classification.
-fn identity<'a>(id: &[&'a str], judged: bool, key: &'a str) -> Vec<&'a str> {
-    id.iter().copied().chain(judged.then_some(key)).collect()
+/// Whether rows carry `key`: the caller picked it in `fields`.
+fn carries(fields: &[String], key: &str) -> bool {
+    fields.iter().any(|field| field == key)
 }
 
 /// Puts each non-empty `text` of an item on its row as `key`: rows and items
@@ -313,30 +281,6 @@ fn commit_body(item: &Value) -> Option<String> {
     commit::message_body(item).map(str::to_owned)
 }
 
-/// The pull-request fields only a ghGetHistoryItem read carries: neither
-/// GitHub's search nor its pull-request list returns them, so no search row
-/// can. A pick of one names where it lives.
-const ITEM_ONLY_FIELDS: [&str; 1] = ["mergedBy"];
-
-/// Warns, for each picked field of [`ITEM_ONLY_FIELDS`], that search rows
-/// never carry it and which call does.
-fn point_item_only_fields(value: &mut Value, fields: &[String]) {
-    let picked = ITEM_ONLY_FIELDS
-        .into_iter()
-        .filter(|field| fields.iter().any(|picked| picked == field))
-        .collect::<Vec<_>>();
-    if picked.is_empty() {
-        return;
-    }
-    octocode_runtime_base::response::paging::push_warnings(
-        value,
-        [format!(
-            "{} is not in search rows (GitHub's search returns no such field): read the pull request with ghGetHistoryItem (operation pullRequest, its number) for it.",
-            picked.join(", ")
-        )],
-    );
-}
-
 fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms: String) -> Value {
     let fields = gh_search_history_query::fields(query);
     let state = query.state();
@@ -361,7 +305,7 @@ fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms:
         .collect::<Vec<_>>();
     let mut v = json!({"pullRequests":rows,"effectiveQuery":terms,
         "pagination":paging.pagination()});
-    if carries(query, &fields, "body") {
+    if carries(&fields, "body") {
         attach_text(&mut v, "pullRequests", items, "body", item_body);
     }
     lean_rows(
@@ -373,31 +317,15 @@ fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms:
     pick_rows(
         &mut v,
         "pullRequests",
-        &identity(
-            &["number", "owner", "repo"],
-            gh_search_history_query::judged(query),
-            "body",
-        ),
+        &["number", "owner", "repo"],
         &fields,
     );
     rows::drop_filtered_labels(&mut v, "pullRequests", &query.filters().label);
-    point_item_only_fields(&mut v, &fields);
-    // The count call is the same on every page: offered once, on page 1.
-    if paging.listed
-        && paging.more
-        && paging.page == 1
-        && let Some(count) = leads::count_listed(query)
-    {
-        v["calls"]["countMatches"] = count;
-    }
     // List mode runs the REST endpoint, not the search terms.
     if paging.listed
         && let Some(map) = v.as_object_mut()
     {
         map.remove("effectiveQuery");
-    }
-    if let Some(read) = leads::read_pull_request(query, items) {
-        v["calls"]["readPullRequest"] = read;
     }
     if let Some(read) = leads::issue_links_read(query) {
         v["calls"]["readIssueLinks"] = read;
@@ -425,7 +353,7 @@ fn issues(query: &HistorySearch, items: &[Value], paging: &Paging, terms: String
         .collect::<Vec<_>>();
     let mut v = json!({"issues":issues,
         "effectiveQuery":terms,"pagination":paging.pagination()});
-    if carries(query, &fields, "body") {
+    if carries(&fields, "body") {
         attach_text(&mut v, "issues", items, "body", item_body);
     }
     lean_rows(
@@ -434,25 +362,13 @@ fn issues(query: &HistorySearch, items: &[Value], paging: &Paging, terms: String
         &detail_unless_sorted(query, ISSUE_DETAIL),
         &fields,
     );
-    pick_rows(
-        &mut v,
-        "issues",
-        &identity(
-            &["number", "owner", "repo"],
-            gh_search_history_query::judged(query),
-            "body",
-        ),
-        &fields,
-    );
+    pick_rows(&mut v, "issues", &["number", "owner", "repo"], &fields);
     rows::drop_filtered_labels(&mut v, "issues", &query.filters().label);
     // List mode runs the REST endpoint, not the search terms.
     if paging.listed
         && let Some(map) = v.as_object_mut()
     {
         map.remove("effectiveQuery");
-    }
-    if let Some(read) = leads::read_issue(query, items) {
-        v["calls"]["readIssue"] = read;
     }
     v
 }
@@ -474,7 +390,7 @@ fn commits(query: &HistorySearch, items: Vec<Value>, paging: &Paging) -> Value {
             })
             .collect::<Vec<_>>();
         let mut v = json!({"commits":commits});
-        shape_commit_rows(&mut v, query, &items, &fields);
+        shape_commit_rows(&mut v, &items, &fields);
         // `shape` adds the reachable `next.nextPage`. A complete list says
         // so too (`hasMore:false`): the REST list has no total, so a missing
         // block would leave the end of the history unstated.
@@ -496,26 +412,17 @@ fn commits(query: &HistorySearch, items: Vec<Value>, paging: &Paging) -> Value {
         })
         .collect::<Vec<_>>();
     let mut v = json!({"commits":commits,"pagination":paging.pagination()});
-    shape_commit_rows(&mut v, query, &items, &fields);
+    shape_commit_rows(&mut v, &items, &fields);
     v
 }
 
 /// The default row, `fields` pick and judged text of a commit page.
-fn shape_commit_rows(v: &mut Value, query: &HistorySearch, items: &[Value], fields: &[String]) {
-    if carries(query, fields, "messageBody") {
+fn shape_commit_rows(v: &mut Value, items: &[Value], fields: &[String]) {
+    if carries(fields, "messageBody") {
         attach_text(v, "commits", items, "messageBody", commit_body);
     }
     lean_rows(v, "commits", COMMIT_DETAIL, fields);
-    pick_rows(
-        v,
-        "commits",
-        &identity(
-            &["commitSha", "owner", "repo"],
-            gh_search_history_query::judged(query),
-            "messageBody",
-        ),
-        fields,
-    );
+    pick_rows(v, "commits", &["commitSha", "owner", "repo"], fields);
 }
 
 /// A complete page with no rows is empty, so the shared fallback hint fires.
@@ -536,7 +443,7 @@ fn disclose_provider_limits(
     value: &mut Value,
     query: &HistorySearch,
     paging: &Paging,
-    narrow: Option<Value>,
+    narrow: Option<(leads::PastWindow, Value)>,
 ) {
     let subject = match gh_search_history_query::operation(query) {
         HistoryOperation::PullRequest => "pull request",
@@ -561,8 +468,13 @@ fn disclose_provider_limits(
         },
     );
     if paging.capped
-        && let Some(lead) = narrow
+        && let Some((route, lead)) = narrow
+        && route.stated_on(paging.page, paging.more)
     {
         value["calls"]["narrowScope"] = lead;
+        octocode_runtime_base::response::paging::push_warnings(
+            value,
+            [route.warning().to_owned()],
+        );
     }
 }

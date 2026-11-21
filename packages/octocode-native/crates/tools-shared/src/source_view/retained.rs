@@ -149,10 +149,7 @@ impl Retention {
         facts: &SourceFacts,
         security: &S,
     ) -> Option<Self> {
-        if facts.byte_origin.is_some()
-            || local_fetch_query::has_classification(q)
-            || local_fetch_query::selection(q).is_some()
-        {
+        if facts.byte_origin.is_some() {
             return None;
         }
         let mut read = q.clone();

@@ -116,6 +116,38 @@ pub fn path_of(dir: &str, name: &str) -> String {
     }
 }
 
+/// One listed entry: its `name`, `/` after a directory, then ` (<fields>)`
+/// when it has `fields`. The fields never contain ` (`, so the last ` (` of an
+/// entry ending in `)` opens them, whatever the name holds.
+#[must_use]
+pub fn entry_text(name: &str, is_dir: bool, fields: &[String]) -> String {
+    let mut text = name.to_owned();
+    if is_dir {
+        text.push('/');
+    }
+    if !fields.is_empty() {
+        text.push_str(&format!(" ({})", fields.join(", ")));
+    }
+    text
+}
+
+/// The inverse of [`entry_text`] for an entry that states fields: its name
+/// (with the `/` of a directory) and the fields text, split at the last
+/// ` (` of an entry ending in `)`. `None` for an entry without fields.
+#[must_use]
+pub fn entry_fields(entry: &str) -> Option<(&str, &str)> {
+    entry.strip_suffix(')')?.rsplit_once(" (")
+}
+
+/// What a read that was given a whole listing entry as its path says, once
+/// the entry's own path (`bare`) is known to exist.
+#[must_use]
+pub fn listing_entry_note(bare: &str) -> String {
+    format!(
+        "This is a listing entry: its path is `{bare}`; the part in parentheses is its size, lines or date."
+    )
+}
+
 /// `rows` (objects naming their `path`) as `{dir, files}` groups when that
 /// is shorter than the rows: a row with only its path becomes its name, a
 /// row with more fields `{name, …}` with them. `None` keeps the rows flat:

@@ -139,7 +139,6 @@ impl GitHubServices {
         execution: QueryExecution<'_>,
         security: &ContentSecurity,
         paths: &PathPolicy,
-        selection: &octocode_tools_shared::selection::Runtime,
     ) -> Result<DomainResult, ExecutionError> {
         let QueryExecution {
             context,
@@ -165,7 +164,6 @@ impl GitHubServices {
             context,
             security,
             paths,
-            selection,
         ))?;
         if let Ok(request) = &request_context {
             access.collect(request);
@@ -280,7 +278,7 @@ impl GitHubServices {
                     .await?
                     .map(|selection| selection.credential),
             };
-            Ok(RequestContext::new(budget, credential))
+            Ok(access.bounded(RequestContext::new(budget, credential), context.deadline))
         }
         .await;
         access.observe(host, &result);

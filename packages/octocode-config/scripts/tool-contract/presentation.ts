@@ -138,12 +138,9 @@ export function toolHelpSection(definition: Definition): string {
  * joined by ` | ` and led by the operation they take: `[operation:"match",
  * path*, rule*, …] | …`. The operation is a field of the row, never a wrapper.
  */
-export function compactFields(
-  definition: Definition,
-  selection: boolean
-): string {
+export function compactFields(definition: Definition): string {
   const shown = new Set(
-    rowVariants(publishedRow(definition, selection)).flatMap(row =>
+    rowVariants(publishedRow(definition)).flatMap(row =>
       Object.keys(row.shape)
     )
   );
@@ -221,21 +218,21 @@ const view = (
 });
 
 /** A tool's MCP listing and CLI schema views share the exact public input contract. */
-function rendered(definition: Definition, selection: boolean) {
+function rendered(definition: Definition) {
   const { name } = definition;
-  const inputSchema = publishedInputSchema(definition, selection);
-  const row = publishedRowSchema(definition, selection);
+  const inputSchema = publishedInputSchema(definition);
+  const row = publishedRowSchema(definition);
   return {
     views: {
       query: view(definition, row, { inputSchema }),
       variants: {
         name,
         description: definition.description,
-        variants: toolVariants(definition, selection),
+        variants: toolVariants(definition),
       },
     },
     selections: Object.fromEntries(
-      Object.entries(selectedRowSchemas(definition, selection)).map(
+      Object.entries(selectedRowSchemas(definition)).map(
         ([selected, schema]) => [selected, view(definition, schema)]
       )
     ),
@@ -288,27 +285,17 @@ export function buildCliPresentation(): Json {
     tools: DIRECT_TOOL_DEFINITIONS.map(definition => {
       const { name } = definition;
       const outputSchema = outputSchemas[name];
-      const plain = rendered(definition, false);
-      const selected = rendered(definition, true);
       return {
         name,
         title: definition.title,
         variantNames: Object.keys(operationRows(definition)),
-        fields: compactFields(definition, false),
+        fields: compactFields(definition),
         help: toolHelpSection(definition),
         // `schema <tool> --view output`: one copy, whichever row form is served.
         output: outputSchema
           ? withNextChannels(name, outputFields(outputSchema, {}))
           : {},
-        ...plain,
-        // Emit the selection variant only when it changes the row; Rust picks
-        // it with the runtime's resolved switch.
-        ...(JSON.stringify(plain.mcp) !== JSON.stringify(selected.mcp) && {
-          selection: {
-            fields: compactFields(definition, true),
-            ...selected,
-          },
-        }),
+        ...rendered(definition),
       };
     }),
   };

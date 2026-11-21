@@ -51,7 +51,7 @@ fn walk(
     let mut pages = Vec::new();
     let mut query = query.clone();
     loop {
-        let page = execute_local_fetch(&query, paths, scan, &NeverCancel, Some(window), None);
+        let page = execute_local_fetch(&query, paths, scan, &NeverCancel, Some(window), false);
         assert_eq!(page.error_code, None, "{page:?}");
         let next = page
             .next
@@ -86,7 +86,7 @@ fn every_replayed_page_of_a_whole_walk_equals_its_cold_read() {
         for (index, (query, warm)) in pages.iter().enumerate() {
             octocode_tools_shared::source_view::retained::forget_view(&sha);
             let cold =
-                execute_local_fetch(query, &paths, &security, &NeverCancel, Some(WINDOW), None);
+                execute_local_fetch(query, &paths, &security, &NeverCancel, Some(WINDOW), false);
             assert_eq!(*warm, cold, "{view}: page {index}");
         }
         let text: String = pages
@@ -194,7 +194,7 @@ fn every_byte_page_of_a_one_line_walk_equals_its_cold_read() {
         for (index, (query, warm)) in pages.iter().enumerate() {
             octocode_tools_shared::source_view::retained::forget_view(&sha);
             let cold =
-                execute_local_fetch(query, &paths, &security, &NeverCancel, Some(WINDOW), None);
+                execute_local_fetch(query, &paths, &security, &NeverCancel, Some(WINDOW), false);
             assert_eq!(*warm, cold, "{view}: page {index}");
         }
         // Offsets count the redacted view: a page end that would split a

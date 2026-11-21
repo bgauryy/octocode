@@ -9,8 +9,7 @@ pub mod selected;
 use cut::Move;
 use listing::Listing;
 use octocode_contract_types::{
-    ErrorCode, LocalFetchQuery, LocalFetchQuerySymbols, LocalFetchQuerySymbolsView,
-    StructureSearchQuery, StructureSearchQueryTree, StructureSearchQueryTreeOperation,
+    ErrorCode, StructureSearchQuery, StructureSearchQueryTree, StructureSearchQueryTreeOperation,
     StructureSearchView,
 };
 use octocode_runtime_base::response::result::Continuation;
@@ -70,8 +69,8 @@ fn validated_root(
 }
 
 /// A file named as a tree root (`files` lists a file root as itself): say
-/// so with its workspace-relative name and lead to its outline, the read an
-/// agent wanted from it.
+/// so with its workspace-relative name and lead to the read an agent wanted
+/// from it: its outline, or its content when its type has no outline.
 fn file_root(
     file: &std::path::Path,
     paths: &octocode_runtime_base::policy::path::PathPolicy,
@@ -83,17 +82,8 @@ fn file_root(
         ErrorCode::NotADirectory,
         format!("{name} is a file, not a directory; read it with localFetch or list its parent."),
     );
-    if let Ok(path) = name.parse() {
-        let lead = Continuation::related_query(LocalFetchQuery::Symbols(LocalFetchQuerySymbols {
-            limit: None,
-            main_goal: None,
-            path,
-            read_progress: None,
-            reasoning: None,
-            snapshot: None,
-            view: LocalFetchQuerySymbolsView::Symbols,
-        }))
-        .build();
+    if let Some(read) = octocode_tools_shared::source_view::local_fetch_query::open_lead(&name) {
+        let lead = Continuation::related_query(read).build();
         out.calls = Some(Box::new(json!({ "read": lead })));
     }
     out
@@ -161,9 +151,7 @@ fn narrow_scope(query: &impl Listing) -> Option<Value> {
     let path = query.path().parse().ok()?;
     Some(
         Continuation::related_query(StructureSearchQuery::Tree(StructureSearchQueryTree {
-            classification: None,
             default_excludes: None,
-            selection: None,
             entry_type: None,
             exclude: Vec::new(),
             extensions: Vec::new(),
@@ -194,6 +182,30 @@ pub(super) fn group_dir(prefix: &str, dir: &str) -> String {
         (".", _) => dir.to_owned(),
         _ => format!("{prefix}/{dir}"),
     }
+}
+
+/// The listed directory as the entries of a flat (ranked) listing name it,
+/// and the root they are named from when it lies outside the workspace: the
+/// base every local row path takes ([`octocode_runtime_base::response::paths`]),
+/// so an entry's path is the one localSearch states for the same file.
+pub(super) fn flat_prefix(
+    paths: &octocode_runtime_base::policy::path::PathPolicy,
+    root: &std::path::Path,
+) -> (String, Option<std::path::PathBuf>) {
+    let dir = if root.is_file() {
+        root.parent().unwrap_or(root)
+    } else {
+        root
+    };
+    let outside = paths
+        .workspace_relative(dir)
+        .is_none()
+        .then(|| paths.tree_root(dir))
+        .flatten();
+    (
+        octocode_runtime_base::response::paths::shown_path(paths, &dir.to_string_lossy()),
+        outside,
+    )
 }
 
 /// The listed directory (a file root: its directory) spelled like a row path: workspace-relative inside

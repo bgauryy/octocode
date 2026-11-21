@@ -18,7 +18,7 @@ Local tools need no keys. Add only what the user's task needs:
 | To use | Set | Default |
 |---|---|---|
 | GitHub tools | `octocode auth login`, or `GH_TOKEN` / `GITHUB_TOKEN` | none |
-| `clasify` and inline `classification` | `OCTOCODE_CLASSIFICATION_API`, a key from the [provider](https://docs.typesafe.ai/introduction) | unset (off) |
+| `clasify` | `OCTOCODE_CLASSIFICATION_API`, a key from the [provider](https://docs.typesafe.ai/introduction) | unset (off) |
 | A proxy or other provider for classification | `OCTOCODE_CLASSIFICATION_API_HOST`; HTTPS API root, home-only | `https://api.typesafe.ai` (Jev) |
 | Web search in `octocode-brainstorming` | `TAVILY_API_KEY`, `EXA_API_KEY` or `SERPER_API_KEY` | unset |
 | `octocode-scraping` | `SCRAPING_ANT` | unset |

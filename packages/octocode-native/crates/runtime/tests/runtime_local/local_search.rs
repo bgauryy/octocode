@@ -129,10 +129,7 @@ async fn long_unicode_lines_show_a_window_around_the_hit_and_lead_to_the_whole_l
                 .into_value()
         };
         checks::assert_output_contract("localSearch", &output);
-        assert!(
-            output.get("responsePagination").is_none(),
-            "MCP={mcp}: one page"
-        );
+        assert!(output.get("next").is_none(), "MCP={mcp}: one page");
         let rows = output["results"].as_array().expect("rows");
         assert_eq!(rows.len(), 1);
         let row = &rows[0];
@@ -319,11 +316,12 @@ async fn a_utf16_size_refusal_preserves_search_evidence_and_other_reads() {
     runtime.close().await;
 }
 
-/// Owner decision 2026-11-12: every repair of an undeclared local input name,
-/// or of a value in another shape of its field, runs, and the response
-/// carries one warning naming the real field and form to send.
+/// A value in another form its schema gives one reading (one value for a
+/// list, a number as JSON text) runs, and the response carries one warning
+/// naming the field and the form to send. A field under another name is
+/// never read: the row is refused, and the refusal names the declared field.
 #[tokio::test]
-async fn every_local_input_repair_runs_and_names_the_real_field() {
+async fn a_schema_derived_reading_runs_and_an_undeclared_name_is_refused() {
     let workspace = Workspace::new();
     workspace.write("src/a.txt", "defects-queue\nother\n");
     let runtime = workspace.runtime(&[]);
@@ -337,36 +335,6 @@ async fn every_local_input_repair_runs_and_names_the_real_field() {
         ),
         (
             "localSearch",
-            json!({"path":root,"matchString":["defects"],"mode":"literal"}),
-            "regexEngine",
-        ),
-        (
-            "localSearch",
-            json!({"path":root,"matchString":["defects"],"mode":"discovery"}),
-            "view",
-        ),
-        (
-            "localSearch",
-            json!({"path":root,"matchString":["defects"],"literal":true}),
-            "regexEngine",
-        ),
-        (
-            "localSearch",
-            json!({"path":root,"matchString":["defects"],"filesOnly":true}),
-            "view",
-        ),
-        (
-            "localSearch",
-            json!({"path":root,"matchString":["defects"],"countOnly":true}),
-            "view",
-        ),
-        (
-            "localSearch",
-            json!({"path":root,"matchString":["defects"],"perFileCount":true}),
-            "view",
-        ),
-        (
-            "localSearch",
             json!({"path":root,"matchString":["defects"],"excludeDir":"x"}),
             "exclude",
         ),
@@ -375,16 +343,22 @@ async fn every_local_input_repair_runs_and_names_the_real_field() {
             json!({"path":file,"startLine":1,"endLine":1}),
             "ranges",
         ),
-        (
-            "localFetch",
-            json!({"path":file,"ranges":[[1,1]]}),
-            "ranges",
-        ),
-        // A value in another shape of its field names the form to send.
+    ] {
+        let refused = call(&runtime, tool, row.clone())
+            .await
+            .err()
+            .unwrap_or_else(|| panic!("{tool} {row} runs"));
+        let shown = format!("{:?}", refused.payload);
+        assert!(
+            shown.contains("invalidInput") && shown.contains(field),
+            "{tool} {row}: {shown}"
+        );
+    }
+    for (tool, row, field) in [
         (
             "localSearch",
-            json!({"path":root,"matchString":"defects-queue"}),
-            "matchString: [\"defects-queue\"]",
+            json!({"path":root,"matchString":["defects"],"exclude":"x"}),
+            "exclude: [\"x\"]",
         ),
         ("localFetch", json!({"path":file,"limit":"1"}), "limit: 1"),
     ] {

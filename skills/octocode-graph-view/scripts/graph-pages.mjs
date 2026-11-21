@@ -35,16 +35,17 @@ export function sourcesPerQuery(operation) {
   return max;
 }
 
-// The rows a graphQuery row holds in all: `pagination.total`, which a complete single page omits (its rows
-// are then the whole answer).
-export function totalOf(data) {
-  const total = data.pagination?.total ?? (data.next?.nextPage ? undefined : data.rows?.length);
+// The rows a graphQuery row holds in all: `pagination.total` (stated only when exact), which a complete single
+// page omits (its rows are then the whole answer). `more`: the reply carries a `next`, so its rows are not all.
+export function totalOf(data, more = false) {
+  const total = data.pagination?.total ?? (more ? undefined : data.rows?.length);
   return Number.isInteger(total) ? total : undefined;
 }
 
-// The exact total of a graphQuery row from its first page alone (no walk).
+// The exact total of a graphQuery row from its first reply alone (no walk).
 export async function graphTotal(row, { run = graphCall } = {}) {
-  const total = totalOf(dataOf('graphQuery', await readResponse('graphQuery', envelope({ ...row, limit: 1 }), { run })));
+  const reply = await run('graphQuery', envelope({ ...row, limit: 1 }));
+  const total = totalOf(dataOf('graphQuery', reply), reply?.next !== undefined);
   if (total === undefined) throw new Error(`graphQuery ${row.operation} returned no total`);
   return total;
 }
@@ -105,10 +106,6 @@ export function scopePaths(data) {
   return data;
 }
 
-// The continuation of a response, in the order the contract reads them: the serialized-response page first,
-// then the row's own `next.nextPage`. List and cycle-member continuations are read separately.
-const pageContinuation = (_response, data) => data.next?.nextPage?.input;
-
 // The array a `next.<name>` continuation extends: a cycle row's members, or a summary/baseline evidence list.
 function listOf(name, first, rows, pageStart) {
   const cycle = /^cycle(\d+)$/.exec(name);
@@ -124,7 +121,8 @@ function listOf(name, first, rows, pageStart) {
   return list;
 }
 
-// Every row of one graphQuery row, read to its end: `next.nextPage` pages, every `summary.*`/`baseline.*` evidence
+// Every row of one graphQuery row, read to its end: the reply's `next` pages (one read follows them all, each
+// page a slice), every `summary.*`/`baseline.*` evidence
 // list (`next['summary.x']`) and every cycle's member list (`next.cycle<i>`, i = the row on its page). Raw pages
 // reach save() before they are joined, with each page's data, its paths restated as snapshot keys ([`scopePaths`]),
 // which the result keeps too. Pages carry no row offset (it lives in the cursor), so exactly-once is
@@ -146,7 +144,7 @@ export async function readGraph(row, { run = graphCall, save = () => {}, onPage 
   }
   async function extras(data, first, rows, pageStart) {
     for (const [name, call] of Object.entries(data.next ?? {})) {
-      if (name === 'nextPage' || call?.kind !== 'continue') continue;
+      if (call?.kind !== 'continue') continue;
       const list = listOf(name, first, rows, pageStart);
       const tail = await collect(call.input, list.length);
       list.push(...tail.rows);
@@ -154,26 +152,18 @@ export async function readGraph(row, { run = graphCall, save = () => {}, onPage 
   }
   // `shown`: rows of this list an earlier page already carried (a summary list or a cycle's first members).
   async function collect(input, shown = 0) {
-    let slices = await read(input);
+    // One read follows the reply's `next` to its end: every page of the row is a slice.
+    const slices = await read(input);
     const first = slices[0];
-    const total = first.pagination?.total;
+    const total = slices.map((data) => data.pagination?.total).find(Number.isInteger);
     const rows = [];
-    for (;;) {
-      // A page without `rows` is a contract change, not an empty answer: fail rather than build an empty graph.
-      for (const data of slices) {
-        if (!Array.isArray(data.rows)) throw new Error(`graphQuery page has no rows array: ${Object.keys(data).join(',')}`);
-        const pageStart = rows.length;
-        rows.push(...data.rows);
-        if (Number.isInteger(total) && shown + rows.length > total) throw new Error('Graph pages repeat rows: more rows than pagination.total');
-        await extras(data, first, rows, pageStart);
-      }
-      const data = slices.at(-1);
-      const next = pageContinuation(undefined, data);
-      if (!next) {
-        if (data.pagination?.hasMore) throw new Error('Graph evidence ends without a required continuation');
-        break;
-      }
-      slices = await read(next);
+    // A page without `rows` is a contract change, not an empty answer: fail rather than build an empty graph.
+    for (const data of slices) {
+      if (!Array.isArray(data.rows)) throw new Error(`graphQuery page has no rows array: ${Object.keys(data).join(',')}`);
+      const pageStart = rows.length;
+      rows.push(...data.rows);
+      if (Number.isInteger(total) && shown + rows.length > total) throw new Error('Graph pages repeat rows: more rows than pagination.total');
+      await extras(data, first, rows, pageStart);
     }
     if (Number.isInteger(total) && shown + rows.length !== total) throw new Error('Graph evidence ends without a required continuation');
     first.rows = rows;

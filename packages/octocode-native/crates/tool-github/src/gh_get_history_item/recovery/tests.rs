@@ -215,7 +215,7 @@ async fn a_missing_ref_of_a_renamed_repository_names_the_rename() {
     assert_eq!(
         failure
             .message
-            .matches("Repository a/b was renamed to c/d; leads use the canonical name.")
+            .matches("Repository a/b was renamed to c/d: use that name.")
             .count(),
         1,
         "{}",

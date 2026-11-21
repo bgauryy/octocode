@@ -57,6 +57,7 @@ pub(super) fn heading(path: &str, file_note: Option<&str>, out: &mut Vec<String>
     }
     let path = one_line(path);
     out.push(match file_note {
+        Some(note) if path.is_empty() => note.to_owned(),
         Some(note) => format!("{path}  {note}"),
         None => path.into_owned(),
     });
@@ -94,7 +95,11 @@ pub(super) fn hits(
     // With context, several displayed lines or fields of its own, as `rg --heading`:
     // the path once, then `N:text` hits and `N-text` context, a blank line
     // between files. One displayed line stays one `path:N:text` line.
-    let heading = numbered
+    // A group without a path (inline `code`) has no name to print: its hits
+    // are `N:text` lines, under its note when it has one.
+    let nameless = path.is_empty();
+    let heading = nameless
+        || numbered
         || matches.len() != 1
         || file_note.is_some()
         || matches
@@ -102,7 +107,7 @@ pub(super) fn hits(
             .and_then(|item| item.get("value"))
             .and_then(Value::as_str)
             .is_some_and(|value| value.contains('\n'));
-    if heading {
+    if heading && !(nameless && file_note.is_none()) {
         self::heading(path, file_note, out);
     }
     let path = one_line(path);
@@ -197,35 +202,54 @@ pub(super) fn hits(
     Some(())
 }
 
-/// `[function build_searcher 992-1016]` when a hit's
-/// enclosing declaration differs from the previous hit's in this file, then any other match field
-/// as words (`declaration`).
+/// The declaration that encloses a hit, as its label: the declaration
+/// itself (`function build_searcher 992-1016` for `{kind, symbolName, line,
+/// endLine}`, or the line-first string the tool states, `992<TAB>function
+/// build_searcher (end 1016)`), or `enclosing N` for an index whose
+/// declarations an earlier part of the file stated. `None` for no
+/// declaration and for any other shape, which prints as a field.
+fn owner_label(enclosing: Option<&Value>) -> Option<String> {
+    match enclosing? {
+        Value::Object(enclosing) => {
+            let kind = enclosing.get("kind").and_then(Value::as_str)?;
+            let name = enclosing.get("symbolName").and_then(Value::as_str)?;
+            if !enclosing
+                .keys()
+                .all(|key| matches!(key.as_str(), "kind" | "symbolName" | "line" | "endLine"))
+            {
+                return None;
+            }
+            let span = match (enclosing.get("line"), enclosing.get("endLine")) {
+                (Some(start), Some(end)) => format!(" {start}-{end}"),
+                (Some(start), None) => format!(" {start}"),
+                _ => String::new(),
+            };
+            Some(format!("{} {}{span}", one_line(kind), one_line(name)))
+        }
+        Value::String(declaration) => Some(one_line(declaration).into_owned()),
+        index @ Value::Number(_) => Some(format!("enclosing {index}")),
+        _ => None,
+    }
+}
+
+/// `[function build_searcher 992-1016]` when a hit's enclosing declaration
+/// ([`owner_label`]) differs from the previous hit's in this file, then any
+/// other match field as words (`declaration`). A run of hits in one
+/// declaration states it once, on its first hit; a hit outside every
+/// declaration ends the run.
 pub(super) fn match_note(
     extra: &mut Map<String, Value>,
     last_owner: &mut Option<String>,
 ) -> Option<String> {
     let mut parts = Vec::new();
-    if let Some(Value::Object(enclosing)) = extra.get("enclosing")
-        && let (Some(kind), Some(name)) = (
-            enclosing.get("kind").and_then(Value::as_str),
-            enclosing.get("symbolName").and_then(Value::as_str),
-        )
-        && enclosing
-            .keys()
-            .all(|key| matches!(key.as_str(), "kind" | "symbolName" | "line" | "endLine"))
-    {
-        let span = match (enclosing.get("line"), enclosing.get("endLine")) {
-            (Some(start), Some(end)) => format!(" {start}-{end}"),
-            (Some(start), None) => format!(" {start}"),
-            _ => String::new(),
-        };
-        let owner = format!("{} {}{span}", one_line(kind), one_line(name));
-        if last_owner.as_deref() != Some(owner.as_str()) {
+    let owner = owner_label(extra.get("enclosing"));
+    if let Some(owner) = &owner {
+        if last_owner.as_ref() != Some(owner) {
             parts.push(owner.clone());
         }
-        *last_owner = Some(owner);
         extra.shift_remove("enclosing");
     }
+    *last_owner = owner;
     if !extra.is_empty() {
         parts.push(words(&std::mem::take(extra)));
     }

@@ -35,7 +35,7 @@ pub(super) fn scan_file(
         scope.language.as_deref(),
         octocode_engine::text::analysis::AnalysisOperation::StructuralSearch,
     )?;
-    let Some(bytes) = super::super::source::read_parse_source(canonical)? else {
+    let Some(bytes) = scope.parse_source(canonical)? else {
         let pattern = q.pattern_text();
         return Err(super::super::source::too_large_error(
             canonical,
@@ -126,7 +126,11 @@ pub(super) fn scan_file(
             recovered_bodies: r.recovered_bodies,
             source: None,
         }],
-        sources: vec![canonical.clone()],
+        // Inline source is no file a kept scan could watch.
+        sources: match scope.inline {
+            Some(_) => Vec::new(),
+            None => vec![canonical.clone()],
+        },
         source_digest: octocode_engine::digest::sha256(&bytes),
         ignore_rules: verdict_inputs,
         test_code_excluded,

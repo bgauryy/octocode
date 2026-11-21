@@ -232,9 +232,14 @@ fn an_outline_whose_verdict_needed_an_unreadable_parent_says_so() {
 #[test]
 fn an_empty_answer_names_only_the_grammars_its_scope_read() {
     let root = Fixture::new();
-    root.write("src/lib.rs", "pub fn run() {}\n");
-    root.write("tests/fixtures/a.py", "run()\n");
-    root.write("tests/fixtures/b.go", "package b\n\nfunc f() { run() }\n");
+    // Each source file spells the pattern's literal, so each is parsed and
+    // the pattern's shape is compared with its nodes.
+    root.write("src/lib.rs", "// missing\npub fn run() {}\n");
+    root.write("tests/fixtures/a.py", "# missing\nrun()\n");
+    root.write(
+        "tests/fixtures/b.go",
+        "package b\n\n// missing\nfunc f() { run() }\n",
+    );
     root.write("tests/fixtures/c.css", "a { color: red; }\n");
     let empty = |test_code: &str| {
         run(
@@ -254,13 +259,14 @@ fn an_empty_answer_names_only_the_grammars_its_scope_read() {
     // Every grammar searched: each shape is said, beside the css no grammar reads.
     let all = empty("include");
     assert!(shapes(&all) > 1, "{all}");
-    assert!(all["skippedGrammars"].is_object(), "{all}");
+    assert!(all["skippedFormats"].is_object(), "{all}");
     // Only the Rust file is read: one shape, one grammar, nothing skipped.
     let production = empty("exclude");
     assert_eq!(production["status"], "empty", "{production}");
     assert_eq!(shapes(&production), 1, "{production}");
     assert_eq!(production["inferredLanguage"], "rust", "{production}");
     assert!(production.get("skippedGrammars").is_none(), "{production}");
+    assert!(production.get("skippedFormats").is_none(), "{production}");
     assert!(
         !production.to_string().contains("c.css"),
         "a test-side file is no unparsed gap: {production}"

@@ -28,7 +28,6 @@ pub mod read_share;
 pub mod result;
 mod row_pages;
 pub mod rows;
-pub mod selection_errors;
 pub mod source_evidence;
 pub mod stage;
 pub mod symbol_outline;

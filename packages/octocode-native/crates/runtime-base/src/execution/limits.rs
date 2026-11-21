@@ -33,6 +33,21 @@ pub struct RuntimeLimits {
     /// OSV's API base, securityCheck's source of known vulnerabilities: the
     /// public API in production; tests point it at a mock server.
     pub osv_api: &'static str,
+    /// How long a call on the MCP channel may spend in waits that produce
+    /// nothing yet, when the caller set no budget of its own: an lspSearch
+    /// row's wait for a language server that is still indexing, and a GitHub
+    /// row's client-side waits (quota pacing, a rate-limit reset, a
+    /// `retry-after`). MCP hosts give up on a request after 60 s by default
+    /// (the MCP SDKs' request timeout) and drop the answer, so a wait that
+    /// would outlast the host is not sat out: the row answers what it knows
+    /// (`languageServerIndexing`, or `rateLimited` with its `retryAfter`)
+    /// with the call that runs it again, which reaches the host where the
+    /// waited-for answer would not. The margin under 60 s covers shaping and
+    /// sending the reply. It ends only those waits: it never times a request
+    /// out, and a request already sent is never cut by it. Not a setting: a
+    /// caller that grants more time says so with its own budget, which wins,
+    /// and the CLI, whose caller sets its own wait, has no default.
+    pub mcp_reply_budget: Duration,
 }
 
 /// One page of classification or one `sections` batch.
@@ -57,6 +72,14 @@ impl RuntimeLimits {
         selection: SelectionLimits { max_chars: 131_072 },
         github_pacing: octocode_github::GitHubPacing::Octokit,
         osv_api: "https://api.osv.dev/v1",
+        #[cfg_attr(
+            octocode_clippy_ratchet,
+            expect(
+                clippy::disallowed_methods,
+                reason = "The limit itself, stated where the ban sends every duration: the MCP hosts' 60 s request timeout less the time to shape and send the reply; it ends idle waits only and cuts no request or evidence"
+            )
+        )]
+        mcp_reply_budget: Duration::from_secs(50),
     };
 }
 

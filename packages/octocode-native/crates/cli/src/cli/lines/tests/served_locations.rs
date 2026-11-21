@@ -17,16 +17,16 @@ fn references() -> Value {
                             {
                                 "path": "src/lib.ts",
                                 "matches": [
-                                    {"role": "declaration", "line": 1, "content": "export function helperFn(a: number): number {"},
-                                    {"role": "call", "line": 4, "column": 37, "content": "export const twice = (x: number) => helperFn(helperFn(x));"},
-                                    {"role": "call", "line": 4, "column": 46, "content": "export const twice = (x: number) => helperFn(helperFn(x));"}
+                                    {"role": "declaration", "line": 1, "value": "export function helperFn(a: number): number {"},
+                                    {"role": "call", "line": 4, "column": 37, "value": "export const twice = (x: number) => helperFn(helperFn(x));"},
+                                    {"role": "call", "line": 4, "column": 46, "value": "export const twice = (x: number) => helperFn(helperFn(x));"}
                                 ]
                             },
                             {
                                 "path": "src/use.ts",
                                 "matches": [
-                                    {"role": "import", "line": 1, "content": "import { helperFn } from \"./lib\";"},
-                                    {"role": "call", "line": 3, "content": "  return helperFn(2);"}
+                                    {"role": "import", "line": 1, "value": "import { helperFn } from \"./lib\";"},
+                                    {"role": "call", "line": 3, "value": "  return helperFn(2);"}
                                 ]
                             }
                         ],
@@ -93,8 +93,8 @@ fn an_unnumbered_row_beside_a_numbered_body_prints_at_its_line() {
                     "index": 0,
                     "data": {
                         "matches": [
-                            {"path": "w.rs", "line": 73, "content": "72\t/// doc\n73\tpub fn f(\n74\t) {}"},
-                            {"path": "w.rs", "line": 90, "content": "f();"}
+                            {"path": "w.rs", "line": 73, "value": "72\t/// doc\n73\tpub fn f(\n74\t) {}"},
+                            {"path": "w.rs", "line": 90, "value": "f();"}
                         ]
                     }
                 }

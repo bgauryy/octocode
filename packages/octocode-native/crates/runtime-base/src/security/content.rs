@@ -782,7 +782,7 @@ impl ContentSecurity {
         evidence: &str,
     ) -> bool {
         let mut hidden = false;
-        for field in [evidence, "questions", "context"] {
+        for field in [evidence, "questions", "background"] {
             let Some(value) = row.get_mut(field) else {
                 continue;
             };

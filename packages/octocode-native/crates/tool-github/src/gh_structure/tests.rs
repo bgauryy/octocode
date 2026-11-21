@@ -195,16 +195,17 @@ fn a_submodule_is_named_not_silently_dropped() {
     );
 }
 
-/// Repository-relative globs select entries and omitted paths consistently.
+/// Globs relative to the listed path select entries and omitted paths
+/// consistently; what they keep stays repo-relative.
 #[test]
-fn include_globs_match_repository_relative_paths() {
+fn include_globs_select_entries_and_omitted_paths_below_the_listed_path() {
     let query: GhStructureQueryTree = serde_json::from_value(json_fixture(
         r#"{
             "operation": "tree",
             "owner": "a",
             "repo": "b",
             "path": "pkg",
-            "include": ["pkg/src/*.rs"]
+            "include": ["src/*.rs"]
         }"#,
     ))
     .expect("query");
@@ -328,7 +329,7 @@ fn lists_symlinks_and_skips_submodules() {
     assert_eq!(entry_kind(&entry("symlink")), Some(EntryKind::Link));
     assert!(entry_kind(&entry("submodule")).is_none());
 }
-/// The `dir` of a row is repo-relative, the same base as `path` and `include`.
+/// The `dir` of a row is repo-relative, the same base as `path`.
 #[test]
 fn structure_dirs_are_repo_relative() {
     let rows = build_structure(
@@ -358,7 +359,7 @@ fn structure_dirs_are_repo_relative() {
         rows,
         vec![
             json_fixture(r#"{"dir": "src", "files": ["lib.rs (1)", "nested/"]}"#),
-            json_fixture(r#"{"dir": "src/nested", "files": ["a.rs (1)"]}"#),
+            json!("src/nested/a.rs (1)"),
         ]
     );
     let root = build_structure(
@@ -370,34 +371,163 @@ fn structure_dirs_are_repo_relative() {
         }],
         &LinkTargets::new(),
     );
-    assert_eq!(
-        root,
-        vec![json_fixture(r#"{"dir": ".", "files": ["README.md (1)"]}"#)]
-    );
+    assert_eq!(root, vec![json!("README.md (1)")]);
+}
+
+/// Every entry a page's `files` rows list, as its repo-relative path with
+/// its fields (`"<path> (<fields>)"`, a folder `"<path>/"`), in order: a
+/// flat row is that already, a `{dir, files}` group names each entry under
+/// its `dir`. What a reader rebuilds from either form.
+fn listed_paths(data: &Value) -> Vec<String> {
+    data["files"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|row| match row {
+            Value::String(path) => vec![path.clone()],
+            group => {
+                let dir = group["dir"].as_str().expect("a group's dir");
+                let entries = group["files"].as_array().expect("a group's files");
+                assert!(entries.len() > 1, "a group of one entry: {group}");
+                entries
+                    .iter()
+                    .map(|entry| {
+                        octocode_runtime_base::response::groups::path_of(
+                            dir,
+                            entry.as_str().expect("entry"),
+                        )
+                    })
+                    .collect()
+            }
+        })
+        .collect()
+}
+
+fn file(path: &str, size: u64) -> TreeEntry {
+    TreeEntry {
+        path: path.into(),
+        kind: EntryKind::File,
+        size: Some(size),
+        oid: None,
+    }
+}
+
+/// One file in each of several directories is flat rows: no row is a group,
+/// each row is the file's repo-relative path with its size, and the listing
+/// is shorter than its grouped form by every group header it does not write.
+#[test]
+fn one_entry_per_directory_lists_flat() {
+    let entries = (0..6)
+        .map(|n| file(&format!("packages/p{n}/package.json"), 10 + n))
+        .chain([file("package.json", 3)])
+        .collect::<Vec<_>>();
+    let rows = build_structure(&entries, &LinkTargets::new());
+    assert_eq!(rows.len(), entries.len());
+    assert!(rows.iter().all(Value::is_string), "{rows:?}");
+    let mut expected = entries
+        .iter()
+        .map(|entry| format!("{} ({})", entry.path, entry.size.expect("size")))
+        .collect::<Vec<_>>();
+    // The root leads, as in a grouped listing.
+    expected.rotate_right(1);
+    assert_eq!(listed_paths(&json!({ "files": rows })), expected);
+    let grouped = entries
+        .iter()
+        .map(|entry| {
+            let (dir, name) = octocode_runtime_base::response::groups::split(&entry.path);
+            octocode_runtime_base::response::groups::header_chars(dir) + name.len()
+        })
+        .sum::<usize>();
+    let flat = octocode_engine::json_size::utf16_units(&rows).expect("size");
+    assert!(flat < grouped, "{flat} chars flat, {grouped} grouped");
+}
+
+/// A directory with several entries on the page stays one group beside the
+/// flat rows of its neighbors, in the listing's order; a lone folder and a
+/// lone symlink are flat like a lone file.
+#[test]
+fn a_directory_with_several_entries_stays_grouped_among_flat_rows() {
+    let entries = [
+        file("a/one.rs", 1),
+        file("b/x.rs", 2),
+        file("b/y.rs", 3),
+        TreeEntry {
+            path: "c/sub".into(),
+            kind: EntryKind::Dir,
+            size: None,
+            oid: None,
+        },
+        TreeEntry {
+            path: "d/link".into(),
+            kind: EntryKind::Link,
+            size: None,
+            oid: None,
+        },
+    ];
+    let targets = LinkTargets::from([("d/link".to_owned(), "a/one.rs".to_owned())]);
+    let expected = json!([
+        "a/one.rs (1)",
+        {"dir": "b", "files": ["x.rs (2)", "y.rs (3)"]},
+        "c/sub/",
+        "d/link (link -> a/one.rs)",
+    ]);
+    assert_eq!(json!(build_structure(&entries, &targets)), expected);
+    // A rank lists runs: a run of one is flat, a longer run a group.
+    assert_eq!(json!(ranked_structure(&entries, &targets)), expected);
 }
 
 mod provider_tests;
 
 mod backed;
 
+/// The one include rule (`include_globs::tests::RULE`), read below the
+/// listed `path` and below the repository root alike: the kept entries stay
+/// repo-relative.
 #[test]
-fn include_globs_preserve_literal_spelling_and_scope() {
-    for (pattern, accepted, rejected) in [
-        ("lib", "lib", vec!["library", "src/lib", "LIB"]),
-        ("lib.rs", "lib.rs", vec!["lib.rs.bak", "src/lib.rs"]),
-        (
-            "src/*.rs",
-            "src/lib.rs",
-            vec!["src/deep/lib.rs", "SRC/lib.rs"],
-        ),
-        ("**/*.rs", "src/deep/lib.rs", vec!["src/deep/lib.ts"]),
-        (" lib ", " lib ", vec!["lib"]),
-        ("/lib", "/lib", vec!["lib"]),
-    ] {
-        let filter = PathFilter::new(pattern).expect("glob");
-        assert!(filter.matches(accepted), "{pattern} -> {accepted}");
-        for path in rejected {
-            assert!(!filter.matches(path), "{pattern} widened to {path}");
+fn include_globs_read_paths_below_the_listed_path_by_the_one_rule() {
+    for base in ["", "pkg/sub"] {
+        for (glob, below, kept) in crate::include_globs::tests::RULE {
+            let mut row = serde_json::json!({
+                "operation": "tree", "owner": "a", "repo": "b", "include": [glob]
+            });
+            if !base.is_empty() {
+                row["path"] = base.into();
+            }
+            let query: GhStructureQueryTree = serde_json::from_value(row).expect("query");
+            let scope = Scope::of(&query).expect("scope");
+            let path = if base.is_empty() {
+                (*below).to_owned()
+            } else {
+                format!("{base}/{below}")
+            };
+            let mut traversal = Traversal {
+                entries: vec![TreeEntry {
+                    path: path.clone(),
+                    kind: EntryKind::File,
+                    size: Some(1),
+                    oid: None,
+                }],
+                omitted: [("submodule".to_owned(), [path.clone()].into())].into(),
+                ..Traversal::default()
+            };
+            scope.select(&mut traversal);
+            let listed = traversal
+                .entries
+                .iter()
+                .map(|entry| entry.path.as_str())
+                .collect::<Vec<_>>();
+            let expected = if *kept {
+                vec![path.as_str()]
+            } else {
+                Vec::new()
+            };
+            assert_eq!(listed, expected, "{glob} below {base:?}");
+            // An omitted path is named by the same rule.
+            assert_eq!(
+                traversal.omitted.is_empty(),
+                !*kept,
+                "{glob} below {base:?}: omitted"
+            );
         }
     }
 }

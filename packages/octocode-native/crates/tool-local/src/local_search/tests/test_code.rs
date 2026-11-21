@@ -465,56 +465,6 @@ fn a_path_mounted_file_is_decided_when_its_verdict_shows() {
     );
 }
 
-/// A declaration hit's lspSearch lead runs with the search's `testCode`:
-/// a search that left tests out asks for callers outside tests too. A
-/// fixture server stands for the file's language server.
-#[cfg(unix)]
-#[test]
-fn the_lsp_lead_keeps_the_searchs_test_code() {
-    use std::os::unix::fs::PermissionsExt;
-    let home = tempfile::tempdir().expect("home");
-    let command = home.path().join("fixture-lsp");
-    std::fs::write(&command, "#!/bin/sh\nexit 0\n").expect("server");
-    std::fs::set_permissions(&command, std::fs::Permissions::from_mode(0o755)).expect("executable");
-    std::fs::write(
-        home.path().join("lsp-servers.json"),
-        serde_json::json!({"languageServers":{".rs":{"command":command,"args":[],"languageId":"rust"}}})
-            .to_string(),
-    )
-    .expect("config");
-    let options = octocode_engine::lsp::config::LspDiscoveryOptions {
-        octocode_home: Some(home.path().to_path_buf()),
-        ..Default::default()
-    };
-    let search = |test_code: serde_json::Value| {
-        octocode_tools_shared::leads::lsp::with_lead_discovery(options.clone(), || {
-            search_fixture(
-                &[(
-                    "src/lib.rs",
-                    "pub fn helper() {}\npub fn run() { helper(); }\n",
-                )],
-                ls_query(
-                    serde_json::json!({"matchString":["helper"],"testCode":test_code}),
-                    None,
-                ),
-            )
-        })
-    };
-    let lead_of = |body: &serde_json::Value| {
-        octocode_runtime_base::test_support::checks::related_call(body, "lspSearch", |_| true)["input"]
-            ["queries"][0]
-            .clone()
-    };
-    let excluded = search(serde_json::json!("exclude"));
-    let lead = lead_of(&excluded);
-    assert_eq!(lead["operation"], "callers", "{excluded}");
-    assert_eq!(lead["testCode"], "exclude", "{excluded}");
-    let unset = search(serde_json::Value::Null);
-    let lead = lead_of(&unset);
-    assert_eq!(lead["operation"], "callers", "{unset}");
-    assert!(lead.get("testCode").is_none(), "{unset}");
-}
-
 /// An empty page whose test-code scope left code out offers the same search
 /// over all code, and says what it left out; one whose scope left nothing
 /// out does not.

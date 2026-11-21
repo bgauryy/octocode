@@ -132,8 +132,7 @@ fn batch_errors_keep_valid_rows_and_original_indexes() {
             .iter()
             .all(|issue| issue.path.starts_with(&["queries".into(), "1".into()]))
     );
-    let message =
-        format_input_error("localFetch", error, &[], &serde_json::Value::Null).to_string();
+    let message = format_input_error("localFetch", error, &serde_json::Value::Null).to_string();
     assert!(message.contains("mystery") && message.contains("Allowed fields"));
 }
 
@@ -162,14 +161,14 @@ fn admission_preserves_content_and_does_not_rewrite_legacy_inputs() {
                 {
                     "operation": "evaluate",
                     "content": {"text": "  exact evidence\n"},
-                    "context": "  context\n",
+                    "background": "  context\n",
                     "questions": {"relevant": {"type": "noul", "instructions": "Relevant?"}}
                 }
             ]
         }"#,
     );
     let parsed = validate("clasify", input.clone()).unwrap();
-    for field in ["content", "context", "questions"] {
+    for field in ["content", "background", "questions"] {
         assert_eq!(parsed["queries"][0][field], input["queries"][0][field]);
     }
     for (field, value) in [

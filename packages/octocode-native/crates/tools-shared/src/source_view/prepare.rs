@@ -355,28 +355,6 @@ pub fn prepared<'a>(
 /// Largest source a window may be streamed from.
 pub const MAX_STREAM_SOURCE_BYTES: u64 = 1024 * 1024 * 1024;
 
-/// Whether every read of the source at `path` is known to be refused, whatever it
-/// selects: past the streaming ceiling, or UTF-16 past the whole-file ceiling (it
-/// needs a whole-file decode) at `limits`.
-pub fn every_read_refused(
-    path: &std::path::Path,
-    limits: octocode_runtime_base::security::SourceLimits,
-) -> bool {
-    let Ok(meta) = std::fs::metadata(path) else {
-        return false;
-    };
-    if meta.len() > MAX_STREAM_SOURCE_BYTES {
-        return true;
-    }
-    if meta.len() <= limits.whole_source_bytes() {
-        return false;
-    }
-    let mut head = [0_u8; 2];
-    std::fs::File::open(path)
-        .and_then(|mut file| std::io::Read::read_exact(&mut file, &mut head))
-        .is_ok_and(|()| octocode_engine::text::has_utf16_bom(&head))
-}
-
 /// Why `q` selects nothing from `keyed` whatever the secret scan changes: a
 /// pattern that does not compile, or ranges that all start past the end (the
 /// scan keeps the line count). The error is the one extraction gives.

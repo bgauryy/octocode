@@ -132,7 +132,7 @@ fn an_explicit_selector_keeps_its_branch_over_a_closer_sibling_shape() {
         assert_eq!(error.issues[0].path, ["depth"]);
         assert_eq!(error.issues[0].rule_id, "schema.unknown-field");
         let message =
-            crate::contracts::format_input_error("example", &error, &[], &serde_json::Value::Null)
+            crate::contracts::format_input_error("example", &error, &serde_json::Value::Null)
                 .to_string();
         assert!(message.contains("walk"), "{message}");
         value["format"] = json!("walk");
@@ -207,7 +207,7 @@ fn reversed_source_ranges_keep_the_range_diagnostic_in_every_read_form() {
             );
             assert_eq!(error.issues[0].rule_id, "schema.order");
             let rendered =
-                crate::contracts::format_input_error(tool, &error, &[], &serde_json::Value::Null);
+                crate::contracts::format_input_error(tool, &error, &serde_json::Value::Null);
             let message = rendered["error"].as_str().unwrap();
             assert!(
                 message.contains("startLine") && message.contains("endLine"),
@@ -303,7 +303,7 @@ fn reader_matching_forms_report_the_invalid_field_types() {
                 );
             }
             let rendered =
-                crate::contracts::format_input_error(tool, &error, &[], &serde_json::Value::Null)
+                crate::contracts::format_input_error(tool, &error, &serde_json::Value::Null)
                     .to_string();
             assert!(!rendered.contains("Unknown field"), "{tool}: {rendered}");
             query["matchString"] = json_fixture(r#"["needle"]"#);
@@ -320,7 +320,7 @@ fn a_request_field_inside_a_query_names_where_it_goes_and_nothing_else() {
         (
             json_fixture(r#"{"queries": [{"cursor": "cursor2.abc"}]}"#),
             "cursor",
-            "alone, as next.nextPage or responsePagination.next gives it, without queries",
+            "alone, as the reply's next gives it, without queries",
         ),
         (
             json_fixture(
@@ -338,7 +338,6 @@ fn a_request_field_inside_a_query_names_where_it_goes_and_nothing_else() {
         let shown = crate::contracts::validate::messages::format_input_error(
             "localSearch",
             &error,
-            &[],
             &serde_json::Value::Null,
         );
         let text = shown["error"].as_str().unwrap_or_default();
@@ -361,7 +360,6 @@ fn a_missing_selector_names_the_value_the_sent_fields_require() {
     let message = crate::contracts::validate::format_input_error(
         "structureSearch",
         &error,
-        &[],
         &serde_json::Value::Null,
     );
     assert!(
@@ -380,7 +378,7 @@ fn a_missing_selector_names_the_value_the_sent_fields_require() {
 fn an_unknown_field_in_a_row_without_its_selector_names_every_form() {
     let details = |tool: &str, row: serde_json::Value| {
         let error = prepare_rows(tool, json!({"queries":[row]})).expect_err("missing operation");
-        crate::contracts::validate::format_input_error(tool, &error, &[], &serde_json::Value::Null)
+        crate::contracts::validate::format_input_error(tool, &error, &serde_json::Value::Null)
             .to_string()
     };
     let nested = details(
@@ -411,7 +409,7 @@ fn a_wrong_value_leads_over_a_missing_operation() {
     )
     .expect_err("no operation, bad nthChild");
     let rendered =
-        crate::contracts::format_input_error("astSearch", &error, &[], &serde_json::Value::Null);
+        crate::contracts::format_input_error("astSearch", &error, &serde_json::Value::Null);
     assert_eq!(
         rendered["error"],
         r#"queries.0.rule.nthChild: "y" is not a valid value for nthChild: invalid nthChild position: expected an integer or An+B formula"#,
@@ -439,7 +437,7 @@ fn a_missing_operation_leads_when_no_value_is_wrong() {
     )
     .expect_err("no operation");
     let rendered =
-        crate::contracts::format_input_error("astSearch", &error, &[], &serde_json::Value::Null);
+        crate::contracts::format_input_error("astSearch", &error, &serde_json::Value::Null);
     assert!(
         rendered["error"]
             .as_str()

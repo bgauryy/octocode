@@ -190,3 +190,26 @@ async fn a_submodule_is_located_as_no_file() {
         assert!(found.file.is_none(), "{requested}: {:?}", found.file);
     }
 }
+
+/// A whole listing entry given as the path is located as the entry's own
+/// path when that is a file; an entry of an absent file is an ordinary
+/// missing path.
+#[tokio::test]
+async fn a_whole_listing_entry_is_located_as_its_own_path() {
+    use octocode_runtime_base::response::groups::entry_text;
+    let server = server().await;
+    GitRepository::new()
+        .file("docs/guide.md", "# guide\n")
+        .mount(&server, "a", "b", SHA)
+        .await;
+    let fields = ["8".to_owned()];
+    let entry = format!("docs/{}", entry_text("guide.md", false, &fields));
+    let found = located(&server, &entry).await.expect("located");
+    assert!(found.listing_entry);
+    assert_eq!(found.file.as_deref(), Some("docs/guide.md"));
+
+    let entry = format!("docs/{}", entry_text("gone.md", false, &fields));
+    let found = located(&server, &entry).await.expect("located");
+    assert!(!found.listing_entry);
+    assert_eq!((found.directory.as_str(), found.file), ("docs", None));
+}

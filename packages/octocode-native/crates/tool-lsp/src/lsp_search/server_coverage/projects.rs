@@ -141,7 +141,7 @@ fn flag_other_projects(
         .collect::<Vec<_>>()
         .join(", ");
     let note = format!(
-        "{} file(s) the answer leaves out spell this name in code, in projects the server did not load: {listed}. Search each in related[]; anchor lspSearch at a use there to ask that project's server.",
+        "{} file(s) the answer leaves out spell this name in code, in projects the server did not load: {listed}. The related text searches read them; anchor lspSearch at a use there to ask that project's server.",
         others.values().map(Vec::len).sum::<usize>()
     );
     super::super::failure::flag_partial(row, query, UNANSWERED_REASON, Some(&note), scope);
@@ -153,7 +153,8 @@ fn flag_other_projects(
         if let Some(lead) =
             super::super::failure::text_search_lead(name, &scope.root, &scope.include, Some(chunk))
         {
-            octocode_runtime_base::response::result::attach_related(row, lead.build());
+            // The projects the server did not load are read only here.
+            octocode_runtime_base::response::result::attach_related(row, lead.required().build());
         }
     }
 }

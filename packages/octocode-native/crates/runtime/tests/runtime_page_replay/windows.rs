@@ -298,7 +298,17 @@ async fn a_long_line_at_a_narrow_budget_takes_a_call_per_window_of_its_room() {
         (MIN_LONG_LINE_PAGE..FLOOR).contains(&room),
         "a narrow room: {room}"
     );
-    for (parts, _) in content_parts(&runtime, "long.txt", budget).await {
+    for (mut parts, _) in content_parts(&runtime, "long.txt", budget).await {
+        // The file's one line starts on the first window, behind its gutter;
+        // every later window continues it bare. The windows count the source.
+        let first = parts
+            .iter_mut()
+            .find(|part| !part.is_empty())
+            .expect("a window");
+        *first = first
+            .strip_prefix("1\t")
+            .expect("the line's gutter")
+            .to_owned();
         let windows = parts
             .iter()
             .filter(|part| !part.is_empty())

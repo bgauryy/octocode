@@ -4,7 +4,7 @@ use super::{
     build_continuation, is_saved_replay, page_cursor,
 };
 use octocode_io::cancellation::Cancellation;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 /// One row page of `source`, with its pagination block and continuation.
 /// A page holding a value longer than the budget alone states top-level
@@ -17,8 +17,7 @@ pub(super) fn cut_rows(
     let (mut envelope, mut pagination) = source.page(&input.options, cancelled)?;
     pagination.next = continuation(input, &pagination).or(pagination.next.take());
     if pagination.should_emit() || is_saved_replay(&input.options) {
-        let block = pagination_value(&pagination, &input.options)?;
-        envelope.insert("responsePagination".into(), block);
+        envelope.extend(block(pagination.next.as_ref(), &input.options));
     }
     if let Some(budget) = input.options.response_chars {
         super::oversized::flag(&mut envelope, input.tool, budget, true);
@@ -29,7 +28,7 @@ pub(super) fn cut_rows(
     })
 }
 
-/// Chars the `responsePagination` entry adds to a page of `pagination`
+/// Chars the reading-on members add to a page of `pagination`
 /// ([`cut_rows`] attaches it with its continuation); 0
 /// when the page carries none. Every page of one plan must get the same
 /// answer, whichever request builds it, so a saved read is measured as the
@@ -48,10 +47,10 @@ pub(super) fn pagination_block_chars(
     if !(page.should_emit() || is_saved_replay(&options)) {
         return 0;
     }
-    pagination_value(&page, &options).map_or(0, |value| block_chars(&value))
+    block_chars(&block(page.next.as_ref(), &options))
 }
 
-/// Chars the `responsePagination` entry adds to a continuing page of `tool`
+/// Chars the reading-on members add to a continuing page of `tool`
 /// as [`cut_rows`] attaches it: the executable continuation, and the expiry
 /// and replay facts every saved response page states, at their widest
 /// (`replayed:true`). A tool that cuts its own part of a page to the
@@ -72,9 +71,15 @@ pub fn continuing_block_chars(tool: crate::id::ToolId) -> usize {
     block_chars(&block(Some(&next), &options))
 }
 
-/// `,"responsePagination":` around `value`, in response chars.
-fn block_chars(value: &Value) -> usize {
-    octocode_engine::json_size::utf16_units(value).unwrap_or(0) + "responsePagination".len() + 4
+/// The members of `block` as the envelope holds them, in response chars:
+/// `,"key":` around each value.
+fn block_chars(block: &Map<String, Value>) -> usize {
+    block
+        .iter()
+        .map(|(key, value)| {
+            octocode_engine::json_size::utf16_units(value).unwrap_or(0) + key.len() + 4
+        })
+        .sum()
 }
 
 /// The executable next-page call of `input` for `pagination`.
@@ -82,28 +87,28 @@ fn continuation(input: &ResponseInput, pagination: &ResponsePagination) -> Optio
     build_continuation(input.tool.as_str(), &input.options, pagination)
 }
 
-fn pagination_value(
-    pagination: &ResponsePagination,
-    options: &ResponsePageOptions,
-) -> Result<Value, ResponseError> {
-    Ok(block(pagination.next.as_ref(), options))
-}
-
-/// The `responsePagination` value: the continuation (present while more
-/// remains), and a saved response's expiry and, on a page read back from it,
-/// the replay fact.
-fn block(next: Option<&Value>, options: &ResponsePageOptions) -> Value {
-    let mut value = json!({});
+/// The envelope members that say a response reads on: `next`, the
+/// continuation (present while more remains), with the saved response's
+/// expiry, which is when that continuation stops answering, so a last page,
+/// which has no continuation, states no expiry; and, on a page read back
+/// from a saved response, the replay fact. That one stays on a last page: it
+/// says the page was not acquired or judged again, so any usage it shows is
+/// historical, which is as true of the last page as of the others.
+fn block(next: Option<&Value>, options: &ResponsePageOptions) -> Map<String, Value> {
+    use crate::response::continuations::{RESPONSE_EXPIRES_AT, RESPONSE_NEXT, RESPONSE_REPLAYED};
+    let mut members = Map::new();
     if let Some(next) = next {
-        value["next"] = next.clone();
+        members.insert(RESPONSE_NEXT.into(), next.clone());
     }
     if let Some(saved) = &options.saved {
-        value["expiresAt"] = json!(saved.expires_at);
+        if next.is_some() {
+            members.insert(RESPONSE_EXPIRES_AT.into(), json!(saved.expires_at));
+        }
         if saved.replayed {
-            value["replayed"] = json!(true);
+            members.insert(RESPONSE_REPLAYED.into(), json!(true));
         }
     }
-    value
+    members
 }
 
 /// The chars of a page envelope that count against `responseChars`: its

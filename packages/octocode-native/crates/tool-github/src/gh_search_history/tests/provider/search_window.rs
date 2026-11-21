@@ -114,20 +114,6 @@ async fn cap_is_terminal_only_after_the_last_reachable_page() {
             (&json!("acme"), &json!("widget")),
             "{data}"
         );
-        let read = &octocode_runtime_base::test_support::checks::related_call(
-            &data,
-            "ghGetHistoryItem",
-            |input| input["queries"][0]["operation"] == "pullRequest",
-        )["input"]["queries"][0];
-        assert_eq!(
-            (&read["owner"], &read["repo"], &read["number"]),
-            (
-                &json!("acme"),
-                &json!("widget"),
-                &data["pullRequests"][0]["number"]
-            ),
-            "{data}"
-        );
     }
 }
 
@@ -378,6 +364,98 @@ async fn a_capped_search_names_one_narrowing_lead() {
         );
         assert!(row.get("until").is_none(), "{row}");
     }
+}
+
+/// The sentence beside a capped search's related call says what the call
+/// runs. A date-ordered page continues from its own last row, on every page.
+/// A search with no date order is re-run newest first from its first row:
+/// that replaces the walk, so it is stated where the walk starts and where
+/// it ends, and no page between carries a call that would restart it.
+#[tokio::test]
+async fn a_capped_search_says_what_its_related_call_does() {
+    use wiremock::MockServer;
+
+    let server = MockServer::builder().start().await;
+    mount_json(
+        &server,
+        "/api/v3/search/issues",
+        200,
+        json_fixture(
+            r#"{
+                "total_count": 4000,
+                "incomplete_results": false,
+                "items": [
+                    {"number": 9, "title": "a", "state": "open", "user": {"login": "dev"},
+                     "created_at": "2026-03-02T10:00:00Z", "updated_at": "2026-04-02T10:00:00Z"},
+                    {"number": 8, "title": "b", "state": "open", "user": {"login": "dev"},
+                     "created_at": "2026-03-01T09:30:00Z", "updated_at": "2026-04-01T08:00:00Z"}
+                ]
+            }"#,
+        ),
+    )
+    .await;
+    let provider = one_shot_provider(&server);
+    let read = |row: Value| {
+        let provider = &provider;
+        async move {
+            let query: GhSearchHistoryQuery = serde_json::from_value(row).expect("query");
+            execute(provider, &query, &default_context(), &Passthrough)
+                .await
+                .expect("capped search")
+        }
+    };
+    let related = |data: &Value| {
+        data["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|call| call["tool"] == "ghSearchHistory")
+            .cloned()
+    };
+    let says = |data: &Value, needle: &str| {
+        data["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .any(|warning| warning.contains(needle))
+    };
+    let relevance = |page: u64| {
+        json!({"operation": "pullRequest", "owner": "o", "repo": "r", "keywords": ["fix"],
+               "limit": 100, "page": page})
+    };
+    // No date order: the first page offers the newest-first search and says
+    // it restarts from the first row.
+    let first = read(relevance(1)).await;
+    let call = related(&first).expect("the first page offers the re-sorted search");
+    let row = &call["input"]["queries"][0];
+    assert_eq!(row["sort"], json!({"by": "createdAt", "order": "desc"}), "{first}");
+    assert!(row["filters"].get("createdAt").is_none(), "it narrows nothing yet: {first}");
+    assert!(says(&first, "re-runs the search newest first from its first row"), "{first}");
+    assert!(!says(&first, "bounded at this page's last row"), "{first}");
+    // A page between carries no call that would restart the walk, and still
+    // says the search is capped.
+    let middle = read(relevance(3)).await;
+    assert_eq!(middle["partialReasons"], json!(["providerResultCap"]), "{middle}");
+    assert_eq!(related(&middle), None, "{middle}");
+    assert!(!says(&middle, "re-runs the search"), "{middle}");
+    // The last reachable page states it again: the reader who walked needs it.
+    let last = read(relevance(10)).await;
+    assert!(related(&last).is_some(), "{last}");
+    assert!(says(&last, "re-runs the search newest first"), "{last}");
+    // A date order continues from each page's own last row, and says the
+    // boundary instant is included.
+    let dated = read(json!({"operation": "pullRequest", "owner": "o", "repo": "r",
+        "keywords": ["fix"], "limit": 100, "page": 3,
+        "sort": {"by": "createdAt", "order": "desc"}}))
+    .await;
+    let call = related(&dated).expect("a date-ordered page continues from its last row");
+    assert_eq!(
+        call["input"]["queries"][0]["filters"]["createdAt"]["to"], "2026-03-01T09:30:00Z",
+        "{dated}"
+    );
+    assert!(says(&dated, "bounded at this page's last row's date"), "{dated}");
+    assert!(says(&dated, "is included"), "{dated}");
 }
 
 /// A keyword-less pullRequest search runs newest created first, as the

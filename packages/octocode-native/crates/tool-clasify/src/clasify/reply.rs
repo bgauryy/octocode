@@ -518,6 +518,8 @@ pub(super) fn resources_answered(
 fn view(row: &Row, target: Target) -> Row {
     Row {
         context: row.context.clone(),
+        goal: row.goal.clone(),
+        background: row.background.clone(),
         model: row.model.clone(),
         keys: row.keys.clone(),
         questions: row.questions.clone(),
@@ -530,6 +532,7 @@ fn view(row: &Row, target: Target) -> Row {
         source_progress: None,
         max_requests: row.max_requests,
         per_hit: row.per_hit,
+        collapse: row.collapse,
         retry_units: None,
         query: row.query.clone(),
     }

@@ -28,7 +28,7 @@ fn served(path: &Path, dir: &Path) -> Value {
         &ContentSecurity::new(),
         &NeverCancel,
         None,
-        None,
+        false,
     );
     let data = serde_json::to_value(&result).expect("row");
     octocode_runtime_base::test_support::staged_response(ToolId::LocalFetch, vec![data])

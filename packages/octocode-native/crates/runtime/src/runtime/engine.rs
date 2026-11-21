@@ -98,12 +98,9 @@ pub struct ToolRuntime {
     /// Resolved from config and surface without provider requests. Provider
     /// failures are request-local and do not remove an advertised tool.
     availability: Arc<octocode_runtime_base::execution::availability::ToolAvailability>,
-    /// Provider settings and selection availability, resolved once.
+    /// Provider settings and clasify availability, resolved once.
     evaluator: octocode_tools_shared::judgment::Evaluator,
-    /// Candidate pages selection judged, kept in memory so a replayed cursor
-    /// bills no second judgment.
-    selection_pages: Arc<octocode_tools_shared::selection::SavedPlans>,
-    selection_available: bool,
+    clasify_available: bool,
     lsp_execution_config: Arc<octocode_tool_lsp::lsp_search::LspExecutionConfig>,
     lsp_answers: Arc<octocode_tool_lsp::lsp_search::ContinuationAnswers>,
     /// Complete graph answer rows its first page retained for continuations.
@@ -145,15 +142,9 @@ impl ToolRuntime {
         self.section_sessions.clear_memory();
         self.lsp_answers.clear_memory();
         self.graph_rows.clear_memory();
-        self.selection_pages.clear_memory();
     }
     pub fn inspect_config(&self) -> config::ConfigInspectorData {
         config::inspector_data(&self.input, &self.config)
-    }
-
-    /// Resolved presentation switches shared by MCP and CLI discovery.
-    fn presentation(&self) -> Value {
-        json!({"selection": self.selection_available})
     }
 }
 
@@ -247,7 +238,6 @@ impl ToolRuntime {
             // Languages whose lspSearch server resolves here (resolution only);
             // hosts render it into the lspSearch description.
             "lspServers": self.lsp_server_languages(),
-            "presentation": self.presentation(),
             "tools": tools,
         })
     }

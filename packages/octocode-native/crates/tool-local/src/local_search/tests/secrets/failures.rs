@@ -52,19 +52,9 @@ fn binary_prefix_matches_mark_a_search_partial_and_terminal() {
         json_fixture(r#"["binaryQuit"]"#),
         "{body}"
     );
-    // localFetch rejects binary files, so a binary file is never the read:
-    // the read takes the shown text hit.
-    let read =
-        &octocode_runtime_base::test_support::checks::related_call(&body, "localFetch", |_| true);
-    assert_eq!(read["tool"], "localFetch", "{body}");
-    assert_eq!(
-        read["input"]["queries"][0]["path"]
-            .as_str()
-            .map(|path| path.ends_with("a.txt")),
-        Some(true),
-        "{body}"
-    );
-    assert!(!body.to_string().contains("bin.dat\",\"ranges"), "{body}");
+    // The row holds evidence: it states no hint and offers no call, and no
+    // read is aimed at the binary file.
+    assert_evidence_row_guides_nothing(&body);
 }
 
 /// A malformed `include` glob is caller input, coded by the engine's typed
@@ -82,7 +72,6 @@ fn a_bad_include_glob_is_invalid_glob() {
         &policy,
         &security,
         &NeverCancel,
-        None,
         None,
     )
     .expect_err("bad glob");
@@ -107,7 +96,6 @@ fn a_scope_where_every_path_is_unreadable_is_an_access_error_not_empty() {
         &policy,
         &security,
         &NeverCancel,
-        None,
         None,
     );
     unlock_dir(&hidden);
@@ -141,7 +129,6 @@ fn unreadable_paths_beside_readable_misses_make_the_result_partial() {
         &policy,
         &security,
         &NeverCancel,
-        None,
         None,
     );
     unlock_dir(&hidden);
@@ -226,11 +213,10 @@ fn every_text_cut_file_is_named_grouped_by_directory() {
     assert!(!warning.contains("more"), "{warning}");
 }
 
-/// Past a handful, text-cut binary files are a count by extension with a
-/// listing that names every one (`binarySkipped`), not an unbounded
-/// inline warning: a build tree of `.rlib`s stays a short row.
+/// Past a handful, text-cut binary files are a count by extension, not an
+/// unbounded inline warning: a build tree of `.rlib`s stays a short row.
 #[test]
-fn many_text_cut_files_are_a_count_with_a_lossless_listing() {
+fn many_text_cut_files_are_a_count_by_extension() {
     let root = tempfile::tempdir().expect("fixture directory");
     fs::create_dir_all(root.path().join("deps")).expect("fixture dir");
     for index in 0..300 {
@@ -253,7 +239,6 @@ fn many_text_cut_files_are_a_count_with_a_lossless_listing() {
         &security,
         &NeverCancel,
         None,
-        None,
     )
     .expect("search");
     let warning = result
@@ -266,23 +251,14 @@ fn many_text_cut_files_are_a_count_with_a_lossless_listing() {
         "{warning}"
     );
     assert!(!warning.contains("libcrate"), "{warning}");
-    let listing = result
-        .next
-        .as_ref()
-        .and_then(|next| next.get("binarySkipped"))
-        .expect("listing lead");
-    assert_eq!(
-        listing["input"]["queries"][0]["extensions"],
-        json_fixture(r#"["rlib"]"#)
-    );
     assert!(warning.len() < 200, "{warning}");
 }
 
 /// Files binary from their leading bytes (a font's magic, then a NUL)
-/// are outside a text search: no partial result and a count instead of
-/// every path, on a row with hits and an empty row alike.
+/// are outside a text search: no partial result and never a path. Beside
+/// hits they change nothing and go unstated; an empty row counts them.
 #[test]
-fn leading_nul_binaries_are_counted_on_every_row() {
+fn leading_nul_binaries_are_counted_on_an_empty_row_alone() {
     let root = tempfile::tempdir().expect("fixture directory");
     fs::create_dir_all(root.path().join("fonts/a")).expect("fixture dir");
     for index in 0..30 {
@@ -311,7 +287,6 @@ fn leading_nul_binaries_are_counted_on_every_row() {
         &security,
         &NeverCancel,
         None,
-        None,
     )
     .expect("search");
     let body = result.to_row().expect("serialize");
@@ -319,21 +294,13 @@ fn leading_nul_binaries_are_counted_on_every_row() {
     assert!(!result.terminal_limit, "{body}");
     assert_eq!(result.status, SearchStatus::Success, "{body}");
     assert!(result.stats.cap_reasons.is_empty(), "{body}");
-    // A row with hits states the count in stats, not as a warning.
+    // Binaries beside hits change nothing: the row states no count, no
+    // warning, no hint and no call.
     assert!(result.warnings.is_empty(), "{body}");
-    assert_eq!(body["binarySkipped"], 31, "{body}");
+    assert!(body.get("binarySkipped").is_none(), "{body}");
     let text = body.to_string();
     assert!(!text.contains("Font-0"), "{text}");
-
-    assert!(
-        octocode_runtime_base::test_support::checks::find_related_call(
-            &body,
-            "structureSearch",
-            |_| true
-        )
-        .is_none(),
-        "{body}"
-    );
+    assert_evidence_row_guides_nothing(&body);
 
     let request = ls_query(
         serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": ["zzqqxx".to_string()], "regexEngine": "literal"}),
@@ -346,27 +313,13 @@ fn leading_nul_binaries_are_counted_on_every_row() {
         &security,
         &NeverCancel,
         None,
-        None,
     )
     .expect("search");
     let body = result.to_row().expect("serialize");
-    // An empty row counts them as a row with hits does, and its absence
-    // sentence says so; they hold no text, so nothing lists them.
+    // An empty row counts them; they hold no text, so nothing lists them,
+    // and a plain miss states no hint.
     assert_eq!(body["binarySkipped"], 31, "{body}");
-    assert!(
-        body["hints"][0]
-            .as_str()
-            .is_some_and(|hint| hint.contains("not searched: 31 binary files")),
-        "{body}"
-    );
     assert!(!body.to_string().contains("Font-0"), "{body}");
-    assert!(
-        octocode_runtime_base::test_support::checks::find_related_call(
-            &body,
-            "structureSearch",
-            |_| true
-        )
-        .is_none(),
-        "{body}"
-    );
+    assert!(body.get("hints").is_none(), "{body}");
+    assert!(related_calls(&body).is_empty(), "{body}");
 }

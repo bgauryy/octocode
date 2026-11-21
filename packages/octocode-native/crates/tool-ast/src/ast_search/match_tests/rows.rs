@@ -68,31 +68,6 @@ fn census_notices_are_static_and_a_caller_limit_draws_no_narrowing_advice() {
     );
 }
 
-/// The read lead around a hit near the end of a file windows it by the read
-/// context alone: localFetch clips what runs past the last line, so the file
-/// is not read for its length.
-#[test]
-fn the_read_lead_windows_a_hit_without_the_files_length() {
-    let root = Fixture::new();
-    root.write("a.ts", "x();\ny();\ncall(1);\n");
-    let out = run(
-        &root.0,
-        json!({"operation":"match","path":root.0,"rule":{"pattern":"call($$$A)"},"parser":"typescript"}),
-    )
-    .expect("match");
-    let ranges = octocode_runtime_base::test_support::checks::related_call(
-        &out,
-        "localFetch",
-        |_| true,
-    )["input"]["queries"][0]["ranges"]
-        .clone();
-    // The hit is the last line (3): context before it reaches line 1, and
-    // after it the window ends `READ_CONTEXT` lines later.
-    let end = ranges[0]["endLine"].as_u64().expect("end");
-    assert_eq!(ranges[0]["startLine"], 1, "{out}");
-    assert!(end > 3, "{out}");
-}
-
 #[test]
 fn match_rows_withhold_captures_by_default_and_state_every_end_with_captures() {
     let root = Fixture::new();
@@ -235,7 +210,9 @@ fn list_captures_are_withheld_by_default_and_expand_on_request() {
     // A lean row: no capture dump, the header stands in for the body.
     let (line, end, value) = lean_row(&out["files"][0]["matches"][0]);
     assert_eq!((line, end, value), (1, Some(5), "fn a() -> u8 …"), "{out}");
-    assert!(has_capture_expansion(&out), "{out}");
+    // The lean page carries no call: `includeCaptures` is the input that
+    // returns the whole text.
+    assert!(out.get("related").is_none(), "{out}");
 
     let mut expanded = query;
     expanded["includeCaptures"] = json!(true);
@@ -298,7 +275,9 @@ fn block_matches_default_to_their_header_and_expand_on_request() {
         }"#,
     );
     assert_eq!(out["files"][0]["matches"][0], header);
-    assert!(has_capture_expansion(&out), "{out}");
+    // The lean page carries no call: `includeCaptures` is the input that
+    // returns the whole text.
+    assert!(out.get("related").is_none(), "{out}");
     let mut proven = query.clone();
     proven["includeProvenance"] = json!(true);
     let traced = run(&root.0, proven).expect("match");
@@ -453,121 +432,6 @@ fn happy_path_rows_carry_the_next_hop_anchors() {
             "{row}"
         );
     }
-}
-
-/// The capture lead of a page returns that page's clipped rows: walking it
-/// lists each of them exactly once, whole, and reads only the files the
-/// page shows them in, never the rest of the query's scope.
-#[test]
-fn the_capture_lead_returns_each_clipped_row_of_its_page_once() {
-    let root = Fixture::new();
-    let body = format!("  const x = 1;\n  {}\n  return x;\n", "y();".repeat(40));
-    // The first two files' names need escaping as a glob (a backslash is
-    // literal in a file name, an escape in a glob); `sub/b.ts` shares a
-    // later file's name below it and is never on page 1.
-    for name in ["a[1]*.ts", "a\\g.ts", "b.ts", "c.ts", "d.ts", "sub/b.ts"] {
-        let source = (0..3)
-            .map(|n| format!("function f{n}() {{\n{body}}}\n"))
-            .collect::<String>();
-        root.write(name, &source);
-    }
-    let query =
-        json!({"operation":"match","path":root.0,"rule":{"kind":"function_declaration"},"limit":4});
-    let first = run(&root.0, query).expect("page 1");
-    let key = |path: &str, row: &serde_json::Value| format!("{path}:{}", row["line"]);
-    let mut clipped = std::collections::BTreeSet::new();
-    let mut shown = std::collections::BTreeSet::new();
-    for file in first["files"].as_array().expect("files") {
-        let path = file["path"].as_str().expect("path");
-        shown.insert(path.to_owned());
-        for row in file["matches"].as_array().expect("matches") {
-            if row["value"]
-                .as_str()
-                .is_some_and(|text| text.ends_with(" …"))
-            {
-                clipped.insert(key(path, row));
-            }
-        }
-    }
-    assert!(!clipped.is_empty(), "{first}");
-    assert!(shown.len() < 6, "page 1 shows some of the files: {first}");
-    let lead = first["related"]
-        .as_array()
-        .and_then(|calls| {
-            calls
-                .iter()
-                .find(|call| call["input"]["queries"][0]["includeCaptures"] == true)
-        })
-        .expect("capture lead");
-    let pages = ast_chain(&root.0, lead["input"]["queries"][0].clone());
-    let mut seen = std::collections::BTreeMap::<String, usize>::new();
-    for page in &pages {
-        for file in page["files"].as_array().into_iter().flatten() {
-            let path = file["path"].as_str().expect("path");
-            assert!(shown.contains(path), "{path} is not on page 1: {page}");
-            for row in file["matches"].as_array().expect("matches") {
-                assert!(row.get("clipped").is_none(), "{row}");
-                *seen.entry(key(path, row)).or_default() += 1;
-            }
-        }
-    }
-    for row in &clipped {
-        assert_eq!(seen.get(row), Some(&1), "{row}: {seen:?}");
-    }
-}
-
-/// A page whose withheld rows sit in more files than `include` holds keeps
-/// the capture lead on the whole scope, and says so: the lead returns a
-/// superset of those rows.
-#[test]
-fn a_whole_scope_capture_lead_says_it_returns_a_superset() {
-    let root = Fixture::new();
-    let limit =
-        octocode_runtime_base::contracts::query_limits::ast_search::r#match::INCLUDE_MAX_ITEMS + 1;
-    let body = format!("  const x = 1;\n  {}\n  return x;\n", "y();".repeat(40));
-    for n in 0..limit {
-        root.write(
-            &format!("f{n:03}.ts"),
-            format!("function f() {{\n{body}}}\n"),
-        );
-    }
-    let query = json!({"operation":"match","path":root.0,"rule":{"kind":"function_declaration"},"limit":limit});
-    let first = run_window(&root.0, query, 100_000_000).expect("page 1");
-    assert_eq!(
-        first["files"].as_array().map(Vec::len),
-        Some(limit),
-        "{first}"
-    );
-    let lead = first["related"]
-        .as_array()
-        .and_then(|calls| {
-            calls
-                .iter()
-                .find(|call| call["input"]["queries"][0]["includeCaptures"] == true)
-        })
-        .expect("capture lead");
-    assert!(
-        lead["input"]["queries"][0].get("include").is_none(),
-        "{lead}"
-    );
-    let hints = first["hints"].as_array().into_iter().flatten();
-    assert!(
-        hints
-            .filter_map(serde_json::Value::as_str)
-            .any(|hint| hint.contains("includeCaptures") && hint.contains("whole scope")),
-        "{first}"
-    );
-}
-
-/// The optional capture expansion: a related lead (never `next`) to the same
-/// query with `includeCaptures:true`.
-fn has_capture_expansion(out: &serde_json::Value) -> bool {
-    out["next"].get("expandCaptures").is_none()
-        && out["related"].as_array().is_some_and(|calls| {
-            calls.iter().any(|call| {
-                call["kind"] == "related" && call["input"]["queries"][0]["includeCaptures"] == true
-            })
-        })
 }
 
 /// The census names a few of the files no AST grammar parses; every file it

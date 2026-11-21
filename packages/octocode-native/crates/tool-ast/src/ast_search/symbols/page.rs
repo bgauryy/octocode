@@ -109,7 +109,7 @@ pub(crate) fn render_page(
                     .map(Suppressed::notice),
             )
             .chain(octocode_runtime_base::policy::include::parent_glob_warning(
-                &[],
+                &ast_search_query_symbols::include(q),
                 &ast_search_query_symbols::exclude(q).unwrap_or_default(),
             )),
     );
@@ -186,11 +186,28 @@ impl SymbolPage {
         } else {
             set.spans[cut.range.start].start..set.spans[cut.range.end - 1].end
         };
+        // The page's facts count the rows it serves, members included (a
+        // page cuts between top-level rows, never inside one): a stated
+        // total is then the number of rows the walk delivers.
+        let facts = if cut.range.is_empty() {
+            cut.facts
+        } else {
+            let served = octocode_runtime_base::response::pages::PageFacts::open(
+                range.start,
+                range.len(),
+                cut.more,
+            );
+            if cut.facts.to_value().get("total").is_some() {
+                served.with_total(declarations.len())
+            } else {
+                served
+            }
+        };
         Self {
             range,
             top_level: cut.range.len(),
             more: cut.more,
-            pagination: cut.facts.to_value(),
+            pagination: facts.to_value(),
         }
     }
 }
@@ -272,10 +289,6 @@ fn attach_symbol_leads(
             );
         }
         crate::ast_search::scan_window::mark_resumed(out);
-    }
-    if let Some(lead) = &set.references {
-        let name = octocode_tools_shared::leads::lsp::lead_name(&lead["input"]["queries"][0]);
-        out["calls"][name] = lead.clone();
     }
     // The kinds that declare an exact name lead first; the names an exact
     // entry cut follow, a list past the schema's item bound in

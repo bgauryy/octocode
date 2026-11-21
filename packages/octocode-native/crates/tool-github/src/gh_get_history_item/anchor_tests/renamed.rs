@@ -33,8 +33,8 @@ fn assert_names_the_rename(data: &Value) {
     assert_leads_canonical(data);
 }
 
-/// A commit read under the old name leads (its pull request, its files)
-/// under the canonical one: each lead runs unchanged.
+/// A commit read under the old name leads (its files' reads) under the
+/// canonical one: each lead runs unchanged.
 #[tokio::test]
 async fn a_commit_of_a_renamed_repository_leads_canonically() {
     let server = MockServer::builder().start().await;
@@ -51,7 +51,7 @@ async fn a_commit_of_a_renamed_repository_leads_canonically() {
     .await;
     let out = read_renamed(
         &server,
-        json!({"operation":"commit","owner":"a","repo":"b","ref":HEAD}),
+        json!({"operation":"commit","owner":"a","repo":"b","ref":HEAD,"sections":["patches"]}),
     )
     .await;
     assert_eq!(out["commitSha"], HEAD, "{out}");

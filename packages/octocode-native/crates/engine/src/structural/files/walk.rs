@@ -45,7 +45,7 @@ pub(super) struct Walked<'a> {
 /// is its own candidate when the globs admit it.
 ///
 /// The walker applies only the globs; the ignore and dot rules are the text
-/// search's ([`EntryRule`], the walker's own precedence), applied here with
+/// search's ([`EntryRule`]: a glob only narrows), applied here with
 /// the default prune, so every entry they leave out is recorded
 /// ([`WalkSkipped`]) instead of vanishing inside the walker.
 pub(super) fn collect_files(
@@ -85,12 +85,7 @@ pub(super) fn collect_files(
         IgnorePolicy::ALL,
         walked.max_depth.map(|n| n as usize),
     );
-    let rule = EntryRule::of(
-        root,
-        walked.ignore,
-        walked.global_ignore,
-        Some(walked.globs.overrides()),
-    );
+    let rule = EntryRule::of(root, walked.ignore, walked.global_ignore);
     let skipped = Arc::new(Mutex::new(WalkSkipped::default()));
     // The steps of a walk being recorded, in the order the walker takes them:
     // what its rules leave out is noted as the walker meets it.

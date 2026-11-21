@@ -106,7 +106,9 @@ pub fn failure(
             )),
         )
     } else if error.kind == ProviderErrorKind::NotFound {
-        path_recovery(query, &at, found)
+        let (hint, next) = path_recovery(query, &at, found);
+        label = hint;
+        (None, next)
     } else {
         (provider_hint(&error), None)
     };
@@ -136,7 +138,7 @@ fn path_recovery(
     query: &GhGetFileContentQuery,
     at: &RepoPath<'_>,
     found: Option<Located>,
-) -> (Option<&'static str>, Option<Value>) {
+) -> (Option<String>, Option<Value>) {
     let Some(Located { found, renamed }) = found else {
         let parent = parent_dir(at.path);
         let listing = RepoPath {
@@ -165,15 +167,17 @@ fn path_recovery(
         return (
             found
                 .truncated
-                .then_some(octocode_tools_shared::gh_shared::LISTING_MAY_BE_CUT_HINT),
+                .then(|| octocode_tools_shared::gh_shared::LISTING_MAY_BE_CUT_HINT.to_owned()),
             view_tree(),
         );
     };
     let hint = match (path == at.path, renamed) {
-        (false, _) => octocode_tools_shared::gh_shared::CASE_DIFFERS_HINT,
-        (true, true) => OLD_NAME_NOT_READ_HINT,
+        // The path given was a whole listing entry: the read is of its path.
+        _ if found.listing_entry => octocode_tools_shared::root_read::listing_entry_note(&path),
+        (false, _) => octocode_tools_shared::gh_shared::CASE_DIFFERS_HINT.to_owned(),
+        (true, true) => OLD_NAME_NOT_READ_HINT.to_owned(),
         // The read led to would be the one that failed.
-        (true, false) => return (Some(LISTED_NOT_READ_HINT), view_tree()),
+        (true, false) => return (Some(LISTED_NOT_READ_HINT.to_owned()), view_tree()),
     };
     let mut read = query_row(query, &[]);
     read["path"] = json!(path);

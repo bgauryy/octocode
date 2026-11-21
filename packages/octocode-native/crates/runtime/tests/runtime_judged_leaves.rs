@@ -57,18 +57,12 @@ fn cursor_in(value: &Value) -> Option<String> {
     }
 }
 
-/// The `nextPage` continuation anywhere in `value`.
-fn next_page(value: &Value) -> Option<&Value> {
-    match value {
-        Value::Object(map) => map
-            .get("nextPage")
-            .or_else(|| map.values().find_map(next_page)),
-        Value::Array(items) => items.iter().find_map(next_page),
-        _ => None,
-    }
+/// The reply's one continuation: its top-level `next`.
+fn next_page(output: &Value) -> Option<&Value> {
+    output.get("next")
 }
 
-/// Every page of a whole-file read, in order, following `nextPage`.
+/// Every page of a whole-file read, in order, following the reply's `next`.
 async fn whole_read_pages(
     runtime: &octocode_native::runtime::ToolRuntime,
     path: &std::path::Path,
@@ -779,7 +773,27 @@ async fn a_minified_source_walks_to_its_end() {
             .as_str()
             .unwrap_or_else(|| panic!("page {pages}: no content: {output}"));
         assert!(!content.contains("[REDACTED"), "page {pages}: {content}");
-        read.push_str(content);
+        // One format through the walk: each row that starts a line carries
+        // its gutter, and a page that opens inside the long line states the
+        // line it continues and leaves that row bare.
+        let data = &output["results"][0]["data"];
+        assert!(
+            data.get("sourceLineRanges").is_none(),
+            "page {pages}: {data}"
+        );
+        let continues = data.get("continuesLine").and_then(Value::as_u64);
+        for (at, row) in content.split_inclusive('\n').enumerate() {
+            if at == 0 && continues.is_some() {
+                read.push_str(row);
+            } else {
+                let (number, text) = row
+                    .split_once('\t')
+                    .unwrap_or_else(|| panic!("page {pages}: a gutter: {row:.80}"));
+                let line: u64 = number.parse().expect("a line number");
+                assert!(continues.is_none_or(|before| line > before), "{data}");
+                read.push_str(text);
+            }
+        }
         pages += 1;
         let Some(cursor) = next_page(&output).and_then(cursor_in) else {
             break;
@@ -859,7 +873,7 @@ async fn a_views_own_warnings_read_as_written() {
 }
 
 /// Every page of the localFetch read `query` starts, in order: each page's
-/// row, until no `nextPage` remains. A page that fails (round 13: the gate
+/// row, until no reply carries a `next`. A page that fails (round 13: the gate
 /// rewrote the continuation's `snapshot`, `outputContractViolation`) fails
 /// the walk.
 async fn walk_read(

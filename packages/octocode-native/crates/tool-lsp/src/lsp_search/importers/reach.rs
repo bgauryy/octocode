@@ -395,9 +395,10 @@ impl AnchorModule {
         // A relay that declares the name itself exports its own, not an
         // object holding the anchor's.
         let passes_objects = reading == Reading::Relay
-            && !facts.declarations.iter().any(|declaration| {
-                declaration.parent.is_none() && declaration.name == self.symbol
-            });
+            && !facts
+                .declarations
+                .iter()
+                .any(|declaration| declaration.parent.is_none() && declaration.name == self.symbol);
         // A dynamic `import()` (or an `import('…')` type) is not in the
         // facts: a literal one binds what the file reads off it, a computed
         // one may name any module. A relay passes on only a literal load
@@ -415,8 +416,7 @@ impl AnchorModule {
             let binds = match reading {
                 Reading::Relay => passes_objects && exports_any_of(facts, statement),
                 Reading::Candidate | Reading::Binding => {
-                    spells(statement, "", &self.symbol)
-                        || (reading == Reading::Candidate && member)
+                    spells(statement, "", &self.symbol) || (reading == Reading::Candidate && member)
                 }
             };
             let reached = match (load.get(1).or_else(|| load.get(2)), reading) {

@@ -13,7 +13,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 /// ref warns with the index commit and keeps its ghStructure lead to the ref
 /// first among the leads.
 #[tokio::test]
-async fn pinned_ref_code_search_warns_and_leads_to_the_ref_listing() {
+async fn pinned_ref_code_search_warns_and_names_the_route_in_words() {
     let server = MockServer::builder().start().await;
     let at_ref = "0123456789abcdef0123456789abcdef01234567";
     let head = "fedcba9876543210fedcba9876543210fedcba98";
@@ -79,7 +79,8 @@ async fn pinned_ref_code_search_warns_and_leads_to_the_ref_listing() {
     .await
     .expect("search");
     let data = row_data(&out);
-    // The warning states the per-call facts only; the route is the lead.
+    // The warning limits trust in the evidence and says the route in words;
+    // an evidence row carries no related call (the row states `dev`).
     assert_eq!(
         data["warnings"],
         json_fixture(
@@ -89,12 +90,8 @@ async fn pinned_ref_code_search_warns_and_leads_to_the_ref_listing() {
         ),
         "{data}"
     );
-    let lead = &crate::support::checks::related_call(data, "ghStructure", |input| {
-        input["queries"][0]["operation"] != "refs"
-    });
-    assert_eq!(lead["tool"], "ghStructure", "{data}");
-    assert_eq!(lead["input"]["queries"][0]["ref"], at_ref, "{data}");
-    assert_eq!(lead["input"]["queries"][0]["path"], "pkg", "{data}");
+    assert!(data.get("related").is_none(), "{data}");
+    assert!(data.get("hints").is_none(), "{data}");
     runtime.close().await;
 }
 
@@ -293,9 +290,7 @@ async fn gh_file_read_of_a_renamed_repository_names_the_canonical_repository() {
             .collect::<Vec<_>>();
         assert_eq!(
             renames,
-            [&json!(
-                "Repository a/b was renamed to c/d; leads use the canonical name."
-            )],
+            [&json!("Repository a/b was renamed to c/d: use that name.")],
             "one rename warning: {data}"
         );
         assert_eq!(data["owner"], "c", "{data}");

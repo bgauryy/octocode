@@ -258,3 +258,19 @@ fn a_drain_wait_ends_on_silence_but_not_while_heartbeats_arrive() {
     assert!(failed.contains("not cleared"), "{failed}");
     silent.join().expect("server");
 }
+
+/// The sharers of the language-server memory budget are the server sockets
+/// of the directory, this server's included; other files do not count.
+#[test]
+fn the_budget_sharers_are_the_server_sockets_of_the_directory() {
+    let dir = tempfile::tempdir().expect("dir");
+    assert_eq!(server_socket_count(dir.path()), 0);
+    for name in ["serve-a.sock", "serve-b.sock", "serve-c.sock"] {
+        std::fs::write(dir.path().join(name), "").expect("socket");
+    }
+    for other in ["serve-a.lock", "startup-1", "other.sock"] {
+        std::fs::write(dir.path().join(other), "").expect("file");
+    }
+    assert_eq!(server_socket_count(dir.path()), 3);
+    assert_eq!(server_socket_count(&dir.path().join("missing")), 0);
+}

@@ -19,7 +19,10 @@ fn directory_scan_options(
 ) -> GraphFactsScanOptions {
     GraphFactsScanOptions {
         path: canonical.to_string_lossy().into_owned(),
-        default_exclude_dir: Some(prune::walk_names(q.default_excludes.defaults(), &[])),
+        default_exclude_dir: Some(prune::walk_names(
+            q.default_excludes.defaults(),
+            &ast_search_query_symbols::include(q),
+        )),
         exclude: ast_search_query_symbols::exclude(q),
         max_files: crate::ast_search::scan_window::window_files(
             ast_search_query_symbols::scan_offset(q),
@@ -88,12 +91,19 @@ pub(super) fn walk_directory(
     let outlined = octocode_engine::signatures::languages::RegistryView::installed()
         .extensions(octocode_engine::text::analysis::AnalysisOperation::Declarations);
     let mapped = mapped_files(q, canonical)?;
+    // `include` keeps the files `match` keeps by it: the engine's outline
+    // walk takes no include globs, so this walk's admission applies the
+    // same compiled set, before the path policy is asked (a file the globs
+    // leave out is no gap of this outline, withheld or not).
+    let include = ast_search_query_symbols::include(q);
+    let globs = octocode_engine::search::glob::compile(canonical, &include, &[])
+        .map_err(crate::ast_search::errors::native_error)?;
     let admission = octocode_runtime_base::policy::discovery::WalkAdmission::new(
         paths.discovery_walk(),
         canonical,
         octocode_runtime_base::policy::discovery::WalkRules {
             defaults: q.default_excludes.defaults(),
-            include: &[],
+            include: &include,
             generated: true,
             engine_prunes: true,
         },
@@ -104,6 +114,9 @@ pub(super) fn walk_directory(
         &|path, file_type| {
             // The entry's extension is read once, however many checks ask.
             let verdict = std::cell::OnceCell::new();
+            if file_type.is_some_and(|kind| !kind.is_dir()) && !globs.includes(path, false) {
+                return false;
+            }
             let is_outlinable =
                 || *verdict.get_or_init(|| outlinable(&outlined, mapped.as_ref(), path));
             // Only a directory or an outlinable file leaves absence unproven
@@ -132,7 +145,7 @@ pub(super) fn walk_directory(
     // file only when it is outlinable.
     admission.record_left_out(
         (&files.ignored, &files.hidden, &files.pruned_dirs),
-        |path| outlinable(&outlined, mapped.as_ref(), path),
+        |path| globs.includes(path, false) && outlinable(&outlined, mapped.as_ref(), path),
     );
     Ok(DirectoryWalk {
         walk_errors: (files.skipped, files.permission_denied),

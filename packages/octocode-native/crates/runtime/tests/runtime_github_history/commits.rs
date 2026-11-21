@@ -94,8 +94,13 @@ async fn gh_get_history_item_capped_file_scan_is_not_a_complete_count() {
     .await
     .expect("capped commit scan");
     let data = row_data(&outcome);
-    assert_eq!(
-        data["sectionPagination"]["files"]["countScope"], "partial",
+    // A capped scan states no total for its files, and says why the count
+    // is incomplete.
+    assert!(
+        data.pointer("/sectionPagination/files/total").is_none()
+            && data["partialReasons"]
+                .as_array()
+                .is_some_and(|reasons| !reasons.is_empty()),
         "{}",
         outcome.structured_content
     );
@@ -144,7 +149,11 @@ async fn commit_patch_view_keeps_the_whole_message() {
         assert_eq!(data["message"], message, "{sections}: {data}");
         assert!(data.get("messageHeadline").is_none(), "{sections}: {data}");
         assert!(
-            data.pointer("/calls/readCommit").is_none(),
+            data["related"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .all(|call| call["input"]["queries"][0]["operation"] != "commit"),
             "the message is whole, no read restates it: {data}"
         );
     }

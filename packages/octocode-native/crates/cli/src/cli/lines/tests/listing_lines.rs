@@ -365,13 +365,13 @@ fn lsp_results_print_as_lines() {
                                 "path": "w.rs",
                                 "line": 73,
                                 "column": 8,
-                                "content": "72\t/// doc\n73\tpub fn f(\n74\t) {}\n… 40 more lines omitted (source lines 133-172)."
+                                "value": "72\t/// doc\n73\tpub fn f(\n74\t) {}\n… 40 more lines omitted (source lines 133-172)."
                             },
                             {
                                 "path": "w.rs",
                                 "line": 90,
                                 "column": 4,
-                                "content": "90\tf();\n"
+                                "value": "90\tf();\n"
                             }
                         ]
                     }
@@ -396,7 +396,7 @@ fn lsp_results_print_as_lines() {
                                 "path": "w.rs",
                                 "line": 23,
                                 "column": 10,
-                                "content": "23\t#[derive(Clone)]",
+                                "value": "23\t#[derive(Clone)]",
                                 "isDefinition": true
                             }
                         ]
@@ -445,7 +445,7 @@ fn lsp_results_print_as_lines() {
                                 "path": "w.rs",
                                 "line": 3,
                                 "column": 1,
-                                "content": "[content unavailable: binary]"
+                                "value": "[content unavailable: binary]"
                             }
                         ]
                     }
@@ -767,10 +767,11 @@ fn refs_as_name_and_commit_strings_print_one_per_line() {
     eprintln!("{}", lines.out);
 }
 
-/// Q5: an outline of line-first strings prints as the declarations they
-/// state, members under their parent, exactly as the objects did.
+/// Q5: an outline of line-first strings prints each string as the row it
+/// is, `N: text` under the file's path: text adds, renames and drops nothing
+/// the string states, so it is never larger than the JSON.
 #[test]
-fn an_outline_of_line_first_strings_prints_as_its_declarations() {
+fn an_outline_of_line_first_strings_prints_each_row_as_stated() {
     let symbols = json!([
         {"symbolName": "Pager", "kind": "struct", "line": 70, "endLine": 120, "members": [
             {"symbolName": "new", "kind": "method", "line": 74, "endLine": 80}]},
@@ -779,10 +780,263 @@ fn an_outline_of_line_first_strings_prints_as_its_declarations() {
     let lines = octocode_runtime_base::response::symbol_outline::outline_lines(
         symbols.as_array().expect("symbols"),
     );
-    let output = |symbols: Value| json!({"results": [{"index": 0, "data": {"files": [{"path": "src/pager.rs", "symbols": symbols}]}}]});
+    let output = json!({"results": [{"index": 0, "data": {"files": [{"path": "src/pager.rs", "symbols": lines}]}}]});
     let query = json!({"queries": [{"path": "src", "operation": "symbols"}]});
-    let objects = render(ToolId::AstSearch, &output(symbols), &query, None).expect("lines");
-    let strings = render(ToolId::AstSearch, &output(json!(lines)), &query, None).expect("lines");
-    assert_eq!(strings.out, objects.out);
-    assert_eq!(strings.notes, objects.notes);
+    let printed = render(ToolId::AstSearch, &output, &query, None).expect("lines");
+    let mut rows = printed.out.lines();
+    assert_eq!(rows.next(), Some("src/pager.rs"), "{}", printed.out);
+    for line in &lines {
+        let (number, text) = line.split_once('\t').expect("a line-first row");
+        assert_eq!(
+            rows.next(),
+            Some(format!("{number}: {text}").as_str()),
+            "{}",
+            printed.out
+        );
+    }
+    assert_eq!(rows.next(), None, "{}", printed.out);
+    assert!(
+        printed.out.len() <= output.to_string().len(),
+        "{}",
+        printed.out
+    );
+}
+
+/// `files` as one row of one tool's listing, with any other `data` fields.
+fn listing_of(files: Value, mut data: Value) -> Value {
+    data["files"] = files;
+    json!({"results": [{"index": 0, "data": data}]})
+}
+
+/// The lines of a rendered listing's entries (not `# …` notes), and the
+/// root they are relative to, when one is stated.
+fn entry_lines(lines: &Lines) -> (Option<&str>, Vec<&str>) {
+    let root = lines
+        .out
+        .lines()
+        .chain(lines.notes.lines())
+        .find_map(|line| line.strip_prefix("# root: "));
+    let entries = lines
+        .out
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .collect();
+    (root, entries)
+}
+
+/// A flat listing row (a string naming its entry by path) prints as exactly
+/// one line, a file and a directory alike, in the page's order: the row as
+/// the result spells it, from the root the lines state (`listed` when they
+/// state none), so the printed root, `/` and the line are the entry's path
+/// from `listed`'s parent, and no line carries a prefix (`./`) the row does
+/// not have. Both text forms print the same entries.
+fn assert_one_line_each(tool: ToolId, query: &Value, data: Value, rows: &[&str], listed: &str) {
+    let structured = listing_of(json!(rows), data);
+    let terminal = render(tool, &structured, query, None).expect("terminal");
+    let mcp = render_as(tool, &structured, query, None, Form::MCP).expect("mcp");
+    let join = |dir: &str, entry: &str| match dir {
+        "" | "." => entry.to_owned(),
+        dir => format!("{dir}/{entry}"),
+    };
+    for text in [&terminal, &mcp] {
+        let (root, entries) = entry_lines(text);
+        assert_eq!(entries.len(), rows.len(), "one line a row: {}", text.out);
+        for (line, row) in entries.iter().zip(rows) {
+            assert_eq!(
+                join(root.unwrap_or_default(), line),
+                join(listed, row),
+                "{}",
+                text.out
+            );
+            assert!(!line.starts_with("./"), "no prefix of its own: {line}");
+        }
+        // A root is stated only where it shortens the lines, and lies at or
+        // under the listed path.
+        if let Some(root) = root {
+            assert!(rows.len() > 1, "{}", text.out);
+            assert!(join(root, "").starts_with(&join(listed, "")), "{root}");
+        }
+    }
+}
+
+/// A ranked `structureSearch` page lists flat rows that are row paths (the
+/// form every local row takes, whatever path the request listed): files of
+/// the listed directory itself, nested files and directories (which rank
+/// last) each print as one line under the one root they share, and the
+/// root, `/` and the line are the path the result states.
+#[test]
+fn a_ranked_local_listing_prints_one_line_per_row_under_one_root() {
+    let under = |dir: &str, rows: &[&str]| {
+        rows.iter()
+            .map(|row| format!("{dir}/{row}"))
+            .collect::<Vec<_>>()
+    };
+    let asked = |path: &str| json!({"queries": [{"operation": "files", "path": path, "sort": {"by": "bytes"}}]});
+    let rows = under(
+        "pkg/src/cli",
+        &[
+            "lines/tests/big.rs (900, totalLines=30)",
+            "mid.rs (500)",
+            "lines/small.rs (10)",
+            "lines/",
+            "lines/tests/",
+        ],
+    );
+    let rows = rows.iter().map(String::as_str).collect::<Vec<_>>();
+    // The same lines whether the request spelled the path as the rows do, or
+    // absolutely, or the page is a cursor's: the rows state their own paths.
+    for query in [
+        asked("pkg/src/cli"),
+        asked("/abs/workspace/pkg/src/cli"),
+        json!({"cursor": "cursor2.listing-page"}),
+    ] {
+        assert_one_line_each(ToolId::StructureSearch, &query, json!({}), &rows, ".");
+        let lines = render(
+            ToolId::StructureSearch,
+            &listing_of(json!(rows), json!({})),
+            &query,
+            None,
+        )
+        .expect("lines");
+        let (root, entries) = entry_lines(&lines);
+        let root = root.unwrap_or_else(|| panic!("a shared root: {}", lines.out));
+        let stated = entries
+            .iter()
+            .map(|line| format!("{root}/{line}"))
+            .collect::<Vec<_>>();
+        assert_eq!(stated, rows, "root/line is the row");
+    }
+    // A listed directory with no subdirectories: its files, from it.
+    let files = under(
+        "pkg/src/cli/server",
+        &["handler.rs (9397)", "warm.rs (3708)", "reply.rs (2268)"],
+    );
+    assert_one_line_each(
+        ToolId::StructureSearch,
+        &asked("pkg/src/cli/server/"),
+        json!({}),
+        &files.iter().map(String::as_str).collect::<Vec<_>>(),
+        ".",
+    );
+    // One row: its whole path on its line.
+    assert_one_line_each(
+        ToolId::StructureSearch,
+        &asked("pkg/src"),
+        json!({}),
+        &["pkg/src/only.rs (1)"],
+        ".",
+    );
+    // The workspace root listed: rows that share no directory state no root.
+    assert_one_line_each(
+        ToolId::StructureSearch,
+        &asked("."),
+        json!({}),
+        &[
+            "src/a/big.rs (900)",
+            "README.md (40)",
+            "docs/",
+            "top (draft).md",
+        ],
+        ".",
+    );
+    // Rows outside the workspace are named from the root the row states.
+    let outside = ["src/a.rs (9)", "src/deep/b.rs (8)"];
+    let lines = render(
+        ToolId::StructureSearch,
+        &listing_of(json!(outside), json!({"root": "/clones/o/r"})),
+        &asked("/clones/o/r"),
+        None,
+    )
+    .expect("lines");
+    let (root, entries) = entry_lines(&lines);
+    let root = root.expect("a stated root prints");
+    assert!(root.starts_with("/clones/o/r"), "{}", lines.out);
+    for (line, row) in entries.iter().zip(outside) {
+        assert_eq!(format!("{root}/{line}"), format!("/clones/o/r/{row}"));
+    }
+}
+
+/// A `ghStructure` page mixes groups with flat rows (a directory listing
+/// one entry is that entry's repository-relative path): each flat file row
+/// is its own line beside the groups, a symlink's target path staying in its
+/// fields; a page of flat rows only prints one line a row, from the
+/// directory they share.
+#[test]
+fn a_repository_listing_prints_each_flat_row_as_one_line() {
+    let query = json!({"queries": [{"operation": "tree", "owner": "o", "repo": "r"}]});
+    let flat = [
+        "docs/guide.md (812)",
+        "src/deep/",
+        "src/deep/er/current (link -> ../../lib/v2)",
+        "top (draft).md",
+    ];
+    let mixed = json!([
+        {"dir": ".", "files": ["LICENSE (1071)", "src/"]},
+        flat[0],
+        flat[1],
+        {"dir": "src/deep", "files": ["a.rs (10)", "b.rs (20)"]},
+        flat[2],
+        flat[3]
+    ]);
+    let lines = render(
+        ToolId::GhStructure,
+        &listing_of(mixed, json!({"ref": "main"})),
+        &query,
+        None,
+    )
+    .expect("lines");
+    let (root, entries) = entry_lines(&lines);
+    assert_eq!(root, None, "{}", lines.out);
+    // Beside groups a `dir/` line is a heading, so the flat directory row
+    // keeps the form its group of one has; every other flat row is its line.
+    assert_eq!(
+        entries,
+        [
+            "./",
+            "  LICENSE (1071)",
+            "  src/",
+            flat[0],
+            "src/",
+            "  deep/",
+            "src/deep/",
+            "  a.rs (10)",
+            "  b.rs (20)",
+            flat[2],
+            flat[3],
+        ],
+        "{}",
+        lines.out
+    );
+    assert_one_line_each(ToolId::GhStructure, &query, json!({}), &flat, ".");
+    assert_one_line_each(
+        ToolId::GhStructure,
+        &query,
+        json!({}),
+        &["src/deep/a.rs (1)", "src/deep/er/", "src/deep/er/b.rs (2)"],
+        ".",
+    );
+}
+
+/// A flat local row is its own path: with no request beside it (a bare
+/// cursor) and no directory shared, every row prints as stated.
+#[test]
+fn a_flat_row_with_no_listed_path_prints_as_stated() {
+    let rows = ["lines/big.rs (900)", "mid.rs (500)"];
+    let lines = render(
+        ToolId::StructureSearch,
+        &listing_of(json!(rows), json!({})),
+        &json!({"queries": [{"cursor": "cursor2.listing-page"}]}),
+        None,
+    )
+    .expect("lines");
+    for row in rows {
+        assert!(
+            lines
+                .out
+                .lines()
+                .any(|line| line.trim_start().trim_start_matches("- ") == row),
+            "{row}: {}",
+            lines.out
+        );
+    }
 }

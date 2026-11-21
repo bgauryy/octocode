@@ -35,27 +35,6 @@ pub trait ToolOutput: Sync {
     fn error_hint(&self, _code: ErrorCode, _query: &Value) -> Option<&'static str> {
         None
     }
-
-    /// Finish a classified provider page's row `data` after selection: the
-    /// tool's own leads may only name the selected evidence. `hidden` holds
-    /// the files a code page judged related or unknown (neither shown nor
-    /// excluded), for a judged read of what their rows did not list.
-    /// `removed` holds every unit selection cut from a row-listing page, as
-    /// the page listed it (a listing entry as `{"path"}`), so a lead to one
-    /// can be dropped.
-    fn finish_selection(
-        &self,
-        _data: &mut Value,
-        _query: &Value,
-        _hidden: &[Value],
-        _removed: &[Value],
-    ) {
-    }
-
-    /// Remove from a classified row's `data` what only the judge read (a
-    /// listing's body), unless the query asked for it. Called on every
-    /// outcome of one row's selection: selected, failed or unavailable.
-    fn strip_judge_only(&self, _data: &mut Value, _query: &Value) {}
 }
 
 /// Keep, in each `tool` lead of `data` (`next` calls and `related[]`), only
@@ -95,10 +74,9 @@ impl ToolOutput for SharedOutput {}
 pub(crate) const SANDBOX_HINT: &str = "Outside allowed roots (the workspace is WORKSPACE_ROOT, else the directory octocode started in): run from inside that project or set WORKSPACE_ROOT to it, or add the dir to ALLOWED_PATHS (comma list) in the env or ~/.octocode/.env, not a workspace file.";
 
 /// Recovery for a name that does not resolve (a path, repository, package,
-/// version or symbol): check it where it was looked up, a path from its
-/// parent. One text serves every tool, so it names none: the row's own
-/// related[] request lists the parent where one exists.
-pub const NOT_FOUND_HINT: &str = "Check the exact name, where it was looked up and access to it; for a path, list its parent directory (the related[] listing request when one is given), then retry with the exact listed path.";
+/// version or symbol) on a row that offers no call: one text serves every
+/// tool, so it names none. A row with a `related` call states no hint.
+pub const NOT_FOUND_HINT: &str = "Check the exact name and where it was looked up; for a path, list its parent directory and retry with the exact listed path.";
 
 /// An `error_hint` for a code whose typed error and leads are the whole
 /// answer: no fallback text is added.

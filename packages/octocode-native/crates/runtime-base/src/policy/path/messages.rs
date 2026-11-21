@@ -4,6 +4,10 @@ use super::{EntryKind, PathPolicy, projected_canonical_root};
 use crate::policy::{PolicyError, PolicyErrorCode};
 use octocode_engine::text::lexical;
 
+/// Most allowed folders of one parent a denial names one by one; more are named
+/// as their parent with a count.
+const SIBLINGS_LISTED: usize = 3;
+
 impl PathPolicy {
     /// A denied path for public messages: workspace-relative when the
     /// expanded path lies in the workspace, otherwise the caller's literal
@@ -86,7 +90,7 @@ impl PathPolicy {
             })
             .map(|(_, root)| root)
             .collect::<Vec<_>>();
-        let mut shown: Vec<String> = Vec::new();
+        let mut listed: Vec<&Path> = Vec::new();
         let mut fetched = false;
         for root in &configured {
             if self.workspace_root.as_ref() == Some(*root) {
@@ -99,8 +103,26 @@ impl PathPolicy {
             let nested = configured
                 .iter()
                 .any(|other| other != root && root.starts_with(other));
-            let name = self.redact(root);
-            if !nested && !shown.contains(&name) {
+            if !nested && !listed.contains(&root.as_path()) {
+                listed.push(root);
+            }
+        }
+        let mut shown: Vec<String> = Vec::new();
+        for root in &listed {
+            let siblings = root.parent().map_or(0, |parent| {
+                listed
+                    .iter()
+                    .filter(|other| other.parent() == Some(parent))
+                    .count()
+            });
+            let name = match root.parent() {
+                // Many folders of one parent (skill folders, say) read as one entry, not one each.
+                Some(parent) if siblings > SIBLINGS_LISTED => {
+                    format!("{}/* ({siblings} folders)", self.redact(parent))
+                }
+                _ => self.redact(root),
+            };
+            if !shown.contains(&name) {
                 shown.push(name);
             }
         }

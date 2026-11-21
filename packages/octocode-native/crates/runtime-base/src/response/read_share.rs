@@ -44,16 +44,6 @@ pub fn fill_together(tool: ToolId) -> bool {
     tool.reads_source() && tool.rereads_free()
 }
 
-/// Whether the row of `query` may be read again with a wider share: a row
-/// with a provider field (`classification`, `selection`) is judged, and a
-/// second read would ask the judge again.
-#[must_use]
-pub fn reads_again(query: &Value) -> bool {
-    crate::contracts::PROVIDER_FIELDS
-        .iter()
-        .all(|field| query.get(field).is_none())
-}
-
 /// Whether a source row's page ends before its read does: it continues its
 /// own walk (`next.nextPage`).
 #[must_use]
@@ -124,10 +114,57 @@ pub fn published_chars(row: &Value) -> Published {
     super::pages::publish_rows(&mut staged);
     let data = &mut staged["results"][0]["data"];
     as_cursors(data);
+    // The row's own page walk is served as the reply's `next`: the call
+    // leaves the row and sits on the envelope (`,"next":` and the call), and
+    // a `next` it leaves empty goes with it.
+    let mut walk = 0;
+    if let Some(next) = data.get_mut("next").and_then(Value::as_object_mut)
+        && let Some(call) = next.shift_remove(super::continuations::LINEAR_WALK)
+    {
+        walk = utf16_units(&call).unwrap_or(0) + super::continuations::RESPONSE_NEXT.len() + 4;
+        if next.is_empty()
+            && let Some(data) = data.as_object_mut()
+        {
+            data.shift_remove("next");
+        }
+    }
     Published {
-        row: utf16_units(data).unwrap_or(0),
+        row: utf16_units(data).unwrap_or(0) + walk,
         text: data["content"].as_str().map_or(0, string_body_units),
     }
+}
+
+/// Response chars of `page`, an envelope of native rows, as it is served:
+/// its blocks published (`pages::publish_rows`: no `hasMore`, no
+/// `countScope`, a `total` only when exact) and the rows' page walks stated
+/// once, as the reply's `next`. What a tool that cuts its own page to the
+/// response window measures its skeleton with.
+pub fn served_page_chars(mut page: Value) -> usize {
+    super::pages::publish_rows(&mut page);
+    let mut walk = None;
+    for row in page
+        .get_mut("results")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
+        let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) else {
+            continue;
+        };
+        let Some(next) = data.get_mut("next").and_then(Value::as_object_mut) else {
+            continue;
+        };
+        if let Some(call) = next.shift_remove(super::continuations::LINEAR_WALK) {
+            walk.get_or_insert(call);
+        }
+        if next.is_empty() {
+            data.shift_remove("next");
+        }
+    }
+    if let Some(call) = walk {
+        page[super::continuations::RESPONSE_NEXT] = call;
+    }
+    utf16_units(&page).unwrap_or(0)
 }
 
 /// Each executable call under `value` with the input publication gives it:

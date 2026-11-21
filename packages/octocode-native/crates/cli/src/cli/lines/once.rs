@@ -1,17 +1,21 @@
-//! What text states once instead of on every row it holds for: the
-//! directory a row's paths share, the scope a graph row's paths lie in, a
-//! row's counters, what a walk skipped, the fields every row of a batch
-//! shares, and the fields every item of a list shares. Each stays a fact of
-//! the result, said once; `--json` keeps every row whole.
-use super::follow::split_stated;
+//! How text lays out what a row states: the directory its printed paths
+//! share on one `# root:` line with those paths relative to it, its counters
+//! and what its walk skipped on one line each, and a field every item of one
+//! list holds with one value after the list's key. Layout only: text adds no
+//! fact the JSON lacks, and what a batch's rows share is stated once by the
+//! response alone (`response::hoist`).
+use super::listing::entry_name;
 use super::table::is_word;
 use super::words;
-use octocode_runtime_base::id::ToolId;
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
 
 /// The fields of `data` whose items name the files a row prints.
 const ROW_FILES: [&str; 2] = ["files", "matches"];
+
+/// The field of `data` whose string items are a listing's flat rows, each
+/// naming its entry by path (`<path>[/][ (<fields>)]`).
+const FLAT_ROWS: &str = "files";
 
 /// The field of `data` naming the paths a row's walk skipped: each entry's
 /// `path` is a file or the directory holding what was left out.
@@ -54,10 +58,7 @@ fn strip_root(value: &mut Value, root: &str) {
                         } else if path == root {
                             // A skipped entry naming the root directory itself.
                             *path = ".".to_owned();
-                        } else if let Some(rest) = path
-                            .strip_prefix(root)
-                            .and_then(|rest| rest.strip_prefix('/'))
-                        {
+                        } else if let Some(rest) = under(path, root) {
                             *path = rest.to_owned();
                         }
                     }
@@ -70,15 +71,23 @@ fn strip_root(value: &mut Value, root: &str) {
     }
 }
 
-/// The directory every path of a row (its `files`, `matches` and the
-/// `skippedPaths` entries, the directory such an entry names included) lies
-/// under, when stating it once is shorter than repeating it on each path:
-/// each of their paths is rewritten relative to it, so `root/path` is the
-/// path the result names and `path:N` stays a line. A row that states the
-/// `root` its paths are named from (evidence outside the workspace) has it
-/// taken into that one root. `None` (nothing rewritten) when the files
-/// share no directory or the note would cost more than it saves.
-pub(super) fn relative_paths(data: &mut Map<String, Value>) -> Option<String> {
+/// `path` relative to `root`, when it lies under it.
+fn under<'a>(path: &'a str, root: &str) -> Option<&'a str> {
+    path.strip_prefix(root)?.strip_prefix('/')
+}
+
+/// The one layout rule for paths: the directory every printed path of a row
+/// lies under (its `files` and `matches`, a listing's group headings and,
+/// when `flat`, its flat rows, and the `skippedPaths` entries), when stating
+/// it once is shorter than repeating it on each path. Each of those paths is
+/// rewritten relative to it, so the returned root, `/` and a printed path
+/// are the path the result names, and `path:N` stays a line. A row that
+/// states the `root` its paths are named from (evidence outside the
+/// workspace) has it taken into that one root (`<stated>/<shared>`), so text
+/// prints one `# root:` line and the same join reads every path. `None`
+/// (nothing rewritten) for one path, for paths that share no directory, or
+/// when the line would cost more than it saves.
+pub(super) fn relative_paths(data: &mut Map<String, Value>, flat: bool) -> Option<String> {
     let stated = match data.shift_remove("root") {
         Some(Value::String(root)) => Some(root),
         Some(other) => {
@@ -87,7 +96,7 @@ pub(super) fn relative_paths(data: &mut Map<String, Value>) -> Option<String> {
         }
         None => None,
     };
-    let shared = shared_dir(data);
+    let shared = shared_dir(data, flat);
     match (stated, shared) {
         (Some(stated), Some(shared)) => Some(format!("{stated}/{shared}")),
         (Some(stated), None) => Some(stated),
@@ -96,12 +105,26 @@ pub(super) fn relative_paths(data: &mut Map<String, Value>) -> Option<String> {
 }
 
 /// [`relative_paths`] of the paths as the row names them.
-fn shared_dir(data: &mut Map<String, Value>) -> Option<String> {
+fn shared_dir(data: &mut Map<String, Value>, flat: bool) -> Option<String> {
     let mut paths = BTreeSet::new();
     for key in ROW_FILES {
         if let Some(files) = data.get(key) {
             row_paths(files, &mut paths);
         }
+    }
+    // A flat row names a file or a directory by its path: either lies in the
+    // directory before its last part, so no row is the root itself.
+    if flat {
+        let rows = data.get(FLAT_ROWS).and_then(Value::as_array);
+        paths.extend(
+            rows.into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(|row| {
+                    let name = entry_name(row);
+                    (name.strip_suffix('/').unwrap_or(name), false)
+                }),
+        );
     }
     // A skipped entry may name the directory holding what was left out,
     // which the root may be.
@@ -136,7 +159,7 @@ fn shared_dir(data: &mut Map<String, Value>) -> Option<String> {
         });
     }
     let root = shared?.join("/");
-    // `# root: <root>` and its line break, against `<root>/` on each file.
+    // `# root: <root>` and its line break, against `<root>/` on each path.
     let note = "# root: \n".len() + root.len();
     if root.is_empty() || root == "." || paths.len() * (root.len() + 1) <= note {
         return None;
@@ -144,6 +167,15 @@ fn shared_dir(data: &mut Map<String, Value>) -> Option<String> {
     for key in ROW_FILES.into_iter().chain([SKIPPED]) {
         if let Some(files) = data.get_mut(key) {
             strip_root(files, &root);
+        }
+    }
+    if flat && let Some(Value::Array(rows)) = data.get_mut(FLAT_ROWS) {
+        for row in rows {
+            if let Value::String(text) = row
+                && let Some(rest) = under(text, &root)
+            {
+                *text = rest.to_owned();
+            }
         }
     }
     Some(root)
@@ -179,10 +211,10 @@ pub(super) fn counters(fields: Map<String, Value>) -> (Option<String>, Map<Strin
 /// `; `, then the object's own fields as words (`sampled true`). Left as it
 /// is when it is not entries of fields, which the outline then prints.
 pub(super) fn skipped_line(fields: &mut Map<String, Value>) {
-    let Some(line) = fields.get("skippedPaths").and_then(skipped_text) else {
+    let Some(line) = fields.get(SKIPPED).and_then(skipped_text) else {
         return;
     };
-    fields.insert("skippedPaths".into(), Value::String(line));
+    fields.insert(SKIPPED.into(), Value::String(line));
 }
 
 /// [`skipped_line`]'s text of a `skippedPaths` value.
@@ -227,182 +259,6 @@ fn take_text(fields: &mut Map<String, Value>, key: &str) -> Option<String> {
     let text = fields.get(key)?.as_str()?.to_owned();
     fields.shift_remove(key);
     Some(text)
-}
-
-/// The fields a graph answer names nodes, files and directories in: one
-/// that names the query's scope itself reads `.` under it.
-const NODE_FIELDS: [&str; 15] = [
-    "id",
-    "path",
-    "changed",
-    "subject",
-    "from",
-    "to",
-    "target",
-    "members",
-    "dirs",
-    "nodes",
-    "rows",
-    "files",
-    "reachedFrom",
-    "affectedEntrypoints",
-    "testsToRun",
-];
-
-/// A graph row's references to the snapshot it read, named by id: no path
-/// of the scope.
-const SNAPSHOT_FIELDS: [&str; 2] = ["graph", "baseline"];
-
-/// A graph row's paths relative to the scope its query names (`path`): the
-/// answer names each file from the workspace root, the scope included, so
-/// the row states the scope once as its root instead. Rewritten are the
-/// strings of the row's `data` (its snapshot references aside) that spell a
-/// path under the scope, a `path:line` mention and a symbol id
-/// (`path#name`) alike, and a node field naming the scope itself (`.`). A
-/// value with a space (text), or one not under the scope (a URL, an issue
-/// `#123`, a path elsewhere), stays as the result spells it. `None`
-/// (nothing rewritten) when the query names no scope below the workspace or
-/// no value lies under it; calls are separate and keep their paths.
-pub(super) fn under_scope(row: &mut Map<String, Value>, query: &Value) -> Option<String> {
-    let scope = query["queries"][0]["path"].as_str()?;
-    let scope = scope
-        .strip_prefix("./")
-        .unwrap_or(scope)
-        .trim_end_matches('/');
-    if scope.is_empty() || scope == "." {
-        return None;
-    }
-    let data = row.get_mut("data")?.as_object_mut()?;
-    let mut rewritten = false;
-    for (key, value) in data.iter_mut() {
-        if !SNAPSHOT_FIELDS.contains(&key.as_str()) {
-            relative_to(value, key, scope, &mut rewritten);
-        }
-    }
-    rewritten.then(|| scope.to_owned())
-}
-
-/// [`under_scope`] of one value under `key`.
-fn relative_to(value: &mut Value, key: &str, scope: &str, rewritten: &mut bool) {
-    match value {
-        Value::String(text) if !text.contains(char::is_whitespace) => {
-            let relative = text
-                .strip_prefix(scope)
-                .and_then(|rest| rest.strip_prefix('/'))
-                .filter(|rest| !rest.is_empty())
-                .map(str::to_owned);
-            if let Some(relative) = relative {
-                *text = relative;
-                *rewritten = true;
-            } else if *text == scope && NODE_FIELDS.contains(&key) {
-                *text = ".".to_owned();
-                *rewritten = true;
-            }
-        }
-        Value::Array(items) => items
-            .iter_mut()
-            .for_each(|item| relative_to(item, key, scope, rewritten)),
-        Value::Object(fields) => {
-            for (key, value) in fields.iter_mut() {
-                if !SNAPSHOT_FIELDS.contains(&key.as_str()) {
-                    relative_to(value, key, scope, rewritten);
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-/// The `data` objects and lists every row of a batch holds with one value,
-/// printed once before the rows (the graph a batch of queries read, its
-/// freshness). A scalar stays on each row: two answers that happen to agree
-/// (`affected: true`) are each row's own verdict. Only rows that print as
-/// `key: value` text share fields (`generic`); a failed row, a page or an
-/// incomplete mark ([`split_stated`]) is never shared; a page of one row
-/// shares nothing.
-pub(super) fn shared_fields(
-    rows: &[Value],
-    generic: impl Fn(&Map<String, Value>) -> bool,
-) -> Map<String, Value> {
-    let mut data = Vec::new();
-    for row in rows {
-        let Some(row) = row.as_object() else {
-            return Map::new();
-        };
-        let failed = row.get("status").and_then(Value::as_str) == Some("error");
-        match row.get("data").and_then(Value::as_object) {
-            Some(fields) if !failed && generic(row) => data.push(fields),
-            _ => return Map::new(),
-        }
-    }
-    let Some((first, others)) = data.split_first().filter(|_| data.len() > 1) else {
-        return Map::new();
-    };
-    let (_, candidates) = split_stated((*first).clone());
-    candidates
-        .into_iter()
-        .filter(|(key, value)| {
-            (value.is_object() || value.is_array())
-                && others.iter().all(|row| row.get(key) == Some(value))
-        })
-        .collect()
-}
-
-/// `rows` as [`shared_fields`] compares them: a row's object that holds a
-/// batch group's `by` (`graph` with its `id`) and omits members the tool's
-/// contract lets a batch state once (`pageContextFields.batchStatedOnce`:
-/// `root`, `createdAt`) holds those an earlier row stated for that `by`, so a
-/// later row naming only a stated snapshot agrees with it and prints nothing
-/// new. A fact outside that object stays as its row states it: a row may lack
-/// it because its operation reports none.
-pub(super) fn with_batch_facts(tool: ToolId, rows: &[Value]) -> Vec<Value> {
-    let mut whole = rows.to_vec();
-    let groups = octocode_runtime_base::contracts::tool_contract_named(tool.as_str())
-        .and_then(Result::ok)
-        .and_then(|contract| contract["pageContextFields"]["batchStatedOnce"].as_array());
-    for group in groups.into_iter().flatten() {
-        let Some(by) = group["by"].as_str() else {
-            continue;
-        };
-        let Some((holder, _)) = by.rsplit_once('/') else {
-            continue;
-        };
-        let members: Vec<String> = group["fields"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|field| field.as_str()?.rsplit_once('/'))
-            .filter(|(parent, _)| *parent == holder)
-            .map(|(_, key)| key.replace("~1", "/").replace("~0", "~"))
-            .collect();
-        // Per `by` value and member, the value last stated.
-        let mut stated: Vec<(Value, &str, Value)> = Vec::new();
-        for row in &mut whole {
-            if row["status"] == "error" {
-                continue;
-            }
-            let Some(read) = row.pointer(by).filter(|read| !read.is_null()).cloned() else {
-                continue;
-            };
-            let Some(object) = row.pointer_mut(holder).and_then(Value::as_object_mut) else {
-                continue;
-            };
-            for member in &members {
-                let last = stated
-                    .iter_mut()
-                    .find(|(name, key, _)| *name == read && key == member);
-                match (object.get(member), last) {
-                    (Some(value), Some((_, _, last))) => *last = value.clone(),
-                    (Some(value), None) => stated.push((read.clone(), member, value.clone())),
-                    (None, Some((_, _, last))) => {
-                        object.insert(member.clone(), last.clone());
-                    }
-                    (None, None) => {}
-                }
-            }
-        }
-    }
-    whole
 }
 
 /// The fields every object of `items` holds with one single-word value

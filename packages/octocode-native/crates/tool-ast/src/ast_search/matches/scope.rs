@@ -151,6 +151,9 @@ pub(super) fn compile_in_grammars(
 pub(super) struct Inapplicable {
     /// Grammar label → its files in the walk the query does not parse in.
     languages: std::collections::BTreeMap<String, usize>,
+    /// Grammar label → why the query does not parse in it (its first
+    /// parser's reason).
+    reasons: std::collections::BTreeMap<String, String>,
     /// Why the query does not parse, when no file of the walk does.
     rejection: Option<RuleError>,
 }
@@ -168,13 +171,15 @@ impl Inapplicable {
             match compile_check(&parser, None, rule.as_ref()) {
                 Ok(()) => compiled = true,
                 Err(error) => {
-                    first_error.get_or_insert(error);
                     if let Some(entry) = languages::find_entry(extension) {
-                        *outside
-                            .languages
-                            .entry(languages::label(entry))
-                            .or_default() += files;
+                        let label = languages::label(entry);
+                        outside
+                            .reasons
+                            .entry(label.clone())
+                            .or_insert_with(|| error.message.clone());
+                        *outside.languages.entry(label).or_default() += files;
                     }
+                    first_error.get_or_insert(error);
                 }
             }
         }
@@ -185,6 +190,30 @@ impl Inapplicable {
     /// Why the query parses in no file the walk met.
     pub(super) fn rejection(&self) -> Option<&RuleError> {
         self.rejection.as_ref()
+    }
+
+    /// What a rule that spells no pattern left unsearched, and why: such a
+    /// rule asks by node kind, field or text, which read as a question of
+    /// every grammar, while a kind is one grammar's own name. Each grammar
+    /// whose files the walk met and the rule does not compile in is named
+    /// with its compiler's reason (an unknown kind lists that grammar's
+    /// nearest kinds). `skippedGrammars` counts those files and says they
+    /// were not searched, so the note adds only the reasons. A pattern is
+    /// code of one grammar: its other grammars stay the quiet count
+    /// ([`Self::counts`]).
+    pub(super) fn kinds_notice(&self, q: MatchQuery<'_>) -> Option<String> {
+        if self.reasons.is_empty() || !q.patterns().is_empty() {
+            return None;
+        }
+        let reasons = self
+            .reasons
+            .iter()
+            .map(|(language, reason)| format!("{language}: {reason}"))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        Some(format!(
+            "A kind is one grammar's name: search each skipped grammar by its own. {reasons}"
+        ))
     }
 
     /// The files of each grammar the query does not compile in, by
@@ -266,11 +295,28 @@ pub(super) fn resolve_scope(
             })
         })
         .transpose()?;
+    let language = q.language();
+    if let Some(code) = q.content() {
+        // One source, parsed under its field's name with the named grammar:
+        // no path is validated and no file is read.
+        super::super::source::inline_source(code, language.as_deref())?;
+        return Ok(Scope {
+            canonical: std::path::PathBuf::from(super::super::source::INLINE_NAME),
+            is_file: true,
+            language,
+            inferred: None,
+            extensions: requested,
+            parsers: GlobParsers::default(),
+            compiled: Vec::new(),
+            inline: Some(code.to_owned()),
+        });
+    }
+    let path = q.path().ok_or_else(super::super::source::no_source)?;
     let p = paths
-        .validate(q.path())
+        .validate(&path)
         .map_err(super::super::errors::policy_error)?;
     let meta = std::fs::metadata(&p.canonical)
-        .map_err(|error| super::super::errors::io_error(&q.path(), error))?;
+        .map_err(|error| super::super::errors::io_error(&path, error))?;
     if q.scope().is_some() && !meta.is_file() {
         return Err(ToolError::new(
             ErrorCode::InvalidInput,
@@ -300,7 +346,6 @@ pub(super) fn resolve_scope(
         };
         return Err(ToolError::new(error.code, error.message));
     }
-    let language = q.language();
     Ok(Scope {
         canonical: p.canonical,
         is_file: meta.is_file(),
@@ -310,6 +355,7 @@ pub(super) fn resolve_scope(
         extensions,
         parsers,
         compiled: Vec::new(),
+        inline: None,
     })
 }
 

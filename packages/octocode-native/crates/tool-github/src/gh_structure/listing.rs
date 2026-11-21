@@ -165,53 +165,35 @@ pub(super) fn clone_lead(query: &GhStructureQueryTree, scope: &Scope, commit_sha
     .build()
 }
 
-/// Files that orient a reader in a folder, in the order one is chosen:
-/// agent instructions, then the readme, then the contribution guide.
-const GUIDES: [&str; 3] = ["AGENTS.md", "README.md", "CONTRIBUTING.md"];
-
-/// One ghGetFileContent read of the listed folder's guide at the listed
-/// commit: the first of [`GUIDES`] (names compared ignoring ASCII case) among
-/// the files the listing names directly in that folder, whichever others it
-/// holds. A guide held as a symlink (a root readme linking to a package's)
-/// counts: the read names the link, and ghGetFileContent follows it. `None`
-/// when it names none.
-pub(super) fn guide_read(
-    query: &GhStructureQueryTree,
-    scope: &Scope,
-    entries: &[TreeEntry],
-    commit_sha: &str,
-) -> Option<Value> {
-    let is_guide = |entry: &&TreeEntry, guide: &str| {
-        let (dir, name) = entry.path.rsplit_once('/').unwrap_or(("", &entry.path));
-        matches!(entry.kind, EntryKind::File | EntryKind::Link)
-            && dir == scope.path
-            && name.eq_ignore_ascii_case(guide)
-    };
-    let guide = GUIDES
-        .iter()
-        .find_map(|guide| entries.iter().find(|entry| is_guide(entry, guide)))?;
-    let target = octocode_tools_shared::leads::gh_file_read::Target {
-        owner: query.owner.as_str(),
-        repo: query.repo.as_str(),
-        path: &guide.path,
-        reference: Some(commit_sha),
-    };
-    Some(
-        octocode_runtime_base::response::result::Continuation::related_query(
-            octocode_tools_shared::leads::gh_file_read::plain_read(&target)?,
-        )
-        .build(),
-    )
-}
-
 /// Whether the listing ranks its files by size. Ranking still determines
 /// traversal depth even when the result offers no optional read advice.
 pub(super) fn ranks_by_size(query: &GhStructureQueryTree) -> bool {
-    query.sort.by == octocode_contract_types::GhStructureTreeSortBy::Bytes
+    sort_key(&query.sort).0 == SortKey::Bytes
 }
 
-/// Listing rows grouped by directory, built in one pass. `dir` is
-/// repo-relative (the same base as `path` and `include`), `"."` only for
+/// What a tree listing ranks by.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SortKey {
+    Path,
+    Bytes,
+}
+
+/// The key and order of `sort`, whichever form states them: each form holds
+/// its keys and the order the contract gives an omitted `order` for them.
+pub(super) fn sort_key(
+    sort: &octocode_contract_types::GhStructureTreeSort,
+) -> (SortKey, octocode_contract_types::SortOrder) {
+    use octocode_contract_types::GhStructureTreeSort as Sort;
+    match sort {
+        Sort::Ascending(path) => (SortKey::Path, path.order),
+        Sort::Descending(bytes) => (SortKey::Bytes, bytes.order),
+    }
+}
+
+/// Listing rows by directory, built in one pass: a directory with several
+/// entries on the page is a `{dir, files}` group, a directory with one is
+/// that entry's repo-relative path ([`lone_entry`]). `dir` is
+/// repo-relative (the same base as `path`), `"."` only for
 /// the repository root, which leads. Each listed entry carries its facts in
 /// the structureSearch entry form, `"<name> (<fields>)"` (the last `" ("`
 /// opens them): a file its size in bytes; a folder is named `"<name>/"`.
@@ -239,8 +221,9 @@ pub(super) fn build_structure(entries: &[TreeEntry], targets: &LinkTargets) -> V
     )
 }
 
-/// The `{dir, files}` groups of `(dir, entry text)` pairs in `order`: the
-/// shared grouping every listing view uses.
+/// The `files` rows of `(dir, entry text)` pairs in `order`: the shared
+/// `{dir, files}` grouping every listing view uses, with each group of one
+/// entry as that entry's repo-relative path instead ([`lone_entry`]).
 fn response_groups<'a>(
     entries: impl IntoIterator<Item = (&'a str, String)>,
     order: octocode_runtime_base::response::groups::Order,
@@ -254,6 +237,23 @@ fn response_groups<'a>(
         ),
         order,
     )
+    .into_iter()
+    .map(|group| lone_entry(&group).unwrap_or(group))
+    .collect()
+}
+
+/// The flat row of a group that lists one entry: the entry text under its
+/// repo-relative path (`dir + "/" + name`, a root entry its name), so the
+/// row states what the group stated without the group around it. A group's
+/// header is longer than the `dir/` it saves only when it is shared, so a
+/// group of one is always the longer form; `None` for any other group.
+fn lone_entry(group: &Value) -> Option<Value> {
+    let [Value::String(entry)] = group["files"].as_array()?.as_slice() else {
+        return None;
+    };
+    Some(Value::String(
+        octocode_runtime_base::response::groups::path_of(group["dir"].as_str()?, entry),
+    ))
 }
 
 /// The target path of each listed symlink, by the link's repository path.
@@ -359,9 +359,10 @@ pub(super) fn rank(
     entries: &mut [TreeEntry],
     sort: &octocode_contract_types::GhStructureTreeSort,
 ) -> bool {
-    use octocode_contract_types::{GhStructureTreeSortBy as By, SortOrder};
+    use SortKey as By;
+    use octocode_contract_types::SortOrder;
     let size = |entry: &TreeEntry| entry.size.filter(|_| entry.kind == EntryKind::File);
-    match (sort.by, sort.order) {
+    match sort_key(sort) {
         (By::Path, SortOrder::Asc) => return false,
         (By::Path, SortOrder::Desc) => entries.reverse(),
         (By::Bytes, order) => entries.sort_by(|left, right| {
@@ -381,8 +382,9 @@ pub(super) fn rank(
 }
 
 /// Rows of a ranked listing ([`rank`]), in rank order: each run of adjacent
-/// entries of one directory is a `{dir, files}` group, and a directory the
-/// rank returns to opens a new one, as structureSearch lists a metric rank.
+/// entries of one directory is a `{dir, files}` group (a run of one its
+/// repo-relative path, [`lone_entry`]), and a directory the rank returns to
+/// opens a new row, as structureSearch lists a metric rank.
 /// Entries keep the [`build_structure`] text.
 pub(super) fn ranked_structure(entries: &[TreeEntry], targets: &LinkTargets) -> Vec<Value> {
     response_groups(

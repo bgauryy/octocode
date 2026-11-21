@@ -1,5 +1,6 @@
 //! What `securityCheck` reads from the embedded contract's `security` block:
-//! the trust thresholds, each caution rule's level and basis, and which OSV
+//! the trust thresholds, each caution rule's level and basis, OSV's own name
+//! of each registry the input spells as artifactSearch does, and which
 //! ecosystems are Linux distributions, have a registry reader or cannot be ordered
 //! by OSV, and which ecosystems a purl type names. Core owns the
 //! values; nothing here restates them.
@@ -43,6 +44,8 @@ pub struct SecurityPolicy {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SecurityEcosystems {
+    /// OSV's own name of each registry the `ecosystem` input spells as artifactSearch does.
+    pub osv_names: BTreeMap<String, String>,
     pub distros: Vec<String>,
     /// Distributions with one rolling stream and no releases: a `release` names nothing.
     pub rolling: Vec<String>,
@@ -53,7 +56,7 @@ pub struct SecurityEcosystems {
     pub unordered: Vec<String>,
     /// The ecosystems each purl type names; several: the purl's namespace picks the distribution.
     pub purl_types: BTreeMap<String, Vec<String>>,
-    /// The OSV ecosystem of each ecosystem name GitHub's repository advisories use.
+    /// The ecosystem of each ecosystem name GitHub's repository advisories use.
     pub github_ecosystems: BTreeMap<String, String>,
     /// How a purl's `distro` version becomes an ecosystem's `release`.
     pub purl_releases: BTreeMap<String, PurlRelease>,
@@ -76,17 +79,36 @@ pub struct SecurityContract {
 }
 
 impl SecurityContract {
-    /// Whether `ecosystem` (an OSV name) is a Linux distribution: the only kind that takes a `release`.
+    /// What OSV calls `ecosystem` (the input's spelling): its own name where
+    /// the contract states one (`pypi` is `PyPI`), else the same word.
+    pub fn osv_name_of<'a>(&'a self, ecosystem: &'a str) -> &'a str {
+        self.ecosystems
+            .osv_names
+            .get(ecosystem)
+            .map_or(ecosystem, String::as_str)
+    }
+
+    /// The input's spelling of the ecosystem OSV calls `osv` (`PyPI` is
+    /// `pypi`), else the same word.
+    pub fn input_of_osv<'a>(&'a self, osv: &'a str) -> &'a str {
+        self.ecosystems
+            .osv_names
+            .iter()
+            .find(|(_, name)| name.as_str() == osv)
+            .map_or(osv, |(input, _)| input.as_str())
+    }
+
+    /// Whether `ecosystem` (as the `ecosystem` input spells it) is a Linux distribution: the only kind that takes a `release`.
     pub fn is_distro(&self, ecosystem: &str) -> bool {
         self.ecosystems.distros.iter().any(|name| name == ecosystem)
     }
 
-    /// Whether `ecosystem` (an OSV name) is a distribution with one rolling stream and no releases.
+    /// Whether `ecosystem` (as the `ecosystem` input spells it) is a distribution with one rolling stream and no releases.
     pub fn is_rolling(&self, ecosystem: &str) -> bool {
         self.ecosystems.rolling.iter().any(|name| name == ecosystem)
     }
 
-    /// Whether OSV evaluates a version asked of `ecosystem` (an OSV name) by its bare name, with no release.
+    /// Whether OSV evaluates a version asked of `ecosystem` (as the `ecosystem` input spells it) by its bare name, with no release.
     pub fn evaluates_bare(&self, ecosystem: &str) -> bool {
         self.ecosystems
             .bare_versions
@@ -94,7 +116,7 @@ impl SecurityContract {
             .any(|name| name == ecosystem)
     }
 
-    /// Whether a registry provider reads `ecosystem` (an OSV name).
+    /// Whether a registry provider reads `ecosystem` (as the `ecosystem` input spells it).
     pub fn has_registry_reader(&self, ecosystem: &str) -> bool {
         self.ecosystems
             .registry_readers
@@ -102,7 +124,7 @@ impl SecurityContract {
             .any(|name| name == ecosystem)
     }
 
-    /// Whether OSV can order versions of `ecosystem` (an OSV name): when it cannot, a version
+    /// Whether OSV can order versions of `ecosystem` (as the `ecosystem` input spells it): when it cannot, a version
     /// query matches nothing and the records' ranges must be compared by the caller.
     pub fn orders_versions(&self, ecosystem: &str) -> bool {
         !self
@@ -112,21 +134,21 @@ impl SecurityContract {
             .any(|name| name == ecosystem)
     }
 
-    /// The OSV ecosystem GitHub's advisories name `github` (`pip` is `PyPI`); `None` when it names none.
-    pub fn osv_ecosystem_of_github(&self, github: &str) -> Option<&str> {
+    /// The ecosystem GitHub's advisories name `github` (`pip` is `pypi`); `None` when it names none.
+    pub fn ecosystem_of_github(&self, github: &str) -> Option<&str> {
         self.ecosystems
             .github_ecosystems
             .get(&github.to_ascii_lowercase())
             .map(String::as_str)
     }
 
-    /// GitHub's advisory ecosystem for the OSV ecosystem `osv` (`PyPI` is `pip`); `None` when
-    /// GitHub keeps none for it.
-    pub fn github_ecosystem_of_osv(&self, osv: &str) -> Option<&str> {
+    /// GitHub's advisory ecosystem for `ecosystem` (`pypi` is `pip`); `None` when GitHub keeps
+    /// none for it.
+    pub fn github_ecosystem_of(&self, ecosystem: &str) -> Option<&str> {
         self.ecosystems
             .github_ecosystems
             .iter()
-            .find(|(_, name)| name.as_str() == osv)
+            .find(|(_, name)| name.as_str() == ecosystem)
             .map(|(github, _)| github.as_str())
     }
 

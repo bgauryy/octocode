@@ -2,9 +2,10 @@
 //! the notice that names them: one record and one sentence for every tool
 //! that reads source through grammars (astSearch's scan, graphBuild's
 //! build), each saying in its own [`Reader`] what an unparsed file costs.
-//! The sentence names [`NAMED_EXAMPLES`] of the files it counts; every one of
-//! them is a `skippedPaths` entry ([`Unparsed::skipped`]), so paging reaches
-//! them all.
+//! Every file the sentence counts is a `skippedPaths` entry
+//! ([`Unparsed::skipped`]), so paging reaches them all; the sentence names
+//! [`NAMED_EXAMPLES`] of them only where the row does not already name each
+//! ([`Unparsed::disclosed_beside_paths`]).
 use super::skipped::SkippedEntry;
 use octocode_contract_types::SkippedPathCause;
 use serde_json::Value;
@@ -216,17 +217,50 @@ impl Unparsed {
     /// What a page discloses of the grammars it `read` ([`SourceTypes`]): a
     /// file of no known type, or of a type those grammars' names are of, may
     /// hold their source, so it warns; a file of another known type holds
-    /// none, so it is a quiet count per type beside the grammars the query
-    /// does not compile in. With no grammar read (`None`), every such file
-    /// warns.
+    /// none, so it is a quiet count per type, returned added to
+    /// `skipped_grammars` (the caller's counts so far, if any). astSearch
+    /// publishes those counts as `skippedFormats`, apart from its
+    /// `skippedGrammars` (source files of a grammar the query does not
+    /// compile in); graphBuild states them in a hint of its own.
+    /// With no grammar read (`None`), every such file warns. The warning names examples of the files it counts: for a page
+    /// that does not list them ([`Self::disclosed_beside_paths`] otherwise).
     pub fn disclosed(
         &self,
         reader: &Reader,
         read: Option<&SourceTypes>,
-        mut skipped_grammars: Option<Value>,
+        skipped_grammars: Option<Value>,
     ) -> (Option<String>, Option<Value>) {
+        self.disclose(reader, read, skipped_grammars, false)
+    }
+
+    /// [`Self::disclosed`] for a page whose `skippedPaths` holds
+    /// [`Self::skipped`] of the same `read`
+    /// ([`super::skipped::unparsed_paths`]): while that list names each file
+    /// (at most [`super::skipped::NAMED_UNPARSED`]), the warning states the
+    /// count and the cause and names no file again; past it the list groups
+    /// the files, so the warning's examples are the only names and stay.
+    pub fn disclosed_beside_paths(
+        &self,
+        reader: &Reader,
+        read: Option<&SourceTypes>,
+        skipped_grammars: Option<Value>,
+    ) -> (Option<String>, Option<Value>) {
+        self.disclose(reader, read, skipped_grammars, true)
+    }
+
+    fn disclose(
+        &self,
+        reader: &Reader,
+        read: Option<&SourceTypes>,
+        mut skipped_grammars: Option<Value>,
+        listed: bool,
+    ) -> (Option<String>, Option<Value>) {
+        let notice = |files: &NamedFiles| {
+            let named = !listed || files.count as usize > super::skipped::NAMED_UNPARSED;
+            unparsed_notice(reader, files, named)
+        };
         if read.is_none() {
-            return (unparsed_notice(reader, &self.files), skipped_grammars);
+            return (notice(&self.files), skipped_grammars);
         }
         let mut named = self.untyped.clone();
         for (name, files) in &self.typed {
@@ -238,7 +272,7 @@ impl Unparsed {
             let known = counts[name.as_str()].as_u64().unwrap_or_default();
             counts[name.as_str()] = Value::from(known.saturating_add(u64::from(files.count)));
         }
-        (unparsed_notice(reader, &named), skipped_grammars)
+        (notice(&named), skipped_grammars)
     }
 
     /// Every file the notice of [`Self::disclosed`] counts for the same
@@ -259,10 +293,16 @@ impl Unparsed {
     }
 }
 
-/// The notice that names the files passed over for want of a grammar, what
-/// that means for the `reader`'s answer, and the field that parses them.
-pub(crate) fn unparsed_notice(reader: &Reader, files: &NamedFiles) -> Option<String> {
-    let names = files.listed();
+/// The notice of the files passed over for want of a grammar: their count,
+/// what that means for the `reader`'s answer, and the field that parses
+/// them. `named` lists examples of them; without it the row's
+/// `skippedPaths` names each (cause `unparsed`).
+pub(crate) fn unparsed_notice(reader: &Reader, files: &NamedFiles, named: bool) -> Option<String> {
+    let names = if named {
+        format!(" ({})", files.listed())
+    } else {
+        String::new()
+    };
     let Reader {
         grammar,
         unread: [one, several],
@@ -270,21 +310,20 @@ pub(crate) fn unparsed_notice(reader: &Reader, files: &NamedFiles) -> Option<Str
     match files.count {
         0 => None,
         1 => Some(format!(
-            "1 file skipped: no {grammar} for its name ({names}); {one}; if it is source code, parserGlobs maps its name to a grammar."
+            "1 file skipped: no {grammar} for its name{names}; {one}; if it is source code, parserGlobs maps its name to a grammar."
         )),
         count => Some(format!(
-            "{count} files skipped: no {grammar} for their names ({names}); {several}; if they are source code, parserGlobs maps their names to a grammar."
+            "{count} files skipped: no {grammar} for their names{names}; {several}; if they are source code, parserGlobs maps their names to a grammar."
         )),
     }
 }
 
-/// The type `path`'s name is of in ripgrep's default type table (the one
-/// localSearch's `fileType` selects from), if any; of several
-/// (`CMakeLists.txt` is `cmake` and `txt`), the first by name, so the count
-/// is the same in every process. The table is the `ignore` crate's constant
-/// and its globs compile; a glob that did not would only leave its names of
-/// no known type, so they warn, never the reverse.
-fn known_type(path: &Path) -> Option<&'static str> {
+/// Ripgrep's default type table (the one localSearch's `fileType` selects
+/// from): its type names, sorted, the owner of each glob, and the globs.
+/// The table is the `ignore` crate's constant and its globs compile; a glob
+/// that did not would only leave its names of no known type, so they warn,
+/// never the reverse.
+fn type_table() -> &'static (Vec<String>, Vec<usize>, globset::GlobSet) {
     static TYPES: std::sync::LazyLock<(Vec<String>, Vec<usize>, globset::GlobSet)> =
         std::sync::LazyLock::new(|| {
             let mut table = ignore::types::TypesBuilder::new();
@@ -306,14 +345,38 @@ fn known_type(path: &Path) -> Option<&'static str> {
             let set = set.build().unwrap_or_else(|_| globset::GlobSet::empty());
             (names, owners, set)
         });
-    let (names, owners, set) = &*TYPES;
-    let name = path.file_name()?;
-    let owner = set
-        .matches(name)
+    &TYPES
+}
+
+/// Every type of [`type_table`] a file named `file_name` is of, by name.
+pub fn file_types_of(file_name: &str) -> Vec<&'static str> {
+    let (names, owners, set) = type_table();
+    let found = set
+        .matches(file_name)
         .into_iter()
         .filter_map(|glob| owners.get(glob).copied())
-        .min()?;
-    names.get(owner).map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    found
+        .into_iter()
+        .filter_map(|owner| names.get(owner).map(String::as_str))
+        .collect()
+}
+
+/// Selects `name` from ripgrep's default type table as a walk does: the
+/// table's own refusal when it names no type.
+pub fn select_file_type(name: &str) -> Result<(), String> {
+    let mut table = ignore::types::TypesBuilder::new();
+    table.add_defaults();
+    table.select(name);
+    table.build().map(drop).map_err(|error| error.to_string())
+}
+
+/// The type `path`'s name is of in [`type_table`], if any; of several
+/// (`CMakeLists.txt` is `cmake` and `txt`), the first by name, so the count
+/// is the same in every process.
+fn known_type(path: &Path) -> Option<&'static str> {
+    let name = path.file_name()?.to_string_lossy();
+    file_types_of(&name).into_iter().next()
 }
 
 #[cfg(test)]

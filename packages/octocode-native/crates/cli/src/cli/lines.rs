@@ -10,30 +10,30 @@
 //! `path:line: kind name`, sites as `path:line,line`, and a file without rows
 //! as its path. `path:N` is always a line. A file's other fields (counts, its
 //! page) follow its path in `[ … ]`. Paths that share a directory (the
-//! files' and those the walk skipped) print relative to it, stated once
-//! before them as `# root: dir` ([`once::relative_paths`]); counts by file
-//! print as a `files[]: matchCount path` table, whichever count the files
-//! share. A listing prints each `dir/` once with its entries indented under
-//! it, a lone entry as `dir/entry`. Every other result prints as indented
-//! `key: value` text ([`outline`]), a list of flat rows as a [`table`]; a
-//! `graphQuery` row's paths print relative to the scope its query names,
-//! stated once as its root ([`once::under_scope`]). A fraction prints to 4
-//! significant digits ([`rounded`]).
+//! files', a listing's and those the walk skipped) print relative to it,
+//! stated once before them as `# root: dir` ([`once::relative_paths`]): the
+//! root, `/` and a printed path are the path the result names. Counts by
+//! file print as a `files[]: matchCount path` table, whichever count the
+//! files share. A listing prints each `dir/` once with its entries indented
+//! under it, a lone entry as `dir/entry`. Every other result prints as
+//! indented `key: value` text ([`outline`]), a list of flat rows as a
+//! [`table`]. A fraction prints to 4 significant digits ([`rounded`]).
 //!
 //! The trailer follows the content, one `# ` line each, the same for every
-//! tool: a `status` that is not ok, each page state (an object holding
-//! `hasMore`, in one form: its count first, `hasMore` last) and incomplete
+//! tool: a `status` that is not ok, each page state (where a window
+//! sits or an exact count, in one form: its count first) and incomplete
 //! mark, the row's `warnings` and `hints`, the
 //! identity of what was read (`ref`, `commitSha`, `location`),
-//! then the commands that continue the answer: `responsePagination.next`
-//! first, then `next.nextPage`, then any other. A call rejected before it ran prints as
+//! then the commands that continue the answer: the reply's `next` first,
+//! then any other. A call rejected before it ran prints as
 //! a failed row does ([`rejected`]). A batch prints each row under
 //! `## results[N]`, `N` the place of its query, and names the row on every
 //! `# ` line of its own, stdout and stderr alike (`# results[N] key: value`);
-//! the envelope's trailer follows the last row. Objects and lists every
-//! row of a batch shares print once before the first row
-//! ([`once::shared_fields`]), a snapshot a later row names by its id alone
-//! among them ([`once::with_batch_facts`]).
+//! the envelope's trailer follows the last row. What the response states
+//! once for every row (`shared.data`) prints once before the first row; text
+//! shares nothing else across rows: the response's hoist
+//! (`octocode_runtime_base::response::hoist`) is the one owner of what a
+//! reply states once.
 //!
 //! Counters (one line, [`once::counters`]), what a walk skipped (one line of
 //! names, [`once::skipped_line`]) and `related[]` leads are the stderr
@@ -42,6 +42,11 @@
 //! Calls print as `octocode <tool> '<json>'` commands. They are read from
 //! the structured result only, never from rendered text, so fetched content
 //! that looks like a call is never rewritten.
+//!
+//! An MCP reply under `output.mcpResult: text` is this text in its MCP
+//! [`Form`], which differs in three ways only: a call prints as the call
+//! itself (`{"tool":…,"input":{…}}`, the object JSON holds), a fraction
+//! prints exactly, and the notes follow the content in the same text.
 //!
 //! Every value prints as data ([`printable`](fn@printable)): its control characters
 //! visible, and a line break in a value only where the layout puts its lines
@@ -65,6 +70,34 @@ use serde_json::{Map, Value, json};
 pub(super) struct Lines {
     pub out: String,
     pub notes: String,
+}
+
+/// Who reads the text: the three choices the one renderer makes by reader.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Form {
+    /// A call prints as the call object JSON holds, which an MCP client
+    /// sends unchanged; else as the shell command that runs it.
+    pub calls_as_json: bool,
+    /// A fraction prints exactly, as JSON does; else [`rounded`].
+    pub exact_fractions: bool,
+    /// The notes follow the content in [`Lines::out`]; else they are
+    /// [`Lines::notes`], for stderr.
+    pub notes_inline: bool,
+}
+
+impl Form {
+    /// A terminal or a pipe: commands, rounded fractions, notes on stderr.
+    pub(super) const TERMINAL: Self = Self {
+        calls_as_json: false,
+        exact_fractions: false,
+        notes_inline: false,
+    };
+    /// An MCP reply's one text block.
+    pub(super) const MCP: Self = Self {
+        calls_as_json: true,
+        exact_fractions: true,
+        notes_inline: true,
+    };
 }
 
 /// One row's text: the directory its paths are relative to, its content,
@@ -107,7 +140,7 @@ pub(super) fn printable_text(text: &str) -> String {
 ///
 /// `query` is the call as sent, or the request a cursor continued when the
 /// runtime names it; it is read as the runtime ran it, so a shorthand the
-/// runtime repairs (scalar `contextLines`, a bare row) prints exactly as its
+/// runtime repairs (a scalar where a list is declared, a bare row) prints exactly as its
 /// contract form does. A bare cursor says nothing of the request, so its
 /// `localSearch` hits print as `key: value` text.
 pub(super) fn render(
@@ -116,12 +149,28 @@ pub(super) fn render(
     query: &Value,
     cwd: Option<&std::path::Path>,
 ) -> Option<Lines> {
+    render_as(tool, structured, query, cwd, Form::TERMINAL)
+}
+
+/// [`render`] in `form`: the one renderer, for a terminal or an MCP reply.
+pub(super) fn render_as(
+    tool: ToolId,
+    structured: &Value,
+    query: &Value,
+    cwd: Option<&std::path::Path>,
+    form: Form,
+) -> Option<Lines> {
     let query = &printable(octocode_runtime_base::contracts::input_as_run(
         tool.as_str(),
         query.clone(),
     ));
-    let (display, calls) = follow::separate_calls(tool, structured)?;
-    let mut display = rounded(printable(display));
+    let (display, calls) = follow::separate_calls_as(tool, structured, form.calls_as_json)?;
+    let display = printable(display);
+    let mut display = if form.exact_fractions {
+        display
+    } else {
+        rounded(display)
+    };
     hit_objects(&mut display);
     let rows = display.get("results")?.as_array()?;
     let batch = is_batch(rows, query);
@@ -140,42 +189,29 @@ pub(super) fn render(
             .map_or_else(|| query.clone(), |asked| json!({"queries": [asked]}))
     };
     // What the response states once for every row (`shared.data`, the
-    // reading rule's step after a row's own data) prints once, first.
+    // reading rule's step after a row's own data) prints once, first. What
+    // it says of the answer being whole, and how to read it, prints where a
+    // row's own does and under the same label: a trailer line, after the
+    // rows it holds for.
     if let Some(Value::Object(stated)) = display.pointer("/shared/data") {
-        outline::object(stated, "", &mut out);
+        let (done, shown): (Map<String, Value>, Map<String, Value>) = stated
+            .clone()
+            .into_iter()
+            .partition(|(key, value)| follow::in_trailer(key, value));
+        outline::object(&shown, "", &mut out);
+        let (facts, advice) = stated_notes(done);
+        envelope.splice(0..0, facts.into_iter().chain(advice));
     }
-    let whole = once::with_batch_facts(tool, rows);
-    let mut shared = once::shared_fields(&whole, |row| {
-        render_data(tool, row, &asked_by(row)).is_none()
-    });
-    // A field holding a row's own call stays with that row.
-    shared.retain(|key, _| {
-        !calls.iter().any(|call| {
-            call.row.is_some() && call.label.split(['.', '[']).next() == Some(key.as_str())
-        })
-    });
-    outline::object(&shared, "", &mut out);
     for (position, row) in rows.iter().enumerate() {
-        let mut row = row.as_object().unwrap_or(&no_fields).clone();
-        if let Some(Value::Object(data)) = row.get_mut("data") {
-            data.retain(|key, _| !shared.contains_key(key));
-        }
+        let row = row.as_object().unwrap_or(&no_fields).clone();
         let index = row.get("index").and_then(Value::as_u64);
         let label = format!("results[{}]", index.unwrap_or(position as u64));
         if batch {
             out.push(format!("## {label}"));
         }
         let asked = asked_by(&row);
-        let scope = if tool == ToolId::GraphQuery {
-            once::under_scope(&mut row, &asked)
-        } else {
-            None
-        };
         let mut text =
             render_data(tool, &row, &asked).unwrap_or_else(|| outline::generic(&row, &asked));
-        if text.root.is_none() {
-            text.root = scope.map(|scope| format!("root: {scope}"));
-        }
         let (commands, leads) = follow::notes_of(&calls, Some(position));
         let prefix = if batch {
             format!("# {label} ")
@@ -197,6 +233,9 @@ pub(super) fn render(
     }
     notes.extend(prefixed("# ", &envelope_notes));
     notes.extend(prefixed("# ", &envelope_leads));
+    if form.notes_inline {
+        out.append(&mut notes);
+    }
     Some(Lines {
         out: out.join("\n"),
         notes: notes.join("\n"),
@@ -247,9 +286,8 @@ fn rounded(value: Value) -> Value {
 }
 
 /// An `lspSearch` answer's location rows, each with its path: `matches`, or
-/// the `files[].matches` a location answer groups them in. Text hits (their
-/// `value`), call rows (their `sites`) and the files view (no `line`) print
-/// as their own shapes.
+/// the `files[].matches` a location answer groups them in. Call rows (their
+/// `sites`) and the files view (no `line`) print as their own shapes.
 fn location_rows(data: &Map<String, Value>) -> Option<Vec<Value>> {
     if let Some(Value::Array(matches)) = data.get("matches") {
         return Some(matches.clone());
@@ -260,7 +298,7 @@ fn location_rows(data: &Map<String, Value>) -> Option<Vec<Value>> {
         let path = file.get("path")?;
         for row in file.get("matches")?.as_array()? {
             row.get("line")?;
-            if row.get("sites").is_some() || row.get("value").is_some() {
+            if row.get("sites").is_some() {
                 return None;
             }
             let mut row = row.as_object()?.clone();
@@ -309,14 +347,14 @@ fn render_data(tool: ToolId, row: &Map<String, Value>, query: &Value) -> Option<
     let data = row.get("data")?.as_object()?;
     let mut body = Vec::new();
     let mut marks = Vec::new();
-    // A listing's groups print relative to the directory they share, as hits do.
+    // The directory a row's printed paths share prints once, first, and
+    // the paths relative to it: hits, a listing's groups and its flat rows.
     let mut relative = data.clone();
-    let root = once::relative_paths(&mut relative);
-    if listing(&relative, &mut body).is_some() {
+    let listed = listing::lists_flat_rows(tool, &relative);
+    let root = once::relative_paths(&mut relative, listed);
+    if listed && listing(&relative, &mut body).is_some() {
         let mut rest = relative;
         rest.shift_remove("files");
-        // A stated root prints as the listing's own root line.
-        rest.shift_remove("root");
         let mut text = tail(query, row, rest, marks, body);
         text.root = root.map(|root| format!("root: {root}"));
         return Some(text);
@@ -328,8 +366,6 @@ fn render_data(tool: ToolId, row: &Map<String, Value>, query: &Value) -> Option<
     {
         return None;
     }
-    let mut relative = data.clone();
-    let root = once::relative_paths(&mut relative);
     let data = &relative;
     let rooted = |mut text: Row| {
         text.root = root.as_ref().map(|root| format!("root: {root}"));
@@ -406,13 +442,19 @@ fn with_term(mut matches: Option<Value>, term: Option<&str>) -> Option<Value> {
 /// One file of a search result: its hits, declarations or sites under its
 /// path, or the path alone; its other fields follow the path in `[ … ]`.
 /// `term` is the value a localSearch span without one holds ([`one_term`]).
+/// An `astSearch` group of the request's inline `code` names no path: its
+/// hits print as `line:text` under no heading.
 fn file_rows(
     tool: ToolId,
     file: &Map<String, Value>,
     (numbered, term): (bool, Option<&str>),
     out: &mut Vec<String>,
 ) -> Option<()> {
-    let path = file.get("path")?.as_str()?;
+    let path = match file.get("path") {
+        Some(path) => path.as_str()?,
+        None if tool == ToolId::AstSearch => "",
+        None => return None,
+    };
     let mut rest = file.clone();
     rest.shift_remove("path");
     if let Some(Value::Array(symbols)) = rest.shift_remove("symbols") {
@@ -456,9 +498,14 @@ fn file_rows(
     }
     // Any other field is named: `path  [matchCount 2]`, never `path:2`.
     if let Some(note) = annotation(&rest) {
-        entry.push_str(&format!("  {note}"));
+        if !entry.is_empty() {
+            entry.push_str("  ");
+        }
+        entry.push_str(&note);
     }
-    out.push(entry);
+    if !entry.is_empty() {
+        out.push(entry);
+    }
     Some(())
 }
 

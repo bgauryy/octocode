@@ -228,9 +228,13 @@ async fn open_leased(
     // the caller's deadline. A load still under way then is not queried: the
     // row says how long the call waited and offers the same query again, on
     // the server the pool keeps loading.
-    if cancellable(cancel, client.finish_load(client.load_deadline())).await?
-        == Some(Readiness::Timeout)
-    {
+    let load = reporting(
+        LOADING,
+        &config,
+        cancellable(cancel, client.finish_load(client.load_deadline())),
+    )
+    .await?;
+    if load == Some(Readiness::Timeout) {
         return Err(receipt::naming(
             Exit::Row(failure::still_indexing(query, began.elapsed())),
             receipt::server_receipt(&config, false),
@@ -264,6 +268,13 @@ async fn open_leased(
     })
 }
 
+/// What a call reports while its server starts.
+pub(in crate::lsp_search) const STARTING: &str = "Starting";
+/// What a call reports while it waits for a load its server has under way.
+pub(in crate::lsp_search) const LOADING: &str = "Waiting for the project load of";
+/// What a call reports while its server works on the request's questions.
+pub(in crate::lsp_search) const ASKING: &str = "Waiting for an answer from";
+
 /// A pooled client leased for one operation.
 pub(super) struct Leased {
     pub(super) client: octocode_engine::lsp::client::NativeLspClient,
@@ -275,23 +286,30 @@ pub(super) struct Leased {
     pub(super) fell_back_from: Option<String>,
 }
 
-/// `work` of the server `config` runs (its start or its project load),
-/// reporting progress to the call while it takes long: a cold server can
-/// take tens of seconds, and a host with a progress token should hear it.
-async fn reporting<F: Future>(
+/// `work` of the server `config` runs (its start, its project load, or the
+/// request's own questions), reporting progress to the call while it takes
+/// long: a cold server can take tens of seconds, and a host with a progress
+/// token should hear it. Every wait of a request on its server runs here.
+pub(in crate::lsp_search) async fn reporting<F: Future>(
     what: &str,
     config: &octocode_engine::lsp::types::LspLanguageServerConfig,
     work: F,
 ) -> F::Output {
     let server = config.display_name();
+    // A start and a project load are the server's cost, not the request's.
+    let kept = if what == ASKING { "" } else { KEPT };
     octocode_io::budget::report_while(Box::pin(work), |elapsed| {
         format!(
-            "{what} the {server} language server ({}s)",
+            "{what} the {server} language server ({}s){kept}",
             elapsed.as_secs()
         )
     })
     .await
 }
+
+/// What a start or load wait adds: the wait belongs to the server, which
+/// answers later calls for as long as it runs.
+pub(in crate::lsp_search) const KEPT: &str = "; later calls reuse this server while it runs";
 
 /// Lease a client for `target.config`. When it fails to start (not when the
 /// request is cancelled) and the target has a fallback, lease that instead
@@ -303,7 +321,7 @@ pub(super) async fn acquire_leased_client(
     cancel: &dyn CancellationCheck,
 ) -> Result<Leased, Exit> {
     let acquired = reporting(
-        "Starting",
+        STARTING,
         &target.config,
         cancellable(cancel, pool.acquire_leased(target.config.clone())),
     )
@@ -330,7 +348,7 @@ pub(super) async fn acquire_leased_client(
         return Err(failed());
     };
     let acquired = reporting(
-        "Starting",
+        STARTING,
         &fallback,
         cancellable(cancel, pool.acquire_leased(fallback.clone())),
     )

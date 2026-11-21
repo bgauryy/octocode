@@ -162,7 +162,6 @@ fn keep_workflow_lead(tool: &str, output: &mut Value) {
         &Value::Null,
     );
 }
-use crate::response::workflow_lead::carried_identities;
 
 fn validate_test_input(
     tool: &str,
@@ -177,6 +176,7 @@ fn validate_test_input(
 
 fn publish_for_assertion(tool: &str, output: &Value) -> Value {
     let mut output = output.clone();
+    crate::response::workflow_lead::drop_marks(&mut output);
     crate::response::pages::publish_rows(&mut output);
     if checks::leads(&output)
         .iter()
@@ -260,13 +260,15 @@ pub fn assert_lead_served(tool: ToolId, row: &Value, intended: impl Fn(&Value) -
         !built.is_empty(),
         "{tool:?}: the row builds no intended related call\n{row}"
     );
-    let mut served = published(tool, row);
+    // The stage reads the producer's marks, so it runs on the row as built.
+    let shaped = crate::response::rows::result_row(0, row.clone(), row["status"].as_str());
+    let mut served = serde_json::json!({"results":[shaped]});
     keep_workflow_lead(tool.as_str(), &mut served);
     let kept = calls_of(&served["results"][0]["data"]);
     assert!(
         !kept.is_empty(),
         "{tool:?}: an intended related call was built and dropped by the response stage; \
-         the row's warning must promise it (name `related`) or the lead carry new identity\n{served}"
+         its producer must mark it as one the row needs (`Continuation::required`)\n{served}"
     );
 }
 

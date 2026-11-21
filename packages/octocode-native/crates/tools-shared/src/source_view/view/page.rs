@@ -4,7 +4,6 @@ mod source_lines;
 use super::super::pagination::{SourceLines, continuation, result_counts};
 use super::super::types::*;
 use super::super::{page_scan::*, prepare::*};
-use super::classified::attach_unfiltered;
 use super::warnings::read_scope_warnings;
 use super::{View, compress_ranges, past_end};
 use crate::source_view::local_fetch_query;
@@ -15,8 +14,7 @@ use source_lines::page_lines;
 pub(super) struct CutPage<'a> {
     /// The read's query; bounded when a complete view was over the window.
     pub(super) q: std::borrow::Cow<'a, LocalFetchQuery>,
-    /// The read as asked: classified routes (the whole view, the next
-    /// candidate page) repeat it, not its bounded first page.
+    /// The read as asked, not its bounded first page.
     asked: &'a LocalFetchQuery,
     /// The caller's read as sent, before a cut to fit the row's share: the
     /// scope notes (a long-line byte walk) judge it, not the cut.
@@ -30,8 +28,7 @@ pub(super) struct CutPage<'a> {
 /// Cut the returned page from the view. A complete view over the limit
 /// returns its first bounded page inline. A line page's lines take `fill`
 /// response characters at most, as they render (`None`: the row's whole
-/// share, or the fallback page without one). `classified`: a classifier
-/// chose the view's chunks.
+/// share, or the fallback page without one).
 pub(super) fn cut_page<'a>(
     q: &'a LocalFetchQuery,
     view: &View,
@@ -39,7 +36,6 @@ pub(super) fn cut_page<'a>(
     source: &Source<'_>,
     facts: &SourceFacts,
     fill: Option<usize>,
-    classified: bool,
 ) -> Result<CutPage<'a>, Box<LocalFetchResult>> {
     let asked = q;
     let q = std::borrow::Cow::Borrowed(q);
@@ -107,8 +103,7 @@ pub(super) fn cut_page<'a>(
         }
         _ => None,
     };
-    let long_lines =
-        raw.then(|| super::super::pagination::LongLines::of(ext, classified, placement.as_ref()));
+    let long_lines = raw.then(|| super::super::pagination::LongLines::of(ext, placement.as_ref()));
     let window = PageWindow {
         query: page_q,
         view: &view.text,
@@ -130,7 +125,7 @@ pub(super) fn cut_page<'a>(
         origin.place(&mut scanned.page.pagination);
     }
     let pagination = &mut scanned.page.pagination;
-    if let Some(placement) = placement.as_ref().filter(|_| !classified)
+    if let Some(placement) = placement.as_ref()
         && pagination.unit == ReadProgressUnit::Bytes
         && !scanned.page.out_of_range
     {
@@ -182,7 +177,6 @@ pub(super) fn page_result(
     source: &Source<'_>,
     ext: &super::super::extraction::Extraction,
     view: &View,
-    selection_outcome: Option<&super::super::selection::Chosen>,
     source_path: &std::path::Path,
     facts: &SourceFacts,
 ) -> LocalFetchResult {
@@ -196,11 +190,17 @@ pub(super) fn page_result(
     let q = q.as_ref();
     let mut warnings = source.warnings.clone();
     warnings.extend(ext.warnings.iter().cloned());
+    let pg = scanned.page;
+    // A raw page's numbered lines say where it ends; a transformed view may
+    // have dropped the file's last line, so its page does not.
+    let last_shown = (view.mode.is_none() && !pg.out_of_range && !pg.text.is_empty())
+        .then(|| page_source_ranges(ext.source_lines.as_deref(), pg.view_lines))
+        .and_then(|ranges| ranges.last().map(|range| range.end));
+    warnings.extend(ext.clip_warnings(last_shown, source.total_lines));
     if local_fetch_query::offset(asked).unwrap_or(0) == 0 {
         warnings.extend(view.note.iter().cloned());
     }
     warnings.extend(scanned.warnings);
-    let pg = scanned.page;
     let source_redactions = if source.redacted_lines.is_empty() {
         0
     } else {
@@ -219,11 +219,7 @@ pub(super) fn page_result(
         scanned.redactions + source_redactions,
         &mut warnings,
     );
-    let token = selection_outcome.map(|chosen| chosen.outcome.token.as_str());
-    let mut next = match continue_calls(q, &pg, token, ext) {
-        Ok(next) => next,
-        Err(error) => return super::classified::invalid_continuation(q, error),
-    };
+    let next = continue_calls(q, &pg, ext);
     if pg.rest_of_line
         && let Some(line) = page_source_ranges(ext.source_lines.as_deref(), pg.view_lines).first()
     {
@@ -239,21 +235,8 @@ pub(super) fn page_result(
             asked,
             &ext.unmatched,
         ));
-        warnings.extend(selection_outcome.into_iter().flat_map(|chosen| {
-            chosen.disclosure(
-                next.as_ref()
-                    .is_some_and(|next| next.continue_window.is_some()),
-            )
-        }));
     }
     let out_of_range = pg.out_of_range;
-    if let Some(chosen) = selection_outcome
-        && chosen.leads()
-        && let Err(error) =
-            attach_unfiltered(next.get_or_insert_with(NextCalls::default), asked, chosen)
-    {
-        return super::classified::invalid_continuation(q, error);
-    }
     read_scope_warnings(read, &pg, &mut warnings);
     // Redaction (source-wide for matchString, or on the page) replaces text
     // within lines; the anchors stay and the warning above says the text is
@@ -264,6 +247,27 @@ pub(super) fn page_result(
         } else {
             vec![]
         };
+    // The line a byte page opens inside: the source line of its first view
+    // line, which a view with its own gutter states there.
+    let continues_line = (pg.opens_inside && !out_of_range && !scanned.empty)
+        .then(|| match view.mode {
+            None => page_source_ranges(
+                ext.source_lines.as_deref(),
+                (pg.view_lines.0, pg.view_lines.0),
+            )
+            .first()
+            .map(|range| range.start),
+            Some(_) => view
+                .text
+                .lines()
+                .nth(pg.view_lines.0.saturating_sub(1))
+                .and_then(|line| {
+                    let (number, _) =
+                        line.split_once(octocode_runtime_base::response::numbered::SEPARATOR)?;
+                    number.split('-').next()?.parse().ok()
+                }),
+        })
+        .flatten();
     let blocks = if out_of_range {
         vec![]
     } else {
@@ -272,7 +276,7 @@ pub(super) fn page_result(
     let mut matched_lines = ext.matched_lines.clone();
     matched_lines.retain(|n| source_ranges.iter().any(|r| *n >= r.start && *n <= r.end));
     let match_keys = crate::match_keys::line_key_paths(source_path, &source.text, &matched_lines);
-    let (chars, ret_bytes, _) = result_counts(&pg.text);
+    let (_, ret_bytes, _) = result_counts(&pg.text);
     // The view lines the page shows, as `sourceLineRanges` places them: a
     // page of match windows of one long line shows that line once, whatever
     // the gap markers between its windows add to the text.
@@ -291,7 +295,6 @@ pub(super) fn page_result(
                 asked,
                 source,
                 view,
-                classified: selection_outcome.is_some(),
             },
             source_path,
             facts,
@@ -304,15 +307,12 @@ pub(super) fn page_result(
         start_line: ext.start,
         end_line: ext.end,
         source_line_ranges: source_ranges,
+        continues_line,
         match_ranges: ext.match_ranges.clone(),
         matched_lines,
         match_keys,
         blocks,
-        // Under a classifier the row counts what this page kept; the
-        // receipt counts the whole walk.
-        selected_match_count: selection_outcome
-            .map(|chosen| chosen.outcome.selected.len())
-            .or(ext.count),
+        selected_match_count: ext.count,
         // A match read searched the whole source: its masked spans do not
         // depend on the match strings.
         masked_spans: Some(source.redactions_total())
@@ -332,11 +332,6 @@ pub(super) fn page_result(
         out_of_range,
         next,
         continued: !first_page,
-        // An undecided view is no selected evidence: the page that decided
-        // its units carries the receipt.
-        selection: selection_outcome
-            .filter(|chosen| !chosen.outcome.lists_undecided())
-            .map(|chosen| chosen.outcome.receipt.clone()),
         ..LocalFetchResult::blank(ReadStatus::Success)
     };
     // The view removed every selected line (a comment-only range read
@@ -349,21 +344,7 @@ pub(super) fn page_result(
         result.hints.push(MINIFIED_AWAY_HINT.into());
         result.next.get_or_insert_with(NextCalls::default).read = Some(FetchCall::related(query));
     }
-    // A classified view that kept no chunk: an empty read whose unfiltered
-    // lead is its recovery (zero kept is not absence).
-    if chars == 0 && kept_no_chunk(result.selection.as_ref(), selection_outcome) {
-        result.status = ReadStatus::Empty;
-    }
     result
-}
-
-/// A classified walk over candidates whose page kept none of them.
-fn kept_no_chunk(
-    receipt: Option<&octocode_contract_types::Selection>,
-    chosen: Option<&super::super::selection::Chosen>,
-) -> bool {
-    receipt.is_some_and(|receipt| receipt.total_items > 0)
-        && chosen.is_some_and(|chosen| chosen.outcome.selected.is_empty())
 }
 
 /// Where a page's text was cut from, to find the text the whole-source pass
@@ -372,13 +353,12 @@ struct Sealed<'a> {
     asked: &'a LocalFetchQuery,
     source: &'a Source<'a>,
     view: &'a View,
-    classified: bool,
 }
 
 impl Sealed<'_> {
     /// The whole-source pass's output this page is a slice of. A whole read
     /// moved it into its view (`view.rs`, `select_view`), where it stays
-    /// as long as no outline or classifier rewrote the view; a replayed page
+    /// as long as no outline rewrote the view; a replayed page
     /// cuts from that same kept view. The compact view is that output laid
     /// out again: compaction drops whitespace and comments between the
     /// tokens of the sealed text and numbers the lines it keeps, so each
@@ -389,10 +369,9 @@ impl Sealed<'_> {
     /// in its source. A rewritten whole view has neither: its text is empty,
     /// so no page of it is marked.
     fn text(&self) -> &str {
-        let untouched_whole = super::super::extraction::selects_whole(self.asked)
-            && self.view.mode.is_none()
-            && !self.classified;
-        let laid_out_again = self.view.mode == Some(ReadView::Compact) && !self.classified;
+        let untouched_whole =
+            super::super::extraction::selects_whole(self.asked) && self.view.mode.is_none();
+        let laid_out_again = self.view.mode == Some(ReadView::Compact);
         if untouched_whole || laid_out_again {
             &self.view.text
         } else {
@@ -426,16 +405,15 @@ fn judged_page(
 const MINIFIED_AWAY_HINT: &str =
     "The compact view removed every selected line; use view:content to read the source.";
 
-/// The page's continuations: its next page bound to the selection token, plus
-/// follow-ups to data the extraction selected but did not return.
+/// The page's continuations: its next page, plus follow-ups to data the
+/// extraction selected but did not return.
 fn continue_calls(
     q: &LocalFetchQuery,
     pg: &super::super::pagination::Page,
-    token: Option<&str>,
     ext: &super::super::extraction::Extraction,
-) -> Result<Option<NextCalls>, String> {
+) -> Option<NextCalls> {
     let mut next = page_next(q, pg);
-    // Every match of a long last line shown: its whole line is a lead.
+    // Every match of a long line shown: its whole line is a lead.
     if pg.rest_of_line
         && let Some(line) = line_read(
             q,
@@ -444,21 +422,15 @@ fn continue_calls(
     {
         let next = next.get_or_insert_with(NextCalls::default);
         if next.read.is_none() {
-            next.read = Some(FetchCall::related(line));
+            next.read = Some(FetchCall::needed(line));
         }
-    }
-    if let Some(token) = token
-        && let Some(read) = next.as_mut().and_then(|next| next.continue_window.as_mut())
-    {
-        local_fetch_query::set_selection(&mut read.query, Some(token))
-            .map_err(|error| error.to_string())?;
     }
     let follow_ups = ext.next.clone();
     if !pg.out_of_range && !follow_ups.is_empty() {
         next.get_or_insert_with(NextCalls::default)
             .absorb(follow_ups);
     }
-    Ok(next)
+    next
 }
 
 /// Continue the selected view or restart an out-of-range saved position.

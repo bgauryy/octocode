@@ -129,9 +129,9 @@ impl Operation<'_, '_> {
         }
         row["lsp"]["provider"] = json!(heritage::fallback_provider(kind));
         row["lsp"]["source"] = json!(if kind == "subtypes" {
-            "implementation"
+            super::super::level::IMPLEMENTATION_ROUTE
         } else {
-            "heritage"
+            super::super::level::HERITAGE_ROUTE
         });
         super::super::walk::mark_partial_expansion(
             &mut row,
@@ -149,6 +149,15 @@ impl Operation<'_, '_> {
             && window.has_more
         {
             mark_more_candidates(&mut row, query, &window.digest);
+        }
+        if walk.value_candidates > 0 {
+            octocode_runtime_base::response::paging::push_warnings(
+                &mut row,
+                [format!(
+                    "{} implementation location(s) are values of the type (object literals), not type declarations: `implementation` lists them.",
+                    walk.value_candidates
+                )],
+            );
         }
         Ok(row)
     }
@@ -392,13 +401,6 @@ impl Operation<'_, '_> {
         if let Some(importers) = &importers {
             self.check_code_uses().await?;
             importers.annotate(&mut row, query, self.scope);
-            // A deeper walk follows the last importer window, not a page
-            // that still has windows to verify.
-            if row.pointer("/next/nextImporterWindow").is_some()
-                && let Some(next) = row.get_mut("next").and_then(Value::as_object_mut)
-            {
-                next.remove("walkDeeper");
-            }
         }
         Ok(row)
     }

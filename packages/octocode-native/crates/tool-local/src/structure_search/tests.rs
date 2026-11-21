@@ -13,10 +13,10 @@ use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 
 mod budget;
-mod classified_pages;
 mod costs;
 mod files;
 mod filter_freshness;
+mod guidance_by_row_type;
 mod ignore;
 mod inputs;
 mod limit;
@@ -87,6 +87,74 @@ fn related<'a>(out: &'a Value, tool: &str) -> &'a Value {
         .as_array()
         .and_then(|calls| calls.iter().find(|call| call["tool"] == tool))
         .unwrap_or(&Value::Null)
+}
+
+/// The calls `out` offers that start new work (kind `related`), wherever it
+/// holds them. A continuation (kind `continue`) lists on in the same answer
+/// and is no guidance.
+fn related_calls(out: &Value) -> Vec<octocode_runtime_base::test_support::checks::Lead> {
+    octocode_runtime_base::test_support::checks::leads(out)
+        .into_iter()
+        .filter(|lead| lead.kind == "related")
+        .collect()
+}
+
+/// Guidance by row type: a listing that returns entries states no hint and
+/// offers no related call; what it skipped is counted in `skippedPaths`.
+fn assert_listing_guides_nothing(out: &Value) {
+    assert!(!listed(out).is_empty(), "a listing with entries: {out}");
+    assert!(out.get("hints").is_none(), "a listing hints: {out}");
+    assert!(
+        related_calls(out).is_empty(),
+        "a listing offers a related call: {out}"
+    );
+}
+
+/// Guidance by row type: an empty listing states at most one hint and offers
+/// at most one related call. Returns the call's query, when it offers one.
+fn one_recovery(out: &Value) -> Option<Value> {
+    assert_eq!(out["status"], "empty", "{out}");
+    let hints = out["hints"].as_array().map_or(0, Vec::len);
+    let mut calls = related_calls(out);
+    assert!(
+        hints <= 1,
+        "an empty listing states one hint at most: {out}"
+    );
+    assert!(
+        calls.len() <= 1,
+        "an empty listing offers one related call at most: {out}"
+    );
+    calls.pop().map(|call| call.query["queries"][0].clone())
+}
+
+/// The one call of an empty listing whose walk skipped paths: the same
+/// listing with the causes it skipped by lifted. Its one sentence is the
+/// shared disclosure of exactly the causes the call lifts.
+fn skipped_recovery(out: &Value) -> Value {
+    use octocode_tools_shared::empty_walk::Cause;
+    let call = one_recovery(out).unwrap_or_else(|| panic!("a call: {out}"));
+    let causes = [Cause::Ignored, Cause::Hidden, Cause::DefaultExcluded]
+        .into_iter()
+        .filter(|cause| {
+            let (field, value) = cause.flag();
+            call[field] == value
+        })
+        .collect::<Vec<_>>();
+    let said = octocode_tools_shared::leads::skipped::unsearched(&causes)
+        .unwrap_or_else(|| panic!("the call lifts a cause: {out}"));
+    assert!(said.text.contains("skippedPaths"), "{}", said.text);
+    assert_eq!(out["hints"], json!([said.text]), "{out}");
+    assert!(out.get("warnings").is_none(), "{out}");
+    assert!(out["skippedPaths"]["entries"].is_array(), "{out}");
+    call
+}
+
+/// `query` with `flags` set: the listing a caller runs to lift skip causes.
+fn lifting(mut query: Value, flags: Value) -> Value {
+    for (field, value) in flags.as_object().expect("flags") {
+        query[field.as_str()] = value.clone();
+    }
+    query
 }
 
 /// The `files` query of the workspace root, as a listing continuation moves it.
@@ -170,7 +238,10 @@ fn listed(out: &Value) -> Vec<Value> {
         .unwrap_or_else(|| panic!("files groups: {out}"))
         .iter()
         .flat_map(|group| match group.as_str() {
-            Some(entry) => vec![listed_entry(&root, entry)],
+            // A flat entry is its own row path (workspace-relative); under
+            // the workspace root this helper spells paths `./name`, as it
+            // does for the root's group.
+            Some(entry) => vec![listed_entry(if root == "." { "." } else { "" }, entry)],
             None => {
                 let dir = join(group["dir"].as_str().expect("dir"));
                 group["files"]

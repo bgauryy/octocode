@@ -201,15 +201,32 @@ impl PageCosts {
     /// shows it (from the root) are priced alike, so the stream's test and
     /// the cut agree ([`super::page_fill`]).
     pub(super) fn file(&self, file: &octocode_engine::types::TextSearchFile) -> usize {
+        self.path(file) + FILE_ENTRY_CHARS + self.sorted_at_chars
+    }
+
+    /// The chars of a file's path as the page shows it: from the workspace,
+    /// whether the scan names the file under the root or from it.
+    fn path(&self, file: &octocode_engine::types::TextSearchFile) -> usize {
         let shown = std::path::Path::new(&file.path)
             .strip_prefix(&self.root)
             .map_or(std::borrow::Cow::Borrowed(file.path.as_str()), |relative| {
                 relative.to_string_lossy()
             });
-        octocode_engine::json_size::string_body_units(&shown)
-            + self.prefix_chars
-            + FILE_ENTRY_CHARS
-            + self.sorted_at_chars
+        octocode_engine::json_size::string_body_units(&shown) + self.prefix_chars
+    }
+
+    /// One listed file (`files` and count views) with its separator, its
+    /// path priced as the page shows it ([`Self::path`]): the traversal
+    /// stream's test and the sorted cut fill their pages alike.
+    pub(super) fn listed(
+        &self,
+        file: &octocode_engine::types::TextSearchFile,
+        view: local_search_query::View,
+    ) -> usize {
+        super::entries::listed_file_chars(file, view)
+            - octocode_engine::json_size::string_body_units(&file.path)
+            + self.path(file)
+            + 1
     }
 
     /// The enclosing name a hit row of file `index` carries (priced independently): its owner in a file the cut outlined, a reserve in

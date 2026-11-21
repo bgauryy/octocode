@@ -14,3 +14,23 @@ fn a_glob_with_a_parent_segment_is_found() {
     assert!(!reaches_above("src/..x/*.rs"));
     assert_eq!(parent_glob_warning(&["*.md".to_owned()], &[]), None);
 }
+
+/// A glob that matched only withheld files did match: the hint states how
+/// many and why, never the glob-syntax advice of a real miss, and no name.
+#[test]
+fn a_glob_that_matched_only_withheld_files_says_so() {
+    assert_eq!(glob_miss_hint(0), GLOB_MISS_HINT);
+    for withheld in [1, 2, 40] {
+        let hint = glob_miss_hint(withheld);
+        assert!(
+            hint.contains(&format!("matched {withheld} withheld file")),
+            "{hint}"
+        );
+        assert!(hint.contains("path policy"), "{hint}");
+        assert!(
+            !hint.contains("matched no file") && !hint.contains("**/"),
+            "{hint}"
+        );
+        assert!(hint.len() < GLOB_MISS_HINT.len(), "{hint}");
+    }
+}

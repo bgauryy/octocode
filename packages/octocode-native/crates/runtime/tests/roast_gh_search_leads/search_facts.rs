@@ -115,13 +115,21 @@ async fn history(total: u64, incomplete: bool, per_page_rows: usize) -> Value {
 #[tokio::test]
 async fn an_exact_pr_search_total_says_it_is_complete() {
     let data = history(24, false, 3).await;
+    // A stated total is exact, and no scope qualifies it.
     assert_eq!(data["pagination"]["total"], 24, "{data}");
-    assert_eq!(data["pagination"]["countScope"], "complete", "{data}");
+    assert!(data["pagination"].get("countScope").is_none(), "{data}");
 }
 
 #[tokio::test]
 async fn an_incomplete_pr_search_total_is_not_complete() {
     let data = history(24, true, 3).await;
-    assert_ne!(data["pagination"]["countScope"], "complete", "{data}");
-    assert!(data["pagination"].get("countScope").is_some(), "{data}");
+    // A count GitHub could not finish is a floor: no total is stated, and
+    // the row says why it is incomplete.
+    assert!(data.pointer("/pagination/total").is_none(), "{data}");
+    assert!(
+        data["partialReasons"]
+            .as_array()
+            .is_some_and(|reasons| !reasons.is_empty()),
+        "{data}"
+    );
 }

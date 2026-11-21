@@ -24,7 +24,7 @@ super::listing::listing_fields!(StructureSearchQueryTree {
     fn sort(&self) -> StructureSearchSort {
         StructureSearchSort::AscOnly(octocode_contract_types::SearchSortAscOnly {
             by: octocode_contract_types::TraversalBy::Traversal,
-            order: octocode_contract_types::AscOrder::Asc,
+            order: octocode_contract_types::SearchSortAscOnlyOrder::Asc,
         })
     }
     /// An outline walks its whole scope, so it knows how many rows matched.

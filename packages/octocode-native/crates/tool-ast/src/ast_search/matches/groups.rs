@@ -130,7 +130,6 @@ pub(super) fn listed_file(
         sizes: Vec::new(),
         held: None,
         row,
-        truncated_captures: false,
         nested: Nesting::default(),
         priced: None,
     }
@@ -146,7 +145,6 @@ fn matched_group(path: String, sizes: Vec<usize>, row_paths: RowPaths<'_>) -> Gr
         sizes,
         held: None,
         row: json!({"path": path}),
-        truncated_captures: false,
         nested: Nesting::default(),
         priced: None,
     }
@@ -305,9 +303,6 @@ fn show(group: &mut Group, rows: &[MatchRow], slice: std::ops::Range<usize>) {
         )
     });
     let rows = &rows[slice];
-    // Rows whose text was cut to a header or that hide capture text:
-    // `includeCaptures:true` (next.expandCaptures) returns them whole.
-    group.truncated_captures = rows.iter().any(|row| row.withheld);
     group.nested = nesting(rows);
     group.row["matches"] = rows
         .iter()

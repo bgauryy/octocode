@@ -11,13 +11,15 @@ const _: () = assert!(
 );
 
 /// The default branch, one page of branches and one of tags ordered newest
-/// version first ([`super::tag_order`]), each `{name, sha}` with the commit
-/// it names (an annotated tag's target, every one on the page read
-/// together). Saved cursor progress continues while either list has more.
+/// version first ([`super::tag_order`]), each by its name alone: every read
+/// takes a name as `ref` and returns its commit, so a listing reads no tag's
+/// commit. Saved cursor progress continues while either list has more.
 /// A listing resolves no ref, so it states no `commitSha`: one beside the
 /// tags would read as theirs. With `ref`,
 /// return only that ref's commit and `refKind`; with a glob `ref`
-/// ([`ref_pattern`]), the listing of the tags and branches it matches.
+/// ([`ref_pattern`], `"*"` for every ref), the listing of the tags and
+/// branches it matches, each `"<name> <commitSha>"` with the commit it names
+/// (an annotated tag's target, every one on the page read together).
 pub(super) async fn refs(
     provider: &GitHubProvider,
     query: &GhStructureQueryRefs,
@@ -168,23 +170,29 @@ pub(super) async fn refs(
         }
         tag_page(refs, query.repo.as_str(), page, per_page)
     });
+    // Only a glob listing states commits: the names of a plain listing cost
+    // no read of each tag's commit.
+    let with_commits = pattern.is_some();
     let mut listed_tags = 0;
     if let Some(tags) = &tags {
-        let commits = transport
-            .tag_commits(
-                query.owner.as_str(),
-                query.repo.as_str(),
-                &tags.refs,
-                context,
-            )
-            .await?;
-        // A tag deleted since the list was read is no tag of the repository.
-        let rows = tags
-            .refs
-            .iter()
-            .zip(commits)
-            .filter_map(|(tag, sha)| Some(json!(named_ref(&tag.name, &sha?))))
-            .collect::<Vec<_>>();
+        let rows = if with_commits {
+            let commits = transport
+                .tag_commits(
+                    query.owner.as_str(),
+                    query.repo.as_str(),
+                    &tags.refs,
+                    context,
+                )
+                .await?;
+            // A tag deleted since the list was read is no tag of the repository.
+            tags.refs
+                .iter()
+                .zip(commits)
+                .filter_map(|(tag, sha)| Some(json!(named_ref(&tag.name, &sha?))))
+                .collect::<Vec<_>>()
+        } else {
+            tags.refs.iter().map(|tag| json!(tag.name)).collect()
+        };
         listed_tags = rows.len();
         value["tags"] = Value::Array(rows);
     }
@@ -202,7 +210,13 @@ pub(super) async fn refs(
         value["branches"] = branches
             .refs
             .iter()
-            .map(|named: &NamedRef| json!(named_ref(&named.name, &named.sha)))
+            .map(|named: &NamedRef| {
+                if with_commits {
+                    json!(named_ref(&named.name, &named.sha))
+                } else {
+                    json!(named.name)
+                }
+            })
             .collect();
     }
     // The refs each list shows on this page, from the start of its provider
@@ -247,11 +261,12 @@ pub(super) async fn refs(
         if let Some(row) = unfiltered.as_object_mut() {
             row.remove("ref");
         }
-        value["calls"]["listRefs"] = octocode_runtime_base::response::result::Continuation::related(
-            ToolId::GhStructure,
-            unfiltered,
-        )
-        .build();
+        value["calls"]["listRefs"] =
+            octocode_runtime_base::response::result::Continuation::related(
+                ToolId::GhStructure,
+                unfiltered,
+            )
+            .build();
     }
     octocode_runtime_base::response::result::finish_calls(&mut value);
     let mut output = ToolData::from(value);
@@ -399,10 +414,10 @@ pub(super) async fn languages(
 #[cfg(test)]
 mod ref_list_tests;
 
-/// A ref as its list states it: `"<name> <commitSha>"`. A git ref name holds
-/// no space (git-check-ref-format), so the first space splits it back; the
-/// name stays a value, never a JSON key the output secret gate would read as
-/// an assignment.
+/// A ref as a glob listing states it: `"<name> <commitSha>"`. A git ref name
+/// holds no space (git-check-ref-format), so the first space splits it back;
+/// the name stays a value, never a JSON key the output secret gate would read
+/// as an assignment.
 fn named_ref(name: &str, sha: &str) -> String {
     format!("{name} {sha}")
 }

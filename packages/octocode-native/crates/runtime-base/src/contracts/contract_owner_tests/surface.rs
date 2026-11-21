@@ -262,11 +262,8 @@ fn every_operation_publishes_exactly_the_keys_its_forms_admit() {
         let mut forms = Vec::new();
         leaf_forms(query, query, &mut forms);
         let presented = presentation_tool(name);
-        let modes = [
-            ("plain", Some(presented), false),
-            ("selection", presented.get("selection"), true),
-        ];
-        for (mode, presented, provider) in modes {
+        let modes = [("plain", Some(presented))];
+        for (mode, presented) in modes {
             let selections = presented.and_then(|presented| presented["selections"].as_object());
             for (selection, view) in selections.into_iter().flatten() {
                 let pairs = pairs(selection);
@@ -284,12 +281,6 @@ fn every_operation_publishes_exactly_the_keys_its_forms_admit() {
                 let mut admitted = BTreeSet::new();
                 for form in forms.iter().filter(|form| takes(query, form)) {
                     key_paths(query, form, "", 0, &mut admitted);
-                }
-                if !provider {
-                    admitted.retain(|path| {
-                        let field = path.split(['.', '[']).next().unwrap_or(path);
-                        !crate::contracts::PROVIDER_FIELDS.contains(&field)
-                    });
                 }
                 let schema = &view["querySchema"];
                 let published = paths_of(schema);
@@ -333,8 +324,8 @@ fn every_operation_publishes_exactly_the_keys_its_forms_admit() {
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
-/// The guard above compares something: operations are published, a provider
-/// adds classification views, and second pairs narrow an operation.
+/// The guard above compares something: operations are published, and second
+/// pairs narrow an operation.
 #[test]
 fn selected_views_cover_both_modes_and_second_pairs() {
     let tools = || {
@@ -346,13 +337,4 @@ fn selected_views_cover_both_modes_and_second_pairs() {
         |presented: &'static Value| presented["selections"].as_object().into_iter().flatten();
     assert!(tools().flat_map(keys).any(|(key, _)| !key.contains(',')));
     assert!(tools().flat_map(keys).any(|(key, _)| key.contains(',')));
-    let provider: Vec<_> = tools()
-        .filter_map(|presented| presented.get("selection"))
-        .flat_map(keys)
-        .collect();
-    assert!(provider.iter().any(|(_, view)| {
-        view["querySchema"]["properties"]
-            .get(crate::contracts::PROVIDER_FIELDS[0])
-            .is_some()
-    }));
 }

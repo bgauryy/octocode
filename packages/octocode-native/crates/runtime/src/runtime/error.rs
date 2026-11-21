@@ -78,9 +78,14 @@ pub fn tool_error_result(tool: &str, error: &RuntimeError) -> RejectedCall {
     RejectedCall { envelope, text }
 }
 
-/// The parts of an MCP `CallToolResult`: one text block carrying the shared
-/// compact JSON projection, and the tool error flag. No structured copy is
-/// produced, so every host reads the same evidence exactly once.
+/// The parts of an MCP `CallToolResult`: one text block and the tool error
+/// flag. [`mcp_result`] fills the block with the shared compact JSON
+/// projection, which is what a session gets by default
+/// (`output.mcpResult: json`). Under `output.mcpResult: text` the MCP server
+/// sends the CLI's text view of the same result in that block instead
+/// (`cli/src/cli/mcp_server/reply.rs`; a result with no text view stays
+/// JSON), with the same error flag. No structured copy is produced in either
+/// format, so every host reads the same evidence exactly once.
 #[derive(Debug)]
 pub struct McpResult {
     pub text: String,

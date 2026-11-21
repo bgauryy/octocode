@@ -418,3 +418,64 @@ async fn an_mcp_request_is_its_own_runtime_with_mcp_policy_and_bytes() {
         .await;
     shut_down(&daemon).await;
 }
+
+/// Under `output.mcpResult: text` the server answers an MCP request with
+/// the text an in-process MCP server sends, from the same function: the
+/// setting is the session's, which the request's environment carries.
+#[tokio::test]
+async fn an_mcp_request_is_answered_in_the_sessions_result_format() {
+    let mut fixture = Fixture::new();
+    fixture
+        .env
+        .insert("OCTOCODE_MCP_RESULT".into(), "text".into());
+    let socket = fixture.home.path().join("t.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).expect("bind");
+    let daemon = std::rc::Rc::new(Daemon::new(socket.clone()));
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let input = json_fixture(r#"{"queries": [{"matchString": ["alpha"], "path": "."}]}"#);
+            let cwd = fixture.dir("a");
+            // The in-process answer comes first: a server idle for its
+            // 300 ms while one runs would stop before the call.
+            let runtime = octocode_native::runtime::ToolRuntime::from_host(
+                octocode_native::runtime::HostOptions {
+                    cwd: Some(cwd.clone()),
+                    env: Some(served_env(fixture.env.clone())),
+                    ..crate::cli::mcp_server::mcp_host()
+                },
+            )
+            .expect("runtime");
+            let format = runtime.config().resolved.output.mcp_result;
+            assert_eq!(format, octocode_runtime_base::config::OutputMcpResult::Text);
+            let admission = runtime.admit_with("mcp-1".into(), None).expect("admit");
+            let result = runtime
+                .execute(
+                    admission,
+                    "localSearch".into(),
+                    input.clone(),
+                    octocode_native::runtime::Channel::Mcp,
+                )
+                .await;
+            runtime.close().await;
+            let expected = crate::cli::mcp_server::reply("localSearch", result, format, &input)
+                .expect("answered");
+            assert!(
+                serde_json::from_str::<Value>(&expected.text).is_err(),
+                "the text view, not JSON: {}",
+                expected.text
+            );
+            let server_daemon = std::rc::Rc::clone(&daemon);
+            let server = tokio::task::spawn_local(async move {
+                serve_on(listener, &server_daemon, Duration::from_millis(300), || {}).await;
+            });
+            let served = fixture
+                .ask_mcp(&socket, &cwd, "localSearch", &input)
+                .await
+                .expect("served");
+            assert_eq!(served["mcp"]["text"], json!(expected.text), "the bytes");
+            assert_eq!(served["mcp"]["isError"], json!(expected.is_error));
+            server.await.expect("server");
+        })
+        .await;
+    shut_down(&daemon).await;
+}

@@ -21,21 +21,26 @@ fn a_lead_repeats_the_search_without_the_callers_brief() {
     assert!(row.get("reasoning").is_none(), "{lead}");
 }
 
-/// One sentence shape whatever the tool: the skipped paths by name were not
-/// searched, and the lead (in the call bundle) lifts exactly their causes,
-/// from the first page. The requested walk was whole, so nothing is partial.
+/// One sentence shape whatever the tool: the row's `skippedPaths` were not
+/// searched, and the one related call (in the call bundle) lifts exactly
+/// their causes, each named by its flag, from the first page. The requested
+/// walk was whole, so nothing is partial.
 #[test]
 fn every_tool_discloses_skipped_paths_in_one_shape() {
-    assert_eq!(unsearched(&[], ""), None);
-    let said = unsearched(&[Cause::Ignored, Cause::DefaultExcluded], "3 ignored").expect("said");
+    assert_eq!(unsearched(&[]), None);
+    let said = unsearched(&[Cause::Ignored, Cause::DefaultExcluded]).expect("said");
     assert_eq!(said.causes, [Cause::Ignored, Cause::DefaultExcluded]);
-    assert!(
-        said.text.starts_with(
-            "Skipped paths (3 ignored) were not searched, so absence there is unproven."
-        ),
-        "{}",
-        said.text
-    );
+    assert!(said.text.contains("skippedPaths"), "{}", said.text);
+    for cause in &said.causes {
+        let (field, value) = cause.flag();
+        assert!(
+            said.text.contains(&format!("{field}:{value}")),
+            "{}",
+            said.text
+        );
+    }
+    let (hidden, _) = Cause::Hidden.flag();
+    assert!(!said.text.contains(hidden), "{}", said.text);
     let mut out = serde_json::json!({});
     attach(
         &mut out,
@@ -57,13 +62,35 @@ fn every_tool_discloses_skipped_paths_in_one_shape() {
         out.get("partialReasons").is_none(),
         "the requested walk was whole"
     );
-    assert!(
-        out["warnings"][0]
-            .as_str()
-            .expect("warning")
-            .contains("unproven")
-    );
+    // A row with evidence: the sentence limits what it proves absent (a
+    // warning), and the call is one the row needs.
+    assert_eq!(out["warnings"], serde_json::json!([said.text]));
+    assert!(out.get("hints").is_none(), "{out}");
     assert_eq!(out["calls"]["includeSkipped"]["kind"], "related");
+    assert_eq!(
+        out["calls"]["includeSkipped"][octocode_runtime_base::response::result::REQUIRED_KEY],
+        true
+    );
+    // An empty row: the same sentence is its recovery hint, and its call is
+    // an ordinary lead.
+    let mut empty = serde_json::json!({"status": "empty"});
+    attach(
+        &mut empty,
+        &said,
+        lead(
+            ToolId::StructureSearch,
+            &json_fixture(r#"{"operation": "files", "path": "."}"#),
+            &said.causes,
+        ),
+    );
+    assert_eq!(empty["hints"], serde_json::json!([said.text]));
+    assert!(empty.get("warnings").is_none(), "{empty}");
+    assert!(
+        empty["calls"]["includeSkipped"]
+            .get(octocode_runtime_base::response::result::REQUIRED_KEY)
+            .is_none(),
+        "{empty}"
+    );
     let row = &out["calls"]["includeSkipped"]["input"]["queries"][0];
     assert_eq!(row["includeIgnored"], true, "{row}");
     assert_eq!(row["defaultExcludes"], false, "{row}");
@@ -73,8 +100,8 @@ fn every_tool_discloses_skipped_paths_in_one_shape() {
     );
 }
 
-/// A walk's ledger names its causes by count, and lifts the default excludes
-/// too for an ignored entry they would also leave out.
+/// A walk's ledger is disclosed by its causes, the default excludes too for
+/// an ignored entry they would also leave out.
 #[test]
 fn a_ledger_is_disclosed_by_its_counts() {
     let mut walked = octocode_runtime_base::policy::discovery::WalkSkips::default();
@@ -87,12 +114,7 @@ fn a_ledger_is_disclosed_by_its_counts() {
         said.causes,
         [Cause::Ignored, Cause::Hidden, Cause::DefaultExcluded]
     );
-    assert!(
-        said.text
-            .starts_with("Skipped paths (1 ignored, 1 hidden) were not searched"),
-        "{}",
-        said.text
-    );
+    assert_eq!(Some(&said), unsearched(&said.causes).as_ref());
 }
 
 /// Final round, item 4: a skip's disclosure quotes the walk's path and

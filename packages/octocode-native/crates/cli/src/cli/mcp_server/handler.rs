@@ -6,7 +6,7 @@ use super::listing::Listing;
 use super::resources;
 use super::warm::Warm;
 use octocode_contract_types::ErrorCode;
-use octocode_native::runtime::error::{McpResult, mcp_result};
+use octocode_native::runtime::error::McpResult;
 use octocode_native::runtime::{Channel, RuntimeError, ToolRuntime};
 use octocode_runtime_base::security::scrub_error_text;
 use rmcp::ErrorData;
@@ -76,7 +76,8 @@ impl Handler {
 
     /// Run one call to completion: on the warm server when it runs there,
     /// else in this process. A cancelled call is cancelled where it runs,
-    /// which unwinds its work.
+    /// which unwinds its work. Its text is in the session's
+    /// `output.mcpResult` format wherever it ran ([`super::reply`]).
     async fn run(
         &self,
         tool: &str,
@@ -88,6 +89,8 @@ impl Handler {
         }
         let request = format!("mcp-{}", self.next_request.fetch_add(1, Ordering::Relaxed));
         let admission = self.runtime.admit_with(request.clone(), None);
+        let format = self.runtime.config().resolved.output.mcp_result;
+        let query = input.clone();
         let result = match admission {
             Ok(admission) => {
                 let execution =
@@ -104,7 +107,7 @@ impl Handler {
             }
             Err(error) => Err(error),
         };
-        mcp_result(tool, result)
+        super::reply(tool, result, format, &query)
     }
 }
 

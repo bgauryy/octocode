@@ -28,7 +28,6 @@ pub(super) fn shape(
     fetched: Fetched,
     security: &impl ContentScan,
     cancel: &octocode_runtime_base::execution::ExecutionContext,
-    selection: Option<&octocode_tools_shared::selection::Runtime>,
 ) -> Result<GhGetFileContentResult, ProviderError> {
     let Fetched {
         window,
@@ -48,37 +47,14 @@ pub(super) fn shape(
         file_lines: None,
         local_file: false,
     };
-    let mut content =
-        if !octocode_tools_shared::source_view::local_fetch_query::has_classification(&local)
-            && octocode_tools_shared::source_view::local_fetch_query::selection(&local).is_none()
-        {
-            process_fetched_content(
-                &local,
-                &acquired.bytes,
-                Path::new(scan_name),
-                &facts,
-                security,
-                cancel,
-            )
-        } else {
-            let rank_path = format!(
-                "{}/{}/{}/{}",
-                access::owner(query),
-                access::repo(query),
-                acquired.resolved_ref,
-                scan_name
-            );
-            octocode_tools_shared::source_view::process_fetched_content_selected(
-                &local,
-                &acquired.bytes,
-                Path::new(&rank_path),
-                access::path(query),
-                &facts,
-                security,
-                cancel,
-                selection,
-            )
-        };
+    let mut content = process_fetched_content(
+        &local,
+        &acquired.bytes,
+        Path::new(scan_name),
+        &facts,
+        security,
+        cancel,
+    );
     let match_not_found = settle_status(&mut content, query, &acquired.bytes)?;
     if let Some(pointer) = super::lfs::parse(&acquired.bytes) {
         content.warnings.push(super::lfs::warning(
@@ -141,8 +117,7 @@ fn settle_status(
             "offset must be on a UTF-8 code point boundary",
         ));
     }
-    // A classifier that kept nothing is a judgment, not a term that missed.
-    let match_not_found = content.selected_match_count == Some(0) && content.selection.is_none();
+    let match_not_found = content.selected_match_count == Some(0);
     if match_not_found {
         no_match(content, query, bytes);
     }
@@ -196,8 +171,10 @@ fn read_leads(
     } else {
         Vec::new()
     };
+    // One hint per miss: the order of this read's leads stands for the
+    // shared miss's own sentence, which names only the first of them.
     if !misses.is_empty() {
-        content.hints.push(miss_order(outlined, &misses));
+        content.hints = vec![miss_order(outlined, &misses, content.masked_spans)];
     }
     if !misses.is_empty()
         && let Some(calls) = next.get_or_insert_with(|| json!({})).as_object_mut()
@@ -232,8 +209,13 @@ fn read_leads(
 /// the file's own declarations (the name may be spelled otherwise; the
 /// shared miss's outline read when `outlined`), then the repository's code
 /// (it may live in another file), then the path's history (it may have been
-/// removed or never merged).
-fn miss_order(outlined: bool, misses: &[(&'static str, Value)]) -> String {
+/// removed or never merged). `masked` is the file's count of masked secret
+/// values: a miss proves no absence inside them.
+pub(super) fn miss_order(
+    outlined: bool,
+    misses: &[(&'static str, Value)],
+    masked: Option<usize>,
+) -> String {
     let steps = outlined
         .then_some("readSymbols")
         .into_iter()
@@ -246,10 +228,18 @@ fn miss_order(outlined: bool, misses: &[(&'static str, Value)]) -> String {
             _ => None,
         })
         .collect::<Vec<_>>();
-    format!(
-        "No line of this file holds it; related[] in order: {}.",
-        steps.join(", then ")
-    )
+    // What the miss proves: nothing of the file's text, or, when the file
+    // holds masked values, nothing of the text outside them.
+    let absent = masked.map_or_else(
+        || "No line of this file holds it".to_owned(),
+        |masked| {
+            format!(
+                "No line of the searched text holds it; {}",
+                octocode_tools_shared::source_view::masked_unsearched(masked)
+            )
+        },
+    );
+    format!("{absent}; related[] in order: {}.", steps.join(", then "))
 }
 
 fn no_match(

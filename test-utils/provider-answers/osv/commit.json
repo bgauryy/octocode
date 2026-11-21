@@ -3,7 +3,7 @@
  "tool": "securityCheck",
  "query": {
   "operation": "commit",
-  "commitSha": "6879efc2c1596d11a6a6ad296f80063b558d5e0f",
+  "ref": "6879efc2c1596d11a6a6ad296f80063b558d5e0f",
   "view": "details"
  },
  "recordedAt": "2026-11-08",

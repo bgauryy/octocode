@@ -45,38 +45,19 @@ impl ToolId {
         Self::ALL.into_iter().find(|id| id.as_str() == name)
     }
 
-    /// The cross-tool calls this tool's served description promises as its
-    /// `related` output (artifactSearch: the advisory lead of an exact row;
-    /// graphBuild: the queries of the snapshot it published; graphQuery: the
-    /// lspSearch check of a symbol answer's syntax rows, and its own
-    /// operation leads: a node's callers/callees, a file's symbols, deps and
-    /// dependents; the one tool whose promised links include itself).
-    /// The response stage keeps a promised call by that promise alone; a
-    /// contract-lock test pins each target to the producing description.
+    /// The cross-tool calls this tool's served description promises as the
+    /// `related` output of its answers (graphBuild: the queries of the
+    /// snapshot it published; graphQuery: the lspSearch check of a symbol
+    /// answer's syntax rows, and its own operation leads: a node's
+    /// callers/callees, a file's symbols, deps and dependents; the one tool
+    /// whose promised links include itself). They are the only `related` an
+    /// evidence row carries (`response::workflow_lead`); a contract-lock
+    /// test pins each target to the producing description.
     #[must_use]
     pub(crate) const fn promised_links(self) -> &'static [Self] {
         match self {
-            Self::ArtifactSearch => &[Self::SecurityCheck],
             Self::GraphBuild => &[Self::GraphQuery],
             Self::GraphQuery => &[Self::LspSearch, Self::GraphQuery],
-            _ => &[],
-        }
-    }
-
-    /// The diagnostic codes whose recovery this tool's output reference
-    /// states once, as the row's related call to this tool, so a note of
-    /// such a code carries no `recovery` of its own (astSearch: the related
-    /// rule with `any` beside `structural.pattern.qualified`). The response
-    /// stage keeps that call by the code alone; a contract-lock test pins
-    /// each code to the producing reference.
-    #[must_use]
-    pub(crate) const fn codes_promising_related(self) -> &'static [&'static str] {
-        match self {
-            Self::AstSearch => &[
-                "structural.pattern.qualified",
-                "structural.rule.otherKind",
-                "structural.rule.neighbor",
-            ],
             _ => &[],
         }
     }
@@ -129,49 +110,6 @@ impl ToolId {
             // batch's resolutions.
             Self::GhGetFileContent => true,
             _ => false,
-        }
-    }
-
-    /// Whether `classification` selects this tool's rows at the shared response
-    /// boundary, over one sanitized provider page (code search, history, structure), instead of
-    /// before the tool's own source pagination.
-    #[must_use]
-    pub const fn selects_provider_page(self) -> bool {
-        matches!(
-            self,
-            Self::GhSearchCode
-                | Self::GhSearchHistory
-                | Self::GhGetHistoryItem
-                | Self::StructureSearch
-        )
-    }
-
-    /// The scope and unit of the selection receipt a classified row of this
-    /// tool carries: the hits of one provider page
-    /// ([`Self::selects_provider_page`]), the hits of a search's view, or the
-    /// chunks of the view a reader selects from; `None` for a tool whose rows
-    /// are never classified.
-    #[must_use]
-    pub const fn selection_receipt(
-        self,
-    ) -> Option<(
-        octocode_contract_types::SelectionScope,
-        octocode_contract_types::SelectionUnit,
-    )> {
-        use octocode_contract_types::{SelectionScope, SelectionUnit};
-        if self.selects_provider_page() {
-            return Some((SelectionScope::ProviderPage, SelectionUnit::Hits));
-        }
-        match self {
-            // A search's units are its hits (`local_search::selection`).
-            Self::LocalSearch => Some((SelectionScope::SelectedView, SelectionUnit::Hits)),
-            // A read's units are the hits of a search it follows, else the
-            // chunks of its view: a read that failed before choosing says
-            // the broader, chunks.
-            Self::LocalFetch | Self::GhGetFileContent => {
-                Some((SelectionScope::SelectedView, SelectionUnit::Chunks))
-            }
-            _ => None,
         }
     }
 

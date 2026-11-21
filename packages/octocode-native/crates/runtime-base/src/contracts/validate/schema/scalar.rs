@@ -22,14 +22,25 @@ pub(super) fn validate_array(
                 "Expected a JSON array".to_owned()
             } else {
                 let items = schema.get("items");
-                // Wrapping is the repair only when the value is one item.
-                let fits = items.is_none_or(|items| {
-                    let _speculation = union::Speculation::enter();
-                    let mut candidate = received.clone();
-                    let result =
-                        validate_with_mode(root, items, &mut candidate, &mut path.clone(), mode);
-                    super::probe(result).unwrap_or(false)
-                });
+                // Wrapping is the repair only when the value is one item
+                // and the list takes one.
+                let takes_one = schema
+                    .get("minItems")
+                    .and_then(Value::as_u64)
+                    .is_none_or(|least| least <= 1);
+                let fits = takes_one
+                    && items.is_none_or(|items| {
+                        let _speculation = union::Speculation::enter();
+                        let mut candidate = received.clone();
+                        let result = validate_with_mode(
+                            root,
+                            items,
+                            &mut candidate,
+                            &mut path.clone(),
+                            mode,
+                        );
+                        super::probe(result).unwrap_or(false)
+                    });
                 let shape = items.and_then(|items| super::object::object_shape(root, items, 0));
                 super::super::repair::array(received, fits, shape.as_deref())
             };

@@ -1,10 +1,12 @@
 //! `operation: "commit"`: one commit's header and its changed-file page.
+use super::axis::Axis;
 use super::file_page::{
-    DiffSides, FilePage, Lead, empty_scope_warning, lead_first, patch_needle, shape_file_page,
+    DiffSides, FilePage, Lead, empty_scope_warning, first_page, lead_first, patch_needle,
+    shape_file_page,
 };
 use super::filter::{FileFilter, FileScope, FilteredPage};
 use super::inventory::file_page_size;
-use super::patch_hop::{attach_diff_continuations, commit_pull_request_lead, commit_query};
+use super::patch_hop::{DiffCursors, attach_diff_continuations, commit_query};
 use super::util::{str_at, string};
 use super::window::{
     COMMIT_FILE_BATCH, MAX_COMMIT_FILE_BATCHES, WindowSpec, commit_file_items, load_window_with,
@@ -15,6 +17,7 @@ use crate::gh_get_history_item::gh_get_history_item_query;
 use octocode_github::{GitHubProvider, ProviderError, RequestContext};
 use octocode_runtime_base::response::paging::push_warnings;
 use octocode_runtime_base::response::result::{ToolData, remove_nulls};
+use octocode_tools_shared::gh_shared::commit::commit_pull_request;
 use octocode_tools_shared::gh_shared::dates::utc_date;
 use serde_json::{Value, json};
 
@@ -84,14 +87,74 @@ pub(super) async fn commit(
         .flatten();
     let listed = state.skipped + loaded.items.len();
     let commit = CommitFacts::of(raw);
-    let summary = query.sections().is_empty();
-    let mut out = commit_header(&commit, reference, summary, listed);
+    // No section, no file filter and no literal asks about the commit, not
+    // its files: the summary row (its facts and counts), each list one
+    // section away, as a comparison's summary is. A file filter or a
+    // `matchString` asks about files and answers with its file page.
+    let summary = query.sections().is_empty()
+        && !gh_get_history_item_query::has_file_filter(query)
+        && gh_get_history_item_query::match_strings(query).is_none();
+    // A walk states the commit once, on its first page: a later file page
+    // or patch window names the commit and carries its rows.
+    let read = if !first_page(query) {
+        Header::Continuation
+    } else if summary {
+        Header::Summary
+    } else {
+        Header::Section
+    };
+    let continued = read == Header::Continuation;
+    let mut out = commit_header(&commit, reference, read, listed);
+    // The files read so far are a floor until the list is read whole, and
+    // GitHub's cap ends it early: a count is stated only when exact, and the
+    // cap is said in words where it is reached. A later page states the
+    // count only when the first could not: the list spans provider batches.
+    let exact = state.exhausted && !state.capped;
+    if (!exact || (continued && listed <= COMMIT_FILE_BATCH))
+        && let Some(fields) = out.as_object_mut()
+    {
+        fields.remove("changedFileCount");
+    }
+    if state.capped {
+        push_warnings(
+            &mut out,
+            [format!(
+                "GitHub lists at most {} changed files of a commit and ends the list there: files past them are not listed, so no file count is stated.",
+                super::window::MAX_COMMIT_FILE_BATCHES * super::window::COMMIT_FILE_BATCH
+            )],
+        );
+    }
+    if !continued {
+        out["pullRequest"] = json!(commit_pull_request(
+            commit.message,
+            gh_get_history_item_query::owner(query),
+            gh_get_history_item_query::repo(query),
+        ));
+    }
     // A filter that left no file is an empty answer, not a bare `files: []`:
     // the row says so and its leads show.
     let scope_removed_all = unmatched.is_some();
     push_warnings(&mut out, unmatched);
-    let files = filter.page(loaded.items, state, query, query.include_diff());
-    let page = commit_file_page(&mut out, files, query, path.is_none(), &commit);
+    let page = if summary && !continued {
+        // The summary lists no file: the section states how many there are
+        // (when the count is exact) with none shown, and `next.files` opens
+        // the list from its first page.
+        if listed > 0 && exact {
+            out["sectionPagination"][Axis::Files.key()] =
+                octocode_runtime_base::response::pages::PageFacts::unshown(listed).to_value();
+        }
+        FilePage {
+            cursors: DiffCursors {
+                file_page: (listed > 0).then_some(1),
+                ..DiffCursors::default()
+            },
+            side_reads: Vec::new(),
+            without_match: None,
+        }
+    } else {
+        let files = filter.page(loaded.items, state, query, query.include_diff());
+        commit_file_page(&mut out, files, query, path.is_none(), &commit)
+    };
     attach_diff_continuations(
         &mut out,
         query,
@@ -102,10 +165,10 @@ pub(super) async fn commit(
     if scope_removed_all {
         out["status"] = json!("empty");
     }
-    let leads = commit_leads(query, &commit, page);
+    let leads = commit_leads(query, &commit, page, continued);
     // Which pull request merged the commit is the next fact a reader needs:
-    // when the message names none, the warning says so and requires its
-    // search, which a successful row otherwise leaves out of related[].
+    // when the message names none, the warning says so beside its search,
+    // which the row needs ([`find_pull_request`]).
     if leads.iter().any(|(name, _)| name == FIND_PULL_REQUEST) {
         push_warnings(&mut out, [no_pull_request_named(commit.message)]);
     }
@@ -138,16 +201,40 @@ impl<'a> CommitFacts<'a> {
     }
 }
 
+/// Which page of a commit read a header opens.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Header {
+    /// No section asked: the commit whole, with who wrote and committed it.
+    Summary,
+    /// The first page of a files or patches read.
+    Section,
+    /// A later file page or patch window of a walk: the first page stated
+    /// the commit, so this one only names it.
+    Continuation,
+}
+
 /// The commit row before its files. A summary read (no `sections`) is the
-/// commit whole: its message, who wrote and committed it, its parents and its
-/// line counts. A section read answers with its files or patches: the row
+/// commit whole: its message, who wrote and committed it and its parents. A
+/// section read's first page answers with its files or patches: the row
 /// names the commit by its SHA and whole message (issue and pull request
 /// references live past the first line) and dates it (the author's login,
-/// else name, and date). Every read keeps the upstream parent SHAs: they
-/// identify the old source of a patch, including every parent of a merge.
-/// The line counts are the summary read's.
-fn commit_header(commit: &CommitFacts<'_>, reference: &str, summary: bool, listed: usize) -> Value {
+/// else name, and date). Both keep the upstream parent SHAs: they identify
+/// the old source of a patch, including every parent of a merge, and the
+/// commit's own line counts. A continuation page states none of it again:
+/// it names the commit (`ref`, `commitSha`) and counts its files when the
+/// first page could not.
+fn commit_header(commit: &CommitFacts<'_>, reference: &str, read: Header, listed: usize) -> Value {
     let raw = commit.raw;
+    if read == Header::Continuation {
+        let mut out = json!({"ref":reference,"commitSha":commit.sha,"changedFileCount":listed});
+        if reference.eq_ignore_ascii_case(&commit.sha)
+            && let Some(fields) = out.as_object_mut()
+        {
+            fields.remove("ref");
+        }
+        return out;
+    }
+    let summary = read == Header::Summary;
     let author = identity(raw, "author");
     let committer = committer(raw, &author);
     let parents = raw.get("parents").and_then(Value::as_array).map(|parents| {
@@ -167,8 +254,10 @@ fn commit_header(commit: &CommitFacts<'_>, reference: &str, summary: bool, liste
         // page's `countScope` says when this count is a floor. The counts
         // keep one order on every read, as a pull request's do.
         "changedFileCount":listed,
-        "additions":raw.pointer("/stats/additions").filter(|_| summary),
-        "deletions":raw.pointer("/stats/deletions").filter(|_| summary),
+        // The commit's own line counts are exact on every read: a files or
+        // patches walk states them from its first page.
+        "additions":raw.pointer("/stats/additions"),
+        "deletions":raw.pointer("/stats/deletions"),
     });
     // A caller-supplied SHA is not restated as the ref it already names.
     if reference.eq_ignore_ascii_case(&commit.sha)
@@ -251,7 +340,7 @@ const FIND_PULL_REQUEST: &str = "findPullRequest";
 /// checks: a message may still mention other pull requests in prose
 /// ("submitted as part of PR #2483"), which say nothing of the one that
 /// holds the commit.
-pub(in crate::gh_get_history_item) const NO_PULL_REQUEST_NAMED: &str = "This commit's message states no pull request of its own (no (#N) headline, merge headline or PR-URL trailer): the related[] ghSearchHistory search by its SHA finds the one that holds it.";
+pub(in crate::gh_get_history_item) const NO_PULL_REQUEST_NAMED: &str = "This commit's message states no pull request of its own (no (#N) headline, merge headline or PR-URL trailer): the related[] ghSearchHistory search by its SHA lists pull requests that mention it; an empty or unrelated result means GitHub links none.";
 
 /// [`NO_PULL_REQUEST_NAMED`] for `message`, naming the same-repository
 /// references it makes in prose ([`mentioned_numbers`]): each may be an
@@ -305,16 +394,28 @@ fn mentioned_numbers(message: &str) -> Vec<u64> {
 }
 
 /// A commit read's leads in rank order: the unfiltered read when a
-/// `matchString` hit nothing, the pull request that holds the commit (the
-/// route to its discussion, ahead of the diff's side reads: the one its
-/// message names, else GitHub's pull-request search by its SHA), then both
-/// sides of the diff; the response keeps the first ones its lead cap allows.
-fn commit_leads(query: &HistoryItemRequest, commit: &CommitFacts<'_>, page: FilePage) -> Vec<Lead> {
+/// `matchString` hit nothing, GitHub's pull-request search by the commit's
+/// SHA when its message names no pull request (a named one is the row's
+/// `pullRequest`), then both sides of the diff; the response keeps the first
+/// ones its lead cap allows.
+fn commit_leads(
+    query: &HistoryItemRequest,
+    commit: &CommitFacts<'_>,
+    page: FilePage,
+    continued: bool,
+) -> Vec<Lead> {
     let mut leads = Vec::from_iter(page.without_match);
-    let pull_request = match commit_pull_request_lead(commit.message, query) {
-        Some(read) => Some(("readPullRequest", read)),
-        None => find_pull_request(query, &commit.sha).map(|find| (FIND_PULL_REQUEST, find)),
-    };
+    let named = commit_pull_request(
+        commit.message,
+        gh_get_history_item_query::owner(query),
+        gh_get_history_item_query::repo(query),
+    );
+    // The first page states which pull request holds the commit, or the
+    // search for it: a later page of the walk repeats neither.
+    let pull_request = (named.is_none() && !continued)
+        .then(|| find_pull_request(query, &commit.sha))
+        .flatten()
+        .map(|find| (FIND_PULL_REQUEST, find));
     leads.extend(pull_request.map(|(name, lead)| (name.to_owned(), lead)));
     leads.extend(page.side_reads);
     leads
@@ -335,7 +436,12 @@ fn find_pull_request(query: &HistoryItemRequest, sha: &str) -> Option<Value> {
         "repo": gh_get_history_item_query::repo(query),
         "keywords": [sha],
     }))?;
-    Some(octocode_runtime_base::response::result::Continuation::related_query(search).build())
+    // No field of a commit row names the pull request that holds it.
+    Some(
+        octocode_runtime_base::response::result::Continuation::related_query(search)
+            .required()
+            .build(),
+    )
 }
 
 /// The committer, unless GitHub's web-flow committed for the author (a

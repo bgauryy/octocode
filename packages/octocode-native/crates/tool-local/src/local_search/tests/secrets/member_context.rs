@@ -39,7 +39,7 @@ fn read_finds(name: &str, text: &str, needle: &str) -> bool {
         &security,
         &NeverCancel,
         None,
-        None,
+        false,
     );
     read.selected_match_count.unwrap_or(0) > 0
 }

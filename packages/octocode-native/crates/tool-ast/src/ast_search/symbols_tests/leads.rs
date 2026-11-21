@@ -3,7 +3,9 @@
 //! by; nothing behind them is read to choose.
 
 use super::*;
+use crate::ast_search::test_rows::assert_unsearched;
 use octocode_test_support::json_fixture;
+use octocode_tools_shared::empty_walk::Cause;
 
 /// The hidden-path lead keeps the scope, so a root-anchored `exclude` keeps
 /// its meaning: the lead finds what the excluded walk can reach.
@@ -24,14 +26,8 @@ fn the_hidden_lead_keeps_the_exclude_anchored_to_the_scan_root() {
         ),
     );
     assert_eq!(out["status"], "empty", "{out}");
-    assert!(
-        out["warnings"]
-            .as_array()
-            .is_some_and(|hints| hints.iter().any(|hint| hint
-                .as_str()
-                .is_some_and(|h| h.contains("Skipped paths (1 hidden)")))),
-        "{out}"
-    );
+    assert_unsearched(&out, &[Cause::Hidden]);
+    assert!(out["skippedPaths"].to_string().contains(".cfg"), "{out}");
     let lead = skipped_lead(&out);
     assert_eq!(
         lead["exclude"],
@@ -165,10 +161,14 @@ fn an_ignored_symbol_leads_to_its_own_scope_with_the_skipped_flags_lifted() {
     );
     assert_eq!(out["status"], "empty", "{out}");
     assert!(out["next"].get("narrowScope").is_none(), "{out}");
-    let hints = out["warnings"].to_string();
+    assert_unsearched(
+        &out,
+        &[Cause::Ignored, Cause::Hidden, Cause::DefaultExcluded],
+    );
+    let skipped = out["skippedPaths"].to_string();
     assert!(
-        hints.contains("Skipped paths (1 ignored, 1 hidden)"),
-        "{hints}"
+        skipped.contains(".hidden") && skipped.contains("build"),
+        "{out}"
     );
     let lead = skipped_lead(&out);
     assert_eq!(lead["path"], json!(root.0.to_string_lossy()), "{out}");
@@ -217,7 +217,7 @@ fn a_symbol_lead_lifts_the_flags_left_to_reach_it() {
 }
 
 /// A name held both by a hidden directory and by an ignored one: one lead
-/// lifts both causes and reaches every file, and the hint names both.
+/// lifts both causes and reaches every file, and the ledger names both.
 #[test]
 fn a_symbol_behind_hidden_and_ignored_paths_gets_one_lead_lifting_both() {
     let root = skipped_workspace("sharedSym", "sharedSym");
@@ -236,10 +236,9 @@ fn a_symbol_behind_hidden_and_ignored_paths_gets_one_lead_lifting_both() {
         1,
         "{out}"
     );
-    let hints = out["warnings"].to_string();
-    assert!(
-        hints.contains("Skipped paths (1 ignored, 1 hidden)"),
-        "{hints}"
+    assert_unsearched(
+        &out,
+        &[Cause::Ignored, Cause::Hidden, Cause::DefaultExcluded],
     );
     let skipped = out["skippedPaths"].to_string();
     assert!(
@@ -301,8 +300,7 @@ fn an_outline_leaves_out_gitignored_files_and_leads_to_them() {
         json_fixture(r#"{"symbolFilter": {"terms": ["zzGenerated"]}}"#),
     );
     assert_eq!(out["status"], "empty", "{out}");
-    let hints = out["warnings"].to_string();
-    assert!(hints.contains("Skipped paths (1 ignored)"), "{hints}");
+    assert_unsearched(&out, &[Cause::Ignored]);
     assert!(out["skippedPaths"].to_string().contains("gen"), "{out}");
     let lead = super::super::test_rows::skipped_call(&out)
         .unwrap_or_else(|| panic!("missing skipped-scope lead: {out}"))["input"]["queries"][0]

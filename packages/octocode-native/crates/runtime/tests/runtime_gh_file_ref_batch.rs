@@ -232,7 +232,7 @@ async fn a_wider_reread_fills_the_page_and_sends_nothing() {
             .is_none(),
         "{out}"
     );
-    assert!(out.pointer("/responsePagination/next").is_none(), "{out}");
+    assert!(out.pointer("/next").is_none(), "{out}");
     // Each file's body was asked for once: the wider re-read sent nothing.
     assert_eq!(sent(&server, "/contents/small.txt").await, 1);
     assert_eq!(sent(&server, "/contents/big.txt").await, 1);
@@ -275,7 +275,7 @@ async fn rows_still_reading_continue_together_in_one_call() {
             let index = row["index"].as_u64().expect("index") as usize;
             read[index].push_str(&text(&row["data"]));
         }
-        match page.pointer("/responsePagination/next/input") {
+        match page.pointer("/next/input") {
             Some(next) => input = next.clone(),
             None => break,
         }
@@ -299,6 +299,12 @@ async fn rows_still_reading_continue_together_in_one_call() {
 #[tokio::test]
 async fn a_clone_suffix_repository_leads_to_the_bare_name_read() {
     let server = MockServer::builder().start().await;
+    // The owner's login exists: only the repository is missing.
+    Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/api/v3/users/a"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"login": "a"})))
+        .mount(&server)
+        .await;
     Mock::given(wiremock::matchers::any())
         .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message": "Not Found"})))
         .mount(&server)

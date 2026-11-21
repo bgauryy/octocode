@@ -19,10 +19,7 @@ if (args.includes('--help') || args.includes('-h')) {
   } else {
     validateFlags(args, ['--offset', '--length']);
     const root = join(dirname(fileURLToPath(import.meta.url)), '../..');
-    const file =
-      topic === 'operating'
-        ? join(root, 'OPERATING.md')
-        : join(root, 'docs', `${topic}.md`);
+    const file = join(root, 'docs', `${topic}.md`);
     process.argv = [
       process.execPath,
       fileURLToPath(new URL('./artifact-query.mjs', import.meta.url)),

@@ -108,6 +108,100 @@ fn walk_options_lift_only_their_own_exclusions() {
     }
 }
 
+/// `include` and `fileType` only narrow: each selects among the files the
+/// walk visits anyway, so a dot file needs `includeHidden` and a gitignored
+/// one `includeIgnored`, as on structureSearch. A selected file the walk
+/// left out is named in `skippedPaths` with its cause, and an answer left
+/// empty by it leads to the search that lifts that cause.
+#[test]
+fn include_and_file_type_select_only_among_the_walked_files() {
+    let dir = tempfile::tempdir().expect("fixture");
+    let root = dir.path().canonicalize().expect("real root");
+    fs::create_dir_all(root.join(".git")).expect("git dir");
+    fs::write(root.join(".gitignore"), "ignored.ts\n").expect("fixture");
+    for name in ["shown.ts", ".hidden.ts", "ignored.ts"] {
+        fs::write(root.join(name), "needle\n").expect("file");
+    }
+    let (policy, security) = policy_for(&root);
+    let search = |fields: serde_json::Value| {
+        let base = ls_query(
+            serde_json::json!({"path": root, "matchString": ["needle"], "view": "files"}),
+            None,
+        );
+        search_in(&ls_query(fields, Some(&base)), &policy, &security, None)
+            .expect("search")
+            .to_row()
+            .expect("result")
+    };
+    let named = |names: &[&str]| names.iter().map(|name| (*name).to_owned()).collect();
+    for selector in [
+        serde_json::json!({"include": ["*.ts"]}),
+        serde_json::json!({"fileType": "ts"}),
+    ] {
+        let with = |flags: serde_json::Value| {
+            let mut fields = selector.clone();
+            for (flag, value) in flags.as_object().expect("flags") {
+                fields[flag] = value.clone();
+            }
+            search(fields)
+        };
+        let plain = with(serde_json::json!({}));
+        assert_eq!(paths(&plain), named(&["shown.ts"]), "{selector}: {plain}");
+        // Both left-out files are disclosed with the cause that lifts them.
+        let causes = plain["skippedPaths"]["entries"]
+            .as_array()
+            .unwrap_or_else(|| panic!("skippedPaths: {plain}"))
+            .iter()
+            .map(|entry| entry["cause"].as_str().expect("cause").to_owned())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(causes, named(&["hidden", "ignored"]), "{selector}: {plain}");
+        let hidden = with(serde_json::json!({"includeHidden": true}));
+        assert_eq!(
+            paths(&hidden),
+            named(&[".hidden.ts", "shown.ts"]),
+            "{selector}: {hidden}"
+        );
+        let ignored = with(serde_json::json!({"includeIgnored": true}));
+        assert_eq!(
+            paths(&ignored),
+            named(&["ignored.ts", "shown.ts"]),
+            "{selector}: {ignored}"
+        );
+    }
+    // A glob that selects only left-out files: the empty answer names each
+    // with its cause, and its lead lifts exactly that cause and finds it.
+    for (glob, cause, flag, other) in [
+        (".hidden.ts", "hidden", "includeHidden", "includeIgnored"),
+        ("ignored.ts", "ignored", "includeIgnored", "includeHidden"),
+    ] {
+        let empty = search(serde_json::json!({"include": [glob]}));
+        assert!(paths(&empty).is_empty(), "{glob}: {empty}");
+        let entries = empty["skippedPaths"]["entries"]
+            .as_array()
+            .unwrap_or_else(|| panic!("skippedPaths: {empty}"));
+        assert_eq!(entries.len(), 1, "{glob}: {empty}");
+        assert_eq!(entries[0]["cause"], cause, "{glob}: {empty}");
+        let lead = empty["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|call| &call["input"]["queries"][0])
+            .find(|row| row[flag] == true)
+            .unwrap_or_else(|| panic!("a lead lifting {flag}: {empty}"));
+        assert!(lead.get(other).is_none(), "{glob}: {lead}");
+        let found = search_in(
+            &serde_json::from_value(lead.clone()).expect("lead query"),
+            &policy,
+            &security,
+            None,
+        )
+        .expect("lead search")
+        .to_row()
+        .expect("result");
+        assert_eq!(paths(&found), named(&[glob]), "{glob}: {found}");
+    }
+}
+
 /// Octocode's own graph store is skipped whatever the flags, and disclosed
 /// as such; skill outputs elsewhere under `.octocode` stay searchable, and a
 /// path inside the store searches it.
@@ -216,7 +310,6 @@ fn cancellation_interrupts_the_walk() {
         &security,
         &CancelAfter(AtomicUsize::new(0)),
         None,
-        None,
     )
     .expect_err("cancelled");
     assert_eq!(cancelled.code, ErrorCode::Cancelled);
@@ -265,26 +358,6 @@ fn counts_and_inversion_keep_occurrence_and_line_meanings_distinct() {
         ),
     );
     assert_eq!(paths(&without), ["b.txt".to_owned()].into_iter().collect());
-}
-
-/// A search of the workspace root (`.`) leads to a read of its top hit by
-/// the path its row shows, not a `./`-prefixed second spelling of it.
-#[test]
-fn a_root_search_reads_its_hit_by_the_row_path() {
-    let root = tempfile::tempdir().expect("fixture directory");
-    fs::create_dir_all(root.path().join("src")).expect("src");
-    fs::write(root.path().join("src/a.rs"), "fn needle() {}\n").expect("source");
-    let (policy, security) = policy_for(root.path());
-    let request = ls_query(
-        json_fixture(r#"{"path": ".", "matchString": ["needle"]}"#),
-        None,
-    );
-    let body = serde_json::to_value(search_in(&request, &policy, &security, None).expect("search"))
-        .expect("serialize");
-    assert_eq!(body["files"][0]["path"], "src/a.rs", "{body}");
-    let read =
-        octocode_runtime_base::test_support::checks::related_call(&body, "localFetch", |_| true);
-    assert_eq!(read["input"]["queries"][0]["path"], "src/a.rs", "{body}");
 }
 
 /// A file that is both left out by a walk rule and a credential (`secret.pem`
@@ -337,6 +410,57 @@ fn an_ignored_or_hidden_credential_is_disclosed_once_as_withheld_never_named() {
         "a withheld credential is never named: {listed}"
     );
     assert_eq!(paths(&body), ["visible.txt".to_owned()].into());
+}
+
+/// L14: an include glob whose only match is a file the security path policy
+/// withholds did match: the empty row says so (the count and the cause, no
+/// name) instead of advising a respelled glob. A glob that matches no file
+/// keeps the glob advice, whatever else the scope withholds. A withheld dot
+/// file is withheld, not hidden: `includeHidden` would not reach it, so the
+/// row says the same without it.
+#[test]
+fn a_glob_that_matched_only_a_withheld_file_is_not_called_a_miss() {
+    let root = tempfile::tempdir().expect("fixture");
+    for (path, body) in [
+        ("secret.pem", "needle\n"),
+        (".env", "KEY=needle\n"),
+        ("visible.txt", "needle\n"),
+    ] {
+        fs::write(root.path().join(path), body).expect("file");
+    }
+    let (policy, security) = policy_for(root.path());
+    let hints = |include: &str| {
+        let query = ls_query(
+            serde_json::json!({
+                "path":root.path(),"matchString":["needle"],"include":[include]
+            }),
+            None,
+        );
+        let body = search_in(&query, &policy, &security, None)
+            .expect("search")
+            .to_row()
+            .expect("result");
+        assert!(paths(&body).is_empty(), "{include}: {body}");
+        assert!(
+            !body.to_string().contains("secret.pem"),
+            "{include}: {body}"
+        );
+        assert!(
+            body["skippedPaths"]["entries"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .all(|entry| entry["cause"] != "hidden"),
+            "{include}: {body}"
+        );
+        body["hints"].to_string()
+    };
+    let miss = octocode_runtime_base::policy::include::GLOB_MISS_HINT;
+    let withheld = octocode_runtime_base::policy::include::glob_miss_hint(1);
+    assert_ne!(withheld, miss);
+    assert!(hints("*.pem").contains(&*withheld), "{}", hints("*.pem"));
+    assert!(hints(".env").contains(&*withheld), "{}", hints(".env"));
+    assert!(hints("*.absent").contains(miss), "{}", hints("*.absent"));
 }
 
 /// Every call a row offers: its continuations and its related leads.
@@ -446,10 +570,10 @@ fn a_key_path_over_files_it_cannot_read_says_why_and_leads_without_it() {
     }
 }
 
-/// An empty page reads nothing its walk skipped, as ripgrep does not: it says
-/// the skipped paths were not searched, by cause, and `next.includeSkipped`
-/// searches them with exactly those causes lifted. The page's own hits stay
-/// none, whatever the skipped paths hold.
+/// An empty page reads nothing its walk skipped, as ripgrep does not: its one
+/// hint says the `skippedPaths` were not searched, and its one call searches
+/// them with exactly their causes lifted. The page's own hits stay none,
+/// whatever the skipped paths hold; the call, run, finds them.
 #[test]
 fn an_empty_page_offers_its_skipped_paths_and_reads_none_of_them() {
     let root = tempfile::tempdir().expect("fixture");
@@ -467,33 +591,36 @@ fn an_empty_page_offers_its_skipped_paths_and_reads_none_of_them() {
         .to_row()
         .expect("result");
     assert!(paths(&body).is_empty(), "an empty page: {body}");
-    let hints = body["hints"].to_string();
-    assert!(
-        hints.contains("Skipped paths (1 default-excluded) were not searched"),
-        "{body}"
-    );
-    let lead =
-        octocode_runtime_base::test_support::checks::related_call(&body, "localSearch", |input| {
-            input["queries"][0]["defaultExcludes"] == false
-        });
+    let causes = [octocode_tools_shared::empty_walk::Cause::DefaultExcluded];
+    let said = octocode_tools_shared::leads::skipped::unsearched(&causes).expect("disclosure");
+    assert_eq!(body["hints"], serde_json::json!([said.text]), "{body}");
+    assert!(said.text.contains("skippedPaths"), "{}", said.text);
     assert_eq!(
-        lead["input"]["queries"][0]["matchString"],
-        serde_json::json!(["needle"]),
+        body["skippedPaths"]["entries"][0]["cause"], "default-excluded",
         "{body}"
     );
+    let lead = one_recovery(&body).unwrap_or_else(|| panic!("a call: {body}"));
+    assert_eq!(lead["defaultExcludes"], false, "{body}");
+    for lifted in ["includeIgnored", "includeHidden"] {
+        assert!(lead.get(lifted).is_none(), "{lifted}: {body}");
+    }
+    assert_eq!(lead["matchString"], serde_json::json!(["needle"]), "{body}");
     assert!(
         !body.to_string().contains("dep.txt"),
         "nothing behind it is named: {body}"
     );
+    let found = search_in(&ls_query(lead, None), &policy, &security, None)
+        .expect("the offered search")
+        .to_row()
+        .expect("result");
+    assert!(found.to_string().contains("dep.txt"), "{found}");
 }
 
 /// An empty page whose walk skipped paths across the whole scope names each
-/// top directory it skipped and offers a search of one of them, with only
-/// the flags its cause needs, before the one over everything skipped: a
-/// dependency directory the default prune names first. That scoped search
-/// finds what the whole-scope lift would, reading only that directory.
+/// top directory it skipped in `skippedPaths`, and offers one search: the
+/// scope's own path with every cause lifted, which finds what they hold.
 #[test]
-fn an_empty_page_offers_a_search_of_each_skipped_top_directory() {
+fn an_empty_page_names_each_skipped_top_directory_and_offers_one_search_over_them() {
     let dir = tempfile::tempdir().expect("fixture");
     let root = dir.path().canonicalize().expect("real root");
     fs::create_dir_all(root.join(".git")).expect("git dir");
@@ -532,51 +659,39 @@ fn an_empty_page_offers_a_search_of_each_skipped_top_directory() {
         skipped.contains("node_modules") && skipped.contains("ignored-default-excluded"),
         "{body}"
     );
-    let related = body["related"].as_array().expect("related");
-    let scoped = |call: &serde_json::Value| {
-        let row = &call["input"]["queries"][0];
-        row["path"]
-            .as_str()
-            .is_some_and(|path| path.ends_with("node_modules"))
-            .then(|| row.clone())
-    };
-    let (at, lead) = related
-        .iter()
-        .enumerate()
-        .find_map(|(at, call)| scoped(call).map(|row| (at, row)))
-        .unwrap_or_else(|| panic!("a node_modules search: {body}"));
-    assert_eq!(lead["includeIgnored"], true, "{lead}");
-    assert_eq!(lead["defaultExcludes"], false, "{lead}");
-    assert!(lead.get("includeHidden").is_none(), "{lead}");
-    // The search over everything skipped: the scope's own path, every
+    for top in ["node_modules", "packages", "releases"] {
+        let at = root.join(top).to_string_lossy().into_owned();
+        assert!(
+            body["skippedPaths"]["entries"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|entry| entry["path"] == at.as_str()),
+            "{top}: {body}"
+        );
+    }
+    // The one search over everything skipped: the scope's own path, every
     // cause lifted.
-    let everything = related
-        .iter()
-        .position(|call| {
-            let row = &call["input"]["queries"][0];
-            row["path"] == serde_json::json!(root) && row["includeIgnored"] == true
-        })
-        .unwrap_or_else(|| panic!("the search over everything skipped: {body}"));
-    assert!(at < everything, "the scoped search comes first: {body}");
+    let lead = one_recovery(&body).unwrap_or_else(|| panic!("a call: {body}"));
+    assert_eq!(lead["path"], serde_json::json!(root), "{body}");
+    assert_eq!(lead["includeIgnored"], true, "{body}");
+    assert_eq!(lead["defaultExcludes"], false, "{body}");
     let found = search_in(
-        &serde_json::from_value(lead.clone()).expect("lead query"),
+        &serde_json::from_value(lead).expect("lead query"),
         &policy,
         &security,
         None,
     )
-    .expect("scoped search")
+    .expect("the offered search")
     .to_row()
     .expect("result");
-    assert_eq!(
-        found["filesScanned"], 1,
-        "only node_modules is read: {found}"
-    );
     assert!(found.to_string().contains("index.js"), "{found}");
 }
 
 /// TE1: a skipped directory named with a secret is never served as written:
-/// the scoped `skippedPaths` and the leads that name it pass the output gate
-/// like every other path, so the served answer shows its placeholder.
+/// the scoped `skippedPaths` that name it pass the output gate like every
+/// other path, so the served answer shows its placeholder; the one call the
+/// page offers aims at the searched scope, never at the secret-named path.
 #[test]
 fn a_secret_named_skipped_directory_is_served_redacted() {
     let token = format!("ghp_{}", "a1B2c3D4".repeat(5));
@@ -620,21 +735,7 @@ fn a_secret_named_skipped_directory_is_served_redacted() {
         .into_value();
     assert!(!served.to_string().contains(&token), "{served}");
     // No lead aims at a path the gate redacts: it could not run as served.
-    let related = body["related"].as_array().expect("related");
-    assert!(
-        related
-            .iter()
-            .all(|call| !call["input"]["queries"][0]["path"]
-                .as_str()
-                .is_some_and(|path| path.contains("ghp_"))),
-        "{body}"
-    );
-    assert!(
-        related
-            .iter()
-            .any(|call| call["input"]["queries"][0]["path"]
-                .as_str()
-                .is_some_and(|path| path.ends_with("node_modules"))),
-        "{body}"
-    );
+    let lead = one_recovery(&body).unwrap_or_else(|| panic!("a call: {body}"));
+    assert_eq!(lead["path"], serde_json::json!(root), "{body}");
+    assert_eq!(lead["includeIgnored"], true, "{body}");
 }

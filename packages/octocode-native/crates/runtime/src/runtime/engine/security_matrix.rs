@@ -17,15 +17,7 @@ use serde_json::{Value, json};
 const TOKEN: &str = "ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8";
 
 fn policy(tool: ToolId) -> InputPolicy {
-    if tool.is_clasify() {
-        InputPolicy::ClasifyEvidence {
-            content_limit: octocode_runtime_base::id::clasify_policy::REQUEST_BYTES,
-        }
-    } else if tool.is_local() {
-        InputPolicy::LocalQuery
-    } else {
-        InputPolicy::Query
-    }
+    InputPolicy::of(tool)
 }
 
 /// Authored first-call examples are the schema owner's executable cases.
@@ -184,7 +176,9 @@ fn oversized_or_too_deep_input_is_rejected_for_any_tool() {
     for tool in ToolId::ALL {
         let base = base_row(tool);
         let limit = match policy(tool) {
-            InputPolicy::Query | InputPolicy::LocalQuery => 10_000,
+            InputPolicy::Query | InputPolicy::LocalQuery | InputPolicy::LocalSnippet { .. } => {
+                10_000
+            }
             InputPolicy::ClasifyEvidence { content_limit } => content_limit,
         };
         let field = free_text_field(tool, &base, TOKEN).unwrap_or_else(|| "ext".to_owned());

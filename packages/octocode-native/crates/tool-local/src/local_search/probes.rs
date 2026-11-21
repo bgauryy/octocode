@@ -6,7 +6,7 @@
 use octocode_contract_types::LocalSearchQuery;
 use octocode_runtime_base::id::ToolId;
 use octocode_tools_shared::empty_walk::Cause;
-use octocode_tools_shared::leads::skipped::{lead, walks_all_skipped};
+use octocode_tools_shared::leads::skipped::{lead, unsearched};
 use serde_json::{Value, json};
 
 mod alternates;
@@ -19,61 +19,54 @@ pub(super) fn names_nothing(skipped: &octocode_runtime_base::policy::discovery::
     skipped.counts().is_empty() && skipped.withheld.total() == 0
 }
 
-/// What a page's walk skipped, by cause, for the empty page's word on it.
-pub(super) struct Skipped<'a> {
-    pub(super) walk: &'a octocode_runtime_base::policy::discovery::WalkSkips,
-    /// The causes it skipped paths by: what a lead over them lifts.
-    pub(super) causes: Vec<Cause>,
-}
-
-/// What an empty page said of the paths its walk skipped.
+/// An empty page's one recovery: the first cause that explains the miss
+/// states one sentence and the one call that applies its fix. Causes are
+/// offered in order, the proven ones (hits a filter removed, a file never
+/// read) before the possible ones (skipped paths, another reading of the
+/// term), so the page never lists every way it could have gone wrong.
 #[derive(Default)]
-pub(super) struct Unsearched {
-    /// Paths a flag lifts were skipped and not searched: they may hold a match.
-    pub(super) may_hold_matches: bool,
+pub(super) struct Recovery {
+    pub(super) hint: Option<String>,
+    /// The call, by its lead name.
+    pub(super) call: Option<(&'static str, Value)>,
 }
 
-/// An empty page's word on the paths its walk skipped: they were not searched,
-/// so absence there is unproven, and `next.includeSkipped` searches them with
-/// exactly their causes lifted. No file is read for it.
-pub(super) fn disclose_skipped(
-    query: &LocalSearchQuery,
-    skipped: &Skipped<'_>,
-    scoped: Vec<Value>,
-    (next, hints): (&mut Option<Value>, &mut Vec<String>),
-) -> Unsearched {
-    let named = skipped.walk.counts();
-    if skipped.causes.is_empty() || named.is_empty() {
-        return Unsearched::default();
-    }
-    let aimed = !scoped.is_empty();
-    if let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut() {
-        // Each search of one skipped directory first, then the one over
-        // everything skipped.
-        for (index, lead) in scoped.into_iter().enumerate() {
-            map.insert(
-                octocode_runtime_base::id::numbered("searchSkipped", index),
-                lead,
-            );
+impl Recovery {
+    /// States `hint` and `call` when no earlier cause did.
+    pub(super) fn offer(&mut self, hint: String, call: Option<(&'static str, Value)>) {
+        if self.hint.is_none() {
+            self.hint = Some(hint);
+            self.call = call;
         }
-        map.insert(
-            "includeSkipped".into(),
-            lead(ToolId::LocalSearch, query, &skipped.causes),
-        );
     }
-    let aimed = if aimed {
-        "The related[] searches at one skippedPaths path search only there. "
-    } else {
-        ""
-    };
-    hints.insert(
-        0,
-        format!(
-            "Skipped paths ({named}) were not searched, so absence there is unproven. {aimed}{}",
-            walks_all_skipped(&skipped.causes)
-        ),
-    );
-    Unsearched {
-        may_hold_matches: true,
+
+    /// Writes the recovery on the row: its hint, and its call in `next`
+    /// beside the continuations already there.
+    pub(super) fn state(self, hints: &mut Vec<String>, next: &mut Option<Value>) {
+        hints.extend(self.hint);
+        if let Some((name, call)) = self.call
+            && let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut()
+        {
+            map.insert(name.to_owned(), call);
+        }
     }
+}
+
+/// An empty page's word on the paths its walk skipped by `causes` (a flag
+/// lifts each): `skippedPaths` names them, they were not searched, and the
+/// one call searches them too with exactly those causes lifted. No file is
+/// read for it. `None` when the walk skipped nothing a flag lifts.
+pub(super) fn skipped_recovery(
+    query: &LocalSearchQuery,
+    walk: &octocode_runtime_base::policy::discovery::WalkSkips,
+    causes: &[Cause],
+) -> Option<(String, (&'static str, Value))> {
+    if causes.is_empty() || walk.counts().is_empty() {
+        return None;
+    }
+    let disclosure = unsearched(causes)?;
+    Some((
+        disclosure.text,
+        ("includeSkipped", lead(ToolId::LocalSearch, query, causes)),
+    ))
 }

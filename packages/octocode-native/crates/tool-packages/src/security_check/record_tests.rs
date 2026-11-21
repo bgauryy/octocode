@@ -111,7 +111,18 @@ fn affected_package_identity_is_preserved_across_source_notations() {
             let entry = &selected.affected[0];
             let raw = &source["affected"][0];
             for (from, to) in PACKAGE_IDENTITY {
-                assert_eq!(entry.get(to), raw["package"].get(from), "{from}: {source}");
+                // The ecosystem is shown as the `ecosystem` input spells it;
+                // the name and purl stay as the source states them.
+                let stated = raw["package"]
+                    .get(from)
+                    .cloned()
+                    .map(|value| match value.as_str() {
+                        Some(name) if from == "ecosystem" => {
+                            json!(crate::security_check::ecosystem::as_input(name))
+                        }
+                        _ => value,
+                    });
+                assert_eq!(entry.get(to), stated.as_ref(), "{from}: {source}");
             }
             assert_eq!(entry.get("ranges"), raw.get("ranges"));
             assert_eq!(

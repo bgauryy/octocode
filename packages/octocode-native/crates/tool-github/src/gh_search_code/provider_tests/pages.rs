@@ -127,8 +127,9 @@ async fn a_page_counts_files_and_retains_every_hit_of_each_file() {
         "complete lines already carry the count"
     );
     assert!(calm.get("matchCount").is_none(), "{}", out.data);
-    // The page's total counts files (GitHub's `total_count`), not lines.
-    assert_eq!(out.data["pagination"]["total"], 140, "{}", out.data);
+    // GitHub's `total_count` is an estimate a walk need not deliver: no
+    // total is stated while files remain.
+    assert!(out.data["pagination"]["total"].is_null(), "{}", out.data);
     assert_eq!(out.data["pagination"]["length"], 2, "{}", out.data);
     assert_eq!(out.data["pagination"]["unit"], "files", "{}", out.data);
     assert!(out.data["next"].get("readHits").is_none());
@@ -202,7 +203,9 @@ async fn paged_pages_state_estimates_and_the_repeats_they_dropped() {
         assert_eq!(paths_of(&first), ["a.rs", "b.rs"], "{}", first.data);
         assert_eq!(warnings_of(&first), &serde_json::Value::Null);
         let out = search_page_of(&provider, Some(&first)).await;
-        assert_eq!(out.data["pagination"]["total"], 100, "{}", out.data);
+        // A walk over several provider pages states no total: GitHub's
+        // 100 is an estimate, and repeats were dropped on the way.
+        assert!(out.data["pagination"]["total"].is_null(), "{}", out.data);
         assert_eq!(paths_of(&out), ["c.rs"], "{}", out.data);
         assert_eq!(warnings_of(&out), &json!([dropped, moved]), "{}", out.data);
         assert_eq!(

@@ -71,12 +71,6 @@ fn only_unjudged_source_rows_read_again_for_free_fill_together() {
     }
     assert!(fill_together(ToolId::LocalFetch));
     assert!(fill_together(ToolId::GhGetFileContent));
-    assert!(reads_again(&json!({"path": "a.rs"})));
-    for field in crate::contracts::PROVIDER_FIELDS {
-        let mut judged = json!({"path": "a.rs"});
-        judged[field] = json!({});
-        assert!(!reads_again(&judged), "{field}");
-    }
     assert!(reads_on(
         &json!({"next": {"nextPage": {"tool": "localFetch"}}})
     ));

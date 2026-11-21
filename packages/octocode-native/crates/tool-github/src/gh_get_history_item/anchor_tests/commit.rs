@@ -173,7 +173,9 @@ async fn commit_row_carries_its_sha_and_path_stat_files() {
     )
     .await;
     let row = json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD});
-    let out = read(&server, row.clone()).await;
+    let mut listed = row.clone();
+    listed["sections"] = json_fixture(r#"["files"]"#);
+    let out = read(&server, listed).await;
     assert_eq!(out["commitSha"], HEAD, "{out}");
     assert_eq!(
         out["files"],
@@ -194,6 +196,121 @@ async fn commit_row_carries_its_sha_and_path_stat_files() {
     assert!(patch.contains("10\t keep"), "{patch}");
     assert!(patch.contains("11\t-old"), "{patch}");
     assert!(patch.contains("11\t+new"), "{patch}");
+}
+
+/// A commit read that names no section is the summary the contract states
+/// ("metadata and counts, no body"): the commit's facts and its counts, no
+/// file row, and the call that opens the file list as a `files` read. A
+/// file filter or a literal asks about files and still answers with them.
+#[tokio::test]
+async fn a_commit_read_without_sections_is_a_summary_that_lists_no_file() {
+    let server = MockServer::builder().start().await;
+    let files = (0..40)
+        .map(|i| changed_file(&format!("f{i:02}.rs")))
+        .collect::<Vec<_>>();
+    let mut raw = commit_raw(HEAD, "Fix parser (#12)\n\nWhy it broke.");
+    raw["parents"] = json!([{"sha":BASE}]);
+    raw["stats"] = json!({"additions": 40, "deletions": 40});
+    raw["files"] = json!(files);
+    mount_json(
+        &server,
+        format!("/api/v3/repos/o/r/commits/{HEAD}"),
+        200,
+        raw,
+    )
+    .await;
+    let row = json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD});
+    let summary = read(&server, row.clone()).await;
+    assert!(summary.get("files").is_none(), "no file row: {summary}");
+    assert_eq!(summary["changedFileCount"], files.len(), "{summary}");
+    assert_eq!(
+        (&summary["additions"], &summary["deletions"]),
+        (&json!(40), &json!(40)),
+        "{summary}"
+    );
+    assert_eq!(summary["pullRequest"], 12, "{summary}");
+    assert!(
+        summary["message"].as_str().is_some_and(|message| message.contains("Why it broke")),
+        "{summary}"
+    );
+    assert_eq!(
+        summary["sectionPagination"]["files"]["total"], files.len(),
+        "the section counts its files with none shown: {summary}"
+    );
+    // The list is one call away, as a `files` read of the same commit.
+    let open = &summary["next"]["files"]["input"]["queries"][0];
+    assert_eq!(open["sections"], json!(["files"]), "{summary}");
+    assert_eq!(open["ref"], HEAD, "{summary}");
+    let listed = read(&server, open.clone()).await;
+    assert_eq!(
+        listed["files"].as_array().map(Vec::len),
+        Some(files.len()),
+        "{listed}"
+    );
+    // The summary is smaller than the read that lists the files.
+    assert!(summary.to_string().len() < listed.to_string().len(), "{summary}");
+    // A file filter asks about files: it answers with them, sections or not.
+    let mut scoped = row;
+    scoped["include"] = json!(["f07.rs"]);
+    let scoped = read(&server, scoped).await;
+    assert_eq!(scoped["files"], json!(["M +1 -1 f07.rs"]), "{scoped}");
+}
+
+/// A files walk states the commit once: its first page carries the message,
+/// people, parents and line counts; every later page names the commit and
+/// carries its rows only. Joined, the pages hold the first page's facts and
+/// every file exactly once.
+#[tokio::test]
+async fn a_files_walk_states_the_commit_on_its_first_page_only() {
+    let server = MockServer::builder().start().await;
+    let names = (0..7).map(|i| format!("f{i}.rs")).collect::<Vec<_>>();
+    let message = format!("Fix parser\n\n{}", "A long explanation. ".repeat(200));
+    let mut raw = commit_raw(HEAD, &message);
+    raw["parents"] = json!([{"sha":BASE}]);
+    raw["stats"] = json!({"additions": 7, "deletions": 7});
+    raw["files"] = json!(names.iter().map(|name| changed_file(name)).collect::<Vec<_>>());
+    mount_json(
+        &server,
+        format!("/api/v3/repos/o/r/commits/{HEAD}"),
+        200,
+        raw,
+    )
+    .await;
+    let mut row = json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,
+        "sections":["files"],"pageSize":3});
+    let mut pages = Vec::new();
+    loop {
+        let page = read(&server, row.clone()).await;
+        let next = page["next"]["files"]["input"]["queries"][0].clone();
+        pages.push(page);
+        if next.is_null() {
+            break;
+        }
+        assert!(pages.len() < 10, "the walk ends");
+        row = next;
+    }
+    assert_eq!(pages.len(), 3, "7 files, 3 per page");
+    let first = &pages[0];
+    for key in ["message", "author", "parentCommitShas", "additions", "deletions"] {
+        assert!(first.get(key).is_some(), "the first page states {key}: {first}");
+    }
+    for later in &pages[1..] {
+        assert_eq!(later["commitSha"], HEAD, "{later}");
+        for key in [
+            "message", "author", "committer", "parentCommitShas", "additions", "deletions",
+            "pullRequest", "warnings", "related",
+        ] {
+            assert!(later.get(key).is_none(), "a later page repeats {key}: {later}");
+        }
+        // A later page costs its rows, not the commit's message again.
+        assert!(later.to_string().len() < message.len(), "{later}");
+    }
+    let walked = pages
+        .iter()
+        .flat_map(|page| page["files"].as_array().expect("files").clone())
+        .map(|row| row.as_str().expect("file row").rsplit(' ').next().expect("path").to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(walked, names, "every file exactly once, in order");
 }
 
 /// A commit's file inventory flags a file GitHub sent without a patch, as
@@ -231,7 +348,7 @@ async fn commit_inventory_flags_files_without_a_patch() {
     .await;
     let out = read(
         &server,
-        json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD}),
+        json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,"sections":["files"]}),
     )
     .await;
     assert_eq!(
@@ -348,12 +465,11 @@ async fn dotenv_patch_rows_are_withheld_and_keep_their_path() {
     }
 }
 
-/// A commit leads to the pull request that holds it: the one its message
-/// names is read; with none named, GitHub's pull-request search by the
-/// commit's SHA finds it (`findPullRequest`), as ghSearchHistory's commit
-/// rows lead, never both.
+/// A commit states the pull request its message names (`pullRequest`) and
+/// carries no call for it; with none named, GitHub's pull-request search by
+/// the commit's SHA finds it (`findPullRequest`), never both.
 #[tokio::test]
-async fn a_commit_leads_to_its_pull_request_read_or_its_sha_search() {
+async fn a_commit_states_its_pull_request_or_carries_its_sha_search() {
     for (message, named) in [("Fix parser (#12)", true), ("Fix parser", false)] {
         let server = MockServer::builder().start().await;
         let mut raw = commit_raw(HEAD, message);
@@ -374,11 +490,13 @@ async fn a_commit_leads_to_its_pull_request_read_or_its_sha_search() {
         let sha_search = checks::find_related_call(&out, "ghSearchHistory", |input| {
             input["queries"][0]["keywords"] == json!([HEAD])
         });
-        assert_eq!(pull_request_read.is_some(), named, "{out}");
+        assert!(pull_request_read.is_none(), "{out}");
+        assert_eq!(
+            out.get("pullRequest").cloned(),
+            named.then(|| json!(12)),
+            "{out}"
+        );
         assert_eq!(sha_search.is_some(), !named, "{out}");
-        if let Some(read) = pull_request_read {
-            assert_eq!(read["input"]["queries"][0]["number"], 12, "{out}");
-        }
         if let Some(search) = sha_search {
             let row = &search["input"]["queries"][0];
             assert_eq!(row["operation"], "pullRequest", "{out}");

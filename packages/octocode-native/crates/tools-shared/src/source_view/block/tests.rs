@@ -15,6 +15,7 @@ fn widening_follows_the_files_comment_syntax() {
         "m.py",
         vec![LineRange { start: 5, end: 5 }],
         &mut vec![],
+        &mut vec![],
         &mut NextCalls::default(),
     );
     assert_eq!(widened, vec![LineRange { start: 2, end: 6 }]);
@@ -23,6 +24,7 @@ fn widening_follows_the_files_comment_syntax() {
         rs,
         "lib.rs",
         vec![LineRange { start: 5, end: 5 }],
+        &mut vec![],
         &mut vec![],
         &mut NextCalls::default(),
     );
@@ -40,6 +42,7 @@ fn ranges_widen_to_the_enclosing_declaration() {
             LineRange { start: 4, end: 4 },
         ],
         &mut warnings,
+        &mut vec![],
         &mut NextCalls::default(),
     );
     assert_eq!(
@@ -56,6 +59,7 @@ fn ranges_widen_to_the_enclosing_declaration() {
         "m.py",
         vec![LineRange { start: 1, end: 1 }],
         &mut warnings,
+        &mut vec![],
         &mut NextCalls::default(),
     );
     assert_eq!(kept, vec![LineRange { start: 1, end: 1 }]);
@@ -70,6 +74,7 @@ fn unsupported_files_keep_the_window_with_a_note() {
         "notes.unknownext",
         vec![LineRange { start: 1, end: 1 }],
         &mut warnings,
+        &mut vec![],
         &mut NextCalls::default(),
     );
     assert_eq!(kept, vec![LineRange { start: 1, end: 1 }]);
@@ -92,6 +97,7 @@ fn a_long_declaration_is_selected_whole() {
         "m.py",
         vec![LineRange { start: 10, end: 12 }],
         &mut warnings,
+        &mut vec![],
         &mut NextCalls::default(),
     );
     assert_eq!(widened, whole);
@@ -100,7 +106,7 @@ fn a_long_declaration_is_selected_whole() {
         &source,
         "m.py",
         &[20],
-        vec![LineRange { start: 18, end: 22 }],
+        vec![LineRange { start: 20, end: 20 }],
         &mut warnings,
         &mut blocks,
         &mut NextCalls::default(),
@@ -122,6 +128,7 @@ fn blocks_include_leading_doc_comments_and_attributes() {
         "m.rs",
         vec![LineRange { start: 7, end: 7 }],
         &mut warnings,
+        &mut vec![],
         &mut NextCalls::default(),
     );
     assert_eq!(
@@ -157,25 +164,118 @@ fn blocks_include_leading_doc_comments_and_attributes() {
         "m.c",
         vec![LineRange { start: 3, end: 3 }],
         &mut warnings,
+        &mut vec![],
         &mut NextCalls::default(),
     );
     assert_eq!(widened, vec![LineRange { start: 2, end: 4 }]);
 }
 
+/// L11: one extent per declaration. A match on any of its lines (its
+/// attribute, its name line, its body) and a `ranges` block read of any of
+/// them select the same lines, docs included, and each names the
+/// declaration in `blocks` once, with the line its shown lines start at
+/// when that is above its name line.
+#[test]
+fn a_block_has_one_extent_wherever_the_hit_is() {
+    let source =
+        "use std::fmt;\n\n/// Doc one.\n/// Doc two.\n#[inline]\nfn target() {\n    body();\n}\n";
+    let whole = vec![LineRange { start: 3, end: 8 }];
+    let named = |blocks: &[crate::source_view::types::DeclaredBlock]| {
+        blocks
+            .iter()
+            .map(|block| {
+                // The block's shown lines start where the read's do.
+                assert_eq!(block.doc_start_line, Some(whole[0].start), "{block:?}");
+                assert!(whole[0].start < block.line, "{block:?}");
+                (block.symbol_name.clone(), block.line, block.end_line)
+            })
+            .collect::<Vec<_>>()
+    };
+    let target = vec![("target".to_owned(), 6, 8)];
+    for line in 5..=8 {
+        let at = vec![LineRange {
+            start: line,
+            end: line,
+        }];
+        let (mut warnings, mut blocks) = (vec![], vec![]);
+        let matched = widen_matches(
+            source,
+            "m.rs",
+            &[line],
+            at.clone(),
+            &mut warnings,
+            &mut blocks,
+            &mut NextCalls::default(),
+        );
+        assert_eq!(matched, whole, "match on line {line}: {warnings:?}");
+        assert_eq!(named(&blocks), target, "match on line {line}");
+        let mut blocks = vec![];
+        let ranged = widen_ranges(
+            source,
+            "m.rs",
+            at,
+            &mut warnings,
+            &mut blocks,
+            &mut NextCalls::default(),
+        );
+        assert_eq!(ranged, whole, "range at line {line}: {warnings:?}");
+        assert_eq!(named(&blocks), target, "range at line {line}");
+    }
+}
+
+/// L10: `contextLines` sizes the window of a match that keeps one. When
+/// every match is widened to its declaration it sized nothing, and the
+/// read says so; a read with a match that keeps its window, or one that
+/// asked for no context, does not.
+#[test]
+fn context_lines_that_size_nothing_are_named() {
+    let unused = |hits: &[usize], context: usize| {
+        let mut warnings = vec![];
+        let windows = hits
+            .iter()
+            .map(|&hit| LineRange {
+                start: hit - context,
+                end: hit + context,
+            })
+            .collect();
+        widen_matches(
+            PY,
+            "m.py",
+            hits,
+            windows,
+            &mut warnings,
+            &mut vec![],
+            &mut NextCalls::default(),
+        );
+        warnings.iter().any(|warning| warning == CONTEXT_UNUSED)
+    };
+    assert!(unused(&[4, 10], 1), "every match widened");
+    assert!(!unused(&[4, 10], 0), "no context asked");
+    // Line 1 sits outside every declaration: its window is the context.
+    assert!(!unused(&[2, 10], 1), "a match keeps its window");
+}
+
 #[test]
 fn matches_widen_to_their_declaration() {
     let mut warnings = vec![];
+    let mut blocks = vec![];
     let windows = widen_matches(
         PY,
         "m.py",
         &[10],
-        vec![LineRange { start: 9, end: 11 }],
+        vec![LineRange { start: 10, end: 10 }],
         &mut warnings,
-        &mut vec![],
+        &mut blocks,
         &mut NextCalls::default(),
     );
     assert_eq!(windows, vec![LineRange { start: 8, end: 11 }]);
     assert!(warnings.is_empty(), "{warnings:?}");
+    // No doc comment above it: the block starts at its name line, and the
+    // entry states no other start (nor a key for one).
+    assert_eq!(blocks.len(), 1, "{blocks:?}");
+    assert_eq!(blocks[0].line, windows[0].start, "{blocks:?}");
+    let wire = serde_json::to_value(&blocks[0]).expect("block");
+    assert!(wire.get("docStartLine").is_none(), "{wire}");
 }
 
 #[test]
@@ -243,6 +343,7 @@ fn one_line_declarations_are_named_as_such_not_as_outside() {
         "m.rs",
         vec![LineRange { start: 2, end: 2 }],
         &mut warnings,
+        &mut vec![],
         &mut NextCalls::default(),
     );
     assert_eq!(
@@ -268,6 +369,7 @@ fn unenclosed_ranges_state_the_recovered_parse_once() {
             LineRange { start: 4, end: 4 },
         ],
         &mut warnings,
+        &mut vec![],
         &mut NextCalls::default(),
     );
     let notes = warnings
@@ -291,7 +393,7 @@ fn javascript_member_assigned_functions_are_blocks() {
         source,
         "lib/response.js",
         &[3],
-        vec![LineRange { start: 1, end: 5 }],
+        vec![LineRange { start: 3, end: 3 }],
         &mut warnings,
         &mut vec![],
         &mut NextCalls::default(),

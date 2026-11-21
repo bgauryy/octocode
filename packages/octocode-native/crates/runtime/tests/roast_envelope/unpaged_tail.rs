@@ -50,7 +50,7 @@ async fn a_page_that_cannot_be_retained_again_serves_from_its_own_page_to_the_en
         .into_value();
     let seen = lines(&first);
     let next = first
-        .pointer("/responsePagination/next/input")
+        .pointer("/next/input")
         .cloned()
         .expect("a second page");
     runtime.close().await;
@@ -72,7 +72,7 @@ async fn a_page_that_cannot_be_retained_again_serves_from_its_own_page_to_the_en
         (start..=120).collect::<Vec<_>>(),
         "no earlier hit again, none lost: {tail}"
     );
-    assert!(tail.pointer("/responsePagination/next").is_none(), "{tail}");
+    assert!(tail.pointer("/next").is_none(), "{tail}");
     assert!(
         tail["warnings"].as_array().is_some_and(|w| !w.is_empty()),
         "{tail}"

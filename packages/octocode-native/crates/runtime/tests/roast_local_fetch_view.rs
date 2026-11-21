@@ -162,7 +162,7 @@ async fn fetch(runtime: &ToolRuntime, path: &std::path::Path) -> Value {
 }
 
 #[tokio::test]
-async fn an_image_refusal_leads_to_clasify_assets_only_when_clasify_is_configured() {
+async fn an_image_refusal_leads_to_clasify_only_when_clasify_is_configured() {
     let workspace = Workspace::new();
     let png = workspace.write("logo.png", tiny_png());
     let blob = workspace.write("blob.bin", b"\x00\x01\x02binary\x00".as_slice());
@@ -174,8 +174,9 @@ async fn an_image_refusal_leads_to_clasify_assets_only_when_clasify_is_configure
         "binaryFileUnsupported"
     );
     let hints = hints_of(&output);
+    // The route is the image as a clasify source: one call, no assets map.
     assert!(
-        hints.contains("clasify") && hints.contains("assets"),
+        hints.contains("clasify") && hints.contains("source") && !hints.contains("assets"),
         "{hints}"
     );
     assert!(hints.contains(&png.display().to_string()), "{hints}");

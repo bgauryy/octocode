@@ -267,10 +267,10 @@ fn fast_union_acceptance_matches_the_reference_on_envelopes_sampled_at(stride: u
             tools[(tools.iter().position(|name| *name == tool).expect("tool") + 1) % tools.len()];
         cases.push((other.to_owned(), output, related));
         if !related {
-            let mut page = json!({"results":[],"responsePagination":{
-                "next":{"kind":"continue","tool":tool,"input":fixture["input"]}}});
+            let mut page = json!({"results":[],
+                "next":{"kind":"continue","tool":tool,"input":fixture["input"]}});
             cases.push((tool.clone(), page.clone(), true));
-            page["responsePagination"]["next"]["tool"] = json!(other);
+            page["next"]["tool"] = json!(other);
             cases.push((tool.clone(), page, false));
         }
     }

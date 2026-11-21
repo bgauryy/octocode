@@ -61,12 +61,23 @@ pub(super) fn stamp(row: &mut Value) {
     }
 }
 
+/// `lsp.source` of a hierarchy answer the server gave through its heritage
+/// clauses' definitions: the supertypes of a server with no type hierarchy.
+pub(super) const HERITAGE_ROUTE: &str = "heritage";
+/// `lsp.source` of a hierarchy answer the server gave through
+/// `textDocument/implementation`: the subtypes of such a server.
+pub(super) const IMPLEMENTATION_ROUTE: &str = "implementation";
+/// The `lsp.source` values of an answer the server itself verified by
+/// another request: as sound as its own hierarchy, unlike a source scan.
+const SERVER_ROUTES: [&str; 2] = [HERITAGE_ROUTE, IMPLEMENTATION_ROUTE];
+
 /// Drop the `lsp` receipt of a row it only reassures about: the server
 /// answered at the `server` level and reported no errors. The receipt
 /// decides a next step only when it deviates (another level, an
-/// unavailable server, a degraded `source`, diagnostics that are errors,
+/// unavailable server, an unverified `source`, diagnostics that are errors,
 /// truncated or unavailable), so every such row keeps it whole; so does
-/// every error row. The compilation context (C family) explains only a gap:
+/// every error row. A `source` that names the server's own route to the
+/// answer ([`SERVER_ROUTES`]) is no deviation. The compilation context (C family) explains only a gap:
 /// a row that is neither partial nor empty drops it first.
 pub(super) fn omit_healthy_receipt(row: &mut Value) {
     let status = row.get("status").and_then(Value::as_str);
@@ -93,9 +104,20 @@ pub(super) fn omit_healthy_receipt(row: &mut Value) {
                 lsp.get("serverAvailable") == Some(&json!(true))
                     && lsp.get("level") == Some(&json!(Level::Server.name()))
                     && lsp.get("analysisContext").is_none_or(clean_analysis)
+                    && lsp.get("source").is_none_or(|source| {
+                        SERVER_ROUTES
+                            .iter()
+                            .any(|route| source.as_str() == Some(route))
+                    })
                     && lsp.keys().all(|key| {
-                        ["serverAvailable", "level", "provider", "analysisContext"]
-                            .contains(&key.as_str())
+                        [
+                            "serverAvailable",
+                            "level",
+                            "provider",
+                            "source",
+                            "analysisContext",
+                        ]
+                        .contains(&key.as_str())
                     })
             });
     if healthy && let Some(row) = row.as_object_mut() {

@@ -1,83 +1,5 @@
 use octocode_tools_shared::leads::find_file::close_name;
 use octocode_tools_shared::leads::find_file::closest_name;
-use octocode_tools_shared::leads::find_file::find_file;
-
-#[test]
-fn related_file_searches_preserve_scope_and_literal_names() {
-    use octocode_runtime_base::execution::cancel::NeverCancel;
-    use octocode_runtime_base::test_support::{Fixture, simple_policy};
-    let root = Fixture::new();
-    std::fs::create_dir_all(root.0.join("pkg/nested")).unwrap();
-    for name in [
-        "blok.rs",
-        "nested/blok.ts",
-        "blok_extra.rs",
-        "Makefile",
-        "Makefile.txt",
-        "[id].tsx",
-        "id.tsx",
-        "Make[ab]",
-        "Makea",
-        "!bang.ts",
-        "bang.ts",
-        "#hash.ts",
-    ] {
-        std::fs::write(root.0.join("pkg").join(name), "").unwrap();
-    }
-    std::fs::write(root.0.join("blok.go"), "").unwrap();
-    let (paths, security) = simple_policy(&root.0);
-    for (requested, expected) in [
-        ("src/blok.rs", vec!["pkg/blok.rs", "pkg/nested/blok.ts"]),
-        ("Makefile", vec!["pkg/Makefile"]),
-        ("[id].tsx", vec!["pkg/[id].tsx"]),
-        ("Make[ab]", vec!["pkg/Make[ab]"]),
-        // A leading `!` or `#` is part of the name, never a gitignore
-        // negation or comment.
-        ("!bang.rs", vec!["pkg/!bang.ts"]),
-        ("#hash.rs", vec!["pkg/#hash.ts"]),
-    ] {
-        let lead = find_file("pkg", requested).expect("related request");
-        assert_eq!(lead["kind"], "related");
-        octocode_runtime_base::contracts::validate("structureSearch", lead["input"].clone())
-            .expect("public input");
-        let query = serde_json::from_value(lead["input"]["queries"][0].clone()).unwrap();
-        let out = octocode_tool_local::structure_search::execute_structure(
-            &query,
-            &paths,
-            &security,
-            &NeverCancel,
-            None,
-        )
-        .unwrap();
-        let mut actual = out["files"]
-            .as_array()
-            .expect("files")
-            .iter()
-            .flat_map(|group| {
-                let entries = if let Some(entry) = group.as_str() {
-                    vec![("pkg", entry)]
-                } else {
-                    let dir = group["dir"].as_str().expect("directory");
-                    group["files"]
-                        .as_array()
-                        .expect("entries")
-                        .iter()
-                        .map(|entry| (dir, entry.as_str().expect("entry")))
-                        .collect()
-                };
-                entries
-                    .into_iter()
-                    .map(|(dir, entry)| {
-                        let name = entry.rsplit_once(" (").map_or(entry, |(name, _)| name);
-                        format!("{dir}/{name}")
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
-        actual.sort();
-        assert_eq!(actual, expected, "{requested}: {out}");
-    }
-}
 
 #[test]
 fn a_mistyped_name_finds_its_one_close_sibling_file() {
@@ -103,13 +25,4 @@ fn any_named_candidates_find_their_one_close_name() {
     assert_eq!(closest_name(names(), "sr").as_deref(), Some("src"));
     assert_eq!(closest_name(names(), "src"), None);
     assert_eq!(closest_name(names(), "bench"), None);
-}
-
-/// A name with a wildcard (`*`, `?`) is a glob, not a file that moved:
-/// no listing of files literally so named is offered.
-#[test]
-fn a_wildcard_name_offers_no_listing() {
-    for requested in ["w/*.md", "src/a?.rs", "*"] {
-        assert!(find_file("pkg", requested).is_none(), "{requested}");
-    }
 }

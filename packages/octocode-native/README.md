@@ -155,9 +155,9 @@ npx octocode localSearch --input query.json
 ```
 
 A paged result exits `0`. Copy the `input` from its `next` call to the named tool.
-A call is `{tool, input}`: under `next` or `responsePagination.next` it is a
-required continuation (`input:{cursor}`); under `related` it starts optional
-work. `hints` are prose.
+A call is `{tool, input}`: the reply's top-level `next` is its one required
+continuation (`input:{cursor}`), a row's `next.*` is a branch; under `related`
+it starts optional work. `hints` are prose.
 Field reference: [OCTOCODE_TOOLS.md](../../docs/OCTOCODE_TOOLS.md).
 
 ## Commands
@@ -168,7 +168,7 @@ stdout by its status, page state, warnings, hints and runnable continuation comm
 counters and `related[]` leads are `# ` notes on stderr (`crates/cli/src/cli/lines.rs`), and so is progress when
 stderr is a terminal. A call
 rejected before it runs prints on stdout as a failed row does. `--json`
-prints JSON, indented on a terminal. `octocode schema` lists the CLI tools available with the current configuration. Graph, clone and advisory tools are opt-ins on MCP. Classification requires a provider key on both interfaces. See the [availability matrix](../../docs/CONFIGURATION.md#tool-availability-cli-and-mcp).
+prints JSON, indented on a terminal. `octocode schema` lists the CLI tools available with the current configuration. Graph, clone and advisory tools are opt-ins on MCP. `clasify` requires a provider key on both interfaces. See the [availability matrix](../../docs/CONFIGURATION.md#tool-availability-cli-and-mcp).
 
 | Command | What it does |
 |---|---|
@@ -206,9 +206,8 @@ client asks.
   link is the same build, a moved binary keeps its server, and a copy is
   another build with its own server (copying a binary gives it new servers; link
   it instead). The process environment is every variable the engine reads
-  from the server's own process (`PROCESS_ENV`: `HOME`, `XDG_CONFIG_HOME` and
-  the git config variables, which the walker reads for the global ignore
-  rules) and the proxy and trust-store variables (`NETWORK_ENV`). A call
+  from the server's own process (`PROCESS_ENV`: `HOME` and `USERPROFILE`) and
+  the proxy and trust-store variables (`NETWORK_ENV`). A call
   cannot bring its own value of these, so another value reaches another
   server, and a server answers `fallback` to a request made under a process
   environment other than its own. The socket name is a hash (with

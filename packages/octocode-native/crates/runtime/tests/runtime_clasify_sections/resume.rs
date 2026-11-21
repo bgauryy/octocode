@@ -1,6 +1,6 @@
 //! Section resume and replay preserve row indexes, sibling work, and one transaction across independent runtimes.
 
-use super::{provider, provider_calls, sections};
+use super::{provider, provider_calls, sections_with_next};
 use crate::support::{Run as _, Workspace, clasify_runtime};
 use octocode_native::runtime::ToolRuntime;
 use octocode_test_support::json_fixture;
@@ -53,7 +53,7 @@ async fn section_cursor_replays_frozen_work_without_repeating_inference() {
     let workspace = Workspace::new();
     workspace.write("sections.rs", super::separate_functions(70));
     let runtime = clasify_runtime(&workspace, &provider, &[]);
-    let first = sections(
+    let (_, resume) = sections_with_next(
         &runtime,
         json_fixture(
             r#"{
@@ -62,7 +62,6 @@ async fn section_cursor_replays_frozen_work_without_repeating_inference() {
         ),
     )
     .await;
-    let resume = first["next"]["nextPage"]["input"].clone();
     crate::support::assert_cursor_only(&resume);
     let resumed = runtime
         .run("resume".into(), "clasify".into(), resume.clone())
@@ -153,7 +152,9 @@ async fn sibling_section_rows_keep_continuations_until_every_section_is_answered
             }
         }
         for result in page["results"].as_array().expect("rows") {
-            if crate::support::next_inputs(&json!({"results":[result]})).is_empty() {
+            // A reply with no `next` is finished: no row leaves a section
+            // unassessed.
+            if page.get("next").is_none() {
                 assert!(
                     result["data"]["resources"]["file"]["coverage"]
                         .get("unassessed")
@@ -184,7 +185,7 @@ async fn simultaneous_section_resume_in_independent_runtimes_replays_one_transac
     let env = [("OCTOCODE_STORAGE_MODE", "persistent".into())];
     let first_runtime = clasify_runtime(&workspace, &provider, &env);
     let second_runtime = clasify_runtime(&workspace, &provider, &env);
-    let first = sections(
+    let (_, next) = sections_with_next(
         &first_runtime,
         json_fixture(
             r#"{
@@ -193,7 +194,6 @@ async fn simultaneous_section_resume_in_independent_runtimes_replays_one_transac
         ),
     )
     .await;
-    let next = first["next"]["nextPage"]["input"].clone();
     crate::support::assert_cursor_only(&next);
     let before = provider_calls(&provider).await;
     let (a, b) = tokio::join!(
@@ -257,7 +257,7 @@ async fn a_split_batch_is_first_delivered_unreplayed_and_a_repeat_is_replayed() 
         // page, its first delivery included; a page that judged a batch is
         // new work (CLS-C26, closed by decision).
         assert_eq!(
-            page["responsePagination"]["replayed"] == true,
+            page["replayed"] == true,
             !billed,
             "page {}: {page:#}",
             cursors.len()
@@ -312,7 +312,7 @@ async fn a_split_batch_is_first_delivered_unreplayed_and_a_repeat_is_replayed() 
         // A saved page read again says so on the page; a batch sent again
         // says so on its rows.
         let replayed = if saved_page {
-            repeat["responsePagination"]["replayed"] == true
+            repeat["replayed"] == true
         } else {
             repeat["results"]
                 .as_array()

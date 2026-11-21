@@ -84,22 +84,19 @@ fn syntax_tree_is_the_only_tree_surface() {
     // One compact row per node: id, kind (an anonymous token quoted),
     // 1-based line:column span and `^parent`; byte spans only on request.
     let nodes = syntax["nodes"].as_array().expect("node rows");
-    assert_eq!(nodes[0]["node"], "0 program 1:1-2:1", "{syntax}");
-    assert_eq!(
-        nodes[1]["node"], "1 export_statement 1:1-1:24 ^0",
-        "{syntax}"
-    );
+    assert_eq!(nodes[0], "0 program 1:1-2:1", "{syntax}");
+    assert_eq!(nodes[1], "1 export_statement 1:1-1:24 ^0", "{syntax}");
     // A node that fills a grammar field names it before its kind: the
     // name a rule's `has`/`inside` `field` matches.
     assert!(
-        nodes.iter().any(|row| row["node"]
+        nodes.iter().any(|row| row
             .as_str()
             .is_some_and(|row| row.contains(" name:identifier 1:14-1:19 "))),
         "{syntax}"
     );
     assert!(syntax.get("nextOffset").is_none(), "{syntax}");
-    assert!(nodes[0].get("sourceRange").is_none(), "{syntax}");
-    assert!(nodes[0].get("sourceOrigin").is_none(), "{syntax}");
+    // Without provenance a row is its line alone, a plain string.
+    assert!(nodes.iter().all(Value::is_string), "{syntax}");
     assert!(syntax.get("sourceEvidence").is_none(), "{syntax}");
     let spans = execute_row(
         json!({"operation":"syntaxTree","path":source.to_string_lossy(),"includeProvenance":true}),

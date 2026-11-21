@@ -6,6 +6,13 @@ use serde_json::Value;
 
 /// The name of every linear walk (core `continuationChannels`).
 pub const LINEAR_WALK: &str = "nextPage";
+/// The envelope's one continuation: the call that continues every
+/// unfinished row of the reply. A reply that carries it is unfinished.
+pub const RESPONSE_NEXT: &str = "next";
+/// When [`RESPONSE_NEXT`]'s saved work stops answering, and the fact that a
+/// page was read back from saved output: envelope members beside it.
+pub const RESPONSE_EXPIRES_AT: &str = "expiresAt";
+pub const RESPONSE_REPLAYED: &str = "replayed";
 
 pub struct Scope<'a> {
     pub is_available: &'a dyn Fn(&str) -> bool,
@@ -201,16 +208,15 @@ pub fn hoist(structured: &mut Value, walks: &[Vec<String>], tool: ToolId, handle
             remove_at(structured, parent);
         }
     }
-    structured["responsePagination"] = serde_json::json!({
-        "next": crate::response::result::Continuation::cursor(tool.as_str(), handle),
-    });
+    structured[RESPONSE_NEXT] =
+        crate::response::result::Continuation::cursor(tool.as_str(), handle);
 }
 
 /// Drop `kind` from every call at a position `tool`'s output schema declares
 /// in `structured`, once the response is final: a served call is its `tool`
-/// and `input`, and the channel that holds it says what it does (`next` and
-/// `responsePagination.next` continue this answer, `related[]` starts new
-/// work). The runtime routes, publishes and validates calls by `kind`
+/// and `input`, and the channel that holds it says what it does (the
+/// envelope's `next` and a row's `next.*` continue this answer, `related[]`
+/// starts new work). The runtime routes, publishes and validates calls by `kind`
 /// before this point.
 pub fn drop_call_kinds(
     tool: ToolId,

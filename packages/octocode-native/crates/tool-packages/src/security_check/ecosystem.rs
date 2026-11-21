@@ -1,8 +1,11 @@
-//! The OSV ecosystem a package row names. The generated enum is the contract's
-//! own (`ecosystem` of the `package` row) and its `Display` is OSV's
-//! case-sensitive name. Which ecosystems are distributions and which have a
-//! registry reader comes from the contract's `security` block; the registry
-//! provider each reader maps to is the only fact native adds.
+//! The ecosystem a package row names. The generated enum is the contract's
+//! own (`ecosystem` of the `package` row) and its `Display` is the input's
+//! spelling: a registry artifactSearch reads as artifactSearch spells it, any
+//! other as OSV does. What OSV is asked and states is OSV's case-sensitive
+//! name ([`osv`], [`as_input`]), from the contract's `osvNames`. Which
+//! ecosystems are distributions and which have a registry reader comes from
+//! the contract's `security` block; the registry provider each reader maps to
+//! is the only fact native adds.
 use crate::artifact::ArtifactError;
 use octocode_contract_types::{ArtifactType, ErrorCode, SecurityCheckQueryPackageEcosystem};
 use octocode_runtime_base::contracts::security::security_contract;
@@ -13,13 +16,13 @@ pub(crate) type Ecosystem = SecurityCheckQueryPackageEcosystem;
 const fn provider(ecosystem: Ecosystem) -> Option<ArtifactType> {
     match ecosystem {
         Ecosystem::Npm => Some(ArtifactType::Npm),
-        Ecosystem::PyPi => Some(ArtifactType::Pypi),
-        Ecosystem::CratesIo => Some(ArtifactType::Crates),
+        Ecosystem::Pypi => Some(ArtifactType::Pypi),
+        Ecosystem::Crates => Some(ArtifactType::Crates),
         Ecosystem::Maven => Some(ArtifactType::Maven),
-        Ecosystem::NuGet => Some(ArtifactType::Nuget),
+        Ecosystem::Nuget => Some(ArtifactType::Nuget),
         Ecosystem::Go => Some(ArtifactType::Go),
         Ecosystem::Packagist => Some(ArtifactType::Packagist),
-        Ecosystem::RubyGems => Some(ArtifactType::Rubygems),
+        Ecosystem::Rubygems => Some(ArtifactType::Rubygems),
         Ecosystem::Pub
         | Ecosystem::Hex
         | Ecosystem::SwiftUrl
@@ -185,11 +188,41 @@ pub(super) fn purl_release(
     ))
 }
 
-/// What OSV is asked: the ecosystem, then `:release` for a distribution release.
+/// OSV's own name of `ecosystem`: what OSV is asked and what its records
+/// state (`pypi` is `PyPI`). An ecosystem the contract gives no OSV name is
+/// already spelled as OSV spells it.
+pub(super) fn osv(ecosystem: Ecosystem) -> String {
+    let input = ecosystem.to_string();
+    match security_contract() {
+        Ok(contract) => contract.osv_name_of(&input).to_owned(),
+        Err(_) => input,
+    }
+}
+
+/// An ecosystem a source states (OSV's name, with any `:release` suffix), as
+/// the `ecosystem` input spells it: what a row shows, so it runs unchanged as
+/// the next call's `ecosystem`. The release suffix stays as stated.
+pub(super) fn as_input(stated: &str) -> String {
+    let (name, release) = match stated.split_once(':') {
+        Some((name, release)) => (name, Some(release)),
+        None => (stated, None),
+    };
+    let name = match security_contract() {
+        Ok(contract) => contract.input_of_osv(name),
+        Err(_) => name,
+    };
+    match release {
+        Some(release) => format!("{name}:{release}"),
+        None => name.to_owned(),
+    }
+}
+
+/// What OSV is asked: its name of the ecosystem, then `:release` for a
+/// distribution release.
 pub(super) fn osv_name(ecosystem: Ecosystem, release: Option<&str>) -> String {
     match release {
-        Some(release) => format!("{ecosystem}:{release}"),
-        None => ecosystem.to_string(),
+        Some(release) => format!("{}:{release}", osv(ecosystem)),
+        None => osv(ecosystem),
     }
 }
 

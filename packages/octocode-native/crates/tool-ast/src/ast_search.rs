@@ -34,6 +34,8 @@ mod region_tests;
 mod rule_tests;
 mod scan_window;
 mod shared_rows;
+#[cfg(test)]
+mod snippet_tests;
 mod source;
 mod symbols;
 #[cfg(test)]
@@ -115,11 +117,26 @@ pub fn execute_ast(
     response_window: Option<usize>,
 ) -> Result<Value, ToolError> {
     let requested = match query {
-        AstSearchQuery::Symbols(query) => query.path.as_str(),
-        AstSearchQuery::Match0(query) => query.path.as_str(),
-        AstSearchQuery::MatchView(query) => query.path.as_str(),
-        AstSearchQuery::SyntaxTree(query) => query.path.as_str(),
+        AstSearchQuery::Symbols(query) => query.path.as_ref().map(|path| path.as_str()),
+        AstSearchQuery::Match0(query) => query.path.as_ref().map(|path| path.as_str()),
+        AstSearchQuery::MatchView(query) => query.path.as_ref().map(|path| path.as_str()),
+        AstSearchQuery::SyntaxTree(query) => query.path.as_ref().map(|path| path.as_str()),
     };
+    // Inline source in place of a file: its rows are cut from the snippet
+    // judged whole, as a file's are from the file.
+    let inline = match query {
+        AstSearchQuery::Symbols(_) => None,
+        AstSearchQuery::Match0(query) => query.content.as_ref(),
+        AstSearchQuery::MatchView(query) => query.content.as_ref(),
+        AstSearchQuery::SyntaxTree(query) => query.content.as_ref(),
+    }
+    .map(|content| content.as_str());
+    // A walk that names no path walks the workspace root, as the contract
+    // states its default.
+    let requested = requested.or_else(|| {
+        (inline.is_none() && !matches!(query, AstSearchQuery::SyntaxTree(_)))
+            .then_some(source::WALK_ROOT)
+    });
     let page = match query {
         // Identical rows asked at once share one page ([`shared_rows`]).
         AstSearchQuery::Symbols(query) => {
@@ -129,13 +146,32 @@ pub fn execute_ast(
             run_ast(build, query, paths, cancellation, response_window).map(|(mut data, places)| {
                 let sources =
                     octocode_tools_shared::judged_rows::RowSources::as_shown(paths, security);
-                judged_rows::judge_rows(&mut data, &sources, places);
+                let known = match inline {
+                    Some(code) => judged_rows::Known::holding(
+                        source::INLINE_NAME,
+                        octocode_tools_shared::judged_rows::judged_text(
+                            code,
+                            std::path::Path::new(source::INLINE_NAME),
+                            security,
+                        )
+                        .as_shown(),
+                    ),
+                    None => judged_rows::Known::default(),
+                };
+                judged_rows::judge_rows_with(&mut data, &sources, places, &known);
                 judged_rows::drop_judging_positions(&mut data);
+                if inline.is_some() {
+                    source::drop_inline_name(&mut data);
+                }
                 data
             })
         }
     };
     page.map_err(|mut error| {
+        // Inline source names no path to read or to look for.
+        let Some(requested) = requested else {
+            return error;
+        };
         if matches!(
             error.code,
             ErrorCode::LanguageUnsupported

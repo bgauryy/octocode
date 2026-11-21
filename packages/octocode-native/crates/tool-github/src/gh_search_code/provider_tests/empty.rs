@@ -354,8 +354,19 @@ async fn a_path_mode_search_of_code_leads_to_the_content_search_alone() {
         "{}",
         out.data
     );
-    assert!(next.get("cloneRepo").is_none(), "{}", out.data);
-    assert!(next.get("viewTree").is_none(), "{}", out.data);
+    // An empty path search leads to the content search alone.
+    for other in ["ghCloneRepo", "ghStructure"] {
+        assert!(
+            octocode_runtime_base::test_support::checks::find_related_call(
+                &out.data,
+                other,
+                |_| { true }
+            )
+            .is_none(),
+            "{other}: {}",
+            out.data
+        );
+    }
 }
 
 /// Keywords are ANDed literals: an item holding a standalone `OR` ran as one
@@ -455,6 +466,14 @@ async fn an_empty_search_of_a_missing_repository_reads_it_once() {
 #[tokio::test]
 async fn a_missing_repository_labels_its_name_search_and_lists_the_owner() {
     let server = MockServer::builder().start().await;
+    // The owner's login exists: only the repository is missing.
+    wiremock::Mock::given(wiremock::matchers::path_regex("/users/[^/]+$"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"login": "owner"})),
+        )
+        .mount(&server)
+        .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(

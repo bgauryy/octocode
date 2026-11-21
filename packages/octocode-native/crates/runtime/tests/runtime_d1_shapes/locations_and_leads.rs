@@ -310,29 +310,33 @@ async fn a_case_sensitive_miss_leads_to_a_runnable_ignore_case_read() {
     runtime.close().await;
 }
 
+/// A missing file is an error row with one recovery call, which runs and
+/// shows what is there: the parent listing (S2: at most one `related`).
 #[tokio::test]
-async fn a_missing_file_leads_to_find_file() {
+async fn a_missing_file_leads_to_one_listing_that_shows_what_is_there() {
     let workspace = Workspace::new();
     workspace.write("pkg/server.rs", "fn main() {}\n");
     let runtime = workspace.runtime(&[]);
     let missing = support::run(
         &runtime,
         "localFetch",
-        json_fixture(r#"{"path": "pkg/server.ts"}"#),
+        json_fixture(r#"{"path": "pkg/other-name.ts"}"#),
     )
     .await;
-    let find = missing.data()["related"]
-        .as_array()
-        .expect("related calls")
-        .iter()
-        .find(|call| call["tool"] == "structureSearch")
-        .expect("file discovery");
-    assert_eq!(find.get("kind"), None);
+    let related = missing.data()["related"].as_array().expect("related calls");
+    assert_eq!(related.len(), 1, "one recovery call: {}", missing.data());
+    assert!(
+        missing.data()["hints"]
+            .as_array()
+            .is_none_or(|hints| hints.len() <= 1),
+        "{}",
+        missing.data()
+    );
     let listing = runtime
         .run(
-            "find-file".into(),
-            "structureSearch".into(),
-            find["input"].clone(),
+            "listing".into(),
+            related[0]["tool"].as_str().expect("tool").to_owned(),
+            related[0]["input"].clone(),
         )
         .await
         .expect("runnable recovery");

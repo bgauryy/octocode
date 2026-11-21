@@ -264,13 +264,21 @@ fn declared_value<'a>(
     found
 }
 
-/// Whether any query-schema variant declares the top-level field.
+/// Whether any form of `tool`'s query rows declares the top-level field,
+/// through every reference and nested union.
 pub fn query_declares(tool: ToolId, field: &str) -> bool {
-    variants(tool).is_some_and(|variants| {
-        variants
-            .iter()
-            .any(|variant| variant.fields.contains_key(field))
-    })
+    static DECLARED: [OnceLock<std::collections::BTreeSet<&'static str>>; ToolId::ALL.len()] =
+        [const { OnceLock::new() }; ToolId::ALL.len()];
+    let Some(index) = ToolId::ALL.iter().position(|id| *id == tool) else {
+        return false;
+    };
+    DECLARED[index]
+        .get_or_init(|| {
+            super::tool_contract(tool)
+                .map(|tool| property_names(&tool["querySchema"], &tool["querySchema"]["$defs"]))
+                .unwrap_or_default()
+        })
+        .contains(field)
 }
 
 #[must_use]

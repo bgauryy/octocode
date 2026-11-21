@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 fn first_line(tool: &str, input: Value) -> String {
     let rows = match prepare_rows(tool, input) {
         Err(error) => {
-            return format_input_error(tool, &error, &[], &serde_json::Value::Null)["error"]
+            return format_input_error(tool, &error, &serde_json::Value::Null)["error"]
                 .as_str()
                 .unwrap()
                 .into();
@@ -21,7 +21,7 @@ fn first_line(tool: &str, input: Value) -> String {
         .into_iter()
         .find_map(Result::err)
         .expect("the input is rejected");
-    format_input_error(tool, &error, &[], &serde_json::Value::Null)["error"]
+    format_input_error(tool, &error, &serde_json::Value::Null)["error"]
         .as_str()
         .unwrap()
         .to_owned()
@@ -64,22 +64,6 @@ fn every_misuse_shape_gets_a_one_line_repair() {
             "localSearch",
             json_fixture(r#"{"queries": [{"path": ".", "matchstring": ["x"]}]}"#),
             "Unknown field 'matchstring' in queries[0]; use 'matchString'.",
-        ),
-        // A former name inside a nested object names its field there.
-        (
-            "ghSearchRepo",
-            json_fixture(
-                r#"{
-                    "queries": [
-                        {
-                            "operation": "search",
-                            "keywords": ["x"],
-                            "filters": {"forkCount": {"min": 5}}
-                        }
-                    ]
-                }"#,
-            ),
-            "Unknown field 'forkCount' in queries[0].filters; use 'forks'.",
         ),
         (
             "ghSearchHistory",
@@ -129,7 +113,7 @@ fn every_misuse_shape_gets_a_one_line_repair() {
                     "queries": [{"path": "a.ts", "matchString": ["x"], "contextLines": 3}]
                 }"#,
             ),
-            r#"queries.0.contextLines: Expected object {after, before}; send {"before":3,"after":3}, not 3"#,
+            r#"queries.0.contextLines: Expected object {after, before}; 3 is the value of one field: send {"<field>":3} with <field> one of after, before"#,
         ),
         (
             "localFetch",
@@ -150,7 +134,7 @@ fn every_misuse_shape_gets_a_one_line_repair() {
         (
             "localSearch",
             json_fixture(r#"{"queries": [{"cursor": "issued"}]}"#),
-            r#"'cursor' is a whole request, not a query field: send {"cursor":"…"} alone, as next.nextPage or responsePagination.next gives it, without queries."#,
+            r#"'cursor' is a whole request, not a query field: send {"cursor":"…"} alone, as the reply's next gives it, without queries."#,
         ),
         (
             "localFetch",
@@ -210,7 +194,7 @@ fn every_misuse_shape_gets_a_one_line_repair() {
         (
             "localFetch",
             json_fixture(r#"{"cursor": "issued", "queries": [{"path": "a.ts"}]}"#),
-            r#"A cursor call takes the cursor alone: send {"cursor":"…"} as next.nextPage or responsePagination.next gives it, without 'queries'; a new request sends 'queries' without cursor."#,
+            r#"A cursor call takes the cursor alone: send {"cursor":"…"} as the reply's next gives it, without 'queries'; a new request sends 'queries' without cursor."#,
         ),
         (
             // A row that is wrong beside the cursor: the cursor rule leads.
@@ -221,7 +205,7 @@ fn every_misuse_shape_gets_a_one_line_repair() {
                     "queries": [{"sort": {"by": "stars", "order": "desc"}}]
                 }"#,
             ),
-            r#"A cursor call takes the cursor alone: send {"cursor":"…"} as next.nextPage or responsePagination.next gives it, without 'queries'; a new request sends 'queries' without cursor."#,
+            r#"A cursor call takes the cursor alone: send {"cursor":"…"} as the reply's next gives it, without 'queries'; a new request sends 'queries' without cursor."#,
         ),
         (
             // A former sort value names the value it is now, in any spelling.
@@ -258,7 +242,7 @@ fn every_misuse_shape_gets_a_one_line_repair() {
             // A cursor keeps the page size it was issued with.
             "localSearch",
             json_fixture(r#"{"cursor": "issued", "responseChars": 900}"#),
-            r#"'responseChars' is not allowed beside cursor: send {"cursor":"…"} alone, as next.nextPage or responsePagination.next gives it; 'responseChars' requires queries, in a new request."#,
+            r#"'responseChars' is not allowed beside cursor: send {"cursor":"…"} alone, as the reply's next gives it; 'responseChars' requires queries, in a new request."#,
         ),
         (
             "localFetch",
@@ -326,17 +310,40 @@ fn a_near_miss_ecosystem_names_the_one_it_means() {
             json!({"queries":[{"operation":"package","ecosystem":ecosystem,"packageName":"time"}]}),
         )
     };
-    for (sent, meant) in [
-        ("NPM", "npm"),
-        ("crates", "crates.io"),
-        ("cargo", "crates.io"),
-        ("golang", "Go"),
-        ("gem", "RubyGems"),
-        ("composer", "Packagist"),
-        ("rocky", "Rocky Linux"),
-    ] {
+    for (sent, meant) in [("NPM", "npm"), ("rocky", "Rocky Linux")] {
         let line = wrong(sent);
         assert!(line.contains(&format!("use \"{meant}\"")), "{sent}: {line}");
+    }
+    let contract = crate::contracts::security::security_contract().expect("security block");
+    // OSV's own name of a registry names the word the input takes for it.
+    let renamed = contract
+        .ecosystems
+        .osv_names
+        .iter()
+        .filter(|(input, osv)| input != osv)
+        .collect::<Vec<_>>();
+    assert!(
+        !renamed.is_empty(),
+        "some registry is spelled otherwise by OSV"
+    );
+    for (input, osv) in renamed {
+        let line = wrong(osv);
+        assert!(line.contains(&format!("use \"{input}\"")), "{osv}: {line}");
+    }
+    // A purl type that names one ecosystem names it.
+    let single = contract
+        .ecosystems
+        .purl_types
+        .iter()
+        .filter(|(kind, named)| named.len() == 1 && named[0] != **kind)
+        .collect::<Vec<_>>();
+    assert!(!single.is_empty(), "some purl type names one ecosystem");
+    for (kind, named) in single {
+        let line = wrong(kind);
+        assert!(
+            line.contains(&format!("use \"{}\"", named[0])),
+            "{kind}: {line}"
+        );
     }
 }
 
@@ -445,7 +452,7 @@ fn a_rejected_call_names_an_accepted_example() {
                     .unwrap_or_else(|| panic!("{tool} rejects an unknown field"))
             })
             .unwrap_or_else(|error| error);
-        let envelope = format_input_error(tool, &error, &[], &serde_json::Value::Null);
+        let envelope = format_input_error(tool, &error, &serde_json::Value::Null);
         let details = envelope["details"].as_array().expect("details");
         let lines = details.iter().filter_map(Value::as_str).collect::<Vec<_>>();
         let examples = lines
@@ -484,7 +491,6 @@ fn a_rejected_call_names_an_accepted_example() {
     let unknown = format_input_error(
         "noSuchTool",
         &ContractValidationError { issues: vec![] },
-        &[],
         &serde_json::Value::Null,
     );
     assert!(unknown.get("details").is_none(), "{unknown}");
@@ -513,7 +519,7 @@ fn the_example_is_of_the_operation_the_row_sent() {
         .map(|rows| rows.into_iter().find_map(Result::err).expect("rejected"))
         .unwrap_or_else(|error| error);
     let example = |sent: &Value| {
-        format_input_error("ghGetHistoryItem", &error, &[], sent)["details"]
+        format_input_error("ghGetHistoryItem", &error, sent)["details"]
             .as_array()
             .into_iter()
             .flatten()
@@ -540,7 +546,7 @@ fn a_field_at_fault_is_a_placeholder_beside_the_rows_own_values() {
     let error = prepare_rows("ghGetFileContent", sent.clone())
         .map(|rows| rows.into_iter().find_map(Result::err).expect("rejected"))
         .unwrap_or_else(|error| error);
-    let example = format_input_error("ghGetFileContent", &error, &[], &sent)["details"]
+    let example = format_input_error("ghGetFileContent", &error, &sent)["details"]
         .as_array()
         .into_iter()
         .flatten()
@@ -564,7 +570,7 @@ fn a_refused_value_is_its_own_repair_without_an_example() {
         vec!["queries".into(), "0".into(), "matchString[]".into()],
         "Value looks like a credential and was not run",
     );
-    let envelope = format_input_error("localSearch", &refused, &[], &serde_json::Value::Null);
+    let envelope = format_input_error("localSearch", &refused, &serde_json::Value::Null);
     assert!(envelope.get("details").is_none(), "{envelope}");
 
     let mut mixed = refused;
@@ -577,7 +583,7 @@ fn a_refused_value_is_its_own_repair_without_an_example() {
         .issues
         .remove(0),
     );
-    let envelope = format_input_error("localSearch", &mixed, &[], &serde_json::Value::Null);
+    let envelope = format_input_error("localSearch", &mixed, &serde_json::Value::Null);
     assert!(
         envelope["details"]
             .as_array()
@@ -614,7 +620,7 @@ fn the_example_is_of_a_form_taking_every_field_the_row_sent() {
                 Err(error) => error,
                 Ok(rows) => rows.into_iter().find_map(Result::err).expect("rejected"),
             };
-            let shown = format_input_error(tool, &error, &[], &sent)["details"]
+            let shown = format_input_error(tool, &error, &sent)["details"]
                 .as_array()
                 .into_iter()
                 .flatten()
@@ -682,8 +688,14 @@ fn a_field_of_a_named_tool_says_which_tool_takes_it() {
         ),
     ] {
         let line = first_line(tool, json!({"queries":[row]}));
+        // The owner is named among the tools that take the field (a
+        // description may name more than one partner tool).
+        let named = line
+            .split_once("it is a ")
+            .and_then(|(_, rest)| rest.split_once(" field"))
+            .map_or("", |(tools, _)| tools);
         assert!(
-            line.contains(&format!("is a {owner} field")),
+            named.split(" or ").any(|name| name == owner),
             "{tool}: {line}"
         );
     }
@@ -700,7 +712,7 @@ fn answered(tool: &str, sent: &Value) -> (Value, Vec<String>) {
             .find_map(Result::err)
             .unwrap_or_else(|| panic!("{tool} rejects {sent}")),
     };
-    let envelope = format_input_error(tool, &error, &[], sent);
+    let envelope = format_input_error(tool, &error, sent);
     let lines = std::iter::once(&envelope["error"])
         .chain(envelope["details"].as_array().into_iter().flatten())
         .filter_map(Value::as_str)
@@ -727,9 +739,11 @@ fn shown_example(tool: &str, row: Value) -> Value {
 /// The example beside a rejected row keeps the row's own value of each
 /// field it shows that the row sent without an issue: a graphBuild of a
 /// package with a misspelt field is shown a graphBuild of that package, not
-/// of the whole workspace. A field at fault shows the example's value, and
-/// an example field the row did not send is shown only where the request
-/// needs it. The example stays a request the tool accepts.
+/// of the whole workspace, and the misspelt field is shown under the name it
+/// means with the value sent. A field at fault shows the example's value, an
+/// unknown field no declared name stands for is left out, and an example
+/// field the row did not send is shown only where the request needs it. The
+/// example stays a request the tool accepts.
 #[test]
 fn the_example_keeps_the_rows_own_valid_values() {
     assert_eq!(
@@ -737,7 +751,7 @@ fn the_example_keeps_the_rows_own_valid_values() {
             "graphBuild",
             json_fixture(r#"{"path": "packages/app", "refreshh": true}"#)
         ),
-        json_fixture(r#"{"path": "packages/app"}"#)
+        json_fixture(r#"{"path": "packages/app", "refresh": true}"#)
     );
     assert_eq!(
         shown_example(
@@ -848,6 +862,46 @@ fn a_missing_field_names_the_field_that_picked_its_form() {
     assert_eq!(named, 1, "{lines:?}");
 }
 
+/// A missing required field states why it is required once, whichever
+/// stage found the reason: the union names the sent field and the value it
+/// requires (`unique` requires `view:"matchOnly"`), and the form reading
+/// (`<field> needs it`) is said only when the union said nothing.
+#[test]
+fn a_missing_field_states_one_reason() {
+    let cases = [
+        (
+            "localSearch",
+            json_fixture(
+                r#"{"queries": [{"path": "docs", "matchString": ["a"], "unique": "list"}]}"#,
+            ),
+            "view",
+            "unique",
+        ),
+        (
+            "clasify",
+            json_fixture(
+                r#"{"queries": [{"operation": "evaluate", "perHit": true, "content": "abc",
+                    "questions": {"x": {"type": "bool", "instructions": "is it x"}}}]}"#,
+            ),
+            "source",
+            "perHit",
+        ),
+    ];
+    for (tool, sent, field, by) in cases {
+        let (_, lines) = answered(tool, &sent);
+        let missing = format!("Missing required field: {field}");
+        let line = lines
+            .iter()
+            .find(|line| line.contains(&missing))
+            .unwrap_or_else(|| panic!("{tool}: {lines:?}"));
+        let reasons = line
+            .split_once(&missing)
+            .map_or(0, |(_, reasons)| reasons.matches(" (").count());
+        assert_eq!(reasons, 1, "{tool}: one reason: {line}");
+        assert_eq!(line.matches(by).count(), 1, "{tool}: {line}");
+    }
+}
+
 /// A fault inside a nested query (an unknown structureSearch field in a
 /// clasify `source.query`) leaves the rest of that value the row's own: the
 /// example keeps the tool the row names, without the field at fault.
@@ -858,12 +912,13 @@ fn a_nested_fault_keeps_the_rows_own_nested_value() {
         json_fixture(
             r#"{"operation": "evaluate",
                 "questions": {"x": {"type": "noul", "instructions": "is it x"}},
-                "source": {"tool": "structureSearch", "query": {"path": ".", "bogusField": 1}}}"#,
+                "source": {"tool": "structureSearch",
+                    "query": {"operation": "tree", "path": ".", "bogusField": 1}}}"#,
         ),
     );
     assert_eq!(
         shown["source"],
-        json_fixture(r#"{"tool": "structureSearch", "query": {"path": "."}}"#),
+        json_fixture(r#"{"tool": "structureSearch", "query": {"operation": "tree", "path": "."}}"#),
         "{shown}"
     );
 }
@@ -1033,7 +1088,7 @@ fn the_example_takes_the_literal_a_near_miss_means() {
             Err(error) => error,
             Ok(rows) => rows.into_iter().find_map(Result::err).expect("rejected"),
         };
-        let envelope = format_input_error(tool, &error, &[], &sent);
+        let envelope = format_input_error(tool, &error, &sent);
         let shown = envelope["details"]
             .as_array()
             .into_iter()
@@ -1054,7 +1109,7 @@ fn example_of(tool: &str, input: &Value) -> Value {
         Err(error) => error,
         Ok(rows) => rows.into_iter().find_map(Result::err).expect("rejected"),
     };
-    let line = format_input_error(tool, &error, &[], input)["details"]
+    let line = format_input_error(tool, &error, input)["details"]
         .as_array()
         .into_iter()
         .flatten()
@@ -1094,5 +1149,224 @@ fn the_example_keeps_a_wrongly_shaped_field_in_a_valid_shape() {
         assert_ne!(example.pointer(pointer), input.pointer(pointer), "{tool}");
         crate::contracts::validate(tool, example.clone())
             .unwrap_or_else(|error| panic!("{tool}: {example} is rejected: {error}"));
+    }
+}
+
+/// The literals clasify's question forms pin `type` to.
+fn question_types() -> Vec<String> {
+    let path = ["questions", "q", "type"].map(str::to_owned);
+    let types = super::sample::literals("clasify", &path)
+        .iter()
+        .filter_map(|literal| literal.as_str().map(str::to_owned))
+        .collect::<Vec<_>>();
+    assert!(types.len() > 1, "a union of question forms: {types:?}");
+    types
+}
+
+/// A21: the example beside a value at fault inside a form of a union is
+/// built from the form the row's own selector names (clasify question
+/// `type`), never from the union's first form: a question that lacks its
+/// `criteria` is shown its own type's criteria, so none of the keys another
+/// type declares for it (`true`/`false` are `noul`'s).
+#[test]
+fn the_example_takes_the_form_the_rows_own_selector_names() {
+    let contract = crate::contracts::tool_contract(crate::id::ToolId::Clasify).expect("contract");
+    let schema = crate::contracts::resolve_ref(&contract["querySchema"], &Value::Null);
+    let defs = &schema["$defs"];
+    let criteria = ["questions", "q", "criteria"].map(str::to_owned);
+    let declared = super::sample::schemas_at(schema, defs, &criteria)
+        .into_iter()
+        .flat_map(|form| crate::contracts::schema_facts::property_names(form, defs))
+        .collect::<Vec<_>>();
+    assert!(!declared.is_empty(), "a form declares its criteria keys");
+    let mut lacking = 0;
+    for kind in question_types() {
+        let row = json!({"operation": "evaluate", "content": "text",
+            "questions": {"q": {"type": kind, "instructions": "which"}}});
+        // Only a question rejected for the `criteria` it lacks.
+        if crate::contracts::validate("clasify", json!({"queries": [row]})).is_ok() {
+            continue;
+        }
+        let (envelope, _) = answered("clasify", &json!({"queries": [row]}));
+        if !envelope["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("questions.q.criteria"))
+        {
+            continue;
+        }
+        let question = &shown_example("clasify", row)["questions"]["q"];
+        assert_eq!(question["type"], kind.as_str(), "{question}");
+        assert_eq!(question["instructions"], "which", "{question}");
+        let Some(shown) = question.get("criteria") else {
+            continue;
+        };
+        lacking += 1;
+        // A record of labels names none of another form's fixed keys.
+        for key in shown.as_object().into_iter().flatten().map(|(key, _)| key) {
+            assert!(
+                !declared.contains(&key.as_str()),
+                "{kind}: `{key}` is another type's criteria key: {question}"
+            );
+        }
+    }
+    assert!(lacking > 0, "a type requires criteria");
+}
+
+/// A21: a value of the wrong type where every form of a union is an object
+/// is shown the shape of the union, with every literal its forms pin the
+/// selector to, not the first form's alone.
+#[test]
+fn a_non_object_in_a_union_of_forms_names_every_selector_literal() {
+    let sent = json!({"queries": [{"operation": "evaluate", "content": "text",
+        "questions": {"q": "is it"}}]});
+    let (envelope, _) = answered("clasify", &sent);
+    let error = envelope["error"].as_str().unwrap_or_default();
+    for kind in question_types() {
+        assert!(error.contains(&kind), "`{kind}` in: {error}");
+    }
+}
+
+/// A field refused with `use '<field>'` is shown the row with that field
+/// holding the value sent, when the value carries over as it is or as the
+/// one typed reading its schema gives (a value where a list is declared):
+/// copying the example runs what the row asked. The other fields stay the
+/// row's own.
+#[test]
+fn a_renamed_field_is_shown_holding_the_value_sent() {
+    let cases = [
+        (
+            "localSearch",
+            json!({"path": "src", "pattern": "fooBar"}),
+            ("pattern", "matchString", json!(["fooBar"])),
+        ),
+        (
+            "localSearch",
+            json!({"path": "src", "matchString": ["x"], "glob": "*.rs"}),
+            ("glob", "include", json!(["*.rs"])),
+        ),
+        (
+            "ghSearchCode",
+            json!({"owner": "o", "repo": "r", "keywords": ["x"], "branch": "main"}),
+            ("branch", "ref", json!("main")),
+        ),
+        (
+            "astSearch",
+            json!({"operation": "syntaxTree", "parser": "rust", "code": "fn a() {}"}),
+            ("code", "content", json!("fn a() {}")),
+        ),
+    ];
+    for (tool, row, (sent, meant, value)) in cases {
+        let (_, lines) = answered(tool, &json!({"queries": [row.clone()]}));
+        assert!(
+            lines[0].ends_with(&format!("use '{meant}'.")),
+            "{tool}: {lines:?}"
+        );
+        let shown = shown_example(tool, row.clone());
+        let mut expected = row;
+        let fields = expected.as_object_mut().expect("row");
+        fields.shift_remove(sent);
+        fields.insert(meant.into(), value);
+        let order = |row: &Value| {
+            let mut fields = row.as_object().expect("row").iter().collect::<Vec<_>>();
+            fields.sort_by_key(|(name, _)| name.as_str());
+            format!("{fields:?}")
+        };
+        assert_eq!(order(&shown), order(&expected), "{tool}: {lines:?}");
+        // The field the rename supplies is not also reported missing.
+        assert!(
+            !lines.iter().any(|line| line.contains("Missing required")),
+            "{tool}: {lines:?}"
+        );
+    }
+}
+
+/// A value that does not carry over to the field meant (a number where an
+/// object is declared, text where ranges are) gets no example: one without
+/// the field would run something the row did not ask.
+#[test]
+fn a_renamed_field_whose_value_does_not_carry_over_gets_no_example() {
+    let cases = [
+        (
+            "localSearch",
+            json!({"path": "src", "matchString": ["x"], "context": 2}),
+            "contextLines",
+        ),
+        (
+            "localFetch",
+            json!({"path": "a.rs", "lines": "1-5"}),
+            "ranges",
+        ),
+    ];
+    for (tool, row, meant) in cases {
+        let (_, lines) = answered(tool, &json!({"queries": [row]}));
+        assert!(
+            lines[0].ends_with(&format!("use '{meant}'.")),
+            "{tool}: {lines:?}"
+        );
+        assert!(
+            !lines.iter().any(|line| line.starts_with("Example: ")),
+            "{tool}: {lines:?}"
+        );
+    }
+}
+
+/// An `http://` url whose host is an address literal or `localhost` is not
+/// shown with the scheme changed: the runtime reaches only public
+/// addresses, so that request could be refused too.
+#[test]
+fn an_example_never_names_an_address_the_runtime_refuses() {
+    for host in ["127.0.0.1:8080", "10.0.0.7", "[::1]", "localhost:3000"] {
+        let (_, lines) = answered(
+            "clasify",
+            &json!({"queries": [{"operation": "evaluate",
+                "questions": {"x": {"type": "noul", "instructions": "is it x"}},
+                "source": {"url": format!("http://{host}/a")}}]}),
+        );
+        assert!(
+            !lines
+                .iter()
+                .any(|line| line.starts_with("Example: ") && line.contains(host)),
+            "{host}: {lines:?}"
+        );
+    }
+}
+
+/// R10: a renamed field that then needs another the row lacks is still shown
+/// holding the value sent, beside a value the missing field accepts.
+#[test]
+fn a_renamed_field_keeps_its_value_when_the_row_lacks_another_field() {
+    let shown = shown_example(
+        "astSearch",
+        json!({"operation": "syntaxTree", "snippet": "fn a() {}"}),
+    );
+    assert_eq!(shown["content"], "fn a() {}", "{shown}");
+    assert!(shown["parser"].is_string(), "{shown}");
+    assert!(shown.get("path").is_none(), "{shown}");
+}
+
+/// R10: an example applies the fix its cause states. A number sent for an
+/// object of several members is refused with `send {"<field>":2}`; an
+/// example cannot choose the member, so none is shown. (A cause that states
+/// no fix keeps its example: the shape is the guidance.)
+#[test]
+fn a_value_the_example_cannot_place_gets_no_example() {
+    let cases = [
+        (
+            "localSearch",
+            json!({"path": ".", "matchString": ["x"], "contextLines": 2}),
+        ),
+        (
+            "lspSearch",
+            json!({"operation": "definition", "path": "a.ts", "symbolName": "x", "line": 1,
+                "contextLines": 2}),
+        ),
+    ];
+    for (tool, row) in cases {
+        let (_, lines) = answered(tool, &json!({"queries": [row]}));
+        assert!(lines[0].contains("contextLines"), "{tool}: {lines:?}");
+        assert!(
+            !lines.iter().any(|line| line.starts_with("Example: ")),
+            "{tool}: {lines:?}"
+        );
     }
 }

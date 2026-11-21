@@ -58,9 +58,10 @@ fn single_file_symbols_are_compact_and_path_free() {
 }
 
 /// Every symbols row is an object (a class with members, and a file
-/// of member-less declarations alike); `pagination.total` counts the
-/// top-level rows, and pages reach each top-level row once
-/// with its members.
+/// of member-less declarations alike); `pagination.total` counts every row
+/// the walk serves, members included (the served outline lists a member as
+/// a row of its own), and pages reach each top-level row once with its
+/// members.
 #[test]
 fn symbols_rows_are_objects_and_pages_count_top_level_rows() {
     fn all_objects(rows: &serde_json::Value) -> bool {
@@ -89,7 +90,7 @@ fn symbols_rows_are_objects_and_pages_count_top_level_rows() {
         assert!(all_objects(&out["symbols"]), "{out}");
         let rows = out["symbols"].as_array().expect("rows");
         assert_eq!(rows.len(), top_level, "{out}");
-        assert_eq!(out["pagination"]["total"], top_level, "{out}");
+        assert_eq!(out["pagination"]["total"], all, "{out}");
         assert_eq!(outline_names(&out["symbols"]).len(), all, "{out}");
         // Pages of one top-level row each reach every row once, members
         // with their parent.
@@ -103,7 +104,7 @@ fn symbols_rows_are_objects_and_pages_count_top_level_rows() {
             let row = &input["queries"][0];
             let page =
                 crate::ast_search::test_rows::run_window(&root.0, row.clone(), 1).expect("page");
-            assert_eq!(page["pagination"]["total"], top_level, "{page}");
+            assert_eq!(page["pagination"]["total"], all, "{page}");
             assert!(all_objects(&page["symbols"]), "{page}");
             assert_eq!(page["symbols"].as_array().map(Vec::len), Some(1), "{page}");
             let rows = page["symbols"].as_array().expect("rows").clone();
@@ -129,14 +130,13 @@ fn symbols_rows_are_objects_and_pages_count_top_level_rows() {
     );
     let rows: usize = files
         .iter()
-        .map(|file| file["symbols"].as_array().map_or(0, Vec::len))
+        .map(|file| outline_names(&file["symbols"]).len())
         .sum();
     assert_eq!(out["pagination"]["total"], rows, "{out}");
-    octocode_runtime_base::contracts::validate_output(
+    octocode_runtime_base::test_support::checks::assert_output_contract(
         "astSearch",
         &json!({"results":[{"index":0,"data":out}]}),
-    )
-    .expect("object rows satisfy the output contract");
+    );
 }
 
 #[test]
@@ -177,7 +177,11 @@ fn symbols_outline_places_twin_members_and_columns_only_when_ambiguous() {
         ),
         "{out}"
     );
-    assert_eq!(out["pagination"]["total"], 5, "{out}");
+    assert_eq!(
+        out["pagination"]["total"],
+        outline_names(&out["symbols"]).len(),
+        "{out}"
+    );
     let mut request = json!({"operation":"symbols","path":source});
     let mut rows = Vec::new();
     loop {

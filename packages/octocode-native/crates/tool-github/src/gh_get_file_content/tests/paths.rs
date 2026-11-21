@@ -310,3 +310,55 @@ fn a_failed_read_takes_the_shared_provider_hint() {
         assert_eq!(failure.hints, [expected]);
     }
 }
+
+/// A whole listing entry given as the path leads once to the read of the
+/// entry's own path, and the one hint says what the entry is.
+#[tokio::test]
+async fn a_listing_entry_given_as_a_path_leads_once_to_the_read_of_its_path() {
+    use octocode_tools_shared::root_read::{entry_text, listing_entry_note};
+    let server = MockServer::builder().start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/HEAD"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(sha))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(wiremock::matchers::path_regex(
+            "^/api/v3/repos/a/b/contents/src.*lib\\.rs.+$",
+        ))
+        .respond_with(
+            ResponseTemplate::new(404).set_body_json(json_fixture(r#"{"message": "Not Found"}"#)),
+        )
+        .mount(&server)
+        .await;
+    octocode_test_support::mock_http::mount_folder_tree(
+        &server,
+        "/api/v3/repos/a/b",
+        sha,
+        "src",
+        &json_fixture(r#"[{"name": "lib.rs", "path": "src/lib.rs", "type": "file"}]"#),
+    )
+    .await;
+    let provider = mock_provider(&server, RetryPolicy::default());
+    let entry = format!("src/{}", entry_text("lib.rs", false, &["12".to_owned()]));
+    let Err(failure) = run_default(
+        &provider,
+        serde_json::json!({"owner": "a", "repo": "b", "path": entry}),
+    )
+    .await
+    else {
+        panic!("a listing entry is no path")
+    };
+    let next = failure.calls.expect("recovery leads");
+    assert_eq!(
+        octocode_runtime_base::test_support::billing::offered_calls(&next).len(),
+        1,
+        "{next}"
+    );
+    assert_eq!(
+        next["read"]["input"]["queries"][0]["path"], "src/lib.rs",
+        "{next}"
+    );
+    assert_eq!(failure.hints, vec![listing_entry_note("src/lib.rs")]);
+}

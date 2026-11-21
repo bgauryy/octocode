@@ -123,7 +123,10 @@ fn walking_every_traversal_page_equals_the_whole_scan_exactly_once() {
                 expected_rows(root.path(), view),
                 "{view} budget {budget} limit {limit:?}"
             );
-            if budget < 200_000 && view != "filesWithout" {
+            // The fixture's paths, as a list page shows them (from the
+            // workspace), fill only the narrowest budget, or a `limit`.
+            let pages_by_budget = view != "files" || budget == 2500 || limit.is_some();
+            if budget < 200_000 && view != "filesWithout" && pages_by_budget {
                 assert!(pages.len() > 1, "{view} budget {budget}: one page");
             }
         }

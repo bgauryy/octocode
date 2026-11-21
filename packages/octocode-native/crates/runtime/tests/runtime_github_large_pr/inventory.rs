@@ -1,7 +1,7 @@
 //! Pull request file inventories: patchless and renamed files, identity headers, filters, provider caps and totals.
 
 use super::{
-    mount_file_batches, mount_pr, no_continuation, numbered, raw_patch, related_reads_only_this_pr,
+    mount_file_batches, mount_pr, no_continuation, no_optional_lead, numbered, raw_patch,
     rest_file, run,
 };
 use crate::support::{self};
@@ -128,15 +128,9 @@ async fn pr_inventory_supports_explicit_patch_selection_and_keeps_all_patches() 
         ),
         "{data}"
     );
-    // A patch read the inventory offers is optional and reads this PR; the
-    // menu of reads is kept, not dropped as already stated.
-    related_reads_only_this_pr(&data);
-    assert!(
-        data["related"]
-            .as_array()
-            .is_some_and(|calls| calls.iter().any(|call| call["tool"] == "ghGetHistoryItem")),
-        "{data}"
-    );
+    // The patch read is optional work the description names: an answer
+    // carries no lead to it.
+    no_optional_lead(&data);
     let selected = json!({"sections":["patches"],"include":selected_paths});
     let all = json_fixture(r#"{"sections": ["patches"]}"#);
     for (read, count) in [(selected, 2), (all, 5)] {
@@ -164,10 +158,10 @@ async fn pr_inventory_supports_explicit_patch_selection_and_keeps_all_patches() 
 }
 
 /// A completed inventory keeps every requested path and the provider's
-/// changed-file count, with no tip; a patch read it offers is an optional
-/// related call of this PR, never required pagination.
+/// changed-file count, with no tip and no lead: the patch read is optional
+/// work the description names.
 #[tokio::test]
-async fn a_large_pr_inventory_states_coverage_and_offers_patches_only_as_optional_reads() {
+async fn a_large_pr_inventory_states_coverage_and_carries_no_lead() {
     let server = MockServer::builder().start().await;
     mount_pr(&server, 120).await;
     let hunk = Some("@@ -1 +1 @@\n-a\n+b");
@@ -192,7 +186,7 @@ async fn a_large_pr_inventory_states_coverage_and_offers_patches_only_as_optiona
     }
     assert!(data.get("hints").is_none(), "{data}");
     assert!(no_continuation(&data), "{data}");
-    related_reads_only_this_pr(&data);
+    no_optional_lead(&data);
 }
 
 #[tokio::test]

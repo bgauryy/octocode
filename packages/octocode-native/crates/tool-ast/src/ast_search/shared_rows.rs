@@ -67,7 +67,7 @@ pub(super) fn symbols_page(
         &stop,
         |waited| {
             #[cfg(test)]
-            tests::on_lead(q.path.as_str(), &|| ROWS.waiting(&hooked));
+            tests::on_lead(super::symbols::walk_path(q), &|| ROWS.waiting(&hooked));
             // A row no other row waits on proves nothing and copies nothing.
             match super::symbols::execute_symbols_proven(q, paths, cancel, response_window, waited)
             {

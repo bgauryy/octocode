@@ -87,7 +87,7 @@ fn outcomes_classify_by_their_rows() {
             json_fixture(
                 r#"{
                     "results": [{"data": {}}],
-                    "responsePagination": {"next": {"tool": "localSearch", "input": {"cursor": "c"}}}
+                    "next": {"tool": "localSearch", "input": {"cursor": "c"}}
                 }"#,
             ),
             None,

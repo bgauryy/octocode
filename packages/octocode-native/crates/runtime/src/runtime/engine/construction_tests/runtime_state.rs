@@ -89,84 +89,6 @@ fn availability_is_resolved_once_per_runtime() {
     assert!(!runtime.is_available("noSuchTool"));
 }
 
-#[test]
-fn selection_presentation_requires_provider_and_an_available_goal_tool() {
-    let home = tempfile::tempdir().expect("home");
-    for (env, expected) in [
-        (vec![], false),
-        (vec![("OCTOCODE_CLASSIFICATION_API", "fixture-key")], true),
-        (vec![("OCTOCODE_CLASSIFICATION_API", "fixture-key")], true),
-        (
-            vec![
-                ("OCTOCODE_CLASSIFICATION_API", "fixture-key"),
-                ("DISABLE_TOOLS", "clasify"),
-            ],
-            true,
-        ),
-        (
-            vec![
-                ("OCTOCODE_CLASSIFICATION_API", "fixture-key"),
-                ("TOOLS_TO_RUN", "ghSearchRepo"),
-            ],
-            false,
-        ),
-        (
-            vec![
-                ("OCTOCODE_CLASSIFICATION_API", "fixture-key"),
-                ("TOOLS_TO_RUN", "ghSearchCode"),
-            ],
-            true,
-        ),
-        (
-            vec![
-                ("OCTOCODE_CLASSIFICATION_API", "fixture-key"),
-                ("TOOLS_TO_RUN", "clasify"),
-            ],
-            false,
-        ),
-        (
-            vec![
-                ("OCTOCODE_CLASSIFICATION_API", "   "),
-                ("DISABLE_TOOLS", "clasify"),
-            ],
-            false,
-        ),
-    ] {
-        let runtime = runtime(home.path(), &env);
-        assert_eq!(runtime.presentation()["selection"], expected, "{env:?}");
-    }
-}
-
-#[tokio::test]
-async fn hidden_public_clasify_keeps_goal_reads_available() {
-    let home = tempfile::tempdir().expect("home");
-    let runtime = runtime(
-        home.path(),
-        &[
-            ("OCTOCODE_CLASSIFICATION_API", "fixture-key"),
-            ("TOOLS_TO_RUN", "ghSearchCode"),
-        ],
-    );
-    assert!(!runtime.is_available("clasify"));
-    assert_eq!(runtime.presentation()["selection"], true);
-    assert!(!runtime.is_available("clasify"));
-    assert!(runtime.dispatcher().selection_available);
-}
-
-#[tokio::test]
-async fn hidden_public_clasify_without_goal_surface_has_no_semantic_route() {
-    let home = tempfile::tempdir().expect("home");
-    let runtime = runtime(
-        home.path(),
-        &[
-            ("OCTOCODE_CLASSIFICATION_API", "fixture-key"),
-            ("TOOLS_TO_RUN", "ghSearchRepo"),
-        ],
-    );
-    assert_eq!(runtime.presentation()["selection"], false);
-    assert!(!runtime.dispatcher().selection_available);
-}
-
 /// Local tools reach only the GitHub checkouts (clones, materialized
 /// trees) and URL captures under the cache home, never the rest of it:
 /// credentials and logs stay outside every root.
@@ -268,40 +190,6 @@ fn a_host_with_loaded_config_files_reads_none() {
     );
 }
 
-/// Without a classification provider the published row schemas lack
-/// `classification`, so an unknown-field error never lists or offers it; with
-/// one, the field is published and listed.
-#[tokio::test]
-async fn unknown_field_errors_list_only_the_published_fields() {
-    let home = tempfile::tempdir().expect("home");
-    let input = json_fixture(
-        r#"{
-            "queries": [
-                {
-                    "mainGoal": "g",
-                    "reasoning": "r",
-                    "path": "a.ts",
-                    "lineStart": 1
-                }
-            ]
-        }"#,
-    );
-    for (env, published) in [
-        (vec![], false),
-        (vec![("OCTOCODE_CLASSIFICATION_API", "fixture-key")], true),
-    ] {
-        let runtime = runtime(home.path(), &env);
-        assert_eq!(runtime.presentation()["selection"], published);
-        let Err(error) = runtime.admit_queries(ToolId::LocalFetch, &input, false, true) else {
-            panic!("an unknown field is rejected");
-        };
-        let shown = error.payload.expect("payload").to_string();
-        assert!(shown.contains("Unknown field 'lineStart'"), "{shown}");
-        assert!(shown.contains("ranges"), "{shown}");
-        assert_eq!(shown.contains("classification"), published, "{shown}");
-    }
-}
-
 /// The transport cannot change a rejected call's structured guidance, either
 /// for a whole-call failure or an isolated invalid row in a mixed batch.
 #[tokio::test]
@@ -328,4 +216,31 @@ async fn cli_and_mcp_share_whole_call_and_mixed_row_input_errors() {
         by_surface.push((rejected, row));
     }
     assert_eq!(by_surface[0], by_surface[1]);
+}
+
+/// An agent is sent to clasify (a refused image names its route there) only
+/// when a provider key is configured and the tool is available.
+#[tokio::test]
+async fn clasify_is_offered_only_with_a_key_and_the_tool() {
+    let home = tempfile::tempdir().expect("home");
+    for (env, expected) in [
+        (vec![], false),
+        (vec![("OCTOCODE_CLASSIFICATION_API", "fixture-key")], true),
+        (vec![("OCTOCODE_CLASSIFICATION_API", "   ")], false),
+        (
+            vec![
+                ("OCTOCODE_CLASSIFICATION_API", "fixture-key"),
+                ("TOOLS_TO_RUN", "ghSearchCode"),
+            ],
+            false,
+        ),
+    ] {
+        let runtime = runtime(home.path(), &env);
+        assert_eq!(
+            runtime.dispatcher().clasify_available,
+            runtime.is_available("clasify") && expected,
+            "{env:?}"
+        );
+        assert_eq!(runtime.dispatcher().clasify_available, expected, "{env:?}");
+    }
 }

@@ -498,7 +498,18 @@ pub(super) fn attach_fix_leads(
         leads.extend(read_pull_request(query, pr));
     }
     if (closed && settled.is_none()) || withheld {
-        leads.extend(find_pull_request(query));
+        // A withheld closer is one `closedBy` omits: the row needs the
+        // search that lists it.
+        leads.extend(find_pull_request(query).map(|(name, call)| {
+            if withheld {
+                (
+                    name,
+                    octocode_runtime_base::response::result::required_call(call),
+                )
+            } else {
+                (name, call)
+            }
+        }));
     }
     if leads.is_empty() {
         return;

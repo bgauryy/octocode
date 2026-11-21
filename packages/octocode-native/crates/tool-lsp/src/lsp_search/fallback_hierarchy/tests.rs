@@ -8,7 +8,7 @@ fn candidates() -> Vec<LspCodeSnippet> {
             serde_json::from_value(json!({
                 "uri": "file:///workspace/types.ts",
                 "range": {"start":{"line":line,"character":13},"end":{"line":line,"character":21}},
-                "content": format!("export class Child{line} extends Base {{}}"),
+                "value": format!("export class Child{line} extends Base {{}}"),
             }))
             .expect("snippet")
         })
@@ -72,7 +72,7 @@ fn candidate_windows_reject_mutation_and_preserve_stable_order() {
 fn candidate_mutation_stales_later_result_pages_even_when_rows_disappear() {
     let query = query();
     let window = CandidateWindow::cut(&query, candidates()).expect("window");
-    let items = json!([{"name":"first", "content":"a".repeat(1000)},{"name":"second", "content":"b".repeat(1000)}]);
+    let items = json!([{"name":"first", "value":"a".repeat(1000)},{"name":"second", "value":"b".repeat(1000)}]);
     let first = super::super::failure::with_next(
         &query,
         locations::salted_items_payload(

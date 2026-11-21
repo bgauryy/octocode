@@ -105,7 +105,9 @@ fn append_held(found: &mut RegexSpans, spans: &[(usize, usize)]) -> bool {
 /// (alphanumeric or `_`) touches either side, as in localSearch `wholeWord`.
 fn is_whole_word(content: &str, start: usize, end: usize) -> bool {
     let word = |c: char| c.is_alphanumeric() || c == '_';
-    let before = content.get(..start).and_then(|head| head.chars().next_back());
+    let before = content
+        .get(..start)
+        .and_then(|head| head.chars().next_back());
     let after = content.get(end..).and_then(|tail| tail.chars().next());
     !before.is_some_and(word) && !after.is_some_and(word)
 }
@@ -360,7 +362,11 @@ fn sensitive_ranges(content: &str, pattern: &str, written: &[Range<usize>]) -> V
 /// match taking one is none, and the search goes on from the next folded
 /// character, as [`octocode_engine::search::text_search::written::each_own_in`]
 /// does for a literal (a literal never matches the filler a refill writes).
-fn folded_ranges(folded: &Folded<'_>, pattern: &str, written: &[Range<usize>]) -> Vec<(usize, usize)> {
+fn folded_ranges(
+    folded: &Folded<'_>,
+    pattern: &str,
+    written: &[Range<usize>],
+) -> Vec<(usize, usize)> {
     if written.is_empty() {
         return folded
             .ranges(pattern)

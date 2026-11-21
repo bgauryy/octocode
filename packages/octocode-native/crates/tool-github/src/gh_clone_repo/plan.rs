@@ -101,7 +101,14 @@ impl Plan<'_> {
                 self.query,
                 &missing,
             ) {
-                calls.extend(recovery);
+                // The checkout lacks paths that were asked for: the row
+                // needs the call that finds them.
+                calls.extend(recovery.into_iter().map(|(name, call)| {
+                    (
+                        name,
+                        octocode_runtime_base::response::result::required_call(call),
+                    )
+                }));
             }
         }
         CloneResult {

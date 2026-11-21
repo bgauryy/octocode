@@ -51,10 +51,10 @@ fn a_binary_file_named_alone_is_refused_not_empty() {
     assert!(error.message.contains("logo.png"), "{error:?}");
 }
 
-/// A page cut by a binary file (`binaryQuit`) is partial, but its shown
-/// text hits stay one read away.
+/// A page cut by a binary file (`binaryQuit`) is partial and keeps its shown
+/// text hits; as a row with evidence it states no hint and offers no call.
 #[test]
-fn partial_binary_cut_page_keeps_read_lead() {
+fn a_partial_binary_cut_page_keeps_its_hits_and_guides_nothing() {
     let body = search_fixture(
         &[
             (
@@ -67,24 +67,27 @@ fn partial_binary_cut_page_keeps_read_lead() {
     );
     assert_eq!(body["isPartial"], true, "{body}");
     assert_eq!(
-        octocode_runtime_base::test_support::checks::related_call(&body, "localFetch", |_| true)["tool"],
-        "localFetch",
+        body["partialReasons"],
+        json_fixture(r#"["binaryQuit"]"#),
         "{body}"
     );
     assert!(
-        octocode_runtime_base::test_support::checks::related_call(&body,"localFetch", |_|true)["input"]["queries"][0]["path"]
-            .as_str()
-            .is_some_and(|path| path.ends_with("a.rs")),
+        body["files"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|file| file["path"] == "a.rs"
+                && file["matches"].as_array().map(Vec::len) == Some(2)),
         "{body}"
     );
+    assert_evidence_row_guides_nothing(&body);
 }
 
 /// A search that found nothing in the readable text but was cut by a
-/// binary file (`binaryQuit`) is partial and terminal, so the bare
-/// `No matches` fact cannot stand alone: it leads to the scope's tree to
-/// narrow the search.
+/// binary file (`binaryQuit`) is partial and terminal, never `empty`: its
+/// warning names the cut file, so the miss does not read as absence.
 #[test]
-fn zero_match_binary_cut_search_leads_to_narrow_the_scope() {
+fn a_zero_match_binary_cut_search_is_partial_and_names_the_cut_file() {
     // The NUL sits past the file's leading bytes, as in a text file with one
     // stray NUL: the scan quits there instead of skipping the file.
     let blob = format!("{}\u{0}tail\n", "line of text\n".repeat(2000));
@@ -97,46 +100,37 @@ fn zero_match_binary_cut_search_leads_to_narrow_the_scope() {
         json_fixture(r#"["binaryQuit"]"#),
         "{body}"
     );
+    assert_eq!(body["isPartial"], true, "{body}");
     assert_eq!(body["terminalLimit"], true, "{body}");
-    assert_eq!(
-        octocode_runtime_base::test_support::checks::related_call(&body, "structureSearch", |_| {
-            true
-        })["tool"],
-        "structureSearch",
+    assert!(
+        body["warnings"][0]
+            .as_str()
+            .is_some_and(|warning| warning.contains("blob.dat")),
         "{body}"
     );
 }
 
 /// Binaries skipped whole from their leading bytes hold no text a search
-/// could match: every row states their count in `binarySkipped`, an empty
-/// row's absence sentence too, and no row lists them.
+/// could match: an empty row states their count in `binarySkipped`, a row
+/// with hits (which they change nothing of) does not, and no row lists them.
 #[test]
-fn every_row_counts_whole_binaries_and_none_lists_them() {
+fn an_empty_row_counts_whole_binaries_and_no_row_lists_them() {
     let files = [("a.txt", "alpha\n"), ("img.jpg", "\u{0}\u{1}alpha")];
-    let lists_binaries =
-        |input: &serde_json::Value| input["queries"][0]["extensions"] == json_fixture(r#"["jpg"]"#);
     for (pattern, empty) in [("alpha", false), ("zzqqxx", true)] {
         let body = search_fixture(
             &files,
             ls_query(serde_json::json!({"matchString": [pattern]}), None),
         );
-        assert_eq!(body["binarySkipped"], 1, "{body}");
-        assert!(
-            octocode_runtime_base::test_support::checks::find_related_call(
-                &body,
-                "structureSearch",
-                lists_binaries
-            )
-            .is_none(),
-            "{body}"
-        );
-        assert_eq!(
-            body["hints"][0]
-                .as_str()
-                .is_some_and(|hint| hint.contains("not searched: 1 binary file")),
-            empty,
-            "{body}"
-        );
+        assert_eq!(body["files"].as_array().is_some_and(Vec::is_empty), empty);
+        if empty {
+            assert_eq!(body["binarySkipped"], 1, "{body}");
+        } else {
+            assert!(body.get("binarySkipped").is_none(), "{body}");
+        }
+        // Neither row is guided anywhere: one holds evidence, the other is a
+        // plain miss no cause explains.
+        assert!(body.get("hints").is_none(), "{body}");
+        assert!(related_calls(&body).is_empty(), "{body}");
     }
 }
 
@@ -154,37 +148,4 @@ fn binary_warning_never_names_a_capped_lead() {
         &body["warnings"],
         "hints.binarySkipped",
     );
-}
-
-/// The listing of binary-cut files too many to name reaches the same scope
-/// the search walked: a file cut under `includeHidden` is one the lead lists
-/// with it, not an empty listing that contradicts the row's warning.
-#[test]
-fn binary_listing_lead_walks_the_hidden_scope_the_search_did() {
-    use crate::local_search::binaries::MAX_NAMED_BINARY_FILES;
-    // The NUL sits past the leading bytes: the scan quits there, a cut.
-    let cut = format!("{}\u{0}tail\n", "line of text\n".repeat(2000));
-    let names = (0..=MAX_NAMED_BINARY_FILES)
-        .map(|index| format!(".img{index}.png"))
-        .collect::<Vec<_>>();
-    let mut files = vec![("a.rs", "fn other() {}\n")];
-    files.extend(names.iter().map(|name| (name.as_str(), cut.as_str())));
-    for hidden in [false, true] {
-        let body = search_fixture(
-            &files,
-            ls_query(
-                serde_json::json!({"matchString": ["zzqqxx"], "includeHidden": hidden}),
-                None,
-            ),
-        );
-        let lead = octocode_runtime_base::test_support::checks::find_related_call(
-            &body,
-            "structureSearch",
-            |input| input["queries"][0]["extensions"] == json_fixture(r#"["png"]"#),
-        );
-        assert_eq!(lead.is_some(), hidden, "{body}");
-        if let Some(lead) = lead {
-            assert_eq!(lead["input"]["queries"][0]["includeHidden"], true, "{body}");
-        }
-    }
 }

@@ -218,7 +218,11 @@ mod spelling_tests {
 
     #[test]
     fn the_v_prefix_of_a_version_toggles_and_other_refs_have_no_twin() {
-        for (given, twin) in [("v1.2.0", Some("1.2.0")), ("1.2.0", Some("v1.2.0")), ("V2", Some("2"))] {
+        for (given, twin) in [
+            ("v1.2.0", Some("1.2.0")),
+            ("1.2.0", Some("v1.2.0")),
+            ("V2", Some("2")),
+        ] {
             assert_eq!(other_tag_spelling(given).as_deref(), twin, "{given}");
             if let Some(twin) = twin {
                 assert!(other_tag_spelling(twin).is_some());

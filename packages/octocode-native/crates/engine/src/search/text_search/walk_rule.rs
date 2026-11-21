@@ -26,9 +26,7 @@ pub(super) fn build_walk_builder(
     );
 
     let mut selection = Selection::default();
-    let mut rule = EntryRule {
-        overrides: None,
-        types: None,
+    let rule = EntryRule {
         hidden: !opts.ignore.include_hidden,
         ignored: (!opts.ignore.include_ignored)
             .then(|| IgnoreRules::with_global(Path::new(&opts.path), opts.global_ignore)),
@@ -41,8 +39,7 @@ pub(super) fn build_walk_builder(
             .build()
             .map_err(|error| Error::with_kind(ErrorKind::InvalidInput, error.to_string()))?;
         wb.types(types.clone());
-        selection.types = Some(types.clone());
-        rule.types = Some(types);
+        selection.types = Some(types);
     }
 
     let has_globs = opts.include.as_ref().is_some_and(|v| !v.is_empty())
@@ -55,8 +52,7 @@ pub(super) fn build_walk_builder(
         )?
         .overrides();
         wb.overrides(overrides.clone());
-        selection.overrides = Some(overrides.clone());
-        rule.overrides = Some(overrides);
+        selection.overrides = Some(overrides);
     }
 
     Ok((
@@ -107,15 +103,16 @@ pub(crate) enum Skipped {
 /// The ignore rules and the dot-entry rule, applied by the search instead
 /// of inside the `ignore` walker (which walks everything its overrides and
 /// types admit), so every entry either rule leaves out is reported to the
-/// path filter instead of vanishing inside the walker. The precedence is the
-/// walker's own: an include glob selecting the entry admits it; else an
-/// ignore rule decides it ([`IgnoreRules`], the walker's rules for one
-/// path); else a `language` type or an ignore-file `!` re-include selecting
-/// it admits it; else a dot entry below the root (on Windows also one with
-/// the hidden attribute) is hidden.
+/// path filter instead of vanishing inside the walker.
+///
+/// An include glob or a `language` type only narrows ([`Selection`]): it
+/// never admits an entry these rules leave out, so a dot file needs
+/// `includeHidden` and an ignored one `includeIgnored`, as on
+/// structureSearch (unlike ripgrep's `-g` and `-t`). An ignore rule decides
+/// first ([`IgnoreRules`], the walker's rules for one path); else an
+/// ignore-file `!` re-include admits the entry; else a dot entry below the
+/// root (on Windows also one with the hidden attribute) is hidden.
 pub(crate) struct EntryRule {
-    pub(super) overrides: Option<Override>,
-    pub(super) types: Option<Types>,
     /// Dot entries are left out (no `includeHidden`).
     pub(super) hidden: bool,
     /// The ignore rules; `None` with `includeIgnored`.
@@ -123,18 +120,14 @@ pub(crate) struct EntryRule {
 }
 
 impl EntryRule {
-    /// The rule of a walk of `root` under `policy` and `global` that the
-    /// walker admits by `overrides` alone (no `language` type); `None` when
-    /// the policy lifts both the ignore and the dot rule.
+    /// The rule of a walk of `root` under `policy` and `global`; `None`
+    /// when the policy lifts both the ignore and the dot rule.
     pub(crate) fn of(
         root: &Path,
         policy: IgnorePolicy,
         global: crate::search::walk::GlobalIgnore,
-        overrides: Option<Override>,
     ) -> Option<Self> {
         let rule = Self {
-            overrides: overrides.filter(|overrides| !overrides.is_empty()),
-            types: None,
             hidden: !policy.include_hidden,
             ignored: (!policy.include_ignored).then(|| IgnoreRules::with_global(root, global)),
         };
@@ -169,13 +162,6 @@ impl EntryRule {
             return None;
         }
         let path = entry.path;
-        if self
-            .overrides
-            .as_ref()
-            .is_some_and(|overrides| overrides.matched(path, is_dir).is_whitelist())
-        {
-            return None;
-        }
         let decided = self
             .ignored
             .as_ref()
@@ -186,12 +172,7 @@ impl EntryRule {
         if decided.is_ignore() {
             return Some(Skipped::Ignored);
         }
-        let selected = decided.is_whitelist()
-            || self
-                .types
-                .as_ref()
-                .is_some_and(|types| types.matched(path, is_dir).is_whitelist());
-        (self.hidden && !selected && is_hidden(path)).then_some(Skipped::Hidden)
+        (self.hidden && !decided.is_whitelist() && is_hidden(path)).then_some(Skipped::Hidden)
     }
 }
 

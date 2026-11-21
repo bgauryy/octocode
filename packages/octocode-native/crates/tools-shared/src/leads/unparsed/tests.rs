@@ -72,3 +72,72 @@ fn the_warning_and_the_entries_count_the_same_files() {
     assert_eq!(entries.len(), counted(notice));
     assert_eq!(entries.len(), NAMED_EXAMPLES + 4);
 }
+
+/// Beside a `skippedPaths` that names each counted file, the warning keeps
+/// the count and the cause and names no file a second time; once that list
+/// groups its files (past [`NAMED_UNPARSED`]) the warning's examples are the
+/// only names, so they stay. A page that lists no paths names examples.
+#[test]
+fn the_warning_names_no_file_its_skipped_paths_already_name() {
+    use crate::leads::skipped::{NAMED_UNPARSED, unparsed_paths};
+    let found_of = |files: usize| {
+        let mut found = Unparsed::default();
+        for index in 0..files {
+            let name = format!("notes{index:03}.unknowntype0");
+            let path = format!("/w/{name}");
+            found.add(Passed::of(Path::new(&path), name).expect("not binary"));
+        }
+        found
+    };
+    for files in [1, 2, NAMED_UNPARSED, NAMED_UNPARSED + 1] {
+        let found = found_of(files);
+        let entries = found.skipped(None);
+        let each_named = unparsed_paths(entries.clone(), false)
+            .expect("skipped paths")
+            .expect("entries")
+            .entries
+            .len()
+            == files;
+        assert_eq!(each_named, files <= NAMED_UNPARSED, "{files} files");
+        let (beside, _) = found.disclosed_beside_paths(&READER, None, None);
+        let (alone, _) = found.disclosed(&READER, None, None);
+        let (beside, alone) = (beside.expect("a notice"), alone.expect("a notice"));
+        assert_eq!(counted(Some(beside.clone())), files);
+        assert!(beside.contains(READER.grammar), "{beside}");
+        let names = |notice: &str| {
+            entries
+                .iter()
+                .filter(|entry| {
+                    let name = entry.path.rsplit('/').next().expect("a name");
+                    notice.contains(name)
+                })
+                .count()
+        };
+        assert_eq!(names(&alone), files.min(NAMED_EXAMPLES), "{alone}");
+        if each_named {
+            assert_eq!(names(&beside), 0, "{beside}");
+            assert!(beside.len() < alone.len(), "{beside} against {alone}");
+        } else {
+            assert_eq!(beside, alone, "a grouped list names no file");
+        }
+    }
+}
+
+/// A name that is no file type is refused as the walk refuses it, and the
+/// types of a file name are every type whose globs take it.
+#[test]
+fn a_file_name_lists_every_type_it_is_of() {
+    assert!(select_file_type("rust").is_ok());
+    assert!(select_file_type("rs").is_err());
+    assert_eq!(file_types_of("x.rs"), ["rust"]);
+    let several = file_types_of("CMakeLists.txt");
+    assert!(several.len() > 1, "{several:?}");
+    assert_eq!(
+        known_type(Path::new("CMakeLists.txt")),
+        several.first().copied()
+    );
+    assert!(file_types_of("x.unknowntype0").is_empty());
+    for name in file_types_of("x.h") {
+        assert!(select_file_type(name).is_ok(), "{name}");
+    }
+}

@@ -36,7 +36,7 @@ pub(super) fn location_sizes(
                 return octocode_engine::json_size::utf16_units(entry).unwrap_or(0) + 1;
             }
             let line = entry
-                .get("content")
+                .get("value")
                 .and_then(Value::as_str)
                 .map_or(0, string_body_units);
             let context = context_lines.map_or(0, |lines| {
@@ -106,7 +106,7 @@ pub(in super::super) async fn apply_context_lines(
         .saturating_add(context_lines.after as usize)
         .saturating_add(1)
         .min(source.line_count());
-    location["content"] = json!(source.lines(start, end));
+    location["value"] = json!(source.lines(start, end));
     location["displayRange"] = json!({
         "startLine": start + 1,
         "endLine": end,
@@ -138,7 +138,7 @@ pub(in super::super) async fn judge_content(
                 .pointer("/displayRange/startLine")
                 .and_then(Value::as_u64)
                 .and_then(|line| usize::try_from(line).ok()),
-            location.get("content").and_then(Value::as_str),
+            location.get("value").and_then(Value::as_str),
         ) else {
             judged.push(None);
             continue;
@@ -175,7 +175,7 @@ pub(in super::super) async fn judge_content(
         added += octocode_runtime_base::security::placeholders(&out)
             .saturating_sub(octocode_runtime_base::security::placeholders(content));
         if out != content {
-            location["content"] = json!(out);
+            location["value"] = json!(out);
         }
         judged.push(Some(text));
     }
@@ -203,7 +203,7 @@ pub(in super::super) fn cap_declaration_content(
     location: &mut Value,
     budget: usize,
 ) -> Option<octocode_runtime_base::response::result::Continuation> {
-    let content = location.get("content").and_then(Value::as_str)?;
+    let content = location.get("value").and_then(Value::as_str)?;
     if content.starts_with("[content unavailable") {
         return None;
     }
@@ -245,7 +245,7 @@ pub(in super::super) fn cap_declaration_content(
             octocode_tools_shared::source_view::local_fetch_query::ranges_lead(&path, &[window])
         })
         .map(octocode_runtime_base::response::result::Continuation::continued_query)?;
-    location["content"] = json!(lines[..kept].join("\n"));
+    location["value"] = json!(lines[..kept].join("\n"));
     location["displayRange"]["endLine"] = json!(start + kept - 1);
     Some(read)
 }
@@ -258,8 +258,8 @@ pub(in super::super) fn compact_location(value: Value) -> Value {
     if let Some(range) = value.get("range") {
         compact.insert("range".into(), range.clone());
     }
-    if let Some(content) = value.get("content") {
-        compact.insert("content".into(), content.clone());
+    if let Some(content) = value.get("value") {
+        compact.insert("value".into(), content.clone());
     }
     let display_range = value
         .get("displayRange")
@@ -346,7 +346,7 @@ pub(in super::super) fn public_location(internal: Value) -> Value {
     if let Some(place) = place {
         insert_place(&mut public, place);
     }
-    if let Some(content) = internal.shift_remove("content") {
+    if let Some(content) = internal.shift_remove("value") {
         let start = window
             .as_ref()
             .and_then(|window| window.get("startLine"))
@@ -368,10 +368,10 @@ pub(in super::super) fn public_location(internal: Value) -> Value {
                 } else {
                     number_content(text, start)
                 };
-                public.insert("content".into(), json!(shown));
+                public.insert("value".into(), json!(shown));
             }
             _ => {
-                public.insert("content".into(), content);
+                public.insert("value".into(), content);
             }
         }
     }

@@ -223,7 +223,10 @@ impl Projector<'_> {
             }
             names
         });
-        let entry = self.unextracted.entry(file).or_insert_with(|| Some(BTreeSet::new()));
+        let entry = self
+            .unextracted
+            .entry(file)
+            .or_insert_with(|| Some(BTreeSet::new()));
         match (entry.as_mut(), names) {
             (Some(known), Some(names)) => known.extend(names),
             _ => *entry = None,

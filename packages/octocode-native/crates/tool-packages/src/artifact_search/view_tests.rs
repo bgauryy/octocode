@@ -118,7 +118,7 @@ fn a_resolve_summary_is_the_release_and_its_source() {
         }
         assert!(whole.get(*detail).is_some(), "{detail}: {details}");
     }
-    // The research leads stay; no lead restates the query as `view:"details"`.
+    // No lead restates the query as `view:"details"`.
     assert!(details_lead(&summary).is_none(), "{summary}");
     assert_eq!(
         summary["related"].as_array().map(Vec::len),

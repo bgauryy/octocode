@@ -1,62 +1,16 @@
-//! ghSearchCode leads: optional top-hit reads and required unresolved-source reads.
-use super::code_output::{Resolution, requested_ref, row_repo};
+//! ghSearchCode leads: required unresolved-source reads and an empty search's recovery.
+use super::code_output::{requested_ref, row_repo};
 use super::cut::Unlisted;
 use octocode_contract_types::{
     CaseMode, GhGetFileContentQuery, GhSearchCodeQuery, GhSearchCodeQueryMatchInItem, RegexEngine,
     SourceLineRange,
 };
-use octocode_engine::num::saturating_u32;
 use octocode_runtime_base::id::ToolId;
 use octocode_runtime_base::response::result::{Continuation, fresh_query_row, query_row};
 use octocode_tools_shared::leads::broaden::{Broaden, broaden};
-use octocode_tools_shared::leads::gh_file_read::{
-    Target, Terms, match_read, plain_read, range_read,
-};
+use octocode_tools_shared::leads::gh_file_read::{Target, Terms, match_read, plain_read};
 use serde_json::{Value, json};
 use std::num::NonZeroU64;
-
-/// Code-search fragments carry no line numbers. Point the top hit at an exact
-/// ghGetFileContent match read, whose sourceLineRanges carry line numbers.
-/// Only a code hit (not docs, changelogs, or tests, which GitHub often ranks
-/// first) earns the lead. `reference` pins the read to a branch or commit.
-pub(super) fn read_top_match(top: &Value, reference: Option<&str>) -> Option<Value> {
-    let file = top.as_object()?;
-    let token = highlighted(top)?;
-    if token.trim().is_empty() {
-        return None;
-    }
-    let path = file.get("path")?.as_str()?;
-    if !code_hit(path) {
-        return None;
-    }
-    // A cross-tool read states its reason in `why`; its query carries only
-    // the brief the caller sent, which the response stage copies.
-    let target = Target {
-        owner: file.get("owner")?.as_str()?,
-        repo: file.get("repo")?.as_str()?,
-        path,
-        reference,
-    };
-    let read = match_read(&target, Terms::literal(vec![token]), Some((5, 5)), false)?;
-    Some(Continuation::related_query(read).build())
-}
-
-/// The text GitHub highlighted in the top file's first fragment.
-fn highlighted(top: &Value) -> Option<String> {
-    let matched = top
-        .get(super::code_output::FRAGMENTS)?
-        .as_array()?
-        .first()?;
-    matched["highlight"].as_str().map(str::to_owned)
-}
-
-/// A source file outside tests: the only hit a top-match read is worth.
-pub(super) fn code_hit(path: &str) -> bool {
-    matches!(
-        octocode_runtime_base::content::classify_file_type(path),
-        Some(octocode_runtime_base::content::FileType::Code)
-    ) && !octocode_engine::text::test_paths::is_test_path(path)
-}
 
 /// Read source keyword lines when the provider result could not be resolved
 /// to a locally scanned blob. A resolved blob lists every hit, or a run of
@@ -188,115 +142,6 @@ pub(super) fn file_scope_read(query: &GhSearchCodeQuery, file: &str) -> Option<V
         None => plain_read(&target)?,
     };
     Some(Continuation::related_query(read).build())
-}
-
-/// The index-fragment read of the top file, kept inside the verified source
-/// scope: pinned to the resolved commit, dropped when the file is absent
-/// there, and naming the requested ref or proven index commit when no lines
-/// were read. It never silently changes a known source revision.
-pub(super) fn scoped_fragment_read(
-    fragment: Option<&Value>,
-    query: &GhSearchCodeQuery,
-    resolution: Option<&Resolution>,
-) -> Option<Value> {
-    let fragment = fragment?;
-    // A highlight names a term the caller searched for. Any other text is what
-    // the index returned, which no row lists.
-    let token = highlighted(fragment)?.to_lowercase();
-    if !query
-        .keywords
-        .iter()
-        .any(|keyword| keyword.to_lowercase().contains(&token))
-    {
-        return None;
-    }
-    let branch = match resolution {
-        Some(resolution) => match resolution.hits.first() {
-            Some((_, super::lines::FileHits::Missing | super::lines::FileHits::Withheld)) => {
-                return None;
-            }
-            // At a ref, an unmatched or unread top file has no fragment read:
-            // its fragment is default-branch text.
-            Some((
-                _,
-                super::lines::FileHits::Unmatched
-                | super::lines::FileHits::Unavailable
-                | super::lines::FileHits::Panicked
-                | super::lines::FileHits::Oversized,
-            )) if resolution.reference.is_some() => {
-                return None;
-            }
-            // An owner-wide row without an indexed commit reads the
-            // default branch.
-            Some((sha, _)) if sha.is_empty() => None,
-            Some((sha, _)) => Some(sha.as_str()),
-            None => None,
-        },
-        None => requested_ref(query).or_else(|| {
-            fragment
-                .get("commitSha")
-                .and_then(Value::as_str)
-                .filter(|commit| octocode_github::is_full_sha(commit))
-        }),
-    };
-    read_top_match(fragment, branch)
-}
-
-/// ghGetFileContent read of the whole declaration the best hit names: its
-/// unique head line as `matchString` with `block`, at the resolved commit.
-/// A fixed line window would cut a function longer than the window.
-pub(super) fn declaration_read(
-    query: &GhSearchCodeQuery,
-    row: &serde_json::Map<String, Value>,
-    head: &str,
-    sha: &str,
-) -> Option<Value> {
-    let path = row.get("path")?.as_str()?;
-    let (owner, repo) = row_repo(query, row)?;
-    if !code_hit(path) {
-        return None;
-    }
-    let target = Target {
-        owner,
-        repo,
-        path,
-        reference: Some(sha),
-    };
-    let read = match_read(&target, Terms::literal(vec![head.to_owned()]), None, true)?;
-    Some(Continuation::related_query(read).build())
-}
-
-/// ghGetFileContent read of a resolved file's best hit for the goal (5 lines
-/// before it); a read anchored on the first hit widens to the last hit when
-/// that is close.
-pub(super) fn line_read(
-    query: &GhSearchCodeQuery,
-    row: &serde_json::Map<String, Value>,
-    (first, last, best): (u32, u32, u32),
-    line_count: usize,
-    sha: &str,
-) -> Option<Value> {
-    let path = row.get("path")?.as_str()?;
-    let (owner, repo) = row_repo(query, row)?;
-    let anchor = if best == 0 { first } else { best };
-    let start = anchor.saturating_sub(5).max(1);
-    let mut end = anchor.saturating_add(17);
-    if anchor == first && last.saturating_sub(first) <= 40 {
-        end = end.max(last.saturating_add(3));
-    }
-    let end = end.min(saturating_u32(line_count).max(start));
-    if !code_hit(path) {
-        return None;
-    }
-    // The commit the lines were read at: a branch push cannot shift the
-    // window before the read runs.
-    let target = Target {
-        owner,
-        repo,
-        path,
-        reference: Some(sha),
-    };
-    Some(Continuation::related_query(range_read(&target, start, end)?).build())
 }
 
 /// The read of a file the index did not search at the requested ref: the

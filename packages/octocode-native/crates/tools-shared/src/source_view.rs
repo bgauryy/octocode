@@ -9,12 +9,12 @@ pub use extraction::match_spans;
 mod key_outline;
 pub mod local_query;
 pub(crate) mod no_match;
+pub use no_match::masked_unsearched;
 pub(crate) mod outline;
 mod page_scan;
 pub mod pagination;
 pub mod prepare;
 pub mod retained;
-pub(crate) mod selection;
 pub mod types;
 pub mod view;
 #[cfg(any(test, feature = "test-support"))]
@@ -28,6 +28,5 @@ pub use types::{
 pub use types::{local_fetch_query, wire_count};
 pub use view::process_fetched_content;
 pub use view::{
-    past_end, process_fetched_content_selected, refuse_binary, refuse_binary_with_head,
-    stale_snapshot, unsupported_selection,
+    past_end, process_fetched_content_as, refuse_binary, refuse_binary_with_head, stale_snapshot,
 };

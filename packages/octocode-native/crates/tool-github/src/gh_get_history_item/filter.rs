@@ -4,7 +4,6 @@ use super::HistoryItemRequest;
 use super::inventory::*;
 use super::util::{str_at, usize_at};
 use crate::gh_get_history_item::gh_get_history_item_query;
-use globset::{GlobBuilder, GlobMatcher};
 use serde_json::Value;
 
 /// Changed-file selection shared by the provider scan and output shaping.
@@ -149,29 +148,12 @@ pub(super) fn match_removed_all_warning(listed: usize) -> String {
     )
 }
 
-/// An authored glob over a repository-relative changed-file path.
-pub(super) struct PathPattern(GlobMatcher);
-
-impl PathPattern {
-    pub(super) fn parse(pattern: &str) -> Result<Self, String> {
-        GlobBuilder::new(pattern)
-            .literal_separator(true)
-            .build()
-            .map(|glob| Self(glob.compile_matcher()))
-            .map_err(|error| format!("include: invalid glob {pattern:?}: {error}"))
-    }
-
-    pub(super) fn matches(&self, path: &str) -> bool {
-        self.0.is_match(path)
-    }
-}
-
-/// A read's changed-file scope: the `include` paths, `dir/` prefixes and
-/// globs (any-of) of a pull request, a commit or a comparison, and a pull
-/// request's `status`/`minChanges`. Pages and counts then cover matching
-/// files only.
+/// A read's changed-file scope: the `include` globs (any-of) of a pull
+/// request, a commit or a comparison, read from the repository root in the
+/// local walks' dialect ([`crate::include_globs`]), and a pull request's
+/// `status`/`minChanges`. Pages and counts then cover matching files only.
 pub(super) struct FileScope {
-    pub(super) paths: Vec<PathPattern>,
+    pub(super) paths: Option<crate::include_globs::IncludeGlobs>,
     pub(super) status: Vec<String>,
     pub(super) min_changes: Option<usize>,
 }
@@ -179,13 +161,15 @@ pub(super) struct FileScope {
 impl FileScope {
     /// The scope `query` names; `None` when it names none.
     pub(super) fn from_query(query: &HistoryItemRequest) -> Result<Option<Self>, String> {
-        let paths = gh_get_history_item_query::include_patterns(query)
-            .into_iter()
-            .map(PathPattern::parse)
-            .collect::<Result<Vec<_>, _>>()?;
+        let include = gh_get_history_item_query::include_patterns(query);
+        let paths = if include.is_empty() {
+            None
+        } else {
+            Some(crate::include_globs::IncludeGlobs::new(include)?)
+        };
         let status = gh_get_history_item_query::file_status(query);
         let min_changes = gh_get_history_item_query::min_changes(query);
-        if paths.is_empty() && status.is_empty() && min_changes.is_none() {
+        if paths.is_none() && status.is_empty() && min_changes.is_none() {
             return Ok(None);
         }
         Ok(Some(Self {
@@ -205,10 +189,9 @@ impl FileScope {
         let changes = usize_at(file, "/additions") + usize_at(file, "/deletions");
         let countless = changes == 0 && file.get("patch").is_none();
         (self.status.is_empty() || self.status.iter().any(|s| s == status))
-            && (self.paths.is_empty()
-                || self.paths.iter().any(|pattern| {
-                    pattern.matches(path) || previous.is_some_and(|p| pattern.matches(p))
-                }))
+            && self.paths.as_ref().is_none_or(|globs| {
+                globs.matches(path, false) || previous.is_some_and(|p| globs.matches(p, false))
+            })
             && self
                 .min_changes
                 .is_none_or(|min| countless || changes >= min)

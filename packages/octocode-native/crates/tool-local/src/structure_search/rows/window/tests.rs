@@ -1,10 +1,8 @@
 //! A window's rows are the ones building, redacting, ranking and cutting every
 //! entry's row would leave, and redaction decides path order.
 use super::*;
-use octocode_contract_types::{
-    AscOrder, SearchSortAscOnly, SortOrder, StructureSearchSortAnyOrder,
-    StructureSearchSortAnyOrderBy as Key, TraversalBy,
-};
+use crate::structure_search::files::SortKey as Key;
+use octocode_contract_types::SortOrder;
 use octocode_engine::types::FileKind;
 use octocode_runtime_base::test_support::{Fixture, simple_policy};
 use std::time::{Duration, UNIX_EPOCH};
@@ -101,11 +99,12 @@ fn fields(rows: &[Row]) -> Vec<String> {
 /// The rank every entry's built row took, with its line count.
 fn ranked_as_rows(rows: &mut [(Row, Option<Lines>)], sort: &StructureSearchSort) {
     use octocode_contract_types::SortOrder::Desc;
-    let StructureSearchSort::AnyOrder(StructureSearchSortAnyOrder { by, order }) = sort else {
+    let Some(by) = crate::structure_search::files::sort_key(sort) else {
         return;
     };
+    let order = crate::structure_search::files::sort_order(sort);
     let directed = |compared: std::cmp::Ordering| {
-        if *order == Desc {
+        if order == Desc {
             compared.reverse()
         } else {
             compared
@@ -124,11 +123,21 @@ fn ranked_as_rows(rows: &mut [(Row, Option<Lines>)], sort: &StructureSearchSort)
     });
 }
 
+/// The contract's sort of `by` in `order`, read from its wire form.
+fn sorted(by: Key, order: SortOrder) -> StructureSearchSort {
+    let by = match by {
+        Key::TotalLines => "totalLines",
+        Key::Bytes => "bytes",
+        Key::Name => "name",
+        Key::Path => "path",
+        Key::ModifiedAt => "modifiedAt",
+    };
+    serde_json::from_value(serde_json::json!({ "by": by, "order": order })).expect("a ranked sort")
+}
+
 fn sorts() -> Vec<StructureSearchSort> {
-    let mut sorts = vec![StructureSearchSort::AscOnly(SearchSortAscOnly {
-        by: TraversalBy::Traversal,
-        order: AscOrder::Asc,
-    })];
+    let mut sorts =
+        vec![serde_json::from_value(serde_json::json!({ "by": "traversal" })).expect("walk order")];
     for by in [
         Key::TotalLines,
         Key::Bytes,
@@ -137,10 +146,7 @@ fn sorts() -> Vec<StructureSearchSort> {
         Key::ModifiedAt,
     ] {
         for order in [SortOrder::Asc, SortOrder::Desc] {
-            sorts.push(StructureSearchSort::AnyOrder(StructureSearchSortAnyOrder {
-                by,
-                order,
-            }));
+            sorts.push(sorted(by, order));
         }
     }
     sorts
@@ -198,8 +204,8 @@ fn path_order_ranks_by_the_redacted_path() {
     let by_path = sorts()
         .into_iter()
         .find(|sort| {
-            matches!(sort, StructureSearchSort::AnyOrder(any)
-                if any.by == Key::Path && any.order == SortOrder::Asc)
+            crate::structure_search::files::sort_key(sort) == Some(Key::Path)
+                && crate::structure_search::files::sort_order(sort) == SortOrder::Asc
         })
         .expect("path order");
     let (rows, _) = window_rows(&entries, &lines, (&root.0, &security), &by_path, 0..13);
@@ -247,12 +253,7 @@ fn name_order_ranks_by_the_delivered_name() {
         .map(|(at, name)| entry(&root.0, name, FileKind::File, at + 1))
         .collect::<Vec<_>>();
     let lines = vec![None; entries.len()];
-    let by_name = |order| {
-        StructureSearchSort::AnyOrder(StructureSearchSortAnyOrder {
-            by: Key::Name,
-            order,
-        })
-    };
+    let by_name = |order| sorted(Key::Name, order);
     for order in [SortOrder::Asc, SortOrder::Desc] {
         let (rows, _) = window_rows(
             &entries,

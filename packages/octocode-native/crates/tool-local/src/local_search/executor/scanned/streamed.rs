@@ -171,7 +171,7 @@ impl Counted {
 
 /// Whether `query` reads as a stream: the walk order, a linear engine, a
 /// view whose rows are decided per file, and no page or judgment that needs
-/// the whole scope first. Count views, classification and counted
+/// the whole scope first. Count views and counted
 /// uniqueness rank or total the whole scope, and PCRE2 runs in windows
 /// ([`crate::local_search::window`]).
 pub(crate) fn streams(query: &LocalSearchQuery) -> bool {
@@ -182,8 +182,6 @@ pub(crate) fn streams(query: &LocalSearchQuery) -> bool {
             local_search_query::view(query),
             View::Content | View::MatchOnly | View::Files | View::FilesWithout
         )
-        && !local_search_query::has_classification(query)
-        && local_search_query::selection(query).is_none()
         && !tally::counts_all(query)
         && local_search_query::page(query) <= 1
 }
@@ -308,6 +306,8 @@ pub(super) fn scan_stream(
     ));
     let start = resume.start_row as usize;
     let covers = resume.from + u32::from(start > 0);
+    // One read of each matched file serves its outline and its price.
+    let prepared = crate::local_search::verify::PreparedOutlines::default();
     let stream = Stream {
         bind: query_key.to_owned(),
         from: resume.from,
@@ -318,9 +318,9 @@ pub(super) fn scan_stream(
             paths,
             output_root,
             (page_budget, start),
-            stream_pricer(paths, output_root, limits),
+            stream_pricer(paths, output_root, limits, prepared.clone()),
         )),
-        prepare: stream_preparer(query, paths, output_root, limits),
+        prepare: stream_preparer(query, paths, output_root, limits, prepared),
     };
     let streamed = search_stream(
         options,
@@ -388,11 +388,12 @@ fn stream_pricer(
     paths: &PathPolicy,
     output_root: &std::path::Path,
     limits: octocode_runtime_base::security::SourceLimits,
+    prepared: crate::local_search::verify::PreparedOutlines,
 ) -> StreamPricer {
     let (paths, output_root) = (paths.clone(), output_root.to_path_buf());
     let security = octocode_runtime_base::security::ContentSecurity::with_limits(limits);
     Box::new(move |file| {
-        crate::local_search::verify::stream_price(&paths, &output_root, &security, file)
+        crate::local_search::verify::stream_price(&paths, &output_root, &security, file, &prepared)
     })
 }
 
@@ -404,6 +405,7 @@ fn stream_preparer(
     paths: &PathPolicy,
     output_root: &std::path::Path,
     limits: octocode_runtime_base::security::SourceLimits,
+    prepared: crate::local_search::verify::PreparedOutlines,
 ) -> Option<octocode_engine::search::text_search::Prepare> {
     if local_search_query::view(query) != local_search_query::View::Content {
         return None;
@@ -411,7 +413,13 @@ fn stream_preparer(
     let (paths, output_root) = (paths.clone(), output_root.to_path_buf());
     let security = octocode_runtime_base::security::ContentSecurity::with_limits(limits);
     Some(Box::new(move |path| {
-        crate::local_search::verify::prepare_outline(&paths, &output_root, &security, path);
+        crate::local_search::verify::prepare_outline(
+            &paths,
+            &output_root,
+            &security,
+            path,
+            &prepared,
+        );
     }))
 }
 

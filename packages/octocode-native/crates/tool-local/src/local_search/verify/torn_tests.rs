@@ -60,7 +60,6 @@ fn served(path: &Path, root: &Path, fields: &Value) -> Value {
         &security,
         &NeverCancel,
         None,
-        None,
     )
     .unwrap_or_else(|error| panic!("{fields}: the page fails: {error:?}"));
     let mut data = result.to_row().expect("row");

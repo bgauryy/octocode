@@ -20,7 +20,7 @@ async fn saved_fixture(
         )
         .await
         .expect("save");
-    let next = first.structured_content["responsePagination"]["next"]["input"].clone();
+    let next = first.structured_content["next"]["input"].clone();
     assert!(next.is_object(), "{}", first.structured_content);
     support::assert_cursor_only(&next);
     octocode_runtime_base::contracts::validate("localSearch", next.clone())
@@ -118,7 +118,7 @@ async fn failed_snapshot_retention_returns_complete_result_without_display_next(
         .await
         .expect("complete fallback");
     let output = response.structured_content;
-    assert!(output.get("responsePagination").is_none(), "{output}");
+    assert!(output.get("next").is_none(), "{output}");
     assert!(
         output["warnings"].to_string().contains("complete result"),
         "{output}"

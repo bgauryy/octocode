@@ -150,7 +150,6 @@ fn hover_rejects_walk_controls_with_the_operations_that_take_them() {
         let rendered = octocode_runtime_base::contracts::format_input_error(
             "lspSearch",
             &error,
-            &[],
             &serde_json::Value::Null,
         )
         .to_string();

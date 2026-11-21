@@ -79,9 +79,9 @@ fn each_declaration_document_matches_the_engine() {
     assert_eq!(
         declared
             .iter()
-            .map(|d| (d.name.as_str(), d.doc_start, d.line, d.start, d.end))
+            .map(|d| (d.name.as_str(), d.line, d.start, d.end))
             .collect::<Vec<_>>(),
-        [("first", Some(1), 2, 2, 4), ("second", None, 5, 5, 5)]
+        [("first", 2, 2, 4), ("second", 5, 5, 5)]
     );
 }
 

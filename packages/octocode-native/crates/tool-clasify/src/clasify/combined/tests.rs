@@ -31,7 +31,7 @@ fn capture_read() -> Value {
 
 fn section(start: u64, end: u64, cells: Vec<Value>) -> JudgedSection {
     JudgedSection {
-        lines: json!({"startLine":start,"endLine":end}),
+        target: json!({"lines":{"startLine":start,"endLine":end}}),
         cells: cells
             .into_iter()
             .map(|answer| Some(json!({"status":"answered","answer":answer})))
@@ -211,11 +211,11 @@ fn failed_sections_are_counted_and_never_answer() {
     let sections = [
         section(1, 10, vec![json_fixture(r#"{"noul": 0.8}"#)]),
         JudgedSection {
-            lines: json_fixture(r#"{"startLine": 11, "endLine": 20}"#),
+            target: json!({"lines": json_fixture(r#"{"startLine": 11, "endLine": 20}"#)}),
             cells: vec![Some(failed.clone())],
         },
         JudgedSection {
-            lines: json_fixture(r#"{"startLine": 21, "endLine": 30}"#),
+            target: json!({"lines": json_fixture(r#"{"startLine": 21, "endLine": 30}"#)}),
             cells: vec![None],
         },
     ];
@@ -233,7 +233,7 @@ fn failed_sections_are_counted_and_never_answer() {
     let answer = combine(&json_fixture(r#"{"type": "noul"}"#), &sections, 0).unwrap();
     assert_eq!(answer["noul"], 0.8);
     let none = [JudgedSection {
-        lines: json_fixture(r#"{"startLine": 1, "endLine": 2}"#),
+        target: json!({"lines": json_fixture(r#"{"startLine": 1, "endLine": 2}"#)}),
         cells: vec![Some(failed)],
     }];
     assert!(combine(&json_fixture(r#"{"type": "noul"}"#), &none, 0).is_none());

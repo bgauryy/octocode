@@ -475,14 +475,14 @@ pub(super) fn apply(
         paging::push_warnings(
             data,
             [format!(
-                "The repository advisories of {owner}/{repo} are compared with OSV's records once OSV's walk reaches its last page: next.nextPage reads on, and none is called \"not known to affect\" the commit before then."
+                "The repository advisories of {owner}/{repo} are compared with OSV's records once OSV's walk reaches its last page: the reply's next reads on, and none is called \"not known to affect\" the commit before then."
             )],
         );
     }
     if !github.others.is_empty() {
         let mut row = brief.clone();
         row.insert("operation".into(), json!("repository"));
-        row.insert("repo".into(), json!(format!("{owner}/{repo}")));
+        super::repository::name_in(&mut row, owner, repo);
         data["calls"]["repositoryAdvisories"] = Continuation::related_input(
             ToolId::SecurityCheck,
             json!({ "queries": [Value::Object(row)] }),

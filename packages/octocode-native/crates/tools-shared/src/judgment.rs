@@ -411,18 +411,16 @@ impl Evaluator {
     ) -> u64 {
         let model = model.unwrap_or(&self.model);
         let window = self.request_window(long);
-        requests
-            .into_iter()
-            .fold(0_u64, |sum, (bytes, questions)| {
-                let each = windows::prompt_tokens_at_most(&self.base_url, model, long, questions)
-                    .map_or(window, |prompt| {
-                        u64::try_from(bytes)
-                            .unwrap_or(u64::MAX)
-                            .saturating_add(prompt)
-                            .min(window)
-                    });
-                sum.saturating_add(each)
-            })
+        requests.into_iter().fold(0_u64, |sum, (bytes, questions)| {
+            let each = windows::prompt_tokens_at_most(&self.base_url, model, long, questions)
+                .map_or(window, |prompt| {
+                    u64::try_from(bytes)
+                        .unwrap_or(u64::MAX)
+                        .saturating_add(prompt)
+                        .min(window)
+                });
+            sum.saturating_add(each)
+        })
     }
 
     /// [`Self::tokens_at_most`] of the first round `sends` plans for `asked`

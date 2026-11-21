@@ -59,36 +59,21 @@ pub const UNMOCKED_GITHUB_API_URL: &str = "http://127.0.0.1:1/api/v3";
 
 /// One call admitted under `request_id`, as the CLI (`run`: structured JSON)
 /// or the N-API adapter (`run_mcp`: the MCP `CallToolResult`) makes it.
-/// Every call a reader runs next: `responsePagination.next` when the response
-/// pager cut the page, and the `next.nextPage` of each whole row.
+/// Every call a reader runs next: the reply's one `next`, present while more
+/// of the request remains. No row carries a page walk of its own.
 pub fn next_inputs(output: &Value) -> Vec<Value> {
-    let mut calls: Vec<Value> = output
-        .pointer("/responsePagination/next/input")
-        .cloned()
-        .into_iter()
-        .collect();
-    calls.extend(
-        output["results"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|row| row.pointer("/data/next/nextPage/input").cloned()),
-    );
-    calls
+    next_input(output).into_iter().collect()
 }
 
-/// The first call a reader runs next: `responsePagination.next`, else the
-/// `next.nextPage` of the first whole row.
+/// The call a reader runs next: the reply's top-level `next`.
 pub fn next_input(output: &Value) -> Option<Value> {
-    output
-        .pointer("/responsePagination/next/input")
-        .or_else(|| {
-            output["results"]
-                .as_array()?
-                .iter()
-                .find_map(|row| row.pointer("/data/next/nextPage/input"))
-        })
-        .cloned()
+    for row in output["results"].as_array().into_iter().flatten() {
+        assert!(
+            row.pointer("/data/next/nextPage").is_none(),
+            "a row carries its own page walk; the reply's next continues every row: {output}"
+        );
+    }
+    output.pointer("/next/input").cloned()
 }
 
 /// A clasify call as this suite reads it: each fresh row that states no
@@ -184,7 +169,125 @@ pub async fn call(
         .run("test-1".into(), tool.into(), input.clone())
         .await?;
     checks::assert_output_contract(tool, &outcome.structured_content);
+    assert_named_calls_carried(tool, &outcome.structured_content);
     Ok(outcome)
+}
+
+/// The keys whose strings are sentences said to the caller about a row.
+const SENTENCE_KEYS: [&str; 7] = [
+    "warnings", "hints", "notices", "error", "answer", "skipped", "recovery",
+];
+
+/// Every sentence under `value` (a string or strings held by one of
+/// [`SENTENCE_KEYS`]), calls aside: a call's input is a request, not prose.
+fn sentences<'a>(value: &'a Value, said: bool, out: &mut Vec<&'a str>) {
+    match value {
+        Value::String(text) if said => out.push(text),
+        Value::Array(items) => items.iter().for_each(|item| sentences(item, said, out)),
+        Value::Object(fields) => {
+            for (key, child) in fields {
+                if matches!(key.as_str(), "next" | "related") {
+                    continue;
+                }
+                let said = SENTENCE_KEYS.contains(&key.as_str())
+                    || (said && !child.is_object() && !child.is_array());
+                sentences(child, said, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The `next.<key>` channels `sentence` names, and whether it names
+/// `related` as a word of its own (`related[]` too).
+fn named_calls(sentence: &str) -> (Vec<&str>, bool) {
+    let word = |text: &'_ str| -> usize {
+        text.find(|c: char| !c.is_ascii_alphanumeric())
+            .unwrap_or(text.len())
+    };
+    let channels = sentence
+        .match_indices("next.")
+        .filter(|(at, _)| {
+            sentence[..*at]
+                .chars()
+                .next_back()
+                .is_none_or(|before| !before.is_ascii_alphanumeric())
+        })
+        .map(|(at, token)| &sentence[at + token.len()..])
+        .map(|rest| &rest[..word(rest)])
+        .filter(|key| key.starts_with(|c: char| c.is_ascii_lowercase()))
+        .collect();
+    let related = sentence
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|word| word == "related");
+    (channels, related)
+}
+
+/// A served reply names no call it does not carry: a sentence of a row
+/// (warning, hint, notice, error, answer) that says `related` sits on a row
+/// with a `related` call, and one that says `next.<key>` on a row whose
+/// `next` holds that key (the reply's `next` counts for a row's page walk,
+/// `next.nextPage`). A row split into parts carries its calls on its last
+/// part, so only that part is judged; a sentence the response says once
+/// for all rows is carried when any row carries its call.
+pub fn assert_named_calls_carried(tool: &str, envelope: &Value) {
+    let hoisted_page = envelope.get("next").is_some();
+    let carries = |row: &Value, sentence: &str| -> Result<(), String> {
+        let (channels, related) = named_calls(sentence);
+        let leads = checks::leads(row);
+        if related && !leads.iter().any(|lead| lead.channel == "related") {
+            return Err("related".to_owned());
+        }
+        for key in channels {
+            let held = leads
+                .iter()
+                .any(|lead| lead.channel == "next" && lead.name == key);
+            if !held && !(key == "nextPage" && hoisted_page) {
+                return Err(format!("next.{key}"));
+            }
+        }
+        Ok(())
+    };
+    let whole = |row: &&Value| {
+        let part = &row["rowPart"];
+        part.is_null() || part["part"] == part["of"]
+    };
+    let rows = envelope["results"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice);
+    for row in rows.iter().filter(whole) {
+        let mut said = Vec::new();
+        sentences(row, false, &mut said);
+        for sentence in said {
+            if let Err(missing) = carries(row, sentence) {
+                panic!(
+                    "{tool}: a sentence names {missing}, which its row does not carry: {sentence:?} in {row}"
+                );
+            }
+        }
+    }
+    let mut shared = Vec::new();
+    for (key, value) in envelope.as_object().into_iter().flatten() {
+        if key != "results" {
+            sentences(value, SENTENCE_KEYS.contains(&key.as_str()), &mut shared);
+        }
+    }
+    for sentence in shared {
+        let (channels, related) = named_calls(sentence);
+        if channels.is_empty() && !related {
+            continue;
+        }
+        assert!(
+            rows.iter().any(|row| carries(row, sentence).is_ok())
+                || checks::leads(&serde_json::json!({
+                    "next": {"reply": envelope.get("next")},
+                    "related": envelope.get("related"),
+                }))
+                .iter()
+                .any(|lead| !related || lead.channel == "related"),
+            "{tool}: a shared sentence names a call no row carries: {sentence:?} in {envelope}"
+        );
+    }
 }
 
 fn publish_for_assertion(_tool: &str, output: &Value) -> Value {
@@ -198,7 +301,6 @@ fn keep_workflow_lead(tool: &str, output: &mut Value) {
         &Value::Null,
     );
 }
-use octocode_runtime_base::response::workflow_lead::carried_identities;
 fn validate_test_input(
     tool: &str,
     input: &Value,
@@ -283,14 +385,26 @@ pub async fn run(runtime: &ToolRuntime, tool: &str, row: Value) -> Row {
     Row { outcome }
 }
 
-/// A response is a fixed point of the stage's `related[]` rule
-/// ([`octocode_runtime_base::response::workflow_lead`]): a row that answered whole
-/// offers only its tool's workflow lead and the calls that carry a fact the
-/// row does not state; applying the rule again changes nothing.
+/// A served response holds nothing the stage's guidance rule
+/// ([`octocode_runtime_base::response::workflow_lead`]) would still remove,
+/// its `related` calls aside: a call its producer marked as needed is served
+/// without the mark, so only the stage that read the mark can judge it.
 pub fn assert_workflow_leads(tool: &str, envelope: &Value) {
+    let without_related = |mut envelope: Value| {
+        for row in envelope["results"].as_array_mut().into_iter().flatten() {
+            if let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) {
+                data.remove("related");
+            }
+        }
+        envelope
+    };
     let mut again = envelope.clone();
     keep_workflow_lead(tool, &mut again);
-    assert_eq!(&again, envelope, "{tool}: the rule would still drop a lead");
+    assert_eq!(
+        without_related(again),
+        without_related(envelope.clone()),
+        "{tool}: the rule would still drop guidance"
+    );
 }
 
 /// [`checks::Walker`] over the runtime: each call runs as the whole input,

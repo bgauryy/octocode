@@ -196,31 +196,7 @@ fn probes_propagate_broken_schemas_through_compositions() {
 }
 
 #[test]
-fn arithmetic_order_and_logical_tree_depth_are_generic() {
-    let sum = json_fixture(
-        r#"{
-            "x-sum": {
-                "id": "probe.sum",
-                "message": "Bad total",
-                "terms": ["a", "b", "optional"],
-                "total": "total"
-            }
-        }"#,
-    );
-    super::super::relationships::validate(
-        &sum,
-        &json_fixture(r#"{"a": 1, "b": 2, "total": 3}"#),
-        &[],
-    )
-    .unwrap();
-    assert!(
-        super::super::relationships::validate(
-            &sum,
-            &json_fixture(r#"{"a": 1, "b": 2, "total": 4}"#),
-            &[]
-        )
-        .is_err()
-    );
+fn order_and_logical_tree_depth_are_generic() {
     let order = json_fixture(
         r#"{
             "x-order": {

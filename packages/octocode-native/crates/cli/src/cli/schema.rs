@@ -64,15 +64,6 @@ pub(super) fn instructions(presentation: &Value, available: impl Fn(&str) -> boo
     octocode_runtime_base::contracts::compose_instructions(presentation, available)
 }
 
-/// Select a core-generated presentation using the runtime's resolved switch.
-pub(super) fn configured_tool<'a>(tool: &'a Value, machine: &Value) -> &'a Value {
-    if machine["presentation"]["selection"] == true {
-        tool.get("selection").unwrap_or(tool)
-    } else {
-        tool
-    }
-}
-
 /// What prints the tool-flow guide: the CLI's reader of the MCP resource.
 const TOOL_FLOW_COMMAND: &str = "octocode schema --view flow";
 
@@ -270,7 +261,7 @@ pub(super) fn tool_view(
         }
         return output_view(tool);
     }
-    let configured = configured_tool(tool, machine);
+    let configured = tool;
     let view = view.unwrap_or("query");
     if configured["views"].get(view).is_none() {
         return Err(usage(

@@ -31,7 +31,7 @@ pub(crate) fn drop_answered_leads(tool: ToolId, structured: &mut Value, response
     };
     let mut own = 0..queries.len();
     for row in rows {
-        if super::selection_errors::contract_rejection(row) {
+        if contract_rejection(row) {
             continue;
         }
         let Some(own) = own.next() else {
@@ -69,3 +69,13 @@ pub(crate) fn drop_answered_leads(tool: ToolId, structured: &mut Value, response
 #[cfg(test)]
 #[path = "answered_leads_tests.rs"]
 mod tests;
+
+/// Isolated contract failures are not admitted and therefore have no entry in
+/// `response_query`. Adapter-level invalid-input failures carry a repair call
+/// and remain paired with their admitted query.
+fn contract_rejection(row: &Value) -> bool {
+    row.get("status") == Some(&Value::String("error".into()))
+        && crate::id::error_code_of(&row["data"])
+            == Some(octocode_contract_types::ErrorCode::InvalidInput)
+        && row.pointer("/data/next").is_none()
+}

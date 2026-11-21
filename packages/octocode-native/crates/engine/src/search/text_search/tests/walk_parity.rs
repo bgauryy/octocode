@@ -1,4 +1,5 @@
-//! The search walks exactly the entries the ignore walker walks.
+//! The search walks exactly the entries the ignore walker walks, narrowed by
+//! its include globs and `language` type.
 
 use super::*;
 
@@ -6,10 +7,12 @@ use super::*;
 /// leave out), and must walk exactly what the `ignore` walker with its own
 /// ignore rules walks: nested `.gitignore` files, a `!` re-include, `.ignore`
 /// beating `.gitignore`, `.git/info/exclude`, rules above a subdirectory
-/// root, a nested repository, a directory outside any repository, and an
-/// include glob or `language` type over ignored and dot entries, under each
-/// `includeIgnored`/`includeHidden` combination. Every reported ignored
-/// entry is one the walker left out, and nothing under it was searched.
+/// root, a nested repository and a directory outside any repository, under
+/// each `includeIgnored`/`includeHidden` combination. An include glob or a
+/// `language` type only narrows that walk: it selects among the files the
+/// walker yields without it, and never admits an ignored or dot entry (the
+/// walker's own `-g`/`-t` precedence would). Every reported ignored entry
+/// is one the walker left out, and nothing under it was searched.
 #[test]
 fn the_search_walks_exactly_what_the_ignore_walker_walks() {
     use crate::types::IgnorePolicy;
@@ -92,26 +95,33 @@ fn the_search_walks_exactly_what_the_ignore_walker_walks() {
     for root in &roots {
         for policy in policies {
             for (include, lang) in &scopes {
-                let mut walker = crate::search::walk::walk_builder(root, policy, None);
-                if let Some(include) = include {
-                    walker.overrides(
-                        crate::search::glob::compile(root, include, &[])
-                            .expect("globs")
-                            .overrides(),
-                    );
-                }
-                if let Some(lang) = lang {
+                // The walker applies the policy alone; the scope then
+                // selects among the files it yields.
+                let globs = include.as_ref().map(|include| {
+                    crate::search::glob::compile(root, include, &[])
+                        .expect("globs")
+                        .overrides()
+                });
+                let types = lang.as_ref().map(|lang| {
                     let mut types = TypesBuilder::new();
                     types.add_defaults();
                     types.select(lang);
-                    walker.types(types.build().expect("types"));
-                }
+                    types.build().expect("types")
+                });
                 let walked = files_of(
                     root,
-                    walker
+                    crate::search::walk::walk_builder(root, policy, None)
                         .build()
                         .filter_map(std::result::Result::ok)
                         .filter(|entry| entry.file_type().is_some_and(|kind| kind.is_file()))
+                        .filter(|entry| {
+                            !globs
+                                .as_ref()
+                                .is_some_and(|globs| globs.matched(entry.path(), false).is_ignore())
+                                && !types.as_ref().is_some_and(|types| {
+                                    types.matched(entry.path(), false).is_ignore()
+                                })
+                        })
                         .map(|entry| entry.path().to_string_lossy().into_owned())
                         .collect(),
                 );

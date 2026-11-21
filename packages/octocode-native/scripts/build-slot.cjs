@@ -8,6 +8,7 @@
  * and 32 GB, with swap; a crate that needed 80 s of CPU took 365 s.
  *
  *   build-slot.cjs -- <command> [args...]    run the command while holding a slot
+ *   build-slot.cjs --status                  print who holds each slot, and exit
  *
  * The wrappers hold one for their whole run: build-native.cjs per platform job,
  * rust-tests.cjs (`test:rust`, `coverage:rust`), rust-lint.mjs (`lint:rust`), the package
@@ -18,7 +19,18 @@
  * owner record (pid, label, cwd, start), so taking one is atomic. A record whose pid is
  * dead, or now names another process (its start time differs), is stale and reclaimed. A
  * process started under a held slot inherits it (HELD_ENV), so a wrapper run by another
- * wrapper does not wait for a second slot. OCTOCODE_BUILD_SLOTS overrides the count.
+ * wrapper does not wait for a second slot. OCTOCODE_BUILD_SLOTS overrides the count. A
+ * record carries the caller's OCTOCODE_LANE, so a waiter and `--status` name the agent that
+ * holds a slot, not only its command.
+ *
+ * Waiters are served first come, first served: each writes a ticket (`wait-<kind>-<time>-…`)
+ * and only the oldest ticket whose owner still runs may take a freed slot, so a long suite
+ * cannot starve a short test by winning the poll. A dead waiter's ticket is removed.
+ *
+ * The same files serve other machine-wide locks: `acquireSlot(label, { kind, count })` takes
+ * one of `count` `<kind>-<n>.json` records (contract regeneration is `kind: 'regen'`,
+ * `count: 1`), with its own inheritance variable, so holding one kind never stands in for
+ * another.
  *
  * Each slot also gets its share of the cores: its children run with CARGO_BUILD_JOBS,
  * NEXTEST_TEST_THREADS and RUST_TEST_THREADS set to the cores divided by the slot count,
@@ -36,10 +48,13 @@ const { runForwardingSignals } = require('../bin/launch-native.cjs');
 const SLOT_DIR = path.join(os.tmpdir(), 'octocode-build-slots');
 const COUNT_ENV = 'OCTOCODE_BUILD_SLOTS';
 const HELD_ENV = 'OCTOCODE_BUILD_SLOT_HELD';
+const LANE_ENV = 'OCTOCODE_LANE';
+/** The one-at-a-time lock of contract regeneration (`contracts:regen`). */
+const REGEN_KIND = 'regen';
 const DEFAULT_COUNT = 2;
 const POLL_MS = 1000;
 const NOTICE_MS = 60_000;
-const SLOT_FILE = /^slot-(\d+)\.json$/;
+const DEFAULT_KIND = 'slot';
 /** The variables a slot's children read for their parallelism. */
 const SHARE_ENV = ['CARGO_BUILD_JOBS', 'NEXTEST_TEST_THREADS', 'RUST_TEST_THREADS'];
 
@@ -51,7 +66,9 @@ function slotCount(env = process.env) {
   return count;
 }
 
-const slotFile = (dir, n) => path.join(dir, `slot-${n}.json`);
+const slotFile = (dir, n, kind = DEFAULT_KIND) => path.join(dir, `${kind}-${n}.json`);
+/** The variable that hands a held lock of `kind` to the holder's children. */
+const heldEnv = kind => (kind === DEFAULT_KIND ? HELD_ENV : `${HELD_ENV}_${kind.toUpperCase()}`);
 
 /** `env` with one slot's share of the cores for each parallelism variable it leaves unset. */
 function shareCores(env, count, cores = os.availableParallelism()) {
@@ -153,22 +170,74 @@ function duration(ms) {
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, '0')}s`;
 }
 
-function waitingNotice(dir, count, label) {
-  const lines = [`build-slot: "${label}" waits for one of ${count} machine-wide Rust build slots (${COUNT_ENV}); held by:`];
+/** One line per slot: its holder (pid, lane when stated, command, directory, time held) or `free`. */
+function slotLines(dir, count, kind = DEFAULT_KIND) {
+  const lines = [];
   for (let n = 1; n <= count; n += 1) {
-    const record = parseRecord(readRaw(slotFile(dir, n)) ?? '');
+    const record = parseRecord(readRaw(slotFile(dir, n, kind)) ?? '');
     const since = Date.parse(record?.since);
+    const lane = record?.lane ? ` lane ${record.lane}` : '';
     lines.push(
       record
-        ? `  slot ${n}: pid ${record.pid} "${record.label}" in ${record.cwd}, ${Number.isNaN(since) ? 'since unknown' : `for ${duration(Date.now() - since)}`}`
-        : `  slot ${n}: free`,
+        ? `  ${kind} ${n}: pid ${record.pid}${lane} "${record.label}" in ${record.cwd}, ${Number.isNaN(since) ? 'since unknown' : `for ${duration(Date.now() - since)}`}`
+        : `  ${kind} ${n}: free`,
     );
   }
-  return lines.join('\n');
+  return lines;
+}
+
+function waitingNotice(dir, count, label, kind = DEFAULT_KIND) {
+  const what = kind === DEFAULT_KIND ? `one of ${count} machine-wide Rust build slots (${COUNT_ENV})` : `the machine-wide ${kind} lock`;
+  const queue = liveTickets(dir, kind).length;
+  const ahead = queue > 1 ? `; ${queue} waiting, first come first served` : '';
+  return [`build-slot: "${label}" waits for ${what}${ahead}; held by:`, ...slotLines(dir, count, kind)].join('\n');
+}
+
+const ticketPrefix = kind => `wait-${kind}-`;
+
+/** The waiters of `kind` whose owner still runs, oldest first; a dead waiter's ticket is removed. */
+function liveTickets(dir, kind) {
+  let names;
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const live = [];
+  for (const name of names.filter(entry => entry.startsWith(ticketPrefix(kind)) && entry.endsWith('.json')).sort()) {
+    const file = path.join(dir, name);
+    const text = readRaw(file);
+    if (text === undefined) continue;
+    const record = parseRecord(text);
+    if (record && ownerAlive(record)) live.push(name);
+    else fs.rmSync(file, { force: true });
+  }
+  return live;
+}
+
+/** Who holds each slot now; a record whose owner is gone reads as free (the next taker reclaims it). */
+function status({ dir = SLOT_DIR, env = process.env } = {}) {
+  const count = slotCount(env);
+  const kindLines = (kind, kindCount) =>
+    slotLines(dir, kindCount, kind).map((line, index) => {
+      const record = parseRecord(readRaw(slotFile(dir, index + 1, kind)) ?? '');
+      return record && !ownerAlive(record) ? `  ${kind} ${index + 1}: free (stale record of pid ${record.pid})` : line;
+    });
+  const waiting = kind => {
+    const queue = liveTickets(dir, kind).length;
+    return queue > 0 ? [`  ${queue} waiting for a ${kind}`] : [];
+  };
+  return [
+    `build-slot: ${count} machine-wide Rust build slots (${COUNT_ENV})`,
+    ...kindLines(DEFAULT_KIND, count),
+    ...waiting(DEFAULT_KIND),
+    ...kindLines(REGEN_KIND, 1),
+    ...waiting(REGEN_KIND),
+  ].join('\n');
 }
 
 /** The slot named by an inherited token whose holder still runs, else null. */
-function inheritedSlot(dir, token) {
+function inheritedSlot(dir, token, kind = DEFAULT_KIND) {
   if (!token) return null;
   let names;
   try {
@@ -176,8 +245,9 @@ function inheritedSlot(dir, token) {
   } catch {
     return null;
   }
+  const slotName = new RegExp(`^${kind}-(\\d+)\\.json$`);
   for (const name of names) {
-    const n = SLOT_FILE.exec(name)?.[1];
+    const n = slotName.exec(name)?.[1];
     const record = n && parseRecord(readRaw(path.join(dir, name)) ?? '');
     if (record && record.token === token && ownerAlive(record)) return Number(n);
   }
@@ -198,7 +268,7 @@ function releaseAll() {
   held.clear();
 }
 
-function hold(file, n, text, token, env, count) {
+function hold(file, n, text, token, env, count, kind = DEFAULT_KIND) {
   const entry = { file, text };
   held.add(entry);
   if (!releaseOnExit) {
@@ -207,7 +277,8 @@ function hold(file, n, text, token, env, count) {
   }
   return {
     slot: n,
-    env: { ...shareCores(env, count), [HELD_ENV]: token },
+    // Only a build slot divides the cores: another lock runs no compiler of its own.
+    env: { ...(kind === DEFAULT_KIND ? shareCores(env, count) : env), [heldEnv(kind)]: token },
     release() {
       if (held.delete(entry)) releaseRecord(entry);
     },
@@ -231,29 +302,43 @@ async function takeInherited(n, env) {
  * in a script so a signal exits through process.exit and releases it.
  */
 async function acquireSlot(label, options = {}) {
-  const { dir = SLOT_DIR, env = process.env, pollMs = POLL_MS, noticeMs = NOTICE_MS, log = message => console.error(message) } = options;
-  const count = slotCount(env);
-  const inherited = inheritedSlot(dir, env[HELD_ENV]);
+  const { dir = SLOT_DIR, env = process.env, pollMs = POLL_MS, noticeMs = NOTICE_MS, log = message => console.error(message), kind = DEFAULT_KIND } = options;
+  const count = options.count ?? slotCount(env);
+  const inherited = inheritedSlot(dir, env[heldEnv(kind)], kind);
   if (inherited !== null) return takeInherited(inherited, env);
   fs.mkdirSync(dir, { recursive: true });
   ownStart ??= processStart(process.pid);
-  const record = { pid: process.pid, start: ownStart, label, cwd: process.cwd(), since: new Date().toISOString(), token: randomUUID() };
+  const record = { pid: process.pid, start: ownStart, label, lane: env[LANE_ENV] || undefined, cwd: process.cwd(), since: new Date().toISOString(), token: randomUUID() };
   const text = `${JSON.stringify(record)}\n`;
   const waitStarted = Date.now();
+  // The ticket orders waiters: its name sorts by the time the wait began.
+  const ticketName = `${ticketPrefix(kind)}${String(waitStarted).padStart(15, '0')}-${record.token}.json`;
+  const ticket = path.join(dir, ticketName);
+  fs.writeFileSync(ticket, text);
+  const dropTicket = () => fs.rmSync(ticket, { force: true });
+  process.on('exit', dropTicket);
   let noticedAt = null;
-  for (;;) {
-    for (let n = 1; n <= count; n += 1) {
-      const file = slotFile(dir, n);
-      if (tryTake(file, text)) {
-        if (noticedAt !== null) log(`build-slot: "${label}" took slot ${n} after ${duration(Date.now() - waitStarted)}`);
-        return hold(file, n, text, record.token, env, count);
+  try {
+    for (;;) {
+      // First come, first served: only the oldest live waiter may take a slot.
+      if (liveTickets(dir, kind)[0] === ticketName) {
+        for (let n = 1; n <= count; n += 1) {
+          const file = slotFile(dir, n, kind);
+          if (tryTake(file, text)) {
+            if (noticedAt !== null) log(`build-slot: "${label}" took ${kind} ${n} after ${duration(Date.now() - waitStarted)}`);
+            return hold(file, n, text, record.token, env, count, kind);
+          }
+        }
       }
+      if (noticedAt === null || Date.now() - noticedAt >= noticeMs) {
+        log(waitingNotice(dir, count, label, kind));
+        noticedAt = Date.now();
+      }
+      await new Promise(resolve => setTimeout(resolve, pollMs));
     }
-    if (noticedAt === null || Date.now() - noticedAt >= noticeMs) {
-      log(waitingNotice(dir, count, label));
-      noticedAt = Date.now();
-    }
-    await new Promise(resolve => setTimeout(resolve, pollMs));
+  } finally {
+    dropTicket();
+    process.removeListener('exit', dropTicket);
   }
 }
 
@@ -273,8 +358,12 @@ function exitOnSignals() {
 }
 
 async function main(argv) {
+  if (argv.length === 1 && argv[0] === '--status') {
+    console.log(status());
+    return 0;
+  }
   if (argv[0] !== '--' || argv.length < 2) {
-    console.error('Usage: build-slot.cjs -- <command> [args...]');
+    console.error('Usage: build-slot.cjs -- <command> [args...] | --status');
     return 2;
   }
   const [command, ...args] = argv.slice(1);
@@ -299,4 +388,4 @@ if (require.main === module) {
   );
 }
 
-module.exports = { SLOT_DIR, COUNT_ENV, HELD_ENV, SHARE_ENV, acquireSlot, exitOnSignals, shareCores, slotCount, withSlot };
+module.exports = { SLOT_DIR, COUNT_ENV, HELD_ENV, LANE_ENV, REGEN_KIND, SHARE_ENV, acquireSlot, exitOnSignals, heldEnv, shareCores, slotCount, status, withSlot };

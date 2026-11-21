@@ -41,6 +41,8 @@ pub(in crate::lsp_search) async fn walk_hierarchy(
 /// importers still need verifying.
 pub(in crate::lsp_search) struct Walk<'a> {
     walker: Walker<'a>,
+    /// The read policy the call sites' files are read under.
+    paths: &'a PathPolicy,
     expansion: Expansion,
     /// The nodes the next level expands.
     frontier: Vec<Value>,
@@ -58,6 +60,7 @@ impl<'a> Walk<'a> {
         let depth = depth.max(1);
         Self {
             walker: Walker::new(paths, roots, depth),
+            paths,
             expansion,
             frontier: roots.to_vec(),
             level: 1,
@@ -88,8 +91,13 @@ impl<'a> Walk<'a> {
         for (parent, response) in nodes.iter().zip(responses) {
             match response {
                 Ok(results) => {
+                    let mut results = into_items(results);
+                    if expansion == Expansion::IncomingCalls {
+                        super::call_only::drop_import_sites(self.paths, cancel, &mut results)
+                            .await?;
+                    }
                     self.walker
-                        .expand(expansion, level, parent, into_items(results), &mut next);
+                        .expand(expansion, level, parent, results, &mut next);
                 }
                 Err(error) => self.walker.walk.failures.push(error),
             }

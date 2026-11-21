@@ -76,11 +76,11 @@ describe('canonical CLI and MCP discovery', () => {
   it('keeps every operation discoverable with its own admission constraints', () => {
     for (const definition of DIRECT_TOOL_DEFINITIONS) {
       const views = at(tool(definition.name), 'selections');
-      const rows = operationRows(definition, false);
+      const rows = operationRows(definition);
       expect(Object.keys(views).filter(key => !key.includes(',')).sort()).toEqual(Object.keys(rows).map(operation => `operation=${operation}`).sort());
       for (const [operation, row] of Object.entries(rows)) {
         const validate = ajv.compile(at(views, `operation=${operation}`, 'querySchema'));
-        for (const variant of toolVariants(definition, false).filter(form => form.operations.includes(operation))) {
+        for (const variant of toolVariants(definition).filter(form => form.operations.includes(operation))) {
           const query = { ...variant.example, operation };
           expect(validate(query), JSON.stringify(validate.errors)).toBe(row.safeParse(query).success);
           expect(validate({ ...query, unknownField: true })).toBe(false);
@@ -110,8 +110,8 @@ describe('canonical CLI and MCP discovery', () => {
         JSON.stringify(at(views, `operation=${operation}`, 'querySchema')).length
       );
       const validate = ajv.compile(narrowed);
-      const row = operationRows(definition, false)[operation];
-      for (const variant of toolVariants(definition, false).filter(form => form.operations.includes(operation))) {
+      const row = operationRows(definition)[operation];
+      for (const variant of toolVariants(definition).filter(form => form.operations.includes(operation))) {
         const query: Record<string, unknown> = { ...variant.example, operation };
         if (query[field] === undefined) continue;
         expect(validate(query), `${name} ${key}: ${JSON.stringify(query)}`).toBe(

@@ -46,7 +46,6 @@ fn served(path: &Path, root: &Path, fields: &Value) -> Value {
         &security,
         &NeverCancel,
         None,
-        None,
     ) {
         Ok(result) => {
             let mut data = result.to_row().expect("row");

@@ -162,3 +162,38 @@ pub(super) async fn at_default_branch(
     }
     failure
 }
+
+/// A failure of a search or listing scoped to a repository that did not
+/// resolve in this request (typed, or a listing's bare 404 that no answer
+/// for the repository explains): when no login is its owner, the failure
+/// names the owner and keeps no lead that asks for it
+/// ([`octocode_tools_shared::gh_shared::failed_read::state_missing_owner`]),
+/// as every GitHub read does.
+pub(super) async fn at_missing_owner(
+    provider: &octocode_github::GitHubProvider,
+    mut failure: GhFailure,
+    query: &HistorySearch,
+    context: &RequestContext,
+) -> GhFailure {
+    use octocode_tools_shared::gh_shared::failed_read::{owner_missing, state_missing_owner};
+    let (Some(owner), Some(repo)) = (
+        gh_search_history_query::owner(query),
+        gh_search_history_query::repo(query),
+    ) else {
+        return failure;
+    };
+    let bare = failure.error.kind == ProviderErrorKind::NotFound && failure.error.reason.is_none();
+    let unresolved = octocode_tools_shared::gh_shared::repository_not_found(&failure.error)
+        || (bare
+            && !context.repository_resolves(owner, repo)
+            && context.read_full_name(owner, repo).is_none());
+    if unresolved && owner_missing(provider, owner, context).await {
+        state_missing_owner(
+            &mut failure.message,
+            &mut failure.hints,
+            &mut failure.calls,
+            owner,
+        );
+    }
+    failure
+}

@@ -491,7 +491,7 @@ impl ChannelRun {
             let onward = (!more)
                 .then(|| {
                     page.structured_content
-                        .pointer("/responsePagination/next")
+                        .get(continuations::RESPONSE_NEXT)
                         .cloned()
                 })
                 .flatten();
@@ -517,10 +517,12 @@ impl ChannelRun {
         let mut whole = tail.ok_or(ExecutionError::WorkerFailed)?;
         whole.structured_content.edit(|output| {
             if let Some(map) = output.as_object_mut() {
-                map.shift_remove("responsePagination");
+                map.shift_remove(continuations::RESPONSE_NEXT);
+                map.shift_remove(continuations::RESPONSE_EXPIRES_AT);
+                map.shift_remove(continuations::RESPONSE_REPLAYED);
             }
             if let Some(next) = onward {
-                output["responsePagination"] = json!({ "next": next });
+                output[continuations::RESPONSE_NEXT] = next;
             }
             push_warning(output, &warning);
         });

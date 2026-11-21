@@ -47,11 +47,7 @@ async fn tree_pattern_finds_paths_by_name_at_any_depth() {
         .expect("glob");
     assert_eq!(
         out.data["files"],
-        json_fixture(
-            r#"[
-                {"dir": "starlette", "files": ["_exception_handler.py (3)"]}
-            ]"#
-        ),
+        json_fixture(r#"["starlette/_exception_handler.py (3)"]"#),
         "{}",
         out.data
     );
@@ -90,25 +86,26 @@ async fn tree_pattern_finds_paths_by_name_at_any_depth() {
         })))
         .mount(&server)
         .await;
-    let mut under = find("starlette/routing.py");
+    // Globs read paths below the listed path; the row stays repo-relative.
+    let mut under = find("routing.py");
     under["path"] = json!("starlette");
     let under = run(&server, under)
         .await
-        .expect("repository-relative glob within scoped tree");
+        .expect("glob relative to the listed path");
     assert_eq!(under.data["summary"]["fileCount"], 1);
     assert_eq!(
         under.data["files"],
-        json_fixture(r#"[{"dir": "starlette", "files": ["routing.py (3)"]}]"#)
+        json_fixture(r#"["starlette/routing.py (3)"]"#)
     );
     let invalid = run(&server, find("src/[")).await.expect_err("bad glob");
     assert_eq!(invalid.kind, ProviderErrorKind::Validation);
 }
 
-/// An `include` glob written relative to the listed `path` matches nothing,
-/// since globs match from the repository root also with `path` set: the
-/// empty listing says so and leads first with the same globs under `path`.
+/// An `include` glob that restates the listed `path` matches nothing, since
+/// globs read paths below `path`: the empty listing says so and leads first
+/// with the same globs relative to `path`.
 #[tokio::test]
-async fn a_path_relative_include_leads_to_the_root_relative_globs() {
+async fn an_include_that_restates_path_leads_to_the_path_relative_globs() {
     let server = MockServer::builder().start().await;
     mount_ref(&server, "main").await;
     Mock::given(method("GET"))
@@ -133,7 +130,7 @@ async fn a_path_relative_include_leads_to_the_root_relative_globs() {
                 "repo": "b",
                 "ref": "main",
                 "path": "starlette",
-                "include": ["routing.py", "**/nope.py", "sub/*.py"]
+                "include": ["starlette/routing.py", "**/nope.py", "starlette/sub/*.py"]
             }"#,
         ),
     )
@@ -146,7 +143,7 @@ async fn a_path_relative_include_leads_to_the_root_relative_globs() {
         });
     assert_eq!(
         broaden["input"]["queries"][0]["include"],
-        json_fixture(r#"["starlette/routing.py", "**/nope.py", "starlette/sub/*.py"]"#),
+        json_fixture(r#"["routing.py", "**/nope.py", "sub/*.py"]"#),
         "{}",
         out.data
     );
@@ -154,14 +151,27 @@ async fn a_path_relative_include_leads_to_the_root_relative_globs() {
         .expect("canonical rebased listing");
     let hints = out.data["hints"].to_string();
     assert!(
-        hints.contains("repository root") && hints.contains("starlette/"),
-        "the hint says globs match from the repository root: {}",
+        hints.contains("relative to path") && hints.contains("starlette/"),
+        "the hint says globs are relative to path: {}",
         out.data
+    );
+    // The related request's globs, relative to path, list what they name:
+    // the rows stay repo-relative.
+    let mut relative = broaden["input"]["queries"][0].clone();
+    relative
+        .as_object_mut()
+        .expect("row")
+        .retain(|key, _| !matches!(key.as_str(), "mainGoal" | "reasoning"));
+    let listed = run(&server, relative).await.expect("relative globs");
+    let rows = listed.data["files"].to_string();
+    assert!(
+        rows.contains("routing.py") && rows.contains("a.py") && rows.contains("starlette"),
+        "{}",
+        listed.data
     );
     // The hint names the request it explains, not a position in related[].
     assert!(!hints.contains("related[] request asks"), "{}", out.data);
-    // A glob written with a leading `/` is asked under `path` once, not as
-    // `path//glob`.
+    // A glob written from the root with a leading `/` loses `/path/` once.
     let rooted = run(
         &server,
         json_fixture(
@@ -171,7 +181,7 @@ async fn a_path_relative_include_leads_to_the_root_relative_globs() {
                 "repo": "b",
                 "ref": "main",
                 "path": "starlette",
-                "include": ["/nope.py"]
+                "include": ["/starlette/nope.py"]
             }"#,
         ),
     )
@@ -184,7 +194,7 @@ async fn a_path_relative_include_leads_to_the_root_relative_globs() {
     );
     assert_eq!(
         broaden["input"]["queries"][0]["include"],
-        json_fixture(r#"["starlette/nope.py"]"#),
+        json_fixture(r#"["nope.py"]"#),
         "{}",
         rooted.data
     );
@@ -230,7 +240,7 @@ async fn deep_tree_is_fetched_once_at_the_resolved_commit() {
     .await
     .expect("tree");
     assert_eq!(
-        out.data["files"][0]["files"],
+        out.data["files"],
         json_fixture(r#"["pinned.rs (1)"]"#),
         "{}",
         out.data
@@ -264,8 +274,8 @@ async fn committed_build_output_names_are_listed_and_walked() {
                 "dir": ".",
                 "files": ["app.rs (3)", "coverage/", "node_modules/"]
             },
-            {"dir": "coverage", "files": ["coverage.go (2)"]},
-            {"dir": "node_modules", "files": ["kept.rs (4)"]}
+            "coverage/coverage.go (2)",
+            "node_modules/kept.rs (4)"
         ]"#,
     );
     // Recursive Git Trees listing.

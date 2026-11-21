@@ -59,29 +59,29 @@ fn a_compact_read_too_large_to_lex_serves_the_content_view_and_says_why() {
     );
 }
 
+/// L6: a symbols read of a source too large to parse falls back as the
+/// compact read of it does: the content view's page, with the view served
+/// and the reason in `viewFallback`.
 #[test]
-fn a_symbols_read_too_large_to_parse_names_the_reason_and_the_read() {
+fn a_symbols_read_too_large_to_parse_serves_the_content_view_and_says_why() {
     let (source, path) = dense();
     let row = served(&source, path, "symbols");
     assert_eq!(
-        row["errorCode"],
-        json!(ErrorCode::SymbolsUnsupported),
+        row["viewFallback"],
+        json_fixture(
+            r#"{
+                "requested": "symbols",
+                "applied": "content",
+                "reason": "too-large"
+            }"#
+        ),
         "{:.600}",
         row.to_string()
     );
-    assert!(
-        row["error"]
-            .as_str()
-            .is_some_and(|error| error.contains("too-large") && !error.contains("not-smaller")),
-        "{:.600}",
-        row.to_string()
-    );
-    assert!(
-        row["related"].as_array().is_some_and(|calls| calls
-            .iter()
-            .any(|call| call.to_string().contains("dense.js"))),
-        "a read of its lines is offered: {:.600}",
-        row.to_string()
+    assert_eq!(
+        row["content"],
+        served(&source, path, "content")["content"],
+        "the content view's page is served"
     );
 }
 

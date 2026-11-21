@@ -668,9 +668,7 @@ fn key_text_span(bytes: &[u8], span: std::ops::Range<usize>) -> std::ops::Range<
 /// such bytes leaves the delimiters around them paired as written.
 fn pairs_within(bytes: &[u8]) -> bool {
     let count = |delimiter: u8| bytes.iter().filter(|byte| **byte == delimiter).count();
-    b"\"'`"
-        .iter()
-        .all(|quote| count(*quote) % 2 == 0)
+    b"\"'`".iter().all(|quote| count(*quote) % 2 == 0)
         && [(b'(', b')'), (b'[', b']'), (b'{', b'}'), (b'<', b'>')]
             .into_iter()
             .all(|(open, close)| count(open) == count(close))

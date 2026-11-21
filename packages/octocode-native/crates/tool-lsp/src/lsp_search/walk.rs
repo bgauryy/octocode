@@ -17,6 +17,7 @@ use octocode_engine::lsp::client::NativeLspClient;
 use serde_json::Value;
 
 mod bfs;
+mod call_only;
 mod caller_names;
 mod compact;
 mod importer_recovery;
@@ -149,4 +150,7 @@ pub(super) struct HierarchyWalk {
     /// e.g. `String.toUpperCase`), kept out of the call graph and listed by
     /// name once each.
     pub(super) builtin_lib: Vec<String>,
+    /// Implementation candidates of a subtype walk that name no declaration
+    /// (object literals of the type): values, not subtypes.
+    pub(super) value_candidates: usize,
 }

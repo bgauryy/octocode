@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/octocode-chrome-devtools",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "license": "MIT",
   "description": "Chrome DevTools MCP server and CLI for browser plans, arbitrary CDP, and complete evidence.",
   "type": "module",
@@ -53,9 +53,7 @@
     "bin",
     "docs",
     "skills",
-    "OPERATING.md",
     "README.md",
-    "ARCHITECTURE.md",
     "LICENSE"
   ],
   "repository": {

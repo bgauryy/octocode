@@ -16,8 +16,6 @@ pub struct ToolError {
     /// Leads out of the error, e.g. a missing path's nearest existing parent.
     /// Boxed to keep the error small in `Result`s.
     pub calls: Option<Box<Value>>,
-    /// The coverage receipt of a classified row whose selection failed.
-    pub selection: Option<Box<octocode_contract_types::Selection>>,
 }
 
 impl ToolError {
@@ -27,7 +25,6 @@ impl ToolError {
             message: message.into(),
             hints: Vec::new(),
             calls: None,
-            selection: None,
         }
     }
 

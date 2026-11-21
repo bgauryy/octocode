@@ -102,6 +102,16 @@ fn a_healthy_server_receipt_is_omitted_and_a_deviation_is_kept() {
     omit_healthy_receipt(&mut hover);
     assert!(hover.get("lsp").is_none(), "{hover}");
 
+    // A hierarchy the server answered by another request of its own is as
+    // healthy as its own hierarchy answer: the route alone keeps no receipt.
+    for route in super::SERVER_ROUTES {
+        let mut lsp = clean.clone();
+        lsp["source"] = json!(route);
+        let mut row = json!({"matches": [{"line": 2}], "lsp": lsp});
+        omit_healthy_receipt(&mut row);
+        assert!(row.get("lsp").is_none(), "{route}: {row}");
+    }
+
     let deviations = [
         (
             "errors",

@@ -10,7 +10,7 @@ fn fixed_parts_never_flag_a_page() {
     let long = "x".repeat(300);
     let rows = page(json!({
         "results": [{"index":0,"data":{"files":[{"path":"a","matches":[{"line":1,"value":"short"}]}]}}],
-        "responsePagination": {"hasMore":true,"next":{"kind":"continue","tool":"localSearch","input":{"cursor":long}}}
+        "next": {"kind":"continue","tool":"localSearch","input":{"cursor":long}}
     }));
     assert!(!holds_value_over(&rows, ToolId::LocalSearch, 100));
 }
@@ -64,10 +64,9 @@ fn a_whole_collection_member_wider_than_the_target_is_indivisible() {
         .collect();
     let hits = page(json!({"results": [{"index":0,
         "data": {"files": {"dense.txt": lines}}}]}));
-    let width = octocode_engine::json_size::utf16_units(
-        &hits["results"][0]["data"]["files"]["dense.txt"],
-    )
-    .expect("width");
+    let width =
+        octocode_engine::json_size::utf16_units(&hits["results"][0]["data"]["files"]["dense.txt"])
+            .expect("width");
     assert!(holds_value_over(&hits, ToolId::Clasify, width - 1));
     assert!(!holds_value_over(&hits, ToolId::Clasify, width));
 }
@@ -76,7 +75,9 @@ fn a_whole_collection_member_wider_than_the_target_is_indivisible() {
 /// for its width.
 #[test]
 fn a_member_with_a_declared_collection_below_it_is_not_whole() {
-    let matches: Vec<Value> = (0..20).map(|line| json!({"line": line, "value": "v"})).collect();
+    let matches: Vec<Value> = (0..20)
+        .map(|line| json!({"line": line, "value": "v"}))
+        .collect();
     let hit = page(json!({"results": [{"index":0,
         "data": {"files":[{"path":"a","matches":matches}]}}]}));
     assert!(!holds_value_over(&hit, ToolId::LocalSearch, 50));

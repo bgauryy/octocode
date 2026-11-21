@@ -41,7 +41,7 @@ async fn an_exact_lookup_of_a_renamed_repository_warns() {
         out.data["warnings"],
         json_fixture(
             r#"[
-                "Repository o/old was renamed to o/new; leads use the canonical name."
+                "Repository o/old was renamed to o/new: use that name."
             ]"#
         ),
         "{}",

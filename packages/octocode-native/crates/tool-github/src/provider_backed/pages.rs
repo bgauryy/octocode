@@ -82,7 +82,8 @@ async fn a_page_past_the_end_is_out_of_range_not_an_empty_search() {
                 }"#,
             ),
             "files",
-            Some(12),
+            // GitHub's code count is an estimate: never stated as a total.
+            None,
         ),
         (
             "ghSearchRepo",

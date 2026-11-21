@@ -4,7 +4,9 @@
 //! summed, and the plan priced before sending.
 use super::provider_tests::{context, evaluator_of};
 use super::*;
+use crate::judgment::Evaluator;
 use crate::judgment::shared::Evaluations;
+use octocode_contract_types::ErrorCode;
 use octocode_runtime_base::providers::classification::ClassificationProvider as _;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -454,11 +456,9 @@ fn whole_units_take_ceil_n_over_the_group_size_requests() {
         answers.push(values(&judged));
     }
     assert!(answers.windows(2).all(|pair| pair[0] == pair[1]));
-    assert_eq!(
-        super::requests::GROUP_UNITS,
-        1,
-        "the size the fx-k2size A/B kept"
-    );
+    // The shipped size shares requests: a page of whole units is fewer
+    // requests than units.
+    const { assert!(super::requests::GROUP_UNITS > 1) };
 }
 
 /// Identical units share one entry: one question, every unit reads it.

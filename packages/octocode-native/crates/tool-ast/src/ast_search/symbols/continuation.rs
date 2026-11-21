@@ -50,6 +50,7 @@ fn key_of(
         q.symbol_filter,
         ast_search_query_symbols::kinds(q),
         ast_search_query_symbols::exclude(q),
+        ast_search_query_symbols::include(q),
         ast_search_query_symbols::scan_offset(q),
         q.test_code,
         q.default_excludes.defaults(),
@@ -259,7 +260,6 @@ impl Continuation {
 fn weight(set: &SymbolSet) -> usize {
     let beside_rows = octocode_engine::json_size::bytes_or(
         &(
-            &set.references,
             &set.text_search,
             &set.source_descriptors,
             &set.diagnostics,

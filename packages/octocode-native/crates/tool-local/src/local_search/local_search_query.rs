@@ -1,7 +1,7 @@
 use octocode_contract_types::{
-    CaseMode, DefaultExcludes, LocalSearchQuery, LocalSearchQueryContent, LocalSearchQueryFiles,
-    LocalSearchQueryFilesView, LocalSearchQueryMatchOnly, LocalSearchSort,
-    LocalSearchSortAnyOrderBy, RegexEngine, TextMatchTerms,
+    CaseMode, DefaultExcludes, LocalSearchBy, LocalSearchQuery, LocalSearchQueryContent,
+    LocalSearchQueryFiles, LocalSearchQueryFilesView, LocalSearchQueryMatchOnly, LocalSearchSort,
+    RegexEngine, TextMatchTerms,
 };
 use octocode_engine::num::saturating_u32;
 use octocode_engine::types::{SearchContext, SearchSort};
@@ -131,28 +131,6 @@ pub(crate) fn file_lacks(q: &LocalSearchQuery) -> Vec<String> {
         file_lacks.iter().map(ToString::to_string).collect()
     )
 }
-pub(crate) fn has_classification(q: &LocalSearchQuery) -> bool {
-    match q {
-        LocalSearchQuery::Content(LocalSearchQueryContent { classification, .. }) => {
-            classification.is_some()
-        }
-        LocalSearchQuery::MatchOnly(LocalSearchQueryMatchOnly { classification, .. }) => {
-            classification.is_some()
-        }
-        _ => false,
-    }
-}
-pub(crate) fn selection(q: &LocalSearchQuery) -> Option<&str> {
-    match q {
-        LocalSearchQuery::Content(LocalSearchQueryContent { selection, .. }) => {
-            selection.as_deref().map(String::as_str)
-        }
-        LocalSearchQuery::MatchOnly(LocalSearchQueryMatchOnly { selection, .. }) => {
-            selection.as_deref().map(String::as_str)
-        }
-        _ => None,
-    }
-}
 pub(crate) fn context(q: &LocalSearchQuery) -> SearchContext {
     match q {
         LocalSearchQuery::Content(LocalSearchQueryContent {
@@ -223,20 +201,24 @@ pub(crate) fn sort_time_key(q: &LocalSearchQuery) -> Option<&'static str> {
 pub(crate) fn sort(q: &LocalSearchQuery) -> SearchSort {
     match sort_of(q) {
         LocalSearchSort::AscOnly(_) => SearchSort::Traversal,
-        LocalSearchSort::AnyOrder(any) => match any.by {
-            LocalSearchSortAnyOrderBy::MatchCount => SearchSort::MatchCount,
-            LocalSearchSortAnyOrderBy::Path => SearchSort::Path,
-            LocalSearchSortAnyOrderBy::ModifiedAt => SearchSort::Modified,
-            LocalSearchSortAnyOrderBy::AccessedAt => SearchSort::Accessed,
-            LocalSearchSortAnyOrderBy::CreatedAt => SearchSort::Created,
+        // The ascending form's one key is the path.
+        LocalSearchSort::Ascending(_) => SearchSort::Path,
+        LocalSearchSort::Descending(measure) => match measure.by {
+            LocalSearchBy::MatchCount => SearchSort::MatchCount,
+            LocalSearchBy::ModifiedAt => SearchSort::Modified,
+            LocalSearchBy::AccessedAt => SearchSort::Accessed,
+            LocalSearchBy::CreatedAt => SearchSort::Created,
         },
     }
 }
 pub(crate) fn reverse(q: &LocalSearchQuery) -> Option<bool> {
-    let descending = match sort_of(q) {
-        LocalSearchSort::AnyOrder(any) => any.order == octocode_contract_types::SortOrder::Desc,
-        LocalSearchSort::AscOnly(_) => false,
+    // The typed sort always holds its order: the key's own when omitted.
+    let order = match sort_of(q) {
+        LocalSearchSort::Ascending(named) => named.order,
+        LocalSearchSort::Descending(measure) => measure.order,
+        LocalSearchSort::AscOnly(_) => octocode_contract_types::SortOrder::Asc,
     };
+    let descending = order == octocode_contract_types::SortOrder::Desc;
     Some(descending != (sort(q) == SearchSort::MatchCount))
 }
 pub(crate) fn pattern(q: &LocalSearchQuery) -> &str {
@@ -382,9 +364,6 @@ pub(crate) fn as_written(
     each_fresh_row(calls, &restate);
 }
 
-pub(super) fn uses_context(view: View) -> bool {
-    view == View::Content
-}
 pub(super) fn shows_span_columns(q: &LocalSearchQuery) -> bool {
     view(q) == View::MatchOnly
 }

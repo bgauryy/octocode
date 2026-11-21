@@ -155,7 +155,6 @@ pub(super) fn paused_row(
         unique_values: None,
         files: Vec::new(),
         pagination: None,
-        selection: None,
         hints: Vec::new(),
         next: Some(octocode_runtime_base::response::collection::walk_calls(
             octocode_runtime_base::id::ToolId::LocalSearch,
@@ -165,7 +164,7 @@ pub(super) fn paused_row(
         is_partial: true,
         terminal_limit: false,
         warnings: vec![format!(
-            "The PCRE2 (regex:\"pcre2\") search paused at its time budget after {position} files in walk order (matchCount and filesScanned count those): the result ranks every file in scope, so files are listed once the search ends; `next.nextPage` resumes it there."
+            "The PCRE2 (regex:\"pcre2\") search paused at its time budget after {position} files in walk order (matchCount and filesScanned count those): the result ranks every file in scope, so files are listed once the search ends; `the reply's next` resumes it there."
         )],
         skipped_paths: None,
         source_snapshot: None,

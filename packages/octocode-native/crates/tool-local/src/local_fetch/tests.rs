@@ -46,6 +46,7 @@ impl PathAccess for Paths {
                     search_root: None,
                     view_tree: None,
                     corrected: None,
+                    listing_entry: false,
                 })
             })
     }
@@ -92,7 +93,7 @@ pub(super) fn fetch_with(
     paths: &impl PathAccess,
     scan: &impl octocode_runtime_base::security::scan::ContentScan,
 ) -> LocalFetchResult {
-    execute_local_fetch(req, paths, scan, &NeverCancel, None, None)
+    execute_local_fetch(req, paths, scan, &NeverCancel, None, false)
 }
 
 pub(super) fn q(path: &Path) -> LocalFetchQuery {
@@ -129,7 +130,7 @@ pub(super) fn walk_exactly_once_with(
     let mut query = query.clone();
     let (mut pages, mut placed) = (Vec::new(), Vec::new());
     loop {
-        let read = execute_local_fetch(&query, paths, scan, &NeverCancel, window, None);
+        let read = execute_local_fetch(&query, paths, scan, &NeverCancel, window, false);
         assert_eq!(read.status, ReadStatus::Success, "{read:?}");
         let page = read.pagination.as_ref().expect("pagination");
         let at = match page.unit {
@@ -162,8 +163,8 @@ pub(super) fn walk_exactly_once_with(
         // The wire states the walk: `hasMore` exactly when a next call
         // exists.
         let wire = serde_json::to_value(&read).expect("row");
-        // Q4: a page showing every match of the view's last long line leaves
-        // the rest of that line to an optional read of the whole line.
+        // Q4: a page showing every match of a long line leaves the rest of
+        // that line to an optional read of the whole line.
         let rest = read
             .warnings
             .iter()
@@ -180,40 +181,33 @@ pub(super) fn walk_exactly_once_with(
         );
         pages.push((at, text));
         assert!(pages.len() < 2_000, "the walk ends");
+        if let Some(rest) = rest {
+            // The page shows every match window of one long line: the rest
+            // of that line is its optional read, whose walk is the line
+            // once, this page's windows again among it. The required pages
+            // go on after the line.
+            let shown = placed.split_off(mark);
+            let first = shown.iter().map(|(at, _)| *at).min().expect("a window");
+            let line_start = view[..first].rfind('\n').map_or(0, |at| at + 1);
+            let line_end = view[first..]
+                .find('\n')
+                .map_or(view.len(), |at| first + at + 1);
+            assert!(
+                shown
+                    .iter()
+                    .all(|(at, len)| *at >= line_start && at + len <= line_end),
+                "the windows lie in one line"
+            );
+            pages.extend(walk_exactly_once_with(
+                &rest.query,
+                paths,
+                scan,
+                window,
+                &view[line_start..line_end],
+            ));
+            placed.push((line_start, line_end - line_start));
+        }
         let Some(next) = next else {
-            if let Some(rest) = rest {
-                // The read ends on the line: what came before it was walked
-                // once, and the line's read walks the line once, this page's
-                // windows again among it.
-                let shown = placed.split_off(mark);
-                let first = shown.iter().map(|(at, _)| *at).min().expect("a window");
-                let line_start = view[..first].rfind('\n').map_or(0, |at| at + 1);
-                assert!(
-                    shown
-                        .iter()
-                        .all(|(at, len)| *at >= line_start && at + len <= view.len()),
-                    "the windows lie in the last line"
-                );
-                assert!(
-                    !view[line_start..view.len() - 1].contains('\n'),
-                    "the line is the view's last"
-                );
-                placed.sort_unstable();
-                let mut end = 0;
-                for (at, len) in placed {
-                    assert_eq!(at, end, "no gap and no byte twice before the line");
-                    end = at + len;
-                }
-                assert_eq!(end, line_start, "every byte before the line once");
-                pages.extend(walk_exactly_once_with(
-                    &rest.query,
-                    paths,
-                    scan,
-                    window,
-                    &view[line_start..],
-                ));
-                return pages;
-            }
             break;
         };
         query = next.query;
@@ -282,7 +276,6 @@ fn hit_lines(t: &Fixture, lines: usize, hits: &[usize]) -> (Paths, LocalFetchQue
 
 const PY_TWO: &str = "import os\n\ndef first(a):\n    x = 1\n    return a\n\n\ndef second(b):\n    if b:\n        return first(1)\n    return 2\n";
 
-mod classified;
 mod compact_literals;
 mod continuations;
 mod declarations;

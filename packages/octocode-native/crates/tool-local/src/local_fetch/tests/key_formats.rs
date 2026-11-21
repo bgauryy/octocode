@@ -20,7 +20,7 @@ fn all_pages_with(
 ) -> String {
     let mut out = String::new();
     for _ in 0..200 {
-        let result = execute_local_fetch(&query, paths, scan, &NeverCancel, budget, None);
+        let result = execute_local_fetch(&query, paths, scan, &NeverCancel, budget, false);
         out.push_str(result.content.as_deref().unwrap_or_default());
         match result.next.and_then(|next| next.continue_window) {
             Some(next) => query = next.query,

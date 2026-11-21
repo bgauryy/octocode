@@ -201,8 +201,7 @@ fn skipped_hint_respects_the_query_include() {
         &root.0,
         json!({"operation":"match","path":root.0,"include":[".github/**"],"parser":"python","rule":{"pattern":"class $N(Exception): $$$B"}}),
     );
-    let hint = out["warnings"].to_string();
-    assert!(hint.contains("Skipped paths (1 hidden)"), "{hint}");
+    super::test_rows::assert_unsearched(&out, &[octocode_tools_shared::empty_walk::Cause::Hidden]);
     let skipped = out["skippedPaths"].to_string();
     assert!(skipped.contains(".github"), "{out}");
     assert!(!skipped.contains(".spin"), "{out}");
@@ -438,7 +437,8 @@ fn a_bodiless_pattern_with_no_hit_hints_and_counts_the_fuller_declaration() {
 }
 
 /// Nothing behind the skipped paths is read, so the lead is never narrowed
-/// to a part of them; its disclosure says it walks all they hide.
+/// to a part of them: its disclosure names the ledger and the one request
+/// that searches all of it, by the flags that request sets.
 #[test]
 fn an_empty_match_says_its_lead_walks_everything_the_causes_hide() {
     let root = Fixture::new();
@@ -448,8 +448,18 @@ fn an_empty_match_says_its_lead_walks_everything_the_causes_hide() {
     }
     let request = json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"hit($A)"}});
     let out = run(&root.0, request);
-    let warnings = out["warnings"].to_string();
-    assert!(warnings.contains("were not searched"), "{out}");
+    super::test_rows::assert_unsearched(
+        &out,
+        &[octocode_tools_shared::empty_walk::Cause::DefaultExcluded],
+    );
+    // One excluded directory is one ledger entry, whatever it holds.
+    let entries = out["skippedPaths"]["entries"].as_array().expect("ledger");
+    assert!(
+        matches!(entries.as_slice(), [entry] if entry["path"].as_str().is_some_and(|path| path.ends_with("dist"))),
+        "{out}"
+    );
+    assert_eq!(out["status"], "empty", "{out}");
+    let warnings = out["hints"].to_string();
     // The hint names the lead as the response carries it: the related[]
     // request, by the flags it sets (related[] rows carry no name).
     let lead =
@@ -462,8 +472,5 @@ fn an_empty_match_says_its_lead_walks_everything_the_causes_hide() {
         .collect::<Vec<_>>()
         .join(", ");
     assert!(!flags.is_empty(), "{out}");
-    assert!(
-        warnings.contains(&format!("The related[] request with {flags} walks")),
-        "{flags}: {out}"
-    );
+    assert!(warnings.contains(&format!("({flags})")), "{flags}: {out}");
 }

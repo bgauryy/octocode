@@ -1280,7 +1280,7 @@ const COMMIT: &str = "6879efc2c1596d11a6a6ad296f80063b558d5e0f";
 #[tokio::test]
 async fn an_empty_commit_answer_never_reads_as_clean() {
     let http = RouteHttp::new().osv_pages(vec![(200, json!({}))]);
-    let data = answer(&http, json!({"operation": "commit", "commitSha": COMMIT}))
+    let data = answer(&http, json!({"operation": "commit", "ref": COMMIT}))
         .await
         .expect("row");
     assert!(data.get("status").is_none(), "{data}");
@@ -1317,7 +1317,7 @@ async fn a_found_commit_says_so_and_the_repo_stays_local() {
     let http = RouteHttp::new().osv_pages(vec![(200, json!({"vulns": [record.clone()]}))]);
     let data = answer(
         &http,
-        json!({"operation": "commit", "commitSha": COMMIT, "repo": "https://github.com/harfbuzz/harfbuzz.git"}),
+        json!({"operation": "commit", "ref": COMMIT, "owner": "harfbuzz", "repo": "harfbuzz"}),
     )
     .await
     .expect("row");
@@ -1340,7 +1340,7 @@ async fn a_found_commit_says_so_and_the_repo_stays_local() {
     let http = RouteHttp::new().osv_pages(vec![(200, json!({"vulns": [record]}))]);
     let data = answer(
         &http,
-        json!({"operation": "commit", "commitSha": COMMIT, "repo": "https://example.test/o/r"}),
+        json!({"operation": "commit", "ref": COMMIT, "owner": "o", "repo": "r"}),
     )
     .await
     .expect("row");
@@ -1354,17 +1354,15 @@ async fn a_found_commit_says_so_and_the_repo_stays_local() {
 fn a_commit_is_one_full_hash() {
     let validates =
         |row: Value| octocode_runtime_base::contracts::validate_query("securityCheck", row).is_ok();
-    assert!(validates(
-        json!({"operation": "commit", "commitSha": COMMIT})
-    ));
+    assert!(validates(json!({"operation": "commit", "ref": COMMIT})));
     for short in ["6879efc", "nothex", ""] {
         assert!(
-            !validates(json!({"operation": "commit", "commitSha": short})),
+            !validates(json!({"operation": "commit", "ref": short})),
             "{short}"
         );
     }
     assert!(!validates(
-        json!({"operation": "commit", "commitSha": COMMIT, "version": "1.0"})
+        json!({"operation": "commit", "ref": COMMIT, "version": "1.0"})
     ));
 }
 
@@ -1413,7 +1411,7 @@ async fn rows_hold_to_the_output_contract() {
     .expect("package row");
     assert_row_contract(ToolId::SecurityCheck, &package);
     let http = RouteHttp::new().osv_pages(vec![(200, json!({"vulns": [pysec.clone()]}))]);
-    let commit = answer(&http, json!({"operation": "commit", "commitSha": COMMIT}))
+    let commit = answer(&http, json!({"operation": "commit", "ref": COMMIT}))
         .await
         .expect("commit row");
     assert_row_contract(ToolId::SecurityCheck, &commit);
@@ -1459,7 +1457,7 @@ async fn rows_hold_to_the_output_contract() {
         json_fixture(
             r#"{
                 "operation": "package",
-                "ecosystem": "Go",
+                "ecosystem": "go",
                 "packageName": "golang.org/x/net/http2",
                 "version": "v0.1.0"
             }"#,
@@ -1678,7 +1676,7 @@ async fn an_advisory_osv_lacks_is_read_whole_from_its_repository() {
     let data = answer_on_github(
         &http,
         &github,
-        json!({"operation": "advisory", "id": id, "repo": "o/r"}),
+        json!({"operation": "advisory", "id": id, "owner": "o", "repo": "r"}),
     )
     .await
     .expect("GitHub's record");
@@ -1889,7 +1887,7 @@ async fn a_repo_github_does_not_have_is_named_not_read_as_no_advisory() {
     let error = answer_on_github(
         &RouteHttp::new(),
         &github,
-        json!({"operation": "advisory", "id": id, "repo": "o/gone"}),
+        json!({"operation": "advisory", "id": id, "owner": "o", "repo": "gone"}),
     )
     .await
     .expect_err("no source has it");
@@ -1966,7 +1964,7 @@ async fn an_anonymous_github_read_is_marked_on_its_github_source() {
         let repository = answer_on_github(
             &RouteHttp::new(),
             &github,
-            json_fixture(r#"{"operation": "repository", "repo": "o/gone"}"#),
+            json_fixture(r#"{"operation": "repository", "owner": "o", "repo": "gone"}"#),
         )
         .await
         .expect("a repository row");
@@ -2064,14 +2062,14 @@ fn a_lead_another_lead_already_holds_is_dropped() {
     for narrower_first in [false, true] {
         let mut data = json_fixture(r#"{"answer": "lodash@4.17.15 is affected."}"#);
         if narrower_first {
-            super::answer::advisory_calls(&mut data, "globalAdvisories", &ids[3..], &brief);
-            super::answer::advisory_calls(&mut data, "readWhole", &ids, &brief);
+            super::answer::advisory_calls(&mut data, "globalAdvisories", &ids[3..], &brief, false);
+            super::answer::advisory_calls(&mut data, "readWhole", &ids, &brief, false);
         } else {
-            super::answer::advisory_calls(&mut data, "readWhole", &ids, &brief);
-            super::answer::advisory_calls(&mut data, "globalAdvisories", &ids[3..], &brief);
+            super::answer::advisory_calls(&mut data, "readWhole", &ids, &brief, false);
+            super::answer::advisory_calls(&mut data, "globalAdvisories", &ids[3..], &brief, false);
         }
         // A lead asking an id no other lead asks stays.
-        super::answer::advisory_calls(&mut data, "other", &["GHSA-8p5q-j9m2-g8wr"], &brief);
+        super::answer::advisory_calls(&mut data, "other", &["GHSA-8p5q-j9m2-g8wr"], &brief, false);
         octocode_runtime_base::response::result::finish_calls(&mut data);
         let asked = data["related"]
             .as_array()
@@ -2120,7 +2118,7 @@ async fn a_github_read_that_fails_beside_one_found_is_stated_on_the_entry() {
     let data = answer_on_github(
         &RouteHttp::new(),
         &github,
-        json!({"operation": "advisory", "id": id, "repo": "o/r"}),
+        json!({"operation": "advisory", "id": id, "owner": "o", "repo": "r"}),
     )
     .await
     .expect("GitHub's record");

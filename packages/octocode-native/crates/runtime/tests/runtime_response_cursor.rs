@@ -29,10 +29,7 @@ async fn walk(
             .expect("page");
         assert_ne!(result["isError"], true, "{result}");
         let payload = support::mcp_payload(&result);
-        let pagination = payload["responsePagination"].clone();
-        if !pages.is_empty() || pagination.is_object() {
-            assert_ne!(pagination["restart"], true, "{pagination}");
-        }
+        let pagination = payload.clone();
         pages.push(result);
         if pagination["next"].is_null() {
             break;
@@ -72,7 +69,7 @@ async fn mcp_walks_every_captured_line_following_only_the_cursor() {
         .await
         .expect("unpaged");
     let whole = support::mcp_payload(&whole);
-    assert!(whole.get("responsePagination").is_none(), "{whole}");
+    assert!(whole.get("next").is_none(), "{whole}");
     let mut expected = Vec::new();
     captured(&whole["results"], &mut expected);
     expected.sort();
@@ -116,7 +113,7 @@ async fn the_cursor_walks_saved_pages_across_persistent_restarts() {
     let mut seen = Vec::new();
     let first_payload = support::mcp_payload(&first);
     captured(&first_payload["results"], &mut seen);
-    let mut pagination = first_payload["responsePagination"].clone();
+    let mut pagination = first_payload.clone();
     let mut pages = 1;
     while pagination["next"].is_object() {
         pages += 1;
@@ -133,7 +130,7 @@ async fn the_cursor_walks_saved_pages_across_persistent_restarts() {
             .expect("saved page");
         runtime.close().await;
         captured(&support::mcp_payload(&page)["results"], &mut seen);
-        pagination = support::mcp_payload(&page)["responsePagination"].clone();
+        pagination = support::mcp_payload(&page).clone();
         assert_eq!(pagination["replayed"], true, "{pagination}");
     }
     seen.sort();
@@ -146,7 +143,7 @@ async fn the_cursor_walks_saved_pages_across_persistent_restarts() {
 
 /// The `nextPage` lead of `result`'s first row.
 fn next_page(result: &Value) -> Value {
-    support::mcp_payload(result)["results"][0]["data"]["next"]["nextPage"]["input"].clone()
+    support::mcp_payload(result)["next"]["input"].clone()
 }
 
 /// The same continuation issued twice (two identical requests, as a lead a
@@ -227,7 +224,7 @@ async fn later_pages(
         .expect("first page")
         .structured_content
         .into_value();
-    let mut next = first.pointer("/responsePagination/next/input").cloned();
+    let mut next = first.pointer("/next/input").cloned();
     let mut pages = Vec::new();
     while let Some(mut input) = next {
         assert!(pages.len() < 200, "the walk terminates");
@@ -250,7 +247,7 @@ async fn later_pages(
             .structured_content
             .into_value();
         pages.push((page["results"].clone(), page["warnings"].clone()));
-        next = page.pointer("/responsePagination/next/input").cloned();
+        next = page.pointer("/next/input").cloned();
     }
     runtime.close().await;
     pages
@@ -445,7 +442,7 @@ async fn a_repaired_response_still_refuses_changed_source_after_eviction() {
         .await
         .expect("first page")
         .structured_content;
-    let next = first["responsePagination"]["next"]["input"].clone();
+    let next = first["next"]["input"].clone();
     support::assert_cursor_only(&next);
     runtime.close().await;
     for entry in std::fs::read_dir(workspace.home.join("tmp/response-pages"))
@@ -486,7 +483,7 @@ async fn a_cursor_call_refuses_another_field_beside_it() {
         .expect("first page")
         .structured_content
         .into_value();
-    let next = first["responsePagination"]["next"]["input"].clone();
+    let next = first["next"]["input"].clone();
     support::assert_cursor_only(&next);
     for (field, value) in [
         ("path", json!(workspace.write("other.txt", source()))),

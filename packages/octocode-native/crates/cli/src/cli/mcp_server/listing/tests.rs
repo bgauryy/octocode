@@ -90,9 +90,8 @@ fn instructions_are_core_s_composition_for_the_listed_tools() {
             .instructions;
         assert_eq!(
             text,
-            // Selection is on: the Clasify block explains the option.
             octocode_runtime_base::contracts::compose_instructions(presentation(), |name| {
-                available.contains(&name) || name == "clasify"
+                available.contains(&name)
             }),
             "{available:?}"
         );
@@ -119,23 +118,6 @@ fn lsp_search_names_the_resolved_language_servers() {
         description.contains(" Servers found here: rust, ts/js.</when>"),
         "{description}"
     );
-}
-
-#[test]
-fn selection_lists_the_context_selection_variant() {
-    let plain = catalog(
-        &["localSearch"],
-        json_fixture(r#"{"selection": false}"#),
-        json!([]),
-    );
-    let ranked = catalog(
-        &["localSearch"],
-        json_fixture(r#"{"selection": true}"#),
-        json!([]),
-    );
-    let plain = build(presentation(), &plain).expect("plain").tools;
-    let ranked = build(presentation(), &ranked).expect("ranked").tools;
-    assert_ne!(plain[0]["inputSchema"], ranked[0]["inputSchema"]);
 }
 
 #[test]
@@ -252,39 +234,4 @@ fn no_listed_tool_repeats_the_instructions() {
             }
         }
     }
-}
-
-/// The Clasify block follows the predicate that shows the `classification`
-/// option (`presentation.selection`), not whether `clasify` itself is
-/// listed: a tool filter that hides clasify leaves the option on the read
-/// tools, and the block that explains it stays. No selection, no block.
-#[test]
-fn the_clasify_block_follows_selection_not_the_clasify_listing() {
-    let block = presentation()["instructions"]["blocks"]
-        .as_array()
-        .expect("blocks")
-        .iter()
-        .find(|block| block["tool"] == "clasify")
-        .and_then(|block| block["text"].as_str())
-        .expect("clasify block")
-        .to_owned();
-    let read = ["localSearch", "localFetch"];
-    let on = build(
-        presentation(),
-        &catalog(&read, json_fixture(r#"{"selection": true}"#), json!([])),
-    )
-    .expect("listing");
-    assert!(!names(&on.tools).contains(&"clasify"));
-    assert!(on.instructions.contains(&block), "selection on");
-    let off = build(
-        presentation(),
-        &catalog(&read, json_fixture(r#"{"selection": false}"#), json!([])),
-    )
-    .expect("listing");
-    assert!(!off.instructions.contains(&block), "no selection");
-    assert!(
-        on.instructions.chars().count() < 4096,
-        "{}",
-        on.instructions.chars().count()
-    );
 }

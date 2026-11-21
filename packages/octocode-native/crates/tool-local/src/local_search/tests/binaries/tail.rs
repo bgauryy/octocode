@@ -104,7 +104,6 @@ fn deferred_hit_before_a_large_binary_tail_remains_readable_and_binds_the_tail()
         &security,
         &NeverCancel,
         scan,
-        None,
         &alternates,
     )
     .expect("unchanged binary tail is hashed without buffering it as a line");
@@ -129,7 +128,6 @@ fn deferred_hit_before_a_large_binary_tail_remains_readable_and_binds_the_tail()
         &security,
         &NeverCancel,
         owned_scan,
-        None,
         &alternates,
     )
     .expect("owned page preserves the existing conservative secret guard");

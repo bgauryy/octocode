@@ -99,8 +99,15 @@ pub(in super::super) fn annotate_empty_includes(
     row: &mut Value,
     query: &LspSearchQuery,
     rust: super::super::receipt::RustAnalysis,
+    resolved: Option<super::super::scope::AnchorResolved>,
     stopped: &dyn Fn() -> bool,
 ) {
+    use super::super::scope::AnchorResolved;
+    // The server names the anchor's type and shows no declaration of it: the
+    // type has none in source, so no unloaded include explains the answer.
+    if resolved == Some(AnchorResolved::Type) {
+        return;
+    }
     if let Some(path) = lsp_search_query::path(query) {
         // Incoming rows get the evidence-based include disclosure instead
         // (see `server_coverage`).
@@ -114,8 +121,11 @@ pub(in super::super) fn annotate_empty_includes(
         // The crate that defines the name decides: a name an outside
         // include! declares (in the anchor's crate or one it depends on)
         // never resolves, whatever build scripts the anchor's crate has.
-        if let Some(name) =
-            lsp_search_query::symbol_name(query).filter(|name| !name.trim().is_empty())
+        // A name the server places in source it loaded is not the one an
+        // outside include declares, though both are spelled alike.
+        if resolved != Some(AnchorResolved::Name)
+            && let Some(name) =
+                lsp_search_query::symbol_name(query).filter(|name| !name.trim().is_empty())
             && let Some(found) =
                 super::super::server_coverage::include_declaring(&anchor, name, stopped)
         {

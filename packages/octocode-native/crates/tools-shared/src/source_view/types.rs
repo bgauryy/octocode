@@ -107,6 +107,11 @@ pub struct DeclaredBlock {
     pub symbol_name: String,
     pub line: usize,
     pub end_line: usize,
+    /// The first line of the doc comment and attribute run the read shows
+    /// above the name line: where the declaration's lines start in
+    /// `content`. `None` when they start at the name line.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub doc_start_line: Option<usize>,
 }
 
 /// What the caller knows about a read besides its bytes.

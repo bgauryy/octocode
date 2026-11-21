@@ -19,11 +19,13 @@ mod union;
 
 pub use issues::levenshtein;
 use issues::{internal, issue, query_label, schema_issue, sibling_requirement};
+#[cfg(test)]
+pub(crate) use messages::FOREIGN_WORDS;
 pub use messages::{format_input_error, tool_error};
 pub use output::validate_output;
 pub(crate) use output::validate_output_in_place;
-pub(crate) use repair::{literal_reading, queries as repair_queries, repaired_value, same_name};
-pub(crate) use schema::{pattern_matches, tool_query_fields};
+pub(crate) use repair::{lenient_value, literal_reading, queries as repair_queries};
+pub(crate) use schema::tool_query_pair;
 use schema::validate_input_schema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

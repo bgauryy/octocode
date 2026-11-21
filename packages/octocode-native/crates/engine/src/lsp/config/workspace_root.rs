@@ -1,4 +1,4 @@
-use crate::text::extension_of;
+use crate::text::{JS_EXTENSIONS, extension_of};
 use serde_json::Value;
 use std::path::Path;
 
@@ -255,9 +255,6 @@ impl ProjectFiles {
                 .is_some_and(|set| set.is_match(relative))
     }
 }
-
-/// JavaScript file extensions a tsconfig compiles only with `allowJs`.
-const JS_EXTENSIONS: &[&str] = &["js", "jsx", "mjs", "cjs"];
 
 /// Whether the tsconfig `text` (read from `root`) compiles JavaScript: it
 /// or a config it `extends` (relative paths, read as text: a shared base is

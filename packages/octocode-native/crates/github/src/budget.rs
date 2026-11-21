@@ -28,6 +28,7 @@ pub use config::LimiterKey;
 pub(crate) use config::{ExecutorConfig, GitHubResource, Group};
 pub use key_state::AuthAdmission;
 pub(crate) use key_state::{Admission, KeyState};
+pub(crate) use slots::WaitLimit;
 pub(crate) use waits::ClientWaits;
 
 /// Admission of clone subprocesses (network `git`) under the shared

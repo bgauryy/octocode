@@ -462,6 +462,62 @@ impl Graph {
 }
 
 impl Graph {
+    /// The stored edges that join the same two nodes with the same kind as
+    /// `edge` and that `filter` admits: the snapshot keeps one per detail
+    /// (`import { type T, v }` is a `type-import` and a `static-import`).
+    fn parallel<'a>(
+        &'a self,
+        edge: &'a EdgeRec,
+        filter: &'a EdgeFilter,
+    ) -> impl Iterator<Item = &'a EdgeRec> + 'a {
+        self.t
+            .out(edge.src)
+            .iter()
+            .filter(move |other| other.dst == edge.dst && other.kind == edge.kind)
+            .filter(move |other| filter.admits(other))
+    }
+
+    /// The edge that states the connection `edge` belongs to: the strongest
+    /// of its parallel edges ([`crate::ast_graph::edges::strength`]), so the
+    /// order the edges are stored or walked in never decides the kind an
+    /// answer names. `edge` itself when none is stronger.
+    pub(super) fn strongest<'a>(
+        &'a self,
+        edge: &'a EdgeRec,
+        filter: &'a EdgeFilter,
+    ) -> &'a EdgeRec {
+        let strength = |e: &EdgeRec| crate::ast_graph::edges::strength(self.t.str(e.detail));
+        self.parallel(edge, filter)
+            .filter(|other| strength(other) < strength(edge))
+            .min_by_key(|other| strength(other))
+            .unwrap_or(edge)
+    }
+
+    /// The source occurrences behind the whole connection `edge` belongs
+    /// to: every parallel edge's, so the count is the witnesses an agent
+    /// can list for the two nodes.
+    pub(super) fn connection_sites(
+        &self,
+        edge: &EdgeRec,
+        filter: &EdgeFilter,
+        cancel: &dyn octocode_runtime_base::execution::cancel::CancellationCheck,
+    ) -> Result<u64, GraphOutput> {
+        let sites = self.sites(cancel)?;
+        let mut total = 0;
+        let mut counted = false;
+        for other in self.parallel(edge, filter) {
+            counted |= other == edge;
+            total += sites.behind(other, filter.tests);
+        }
+        // An edge the walk reached outside the stored out-edges of its
+        // source (a re-export hop) counts as itself.
+        Ok(if counted {
+            total
+        } else {
+            sites.behind(edge, filter.tests)
+        })
+    }
+
     /// The files that use an export of `file` through a re-exporting
     /// module: `uses` edges resolved through a re-export into a symbol
     /// `file` declares, from another file.

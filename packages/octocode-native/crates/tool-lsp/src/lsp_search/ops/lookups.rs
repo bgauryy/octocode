@@ -91,8 +91,8 @@ impl Operation<'_, '_> {
         )
         .await?;
         let source = self.source_definition(&found).await;
-        let mut row = if found.is_empty() && withheld > 0 {
-            super::super::locations::withheld(query, withheld)
+        let mut row = if found.is_empty() && !withheld.is_empty() {
+            super::super::locations::withheld(query, &withheld, self.sources.policy())
         } else {
             self.locations("definition", "definitionProvider", found)
                 .await
@@ -264,26 +264,12 @@ impl Operation<'_, '_> {
             .map(public_workspace_symbol)
             .collect::<Vec<_>>();
         rank_workspace_symbols(&mut symbols, &name);
-        let document_anchor = if self.root_only {
-            symbols
-                .first()
-                .and_then(|symbol| symbol["path"].as_str())
-                .filter(|path| std::path::Path::new(path).is_file())
-        } else {
-            Some(self.path)
-        }
-        .map(str::to_owned);
         let mut row = items_payload(query, "symbols", json!(symbols), self.budget);
         if self.root_only {
             self.state_directory_route(&mut row, &name);
         }
         super::super::server_coverage::workspace_symbols(
-            &mut row,
-            query,
-            &name,
-            self.scope,
-            document_anchor.as_deref(),
-            capped_at,
+            &mut row, query, &name, self.scope, capped_at,
         );
         Ok(row)
     }
@@ -308,7 +294,9 @@ impl Operation<'_, '_> {
             if let Some(lead) = lsp_search_query::workspace_symbol_lead(name, &file, None) {
                 octocode_runtime_base::response::result::attach_related(
                     row,
+                    // No other call searches this language's sources.
                     octocode_runtime_base::response::result::Continuation::related_query(lead)
+                        .required()
                         .build(),
                 );
             }
@@ -317,7 +305,7 @@ impl Operation<'_, '_> {
             octocode_runtime_base::response::paging::push_warnings(
                 row,
                 [format!(
-                    "This directory search used the {searched} server; its {} sources were not searched (related).",
+                    "This directory search used the {searched} server; its {} sources were not searched: a related search asks each.",
                     others.join(", ")
                 )],
             );

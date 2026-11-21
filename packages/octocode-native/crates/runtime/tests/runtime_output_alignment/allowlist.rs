@@ -23,9 +23,9 @@ const WAVE_4: &[&str] = &[
     "B1 state | localFetch | - outOfRange: error",
     "B2 continuation | clasify | outside next: resources.long.read",
     "B6 format | artifactSearch | timestamp artifacts[].publishedAt: date only",
-    "B6 format | ghGetHistoryItem | timestamp responsePagination.expiresAt: fraction of a second",
-    "B6 format | ghSearchHistory | timestamp responsePagination.expiresAt: fraction of a second",
-    "B6 format | localFetch | timestamp responsePagination.expiresAt: fraction of a second",
+    "B6 format | ghGetHistoryItem | timestamp expiresAt: fraction of a second",
+    "B6 format | ghSearchHistory | timestamp expiresAt: fraction of a second",
+    "B6 format | localFetch | timestamp expiresAt: fraction of a second",
     "B6 format | securityCheck | number advisories[].epss.percentage: more than 3 fraction digits",
     "B6 format | securityCheck | number advisories[].epss.percentile: more than 3 fraction digits",
     "B6 format | securityCheck | timestamp advisories[].modifiedAt: fraction of a second",
@@ -35,7 +35,7 @@ const WAVE_4: &[&str] = &[
     // Source record shown whole as published (RFC D4, data is quality): the
     // provider's own event key order.
     "B8 key order | securityCheck | advisories[].affected[].ranges[].database_specific.extracted_events[]: range and source",
-    "B6 format | securityCheck | timestamp responsePagination.expiresAt: fraction of a second",
+    "B6 format | securityCheck | timestamp expiresAt: fraction of a second",
 ];
 
 /// Rule H candidates the RFC's hoisting table does not rank: uniform on these

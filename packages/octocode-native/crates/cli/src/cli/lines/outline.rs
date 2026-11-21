@@ -3,12 +3,18 @@
 //! lines, an object or a list of objects nested under its key (`- ` leads
 //! each list item), a list of strings one `- ` item per line, numbers and
 //! flags inline. A list whose items all hold the same single field names it
-//! once (`nodes[].node:`); a list of flat rows prints as a [`table`]. A
+//! once (`<list>[].<field>:`); a list of flat rows prints as a [`table`].
+//! (An `astSearch` syntax tree's `nodes` are plain strings, one `- ` item
+//! each; asked with provenance they are `{node, sourceRange}` objects.) A
 //! field every object of a list holds with one single-word value is stated
 //! once after the list's key in `[ … ]` ([`once::item_constants`]). A
 //! top-level block of numbered source lines (`N<TAB>text`, a read's
-//! `content`) prints them unindented: their numbers set them apart. Every
-//! field prints; nothing is clipped.
+//! `content`, with `--` between its windows) prints them unindented: their
+//! numbers set them apart. A piece of a text split over pages (`rowPart.text`
+//! points at it, or the page states `continuesLine`: it opens inside a
+//! source line) prints every line it holds indented under its key, whatever
+//! the piece holds, so the pieces join back exactly ([`piece`]). Every field
+//! prints; nothing is clipped.
 use super::follow::split_stated;
 use super::once;
 use super::table::{is_word, table};
@@ -27,8 +33,45 @@ pub(super) fn generic(row: &Map<String, Value>, query: &Value) -> Row {
     // What a walk skipped reads as the one line every row prints.
     once::skipped_line(&mut shown);
     let mut body = Vec::new();
-    object(&shown, "", &mut body);
+    let split = split_field(row);
+    for (key, value) in &shown {
+        match value {
+            Value::String(text) if split == Some(key.as_str()) => piece(key, text, &mut body),
+            _ => entry(&format!("{key}:"), value, "", &mut body),
+        }
+    }
     tail(query, row, stated, Vec::new(), body)
+}
+
+/// The field of `data` this row holds a piece of: `rowPart.text` points at
+/// the text a page split (`/data/content`), and a page that opens inside a
+/// source line (`continuesLine`) continues its `content`.
+fn split_field(row: &Map<String, Value>) -> Option<&str> {
+    let pointed = row
+        .get("rowPart")
+        .and_then(|part| part.get("text"))
+        .and_then(Value::as_str)
+        .and_then(|pointer| pointer.strip_prefix("/data/"))
+        .filter(|key| !key.contains('/'));
+    let continued = row
+        .get("data")
+        .is_some_and(|data| data.get(CONTINUES_LINE).is_some())
+        .then_some(CONTINUED_FIELD);
+    pointed.or(continued)
+}
+
+/// What a page that opens inside a source line states, and the field whose
+/// text it continues.
+const CONTINUES_LINE: &str = "continuesLine";
+const CONTINUED_FIELD: &str = "content";
+
+/// One piece of a split text: `key: |`, then every line of the piece
+/// indented, a final line break as a last empty line. Each piece prints in
+/// this one layout, so stripping the indent, joining a piece's lines with
+/// line breaks and appending the pieces in order rebuilds the text.
+fn piece(key: &str, text: &str, out: &mut Vec<String>) {
+    out.push(format!("{key}: |"));
+    out.extend(text.split('\n').map(|line| format!("  {line}")));
 }
 
 /// Each field of `fields` at `indent`.
@@ -42,7 +85,9 @@ pub(super) fn object(fields: &Map<String, Value>, indent: &str, out: &mut Vec<St
 fn entry(head: &str, value: &Value, indent: &str, out: &mut Vec<String>) {
     let inner = format!("{indent}  ");
     // Items that all hold the same single field name it once, in the head:
-    // `nodes[].node:`, then each item's value.
+    // `<list>[].<field>:`, then each item's value. (`astSearch` `nodes` are
+    // plain strings, or `{node, sourceRange}` with provenance: neither is
+    // such a list.)
     if let Value::Array(items) = value
         && let Some(key) = head.strip_suffix(':')
         && let Some((field, values)) = only_field(items)
@@ -112,17 +157,30 @@ fn body_lines(text: &str) -> std::str::Split<'_, char> {
     text.strip_suffix('\n').unwrap_or(text).split('\n')
 }
 
+/// What separates the windows of numbered source lines: the line rg prints
+/// between groups.
+const WINDOW_SEPARATOR: &str = "--";
+
 /// The lines of a value that is numbered source lines (`N<TAB>text`, the
-/// value's final line break ending its last line); `None` for any other.
+/// value's final line break ending its last line), one window or several
+/// with [`WINDOW_SEPARATOR`] between them; `None` for any other.
 fn numbered_lines(text: &str) -> Option<Vec<&str>> {
     let lines: Vec<&str> = body_lines(text).collect();
+    let numbered = |line: &str| {
+        line.split_once('\t').is_some_and(|(number, _)| {
+            !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())
+        })
+    };
+    // A separator stands between two source lines, never first or last.
+    let between = |at: usize| {
+        at > 0
+            && lines.get(at - 1).is_some_and(|line| numbered(line))
+            && lines.get(at + 1).is_some_and(|line| numbered(line))
+    };
     lines
         .iter()
-        .all(|line| {
-            line.split_once('\t').is_some_and(|(number, _)| {
-                !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())
-            })
-        })
+        .enumerate()
+        .all(|(at, line)| numbered(line) || (*line == WINDOW_SEPARATOR && between(at)))
         .then_some(lines)
 }
 

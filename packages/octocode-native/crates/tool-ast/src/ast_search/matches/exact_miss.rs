@@ -124,7 +124,7 @@ pub(super) fn exact_miss(
         .find(|file| !file.matches.is_empty())
         .and_then(|file| {
             let path = row_file(scope, &json!({"path": file.path}))?;
-            let bytes = super::super::source::read_parse_source(&path).ok()??;
+            let bytes = scope.parse_source(&path).ok()??;
             let source = super::super::source::matched_text(&path, &bytes)
                 .ok()?
                 .into_owned();
@@ -488,24 +488,24 @@ impl ExactMiss {
                     "The census of {kind} nodes is incomplete ({}), so absence is unproven: it counted no {none_of} in what it read.",
                     cut.as_deref().unwrap_or_default()
                 ),
-                format!("Narrow the path and rerun; {listed}; {syntax}"),
+                joined(&["Narrow the path and rerun", &listed, syntax]),
             ),
             (None, 0) if parent.is_empty() => (
                 "info",
                 format!("The pattern reads as a {kind} node, and the scope holds none."),
-                format!("{}; {syntax}", capitalized(&listed)),
+                capitalized(&joined(&[&listed, syntax])),
             ),
             (None, 0) => (
                 "info",
                 format!(
                     "The scope holds no {kind} node{parent}; the pattern reads as a {kind} node{parent}. Nodes of the kind in other parents were not counted."
                 ),
-                format!("{}; {syntax}", capitalized(&listed)),
+                capitalized(&joined(&[&listed, syntax])),
             ),
             (None, _) => (
                 "warning",
                 format!("{count} {kind} node(s){parent} in {files} file(s) {differ}"),
-                format!("{replace}; {listed}."),
+                format!("{}.", joined(&[replace, &listed])),
             ),
             (Some(Narrowing::Name(name)), 0) => (
                 "info",
@@ -517,14 +517,14 @@ impl ExactMiss {
                         "with other names or parents"
                     }
                 ),
-                format!("{}; {syntax}", capitalized(&listed)),
+                capitalized(&joined(&[&listed, syntax])),
             ),
             (Some(Narrowing::Name(name)), _) => (
                 "warning",
                 format!(
                     "{count} {kind} node(s){parent} named `{name}` in {files} file(s) {differ}"
                 ),
-                format!("{replace}; {listed}."),
+                format!("{}.", joined(&[replace, &listed])),
             ),
             (Some(Narrowing::Text(literal)), 0) => (
                 "info",
@@ -537,7 +537,7 @@ impl ExactMiss {
                     },
                     text(literal)
                 ),
-                format!("{}; {syntax}", capitalized(&listed)),
+                capitalized(&joined(&[&listed, syntax])),
             ),
             (Some(Narrowing::Text(literal)), _) => {
                 let verb = match &wrapper {
@@ -550,7 +550,7 @@ impl ExactMiss {
                         "{count} {kind} node(s) {verb} {}; in {files} file(s), they {differ}",
                         text(literal)
                     ),
-                    format!("{replace}; {listed}."),
+                    format!("{}.", joined(&[replace, &listed])),
                 )
             }
         };
@@ -592,9 +592,20 @@ struct Leads {
     view: Option<Value>,
 }
 
+/// The clauses of a recovery that say something, joined: a clause naming
+/// no call ([`Leads::listed`] with none attached) is left out.
+fn joined(clauses: &[&str]) -> String {
+    clauses
+        .iter()
+        .filter(|clause| !clause.is_empty())
+        .copied()
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 impl Leads {
     /// One clause naming each lead, in key order: "the related call lists
-    /// A", or "the related calls list A, then B".
+    /// A", or "the related calls list A, then B"; empty with no lead.
     fn listed(&self, kind: &str, parent: &str) -> String {
         let every = if parent.is_empty() {
             "every node of the kind".to_owned()
@@ -615,7 +626,7 @@ impl Leads {
         .flatten()
         .collect();
         match phrases.as_slice() {
-            [] => "no related call is attached".to_owned(),
+            [] => String::new(),
             [one] => format!("the related call lists {one}"),
             many => format!("the related calls list {}", many.join(", then ")),
         }

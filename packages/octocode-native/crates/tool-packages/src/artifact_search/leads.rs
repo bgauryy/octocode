@@ -226,71 +226,6 @@ pub(super) fn prerelease_warning(artifact: &ArtifactItem) -> Option<String> {
     })
 }
 
-/// The leads of an exact row whose repository is on GitHub: the
-/// ghStructure tree at the package's directory. A published entry point is
-/// not a source path (a built package names output the repository lacks), so
-/// only the directory the registry records for the package is led to. With a release ref the tree lead is
-/// `viewReleaseSource`; the default-branch tree is that lead without `ref`,
-/// so no second tree lead restates it. The row states how its ref was
-/// checked (`verification`); its leads do not repeat it.
-pub(super) fn source_leads(artifact: &ArtifactItem) -> Map<String, Value> {
-    let mut leads = Map::new();
-    let Some((owner, repo)) = artifact.repository.as_deref().and_then(github_slug) else {
-        return leads;
-    };
-    let (owner, repo) = match artifact.repository_status {
-        Some(RepositoryStatus::Missing) => return leads,
-        // GitHub redirects the registry's link: the lead names the
-        // repository as GitHub does now, when its metadata named it.
-        Some(RepositoryStatus::Moved) => artifact
-            .successor_repository
-            .as_deref()
-            .and_then(|successor| successor.split_once('/'))
-            .map_or((owner, repo), |(owner, repo)| {
-                (owner.to_owned(), repo.to_owned())
-            }),
-        None => (owner, repo),
-    };
-    let directory = artifact
-        .repository_directory
-        .as_deref()
-        .filter(|directory| !directory.is_empty());
-    // The root at depth one is ghStructure's default listing.
-    let at = octocode_tools_shared::gh_shared::RepoPath {
-        owner: &owner,
-        repo: &repo,
-        path: directory.unwrap_or_default(),
-        reference: artifact.source_ref.as_deref(),
-    };
-    let name = if at.reference.is_some() {
-        "viewReleaseSource"
-    } else {
-        "viewRepo"
-    };
-    leads.insert(name.into(), at.lead(ToolId::GhStructure).build());
-    leads
-}
-
-/// The exact row's lead to `securityCheck`: the advisories OSV lists for this
-/// package at the version the row resolved, for every registry (the row itself
-/// carries CVE data on a few only). Absent on a row without a version. The
-/// runtime drops it where `securityCheck` is not offered.
-pub(super) fn advisory_lead(artifact: &ArtifactItem) -> Option<Value> {
-    let version = artifact.version.as_deref()?;
-    Some(
-        Continuation::related(
-            ToolId::SecurityCheck,
-            json!({
-                "operation": "package",
-                "ecosystem": crate::artifact::query::artifact_type::osv_ecosystem(artifact.artifact_type).to_string(),
-                "packageName": artifact.package_name,
-                "version": version,
-            }),
-        )
-        .build(),
-    )
-}
-
 /// The query as a lead copies it: every field the caller set except the
 /// brief and the walk position (every cursor field).
 fn copied(query: &ArtifactSearchQuery) -> Map<String, Value> {
@@ -523,20 +458,63 @@ pub(super) fn lookalike(
     octocode_runtime_base::response::result::finish_calls(data);
 }
 
-/// An empty keyword discovery, broadened ([`broaden`]): one variant per
-/// dropped keyword (a lone multi-word keyword: per dropped word), run as one
-/// batch, so the variant that returns rows names what emptied the search;
-/// the note names what each variant drops.
+/// An empty keyword discovery says what it searched in one hint: the
+/// registry and every keyword, which the registry ANDs. A first page with
+/// something to drop also carries the one broader call ([`broaden`]): one
+/// variant per dropped keyword (a lone multi-word keyword: per dropped
+/// word), run as one batch, so the variant that returns rows names what
+/// emptied the search. A later page ends a walk whose earlier pages hold
+/// the matches: it claims no absence and offers nothing broader.
 pub(super) fn broaden_empty(data: &mut Value, query: &ArtifactSearchQuery) {
-    let searched = Value::Object(copied(query));
+    let searched = copied(query);
+    let kind = artifact_search_query::artifact_type(query);
+    let keywords = searched
+        .get("keywords")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(|keyword| format!("\"{keyword}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let add_hint = octocode_runtime_base::response::result::add_hints::<[String; 1]>;
+    if artifact_search_query::page(query) > 1 {
+        add_hint(
+            data,
+            [format!(
+                "The {kind} search for {keywords} ends here: the earlier pages hold every match."
+            )],
+        );
+        return;
+    }
     let drop = Broaden {
         strip: &[],
         groups: &[],
         split_lone_keyword: true,
     };
     let rows = octocode_runtime_base::response::result::rows_per_call(ToolId::ArtifactSearch);
-    if let Some(lead) = broaden(ToolId::ArtifactSearch, &searched, &drop, rows) {
-        octocode_tools_shared::leads::broaden::set_broadened(data, &searched, lead);
+    let none = format!("No {kind} package matches every term of {keywords}");
+    match broaden(
+        ToolId::ArtifactSearch,
+        &Value::Object(searched),
+        &drop,
+        rows,
+    ) {
+        Some(lead) => {
+            octocode_runtime_base::response::result::attach_related(data, lead);
+            add_hint(
+                data,
+                [format!(
+                    "{none}: the related[] request drops one term per row, so the row that answers names the term that emptied the search."
+                )],
+            );
+        }
+        None => add_hint(
+            data,
+            [format!(
+                "{none}: try another spelling or a more general word; a known name resolves with operation:\"resolve\"."
+            )],
+        ),
     }
 }
 

@@ -67,9 +67,7 @@ fn settle_value(
     response_query: &Value,
     failure: &mut Option<ErrorClass>,
 ) -> Result<Vec<String>, ContractValidationError> {
-    crate::response::selection_errors::decorate(tool, structured, response_query);
     super::pages::state_out_of_range(structured);
-    super::answered_leads::drop_answered_leads(tool, structured, response_query);
     super::workflow_lead::retain_guidance(tool, structured, response_query);
     super::notices::place(structured, "results");
     // Hosts show agents this JSON: source reads carry their line numbers in
@@ -215,7 +213,10 @@ fn finish(
     all_failed: bool,
 ) -> Result<ToolOutcome, ContractValidationError> {
     structured_content.edit(super::page_receipts::drop_later_page_receipts);
-    let paged = reshaped || structured_content.get("responsePagination").is_some();
+    let paged = reshaped
+        || structured_content
+            .get(super::continuations::RESPONSE_NEXT)
+            .is_some();
     if paged {
         structured_content
             .edit(|structured| contracts::validate_output_in_place(tool.as_str(), structured))?;

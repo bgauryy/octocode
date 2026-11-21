@@ -445,6 +445,83 @@ async fn a_far_more_downloaded_name_one_edit_away_is_flagged() {
     assert!(!near.to_string().contains("one edit away"), "{near}");
 }
 
+/// A registry double whose every read but the download counts answers one
+/// scheduler turn late, as a registry slower than the counts API would.
+struct LateRegistry<'a>(&'a RouteHttp);
+
+impl crate::artifact::ArtifactHttp for LateRegistry<'_> {
+    fn get<'a>(
+        &'a self,
+        request: crate::artifact::ArtifactHttpRequest,
+        budget: &'a octocode_io::budget::RequestBudget,
+    ) -> crate::artifact::ArtifactHttpFuture<'a> {
+        Box::pin(async move {
+            if !request.url.path().starts_with("/downloads/") {
+                tokio::task::yield_now().await;
+            }
+            self.0.get(request, budget).await
+        })
+    }
+}
+
+/// The counts of the names one edit away need only the name asked, so a
+/// resolve asks them while the registry is still answering, once, and its
+/// reply is the one a registry that answers at once gets.
+#[tokio::test]
+async fn the_lookalike_counts_are_asked_beside_the_registry_read() {
+    let row = json!({"operation": "resolve", "ecosystem": "npm", "packageName": "expresss"});
+    let registry = || {
+        RouteHttp::new()
+            .json(
+                "/expresss/latest",
+                json!({"name": "expresss", "version": "0.0.0"}),
+            )
+            .json(
+                &npm_counts_path("expresss"),
+                json!({"expresss": {"downloads": 1}, "express": {"downloads": 1_000_000_000u64}}),
+            )
+    };
+    let at_once = registry();
+    let expected = served(row.clone(), &at_once, None).await.expect("row");
+    let late = registry();
+    let query = typed(&row);
+    let budget = test_budget();
+    let reused = ReusedSince::new();
+    let npm = npm_registry(&query, &NO_ENV).expect("registry");
+    let data = serve(
+        &query,
+        &ArtifactProviderContext {
+            http: &LateRegistry(&late),
+            budget: &budget,
+            npm_registry: npm.as_ref(),
+            allow_private_registry: false,
+            answers: None,
+            reused: &reused,
+            tags: None,
+            share: None,
+        },
+    )
+    .await
+    .expect("row");
+    assert_eq!(data, expected);
+    let counts = npm_counts_path("expresss");
+    let targets = late.targets();
+    assert!(
+        targets
+            .first()
+            .is_some_and(|first| first.ends_with(&counts)),
+        "the counts are asked before the late registry answers: {targets:?}"
+    );
+    for http in [&at_once, &late] {
+        let asked = http
+            .targets()
+            .iter()
+            .filter(|target| target.ends_with(&counts))
+            .count();
+        assert_eq!(asked, 1, "{:?}", http.targets());
+    }
+}
+
 /// A name the registry lacks, with names one edit away it has, leads to
 /// those names, most downloaded first, and its error names them.
 #[tokio::test]

@@ -5,7 +5,8 @@ use crate::lsp_search::importers::{CONCURRENT_FILE_VERIFICATIONS, ordered_concur
 
 impl<'a, 'p> Fallback<'a, 'p> {
     /// The type declarations the definition at `path` `line` `character`
-    /// resolves to. A base `named` there whose every definition lies outside
+    /// resolves to. A `candidate` (an implementation answer's location)
+    /// with no definition there is counted as a value, not failed. A base `named` there whose every definition lies outside
     /// the read policy (`Send` in the toolchain's `core`) resolves: it is
     /// withheld by name, not a relation the source failed to establish.
     pub(super) async fn definitions(
@@ -14,6 +15,7 @@ impl<'a, 'p> Fallback<'a, 'p> {
         line: u32,
         character: u32,
         named: Option<&str>,
+        candidate: bool,
     ) -> Result<Vec<Value>, LspFailure> {
         let (mut found, withheld) = get_counted_locations(
             self.client,
@@ -25,12 +27,19 @@ impl<'a, 'p> Fallback<'a, 'p> {
         .await?;
         if let Some(name) = named
             && found.is_empty()
-            && withheld > 0
+            && !withheld.is_empty()
         {
             let mut names = self.withheld.lock().await;
             if !names.iter().any(|known| known == name) {
                 names.push(name.to_owned());
             }
+            return Ok(Vec::new());
+        }
+        // An implementation candidate the server defines nothing at names
+        // no declaration: a value of the type (an object literal), which
+        // is no subtype and no relation the source failed to establish.
+        if candidate && found.is_empty() && withheld.is_empty() {
+            *self.values.lock().await += 1;
             return Ok(Vec::new());
         }
         let mut nodes = Vec::new();
@@ -115,7 +124,7 @@ impl<'a, 'p> Fallback<'a, 'p> {
         let mut resolved = Vec::new();
         for (path, base) in bases {
             match self
-                .definitions(&path, base.line, base.character, Some(&base.name))
+                .definitions(&path, base.line, base.character, Some(&base.name), false)
                 .await
             {
                 Ok(nodes) => resolved.extend(nodes),
@@ -310,7 +319,7 @@ impl<'a, 'p> Fallback<'a, 'p> {
         let resolved = match self.impl_node(&path, line, character).await {
             Ok(Some(node)) => Ok(vec![node]),
             Err(failure) if failure.is_cancelled() => return Err(failure),
-            _ => self.resolved_nodes(&path, line, character).await,
+            _ => self.resolved_nodes(&path, line, character, true).await,
         };
         match resolved {
             Err(failure) if failure.is_cancelled() => Err(failure),

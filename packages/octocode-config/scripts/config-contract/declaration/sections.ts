@@ -145,6 +145,12 @@ export const sections: ContractInput['sections'] = {
         description: 'Mask UUIDs (8-4-4-4-12 hexadecimal) in every tool result. Off by default: a UUID is an identifier, not a secret.',
         env: { name: 'OCTOCODE_REDACT_UUID', dotenv: 'home', workspaceNarrowsTo: 'true' },
       },
+      mcpResult: {
+        type: 'enum',
+        values: ['json', 'text'],
+        description: 'Format of an MCP tools/call reply: json sends the compact JSON result as one text block; text sends the text view the CLI prints (content lines, then `# key: value` lines, each continuation as a runnable `{"tool","input"}` call), which a client must not parse as JSON.',
+        env: { name: 'OCTOCODE_MCP_RESULT', normalize: 'lower', dotenv: 'home' },
+      },
     },
   },
   security: {

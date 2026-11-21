@@ -150,6 +150,8 @@ fn next_quiet_confirms_the_plans_github_identity_before_it_serves() {
     let input = last["next"]["quiet"]["input"]["queries"][0].clone();
     let row = super::super::super::Row {
         context: None,
+        goal: None,
+        background: None,
         model: None,
         keys: vec!["a".into()],
         questions: vec![],
@@ -161,6 +163,7 @@ fn next_quiet_confirms_the_plans_github_identity_before_it_serves() {
         source_progress: None,
         max_requests: None,
         per_hit: false,
+        collapse: false,
         retry_units: None,
         query: Value::Null,
     };

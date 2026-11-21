@@ -292,140 +292,10 @@ async fn node_capped_walk_does_not_depend_on_server_order() {
     assert_eq!(walked[0], walked[1]);
 }
 
-/// A walk whose last level reached `depth` left those nodes
-/// unexpanded: `next.walkDeeper` reruns it one level deeper, without marking
-/// the answer partial. A walk that ran out of nodes first, or one at the
-/// maximum depth, offers nothing.
-#[tokio::test(flavor = "current_thread")]
-async fn a_walk_at_its_depth_offers_the_next_level() {
-    let (_dir, root, paths) = temp_workspace();
-    let (file, uri) = graph_ts(&root);
-    let mut chain = graph(&[("root", &["child"]), ("child", &["grandchild"])]);
-    chain.uri = Some(uri.clone());
-    let row_at = |depth: u32, walk: &HierarchyWalk| {
-        let q = query(serde_json::json!({
-            "operation": "callers", "path": file.to_string_lossy(),
-            "symbolName": "root",
-            "line": 1,
-            "depth": depth
-        }));
-        let items = walk
-            .edges
-            .iter()
-            .map(|edge| public_edge(Expansion::IncomingCalls, edge, None))
-            .collect::<Vec<_>>();
-        let mut row = items_payload(&q, "callers", serde_json::json!(items), TEST_BUDGET);
-        mark_truncation(&mut row, &q, &[(Expansion::IncomingCalls, walk)], &paths);
-        row
-    };
-    let walk = |depth: u32| {
-        walk_from(
-            &chain,
-            node_at("root", Some(&uri)),
-            depth,
-            &paths,
-            &octocode_runtime_base::execution::cancel::NeverCancel,
-        )
-    };
-
-    let shallow = walk(1).await.expect("walk");
-    let row = row_at(1, &shallow);
-    let deeper =
-        &octocode_runtime_base::test_support::checks::related_call(&row, "lspSearch", |input| {
-            input["queries"][0]["depth"] == 2
-        })["input"]["queries"][0];
-    assert_eq!(deeper["depth"], 2, "{}", row["next"]);
-    assert_eq!(deeper["symbolName"], "root");
-    assert!(row.get("isPartial").is_none(), "{row}");
-
-    // Depth 3 walks past the grandchild, which has no callers: complete.
-    let whole = walk(3).await.expect("walk");
-    assert_eq!(whole.edges.len(), 2);
-    let row = row_at(3, &whole);
-    assert!(
-        !row["related"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|call| call["tool"] == "lspSearch" && call["input"]["queries"][0]["depth"] == 2),
-        "{}",
-        row["next"]
-    );
-
-    // Depth has no maximum: a walk whose last level still has unexpanded
-    // nodes always offers the next one.
-    let far = 1_000;
-    let mut long = walk(1).await.expect("walk");
-    for edge in &mut long.edges {
-        edge.level = far;
-    }
-    let row = row_at(far, &long);
-    assert!(
-        row["related"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|call| call["tool"] == "lspSearch"
-                && call["input"]["queries"][0]["depth"] == far + 1),
-        "{row}"
-    );
-}
-
-/// The deeper-walk lead needs a node at the last level the walk never
-/// expanded. A last level whose nodes the walk already expanded (a cycle back
-/// to the anchor) has no deeper level to show: it offers nothing.
-#[tokio::test(flavor = "current_thread")]
-async fn a_last_level_of_expanded_nodes_offers_no_deeper_walk() {
-    let (_dir, root, paths) = temp_workspace();
-    let (file, uri) = graph_ts(&root);
-    let mut cycle = graph(&[("root", &["child"]), ("child", &["root"])]);
-    cycle.uri = Some(uri.clone());
-    let depth_leads = |depth: u32, walk: &HierarchyWalk| {
-        let q = query(serde_json::json!({
-            "operation": "callers", "path": file.to_string_lossy(),
-            "symbolName": "root", "line": 1, "depth": depth
-        }));
-        let items = walk
-            .edges
-            .iter()
-            .map(|edge| public_edge(Expansion::IncomingCalls, edge, None))
-            .collect::<Vec<_>>();
-        let mut row = items_payload(&q, "callers", serde_json::json!(items), TEST_BUDGET);
-        mark_truncation(&mut row, &q, &[(Expansion::IncomingCalls, walk)], &paths);
-        row["related"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|call| call["tool"] == "lspSearch")
-            .map(|call| call["input"]["queries"][0]["depth"].clone())
-            .collect::<Vec<_>>()
-    };
-    let walk = |depth: u32| {
-        walk_from(
-            &cycle,
-            node_at("root", Some(&uri)),
-            depth,
-            &paths,
-            &octocode_runtime_base::execution::cancel::NeverCancel,
-        )
-    };
-    // Depth 1 ends on `child`, which was never expanded: one level deeper.
-    let shallow = walk(1).await.expect("walk");
-    assert_eq!(depth_leads(1, &shallow), vec![serde_json::json!(2)]);
-    // Depth 2 ends on `root` again, already expanded: nothing lies deeper.
-    let closed = walk(2).await.expect("walk");
-    assert_eq!(closed.edges.len(), 2);
-    assert!(
-        depth_leads(2, &closed).is_empty(),
-        "{:?}",
-        depth_leads(2, &closed)
-    );
-}
-
 /// A frontier the row's `testCode` left out is no frontier of this answer:
 /// a walk whose last-level callers were all excluded leads to the call that
 /// lists them (`testCode:"include"`), never to a deeper walk that answers the
-/// same empty row. A frontier the scope keeps still leads one level deeper.
+/// same empty row. A frontier the scope keeps is listed and leads nowhere.
 #[tokio::test(flavor = "current_thread")]
 async fn an_excluded_frontier_leads_to_its_callers_not_deeper() {
     let (_dir, root, paths) = temp_workspace();
@@ -482,11 +352,7 @@ async fn an_excluded_frontier_leads_to_its_callers_not_deeper() {
     assert_eq!(excluded_leads[0]["testCode"], "include", "{excluded}");
     assert_eq!(excluded_leads[0]["symbolName"], "root", "{excluded}");
 
+    // A frontier the scope keeps is listed: the row carries no call.
     let kept = row_for("only");
-    assert!(
-        leads(&kept)
-            .iter()
-            .any(|lead| lead["depth"] == 2 && lead["testCode"] == "only"),
-        "{kept}"
-    );
+    assert!(leads(&kept).is_empty(), "{kept}");
 }

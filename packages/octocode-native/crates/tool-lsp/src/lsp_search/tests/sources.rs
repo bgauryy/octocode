@@ -73,7 +73,7 @@ async fn unreadable_in_policy_files_stay_authorized_and_keep_their_locations() {
             serde_json::json!({
                 "uri": octocode_engine::lsp::uri::path_to_uri(&file.to_string_lossy()).expect("uri"),
                 "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}},
-                "content": unavailable
+                "value": unavailable
             })
         })
         .collect::<Vec<_>>();
@@ -91,7 +91,7 @@ async fn unreadable_in_policy_files_stay_authorized_and_keep_their_locations() {
     let rows = location_rows(&result);
     assert_eq!(rows.len(), 2, "{result}");
     assert!(
-        rows.iter().all(|row| row["content"] == unavailable),
+        rows.iter().all(|row| row["value"] == unavailable),
         "the unavailable reason is kept as content: {result}"
     );
 }
@@ -120,7 +120,7 @@ async fn locations_outside_the_read_roots_are_reported_withheld() {
     let snippets = vec![serde_json::json!({
         "uri": octocode_engine::lsp::uri::path_to_uri(&target.to_string_lossy()).expect("uri"),
         "range": {"start": {"line": 0, "character": 11}, "end": {"line": 0, "character": 22}},
-        "content": octocode_engine::lsp::client::SNIPPET_CONTENT_WITHHELD
+        "value": octocode_engine::lsp::client::SNIPPET_CONTENT_WITHHELD
     })];
     let row = locations(
         &q,
@@ -237,12 +237,12 @@ async fn context_windows_come_from_one_cached_read_per_file() {
     )
     .await;
     assert_eq!(sources.reads(), 1);
-    assert_eq!(first["content"], "l1\nl2\n");
+    assert_eq!(first["value"], "l1\nl2\n");
     assert_eq!(
         first["displayRange"],
         json_fixture(r#"{"startLine": 1, "endLine": 2}"#)
     );
-    assert_eq!(last["content"], "l4\nl5\n");
+    assert_eq!(last["value"], "l4\nl5\n");
     assert_eq!(
         last["displayRange"],
         json_fixture(r#"{"startLine": 4, "endLine": 5}"#)
@@ -345,7 +345,7 @@ async fn clipped_definition_rows_name_their_partial_reason() {
         vec![serde_json::json!({
             "uri": uri,
             "range": {"start": {"line": 0, "character": 3}, "end": {"line": 0, "character": 4}},
-            "content": body,
+            "value": body,
             "displayRange": {"startLine": 1, "endLine": 70}
         })],
         500,

@@ -79,24 +79,6 @@ fn a_resumed_window_past_every_entry_is_not_an_empty_listing() {
     }
 }
 
-#[test]
-fn the_ignored_retry_of_a_resumed_window_lists_from_the_start() {
-    let root = Fixture::new();
-    std::fs::create_dir(root.0.join(".git")).expect("repository marker");
-    root.write(".gitignore", "skip.rs\n");
-    for name in ["a.rs", "b.rs", "skip.rs"] {
-        root.write(name, "fn f() {}\n");
-    }
-    for operation in ["files", "tree"] {
-        let mut query = rows(operation, &root.0);
-        query["walkOffset"] = json!(1);
-        let out = within(&root.0, query, Duration::from_secs(3600));
-        let retry = &related(&out, "structureSearch")["input"]["queries"][0];
-        assert_eq!(retry["includeIgnored"], true, "{operation}: {out}");
-        assert!(retry.get("walkOffset").is_none(), "{operation}: {retry}");
-    }
-}
-
 /// A listing sorted by something else than walk order and paused by time
 /// lists every entry exactly once over its windows ([`super::ranked`] proves
 /// the order).

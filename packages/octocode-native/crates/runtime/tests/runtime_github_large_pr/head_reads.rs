@@ -418,25 +418,10 @@ async fn history_b_merged_match_string_read_offers_the_source_side_only() {
         ),
     )
     .await;
-    let at_commit = support::checks::related_call(&data, "ghGetFileContent", |input| {
-        input["queries"][0]["ref"] == SHA && input["queries"][0]["path"] == "src/hit.rs"
-    });
-    assert_eq!(at_commit.get("kind"), None);
+    // A narrowed patch is what was asked: the row states the file and its
+    // commit, and offers no source read of its own.
     assert!(
-        data["warnings"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|warning| warning
-                .as_str()
-                .is_some_and(|text| text.contains("hunks that hold matchString; related reads"))),
-        "{data}"
-    );
-    assert!(
-        support::checks::find_related_call(&data, "ghGetFileContent", |input| {
-            input["queries"][0]["ref"] == "fedcba9876543210fedcba9876543210fedcba98"
-        })
-        .is_none(),
+        support::checks::find_related_call(&data, "ghGetFileContent", |_| true).is_none(),
         "{data}"
     );
     // The hit row counts the hits it shows.

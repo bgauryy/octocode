@@ -24,7 +24,7 @@ async fn a_walk_states_no_hasmore_and_replayed_only_when_true() {
             .into_value();
         octocode_runtime_base::contracts::validate_output("localSearch", &output)
             .expect("contract");
-        let next = output.pointer("/responsePagination/next/input").cloned();
+        let next = output.pointer("/next/input").cloned();
         pages.push(output);
         match next {
             Some(call) => input = call,
@@ -51,5 +51,5 @@ async fn a_walk_states_no_hasmore_and_replayed_only_when_true() {
     }
     let last = pages.last().expect("last");
     assert!(last["responsePagination"].get("next").is_none(), "{last}");
-    assert_eq!(last["responsePagination"]["replayed"], true, "{last}");
+    assert_eq!(last["replayed"], true, "{last}");
 }

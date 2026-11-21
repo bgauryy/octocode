@@ -63,7 +63,7 @@ fn a_hidden_key_keeps_the_parse_and_every_match() {
         let out = run(&root.0, row.clone()).expect("match");
         let shown = out.to_string();
         assert!(shown.contains("\"matchCount\":3"), "{row}: {shown}");
-        for piece in BODY.as_bytes().chunks(8) {
+        for piece in BODY.as_bytes().as_chunks::<8>().0 {
             let piece = std::str::from_utf8(piece).unwrap_or_default();
             assert!(
                 !shown.contains(piece),
@@ -95,9 +95,12 @@ fn a_key_after_an_armor_in_a_string_keeps_every_later_match() {
         let out = run(&root.0, row.clone()).expect("match");
         let shown = out.to_string();
         assert!(shown.contains("\"matchCount\":3"), "{row}: {shown}");
-        for piece in BODY.as_bytes().chunks(8) {
+        for piece in BODY.as_bytes().as_chunks::<8>().0 {
             let piece = std::str::from_utf8(piece).unwrap_or_default();
-            assert!(!shown.contains(piece), "{row}: key bytes {piece} shown: {shown}");
+            assert!(
+                !shown.contains(piece),
+                "{row}: key bytes {piece} shown: {shown}"
+            );
         }
     }
 }
@@ -126,7 +129,7 @@ fn a_hidden_key_that_breaks_the_parse_is_disclosed() {
         "{out}"
     );
     let shown = out.to_string();
-    for piece in BODY.as_bytes().chunks(8) {
+    for piece in BODY.as_bytes().as_chunks::<8>().0 {
         let piece = std::str::from_utf8(piece).unwrap_or_default();
         assert!(!shown.contains(piece), "key bytes {piece} shown: {shown}");
     }

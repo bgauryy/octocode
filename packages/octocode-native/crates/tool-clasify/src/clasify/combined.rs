@@ -118,9 +118,22 @@ pub(super) fn judge(
             unadmitted: None,
         }));
     }
+    let parts = parts(row, &whole.sections);
+    let mut coverage = coverage(&whole.sections);
+    // The parts a summary holds back, counted as a `sections` row counts them.
+    let quiet = parts
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|part| super::units::is_quiet(&part["answers"]))
+        .count();
+    if quiet > 0 {
+        coverage["quiet"] = json!(quiet);
+    }
     let mut output = json!({
         "answers": answers,
-        "coverage": coverage(&whole.sections),
+        "coverage": coverage,
+        "sections": parts,
         "usage": reply::evaluation_usage(
             whole.usage.input_tokens,
             whole.usage.output_tokens,
@@ -150,6 +163,33 @@ pub(super) fn judge(
         octocode_runtime_base::response::result::attach_related(&mut output, call);
     }
     Ok(Combined { output })
+}
+
+/// Every section as the part of the source it is, in source order: where it
+/// sits and its own outcome for every question, as a `sections` row states
+/// one. The row's `answers` combine them; the parts keep what each said, so
+/// no second, billed `sections` call is needed to learn every place.
+fn parts(row: &Row, sections: &[JudgedSection]) -> Value {
+    sections
+        .iter()
+        .map(|section| {
+            let answers = row
+                .keys
+                .iter()
+                .enumerate()
+                .map(|(index, key)| {
+                    let cell = section
+                        .cells
+                        .get(index)
+                        .and_then(Option::as_ref)
+                        .cloned()
+                        .unwrap_or_else(|| json!({"status":"unassessed"}));
+                    (key.clone(), cell)
+                })
+                .collect::<Map<_, _>>();
+            json!({"target": section.target, "answers": answers})
+        })
+        .collect()
 }
 
 /// Why question `index` has no answer: the code and message of the first
@@ -189,7 +229,7 @@ fn answered(sections: &[JudgedSection], index: usize) -> Vec<(&Value, &Value)> {
         .iter()
         .filter_map(|section| {
             let cell = section.cells.get(index)?.as_ref()?;
-            (cell["status"] == "answered").then(|| (&section.lines, &cell["answer"]))
+            (cell["status"] == "answered").then(|| (section.lines(), &cell["answer"]))
         })
         .collect()
 }

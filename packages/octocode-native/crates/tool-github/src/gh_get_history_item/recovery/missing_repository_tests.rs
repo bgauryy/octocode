@@ -10,9 +10,25 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// A server that answers 404 to every request, except `/repos/a/b` when
-/// `repository` holds its metadata.
+/// `repository` holds its metadata, and the login `a` itself (`/users/a`).
 async fn server(repository: Option<Value>) -> MockServer {
+    serving(repository, true).await
+}
+
+/// [`server`] where no login `a` exists either.
+async fn ownerless_server(repository: Option<Value>) -> MockServer {
+    serving(repository, false).await
+}
+
+async fn serving(repository: Option<Value>, owner: bool) -> MockServer {
     let server = MockServer::builder().start().await;
+    if owner {
+        Mock::given(method("GET"))
+            .and(path("/api/v3/users/a"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"login":"a"})))
+            .mount(&server)
+            .await;
+    }
     if let Some(metadata) = repository {
         Mock::given(method("GET"))
             .and(path("/api/v3/repos/a/b"))
@@ -107,20 +123,54 @@ async fn a_missing_repository_leads_to_a_repository_search_beside_a_summary_coun
             !failure.hints.is_empty(),
             "the ghSearchRepo leads are labelled"
         );
-        // The item read and the repository read; a pull request's also
+        // The item read, the repository read and the owner read that tells
+        // a missing login from a missing repository; a pull request's also
         // probes the number as an issue, and may ask its whole comment
         // count beside the item read (TB6), which the failed read can end
         // unsent; an issue's always asks its closing pull requests beside it.
         let (rest, graphql) = sent(&server).await;
         let (reads, counts) = match row["operation"].as_str() {
-            Some("commit") => (2, 0..=0),
-            Some("pullRequest") => (3, 0..=1),
-            _ => (2, 1..=1),
+            Some("commit") => (3, 0..=0),
+            Some("pullRequest") => (4, 0..=1),
+            _ => (3, 1..=1),
         };
         assert!(
             rest == reads && counts.contains(&graphql),
             "{row}: {rest} REST and {graphql} GraphQL requests"
         );
+    }
+}
+
+/// An item read under a login GitHub does not know names the owner, not
+/// the repository, and offers no call into that owner: its listing would
+/// fail the same way. The name search across every owner stays.
+#[tokio::test]
+async fn a_missing_owner_is_named_and_no_lead_asks_for_it() {
+    for row in [
+        json!({"operation":"pullRequest","owner":"a","repo":"b","number":1}),
+        json!({"operation":"issue","owner":"a","repo":"b","number":1}),
+        json!({"operation":"commit","owner":"a","repo":"b",
+            "ref":"0123456789abcdef0123456789abcdef01234567"}),
+        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"x","headRef":"y"}),
+    ] {
+        let server = ownerless_server(None).await;
+        let failure = fail(&server, row.clone()).await;
+        assert_eq!(
+            failure.message,
+            octocode_tools_shared::gh_shared::owner_not_found_message("a"),
+            "{row}"
+        );
+        let calls = failure.calls.as_deref().cloned().unwrap_or_default();
+        for (name, lead) in calls.as_object().into_iter().flatten() {
+            for asked in lead["input"]["queries"].as_array().into_iter().flatten() {
+                assert!(
+                    asked.get("owner").is_none(),
+                    "{name} asks for the owner: {calls}"
+                );
+            }
+        }
+        assert_eq!(calls["findRepository"]["tool"], "ghSearchRepo", "{calls}");
+        assert!(!failure.hints.is_empty(), "{row}: the lead is labelled");
     }
 }
 

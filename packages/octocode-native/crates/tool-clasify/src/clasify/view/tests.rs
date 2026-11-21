@@ -34,8 +34,23 @@ fn summary_of(details: &Value) -> Value {
     summary
 }
 
+/// What a summary states of a row's `usage`: the requests it billed, the
+/// tokens they cost and its ceiling, as the details row states them.
+fn billed(usage: &Value) -> Value {
+    let mut billed = usage.clone();
+    if let Some(fields) = billed.as_object_mut() {
+        fields.retain(|field, _| {
+            matches!(
+                field.as_str(),
+                "calls" | "inputTokens" | "outputTokens" | "requestsCeiling"
+            )
+        });
+    }
+    billed
+}
+
 #[test]
-fn an_evaluation_keeps_each_answers_value_and_leaves_its_tokens_to_details() {
+fn an_evaluation_keeps_each_answers_value_and_what_it_billed() {
     let details = json_fixture(
         r#"{
             "model": "jev-1",
@@ -56,16 +71,17 @@ fn an_evaluation_keeps_each_answers_value_and_leaves_its_tokens_to_details() {
             "usage": {"calls": 1, "inputTokens": 572, "outputTokens": 30}
         }"#,
     );
+    let summary = summary_of(&details);
+    assert_eq!(summary["usage"], billed(&details["usage"]), "{summary}");
     assert_eq!(
-        summary_of(&details),
+        json!({"answers": summary["answers"]}),
         json_fixture(
             r#"{
                 "answers": {
                     "restart": {"noul": 0.96},
                     "kind": {"choice": "ops"},
                     "risk": {"score": 1.5}
-                },
-                "usage": {"calls": 1}
+                }
             }"#
         )
     );
@@ -229,7 +245,7 @@ fn a_section_is_its_lines_and_answers() {
         details["resources"]["mid"]["sections"][0].to_string().len(),
     );
     assert!(short * 100 <= long * 40, "{short} of {long}");
-    assert_eq!(summary["usage"], json_fixture(r#"{"calls": 1}"#));
+    assert_eq!(summary["usage"], billed(&details["usage"]));
     assert_eq!(
         summary["resources"]["mid"]["coverage"],
         details["resources"]["mid"]["coverage"]
@@ -438,14 +454,14 @@ fn every_resource_states_its_calls() {
     for name in ["a.md", "b.md"] {
         assert_eq!(
             summary["resources"][name]["usage"],
-            json!({"calls": 1}),
+            billed(&details["resources"][name]["usage"]),
             "{summary}"
         );
     }
     let one = json!({"resources": {"a.md": resource(0.9)}});
     assert_eq!(
         summary_of(&one)["resources"]["a.md"]["usage"],
-        json!({"calls": 1})
+        billed(&one["resources"]["a.md"]["usage"])
     );
 }
 
@@ -485,10 +501,39 @@ fn a_files_rows_summary_leaves_quiet_hits_out_by_path_and_line() {
         warning.contains("b.rs:1") && !warning.contains("a.rs"),
         "{warning}"
     );
-    assert_eq!(summary["usage"], json!({"calls": 2, "requestsCeiling": 4}));
+    assert_eq!(summary["usage"], billed(&details["usage"]));
     // Every hit quiet: the summary states no files.
     let quiet = json_fixture(
         r#"{"files": {"b.rs": {"1": {"q": {"noul": 0.1}}}}, "coverage": {"totalUnits": 1, "answered": 1, "quiet": 1}}"#,
     );
     assert!(summary_of(&quiet).get("files").is_none());
+}
+
+/// A source judged part by part: the summary keeps every part that answered
+/// yes or undecided with its lines and its own answers, leaves the quiet
+/// ones to `coverage.quiet`, and states nothing the details row lacks.
+#[test]
+fn a_sectioned_evaluation_keeps_its_loud_parts_with_their_lines() {
+    let part = |start: u64, noul: f64| {
+        json!({
+            "target": {"bytes": [start * 10, start * 10 + 99], "lines": {"startLine": start, "endLine": start + 9}},
+            "answers": {"q": {"status": "answered", "answer": {"type": "noul", "noul": noul}}}
+        })
+    };
+    let details = json!({
+        "answers": {"q": {"noul": 0.9, "lines": {"startLine": 11, "endLine": 20}}},
+        "coverage": {"totalSections": 3, "answered": 3, "quiet": 2},
+        "sections": [part(1, 0.1), part(11, 0.9), part(21, 0.2)],
+        "usage": {"calls": 3, "inputTokens": 300, "outputTokens": 12}
+    });
+    let summary = summary_of(&details);
+    let parts = summary["sections"].as_array().expect("the parts");
+    let total = details["coverage"]["totalSections"].as_u64().unwrap();
+    let quiet = summary["coverage"]["quiet"].as_u64().unwrap();
+    assert_eq!(parts.len() as u64 + quiet, total, "{summary}");
+    assert_eq!(
+        parts[0]["target"],
+        json!({"lines": {"startLine": 11, "endLine": 20}})
+    );
+    assert_eq!(parts[0]["answers"]["q"]["noul"], 0.9, "{summary}");
 }

@@ -362,7 +362,10 @@ fn symbol_impact_keeps_importers_with_unextracted_arguments_as_candidates() {
             "Cargo.toml",
             "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
         ),
-        ("src/lib.rs", "pub mod num;\npub mod outer;\npub mod plain;\npub mod formatted;\npub mod aliased;\n"),
+        (
+            "src/lib.rs",
+            "pub mod num;\npub mod outer;\npub mod plain;\npub mod formatted;\npub mod aliased;\n",
+        ),
         (
             "src/outer.rs",
             "use crate::num::narrow;\npub mod macroed;\npub fn g(v: u64) -> u32 {\n    narrow(v)\n}\n",

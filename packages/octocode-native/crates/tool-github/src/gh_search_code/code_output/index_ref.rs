@@ -78,7 +78,8 @@ pub(in crate::gh_search_code) async fn disclose_index_ref(
     };
     let listing = moved
         .iter()
-        .map(|name| name.as_str().try_into().ok())
+        // A name at any depth, read literally (`[id].ts` is no class).
+        .map(|name| octocode_engine::search::glob::name(name).try_into().ok())
         .collect::<Option<Vec<_>>>()
         .zip(owner.try_into().ok())
         .zip(repo.as_str().try_into().ok())
@@ -89,8 +90,10 @@ pub(in crate::gh_search_code) async fn disclose_index_ref(
         } else {
             path.try_into().ok().map(Some)
         })
+        // The path rank in its own order, as the contract states it.
+        .zip(serde_json::from_value(serde_json::json!({ "by": "path" })).ok())
         .map(
-            |((((include, owner), repo), reference), path)| GhStructureQueryTree {
+            |(((((include, owner), repo), reference), path), sort)| GhStructureQueryTree {
                 include,
                 limit: NonZeroU64::new(300).unwrap_or(NonZeroU64::MIN),
                 main_goal: None,
@@ -104,10 +107,7 @@ pub(in crate::gh_search_code) async fn disclose_index_ref(
                 reasoning: None,
                 ref_: Some(reference),
                 repo,
-                sort: octocode_contract_types::GhStructureTreeSort {
-                    by: octocode_contract_types::GhStructureTreeSortBy::Path,
-                    order: octocode_contract_types::SortOrder::Asc,
-                },
+                sort,
                 walk_offset: None,
             },
         );

@@ -114,25 +114,12 @@ fn all_ignored_listing_names_the_ignore_rules_and_offers_a_retry() {
 
     let tree = run(&root.0, json!({"operation":"tree","path":repos})).expect("tree");
     assert_eq!(tree["status"], "empty", "{tree}");
-    // The lead is the next step; the finding is one hint, the summary has the counts.
-    assert_eq!(tree["warnings"].as_array().map(Vec::len), Some(1), "{tree}");
-    assert!(
-        tree["warnings"][0]
-            .as_str()
-            .is_some_and(|h| h.starts_with("Skipped paths (ignored")),
-        "{tree}"
-    );
-    let retry = &related(&tree, "structureSearch");
-    assert_eq!(retry["tool"], "structureSearch", "{tree}");
-    assert_eq!(
-        retry["input"]["queries"][0]["includeIgnored"], true,
-        "{tree}"
-    );
-    assert!(
-        retry["input"]["queries"][0].get("snapshot").is_none(),
-        "{tree}"
-    );
-    let retried = run(&root.0, retry["input"]["queries"][0].clone()).expect("retry");
+    // The call is the next step; the finding is one sentence, and
+    // `skippedPaths` has the counts.
+    let retry = skipped_recovery(&tree);
+    assert_eq!(retry["includeIgnored"], true, "{tree}");
+    assert!(retry.get("snapshot").is_none(), "{tree}");
+    let retried = run(&root.0, retry).expect("retry");
     assert!(
         retried["files"]
             .as_array()
@@ -146,18 +133,10 @@ fn all_ignored_listing_names_the_ignore_rules_and_offers_a_retry() {
     )
     .expect("files");
     assert_eq!(files["status"], "empty", "{files}");
-    assert_eq!(
-        files["warnings"].as_array().map(Vec::len),
-        Some(1),
-        "{files}"
-    );
     assert!(skipped_count(&files, "ignored") > 0, "{files}");
-    let retry = &related(&files, "structureSearch");
-    assert_eq!(
-        retry["input"]["queries"][0]["includeIgnored"], true,
-        "{files}"
-    );
-    let found = run(&root.0, retry["input"]["queries"][0].clone()).expect("retry");
+    let retry = skipped_recovery(&files);
+    assert_eq!(retry["includeIgnored"], true, "{files}");
+    let found = run(&root.0, retry).expect("retry");
     assert_eq!(listed(&found).len(), 1, "{found}");
 }
 
@@ -208,11 +187,12 @@ fn tree_summary_counts_gitignored_entries_it_left_out() {
     assert_eq!(skipped_count(&all, "ignored"), 0, "{all}");
 }
 
-/// An unfiltered listing that left out ignored entries leads past every
-/// cause its summary counts in one call: the dot entries it skipped too,
-/// not only the ignored ones. Following the lead leaves nothing uncounted.
+/// An unfiltered listing that left out entries counts every cause in
+/// `skippedPaths`, the dot entries it skipped too, and as a listing with
+/// entries offers no call. The flags of the counted causes, lifted, leave
+/// nothing uncounted.
 #[test]
-fn an_unfiltered_listing_lead_lifts_every_counted_cause() {
+fn an_unfiltered_listing_counts_every_skipped_cause_and_offers_no_call() {
     let root = Fixture::new();
     std::fs::create_dir(root.0.join(".git")).expect("repository marker");
     std::fs::write(root.0.join(".gitignore"), "out/\n").expect("gitignore");
@@ -223,11 +203,8 @@ fn an_unfiltered_listing_lead_lifts_every_counted_cause() {
     std::fs::create_dir_all(root.0.join("src")).expect("src");
     std::fs::write(root.0.join("src/lib.rs"), "x\n").expect("lib");
     for operation in ["tree", "files"] {
-        let out = run(
-            &root.0,
-            json!({"operation":operation,"path":root.0,"maxDepth":1}),
-        )
-        .expect("listing");
+        let query = json!({"operation":operation,"path":root.0,"maxDepth":1});
+        let out = run(&root.0, query.clone()).expect("listing");
         // `out/` is also a default-pruned name: one entry with both causes.
         assert_eq!(
             skipped_names(&out, "ignored-default-excluded"),
@@ -235,20 +212,24 @@ fn an_unfiltered_listing_lead_lifts_every_counted_cause() {
             "{out}"
         );
         assert!(skipped_count(&out, "hidden") > 0, "{out}");
-        let lead = related(&out, "structureSearch")["input"]["queries"][0].clone();
-        assert_eq!(lead["includeIgnored"], true, "{out}");
-        assert_eq!(lead["includeHidden"], true, "{out}");
-        let all = run(&root.0, lead).expect("lead");
+        assert_listing_guides_nothing(&out);
+        let lifted = lifting(
+            query,
+            json!({"includeIgnored": true, "includeHidden": true, "defaultExcludes": false}),
+        );
+        let all = run(&root.0, lifted).expect("lifted listing");
         assert_eq!(skipped_count(&all, "ignored"), 0, "{all}");
+        assert_eq!(skipped_count(&all, "ignored-default-excluded"), 0, "{all}");
         assert_eq!(skipped_count(&all, "hidden"), 0, "{all}");
     }
 }
 
 /// `includeHidden` alone lists the hidden directories (`.agents`, `.github`)
 /// in both operations. A hidden directory a `.gitignore` rule names stays
-/// counted as ignored, and the lead names the one flag that reaches it.
+/// counted as ignored, the one flag that reaches it; the listing, which has
+/// entries, offers no call.
 #[test]
-fn include_hidden_alone_lists_hidden_directories_and_leads_to_the_ignored_ones() {
+fn include_hidden_alone_lists_hidden_directories_and_counts_the_ignored_ones() {
     let root = Fixture::new();
     std::fs::create_dir(root.0.join(".git")).expect("repository marker");
     std::fs::write(root.0.join(".gitignore"), ".octocode/\n").expect("gitignore");
@@ -263,11 +244,8 @@ fn include_hidden_alone_lists_hidden_directories_and_leads_to_the_ignored_ones()
         std::fs::write(path, "x\n").expect("file");
     }
     for operation in ["tree", "files"] {
-        let out = run(
-            &root.0,
-            json!({"operation":operation,"path":root.0,"maxDepth":3,"includeHidden":true}),
-        )
-        .expect("listing");
+        let query = json!({"operation":operation,"path":root.0,"maxDepth":3,"includeHidden":true});
+        let out = run(&root.0, query.clone()).expect("listing");
         let listing = out.to_string();
         for listed in ["notes.md", "ci.yml", "lib.rs"] {
             assert!(
@@ -278,10 +256,9 @@ fn include_hidden_alone_lists_hidden_directories_and_leads_to_the_ignored_ones()
         assert!(!listing.contains("scratch.md"), "{operation}: {out}");
         assert_eq!(skipped_count(&out, "ignored"), 1, "{operation}: {out}");
         assert_eq!(skipped_count(&out, "hidden"), 0, "{operation}: {out}");
-        let lead = related(&out, "structureSearch")["input"]["queries"][0].clone();
-        assert_eq!(lead["includeIgnored"], true, "{operation}: {out}");
-        assert!(lead.get("defaultExcludes").is_none(), "{operation}: {out}");
-        let all = run(&root.0, lead).expect("lead");
+        assert_listing_guides_nothing(&out);
+        let lifted = lifting(query, json!({"includeIgnored": true}));
+        let all = run(&root.0, lifted).expect("lifted listing");
         assert!(all.to_string().contains("scratch.md"), "{operation}: {all}");
     }
 }

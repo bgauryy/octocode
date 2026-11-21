@@ -56,14 +56,17 @@ pub(crate) struct DomainDispatcher {
     pub lsp_pool: Arc<octocode_engine::lsp::pool::LspClientPool>,
     pub lsp_execution_config: Arc<LspExecutionConfig>,
     pub lsp_answers: Arc<octocode_tool_lsp::lsp_search::ContinuationAnswers>,
+    /// What a row's waits may take when the caller set no budget: the
+    /// channel's default (`RuntimeLimits::mcp_reply_budget` on MCP, none on
+    /// the CLI). It bounds an lspSearch row's wait for its server here; the
+    /// call's GitHub waits are bounded by the same budget from the call's
+    /// start ([`github::ResponseAccess::bound_waits`]).
+    pub reply_budget: Option<std::time::Duration>,
     pub graph_rows: Arc<octocode_tool_graph::ast_graph::store::SavedRows>,
     pub availability: Arc<octocode_runtime_base::execution::availability::ToolAvailability>,
-    /// Provider readiness and an enabled goals surface, independent of the
-    /// public clasify tool's availability.
-    pub(crate) selection_available: bool,
+    /// A provider key is configured and clasify is available.
+    pub(crate) clasify_available: bool,
     pub(crate) evaluator: octocode_tools_shared::judgment::Evaluator,
-    /// The candidate pages selection judged in this runtime.
-    pub(crate) selection_pages: Arc<octocode_tools_shared::selection::SavedPlans>,
 }
 
 #[cfg(test)]
@@ -97,27 +100,11 @@ impl DomainDispatcher {
             .response_identity(context, &self.handle, &self.github_access)
     }
 
-    pub(super) fn selection_runtime(
-        &self,
-        context: &ExecutionContext,
-    ) -> octocode_tools_shared::selection::Runtime {
-        octocode_tools_shared::selection::Runtime {
-            limits: self.limits.selection,
-            available: self.selection_available,
-            judge: Arc::new(self.evaluator.clone()),
-            saved: self.selection_pages.clone(),
-            handle: self.handle.clone(),
-            context: context.clone(),
-        }
-    }
-
     /// The policy a local row reads under. A graph writes what it reads to disk
-    /// and a classifier sends it to a provider, so neither reads credential
-    /// files; nor does a row a source reader captures for one (`egress`).
-    fn local_paths(&self, tool: ToolId, query: &Value, egress: bool) -> &PathPolicy {
-        if matches!(tool, ToolId::GraphBuild | ToolId::GraphQuery)
-            || goes_to_provider(query, egress)
-        {
+    /// and a source reader captures a row for a classification provider
+    /// (`egress`), so neither reads credential files.
+    fn local_paths(&self, tool: ToolId, egress: bool) -> &PathPolicy {
+        if matches!(tool, ToolId::GraphBuild | ToolId::GraphQuery) || egress {
             &self.egress_paths
         } else {
             &self.paths
@@ -223,12 +210,11 @@ impl DomainDispatcher {
         warm: Option<&github::BatchWarm>,
     ) -> Result<DomainResult, ExecutionError> {
         if tool == ToolId::GhGetFileContent
-            && goes_to_provider(query, egress)
+            && egress
             && let Some(withheld) = source_reader::withheld_github_read(query, &self.paths)
         {
             return Ok(withheld);
         }
-        let selection = self.selection_runtime(context);
         match self.github_services() {
             Ok(services) => services.execute_query(
                 tool,
@@ -241,7 +227,6 @@ impl DomainDispatcher {
                 },
                 &self.security,
                 &self.paths,
-                &selection,
             ),
             Err(error) => Ok(github::provider_error(error.clone())),
         }
@@ -258,7 +243,6 @@ impl DomainDispatcher {
             response_window: local_response_window(tool, context, self.limits.auto_page_chars),
             ..context.clone()
         };
-        let selection = self.selection_runtime(&context);
         // `lsp.prewarm` warms the file a row names, as an editor starts a
         // server when a file of its language opens: `all` for every local
         // tool, `targeted` for a read or search (localSearch, localFetch,
@@ -266,38 +250,32 @@ impl DomainDispatcher {
         // settled response serves ([`Self::warm_served_leads`]).
         let prewarm_query =
             warms_named_file(self.config.resolved.lsp.prewarm, tool).then_some(query);
-        let lsp = &self.lsp_execution_config;
         // The row already runs on a blocking or scoped worker thread inside
         // the runtime context ([`Self::execute`]): no further thread hop.
-        // lspSearch leads offered by local tools probe the runtime's resolved
-        // server settings, not the bare process env.
-        let result =
-            octocode_tools_shared::leads::lsp::with_lead_discovery(lsp.discovery(), || {
-                dispatch::execute_local(
-                    tool,
-                    query,
-                    &context,
-                    &dispatch::LocalEnv {
-                        memory_only: !octocode_runtime_base::config::is_persistent_storage_enabled(
-                            &self.config.resolved,
-                        ),
-                        graph_home: self
-                            .config
-                            .resolved
-                            .local
-                            .graph_home
-                            .as_deref()
-                            .map(std::path::Path::new),
-                        cargo: self
-                            .config
-                            .env_value(octocode_runtime_base::config::environment::OCTOCODE_CARGO),
-                        paths: self.local_paths(tool, query, egress),
-                        security: &self.security,
-                        selection: Some(&selection),
-                        graph_rows: Some(&self.graph_rows),
-                    },
-                )
-            })?;
+        let result = dispatch::execute_local(
+            tool,
+            query,
+            &context,
+            &dispatch::LocalEnv {
+                memory_only: !octocode_runtime_base::config::is_persistent_storage_enabled(
+                    &self.config.resolved,
+                ),
+                graph_home: self
+                    .config
+                    .resolved
+                    .local
+                    .graph_home
+                    .as_deref()
+                    .map(std::path::Path::new),
+                cargo: self
+                    .config
+                    .env_value(octocode_runtime_base::config::environment::OCTOCODE_CARGO),
+                paths: self.local_paths(tool, egress),
+                security: &self.security,
+                clasify: self.clasify_available,
+                graph_rows: Some(&self.graph_rows),
+            },
+        )?;
         // Start the server of the file the row names in the background, one
         // file per row; a file with no configured server starts none. The
         // pool bounds it: at most three start at once.
@@ -354,27 +332,33 @@ fn warms_named_file(prewarm: octocode_runtime_base::config::LspPrewarm, tool: To
     }
 }
 
-/// Whether a row's text goes to a classification provider: a source reader
-/// captures it for one (`egress`), or the row judges with one.
-fn goes_to_provider(query: &Value, egress: bool) -> bool {
-    egress
-        || octocode_runtime_base::contracts::PROVIDER_FIELDS
-            .into_iter()
-            .any(|field| query.get(field).is_some())
+/// When the language-server waits of a request end: the caller's deadline,
+/// else `reply_budget` from `now` (the channel's default, `None` when it
+/// has none).
+fn lsp_wait_deadline(
+    caller: Option<std::time::Instant>,
+    reply_budget: Option<std::time::Duration>,
+    now: std::time::Instant,
+) -> Option<std::time::Instant> {
+    caller.or_else(|| reply_budget.and_then(|budget| now.checked_add(budget)))
 }
 
 /// Runs language-server work for the request `context` admits. A starved
 /// server may use the time the request still has: its waits extend while it
-/// progresses, up to the caller's deadline (with none, for as long as it
-/// progresses). Cancelling the request (the caller's cancel, or the runtime
-/// at the deadline) drops `work` at once,
-/// which cancels its pending server requests, instead of holding the worker
-/// until the wait ends.
+/// progresses, up to the caller's deadline; with none, up to `reply_budget`
+/// from now ([`lsp_wait_deadline`]), and with neither for as long as it
+/// progresses. The reply budget ends only the server waits (the row says
+/// what it has); it never times the request out. Cancelling the request
+/// (the caller's cancel, or the runtime at the deadline) drops `work` at
+/// once, which cancels its pending server requests, instead of holding the
+/// worker until the wait ends.
 async fn within_request<F: Future>(
     context: &ExecutionContext,
+    reply_budget: Option<std::time::Duration>,
     work: F,
 ) -> Result<F::Output, ExecutionError> {
-    let deadline = context.deadline.map(tokio::time::Instant::from_std);
+    let deadline = lsp_wait_deadline(context.deadline, reply_budget, std::time::Instant::now())
+        .map(tokio::time::Instant::from_std);
     tokio::select! {
         biased;
         () = context.cancellation.cancelled() => {

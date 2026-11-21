@@ -179,6 +179,83 @@ async fn a_plain_read_fills_its_page_into_the_long_line() {
     assert_eq!(joined, source, "in order, every byte once");
 }
 
+/// G7: a walk through a line several pages long keeps one format as it is
+/// published. Every row that starts a source line carries its `N\t` gutter,
+/// on the byte pages as on the line page after them; a page that opens
+/// inside the long line states the line it continues (`continuesLine`) and
+/// leaves that first row bare; no page falls back to `sourceLineRanges`.
+/// The rows without their gutters, joined in page order, are the file, and
+/// each page's `length` counts source bytes, never a gutter.
+#[tokio::test]
+async fn a_long_line_walk_is_numbered_on_every_page_and_rebuilds_the_file() {
+    use octocode_runtime_base::id::ToolId;
+    let server = MockServer::builder().start().await;
+    let filler: String = (0..40_000).map(|at| format!("f{at:06};")).collect();
+    let source = format!("/*! banner | license */\n{filler}\nlast();\nend();\n");
+    serve(&server, "lib.min.js", &source).await;
+    let provider = mock_provider(&server, RetryPolicy::default());
+    let mut query = json!({"owner":"a","repo":"b","path":"lib.min.js","ref":SHA});
+    let (mut rebuilt, mut pages, mut continued) = (String::new(), 0, 0);
+    let mut last_line = 0;
+    loop {
+        let result = read(&provider, query).await;
+        let file = &result.file;
+        let mut published = json!({"results": [{"index": 0,
+            "data": serde_json::to_value(&file.content).expect("row")}]});
+        octocode_runtime_base::response::numbered::number_read_rows(
+            ToolId::GhGetFileContent,
+            &mut published,
+        );
+        let data = &published["results"][0]["data"];
+        assert!(
+            data.get("sourceLineRanges").is_none(),
+            "page {pages}: {data:.300}"
+        );
+        let content = data["content"].as_str().expect("content");
+        let continues = data.get("continuesLine").and_then(Value::as_u64);
+        let mut shown = 0;
+        for (at, row) in content.split_inclusive('\n').enumerate() {
+            let text = if at == 0 && continues.is_some() {
+                assert_eq!(
+                    continues,
+                    Some(last_line),
+                    "it continues the last line shown"
+                );
+                row
+            } else {
+                let (number, text) = row.split_once('\t').expect("a gutter");
+                let line: u64 = number.parse().expect("a line number");
+                assert_eq!(line, last_line + 1, "page {pages}: lines in order");
+                last_line = line;
+                text
+            };
+            shown += text.len();
+            rebuilt.push_str(text);
+        }
+        continued += usize::from(continues.is_some());
+        if data["pagination"]["unit"] == "bytes" {
+            assert_eq!(data["pagination"]["length"], shown, "page {pages}");
+        }
+        pages += 1;
+        assert!(pages < 200, "runaway paging");
+        let next = file
+            .calls
+            .as_ref()
+            .map(|next| next["nextPage"].clone())
+            .filter(|next| !next.is_null());
+        match next {
+            Some(next) => query = next["input"]["queries"][0].clone(),
+            None => break,
+        }
+    }
+    assert_eq!(rebuilt, source, "in order, every byte once");
+    assert!(
+        continued >= 3,
+        "the long line spans pages: {continued} of {pages}"
+    );
+    assert_eq!(last_line as usize, source.lines().count());
+}
+
 /// A `ranges` read that ends on a long line which is not the file's
 /// last walks that line to its end and states `hasMore:false` there
 /// ([`walk`] checks every page's wire); the pages are the line exactly once.

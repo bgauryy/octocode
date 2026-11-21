@@ -60,7 +60,7 @@ pub fn place(structured: &mut Value, rows_key: &str) {
 
 /// Whether `row` states its guidance in `hints` (an empty or failed row)
 /// rather than in `warnings`.
-fn guidance_in_hints(row: &Value) -> bool {
+pub(super) fn guidance_in_hints(row: &Value) -> bool {
     matches!(
         row["status"].as_str(),
         Some("error" | "empty" | "outOfRange")

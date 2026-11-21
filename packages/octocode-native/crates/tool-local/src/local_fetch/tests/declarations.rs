@@ -40,11 +40,10 @@ fn ranges_read_several_windows_in_one_row() {
             LineRange { start: 29, end: 30 }
         ]
     );
-    assert!(
-        r.warnings.iter().any(|w| w.contains("29-40")),
-        "{:?}",
-        r.warnings
-    );
+    // The page shows the file's last line and states `totalLines`: the cut
+    // of range 29-40 needs no warning beside them.
+    assert_eq!(r.total_lines, Some(30), "{r:?}");
+    assert_eq!(r.warnings, Vec::<String>::new());
     // One range reads that span.
     let old = qj(
         &p,

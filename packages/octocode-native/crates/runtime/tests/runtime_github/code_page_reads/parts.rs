@@ -1,6 +1,6 @@
 //! How the parts of one search page are stated and sized: search
-//! `pagination` counts search pages, the rest of a page is the response's
-//! continuation, a part reads at most twice the rows it shows, each file is
+//! `pagination` counts the walk's files (shown before, and left), the rest of
+//! a page is the response's continuation, a part reads at most twice the rows it shows, each file is
 //! read from GitHub once, a page's shift is stated once, a
 //! page that fits the window is shown whole, and a cursor page states the
 //! repository its rows share once, on its `data`.
@@ -107,10 +107,10 @@ fn shown(calls: &[Call]) -> BTreeSet<String> {
 }
 
 /// A search of one page (`limit` 100) and of three (`limit` 20), shown in
-/// parts: `pagination` says whether more search pages exist, never whether
-/// the page has more parts; a part's continuation is
-/// `responsePagination.next`, and only the last part of a search page
-/// carries `next.nextPage` to the next search page.
+/// parts: every response's `pagination` starts after the files the earlier
+/// responses showed and states the exact total; the reply's `next` is
+/// present exactly while a file is left, on another search page or in the
+/// rest of this one, and no row carries a page walk of its own.
 #[tokio::test]
 async fn a_part_continues_as_the_response_and_pagination_counts_search_pages() {
     for (limit, pages) in [(100, 1), (20, 3)] {
@@ -123,43 +123,69 @@ async fn a_part_continues_as_the_response_and_pagination_counts_search_pages() {
         let calls = walk(&server, &runtime, start(Some(limit), window)).await;
         assert!(calls.len() > pages, "the window shows pages in parts");
         assert_eq!(shown(&calls), names.iter().cloned().collect());
-        let mut page = 1;
+        let mut before = 0;
         for (at, call) in calls.iter().enumerate() {
             let data = &call.output["results"][0]["data"];
-            let response_next = call.output["responsePagination"]["next"].is_object();
-            let row_next = data["next"]["nextPage"].is_object();
-            match &data["pagination"] {
-                Value::Null => assert_eq!(pages, 1, "a paged search states its page: {data}"),
-                pagination => {
-                    assert_eq!(
-                        pagination["offset"],
-                        (page - 1) * limit,
-                        "call {at}: {pagination}"
-                    );
-                    assert_eq!(
-                        pagination["hasMore"],
-                        page < pages,
-                        "limit {limit} call {at}: hasMore says whether a search page follows: {pagination}"
-                    );
-                }
-            }
             assert!(
-                !(response_next && row_next),
-                "one continuation: {}",
-                call.output
+                data.pointer("/next/nextPage").is_none(),
+                "call {at}: the reply's next is the one walk: {data}"
             );
-            if at + 1 == calls.len() {
-                assert!(!response_next && !row_next, "the walk ends");
-            } else {
-                assert!(response_next || row_next, "call {at} continues");
+            if let Some(pagination) = data.get("pagination") {
+                assert_eq!(pagination["offset"], before, "call {at}: {pagination}");
+                assert_eq!(pagination["total"], names.len(), "call {at}: {pagination}");
+                assert!(
+                    pagination.get("hasMore").is_none() && pagination.get("countScope").is_none(),
+                    "call {at}: {pagination}"
+                );
             }
-            if row_next {
-                page += 1;
-            }
+            before += call.listed.len();
+            assert_eq!(
+                call.output["next"].is_object(),
+                at + 1 < calls.len(),
+                "limit {limit} call {at}: next is present exactly while a file is left"
+            );
         }
-        assert_eq!(page, pages, "limit {limit}: next.nextPage only moves pages");
         runtime.close().await;
     }
+}
+
+/// A part reserves no room for anything it does not serve: wherever a
+/// search page goes on in another part, the row that opens that part would
+/// not have fit this one. (A page's first row once reserved room for a read
+/// call no reply carried, so parts ended a row early.)
+#[tokio::test]
+async fn a_part_ends_only_where_its_next_row_does_not_fit() {
+    let server = MockServer::builder().start().await;
+    let names = files(40, |n| format!("src/f{n:03}.rs"));
+    super::mount(&server, &names, &[]).await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&support::github_api(&server));
+    let window = half_a_page(&names).await;
+    let calls = walk(&server, &runtime, start(Some(100), window)).await;
+    assert_eq!(shown(&calls), names.iter().cloned().collect());
+    let chars = |value: &Value| value.to_string().chars().count();
+    let mut continued = 0;
+    for pair in calls.windows(2) {
+        if !pair[0].output["next"].is_object() {
+            continue;
+        }
+        continued += 1;
+        let next_row = &pair[1].output["results"][0]["data"]["files"][0];
+        // A part reserves the reply's continuation at its widest: beside
+        // `next`, the expiry and replay facts a saved page states, and the
+        // call's `kind`, which a served call drops. A fresh part states
+        // neither, so that much room may stay unused; nothing else may.
+        let widest = r#","expiresAt":"2026-01-01T00:00:00.000Z","replayed":true"#.len()
+            + r#""kind":"continue","#.len();
+        assert!(
+            chars(&pair[0].output) + chars(next_row) + widest > window,
+            "a part of {} chars left room for a row of {} in a window of {window}",
+            chars(&pair[0].output),
+            chars(next_row)
+        );
+    }
+    assert!(continued > 0, "the window shows the page in parts");
+    runtime.close().await;
 }
 
 /// Mixed row sizes: every part reads at most three times the rows it shows
@@ -293,7 +319,7 @@ async fn a_page_that_fits_the_window_is_shown_whole() {
         .structured_content
         .into_value();
     assert_eq!(super::listed(&fitted).len(), names.len(), "{fitted}");
-    assert!(fitted.get("responsePagination").is_none(), "{fitted}");
+    assert!(fitted.get("next").is_none(), "{fitted}");
     assert!(
         fitted["results"][0]["data"].get("next").is_none(),
         "{fitted}"

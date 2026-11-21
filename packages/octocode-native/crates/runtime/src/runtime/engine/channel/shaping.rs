@@ -99,20 +99,9 @@ impl ChannelRun {
             },
             || context.check(),
         )?;
-        let mut response_query = self.response_query.clone();
+        let response_query = self.response_query.clone();
         structured.edit(|structured| {
             rows::warn_redacted_rows(structured, &before);
-            if self.id.selects_provider_page() {
-                octocode_tools_shared::selection::apply_sanitized_rows(
-                    self.id,
-                    self.id.output(),
-                    structured,
-                    &self.queries,
-                    &self.row_indices,
-                    &mut response_query,
-                    &self.dispatcher.selection_runtime(context),
-                )?;
-            }
             Ok::<_, ExecutionError>(())
         })?;
         Ok((structured, response_query))

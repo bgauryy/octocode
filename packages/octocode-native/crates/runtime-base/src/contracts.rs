@@ -8,7 +8,7 @@ mod normalize;
 mod prepare;
 mod private_state;
 pub mod query_limits;
-pub use normalize::{BesideCursor, meant_field, normalized_input, read_beside_cursor};
+pub use normalize::{BesideCursor, normalized_input, read_beside_cursor};
 pub use private_state::{BRIEF_FIELDS, state_fields};
 pub(crate) mod output_fields;
 mod schema_facts;
@@ -16,7 +16,7 @@ pub mod security;
 #[cfg(test)]
 pub(crate) mod undeclared;
 mod validate;
-pub use instructions::compose_instructions;
+pub use instructions::{compose_instructions, setting_instructions};
 use octocode_contract_types::ErrorCode;
 pub use validate::{
     ContractValidationError, ValidationIssue, format_input_error, levenshtein, tool_error,
@@ -274,60 +274,19 @@ pub fn cli_presentation() -> Result<&'static serde_json::Value, &'static str> {
         .map_err(String::as_str)
 }
 
-/// The input schema `tool` publishes with every field it can take (the one
-/// beside a classification provider where the tool has one): its properties
-/// keep the order core declares them in, which the tool contract's own
-/// schemas list by name.
+/// The input schema `tool` publishes: its properties keep the order core
+/// declares them in, which the tool contract's own schemas list by name.
 pub(crate) fn published_input_schema(tool: ToolId) -> Option<&'static serde_json::Value> {
     let entry = cli_presentation().ok()?["tools"]
         .as_array()?
         .iter()
         .find(|entry| entry["name"] == tool.as_str())?;
-    let widest = &entry["selection"]["mcp"]["inputSchema"];
-    Some(if widest.is_object() {
-        widest
-    } else {
-        &entry["mcp"]["inputSchema"]
-    })
+    Some(&entry["mcp"]["inputSchema"])
 }
 
-/// The row fields that ask for a classification provider: the predicates a
-/// caller writes, and the sealed plan a continuation carries. A runtime
-/// without a provider refuses a row that holds either.
-pub const PROVIDER_FIELDS: [&str; 2] = ["classification", "selection"];
-
-/// The row fields `tool` publishes only beside a classification provider:
-/// those its presentation's `selection` schema has and its plain one lacks.
-/// A runtime without a provider publishes the plain schema, so its errors
-/// name none of these.
-pub fn selection_only_fields(tool: &str) -> Vec<String> {
-    let Some(entry) = cli_presentation().ok().and_then(|presentation| {
-        presentation["tools"]
-            .as_array()?
-            .iter()
-            .find(|entry| entry["name"] == tool)
-    }) else {
-        return Vec::new();
-    };
-    let row_fields = |schema: &serde_json::Value| {
-        let defs = &schema["$defs"];
-        schema_facts::property_schemas(schema, defs, "queries")
-            .into_iter()
-            .flat_map(|queries| schema_facts::item_schemas(queries, defs))
-            .flat_map(|row| schema_facts::property_names(row, defs))
-            .map(str::to_owned)
-            .collect::<std::collections::BTreeSet<_>>()
-    };
-    let plain = row_fields(&entry["mcp"]["inputSchema"]);
-    row_fields(&entry["selection"]["mcp"]["inputSchema"])
-        .into_iter()
-        .filter(|field| !plain.contains(field))
-        .collect()
-}
-
-/// `input` as the runtime runs it: the one lossless repair applied before
-/// validation (`contextLines: 2` becomes `{"before":2,"after":2}`, a bare row
-/// is wrapped in `queries`). A caller that describes a finished call, such as
+/// `input` as the runtime runs it: the lenient readings its schema gives
+/// applied before validation (`exclude: "x"` becomes `["x"]`, a bare row is
+/// wrapped in `queries`). A caller that describes a finished call, such as
 /// the CLI's text output, reads this rather than what was sent.
 #[must_use]
 pub fn input_as_run(tool_name: &str, input: serde_json::Value) -> serde_json::Value {

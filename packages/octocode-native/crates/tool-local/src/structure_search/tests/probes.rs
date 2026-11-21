@@ -3,8 +3,9 @@
 use super::*;
 use octocode_test_support::json_fixture;
 
-/// An empty listing whose walk skipped an ignored entry says the skipped
-/// paths were not searched and leads to them, without walking them.
+/// An empty listing whose walk skipped an ignored entry says once that its
+/// `skippedPaths` were not listed and offers the one call that lists them,
+/// without walking them.
 #[test]
 fn an_empty_listing_names_its_skipped_causes_without_walking_them() {
     let root = Fixture::new();
@@ -19,16 +20,12 @@ fn an_empty_listing_names_its_skipped_causes_without_walking_them() {
         )
         .expect("listing");
         assert_eq!(out["status"], "empty", "{out}");
-        let warning = out["warnings"][0].as_str().unwrap_or_default();
-        assert!(
-            warning.starts_with("Skipped paths (ignored; default-excluded) were not searched"),
-            "{operation}: {out}"
-        );
         assert!(
             !out["files"].to_string().contains("a.gen.ts"),
             "{operation}: {out}"
         );
-        let lead = &related(&out, "structureSearch")["input"]["queries"][0];
+        assert_eq!(skipped_count(&out, "ignored"), 1, "{operation}: {out}");
+        let lead = skipped_recovery(&out);
         assert_eq!(lead["includeIgnored"], true, "{operation}: {out}");
     }
 }
@@ -142,7 +139,7 @@ fn an_empty_listing_a_depth_bound_emptied_leads_below_it() {
     root.write("src/deep/x.rs", "x\n");
     root.write("readme.txt", "x\n");
     for query in [
-        json!({"path":root.0,"extensions":["rs"]}),
+        json!({"operation":"tree","path":root.0,"extensions":["rs"]}),
         json!({"operation":"files","path":root.0,"extensions":["rs"],"maxDepth":1}),
     ] {
         let out = run(&root.0, query).expect("listing");
@@ -156,4 +153,33 @@ fn an_empty_listing_a_depth_bound_emptied_leads_below_it() {
         let found = run(&root.0, lead.clone()).expect("lead");
         assert_ne!(found["status"], "empty", "{found}");
     }
+}
+
+/// A `nameRegex` holding a `/` can match no name: its empty listing says so,
+/// whether or not the walk also skipped paths; a pattern without one, and a
+/// listing that found entries, do not.
+#[test]
+fn an_empty_listing_says_a_name_regex_with_a_separator_matches_no_name() {
+    use super::super::probe::PATH_IN_NAME_REGEX;
+    let said = |out: &Value| {
+        out["hints"]
+            .as_array()
+            .is_some_and(|hints| hints.iter().any(|hint| hint == PATH_IN_NAME_REGEX))
+    };
+    let root = Fixture::new();
+    root.write("src/deep/lib.rs", "x\n");
+    let query = |regex: &str| json!({"operation":"files","path":root.0,"nameRegex":regex});
+    let plain = run(&root.0, query("deep/.*\\.rs")).expect("empty listing");
+    assert_eq!(plain["status"], "empty", "{plain}");
+    assert!(said(&plain), "{plain}");
+    assert!(!said(&run(&root.0, query("^nomatch$")).expect("name miss")));
+    let found = run(&root.0, query("[^/]+\\.rs")).expect("listing");
+    assert_ne!(found["status"], "empty", "{found}");
+    assert!(!said(&found), "{found}");
+    // With skipped paths the listing leads to them, and still names the cause.
+    root.write(".gitignore", "ignored/\n");
+    root.write("ignored/lib.rs", "x\n");
+    let skipped = run(&root.0, query("deep/.*\\.rs")).expect("empty listing");
+    assert_eq!(skipped["status"], "empty", "{skipped}");
+    assert!(said(&skipped), "{skipped}");
 }

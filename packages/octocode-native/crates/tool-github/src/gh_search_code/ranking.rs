@@ -1,11 +1,9 @@
 //! Stable match ranking with lexicographic tie-breaking.
 use octocode_github::{ProviderError, ProviderErrorKind};
-use serde_json::Value;
 use std::cmp::Reverse;
 
 pub(super) struct Match {
     pub path: String,
-    pub value: Value,
     pub score: u8,
 }
 pub(super) struct Group {

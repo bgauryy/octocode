@@ -64,12 +64,12 @@ fn required<'a>(root: &'a Value, form: &'a Value, out: &mut Vec<&'a str>) {
     }
 }
 
-/// Whether a form's literal fields accept the value's: each sent literal
-/// field must hold one of the form's literals, and one it omits must not be
-/// required without a default (omitting it selects another form).
+/// Whether a form's literal fields accept the value's: each literal field
+/// the value sends must hold one of the form's literals. A literal the value
+/// omits excludes no form: the caller may still send it, so the fields of a
+/// form it selects (`unique` of `view: "matchOnly"`) are fields the row may
+/// author.
 fn selectors_fit(root: &Value, form: &Value, value: &Value) -> bool {
-    let mut needed = Vec::new();
-    required(root, form, &mut needed);
     declared(root, form)
         .into_iter()
         .flatten()
@@ -77,18 +77,9 @@ fn selectors_fit(root: &Value, form: &Value, value: &Value) -> bool {
             let Some(literals) = selector_literals(root, schema) else {
                 return true;
             };
-            match value.get(name) {
-                Some(actual) => literals.iter().any(|literal| equivalent(literal, actual)),
-                None => {
-                    crate::contracts::schema_facts::schema_keyword(
-                        schema,
-                        &root["$defs"],
-                        "default",
-                    )
-                    .is_some()
-                        || !needed.contains(&name.as_str())
-                }
-            }
+            value
+                .get(name)
+                .is_none_or(|actual| literals.iter().any(|literal| equivalent(literal, actual)))
         })
 }
 

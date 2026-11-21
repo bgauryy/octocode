@@ -43,7 +43,7 @@ fn a_complete_page_wider_than_the_budget_states_no_page_block() {
     for saved in [None, Some(false)] {
         let page = page_of(&input, budget, saved);
         assert!(
-            page.value.get("responsePagination").is_none(),
+            page.value.get("next").is_none(),
             "saved {saved:?}: {}",
             page.value
         );
@@ -84,14 +84,11 @@ fn a_page_within_the_budget_states_no_size() {
 fn a_saved_read_still_states_where_its_walk_ends() {
     let budget = 300;
     let page = page_of(&indivisible(budget), budget, Some(true));
-    let block = &page.value["responsePagination"];
-    assert!(
-        block.get("hasMore").is_none() && block.get("next").is_none(),
-        "{}",
-        page.value
-    );
+    let block = &page.value;
+    assert!(block.get("next").is_none(), "{}", page.value);
     assert_eq!(block["replayed"], true);
-    assert!(block.get("oversized").is_none(), "{}", page.value);
+    // The expiry is the continuation's: a last page has none to state.
+    assert!(block.get("expiresAt").is_none(), "{}", page.value);
     assert_eq!(
         page.value["oversized"], true,
         "a page of a walk discloses its size at the top level"
@@ -117,7 +114,7 @@ fn assert_unpaged(input: &Value, budget: Option<usize>, oversized: bool) {
     }
     assert_eq!(prepared.value, expected, "only the size disclosure changes");
     assert!(prepared.next.is_none(), "no replay is introduced");
-    assert!(prepared.value.get("responsePagination").is_none());
+    assert!(prepared.value.get("next").is_none());
 }
 
 #[test]
@@ -225,5 +222,37 @@ fn unpaged_exempts_only_volatile_row_data() {
         );
         nested["results"][0]["data"]["details"][field] = facts;
         assert_unpaged(&nested, Some(budget), true);
+    }
+}
+
+/// `responsePagination.expiresAt` says when the page's continuation stops
+/// answering: every page that offers one states it, first delivery or
+/// replay, and the last page of the same walk, which offers none, does not.
+/// A last page read back from the saved response still says so
+/// (`replayed`), and a last page delivered fresh states no block at all.
+#[test]
+fn the_expiry_is_stated_only_beside_a_continuation() {
+    let rows: Vec<Value> = (0..40)
+        .map(|index| json!({"id": format!("row-{index:03}"), "text": "x".repeat(40)}))
+        .collect();
+    let input = json!({"results": [{"index": 0, "data": {"rows": rows}}]});
+    let budget = 600;
+    for replayed in [false, true] {
+        let first = page_of(&input, budget, Some(replayed));
+        let block = &first.value;
+        assert!(block["next"].is_object(), "{}", first.value);
+        assert!(block["expiresAt"].is_string(), "{}", first.value);
+        assert_eq!(block.get("replayed").is_some(), replayed, "{}", first.value);
+        let whole = page_of(&input, 1_000_000, Some(replayed));
+        // A last page states no continuation and no expiry; read back
+        // from the saved response it still says so.
+        assert!(whole.value.get("next").is_none(), "{}", whole.value);
+        assert!(whole.value.get("expiresAt").is_none(), "{}", whole.value);
+        assert_eq!(
+            whole.value.get("replayed").is_some(),
+            replayed,
+            "{}",
+            whole.value
+        );
     }
 }

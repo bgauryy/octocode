@@ -24,6 +24,9 @@ pub(super) struct GenericPool<C> {
     pub(super) options: LspPoolOptions,
     pub(super) state: Arc<Mutex<State<C>>>,
     pub(super) count: Arc<AtomicUsize>,
+    /// The pools that share this pool's memory budget, itself included
+    /// ([`GenericPool::share_memory_budget`]).
+    pub(super) sharers: Arc<AtomicUsize>,
     /// The time idle expiry and start backoff run on; the pool's clients
     /// get it too.
     pub(super) clock: LspClock,
@@ -44,7 +47,31 @@ impl<C: PoolClient> GenericPool<C> {
                     .unwrap_or(std::num::NonZeroUsize::MIN),
             ))),
             count: Arc::new(AtomicUsize::new(0)),
+            sharers: Arc::new(AtomicUsize::new(1)),
             clock,
+        }
+    }
+
+    /// State that `sharers` pools (this one included) share the memory
+    /// budget: each keeps an equal part, so together they hold no more than
+    /// the budget one pool alone would. A count below one is one.
+    pub(super) fn share_memory_budget(&self, sharers: usize) {
+        self.sharers.store(sharers.max(1), Ordering::Relaxed);
+    }
+
+    /// The options eviction runs on: the pool's own, with the memory budget
+    /// cut to this pool's part. A budget stays a budget (never a part of
+    /// zero, which means none), and no budget stays none.
+    pub(super) fn budgeted(&self) -> LspPoolOptions {
+        let sharers = self.sharers.load(Ordering::Relaxed).max(1) as u64;
+        let budget = self.options.max_resident_bytes;
+        LspPoolOptions {
+            max_resident_bytes: if budget == 0 {
+                0
+            } else {
+                (budget / sharers).max(1)
+            },
+            ..self.options
         }
     }
 
@@ -161,7 +188,7 @@ impl<C: PoolClient> GenericPool<C> {
                             touch_entry(&mut state, &key, self.clock.now());
                             // A previously deferred (busy) eviction may be
                             // possible now.
-                            let evicted = evict_overflow(&mut state, &self.options, &key);
+                            let evicted = evict_overflow(&mut state, &self.budgeted(), &key);
                             self.count.store(state.entries.len(), Ordering::SeqCst);
                             state.inflight.remove(&key);
                             inflight.complete(Ok(Some(client.clone())));

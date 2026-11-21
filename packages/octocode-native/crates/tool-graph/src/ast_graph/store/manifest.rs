@@ -141,11 +141,7 @@ impl Unextracted {
     }
 
     /// Whether code of `file` that no edge covers may use a name of `names`.
-    pub(super) fn may_name<'n>(
-        &self,
-        file: u32,
-        mut names: impl Iterator<Item = &'n str>,
-    ) -> bool {
+    pub(super) fn may_name<'n>(&self, file: u32, mut names: impl Iterator<Item = &'n str>) -> bool {
         match self.files.get(&file) {
             None => false,
             Some(None) => true,

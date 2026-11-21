@@ -199,12 +199,10 @@ async fn a_capped_total_is_the_reachable_window() {
 }
 
 /// A REST list page with more pages has no total: the rows listed so far
-/// are not stated as one, with no static warning. A pull request
-/// list also offers one count call: the same filters searched (created since
-/// the epoch, every pull request), one row, whose `total` is the count.
-/// A commit list has none: commit search needs keywords.
+/// are not stated as one, with no static warning, and the row carries no
+/// call for a count: the description routes that to a search.
 #[tokio::test]
-async fn a_rest_list_page_with_more_states_no_total_and_offers_a_count() {
+async fn a_rest_list_page_with_more_states_no_total() {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -271,77 +269,8 @@ async fn a_rest_list_page_with_more_states_no_total_and_offers_a_count() {
         assert!(data["pagination"].get("total").is_none(), "{data}");
         assert!(data["pagination"].get("countScope").is_none(), "{data}");
         assert!(data.get("warnings").is_none(), "{row}: {data}");
-        if row["operation"] == "pullRequest" {
-            let count = &octocode_runtime_base::test_support::checks::related_call(
-                &data,
-                "ghSearchHistory",
-                |input| input["queries"][0]["limit"] == 1,
-            )["input"]["queries"][0];
-            assert_eq!(
-                (&count["operation"], &count["owner"], &count["repo"]),
-                (&json!("pullRequest"), &json!("o"), &json!("r")),
-                "{data}"
-            );
-            assert!(count.pointer("/filters/createdAt/from").is_some(), "{data}");
-        }
-    }
-}
-
-/// A pull-request listing offers its count call once, on page 1. The
-/// call is the same on every page (the listing's filters searched, one row),
-/// so later pages that still have more do not repeat it.
-#[tokio::test]
-async fn a_pull_request_listing_offers_its_count_call_on_page_one_only() {
-    use wiremock::{
-        Mock, MockServer, ResponseTemplate,
-        matchers::{method, path},
-    };
-    let server = MockServer::builder().start().await;
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/o/r/pulls"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .insert_header(
-                    "link",
-                    format!(
-                        "<{}/api/v3/repos/o/r/pulls?per_page=50&page=9>; rel=\"next\"",
-                        server.uri()
-                    )
-                    .as_str(),
-                )
-                .set_body_json(json_fixture(
-                    r#"[
-                        {
-                            "number": 4,
-                            "title": "Fix",
-                            "state": "open",
-                            "user": {"login": "dev"},
-                            "created_at": "2026-01-01T00:00:00Z"
-                        }
-                    ]"#,
-                )),
-        )
-        .mount(&server)
-        .await;
-    let counts = |data: &Value| {
-        octocode_runtime_base::test_support::checks::find_related_call(
-            data,
-            "ghSearchHistory",
-            |input| input["queries"][0]["limit"] == 1,
-        )
-        .is_some()
-    };
-    let provider = one_shot_provider(&server);
-    for (page, offered) in [(1, true), (2, false), (3, false)] {
-        let query = serde_json::from_value(
-            json!({"operation":"pullRequest","owner":"o","repo":"r","page":page}),
-        )
-        .expect("query");
-        let data = execute(&provider, &query, &default_context(), &Passthrough)
-            .await
-            .expect("listing");
-        assert_eq!(data["pagination"]["hasMore"], true, "page {page}: {data}");
-        assert_eq!(counts(&data), offered, "page {page}: {data}");
+        // The count is the description's to route (a search states a total).
+        assert!(data.get("related").is_none(), "{row}: {data}");
     }
 }
 

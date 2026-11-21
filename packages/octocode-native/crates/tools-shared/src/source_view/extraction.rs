@@ -48,6 +48,11 @@ pub struct Extraction {
     pub matched_lines: Vec<usize>,
     pub count: Option<usize>,
     pub warnings: Vec<String>,
+    /// The requested ranges that reach past the file's last line, each as
+    /// the warning that says where it was cut. A page states them unless it
+    /// shows that last line: its numbered text and `totalLines` then say the
+    /// same ([`Self::clip_warnings`]).
+    pub clips: Vec<String>,
     /// Continuations to the data this view selected but did not return.
     pub next: NextCalls,
     /// The declarations a `block:true` match read widened hits to.
@@ -149,6 +154,7 @@ impl Extraction {
             matched_lines: vec![],
             count: None,
             warnings: vec![],
+            clips: vec![],
             next: NextCalls::default(),
             blocks: vec![],
             match_limited: false,
@@ -156,6 +162,26 @@ impl Extraction {
             unmatched: vec![],
         }
     }
+
+    /// The range-clip warnings of a page whose last shown source line is
+    /// `last_shown` (`None`: the page does not state its lines) of a file
+    /// of `total_lines`: none when the page shows the file's last line.
+    pub(super) fn clip_warnings(
+        &self,
+        last_shown: Option<usize>,
+        total_lines: usize,
+    ) -> impl Iterator<Item = String> + '_ {
+        self.clips
+            .iter()
+            .filter(move |_| last_shown != Some(total_lines))
+            .cloned()
+    }
+}
+
+/// The warning of a requested range `first`-`last` cut at the last line of a
+/// file of `total` lines: the one text of every reader of a range.
+pub(crate) fn clip_warning(first: usize, last: usize, total: usize) -> String {
+    format!("Range {first}-{last} adjusted to end at {total} (file end).")
 }
 
 /// Line ranges joined into one view: sorted, overlapping or adjacent ranges
@@ -169,6 +195,7 @@ fn ranges_extract(
 ) -> Result<Extraction, ExtractionError> {
     let total = lines.len();
     let mut warnings = vec![];
+    let mut clips = vec![];
     let mut kept: Vec<LineRange> = vec![];
     for range in requested {
         if range.start > total {
@@ -181,10 +208,7 @@ fn ranges_extract(
             continue;
         }
         if range.end > total {
-            warnings.push(format!(
-                "Range {}-{} adjusted to end at {total} (file end).",
-                range.start, range.end
-            ));
+            clips.push(clip_warning(range.start, range.end, total));
         }
         kept.push(LineRange {
             start: range.start.max(1),
@@ -201,12 +225,14 @@ fn ranges_extract(
         ));
     }
     let mut next = NextCalls::default();
+    let mut blocks = vec![];
     if local_fetch_query::block(q) {
         kept = super::block::widen_ranges(
             content,
             local_fetch_query::path(q),
             kept,
             &mut warnings,
+            &mut blocks,
             &mut next,
         );
     }
@@ -221,8 +247,9 @@ fn ranges_extract(
         matched_lines: vec![],
         count: None,
         warnings,
+        clips,
         next,
-        blocks: vec![],
+        blocks,
         match_limited: false,
         match_windows: vec![],
         unmatched: vec![],

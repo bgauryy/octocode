@@ -340,7 +340,7 @@ pub(super) fn judge_source(
             format!(
                 "source.query.{field} is {name}'s private progress, which only an issued cursor carries; nothing was read."
             ),
-            "Send the tool's public query; the row's next.nextPage pages its rows.",
+            "Send the tool's public query; the reply's next pages its rows.",
         )));
     }
     let progress = row.source_progress.as_ref();
@@ -349,6 +349,7 @@ pub(super) fn judge_source(
         Err(error) => return RowOutcome::Units(Err(error)),
     };
     let units = page_units(&data, query);
+    let page_rows = units.len();
     // The row names one source; the tool's rows are its expansion.
     let mut judged = match judge(
         evaluator,
@@ -378,6 +379,10 @@ pub(super) fn judge_source(
     match next_query {
         Some(query) => match next_page(row, tool, query, can_resume) {
             Some(NextPage::Call(call)) => {
+                // The next page is judged like this one: it bills, and the
+                // reply's continuation is otherwise read as a free page.
+                let note = billed_next_note(name, page_calls(output), page_rows, &data, can_resume);
+                octocode_runtime_base::response::paging::push_warnings(output, [note]);
                 if can_resume {
                     octocode_runtime_base::response::collection::insert_walk(
                         &mut output["next"],
@@ -386,7 +391,12 @@ pub(super) fn judge_source(
                         call,
                     );
                 } else {
-                    octocode_runtime_base::response::result::attach_related(output, call.build());
+                    // Without saved work the next page is a fresh call, and
+                    // still the rest of what was asked: the row needs it.
+                    octocode_runtime_base::response::result::attach_related(
+                        output,
+                        call.required().build(),
+                    );
                 }
             }
             Some(NextPage::Unsaved) => {
@@ -412,6 +422,46 @@ pub(super) fn judge_source(
         None => {}
     }
     RowOutcome::Units(Ok(judged))
+}
+
+/// The judge requests this page's reply states (`usage.calls`); 0 when the
+/// page asked none (every row quiet or answered from saved work).
+fn page_calls(output: &Value) -> u64 {
+    output["usage"]["calls"].as_u64().unwrap_or(0)
+}
+
+/// What running the reply's `next` costs, on a page of `tool`'s rows that
+/// has a next page: the next page is judged too, so it bills as this one
+/// did. States this page's own count as the measure and how many rows
+/// remain when the tool's page states an exact total, its offset and its
+/// length; otherwise only that more rows remain, never a guess. `resumes`
+/// says which call carries the page: the reply's `next`, or `related`.
+fn billed_next_note(tool: &str, calls: u64, rows: usize, data: &Value, resumes: bool) -> String {
+    let page = &data["pagination"];
+    let exact = page["countScope"].is_null() || page["countScope"] == "complete";
+    let remaining = match (
+        page["total"].as_u64(),
+        page["offset"].as_u64(),
+        page["length"].as_u64(),
+    ) {
+        (Some(total), Some(offset), Some(length)) if exact => total.checked_sub(offset + length),
+        _ => None,
+    };
+    let remain = match remaining {
+        Some(left) => format!("{left} of {tool}'s rows remain"),
+        None => format!("more of {tool}'s rows remain"),
+    };
+    let requests = if calls == 1 { "request" } else { "requests" };
+    // Where the next page's call rides: the reply's continuation, or, with
+    // no saved work, the row's related call.
+    let call = if resumes {
+        "The reply's next"
+    } else {
+        "The related[] call"
+    };
+    format!(
+        "{call} judges {tool}'s next page and bills again: this page took {calls} judge {requests} for {rows} rows; {remain}. Stop when the answer is decided, or narrow source.query."
+    )
 }
 
 /// The row of `data` that lists the file at `path`.
@@ -524,9 +574,7 @@ fn next_page(
     if !progress.is_empty() {
         call["sourceProgress"] = Value::Object(progress);
     }
-    if let Some(context) = &row.context {
-        call["context"] = json!(context);
-    }
+    super::rows::carry_brief(row, &mut call);
     if let Some(model) = &row.model {
         call["model"] = json!(model);
     }
@@ -587,6 +635,50 @@ pub(super) fn judge_items(
             judged.offer_retry(row, can_resume);
             RowOutcome::Units(Ok(judged))
         }
+        Err(over) => RowOutcome::OverBudget(over),
+    }
+}
+
+/// An `evaluate` row whose text source is judged one line per kind
+/// ([`super::kinds`]): each kind is a unit named by the line it first
+/// appears on. The kinds are the source the row named, so a row without
+/// `maxRequests` judges them all.
+pub(super) fn judge_kinds(
+    evaluator: &Evaluator,
+    evaluations: &Evaluations,
+    row: &Row,
+    text: &str,
+    dispatcher: &dyn SourceReader,
+    context: &ExecutionContext,
+    gate: &GateLease,
+) -> RowOutcome {
+    let units = super::kinds::kinds(text)
+        .into_iter()
+        .map(|kind| Unit {
+            key: kind.line.to_string(),
+            state: Some(kind.state),
+            scoped: false,
+        })
+        .collect::<Vec<_>>();
+    if units.is_empty() {
+        return RowOutcome::Units(Err(ClassificationError::new(
+            ErrorCode::ClassificationContextEmpty,
+            "The source holds no line to judge; nothing was sent.",
+            "Check the path and the ranges.",
+        )));
+    }
+    let named = u64::try_from(units.len()).unwrap_or(u64::MAX);
+    match judge(
+        evaluator,
+        evaluations,
+        row,
+        units,
+        named,
+        dispatcher,
+        context,
+        gate,
+    ) {
+        Ok(judged) => RowOutcome::Units(Ok(judged)),
         Err(over) => RowOutcome::OverBudget(over),
     }
 }
@@ -846,8 +938,14 @@ impl UnitsOutcome {
                 ToolId::Clasify,
                 call,
             );
-            octocode_runtime_base::response::result::attach_related(&mut self.output, call.build());
-            octocode_runtime_base::response::result::add_hints(
+            // The retry is the rest of what was asked, and the sentence limits
+            // trust in the answers given: a required call and a warning, which
+            // an answered row keeps.
+            octocode_runtime_base::response::result::attach_related(
+                &mut self.output,
+                call.required().build(),
+            );
+            octocode_runtime_base::response::paging::push_warnings(
                 &mut self.output,
                 vec![format!(
                     "{units} left unanswered by a transient failure. This command keeps no saved work, so the related retry asks every unit of the row again (billed, at most {ceiling} requests)."
@@ -1151,7 +1249,8 @@ fn reads(
         let call = if can_resume {
             octocode_runtime_base::response::result::Continuation::continued(reader, row)
         } else {
-            octocode_runtime_base::response::result::Continuation::related(reader, row)
+            // The read that cites the answers: the row needs it.
+            octocode_runtime_base::response::result::Continuation::related(reader, row).required()
         };
         let name = match calls.len() {
             0 => "read".to_owned(),

@@ -87,7 +87,7 @@ async fn local_page_channels_walk_exactly_once() {
             json_fixture(
                 r#"{
                     "queries": [{"operation": "files", "path": "src"}],
-                    "responseChars": 600
+                    "responseChars": 400
                 }"#,
             ),
             listed_rows,

@@ -116,11 +116,12 @@ pub(super) fn walk(
                 let way = if edge.src == id { "out" } else { "in" };
                 row.insert("direction".into(), json!(way));
             }
-            g.edge_fields(&mut row, edge);
-            // The source occurrences behind the walked edge.
+            // The connection, not the one stored edge the walk happened to
+            // reach first: its strongest kind and every occurrence.
+            g.edge_fields(&mut row, g.strongest(edge, filter));
             row.insert(
                 "sites".into(),
-                json!(g.sites(cancel)?.behind(edge, filter.tests)),
+                json!(g.connection_sites(edge, filter, cancel)?),
             );
             rows.push(Value::Object(row));
         }
@@ -152,7 +153,7 @@ pub(super) fn path(
         for (next, edge) in g.neighbors(id, direction, filter) {
             if !seen[next as usize] {
                 seen[next as usize] = true;
-                previous[next as usize] = (id, Some(edge));
+                previous[next as usize] = (id, Some(g.strongest(edge, filter)));
                 queue.push_back(next);
             }
         }

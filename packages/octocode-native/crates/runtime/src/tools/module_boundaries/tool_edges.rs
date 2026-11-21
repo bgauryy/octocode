@@ -135,10 +135,16 @@ const SHARED_LAYERS: &[Layer] = &[
 const NON_TOOLS: &[(&str, &[Layer])] = &[
     (
         "tool-github",
-        &[&[(
-            "qualifier_keywords",
-            "which field carries a search qualifier a keyword spells: ghSearchCode, ghSearchHistory and ghSearchRepo name it in an empty answer",
-        )]],
+        &[&[
+            (
+                "include_globs",
+                "the one include glob rule, compiled by the local walk's own compiler: ghStructure reads it below `path`, ghGetHistoryItem from the repository root, and the leads of ghSearchHistory and ghSearchCode spell exact paths by it",
+            ),
+            (
+                "qualifier_keywords",
+                "which field carries a search qualifier a keyword spells: ghSearchCode, ghSearchHistory and ghSearchRepo name it in an empty answer",
+            ),
+        ]],
     ),
     (
         "tool-packages",

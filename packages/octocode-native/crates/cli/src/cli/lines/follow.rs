@@ -56,19 +56,33 @@ fn nested(prefix: &str, key: &str, value: &Value, lines: &mut Vec<String>) {
     lines.extend(block.into_iter().map(|line| format!("{prefix}{line}")));
 }
 
-/// Fields that say whether an answer is whole, beside any object that holds
-/// `hasMore`: they print in the stdout trailer, never only on stderr.
+/// Fields that say whether an answer is whole, beside any page state: they
+/// print in the stdout trailer, never only on stderr.
 const INCOMPLETE: [&str; 4] = ["rowPart", "isPartial", "partialReasons", "unknownItems"];
 
-/// Whether a field decides "am I done": the response page state (its `next`
-/// call is present while more remains), a tool page state (`hasMore`) or a
-/// mark of an incomplete answer.
+/// Whether a field decides "am I done": a page state ([`is_page`]: where a
+/// window sits, or an exact count) or a mark of an incomplete answer. The
+/// reply's `next` call, present while more remains, prints with the calls.
 pub(super) fn decides_done(key: &str, value: &Value) -> bool {
-    INCOMPLETE.contains(&key)
-        || key == "responsePagination"
-        || value
-            .as_object()
-            .is_some_and(|fields| fields.contains_key("hasMore"))
+    INCOMPLETE.contains(&key) || value.as_object().is_some_and(is_page)
+}
+
+/// Whether `fields` is a page state: it places a page (`offset`) and states
+/// nothing but a page's own facts.
+pub(super) fn is_page(fields: &Map<String, Value>) -> bool {
+    fields.contains_key("offset")
+        && fields.keys().all(|key| {
+            matches!(
+                key.as_str(),
+                "unit" | "offset" | "length" | "total" | "oversized"
+            )
+        })
+}
+
+/// Whether a field prints in the trailer wherever it is stated: a done fact
+/// ([`decides_done`]) or advice on reading the answer ([`ADVICE`]).
+pub(super) fn in_trailer(key: &str, value: &Value) -> bool {
+    decides_done(key, value) || ADVICE.contains(&key)
 }
 
 /// `fields` split into those that decide "am I done" and the rest.
@@ -121,12 +135,13 @@ pub(super) fn stated_notes(mut stated: Map<String, Value>) -> (Vec<String>, Vec<
     (facts, field_notes("", &advice))
 }
 
-/// A follow-up call the output schema declares, as a runnable command.
+/// A follow-up call the output schema declares, as printed: a runnable
+/// command, or the call itself.
 pub(super) struct Call {
     /// The row it belongs to; `None` for the envelope's.
     pub row: Option<usize>,
-    /// Its place in the row's `data` (`next.nextPage`, `related[0]`) or in
-    /// the envelope (`responsePagination.next`).
+    /// Its place in the row's `data` (`next.readDeclaration`, `related[0]`)
+    /// or in the envelope (`next`).
     pub label: String,
     pub command: String,
     /// A `related` call starts new work; every other continues, restarts or
@@ -141,12 +156,12 @@ impl Call {
 }
 
 /// The calls of `row` (`None`: the envelope's) as notes: the continuations
-/// in run order (`next.nextPage` before any other), then the `related[]`
-/// leads.
+/// in run order (the reply's `next` before any other), then the
+/// `related[]` leads.
 pub(super) fn notes_of(calls: &[Call], row: Option<usize>) -> (Vec<String>, Vec<String>) {
     let own = || calls.iter().filter(move |call| call.row == row);
     let mut continuations: Vec<&Call> = own().filter(|call| !call.lead).collect();
-    continuations.sort_by_key(|call| call.label != "next.nextPage");
+    continuations.sort_by_key(|call| call.label != "next");
     (
         continuations.into_iter().map(Call::note).collect(),
         own().filter(|call| call.lead).map(Call::note).collect(),
@@ -154,9 +169,21 @@ pub(super) fn notes_of(calls: &[Call], row: Option<usize>) -> (Vec<String>, Vec<
 }
 
 /// Extract commands only from positions declared as calls by the output schema.
+#[cfg(test)]
 pub(super) fn separate_calls(
     tool: octocode_runtime_base::id::ToolId,
     structured: &Value,
+) -> Option<(Value, Vec<Call>)> {
+    separate_calls_as(tool, structured, false)
+}
+
+/// [`separate_calls`], each call printed as a shell command with its reason
+/// after it, or (`as_json`) as the call object itself (`tool`, `input` and
+/// any `reason`, compact), which a client sends unchanged.
+pub(super) fn separate_calls_as(
+    tool: octocode_runtime_base::id::ToolId,
+    structured: &Value,
+    as_json: bool,
 ) -> Option<(Value, Vec<Call>)> {
     let mut calls = Vec::new();
     octocode_runtime_base::response::continuations::visit_calls(
@@ -196,13 +223,18 @@ pub(super) fn separate_calls(
                     label.push_str(part);
                 }
             }
-            let mut command = command(
-                call["tool"].as_str().unwrap_or_default(),
-                &call["input"].to_string(),
-            );
-            if let Some(reason) = call.get("reason").and_then(Value::as_str) {
-                command.push_str(&format!("  # {reason}"));
-            }
+            let command = if as_json {
+                call.to_string()
+            } else {
+                let mut command = command(
+                    call["tool"].as_str().unwrap_or_default(),
+                    &call["input"].to_string(),
+                );
+                if let Some(reason) = call.get("reason").and_then(Value::as_str) {
+                    command.push_str(&format!("  # {reason}"));
+                }
+                command
+            };
             Call {
                 row,
                 label,

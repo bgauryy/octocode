@@ -1,10 +1,8 @@
-//! A match page's continuations: its next page and scan window, the value
-//! expansions and the read of its top hits.
+//! A match page's continuations: its next page and scan window.
 use super::query::MatchQuery;
 use super::query::Move;
-use super::reads::read_top_hits;
 use super::rows::continuation_with;
-use super::types::{Group, ScanCut, Scope};
+use super::types::{ScanCut, Scope};
 use octocode_contract_types::{
     AstSearchChannel, AstSearchQuerySyntaxTree, AstSearchQuerySyntaxTreeOperation, ErrorCode,
 };
@@ -73,20 +71,16 @@ fn line_count(file: &std::path::Path) -> Option<u64> {
     }
 }
 
-/// `next` pages and the scan expansion; the related capture expansion and
-/// read of the top file's hits.
+/// `next` pages and the scan expansion.
 pub(super) fn attach_match_continuations(
     q: MatchQuery<'_>,
-    scope: &Scope,
     out: &mut Value,
-    page_groups: &[Group],
     cut: ScanCut<'_>,
     more: bool,
     snapshot: &str,
 ) -> Result<(), ToolError> {
     let truncated = cut.truncated;
     let page = u64::from(q.page().max(1));
-    let has_truncated_captures = page_groups.iter().any(|group| group.truncated_captures);
     // The scan continues after the files this window evaluated
     // (`scanOffset`), so the lead is offered once the window's last page is
     // reached.
@@ -135,73 +129,8 @@ pub(super) fn attach_match_continuations(
         }
         None => {}
     }
-    // The lean structural representation may withhold a body or captures.
-    // Expanding that chosen representation returns their complete text:
-    // optional work, so a related lead, never a required continuation.
-    if has_truncated_captures && !q.capture_text().unwrap_or(false) {
-        let (lead, whole_scope) = capture_lead(q, scope, page_groups);
-        out["calls"]["expandCaptures"] = lead;
-        if whole_scope {
-            octocode_runtime_base::response::result::add_hints(
-                out,
-                [
-                    "The includeCaptures lead reads the whole scope: this page's withheld rows are in more files than include holds, or in a name no glob spells. It returns every match of the scope, those rows among them.",
-                ],
-            );
-        }
-    }
-    if let Some(read) = page_groups
-        .first()
-        .and_then(|top| read_top_hits(scope, &top.row))
-    {
-        out["calls"]["read"] = read;
-    }
     Ok(())
 }
-/// The query again with `includeCaptures`, over only the files whose rows
-/// this page withheld text of: their matches with captures cut into pages of
-/// their own (captures change a row's size, so this page's edges would not
-/// hold), so walking it lists each withheld row once, whole, and reads no
-/// other file of the scope. Each file is an `include` glob anchored at the
-/// scope with its name escaped; a single-file scope is that file already,
-/// and a name no glob can spell (not UTF-8), or more files than `include`
-/// holds, keeps the whole scope, a superset that still lists each row once;
-/// the flag says it did, so the page discloses it.
-fn capture_lead(q: MatchQuery<'_>, scope: &Scope, page_groups: &[Group]) -> (Value, bool) {
-    let mut changes =
-        json!({"includeCaptures": true, "page": null, "scanOffset": null, "snapshot": null});
-    let anchored = |file: std::path::PathBuf| {
-        let below = file.strip_prefix(&scope.canonical).ok()?;
-        let parts = below
-            .components()
-            .map(|part| {
-                part.as_os_str()
-                    .to_str()
-                    .map(octocode_engine::search::glob::literal)
-            })
-            .collect::<Option<Vec<_>>>()?;
-        Some(format!("/{}", parts.join("/")))
-    };
-    let files = page_groups
-        .iter()
-        .filter(|group| group.truncated_captures)
-        .map(|group| super::reads::row_file(scope, &group.row).and_then(anchored))
-        .collect::<Option<Vec<_>>>();
-    let fits = |files: &Vec<String>| {
-        files.len() <= octocode_runtime_base::contracts::query_limits::ast_search::r#match::INCLUDE_MAX_ITEMS
-    };
-    let files = files.filter(|files| !scope.is_file && fits(files));
-    let whole_scope = files.is_none() && !scope.is_file;
-    if let Some(files) = files {
-        changes["include"] = json!(files);
-    }
-    let lead = octocode_runtime_base::response::result::restart_query(
-        ToolId::AstSearch,
-        &octocode_runtime_base::response::result::with_changes(q.to_value(), &changes),
-    );
-    (lead, whole_scope)
-}
-
 /// `next.expandScan`: the window after the `offset` candidates a cut scan
 /// evaluated, bound to `pin`, what those candidates are. A cut with no
 /// position past them to resume at is a defect of the response.
@@ -241,6 +170,11 @@ pub(super) fn tree_lead(
     file: &std::path::Path,
     line: Option<u64>,
 ) -> Option<Value> {
+    // Inline source has no file to lead to, and the caller holds its text:
+    // the same `content` with operation syntaxTree prints its tree.
+    if scope.inline.is_some() {
+        return None;
+    }
     // One bounded page: the nodes at `line` (the statement that spells the
     // query's anchor), else the file's first nodes, with the rest a page on.
     let tree = AstSearchQuerySyntaxTree {
@@ -254,7 +188,8 @@ pub(super) fn tree_lead(
             Some(language) => Some(language.parse().ok()?),
             None => None,
         },
-        path: file.to_string_lossy().as_ref().try_into().ok()?,
+        path: Some(file.to_string_lossy().as_ref().try_into().ok()?),
+        content: None,
         reasoning: None,
         snapshot: None,
     };
@@ -264,11 +199,9 @@ pub(super) fn tree_lead(
 /// The first line of `file` that spells a literal every match must contain,
 /// as a whole word (`def` is not in `default`): where a parsed file's tree
 /// is compared with the query's shape.
-pub(super) fn anchor_line(q: MatchQuery<'_>, file: &std::path::Path) -> Option<u64> {
+pub(super) fn anchor_line(q: MatchQuery<'_>, scope: &Scope, file: &std::path::Path) -> Option<u64> {
     let anchors = octocode_engine::structural::query_anchors(None, q.rule().as_ref())?;
-    let source = super::super::source::read_parse_source(file)
-        .ok()
-        .flatten()?;
+    let source = scope.parse_source(file).ok().flatten()?;
     super::super::source::matched_text(file, &source)
         .ok()?
         .lines()

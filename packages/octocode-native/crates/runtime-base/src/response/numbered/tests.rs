@@ -302,7 +302,8 @@ fn numbers_local_and_github_rows_and_drops_redundant_anchors() {
         remote["results"][1]["data"]["content"], "def a\n",
         "transformed views stay verbatim"
     );
-    // Byte pages stay verbatim: their offsets count the returned text.
+    // A byte page that starts on a line start is numbered like a line page:
+    // its offsets count the source text, never the gutters.
     let mut bytes = json_fixture(
         r#"{
             "results": [
@@ -318,7 +319,10 @@ fn numbers_local_and_github_rows_and_drops_redundant_anchors() {
         }"#,
     );
     number_read_rows(ToolId::LocalFetch, &mut bytes);
-    assert_eq!(bytes["results"][0]["data"]["content"], "x\n");
+    let data = &bytes["results"][0]["data"];
+    assert_eq!(data["content"], "1\tx\n");
+    assert_eq!(data["pagination"]["length"], 2, "{data}");
+    assert!(data.get("sourceLineRanges").is_none(), "{data}");
     // Other tools are untouched.
     let mut other = local.clone();
     number_read_rows(ToolId::LocalSearch, &mut other);
@@ -445,4 +449,104 @@ fn a_repeated_plain_line_number_is_no_gutter() {
     );
     number_read_rows(ToolId::LocalFetch, &mut after_span);
     assert_eq!(after_span["results"][0]["data"]["returnedLines"], 2);
+}
+
+/// The byte pages of a line too long for one page, as a reader states them:
+/// `pieces` are the page texts, each `(text, first line, last line,
+/// continuesLine)`.
+fn byte_page(text: &str, first: u64, last: u64, continues: Option<u64>) -> Value {
+    let mut data = json!({
+        "content": text,
+        "sourceLineRanges": [{"line": first, "endLine": last}],
+        "returnedLines": last + 1 - first,
+        "pagination": {"unit": "bytes", "offset": 0, "length": text.len(), "hasMore": true}
+    });
+    if let Some(line) = continues {
+        data["continuesLine"] = json!(line);
+    }
+    data
+}
+
+/// What a reader rebuilds from one published page: each row without its
+/// gutter, the first row as it is when the page continues a line.
+fn source_text(data: &Value) -> String {
+    let content = data["content"].as_str().expect("content");
+    let continues = data.get("continuesLine").is_some();
+    content
+        .split_inclusive('\n')
+        .enumerate()
+        .map(|(at, row)| {
+            if at == 0 && continues {
+                row
+            } else {
+                let (number, text) = row.split_once(SEPARATOR).expect("a gutter");
+                assert!(number.parse::<u64>().is_ok(), "{row}");
+                text
+            }
+        })
+        .collect()
+}
+
+/// G7: a walk over a line too long for one page keeps one format. Every row
+/// that starts a source line carries its gutter, on byte pages as on line
+/// pages; a page that opens inside the long line states the line it
+/// continues and leaves that first row bare; and the rows without their
+/// gutters, joined in page order, are the source.
+#[test]
+fn byte_pages_of_a_long_line_are_numbered_and_join_to_the_source() {
+    let long = "w ".repeat(40);
+    let (head, rest) = long.split_at(30);
+    let (middle, tail) = rest.split_at(30);
+    let pieces = [
+        (format!("one\ntwo\n{head}"), 1, 3, None),
+        (middle.to_owned(), 3, 3, Some(3)),
+        (format!("{tail}\nfour\n"), 3, 4, Some(3)),
+    ];
+    let source: String = pieces.iter().map(|piece| piece.0.as_str()).collect();
+    let mut rebuilt = String::new();
+    for (text, first, last, continues) in &pieces {
+        let mut data = byte_page(text, *first, *last, *continues);
+        number_read_row(&mut data);
+        let content = data["content"].as_str().expect("content");
+        // The gutter replaces the window fields; the byte counts stand.
+        for stated in ["sourceLineRanges", "startLine", "endLine", "returnedLines"] {
+            assert!(data.get(stated).is_none(), "{stated}: {data}");
+        }
+        assert_eq!(data["pagination"]["length"], text.len(), "{data}");
+        assert_eq!(
+            data.get("continuesLine").and_then(Value::as_u64),
+            *continues
+        );
+        // Each row names its line: by its gutter, or as the continued line.
+        let rows: Vec<&str> = content.split_inclusive('\n').collect();
+        assert_eq!(rows.len() as u64, last + 1 - first, "{content:?}");
+        for (at, row) in rows.iter().enumerate() {
+            let line = first + at as u64;
+            if at == 0 && continues.is_some() {
+                assert_eq!(*continues, Some(line));
+                assert!(text.starts_with(row), "the piece is bare: {row:?}");
+            } else {
+                assert!(row.starts_with(&format!("{line}{SEPARATOR}")), "{row:?}");
+            }
+        }
+        rebuilt.push_str(&source_text(&data));
+    }
+    assert_eq!(rebuilt, source);
+}
+
+/// A byte page that does not map onto its lines stays as the reader cut it,
+/// beside the lines it states: match windows joined by byte-gap markers, or
+/// a `continuesLine` that is not the page's first line.
+#[test]
+fn a_byte_page_that_does_not_map_onto_lines_stays_verbatim() {
+    let windows = "aaa\n... [bytes 40-90 on later pages] ...\nbbb";
+    for mut data in [
+        byte_page(windows, 7, 7, Some(7)),
+        byte_page(windows, 7, 7, None),
+        byte_page("tail\nnext\n", 7, 8, Some(8)),
+    ] {
+        let before = data.clone();
+        number_read_row(&mut data);
+        assert_eq!(data, before);
+    }
 }

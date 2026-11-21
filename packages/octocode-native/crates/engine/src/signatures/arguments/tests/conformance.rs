@@ -293,5 +293,8 @@ fn an_unsupported_group_past_the_name_bound_lists_no_names() {
         .collect::<Vec<_>>()
         .join(", ");
     let groups = unsupported_group_names(&format!("fn f() {{ keep!({within}); }}"));
-    assert_eq!(groups[0].as_ref().map(Vec::len), Some(crate::graph::MAX_UNSUPPORTED_GROUP_NAMES));
+    assert_eq!(
+        groups[0].as_ref().map(Vec::len),
+        Some(crate::graph::MAX_UNSUPPORTED_GROUP_NAMES)
+    );
 }

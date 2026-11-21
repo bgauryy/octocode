@@ -101,7 +101,6 @@ pub struct GhGetFileContentFile {
 pub struct Shaping<S> {
     pub security: S,
     pub context: octocode_runtime_base::execution::ExecutionContext,
-    pub selection: octocode_tools_shared::selection::Runtime,
 }
 
 /// Run one ghGetFileContent row: the read, or the failure with its one
@@ -318,7 +317,6 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
                 fetched,
                 &shaping.security,
                 &shaping.context,
-                access::classified(&worker_query).then_some(&shaping.selection),
             )?;
             // Work a deadline or cancellation may have cut is never kept.
             if let Some((key, policy)) = kept
@@ -359,9 +357,6 @@ fn shaped_key(
     security: &impl ContentScan,
 ) -> Option<(String, String)> {
     let scanner = security.kept()?;
-    if access::classified(query) {
-        return None;
-    }
     let query = serde_json::to_string(query).ok()?;
     let key = format!(
         "{}\n{}\n{}\n{}\n{query}\n{:?}\n{:?}\n{:?}",
@@ -381,15 +376,13 @@ pub struct Output;
 impl octocode_runtime_base::response::output::ToolOutput for Output {
     fn error_hint(&self, code: ErrorCode, _query: &serde_json::Value) -> Option<&'static str> {
         // The message names the item; `repair` is the corrected read. A
-        // symbols read no outline can serve carries the plain read as its
-        // related lead; the shared hint names the local filesystem tools,
-        // which cannot read this file.
+        // symbols read no outline can serve is not an error here: the shared
+        // reader serves the content and says so (`viewFallback`).
         // A minified file's message names its own route (matchString): the
         // shared hint names local tools, which cannot read this file.
         matches!(
             code,
             ErrorCode::InvalidPattern
-                | ErrorCode::SymbolsUnsupported
                 | ErrorCode::LanguageUnsupported
                 | ErrorCode::LargeSourceWindowOnly
         )

@@ -231,18 +231,20 @@ fn workspace_root_representative_source_skips_javascript_a_tsconfig_does_not_com
     let config = |extra: &str| {
         std::fs::write(
             root.join("tsconfig.json"),
-            format!(r#"{{"extends": "./base.json", {extra} "include": ["scripts/**/*", "src/**/*"]}}"#),
+            format!(
+                r#"{{"extends": "./base.json", {extra} "include": ["scripts/**/*", "src/**/*"]}}"#
+            ),
         )
         .expect("tsconfig");
     };
     config("");
-    let found = workspace_root_representative_source(&root.to_string_lossy())
-        .expect("a TypeScript source");
+    let found =
+        workspace_root_representative_source(&root.to_string_lossy()).expect("a TypeScript source");
     assert!(found.ends_with("scripts/generate.ts"), "{found}");
 
     config(r#""compilerOptions": {"allowJs": true},"#);
-    let found = workspace_root_representative_source(&root.to_string_lossy())
-        .expect("a compiled source");
+    let found =
+        workspace_root_representative_source(&root.to_string_lossy()).expect("a compiled source");
     assert!(found.ends_with("scripts/check.cjs"), "{found}");
 
     config("");
@@ -251,8 +253,8 @@ fn workspace_root_representative_source_skips_javascript_a_tsconfig_does_not_com
         "{ // shared options\n \"compilerOptions\": { \"allowJs\" : true } }",
     )
     .expect("base");
-    let found = workspace_root_representative_source(&root.to_string_lossy())
-        .expect("a compiled source");
+    let found =
+        workspace_root_representative_source(&root.to_string_lossy()).expect("a compiled source");
     assert!(found.ends_with("scripts/check.cjs"), "{found}");
 }
 

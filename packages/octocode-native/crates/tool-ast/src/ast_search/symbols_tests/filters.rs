@@ -124,8 +124,10 @@ fn an_empty_name_search_names_only_the_hidden_paths() {
         json_fixture(r#"{"symbolFilter": {"terms": ["zzNeedle"]}}"#),
     );
     assert_eq!(out["status"], "empty", "{out}");
-    let hints = out["warnings"].to_string();
-    assert!(hints.contains("Skipped paths (1 hidden)"), "{hints}");
+    crate::ast_search::test_rows::assert_unsearched(
+        &out,
+        &[octocode_tools_shared::empty_walk::Cause::Hidden],
+    );
     assert!(out["skippedPaths"].to_string().contains(".cfg"), "{out}");
 }
 

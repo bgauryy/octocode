@@ -12,31 +12,6 @@ pub(super) fn max_listing_depth() -> usize {
     octocode_engine::num::saturating_usize(u32::MAX)
 }
 
-/// One `include` glob over repository-relative paths, matched as authored.
-pub(super) struct PathFilter {
-    pub(super) matcher: globset::GlobMatcher,
-}
-
-impl PathFilter {
-    pub(super) fn new(pattern: &str) -> Result<Self, ProviderError> {
-        let matcher = globset::GlobBuilder::new(pattern)
-            .literal_separator(true)
-            .build()
-            .map_err(|error| {
-                ProviderError::new(
-                    ProviderErrorKind::Validation,
-                    format!("Invalid include glob \"{pattern}\": {error}"),
-                )
-            })?
-            .compile_matcher();
-        Ok(Self { matcher })
-    }
-
-    pub(super) fn matches(&self, path: &str) -> bool {
-        self.matcher.is_match(path)
-    }
-}
-
 /// The tree one listing walks: `root` of `owner/repo` at `branch`, `max_depth` levels deep.
 #[derive(Clone, Copy)]
 pub(super) struct Listing<'a> {

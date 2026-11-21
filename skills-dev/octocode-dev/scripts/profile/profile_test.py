@@ -1,4 +1,8 @@
-"""Readiness checks never measure incomplete language-server coverage as success."""
+"""Readiness checks never measure incomplete language-server coverage as success.
+
+Run as a file (`python3 -I -B profile_test.py`, as `profile.test.mjs` does): `python3 -m unittest
+profile/profile_test.py` resolves `profile` to the standard-library module and fails to import.
+"""
 import importlib.util
 import unittest
 from pathlib import Path

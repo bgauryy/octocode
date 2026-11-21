@@ -16,7 +16,9 @@ pub(super) const DPKG: VersionOrder = VersionOrder {
 /// `_p` after it.
 pub(super) const APK: VersionOrder = VersionOrder {
     cmp: |left, right| Some(apk_of(left)?.cmp(&apk_of(right)?)),
-    prerelease: |value| apk_of(value).is_some_and(|version| version.suffixes.iter().any(|(rank, _)| *rank < 0)),
+    prerelease: |value| {
+        apk_of(value).is_some_and(|version| version.suffixes.iter().any(|(rank, _)| *rank < 0))
+    },
 };
 
 fn dpkg_parts(value: &str) -> Option<(u64, &str, &str)> {
@@ -130,7 +132,14 @@ fn apk_of(value: &str) -> Option<Apk> {
                 _ => return None,
             };
             let number = suffix.strip_prefix(name).unwrap_or_default();
-            Some((rank, if number.is_empty() { 0 } else { number.parse().ok()? }))
+            Some((
+                rank,
+                if number.is_empty() {
+                    0
+                } else {
+                    number.parse().ok()?
+                },
+            ))
         })
         .collect::<Option<Vec<_>>>()?;
     suffixes.push((0, 0));
@@ -148,11 +157,23 @@ mod tests {
 
     fn ascending(order: VersionOrder, versions: &[&str]) {
         for pair in versions.windows(2) {
-            assert_eq!((order.cmp)(pair[0], pair[1]), Some(Ordering::Less), "{pair:?}");
-            assert_eq!((order.cmp)(pair[1], pair[0]), Some(Ordering::Greater), "{pair:?}");
+            assert_eq!(
+                (order.cmp)(pair[0], pair[1]),
+                Some(Ordering::Less),
+                "{pair:?}"
+            );
+            assert_eq!(
+                (order.cmp)(pair[1], pair[0]),
+                Some(Ordering::Greater),
+                "{pair:?}"
+            );
         }
         for version in versions {
-            assert_eq!((order.cmp)(version, version), Some(Ordering::Equal), "{version}");
+            assert_eq!(
+                (order.cmp)(version, version),
+                Some(Ordering::Equal),
+                "{version}"
+            );
         }
     }
 

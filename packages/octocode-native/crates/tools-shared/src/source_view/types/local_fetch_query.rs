@@ -22,17 +22,6 @@ macro_rules! each_shape {
     };
 }
 
-/// Binds `$q` to the query struct of a `content` view; `$other` answers for
-/// `compact` and `symbols`.
-macro_rules! content_view {
-    ($query:expr, $q:ident => $body:expr, else => $other:expr) => {
-        variant_field!($query, each [
-            LocalFetchQuery::Content0, LocalFetchQuery::ContentRanges,
-            LocalFetchQuery::ContentMatchString,
-        ] $q => $body, else => $other)
-    };
-}
-
 /// Binds `$q` to the query struct of a view with `ranges`; `$other` answers
 /// for the rest.
 macro_rules! ranged_view {
@@ -153,14 +142,6 @@ pub fn view(query: &LocalFetchQuery) -> ReadView {
     }
 }
 
-pub fn has_classification(query: &LocalFetchQuery) -> bool {
-    content_view!(query, q => q.classification.is_some(), else => false)
-}
-
-pub fn selection(query: &LocalFetchQuery) -> Option<&str> {
-    content_view!(query, q => q.selection.as_ref().map(|token| token.as_str()), else => None)
-}
-
 pub fn snapshot(query: &LocalFetchQuery) -> Option<&str> {
     each_shape!(query, q => q.snapshot.as_ref().map(|value| value.as_str()))
 }
@@ -253,29 +234,15 @@ pub fn set_snapshot(
     each_shape!(query, q => { q.snapshot = snapshot.map(str::parse).transpose()?; Ok(()) })
 }
 
-pub(crate) fn set_selection(
-    query: &mut LocalFetchQuery,
-    selection: Option<&str>,
-) -> Result<(), octocode_contract_types::error::ConversionError> {
-    content_view!(query, q => q.selection = selection.map(str::parse).transpose()?, else => {
-        if selection.is_some() {
-            return Err("selection requires content view".into());
-        }
-    });
-    Ok(())
-}
-
 /// A whole-file `content` read of `path`: the lead that opens a file.
 pub fn read_lead(path: &str) -> Option<LocalFetchQuery> {
     Some(
         LocalFetchQueryContent0 {
-            classification: None,
             limit: None,
             main_goal: None,
             path: path.try_into().ok()?,
             read_progress: None,
             reasoning: None,
-            selection: None,
             snapshot: None,
             view: ContentView::Content,
         }
@@ -298,14 +265,12 @@ pub fn ranges_lead(path: &str, windows: &[(u64, u64)]) -> Option<LocalFetchQuery
     Some(
         LocalFetchQueryContentRanges {
             block: None,
-            classification: None,
             limit: None,
             main_goal: None,
             path: path.try_into().ok()?,
             ranges,
             read_progress: None,
             reasoning: None,
-            selection: None,
             snapshot: None,
             view: ContentView::Content,
         }
@@ -327,4 +292,24 @@ pub fn outline_lead(path: &str) -> Option<LocalFetchQuery> {
         }
         .into(),
     )
+}
+
+/// Whether a file named `path` may have a `symbols` outline, by its name
+/// alone: a language a grammar outlines, or a document (Markdown headings,
+/// JSON, YAML or TOML keys). Any other file has none whatever it holds.
+pub fn may_outline(path: &str) -> bool {
+    let extension = octocode_engine::text::extension_of(path, true, "");
+    octocode_engine::signatures::languages::find_entry(&extension).is_some()
+        || octocode_runtime_base::content::DocumentFormat::of(path).is_some()
+}
+
+/// The read that opens the file `path` when nothing of it is selected yet:
+/// its outline where it may have one ([`may_outline`]), else its content,
+/// so the lead never asks for a view the file cannot give.
+pub fn open_lead(path: &str) -> Option<LocalFetchQuery> {
+    if may_outline(path) {
+        outline_lead(path)
+    } else {
+        read_lead(path)
+    }
 }

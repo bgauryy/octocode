@@ -104,7 +104,10 @@ fn a_sparse_directory_clone_leaves_out_credential_named_files_in_scope() {
     }
     // The credential-named files inside the requested scope are listed, and
     // so are those among the root files a directory scope keeps.
-    assert_eq!(skipped(&result), [".env", "examples/auth0/.env.local.example"]);
+    assert_eq!(
+        skipped(&result),
+        [".env", "examples/auth0/.env.local.example"]
+    );
 }
 
 #[test]

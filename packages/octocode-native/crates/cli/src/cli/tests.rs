@@ -111,7 +111,6 @@ fn rejected_calls_print_the_runtime_projection() {
         payload: Some(Box::new(contracts::format_input_error(
             tool,
             &error,
-            &[],
             &serde_json::Value::Null,
         ))),
         validation_issues: None,

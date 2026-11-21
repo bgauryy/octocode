@@ -187,9 +187,7 @@ async fn a_registry_miss_goes_to_osv_and_a_registry_failure_sends_nothing() {
     // Removed for malware: OSV's record answers the row, which says no
     // registry confirmed the name.
     let removed = RouteHttp::new().osv_pages(vec![(200, json!({"vulns": [record("MAL-1")]}))]);
-    let data = answer(&removed, Some("4.17.20"), None)
-        .await
-        .expect("row");
+    let data = answer(&removed, Some("4.17.20"), None).await.expect("row");
     assert_eq!(removed.osv_queries()[0], sent);
     assert!(data.get("status").is_none(), "{data}");
     assert_eq!(data["affected"], true, "{data}");
@@ -355,7 +353,8 @@ const UNLISTED: &str = "4.17.999-internal";
 /// malware) that a record OSV returns for the package names by version is
 /// public in that record: OSV is asked at it, and the row is an answer in
 /// both views, not a failed lookup. `versionListed:false` and a warning say the
-/// registry does not list it; the leads check the nearest published versions.
+/// registry does not list it; `nearestVersions` names the published versions
+/// nearest to it.
 #[tokio::test]
 async fn an_unpublished_version_a_record_lists_is_affected() {
     // OSV by name lists both; at the version it matches the one naming it.
@@ -431,11 +430,14 @@ async fn an_unpublished_version_a_record_lists_is_affected() {
                     && warning.ends_with("affected by MAL-1: do not install it.")
             });
         assert!(warned, "{row}");
+        // The versions to move to are the row's own evidence, stated as a
+        // field: an answer carries no call for them.
         assert_eq!(
-            suggested_versions(&row),
-            [json!("4.18.1"), json!("4.17.20")],
+            row["nearestVersions"],
+            json!(["4.18.1", "4.17.20"]),
             "{row}"
         );
+        assert!(suggested_versions(&row).is_empty(), "{row}");
     }
 }
 
@@ -1137,7 +1139,8 @@ async fn a_package_row_reads_its_repositorys_advisories_filtered_to_the_package(
     assert!(
         related.iter().any(|call| call["tool"] == "securityCheck"
             && call["input"]["queries"][0]["operation"] == "repository"
-            && call["input"]["queries"][0]["repo"] == "o/mono"),
+            && call["input"]["queries"][0]["owner"] == "o"
+            && call["input"]["queries"][0]["repo"] == "mono"),
         "the repository's advisories are one call away, whole: {data}"
     );
 }

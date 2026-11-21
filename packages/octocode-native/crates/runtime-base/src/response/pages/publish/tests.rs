@@ -45,7 +45,8 @@ fn a_complete_first_page_states_no_block_and_every_other_page_does() {
                 {
                     "index": 2,
                     "data": {
-                        "pagination": {"unit": "items", "offset": 0, "length": 9, "hasMore": true}
+                        "pagination": {"unit": "items", "offset": 0, "length": 9, "hasMore": true},
+                        "next": {"nextPage": {"kind": "continue", "tool": "t", "input": {"cursor": "c"}}}
                     }
                 },
                 {
@@ -70,10 +71,11 @@ fn a_complete_first_page_states_no_block_and_every_other_page_does() {
     );
     assert_eq!(
         rows[1]["data"]["pagination"],
-        json_fixture(r#"{"offset": 9, "total": 12, "hasMore": false}"#)
+        json_fixture(r#"{"offset": 9, "total": 12}"#)
     );
-    assert_eq!(rows[2]["data"]["pagination"]["hasMore"], true);
-    assert!(rows[2]["data"]["pagination"].get("unit").is_none());
+    // A list page that states no exact total states nothing: the reply's
+    // `next` says more follows.
+    assert!(rows[2]["data"].get("pagination").is_none(), "{}", rows[2]);
     // A text window keeps its unit and length: they are not the rows listed.
     assert_eq!(
         rows[3]["data"]["pagination"],
@@ -81,8 +83,7 @@ fn a_complete_first_page_states_no_block_and_every_other_page_does() {
             r#"{
                 "unit": "lines",
                 "offset": 4,
-                "length": 2,
-                "hasMore": false
+                "length": 2
             }"#
         )
     );
@@ -129,7 +130,14 @@ fn a_partial_page_states_it_once() {
         rows[0]["data"],
         json_fixture(r#"{"partialReasons": ["providerResultCap"]}"#)
     );
-    assert!(rows[1]["data"].get("isPartial").is_none(), "{}", rows[1]);
+    // A capped count is a floor, so it is not stated; with no reason beside
+    // it, `isPartial` is what says the answer is incomplete.
+    assert_eq!(
+        rows[1]["data"],
+        json_fixture(r#"{"isPartial": true}"#),
+        "{}",
+        rows[1]
+    );
     // No other statement: isPartial stays, the state beside it goes.
     assert_eq!(
         rows[2]["data"],
@@ -216,15 +224,13 @@ fn section_maps_keep_only_the_blocks_with_more_to_read() {
                     "unit": "items",
                     "offset": 0,
                     "length": 0,
-                    "total": 4,
-                    "hasMore": true
+                    "total": 4
                 },
                 "patches": {
                     "unit": "chars",
                     "offset": 0,
                     "length": 3,
-                    "total": 9,
-                    "hasMore": true
+                    "total": 9
                 }
             }"#
         )
@@ -236,8 +242,8 @@ fn section_maps_keep_only_the_blocks_with_more_to_read() {
 }
 
 /// A section read on one complete page states no block, as any complete
-/// first page; a total larger than the page, or a loaded floor, keeps
-/// its block.
+/// first page; an exact total larger than the page keeps its block, and a
+/// loaded floor states none.
 #[test]
 fn a_complete_count_on_its_one_page_states_no_block() {
     let mut output = json_fixture(
@@ -294,9 +300,10 @@ fn a_complete_count_on_its_one_page_states_no_block() {
         json_fixture(r#"{"files": ["M +3 -1 a.md"]}"#)
     );
     assert_eq!(output["results"][1]["data"]["pagination"]["total"], 500);
-    assert_eq!(
-        output["results"][2]["data"]["pagination"]["countScope"],
-        "loaded"
+    // A loaded floor is no exact total: the block states nothing.
+    assert!(
+        output["results"][2]["data"].get("pagination").is_none(),
+        "{output}"
     );
 }
 
@@ -478,4 +485,46 @@ fn a_shared_value_every_query_stated_is_an_echo_too() {
     });
     drop_echoes(false, &mut both, &mixed, &[0, 1]);
     assert_eq!(both["shared"], json!({"data": {"owner": "o"}}));
+}
+
+/// One completion rule: whatever a tool wrote, a served block states no
+/// `hasMore` and no `countScope`; a `total` survives only when it is exact;
+/// a block that then places no text window and counts nothing is absent.
+#[test]
+fn a_served_block_states_no_walk_and_only_an_exact_total() {
+    for walk in LISTING_WALKS {
+        for stated in [true, false] {
+            let call = json!({"kind": "continue", "tool": "localSearch", "input": {"cursor": "c"}});
+            let mut output = json!({"results": [
+                {"index": 0, "data": {
+                    "pagination": {"unit": "items", "offset": 0, "length": 1, "total": 9, "hasMore": stated},
+                    "next": {walk: call},
+                    "files": [{"path": "a", "pagination":
+                        {"unit": "lines", "offset": 5, "length": 2, "hasMore": !stated}}]}},
+                {"index": 1, "data": {
+                    "pagination": {"unit": "items", "offset": 3, "length": 1, "total": 9,
+                        "countScope": "loaded", "hasMore": stated},
+                    "next": {"read": call},
+                    "files": [{"path": "a", "pagination":
+                        {"unit": "lines", "offset": 5, "length": 2, "hasMore": true}}]}}
+            ]});
+            publish_rows(&mut output);
+            crate::test_support::checks::assert_one_completion_rule("localSearch", &output);
+            let rows = &output["results"];
+            // An exact count stays; a floor goes, and with it a row block
+            // that states nothing else.
+            assert_eq!(
+                rows[0]["data"]["pagination"],
+                json!({"offset": 0, "total": 9})
+            );
+            assert!(rows[1]["data"].get("pagination").is_none(), "{output}");
+            // A text window keeps its place.
+            for row in [0, 1] {
+                assert_eq!(
+                    rows[row]["data"]["files"][0]["pagination"],
+                    json!({"unit": "lines", "offset": 5, "length": 2})
+                );
+            }
+        }
+    }
 }

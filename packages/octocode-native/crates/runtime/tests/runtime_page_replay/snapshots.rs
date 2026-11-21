@@ -19,7 +19,7 @@ async fn immutable_pages_survive_source_removal_and_persistent_restart() {
             )
             .await
             .expect("capture");
-        let mut next = first.structured_content["responsePagination"]["next"]["input"].clone();
+        let mut next = first.structured_content["next"]["input"].clone();
         support::assert_cursor_only(&next);
         std::fs::remove_file(file).expect("remove live source");
         if restart {
@@ -43,10 +43,10 @@ async fn immutable_pages_survive_source_removal_and_persistent_restart() {
                 .await
                 .expect("immutable page")
                 .structured_content;
-            assert_eq!(output["responsePagination"]["replayed"], true);
+            assert_eq!(output["replayed"], true);
             assert!(output.to_string().contains("captured"));
             collect(&output, &mut lines);
-            if let Some(input) = output.pointer("/responsePagination/next/input") {
+            if let Some(input) = output.pointer("/next/input") {
                 next = input.clone();
             } else {
                 break;
@@ -76,7 +76,7 @@ async fn a_lost_memory_session_expires_without_reacquiring_the_source() {
         )
         .await
         .expect("capture");
-    let next = first.structured_content["responsePagination"]["next"]["input"].clone();
+    let next = first.structured_content["next"]["input"].clone();
     support::assert_cursor_only(&next);
     runtime.close().await;
     std::fs::remove_file(file).expect("remove source");
@@ -147,7 +147,7 @@ async fn symbol_fragments_preserve_every_alias_and_member_once() {
                 }
             }
         }
-        pending = output.pointer("/responsePagination/next/input").cloned();
+        pending = output.pointer("/next/input").cloned();
         pages += 1;
     }
     // Q5: the declaration's outline string, every alias in it, is one

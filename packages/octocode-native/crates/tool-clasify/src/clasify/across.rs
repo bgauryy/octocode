@@ -120,13 +120,9 @@ impl Across {
         }
         for lead in leads {
             let row = &parsed[lead.row];
-            if let Some(call) = recovery::sections_over(
-                lead.questions,
-                row.context.as_deref(),
-                row.model.as_deref(),
-                lead.sources,
-                can_resume,
-            ) {
+            if let Some(call) =
+                recovery::sections_over(lead.questions, row, lead.sources, can_resume)
+            {
                 octocode_runtime_base::response::result::attach_related(&mut rows[lead.row], call);
             }
         }

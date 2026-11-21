@@ -97,5 +97,21 @@ pub(super) fn load(kind: &str) -> Load {
         .map_or(Load::CompileTime, |(_, load)| *load)
 }
 
+/// How strongly an edge of `kind` ties its source to its target, strongest
+/// first: code that loads or links, code that loads later, an edge whose
+/// load is not established, an edge erased at compile time, then data and
+/// module structure. Two files joined by several kinds are as dependent as
+/// their strongest edge (`import { type T, v }` is a value import).
+pub(super) fn strength(kind: &str) -> u8 {
+    match load(kind) {
+        Load::Eager | Load::CompileTime => 0,
+        Load::Deferred => 1,
+        Load::Unknown => 2,
+        Load::TypeOnly => 3,
+        Load::Data => 4,
+        Load::ModuleTree => 5,
+    }
+}
+
 #[cfg(test)]
 mod tests;

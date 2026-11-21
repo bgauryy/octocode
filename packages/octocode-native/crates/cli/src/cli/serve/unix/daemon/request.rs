@@ -9,10 +9,10 @@ use crate::cli::serve::unix::frames::{
 use crate::cli::serve::unix::identity::own_process_identity;
 use crate::cli::serve::unix::read_line_bounded;
 use crate::cli::serve::unix::served::Served;
-use crate::cli::serve::unix::sockets::touch;
+use crate::cli::serve::unix::sockets::{server_socket_count, touch};
 use crate::cli::serve::unix::surface::Surface;
 use octocode_native::runtime::RuntimeError;
-use octocode_native::runtime::error::{McpResult, mcp_result};
+use octocode_native::runtime::error::McpResult;
 use octocode_runtime_base::id::ToolId;
 use serde_json::Value;
 use serde_json::json;
@@ -76,6 +76,13 @@ pub(in crate::cli::serve::unix) async fn handle(
     };
     asked();
     touch(&daemon.socket);
+    // The language servers of every server process of this user share one
+    // memory budget: each request restates how many there are.
+    if let Some(dir) = daemon.socket.parent() {
+        daemon
+            .lsp_pool
+            .share_memory_budget(server_socket_count(dir));
+    }
     let request = serde_json::from_str::<Value>(&line);
     if let Ok(request) = &request
         && request["stop"] == true
@@ -176,8 +183,12 @@ async fn answer(
                 reply
             }
             // The text the in-process MCP server sends, from the same
-            // function; its notices stay on the server.
-            Surface::Mcp => mcp_reply(mcp_result(&tool, result)),
+            // function in the session's `output.mcpResult` format; its
+            // notices stay on the server.
+            Surface::Mcp => {
+                let format = runtime.config().resolved.output.mcp_result;
+                mcp_reply(crate::cli::mcp_server::reply(&tool, result, format, &query))
+            }
         })
     };
     let cancel = || {

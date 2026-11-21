@@ -50,11 +50,10 @@ fn exact_parentage_survives_filtering_and_single_row_pages() {
         assert!(flat.iter().all(|row| row["kind"] != "constructor"), "{out}");
         assert!(!out.to_string().contains("_declarationIndex"), "{out}");
         assert!(!out.to_string().contains("_parentIndex"), "{out}");
-        octocode_runtime_base::contracts::validate_output(
+        octocode_runtime_base::test_support::checks::assert_output_contract(
             "astSearch",
             &json!({"results":[{"index":0,"data":out}]}),
-        )
-        .expect("public outline contract");
+        );
     }
     let out = run(
         &root.0,

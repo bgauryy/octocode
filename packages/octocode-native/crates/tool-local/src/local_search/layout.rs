@@ -11,8 +11,10 @@ use super::local_search_query;
 pub(super) use costs::priced_on_this_thread;
 pub(super) use costs::{FilePrice, NamePricing};
 use costs::{PageCosts, RowName};
+#[cfg(test)]
+use entries::listed_file_chars;
 pub(super) use entries::{file_pagination, row_chars};
-use entries::{fits_whole, listed_file_chars, pagination_chars};
+use entries::{fits_whole, pagination_chars};
 use octocode_contract_types::LocalSearchQuery;
 use octocode_engine::num::saturating_u32;
 use octocode_engine::types::SearchContext;
@@ -138,7 +140,7 @@ pub(super) fn page_fill(
             0
         };
         let (chars, count) = if list {
-            (listed_file_chars(file, view) + costs.prefix_chars + 1, 1)
+            (costs.listed(file, view), 1)
         } else {
             let rows = &file.matches[skipped..];
             (
@@ -216,8 +218,6 @@ pub(super) struct Layout {
     /// on matchOnly pages. Hit-row pagination states it as its `unit`.
     pub(super) row_unit: &'static str,
     pub(super) out_of_range: bool,
-    /// Resolved context around each row (empty for matchOnly).
-    pub(super) context: SearchContext,
     /// Context windows of nearby rows merge into one block.
     pub(super) merge_context: Option<SearchContext>,
     /// Every page of a streamed cut, when this call cut it (a fresh page
@@ -318,11 +318,6 @@ impl Layout {
             offset,
             length,
             row_unit: row_unit(match_only),
-            context: if match_only {
-                SearchContext::default()
-            } else {
-                context
-            },
             merge_context,
             pages,
             walk: None,
@@ -382,7 +377,6 @@ impl Layout {
             length,
             row_unit: row_unit(match_only),
             merge_context: (!match_only && !context.is_empty()).then_some(context),
-            context,
             pages: None,
             walk: None,
         }
@@ -484,9 +478,7 @@ impl Layout {
     ) -> (PageRows, u32, u32, usize) {
         let sizes = files
             .iter()
-            .map(|file| {
-                listed_file_chars(file, local_search_query::view(query)) + costs.prefix_chars + 1
-            })
+            .map(|file| costs.listed(file, local_search_query::view(query)))
             .collect::<Vec<_>>();
         let cut = octocode_runtime_base::response::page_windows::select(
             octocode_runtime_base::response::page_windows::Paging::of(

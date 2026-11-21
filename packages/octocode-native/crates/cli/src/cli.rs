@@ -93,8 +93,8 @@ unindented); a field every item of a list shares follows the list's key in
 batch heads each row with ## results[N] (N: its query's place) and names it
 on each of its # lines; objects every row shares print once before the rows.
 After each row's content, as # lines on stdout: its status unless ok (empty,
-error, outOfRange), each page state (length of total unit, after offset,
-hasMore), its warnings and hints, then the commands to run next. So stdout
+error, outOfRange), each page state (length of total unit, after
+offset), its warnings and hints, then the commands to run next. So stdout
 alone tells no hits, a failure and a first page apart, and says how to read
 the answer.
 Every stderr line is a # note: the row's counters on one line, related leads
@@ -109,7 +109,7 @@ states its errorClass. A batch exits 2 if any row is correctInput, else 4 if any
 is refused, else 6 if any is restart, else 5 if any is unservable, else 7 when
 every failure is transient, else 1 only when every row is empty or out of range,
 else 0; stdout still carries every row's result.
-More pages still exit 0: run responsePagination.next, else next.nextPage, until neither remains."#;
+More pages still exit 0: the reply ends with a # next: command while more remains; run it until none does."#;
 
 /// The last lines of both root helps.
 const ROOT_HELP_AFTER: &str = "Run: octocode <tool> '<json>' or --input FILE|-\nUse --help for output rules and exit codes; <tool> --help for JSON examples.";

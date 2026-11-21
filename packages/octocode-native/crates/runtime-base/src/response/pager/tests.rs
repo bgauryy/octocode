@@ -2,6 +2,7 @@ use super::*;
 use octocode_test_support::json_fixture;
 use serde_json::json;
 
+mod details;
 mod one_page;
 mod terminal;
 mod volatile;

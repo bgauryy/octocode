@@ -89,7 +89,7 @@ async fn walk(workspace: &Workspace, start: Value, mut before: impl FnMut()) -> 
         .into_value();
     let mut seen = hits(&first);
     let mut rejected_rows = rejected(&first);
-    let mut next = first.pointer("/responsePagination/next/input").cloned();
+    let mut next = first.pointer("/next/input").cloned();
     let mut pages = 1;
     while let Some(input) = next {
         before();
@@ -101,10 +101,10 @@ async fn walk(workspace: &Workspace, start: Value, mut before: impl FnMut()) -> 
             .await
             .unwrap_or_else(|error| panic!("page {pages}: {error:?}"))
             .structured_content;
-        assert_eq!(output["responsePagination"]["replayed"], true, "{output}");
+        assert_eq!(output["replayed"], true, "{output}");
         seen.extend(hits(&output));
         rejected_rows += rejected(&output);
-        next = output.pointer("/responsePagination/next/input").cloned();
+        next = output.pointer("/next/input").cloned();
     }
     runtime.close().await;
     assert!(pages > 2, "the fixture spans several pages");
@@ -254,7 +254,7 @@ async fn a_reexecution_with_another_reuse_moment_is_not_stale() {
     );
     let mut seen: [(Vec<String>, Vec<Value>); 2] = Default::default();
     reuse_facts(&first, &mut seen);
-    let mut next = first.pointer("/responsePagination/next/input").cloned();
+    let mut next = first.pointer("/next/input").cloned();
     while let Some(input) = next {
         runtime.close().await;
         evict(&workspace.home.join("tmp/response-pages"));
@@ -265,7 +265,7 @@ async fn a_reexecution_with_another_reuse_moment_is_not_stale() {
             .unwrap_or_else(|error| panic!("a re-executed page answers: {error:?}"))
             .structured_content;
         reuse_facts(&output, &mut seen);
-        next = output.pointer("/responsePagination/next/input").cloned();
+        next = output.pointer("/next/input").cloned();
     }
     runtime.close().await;
     let repositories = ["\"r0\"", "\"r1\"", "\"r2\""].map(str::to_owned).to_vec();
@@ -298,7 +298,7 @@ async fn a_changed_source_or_a_lost_handle_never_answers_a_saved_page() {
         .await
         .expect("first page")
         .structured_content;
-    let next = first["responsePagination"]["next"]["input"].clone();
+    let next = first["next"]["input"].clone();
     runtime.close().await;
     evict(&workspace.home.join("tmp/response-pages"));
     std::fs::write(
@@ -344,10 +344,7 @@ async fn a_saved_page_edited_in_place_answers_a_restart() {
         .expect("first page")
         .structured_content
         .into_value();
-    let next = first
-        .pointer("/responsePagination/next/input")
-        .cloned()
-        .expect("a later page");
+    let next = first.pointer("/next/input").cloned().expect("a later page");
     runtime.close().await;
     let mut edited = 0;
     for entry in std::fs::read_dir(workspace.home.join("tmp/response-pages"))

@@ -181,9 +181,10 @@ fn file_terms_keep_files_containing_all_and_none_of_the_excluded() {
 }
 
 /// Without `includeHidden` the walk leaves dot entries out and reports each
-/// one to the path filter (a dot directory once, never its contents); an
-/// include glob or `language` type that selects a dot file keeps it, as the
-/// `ignore` walker's own rule does. With `includeHidden` nothing is skipped.
+/// one to the path filter (a dot directory once, never its contents). An
+/// include glob or `language` type only narrows: a dot file it selects
+/// stays out and is reported, and one it does not select is not. With
+/// `includeHidden` nothing is skipped.
 #[test]
 fn hidden_entries_are_skipped_and_reported() {
     struct Recording(Mutex<BTreeSet<String>>);
@@ -234,14 +235,24 @@ fn hidden_entries_are_skipped_and_reported() {
             ]
         )
     );
-    // The dot directory may hold another `.eslintrc.js`: still a skip.
+    // The glob selects a dot file: it stays out, reported. The dot
+    // directory may hold another `.eslintrc.js`: a skip too.
     assert_eq!(
         run(&|options| options.include = Some(vec!["**/.eslintrc.js".into()])),
-        (vec![".eslintrc.js".to_owned()], vec![".github".to_owned()])
+        (
+            Vec::new(),
+            vec![".eslintrc.js".to_owned(), ".github".to_owned()]
+        )
     );
+    let (found, skipped) = run(&|options| {
+        options.include = Some(vec!["**/.eslintrc.js".into()]);
+        options.ignore = crate::types::IgnorePolicy::new(None, Some(true));
+    });
+    assert_eq!(found, [".eslintrc.js"]);
+    assert!(skipped.is_empty());
     let (typed, skipped) = run(&|options| options.lang_type = Some("js".into()));
-    assert_eq!(typed, [".eslintrc.js", "src/.local.js", "src/a.js"]);
-    assert_eq!(skipped, [".github"]);
+    assert_eq!(typed, ["src/a.js"]);
+    assert_eq!(skipped, [".eslintrc.js", ".github", ".local.js"]);
     let (all, skipped) = run(&|options| options.ignore = crate::types::IgnorePolicy::ALL);
     assert_eq!(
         all,

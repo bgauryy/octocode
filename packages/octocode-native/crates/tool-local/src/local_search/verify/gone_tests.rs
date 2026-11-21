@@ -28,7 +28,6 @@ fn served(path: &Path, root: &Path, fields: &Value) -> Value {
         &security,
         &NeverCancel,
         None,
-        None,
     )
     .unwrap_or_else(|error| panic!("{fields}: the page fails: {error:?}"));
     let mut data = result.to_row().expect("row");
@@ -302,7 +301,6 @@ fn a_matched_file_the_policy_no_longer_admits_fails_the_page_on_every_view() {
             &paths,
             &security,
             &NeverCancel,
-            None,
             None,
         );
         assert!(

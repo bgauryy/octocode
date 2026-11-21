@@ -58,14 +58,9 @@ fn a_hit_in_a_line_too_long_for_a_row_is_a_window_placed_by_its_column() {
     assert_eq!(rows[0]["column"], hit + 1, "the hit's 1-based column");
     assert_eq!(value, &line[hit - MARGIN..hit + "needle".len() + MARGIN]);
     assert!(found.get("rowPart").is_none() && found.get("pagination").is_none());
-    // The line whole is one ready read away.
-    let lead = &found["related"][0];
-    assert_eq!(lead["tool"], "localFetch", "{found}");
-    assert_eq!(
-        lead["input"]["queries"][0]["ranges"],
-        json_fixture(r#"[{"startLine": 2, "endLine": 2}]"#),
-        "{found}"
-    );
+    // The row is evidence: its line and column place the read, and it
+    // states no hint and offers no call.
+    assert_evidence_row_guides_nothing(&found);
     assert!(
         found.to_string().len() < 1_000,
         "{}",

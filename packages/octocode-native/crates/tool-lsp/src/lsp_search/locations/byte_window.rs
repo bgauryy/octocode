@@ -153,7 +153,7 @@ struct Target {
 
 impl Target {
     fn of(entry: &Value, budget: usize, whole: bool) -> Option<Self> {
-        let content = entry.get("content").and_then(Value::as_str)?;
+        let content = entry.get("value").and_then(Value::as_str)?;
         if content.starts_with("[content unavailable") {
             return None;
         }
@@ -269,8 +269,10 @@ impl Target {
         let related = (start > 0)
             .then(|| local_fetch_query::ranges_lead(&self.path, &[(self.first, start_line)]))
             .flatten()
-            .map(|line| Continuation::related_query(line).build());
-        entry["content"] = json!(content);
+            // The only call that reaches the bytes the window omits before
+            // it: the row needs it.
+            .map(|line| Continuation::related_query(line).required().build());
+        entry["value"] = json!(content);
         // The window's lines are numbered (and judged) from the line it
         // starts on, through the line it ends on.
         let shown = window.trim_end_matches('\n').matches('\n').count();
@@ -288,12 +290,12 @@ impl Target {
     /// localFetch read of its lines (which serves them as it serves any read).
     fn unsealed(&self, entry: &mut Value, unsealed: Unsealed) -> Option<Windowed> {
         let bytes = entry
-            .get("content")
+            .get("value")
             .and_then(Value::as_str)
             .map_or(0, str::len);
         let read = local_fetch_query::ranges_lead(&self.path, &[(self.first, self.last)])
             .map(Continuation::continued_query);
-        entry["content"] = json!(format!(
+        entry["value"] = json!(format!(
             "… {bytes} bytes omitted from source lines {}-{}: {}; readDeclaration reads them.",
             self.first, self.last, unsealed.warning
         ));
@@ -350,7 +352,7 @@ impl Target {
 /// Units `entry` costs a page as a public row holding `content`.
 pub(super) fn row_units(entry: &Value, content: String) -> usize {
     let mut row = entry.clone();
-    row["content"] = Value::String(content);
+    row["value"] = Value::String(content);
     octocode_engine::json_size::utf16_units(&public_location(row)).unwrap_or(usize::MAX)
 }
 

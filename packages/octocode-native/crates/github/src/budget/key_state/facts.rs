@@ -42,13 +42,13 @@ impl KeyState {
         &self,
         searches: usize,
         config: &ExecutorConfig,
-        deadline: Instant,
+        limit: impl Into<crate::budget::WaitLimit>,
     ) -> Option<ProviderError> {
         if searches < 2 {
             return None;
         }
         self.refresh_from_disk();
-        let plan = SlotPlan::new(Group::CodeSearch, config, searches, deadline);
+        let plan = SlotPlan::new(Group::CodeSearch, config, searches, limit.into());
         let facts = self.facts();
         let ahead = self.groups.get(Group::CodeSearch.name()).map_or(0, |lane| {
             lane.queued.load(std::sync::atomic::Ordering::SeqCst)

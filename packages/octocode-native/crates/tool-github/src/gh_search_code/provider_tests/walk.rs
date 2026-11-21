@@ -177,3 +177,149 @@ async fn a_multi_extension_walk_costs_one_search_per_extension_each_page() {
     assert_eq!(unique.len(), 18, "{listed:?}");
     assert_eq!(listed.len(), 18, "every hit once: {listed:?}");
 }
+
+/// Every response of a multi-`extensions` walk holds at most `limit` files,
+/// whatever `limit` and the number of extensions are, and the walk's
+/// continuations reach every hit exactly once: a page whose merged searches
+/// list more than `limit` files shows the rest as the next part of the page.
+#[tokio::test]
+async fn a_multi_extension_response_holds_at_most_limit_files() {
+    let extensions = ["ts", "js", "py"];
+    let each = 6;
+    for limit in 1..=extensions.len() * 2 + 1 {
+        let server = MockServer::builder().start().await;
+        for extension in extensions {
+            mount_extension_pages(&server, extension, each, 1).await;
+        }
+        let provider = one_shot_provider(&server);
+        let mut query: GhSearchCodeQuery = serde_json::from_value(json!({
+            "owner":"a","repo":"b","keywords":["needle"],"matchIn":["path"],
+            "extensions":extensions,"limit":limit
+        }))
+        .expect("query");
+        let mut listed = Vec::new();
+        loop {
+            let out = execute(
+                &provider,
+                &query,
+                &default_context(),
+                &Passthrough,
+                &octocode_runtime_base::policy::discovery::is_sensitive_repository_file,
+            )
+            .await
+            .expect("page");
+            let paths = paths_of(&out);
+            assert!(
+                !paths.is_empty() && paths.len() <= limit,
+                "limit {limit}: {}",
+                out.data
+            );
+            // Every response states where it stands in the walk: it starts
+            // after the files the earlier responses showed, and `hasMore`
+            // holds exactly while a file is left, on another search page or
+            // in the rest of this one.
+            let continues = out.data["next"].get("nextPage").is_some();
+            let pagination = &out.data["pagination"];
+            assert_eq!(
+                pagination["offset"],
+                listed.len(),
+                "limit {limit}: {pagination}"
+            );
+            assert_eq!(pagination["length"], paths.len(), "limit {limit}");
+            listed.extend(paths);
+            assert!(listed.len() <= extensions.len() * each, "{listed:?}");
+            assert_eq!(
+                pagination["hasMore"], continues,
+                "limit {limit}: {pagination}"
+            );
+            assert_eq!(
+                pagination["hasMore"],
+                listed.len() < extensions.len() * each,
+                "limit {limit} after {} files: {pagination}",
+                listed.len()
+            );
+            // Several provider searches: no total is stated on any page.
+            assert!(pagination["total"].is_null(), "{pagination}");
+            if !continues {
+                break;
+            }
+            query = next_page(&out);
+        }
+        let mut unique = listed.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), extensions.len() * each, "limit {limit}");
+        assert_eq!(listed.len(), unique.len(), "limit {limit}: every hit once");
+    }
+}
+
+/// The same bound on a page that reads its hit lines: more extensions than
+/// `limit` list one file each, the response shows `limit` of them with
+/// their lines, and the page's continuation shows the rest.
+#[tokio::test]
+async fn a_multi_extension_line_page_holds_at_most_limit_files() {
+    let server = MockServer::builder().start().await;
+    let extensions = ["ts", "js", "py"];
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/HEAD"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(SHA))
+        .mount(&server)
+        .await;
+    for extension in extensions {
+        let name = format!("only.{extension}");
+        Mock::given(method("GET"))
+            .and(path("/api/v3/search/code"))
+            .and(wiremock::matchers::query_param_contains(
+                "q",
+                format!("extension:{extension}"),
+            ))
+            .respond_with(octocode_test_support::mock_http::SearchIndex(vec![json!({
+                "name":name,"path":name,"sha":"1","html_url":"https://x",
+                "repository":{"full_name":"a/b","html_url":"https://x","url":"https://x"}
+            })]))
+            .mount(&server)
+            .await;
+        octocode_test_support::mock_http::list_in_trees(&server, "a", "b", &name).await;
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/a/b/contents/{name}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "type":"file","encoding":"base64","content":STANDARD.encode(format!("let {extension} = needle();\n"))
+            })))
+            .mount(&server)
+            .await;
+    }
+    let provider = one_shot_provider(&server);
+    let limit = extensions.len() - 1;
+    let mut query: GhSearchCodeQuery = serde_json::from_value(json!({
+        "owner":"a","repo":"b","keywords":["needle"],"extensions":extensions,"limit":limit
+    }))
+    .expect("query");
+    let mut listed = Vec::new();
+    loop {
+        let out = execute(
+            &provider,
+            &query,
+            &default_context(),
+            &Passthrough,
+            &octocode_runtime_base::policy::discovery::is_sensitive_repository_file,
+        )
+        .await
+        .expect("page");
+        let rows = out.data["files"].as_array().expect("files");
+        assert!(!rows.is_empty() && rows.len() <= limit, "{}", out.data);
+        for row in rows {
+            assert!(
+                row["matches"].is_array(),
+                "a shown row lists its lines: {row}"
+            );
+        }
+        listed.extend(paths_of(&out));
+        assert!(listed.len() <= extensions.len(), "{listed:?}");
+        if out.data["next"].get("nextPage").is_none() {
+            break;
+        }
+        query = next_page(&out);
+    }
+    listed.sort_unstable();
+    assert_eq!(listed, ["only.js", "only.py", "only.ts"]);
+}

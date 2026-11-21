@@ -3,9 +3,10 @@ use super::super::leads::unsearched_ref_read;
 use super::*;
 use octocode_test_support::json_fixture;
 
-/// Path projection avoids blob reads but preserves the indexed commit in its read lead.
+/// Path projection avoids blob reads, and a row states a commit only when
+/// the index proved one: never the blob's SHA.
 #[test]
-fn path_only_handoffs_preserve_index_commits_without_using_blob_shas() {
+fn path_only_rows_state_only_a_proven_index_commit() {
     let commit = "a".repeat(40);
     let blob = "b".repeat(40);
     for repo in [Some("r"), None] {
@@ -20,8 +21,7 @@ fn path_only_handoffs_preserve_index_commits_without_using_blob_shas() {
                     r#"{
                         "owner": "o",
                         "repo": "r",
-                        "path": "src/lib.rs",
-                        "fragments": [{"highlight": "needle"}]
+                        "path": "src/lib.rs"
                     }"#,
                 )];
                 let found: CodeSearchItem = serde_json::from_value(json!({
@@ -41,27 +41,14 @@ fn path_only_handoffs_preserve_index_commits_without_using_blob_shas() {
                     None,
                 );
                 assert!(reads.hits.is_empty(), "paths do not require source reads");
-                let lead = reads.top.expect("top path has an executable read");
-                octocode_runtime_base::contracts::validate_saved(
-                    "ghGetFileContent",
-                    lead["input"].clone(),
-                )
-                .expect("read follows the published contract");
-                let next = &lead["input"]["queries"][0];
-                let expected =
-                    requested.or_else(|| (indexed == commit.as_str()).then_some(indexed));
-                assert_eq!(
-                    next["ref"].as_str(),
-                    expected,
-                    "{repo:?}, {requested:?}, {indexed}"
-                );
+                let stated = items[0].get("commitSha").and_then(Value::as_str);
                 assert_ne!(
-                    next["ref"].as_str(),
+                    stated,
                     Some(blob.as_str()),
                     "blob identity is not a revision"
                 );
-                assert_eq!(next["path"], "src/lib.rs");
-                if expected.is_none() {
+                assert_eq!(items[0]["path"], "src/lib.rs");
+                if requested.is_none() && indexed != commit.as_str() {
                     assert!(
                         items[0].get("commitSha").is_none(),
                         "no immutable identity was proven"
@@ -82,13 +69,12 @@ fn unresolved_code_rows_keep_required_reads_without_inventing_commits() {
             .expect("query");
     for planned in [false, true] {
         let mut items = vec![
-            json_fixture(r#"{"owner": "o", "repo": "r", "path": "a.rs", "fragments": []}"#),
+            json_fixture(r#"{"owner": "o", "repo": "r", "path": "a.rs"}"#),
             json_fixture(
                 r#"{
                     "owner": "o",
                     "repo": "s",
-                    "path": "README.md",
-                    "fragments": []
+                    "path": "README.md"
                 }"#,
             ),
         ];
@@ -144,8 +130,8 @@ fn shaped_files_retain_repository_and_commit_identity() {
         for resolved in [false, true] {
             let sha = "a".repeat(40);
             let mut items = vec![
-                json_fixture(r#"{"owner": "o", "repo": "r", "path": "a.rs", "fragments": []}"#),
-                json_fixture(r#"{"owner": "o", "repo": "r", "path": "b.rs", "fragments": []}"#),
+                json_fixture(r#"{"owner": "o", "repo": "r", "path": "a.rs"}"#),
+                json_fixture(r#"{"owner": "o", "repo": "r", "path": "b.rs"}"#),
             ];
             let resolution = resolved.then(|| Resolution {
                 sha: Some(sha.clone()),
@@ -157,12 +143,9 @@ fn shaped_files_retain_repository_and_commit_identity() {
                             FileHits::Lines {
                                 lines: vec!["1\tneedle".into()],
                                 matched: vec![1],
-                                first: 1,
-                                last: 1,
                                 best: 1,
                                 total: 1,
                                 line_count: 1,
-                                declaration: None,
                                 redacted: 0,
                             },
                         )

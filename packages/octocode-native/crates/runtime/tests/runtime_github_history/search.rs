@@ -251,14 +251,15 @@ async fn history_rest_continuations_execute_the_next_provider_page() {
             1,
             "{data}"
         );
-        let next = &data["next"]["nextPage"];
+        let next = &outcome.structured_content["next"];
+        assert!(data.pointer("/next/nextPage").is_none(), "{data}");
         assert_eq!(next.get("kind"), None);
         let end = call(&runtime, "ghSearchHistory", next["input"].clone())
             .await
             .expect("provider next page");
         let data = row_data(&end);
         assert_eq!(data[field].as_array().map(Vec::len), Some(0), "{data}");
-        assert!(data.pointer("/next/nextPage").is_none(), "{data}");
+        assert!(end.structured_content.get("next").is_none(), "{data}");
         runtime.close().await;
     }
 }

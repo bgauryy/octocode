@@ -14,7 +14,7 @@ fn exact_line_and_continuation_union() {
 
     let mut joined = String::new();
     loop {
-        let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel, Some(4), None);
+        let r = execute_local_fetch(&req, &paths, &Safe, &NeverCancel, Some(4), false);
         assert_eq!(r.status, ReadStatus::Success);
         joined.push_str(
             r.content
@@ -132,7 +132,7 @@ fn paged_match_windows_map_source_ranges_around_marker() {
     let mut lines = Vec::new();
     let mut pages = 0;
     loop {
-        let row = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(56), None);
+        let row = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(56), false);
         assert_eq!(row.error_code, None, "{row:?}");
         content.push_str(row.content.as_deref().expect("content"));
         for range in &row.source_line_ranges {
@@ -251,7 +251,7 @@ fn match_ranges_cover_only_the_page_that_shows_them() {
     let mut matched = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
     loop {
-        let out = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(32), None);
+        let out = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(32), false);
         assert_eq!(out.error_code, None);
         for range in &out.source_line_ranges {
             for line in range.start..=range.end {

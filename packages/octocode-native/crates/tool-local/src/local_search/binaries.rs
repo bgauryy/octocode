@@ -1,85 +1,7 @@
-//! Binary files a search skipped or cut: their warnings, groups and listings.
-use crate::local_search::local_search_query;
-
-use octocode_contract_types::{
-    DefaultExcludes, LocalSearchQuery, StructureSearchEntryType, StructureSearchQuery,
-    StructureSearchQueryFiles,
-};
-use octocode_runtime_base::policy::prune::DefaultsFlag;
-use octocode_runtime_base::response::result::Continuation;
-use octocode_tools_shared::leads::files_listing::files_listing;
-use serde_json::Value;
-use std::num::NonZeroU64;
-
-/// Most chars of exact names a binary listing's `nameRegex` spells out.
-pub(super) const MAX_LISTED_NAME_CHARS: usize = 2_000;
-
-/// Most extensions a structureSearch `extensions` filter takes.
-pub(super) const MAX_LISTED_EXTENSIONS: usize = 100;
-
-/// A structureSearch `files` query over the searched scope that lists every
-/// binary-cut file: by `extensions`, or by a basename regex when one has no
-/// extension (or there are more extensions than the filter takes). It may
-/// also list same-extension text files; it never misses a skipped one.
-pub(super) fn leading_binary_listing(
-    query: &LocalSearchQuery,
-    groups: &[octocode_engine::types::BinaryExtensionCount],
-) -> Option<Value> {
-    let by_extension = groups.len() <= MAX_LISTED_EXTENSIONS
-        && groups.iter().all(|group| !group.extension.is_empty());
-    let mut extensions = Vec::new();
-    let mut name_regex = None;
-    if by_extension {
-        for group in groups {
-            extensions.push(group.extension.as_str().try_into().ok()?);
-        }
-    } else {
-        // Extensionless binaries by exact name: a no-extension pattern
-        // would also list every extensionless text file.
-        let names = groups
-            .iter()
-            .filter(|group| group.extension.is_empty())
-            .flat_map(|group| group.names.iter().map(|name| regex::escape(name)))
-            .collect::<Vec<_>>();
-        let extensions = groups
-            .iter()
-            .filter(|group| !group.extension.is_empty())
-            .map(|group| regex::escape(&group.extension))
-            .collect::<Vec<_>>();
-        let mut alternatives = Vec::new();
-        if !names.is_empty() {
-            let exact = format!("^(?:{})$", names.join("|"));
-            // Too many names for one call: every extensionless name instead,
-            // which may also list text files but never misses a binary.
-            alternatives.push(if exact.len() > MAX_LISTED_NAME_CHARS {
-                r"^\.?[^.]*$".to_owned()
-            } else {
-                exact
-            });
-        }
-        if !extensions.is_empty() {
-            alternatives.push(format!(r"\.(?i:{})$", extensions.join("|")));
-        }
-        name_regex = Some(alternatives.join("|").try_into().ok()?);
-    }
-    let listing = StructureSearchQueryFiles {
-        default_excludes: (!local_search_query::default_excludes(query).defaults())
-            .then_some(DefaultExcludes(false)),
-        entry_type: Some(StructureSearchEntryType::File),
-        exclude: local_search_query::exclude(query).to_vec(),
-        extensions,
-        include_hidden: (local_search_query::include_hidden(query) == Some(true)).then_some(true),
-        include_ignored: (local_search_query::include_ignored(query) == Some(true)).then_some(true),
-        max_depth: local_search_query::max_depth(query)
-            .and_then(|depth| NonZeroU64::new(u64::from(depth.saturating_add(1)))),
-        name_regex,
-        ..files_listing(local_search_query::path(query))?
-    };
-    Some(Continuation::related_query(StructureSearchQuery::from(listing)).build())
-}
+//! Binary files a search skipped or cut: their warnings and groups.
 
 /// Binary-cut files a warning names one by one; more are a count by
-/// extension, listed whole by the `binarySkipped` lead.
+/// extension.
 pub(super) const MAX_NAMED_BINARY_FILES: usize = 10;
 
 /// Paths grouped by lowercased extension (`""` for none, naming those
@@ -151,8 +73,7 @@ pub(super) fn binary_counts(groups: &[octocode_engine::types::BinaryExtensionCou
 /// The binary-cut files a warning names: every root-relative path, files
 /// sharing a directory written once under it (`dir/{a.txt,b.txt}`), then
 /// the count of any the engine could not name (`and 3 more`). Past
-/// [`MAX_NAMED_BINARY_FILES`] they are a count by extension, and the
-/// `binarySkipped` listing names each one.
+/// [`MAX_NAMED_BINARY_FILES`] they are a count by extension.
 pub(super) fn binary_file_list(paths: &[String], total: u32, root: &std::path::Path) -> String {
     if paths.is_empty() {
         return "a file with a NUL byte was".into();

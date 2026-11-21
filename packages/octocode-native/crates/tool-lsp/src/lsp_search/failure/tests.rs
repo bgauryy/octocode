@@ -2,8 +2,8 @@ use super::*;
 use octocode_test_support::json_fixture;
 
 /// An unresolved anchor's read lead runs only when it finds the name: a
-/// name the file holds only in another case is named at its nearest line
-/// and read case-insensitively; a name the file lacks gets no read.
+/// name the file holds only in another case is named as the file spells it
+/// at its nearest line and read case-insensitively; a name the file lacks gets no read.
 #[test]
 fn anchor_read_lead_only_when_it_finds_the_name() {
     let query: LspSearchQuery = serde_json::from_value(json_fixture(
@@ -46,10 +46,17 @@ fn anchor_read_lead_only_when_it_finds_the_name() {
     assert!(workspace_search(&row), "{row}");
 
     let row = run("mod a;\nfn runtime() {}\nfn b() {}\nlet RUNTIME = 1;\n");
-    assert_eq!(
-        row["error"],
-        format!("{message}; the file has 'Runtime' only in another case, nearest at line 2")
+    // The error names the file's own spelling on the nearest line, which
+    // the next request can ask for; the requested spelling is in no file.
+    let (source_line, spelling) = (2, "runtime");
+    let error = row["error"].as_str().expect("error");
+    assert!(error.starts_with(message), "{row}");
+    let added = &error[message.len()..];
+    assert!(
+        added.contains(&format!("'{spelling}'")) && added.contains(&format!("line {source_line}")),
+        "{row}"
     );
+    assert!(!added.contains("Runtime"), "{row}");
     assert_eq!(reads(&row).len(), 1, "{row}");
     assert_eq!(reads(&row)[0]["caseMode"], "insensitive", "{row}");
     assert!(workspace_search(&row), "{row}");

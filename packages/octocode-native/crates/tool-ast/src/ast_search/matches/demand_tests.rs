@@ -172,14 +172,7 @@ fn a_priced_scan_pages_exactly_as_a_held_scan() {
             let shown = |groups: &[Group]| {
                 groups
                     .iter()
-                    .map(|group| {
-                        (
-                            group.row.clone(),
-                            group.chars,
-                            group.sizes.clone(),
-                            group.truncated_captures,
-                        )
-                    })
+                    .map(|group| (group.row.clone(), group.chars, group.sizes.clone()))
                     .collect::<Vec<_>>()
             };
             assert_eq!(

@@ -37,7 +37,7 @@ fn schema_catalog_lists_enabled_tools_with_discoverable_fields() {
 /// The catalog, its instructions and the read tools' fields follow the key:
 /// the same gate MCP serves.
 #[test]
-fn schema_lists_clasify_and_classification_only_with_a_key() {
+fn schema_lists_clasify_only_with_a_key() {
     let workspace = Workspace::new();
     let run = |key: Option<&str>, args: &[&str]| {
         let mut command = workspace.cli();
@@ -82,15 +82,12 @@ fn schema_lists_clasify_and_classification_only_with_a_key() {
         let text = full["instructions"].as_str().expect("instructions");
         assert_eq!(text.contains(scout), listed, "{key:?}");
         assert_eq!(text.contains("clasify"), listed, "{key:?}: {text}");
-        assert_eq!(text.contains("classification"), listed, "{key:?}: {text}");
-        let fields = serde_json::to_string(&full["tools"]).expect("tools text");
-        assert_eq!(fields.contains("classification"), listed, "{key:?}");
+        // No search or read takes an inline filter, with a key or without.
         let local = run(key, &["schema", "localSearch"]);
-        assert_eq!(
+        assert!(
             local["querySchema"]["properties"]
                 .get("classification")
-                .is_some(),
-            listed,
+                .is_none(),
             "{key:?}"
         );
     }

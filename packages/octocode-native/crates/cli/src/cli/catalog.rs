@@ -61,7 +61,6 @@ pub(super) fn machine_catalog(runtime: &ToolRuntime) -> Result<Value, String> {
         .map(|tool| {
             let name = tool.as_str();
             let fields = super::schema::tool_entry(presentation, name)
-                .map(|tool| super::schema::configured_tool(tool, &catalog))
                 .and_then(|tool| tool["fields"].as_str())
                 .unwrap_or("[]");
             json!({
@@ -78,7 +77,6 @@ pub(super) fn machine_catalog(runtime: &ToolRuntime) -> Result<Value, String> {
         // The language servers this runtime resolves: `schema lspSearch`
         // names them as MCP's description does.
         "lspServers": catalog["lspServers"],
-        "presentation": catalog["presentation"],
         "tools": tools
     }))
 }

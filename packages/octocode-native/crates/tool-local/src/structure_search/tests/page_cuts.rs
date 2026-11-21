@@ -57,13 +57,20 @@ fn a_kept_page_cut_answers_only_for_its_own_inputs() {
         prefix: prefix.to_owned(),
         view,
         deferred_detail,
+        flat: None,
         budget,
         limit,
     };
     let kept = cut(".", View::Details, true, 400, None);
     let expect = |cut: &PageCut| {
         page_ranges(
-            &rows::costs(&walk.rows, &cut.prefix, cut.view, cut.deferred_detail),
+            &rows::costs(
+                &walk.rows,
+                &cut.prefix,
+                cut.view,
+                cut.deferred_detail,
+                cut.flat.as_deref(),
+            ),
             cut.budget,
             cut.limit,
         )
@@ -82,6 +89,10 @@ fn a_kept_page_cut_answers_only_for_its_own_inputs() {
         cut(".", View::Details, false, 400, None),
         cut(".", View::Details, true, 800, None),
         cut(".", View::Details, true, 400, Some(1)),
+        PageCut {
+            flat: Some(".".to_owned()),
+            ..kept.clone()
+        },
     ] {
         let fresh = expect(&other);
         assert_ne!(fresh, first, "the inputs must move the cut: {other:?}");
@@ -183,4 +194,40 @@ fn a_secret_looking_path_keeps_its_redacted_rank_across_window_edges() {
         Some(redacted) < at("a.rs"),
         "ranked by what it reads as: {by_path:?}"
     );
+}
+
+/// A flat ranked page is priced as it is emitted: its rows' costs are the
+/// page's serialized `files` exactly in the names-only view, and never less
+/// in the details view, whose line counts are read after the cut.
+#[test]
+fn a_flat_page_is_priced_as_the_strings_it_emits() {
+    let root = Fixture::new();
+    tree(&root);
+    for view in [View::Paths, View::Details] {
+        let start = json!({"operation":"files","path":root.0,"entryType":"file","view":view,
+            "sort":{"by":"bytes","order":"desc"}});
+        let first = run_budget(&root.0, start.clone(), 300).expect("first page");
+        let (walk, _) = stored(&root, start, 300);
+        let listed = first["files"].as_array().expect("files");
+        assert!(listed.iter().all(Value::is_string), "{first}");
+        assert!(
+            listed.len() > 1 && listed.len() < walk.rows.len(),
+            "{first}"
+        );
+        let deferred = view == View::Details;
+        let priced = rows::costs(&walk.rows, ".", view, deferred, Some("."))[..listed.len()]
+            .iter()
+            .map(|cost| {
+                assert_eq!((cost.header, cost.continues), (0, true));
+                cost.entry
+            })
+            .sum::<usize>();
+        // `[` `]` and one comma fewer than entries.
+        let emitted = octocode_engine::json_size::utf16_units(listed).expect("size") - 1;
+        if deferred {
+            assert!(priced >= emitted, "{view:?}: {priced} < {emitted}");
+        } else {
+            assert_eq!(priced, emitted, "{view:?}");
+        }
+    }
 }

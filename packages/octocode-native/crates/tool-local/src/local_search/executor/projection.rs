@@ -6,7 +6,6 @@ use octocode_contract_types::RegexEngine;
 use octocode_engine::types::SearchSort;
 
 use super::super::enclosing::{annotate_enclosing, annotate_match_keys};
-use super::super::handoff::Definition;
 use super::super::layout::{Layout, file_pagination};
 use super::super::page_view::EntryFacts;
 use super::super::rows::{HitWindow, merge_context_windows, project_match};
@@ -18,13 +17,11 @@ use octocode_contract_types::LocalSearchQuery;
 use octocode_runtime_base::execution::cancel::CancellationCheck;
 
 /// The page's rows, projected and annotated: each hit's match keys and
-/// enclosing declaration, and the searched symbol's declaration among them.
-pub(super) struct Annotated<'q> {
+/// enclosing declaration.
+pub(super) struct Annotated {
     pub(super) files: Vec<SearchFile>,
     /// Shown values redaction changed.
     pub(super) shown_redacted: usize,
-    pub(super) symbol: Option<&'q str>,
-    pub(super) definition: Option<Definition>,
     /// Warnings the annotations add.
     pub(super) notes: Vec<String>,
 }
@@ -36,7 +33,7 @@ pub(super) fn annotate_rows<'q>(
     (scanned, facts): (Vec<octocode_engine::types::TextSearchFile>, &[EntryFacts]),
     redacted: &Redacted,
     outlines: Outlines,
-) -> Annotated<'q> {
+) -> Annotated {
     let PageScope {
         query,
         output_root,
@@ -49,12 +46,11 @@ pub(super) fn annotate_rows<'q>(
     let mut notes = Vec::new();
     annotate_match_keys(&mut files, output_root, expected_digest, security);
     // A matchOnly row is the hit's text and place; content rows name its owner.
-    let (definition, enclosing_note) = if local_search_query::view(query) == View::MatchOnly {
-        (None, None)
+    let enclosing_note = if local_search_query::view(query) == View::MatchOnly {
+        None
     } else {
         annotate_enclosing(
             &mut files,
-            symbol,
             symbol.filter(|_| {
                 super::super::enclosing::declaration_search(local_search_query::pattern(query))
             }),
@@ -68,15 +64,12 @@ pub(super) fn annotate_rows<'q>(
     Annotated {
         files,
         shown_redacted,
-        symbol,
-        definition,
         notes,
     }
 }
 
-/// The symbol a page names declarations for: a small page names each hit's
-/// enclosing declaration, and a searched symbol declared on a shown hit
-/// line gets an lspSearch lead.
+/// The symbol a page marks declarations of: a searched symbol declared on a
+/// shown hit line is marked as its declaration.
 fn searched_symbol<'q>(query: &'q LocalSearchQuery, layout: &Layout) -> Option<&'q str> {
     (!layout.list
         && local_search_query::case_mode(query) != CaseMode::Insensitive

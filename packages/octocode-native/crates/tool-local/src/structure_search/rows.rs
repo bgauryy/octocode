@@ -109,9 +109,9 @@ impl Row {
         e: &FileSystemEntry,
         (path, redacted): (String, bool),
         lines: Option<Lines>,
-        key: Option<octocode_contract_types::StructureSearchSortAnyOrderBy>,
+        key: Option<crate::structure_search::files::SortKey>,
     ) -> Self {
-        use octocode_contract_types::StructureSearchSortAnyOrderBy as Key;
+        use crate::structure_search::files::SortKey as Key;
         let kind = EntryKind::from(e.entry_type);
         let (dir, name) = path.rsplit_once('/').unwrap_or(("", path.as_str()));
         let dir = dir.to_owned();
@@ -279,8 +279,8 @@ pub(super) fn page_entries(
 /// stable). Ranked sorts, `path` included (the default: a whole-scope rank by
 /// path, where `memory.rs` < `memory/tests.rs` < `tests.rs` interleaves a
 /// directory with its subdirectory), keep their global rank order exactly;
-/// [`dir_groups`] then names each directory once for `path` ranks and
-/// per run of adjacent rows for metric ranks.
+/// [`listed`] then names each directory once for `path` ranks and lists
+/// the other ranks flat.
 ///
 /// Every listed directory keeps its own `name/` row in every view, beside
 /// any `{dir, files}` group it heads: a group header is the parent of the
@@ -292,58 +292,129 @@ pub(super) fn group(rows: &mut [Row], sort: &StructureSearchSort) {
     }
 }
 
-/// The page's rows as the response lists them, `dir` workspace-relative
-/// (the listed path's own entries included, `prefix` being its spelling), so
-/// `dir + "/" + name` is a path a local tool takes. With `merge` (walk
-/// order and the `path` sort: the order is only a way to name files),
-/// one `{dir, files}` group per directory, in the order each first appears,
-/// so a directory the rank returns to joins its group. Without it (a name, size,
-/// lines or time rank, where the order is the answer) each run of adjacent
-/// entries of one directory is a group and a directory the rank returns to
-/// opens a new one. [`costs`] prices the same groups.
-pub(super) fn dir_groups(rows: &[(String, String)], prefix: &str, merge: bool) -> Vec<Value> {
+/// Whether `sort` lists its page flat ([`listed`]): a name, size, line or
+/// time rank, whose order is the answer and leaves no directory's entries
+/// together. Walk order and the `path` rank keep directories together, so
+/// they list `{dir, files}` groups.
+pub(super) fn lists_flat(sort: &StructureSearchSort) -> bool {
+    use crate::structure_search::files::SortKey as Key;
+    !matches!(super::files::sort_key(sort), None | Some(Key::Path))
+}
+
+/// A flat listing's entry: the entry text a group states, its name spelled
+/// as a row path (`prefix` being the listed path as rows name it,
+/// [`super::flat_prefix`]), so the path runs unchanged as another local
+/// tool's `path`.
+fn flat_entry(prefix: &str, dir: &str, entry: &str) -> String {
+    match super::group_dir(prefix, dir).as_str() {
+        "." => entry.to_owned(),
+        dir => format!("{dir}/{entry}"),
+    }
+}
+
+/// The page's rows as the response lists them. Grouped (walk order and the
+/// `path` sort: the order is only a way to name files): one `{dir, files}`
+/// group per directory, in the order each first appears, so a directory the
+/// rank returns to joins its group; `dir` is workspace-relative (the listed
+/// path's own entries included, `prefix` being its spelling), so
+/// `dir + "/" + name` is a path a local tool takes. `flat` ([`lists_flat`],
+/// holding the listed path as rows name it): each entry alone, in rank
+/// order, its name the entry's own row path, the form localSearch and
+/// astSearch rows take. [`costs`] prices the same form.
+pub(super) fn listed(rows: &[(String, String)], prefix: &str, flat: Option<&str>) -> Vec<Value> {
     use octocode_runtime_base::response::groups::{Entry, Order, groups};
+    if let Some(flat) = flat {
+        return rows
+            .iter()
+            .map(|(dir, entry)| json!(flat_entry(flat, dir, entry)))
+            .collect();
+    }
     groups(
         rows.iter().map(|(dir, entry)| Entry {
             dir: super::group_dir(prefix, dir),
             item: json!(entry),
         }),
-        if merge { Order::Merged } else { Order::Runs },
+        Order::Merged,
     )
 }
 
-/// A row costs its serialized entry, plus its group's header with the
-/// directory rendered as the response shows it whenever it opens a group
-/// (a page repeats the header of a group it continues). `deferred_detail`
-/// reserves the detail fields a page adds. Costs are bound by the
+/// A grouped row costs its serialized entry, plus its group's header with
+/// the directory rendered as the response shows it whenever it opens a group
+/// (a page repeats the header of a group it continues). A `flat` row
+/// ([`listed`]) costs its one string and opens nothing. `deferred_detail`
+/// prices each file at the widest details entry a page makes of it
+/// ([`Row::widest_detail`]). Costs are bound by the
 /// snapshot, so every page of it cuts at the same rows.
 pub(super) fn costs(
     rows: &[Row],
     prefix: &str,
     view: StructureSearchView,
     deferred_detail: bool,
+    flat: Option<&str>,
 ) -> Vec<RowCost> {
+    // A file's deferred details are priced before paging, at the widest
+    // entry the page can make of it, so they cannot overflow the window.
+    let deferred = deferred_detail && view == StructureSearchView::Details;
+    let units = |text: &str| octocode_engine::json_size::utf16_units(text).unwrap_or(0);
+    if let Some(flat) = flat {
+        return rows
+            .iter()
+            .map(|row| {
+                let entry = if deferred && row.kind != EntryKind::Directory {
+                    row.widest_detail(&flat_entry(flat, "", &row.path))
+                } else {
+                    units(&flat_entry(flat, &row.dir, row.shown_as(view)))
+                };
+                // The string and the comma after it.
+                RowCost {
+                    entry: entry + 1,
+                    header: 0,
+                    continues: true,
+                }
+            })
+            .collect();
+    }
     let dirs = rows
         .iter()
         .map(|row| super::group_dir(prefix, &row.dir))
         .collect::<Vec<_>>();
     octocode_runtime_base::response::groups::costs(dirs.iter().zip(rows).map(|(dir, row)| {
-        let entry = octocode_engine::json_size::utf16_units(row.shown_as(view)).unwrap_or(0);
-        // Reserve the deferred detail fields before paging so they cannot
-        // overflow the window.
-        (
-            dir.as_str(),
-            entry
-                + usize::from(deferred_detail && row.kind != EntryKind::Directory)
-                    * DETAIL_FIELDS_RESERVE,
-        )
+        let entry = if deferred && row.kind != EntryKind::Directory {
+            row.widest_detail(&row.display_name)
+        } else {
+            units(row.shown_as(view))
+        };
+        (dir.as_str(), entry)
     }))
 }
 
-/// Characters the deferred detail fields add to one entry at most:
-/// `, <usize>` lines (22) and `, <ISO 8601 instant>` (23 for a five-digit
-/// year).
-const DETAIL_FIELDS_RESERVE: usize = 45;
+impl Row {
+    /// Serialized chars of the widest details entry a page makes of this
+    /// file once it reads its lines ([`page_entries`]): its own size and
+    /// time, and the widest line field it can have. A file holds no more
+    /// lines than bytes, so that is its size's digits, or the longer word a
+    /// file without a count shows ([`Lines::Unreadable`]). The bound is the
+    /// file's own: one fixed reserve for the longest count any file could
+    /// have would leave every page of ordinary files half empty. `name` is
+    /// the name the listing's form spells the entry by.
+    fn widest_detail(&self, name: &str) -> usize {
+        let most_lines = Lines::Counted(usize::try_from(self.size).unwrap_or(0));
+        let widest = [most_lines, Lines::Unreadable]
+            .into_iter()
+            .max_by_key(|lines| lines.field().len())
+            .unwrap_or(most_lines);
+        octocode_engine::json_size::utf16_units(&entry_text(
+            name,
+            self.kind,
+            Some(self.size),
+            Some(widest),
+            Some(octocode_runtime_base::num::i64_of_f64(
+                self.modified.round(),
+            )),
+        ))
+        .unwrap_or(0)
+    }
+}
 
 /// One listed entry inside its directory group: the name, `/` after a
 /// directory, then ` (<fields>)` naming, in this order and as they apply,

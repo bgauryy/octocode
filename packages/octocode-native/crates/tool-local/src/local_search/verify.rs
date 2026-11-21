@@ -607,8 +607,19 @@ pub(super) fn stream_price(
     output_root: &std::path::Path,
     security: &ContentSecurity,
     file: &octocode_engine::types::TextSearchFile,
+    prepared: &PreparedOutlines,
 ) -> FilePrice {
-    match fresh_outline(paths, &output_root.join(&file.path), security) {
+    // The search thread already read and outlined the file for this commit
+    // ([`prepare_outline`]): price by that read. Reading it again would
+    // repeat the policy check, the open and the digest for the same answer;
+    // the page that shows the file checks policy and content once more
+    // before any row is served ([`verify_shown`]).
+    let read = prepared
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .remove(&file.path)
+        .unwrap_or_else(|| fresh_outline(paths, &output_root.join(&file.path), security));
+    match read {
         FreshRead::Read(outline) => FilePrice::of(file, outline.as_ref()),
         FreshRead::Unread => FilePrice::Unread,
     }
@@ -623,15 +634,27 @@ pub(super) fn prepare_outline(
     output_root: &std::path::Path,
     security: &ContentSecurity,
     path: &str,
+    prepared: &PreparedOutlines,
 ) {
     let source = output_root.join(path);
     if super::enclosing::outlined_language(&source) {
-        fresh_outline(paths, &source, security);
+        let read = fresh_outline(paths, &source, security);
+        prepared
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(path.to_owned(), read);
     }
 }
 
+/// What [`prepare_outline`] read of each file a stream searched, by the path
+/// the stream names it, until [`stream_price`] takes it at the file's
+/// commit: one read serves both. A file the stream never commits (it stopped
+/// first) stays here until the stream's closures drop.
+pub(super) type PreparedOutlines =
+    std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, FreshRead>>>;
+
 /// A fresh scan's file as a page cut reads it for its outline.
-enum FreshRead {
+pub(super) enum FreshRead {
     /// The policy denies it or it cannot be read: its rows reserve.
     Unread,
     /// [`outline_of`](super::enclosing::outline_of)'s outline (kept by text

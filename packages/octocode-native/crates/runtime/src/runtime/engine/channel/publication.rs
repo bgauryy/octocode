@@ -4,12 +4,10 @@ use crate::runtime::engine::cursors::{Pending, SavedWork};
 use crate::runtime::row_indices::RowOrigin;
 use octocode_runtime_base::contracts;
 use octocode_runtime_base::execution::{ExecutionContext, ExecutionError};
-use octocode_runtime_base::response::pager::continuing_block_chars as page_block_chars;
 use octocode_runtime_base::response::{
     continuations, cursor::Cursor, outcome::ToolOutcome, read_share,
 };
 use octocode_runtime_base::security::Sanitized;
-use octocode_tools_shared::selection::{RecoveryLead, recovery_lead};
 use serde_json::{Value, json};
 
 impl ChannelRun {
@@ -52,75 +50,12 @@ impl ChannelRun {
         self.retain_cursors(pending, context)
     }
 
-    /// A runtime that keeps no saved work (a command that exits after one
-    /// call) delivers a classified result without the leads that need it,
-    /// instead of failing the call after the provider billed it. The
-    /// whole-read lead (`next.unfiltered`) moves to the row's `related` as a
-    /// fresh request when it holds none of the private progress a cursor
-    /// saves; every other lead of saved plan pages, and a whole read that
-    /// is no fresh request, is left out with a warning on its row that counts
-    /// the units those leads would have reached. Other leads are not
-    /// touched: an ordinary page of a read still needs its cursor
-    /// ([`Self::retain_cursors`]).
-    pub(super) fn settle_unsaved_leads(
-        &self,
-        structured: &mut Value,
-    ) -> Result<(), contracts::ContractValidationError> {
-        if self.can_resume {
-            return Ok(());
-        }
-        let mut leads = Vec::new();
-        continuations::visit_calls(self.id, structured, &mut |call, path| {
-            if let [row @ .., next, channel] = path
-                && next == "next"
-                && call["kind"] == "continue"
-                && let Some(lead) = recovery_lead(channel)
-            {
-                let fresh = (lead == RecoveryLead::Whole)
-                    .then(|| fresh_whole_read(call))
-                    .flatten();
-                leads.push((
-                    octocode_runtime_base::json_pointer::of(row),
-                    channel.clone(),
-                    fresh,
-                ));
-            }
-        })?;
-        for (row_pointer, channel, fresh) in leads.into_iter().rev() {
-            let Some(row) = structured.pointer_mut(&row_pointer) else {
-                continue;
-            };
-            if let Some(next) = row.get_mut("next").and_then(Value::as_object_mut) {
-                next.shift_remove(&channel);
-                if next.is_empty()
-                    && let Some(fields) = row.as_object_mut()
-                {
-                    fields.shift_remove("next");
-                }
-            }
-            let warning = match fresh {
-                Some(call) => {
-                    octocode_runtime_base::response::result::attach_related(row, call);
-                    // Naming `related[]` keeps the call on a successful row
-                    // ([`octocode_runtime_base::response::workflow_lead`]).
-                    format!(
-                        "The {channel} lead is not offered: this command exits after one call and keeps no saved work, so the read without classification is the related[] request."
-                    )
-                }
-                None => unsaved_lead_warning(row, &channel),
-            };
-            octocode_runtime_base::response::paging::push_warnings(row, [warning]);
-        }
-        Ok(())
-    }
-
     pub(super) fn publish(
         &self,
         structured: &mut Value,
         scope: &continuations::Scope<'_>,
         pending: &mut Pending,
     ) -> Result<(), contracts::ContractValidationError> {
-        self.settle_unsaved_leads(structured)?;
         continuations::finalize_with(
             structured,
             self.id,
@@ -177,20 +112,15 @@ impl ChannelRun {
         }
     }
 
-    /// Move the walks of the rows the response page splits to
-    /// `responsePagination.next`: a page break sits inside such a row, so
-    /// its walk can only follow its last part, and one loop through the
-    /// pages then reaches it. A row whose own page is shown whole keeps its
-    /// `next.nextPage` where it is, so finishing the pages never walks rows
-    /// the reader is done with. A walk that continues the page its row
-    /// answered (`continues_page`: the rest of that page is the rest of this
-    /// response) moves too, with every other walk. A section's own walk
-    /// (`next.<section>`) continues that section alone: it stays on its row,
-    /// and a split row places it on the row's last part (`row_pages`,
-    /// `take_enclosing_walks`). Rows that fill the response page together
-    /// ([`read_share::fill_together`]) continue together: when two or more
-    /// of them read on, one call continues them all and fills its page
-    /// again, so the rest of a batch never costs a call per row.
+    /// State the rows' walks as the reply's one continuation, the envelope's
+    /// `next`: one call continues every row that reads on (`next.nextPage`
+    /// leaves the rows), and fills its page again, so a reply that carries
+    /// `next` is unfinished and one without it is read to its end. When the
+    /// response itself pages, that call follows its last page (`row_pages`
+    /// keeps it as the walk past the pages), so one loop through `next`
+    /// reaches everything. A section's own walk (`next.<section>`) continues
+    /// that section alone: it stays on its row, and a split row places it on
+    /// the row's last part (`row_pages`, `take_enclosing_walks`).
     ///
     /// `true` when it measured the envelope and left it as it is because it
     /// fits one page, so the stage need not measure it again
@@ -207,46 +137,36 @@ impl ChannelRun {
                 .is_some_and(|name| name == continuations::LINEAR_WALK)
         });
         let together = read_share::fill_together(self.id) && walks.len() > 1;
-        if !continues_page && !together {
-            let budget = self
-                .options
-                .response_chars
-                .unwrap_or(self.output.auto_page_chars);
-            if budget == 0 {
-                return Ok(false);
-            }
-            if !self.options.pages(structured, self.output.auto_page_chars) {
-                return Ok(true);
-            }
-            let split = split_rows(structured, budget.saturating_sub(page_block_chars(self.id)));
-            walks.retain(|walk| {
-                walk.get(1)
-                    .and_then(|row| row.parse::<usize>().ok())
-                    .is_some_and(|row| split.contains(&row))
+        let handles = continuations::walk_handles(structured, &walks);
+        if !handles.is_empty()
+            && let Some(token) = pending.walk_handle(self.id, &handles)
+        {
+            structured.edit(|output| {
+                continuations::hoist(output, &walks, self.id, &token);
             });
         }
-        let handles = continuations::walk_handles(structured, &walks);
-        if handles.is_empty() {
+        if continues_page || together {
             return Ok(false);
         }
-        let Some(token) = pending.walk_handle(self.id, &handles) else {
+        let budget = self
+            .options
+            .response_chars
+            .unwrap_or(self.output.auto_page_chars);
+        if budget == 0 {
             return Ok(false);
-        };
-        structured.edit(|output| {
-            continuations::hoist(output, &walks, self.id, &token);
-        });
-        Ok(false)
+        }
+        Ok(!self.options.pages(structured, self.output.auto_page_chars))
     }
 
     /// Every read of a section plan restarts its idle lifetime: a page read
     /// from a saved clasify response refreshes each plan it continues, named
     /// in its rows or in the walk handle a split batch's next page is hoisted
-    /// to (`responsePagination.next`), so a reader walking the pages still
+    /// to (the envelope's `next`), so a reader walking the pages still
     /// reaches the next batch. Opening the handle restarts its own lifetime,
     /// as a read of it does.
     pub(super) fn refresh_plans(&self, saved: &Value) {
         let walk = saved
-            .pointer("/responsePagination/next/input/cursor")
+            .pointer("/next/input/cursor")
             .and_then(Value::as_str)
             .and_then(|token| self.cursors.open(self.id, token, self.access).ok());
         let inputs = std::iter::once(saved).chain(walk.as_ref().map(|walk| &walk.member().input));
@@ -267,7 +187,7 @@ impl ChannelRun {
             return Ok(());
         };
         outcome.structured_content.edit(|output| {
-            let next = &mut output["responsePagination"]["next"];
+            let next = &mut output[continuations::RESPONSE_NEXT];
             let (index, rows) = self.page_origin();
             let token = pending.insert(
                 self.id,
@@ -286,57 +206,4 @@ impl ChannelRun {
             Ok(())
         })
     }
-}
-
-/// The positions of the rows that alone fill more than a page of `budget`
-/// chars: the rows a response page splits into parts.
-fn split_rows(structured: &Value, budget: usize) -> Vec<usize> {
-    let size = |value: &Value| octocode_engine::json_size::utf16_units(value).unwrap_or(0);
-    let Some(rows) = structured.get("results").and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    let sizes: Vec<usize> = rows.iter().map(size).collect();
-    let rest = size(structured).saturating_sub(sizes.iter().sum::<usize>());
-    sizes
-        .iter()
-        .enumerate()
-        .filter(|(_, row)| rest + **row > budget)
-        .map(|(index, _)| index)
-        .collect()
-}
-
-/// What a row loses when its `channel` lead cannot be saved: the units its
-/// receipt left undecided, which only saved plan pages reach, or the whole
-/// read that cannot restart without private progress.
-fn unsaved_lead_warning(row: &Value, channel: &str) -> String {
-    let counts = |field: &str| row["selection"][field].as_u64();
-    match (
-        recovery_lead(channel),
-        counts("unknownItems"),
-        counts("totalItems"),
-    ) {
-        (Some(RecoveryLead::Saved), Some(unknown), Some(total)) => format!(
-            "The {channel} lead is not offered: this command exits after one call and keeps no saved pages, so {unknown} of {total} units stay undecided; ask a narrower query to judge them, or use a live session."
-        ),
-        _ => format!(
-            "The {channel} lead is not offered: this command exits after one call and keeps no saved work; repeat the read without classification to see everything."
-        ),
-    }
-}
-
-/// A continued whole-read lead as a fresh related call, or `None` when
-/// it is not one once its private progress is dropped.
-fn fresh_whole_read(call: &Value) -> Option<Value> {
-    let target = octocode_runtime_base::id::ToolId::from_name(call["tool"].as_str()?)?;
-    let mut input = call["input"].clone();
-    for row in input.get_mut("queries")?.as_array_mut()? {
-        *row = octocode_runtime_base::response::result::fresh_query_row(target, row);
-    }
-    let mut checked =
-        crate::runtime::engine::admission::checked::checked_input(target, true, &input).ok()?;
-    // Validation fills in the contract defaults; a call states none.
-    for row in checked.get_mut("queries")?.as_array_mut()? {
-        octocode_runtime_base::response::result::canonical_row(target, row);
-    }
-    Some(json!({"kind": "related", "tool": target.as_str(), "input": checked}))
 }

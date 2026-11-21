@@ -175,7 +175,7 @@ async fn each_page_of_context_windows_is_flagged_by_the_text_it_shows() {
         shown += usize::from(assert_served_safely(&out));
         pages += 1;
         assert!(pages <= 20, "the walk ends");
-        match &out["results"][0]["data"]["next"]["nextPage"]["input"] {
+        match &out["next"]["input"] {
             next @ Value::Object(_) => input = next.clone(),
             _ => break,
         }
@@ -319,7 +319,6 @@ fn rows_no_judgment_cut_are_never_marked_as_its_cuts() {
         &paths,
         &security,
         &octocode_runtime_base::execution::cancel::NeverCancel,
-        None,
         None,
     )
     .expect("search");

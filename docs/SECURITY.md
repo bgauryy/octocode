@@ -10,7 +10,7 @@ Octocode runs on your machine. The CLI and MCP server share one set of path, cre
 | GitHub search, read, history, clone | GitHub or your Enterprise host, with that host's credential |
 | Package lookup | The package registry and its source host |
 | `securityCheck` | OSV, GitHub, public registries. [Advisory egress](#advisory-egress) |
-| `clasify`, `classification` | The provider. [Classification egress](#classification-egress) |
+| `clasify` | The provider. [Classification egress](#classification-egress) |
 
 ## Files and credentials
 
@@ -37,7 +37,7 @@ Language servers can run project code, so use them only on projects you trust. C
 
 ## Classification egress
 
-Listing catalog tools sends nothing. A `clasify` call, or a tool with `classification`, sends questions, context and selected evidence to the provider, after access and redaction checks. The default provider is Jev at `https://api.typesafe.ai`; set `OCTOCODE_CLASSIFICATION_API_HOST` and `OCTOCODE_CLASSIFICATION_API` in home or process configuration, then restart MCP. URL captures fetch a public HTTPS page with no stored credential. PNG and JPEG pixels are not text-redacted: treat a sent image as disclosed. [Classification guide](OCTOCODE_CLASIFY.md)
+Listing catalog tools sends nothing. A `clasify` call sends questions, context (a `clasify` row's `mainGoal` and `background`, never its `reasoning`) and selected evidence to the provider, after access and redaction checks. The default provider is Jev at `https://api.typesafe.ai`; set `OCTOCODE_CLASSIFICATION_API_HOST` and `OCTOCODE_CLASSIFICATION_API` in home or process configuration, then restart MCP. URL captures fetch a public HTTPS page with no stored credential. PNG and JPEG pixels are not text-redacted: treat a sent image as disclosed. [Classification guide](OCTOCODE_CLASIFY.md)
 
 ## Advisory egress
 

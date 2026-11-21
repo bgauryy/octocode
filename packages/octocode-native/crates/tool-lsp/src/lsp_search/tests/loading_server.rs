@@ -201,6 +201,37 @@ impl Loading {
             .expect("row")
     }
 
+    /// [`Self::definition`], with the progress lines the call reported while
+    /// it ran, as a host with a progress listener hears them.
+    fn definition_heard(&self) -> (Value, Vec<String>) {
+        let paths = octocode_runtime_base::test_support::workspace_policy(&self.root);
+        let heard = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let lines = std::sync::Arc::clone(&heard);
+        let scope = octocode_io::notice::Scope::with_progress(move |line| {
+            lines
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(line.to_owned());
+        });
+        let row = self
+            .runtime
+            .block_on(scope.run(crate::lsp_search::execute(
+                self.query(),
+                &NeverCancel,
+                &self.pool,
+                &paths,
+                &self.execution,
+                None,
+                crate::lsp_search::test_answers(),
+            )))
+            .expect("row");
+        let heard = heard
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        (row, heard)
+    }
+
     /// How many times a server was started.
     fn started(&self) -> usize {
         std::fs::read_to_string(self.root.join("started.txt"))
@@ -305,6 +336,27 @@ fn a_load_that_outlasts_the_budget_is_not_read_as_absence() {
             .iter()
             .any(|call| call["input"]["queries"][0] == rerun),
         "{row}"
+    );
+}
+
+/// A server that announces a load and then says nothing: the call does not
+/// wait in silence. While it waits for the load, its host hears that it is
+/// waiting and on which server, and the wait ends at the language's
+/// readiness budget with the row that offers the same query again.
+#[test]
+fn a_silent_load_is_reported_while_the_call_waits_and_ends_at_its_budget() {
+    if !octocode_runtime_base::test_support::require_node() {
+        return;
+    }
+    let server = Loading::new("loadNeverEnds", "shellscript", Duration::ZERO);
+    let (row, heard) = server.definition_heard();
+    assert_eq!(row["category"], "languageServerIndexing", "{row}");
+    assert!(
+        heard
+            .iter()
+            .any(|line| line.starts_with(crate::lsp_search::session::LOADING)
+                && line.ends_with(crate::lsp_search::session::KEPT)),
+        "the wait for the load is reported: {heard:?}"
     );
 }
 

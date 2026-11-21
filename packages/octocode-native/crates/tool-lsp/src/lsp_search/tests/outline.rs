@@ -133,32 +133,6 @@ fn document_symbols_are_compact_outline_rows() {
         "{envelope}"
     );
     assert_eq!(envelope["pagination"]["total"], 6, "{envelope}");
-    // CHAIN: an outline leads to localFetch: the first top-level
-    // multi-line declaration, name line to last line.
-    let read = envelope["related"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|call| call["tool"] == "localFetch")
-        .expect("source exploration");
-    assert_eq!(read["tool"], "localFetch", "{envelope}");
-    assert_eq!(
-        read["input"]["queries"][0],
-        json_fixture(
-            r#"{
-                "path": "file:///repo/src/lib.rs",
-                "ranges": [{"startLine": 3, "endLine": 9}]
-            }"#
-        ),
-        "{envelope}"
-    );
-    assert_eq!(
-        octocode_tools_shared::test_support::read_view(
-            octocode_runtime_base::id::ToolId::LocalFetch,
-            &read["input"]["queries"][0]
-        ),
-        octocode_contract_types::ReadView::Content
-    );
 }
 
 #[test]
@@ -209,7 +183,7 @@ fn locations_are_compact_camel_case_and_one_based() {
                 "start": {"line": 5, "character": 3},
                 "end": {"line": 5, "character": 8}
             },
-            "content": "pub fn greet() {}\n",
+            "value": "pub fn greet() {}\n",
             "symbol_kind": "function"
         }"#,
     ));
@@ -232,7 +206,7 @@ fn locations_are_compact_camel_case_and_one_based() {
     );
     assert!(public.get("contentStartLine").is_none());
     // One line at the row's own line carries no number prefix.
-    assert_eq!(public["content"], "pub fn greet() {}", "{public}");
+    assert_eq!(public["value"], "pub fn greet() {}", "{public}");
 }
 
 #[test]
@@ -244,13 +218,13 @@ fn widened_content_reports_its_first_line_and_single_file_pages_hoist_the_path()
                 "start": {"line": 5, "character": 3},
                 "end": {"line": 5, "character": 8}
             },
-            "content": "a\nb\nc\n",
+            "value": "a\nb\nc\n",
             "displayRange": {"startLine": 5, "endLine": 7}
         }"#,
     ));
     assert_eq!(widened["line"], 6);
     // The gutter states where widened content begins.
-    assert_eq!(widened["content"], "5\ta\n6\tb\n7\tc", "{widened}");
+    assert_eq!(widened["value"], "5\ta\n6\tb\n7\tc", "{widened}");
     assert!(widened.get("contentStartLine").is_none(), "{widened}");
 }
 
@@ -294,11 +268,11 @@ fn long_declaration_content_is_cut_to_the_page_and_the_rest_is_one_read() {
         .join("\n");
     let mut location = serde_json::json!({
         "uri": "file:///repo/a.ts",
-        "content": body,
+        "value": body,
         "displayRange": {"startLine": 426, "endLine": 625}
     });
     let rest = cap_declaration_content(&mut location, 600).expect("a read of the lines left out");
-    let content = location["content"].as_str().expect("content");
+    let content = location["value"].as_str().expect("value");
     let kept = content.lines().collect::<Vec<_>>();
     assert!(kept.len() < 200 && !kept.is_empty(), "{content}");
     assert_eq!(kept[0], "line 0");
@@ -324,9 +298,9 @@ fn long_declaration_content_is_cut_to_the_page_and_the_rest_is_one_read() {
     );
     let short = "a\nb\nc";
     let mut small =
-        serde_json::json!({"content": short, "displayRange": {"startLine": 1, "endLine": 3}});
+        serde_json::json!({"value": short, "displayRange": {"startLine": 1, "endLine": 3}});
     assert!(cap_declaration_content(&mut small, 600).is_none());
-    assert_eq!(small["content"], short, "short bodies are untouched");
+    assert_eq!(small["value"], short, "short bodies are untouched");
 }
 
 #[test]
@@ -370,13 +344,13 @@ fn capped_declaration_content_numbers_every_line() {
     let mut location = serde_json::json!({
         "uri": "file:///repo/src/lib.rs",
         "range": {"start": {"line": 9, "character": 0}, "end": {"line": 78, "character": 1}},
-        "content": body,
+        "value": body,
         "displayRange": {"startLine": 10, "endLine": 79}
     });
     let _read = super::super::locations::cap_declaration_content(&mut location, 500)
         .expect("read of the rest");
     let public = public_location(location);
-    let content = public["content"].as_str().expect("content");
+    let content = public["value"].as_str().expect("value");
     assert!(content.starts_with("10\tline 1\n"), "{content}");
     assert!(
         content.lines().all(|line| line

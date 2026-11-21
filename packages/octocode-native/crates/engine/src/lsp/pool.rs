@@ -21,6 +21,8 @@ pub struct LspPoolOptions {
     /// Memory all pooled servers may hold together, in bytes: the
     /// pool stops idle least-recently-used servers while the sampled total is
     /// over it, never the one in use or a busy one. `0` means no budget.
+    /// Pools that share the budget each keep an equal part
+    /// ([`LspClientPool::share_memory_budget`]).
     pub max_resident_bytes: u64,
     /// Options every client the pool starts takes.
     pub client: super::client::LspClientOptions,
@@ -123,8 +125,18 @@ impl LspClientPool {
         self.inner.clear_all().await;
     }
 
-    /// The servers' sampled bytes and the budget (`max_resident_bytes`) when
-    /// they exceed it. The pool never stops a busy server, so it can stay over
+    /// State how many pools share the memory budget, this one included: one
+    /// per live server process of the user. Each pool then keeps an equal
+    /// part of `max_resident_bytes`, so all of them together hold no more
+    /// than one budget; a pool alone keeps the whole. The pool still never
+    /// stops a busy server, so a part smaller than one server costs that
+    /// server's next cold start, never a request.
+    pub fn share_memory_budget(&self, sharers: usize) {
+        self.inner.share_memory_budget(sharers);
+    }
+
+    /// The servers' sampled bytes and this pool's part of the budget
+    /// (`max_resident_bytes` over its sharers) when they exceed it. The pool never stops a busy server, so it can stay over
     /// budget until the servers are idle.
     pub async fn over_budget(&self) -> Option<(u64, u64)> {
         self.inner.over_budget().await

@@ -148,7 +148,7 @@ async fn saved_local_pages_keep_relative_evidence_and_complete_the_same_scope_on
                     }
                 }
             }
-            if let Some(next) = page.pointer("/responsePagination/next/input") {
+            if let Some(next) = page.pointer("/next/input") {
                 pending.push(next.clone());
             }
         }
@@ -187,7 +187,7 @@ fn emitted_calls(output: &Value) -> Vec<Value> {
             calls.extend(next.values().cloned());
         }
     }
-    calls.extend(output.pointer("/responsePagination/next").cloned());
+    calls.extend(output.pointer("/next").cloned());
     calls
 }
 

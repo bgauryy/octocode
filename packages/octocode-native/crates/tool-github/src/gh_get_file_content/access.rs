@@ -28,12 +28,6 @@ pub(super) fn progress(
 ) -> Option<&octocode_contract_types::ReadProgress> {
     each!(q, v, v.read_progress.as_ref())
 }
-pub(super) fn classified(q: &GhGetFileContentQuery) -> bool {
-    variant_field!(q, each [
-        GhGetFileContentQuery::Content0, GhGetFileContentQuery::ContentRanges,
-        GhGetFileContentQuery::ContentMatchString,
-    ] v => v.classification.is_some() || v.selection.is_some(), else => false)
-}
 pub(super) fn set_path(
     q: &mut GhGetFileContentQuery,
     path: &str,

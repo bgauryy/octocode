@@ -172,7 +172,13 @@ pub(super) fn note_skipped(
     };
     // The same build with exactly the skipping causes lifted.
     let lead = skipped::lead(ToolId::GraphBuild, query, &disclosure.causes);
+    // The build's receipt is evidence (an id and counts), so the sentence
+    // limits it as a warning and the row needs the call that lifts the
+    // causes (the rule `skipped::attach` applies to the search tools).
     octocode_runtime_base::response::paging::push_warnings(out, [disclosure.text]);
-    octocode_runtime_base::response::result::attach_related(out, lead);
+    octocode_runtime_base::response::result::attach_related(
+        out,
+        octocode_runtime_base::response::result::required_call(lead),
+    );
     Ok(())
 }

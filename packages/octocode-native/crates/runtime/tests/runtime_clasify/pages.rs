@@ -2,10 +2,8 @@
 //! without inference, and bodies withheld past a deadline then recovered.
 
 use super::{provider, sent};
-use crate::support::{self, Run as _, Workspace, clasify_runtime, provider_env};
-use serde_json::{Value, json};
-use wiremock::matchers::method;
-use wiremock::{Mock, MockServer, Request, ResponseTemplate};
+use crate::support::{self, Run as _, Workspace, clasify_runtime};
+use serde_json::json;
 
 #[tokio::test]
 async fn clasify_pages_complete_answers_once_and_replays_without_inference() {
@@ -52,7 +50,7 @@ async fn clasify_pages_complete_answers_once_and_replays_without_inference() {
             }
         }
         pages += 1;
-        let pagination = &page["responsePagination"];
+        let pagination = &page;
         if pagination["next"].is_null() {
             break;
         }
@@ -68,21 +66,19 @@ async fn clasify_pages_complete_answers_once_and_replays_without_inference() {
             .expect("repeat");
         let evidence = |outcome: &octocode_runtime_base::response::outcome::ToolOutcome| {
             let mut value = outcome.structured_content.clone().into_value();
-            if let Some(pagination) = value["responsePagination"].as_object_mut()
-                && let Some(next) = pagination.remove("next")
-            {
-                support::assert_cursor_only(&next["input"]);
-            }
-            // Each read restarts the saved response's lifetime and states
-            // the expiry it set.
-            if let Some(pagination) = value["responsePagination"].as_object_mut() {
-                pagination.remove("expiresAt");
+            if let Some(envelope) = value.as_object_mut() {
+                if let Some(next) = envelope.remove("next") {
+                    support::assert_cursor_only(&next["input"]);
+                }
+                // Each read restarts the saved response's lifetime and
+                // states the expiry it set.
+                envelope.remove("expiresAt");
             }
             value
         };
         assert_eq!(evidence(&next_page), evidence(&repeated));
         let expiry = |outcome: &octocode_runtime_base::response::outcome::ToolOutcome| {
-            outcome.structured_content["responsePagination"]["expiresAt"]
+            outcome.structured_content["expiresAt"]
                 .as_str()
                 .map(str::to_owned)
         };
@@ -90,10 +86,7 @@ async fn clasify_pages_complete_answers_once_and_replays_without_inference() {
             expiry(&repeated) >= expiry(&next_page),
             "a later read never shortens retention"
         );
-        assert_eq!(
-            next_page.structured_content["responsePagination"]["replayed"],
-            true
-        );
+        assert_eq!(next_page.structured_content["replayed"], true);
         page = if pages % 2 == 0 {
             repeated.structured_content
         } else {
@@ -103,90 +96,5 @@ async fn clasify_pages_complete_answers_once_and_replays_without_inference() {
     assert_eq!(seen.len(), 36);
     assert!(pages > 1);
     assert_eq!(sent(&server).await.len(), 3);
-    runtime.close().await;
-}
-
-/// A context selection that outlives its deadline (the constant
-/// `RuntimeLimits::selection.timeout`, here 100 ms through the test seam)
-/// discloses the gap instead of returning raw evidence: the receipt is
-/// partial or unavailable, the unjudged evidence stays unknown with no body,
-/// and `next.unfiltered` recovers it in the same runtime without the provider.
-#[tokio::test]
-async fn a_selection_past_its_deadline_withholds_bodies_and_recovers() {
-    let server = MockServer::builder().start().await;
-    Mock::given(method("POST"))
-        .respond_with(|request: &Request| {
-            // A decisive answer: every question at its top level.
-            let body: Value = serde_json::from_slice(&request.body).expect("provider body");
-            let answers = body["questions"]
-                .as_object()
-                .expect("questions")
-                .iter()
-                .map(|(id, question)| {
-                    let levels = question["criteria"].as_array().expect("levels");
-                    let top = levels.len() - 1;
-                    let legend = levels
-                        .iter()
-                        .enumerate()
-                        .map(|(index, level)| (index.to_string(), level.clone()))
-                        .collect::<serde_json::Map<_, _>>();
-                    let probabilities = (0..levels.len())
-                        .map(|index| (index.to_string(), json!(if index == top { 1.0 } else { 0.0 })))
-                        .collect::<serde_json::Map<_, _>>();
-                    (id.clone(), json!({"type":"score","score":top as f64,"confidence":1.0,
-                        "legend":legend,"probabilities":probabilities}))
-                })
-                .collect::<serde_json::Map<_, _>>();
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"model":"m","answers":answers,"usage":{"input_tokens":1,"output_tokens":1}}))
-                .set_delay(std::time::Duration::from_millis(400))
-        })
-        .mount(&server)
-        .await;
-    let workspace = Workspace::new();
-    let file = workspace.write(
-        "src/rule.txt",
-        "UNKNOWN_SELECTION_SENTINEL cancellation removes a queued request.\n",
-    );
-    let read = |timeout: Option<std::time::Duration>| {
-        let limits = octocode_runtime_base::execution::RuntimeLimits {
-            classification_timeout: timeout,
-            ..crate::support::PROVIDER_LIMITS
-        };
-        let runtime = workspace.runtime_with(&provider_env(&server, &[]), limits);
-        let query = json!({"path": file, "classification":{"predicates":["Does this state the cancellation rule?"]}});
-        async move {
-            let row = crate::support::run(&runtime, "localFetch", query).await;
-            (runtime, row.data().clone())
-        }
-    };
-    let (recovery, late) = read(Some(std::time::Duration::from_millis(100))).await;
-    let selection = &late["selection"];
-    // A provider slower than the request time decides nothing: the read keeps
-    // its evidence, says why, and offers no filter it did not apply.
-    assert_eq!(selection["status"], "unavailable", "{late}");
-    assert_eq!(selection["reason"], "timeout", "{late}");
-    assert_eq!(selection["selectedItems"], 0, "{late}");
-    assert!(
-        late["content"]
-            .as_str()
-            .unwrap()
-            .contains("UNKNOWN_SELECTION_SENTINEL"),
-        "{late}"
-    );
-    assert!(late["warnings"].to_string().contains("slow"), "{late}");
-    recovery.close().await;
-    // The same read under the runtime's own request time is judged and selected.
-    let (runtime, judged) =
-        read(octocode_runtime_base::execution::RuntimeLimits::DEFAULT.classification_timeout).await;
-    assert_eq!(judged["selection"]["status"], "complete", "{judged}");
-    assert_eq!(judged["selection"]["selectedItems"], 1, "{judged}");
-    assert!(
-        judged["content"]
-            .as_str()
-            .unwrap()
-            .contains("UNKNOWN_SELECTION_SENTINEL"),
-        "{judged}"
-    );
     runtime.close().await;
 }

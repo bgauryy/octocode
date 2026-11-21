@@ -107,7 +107,7 @@ fn redacted_lines_outside_the_result_are_never_counted() {
         &mut req,
         json_fixture(r#"{"contextLines": {"before": 1, "after": 1}}"#),
     );
-    let page = execute_local_fetch(&req, &paths, &Safe, &NeverCancel, Some(26), None);
+    let page = execute_local_fetch(&req, &paths, &Safe, &NeverCancel, Some(26), false);
     assert_eq!(outside(&page).len(), 0, "{:?}", page.warnings);
     let next = page
         .next
@@ -247,7 +247,7 @@ fn security_limit_is_terminal_but_offers_a_bounded_line_read() {
         &Limited,
         &NeverCancel,
         None,
-        None,
+        false,
     );
     assert_eq!(result.error_code, Some(ErrorCode::ContentSecurityLimit));
     assert_eq!(result.terminal_limit, Some(true));
@@ -295,14 +295,27 @@ fn match_strings_never_match_the_placeholders_a_redaction_wrote() {
     let paths = Paths(t.0.clone());
     for (fields, expected) in [
         (r#"{"matchString": ["REDACTED"]}"#, "plain REDACTED word\n"),
-        (r#"{"matchString": ["redacted"], "caseMode": "insensitive"}"#, "plain REDACTED word\n"),
-        (r#"{"matchString": ["\\]"], "regexEngine": "rust"}"#, "last ]\n"),
+        (
+            r#"{"matchString": ["redacted"], "caseMode": "insensitive"}"#,
+            "plain REDACTED word\n",
+        ),
+        (
+            r#"{"matchString": ["\\]"], "regexEngine": "rust"}"#,
+            "last ]\n",
+        ),
         (r#"{"matchString": ["\\[RED"], "regexEngine": "pcre2"}"#, ""),
-        (r#"{"matchString": ["key .* here"], "regexEngine": "rust"}"#, "key [REDACTED] here\n"),
+        (
+            r#"{"matchString": ["key .* here"], "regexEngine": "rust"}"#,
+            "key [REDACTED] here\n",
+        ),
     ] {
         let mut req = q(&p);
         amend(&mut req, json_fixture(fields));
         let r = fetch(&req, &paths);
-        assert_eq!(r.content.as_deref().unwrap_or(""), expected, "{fields}: {r:?}");
+        assert_eq!(
+            r.content.as_deref().unwrap_or(""),
+            expected,
+            "{fields}: {r:?}"
+        );
     }
 }

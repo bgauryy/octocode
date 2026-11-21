@@ -179,7 +179,13 @@ async fn compare_include_scopes_files_and_capped_scope_leads_to_path_history() {
     // A provider cap leaves the scoped count partial even when the shown
     // inventory fits on one response page.
     assert!(data.get("changedFileCount").is_none(), "{data}");
-    assert_eq!(data["sectionPagination"]["files"]["countScope"], "partial");
+    assert!(
+        data.pointer("/sectionPagination/files/total").is_none()
+            && data["partialReasons"]
+                .as_array()
+                .is_some_and(|reasons| !reasons.is_empty()),
+        "{data}"
+    );
     assert_eq!(files.matches(".rs").count(), 101, "{data}");
     let beyond = call(
         &runtime,

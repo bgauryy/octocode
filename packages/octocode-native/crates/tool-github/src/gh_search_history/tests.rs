@@ -1,10 +1,8 @@
 //! ghSearchHistory tests: search [`terms`] (building, routing, validation),
 //! page [`shaping`], and [`provider`]-backed searches and listings.
-use super::leads::{issue_links_read, issue_read_query, pr_read_query};
+use super::leads::issue_links_read;
 use super::query::{build_query_with_warnings, resolve_commit_window};
-use super::rows::{
-    is_completed, is_merged, item_number, map_commit_list, map_issue, map_pr, read_target,
-};
+use super::rows::{map_commit_list, map_issue, map_pr};
 use super::shape::mark_empty;
 use super::*;
 use octocode_github::ProviderError;
@@ -42,7 +40,6 @@ fn parse(json: &str) -> GhSearchHistoryQuery {
     serde_json::from_str(json).expect("GitHub history search test data should be valid")
 }
 
-mod judged_text;
 mod provider;
 mod shaping;
 mod terms;

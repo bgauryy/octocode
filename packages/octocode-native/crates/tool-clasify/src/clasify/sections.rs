@@ -448,8 +448,16 @@ fn withheld_saved_source(
 /// One judged section of a source judged whole: its target lines and each
 /// question's outcome, in question order (`None`: not assessed).
 pub(super) struct JudgedSection {
-    pub lines: Value,
+    /// Where the section sits in the source: its lines and bytes.
+    pub target: Value,
     pub cells: Vec<Option<Value>>,
+}
+
+impl JudgedSection {
+    /// The section's target lines.
+    pub(super) fn lines(&self) -> &Value {
+        &self.target["lines"]
+    }
 }
 
 /// A source judged whole in sections within one call.
@@ -633,7 +641,7 @@ fn whole_billed(
         sections: judged
             .into_iter()
             .map(|unit| JudgedSection {
-                lines: unit.metadata["target"]["lines"].clone(),
+                target: unit.metadata["target"].clone(),
                 cells: unit.cells,
             })
             .collect(),

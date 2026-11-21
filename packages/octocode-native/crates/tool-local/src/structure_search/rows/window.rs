@@ -13,7 +13,7 @@ pub(in crate::structure_search) struct Ranking {
     order: Vec<usize>,
     delivered: Vec<Option<(String, bool)>>,
     /// The sort's key, whose value a names-only row states.
-    key: Option<octocode_contract_types::StructureSearchSortAnyOrderBy>,
+    key: Option<crate::structure_search::files::SortKey>,
 }
 
 impl Ranking {
@@ -32,8 +32,8 @@ impl Ranking {
         if matches!(
             super::super::files::sort_key(sort),
             Some(
-                octocode_contract_types::StructureSearchSortAnyOrderBy::Path
-                    | octocode_contract_types::StructureSearchSortAnyOrderBy::Name
+                crate::structure_search::files::SortKey::Path
+                    | crate::structure_search::files::SortKey::Name
             )
         ) {
             for &at in &order {
@@ -130,16 +130,14 @@ fn rank(
     lines: &[Option<Lines>],
     delivered: &[Option<(String, bool)>],
 ) {
-    use octocode_contract_types::{SortOrder, StructureSearchSortAnyOrderBy as Key};
-    let StructureSearchSort::AnyOrder(octocode_contract_types::StructureSearchSortAnyOrder {
-        by,
-        order,
-    }) = sort
-    else {
+    use crate::structure_search::files::SortKey as Key;
+    use octocode_contract_types::SortOrder;
+    let Some(by) = super::super::files::sort_key(sort) else {
         return;
     };
+    let order = super::super::files::sort_order(sort);
     let directed = |compared: std::cmp::Ordering| {
-        if *order == SortOrder::Desc {
+        if order == SortOrder::Desc {
             compared.reverse()
         } else {
             compared

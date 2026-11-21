@@ -300,7 +300,7 @@ fn empty_match_leads_to_syntax_tree() {
         .expect("a valid syntaxTree row");
     let tree = run(&root.0, row.clone()).expect("syntax tree");
     assert!(
-        tree["nodes"][0]["node"]
+        tree["nodes"][0]
             .as_str()
             .is_some_and(|node| node.contains("expression_statement 4:")),
         "{tree}"

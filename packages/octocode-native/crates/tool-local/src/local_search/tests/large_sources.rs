@@ -40,8 +40,14 @@ fn fetched(
         serde_json::json!({"path": path, "ranges": [{"startLine": first, "endLine": last}]}),
     )
     .expect("localFetch row");
-    let read =
-        crate::local_fetch::execute_local_fetch(&query, policy, security, &NeverCancel, None, None);
+    let read = crate::local_fetch::execute_local_fetch(
+        &query,
+        policy,
+        security,
+        &NeverCancel,
+        None,
+        false,
+    );
     let content = read.content.clone().unwrap_or_else(|| panic!("{read:?}"));
     let content = content.strip_suffix('\n').unwrap_or(&content);
     content.split('\n').map(str::to_owned).collect()
@@ -194,7 +200,7 @@ fn a_source_past_the_ceiling_matches_what_its_read_serves() {
             &security,
             &NeverCancel,
             None,
-            None,
+            false,
         )
         .selected_match_count
         .unwrap_or(0) as u64

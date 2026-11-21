@@ -124,8 +124,9 @@ fn shown_word(paths: &PathPolicy, piece: &str) -> String {
 /// were dropped, and `next.continueWalk2…N` for every other such parent
 /// (every page walks the same graph, so earlier pages would repeat them). A
 /// node whose results were cut to [`MAX_HIERARCHY_FAN_OUT`] resumes the same
-/// way: re-anchored, it lists every result. A walk that stopped only at its
-/// depth offers the next one ([`offer_deeper_walk`]).
+/// way: re-anchored, it lists every result. A walk whose last level the
+/// row's scope left out whole leads to the call that lists it
+/// ([`offer_excluded_frontier`]).
 pub(in crate::lsp_search) fn mark_truncation(
     row: &mut Value,
     query: &LspSearchQuery,
@@ -141,7 +142,7 @@ pub(in crate::lsp_search) fn mark_truncation(
         .flat_map(|(_, walk)| walk.resumes.iter())
         .collect::<Vec<_>>();
     if resumes.is_empty() {
-        offer_deeper_walk(row, query, walks, paths);
+        offer_excluded_frontier(row, query, walks, paths);
         return;
     }
 
@@ -222,19 +223,15 @@ pub(in crate::lsp_search) fn mark_truncation(
     }
 }
 
-/// The lead past `depth`: the walk answered every level it was asked
-/// for, but nodes first reached at its last level were never expanded, so
-/// whether they have results of their own (a subclass of a subclass, a
-/// caller's callers) is unknown. A last level of nodes the walk already
-/// expanded (a cycle) leaves nothing unknown and offers no lead. `next.walkDeeper` reruns the query one level deeper from its
-/// start (no cursor), on the page that ends the listing: none while a
-/// remaining page (site, candidate or importer window) is offered, since
-/// those list the same walk. `depth` has no maximum, so a frontier always
-/// leads one level deeper. The frontier is the row's: the nodes its
-/// `testCode` keeps ([`test_scope::retain_callers`], the filter the items
-/// passed). A last level the scope left out whole leads instead to the call
-/// that lists it, `testCode:"include"`: a deeper walk answers the same row.
-fn offer_deeper_walk(
+/// The lead of a last level the row's `testCode` scope left out whole:
+/// nodes first reached at the walk's last level were never expanded, and
+/// the scope kept none of them ([`test_scope::retain_callers`], the filter
+/// the items passed), so the call that lists them is `testCode:"include"`.
+/// It rides the page that ends the listing: none while a remaining page
+/// (site, candidate or importer window) is offered, since those list the
+/// same walk. A last level the row lists offers nothing: `depth` asks for
+/// more levels.
+fn offer_excluded_frontier(
     row: &mut Value,
     query: &LspSearchQuery,
     walks: &[(Expansion, &HierarchyWalk)],
@@ -271,14 +268,13 @@ fn offer_deeper_walk(
         return;
     }
     // A scope that left out every last-level edge leads to the call that
-    // lists them; a last level of already-expanded nodes leads nowhere.
-    let change = if frontier.is_empty() && unexpanded > 0 {
-        json!({"testCode": "include"})
-    } else if frontier.is_empty() {
+    // lists them: the row may show nothing, and that call is its recovery.
+    // A last level the row does list is evidence: a deeper walk is the
+    // `depth` input's to ask for, and the row carries no call for it.
+    if !(frontier.is_empty() && unexpanded > 0) {
         return;
-    } else {
-        json!({"depth": depth + 1})
-    };
+    }
+    let change = json!({"testCode": "include"});
     // A related request is fresh: it drops this walk's cursors itself.
     let Ok(lead) = lsp_search_query::edited(query, &change) else {
         return;

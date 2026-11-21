@@ -4,7 +4,7 @@
 //! read without classification sends nothing to a provider and is unchanged.
 
 use super::{clasify, noul, sent};
-use crate::support::{self, Run as _, Workspace, clasify_runtime, github_api};
+use crate::support::{Run as _, Workspace, clasify_runtime, github_api};
 use octocode_native::runtime::ToolRuntime;
 use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
@@ -15,7 +15,6 @@ use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 mod direct;
 mod held_pages;
 mod saved_plan;
-mod search;
 
 /// A fake value in no format the redaction scanner knows.
 pub(crate) const MARKER: &str = "plain-value-in-no-known-format-7741";
@@ -325,85 +324,6 @@ async fn a_withheld_github_resource_is_its_own_row_and_a_sibling_keeps_its_secti
             "the guide is judged: {sent:?}"
         );
         assert_nothing_left(&sent, &workspace, "sections");
-        runtime.close().await;
-    }
-}
-
-/// A read with `classification` answers as the local one does: the typed
-/// refusal, while a normal row of the same call is judged. Without
-/// `classification` the same read sends nothing to the provider: the path
-/// policy refuses it by default, and the home opt-in returns the file.
-#[tokio::test]
-async fn a_classified_github_read_is_refused_by_name_and_a_plain_read_follows_the_policy() {
-    for allow in [false, true] {
-        let (provider, github) = (provider().await, github().await);
-        let workspace = Workspace::new();
-        let runtime = runtime_for(&workspace, &provider, &github, allow);
-        let row = |file: &str| {
-            json!({"owner":"octo","repo":"demo","path":file,
-                "classification":{"predicates":["Does it name the needle?"]}})
-        };
-        for &file in WITHHELD {
-            let out = runtime
-                .run(
-                    "classified-read".into(),
-                    "ghGetFileContent".into(),
-                    json!({"queries":[row(file), row("docs/guide.md")]}),
-                )
-                .await
-                .expect("classified read")
-                .structured_content;
-            support::checks::assert_output_contract("ghGetFileContent", &out);
-            let refused = &out["results"][0];
-            assert_eq!(refused["status"], "error", "{file}: {out}");
-            assert_eq!(refused["data"]["errorCode"], "pathPolicyDenied", "{out}");
-            assert_refusal_routes(&refused["data"], file, allow);
-            assert_ne!(out["results"][1]["status"], "error", "{file}: {out}");
-            assert!(
-                out["results"][1]["data"].get("selection").is_some(),
-                "{file}: the normal row is judged: {out}"
-            );
-        }
-        let reads = contents_reads(&github).await;
-        assert!(reads.iter().all(|read| read.contains("guide")), "{reads:?}");
-        let sent_before = sent(&provider).await;
-        assert!(
-            sent_before
-                .iter()
-                .any(|request| request.to_string().contains(NORMAL)),
-            "{sent_before:?}"
-        );
-        assert_nothing_left(&sent_before, &workspace, "classified read");
-
-        let plain = support::run(
-            &runtime,
-            "ghGetFileContent",
-            json_fixture(r#"{"owner": "octo", "repo": "demo", "path": ".env"}"#),
-        )
-        .await;
-        if allow {
-            assert_eq!(plain.status(), "success", "{}", plain.data());
-            assert!(
-                plain.data()["content"]
-                    .as_str()
-                    .is_some_and(|content| content.contains(MARKER)),
-                "the opt-in returns the file to its caller: {}",
-                plain.data()
-            );
-        } else {
-            assert_eq!(plain.status(), "error", "{}", plain.data());
-            assert_eq!(
-                plain.data()["errorCode"],
-                "pathPolicyDenied",
-                "the path policy refuses a plain read by default: {}",
-                plain.data()
-            );
-        }
-        assert_eq!(
-            sent(&provider).await.len(),
-            sent_before.len(),
-            "a direct read sends nothing to the provider"
-        );
         runtime.close().await;
     }
 }

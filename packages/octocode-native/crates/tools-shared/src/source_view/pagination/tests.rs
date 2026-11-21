@@ -246,14 +246,59 @@ fn a_transformed_view_walks_through_an_oversized_line_without_repeating() {
     }
 }
 
-/// The byte walk of a line with match windows: after the line page before
-/// it, one page shows every window that fits it in source order (near
-/// windows joined into one run, far ones behind a marker naming the bytes
-/// between), then the bytes between them in order, then line paging resumes.
-/// Every byte of the view is on exactly one page, and a page never crosses a
-/// window's edge.
+/// The pages of the walk of `content` from its first, each as the view
+/// bytes it shows (a page of several windows: one span per window), with
+/// the spans the page flagged `rest_of_line` showed.
+fn walk_spans(
+    content: &str,
+    windows: &[(usize, usize)],
+) -> (Vec<(usize, usize)>, Vec<usize>, Option<usize>) {
+    let long_lines = Some(LongLines {
+        match_windows: windows,
+        placement: None,
+    });
+    let budget = LineBudget::bytes(LINE_PAGE_BYTES);
+    let mut query: LocalFetchQuery =
+        serde_json::from_value(json_fixture(r#"{"path": "bundle.min.js"}"#)).expect("query");
+    let (mut pages, mut shown, mut rest) = (Vec::new(), Vec::new(), None);
+    loop {
+        let page = page_within(content, &query, budget, None, long_lines, Edges::WHOLE);
+        let at = match page.pagination.unit {
+            ReadProgressUnit::Bytes => page.pagination.offset,
+            ReadProgressUnit::Lines => content
+                .split_inclusive('\n')
+                .take(page.pagination.offset)
+                .map(str::len)
+                .sum(),
+        };
+        let pieces = placed_pieces(at, &page.text);
+        for &(at, piece) in &pieces {
+            assert_eq!(&content[at..at + piece.len()], piece);
+        }
+        if page.rest_of_line {
+            assert_eq!(rest.replace(shown.len()), None, "one page ends the line");
+        }
+        shown.push(pieces.len());
+        pages.extend(pieces.iter().map(|&(at, piece)| (at, at + piece.len())));
+        assert!(pages.len() < 50, "the walk ends");
+        let Some(next) = continuation(&query, &page.pagination) else {
+            assert!(!page.pagination.has_more);
+            break;
+        };
+        query = next.continue_window.expect("window").query;
+    }
+    (pages, shown, rest)
+}
+
+/// The byte walk of a line with match windows that one page holds: after
+/// the line page before it, one page shows every window in source order
+/// (near windows joined into one run, far ones behind a marker naming the
+/// bytes between) and says the rest of the line is its optional read
+/// (`rest_of_line`); line paging resumes right after, so the lines that
+/// follow (the next matches) are the next page, not behind the line's
+/// unmatched bytes. No byte is on two pages.
 #[test]
-fn a_match_first_walk_shows_windows_then_the_rest_exactly_once() {
+fn a_match_first_walk_shows_every_window_then_the_next_lines() {
     let line = "ab".repeat(20_000);
     let content = format!("head\n{line}\ntail\n");
     let start = "head\n".len();
@@ -267,45 +312,36 @@ fn a_match_first_walk_shows_windows_then_the_rest_exactly_once() {
         (end - 51, end),
     ];
     let runs = [windows[0], (windows[1].0, windows[2].1), windows[3]];
-    let long_lines = Some(LongLines {
-        match_windows: &windows,
-        placement: None,
-    });
-    let budget = LineBudget::bytes(LINE_PAGE_BYTES);
-    let mut query: LocalFetchQuery =
-        serde_json::from_value(json_fixture(r#"{"path": "bundle.min.js"}"#)).expect("query");
-    let (mut pages, mut shown) = (Vec::new(), Vec::new());
-    loop {
-        let page = page_within(&content, &query, budget, None, long_lines, Edges::WHOLE);
-        let at = match page.pagination.unit {
-            ReadProgressUnit::Bytes => page.pagination.offset,
-            ReadProgressUnit::Lines => content
-                .split_inclusive('\n')
-                .take(page.pagination.offset)
-                .map(str::len)
-                .sum(),
-        };
-        let pieces = placed_pieces(at, &page.text);
-        for &(at, piece) in &pieces {
-            assert_eq!(&content[at..at + piece.len()], piece);
-        }
-        shown.push(pieces.len());
-        pages.extend(pieces.iter().map(|&(at, piece)| (at, at + piece.len())));
-        assert!(pages.len() < 50, "the walk ends");
-        let Some(next) = continuation(&query, &page.pagination) else {
-            assert!(!page.pagination.has_more);
-            break;
-        };
-        query = next.continue_window.expect("window").query;
-    }
+    let (pages, shown, rest) = walk_spans(&content, &windows);
+    assert_eq!(rest, Some(1), "the windows page ends the line's walk");
+    assert_eq!(shown, [1, 3, 1], "every run of windows on one page");
     assert_eq!(pages[0], (0, start), "the short line before, by lines");
-    assert_eq!(&shown[..2], &[1, 3], "every run of windows on one page");
     assert_eq!(&pages[1..4], &runs, "in order");
-    assert_eq!(
-        pages[4].0,
-        start + 100,
-        "then the rest, from its first byte"
-    );
+    assert_eq!(&pages[4..], &[(end, content.len())], "then the tail");
+}
+
+/// The byte walk of a line whose match windows one page does not hold:
+/// every window first, in source order, then the bytes between them in
+/// order, then line paging resumes. Every byte of the view is on exactly
+/// one page, and a page never crosses a window's edge.
+#[test]
+fn a_match_first_walk_of_windows_over_a_page_shows_the_rest_exactly_once() {
+    let line = "ab".repeat(20_000);
+    let content = format!("head\n{line}\ntail\n");
+    let start = "head\n".len();
+    let end = start + line.len() + 1;
+    // Three runs of windows, more than one page together.
+    let wide = LINE_PAGE_BYTES / 2;
+    let runs = [
+        (start, start + wide),
+        (start + 15_000, start + 15_000 + wide),
+        (end - wide, end),
+    ];
+    let (pages, _, rest) = walk_spans(&content, &runs);
+    assert_eq!(rest, None, "the line is walked whole");
+    assert_eq!(pages[0], (0, start), "the short line before, by lines");
+    assert_eq!(&pages[1..4], &runs, "the windows first, in order");
+    assert_eq!(pages[4].0, runs[0].1, "then the rest, from its first byte");
     assert_eq!(pages.last(), Some(&(end, content.len())), "then the tail");
     for &(from, to) in &pages[4..] {
         assert!(

@@ -10,7 +10,6 @@ fn invalid(tool: &str, input: Value) -> RuntimeError {
         payload: Some(Box::new(contracts::format_input_error(
             tool,
             &error,
-            &[],
             &serde_json::Value::Null,
         ))),
         validation_issues: Some(error.issues),

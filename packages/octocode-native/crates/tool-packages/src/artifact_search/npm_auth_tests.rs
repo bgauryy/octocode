@@ -84,11 +84,10 @@ async fn missing_exact_package_is_not_found() {
     assert!(error.message.contains("no-such-package-zz"), "{error:?}");
 }
 
-/// An exact lookup offers one source lead: the commit the version was
-/// published from (`gitHead`), at the package directory. The default
-/// branch is that lead without `branch`, so no second lead restates it.
+/// An exact lookup's row states the commit the version was published from
+/// (`gitHead`) as its `ref`, beside its repository: the row carries no call.
 #[tokio::test]
-async fn exact_lookup_offers_one_release_lead_at_the_package_directory() {
+async fn exact_lookup_states_its_release_ref_on_the_row() {
     let sha = "4b0051f400219f8d8855f9a5433c6df35f15a639";
     let server = wiremock::MockServer::builder().start().await;
     wiremock::Mock::given(wiremock::matchers::method("GET"))
@@ -111,31 +110,18 @@ async fn exact_lookup_offers_one_release_lead_at_the_package_directory() {
         let data = execute(typed(&query), call(deadline, true))
             .await
             .expect("lookup succeeds");
-        let related = data["related"].as_array().expect("related source call");
-        // One release-source lead and one advisory lead (securityCheck).
-        let tools = related
-            .iter()
-            .map(|call| call["tool"].as_str().unwrap_or_default())
-            .collect::<Vec<_>>();
-        assert_eq!(tools, ["ghStructure", "securityCheck"], "{data}");
+        assert!(data.get("related").is_none(), "{data}");
         // An exact lookup has one row: no pagination, no request echo.
         assert!(data.get("pagination").is_none(), "{data}");
         assert!(data.get("type").is_none(), "{data}");
-        let release =
-            octocode_runtime_base::test_support::checks::related_call(&data, "ghStructure", |_| {
-                true
-            });
-        assert_eq!(release["tool"], "ghStructure", "{data}");
+        // An unchecked registry ref is labeled as the registry's claim on
+        // the row (the one source).
+        let row = data["artifacts"][0].as_object().expect("row");
         assert_eq!(
-            release["input"]["queries"][0],
-            json!({"operation":"tree", "owner": "o", "repo": "r", "path": "packages/x", "ref": sha}),
+            (&row["owner"], &row["repo"]),
+            (&json!("o"), &json!("r")),
             "{data}"
         );
-        // An unchecked registry ref is labeled as the registry's
-        // claim on the row (the one source); leads do not repeat it.
-        assert!(release.get("source").is_none(), "{data}");
-        assert!(release.get("verification").is_none(), "{data}");
-        let row = data["artifacts"][0].as_object().expect("row");
         assert_eq!(row["ref"], sha, "{data}");
         assert!(!row.contains_key("sourceRef"), "{data}");
         assert_eq!(row["verification"], "registryRef", "{data}");
@@ -149,13 +135,12 @@ async fn exact_lookup_offers_one_release_lead_at_the_package_directory() {
 }
 
 /// An npm `gitHead` GitHub does not have (an unpushed or rewritten
-/// commit) is no release source: the row offers the default branch
-/// (`viewRepo`, `verification:"defaultBranch"`) and its warning names the
-/// registry's dead ref, instead of a `viewReleaseSource` that fails. A
-/// ref GitHub has, or a check that could not run, keeps the registry's
-/// claim (`registryRef`).
+/// commit) is no release source: the row states the default branch
+/// (`verification:"defaultBranch"`, no `ref`) and its warning names the
+/// registry's dead ref. A ref GitHub has, or a check that could not run,
+/// keeps the registry's claim (`registryRef`).
 #[tokio::test]
-async fn an_npm_git_head_missing_upstream_is_no_release_lead() {
+async fn an_npm_git_head_missing_upstream_is_no_release_ref() {
     let sha = "2bd066d87f5bafd315be9f40889d0a60b9e58e0b";
     let server = wiremock::MockServer::builder().start().await;
     wiremock::Mock::given(wiremock::matchers::method("GET"))
@@ -176,12 +161,6 @@ async fn an_npm_git_head_missing_upstream_is_no_release_lead() {
         ..call(deadline, true)
     };
     let data = execute(query.clone(), checked).await.expect("lookup");
-    let fallback =
-        octocode_runtime_base::test_support::checks::related_call(&data, "ghStructure", |_| true);
-    assert!(
-        fallback["input"]["queries"][0].get("ref").is_none(),
-        "{data}"
-    );
     let row = &data["artifacts"][0];
     assert!(row.get("ref").is_none(), "{data}");
     assert!(row.get("sourceRef").is_none(), "{data}");
@@ -205,13 +184,6 @@ async fn an_npm_git_head_missing_upstream_is_no_release_lead() {
         assert_eq!(data["artifacts"][0]["ref"], sha, "{data}");
         assert_eq!(
             data["artifacts"][0]["verification"], "registryRef",
-            "{data}"
-        );
-        assert_eq!(
-            octocode_runtime_base::test_support::checks::related_call(&data, "ghStructure", |_| {
-                true
-            })["input"]["queries"][0]["ref"],
-            sha,
             "{data}"
         );
         match refs.commit_check_failure() {

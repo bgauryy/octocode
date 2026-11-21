@@ -51,6 +51,7 @@ const CLIP: &str = " …";
 
 /// Judge every text of `data`'s rows against the source its row names;
 /// `places` names where its declaration rows were named.
+#[cfg(test)]
 pub(super) fn judge_rows(data: &mut Value, sources: &RowSources<'_>, places: NamePlaces) {
     judge_rows_with(data, sources, places, &Known::default());
 }
@@ -80,6 +81,18 @@ pub(super) struct Known(
 );
 
 impl Known {
+    /// `source` held as what the rows named `shown` are cut from: inline
+    /// source, which no file holds ([`super::source::INLINE_NAME`]).
+    pub(super) fn holding(shown: &str, source: JudgedText) -> Self {
+        let known = Self::default();
+        known
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(shown.to_owned(), Some(std::sync::Arc::new(source)));
+        known
+    }
+
     /// The judged source of the file a row shows as `shown`.
     fn source(&self, shown: &str, sources: &RowSources<'_>) -> Option<std::sync::Arc<JudgedText>> {
         let held = self

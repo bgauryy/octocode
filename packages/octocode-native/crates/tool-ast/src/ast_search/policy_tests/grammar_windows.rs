@@ -266,8 +266,9 @@ fn directory_scan_windows_infer_each_files_grammar_without_losing_other_language
 /// A directory match without language uses the one grammar whose files the
 /// scope holds; continuations retain per-file inference rather than narrowing it.
 /// A directory match without `language` infers its grammar from the census
-/// of the scan's own walk: no second walk, the same `inferredLanguage`, and
-/// a scope without any supported file is still `languageRequired`.
+/// of the scan's own walk: no second walk, the same `inferredLanguage`
+/// (stated by an empty answer; matches name their files), and a scope
+/// without any supported file is still `languageRequired`.
 #[test]
 fn the_inferred_grammar_comes_from_the_scan_walk() {
     let root = Fixture::new();
@@ -280,7 +281,15 @@ fn the_inferred_grammar_comes_from_the_scan_walk() {
         json!({"operation":"match","path":root.0,"rule":{"pattern":"b()"}}),
     )
     .expect("match");
-    assert_eq!(out["inferredLanguage"], "rust", "{out}");
+    assert_eq!(out["matchCount"], 1, "{out}");
+    assert_unqualified(&out);
+    let none = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"a($X)"}}),
+    )
+    .expect("empty match");
+    assert_eq!(none["status"], "empty", "{none}");
+    assert_eq!(none["inferredLanguage"], "rust", "{none}");
     assert_eq!(
         octocode_tools_shared::ast_rule::present_walks(),
         before,
@@ -311,11 +320,9 @@ fn a_scope_whose_only_source_is_default_excluded_names_it_instead_of_asking_for_
     )
     .expect("no languageRequired when source sits behind skipped paths");
     assert_eq!(out["status"], "empty", "{out}");
-    assert!(
-        out["warnings"]
-            .to_string()
-            .contains("Skipped paths (1 default-excluded) were not searched"),
-        "{out}"
+    assert_unsearched(
+        &out,
+        &[octocode_tools_shared::empty_walk::Cause::DefaultExcluded],
     );
     assert!(
         out["skippedPaths"].to_string().contains("*.min.js"),
@@ -343,7 +350,16 @@ fn directory_match_infers_the_only_grammar_present() {
     )
     .expect("language inferred from the .rs files");
     assert_eq!(out["matchCount"], 2, "{out}");
-    assert_eq!(out["inferredLanguage"], "rust", "{out}");
+    // The page's window held the whole scope: its matches name their
+    // files, so only an empty answer states the grammar it inferred.
+    assert_unqualified(&out);
+    let none = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"other($A, $B)"}}),
+    )
+    .expect("language inferred from the .rs files");
+    assert_eq!(none["status"], "empty", "{none}");
+    assert_eq!(none["inferredLanguage"], "rust", "{none}");
     let next = out["next"]["nextPage"]["input"]["queries"][0].clone();
     assert!(next.get("parser").is_none(), "{out}");
     let continued =
@@ -405,15 +421,23 @@ fn directory_match_over_a_grammar_family_infers_the_family() {
         json!({"operation":"match","path":root.0,"rule":{"pattern":"hit($A)"}}),
     )
     .expect("one family");
-    assert_eq!(out["inferredLanguage"], "typescript", "{out}");
     assert_eq!(out["matchCount"], 2, "{out}");
+    assert_unqualified(&out);
+    let none = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"hit($A, $B)"}}),
+    )
+    .expect("one family");
+    assert_eq!(none["status"], "empty", "{none}");
+    assert_eq!(none["inferredLanguage"], "typescript", "{none}");
 }
 
 /// `.ts` and `.tsx` share one grammar label, but a pattern can parse in only
 /// one of them. A `.ts` file then cannot match it: it is outside what the
 /// query applies to, whatever the file holds, with or without `parser`, and
-/// the result is whole. A scope with no file the query parses in is an error,
-/// again whatever the files hold.
+/// the result is whole: an empty answer counts the file in
+/// `skippedGrammars`, one with matches does not. A scope with no file the
+/// query parses in is an error, again whatever the files hold.
 #[test]
 fn a_dialect_the_pattern_does_not_parse_in_is_outside_whatever_the_file_holds() {
     let pattern = json_fixture(r#"{"pattern": "<div>$$$</div>"}"#);
@@ -434,10 +458,22 @@ fn a_dialect_the_pattern_does_not_parse_in_is_outside_whatever_the_file_holds() 
             }
             assert!(out["next"].get("narrowScope").is_none(), "{out}");
             assert!(!out["diagnostics"].to_string().contains("a.ts"), "{out}");
+            assert!(out.get("skippedGrammars").is_none(), "{out}");
+            // The same scope and dialect with no such element.
+            let mut query = json!({"operation":"match","path":root.0,"rule":{"pattern":"<div><b>$$$</b></div>"}});
+            query
+                .as_object_mut()
+                .expect("query")
+                .extend(selector.as_object().expect("selector").clone());
+            let none = run(&root.0, query).expect("the tsx file parses it");
+            assert_eq!(none["status"], "empty", "{none}");
+            for field in ["isPartial", "partialReasons", "terminalLimit"] {
+                assert!(none.get(field).is_none(), "{field}: {none}");
+            }
             assert_eq!(
-                out["skippedGrammars"],
+                none["skippedGrammars"],
                 json_fixture(r#"{"typescript": 1}"#),
-                "{out}"
+                "{none}"
             );
         }
         let only_ts = Fixture::new();

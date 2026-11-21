@@ -4,6 +4,54 @@
 use super::*;
 use octocode_test_support::json_fixture;
 
+/// `include` narrows a directory outline to the files `match` reads under
+/// the same globs: a name at any depth, a path from `path`, a default-
+/// excluded directory the glob names.
+#[test]
+fn include_narrows_a_directory_outline_to_the_files_match_reads() {
+    let root = Fixture::new();
+    for file in [
+        "run.ts",
+        "other.ts",
+        "sub/run.ts",
+        "sub/deep/more.ts",
+        "node_modules/pkg/run.ts",
+    ] {
+        root.write(file, "export function declared() { return 1; }\n");
+    }
+    let listed = |row: serde_json::Value| {
+        let out = run(&root.0, row).expect("a walk");
+        let mut paths = octocode_runtime_base::test_support::checks::paths_in(&out["files"]);
+        paths.sort();
+        paths
+    };
+    let outline = |include: Option<&[&str]>| {
+        let mut row = json!({"operation":"symbols","path":root.0});
+        if let Some(include) = include {
+            row["include"] = json!(include);
+        }
+        listed(row)
+    };
+    let everything = outline(None);
+    for include in [
+        &["run.ts"][..],
+        &["sub/*.ts"],
+        &["sub/**"],
+        &["**/more.ts", "other.ts"],
+        &["node_modules/**/run.ts"],
+        &["absent.ts"],
+    ] {
+        let outlined = outline(Some(include));
+        let matched = listed(json!({
+            "operation":"match","path":root.0,"parser":"typescript",
+            "rule":{"kind":"function_declaration"},"view":"files","include":include,
+        }));
+        assert_eq!(outlined, matched, "{include:?}");
+        assert_ne!(outlined, everything, "{include:?}");
+    }
+    assert_eq!(outline(Some(&["run.ts"])), ["run.ts", "sub/run.ts"]);
+}
+
 #[test]
 fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
     let root = Fixture::new();

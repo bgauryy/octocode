@@ -50,8 +50,8 @@ fn an_exact_row_carries_the_release_source_anchors() {
         !row.contains_key("ecosystem") && !row.contains_key("type"),
         "{data}"
     );
-    let tree = &related_call(&data, "ghStructure", |_| true)["input"]["queries"][0];
-    assert_eq!(tree["ref"], row["ref"], "{data}");
+    // The row's own fields are the tree read's input: it carries no call.
+    assert!(data.get("related").is_none(), "{data}");
 }
 
 /// A discovery row whose registry names no repository but whose
@@ -147,6 +147,54 @@ fn an_empty_discovery_broadens_by_dropping_each_keyword() {
     ));
     let data = respond(&single, ArtifactProviderPage::empty(Some(0))).expect("empty");
     assert!(data.get("related").is_none(), "{data}");
+}
+
+/// An empty search says what it searched (the registry and every keyword)
+/// in one hint, whether or not a broader search exists, and carries at most
+/// one call.
+#[test]
+fn an_empty_search_states_what_was_searched_in_one_hint() {
+    for keywords in [vec!["zzz"], vec!["zzz", "async"], vec!["zzz async"]] {
+        let query = typed(&json!({
+            "operation": "search",
+            "ecosystem": "crates",
+            "keywords": keywords,
+        }));
+        let data = respond(&query, ArtifactProviderPage::empty(Some(0))).expect("empty");
+        assert_eq!(data["status"], "empty", "{data}");
+        let hints = data["hints"].as_array().expect("hints");
+        assert_eq!(hints.len(), 1, "{data}");
+        let hint = hints[0].as_str().expect("text");
+        assert!(hint.contains("crates"), "{hint}");
+        for keyword in &keywords {
+            assert!(hint.contains(keyword), "{keyword}: {hint}");
+        }
+        let calls = data["related"].as_array().map_or(0, Vec::len);
+        assert!(calls <= 1, "{data}");
+        // The hint names a related call only when the row carries one.
+        assert_eq!(hint.contains("related"), calls == 1, "{data}");
+    }
+}
+
+/// A walk that ends on an empty later page found its matches on the pages
+/// before: it claims no absence and offers no broader search.
+#[test]
+fn an_empty_last_page_of_a_walk_claims_no_absence() {
+    let query = typed(&json!({
+        "operation": "search",
+        "ecosystem": "crates",
+        "keywords": ["zzz", "async"],
+        "page": 2,
+    }));
+    let data = respond(&query, ArtifactProviderPage::empty(Some(0))).expect("empty");
+    assert_eq!(data["status"], "empty", "{data}");
+    assert!(data.get("related").is_none(), "{data}");
+    let hints = data["hints"].as_array().expect("hints");
+    assert_eq!(hints.len(), 1, "{data}");
+    assert!(
+        !hints[0].as_str().expect("text").starts_with("No "),
+        "{data}"
+    );
 }
 
 /// A failure a call repairs carries exactly that one lead and no text. The
@@ -254,8 +302,7 @@ fn failures_carry_one_repair_lead() {
     let error = leads::with_repair(ArtifactError::new(ErrorCode::NotFound, "x"), &capitals);
     let next = error.calls.expect("lead");
     assert_eq!(
-        next["repair"]["input"]["queries"][0]["packageName"],
-        "@angular/core",
+        next["repair"]["input"]["queries"][0]["packageName"], "@angular/core",
         "{next}"
     );
 }

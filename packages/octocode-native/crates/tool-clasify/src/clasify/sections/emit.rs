@@ -385,7 +385,8 @@ fn attach_hit_reads(output: &mut Value, session: &Session) {
 /// One read per resource of exactly the lines of its yes-sections in this
 /// batch (adjacent or overlapping ones merged), pinned to the judged snapshot:
 /// confirming an answer costs the lines it names, not the whole source the
-/// resource's own `read` returns. A URL capture's section lines are lines of
+/// resource's own `read` returns. When those lines are the lines that `read`
+/// names, the two are one read and the resource's own states it. A URL capture's section lines are lines of
 /// its saved file: its read is that file's own `read` narrowed to them
 /// ([`octocode_tools_shared::source_capture::narrowed_read`]). `pin` names
 /// the snapshot or commit each resource key was judged at.
@@ -434,6 +435,15 @@ fn hit_reads<'a>(
             if merged.is_empty() {
                 return None;
             }
+            let ranges: Value = merged
+                .iter()
+                .map(|(start, end)| json!({"startLine":start,"endLine":end}))
+                .collect();
+            // The resource's own `read` is the same reader, source and pin:
+            // with the same lines it is this read, already on the page.
+            if resource["read"]["input"]["queries"][0]["ranges"] == ranges {
+                return None;
+            }
             let Some(tool) = tool else {
                 return octocode_tools_shared::source_capture::narrowed_read(
                     &resource["read"],
@@ -441,10 +451,7 @@ fn hit_reads<'a>(
                 );
             };
             let mut query = resource["source"]["query"].clone();
-            query["ranges"] = merged
-                .into_iter()
-                .map(|(start, end)| json!({"startLine":start,"endLine":end}))
-                .collect();
+            query["ranges"] = ranges;
             Some(octocode_tools_shared::source_capture::read_lead(
                 tool,
                 &query,

@@ -130,12 +130,18 @@ async fn no_match_read_keeps_its_leads_without_empty_echo() {
     .await
     .expect("read");
     let data = &sensitive.data;
-    assert_eq!(
-        data["warnings"],
-        json_fixture(r#"["1 line matches ignoring case."]"#),
+    // The miss the file itself answers states its one hint, a counted fact.
+    assert!(data.get("warnings").is_none(), "{data}");
+    let hints = data["hints"]
+        .as_array()
+        .unwrap_or_else(|| panic!("one hint: {data}"));
+    assert_eq!(hints.len(), 1, "{data}");
+    assert!(
+        hints[0]
+            .as_str()
+            .is_some_and(|hint| hint.contains("1 line matches ignoring case")),
         "{data}"
     );
-    assert!(data.get("hints").is_none(), "{data}");
     let row = &octocode_runtime_base::test_support::checks::related_call(
         data,
         "ghGetFileContent",
@@ -204,9 +210,16 @@ async fn a_miss_leads_only_to_reads_that_select_visible_lines() {
     .expect("read");
     let data = &ranged.data;
     assert_eq!(data["matchNotFound"], true, "{data}");
-    assert_eq!(
-        data["warnings"],
-        json_fixture(r#"["1 line matches outside the requested ranges."]"#),
+    // The miss the file itself answers states its one hint, a counted fact.
+    assert!(data.get("warnings").is_none(), "{data}");
+    let hints = data["hints"]
+        .as_array()
+        .unwrap_or_else(|| panic!("one hint: {data}"));
+    assert_eq!(hints.len(), 1, "{data}");
+    assert!(
+        hints[0]
+            .as_str()
+            .is_some_and(|hint| hint.contains("1 line matches outside")),
         "{data}"
     );
     let lead =
@@ -255,22 +268,68 @@ async fn no_match_in_a_large_file_leads_to_a_repository_search() {
     );
 }
 
-/// A symbols read no outline can serve names its own recovery (the
-/// related read). The shared hint would send a GitHub read to the local
+/// A miss over a file holding masked secret values claims no absence inside
+/// them: the row's one hint says masked values are never searched, in the
+/// wording localFetch and localSearch use; a file with none keeps the plain
+/// claim.
+#[test]
+fn a_miss_over_masked_values_claims_no_absence_inside_them() {
+    let leads = [("findCode", serde_json::json!({}))];
+    for masked in [Some(1), Some(3), None] {
+        let hint = super::super::shape::miss_order(false, &leads, masked);
+        let whole_file = hint.contains("No line of this file holds it");
+        assert_eq!(whole_file, masked.is_none(), "{hint}");
+        if let Some(count) = masked {
+            let clause = octocode_tools_shared::source_view::masked_unsearched(count);
+            assert!(hint.contains(&clause), "{hint}");
+        }
+        assert!(hint.contains("related[] in order"), "{hint}");
+    }
+}
+
+/// A symbols read of a file no outline can serve is answered, not refused:
+/// the row is the file's content with `viewFallback` naming the view served,
+/// and it carries no error for a recovery hint to answer.
+#[tokio::test]
+async fn a_symbols_read_with_no_outline_serves_the_content_with_a_fallback() {
+    let server = MockServer::builder().start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    let text = "plain notes\nwith no declaration\n";
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b/contents/notes.txt",
+        200,
+        serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode(text)}),
+    )
+    .await;
+    let provider = mock_provider(&server, RetryPolicy::default());
+    let read = run_default(
+        &provider,
+        serde_json::json!({"owner":"a","repo":"b","path":"notes.txt","ref":sha,"view":"symbols"}),
+    )
+    .await
+    .expect("read");
+    let data = &read.data;
+    assert!(data.get("errorCode").is_none(), "{data}");
+    assert!(data.get("error").is_none(), "{data}");
+    assert_eq!(data["viewFallback"]["requested"], "symbols", "{data}");
+    assert_eq!(data["viewFallback"]["applied"], "content", "{data}");
+    let served = data["content"].as_str().expect("content");
+    for line in text.lines() {
+        assert!(served.contains(line), "{line} missing: {data}");
+    }
+}
+
+/// A language-specific read the file's language cannot serve names its own
+/// recovery. The shared hint would send a GitHub read to the local
 /// filesystem tools, so this tool states none.
 #[test]
-fn a_symbols_failure_gets_no_local_tool_hint() {
+fn an_unsupported_language_failure_gets_no_local_tool_hint() {
     use octocode_runtime_base::response::output::ToolOutput;
-    for code in [
-        ErrorCode::SymbolsUnsupported,
-        ErrorCode::LanguageUnsupported,
-    ] {
-        assert_eq!(
-            super::super::Output.error_hint(code, &serde_json::Value::Null),
-            Some(octocode_runtime_base::response::output::NO_HINT),
-            "{code:?}"
-        );
-    }
+    assert_eq!(
+        super::super::Output.error_hint(ErrorCode::LanguageUnsupported, &serde_json::Value::Null),
+        Some(octocode_runtime_base::response::output::NO_HINT),
+    );
 }
 
 /// A miss in a file with an outline leads first to that outline (the

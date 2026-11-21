@@ -91,7 +91,7 @@ pub(super) async fn read(confirmed: &Confirmed, net: &Net<'_>) -> Option<Global>
     }
     let ecosystem = security_contract()
         .ok()?
-        .github_ecosystem_of_osv(&confirmed.ecosystem.to_string())?;
+        .github_ecosystem_of(&confirmed.ecosystem.to_string())?;
     let affects = format!("{}@{version}", confirmed.name);
     let affects = affects.as_str();
     let walked = advisories::walk_pages(
@@ -371,6 +371,7 @@ impl Global {
             .chain(self.withdrawn.iter().map(|(id, _)| id))
             .map(String::as_str)
             .collect::<Vec<_>>();
-        super::answer::advisory_calls(data, "globalAdvisories", &ids, brief);
+        // GitHub's records are named in warnings alone, uncounted.
+        super::answer::advisory_calls(data, "globalAdvisories", &ids, brief, true);
     }
 }

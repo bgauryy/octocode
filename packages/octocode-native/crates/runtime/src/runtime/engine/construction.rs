@@ -248,7 +248,7 @@ impl ToolRuntime {
                 input.runtime_surface,
             ),
         );
-        let selection_available = selection_available(&config, &availability);
+        let clasify_available = clasify_available(&config, &availability);
         let page_replays = Arc::new(PageReplayMemo::new(&config, &input.cwd));
         let cursors = Arc::new(
             super::cursors::Registry::scoped(
@@ -297,8 +297,7 @@ impl ToolRuntime {
             limits,
             availability,
             evaluator,
-            selection_pages: Arc::default(),
-            selection_available,
+            clasify_available,
             paths: Arc::new(paths),
             security: Arc::new(security),
             github_services: Arc::new(std::sync::OnceLock::new()),
@@ -347,26 +346,12 @@ fn evaluator(
     )
 }
 
-/// A visible read tool may use the provider through its opt-in `classification`
-/// field even when the public clasify tool is hidden; eligibility comes from
-/// the embedded contract instead of another tool list.
-fn selection_available(
+/// Whether an agent can be sent to clasify: a provider key is configured
+/// and the tool is available on this surface.
+fn clasify_available(
     config: &ConfigOutput,
     availability: &octocode_runtime_base::execution::availability::ToolAvailability,
 ) -> bool {
     octocode_runtime_base::execution::availability::classification_key(config).is_some()
-        && availability
-            .available()
-            .iter()
-            .filter_map(|name| ToolId::from_name(name))
-            .any(|id| {
-                id != ToolId::Clasify
-                    && octocode_runtime_base::contracts::query_schema_value(
-                        id,
-                        None,
-                        "classification",
-                        "type",
-                    )
-                    .is_some()
-            })
+        && availability.is_available(ToolId::Clasify.as_str())
 }

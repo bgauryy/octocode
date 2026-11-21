@@ -22,33 +22,6 @@ impl Uncovered {
         !self.ignored.is_empty() || !self.hidden.is_empty() || !self.pruned.is_empty()
     }
 
-    /// The causes of `walk` this walk skipped entries by, in [`Cause`] order.
-    pub(in crate::structure_search) fn skipped(&self, walk: Walk) -> Vec<Cause> {
-        walk.skipping()
-            .into_iter()
-            .filter(|cause| match cause {
-                Cause::Ignored => !self.ignored.is_empty(),
-                Cause::Hidden => !self.hidden.is_empty(),
-                Cause::DefaultExcluded => !self.pruned.is_empty(),
-            })
-            .collect()
-    }
-
-    /// The distinct names of the default-pruned directories, sorted.
-    pub(in crate::structure_search) fn pruned_names(&self) -> Option<Vec<String>> {
-        if self.pruned.is_empty() {
-            return None;
-        }
-        let mut names = self
-            .pruned
-            .iter()
-            .map(|dir| dir.rsplit('/').next().unwrap_or(dir).to_owned())
-            .collect::<Vec<_>>();
-        names.sort_unstable();
-        names.dedup();
-        Some(names)
-    }
-
     /// The causes a lead must lift to reach what this walk skipped:
     /// [`Self::skipped`], plus the dot rule for an ignored dot entry, and the
     /// default prune when ignored or dot entries were skipped, since a pruned
@@ -71,22 +44,5 @@ impl Uncovered {
                 Cause::DefaultExcluded => behind || !self.pruned.is_empty(),
             })
             .collect()
-    }
-
-    /// `causes` as a hint names them: the pruned directories by name, the
-    /// rest by label.
-    pub(in crate::structure_search) fn named(&self, causes: &[Cause]) -> String {
-        causes
-            .iter()
-            .map(|cause| match (cause, self.pruned_names()) {
-                (Cause::DefaultExcluded, Some(names)) => names
-                    .iter()
-                    .map(|name| format!("{name}/"))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                _ => cause.label().to_owned(),
-            })
-            .collect::<Vec<_>>()
-            .join("; ")
     }
 }

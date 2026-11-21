@@ -173,21 +173,69 @@ fn a_masked_value_finds_nothing_and_the_empty_row_says_masked_secrets_are_not_se
         TAIL[..12].to_owned(),
         "zz-not-anywhere".to_owned(),
     ] {
+        // The caller chose the case rule, so no other reading of the term
+        // explains the miss before the masked spans do.
+        let rows = run(
+            &files,
+            json!({"matchString": [pattern], "caseMode": "sensitive"}),
+            SourceLimits::REAL,
+        );
+        assert_eq!(listed(&rows), Vec::<String>::new(), "{pattern}: {rows}");
+        let masked =
+            u32::try_from(rows["maskedSpans"].as_u64().expect("maskedSpans")).expect("span count");
+        assert_eq!(
+            rows["hints"],
+            json!([crate::local_search::coverage::masked_hint(masked, false)]),
+            "{pattern}: {rows}"
+        );
+        assert!(rows.get("related").is_none(), "{pattern}: {rows}");
+        hints.push(rows["hints"][0].clone());
+    }
+    // The same sentence whether the pattern was in a masked value or nowhere.
+    assert!(hints.windows(2).all(|pair| pair[0] == pair[1]), "{hints:?}");
+    // With the case rule left to the tool, a term that mixes case keeps its
+    // case recovery (the one call) and the one hint also says the masked
+    // values are not searched: no sentence claims absence inside them. The
+    // hint depends on the term's spelling alone, so a guess inside the
+    // masked value and a term found nowhere read alike.
+    let mut mixed = Vec::new();
+    for pattern in [
+        TAIL[..12].to_owned(),
+        "MixedCaseToken9".to_owned(),
+        "Mixed Case".to_owned(),
+    ] {
+        assert!(pattern.chars().any(char::is_uppercase) && pattern.chars().any(char::is_lowercase));
         let rows = run(
             &files,
             json!({"matchString": [pattern]}),
             SourceLimits::REAL,
         );
         assert_eq!(listed(&rows), Vec::<String>::new(), "{pattern}: {rows}");
-        let hint = rows["hints"][0].as_str().unwrap_or_default().to_owned();
-        assert!(
-            hint.contains(crate::local_search::coverage::MASKED_UNSEARCHED),
+        assert_eq!(
+            rows["hints"].as_array().map(Vec::len),
+            Some(1),
             "{pattern}: {rows}"
         );
-        hints.push(hint);
+        let hint = rows["hints"][0].as_str().unwrap_or_default().to_owned();
+        assert!(hint.contains("caseMode"), "{pattern}: {rows}");
+        assert!(hint.contains("maskedSpans"), "{pattern}: {rows}");
+        assert!(!hint.contains("absence is proven"), "{pattern}: {rows}");
+        let related = rows["related"].as_array().map(Vec::len);
+        assert_eq!(related, Some(1), "{pattern}: {rows}");
+        assert_eq!(
+            rows["related"][0]["input"]["queries"][0]["caseMode"], "insensitive",
+            "{pattern}: {rows}"
+        );
+        mixed.push(hint);
     }
-    // The same sentence whether the pattern was in a masked value or nowhere.
-    assert!(hints.windows(2).all(|pair| pair[0] == pair[1]), "{hints:?}");
+    assert!(mixed.windows(2).all(|pair| pair[0] == pair[1]), "{mixed:?}");
+    // One masked value reads as one.
+    assert!(
+        hints[0]
+            .as_str()
+            .is_some_and(|hint| hint.contains("1 masked secret value (maskedSpans) is never")),
+        "{hints:?}"
+    );
     // The row counts the masked spans of the files it searched, the same
     // whatever the pattern, and a search of files with none states none.
     let counts = [format!("ghp_{TAIL}"), "zz-not-anywhere".to_owned()].map(|pattern| {
@@ -206,13 +254,7 @@ fn a_masked_value_finds_nothing_and_the_empty_row_says_masked_secrets_are_not_se
         SourceLimits::REAL,
     );
     assert!(clean.get("maskedSpans").is_none(), "{clean}");
-    assert!(
-        !clean["hints"][0]
-            .as_str()
-            .unwrap_or_default()
-            .contains(crate::local_search::coverage::MASKED_UNSEARCHED),
-        "{clean}"
-    );
+    assert!(clean.get("hints").is_none(), "a plain miss: {clean}");
     // A regex that needs the masked value's own bytes reaches none of them,
     // whatever else it holds: the probe over written text never reads them.
     for pattern in [
@@ -334,10 +376,50 @@ fn a_placeholder_only_miss_offers_no_case_rerun() {
         assert!(!text.contains("No case-sensitive match"), "{rows}");
         assert!(!text.contains("insensitive"), "{rows}");
     }
-    let rows = run(
-        &files[..1],
-        json!({"matchString": ["CONST"]}),
-        SourceLimits::REAL,
-    );
-    assert!(rows.to_string().contains("insensitive"), "{rows}");
+    // A term the source spells in another case is offered with case ignored
+    // when it mixes case, over a file with a masked value as over one
+    // without: there the one hint also says the masked value is not searched.
+    for (files, masked) in [
+        (&files[..1], true),
+        (&[("clean.rs", "const A: u8 = 1;\n".to_owned())][..], false),
+    ] {
+        let rows = run(files, json!({"matchString": ["Const"]}), SourceLimits::REAL);
+        let call = one_recovery(&rows).unwrap_or_else(|| panic!("a call: {rows}"));
+        assert_eq!(call["caseMode"], "insensitive", "{rows}");
+        assert_eq!(
+            rows["hints"][0]
+                .as_str()
+                .is_some_and(|hint| hint.contains("maskedSpans")),
+            masked,
+            "{rows}"
+        );
+    }
+}
+
+/// A miss claims absence only for what was searched. Over files holding
+/// masked values it leaves those out; when the walk also left paths out
+/// (`skippedPaths`: here a credential file the path policy withholds), the
+/// row's one hint leaves them out too and proves nothing "everywhere else".
+#[test]
+fn a_miss_beside_skipped_paths_claims_no_absence_in_them() {
+    let masked = files();
+    let with_withheld = [
+        masked[0].clone(),
+        masked[1].clone(),
+        (".env", "DUMMY_VALUE=placeholder\n".to_owned()),
+    ];
+    let term = json!({"matchString": ["nosuchtermanywhere"]});
+    let whole = run(&masked, term.clone(), SourceLimits::REAL);
+    assert!(whole.get("skippedPaths").is_none(), "{whole}");
+    let hint = whole["hints"][0].as_str().unwrap_or_default();
+    assert!(hint.contains("maskedSpans"), "{whole}");
+    assert!(hint.contains("absence is proven"), "{whole}");
+    let partial = run(&with_withheld, term, SourceLimits::REAL);
+    assert_eq!(listed(&partial), Vec::<String>::new(), "{partial}");
+    assert!(partial["skippedPaths"]["entries"].as_array().is_some_and(|entries| !entries.is_empty()), "{partial}");
+    assert_eq!(partial["hints"].as_array().map(Vec::len), Some(1), "{partial}");
+    let hint = partial["hints"][0].as_str().unwrap_or_default();
+    assert!(hint.contains("maskedSpans"), "{partial}");
+    assert!(hint.contains("skippedPaths"), "{partial}");
+    assert!(!hint.contains("proven"), "{partial}");
 }

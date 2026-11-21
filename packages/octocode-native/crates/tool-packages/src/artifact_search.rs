@@ -73,56 +73,74 @@ pub async fn execute(
 /// The response `query` gets through `context`: the page as served, or the
 /// error with its repair lead. An exact row is checked for a far more
 /// downloaded name one edit away ([`leads::lookalike`]).
+///
+/// The counts of the names one edit away need only the name asked, so they
+/// are read beside the registry instead of after it; the registry's own
+/// spelling of the name, where it differs, is counted again.
 async fn serve(
     query: &ArtifactSearchQuery,
     context: &ArtifactProviderContext<'_>,
 ) -> Result<Value, ArtifactError> {
-    let page = match execute_artifact(query, context).await {
-        Ok(page) => page,
-        Err(error) => {
-            return Err(leads::with_repair(
-                near_missing(error, query, context).await,
-                query,
-            ));
+    let asked = artifact_search_query::package_name(query)
+        .map(|name| (artifact_search_query::artifact_type(query), name));
+    // What the early count reused is disclosed only where its answer is used.
+    let early_reused = ReusedSince::default();
+    let early_context = ArtifactProviderContext {
+        http: context.http,
+        budget: context.budget,
+        npm_registry: context.npm_registry,
+        allow_private_registry: context.allow_private_registry,
+        answers: context.answers,
+        reused: &early_reused,
+        tags: context.tags,
+        share: context.share,
+    };
+    let (page, early) = tokio::join!(execute_artifact(query, context), async {
+        match asked {
+            Some((kind, name)) => lookalike::near_names(kind, name, &early_context).await,
+            None => None,
         }
+    });
+    let page = match page {
+        Ok(page) => page,
+        Err(error) => return Err(leads::with_repair(near_missing(error, early), query)),
     };
     // The exact row's name as the registry spells it: what its names one
     // edit away are counted against.
-    let known = artifact_search_query::package_name(query)
+    let known = asked
         .and_then(|_| page.artifacts.first())
         .map(|artifact| (artifact.artifact_type, artifact.package_name.clone()));
     let mut data = match respond(query, page) {
         Ok(data) => data,
-        Err(error) => {
-            return Err(leads::with_repair(
-                near_missing(error, query, context).await,
-                query,
-            ));
-        }
+        Err(error) => return Err(leads::with_repair(near_missing(error, early), query)),
     };
-    if let Some((kind, name)) = known
-        && let Some(near) = lookalike::near_names(kind, &name, context).await
-    {
-        leads::lookalike(&mut data, query, &name, near);
+    if let Some((kind, name)) = known {
+        let near = if asked == Some((kind, name.as_str())) {
+            if let Some(observed) = early_reused.get() {
+                context.reused.record(observed);
+            }
+            early
+        } else {
+            lookalike::near_names(kind, &name, context).await
+        };
+        if let Some(near) = near {
+            leads::lookalike(&mut data, query, &name, near);
+        }
     }
     Ok(data)
 }
 
 /// A package the registry does not know carries what the registry counts of
-/// the names one edit away, for its repair lead; any other failure, and a
-/// count that could not be read, carries none.
-async fn near_missing(
+/// the names one edit away (`near`, read for the name asked), for its repair
+/// lead; any other failure, and a count that could not be read, carries none.
+fn near_missing(
     mut error: ArtifactError,
-    query: &ArtifactSearchQuery,
-    context: &ArtifactProviderContext<'_>,
+    near: Option<Result<lookalike::Near, ArtifactError>>,
 ) -> ArtifactError {
     if error.code != ErrorCode::NotFound || error.missing_version {
         return error;
     }
-    if let Some(name) = artifact_search_query::package_name(query)
-        && let Some(Ok(near)) =
-            lookalike::near_names(artifact_search_query::artifact_type(query), name, context).await
-    {
+    if let Some(Ok(near)) = near {
         error.near = Some(Box::new(near));
     }
     error
@@ -207,23 +225,10 @@ fn respond(
         }),
         _ => total,
     };
-    match artifact_search_query::package_name(query) {
-        None => discovery_page(query, &mut data, next_state.as_ref(), total),
-        // An exact lookup whose source lives on GitHub continues to its
-        // tree. Registry metadata can point at a fork or stale repo, so
-        // these are leads, not proof.
-        Some(_) => {
-            for (name, lead) in artifacts
-                .first()
-                .map(leads::source_leads)
-                .unwrap_or_default()
-            {
-                data["calls"][name] = lead;
-            }
-            if let Some(lead) = artifacts.first().and_then(leads::advisory_lead) {
-                data["calls"]["checkAdvisories"] = lead;
-            }
-        }
+    // An exact lookup's row states its repository, directory, ref and
+    // version: the tree read and the advisory check take them as fields.
+    if artifact_search_query::package_name(query).is_none() {
+        discovery_page(query, &mut data, next_state.as_ref(), total);
     }
     paging::push_warnings(
         &mut data,

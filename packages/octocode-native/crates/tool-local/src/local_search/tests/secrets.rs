@@ -53,7 +53,6 @@ fn a_page_rereads_only_the_files_it_shows() {
         &security,
         &NeverCancel,
         None,
-        None,
     )
     .expect("first page");
     assert_eq!(reread().len(), 1, "only the shown file: {:?}", reread());
@@ -66,7 +65,6 @@ fn a_page_rereads_only_the_files_it_shows() {
         &policy,
         &security,
         &NeverCancel,
-        None,
         None,
     )
     .expect("whole page");
@@ -246,127 +244,5 @@ fn late_key_bodies_in_large_sources_stay_redacted() {
             limits,
         );
         assert!(all_values(&readable).contains(innocent), "{readable}");
-    }
-}
-
-#[test]
-fn classification_candidates_never_receive_partial_secrets_even_when_excluded() {
-    use octocode_tools_shared::selection::{Decision, JudgeCall, SelectionJudge};
-    use serde_json::{Value, json};
-    use std::sync::{Arc, Mutex};
-    use std::time::Duration;
-
-    struct RecordingJudge(Arc<Mutex<Vec<Value>>>);
-    impl SelectionJudge for RecordingJudge {
-        fn identity(&self) -> Value {
-            json_fixture(r#"{"test": "record-safe-candidates"}"#)
-        }
-        fn select(&self, call: JudgeCall<'_>) -> octocode_tools_shared::selection::Judgments {
-            let mut recorded = self.0.lock().expect("recorded states");
-            Ok(call
-                .admitted
-                .iter()
-                .map(|&index| {
-                    let state = call.candidates[index]
-                        .state
-                        .as_ref()
-                        .expect("prepared state");
-                    recorded.push(state.clone());
-                    let decision = if state["path"]
-                        .as_str()
-                        .expect("candidate path")
-                        .ends_with("keep.txt")
-                    {
-                        Decision::Selected
-                    } else {
-                        Decision::Excluded
-                    };
-                    (index, decision)
-                })
-                .collect())
-        }
-    }
-
-    let root = tempfile::tempdir().expect("fixture");
-    let token = format!("{}{}", "ghp_", "1234567890abcdefghijklmnopqrstuvwxyz");
-    let body = format!("token: {token} end\nplain needle line\n");
-    for name in ["keep.txt", "drop.txt"] {
-        fs::write(root.path().join(name), &body).expect("fixture");
-    }
-    let (policy, security) = policy_for(root.path());
-    let executor = tokio::runtime::Runtime::new().expect("runtime");
-    // A span inside the token is no candidate; a line beside it is, redacted.
-    for (fields, redacted) in [
-        (
-            json_fixture(
-                r#"{
-                    "matchString": ["ghp_[0-9a-z]{20}|needle"],
-                    "regexEngine": "rust",
-                    "view": "matchOnly"
-                }"#,
-            ),
-            false,
-        ),
-        (
-            json_fixture(r#"{"matchString": ["token|needle"], "regexEngine": "rust"}"#),
-            true,
-        ),
-    ] {
-        let recorded = Arc::new(Mutex::new(Vec::new()));
-        let selection = octocode_tools_shared::test_support::selection_fake::runtime(
-            RecordingJudge(recorded.clone()),
-            executor.handle().clone(),
-            Duration::from_secs(5),
-        );
-        let request = ls_query(
-            json!({
-                "path": root.path(),
-                "classification": {"predicates":["Does this contain needle?"]}
-            }),
-            Some(&ls_query(fields, None)),
-        );
-        let result = execute_local_search(
-            octocode_runtime_base::test_support::BUILD_IDENTITY,
-            &request,
-            &policy,
-            &security,
-            &NeverCancel,
-            None,
-            Some(&selection),
-        )
-        .expect("selected search");
-        let recorded = recorded.lock().expect("recorded states");
-        // Each hit is a candidate, in both the kept and the dropped file.
-        for name in ["keep.txt", "drop.txt"] {
-            let text = recorded
-                .iter()
-                .filter(|state| {
-                    state["path"]
-                        .as_str()
-                        .is_some_and(|path| path.contains(name))
-                })
-                .map(serde_json::Value::to_string)
-                .collect::<String>();
-            assert!(text.contains("needle"), "clean evidence remains available");
-            assert_eq!(
-                text.contains("[REDACTED"),
-                redacted,
-                "secret overlap was redacted before judgment"
-            );
-            for fragment in ["1234567890", "klmnopqrstuvwxyz"] {
-                assert!(
-                    !text.contains(fragment),
-                    "provider received a secret fragment"
-                );
-            }
-        }
-        let receipt = result.selection.expect("selection receipt");
-        assert!(
-            receipt.selected_items >= 1 && receipt.excluded_items >= 1,
-            "{receipt:?}"
-        );
-        assert_eq!(receipt.unknown_items, 0, "{receipt:?}");
-        assert_eq!(result.files.len(), 1);
-        assert_eq!(result.files[0].path, "keep.txt");
     }
 }

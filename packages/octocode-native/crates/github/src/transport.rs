@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::{
     path::PathBuf,
     sync::{Arc, OnceLock},
-    time::{Duration, Instant},
+    time::Duration,
 };
 use url::Url;
 
@@ -357,16 +357,15 @@ impl GitHubTransport {
     }
 
     /// Refuse a row's `searches` code searches before the first is sent when
-    /// they cannot all start before the request's deadline (the wait bound
+    /// they cannot all start within the request's wait limit (the bound
     /// `execute` applies to each).
     pub fn code_search_batch_refusal(
         &self,
         searches: usize,
         context: &RequestContext,
     ) -> Option<ProviderError> {
-        let deadline = context.budget.deadline;
         self.key_state(context.resolved_credential())
-            .code_search_batch_refusal(searches, self.budget.config(), deadline)
+            .code_search_batch_refusal(searches, self.budget.config(), context.wait_limit())
     }
 
     /// Code searches the credential's reported (or assumed) quota still covers.
@@ -399,12 +398,7 @@ impl GitHubTransport {
             .blocked(GitHubResource::Graphql.bucket(), self.budget.config())
             .is_none_or(|block| {
                 let wait = block.wait(now_ms());
-                block.circuit.is_none()
-                    && wait
-                        < context
-                            .budget
-                            .deadline
-                            .saturating_duration_since(Instant::now())
+                block.circuit.is_none() && context.wait_limit().takes(wait)
             })
     }
 }

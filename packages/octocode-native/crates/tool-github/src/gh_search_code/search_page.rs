@@ -7,13 +7,13 @@ use octocode_tools_shared::gh_shared::SearchWindow;
 
 /// One merged page across `extensions`: GitHub ANDs repeated `extension:`
 /// qualifiers, so each extension is its own indexed search of
-/// `ceil(limit / k)` files a GitHub page ([`per_search`]). Page 1 lists
+/// `floor(limit / k)` files a GitHub page ([`per_search`]). Page 1 lists
 /// page 1 of every search; their totals lay out the later pages, which take
 /// the searches' remaining GitHub pages `k` at a time, page by page in
 /// extension order ([`later_pages`]). A search that has run out is never
-/// asked for a later page, a page stays about `limit` files while any
-/// search has files left, and every GitHub page is on exactly one merged
-/// page: lossless. One search's page N is its GitHub page N. A later page
+/// asked for a later page, a page holds at most `limit` files while every
+/// search lists more than one a page, and every GitHub page is on exactly
+/// one merged page: lossless. One search's page N is its GitHub page N. A later page
 /// lays itself out from the totals its continuation carries ([`Listed`]),
 /// refreshed by each search page it reads; a page asked for directly has no
 /// carried totals and reads page 1 of every search for them.

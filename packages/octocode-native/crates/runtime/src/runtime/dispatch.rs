@@ -23,7 +23,8 @@ pub(super) struct LocalEnv<'a> {
     pub paths: &'a PathPolicy,
     pub security: &'a ContentSecurity,
     pub cargo: Option<&'a str>,
-    pub selection: Option<&'a octocode_tools_shared::selection::Runtime>,
+    /// clasify is available: a refused image names its route there.
+    pub clasify: bool,
     /// The retained rows graph continuation pages replay; `None`: they compute.
     pub graph_rows: Option<&'a std::sync::Arc<octocode_tool_graph::ast_graph::store::SavedRows>>,
 }
@@ -41,7 +42,7 @@ pub(super) fn execute_local(
         graph_home,
         paths,
         security,
-        selection,
+        clasify,
         cargo,
         graph_rows,
     } = env;
@@ -88,7 +89,7 @@ pub(super) fn execute_local(
                 security,
                 context,
                 context.response_window,
-                selection,
+                clasify,
             );
             let status = result.status.row_status();
             let source_digest = result.source_sha256.clone();
@@ -108,7 +109,6 @@ pub(super) fn execute_local(
                 &security,
                 context,
                 context.response_window,
-                selection,
             );
             match result {
                 Ok(result) => {

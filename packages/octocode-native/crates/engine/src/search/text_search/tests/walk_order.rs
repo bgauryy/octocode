@@ -151,7 +151,8 @@ fn walkdir_count(root: &Path) -> usize {
 }
 
 /// The entries the `ignore` walker, sorted by file name and applying its own
-/// rules, yields below `root` (and the root).
+/// rules, yields below `root` (and the root), less the files the include
+/// globs or the `language` type leave out: a scope only narrows the walk.
 fn ignore_walk(
     root: &Path,
     policy: IgnorePolicy,
@@ -160,21 +161,29 @@ fn ignore_walk(
 ) -> Vec<PathBuf> {
     let mut walker = crate::search::walk::walk_builder(root, policy, None);
     walker.sort_by_file_name(OsStr::cmp);
-    if let Some(include) = include {
-        let overrides: Override = crate::search::glob::compile(root, include, &[])
+    let globs: Option<Override> = include.as_ref().map(|include| {
+        crate::search::glob::compile(root, include, &[])
             .expect("globs")
-            .overrides();
-        walker.overrides(overrides);
-    }
-    if let Some(lang) = lang {
+            .overrides()
+    });
+    let types = lang.as_ref().map(|lang| {
         let mut types = TypesBuilder::new();
         types.add_defaults();
         types.select(lang);
-        walker.types(types.build().expect("types"));
-    }
+        types.build().expect("types")
+    });
     walker
         .build()
         .filter_map(std::result::Result::ok)
+        .filter(|entry| {
+            let is_dir = entry.file_type().is_some_and(|kind| kind.is_dir());
+            !globs
+                .as_ref()
+                .is_some_and(|globs| globs.matched(entry.path(), is_dir).is_ignore())
+                && !types
+                    .as_ref()
+                    .is_some_and(|types| types.matched(entry.path(), is_dir).is_ignore())
+        })
         .map(ignore::DirEntry::into_path)
         .collect()
 }

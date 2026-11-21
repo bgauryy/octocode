@@ -9,7 +9,7 @@ pub(crate) use options::{judge, search_options};
 
 use super::super::cursor::{fingerprint, malformed_snapshot, query_key, stale_snapshot};
 use super::super::manifest::StoredValue;
-use super::super::pattern::check_pattern;
+use super::super::pattern::{check_file_type, check_pattern};
 use super::super::verify::Redaction;
 
 use super::super::local_search_query;
@@ -104,6 +104,7 @@ pub(crate) fn scan_resumed(
         ..base
     };
     check_pattern(query)?;
+    check_file_type(query)?;
     let policy_key = paths.identity();
     // Pages are cut from serialized sizes so a default-layout page, with
     // the row around it, fits one response window. The budget charges the
@@ -328,7 +329,6 @@ pub(crate) fn scan_in(
         local_search_query::snapshot(query)
         && let Some(stored) =
             super::super::manifest::get_checked(snapshot, policy_key, &|| cancel.check().is_err())
-                .filter(|stored| serves(&stored.value, query))
     {
         let derived = StoredDerived {
             query_key: stored.query_key,
@@ -430,17 +430,6 @@ pub(crate) fn engine_error(
         return held_past_budget(query, error, one_file);
     }
     ToolError::engine(error)
-}
-
-/// Whether a stored scan can serve `query`'s page. A whole scan is cut
-/// again for any page. A seekable one holds only the pages of its own
-/// streamed cut: a classification page judges every row before it cuts, so
-/// it walks again (the same snapshot then comes from the fresh scan).
-fn serves(value: &StoredValue, query: &LocalSearchQuery) -> bool {
-    match value {
-        StoredValue::Whole(_) => true,
-        StoredValue::Seek(_) => !local_search_query::has_classification(query),
-    }
 }
 
 /// A scan whose matches passed the process memory budget before it ended:

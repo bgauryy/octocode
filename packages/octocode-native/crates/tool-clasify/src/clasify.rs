@@ -27,6 +27,7 @@ mod across;
 pub mod admission;
 pub mod combined;
 pub mod evaluate;
+mod kinds;
 mod locate;
 mod recovery;
 mod reply;
@@ -51,7 +52,13 @@ pub struct Receipts {
 /// `long_context` is the row's explicit choice; omitted, evaluation asks for the
 /// long-context window only after the provider refuses the default one.
 struct Row {
+    /// What the judge reads beside every unit, unjudged: the row's goal and
+    /// its `background` ([`rows::judge_context`]).
     context: Option<String>,
+    /// The row's own `mainGoal` and `background`, which a call emitted for
+    /// it carries again ([`rows::carry_brief`]).
+    goal: Option<String>,
+    background: Option<String>,
     model: Option<String>,
     keys: Vec<String>,
     questions: Vec<Value>,
@@ -71,6 +78,8 @@ struct Row {
     /// Each search hit in its own request instead of its file's shared one
     /// ([`rows::PER_HIT`]).
     per_hit: bool,
+    /// `collapse`: a text source judged one line per kind ([`kinds`]).
+    collapse: bool,
     /// `retryUnits`: the units of the source's page (or the content items)
     /// a `next.retry` asks again; the others are neither judged nor shown.
     /// Only an issued retry carries it ([`units`]).

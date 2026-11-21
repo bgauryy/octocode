@@ -41,8 +41,15 @@ fn a_key_after_an_armor_keeps_the_code_that_closes_its_line() {
     // The lines after it read as written: the block it opens holds no key.
     let source = "fn t() {\n    let file = format!(\"ok\\n-----BEGIN OPENSSH PRIVATE KEY-----\\n{body}\\n\");\n    let (out, changed) = f(&file);\n}\n";
     let (out, _) = redact_private_key_blocks(source);
-    assert_eq!(out.matches('"').count(), source.matches('"').count(), "{out}");
-    assert!(out.contains("    let (out, changed) = f(&file);\n}\n"), "{out}");
+    assert_eq!(
+        out.matches('"').count(),
+        source.matches('"').count(),
+        "{out}"
+    );
+    assert!(
+        out.contains("    let (out, changed) = f(&file);\n}\n"),
+        "{out}"
+    );
 }
 
 /// Whether any of `secrets` is still in the redacted `text`.

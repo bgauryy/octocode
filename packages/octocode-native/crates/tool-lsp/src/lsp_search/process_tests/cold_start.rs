@@ -47,9 +47,12 @@ fn a_slow_server_start_reports_progress_to_the_call() {
         ))))
         .expect("row");
     let lines = heard.lock().expect("lines").clone();
+    use crate::lsp_search::session::{KEPT, STARTING};
     assert!(
-        lines.iter().any(|line| line.contains("language server")),
-        "a start slower than {REPORTED_FROM:?} reports progress: {lines:?} / {row}"
+        lines
+            .iter()
+            .any(|line| line.starts_with(STARTING) && line.ends_with(KEPT)),
+        "a start slower than {REPORTED_FROM:?} reports that it started a server later calls reuse: {lines:?} / {row}"
     );
     runtime.block_on(pool.clear_all());
 }

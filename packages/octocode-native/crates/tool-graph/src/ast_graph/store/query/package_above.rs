@@ -59,6 +59,8 @@ pub(super) fn package_root(
             octocode_runtime_base::id::ToolId::GraphBuild,
             row,
         )
+        // Rows the snapshot cannot hold are read only by building the root.
+        .required()
         .build(),
     })
 }
@@ -95,8 +97,8 @@ pub(in crate::ast_graph::store) fn widening(manifest: &Value) -> Option<(String,
 
 impl Query<'_> {
     /// A dependency answer over a snapshot below its package root that holds
-    /// imports it could not link: a warning that names `related`, and the
-    /// graphBuild of the package root there.
+    /// imports it could not link: a warning, and the graphBuild of the
+    /// package root the row needs ([`package_root`] marks it).
     pub(super) fn widen_scope(&self, value: &mut Value) {
         let Some((warning, build)) = widening(&self.g.manifest) else {
             return;

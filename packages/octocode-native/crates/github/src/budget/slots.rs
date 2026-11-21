@@ -12,16 +12,54 @@ use std::{
 };
 use tokio::sync::Semaphore;
 
+/// When one request's client-side waits end.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct WaitLimit {
+    /// The request's deadline: it ends every wait under way (a permit, a
+    /// lock, a sleep already decided).
+    pub(crate) deadline: Instant,
+    /// Where a new sleep must end before: `deadline`, or the request's
+    /// sooner wait bound ([`crate::RequestContext::with_wait_bound`]).
+    pub(crate) sleep_by: Instant,
+}
+
+impl From<Instant> for WaitLimit {
+    /// A request with no wait bound: its deadline bounds its sleeps.
+    fn from(deadline: Instant) -> Self {
+        Self {
+            deadline,
+            sleep_by: deadline,
+        }
+    }
+}
+
+impl WaitLimit {
+    /// Whether a wait of `wait` from now is taken: it ends before
+    /// `sleep_by`. No wait at all sleeps nothing, so only the request's own
+    /// deadline refuses it: past the wait bound a request still sends what
+    /// needs no wait.
+    pub(crate) fn takes(&self, wait: Duration) -> bool {
+        let by = if wait.is_zero() {
+            self.deadline
+        } else {
+            self.sleep_by
+        };
+        // Compared as time left, so a provider wait of any length adds to
+        // no instant.
+        wait < by.saturating_duration_since(Instant::now())
+    }
+}
+
 /// One group's slot rules for an admission: the spacing after its last start
 /// (derived from the reported or assumed quota when the group is
-/// quota-paced) and the deadline bounding the wait. A start is refused only
-/// when it falls at or past that deadline.
+/// quota-paced) and the limit bounding the wait. A start is refused only
+/// when its wait is not taken ([`WaitLimit::takes`]).
 pub(super) struct SlotPlan<'a> {
     pub(super) group: Group,
     pub(super) config: &'a ExecutorConfig,
     /// Requests this admission plans together (one for an ordinary request).
     pub(super) planned: usize,
-    pub(super) deadline: Instant,
+    pub(super) limit: WaitLimit,
 }
 
 /// When a slot could start, measured from `now`.
@@ -44,13 +82,13 @@ impl<'a> SlotPlan<'a> {
         group: Group,
         config: &'a ExecutorConfig,
         planned: usize,
-        deadline: Instant,
+        limit: WaitLimit,
     ) -> Self {
         Self {
             group,
             config,
             planned,
-            deadline,
+            limit,
         }
     }
 
@@ -118,12 +156,12 @@ impl<'a> SlotPlan<'a> {
         self.start(&facts, now)
     }
 
-    /// The refusal for a start at or past the deadline, labelled by its
+    /// The refusal for a start whose wait is not taken, labelled by its
     /// subject. It carries only what the client decided, the wait: GitHub
     /// reported no exhausted bucket, so no `remaining` or reset is claimed.
     pub(super) fn refusal(&self, planned: PlannedStart, subject: Subject) -> Option<ProviderError> {
         let wait = Duration::from_millis(planned.start.saturating_sub(planned.now));
-        if Instant::now() + wait < self.deadline {
+        if self.limit.takes(wait) {
             return None;
         }
         let group = self.group.name();

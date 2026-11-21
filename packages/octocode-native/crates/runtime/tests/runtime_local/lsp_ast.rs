@@ -111,9 +111,12 @@ process.stdin.on('data', chunk => {
         path.to_string_lossy().as_ref(),
         "source-like hover text stays verbatim"
     );
-    let mut invalid_occurrence = query("hover");
-    invalid_occurrence["occurrence"] = json!(1);
-    let failed = call(&runtime, "lspSearch", invalid_occurrence)
+    // An anchor the file spells only in another case fails with a read of
+    // the file's own spelling as its lead (an `occurrence` past the line's
+    // last states its whole fix in the error and carries no lead).
+    let mut unspelled = query("hover");
+    unspelled["symbolName"] = json!("NEEDLE");
+    let failed = call(&runtime, "lspSearch", unspelled)
         .await
         .expect("anchor error");
     assert_eq!(row_status(&failed), "error");
@@ -186,11 +189,12 @@ async fn lsp_search_returns_a_typed_row_when_no_server_is_configured() {
         "{}",
         outcome.structured_content
     );
+    // The error names the cause and related[] carries the recovery: no
+    // generic hint beside it.
     assert!(
-        row_data(&outcome)["hints"][0]
-            .as_str()
-            .expect("recovery hint")
-            .contains("semantic results remain unavailable")
+        row_data(&outcome).get("hints").is_none(),
+        "{}",
+        outcome.structured_content
     );
     let outline = crate::support::checks::related_call(row_data(&outcome), "localFetch", |input| {
         input["queries"][0]["view"] == "symbols"
@@ -284,12 +288,7 @@ async fn unsupported_ast_batch_keeps_indices_hints_and_executable_document_recov
     );
     let data = &rows[1]["data"];
     assert_eq!(data["errorCode"], "languageUnsupported");
-    assert!(
-        data["hints"][0]
-            .as_str()
-            .expect("hint")
-            .contains("localFetch")
-    );
+    assert!(data.get("hints").is_none(), "{data}");
     let read = crate::support::checks::related_call(data, "localFetch", |_| true);
     let recovered = call(&runtime, "localFetch", read["input"].clone())
         .await

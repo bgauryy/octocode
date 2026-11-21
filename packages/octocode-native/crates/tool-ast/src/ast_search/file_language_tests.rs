@@ -52,10 +52,7 @@ fn an_explicit_language_parses_a_file_whose_extension_selects_no_grammar() {
         )
         .expect("tree");
         assert_eq!(tree["isPartial"], false, "{tree}");
-        assert_eq!(
-            tree["nodes"][1]["node"], "1 export_statement 1:1-1:46 ^0",
-            "{tree}"
-        );
+        assert_eq!(tree["nodes"][1], "1 export_statement 1:1-1:46 ^0", "{tree}");
     }
 }
 
@@ -155,10 +152,12 @@ fn match_parses_files_named_by_language_globs() {
     );
 }
 
-/// Without `languageGlobs`, the files no grammar parses are named in one
-/// warning by their workspace paths, with the field that maps them to a
-/// grammar; the parsed scope stays whole. A file of binary content (an
-/// image) is source of no language: never counted or named.
+/// Without `languageGlobs`, the files no grammar parses are counted in one
+/// warning, with the cause and the field that maps them to a grammar, and
+/// each is named once, by its workspace path, in the page's `skippedPaths`
+/// (cause `unparsed`): the warning names none of them again. The parsed
+/// scope stays whole. A file of binary content (an image) is source of no
+/// language: never counted or named.
 #[test]
 fn match_reports_files_skipped_without_a_grammar() {
     let root = Fixture::new();
@@ -175,20 +174,36 @@ fn match_reports_files_skipped_without_a_grammar() {
     let warnings = out["notices"].as_array().expect("notices");
     assert_eq!(warnings.len(), 1, "{out}");
     let warning = warnings[0].as_str().expect("warning text");
-    assert!(warning.starts_with("3 files skipped"), "{warning}");
-    // Named as row paths read: workspace-relative, so each can be read as is.
+    let unparsed: Vec<&str> = out["skippedPaths"]["entries"]
+        .as_array()
+        .expect("skipped entries")
+        .iter()
+        .filter(|entry| entry["cause"] == "unparsed")
+        .map(|entry| entry["path"].as_str().expect("a path"))
+        .collect();
+    // Each a file of the searched root (the response stage spells row paths).
+    let named: Vec<&str> = unparsed
+        .iter()
+        .filter_map(|path| path.rsplit('/').next())
+        .collect();
+    assert_eq!(named, ["d.tsx.tmpl", "e.typescript", "noext"], "{out}");
     assert!(
-        warning.contains("(d.tsx.tmpl, e.typescript, noext)"),
+        warning.starts_with(&format!("{} files skipped", unparsed.len())),
         "{warning}"
     );
+    for name in named {
+        assert!(!warning.contains(name), "{name} is named twice: {warning}");
+    }
     assert!(warning.contains("parserGlobs maps"), "{warning}");
     assert!(out.get("isPartial").is_none(), "{out}");
 }
 
 /// Under one language, `parser` or the one the walk infers, a file of no
-/// grammar whose name is of a known other type (`CMakeLists.txt`) is a quiet
-/// `skippedGrammars` count, never a warning; only the files of unknown type,
-/// which could be the language's source, are named as unproven absence.
+/// grammar whose name is of a known other type (`CMakeLists.txt`) is never
+/// a warning: an empty answer under an inferred grammar counts it quietly
+/// in `skippedFormats`, and an answer with matches states neither the
+/// count nor the grammar it inferred. Only the files of unknown type, which
+/// could be the language's source, are named as unproven absence.
 #[test]
 fn match_with_language_does_not_report_files_outside_its_scope() {
     let root = Fixture::new();
@@ -196,32 +211,47 @@ fn match_with_language_does_not_report_files_outside_its_scope() {
         root.write(name, SCRIPT);
     }
     root.write("CMakeLists.txt", "project(x)\n");
-    let query = |extra: Value| {
-        let mut row =
-            json!({"operation":"match","path":root.0,"rule":{"kind":"function_declaration"}});
+    let query = |kind: &str, extra: Value| {
+        let mut row = json!({"operation":"match","path":root.0,"rule":{"kind":kind}});
         row.as_object_mut()
             .expect("row")
             .extend(extra.as_object().expect("extra").clone());
         run(&root.0, row).expect("match")
     };
-    let restricted = query(json_fixture(r#"{"parser": "typescript"}"#));
+    let parser = || json_fixture(r#"{"parser": "typescript"}"#);
+    let restricted = query("function_declaration", parser());
     assert_eq!(restricted["matchCount"], 1, "{restricted}");
     assert!(restricted.get("warnings").is_none(), "{restricted}");
     assert!(restricted.get("isPartial").is_none(), "{restricted}");
-    let unrestricted = query(json!({}));
+    let unrestricted = query("function_declaration", json!({}));
+    assert_eq!(unrestricted["matchCount"], 1, "{unrestricted}");
+    // The same scope with no node of the kind: the empty answers.
+    let restricted_empty = query("class_declaration", parser());
+    let unrestricted_empty = query("class_declaration", json!({}));
+    for empty in [&restricted_empty, &unrestricted_empty] {
+        assert_eq!(empty["status"], "empty", "{empty}");
+    }
     assert_eq!(
-        unrestricted["inferredLanguage"], "typescript",
-        "{unrestricted}"
+        unrestricted_empty["inferredLanguage"], "typescript",
+        "{unrestricted_empty}"
     );
-    for out in [restricted, unrestricted] {
+    // An empty answer under an inferred grammar counts the other format
+    // quietly; `parser` asked for one grammar's files, so it states no
+    // count of the others; an answer with matches states neither.
+    for (out, counts) in [
+        (&restricted, None),
+        (&unrestricted, None),
+        (&restricted_empty, None),
+        (&unrestricted_empty, Some(json_fixture(r#"{"cmake": 1}"#))),
+    ] {
         let warning = out["notices"][0].as_str().expect("notice");
         assert!(warning.starts_with("3 files skipped"), "{warning}");
         assert!(!warning.contains("CMakeLists.txt"), "{warning}");
-        assert_eq!(
-            out["skippedGrammars"],
-            json_fixture(r#"{"cmake": 1}"#),
-            "{out}"
-        );
+        assert_eq!(out.get("skippedFormats"), counts.as_ref(), "{out}");
+        assert!(out.get("skippedGrammars").is_none(), "{out}");
+    }
+    for matched in [&restricted, &unrestricted] {
+        super::test_rows::assert_unqualified(matched);
     }
 }
 

@@ -25,7 +25,7 @@ async fn a_window_on_a_later_line_is_numbered_from_that_line() {
         vec![serde_json::json!({
             "uri": format!("file://{}", file.to_string_lossy()),
             "range": {"start": {"line": 2, "character": column + 9}, "end": {"line": 2, "character": column + 15}},
-            "content": line,
+            "value": line,
             "displayRange": {"startLine": 3, "endLine": 3, "startCharacter": column + 1}
         })],
         20_000,
@@ -34,7 +34,7 @@ async fn a_window_on_a_later_line_is_numbered_from_that_line() {
     .await;
     let rows = location_rows(&row);
     let location = rows.first().expect("one location");
-    let content = location["content"].as_str().expect("content");
+    let content = location["value"].as_str().expect("value");
     assert!(content.contains("before the window on line 3"), "{content}");
     let numbered = content
         .split('\n')

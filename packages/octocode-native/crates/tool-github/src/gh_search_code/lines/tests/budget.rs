@@ -38,7 +38,7 @@ fn parallel_scans_keep_page_order() {
         serial
     );
     assert!(matches!(serial[1], FileHits::Unmatched));
-    assert!(matches!(serial[5], FileHits::Lines { first: 6, .. }));
+    assert!(matches!(serial[5], FileHits::Lines { best: 6, .. }));
 }
 
 /// Fan-outs running at once (rows, or calls of a long-lived server)

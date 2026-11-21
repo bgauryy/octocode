@@ -240,7 +240,7 @@ async fn issue_comment_body_hops_list_only_unfinished_bodies() {
             issue_text.len() + read.values().map(String::len).sum::<usize>() > before,
             "call {calls}: the body walk must make evidence progress"
         );
-        if let Some(next) = content["responsePagination"]["next"]["input"].as_object() {
+        if let Some(next) = content["next"]["input"].as_object() {
             queue.push_back(serde_json::Value::Object(next.clone()));
         }
         // A section's walk rides its row's last part, which need not

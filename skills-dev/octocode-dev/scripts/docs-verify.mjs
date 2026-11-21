@@ -257,31 +257,6 @@ function validatePackageReadmes() {
   return failures;
 }
 
-// The one sentence that lists the tools taking inline `classification`; other docs link to it.
-const CLASSIFICATION_OWNER = { file: 'docs/OCTOCODE_TOOLS.md', lead: '`classification` is supported by ' };
-
-/** Tools whose query, in any of its forms, takes `classification`, from the generated contract. */
-function classifiedTools() {
-  const contract = JSON.parse(fs.readFileSync(path.join(ROOT, 'packages/octocode-config/contract/tool-contract.json'), 'utf8'));
-  const takes = node => {
-    const form = node?.$ref?.startsWith('#/$defs/') ? contract.$defs[node.$ref.slice('#/$defs/'.length)] : node;
-    if (!form || typeof form !== 'object') return false;
-    return Boolean(form.properties?.classification) || ['anyOf', 'oneOf', 'allOf'].some(key => (form[key] ?? []).some(takes));
-  };
-  return contract.tools.filter(tool => takes(tool.querySchema)).map(tool => tool.name).sort();
-}
-
-function validateClassificationTools() {
-  const content = fs.readFileSync(path.join(ROOT, CLASSIFICATION_OWNER.file), 'utf8');
-  const line = content.split('\n').find(text => text.startsWith(CLASSIFICATION_OWNER.lead));
-  if (!line) return [`${CLASSIFICATION_OWNER.file} is missing the sentence starting ${CLASSIFICATION_OWNER.lead}`];
-  const sentence = line.slice(CLASSIFICATION_OWNER.lead.length).split('. ')[0];
-  const named = [...sentence.matchAll(/`([A-Za-z]+)`/g)].map(match => match[1]).sort();
-  const expected = classifiedTools();
-  return JSON.stringify(named) === JSON.stringify(expected) ? []
-    : [`${CLASSIFICATION_OWNER.file} lists classification tools ${named.join(', ') || '(none in backticks)'}; the contract has ${expected.join(', ')}`];
-}
-
 // Every public tool is documented, and stated tool counts match the contract.
 function validateToolCatalog() {
   const failures = [];
@@ -315,7 +290,6 @@ function main() {
     ...validateDocsLinks(),
     ...validatePackageReadmes(),
     ...validateToolCatalog(),
-    ...validateClassificationTools(),
     ...validateToolExamples(),
     ...checkVocabulary().findings.map(finding => `${finding.file}:${finding.line} \`${finding.token}\`: ${finding.message}`),
   ];

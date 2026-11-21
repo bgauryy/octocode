@@ -340,8 +340,13 @@ async fn a_key_file_shows_one_placeholder_form_in_every_view() {
         row["files"].as_array().is_none_or(Vec::is_empty),
         "{served}"
     );
+    assert!(
+        row["hints"]
+            .as_array()
+            .is_some_and(|hints| hints.len() == 1 && hints[0].to_string().contains("maskedSpans")),
+        "an empty answer over masked text says what was not searched, once: {served}"
+    );
     let text = served.to_string();
-    assert!(text.contains("masked secrets are not searched"), "{served}");
     for key in [&private, &pgp, &rsa] {
         assert!(!text.contains(key.as_str()), "{served}");
     }

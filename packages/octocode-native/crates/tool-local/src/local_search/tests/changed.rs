@@ -61,7 +61,6 @@ fn a_fresh_page_withholds_only_the_file_written_after_its_scan() {
         &security,
         &NeverCancel,
         scan,
-        None,
         &alternates,
     )
     .expect("one file changing under a fresh call does not fail the call");

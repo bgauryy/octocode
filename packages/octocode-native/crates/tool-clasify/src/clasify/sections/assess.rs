@@ -120,7 +120,7 @@ pub(super) fn assess_and_save(
         octocode_runtime_base::response::paging::push_warnings(
             &mut output,
             [format!(
-                "{} left unanswered by a transient failure: next.nextPage asks {} again, once.",
+                "{} left unanswered by a transient failure: the reply's next asks {} again, once.",
                 octocode_engine::text::counted(
                     u64::try_from(deferred).unwrap_or(u64::MAX),
                     "section answer",

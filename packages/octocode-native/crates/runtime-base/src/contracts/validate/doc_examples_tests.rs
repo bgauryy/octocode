@@ -180,10 +180,12 @@ fn every_documented_request_is_accepted_by_native_and_the_published_schema() {
             continue;
         }
         if let Err(error) = crate::contracts::validate(&tool, input.clone()) {
-            let line =
-                crate::contracts::format_input_error(&tool, &error, &[], &serde_json::Value::Null)
-                    ["error"]
-                    .clone();
+            let line = crate::contracts::format_input_error(
+                &tool,
+                &error,
+                &serde_json::Value::Null,
+            )["error"]
+                .clone();
             failures.push(format!("{at}: native rejects {tool} {input}: {line}"));
         }
         let schema = published_input(&tool);
@@ -222,7 +224,6 @@ fn every_core_example_is_accepted_by_native_admission() {
                 let line = crate::contracts::format_input_error(
                     tool,
                     &error,
-                    &[],
                     &serde_json::Value::Null,
                 )["error"]
                     .clone();

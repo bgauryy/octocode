@@ -43,8 +43,8 @@ fn a_column_stays_only_on_rows_the_page_marked_as_sharing_a_line() {
                 {
                     "path": "a.rs",
                     "matches": [
-                        {"line": 4, "column": 11, "content": "f() + f()"},
-                        {"line": 9, "column": 3, "content": "f()"}
+                        {"line": 4, "column": 11, "value": "f() + f()"},
+                        {"line": 9, "column": 3, "value": "f()"}
                     ]
                 }
             ]
@@ -57,8 +57,8 @@ fn a_column_stays_only_on_rows_the_page_marked_as_sharing_a_line() {
         row["files"][0]["matches"],
         json_fixture(
             r#"[
-                {"line": 4, "column": 11, "content": "f() + f()"},
-                {"line": 9, "content": "f()"}
+                {"line": 4, "column": 11, "value": "f() + f()"},
+                {"line": 9, "value": "f()"}
             ]"#
         )
     );

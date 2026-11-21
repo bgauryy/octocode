@@ -101,9 +101,9 @@ impl Walk {
     }
 }
 
-/// Follows `next.nextPage` from the query row `first` to the last page,
-/// reading each page through every row part (`responsePagination.next`)
-/// first: a split page carries `next.nextPage` on its last part only.
+/// Follows the reply's `next` from the query row `first` until no reply
+/// carries one: the one completion rule. A reply that splits its row
+/// (`rowPart`) reads on the same way.
 async fn walk(
     runtime: &ToolRuntime,
     mcp: bool,
@@ -128,101 +128,68 @@ async fn walk_input(
     };
     let mut calls = 0;
     let mut seen_inputs = BTreeSet::new();
-    let mut query_total = None;
-    // Where the next query page starts: each page starts where the last ended.
-    let mut page_start = 0;
+    let mut read = 0;
     loop {
-        let (mut rows, mut has_more, mut next_page) = (Vec::new(), None, None);
-        let mut stated = None;
-        loop {
-            calls += 1;
-            assert!(
-                seen_inputs.insert(input.to_string()),
-                "mcp={mcp}: repeated continuation"
-            );
-            let envelope = call(runtime, mcp, calls, input.clone()).await;
-            let row = &envelope["results"][0];
-            let data = &row["data"];
-            if let Some(pagination) = data.get("pagination") {
-                let offset = pagination["offset"].as_u64().expect("query offset");
-                let total = pagination["total"].as_u64().expect("query total");
-                assert_eq!(offset, page_start, "query pages advance");
-                // A floor counts the rows read so far; only an exact total
-                // must hold on every page that states one.
-                let floor = pagination.get("countScope").is_some();
-                if floor {
-                    assert_eq!(pagination["countScope"], "loaded", "{pagination}");
-                    walk.floors += 1;
-                } else {
-                    assert_eq!(
-                        *query_total.get_or_insert(total),
-                        total,
-                        "query total is stable"
-                    );
+        calls += 1;
+        assert!(
+            seen_inputs.insert(input.to_string()),
+            "mcp={mcp}: repeated continuation"
+        );
+        let envelope = call(runtime, mcp, calls, input.clone()).await;
+        let row = &envelope["results"][0];
+        let data = &row["data"];
+        assert!(
+            data.pointer("/next/nextPage").is_none(),
+            "mcp={mcp}: the reply's next is the one walk: {data}"
+        );
+        let next = envelope.get("next");
+        match data.get("pagination") {
+            Some(pagination) => {
+                assert!(
+                    pagination.get("hasMore").is_none() && pagination.get("countScope").is_none(),
+                    "mcp={mcp}: {pagination}"
+                );
+                // A stated total is exact: the same on every page that
+                // states one.
+                if let Some(total) = pagination["total"].as_u64() {
                     walk.totals.insert(total);
                 }
-                has_more = Some(pagination["hasMore"] == true);
-                stated = Some((offset, total, floor));
             }
-            rows.extend(page_rows(data));
-            if let Some(next) = data["next"].get("nextPage") {
-                if let Some(part) = row.get("rowPart") {
-                    assert_eq!(
-                        part["part"], part["of"],
-                        "mcp={mcp}: nextPage on part {part}"
-                    );
-                }
-                next_page = Some(next.clone());
-            }
-            let response = &envelope["responsePagination"];
-            // A split page reads on through its parts; its last part's call
-            // is the query's next page.
-            let part = &row["rowPart"];
-            if part.is_object() && part["part"] != part["of"] {
-                walk.splits += 1;
-                input = response["next"]["input"].clone();
-                assert!(input.is_object(), "mcp={mcp}: {response}");
-                continue;
-            }
-            next_page = response.get("next").cloned().or(next_page);
-            break;
+            // A page that reads on and states no count: its total is not
+            // known yet (the scan has not reached the end of the scope).
+            None if next.is_some() => walk.floors += 1,
+            None => {}
         }
-        // The rows listed are the page: it ends where its rows end. A page
-        // whose total is a floor is never the last: the window that ends
-        // the scope states the exact total.
-        let (offset, total, floor) = stated.expect("every page states pagination");
-        let page_end = offset + rows.len() as u64;
-        assert!(page_end <= total, "query page is within the declared walk");
-        if floor {
-            assert_eq!(has_more, Some(true), "mcp={mcp}: a floor page leads on");
-        } else {
-            assert_eq!(has_more == Some(true), page_end < total);
-        }
-        walk.pages.push(rows);
-        page_start = page_end;
-        if has_more.expect("every page states pagination") {
-            // Pages remain: the envelope says so and leads to the next.
-            let next = next_page.unwrap_or_else(|| panic!("mcp={mcp}: hasMore without nextPage"));
-            assert_eq!(next["tool"], "astSearch", "mcp={mcp}: {next}");
-            input = next["input"].clone();
-            assert!(input["cursor"].is_string(), "mcp={mcp}: {next}");
-        } else {
+        let part = &row["rowPart"];
+        if part.is_object() && part["part"] != part["of"] {
+            walk.splits += 1;
             assert!(
-                next_page.is_none(),
-                "mcp={mcp}: the last page leads nowhere"
+                next.is_some(),
+                "mcp={mcp}: a split row reads on: {envelope}"
             );
-            break;
         }
+        let rows = page_rows(data);
+        read += rows.len() as u64;
+        walk.pages.push(rows);
+        let Some(next) = next else {
+            break;
+        };
+        assert_eq!(next["tool"], "astSearch", "mcp={mcp}: {next}");
+        input = next["input"].clone();
+        assert!(input["cursor"].is_string(), "mcp={mcp}: {next}");
     }
     assert!(
         walk.pages.len() > 1,
         "mcp={mcp}: the fixture spans several pages"
     );
-    assert_eq!(
-        Some(page_start),
-        query_total,
-        "the walk read the declared total"
+    assert!(
+        walk.totals.len() <= 1,
+        "mcp={mcp}: one exact total: {:?}",
+        walk.totals
     );
+    if let Some(total) = walk.totals.first() {
+        assert_eq!(read, *total, "mcp={mcp}: the walk read the stated total");
+    }
     walk
 }
 

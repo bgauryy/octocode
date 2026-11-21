@@ -95,6 +95,8 @@ pub struct LspRange {
 pub struct LspCodeSnippet {
     pub uri: String,
     pub range: LspRange,
+    /// The hit's text; rows name it `value`, as every search tool's hit does.
+    #[serde(rename = "value")]
     pub content: String,
     pub symbol_kind: Option<String>,
     pub display_range: Option<Value>,

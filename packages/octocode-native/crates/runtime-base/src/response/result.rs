@@ -127,9 +127,32 @@ impl Continuation {
         self.tool
     }
 
+    /// This related call as one its row needs: it reaches evidence the row
+    /// asked for and does not state (text a window left out, results past a
+    /// provider cap, work a failure left undone), so it stays on an
+    /// evidence row. The producer decides; the response stage
+    /// (`response::workflow_lead`) honors the mark and removes it. An
+    /// optional lead is never marked, and never rides an evidence row.
+    pub fn required(mut self) -> Self {
+        self.call[REQUIRED_KEY] = Value::Bool(true);
+        self
+    }
+
     pub fn build(self) -> Value {
         self.call
     }
+}
+
+/// The private mark of a related call its row needs ([`Continuation::required`]).
+pub const REQUIRED_KEY: &str = "required";
+
+/// `call` (a built related call) marked as one its row needs
+/// ([`Continuation::required`]), for a producer that holds the built value.
+pub fn required_call(mut call: Value) -> Value {
+    if call.is_object() {
+        call[REQUIRED_KEY] = Value::Bool(true);
+    }
+    call
 }
 
 /// `input` with each query row as [`fresh_query_row`], [`unbilled`].
@@ -137,22 +160,9 @@ fn without_private_progress(tool: ToolId, mut input: Value) -> Value {
     if let Some(rows) = input.get_mut("queries").and_then(Value::as_array_mut) {
         for row in rows.iter_mut() {
             *row = fresh_query_row(tool, row);
-            unbilled(row);
         }
     }
     input
-}
-
-/// `row` without the fields that ask a classification provider for a
-/// judgment ([`crate::contracts::PROVIDER_FIELDS`]): a fresh call a result
-/// offers runs unbilled, since a broader or other search judging under the
-/// caller's question would bill a scope the caller never asked it of.
-fn unbilled(row: &mut Value) {
-    if let Some(fields) = row.as_object_mut() {
-        for field in crate::contracts::PROVIDER_FIELDS {
-            fields.remove(field);
-        }
-    }
 }
 
 /// `input` with each query row as [`canonical_row`]: the call (and a cursor

@@ -5,10 +5,12 @@ import { instructionFixtures } from '../scripts/tool-contract/instruction-fixtur
 describe('instruction fixtures', () => {
   const { coreChars, sets: fixtures } = instructionFixtures();
 
-  it('cover all on, none optional, local only, GitHub only and each optional tool', () => {
+  it('cover all on, none optional, local only, GitHub only, each optional tool and every settings block', () => {
     const names = fixtures.map(fixture => fixture.name);
     expect(names.slice(0, 4)).toEqual(['all on', 'no optional tool', 'local only', 'github only']);
-    expect(fixtures).toHaveLength(4 + MCP_INSTRUCTION_PARTS.blocks.length);
+    expect(fixtures).toHaveLength(4 + MCP_INSTRUCTION_PARTS.blocks.length + 1);
+    const served = fixtures.at(-1)?.text ?? '';
+    for (const block of MCP_INSTRUCTION_PARTS.settings) expect(served, block.setting).toContain(block.text);
     expect(new Set(fixtures.map(fixture => fixture.text)).size).toBe(fixtures.length);
   });
 
@@ -18,6 +20,6 @@ describe('instruction fixtures', () => {
   });
 
   it("hold core's composition for each enabled set", () => {
-    for (const fixture of fixtures) expect(fixture.text).toBe(mcpInstructions(fixture.enabled));
+    for (const fixture of fixtures) expect(fixture.text).toBe(mcpInstructions(fixture.enabled, fixture.settings));
   });
 });

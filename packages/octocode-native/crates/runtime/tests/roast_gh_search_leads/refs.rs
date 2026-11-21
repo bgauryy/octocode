@@ -62,11 +62,11 @@ fn names(data: &Value, list: &str) -> Vec<String> {
         .into_iter()
         .flatten()
         .map(|row| {
-            let (name, sha) = row
+            // A listing without `ref` names each ref alone.
+            let name = row
                 .as_str()
-                .and_then(|row| row.split_once(' '))
-                .unwrap_or_else(|| panic!("a \"name sha\" ref row: {row}"));
-            assert!(octocode_github::is_full_sha(sha), "{row}");
+                .unwrap_or_else(|| panic!("a ref row is a string: {row}"));
+            assert!(!name.contains(' '), "a name alone: {row}");
             name.to_owned()
         })
         .collect()
@@ -94,22 +94,11 @@ async fn limit_counts_each_list_and_every_ref_is_listed_once() {
     let data = row_data(&first);
     assert_eq!(names(data, "tags").len(), 3, "{data}");
     assert_eq!(names(data, "branches").len(), 3, "{data}");
-    assert_eq!(data["pagination"]["hasMore"], true, "{data}");
-    // Each ref is one `"name sha"` string: the name, a space, its commit.
-    for row in data["tags"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .chain(data["branches"].as_array().into_iter().flatten())
-    {
-        let (_, sha) = row
-            .as_str()
-            .and_then(|row| row.split_once(' '))
-            .unwrap_or_else(|| panic!("{row}"));
-        assert!(octocode_github::is_full_sha(sha), "{row}");
-    }
+    // The reply's next says more refs follow; the lists state no walk.
+    assert!(data.pointer("/pagination/hasMore").is_none(), "{data}");
     let (mut tags, mut branches) = (names(data, "tags"), names(data, "branches"));
-    let mut next = data["next"]["nextPage"]["input"].clone();
+    let mut next = first.structured_content["next"]["input"].clone();
+    assert!(next.is_object(), "{}", first.structured_content);
     while !next.is_null() {
         let page = call(&runtime, "ghStructure", next)
             .await
@@ -117,7 +106,7 @@ async fn limit_counts_each_list_and_every_ref_is_listed_once() {
         let data = row_data(&page);
         tags.extend(names(data, "tags"));
         branches.extend(names(data, "branches"));
-        next = data["next"]["nextPage"]["input"].clone();
+        next = page.structured_content["next"]["input"].clone();
     }
     tags.sort();
     branches.sort();
@@ -159,6 +148,10 @@ async fn a_tags_only_listing_states_only_tag_facts() {
     let data = row_data(&out);
     assert_eq!(names(data, "tags").len(), 3, "{data}");
     assert!(data.get("branches").is_none(), "{data}");
-    assert_eq!(data["pagination"]["hasMore"], true, "{data}");
+    assert!(
+        out.structured_content["next"].is_object(),
+        "more tags follow: {}",
+        out.structured_content
+    );
     runtime.close().await;
 }

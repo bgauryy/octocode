@@ -5,8 +5,6 @@
     clippy::panic,
     reason = "fixtures for tests, compiled only for them (`test`, `test-support`): a broken fixture fails its test at once"
 )]
-pub mod selection_fake;
-pub mod selection_runtime;
 
 /// The view a localFetch or ghGetFileContent lead `row` reads, decoded
 /// through the tool's generated query type: an omitted `view` is its

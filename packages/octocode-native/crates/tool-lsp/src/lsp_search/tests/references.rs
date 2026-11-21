@@ -118,7 +118,7 @@ async fn default_references_preserve_full_location_geometry_and_content() {
     let q =
         query(serde_json::json!({"operation":"references","path":uri,"symbolName":"foo","line":1}));
     let raw = vec![
-        serde_json::json!({"uri":uri,"range":{"start":{"line":0,"character":0},"end":{"line":1,"character":3}},"content":"foo\nfoo\n"}),
+        serde_json::json!({"uri":uri,"range":{"start":{"line":0,"character":0},"end":{"line":1,"character":3}},"value":"foo\nfoo\n"}),
     ];
     let result = locations(
         &q,
@@ -138,7 +138,7 @@ async fn default_references_preserve_full_location_geometry_and_content() {
     assert_eq!(found.len(), 1);
     assert_eq!(found[0]["line"], 1);
     assert_eq!(found[0]["endLine"], 2);
-    assert!(found[0]["content"].as_str().unwrap().contains("foo"));
+    assert!(found[0]["value"].as_str().unwrap().contains("foo"));
     octocode_runtime_base::contracts::validate_output("lspSearch", &public_row(&result))
         .expect("full evidence contract");
 }

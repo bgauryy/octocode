@@ -2,49 +2,6 @@
 use super::*;
 use octocode_test_support::json_fixture;
 
-#[test]
-fn top_hit_reads_its_matched_token() {
-    let top = json_fixture(
-        r#"{
-            "owner": "o",
-            "repo": "r",
-            "path": "src/a.rs",
-            "fragments": [{"highlight": "find_all"}]
-        }"#,
-    );
-    let read = read_top_match(&top, None).expect("continuation");
-    assert_eq!(read["tool"], "ghGetFileContent");
-    assert_eq!(
-        read["input"]["queries"][0]["matchString"],
-        json_fixture(r#"["find_all"]"#)
-    );
-    assert_eq!(read["input"]["queries"][0]["path"], "src/a.rs");
-    assert!(read_top_match(&json!("o/r:src/a.rs"), None).is_none());
-}
-
-/// Only a source hit earns the top-match read; docs, changelogs, tests
-/// and manifests (often ranked first) get none.
-#[test]
-fn read_top_match_is_offered_for_code_hits_only() {
-    let top = |path: &str| {
-        read_top_match(
-            &json!({"owner": "o", "repo": "r", "path": path,
-            "fragments": [{"highlight": "needle"}]}),
-            None,
-        )
-    };
-    assert!(top("src/a.rs").is_some());
-    for path in [
-        "GUIDE.md",
-        "CHANGELOG.md",
-        "tests/a.rs",
-        "src/a.test.ts",
-        "package.json",
-    ] {
-        assert!(top(path).is_none(), "{path}");
-    }
-}
-
 /// An empty search offers one broader variant per narrowing it can
 /// drop; a bare single-keyword search has nothing to drop.
 #[test]

@@ -5,12 +5,13 @@ use octocode_engine::types::FileSystemEntry;
 use octocode_test_support::json_fixture;
 use serde_json::json;
 
-/// An empty listing reads nothing it skipped: it says the skipped paths were
-/// not listed, so absence there is unproven, and leads to the listing with
-/// the causes its walk skipped by lifted. The requested walk was whole, so
-/// the listing is not partial.
+/// An empty listing reads nothing it skipped: it says once that its
+/// `skippedPaths` were not listed (the shared disclosure) and leads to the
+/// listing with the causes its walk skipped by lifted. The requested walk was
+/// whole, so the listing is not partial.
 #[test]
 fn an_empty_listing_leads_to_its_skipped_paths_without_walking_them() {
+    use octocode_tools_shared::empty_walk::Cause;
     let root = tempfile::tempdir().expect("root");
     let q: StructureSearchQueryFiles = serde_json::from_value(json!({
         "operation": "files", "path": root.path(), "extensions": ["ts"]
@@ -22,16 +23,10 @@ fn an_empty_listing_leads_to_its_skipped_paths_without_walking_them() {
     };
     let mut out = json_fixture(r#"{"status": "empty"}"#);
     note_empty(&mut out, &q, &seen, q.walk());
-    assert_eq!(
-        out["warnings"],
-        json!([format!(
-            "Skipped paths (build/) were not searched, so absence there is unproven. {}",
-            octocode_tools_shared::leads::skipped::walks_all_skipped(&[
-                octocode_tools_shared::empty_walk::Cause::DefaultExcluded
-            ])
-        )]),
-        "{out}"
-    );
+    let said = octocode_tools_shared::leads::skipped::unsearched(&[Cause::DefaultExcluded])
+        .expect("disclosure");
+    assert_eq!(out["hints"], json!([said.text]), "{out}");
+    assert!(out.get("warnings").is_none(), "{out}");
     assert!(out.get("partialReasons").is_none(), "{out}");
     let retry = &out["calls"]["includeSkipped"]["input"]["queries"][0];
     assert_eq!(retry["defaultExcludes"], false, "{out}");
@@ -45,6 +40,7 @@ fn an_empty_listing_leads_to_its_skipped_paths_without_walking_them() {
 /// the default prune too, so its first hop reaches them.
 #[test]
 fn a_lead_over_ignored_paths_lifts_the_default_prune() {
+    use octocode_tools_shared::empty_walk::Cause;
     let root = tempfile::tempdir().expect("root");
     let q: StructureSearchQueryFiles = serde_json::from_value(json!({
         "operation": "files", "path": root.path(), "extensions": ["rlib"]
@@ -56,11 +52,13 @@ fn a_lead_over_ignored_paths_lifts_the_default_prune() {
     };
     let mut out = json_fixture(r#"{"status": "empty"}"#);
     note_empty(&mut out, &q, &seen, q.walk());
-    let hint = out["warnings"][0].as_str().unwrap_or_default();
-    assert!(
-        hint.starts_with("Skipped paths (ignored; default-excluded)"),
-        "{out}"
-    );
+    let said = octocode_tools_shared::leads::skipped::unsearched(&[
+        Cause::Ignored,
+        Cause::DefaultExcluded,
+    ])
+    .expect("disclosure");
+    assert_eq!(out["hints"], json!([said.text]), "{out}");
+    assert!(out.get("warnings").is_none(), "{out}");
     let retry = &out["calls"]["includeSkipped"]["input"]["queries"][0];
     assert_eq!(retry["includeIgnored"], true, "{out}");
     assert_eq!(retry["defaultExcludes"], false, "{out}");

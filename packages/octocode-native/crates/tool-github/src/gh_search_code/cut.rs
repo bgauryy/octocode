@@ -134,12 +134,9 @@ impl Cut {
         let FileHits::Lines {
             lines,
             matched,
-            first,
-            last,
             best,
             total,
             line_count,
-            declaration,
             redacted,
         } = hits
         else {
@@ -159,12 +156,9 @@ impl Cut {
             FileHits::Lines {
                 lines,
                 matched: matched[self.start..self.end].to_vec(),
-                first: *first,
-                last: *last,
                 best: *best,
                 total: *total,
                 line_count: *line_count,
-                declaration: declaration.clone(),
                 redacted: shown,
             },
             unlisted,

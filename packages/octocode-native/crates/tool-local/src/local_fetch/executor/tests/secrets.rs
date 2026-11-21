@@ -60,7 +60,7 @@ fn match_string_cannot_probe_line_level_secrets() {
             &security,
             &NeverCancel,
             None,
-            None,
+            false,
         )
     };
     let right = probe("AKIAIOSFODNN7EXAMPL");
@@ -77,7 +77,7 @@ fn match_string_cannot_probe_line_level_secrets() {
             .replace("AKIAIOSFODNN7EXAMPL", "AKIAIOSFODNN7EXAMPQ"),
         serde_json::to_string(&wrong.next).expect("json")
     );
-    assert!(right.hints.is_empty(), "{right:?}");
+    assert_eq!(right.hints.len(), 1, "{right:?}");
     let clean = dir.join("clean.txt");
     fs::write(&clean, "nothing secret\n").expect("write clean");
     let miss = execute_local_fetch(
@@ -86,9 +86,18 @@ fn match_string_cannot_probe_line_level_secrets() {
         &security,
         &NeverCancel,
         None,
-        None,
+        false,
     );
-    assert!(miss.hints.is_empty(), "{miss:?}");
+    // A file without a secret gets the same recovery; only the file that
+    // holds a masked value says it was not searched (`maskedSpans` states
+    // its count either way).
+    assert_eq!(
+        serde_json::to_value(&miss.next).expect("json")["findText"]["tool"],
+        serde_json::to_value(&right.next).expect("json")["findText"]["tool"],
+        "{miss:?}"
+    );
+    assert!(!miss.hints[0].contains("masked"), "{miss:?}");
+    assert!(right.hints[0].contains("maskedSpans"), "{right:?}");
     let after = probe("needle");
     assert_eq!(after.match_ranges, vec![LineRange { start: 3, end: 3 }]);
     assert_eq!(after.total_lines, Some(3));
@@ -118,4 +127,68 @@ fn innocent_base64_window_is_returned_byte_identical() {
         content.contains(blob),
         "innocent base64 was wrongly redacted: {content}"
     );
+}
+
+/// A miss in a file that holds a masked secret value claims absence only for
+/// the text it searched: its one hint says the masked values are not
+/// searched, whether the term sits inside one or nowhere (the same sentence,
+/// so a miss tells nothing of the secret), and keeps its one call.
+#[test]
+fn a_miss_over_masked_values_claims_no_absence_inside_them() {
+    let tail = "H7Kq2Lm9Zp4Vw8Rt1Yb6Nc3Hd5Jf0GsAeUoI";
+    let t = Fixture::new();
+    let security = octocode_runtime_base::security::ContentSecurity::new();
+    let read = |path: &std::path::Path, fields: serde_json::Value| {
+        execute_local_fetch(
+            &qj(path, fields),
+            &Paths(t.0.clone()),
+            &security,
+            &NeverCancel,
+            None,
+            false,
+        )
+    };
+    let hints = ["a.py", "a.txt"].map(|name| {
+        let p = t.0.join(name);
+        fs::write(&p, format!("other = 5\ntoken = \"ghp_{tail}\"\n")).expect("fixture");
+        let mut hints = Vec::new();
+        for pattern in [&tail[..12], "zz-not-anywhere"] {
+            let result = read(
+                &p,
+                serde_json::json!({"matchString": [pattern], "caseMode": "sensitive"}),
+            );
+            assert!(
+                result.masked_spans.is_some_and(|spans| spans > 0),
+                "{result:?}"
+            );
+            assert_eq!(result.hints.len(), 1, "{result:?}");
+            let hint = result.hints[0].clone();
+            assert!(hint.contains("maskedSpans"), "{name} {pattern}: {hint}");
+            assert!(
+                hint.contains("never searched") && !hint.contains("of this file holds it"),
+                "{name} {pattern}: {hint}"
+            );
+            let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
+            assert_eq!(
+                octocode_runtime_base::test_support::billing::offered_calls(&next).len(),
+                1,
+                "{next}"
+            );
+            hints.push(hint);
+        }
+        assert_eq!(hints[0], hints[1], "a right and a wrong guess read alike");
+        hints.remove(0)
+    });
+    // One masked value reads as one: "is", not "are".
+    for hint in &hints {
+        assert!(
+            hint.contains("1 masked secret value (maskedSpans) is never"),
+            "{hint}"
+        );
+    }
+    // A file without masked values keeps the plain sentence.
+    let p = t.0.join("b.txt");
+    fs::write(&p, "other = 5\n").expect("fixture");
+    let plain = read(&p, json_fixture(r#"{"matchString": ["zz-not-anywhere"]}"#));
+    assert!(!plain.hints[0].contains("masked"), "{plain:?}");
 }

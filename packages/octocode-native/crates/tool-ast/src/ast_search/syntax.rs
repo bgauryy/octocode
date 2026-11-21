@@ -43,6 +43,34 @@ pub fn execute_syntax(
         .map(octocode_runtime_base::response::result::finished)
 }
 
+/// `notAFile` for a `path` that names a directory says what syntaxTree
+/// reads (one file) and leads to the listing of that directory, where the
+/// file to pass is one row; any other failure is `error` as it is.
+fn one_file_error(path: &str, paths: &PathPolicy, error: ToolError) -> ToolError {
+    let is_directory = error.code == ErrorCode::NotAFile
+        && paths
+            .validate(path)
+            .is_ok_and(|directory| directory.canonical.is_dir());
+    if !is_directory {
+        return error;
+    }
+    let mut error = ToolError::new(
+        ErrorCode::NotAFile,
+        format!(
+            "syntaxTree reads one file, and `{}` is a directory: pass a file under it; operation:\"symbols\" outlines a directory.",
+            octocode_runtime_base::security::quoted(path)
+        ),
+    );
+    error.calls = octocode_tools_shared::leads::files_listing::scope_listing(
+        path,
+        Default::default(),
+        false,
+        false,
+    )
+    .map(|listing| Box::new(json!({ "viewTree": listing })));
+    error
+}
+
 fn run_syntax(
     q: &AstSearchQuerySyntaxTree,
     paths: &PathPolicy,
@@ -50,34 +78,59 @@ fn run_syntax(
     response_window: Option<usize>,
 ) -> Result<Value, ToolError> {
     cancel.check().map_err(ToolError::cancelled)?;
-    let p = paths
-        .validate_read(q.path.as_str())
-        .map_err(super::errors::policy_error)?;
-    super::language::validate_file_language(
-        &p.canonical,
-        ast_search_query_syntax_tree::language(q).as_deref(),
-        octocode_engine::text::analysis::AnalysisOperation::SyntaxTree,
-    )?;
-    let display_path =
-        super::RowPaths::new(paths, &p.canonical, true).delivered(&p.canonical.to_string_lossy());
-    let Some(bytes) = super::source::read_parse_source(&p.canonical)? else {
-        return Ok(super::source::source_limit(
-            &p.canonical,
-            &display_path,
-            None,
-        ));
+    let language = ast_search_query_syntax_tree::language(q);
+    let validate_language = |source: &std::path::Path| {
+        super::language::validate_file_language(
+            source,
+            language.as_deref(),
+            octocode_engine::text::analysis::AnalysisOperation::SyntaxTree,
+        )
     };
+    // The source the tree is read from: a file, or the row's inline `content`,
+    // which is parsed under its field's name and shows no path.
+    let (canonical, display_path, bytes) = match (&q.content, &q.path) {
+        (Some(code), _) => {
+            let bytes = super::source::inline_source(code.as_str(), language.as_deref())?;
+            let name = std::path::PathBuf::from(super::source::INLINE_NAME);
+            validate_language(&name)?;
+            (name, None, std::borrow::Cow::Borrowed(bytes))
+        }
+        (None, Some(path)) => {
+            let p = paths.validate_read(path.as_str()).map_err(|error| {
+                one_file_error(path.as_str(), paths, super::errors::policy_error(error))
+            })?;
+            validate_language(&p.canonical)?;
+            let display_path = super::RowPaths::new(paths, &p.canonical, true)
+                .delivered(&p.canonical.to_string_lossy());
+            let Some(bytes) = super::source::read_parse_source(&p.canonical)? else {
+                return Ok(super::source::source_limit(
+                    &p.canonical,
+                    &display_path,
+                    None,
+                ));
+            };
+            (
+                p.canonical,
+                Some(display_path),
+                std::borrow::Cow::Owned(bytes),
+            )
+        }
+        (None, None) => return Err(super::source::no_source()),
+    };
+    let canonical = canonical.as_path();
     // Node rows expose grammar labels and coordinates, never source text:
     // the coordinates of the text a read shows, as every view states them,
     // so no node's extent tells a hidden value's length.
     let cancelled = || cancel.check().is_err();
     let mut maps = super::source::mapping_budget(cancel, &cancelled);
-    let (admitted, _) = super::source::admitted_for_match(&p.canonical, &bytes, &mut maps)?;
+    let (admitted, _) = super::source::admitted_for_match(canonical, &bytes, &mut maps)?;
     let content = admitted.text();
     let source_snapshot = octocode_runtime_base::digest::json_sha256(&json!([
         // Node-row shape version (1-based columns).
         "rows-v4",
-        p.canonical.to_string_lossy(),
+        // A file's canonical path is absolute; inline source is its field's
+        // name, and its text is the digest below.
+        canonical.to_string_lossy(),
         q.parser,
         octocode_engine::digest::sha256(&bytes),
         q.named_only,
@@ -92,11 +145,8 @@ fn run_syntax(
     let source = Source {
         admitted: &admitted,
         content,
-        path: &p.canonical,
-        extension: super::language::parser_override(
-            &p.canonical,
-            ast_search_query_syntax_tree::language(q).as_deref(),
-        ),
+        path: canonical,
+        extension: super::language::parser_override(canonical, language.as_deref()),
         node_chunk: NODE_CHUNK,
     };
     let budget = octocode_runtime_base::response::page_windows::page_budget(response_window);
@@ -115,7 +165,7 @@ fn run_syntax(
             ),
         ));
     }
-    let mut out = render_tree_page(q, &display_path, &page, &snapshot);
+    let mut out = render_tree_page(q, display_path.as_deref(), &page, &snapshot);
     if let Some(warning) = admitted.warning() {
         octocode_runtime_base::response::paging::push_warnings(&mut out, [warning.to_owned()]);
     }

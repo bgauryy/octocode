@@ -346,18 +346,6 @@ fn file_side_rows(
     rows
 }
 
-/// The note a `matchString` read states when its patches are cut to the
-/// hunks that hold it and `side_reads` offers the source of those hunks
-/// (`related`): it promises that call, so the response stage keeps it. `None`
-/// without a literal or a related read (a missing patch's reads are required
-/// continuations, never optional).
-pub(super) fn hunk_read_warning(needle: bool, side_reads: &[(String, Value)]) -> Option<String> {
-    (needle && side_reads.iter().any(|(_, call)| call["kind"] == "related")).then(|| {
-        "patches show only the hunks that hold matchString; related reads the source of those hunks at each side."
-            .to_owned()
-    })
-}
-
 pub(super) fn remove_key(value: &mut Value, key: &str) {
     if let Some(object) = value.as_object_mut() {
         object.remove(key);

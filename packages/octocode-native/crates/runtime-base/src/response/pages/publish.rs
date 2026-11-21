@@ -2,6 +2,7 @@
 //! paging. Tools build page facts as they cut pages and read them back while
 //! shaping; a caller sees one `pagination` object with one meaning per field,
 //! and none at all when one page holds the complete result.
+use crate::response::hoist::CALL_CHANNELS;
 use serde_json::{Map, Value};
 
 /// Keys a list or window block states about a complete page and nothing else.
@@ -15,8 +16,10 @@ const BLOCKS: [&str; 2] = ["pagination", "patchPagination"];
 const BLOCK_MAP: &str = "sectionPagination";
 /// What shaping stages read back from a block; `next.*` carries the cursor.
 const SHAPING_ONLY: [&str; 1] = ["nextOffset"];
-/// Row keys that carry calls, not evidence: their inputs are never rewritten.
-const CALLS: [&str; 2] = ["next", "related"];
+/// The `next` calls that reach more of the list a holder's `pagination`
+/// counts: its next page, the rest of a walk that stopped early, the rest
+/// of a scan. Any other `next` call reads something else.
+pub(crate) const LISTING_WALKS: [&str; 3] = ["nextPage", "continueWalk", "expandScan"];
 
 pub(crate) fn publish_rows(structured: &mut Value) {
     let Some(rows) = structured.get_mut("results").and_then(Value::as_array_mut) else {
@@ -26,22 +29,72 @@ pub(crate) fn publish_rows(structured: &mut Value) {
         let Some(data) = row.get_mut("data") else {
             continue;
         };
-        publish(data);
+        publish(data, false);
         if let Some(data) = data.as_object_mut() {
             drop_zero_disclosures(data);
         }
+        serve_blocks(data);
     }
 }
 
-fn publish(value: &mut Value) {
+/// The last word on every block a row serves: whether more follows is the
+/// reply's `next` to say (a reply that carries it is unfinished), so a block
+/// states no `hasMore`; a `total` is stated only when it is exact, so a
+/// floor (`countScope` other than `complete`) and the scope itself go. What
+/// is left places a text window (`unit`, `offset`, `length`) or counts a
+/// list exactly (`total`); a block that does neither is absent.
+fn serve_blocks(value: &mut Value) {
     match value {
-        Value::Array(items) => items.iter_mut().for_each(publish),
-        Value::Object(fields) => publish_fields(fields),
+        Value::Array(items) => items.iter_mut().for_each(serve_blocks),
+        Value::Object(fields) => {
+            for key in BLOCKS {
+                if let Some(Value::Object(block)) = fields.get_mut(key)
+                    && !served_block_states(block)
+                {
+                    fields.remove(key);
+                }
+            }
+            if let Some(Value::Object(blocks)) = fields.get_mut(BLOCK_MAP) {
+                blocks.retain(|_, block| block.as_object_mut().is_none_or(served_block_states));
+                if blocks.is_empty() {
+                    fields.remove(BLOCK_MAP);
+                }
+            }
+            for (key, value) in fields.iter_mut() {
+                // Calls are not evidence: their inputs are never rewritten.
+                if !CALL_CHANNELS.contains(&key.as_str()) && key != BLOCK_MAP {
+                    serve_blocks(value);
+                }
+            }
+        }
         _ => {}
     }
 }
 
-fn publish_fields(fields: &mut Map<String, Value>) {
+/// Strips what a served block never states and says whether it still states
+/// anything: a text window's place or an exact count.
+fn served_block_states(block: &mut Map<String, Value>) -> bool {
+    block.remove("hasMore");
+    let exact = block
+        .remove("countScope")
+        .is_none_or(|scope| scope == "complete");
+    if !exact {
+        block.remove("total");
+    }
+    block.contains_key("unit") || block.contains_key("total") || block.contains_key("oversized")
+}
+
+/// `enclosing` says a holder around `value` carries a listing walk.
+fn publish(value: &mut Value, enclosing: bool) {
+    match value {
+        Value::Array(items) => items.iter_mut().for_each(|item| publish(item, enclosing)),
+        Value::Object(fields) => publish_fields(fields, enclosing),
+        _ => {}
+    }
+}
+
+fn publish_fields(fields: &mut Map<String, Value>, enclosing: bool) {
+    let enclosing = state_has_more(fields, enclosing) || enclosing;
     for key in BLOCKS {
         if let Some(Value::Object(block)) = fields.get_mut(key)
             && published_block_is_complete(block)
@@ -71,10 +124,37 @@ fn publish_fields(fields: &mut Map<String, Value>) {
         }
     }
     for (key, value) in fields.iter_mut() {
-        if !CALLS.contains(&key.as_str()) && key != BLOCK_MAP {
-            publish(value);
+        // Calls are not evidence: their inputs are never rewritten.
+        if !CALL_CHANNELS.contains(&key.as_str()) && key != BLOCK_MAP {
+            publish(value, enclosing);
         }
     }
+}
+
+/// The one owner of a published `pagination.hasMore`: it is true only when
+/// a call reaches more of that list ([`LISTING_WALKS`], in a `next` or a
+/// producer's private `calls`). The object that holds the block and holds
+/// such a call states true, whatever the tool wrote. A holder with no call
+/// of its own (a file inside a row) has its list continued, if at all, by
+/// the call of a holder around it (`enclosing`): there the producer's flag
+/// says whether that call reaches this list, and with no call around it the
+/// flag is false. A row the response page later splits keeps the flag: its
+/// walk moves to `responsePagination.next`, and a part before the row's
+/// last states true (`row_pages`). Returns whether this holder carries a
+/// listing walk.
+fn state_has_more(fields: &mut Map<String, Value>, enclosing: bool) -> bool {
+    let continues = ["next", "calls"].iter().any(|channel| {
+        fields
+            .get(*channel)
+            .and_then(Value::as_object)
+            .is_some_and(|calls| LISTING_WALKS.iter().any(|walk| calls.contains_key(*walk)))
+    });
+    if let Some(Value::Object(block)) = fields.get_mut("pagination")
+        && let Some(has_more) = block.get_mut("hasMore")
+    {
+        *has_more = Value::Bool(continues || (enclosing && *has_more == Value::Bool(true)));
+    }
+    continues
 }
 
 /// Drops the shaping-only keys and says whether what is left is a complete page.
@@ -171,9 +251,11 @@ fn drop_complete_listing_summary(data: &mut Map<String, Value>) {
     }
 }
 
-/// A partial page states it once. `partialReasons` or a `pagination`
-/// whose `countScope` is a floor already say so, and then `isPartial` is
-/// absent; `coverage.state:"partial"` never stands beside another statement.
+/// A partial page states it once. `partialReasons` already say so, and a
+/// count that is a floor only because pages remain (`loaded`) is no partial
+/// answer: then `isPartial` is absent. A count the provider capped or could
+/// only partly read keeps `isPartial`, since the served block states no
+/// scope; `coverage.state:"partial"` never stands beside another statement.
 fn state_partial_once(data: &mut Map<String, Value>) {
     if data.get("isPartial") != Some(&Value::Bool(true)) {
         return;
@@ -182,12 +264,13 @@ fn state_partial_once(data: &mut Map<String, Value>) {
         .get("partialReasons")
         .and_then(Value::as_array)
         .is_some_and(|reasons| !reasons.is_empty());
-    let floor = data
+    // More pages are the reply's `next` to say, not a partial answer.
+    let loading = data
         .get("pagination")
         .and_then(|page| page.get("countScope"))
         .and_then(Value::as_str)
-        .is_some_and(|scope| scope != "complete");
-    if reasons || floor {
+        .is_some_and(|scope| scope == "loaded");
+    if reasons || loading {
         data.remove("isPartial");
     }
     if let Some(Value::Object(coverage)) = data.get_mut("coverage")

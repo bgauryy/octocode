@@ -78,7 +78,7 @@ Load when reading script output, searching a session, mapping a site, or extract
 - Admission and result rules belong to `octocode-research`; inspect the tool's live schema before calling it.
 - Reuse the saved capture; narrow files by metadata, titles, URLs, and literal search; drop empty and duplicate captures.
 - Log, HAR, or minified JSON: extract records as text first, keeping the original (positions are not DOM coordinates); read small ones directly.
-- Which passages to read: `localSearch` over the capture directory with a literal; add `classification:{predicates:[...]}` when an evidence question can choose the next passages to read.
+- Which passages to read: `localSearch` over the capture directory with a literal; when an evidence question can choose the next passages to read, run that search as `clasify` `source:{tool:"localSearch",query:{...}}` with `predicates:[...]`.
 - A typed judgment about one capture file: `clasify` with a `source` reference; save large requests as `.octocode/octocode-scraping/tmp/clasify-request.json`.
 
 ```json

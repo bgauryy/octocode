@@ -54,27 +54,17 @@ async fn repo_scoped_hits_list_every_occurrence_with_line_numbers() {
         assert_eq!(row["commitSha"], TREE_SHA, "{row}");
         assert!(row.get("fragments").is_none(), "{row}");
     }
-    let read = &octocode_runtime_base::test_support::checks::related_call(
-        data,
-        "ghGetFileContent",
-        |_| true,
-    )["input"]["queries"][0];
-    assert_eq!(read["owner"], "a", "{data}");
-    // The top hit declares `wrap_app`, so the read is that whole
-    // declaration, never a fixed line window that may cut it.
-    assert_eq!(read["path"], "src/handler.py", "{data}");
-    assert_eq!(
-        read["matchString"],
-        json_fixture(r#"["def wrap_app(app):"]"#),
-        "{data}"
-    );
-    assert_eq!(read["block"], true, "{data}");
+    // The rows are the evidence: a page whose hits are all listed carries no
+    // read of its own.
     assert!(
-        read.get("startLine").is_none() && read.get("endLine").is_none(),
+        octocode_runtime_base::test_support::checks::find_related_call(
+            data,
+            "ghGetFileContent",
+            |_| true
+        )
+        .is_none(),
         "{data}"
     );
-    octocode_runtime_base::contracts::validate_query("ghGetFileContent", read.clone())
-        .expect("read is a valid ghGetFileContent query");
 }
 
 /// Resolved source hits reach the response pager whole, without a replay read.
@@ -111,13 +101,15 @@ async fn complete_long_and_many_hits_need_no_recovery_read() {
             .collect::<Vec<_>>()
     );
     assert!(out.data["next"].get("readHits").is_none());
-    assert_eq!(
-        octocode_runtime_base::test_support::checks::related_call(
+    assert!(
+        octocode_runtime_base::test_support::checks::find_related_call(
             &out.data,
             "ghGetFileContent",
             |_| true
-        )["kind"],
-        "related"
+        )
+        .is_none(),
+        "{}",
+        out.data
     );
 }
 
@@ -162,12 +154,11 @@ async fn owner_wide_hits_keep_fragments_without_offsets() {
     assert!(row.get("commitSha").is_none(), "{row}");
 }
 
-/// GitHub's fragments reach no row. The one thing taken from them is the top
-/// file's related read, and that term is one the caller searched for: a
-/// highlight spelling anything else, a key's body line here, reaches no
-/// output. Every read the page leads to names only searched terms.
+/// GitHub's fragments reach no output: no row, and no call, holds fragment
+/// text (a key's body line here), whatever GitHub highlighted. Every read
+/// the page leads to names only searched terms.
 #[tokio::test]
-async fn a_fragment_reaches_no_row_and_its_lead_only_names_a_searched_term() {
+async fn a_fragment_reaches_no_row_and_no_call() {
     const BODY: &str = "MIIEpAIBAAKCAQEAfakebodylinefakebodylinefakebodyline00000";
     for (keyword, start, end, led) in [
         ("wrap_app", 4, 12, true),
@@ -192,8 +183,6 @@ async fn a_fragment_reaches_no_row_and_its_lead_only_names_a_searched_term() {
             .expect("search");
         let shown = serde_json::to_string(&out.data).expect("data");
         assert!(!shown.contains(BODY), "{shown}");
-        let fragment_lead = out.data["related"].to_string();
-        assert_eq!(fragment_lead.contains("wrap_app"), led, "{shown}");
         let mut terms = Vec::new();
         match_strings(&out.data, &mut terms);
         assert!(
@@ -274,8 +263,7 @@ async fn path_match_rows_omit_empty_matches() {
 }
 
 /// `contextLines` lists the neighbours of every hit as numbered lines of the
-/// same row; no row carries index fragments, and the read lead still opens
-/// on the hit line, not on its context.
+/// same row; no row carries index fragments.
 #[tokio::test]
 async fn context_lines_surround_hits_and_rows_carry_no_matches() {
     let server = MockServer::builder().start().await;
@@ -339,16 +327,6 @@ async fn context_lines_surround_hits_and_rows_carry_no_matches() {
     for row in files {
         assert!(row.get("fragments").is_none(), "{row}");
     }
-    let read = &octocode_runtime_base::test_support::checks::related_call(
-        data,
-        "ghGetFileContent",
-        |_| true,
-    )["input"]["queries"][0];
-    assert_eq!(
-        read["matchString"],
-        json_fixture(r#"["def wrap_app(app):"]"#),
-        "{data}"
-    );
 }
 
 /// `matchedLines` appears only when context lines are listed beside the hits.

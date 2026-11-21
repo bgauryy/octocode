@@ -261,8 +261,9 @@ fn stated_pages(data: &Value) -> Option<usize> {
 }
 
 /// Page 1 carries the scan's census beside its rows (the skipped paths,
-/// the files no grammar reads, the skipped-grammar counts, the narrowing
-/// note), which no later page repeats: the cut charges it to page 1, so
+/// the files no grammar reads, the narrowing note, and on a scan window
+/// cut before its scope ends the skipped-grammar counts, which a whole
+/// answer with matches does not state), which no later page repeats: the cut charges it to page 1, so
 /// every page of the walk, as delivered, fits the response window the
 /// response pager would otherwise split into row parts, the walk takes as
 /// many calls as page 1 says it fills, and every file comes once.
@@ -314,7 +315,19 @@ fn a_first_page_with_its_census_fits_the_window_and_states_the_walks_calls() {
             let data = &served["results"][0]["data"];
             if calls == 1 {
                 assert!(data["skippedPaths"].is_object(), "the census: {data}");
-                assert!(data["skippedGrammars"].is_object(), "the census: {data}");
+                // The ranked view read the whole scope: the grammars it
+                // did not search changed nothing. A cut window is partial,
+                // so it counts them.
+                assert_eq!(
+                    data["skippedGrammars"].is_object(),
+                    !counted,
+                    "the census: {data}"
+                );
+                assert_eq!(
+                    data["inferredLanguage"].is_string(),
+                    !counted,
+                    "the census: {data}"
+                );
                 stated = stated_pages(data);
             }
             for file in data["files"].as_array().into_iter().flatten() {

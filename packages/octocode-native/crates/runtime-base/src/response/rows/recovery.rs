@@ -101,33 +101,17 @@ fn missing_error_hint(tool: &dyn ToolOutput, data: &Value, query: &Value) -> Opt
     {
         return None;
     }
-    let code = crate::id::error_code_of(data)?;
-    // A `notFound` row carries its recovery beside its leads: a lead is a
-    // call (a parent listing, a search), the hint says what to do with its
-    // answer (retry with the exact listed name). An item number that names
-    // the other kind of item states its recovery in its message and its
-    // read lead, not a path to list.
-    if code == ErrorCode::NotFound && leads_other_item_kind(data) {
+    // A row whose `related` call carries the fix needs no shared sentence
+    // beside it: the error says what failed and the call is what to run.
+    if data
+        .get("related")
+        .and_then(Value::as_array)
+        .is_some_and(|calls| !calls.is_empty())
+    {
         return None;
     }
+    let code = crate::id::error_code_of(data)?;
     error_code_hint(tool, code, query).filter(|hint| !hint.is_empty())
-}
-
-/// A `notFound` row whose recovery is the read of the same number as the
-/// other kind of item (a ghGetHistoryItem read of the number as a pull request or issue).
-fn leads_other_item_kind(data: &Value) -> bool {
-    data.get("related")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .any(|lead| {
-            lead["tool"] == "ghGetHistoryItem"
-                && matches!(
-                    lead.pointer("/input/queries/0/operation")
-                        .and_then(Value::as_str),
-                    Some("pullRequest" | "issue")
-                )
-        })
 }
 
 /// The one recovery table for the `errorCode` values every tool shares
@@ -232,9 +216,7 @@ fn execution_hint(code: ErrorCode) -> Option<&'static str> {
         ErrorCode::MissingConfiguration => {
             "Correct the missing configuration named in the error, then retry; report unavailable coverage until it is configured."
         }
-        ErrorCode::CapabilityUnavailable
-        | ErrorCode::SymbolsUnsupported
-        | ErrorCode::LanguageUnsupported => {
+        ErrorCode::CapabilityUnavailable | ErrorCode::LanguageUnsupported => {
             "Use localFetch for exact text or document outlines and localSearch for text candidates; these do not verify semantic identity."
         }
         // One text for any resource, on every tool's `notFound` row that does

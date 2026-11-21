@@ -10,15 +10,7 @@ use serde_json::json;
 const TOKEN: &str = "ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8";
 
 fn policy(tool: ToolId) -> InputPolicy {
-    if tool.is_clasify() {
-        InputPolicy::ClasifyEvidence {
-            content_limit: crate::id::clasify_policy::REQUEST_BYTES,
-        }
-    } else if tool.is_local() {
-        InputPolicy::LocalQuery
-    } else {
-        InputPolicy::Query
-    }
+    InputPolicy::of(tool)
 }
 
 /// Values of each kind private progress takes: an opaque token that spells
@@ -67,11 +59,11 @@ fn a_saved_rows_caller_fields_keep_the_whole_gate() {
     let long = "a".repeat(MAX_STRING_LENGTH + 1);
     for (row, rule) in [
         (
-            json!({"keywords": [TOKEN], "selection": TOKEN}),
+            json!({"keywords": [TOKEN], "indexHead": TOKEN}),
             "security.credential",
         ),
         (
-            json!({"keywords": [long], "selection": TOKEN}),
+            json!({"keywords": [long], "indexHead": TOKEN}),
             "security.input",
         ),
     ] {
@@ -81,7 +73,7 @@ fn a_saved_rows_caller_fields_keep_the_whole_gate() {
         assert!(
             issues
                 .iter()
-                .all(|issue| issue.rule_id == rule && issue.path != ["selection"]),
+                .all(|issue| issue.rule_id == rule && issue.path != ["indexHead"]),
             "{row}: {issues:?}"
         );
     }
@@ -93,7 +85,7 @@ fn a_saved_rows_caller_fields_keep_the_whole_gate() {
 fn admitted_text_leaves_out_private_progress() {
     let saved = ContentSecurity::new()
         .check_saved_input(
-            json!({"keywords": ["needle"], "selection": TOKEN}),
+            json!({"keywords": ["needle"], "indexHead": TOKEN}),
             InputPolicy::Query,
             ToolId::GhSearchCode,
         )

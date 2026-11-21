@@ -536,3 +536,71 @@ fn clients_with_other_spellings_of_one_toolchain_share_one_language_server() {
     assert_eq!(launches(), 2, "another toolchain, its own language server");
     assert!(persistent.stop(), "the test's server is stopped");
 }
+
+/// Hosts differ in variables no language server is given (a session id, a
+/// host marker, a credential): their calls share the warm server and the one
+/// language server it holds. What a caller may read stays the caller's: a
+/// client without an extra read root is refused a file the language server
+/// already has open for a client with it, and its refusal changes nothing for
+/// that client.
+#[cfg(unix)]
+#[test]
+fn clients_share_a_language_server_and_keep_their_own_read_roots() {
+    let workspace = Workspace::new();
+    workspace.write("a.py", "x = 1\n");
+    let outside = tempfile::tempdir().expect("outside");
+    let outside = outside.path().canonicalize().expect("outside");
+    let other = outside.join("b.py");
+    std::fs::write(&other, "y = 2\n").expect("b.py");
+    let bin = workspace.home.join("shared-bin");
+    let marker = workspace.home.join("launches");
+    counting_language_server(&bin, &marker);
+    let persistent = workspace.persistent_cli();
+    let launches = || std::fs::read_to_string(&marker).map_or(0, |log| log.lines().count());
+    let symbols = |path: &std::path::Path, extra: &[(&str, &str)]| {
+        let lsp = format!(
+            r#"{{"queries":[{{"operation":"documentSymbols","path":"{}"}}]}}"#,
+            path.display()
+        );
+        let mut command = persistent.cli();
+        command
+            .env("PATH", format!("/usr/bin:/bin:{}", bin.display()))
+            .args(["lspSearch", &lsp, "--json"]);
+        for (name, value) in extra {
+            command.env(name, value);
+        }
+        let output = command.output().expect("lspSearch");
+        let printed = String::from_utf8_lossy(&output.stdout).into_owned();
+        (output.status.code(), printed)
+    };
+    let inside = workspace.workspace.join("a.py");
+    for host in [
+        [("TERM_SESSION_ID", "one"), ("CLAUDECODE", "1")],
+        [("TERM_SESSION_ID", "two"), ("CODEX_SANDBOX", "seatbelt")],
+        [
+            ("GITHUB_TOKEN", "one-token"),
+            ("GH_CONFIG_DIR", "/elsewhere"),
+        ],
+    ] {
+        let (code, printed) = symbols(&inside, &host);
+        assert_eq!(code, Some(0), "{host:?}: {printed}");
+    }
+    assert_eq!(persistent.server_pids().len(), 1, "one warm server");
+    assert_eq!(launches(), 1, "one language server for every host");
+
+    let wide = format!("{},{}", workspace.workspace.display(), outside.display());
+    let refused = "outsideAllowedRoots";
+    let (code, printed) = symbols(&other, &[("ALLOWED_PATHS", &wide)]);
+    assert_eq!(code, Some(0), "{printed}");
+    assert!(!printed.contains(refused), "{printed}");
+    let held = launches();
+    let (code, printed) = symbols(&other, &[]);
+    assert_ne!(code, Some(0), "{printed}");
+    assert!(printed.contains(refused), "{printed}");
+    let (code, printed) = symbols(&other, &[("ALLOWED_PATHS", &wide)]);
+    assert_eq!(code, Some(0), "{printed}");
+    assert!(!printed.contains(refused), "{printed}");
+    assert_eq!(launches(), held, "the refusal and the repeat start nothing");
+    assert_eq!(persistent.server_pids().len(), 1, "still one warm server");
+    assert!(persistent.stop(), "the test's server is stopped");
+}

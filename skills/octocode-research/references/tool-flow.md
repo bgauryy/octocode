@@ -10,10 +10,10 @@ The routes the server instructions serve, generated from core (`node skills/comm
 | code shape: declarations, calls, nesting → astSearch → localFetch ranges | `astSearch`, `localFetch` |
 | definition, identity, every caller or use → lspSearch at a search hit's line | `lspSearch` |
 | known file → localFetch | `localFetch` |
-| keep only hits meaning X (cause, kind, intent) → localSearch classification:{predicates} | `clasify`, `localSearch` |
-| questions over too many hits, paths, commits or thread entries; huge file, log, command output, many files or docs, images → clasify → next.read | `clasify` |
+| keep only hits meaning X (cause, kind, intent) → clasify source:{tool, query} predicates | `clasify` |
+| offload reading: too many hits, paths, commits or thread entries; huge file, log, command output, many files or docs, images → clasify → next.read | `clasify` |
 | web page or URL → clasify source.url → next.read | `clasify` |
-| command output, git state → shell (§5) | always |
+| command output, git state → shell | always |
 | repo or library not in this checkout → ghSearchRepo → ghStructure (tree, refs) or ghSearchCode → ghGetFileContent | `ghSearchRepo`, `ghStructure`, `ghSearchCode`, `ghGetFileContent` |
 | why, when, who → ghSearchHistory → ghGetHistoryItem | `ghSearchHistory`, `ghGetHistoryItem` |
 | first release with a change → its commit or PR, ghStructure refs, ghGetHistoryItem compare | `ghSearchHistory`, `ghStructure`, `ghGetHistoryItem` |
@@ -51,24 +51,24 @@ Views select evidence: files have no bodies, symbols no implementations, compact
 
 ## Scout: judge what you have not read
 
-Use exact tools for literal facts, counts, identity and absence. Narrow by path, glob or term first; scout only when judgment by meaning can change the next read, and only with `clasify` listed (the key that lists it also enables inline `classification`); otherwise page and read exactly. Discover concrete files before treating a directory as a source.
+Use exact tools for literal facts, counts, identity and absence. Narrow by path, glob or term first; scout only when judgment by meaning can change the next read, and only with `clasify` listed; otherwise page and read exactly. Discover concrete files before treating a directory as a source.
 
 | Unread material | Scout | Verify |
 |---|---|---|
-| Search hits, paths or captured read chunks | Inline `classification` when supported | Receipt coverage, then deciding source spans |
-| One large source, or rows from a discovery/history tool | `clasify evaluate` with a supported `source` | Emitted `next.read` or resource read |
+| Search hits, listing rows or history rows | `clasify evaluate` with `source:{tool, query}` and `predicates` (answers per row as `p1`, `p2`, …) | `coverage`, then the emitted `next.read` of the deciding spans |
+| One large source | `clasify evaluate` with a supported `source` and typed `questions` | Emitted `next.read` or resource read |
 | Which files in a set | `clasify evaluate` + `resources` | One answer set per file, then source reads |
 | Relevant regions across files | `clasify sections` + `resources` | Page until no `remainingSections`; read selected spans |
 | Images | `clasify evaluate` + assets | Presence before `box`; inspect the image for layout claims |
 | Long command output: tests, builds, CI or service logs, `git log`, `ps` | Save it under the workspace; `clasify evaluate` with that path as `source` for whether, why and where (the answer's `lines`), `sections` for every place or the order | A known marker: `localSearch` on the saved file; else the answer's `next.read` of its `lines` |
 
 - Keep questions independently answerable, with enough context and exclusions for near misses. The provider has no conversation history or sibling answers. Include an unknown choice and use it for absence: over a sectioned source a `none` label from a section without the fact can outrank the section with it. Confidence is not correctness.
-- Inline predicates judge captured evidence, not hidden whole files. Listing predicates can see paths only. Match context must include the condition being judged; `responseChars` changes output pages, not provider context.
+- Predicates over a tool `source` judge each row of that tool's page (a search hit with its context, a listing row as its path), not hidden whole files. The query's match context must include the condition being judged; `responseChars` changes output pages, not provider context.
 - `evaluate` uses typed `questions` (`noul`, `choice`, `score`, `box`); use the live schema for mutually exclusive source/content/assets shapes. A path inside literal `content` is not fetched. A box alone does not establish target presence.
-- Finish response pages first, then candidate/section pages needed for the claim. `classificationUnknown`, `unassessed`, `error` and excluded candidates are not negative proof. Use emitted `next.unfilteredUnknown` for unresolved candidates and `next.unfiltered` before counts or absence claims.
+- Run the reply's `next` until none is left, then the section pages needed for the claim. Undecided, unanswered, failed (`next.retry`) and quiet units (`next.quiet`) are not negative proof. Counts and absence come from an exact search over the same scope, never from answers.
 - A source larger than one evaluation window is judged from one section; it cannot establish whole-file absence, ordering or completeness. Use `sections` and its coverage for broader claims.
 - Read the deciding original spans before citing a model answer. If they do not support it, revise the hypothesis. Scores and labels are judgments, not source facts or runtime observations.
-- Check `errorCode`, selection status, coverage and usage. Saved-page replay differs from fresh billed judgment; do not repeat a fresh call to obtain its next page. Missing credentials or capabilities are gaps, not authorization to change settings.
+- Check `errorCode`, `coverage` and `usage`. Saved-page replay differs from fresh billed judgment; do not repeat a fresh call to obtain its next page. Missing credentials or capabilities are gaps, not authorization to change settings.
 
 ## Carry evidence across
 

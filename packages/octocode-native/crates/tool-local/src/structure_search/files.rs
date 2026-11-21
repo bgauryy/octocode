@@ -101,12 +101,38 @@ super::listing::listing_fields!(StructureSearchQueryFiles {
 pub(super) fn is_traversal(sort: &StructureSearchSort) -> bool {
     matches!(sort, StructureSearchSort::AscOnly(_))
 }
-pub(super) fn sort_key(
-    sort: &StructureSearchSort,
-) -> Option<octocode_contract_types::StructureSearchSortAnyOrderBy> {
+/// The key a ranked listing sorts by: the contract's `sort.by` values but
+/// `traversal`, whichever form of the sort names them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum SortKey {
+    ModifiedAt,
+    Name,
+    Path,
+    Bytes,
+    TotalLines,
+}
+pub(super) fn sort_key(sort: &StructureSearchSort) -> Option<SortKey> {
+    use octocode_contract_types::{StructureSearchBy as Named, StructureSearchSortBy as Measure};
     match sort {
-        StructureSearchSort::AnyOrder(any) => Some(any.by),
-        _ => None,
+        StructureSearchSort::Ascending(named) => Some(match named.by {
+            Named::Name => SortKey::Name,
+            Named::Path => SortKey::Path,
+        }),
+        StructureSearchSort::Descending(measure) => Some(match measure.by {
+            Measure::ModifiedAt => SortKey::ModifiedAt,
+            Measure::Bytes => SortKey::Bytes,
+            Measure::TotalLines => SortKey::TotalLines,
+        }),
+        StructureSearchSort::AscOnly(_) => None,
+    }
+}
+/// The order the sort holds: the caller's, else the one the contract gives
+/// its key (names ascend, measures descend); walk order only ascends.
+pub(super) fn sort_order(sort: &StructureSearchSort) -> octocode_contract_types::SortOrder {
+    match sort {
+        StructureSearchSort::Ascending(named) => named.order,
+        StructureSearchSort::Descending(measure) => measure.order,
+        StructureSearchSort::AscOnly(_) => octocode_contract_types::SortOrder::Asc,
     }
 }
 fn timestamp(value: &str) -> Option<std::time::SystemTime> {

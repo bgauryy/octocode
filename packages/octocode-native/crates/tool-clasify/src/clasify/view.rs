@@ -135,14 +135,12 @@ fn answer(answer: &mut Value, sectioned: bool) {
 
 /// A summary states the billing facts that change a decision: the `calls`
 /// the row billed (beside its ceiling, what it spent of it; 0 when a twin
-/// row paid), `refused`, the ceiling, and the plan when it differs from what
-/// was sent. The token counts are the `details` view's.
+/// row paid), the tokens they cost (what offloading a read is weighed by),
+/// `refused`, the ceiling, and the plan when it differs from what was sent.
 fn usage(fields: &mut Map<String, Value>) {
     let Some(usage) = fields.get_mut("usage").and_then(Value::as_object_mut) else {
         return;
     };
-    usage.shift_remove("inputTokens");
-    usage.shift_remove("outputTokens");
     // The plan that came true is the request count itself.
     if usage.get("requestsPlanned").is_some() && usage.get("requestsPlanned") == usage.get("calls")
     {
@@ -166,6 +164,7 @@ fn evaluation(fields: &mut Map<String, Value>) {
         boxed |= value.get("box").is_some();
         answer(value, sectioned);
     }
+    parts(fields);
     usage(fields);
     // A box is a fraction of an image: its pixels need the image's size.
     if boxed {
@@ -212,6 +211,17 @@ fn cell(cell: &mut Value) {
     }
 }
 
+/// The parts of a source an evaluation judged in sections: quiet parts leave
+/// (the row's `coverage.quiet` counts them, `details` lists them), and each
+/// part left is its lines and answers.
+fn parts(fields: &mut Map<String, Value>) {
+    let Some(Value::Array(sections)) = fields.get_mut("sections") else {
+        return;
+    };
+    sections.retain(|section| !super::units::is_quiet(&section["answers"]));
+    resource_sections(fields);
+}
+
 /// One resource of a `sections` row: each section is its lines and answers.
 fn resource_sections(resource: &mut Map<String, Value>) {
     for section in resource
@@ -240,8 +250,7 @@ fn resource_sections(resource: &mut Map<String, Value>) {
 
 /// A plan's spend as an evaluation states it, when every request reported
 /// its usage and nothing else is said: the requests and the page's ceiling,
-/// with its first round only when it differs from them; tokens are
-/// `details`.
+/// their tokens, and its first round only when it differs from them.
 fn plan_usage(fields: &mut Map<String, Value>) {
     let Some(usage) = fields.get_mut("usage").and_then(Value::as_object_mut) else {
         return;
@@ -253,9 +262,10 @@ fn plan_usage(fields: &mut Map<String, Value>) {
     if complete {
         let planned_is_calls = usage.get("requestsPlanned") == usage.get("calls");
         usage.retain(|field, _| {
-            field == "calls"
-                || field == "requestsCeiling"
-                || (field == "requestsPlanned" && !planned_is_calls)
+            matches!(
+                field.as_str(),
+                "calls" | "inputTokens" | "outputTokens" | "requestsCeiling"
+            ) || (field == "requestsPlanned" && !planned_is_calls)
         });
     }
 }

@@ -38,8 +38,8 @@ fn cases() -> Vec<Case> {
                 "files":[{"path":format!("{dir}/outline/tests.rs"),"matches":[
                     {"line":6,"value":"fn leaves(value: &Value) {"},
                     {"line":17,"value":"fn count_lines() {"}],
-                    "pagination":{"unit":"matches","offset":0,"length":2,"total":9,"hasMore":true}}],
-                "pagination":{"unit":"lines","offset":0,"length":3,"total":58,"hasMore":true},
+                    "pagination":{"unit":"matches","offset":0,"length":2,"total":9}}],
+                "pagination":{"unit":"lines","offset":0,"length":3,"total":58},
                 "next":next("localSearch","cursor2.search-page"),
                 "related":related("localFetch","src/a.rs")})),
         ),
@@ -96,7 +96,7 @@ fn cases() -> Vec<Case> {
             one(json!({"files":[
                 {"dir":dir,"files":["follow.rs (4680, totalLines=132)","hits.rs (5453, totalLines=140)","outline/"]},
                 {"dir":format!("{dir}/outline"),"files":["tests.rs (7354, totalLines=184)"]}],
-                "pagination":{"unit":"items","offset":0,"length":4,"total":5015,"hasMore":true},
+                "pagination":{"unit":"items","offset":0,"length":4,"total":5015},
                 "summary":{"fileCount":4975,"dirCount":922},
                 "next":next("structureSearch","cursor2.listing-page"),
                 "related":related("localFetch","AGENTS.md")})),
@@ -150,7 +150,7 @@ fn more_cases(dir: &str) -> Vec<Case> {
                 json!({"owner":"react","files":[{"dir":"packages","files":["jest-react/","react/","react-art/","react-dom/"]}],
                 "summary":{"fileCount":0,"dirCount":40,"bytes":0},"ref":"main",
                 "commitSha":"b05c0b75fd9778536152eead30814c9ca90c810a",
-                "pagination":{"unit":"items","offset":0,"length":20,"total":40,"hasMore":true},
+                "pagination":{"unit":"items","offset":0,"length":20,"total":40},
                 "next":next("ghStructure","cursor2.tree-page")}),
             ),
         ),
@@ -220,7 +220,7 @@ fn more_cases(dir: &str) -> Vec<Case> {
                 {"path":"packages/native/crates/github/src/budget/tests/gates.rs","matchCount":1,"matchedLines":[69]},
                 {"path":"packages/native/crates/github/src/commit_dates/tests.rs","matchCount":2,"matchedLines":[5,32]},
                 {"path":"packages/native/crates/github/src/history_item.rs","matchCount":3,"matchedLines":[79,122,173]}],
-                "pagination":{"unit":"items","offset":0,"length":5,"total":14,"hasMore":true},
+                "pagination":{"unit":"items","offset":0,"length":5,"total":14},
                 "next":next("lspSearch","cursor2.sites-page")})),
         ),
         (
@@ -244,8 +244,8 @@ fn more_cases(dir: &str) -> Vec<Case> {
                         {
                             "path": "a.rs",
                             "matches": [
-                                {"line": 2, "content": "2\tneedle();\n", "role": "call"},
-                                {"line": 6, "content": "6\tneedle();\n", "role": "call"}
+                                {"line": 2, "value": "2\tneedle();\n", "role": "call"},
+                                {"line": 6, "value": "6\tneedle();\n", "role": "call"}
                             ]
                         }
                     ]
@@ -261,7 +261,7 @@ fn more_cases(dir: &str) -> Vec<Case> {
             ),
             one(
                 json!({"content":"4\tmod advisories;\n5\tmod answer;\n6\tmod commit;","totalLines":411,
-                "pagination":{"unit":"lines","offset":0,"length":3,"hasMore":true},
+                "pagination":{"unit":"lines","offset":0,"length":3},
                 "next":next("localFetch","cursor2.fetch-page")}),
             ),
         ),
@@ -300,7 +300,7 @@ fn more_cases(dir: &str) -> Vec<Case> {
                 {"number":37618,"title":"[compiler] Add regression test","mergedAt":"2026-09-16T08:53:44Z"},
                 {"number":34831,"title":"[Fiber] Ensure latest values","mergedAt":"2025-10-13T15:58:43Z"}],
                 "effectiveQuery":"useEffectEvent is:pr repo:react/react is:merged",
-                "pagination":{"unit":"items","offset":0,"length":3,"total":27,"hasMore":true},
+                "pagination":{"unit":"items","offset":0,"length":3,"total":27},
                 "next":next("ghSearchHistory","cursor2.history-page"),
                 "warnings":["Repository facebook/react was renamed to react/react."]})),
         ),
@@ -310,7 +310,7 @@ fn more_cases(dir: &str) -> Vec<Case> {
             one(
                 json!({"graph":{"id":"20261110T181651Z-src-d9b10b","root":"src","isPartial":true,"partialReasons":["filesSkipped"]},
                 "rows":[{"id":"runtime/rows.ts#leaseKind","kind":"symbol","file":"runtime/rows.ts","line":29,"name":"leaseKind"}],
-                "pagination":{"unit":"items","offset":0,"length":10,"total":155,"hasMore":true},
+                "pagination":{"unit":"items","offset":0,"length":10,"total":155},
                 "next":next("graphQuery","cursor2.graph-page")}),
             ),
         ),
@@ -321,12 +321,10 @@ fn more_cases(dir: &str) -> Vec<Case> {
 fn response_paged() -> Case {
     let (tool, query, mut result) = cases().swap_remove(0);
     result["results"][0]["rowPart"] = json_fixture(r#"{"part": 1, "of": 3}"#);
-    result["responsePagination"] = json_fixture(
+    result["next"] = json_fixture(
         r#"{
-            "next": {
-                "tool": "localSearch",
-                "input": {"cursor": "cursor2.response-page"}
-            }
+            "tool": "localSearch",
+            "input": {"cursor": "cursor2.response-page"}
         }"#,
     );
     (tool, query, result)
@@ -361,12 +359,11 @@ pub(super) fn commands(value: &Value, out: &mut Vec<(String, bool)>) {
     visit(value, false, out);
 }
 
-/// How many objects of `value` state `hasMore`.
+/// How many page states (`follow::is_page`) `value` holds.
 pub(super) fn page_states(value: &Value) -> usize {
     match value {
         Value::Object(fields) => {
-            usize::from(fields.contains_key("hasMore"))
-                + fields.values().map(page_states).sum::<usize>()
+            usize::from(follow::is_page(fields)) + fields.values().map(page_states).sum::<usize>()
         }
         Value::Array(items) => items.iter().map(page_states).sum(),
         _ => 0,
@@ -380,9 +377,7 @@ fn evidence(value: &Value, out: &mut Vec<String>) {
         Value::Object(fields) if fields.contains_key("tool") && fields.contains_key("input") => {}
         Value::Object(fields) => fields
             .iter()
-            .filter(|(key, value)| {
-                !(*key == "offset" && **value == 0 && fields.contains_key("hasMore"))
-            })
+            .filter(|(key, value)| !(*key == "offset" && **value == 0 && follow::is_page(fields)))
             .for_each(|(_, value)| evidence(value, out)),
         Value::Array(items) => items.iter().for_each(|item| evidence(item, out)),
         Value::String(text) => out.extend(
@@ -449,7 +444,7 @@ fn stdout_alone_says_whether_the_answer_is_whole() {
             }
         }
         assert!(
-            out.matches("hasMore").count() >= page_states(result),
+            out.to_lowercase().matches("pagination").count() >= page_states(result),
             "{tool:?} page states: {out}"
         );
         if let Some(part) = row.get("rowPart") {
@@ -473,7 +468,7 @@ fn no_hits_a_failure_and_a_first_page_differ_on_stdout() {
     let cases = cases();
     let outs: Vec<String> = cases.iter().take(3).map(|case| text(case).out).collect();
     assert!(outs[0].ends_with(
-        "# pagination: 3 of 58 lines hasMore\n# next.nextPage: octocode localSearch '{\"cursor\":\"cursor2.search-page\"}'"
+        "# pagination: lines 1-3 of 58\n# next.nextPage: octocode localSearch '{\"cursor\":\"cursor2.search-page\"}'"
     ), "{}", outs[0]);
     assert_eq!(outs[1], "# status: empty");
     assert_eq!(
@@ -542,10 +537,7 @@ fn the_response_page_comes_before_the_rows_next_page() {
         at("cursor2.response-page") < at("cursor2.search-page"),
         "{out}"
     );
-    assert!(
-        out.contains("\n# responsePagination.next: octocode "),
-        "{out}"
-    );
+    assert!(out.contains("\n# next: octocode "), "{out}");
 }
 
 /// (b) Stdout and stderr together carry every string and number of the JSON
@@ -610,30 +602,35 @@ fn a_path_is_stated_once_per_file() {
             .as_array()
             .map_or(&[][..], Vec::as_slice);
         let roots = roots(&out);
+        // A path prints relative to the root its row states, the root itself
+        // as `.`.
         for group in groups {
             let Some(path) = group["path"].as_str().or_else(|| group["dir"].as_str()) else {
                 continue;
             };
-            // A listing group's `dir/` heads its entries, unindented; the
-            // shared root itself prints as `./`.
+            let path = roots
+                .iter()
+                .find_map(|root| {
+                    (path == *root)
+                        .then_some(".")
+                        .or_else(|| path.strip_prefix(&format!("{root}/")))
+                })
+                .unwrap_or(path);
+            // A listing group's `dir/` heads its entries, unindented; a
+            // group of one entry is that entry's one line.
             if group["dir"].is_string() {
-                let relative = roots
-                    .iter()
-                    .find_map(|root| {
-                        (path == *root)
-                            .then_some(".")
-                            .or_else(|| path.strip_prefix(&format!("{root}/")))
-                    })
-                    .unwrap_or(path);
-                let head = format!("{relative}/");
-                let lines = out.lines().filter(|line| line.starts_with(&head)).count();
+                let head = format!("{path}/");
+                let lone = match group["files"].as_array().map(Vec::as_slice) {
+                    Some([entry]) => entry.as_str().map(|entry| format!("{head}{entry}")),
+                    _ => None,
+                };
+                let lines = out
+                    .lines()
+                    .filter(|line| *line == head || lone.as_deref() == Some(*line))
+                    .count();
                 assert_eq!(lines, 1, "{tool:?} {path}: {out}");
                 continue;
             }
-            let path = roots
-                .iter()
-                .find_map(|root| path.strip_prefix(&format!("{root}/")))
-                .unwrap_or(path);
             // A count table's row leads with the count.
             let shown = |line: &str| {
                 let line = line.trim_start();
@@ -661,7 +658,11 @@ fn a_number_after_a_path_is_a_line() {
     let counts = text(&cases[3]).out;
     assert!(!counts.contains(".rs:"), "{counts}");
     assert!(
-        counts.lines().any(|line| line.trim() == "8 listing.rs"),
+        counts.lines().any(|line| {
+            line.trim()
+                .strip_prefix("8 ")
+                .is_some_and(|path| path.rsplit('/').next() == Some("listing.rs"))
+        }),
         "{counts}"
     );
     let sites = text(&cases[11]).out;
@@ -815,14 +816,13 @@ fn the_text_view_follows_a_three_page_response_to_its_end() {
                 "files": [{"path": "a.rs", "matches": [{"line": 1, "value": "x"}]}]
             }"#,
         ));
-        let mut block = json_fixture(r#"{"expiresAt": "2026-11-17T00:00:00.000Z"}"#);
         if let Some(cursor) = cursor {
-            block["next"] = json!({"tool":"localSearch","input":{"cursor":cursor}});
+            result["next"] = json!({"tool":"localSearch","input":{"cursor":cursor}});
+            result["expiresAt"] = json!("2026-11-17T00:00:00.000Z");
         }
         if replayed {
-            block["replayed"] = json!(true);
+            result["replayed"] = json!(true);
         }
-        result["responsePagination"] = block;
         result
     };
     let pages = [
@@ -840,7 +840,7 @@ fn the_text_view_follows_a_three_page_response_to_its_end() {
             .out;
         let stated: Vec<&str> = out
             .lines()
-            .filter(|line| line.starts_with("# responsePagination.next: octocode localSearch "))
+            .filter(|line| line.starts_with("# next: octocode localSearch "))
             .collect();
         match stated.as_slice() {
             [] => break,
@@ -859,19 +859,17 @@ fn the_text_view_follows_a_three_page_response_to_its_end() {
     );
 }
 
-/// Page states of every shape the output schema allows (`offset` and
-/// `hasMore` required; `unit`, `length`, `total`, `countScope` optional),
-/// in the field order a tool may write them.
+/// Page states of every shape the output schema allows (`offset`
+/// required; `unit`, `length`, `total` optional) that still states
+/// something, in the field order a tool may write them.
 fn page_shapes() -> Vec<Value> {
     vec![
-        json_fixture(
-            r#"{"unit": "lines", "offset": 0, "length": 3, "total": 58, "hasMore": true}"#,
-        ),
-        json_fixture(r#"{"hasMore": true, "length": 4096, "offset": 8192, "unit": "bytes"}"#),
-        json_fixture(r#"{"hasMore": true, "offset": 0, "total": 82}"#),
-        json_fixture(r#"{"countScope": "loaded", "offset": 0, "hasMore": true, "total": 8}"#),
-        json_fixture(r#"{"hasMore": true, "offset": 20}"#),
-        json_fixture(r#"{"hasMore": false, "offset": 10, "length": 10, "total": 20}"#),
+        json_fixture(r#"{"unit": "lines", "offset": 0, "length": 3, "total": 58}"#),
+        json_fixture(r#"{"length": 4096, "offset": 8192, "unit": "bytes"}"#),
+        json_fixture(r#"{"offset": 0, "total": 82}"#),
+        json_fixture(r#"{"offset": 20, "total": 82}"#),
+        json_fixture(r#"{"offset": 10, "length": 10, "total": 20}"#),
+        json_fixture(r#"{"offset": 40, "length": 0, "total": 40, "unit": "lines"}"#),
     ]
 }
 
@@ -889,14 +887,18 @@ fn printed_pages(text: &str) -> Vec<&str> {
         .collect()
 }
 
-/// One page format for every page state, the row's and a file's alike: its
-/// count first (`length of total unit`, or the total alone when no length
-/// is stated), `after offset` when it starts later, any other field, then
-/// `hasMore` (or `hasMore false`) last; every number stays.
+/// One page format for every page state, the row's and a file's alike. A
+/// page that states where it starts prints its place, first item to last
+/// (`lines 1-3 of 58`), so no number reads as "delivered so far"; one that
+/// states no offset, or holds nothing, prints its count first (`length of
+/// total unit`, the total alone without a length) and `after offset` when
+/// it starts later. Every number stays recoverable, and no page says
+/// whether more follows (the reply's `next` does).
 #[test]
-fn every_page_state_reads_count_first_and_has_more_last() {
+fn every_page_state_states_its_place_or_count_and_no_walk() {
     let asked = json_fixture(r#"{"queries": [{"path": "src", "matchString": ["x"]}]}"#);
     let mut checked = 0;
+    let mut placed = 0;
     for page in page_shapes() {
         let result = one(
             json!({"files":[{"path":"a.rs","matches":[{"line":3,"value":"x"}],
@@ -907,10 +909,34 @@ fn every_page_state_reads_count_first_and_has_more_last() {
         let printed = printed_pages(&both);
         assert_eq!(printed.len(), 2, "{page}:\n{both}");
         let number = |key: &str| page[key].as_u64();
-        let more = page["hasMore"].as_bool().expect("hasMore");
+        let unit = page["unit"].as_str();
         for text in printed {
             checked += 1;
             let words: Vec<&str> = text.split(' ').collect();
+            assert!(!text.contains("hasMore"), "{text}");
+            for key in ["unit", "offset", "length", "true"] {
+                assert!(!words.contains(&key), "{key} named: {text}");
+            }
+            let range = number("offset")
+                .zip(number("length").filter(|length| *length > 0))
+                .map(|(offset, length)| format!("{}-{}", offset + 1, offset + length));
+            if let Some(range) = range {
+                // The place: first and last item, the unit before them, the
+                // total after; neither a bare length nor an `after`.
+                placed += 1;
+                let named = unit.map_or(range.clone(), |unit| format!("{unit} {range}"));
+                assert!(text.starts_with(&named), "place first: {text}");
+                assert_eq!(
+                    number("total").map(|total| text.contains(&format!("{range} of {total}"))),
+                    number("total").map(|_| true),
+                    "{text}"
+                );
+                assert!(
+                    !text.contains("this page") && !text.contains("after"),
+                    "{text}"
+                );
+                continue;
+            }
             let count = match (number("length"), number("total")) {
                 (Some(length), Some(total)) => format!("{length} of {total}"),
                 (Some(length), None) => length.to_string(),
@@ -918,22 +944,17 @@ fn every_page_state_reads_count_first_and_has_more_last() {
                 (None, None) => String::new(),
             };
             assert!(text.starts_with(&count), "count first: {text}");
-            let last = if more { "hasMore" } else { "hasMore false" };
-            assert!(text.ends_with(last), "hasMore last: {text}");
-            assert_eq!(text.matches("hasMore").count(), 1, "{text}");
+            // A length with no total is the page's size and says so, so it
+            // never reads as the size of the list.
+            let page_only = number("length").is_some() && number("total").is_none();
+            assert_eq!(text.contains("this page"), page_only, "{text}");
             if let Some(offset) = number("offset").filter(|offset| *offset > 0) {
-                assert!(text.contains(&format!("after {offset} ")), "{text}");
+                assert!(text.contains(&format!("after {offset}")), "{text}");
             }
-            for key in ["unit", "offset", "length", "true"] {
-                assert!(!words.contains(&key), "{key} named: {text}");
-            }
-            if let Some(unit) = page["unit"].as_str() {
+            if let Some(unit) = unit {
                 assert!(text.contains(&format!("{count} {unit}")), "{text}");
-            }
-            if let Some(scope) = page["countScope"].as_str() {
-                assert!(text.contains(&format!("countScope {scope}")), "{text}");
             }
         }
     }
-    assert!(checked > 0);
+    assert!(checked > placed && placed > 0, "both forms occur");
 }

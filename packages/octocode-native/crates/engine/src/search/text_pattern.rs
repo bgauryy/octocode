@@ -68,20 +68,6 @@ pub fn matches_line_break(pattern: &str, fixed_string: bool) -> bool {
             .is_err()
 }
 
-/// Whether `pattern`, read as a regex, matches exactly the text it spells:
-/// it parses to that one literal. Escaping marks characters that are literal
-/// outside a class (`-`, `#`, `&`, `~`), so `a-b` holds no regex syntax by
-/// this reading, while `a.b` and `a\.b` each read as other text.
-#[must_use]
-pub fn regex_spells_itself(pattern: &str) -> bool {
-    use regex_syntax::hir::HirKind;
-    regex_syntax::parse(pattern).is_ok_and(|hir| match hir.kind() {
-        HirKind::Literal(literal) => *literal.0 == *pattern.as_bytes(),
-        HirKind::Empty => pattern.is_empty(),
-        _ => false,
-    })
-}
-
 /// Whether `pattern`, read as a regex, means something its writer would
 /// write a regex for: an alternation, a class of several characters, a
 /// repetition, an anchor, or an escape. A pattern whose regex reading is one

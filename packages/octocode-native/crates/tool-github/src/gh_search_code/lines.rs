@@ -41,17 +41,11 @@ pub(super) enum FileHits {
         /// The hit lines' numbers, ascending: `lines` also lists context
         /// when it holds more entries than this.
         matched: Vec<u32>,
-        first: u32,
-        last: u32,
-        /// The hit that best fits the goal ([`hit_score`](scoring::hit_score)).
+        /// The hit that best fits the goal ([`hit_score`](scoring::hit_score)):
+        /// a cut row lists the hits around it.
         best: u32,
         total: usize,
         line_count: usize,
-        /// The best hit's line, verbatim and trimmed, when it declares a
-        /// block (a function, class, ...) and no other line of the file
-        /// holds it: a `matchString` + `block` read returns that whole
-        /// declaration.
-        declaration: Option<String>,
         /// Secret-shaped values `lines` show as placeholders (beyond any
         /// literal placeholder of the source): the row's text is then not
         /// verbatim.
@@ -298,17 +292,14 @@ pub(super) fn scan(
     };
     blob.declared = hit_declarations(declarations, &found);
     let hits = blob.hits(found, &needles, goal);
-    let anchor = blob.anchor(&hits, &needles);
+    let best = blob.anchor(&hits, &needles);
     let lines = blob.listing(&hits, window);
     let redacted = blob.redactions(&lines);
     FileHits::Lines {
         redacted,
-        declaration: blob.declaration(&hits, anchor.best),
         lines,
         matched: hits.iter().map(Hit::number).collect(),
-        first: anchor.first,
-        last: anchor.last,
-        best: anchor.best,
+        best,
         total: hits.len(),
         line_count: blob.lowered.len(),
     }

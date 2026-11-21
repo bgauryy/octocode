@@ -20,28 +20,20 @@ pub(super) fn cursor(
     result_identity: &str,
     reusable: Option<super::manifest::Fresh>,
     policy_key: String,
-    selection: Option<&str>,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<Option<Value>, ToolError> {
     let page = local_search_query::page(query).max(1);
     let layout = &view.layout;
     let empty = view.totals.files == 0;
-    let snapshot = (selection.is_some()
-        || (!empty
-            && (local_search_query::snapshot(query).is_some() || page < layout.total_pages)))
+    let snapshot = (!empty
+        && (local_search_query::snapshot(query).is_some() || page < layout.total_pages))
         .then(|| result_identity.to_owned());
     if snapshot.is_some()
         && let Some(scan) = reusable
     {
         super::manifest::put_checked(result_identity.to_owned(), policy_key, scan, cancelled);
     }
-    build_next(
-        query,
-        page,
-        layout.total_pages,
-        snapshot.as_deref(),
-        selection,
-    )
+    build_next(query, page, layout.total_pages, snapshot.as_deref())
 }
 
 /// The call that continues a streamed page where its walk goes on
@@ -102,13 +94,9 @@ pub(super) fn build_next(
     page: u32,
     total_pages: u32,
     snapshot: Option<&str>,
-    selection: Option<&str>,
 ) -> Result<Option<Value>, ToolError> {
     let mut map = json!({});
     let mut base = query_value(q);
-    if let Some(token) = selection {
-        base["selection"] = json!(token);
-    }
     if let Some(snapshot) = snapshot {
         base["snapshot"] = json!(snapshot);
     }
@@ -220,15 +208,8 @@ pub(super) fn malformed_snapshot(query: &LocalSearchQuery) -> Option<ToolError> 
 /// carry the caller's intent: they stay out of [`query_key`], so a
 /// continuation may change them and keep its snapshot. Every other field
 /// is search semantics, including any field the contract adds later.
-const NON_SEMANTIC_FIELDS: [&str; 7] = [
-    "page",
-    "scanOffset",
-    "walkOffset",
-    "rowOffset",
-    "snapshot",
-    "selection",
-    "classification",
-];
+const NON_SEMANTIC_FIELDS: [&str; 5] =
+    ["page", "scanOffset", "walkOffset", "rowOffset", "snapshot"];
 
 /// Digest of the search semantics a snapshot answers: the whole normalized
 /// query less [`NON_SEMANTIC_FIELDS`], with the defaults the walk applies

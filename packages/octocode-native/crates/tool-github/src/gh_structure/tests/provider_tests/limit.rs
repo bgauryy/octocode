@@ -8,15 +8,9 @@ use octocode_runtime_base::contracts::query_limits::gh_structure as limits;
 use octocode_test_support::json_fixture;
 use wiremock::matchers::query_param;
 
-/// Each `files` name a page lists, in order.
+/// Each entry a page lists, in order.
 fn listed_files(data: &Value) -> Vec<String> {
-    data["files"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .flat_map(|group| group["files"].as_array().into_iter().flatten())
-        .map(|name| name.as_str().unwrap_or_default().to_owned())
-        .collect()
+    listed_paths(data)
 }
 
 /// A root of 5 files at `limit: 2` lists 2, 2 and 1 entries; each

@@ -1,5 +1,6 @@
 use super::hits::heading;
 use super::{annotation, hits, one_line, value_lines};
+use octocode_runtime_base::id::ToolId;
 use serde_json::{Map, Value};
 
 /// Whether `root` is `cwd`, the directory the command runs in.
@@ -11,16 +12,36 @@ pub(super) fn is_working_directory(root: &str, cwd: Option<&std::path::Path>) ->
 
 /// A listing: each `dir/` once, its entries indented under it exactly as
 /// the result spells them, so a name is parsed for nothing; a group of one
-/// file and no other field is one line, `dir/entry` (a listing sorted by
-/// size or date is such groups). A group of one directory keeps its
-/// heading: `dir/sub/` on one line would read as the heading of `sub`, which
-/// a deeper listing prints next. A group's other fields follow its `dir/`
-/// in `[ … ]`. `None` unless `files` is such groups (`{dir, files: [entry,
-/// …]}`), whichever tool lists them.
+/// file and no other field is one line, `dir/entry`. A group of one
+/// directory keeps its heading: `dir/sub/` on one line would read as the
+/// heading of `sub`, which a deeper listing prints next. A group's other
+/// fields follow its `dir/` in `[ … ]`. A flat row (a string: an entry named
+/// by its path, [`lists_flat_rows`]) is one line, as the result spells it,
+/// file and directory alike: a ranked listing is such rows. Only on a page
+/// that also lists groups does a flat directory row print as its group of
+/// one does, since a `dir/` line there is a heading. `None` unless
+/// `files` is such groups (`{dir, files: [entry, …]}`) and rows, whichever
+/// tool lists them.
 pub(super) fn listing(data: &Map<String, Value>, out: &mut Vec<String>) -> Option<()> {
     let groups = data.get("files")?.as_array()?;
     let mut lines = Vec::new();
+    let headed = groups.iter().any(Value::is_object);
     for group in groups {
+        if let Some(row) = group.as_str() {
+            // Beside groups a line ending in `/` is a heading, so a flat
+            // directory row there keeps the form its group of one has.
+            match flat_directory(row).filter(|_| headed) {
+                Some((dir, entry)) => {
+                    lines.push(match one_line(dir) {
+                        dir if dir.is_empty() => "./".to_owned(),
+                        dir => format!("{dir}/"),
+                    });
+                    lines.push(format!("  {}", one_line(entry)));
+                }
+                None => lines.push(one_line(row).into_owned()),
+            }
+            continue;
+        }
         let mut rest = group.as_object()?.clone();
         let dir = rest.shift_remove("dir")?;
         let dir = dir.as_str()?;
@@ -52,15 +73,47 @@ pub(super) fn listing(data: &Map<String, Value>, out: &mut Vec<String>) -> Optio
     Some(())
 }
 
-/// Whether a listing entry (`<name>[/][ (<fields>)]`) names a directory:
-/// its name ends in `/`. A name holds no `/`, and the fields never contain
-/// ` (`, so the last ` (` of an entry ending in `)` opens them.
-fn is_directory(entry: &str) -> bool {
+/// The name of a listing entry (`<name>[/][ (<fields>)]`). The fields never
+/// contain ` (`, so the last ` (` of an entry ending in `)` opens them.
+pub(super) fn entry_name(entry: &str) -> &str {
     entry
         .strip_suffix(')')
         .and_then(|fields| fields.rsplit_once(" ("))
         .map_or(entry, |(name, _)| name)
-        .ends_with('/')
+}
+
+/// Whether a listing entry names a directory: its name ends in `/`.
+fn is_directory(entry: &str) -> bool {
+    entry_name(entry).ends_with('/')
+}
+
+/// A flat row naming a directory, as the directory it lies in (empty: the
+/// root's own entry) and its entry there; `None` for any other row.
+fn flat_directory(row: &str) -> Option<(&str, &str)> {
+    let path = entry_name(row).strip_suffix('/')?;
+    Some(match path.rfind('/') {
+        Some(at) => {
+            let (dir, entry) = row.split_at_checked(at)?;
+            (dir, entry.strip_prefix('/')?)
+        }
+        None => ("", row),
+    })
+}
+
+/// Whether the flat rows of `data`'s `files` (strings: entries named by
+/// their path, `<path>[/][ (<fields>)]`) print as a listing: those of the
+/// tools whose flat row is a row path, spelled from where a group's `dir`
+/// is spelled from (`ghStructure`: repository-relative; `structureSearch`:
+/// workspace-relative, or from the row's `root`), so [`listing`] prints
+/// each row as its one line. `false` for flat rows of any other tool: such a row prints as
+/// `key: value` text, not as a listing, so no line names a path nothing
+/// stated.
+pub(super) fn lists_flat_rows(tool: ToolId, data: &Map<String, Value>) -> bool {
+    let Some(Value::Array(rows)) = data.get("files") else {
+        return true;
+    };
+    !rows.iter().any(Value::is_string)
+        || matches!(tool, ToolId::GhStructure | ToolId::StructureSearch)
 }
 
 /// The declarations of one file, as hits print: several, nested ones or a
@@ -72,15 +125,29 @@ pub(super) fn outline_rows(
     file_note: Option<&str>,
     out: &mut Vec<String>,
 ) -> Option<()> {
-    // Line-first outline strings (`"15\tfunction name (end 67)"`) print as
-    // the declarations they state.
-    let read;
-    let symbols = if !symbols.is_empty() && symbols.iter().all(Value::is_string) {
-        read = octocode_runtime_base::response::symbol_outline::rows_of_lines(symbols)?;
-        read.as_slice()
-    } else {
-        symbols
-    };
+    // Line-first outline strings (`"15\tfunction name (end 67)"`) already
+    // are the line each declaration prints as: text states them as they
+    // are (`15: function name (end 67)`), adding and renaming nothing.
+    if !symbols.is_empty() && symbols.iter().all(Value::is_string) {
+        let rows: Vec<&str> = symbols.iter().filter_map(Value::as_str).collect();
+        let grouped = file_note.is_some() || rows.len() != 1;
+        if grouped {
+            heading(path, file_note, out);
+        }
+        let shown = one_line(path);
+        for row in rows {
+            let line = match row.split_once('\t') {
+                Some((number, text)) => format!("{}: {}", one_line(number), one_line(text)),
+                None => one_line(row).into_owned(),
+            };
+            out.push(if grouped {
+                line
+            } else {
+                format!("{shown}:{line}")
+            });
+        }
+        return Some(());
+    }
     let nests = |symbol: &Value| {
         symbol
             .get("members")
@@ -195,16 +262,16 @@ pub(super) fn site(value: &Value) -> Option<String> {
     }
 }
 
-/// How a location's `content` starts when its file could not be read: the
+/// How a location's `value` starts when its file could not be read: the
 /// reason, not source.
 const UNREAD_CONTENT: &str = "[content unavailable";
 
 /// `lspSearch` results in `data.matches`. A location (`definition`,
-/// `references`, …) prints its `content` as hits: `path:N:text`, or
+/// `references`, …) prints its `value` as hits: `path:N:text`, or
 /// `rg --heading` blocks when any spans lines (context or a declaration
 /// body). Content spanning lines is numbered; one line at the row's own
 /// `line` is served unnumbered. A body's omission marker is a mark for the trailer.
-/// A symbol without content (`workspaceSymbol`) prints as a declaration.
+/// A symbol without a `value` (`workspaceSymbol`) prints as a declaration.
 /// Consecutive rows of one file share its heading; hits on one line print
 /// it once with each `column` ([`one_line_each`]), and a lone hit's column
 /// is left to its text when the text spells `symbol` there and nowhere else.
@@ -231,7 +298,7 @@ pub(super) fn locations(
         {
             entry.insert("endLine".into(), end.into());
         }
-        let is_hit = match item.shift_remove("content") {
+        let is_hit = match item.shift_remove("value") {
             Some(content) => {
                 let content = content.as_str()?.trim_end_matches('\n');
                 let value = match content.rsplit_once('\n') {
@@ -357,43 +424,76 @@ fn spelled_only_at(text: &str, symbol: &str, column: u64) -> bool {
     }
 }
 
-/// A page state (an object holding `hasMore`) in the one form every page
-/// prints in, whichever fields it states: its count first (`10 of 37 lines`,
-/// `10 lines` without a total, `total 37 lines` without a length), `after
-/// 20` when it does not start the list, any other field as words
-/// (`countScope loaded`), then `hasMore` (or `hasMore false`) last. A unit
-/// names the count, so without one it prints as words. `None` for any other
-/// object.
+/// A page state ([`super::follow::is_page`]) in the one form every page
+/// prints in, whichever fields it states. A page that states where it
+/// starts prints its place: `lines 166-247 of 247`, or `lines 166-247`
+/// without a total, so no number reads as "delivered so far". A page that
+/// states no offset prints its count (`10 of 37 lines`, `10 lines this
+/// page` without a total, `total 37 lines` without a length), and an empty
+/// page `0 of 37 lines after 20`. Any other field follows as words. A unit
+/// names the numbers, so without one they print bare. Whether more follows
+/// is the reply's `next` to say. `None` for any other object.
 fn page(fields: &Map<String, Value>) -> Option<String> {
-    let more = fields.get("hasMore")?.as_bool()?;
+    if !super::follow::is_page(fields) {
+        return None;
+    }
     let mut rest = fields.clone();
-    rest.shift_remove("hasMore");
     let length = take_count(&mut rest, "length");
     let total = take_count(&mut rest, "total");
     let offset = take_count(&mut rest, "offset");
-    let mut parts = Vec::new();
-    let count = match (length, total) {
-        (Some(length), Some(total)) => Some(format!("{length} of {total}")),
-        (Some(length), None) => Some(length.to_string()),
-        (None, Some(total)) => Some(format!("total {total}")),
-        (None, None) => None,
+    let unit = match rest.get("unit") {
+        Some(Value::String(unit)) => Some(one_line(unit).to_string()),
+        _ => None,
     };
-    if let Some(mut count) = count {
-        if let Some(Value::String(unit)) = rest.get("unit") {
-            count.push_str(&format!(" {}", one_line(unit)));
-            rest.shift_remove("unit");
-        }
-        parts.push(count);
+    if unit.is_some() {
+        rest.shift_remove("unit");
     }
-    // Offset 0 is the reading without `after`.
-    if let Some(offset) = offset.filter(|offset| *offset > 0) {
-        parts.push(format!("after {offset}"));
-    }
+    let mut parts = vec![page_place(unit.as_deref(), offset, length, total)];
+    parts.retain(|part| !part.is_empty());
     if !rest.is_empty() {
         parts.push(words(&rest));
     }
-    parts.push(if more { "hasMore" } else { "hasMore false" }.to_owned());
     Some(parts.join(" "))
+}
+
+/// The numbers of a page state as one phrase (see [`page`]): the place form
+/// when `offset` and a non-empty `length` are stated, else the count form.
+pub(super) fn page_place(
+    unit: Option<&str>,
+    offset: Option<u64>,
+    length: Option<u64>,
+    total: Option<u64>,
+) -> String {
+    let named = |numbers: String| match unit {
+        Some(unit) => format!("{numbers} {unit}"),
+        None => numbers,
+    };
+    if let (Some(offset), Some(length)) = (offset, length.filter(|length| *length > 0)) {
+        let range = format!("{}-{}", offset + 1, offset + length);
+        let range = match unit {
+            Some(unit) => format!("{unit} {range}"),
+            None => range,
+        };
+        return match total {
+            Some(total) => format!("{range} of {total}"),
+            None => range,
+        };
+    }
+    let mut out = match (length, total) {
+        (Some(length), Some(total)) => named(format!("{length} of {total}")),
+        // A length with no total is this page's size, said so.
+        (Some(length), None) => format!("{} this page", named(length.to_string())),
+        (None, Some(total)) => named(format!("total {total}")),
+        (None, None) => String::new(),
+    };
+    // Offset 0 is the reading without `after`.
+    if let Some(offset) = offset.filter(|offset| *offset > 0) {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(&format!("after {offset}"));
+    }
+    out
 }
 
 /// The whole number `fields` states under `key`, taken out of them; any

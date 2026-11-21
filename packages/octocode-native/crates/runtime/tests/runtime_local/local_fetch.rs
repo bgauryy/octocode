@@ -120,11 +120,10 @@ async fn a_glob_path_read_lists_the_directory_and_no_literal_wildcard_name() {
     runtime.close().await;
 }
 
-/// A missing path carries its parent listing in related[] and the one
-/// `notFound` hint beside it: the lead is the call, the hint says to retry
-/// with the exact listed path.
+/// A missing path is an error row with one recovery: its parent listing in
+/// related[], and no generic hint beside the call that carries the fix.
 #[tokio::test]
-async fn a_missing_path_carries_its_listing_and_the_not_found_hint() {
+async fn a_missing_path_carries_one_listing_and_no_hint_beside_it() {
     let workspace = Workspace::new();
     workspace.write("w/a.md", "a\n");
     let runtime = workspace.runtime(&[]);
@@ -137,16 +136,9 @@ async fn a_missing_path_carries_its_listing_and_the_not_found_hint() {
     .expect("typed missing row");
     let data = row_data(&outcome);
     assert_eq!(data["errorCode"], "notFound", "{data}");
-    assert!(
-        data["related"].as_array().is_some_and(|r| !r.is_empty()),
-        "{data}"
-    );
-    assert!(
-        data["hints"][0]
-            .as_str()
-            .is_some_and(|hint| hint.contains("retry with the exact listed path")),
-        "{data}"
-    );
+    assert_eq!(data["related"].as_array().map(Vec::len), Some(1), "{data}");
+    assert_eq!(data["related"][0]["tool"], "structureSearch", "{data}");
+    assert!(data.get("hints").is_none(), "{data}");
     runtime.close().await;
 }
 
@@ -167,9 +159,18 @@ async fn a_long_lines_byte_pages_fit_each_rows_share_and_never_shrink_to_slivers
     let path = workspace.write("bundle.min.js", format!("{line}\n"));
     let runtime = workspace.runtime(&[]);
     let row = json!({"path": path});
+    // The source bytes a byte page holds: its `length`, which never counts
+    // the gutter of a row that starts a line.
     let page_text = |data: &serde_json::Value| {
         assert_eq!(data["pagination"]["unit"], "bytes", "{data}");
-        data["content"].as_str().expect("content").len()
+        let shown = data["pagination"]["length"].as_u64().expect("length") as usize;
+        let content = data["content"].as_str().expect("content");
+        let gutter = content.len() - shown;
+        assert!(
+            gutter == 0 || content.starts_with("1\t") && gutter == "1\t".len(),
+            "the row that starts line 1 carries its gutter, no other does: {data}"
+        );
+        shown
     };
     // (rows, responseChars): one row of a narrow page, a batch's narrow
     // shares of it, and a batch whose shares of the default page hold 4 KB.

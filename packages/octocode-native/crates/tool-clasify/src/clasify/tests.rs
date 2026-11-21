@@ -66,6 +66,8 @@ fn each_resource_is_judged_whole_and_a_failure_stays_with_it() {
     use octocode_tools_shared::judgment::Judged;
     let row = Row {
         context: None,
+        goal: None,
+        background: None,
         model: None,
         keys: vec!["q".into(), "kind".into()],
         questions: vec![
@@ -86,6 +88,7 @@ fn each_resource_is_judged_whole_and_a_failure_stays_with_it() {
         source_progress: None,
         max_requests: None,
         per_hit: false,
+        collapse: false,
         retry_units: None,
         query: Value::Null,
     };
@@ -175,6 +178,8 @@ fn each_resource_is_judged_whole_and_a_failure_stays_with_it() {
 fn resources_row(resources: Value) -> Row {
     Row {
         context: None,
+        goal: None,
+        background: None,
         model: None,
         keys: vec!["q".into()],
         questions: vec![json_fixture(
@@ -188,6 +193,7 @@ fn resources_row(resources: Value) -> Row {
         source_progress: None,
         max_requests: None,
         per_hit: false,
+        collapse: false,
         retry_units: None,
         query: Value::Null,
     }

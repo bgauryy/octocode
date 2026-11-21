@@ -51,6 +51,14 @@ async fn tag_listing_failure_never_emits_an_incompatible_order_cursor() {
 #[tokio::test]
 async fn a_missing_repository_named_with_a_clone_suffix_is_repaired() {
     let server = MockServer::builder().start().await;
+    // The owner's login exists: only the repository is missing.
+    wiremock::Mock::given(wiremock::matchers::path_regex("/users/[^/]+$"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"login": "owner"})),
+        )
+        .mount(&server)
+        .await;
     for route in [
         "/api/v3/repos/a/b.git",
         "/api/v3/repos/a/b.git/commits/HEAD",
@@ -94,6 +102,14 @@ async fn a_missing_repository_named_with_a_clone_suffix_is_repaired() {
 #[tokio::test]
 async fn a_missing_repository_leads_to_a_repository_search() {
     let server = MockServer::builder().start().await;
+    // The owner's login exists: only the repository is missing.
+    wiremock::Mock::given(wiremock::matchers::path_regex("/users/[^/]+$"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"login": "owner"})),
+        )
+        .mount(&server)
+        .await;
     for route in ["/api/v3/repos/a/typo", "/api/v3/repos/a/typo/commits/HEAD"] {
         mount_json(
             &server,
@@ -295,12 +311,7 @@ async fn refs_pages_continue_at_the_read_size_and_lead_from_page_one() {
 
     let second = list(&server, next).await.expect("refs page 2");
     // Newest first: the 31st tag (the oldest) is page 2's one tag.
-    assert_eq!(
-        second.data["tags"],
-        json!([format!("v1 {SHA}")]),
-        "{}",
-        second.data
-    );
+    assert_eq!(second.data["tags"], json!(["v1"]), "{}", second.data);
     assert!(second.data.get("warnings").is_none(), "{}", second.data);
     assert_eq!(second.data["pagination"]["offset"], 30, "{}", second.data);
     assert_eq!(
@@ -650,12 +661,14 @@ async fn mount_matching_refs(server: &MockServer, names: &[&str]) {
         .await;
 }
 
-/// Each tag row names the commit its tag points at: a lightweight tag's
-/// as listed, an annotated tag's the commit its tag object targets, every
-/// annotated tag on the page read in one GraphQL request, never one read
-/// per tag.
+/// A listing without `ref` names its tags and branches alone and reads no
+/// tag's commit: every read takes a name as `ref`. Under a glob `ref`
+/// (`"*"`: every ref) each tag row names the commit its tag points at: a
+/// lightweight tag's as listed, an annotated tag's the commit its tag object
+/// targets, every annotated tag on the page read in one GraphQL request,
+/// never one read per tag.
 #[tokio::test]
-async fn tag_rows_name_the_commit_each_tag_points_at() {
+async fn only_a_glob_listing_reads_and_names_the_commit_each_tag_points_at() {
     let server = server().await;
     let annotated = ["v3.0.0", "v2.0.0"];
     let object = |name: &str| format!("{:0>40}", name.replace('.', "").replace('v', "a"));
@@ -696,19 +709,34 @@ async fn tag_rows_name_the_commit_each_tag_points_at() {
         })
         .mount(&server)
         .await;
-    let out = list(
-        &server,
-        json_fixture(
-            r#"{
+    let listing = json_fixture(
+        r#"{
                 "owner": "a",
                 "repo": "b",
                 "operation": "refs",
                 "refKinds": ["tags"]
             }"#,
-        ),
-    )
-    .await
-    .expect("refs");
+    );
+    let names = list(&server, listing.clone()).await.expect("refs");
+    assert_eq!(
+        names.data["tags"],
+        json!(["v3.0.0", "v2.0.0", "v1.0.0"]),
+        "{}",
+        names.data
+    );
+    // The names-only listing still pins the default branch.
+    assert_eq!(names.data["defaultBranchSha"], SHA, "{}", names.data);
+    let commit_reads = |asked: &[wiremock::Request]| {
+        asked
+            .iter()
+            .filter(|request| request.url.path() == "/api/graphql")
+            .count()
+    };
+    let asked = server.received_requests().await.expect("requests");
+    assert_eq!(commit_reads(&asked), 0, "names cost no commit read");
+    let mut every = listing;
+    every["ref"] = json!("*");
+    let out = list(&server, every).await.expect("refs");
     let mut expected = annotated
         .iter()
         .map(|name| json!(format!("{name} {}", commit(name))))
@@ -716,11 +744,11 @@ async fn tag_rows_name_the_commit_each_tag_points_at() {
     expected.push(json!(format!("v1.0.0 {SHA}")));
     assert_eq!(out.data["tags"], json!(expected), "{}", out.data);
     let asked = server.received_requests().await.expect("requests");
-    let graphql = asked
-        .iter()
-        .filter(|request| request.url.path() == "/api/graphql")
-        .count();
-    assert_eq!(graphql, 1, "one read for the page's annotated tags");
+    assert_eq!(
+        commit_reads(&asked),
+        1,
+        "one read for the page's annotated tags"
+    );
     assert!(
         !asked
             .iter()

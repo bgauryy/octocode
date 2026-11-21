@@ -12,9 +12,9 @@ use super::layout::Layout;
 use super::local_search_query;
 use super::page_view::PageView;
 use super::verify::{Outlines, PageScope, Redacted, Redaction, Withheld, verify_candidate};
-use octocode_contract_types::{ErrorCode, LocalSearchQuery};
+use octocode_contract_types::LocalSearchQuery;
 use octocode_engine::num::saturating_u32;
-use octocode_engine::types::{SearchContext, TextSearchFile, TextSearchResult};
+use octocode_engine::types::{TextSearchFile, TextSearchResult};
 use octocode_runtime_base::execution::cancel::CancellationCheck;
 use octocode_runtime_base::response::result::ToolError;
 use serde::Serialize;
@@ -85,12 +85,6 @@ pub(super) fn shape(
     (mut redacted, withheld): (Redacted, Withheld),
     redaction: Redaction,
 ) -> Result<Shaped, ToolError> {
-    if local_search_query::has_classification(scope.query) {
-        return Err(ToolError::new(
-            ErrorCode::InvalidInput,
-            "unique countAll tallies every hit; classification selects hits per file: use unique count with classification for the kept hits' values.",
-        ));
-    }
     for file in &mut parsed.files {
         verify_candidate(scope, file, (&mut redacted, &withheld))?;
     }
@@ -107,7 +101,6 @@ pub(super) fn shape(
         redacted,
         redaction,
         outlines: Outlines::new(),
-        selection: None,
         tally: Some(tally),
         notes: Vec::new(),
         walk: None,
@@ -166,7 +159,6 @@ fn layout(query: &LocalSearchQuery, files: usize) -> Layout {
         length: 0,
         row_unit: "matches",
         out_of_range: files > 0 && local_search_query::page(query).max(1) > 1,
-        context: SearchContext::default(),
         merge_context: None,
         pages: None,
         walk: None,

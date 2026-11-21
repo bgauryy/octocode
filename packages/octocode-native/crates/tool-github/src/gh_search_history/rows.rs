@@ -186,21 +186,6 @@ pub(super) fn map_commit_list(v: Value) -> Value {
     row
 }
 
-/// The row a default read targets: the first readable row `prefer` picks
-/// (a merged PR, a completed issue), else the first readable row (an index
-/// into `items`).
-pub(super) fn read_target(items: &[Value], prefer: fn(&Value) -> bool) -> Option<usize> {
-    let readable = |index: &usize| item_number(&items[*index]).is_some();
-    (0..items.len())
-        .filter(readable)
-        .find(|index| prefer(&items[*index]))
-        .or_else(|| (0..items.len()).find(readable))
-}
-
-pub(super) fn item_number(item: &Value) -> Option<u64> {
-    item.get("number").and_then(Value::as_u64)
-}
-
 /// Retain a row's source identity, including when the request scoped the repository.
 pub(super) fn name_repository(
     row: &mut Value,
@@ -232,15 +217,4 @@ pub(super) fn item_repo(item: &Value) -> Option<(String, String)> {
     let (owner, repo) = full_name.split_once('/')?;
     (!owner.is_empty() && !repo.is_empty() && !repo.contains('/'))
         .then(|| (owner.to_owned(), repo.to_owned()))
-}
-
-pub(super) fn is_merged(item: &Value) -> bool {
-    item.get("merged_at")
-        .or_else(|| item.pointer("/pull_request/merged_at"))
-        .is_some_and(|value| !value.is_null())
-}
-
-pub(super) fn is_completed(item: &Value) -> bool {
-    item.get("state").and_then(Value::as_str) == Some("closed")
-        && item.get("state_reason").and_then(Value::as_str) == Some("completed")
 }

@@ -290,8 +290,14 @@ pub(super) fn empty_scope_warning(
 
 /// The literal path prefix of an `include` pattern: the pattern itself
 /// without glob characters, else the directory before its first glob
-/// (`packages/react/**` → `packages/react/`); `None` for a bare glob.
+/// (`packages/react/**` → `packages/react/`); `None` for a bare glob and for
+/// a pattern without a `/`, which names an entry at any depth.
 pub(super) fn literal_prefix(pattern: &str) -> Option<String> {
+    let anchored = pattern.strip_prefix('/');
+    let pattern = anchored.unwrap_or(pattern);
+    if anchored.is_none() && !pattern.trim_end_matches('/').contains('/') {
+        return None;
+    }
     let glob = pattern.find(octocode_engine::search::glob::GLOB_META);
     let prefix = match glob {
         None => pattern,

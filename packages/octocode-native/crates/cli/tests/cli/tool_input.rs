@@ -59,11 +59,7 @@ fn localfetch_cursor_walk_reconstructs_source_across_processes() {
                 shown.push_str(content);
             }
         }
-        let call = if value["responsePagination"]["next"].is_object() {
-            &value["responsePagination"]["next"]
-        } else {
-            &value["results"][0]["data"]["next"]["nextPage"]
-        };
+        let call = &value["next"];
         if call.is_null() {
             break;
         }

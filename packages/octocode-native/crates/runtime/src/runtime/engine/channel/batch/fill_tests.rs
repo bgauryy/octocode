@@ -162,26 +162,6 @@ fn each_round_finishes_a_row_until_the_page_is_full() {
     }
 }
 
-/// A row a provider judges is never read again, whatever room is left: a
-/// second read would ask the judge again. It keeps its first read.
-#[test]
-fn a_judged_row_is_never_read_again() {
-    let room = 20_000;
-    let source = Source::new(&[18_000, 600]);
-    let mut queries = source.queries();
-    let mut judged = queries[0].clone().into_value();
-    judged["classification"] = json!({"predicates": ["Does this state the fact?"]});
-    queries[0] = CheckedQuery::checked(judged);
-    let share = room / 2;
-    let first = source.read(&queries.iter().collect::<Vec<_>>(), share);
-    let rows = fill_page(first, &queries, (room, share), |open, share| {
-        Ok(source.read(open, share))
-    })
-    .expect("fill");
-    assert!(read_share::reads_on(&rows[0].data));
-    assert_eq!(source.reads_of(0), [share]);
-}
-
 /// A failed read fails the fill as it fails the batch.
 #[test]
 fn a_failed_read_again_fails_the_fill() {

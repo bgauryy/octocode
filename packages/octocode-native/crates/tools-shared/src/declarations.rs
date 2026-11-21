@@ -144,8 +144,6 @@ pub fn named_heritage(source: &str, path: &str, name: &str) -> Option<Arc<GraphF
 /// One declaration of the engine outline, 1-based lines.
 pub(crate) struct Declared {
     pub(crate) name: String,
-    pub(crate) kind: String,
-    pub(crate) doc_start: Option<usize>,
     /// Its name line.
     pub(crate) line: usize,
     pub(crate) start: usize,
@@ -157,8 +155,6 @@ impl Declared {
         let line = |zero_based: u32| zero_based as usize + 1;
         Self {
             name: declaration.name.clone(),
-            kind: declaration.kind.clone(),
-            doc_start: declaration.doc_line.map(line),
             line: line(declaration.selection_range.start.line),
             start: line(declaration.range.start.line),
             end: line(declaration.range.end.line),

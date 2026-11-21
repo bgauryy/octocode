@@ -125,7 +125,7 @@ async fn evict(runtime: &ToolRuntime, filler: &str) {
         )
         .await;
         assert!(
-            structured["responsePagination"]["next"].is_object(),
+            structured["next"].is_object(),
             "filler call must page to be stored"
         );
     }
@@ -143,7 +143,7 @@ async fn measure(runtime: &ToolRuntime, workload: &Workload, filler: &str) -> Me
     for _ in 0..ITERATIONS {
         let (page_one, elapsed) = call(runtime, workload.tool, first.clone()).await;
         measured.page_one.push(elapsed);
-        let pagination = &page_one["responsePagination"];
+        let pagination = &page_one;
         assert!(
             pagination["next"].is_object(),
             "{} must page",
@@ -177,7 +177,7 @@ async fn measure(runtime: &ToolRuntime, workload: &Workload, filler: &str) -> Me
 async fn replay_only(runtime: &ToolRuntime, workload: &Workload, repeats: usize) {
     let first = json!({"queries": workload.queries, "responseLength": RESPONSE_LENGTH});
     let (page_one, _) = call(runtime, workload.tool, first).await;
-    let next = page_one["responsePagination"]["next"]["query"].clone();
+    let next = page_one["next"]["query"].clone();
     for _ in 0..repeats {
         let (replayed, _) = call(runtime, workload.tool, next.clone()).await;
         assert_ne!(replayed["responsePagination"]["restart"], true);

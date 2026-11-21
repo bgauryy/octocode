@@ -19,8 +19,7 @@
 //!
 //! The selection judge and clasify's units ([`super::units`]) pack alike;
 //! what differs is how each asks ([`Asking`]).
-use super::{compile, provider_state, section_question, target_question};
-use crate::selection::JudgeCall;
+use super::provider_state;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 
@@ -57,14 +56,19 @@ pub(super) const SHARED_QUESTIONS: &str = "questions";
 const GROUP_STATE_CHARS: usize = 32_000;
 
 /// Whole units one request holds at most, whatever room the provider's windows
-/// leave; the window cap only closes a request sooner. One: the live A/B
-/// (fx-k2size) kept different sets for fuzzy predicates at 4 and at 8 units
-/// per request than one request per unit judges (Jaccard 14-41% and 3-14% on a
-/// 40-path page against the per-unit run's own 100%, with 17-28 of 40 units
-/// left unknown against 0-1), however the units were separated, so a request
-/// holds one until a larger size matches. Part of the judge's identity, so a
-/// plan judged at another size is not replayed.
-pub(super) const GROUP_UNITS: usize = 1;
+/// leave; the window cap only closes a request sooner. Each unit is a named
+/// field of the state and each question names its field ([`unit_label`]), the
+/// form the provider documents for a question about one part of a state.
+/// Measured 2026-11-21 on path units, one predicate, against one request per
+/// unit: 48 in one request found 12 of 12 known positives with no false one
+/// (per unit: 10 of 12) at 3,019 input tokens against 14,473; 100 in one
+/// request agreed with per unit on 95 of 100 and was the more conservative
+/// (5 of 10 against 7 of 10), so a request holds the size measured at least
+/// as accurate. The earlier form, every unit a line of one text under a
+/// `unit 3` label, kept different sets at 4 and at 8 units (Jaccard 14-41%
+/// and 3-14% on a 40-path page) and held one. Part of the judge's identity,
+/// so a plan judged at another size is not replayed.
+pub(super) const GROUP_UNITS: usize = 48;
 
 /// What one request may hold, in serialized bytes, derived from the
 /// provider's stated windows at the density its answers taught
@@ -259,21 +263,26 @@ struct UnitGroup {
     slots: Vec<(usize, usize)>,
 }
 
-/// `unit 3: <identifying text>` (or `unit 3`), the label a unit's questions
-/// carry; its line in the shared state opens with the same `unit 3` token, so
-/// a question and the text it is about match word for word.
+/// A unit's field in the shared state's `units`.
+fn unit_field(id: usize) -> String {
+    format!("u{id}")
+}
+
+/// `` `units.u3`: <identifying text> `` (or `` `units.u3` ``), the label a
+/// unit's questions carry: the path of its field in the shared state, in
+/// the backticks the provider reads as a reference to that field.
 fn unit_label(id: usize, identity: &str) -> String {
+    let field = unit_field(id);
     if identity.is_empty() {
-        format!("unit {id}")
+        format!("`units.{field}`")
     } else {
-        format!("unit {id}: {identity}")
+        format!("`units.{field}`: {identity}")
     }
 }
 
-/// A unit's line in the shared state: its `unit 3` name, a tab, its compact
-/// state. One line (a state's newlines are escaped), so lines never mix.
+/// What a unit adds to the shared state, for sizing: its field and state.
 fn unit_line(id: usize, state: &Value) -> String {
-    format!("unit {id}\t{state}")
+    format!("\"{}\":{state},", unit_field(id))
 }
 
 impl UnitGroup {
@@ -345,31 +354,6 @@ fn with_context(mut state: Value, context: Option<&str>) -> Value {
     state
 }
 
-/// Every admitted candidate as a request, as the selection judge asks: the
-/// template's question over each classifier. `None` when the template cannot
-/// compile a question.
-pub(super) fn requests(call: &JudgeCall<'_>, caps: Caps) -> Option<Vec<Request>> {
-    let ask = |target: Option<&str>| {
-        call.predicates
-            .iter()
-            .map(|classifier| compile(classifier, target))
-            .collect::<Option<Vec<_>>>()
-    };
-    let asking = Asking {
-        ask: &ask,
-        hit_scope: target_question()?,
-        unit_scope: section_question()?,
-        context: call.research_context,
-        own_windows: true,
-        shared: None,
-    };
-    let units = call
-        .admitted
-        .iter()
-        .filter_map(|&ordinal| Some((ordinal, call.candidates[ordinal].state.as_ref()?)));
-    pack(units, call.predicates.len(), &asking, caps)
-}
-
 /// Every unit (its ordinal and the state the judge reads) as a request, each
 /// unit owning `per_unit` questions from its slot's first. `None` when a
 /// question cannot be asked.
@@ -424,7 +408,7 @@ pub(super) fn pack<'v>(
         ))
     };
     let unit_fixed = bytes_of(&with_shared(
-        json!({"question": asking.unit_scope, "units": "", "context": context}),
+        json!({"question": asking.unit_scope, "units": {}, "context": context}),
     ));
     for (ordinal, state) in units {
         let Some(target) = state.get("target") else {
@@ -541,13 +525,13 @@ fn flush_units(
         }
     } else {
         let mut questions = Vec::new();
-        let mut lines = Vec::new();
+        let mut units = serde_json::Map::new();
         for (index, unit) in group.units.iter().enumerate() {
             let id = index + 1;
-            lines.push(unit_line(id, &unit.state));
+            units.insert(unit_field(id), unit.state.clone());
             questions.extend((asking.ask)(Some(&unit_label(id, &unit.identity)))?);
         }
-        let mut state = json!({"question": asking.unit_scope, "units": lines.join("\n")});
+        let mut state = json!({"question": asking.unit_scope, "units": units});
         if let Some(shared) = asking.shared {
             state[SHARED_QUESTIONS] = shared.clone();
         }

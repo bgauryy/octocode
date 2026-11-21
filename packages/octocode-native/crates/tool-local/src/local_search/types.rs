@@ -264,8 +264,6 @@ pub struct LocalSearchResult {
     pub files: Vec<SearchFile>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) pagination: Option<Paging>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub selection: Option<octocode_contract_types::Selection>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub hints: Vec<String>,
     #[serde(

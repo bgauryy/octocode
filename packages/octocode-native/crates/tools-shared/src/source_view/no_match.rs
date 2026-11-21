@@ -7,106 +7,156 @@ use crate::source_view::local_fetch_query;
 use octocode_contract_types::{CaseMode, LocalFetchQuery};
 use std::path::Path;
 
-/// A matchString that selected no line: an empty row with its facts.
+/// What a miss over text holding `masked` masked secret values leaves out,
+/// as a clause for its one hint: text a read masks is matched by no search,
+/// so the miss proves no absence inside it. The one wording of every tool
+/// that searches redacted text.
+#[must_use]
+pub fn masked_unsearched(masked: usize) -> String {
+    let (values, verb) = if masked == 1 {
+        ("1 masked secret value".to_owned(), "is")
+    } else {
+        (format!("{masked} masked secret values"), "are")
+    };
+    format!("{values} (maskedSpans) {verb} never searched")
+}
+
+/// A matchString that selected no line: an empty row with its one hint and
+/// at most one call, the first cause that explains the miss. In order: the
+/// same read ignoring case, when that selects lines; the same read without
+/// its `ranges`, when the file has hits outside them; the read of the names
+/// a misremembered declaration head declares, when they select lines; the
+/// file's outline, which lists what it declares; else the search of its
+/// directory. The first three are counted in the file, so their hint states
+/// a fact; the last two are where to look next, and claim absence only for
+/// the text searched: over masked secret values they say those were not
+/// searched ([`masked_unsearched`]).
 pub(super) fn no_match(q: &LocalFetchQuery, source: &Source<'_>) -> LocalFetchResult {
     // Every lead below counts lines of the redacted text, so it is the same
     // for a right and a wrong guess at a secret.
-    let mut warnings = Vec::new();
     let written = source.written();
-    // A case-sensitive miss reruns as the same read, case-insensitive, only
-    // when that read selects lines; the count is the fact beside the lead.
-    let insensitive = Some(insensitive_match_count(q, &source.text, &written)).filter(|count| *count > 0);
-    let ignore_case = insensitive.map(|count| {
-        warnings.push(format!(
-            "{count} {} ignoring case.",
-            if count == 1 {
-                "line matches"
-            } else {
-                "lines match"
-            }
-        ));
-        let mut query = q.clone();
-        if let Some(matched) = local_fetch_query::matched_mut(&mut query) {
-            matched.case_mode = CaseMode::Insensitive;
+    let lines = |count: usize| {
+        if count == 1 {
+            "1 line matches".to_owned()
+        } else {
+            format!("{count} lines match")
         }
-        FetchCall::related(query)
-    });
-    // A `ranges` read that missed while this file has hits outside its
-    // ranges: the same read without them selects those lines.
-    let outside = local_fetch_query::has_ranges(q)
-        .then(|| {
-            let whole = local_fetch_query::updated(q, serde_json::json!({"ranges": null})).ok()?;
-            let count = super::extraction::extract(&whole, &source.text, &written)
-                .ok()
-                .and_then(|extraction| extraction.count)
-                .unwrap_or(0);
-            (count > 0).then_some((count, whole))
-        })
-        .flatten();
-    let read = outside.map(|(count, query)| {
-        warnings.push(format!(
-            "{count} {} outside the requested ranges.",
-            if count == 1 {
-                "line matches"
-            } else {
-                "lines match"
+    };
+    let ignoring_case = || {
+        let count = insensitive_match_count(q, &source.text, &written);
+        (count > 0).then(|| {
+            let mut query = q.clone();
+            if let Some(matched) = local_fetch_query::matched_mut(&mut query) {
+                matched.case_mode = CaseMode::Insensitive;
             }
-        ));
-        FetchCall::related(query)
-    });
-    // The folder search is for a pattern this file does not hold at all.
-    let elsewhere = read.is_none();
-    // Nothing else in this file matched: the file itself is read again
-    // before any folder is searched (its lead comes first). A declaration
-    // head misremembered (`pub fn apply(` where the file declares
-    // `pub(crate) fn apply`) is read by its name alone when that selects
-    // lines; else the file's outline lists what it declares.
-    let read = read.or_else(|| {
-        if ignore_case.is_some() {
+            let hint = format!(
+                "No case-sensitive match; {} ignoring case: the related[] call reads them.",
+                lines(count)
+            );
+            (
+                hint,
+                NextCalls {
+                    ignore_case: Some(FetchCall::related(query)),
+                    ..NextCalls::default()
+                },
+            )
+        })
+    };
+    let outside_ranges = || {
+        if !local_fetch_query::has_ranges(q) {
             return None;
         }
-        if let Some((count, names, query)) = named_read(q, &source.text, &written) {
-            warnings.push(format!(
-                "{count} {} `{names}`.",
-                if count == 1 {
-                    "line matches"
-                } else {
-                    "lines match"
-                }
-            ));
-            return Some(FetchCall::related(query));
-        }
-        outlined(local_fetch_query::path(q))
-            .then(|| local_fetch_query::outline_lead(local_fetch_query::path(q)))
-            .flatten()
-            .map(FetchCall::related)
-    });
-    let search = elsewhere
-        .then(|| {
-            let dir = Path::new(local_fetch_query::path(q))
-                .parent()
-                .map(|dir| dir.to_string_lossy().into_owned())
-                .filter(|dir| !dir.is_empty())
-                .unwrap_or_else(|| ".".to_owned());
-            super::extraction::search_lead(q, &dir, &local_fetch_query::match_strings(q))
-        })
-        .flatten();
+        let whole = local_fetch_query::updated(q, serde_json::json!({"ranges": null})).ok()?;
+        let count = super::extraction::extract(&whole, &source.text, &written)
+            .ok()
+            .and_then(|extraction| extraction.count)
+            .filter(|count| *count > 0)?;
+        let hint = format!(
+            "No match in the requested ranges; {} outside them: the related[] call reads them.",
+            lines(count)
+        );
+        Some((
+            hint,
+            NextCalls {
+                read: Some(FetchCall::related(whole)),
+                ..NextCalls::default()
+            },
+        ))
+    };
+    // A declaration head misremembered (`pub fn apply(` where the file
+    // declares `pub(crate) fn apply`) is read by its name alone.
+    let named = || {
+        let (count, names, query) = named_read(q, &source.text, &written)?;
+        let hint = format!(
+            "No line holds it as written; {} `{names}`: the related[] call reads them.",
+            lines(count)
+        );
+        Some((
+            hint,
+            NextCalls {
+                read: Some(FetchCall::related(query)),
+                ..NextCalls::default()
+            },
+        ))
+    };
+    // What the miss proves: nothing of this file's text, or, when the file
+    // holds masked values, nothing of the text outside them.
+    let masked = source.redactions_total();
+    let absent = if masked == 0 {
+        "No line of this file holds it".to_owned()
+    } else {
+        format!(
+            "No line of the searched text holds it; {}",
+            masked_unsearched(masked)
+        )
+    };
+    let outline = || {
+        let path = local_fetch_query::path(q);
+        let read = outlined(path)
+            .then(|| local_fetch_query::outline_lead(path))
+            .flatten()?;
+        Some((
+            format!("{absent}; the related[] call lists what the file declares."),
+            NextCalls {
+                read: Some(FetchCall::related(read)),
+                ..NextCalls::default()
+            },
+        ))
+    };
+    let elsewhere = || {
+        let dir = Path::new(local_fetch_query::path(q))
+            .parent()
+            .map(|dir| dir.to_string_lossy().into_owned())
+            .filter(|dir| !dir.is_empty())
+            .unwrap_or_else(|| ".".to_owned());
+        let search = super::extraction::search_lead(q, &dir, &local_fetch_query::match_strings(q))?;
+        Some((
+            format!("{absent}; the related[] call searches its directory."),
+            NextCalls {
+                text_search: Some(search),
+                ..NextCalls::default()
+            },
+        ))
+    };
+    let (hint, next) = ignoring_case()
+        .or_else(outside_ranges)
+        .or_else(named)
+        .or_else(outline)
+        .or_else(elsewhere)
+        .map_or_else(
+            || (format!("{absent}."), None),
+            |(hint, next)| (hint, Some(next)),
+        );
     LocalFetchResult {
         path: local_fetch_query::path(q).to_owned(),
         source_sha256: Some(source.sha256.clone()),
         content: Some(String::new()),
         view: None,
-        next: Some(NextCalls {
-            text_search: search,
-            ignore_case,
-            read,
-            ..NextCalls::default()
-        })
-        .filter(|next| !next.is_empty()),
-        warnings,
+        next,
+        hints: vec![hint],
         total_lines: Some(source.total_lines),
         selected_match_count: Some(0),
-        masked_spans: Some(source.redactions_total()).filter(|spans| *spans > 0),
+        masked_spans: Some(masked).filter(|spans| *spans > 0),
         returned_bytes: Some(0),
         returned_lines: Some(0),
         ..LocalFetchResult::blank(ReadStatus::Empty)

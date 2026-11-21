@@ -9,6 +9,7 @@ use octocode_github::{
 use octocode_runtime_base::id::ToolId;
 use octocode_runtime_base::response::result::Continuation;
 use octocode_runtime_base::response::result::wire_query;
+use octocode_tools_shared::gh_shared::failed_read::name_missing_owner;
 use octocode_tools_shared::gh_shared::{
     DefaultBranchRetry, GhFailure, default_branch_retry, failure_scope, renamed_warning,
     repository_failure, repository_not_found, unresolved_refs, with_repo,
@@ -20,7 +21,8 @@ use serde_json::{Map, Value, json};
 /// [`recovery`]'s lead and, for a missing ref, [`missing_ref`]'s message
 /// and `atDefaultBranch` retry. A bare 404 of a repository that does not
 /// resolve is the shared repository failure, whose leads search for it
-/// ([`failure_scope`]). A repository renamed since the query was written is
+/// ([`failure_scope`]), or names the owner when no such login exists
+/// ([`name_missing_owner`]). A repository renamed since the query was written is
 /// named once in the message ([`renamed_warning`]), and every lead names it
 /// as it is now.
 pub(crate) async fn recover(
@@ -34,7 +36,8 @@ pub(crate) async fn recover(
         (Some(owner), Some(repo)) => {
             let scope = failure_scope(provider, owner, repo, None, error, context).await;
             if repository_not_found(&scope.error) {
-                return repository_failure(scope.error, owner, repo);
+                let failure = repository_failure(scope.error, owner, repo);
+                return name_missing_owner(provider, failure, owner, context).await;
             }
             let renamed = scope
                 .canonical

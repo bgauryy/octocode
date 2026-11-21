@@ -42,6 +42,9 @@ const TASKS = {
   'skills:check': ['Skill lint, shared report viewer, and skill script tests', () => [...skillChecks(), ...SKILLS_COMMON]],
   'answers:record': ['Re-record the provider answers native mocks replay, live, read-only and public (test-utils/provider-answers; needs build:dev; [id,...])', [script('providers/record.mjs')]],
   check: ['Fast local static check: oxlint baseline, rustfmt, the clippy ratchet, every other workspace lint:own and typecheck, in parallel. No build, no tests: pair it with a focused test', [OXLINT_BASELINE, yarn('workspace', '@octocodeai/octocode-native', 'fmt:rust:check'), script('rust-lint.mjs'), health('run', 'lint:own', '--parallel', '--exclude', '@octocodeai/octocode-native'), health('run', 'typecheck', '--parallel')]],
+  slots: ['Who holds each machine-wide Rust build slot now (pid, lane, command, time held)', [['node', [path.join(NATIVE, 'scripts', 'build-slot.cjs'), '--status']]]],
+  // The whole release gate set as a dependency graph with one summary table (gates.mjs).
+  gates: ['Release gate set in one run: build:dev, then check, contract check, config tests, docs:verify, skills:check and test:rust side by side (cargo queues on the build slots), then the sibling core tests and typecheck; one summary table, exit 1 on any failure', [script('gates.mjs')]],
   'lint:rust': ['Local clippy ratchet: plain clippy plus production-only bans and lints, whose old findings may only shrink ([--write], [--adopt])', [script('rust-lint.mjs')]],
   lint: ['Oxlint baseline (the one oxlint run), then every workspace lint:own script', [OXLINT_BASELINE, health('run', 'lint:own', '--parallel')]],
   'lint:ci': ['Lint without native workspace scripts (the oxlint baseline still covers them)', [OXLINT_BASELINE, health('run', 'lint:own', ...CI_EXCLUDE)]],
@@ -59,7 +62,7 @@ const TASKS = {
   // Every intra-doc link in the native crates resolves; private items are documented, so links to them count too.
   'docs:rust': ['Native rustdoc with broken intra-doc links denied (cargo doc --no-deps --document-private-items, in a build slot)', () => [slotted(['cargo', ['doc', '--locked', '--no-deps', '--document-private-items', '--workspace']], { cwd: NATIVE, env: { ...process.env, RUSTDOCFLAGS: [process.env.RUSTDOCFLAGS, '-D rustdoc::broken_intra_doc_links'].filter(Boolean).join(' ') } })]],
   'deps:dedupe': ['One version range per external dependency (--fix rewrites)', [script('dedupe-deps.mjs')]],
-  'contracts:regen': ['Build sibling core, refresh its copy (yarn install), regenerate the tool contract, then the tool-flow route table', [script('core-build.mjs'), yarn('install'), yarn('workspace', '@octocodeai/config', 'generate:tool-contract'), skill('common/tool-flow.mjs')]],
+  'contracts:regen': ['Regenerate the tool contract, one run at a time machine-wide: core typecheck (refuses when it fails), core build, refresh its copy (yarn install), generate the contract, then the tool-flow route table', [script('contracts-regen.mjs')]],
   setup: ['Local dev resolutions (--dry-run, --install, --reset); then yarn install', [script('dev-setup.mjs')]],
   prepublish: ['Local-resolution check (--fix strips local resolutions, --dry-run previews)', [script('prepublish.mjs')]],
   'brew:formula': ['Render the Homebrew formula from the published native npm packages ([version] [--out FILE])', [script('brew-formula.mjs')]],

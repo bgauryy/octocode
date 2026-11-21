@@ -88,24 +88,10 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
         only_hits["pullRequests"][0]["files"][0]["patch"],
         "@@ -1,401 +1,401 @@\n201\t-old esbuild\n201\t+new esbuild\n"
     );
-    // A complete narrowed read keeps one lead, the source read of its file;
-    // the whole patch is the same read without the literal (documented),
-    // scoped to the file.
-    let source = support::checks::related_call(&only_hits, "ghGetFileContent", |input| {
-        input["queries"][0]["ref"] == SHA && input["queries"][0]["path"] == "src/big.rs"
-    });
-    assert_eq!(source.get("kind"), None);
-    // The row promises that read: its warning names `related`.
-    assert!(
-        only_hits["warnings"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|warning| warning
-                .as_str()
-                .is_some_and(|text| text.contains("hunks that hold matchString; related reads"))),
-        "{only_hits}"
-    );
+    // A complete narrowed read is what was asked and carries no lead: the
+    // whole patch is the same read without the literal (documented), scoped
+    // to the file.
+    assert!(only_hits.get("related").is_none(), "{only_hits}");
     let whole = json_fixture(r#"{"sections": ["patches"], "include": ["src/big.rs"]}"#);
     // The documented whole-patch read keeps every original patch line.
     let full = run(&server, whole).await;

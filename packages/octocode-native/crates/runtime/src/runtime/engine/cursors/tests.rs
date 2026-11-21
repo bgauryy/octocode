@@ -24,7 +24,11 @@ fn unusable_persistent_storage_names_the_recovery_without_publishing_a_handle() 
     let directory = tempfile::tempdir().unwrap();
     let blocked = directory.path().join("not-a-directory");
     std::fs::write(&blocked, "occupied").unwrap();
-    let registry = Registry::scoped(CacheConfig::derived(), Some(blocked), String::from("policy").into());
+    let registry = Registry::scoped(
+        CacheConfig::derived(),
+        Some(blocked),
+        String::from("policy").into(),
+    );
     let mut pending = registry.pending([9; 32], None);
     let token = insert_page(&mut pending, 1);
     let error = registry
@@ -64,7 +68,7 @@ fn page_planning_reserves_the_issued_handle_width() {
         &octocode_io::cancellation::Cancellation::new(),
     )
     .expect("page");
-    let planned = response.value["responsePagination"]["next"]["input"]["cursor"]
+    let planned = response.value["next"]["input"]["cursor"]
         .as_str()
         .expect("continued page");
     assert_eq!(

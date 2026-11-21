@@ -36,7 +36,10 @@ fn clasify_text_is_judged_as_if_it_could_be_any_file() {
             json!({"content": "plain", "questions": {"q": {"type": "noul", "instructions": manifest}}}),
             "questions.q.instructions",
         ),
-        (json!({"content": "plain", "context": manifest}), "context"),
+        (
+            json!({"content": "plain", "background": manifest}),
+            "background",
+        ),
     ] {
         let issues = security
             .check_input(row.clone(), policy)
@@ -93,7 +96,7 @@ fn a_credential_in_the_callers_words_is_refused_in_every_clasify_field() {
             "questions": {"q": {"type": "noul", "instructions": text}}}),
         "criteria" => json!({"content": "plain", "questions": {"q": {"type": "noul",
             "instructions": "Is this a greeting?", "criteria": {"true": text, "false": "no"}}}}),
-        "context" => json!({"content": "plain", "context": text,
+        "background" => json!({"content": "plain", "background": text,
             "questions": {"q": {"type": "noul", "instructions": "Is this a greeting?"}}}),
         _ => json!({"content": text,
             "questions": {"q": {"type": "noul", "instructions": "Is this a greeting?"}}}),
@@ -105,7 +108,7 @@ fn a_credential_in_the_callers_words_is_refused_in_every_clasify_field() {
         for (field, path) in [
             ("instructions", "questions.q.instructions"),
             ("criteria", "questions.q.criteria.true"),
-            ("context", "context"),
+            ("background", "background"),
         ] {
             let issues = security
                 .check_input(row(field, &secret), policy)
@@ -128,7 +131,7 @@ fn a_credential_in_the_callers_words_is_refused_in_every_clasify_field() {
         "Does the function take a password: str parameter?",
         "Is token: Token declared, or api_key: str = None?",
     ] {
-        for field in ["instructions", "criteria", "context"] {
+        for field in ["instructions", "criteria", "background"] {
             let state = security
                 .check_input(row(field, ordinary), policy)
                 .unwrap_or_else(|issues| panic!("{field} {ordinary:?}: {issues:?}"));
@@ -226,7 +229,7 @@ fn clasify_words_the_gate_cleared_stay_as_written() {
     ] {
         let row = json!({
             "content": "plain",
-            "context": words,
+            "background": words,
             "questions": {"q": {"type": "noul", "instructions": words}},
         });
         let checked = security.check_input(row.clone(), policy).expect("admitted");

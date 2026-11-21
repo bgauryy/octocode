@@ -57,20 +57,6 @@ fn continued_page_advances_one_cursor_past_any_size() {
     assert!(continued_page(ToolId::LspSearch, json!(1), "page", 2, &[]).is_none());
 }
 
-/// A cursor is not always a number: a candidate-page token continues the
-/// same query through the same builder.
-#[test]
-fn continued_page_carries_a_token_cursor() {
-    let query = json_fixture(r#"{"path": "src", "matchString": ["x"]}"#);
-    let call = continued_page(ToolId::LocalSearch, query, "selection", "token-1", &[])
-        .expect("an object query")
-        .build();
-    assert_eq!(
-        call["input"]["queries"][0]["selection"], "token-1",
-        "{call}"
-    );
-}
-
 /// The tools whose rows issue a `nextPage` walk through the builder: each
 /// declares it a linear channel in core's registry, so the debug check of
 /// [`insert_walk`] holds at every emitter.

@@ -22,5 +22,6 @@ mod evidence_siblings;
 
 mod guidance_room;
 mod heldout_pager_boundaries;
+pub(in crate::response) mod moderate_text;
 mod terminal;
 mod text_windows;

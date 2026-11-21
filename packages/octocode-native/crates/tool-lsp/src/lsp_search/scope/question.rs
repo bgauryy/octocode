@@ -114,7 +114,7 @@ impl Question {
             }
         };
         if self == Self::ItemUses {
-            let starts = line_starts(text);
+            let starts = octocode_engine::text::line_starts(text);
             return occurrences
                 .ranges()
                 .iter()
@@ -174,13 +174,6 @@ fn names_in_heritage(symbol: &str, file: &str, text: &str) -> bool {
                 && edge.to.rsplit(['.', ':']).next() == Some(symbol)
         })
     })
-}
-
-/// The byte offset each line of `text` starts at.
-fn line_starts(text: &str) -> Vec<usize> {
-    std::iter::once(0)
-        .chain(text.match_indices('\n').map(|(at, _)| at + 1))
-        .collect()
 }
 
 /// Whether the name at `start` (zero-based line, UTF-16 character) is a

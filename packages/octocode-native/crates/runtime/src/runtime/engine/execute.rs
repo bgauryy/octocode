@@ -1,4 +1,4 @@
-use super::admission::AdmittedRows;
+use super::admission::{AdmittedRows, invalid_input_error};
 use super::channel::{ChannelRun, OutputSettings};
 use super::page_replay::{Refusal, RefusalScope, page_replay_key, snapshot_expired};
 use super::{Channel, RuntimeError, ToolRuntime, runtime_execution_error};
@@ -157,7 +157,7 @@ impl ToolRuntime {
                 Err(_) => None,
             };
             contracts::validate(&tool, input.clone())
-                .map_err(|error| naming_saved(self.invalid_input(&tool, error, &input), holds))?;
+                .map_err(|error| naming_saved(invalid_input_error(&tool, error, &input), holds))?;
             Some(opened?)
         } else {
             None
@@ -244,6 +244,10 @@ impl ToolRuntime {
                 )
             };
         let mut dispatcher = self.dispatcher();
+        // An MCP host stops listening before a long wait ends: the call's
+        // waits answer within the reply budget unless its caller set a
+        // budget of its own (`RuntimeLimits::mcp_reply_budget`).
+        dispatcher.reply_budget = mcp.then_some(self.limits.mcp_reply_budget);
         if let Some((digest, evidence)) = opened
             .as_ref()
             .and_then(|opened| self.cursors.evidence(opened))
@@ -251,6 +255,11 @@ impl ToolRuntime {
             dispatcher.github_access =
                 super::super::github::ResponseAccess::resuming(digest, evidence);
         }
+        dispatcher.github_access.bound_waits(
+            dispatcher
+                .reply_budget
+                .and_then(|budget| std::time::Instant::now().checked_add(budget)),
+        );
         let run = ChannelRun {
             id,
             mcp,
@@ -307,11 +316,11 @@ impl ToolRuntime {
             lsp_pool: self.lsp_pool.clone(),
             lsp_execution_config: self.lsp_execution_config.clone(),
             lsp_answers: self.lsp_answers.clone(),
+            reply_budget: None,
             graph_rows: self.graph_rows.clone(),
             availability: self.availability.clone(),
-            selection_available: self.selection_available,
+            clasify_available: self.clasify_available,
             evaluator: self.evaluator.clone(),
-            selection_pages: self.selection_pages.clone(),
         }
     }
 

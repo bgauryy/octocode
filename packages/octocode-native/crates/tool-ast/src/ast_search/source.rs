@@ -168,6 +168,68 @@ pub(super) fn admitted_for_match<'a>(
     Ok((matched, Some(shown)))
 }
 
+/// The path a `match` or `symbols` row walks when it names none and holds
+/// no inline `content`: the workspace root, the default its contract states.
+pub(super) const WALK_ROOT: &str = ".";
+
+/// The name inline source (`content`) is parsed and judged under in place of a
+/// file path: the input field that holds it. It names no file: nothing
+/// reads it from disk, its rows are judged against the snippet itself
+/// ([`super::judged_rows::Known::holding`]), and no row shows it
+/// ([`drop_inline_name`]).
+pub(super) const INLINE_NAME: &str = "content";
+
+/// A snippet row's groups name no file: each group of `data.files` loses
+/// the [`INLINE_NAME`] it was built under, and a group that held only that
+/// name (a `files` view row) is not listed. `matchCount` counts the matches.
+pub(super) fn drop_inline_name(data: &mut Value) {
+    let Some(files) = data.get_mut("files").and_then(Value::as_array_mut) else {
+        return;
+    };
+    files.retain_mut(|group| match group {
+        Value::Object(fields) => {
+            if fields.get("path").and_then(Value::as_str) == Some(INLINE_NAME) {
+                fields.shift_remove("path");
+            }
+            !fields.is_empty()
+        }
+        Value::String(name) => name != INLINE_NAME,
+        _ => true,
+    });
+}
+
+/// The refusal of a `syntaxTree` row that names no source; the contract
+/// refuses such a row first.
+pub(super) fn no_source() -> ToolError {
+    ToolError::new(
+        ErrorCode::InvalidInput,
+        "Set path to a file, or content with parser for a snippet.",
+    )
+}
+
+/// The bytes inline source parses from, checked as a file's are: `parser`
+/// names its grammar (no file name does), and its parse fits the memory
+/// budget ([`read_parse_source`]). The contract refuses `includeProvenance`
+/// on a snippet row (`ast-search.content-provenance`): provenance states the
+/// bytes of a file on disk, which a snippet is not.
+pub(super) fn inline_source<'a>(
+    content: &'a str,
+    parser: Option<&str>,
+) -> Result<&'a [u8], ToolError> {
+    if parser.is_none() {
+        return Err(ToolError::new(
+            ErrorCode::InvalidInput,
+            "content needs parser: name the snippet's grammar.",
+        ));
+    }
+    let bytes = content.as_bytes();
+    if octocode_engine::structural::parse_cost(bytes) > octocode_engine::structural::parse_budget()
+    {
+        return Err(ToolError::new(ErrorCode::FileTooLarge, TOO_LARGE));
+    }
+    Ok(bytes)
+}
+
 const TOO_LARGE: &str =
     "Source exceeds the byte limit of a whole read, or the memory its parse is estimated to need.";
 

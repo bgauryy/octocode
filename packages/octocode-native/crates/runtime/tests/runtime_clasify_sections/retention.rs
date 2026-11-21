@@ -369,7 +369,7 @@ async fn reading_a_response_page_keeps_the_plan_its_batch_continues() {
             .expect("next page")
             .structured_content
             .into_value();
-        if page["responsePagination"]["replayed"] == true {
+        if page["replayed"] == true {
             pages += 1;
             continue;
         }

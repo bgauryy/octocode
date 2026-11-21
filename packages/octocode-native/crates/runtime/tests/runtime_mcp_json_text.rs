@@ -38,7 +38,7 @@ async fn an_unpaged_row_is_json_text() {
     let runtime = workspace.runtime(&[]);
     let file = workspace.write("a.txt", "alpha\nbeta\n");
     let result = mcp(&runtime, "localFetch", json!({"queries":[{"path":file}]})).await;
-    assert!(mcp_payload(&result).get("responsePagination").is_none());
+    assert!(mcp_payload(&result).get("next").is_none());
     assert_eq!(result["isError"], false);
     runtime.close().await;
 }
@@ -57,11 +57,11 @@ async fn every_page_and_its_saved_replay_is_json_text() {
     .await;
     let mut pages = 1;
     let mut payload = mcp_payload(&page);
-    while let Some(input) = payload.pointer("/responsePagination/next/input").cloned() {
+    while let Some(input) = payload.pointer("/next/input").cloned() {
         crate::support::assert_cursor_only(&input);
         page = mcp(&runtime, "localSearch", input).await;
         payload = mcp_payload(&page);
-        assert_eq!(payload["responsePagination"]["replayed"], true);
+        assert_eq!(payload["replayed"], true);
         pages += 1;
         assert!(pages < 300, "finite response pages");
     }

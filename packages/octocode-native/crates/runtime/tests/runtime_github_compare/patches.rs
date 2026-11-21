@@ -38,9 +38,9 @@ async fn patch_selection_does_not_include_unrequested_commits() {
     runtime.close().await;
 }
 
-/// A comparison's patch view reads its top file at the head and at the
-/// merge base (the old side of a three-dot diff), in its one lead: a
-/// complete answer offers one call, and it names both commits.
+/// A comparison's patch view states the head and the merge base (the old
+/// side of a three-dot diff): a changed file reads at each from the row's
+/// own fields, with no call attached.
 #[tokio::test]
 async fn compare_patch_view_reads_head_and_merge_base() {
     let server = MockServer::builder().start().await;
@@ -72,26 +72,23 @@ async fn compare_patch_view_reads_head_and_merge_base() {
         data["files"][0]["patch"], "@@ -5,1 +7,1 @@\n5\t-x\n7\t+y",
         "{data}"
     );
+    assert!(data.get("related").is_none(), "{data}");
     use base64::Engine as _;
-    for (pinned, marker) in [
-        (HEAD_SHA, "new"),
-        ("3333333ccccccccccccccccccccccccccccccccc", "old"),
-    ] {
+    for (field, marker) in [("headCommitSha", "new"), ("mergeBaseCommitSha", "old")] {
+        let pinned = data[field]
+            .as_str()
+            .unwrap_or_else(|| panic!("{field}: {data}"))
+            .to_owned();
         let content = (1..=20)
             .map(|line| format!("{marker} line {line}\n"))
             .collect::<String>();
         octocode_test_support::mock_http::list_in_trees(&server, "a", "b", "src/a.rs").await;
         Mock::given(method("GET")).and(wiremock::matchers::path("/api/v3/repos/a/b/contents/src%2Fa.rs"))
-            .and(wiremock::matchers::query_param("ref",pinned))
+            .and(wiremock::matchers::query_param("ref",pinned.as_str()))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({"type":"file","path":"src/a.rs","encoding":"base64","content":base64::engine::general_purpose::STANDARD.encode(content)})))
             .expect(1).mount(&server).await;
-        let lead = support::checks::related_call(data, "ghGetFileContent", |_| true);
-        let side = lead["input"]["queries"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|row| row["ref"] == pinned)
-            .unwrap_or_else(|| panic!("the {marker} side: {data}"));
+        let side = json!({"owner":"a","repo":"b","path":data["files"][0]["path"],"ref":pinned,
+            "matchString":["line 7"]});
         let read = call(&runtime, "ghGetFileContent", json!({"queries": [side]}))
             .await
             .expect("pinned side read");

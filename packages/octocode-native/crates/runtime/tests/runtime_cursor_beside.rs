@@ -104,24 +104,17 @@ fn repositories(payload: &Value) -> Vec<Value> {
 }
 
 /// A ghSearchRepo runtime over the mock index, and the cursor of its first
-/// page, asked without `operation` (read as `operation: "search"`, which
-/// that page says).
+/// page.
 async fn first_repository_page(workspace: &Workspace, server: &MockServer) -> (ToolRuntime, Value) {
     let runtime = workspace.runtime(&support::github_api(server));
     let (failed, first) = mcp(
         &runtime,
         "first",
         "ghSearchRepo",
-        json!({"queries": [{"keywords": ["x"], "limit": 3}]}),
+        json!({"queries": [{"operation": "search", "keywords": ["x"], "limit": 3}]}),
     )
     .await;
     assert!(!failed, "{first}");
-    assert!(
-        warnings(&first)
-            .iter()
-            .any(|note| note.contains(r#"`operation: "search"`"#)),
-        "the first page says the operation it read: {first}"
-    );
     let next = support::next_input(&first).expect("a second page");
     support::assert_cursor_only(&next);
     (runtime, next)
@@ -405,7 +398,7 @@ async fn a_path_beside_a_local_search_page_cursor_is_read_against_its_saved_quer
     .await;
     assert!(!failed, "{first}");
     let next = first
-        .pointer("/responsePagination/next/input")
+        .pointer("/next/input")
         .cloned()
         .expect("a response page");
     support::assert_cursor_only(&next);
@@ -419,10 +412,7 @@ async fn a_path_beside_a_local_search_page_cursor_is_read_against_its_saved_quer
     .await;
     assert!(!failed, "{page}");
     assert_eq!(page["results"], alone["results"]);
-    assert_eq!(
-        page.pointer("/responsePagination/next"),
-        alone.pointer("/responsePagination/next")
-    );
+    assert_eq!(page.pointer("/next"), alone.pointer("/next"));
     let notes = beside_notes(&page);
     assert!(
         matches!(notes.as_slice(), [note] if note.contains("`path`") && note.contains("`matchString`")),

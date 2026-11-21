@@ -1,60 +1,5 @@
-//! Where a scanned file's read anchors: the best hit, the covering window and declarations.
+//! The hit a cut row centers on: the best hit, the covering window and declarations.
 use super::*;
-
-/// A hit on a name the grammar's outline declares carries its
-/// declaration line, so the read lead returns the whole block; a call,
-/// a comment or a repeated line does not.
-#[test]
-fn a_declared_hit_names_its_unique_declaration_line() {
-    let declared_in = |path: &str, text: &str, keyword: &str| match scan(
-        text.as_bytes(),
-        path,
-        &[keyword.into()],
-        "",
-        Window::default(),
-        &Passthrough,
-    ) {
-        FileHits::Lines { declaration, .. } => declaration,
-        other => panic!("{other:?}"),
-    };
-    let declaration = |text: &str, keyword: &str| declared_in("a.py", text, keyword);
-    let text =
-        "x = 1\n\ndef merge_setting(request, session):\n    return 1\n\nmerge_setting(a, b)\n";
-    assert_eq!(
-        declaration(text, "merge_setting"),
-        Some("def merge_setting(request, session):".to_owned())
-    );
-    assert_eq!(declaration("merge_setting(a, b)\n", "merge_setting"), None);
-    // The searched keyword may carry the block keyword itself.
-    assert_eq!(
-        declaration(text, "def merge_setting"),
-        Some("def merge_setting(request, session):".to_owned())
-    );
-    assert_eq!(
-        declaration(
-            "def merge_setting(a):\n    pass\ndef merge_setting(a):\n    pass\n",
-            "merge_setting"
-        ),
-        None
-    );
-    assert_eq!(
-        declared_in(
-            "server.go",
-            "package http\n\nfunc (s *Server) ListenAndServe() error {\n\treturn nil\n}\n",
-            "listenandserve"
-        ),
-        Some("func (s *Server) ListenAndServe() error {".to_owned())
-    );
-    // A parameter named like the keyword is no declaration of it.
-    assert_eq!(
-        declaration("def run(merge_setting):\n    pass\n", "merge_setting"),
-        None
-    );
-    assert_eq!(
-        declaration("# def merge_setting(a):\n", "merge_setting"),
-        None
-    );
-}
 
 /// The read anchors on the hit that best fits the goal: a literal
 /// assigned to the keyword beats an earlier type declaration, a later
@@ -80,15 +25,12 @@ fn the_best_hit_for_the_goal_anchors_the_read() {
         Window::default(),
         &Passthrough,
     ) {
-        FileHits::Lines { first, best, .. } => (first, best),
+        FileHits::Lines { best, .. } => best,
         other => panic!("{other:?}"),
     };
-    assert_eq!(
-        best("Find default max_blocking_threads in the Builder"),
-        (3, 28)
-    );
+    assert_eq!(best("Find default max_blocking_threads in the Builder"), 28);
     // Without goal terms a literal assignment still outranks a type.
-    assert_eq!(best(""), (3, 28));
+    assert_eq!(best(""), 28);
     // A comment hit never anchors over code.
     let commented =
         "// max_blocking_threads = 1 by default\nlet max_blocking_threads = config();\n";
@@ -109,20 +51,17 @@ fn the_best_hit_for_the_goal_anchors_the_read() {
 fn the_read_anchors_on_a_line_holding_every_keyword() {
     let keywords = ["fn".to_owned(), "search_path".to_owned()];
     let text = "fn default() {}\nfn other() {}\nlet x = 1;\nfn search_path(p: &Path) {}\n";
-    let FileHits::Lines {
-        first, last, best, ..
-    } = scan(
+    let FileHits::Lines { best, .. } = scan(
         text.as_bytes(),
         "a.rs",
         &keywords,
         "",
         Window::default(),
         &Passthrough,
-    )
-    else {
+    ) else {
         panic!("hit");
     };
-    assert_eq!((first, last, best), (4, 4, 4));
+    assert_eq!(best, 4);
 }
 
 /// With no line holding every keyword, the read anchors on the
@@ -146,29 +85,17 @@ fn spread_keywords_anchor_on_the_declaration_window() {
         "merge_environment_settings".to_owned(),
         "trust_env".to_owned(),
     ];
-    let FileHits::Lines {
-        lines,
-        first,
-        last,
-        best,
-        declaration,
-        ..
-    } = scan(
+    let FileHits::Lines { lines, best, .. } = scan(
         text.as_bytes(),
         "sessions.py",
         &keywords,
         "",
         Window::default(),
         &Passthrough,
-    )
-    else {
+    ) else {
         panic!("hit");
     };
-    assert_eq!((first, last, best), (831, 845, 831));
-    assert_eq!(
-        declaration.as_deref(),
-        Some("def merge_environment_settings(self, url, proxies, stream, verify, cert):")
-    );
+    assert_eq!(best, 831);
     let numbers: Vec<&str> = lines
         .iter()
         .filter_map(|line| line.split('\t').next())
@@ -201,21 +128,17 @@ fn hits_find_their_declaration_by_line_among_many() {
         text.push_str(&format!("def f{function}(a):\n    return a\n"));
     }
     text.push_str("def target_name(a):\n    return a\n");
-    let FileHits::Lines {
-        declaration, best, ..
-    } = scan(
+    let FileHits::Lines { best, .. } = scan(
         text.as_bytes(),
         "a.py",
         &["target_name".into()],
         "",
         Window::default(),
         &Passthrough,
-    )
-    else {
+    ) else {
         panic!("hit");
     };
     assert_eq!(best, 4_001);
-    assert_eq!(declaration.as_deref(), Some("def target_name(a):"));
 }
 
 /// A scanned file keeps only the declarations named on its keyword

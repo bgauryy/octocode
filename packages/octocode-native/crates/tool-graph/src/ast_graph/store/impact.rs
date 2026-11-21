@@ -22,14 +22,20 @@
 //! reads (manifest, workspace list, compiler config) affects every file below
 //! its directory.
 use super::super::classify::{ROLE_ENTRY, ROLE_TEST, role_names};
-use super::manifest::Unextracted;
 use super::format::{Confidence, EdgeKind, FLAG_TEST, GraphTables, NONE, NodeKind};
+use super::manifest::Unextracted;
 use super::tables::MODULE_DETAIL;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 mod report;
 use report::*;
+
+/// Whether an import edge of this kind is erased at compile time, or may
+/// be (a TypeScript import used only as a type): the `typesOnly` reading.
+fn erased_import(kind: &str) -> bool {
+    kind.contains("type")
+}
 
 #[derive(Clone, Copy)]
 struct Reach {
@@ -448,8 +454,12 @@ impl<'t> Propagation<'t> {
                     kind: edge.kind,
                     detail: edge.detail,
                     confidence: edge.confidence,
-                    types_only: edge.kind == EdgeKind::Imports
-                        && t.str(edge.detail).contains("type"),
+                    types_only: match edge.kind {
+                        EdgeKind::Imports => erased_import(t.str(edge.detail)),
+                        // A name used across files is a type-only use when
+                        // every import that brings its file in is erased.
+                        _ => self.imports_only_types(edge.src, id),
+                    },
                 });
             }
         }
@@ -464,6 +474,28 @@ impl<'t> Propagation<'t> {
             });
         }
         next
+    }
+
+    /// Whether the file of `user` imports the file of `used` and every such
+    /// import is erased at compile time: it can then use `used` only as a
+    /// type. A file that reaches it with no import of its own (through a
+    /// re-export) proves nothing here.
+    fn imports_only_types(&self, user: u32, used: u32) -> bool {
+        let t = self.t;
+        let file_of = |id: u32| match t.nodes[id as usize].kind {
+            NodeKind::File => id,
+            _ => t.nodes[id as usize].file,
+        };
+        let (from, to) = (file_of(user), file_of(used));
+        if from == NONE || to == NONE || from == to {
+            return false;
+        }
+        let mut imports = t
+            .out(from)
+            .iter()
+            .filter(|edge| edge.kind == EdgeKind::Imports && edge.dst == to)
+            .peekable();
+        imports.peek().is_some() && imports.all(|edge| erased_import(t.str(edge.detail)))
     }
 
     /// Whether `step` is a parent module's `mod x;` declaration.
@@ -502,11 +534,24 @@ impl<'t> Propagation<'t> {
             config: None,
         };
         let slot = &mut self.reach[src as usize];
-        // Proven reach outranks a candidate at any depth.
-        let rank = |r: &Reach| (r.candidate, r.depth, r.confidence);
+        // Proven reach outranks a candidate at any depth; at one depth a
+        // route that loads code outranks one erased at compile time, so
+        // the order the edges are stored in never decides `typesOnly`.
+        let rank = |r: &Reach| (r.candidate, r.depth, r.types_only, r.confidence);
         let better = slot.is_none_or(|old| rank(&reached) < rank(&old));
         if better {
             *slot = Some(reached);
+            self.queue.push_back(src);
+        } else if let Some(old) = slot
+            && old.types_only
+            && !reached.types_only
+            && !reached.candidate
+            && !old.candidate
+        {
+            // A longer route that loads code: the node keeps its nearest
+            // reach but is not types-only, and what it reaches is walked
+            // again without the mark.
+            old.types_only = false;
             self.queue.push_back(src);
         }
         if step.kind == EdgeKind::Imports

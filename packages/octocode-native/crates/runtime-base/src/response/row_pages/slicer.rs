@@ -180,14 +180,45 @@ impl Slicer<'_> {
         } else {
             self.close(arena, index, out);
             let at = out.len();
-            arena.plan_in(
-                self.single(arena, index, at),
-                self.catalog,
-                self.item_window(arena, index)
-                    .with_head(self.limit(arena, at, index))
-                    .with_continuation(continues_chars(&self.pointer, index)),
-                out,
-            )?;
+            let mut parts = self.plan_single(arena, index, at)?;
+            // The item opens the row and does not fit a page of its own
+            // beside the whole first context: the first context goes alone
+            // and the item starts the next part, beside the leaner context a
+            // later part repeats. So the fields a row states once are never
+            // cut to make room for its first item. A part that only
+            // outgrows its page is worth the extra part when both the
+            // excess and what the item's first part sheds are more than the
+            // fixed parts that part repeats (its context and envelope).
+            let [first, later] = &arena.splits[self.split].contexts;
+            let repeated = later.chars.saturating_add(self.window.envelope);
+            let own_page = self
+                .limit(arena, at, index)
+                .max(self.limit(arena, at + 1, index));
+            let cut_inside = parts[0].0.kind.opens_text();
+            if at == self.first
+                && (cut_inside || parts[0].1 > own_page.saturating_add(repeated))
+                && first.chars < self.limit(arena, at, index)
+            {
+                let later = self.plan_single(arena, index, at + 1)?;
+                if cut_inside || later[0].1.saturating_add(repeated) < parts[0].1 {
+                    let context = &arena.splits[self.split].contexts[0];
+                    out.push((
+                        Fragment {
+                            kind: FragmentKind::Chunk {
+                                split: self.split,
+                                start: index,
+                                end: index,
+                            },
+                            evidence: context.evidence.clone(),
+                            walks: Vec::new(),
+                        },
+                        context.chars,
+                    ));
+                    parts = later;
+                }
+            }
+            let at = out.len();
+            out.extend(parts);
             mark_continuations(&self.pointer, at, index, out);
             self.mark_enclosing(at, out);
         }
@@ -209,6 +240,27 @@ impl Slicer<'_> {
             self.open_evidence = context.evidence.clone();
         }
         Ok(())
+    }
+
+    /// Item `index` alone, planned as the parts it takes from fragment `at`
+    /// on: beside the first context when `at` opens the split, else beside
+    /// the context a later part repeats.
+    fn plan_single(
+        &self,
+        arena: &mut FragmentArena,
+        index: usize,
+        at: usize,
+    ) -> Result<Vec<Planned>, DependencyError> {
+        let mut parts = Vec::new();
+        arena.plan_in(
+            self.single(arena, index, at),
+            self.catalog,
+            self.item_window(arena, index)
+                .with_head(self.limit(arena, at, index))
+                .with_continuation(continues_chars(&self.pointer, index)),
+            &mut parts,
+        )?;
+        Ok(parts)
     }
 
     /// A later part of this split (fragment `at`) continues the element the

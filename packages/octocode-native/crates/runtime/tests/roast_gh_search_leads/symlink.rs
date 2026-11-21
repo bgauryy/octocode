@@ -54,12 +54,17 @@ async fn list(server: &MockServer) -> Value {
     data
 }
 
+/// Every listed entry's text: a group's entries, and a flat row (the one
+/// entry of its directory, named by its repository path).
 fn listed(data: &Value) -> Vec<String> {
     data["files"]
         .as_array()
         .into_iter()
         .flatten()
-        .flat_map(|row| row["files"].as_array().cloned().unwrap_or_default())
+        .flat_map(|row| match row["files"].as_array() {
+            Some(entries) => entries.clone(),
+            None => vec![row.clone()],
+        })
         .filter_map(|entry| entry.as_str().map(str::to_owned))
         .collect()
 }

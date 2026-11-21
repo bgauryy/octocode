@@ -100,7 +100,6 @@ const ROWS_KEY: &str = "results";
 /// a row reads back by the reading rule (the hoisted `shared` and `hints`,
 /// `response::hoist`) rides every page, so each page reads alone.
 const ENVELOPE_NOTICES: [&str; 2] = ["warnings", "related"];
-const RESPONSE_PAGINATION: &str = "responsePagination";
 
 pub(super) struct RowSource {
     /// The envelope without its rows.
@@ -134,9 +133,7 @@ impl RowSource {
             _ => Vec::new(),
         };
         volatile.resize(rows.len(), None);
-        let onward = structured
-            .remove(RESPONSE_PAGINATION)
-            .and_then(|mut block| block.get_mut("next").map(Value::take));
+        let onward = structured.remove(crate::response::continuations::RESPONSE_NEXT);
         let overhead =
             octocode_engine::json_size::utf16_units(&structured).unwrap_or(0) + ROWS_KEY.len() + 6;
         let total = envelope.utf16_units;
@@ -223,7 +220,7 @@ impl RowSource {
 }
 
 #[cfg(test)]
-mod tests;
+pub(in crate::response) mod tests;
 
 #[cfg(test)]
 mod lazy_page_tests;

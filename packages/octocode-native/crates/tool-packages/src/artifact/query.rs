@@ -6,18 +6,19 @@ use octocode_contract_types::{ArtifactSearchQuery, ArtifactType};
 pub mod artifact_type {
     use octocode_contract_types::{ArtifactType, SecurityCheckQueryPackageEcosystem as Ecosystem};
 
-    /// The OSV ecosystem of a registry the artifact provider reads: shared by
-    /// artifactSearch's advisory lead and securityCheck's registry gate.
+    /// securityCheck's ecosystem of a registry the artifact provider reads,
+    /// the same word on both tools: shared by artifactSearch's advisory lead
+    /// and securityCheck's registry gate.
     pub const fn osv_ecosystem(kind: ArtifactType) -> Ecosystem {
         match kind {
             ArtifactType::Npm => Ecosystem::Npm,
-            ArtifactType::Pypi => Ecosystem::PyPi,
-            ArtifactType::Crates => Ecosystem::CratesIo,
+            ArtifactType::Pypi => Ecosystem::Pypi,
+            ArtifactType::Crates => Ecosystem::Crates,
             ArtifactType::Maven => Ecosystem::Maven,
-            ArtifactType::Nuget => Ecosystem::NuGet,
+            ArtifactType::Nuget => Ecosystem::Nuget,
             ArtifactType::Go => Ecosystem::Go,
             ArtifactType::Packagist => Ecosystem::Packagist,
-            ArtifactType::Rubygems => Ecosystem::RubyGems,
+            ArtifactType::Rubygems => Ecosystem::Rubygems,
         }
     }
 

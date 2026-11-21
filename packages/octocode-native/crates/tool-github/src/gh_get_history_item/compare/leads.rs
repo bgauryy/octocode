@@ -43,7 +43,9 @@ pub(super) fn capped_file_leads(
         if let Some(history) = wire_query::<GhSearchHistoryQuery>(history) {
             leads.push((
                 "narrowScope".to_owned(),
-                Continuation::related_query(history).build(),
+                // The history of the scope's path reaches the changes a
+                // capped file list may leave out: the row needs it.
+                Continuation::related_query(history).required().build(),
             ));
         }
     }

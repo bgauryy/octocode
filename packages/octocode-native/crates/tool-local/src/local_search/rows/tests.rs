@@ -175,7 +175,6 @@ fn a_search_beside_a_left_out_line_shows_every_held_line_once() {
             &octocode_runtime_base::security::ContentSecurity::new(),
             &octocode_runtime_base::execution::cancel::NeverCancel,
             None,
-            None,
         )
         .expect("search");
         let rows = result
@@ -408,7 +407,6 @@ fn search_rows(text: &str, query: serde_json::Value) -> Vec<SearchMatch> {
         &octocode_runtime_base::test_support::workspace_policy(root.path()),
         &octocode_runtime_base::security::ContentSecurity::new(),
         &octocode_runtime_base::execution::cancel::NeverCancel,
-        None,
         None,
     )
     .expect("search");

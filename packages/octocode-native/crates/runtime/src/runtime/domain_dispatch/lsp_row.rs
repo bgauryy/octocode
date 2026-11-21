@@ -17,11 +17,12 @@ impl DomainDispatcher {
         self.handle.block_on(async {
             match within_request(
                 context,
+                self.reply_budget,
                 octocode_tool_lsp::lsp_search::execute_judged(
                     query,
                     context,
                     &self.lsp_pool,
-                    self.local_paths(ToolId::LspSearch, &Value::Null, egress),
+                    self.local_paths(ToolId::LspSearch, egress),
                     (&self.lsp_execution_config, std::sync::Arc::clone(&judged)),
                     local_response_window(ToolId::LspSearch, context, self.limits.auto_page_chars),
                     &self.lsp_answers,

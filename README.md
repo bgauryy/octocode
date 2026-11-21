@@ -51,7 +51,7 @@ For GitHub code search or private repositories, sign in on the machine that runs
 | [Local code](docs/OCTOCODE_TOOLS.md#local-code-tools-reference) | Find files with `structureSearch`, find text with `localSearch`, match syntax with `astSearch`, read lines with `localFetch`, and trace a symbol with `lspSearch`. Build and query a dependency graph with `graphBuild` and `graphQuery`. |
 | [GitHub](docs/OCTOCODE_TOOLS.md#github-tools-reference) | Find repositories and code with `ghSearchRepo` and `ghSearchCode`. Browse a revision with `ghStructure` and read it with `ghGetFileContent`. Find changes with `ghSearchHistory`, inspect them with `ghGetHistoryItem`, or get a local checkout with `ghCloneRepo`. |
 | [Packages](docs/OCTOCODE_TOOLS.md#package-and-advisory-tools) | Resolve a package version, dependencies and upstream source with `artifactSearch`. Look up known advisories and affected versions with `securityCheck`. |
-| [Classification](docs/OCTOCODE_CLASIFY.md) | Ask typed questions about unread sources with `clasify`, or add `classification` to a supported search or read to select results. Both require a provider key. |
+| [Classification](docs/OCTOCODE_CLASIFY.md) | Ask typed questions about unread sources with `clasify`, or give it a search or listing as `source` with `predicates` to keep rows by meaning. It requires a provider key. |
 
 ## How an agent uses Octocode
 

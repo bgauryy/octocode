@@ -65,30 +65,6 @@ fn a_reader_that_repeats_a_page_fails_without_looping() {
     assert_eq!(error.code, ErrorCode::ClassificationContextFailed);
 }
 
-/// The GitHub tools that can send a row to a classifier, each passing the name
-/// rule: a read by `withheld_github_source`, a provider page by its row units
-/// (`selection::row_units`, which withhold credential-named paths). A GitHub
-/// tool that gains `classification` has to pass one of them.
-#[test]
-fn only_the_covered_github_tools_take_classification() {
-    let taking = ToolId::ALL
-        .iter()
-        .copied()
-        .filter(|tool| {
-            tool.is_github()
-                && octocode_runtime_base::contracts::query_declares(*tool, "classification")
-        })
-        .collect::<Vec<_>>();
-    let covered = ToolId::ALL
-        .iter()
-        .copied()
-        .filter(|tool| {
-            tool.is_github() && (tool.selects_provider_page() || *tool == ToolId::GhGetFileContent)
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(taking, covered);
-}
-
 #[test]
 fn a_withheld_github_source_is_refused_and_names_only_a_route_the_policy_opens() {
     let policy = |allow: bool| {

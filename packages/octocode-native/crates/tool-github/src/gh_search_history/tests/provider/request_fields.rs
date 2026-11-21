@@ -377,59 +377,26 @@ async fn since_until_reach_the_request_of_every_operation() {
     }
 }
 
-/// `fields:["mergedBy"]`: GitHub's search returns no merger, so no row can
-/// carry it; the warning leads to the pull-request read that does.
-#[tokio::test]
-async fn a_merged_by_pick_leads_to_the_pull_request_read() {
-    use wiremock::MockServer;
-
-    let server = MockServer::builder().start().await;
-    mount_json(
-        &server,
-        "/api/v3/search/issues",
-        200,
-        json_fixture(
-            r#"{
-                "total_count": 1,
-                "incomplete_results": false,
-                "items": [
-                    {
-                        "number": 7,
-                        "title": "t",
-                        "state": "closed",
-                        "pull_request": {"merged_at": "2026-09-20T10:00:00Z"},
-                        "user": {"login": "dev"},
-                        "created_at": "2026-09-19T10:00:00Z",
-                        "repository_url": "https://api.github.com/repos/o/r"
-                    }
-                ]
-            }"#,
-        ),
-    )
-    .await;
-    let query = serde_json::from_value(json_fixture(
-        r#"{
-            "operation": "pullRequest",
-            "owner": "o",
-            "repo": "r",
-            "keywords": ["x"],
-            "fields": ["mergedBy"]
-        }"#,
-    ))
-    .expect("query");
-    let data = execute(
-        &one_shot_provider(&server),
-        &query,
-        &default_context(),
-        &Passthrough,
-    )
-    .await
-    .expect("pull request search");
-    let warnings = data["warnings"].to_string();
-    assert!(
-        warnings.contains("mergedBy is not in search rows"),
-        "{data}"
-    );
-    assert!(warnings.contains("ghGetHistoryItem"), "{data}");
-    assert!(data["pullRequests"][0].get("mergedBy").is_none(), "{data}");
+/// `fields` takes the operation's row keys only: a key no search row has
+/// (`mergedBy`, which a ghGetHistoryItem read carries) or another
+/// operation's key is no query, so no warning has to explain it afterwards.
+#[test]
+fn a_fields_pick_outside_the_operations_row_keys_is_no_query() {
+    let query = |operation: &str, field: &str| {
+        serde_json::from_value::<octocode_contract_types::GhSearchHistoryQuery>(json!({
+            "operation": operation, "owner": "o", "repo": "r", "fields": [field]
+        }))
+    };
+    for (operation, own, foreign) in [
+        ("pullRequest", "mergedAt", "mergedBy"),
+        ("pullRequest", "body", "messageBody"),
+        ("issue", "labels", "mergedAt"),
+        ("commit", "messageBody", "body"),
+    ] {
+        assert!(query(operation, own).is_ok(), "{operation} takes {own}");
+        assert!(
+            query(operation, foreign).is_err(),
+            "{operation} refuses {foreign}"
+        );
+    }
 }

@@ -258,11 +258,6 @@ async fn a_repeated_range_reuses_its_scan_under_its_own_path() {
             "owner": "a", "repo": "b", "path": file, "ref": "main",
             "ranges":[{"startLine":1,"endLine":3}]}))
         .expect("query");
-        let selection = octocode_tools_shared::test_support::selection_fake::runtime(
-            octocode_tools_shared::test_support::selection_fake::SelectAll,
-            tokio::runtime::Handle::current(),
-            Duration::from_secs(10),
-        );
         let result = execute(
             &provider,
             &query,
@@ -270,8 +265,7 @@ async fn a_repeated_range_reuses_its_scan_under_its_own_path() {
             Some(50_000),
             Shaping {
                 security: scan.clone(),
-                context: selection.context.clone(),
-                selection,
+                context: test_context(),
             },
             &|_| false,
             &mut None,

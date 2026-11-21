@@ -1,6 +1,9 @@
 //! One request's context: its budget, its credential, and what it observed.
 use octocode_io::budget::RequestBudget;
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use url::Url;
 
 use super::{ProviderEvidence, RequestSpec, evidence};
@@ -36,6 +39,9 @@ pub struct RequestContext {
     /// What this request waited on the client before its sends. Kept out of
     /// the journal: a resumed page did not wait the first page's waits.
     pub(crate) waits: Arc<crate::budget::ClientWaits>,
+    /// When this request stops waiting on the client before a send, if
+    /// sooner than its budget's deadline ([`Self::with_wait_bound`]).
+    wait_bound: Option<Instant>,
 }
 impl RequestContext {
     pub fn new(budget: RequestBudget, credential: Option<ResolvedCredential>) -> Self {
@@ -49,6 +55,35 @@ impl RequestContext {
             renamed: Arc::default(),
             ref_memo: None,
             waits: Arc::default(),
+            wait_bound: None,
+        }
+    }
+
+    /// Bound this request's client-side waits (quota pacing, start spacing,
+    /// a rate-limit reset or cooldown, a `retry-after`) at `bound` when that
+    /// is sooner than the budget's deadline. The budget's deadline ends the
+    /// request; this bound ends only the decision to sleep: a wait that would
+    /// pass it is not slept, and the request is refused unsent with the
+    /// rate-limit error that names the wait (`retryAfter`), as a wait past
+    /// the deadline is. A request already sent and its response are never
+    /// cut by it. For a caller whose own host stops listening before the
+    /// request's deadline: the refusal reaches it, the slept-out answer
+    /// would not.
+    #[must_use]
+    pub fn with_wait_bound(mut self, bound: Instant) -> Self {
+        self.wait_bound = Some(bound);
+        self
+    }
+
+    /// When this request's client-side waits end: its budget's deadline,
+    /// and the sooner [`Self::with_wait_bound`] for the decision to sleep.
+    pub(crate) fn wait_limit(&self) -> crate::budget::WaitLimit {
+        let deadline = self.budget.deadline;
+        crate::budget::WaitLimit {
+            deadline,
+            sleep_by: self
+                .wait_bound
+                .map_or(deadline, |bound| bound.min(deadline)),
         }
     }
 

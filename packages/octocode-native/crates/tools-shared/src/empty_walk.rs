@@ -83,7 +83,9 @@ impl Walk {
     /// directory, rooted as every local walk roots its default prune
     /// ([`Prune::at`]: inside a git work tree only where git ignores it):
     /// ignore rules and hidden entries follow the flags, and `globs` scope
-    /// it like the tool's own scan.
+    /// it like the tool's own scan. The globs only narrow: they are applied
+    /// to the entries the flags admit, never as walker overrides, which
+    /// would admit a hidden or ignored file an include glob matches.
     pub fn walker(
         self,
         root: &Path,
@@ -92,15 +94,14 @@ impl Walk {
     ) -> Result<ignore::Walk, Error> {
         let (mut builder, global) = walk_builder_under(root, self.policy(), self.global, None);
         let prune = Prune::new(prune).at_with(root, self.global);
+        let globs = globs.overrides(root)?;
         builder.filter_entry(move |entry| {
+            let is_dir = entry.file_type().is_some_and(|kind| kind.is_dir());
             entry.depth() == 0
                 || (!global.hides_entry(entry)
-                    && !prune.prunes(
-                        entry.path(),
-                        entry.file_type().is_some_and(|kind| kind.is_dir()),
-                    ))
+                    && !prune.prunes(entry.path(), is_dir)
+                    && !globs.matched(entry.path(), is_dir).is_ignore())
         });
-        builder.overrides(globs.overrides(root)?);
         Ok(builder.build())
     }
 }

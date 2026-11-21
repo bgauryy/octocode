@@ -1,69 +1,97 @@
 # @octocodeai/octocode-chrome-devtools
 
-Chrome MCP server and CLI for DOM actions, snapshots, arbitrary CDP methods/events, worker/frame sessions, network captures, profiling, heap/trace/PDF streams and complete saved evidence. The npm archive ships the complete guidance-only `octocode-chrome-devtools` Agent Skill at `skills/octocode-chrome-devtools/` (one source, no build copy), including its references. This package also ships `OPERATING.md` and its topic guides, served by `/cli skill`; that command reads guidance and does not install Agent Skills.
+Let an AI agent drive a real Chrome: log in, fill forms, click, take screenshots, read console errors and network traffic, record traces, or send any Chrome DevTools Protocol (CDP) command. Everything the agent sees is saved as searchable files in your workspace, so answers cite evidence instead of guesses.
 
-## Build and local use
+One package gives you an MCP server, a typed CLI, a JavaScript API and an Agent Skill.
 
-Requires Chrome and Node.js 24.15.0 or later in the 24.x line (`^24.15.0`). Run from the workspace cwd:
+## Quick start
+
+You need Chrome and Node.js 24.15 or later (24.x).
+
+Add the MCP server to your agent or editor, with the working directory set to your project:
+
+```json
+{ "mcpServers": { "chrome": { "command": "npx", "args": ["-y", "@octocodeai/octocode-chrome-devtools"] } } }
+```
+
+Then ask the agent to open a page. A typical task takes two calls: `open` a headless Chrome on a URL, then `run` one plan (click, fill, read text, screenshot) that stops at the first failing step.
+
+Try the CLI without any agent:
 
 ```sh
 npx -y @octocodeai/octocode-chrome-devtools /cli --help
 ```
 
-From the monorepo:
+## Choose how much the agent sees
+
+Every tool description costs the agent context, so the server exposes a preset. Sizes are estimates of the tool list alone.
+
+| Preset | Flag | Tools | About |
+|---|---|---|---|
+| research (default) | none | 12 | 3.3k tokens: open, run, cdp, protocol, flow, targets, group, query, artifact, schema, skill, cleanup |
+| slim | `--mcp --preset slim` | 5 | 1.5k tokens: open, run, query, skill, cleanup |
+| full | `--mcp --preset full` | 19 | 5.3k tokens: adds check, dev-check, script, cookies, session, proxy, helper |
+
+Add only what you need to any preset with `--tools`:
 
 ```sh
-yarn workspace @octocodeai/octocode-chrome-devtools build
-node /absolute/repo/packages/octocode-chrome-devtools/bin/octocode-chrome-devtools.mjs /cli --help
+npx -y @octocodeai/octocode-chrome-devtools --mcp --preset research --tools data,capture
 ```
 
-An install or local link exposes `octocode-chrome-devtools`. Built npm archives include the bundled runtime and shared config; no runtime dependency installation is needed. `src/` owns the TypeScript adapter and browser engines; `dist/` contains generated runtime code. `tests/` and `tools/` are development-only.
+| Group | Adds | Cost |
+|---|---|---|
+| `data` | cookies, session, script | about 900 tokens |
+| `devtools` | dev-check, helper, proxy | about 700 tokens |
+| `capture` | check | about 400 tokens |
 
-## Bundled Agent Skill
+You can also name single tools. An unknown name fails with the list of valid ones. The CLI (`/cli`) always has every command.
 
-After installing the package, locate the skill entry with:
+## What the agent can do
+
+- **Pages:** open headless or visible Chrome, run multi-step plans, snapshot controls by role and name, screenshot, handle dialogs, work in iframes and several tabs, keep private tab groups with their own cookies.
+- **Any CDP command:** `cdp` reaches every method of your Chrome. It routes to the page or the browser by itself, enables the domain a method needs, and `protocol` lists domains, commands and what needs enabling.
+- **Evidence:** network (HAR), console, storage and cookie names, page HTML and resources, scripts with source maps, coverage, traces, heap snapshots and PDFs.
+- **Emulation:** device size, dark mode, locale, time zone, CPU throttling. `open` keeps them for later calls.
+- **Search, don't page:** replies hold paths and short summaries. The agent searches the saved files with `query`, Octocode `localSearch` or `rg`, and only then reads the matching lines.
+
+Files are saved under `<workspace>/.octocode/octocode-chrome-devtools/tmp/`. Delete that folder any time.
+
+## Safety
+
+- Chrome runs in an isolated temporary profile. Your real profile, cookies and logins are not touched.
+- Attaching to a running browser, raw CDP commands, executing scripts, granting permissions, spoofing location and closing the browser need the agent to pass `acknowledge: true`, which it should only do with your consent.
+- `file:`, `chrome:` and `devtools:` pages are refused unless explicitly acknowledged. Flags that switch off web security are refused.
+- Cookie and header values are redacted in saved captures; names are kept.
+- Page content is untrusted. The agent is told to ask you before purchases, sends, deletes, account changes or real-data submissions.
+- Capture and helper scripts run in a restricted Node sandbox that can reach only your own machine (loopback).
+
+## Use as a library
+
+```js
+import { chrome, call, closeChrome } from '@octocodeai/octocode-chrome-devtools/runtime';
+```
+
+`runChromeMcp` is the root export and `runChromeCli` is exported at `/cli`.
+
+## Agent Skill
+
+The package ships a short skill that teaches an agent the fast path (open, run a plan, search the saved files). Find it with:
 
 ```sh
 node -p "require.resolve('@octocodeai/octocode-chrome-devtools/skill')"
 ```
 
-Copy the complete containing `octocode-chrome-devtools` directory into your agent's skill directory; its `references/` and `output.md` must stay beside `SKILL.md`. Running through `npx` includes the same files in its package cache but does not register a skill with your agent. Alternatively, use `octocode skill install octocode-chrome-devtools` to install from the Octocode skill catalog.
+Copy the whole `octocode-chrome-devtools` folder into your agent's skills directory, or run `octocode skill install octocode-chrome-devtools`.
 
-## One package, two interfaces
+## Guides
 
-```sh
-octocode-chrome-devtools                      # MCP stdio
-octocode-chrome-devtools /cli --help          # typed CLI
-octocode-chrome-devtools /cli skill --json    # operating guide; follow any continuation
-octocode-chrome-devtools /cli cdp --help --json
-```
+The agent reads these through the `skill` tool (`topic`), and you can read them here: [operating guide](docs/operating.md), [setup and flags](docs/mcp-cli.md), [plans and steps](docs/browser-execution.md), [flows](docs/flows.md), [CDP protocol](docs/cdp-protocol.md), [saved evidence](docs/evidence-files.md), [tabs and safety policy](docs/tabs-and-policy.md), [recovery](docs/recovery.md).
 
-Like the communication package, default execution serves MCP and `/cli` runs typed commands using `octocode-mcp-cli`. `/raw` exposes the original argument-oriented engine CLI for advanced/script integration. Both interfaces share one command spec and the same execution engine. Package exports provide `runChromeMcp` at the root, `runChromeCli` at `/cli`, and the spec/runtime at `/runtime`.
-
-Configure an MCP host with command `octocode-chrome-devtools` and no arguments, setting its cwd to the workspace. Without an installed bin, use `node` with the absolute package bin path. Core tools expose structured plans, steps, methods, recipes and connections. `group` manages named, private-by-default tab groups; the full preset's `helper` tool runs saved-evidence and maintenance helpers by `name` with existing CLI `args`. See [setup and input formats](docs/mcp-cli.md) and [OPERATING.md](OPERATING.md), also served through `skill`.
-
-Capture artifacts and state live in `<cwd>/.octocode/octocode-chrome-devtools/tmp/`. Replies carry direct read pages and compact action acknowledgements in `flow`, with `files`/`evidence` paths and lossless routes to complete step records, artifact inventories and logs. Shared source identities are hoisted into `flow.sources`; relative continuations resolve from the workspace cwd. MCP exports the research preset by default; `--mcp --preset full` exports every command, and `/cli` always does. `--mcp --tools <group|tool>[,..]` adds opt-in groups or single tools to any preset without jumping to full: `data` (`cookies`, `session`, `script`), `devtools` (`dev-check`, `helper`, `proxy`), `capture` (`check`); an unknown name fails with the valid list, and the instructions and `schema --command` list follow the resulting tool set (see [flags](docs/mcp-cli.md#mcp-flags)). Use Octocode `localSearch`/`localFetch` on returned `files`/`evidence` paths and indexed `query` for structured rows; filter before paging. Every withheld result remains reachable through `next.*` continuations, including oversized values. Calls serialize within one server. MCP cancellation stops active execution and rejects queued calls before they start. Partial captures survive; retries follow [bounded retry](docs/recovery.md#bounded-retry).
-
-## Verification
+## Develop
 
 ```sh
-yarn workspace @octocodeai/octocode-chrome-devtools verify
+yarn workspace @octocodeai/octocode-chrome-devtools build
+yarn workspace @octocodeai/octocode-chrome-devtools verify   # build, typecheck, lint, tests
 ```
 
-`verify` builds, typechecks all TypeScript sources (strict checking at the shared boundaries), checks tooling syntax and the guidance-only skill boundary, and runs the browser-free unit and self-tests (`test`). `build` rewrites every generated engine/adapter/config output and deletes obsolete ones.
-
-### Browser checks
-
-Real-browser behavior is checked by an agent, by hand, judged by reading the replies (method: [tool checks](../octocode-benchmark/CHECKS.md)). Use an isolated headless Chrome, a temporary cwd and local pages served from a loopback port; no network, no real profile. Run each item through MCP, the typed `/cli` and the `/raw` engine CLI, and compare the three.
-
-- [ ] Snapshot and act: `snapshot` returns refs for a page's controls (including a same-process iframe and an isolated frame's `FRAME_TARGET`); `fill`, `click`, `select`, `check`, `upload`, `drag` and `press` on those refs change the page, and `[VERIFY]` reads the change back. A stale ref is recovered by role and name, or refused when ambiguous.
-- [ ] Wait and scope: a wait for text or a selector returns once it appears and fails with evidence when it does not; text scoped to a region excludes the rest of the page.
-- [ ] Capture: a full-page screenshot pages through its tiles; a `browser-execute` plan stops at the first failing step and keeps the partial artifacts; every withheld value is reachable through its `next.*` continuation and `artifact-query` pages are lossless.
-- [ ] Measure: `performance-`, `network-` and `storage-measure-check` on a slow local page report its LCP, slow requests and storage, with findings that match what the page does.
-- [ ] Protocol: a `run` plan of `cdp` steps reaches Chrome for DOM/CSS/accessibility, trusted input, interception, workers, profiling, trace and PDF streams, WebSockets, storage and emulation, and returns Chrome's own error for a bad call. `/raw schema` lists the installed Chrome's domains; sending a few commands from several domains with schema-built params gives `ok` or Chrome's error, never a lost transport.
-- [ ] Cleanup: after the session ends, no Chrome or helper process it started remains, including one started from another cwd.
-- [ ] WebMCP: a fresh headless Chrome (not a reused session; `open` enables WebMCP) opens a local page that registers one tool. `webmcp-tools` list mode finds it, invoke mode returns its structured output with status `Completed`, and on a page with no tools both exit 0 with an empty result, not an error or a hang.
-- [ ] Persistent client: the same reads through one connected MCP client and through a reconnect per call return identical evidence; the connected client skips the repeated initialization.
-- [ ] Packed archive: `npm pack --ignore-scripts`. The archive holds `bin/`, `dist/{runtime,cli,mcp}.js`, the config loader, `OPERATING.md`, `docs/` and the skill under `skills/`, and nothing under `src/`, `tools/`, `tests/` or `node_modules/`. Outside the monorepo and offline, `npm exec --package <tgz> -- octocode-chrome-devtools /cli cdp --help --json` prints a schema with `method`, `/raw schema run` lists the plan operations, and the MCP server lists `skill`, whose `operating` and `web-research` topics, paged to the end, equal `OPERATING.md` and `docs/web-research.md` byte for byte. The documented research capture works through MCP and the typed CLI, a typed CDP call answers, and a synthetic cookie round-trips.
-
-[Architecture and ownership](ARCHITECTURE.md) describes implementation boundaries. Optional scraping bridges require the separate scraping skill; use `--scraping-skill-dir /absolute/skill` when it cannot be discovered.
+`src/` is TypeScript; `dist/` is generated. Tool descriptions and schemas come from the Octocode core contract, not from this package. The real-browser tests need Chrome and use local loopback pages only.

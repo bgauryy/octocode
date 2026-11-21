@@ -2,7 +2,9 @@
 //! presentation's `instructions` parts (core's `MCP_INSTRUCTION_PARTS`):
 //! `head`, then the `text` of every route whose `needs` are all enabled, then
 //! `body`, then the `text` of each block whose `tool` is enabled, in array
-//! order. Plain concatenation, so the result is core's own `mcpInstructions`.
+//! order, then the `text` of each settings entry whose `setting` holds its
+//! `value`. Plain concatenation, so the result is core's own
+//! `mcpInstructions`.
 
 use serde_json::Value;
 
@@ -26,6 +28,28 @@ pub fn compose_instructions(presentation: &Value, enabled: impl Fn(&str) -> bool
         }
     }
     out
+}
+
+/// The settings blocks for a session: the `text` of each `settings` part
+/// whose `setting` (a config path) `value_of` resolves to its `value`, in
+/// array order. Appended to [`compose_instructions`] by an interface whose
+/// replies the setting changes.
+pub fn setting_instructions(
+    presentation: &Value,
+    value_of: impl Fn(&str) -> Option<Value>,
+) -> String {
+    presentation["instructions"]["settings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|entry| {
+            entry["setting"]
+                .as_str()
+                .and_then(&value_of)
+                .is_some_and(|value| value == entry["value"])
+        })
+        .filter_map(|entry| entry["text"].as_str())
+        .collect()
 }
 
 #[cfg(test)]

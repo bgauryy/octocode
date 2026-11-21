@@ -1,8 +1,6 @@
-//! An empty or partial page's next step: a plain miss under a narrow path
-//! leads to the nearest folder above it where the same search matches, naming
-//! the narrower folder that holds every match (LS-5); an unreadable file
-//! names its reason in `partialReasons` (LS-7); a skipped target names a
-//! reader only where that reader serves it.
+//! An empty or partial page's next step: a plain miss states none; an
+//! unreadable file names its reason in `partialReasons` (LS-7); a skipped
+//! target names a reader only where that reader serves it.
 use super::*;
 use octocode_test_support::json_fixture;
 
@@ -55,47 +53,30 @@ fn an_empty_row_states_coverage_and_no_zero_counter() {
     assert!(hit.get("bytesSearched").is_none(), "{hit}");
 }
 
-/// A plain miss under a narrower path offers the same search one folder up,
-/// said as such, and runs nothing more: widening is the caller's call.
+/// A plain miss, under a narrow folder, at one file or at the workspace root,
+/// is its empty list and its coverage: no cause explains it, so the row
+/// states no hint and offers no call. Widening is the caller's call.
 #[test]
-fn a_plain_miss_leads_one_folder_up() {
+fn a_plain_miss_states_no_hint_and_offers_no_call() {
     let root = workspace();
     let narrow = root.path().join("narrow").to_string_lossy().into_owned();
-    for (path, parent) in [(narrow.clone(), "."), (format!("{narrow}/a.txt"), "narrow")] {
-        let row = search(root.path(), &path, serde_json::json!({}));
-        let lead =
-            octocode_runtime_base::test_support::checks::related_call(&row, "localSearch", |_| {
-                true
-            });
-        assert_eq!(lead["input"]["queries"][0]["path"], parent, "{row}");
-        assert!(row["hints"].to_string().contains("one folder up"), "{row}");
+    for (path, pattern) in [
+        (narrow.clone(), "needle"),
+        (format!("{narrow}/a.txt"), "needle"),
+        (
+            root.path().to_string_lossy().into_owned(),
+            "absent-everywhere",
+        ),
+    ] {
+        let row = search(
+            root.path(),
+            &path,
+            serde_json::json!({"matchString": [pattern]}),
+        );
+        assert_eq!(row["files"], serde_json::json!([]), "{path}: {row}");
+        assert!(row.get("hints").is_none(), "{path}: {row}");
+        assert!(related_calls(&row).is_empty(), "{path}: {row}");
     }
-}
-
-#[test]
-fn a_miss_at_the_workspace_root_has_nothing_wider() {
-    let root = workspace();
-    let row = search(
-        root.path(),
-        &root.path().to_string_lossy(),
-        json_fixture(r#"{"matchString": ["absent-everywhere"]}"#),
-    );
-    assert_eq!(row["files"], serde_json::json!([]), "{row}");
-    // Nothing above the root to widen to: no lead moves the path.
-    let root_path = root.path().to_string_lossy();
-    assert!(
-        octocode_runtime_base::test_support::checks::find_related_call(
-            &row,
-            "localSearch",
-            |call| {
-                call["input"]["queries"][0]["path"]
-                    .as_str()
-                    .is_some_and(|path| path != root_path && path != ".")
-            }
-        )
-        .is_none(),
-        "{row}"
-    );
 }
 
 #[cfg(unix)]

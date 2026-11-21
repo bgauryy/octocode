@@ -4,7 +4,7 @@
 use crate::support::{Run as _, Workspace};
 use octocode_native::runtime::ToolRuntime;
 use octocode_test_support::json_fixture;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 fn numbered(file: usize, lines: usize) -> String {
     (1..=lines)
@@ -31,7 +31,7 @@ fn row(output: &Value, index: u64) -> Option<&Value> {
 }
 
 #[tokio::test]
-async fn a_row_shown_whole_keeps_its_own_walk_beside_a_split_row() {
+async fn one_loop_through_next_reads_a_split_row_and_a_whole_rows_later_pages() {
     let workspace = Workspace::new();
     for file in 0..6 {
         workspace.write(&format!("big/f{file}.txt"), numbered(file, 25));
@@ -63,34 +63,59 @@ async fn a_row_shown_whole_keeps_its_own_walk_beside_a_split_row() {
         ),
     )
     .await;
-    let small_walk = loop {
-        if let Some(call) = row(&page, 1).and_then(|row| row.pointer("/data/next/nextPage")) {
-            break call.clone();
+    // One loop through the reply's `next` reads everything: the split row's
+    // parts, then the later pages of both rows. No row carries a walk of
+    // its own.
+    let mut small = Vec::new();
+    let mut big = 0;
+    let mut calls = 0;
+    loop {
+        calls += 1;
+        assert!(calls < 200, "the walk ends");
+        for index in [0, 1] {
+            assert!(
+                row(&page, index)
+                    .and_then(|row| row.pointer("/data/next/nextPage"))
+                    .is_none(),
+                "{page}"
+            );
         }
-        let next = page
-            .pointer("/responsePagination/next/input")
-            .cloned()
-            .unwrap_or_else(|| panic!("the small row keeps its walk: {page}"));
+        if let Some(row) = row(&page, 1) {
+            small.extend(
+                row["data"]["files"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|file| file["path"].as_str().map(str::to_owned)),
+            );
+        }
+        if let Some(row) = row(&page, 0) {
+            big += row["data"]["files"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|file| file["matches"].as_array().map_or(0, Vec::len))
+                .sum::<usize>();
+        }
+        let Some(next) = page.pointer("/next/input").cloned() else {
+            break;
+        };
         page = run(&runtime, next).await;
-    };
-    // Finishing the response walk reads only the split row.
-    let mut next = page.pointer("/responsePagination/next/input").cloned();
-    while let Some(input) = next {
-        let later = run(&runtime, input).await;
-        assert!(row(&later, 1).is_none(), "{later}");
-        next = later.pointer("/responsePagination/next/input").cloned();
     }
-    let more = run(&runtime, small_walk["input"].clone()).await;
+    small.sort();
     assert_eq!(
-        row(&more, 1).map(|row| row["data"]["pagination"]["offset"].clone()),
-        Some(json!(3)),
-        "the row's own walk serves its next page: {more}"
+        small,
+        (0..8)
+            .map(|file| format!("small/s{file}.txt"))
+            .collect::<Vec<_>>(),
+        "every file of the whole row once"
     );
+    assert_eq!(big, 6 * 25, "every hit of the split row once");
     runtime.close().await;
 }
 
 #[tokio::test]
-async fn rows_whose_pages_fit_state_no_response_walk() {
+async fn rows_whose_pages_fit_continue_together_on_the_replys_next() {
     let workspace = Workspace::new();
     for file in 0..8 {
         workspace.write(&format!("a/a{file}.txt"), "needle\n");
@@ -120,13 +145,17 @@ async fn rows_whose_pages_fit_state_no_response_walk() {
     )
     .await;
     runtime.close().await;
-    assert!(output.get("responsePagination").is_none(), "{output}");
+    assert!(output["next"]["input"]["cursor"].is_string(), "{output}");
+    assert!(
+        output.get("expiresAt").is_none(),
+        "no saved response: {output}"
+    );
     for index in [0, 1] {
         assert!(
             row(&output, index)
                 .and_then(|row| row.pointer("/data/next/nextPage"))
-                .is_some(),
-            "row {index} keeps its walk: {output}"
+                .is_none(),
+            "row {index} carries no walk of its own: {output}"
         );
     }
 }

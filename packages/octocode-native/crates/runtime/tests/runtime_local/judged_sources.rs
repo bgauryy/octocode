@@ -276,7 +276,7 @@ async fn every_tool_serves_a_source_as_its_whole_file_judgment() {
             match value {
                 Value::Array(items) => items.iter().for_each(|item| contents(item, out)),
                 Value::Object(fields) => {
-                    if let Some(text) = fields.get("content").and_then(Value::as_str) {
+                    if let Some(text) = fields.get("value").and_then(Value::as_str) {
                         out.push(text.to_owned());
                     }
                     fields.values().for_each(|field| contents(field, out));

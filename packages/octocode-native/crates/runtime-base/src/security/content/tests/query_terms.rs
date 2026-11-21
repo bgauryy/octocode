@@ -113,8 +113,8 @@ fn refused_everywhere(term: &str) -> bool {
         serde_json::json!({ "matchString": [term] }),
         serde_json::json!({ "keywords": [term] }),
         serde_json::json!({ "mainGoal": term }),
-        serde_json::json!({ "classification": { "predicates": [term], "context": "plain" } }),
-        serde_json::json!({ "classification": { "predicates": ["plain"], "context": term } }),
+        serde_json::json!({ "classification": { "predicates": [term], "background": "plain" } }),
+        serde_json::json!({ "classification": { "predicates": ["plain"], "background": term } }),
     ];
     let verdicts: Vec<bool> = fields
         .iter()

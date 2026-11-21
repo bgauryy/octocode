@@ -96,10 +96,9 @@ where
     loop {
         let filled = rows
             .iter()
-            .zip(queries)
-            .map(|(row, query)| read_share::Filled {
+            .map(|row| read_share::Filled {
                 chars: read_share::published_chars(&row.data).row,
-                open: read_share::reads_on(&row.data) && read_share::reads_again(query),
+                open: read_share::reads_on(&row.data),
             })
             .collect::<Vec<_>>();
         let Some(wider) = read_share::widened(room, share, &filled) else {

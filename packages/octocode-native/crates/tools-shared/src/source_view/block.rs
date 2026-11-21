@@ -57,8 +57,6 @@ fn sections(content: &str, path: &str) -> Option<Vec<Declared>> {
         .enumerate()
         .map(|(at, heading)| Declared {
             name: heading.text.clone(),
-            kind: "heading".to_owned(),
-            doc_start: None,
             line: heading.line,
             start: heading.line,
             end: headings[at + 1..]
@@ -253,18 +251,21 @@ fn no_outline(
         ));
     }
     if let Some(read) = read {
-        next.read = Some(FetchCall::related(read));
+        // A window with no edge is cut short of its declaration.
+        next.read = Some(FetchCall::needed(read));
     }
     windows
 }
 
 /// Widen each range to the innermost declaration containing its first line,
 /// whatever its length: the read's pages bound what one response holds.
+/// Each widened declaration is named in `named`.
 pub(super) fn widen_ranges(
     content: &str,
     path: &str,
     ranges: Vec<LineRange>,
     warnings: &mut Vec<String>,
+    named: &mut Vec<super::types::DeclaredBlock>,
     next: &mut NextCalls,
 ) -> Vec<LineRange> {
     let Some(blocks) = Blocks::of(content, path) else {
@@ -272,11 +273,15 @@ pub(super) fn widen_ranges(
         return no_outline(content, path, &starts, ranges, warnings, next);
     };
     let spans = block_spans(content, path, &blocks);
+    let owners: Vec<(&Declared, (usize, usize))> =
+        blocks.declared.iter().zip(spans.iter().copied()).collect();
     let (mut unenclosed, mut one_line) = (vec![], vec![]);
     let widened = ranges
         .into_iter()
         .map(|range| {
-            let Some((first, last)) = innermost(&spans, range.start) else {
+            let Some(&(owner, (first, last))) =
+                declarations::innermost_by(&owners, range.start, |&(_, span)| span)
+            else {
                 if blocks.is_one_line(range.start) {
                     one_line.push(range.start);
                 } else {
@@ -284,6 +289,7 @@ pub(super) fn widen_ranges(
                 }
                 return range;
             };
+            name_block(named, owner, first);
             LineRange {
                 start: first.min(range.start),
                 end: last.max(range.end),
@@ -311,11 +317,29 @@ pub(super) fn widen_ranges(
     widened
 }
 
+/// Name `owner` in `blocks`, once: a declaration a block read widened to,
+/// shown from line `first` (its doc comments and attributes, when above its
+/// name line).
+fn name_block(blocks: &mut Vec<super::types::DeclaredBlock>, owner: &Declared, first: usize) {
+    if !owner.name.is_empty() && !blocks.iter().any(|block| block.line == owner.line) {
+        blocks.push(super::types::DeclaredBlock {
+            symbol_name: owner.name.clone(),
+            line: owner.line,
+            end_line: owner.end,
+            doc_start_line: (first < owner.line).then_some(first),
+        });
+    }
+}
+
 /// Whether `hit` is a declaration's own head: a line from its first line
 /// (its decorators or attributes) through its name line.
 fn declares(declared: &[Declared], hit: usize) -> bool {
     declarations::innermost(declared, hit).is_some_and(|d| d.start <= hit && hit <= d.line)
 }
+
+/// The warning of a block read whose `contextLines` sized nothing: every
+/// match was widened to its declaration.
+pub(super) const CONTEXT_UNUSED: &str = "contextLines has no effect: block:true returned the whole declaration of every match; omit block to read the lines around each match instead.";
 
 /// Replace each match window with the innermost declaration containing the
 /// matched line, whatever its length: the read's pages bound what one
@@ -338,6 +362,11 @@ pub(super) fn widen_matches(
     let declared = &outline.declared;
     let declaration_first = hits.iter().any(|&hit| declares(declared, hit));
     let lines: Vec<&str> = content.lines().collect();
+    // A window wider than its hit line holds requested context.
+    let context_asked = hits
+        .iter()
+        .zip(&windows)
+        .any(|(&hit, window)| window.start != hit || window.end != hit);
     let mut unenclosed = 0;
     let mut one_line = 0;
     let mut call_sites = 0;
@@ -349,24 +378,14 @@ pub(super) fn widen_matches(
                 call_sites += 1;
                 window
             }
-            // A hit on the declaration's head reads it as written, docs
-            // included; a hit inside reads the declaration it sits in.
-            Some((start, end)) => {
-                if let Some(owner) = declarations::innermost(declared, hit)
-                    && !owner.name.is_empty()
-                    && !blocks.iter().any(|block| block.line == owner.line)
-                {
-                    blocks.push(super::types::DeclaredBlock {
-                        symbol_name: owner.name.clone(),
-                        line: owner.line,
-                        end_line: owner.end,
-                    });
+            // A hit on the declaration's head and a hit inside it read the
+            // same lines: the declaration as written, docs included, as a
+            // `ranges` block read of any of its lines does.
+            Some(span) => {
+                let (start, end) = with_docs(&lines, path, span);
+                if let Some(owner) = declarations::innermost(declared, hit) {
+                    name_block(blocks, owner, start);
                 }
-                let (start, end) = if declares(declared, hit) {
-                    with_docs(&lines, path, (start, end))
-                } else {
-                    (start, end)
-                };
                 LineRange { start, end }
             }
             None if outline.is_one_line(hit) => {
@@ -379,6 +398,11 @@ pub(super) fn widen_matches(
             }
         })
         .collect();
+    // Every hit reads its whole declaration, so no context window is left
+    // for `contextLines` to size.
+    if context_asked && call_sites + one_line + unenclosed == 0 {
+        warnings.push(CONTEXT_UNUSED.to_owned());
+    }
     // `matchedLines` names every hit; the warning carries the count.
     if call_sites > 0 {
         warnings.push(format!(

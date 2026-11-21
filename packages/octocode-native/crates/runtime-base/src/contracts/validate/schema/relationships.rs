@@ -45,22 +45,6 @@ pub(super) fn validate(
     if let Some(order) = schema.get("x-order") {
         validate_order(order, value, path)?;
     }
-    if let Some(sum) = schema.get("x-sum") {
-        let total = sum["total"]
-            .as_str()
-            .ok_or_else(|| internal("x-sum requires total".into()))?;
-        let expected = strings(&sum["terms"])?
-            .into_iter()
-            .try_fold(0.0, |sum, name| {
-                value
-                    .get(name)
-                    .map_or(Some(0.0), Value::as_f64)
-                    .map(|term| sum + term)
-            });
-        if expected.is_none() || expected != value.get(total).and_then(Value::as_f64) {
-            return Err(diagnostic(sum, path, &[total])?);
-        }
-    }
     if let Some(tokens) = schema.get("x-numericTokens") {
         validate_tokens(tokens, value, path)?;
     }
@@ -163,9 +147,8 @@ fn nearest_known_field(inner: &ValidationIssue) -> Option<String> {
 }
 
 /// The `(tool, query)` field names of the embedded contract's `x-toolQuery`
-/// rule `id` (a clasify `source: {tool, query}`): the repair owner reads a
-/// nested query's issues by them ([`crate::contracts::normalize`]).
-pub(crate) fn tool_query_fields(id: &str) -> Option<(&'static str, &'static str)> {
+/// rule.
+fn tool_query_rule() -> Option<(&'static str, &'static str)> {
     static RULES: std::sync::OnceLock<Vec<(&'static str, &'static str, &'static str)>> =
         std::sync::OnceLock::new();
     fn collect(value: &'static Value, rules: &mut Vec<(&'static str, &'static str, &'static str)>) {
@@ -201,9 +184,14 @@ pub(crate) fn tool_query_fields(id: &str) -> Option<(&'static str, &'static str)
             }
             rules
         })
-        .iter()
-        .find(|(known, ..)| *known == id)
+        .first()
         .map(|(_, tool, query)| (*tool, *query))
+}
+
+/// The `(tool, query)` field names of the `x-toolQuery` rule an object
+/// declaring the fields `known` follows: both are among them.
+pub(crate) fn tool_query_pair(known: &[&str]) -> Option<(&'static str, &'static str)> {
+    tool_query_rule().filter(|(tool, query)| known.contains(tool) && known.contains(query))
 }
 
 fn validate_order(

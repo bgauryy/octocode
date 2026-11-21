@@ -8,7 +8,6 @@ use super::*;
 use crate::runtime::engine::Channel;
 use crate::runtime::engine::cursors::SavedWork;
 use crate::runtime::engine::page_replay::page_replay_key;
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use octocode_io::cancellation::Cancellation;
 use octocode_runtime_base::execution::ExecutionContext;
 use octocode_runtime_base::response::cursor::issued;
@@ -18,12 +17,6 @@ use std::time::{Duration, Instant};
 /// A fake GitHub token: `ghp_` and 36 alphanumerics.
 const TOKEN: &str = "ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8";
 
-/// Bytes whose URL-safe base64, from a 3-byte boundary, spells `ghp_` and
-/// 40 alphanumerics, and which a JSON string holds as written (valid UTF-8,
-/// no control character, quote or backslash).
-const SPELLS_A_TOKEN: &str =
-    "*\u{e019f}\u{79a9}8Q\u{7b5}<e\u{737}\u{125}?E\u{2eec};}\u{71e}^6Ox\u{154}";
-
 fn context() -> ExecutionContext {
     ExecutionContext {
         cancellation: Cancellation::new(),
@@ -31,57 +24,6 @@ fn context() -> ExecutionContext {
         response_window: None,
         github_credential: None,
     }
-}
-
-fn adler32(bytes: &[u8]) -> u32 {
-    let (mut low, mut high) = (1u32, 0u32);
-    for &byte in bytes {
-        low = (low + u32::from(byte)) % 65_521;
-        high = (high + low) % 65_521;
-    }
-    (high << 16) | low
-}
-
-/// `json` as a zlib stream of one stored block, so its bytes stand at a
-/// known place in the stream: after the 2-byte header and the 5-byte block
-/// header.
-fn stored_zlib(json: &[u8]) -> Vec<u8> {
-    let length = u16::try_from(json.len()).expect("one stored block");
-    let mut stream = vec![0x78, 0x01, 0x01];
-    stream.extend(length.to_le_bytes());
-    stream.extend((!length).to_le_bytes());
-    stream.extend(json);
-    stream.extend(adler32(json).to_be_bytes());
-    stream
-}
-
-/// A selection replay token in the form the runtime issues (a plan's JSON,
-/// zlib-compressed, in URL-safe base64) whose plan places
-/// [`SPELLS_A_TOKEN`] on a 3-byte boundary of the stream, so the token's
-/// text holds a GitHub token's shape.
-fn selection_token_spelling_a_credential() -> String {
-    let plan = |binding: &str| {
-        serde_json::to_vec(&json!({
-            "version": octocode_tools_shared::selection::plan::VERSION,
-            "binding": binding,
-            "status": "partial", "scope": "selectedView", "unit": "hits",
-            "selected": [], "excluded": [], "total": 1,
-            "reason": "candidateBudget", "checksum": "0".repeat(64),
-        }))
-        .expect("plan json")
-    };
-    let at = plan(SPELLS_A_TOKEN)
-        .windows(SPELLS_A_TOKEN.len())
-        .position(|bytes| bytes == SPELLS_A_TOKEN.as_bytes())
-        .expect("binding in the plan");
-    let pad = (3 - (7 + at) % 3) % 3;
-    let binding = format!("{}{SPELLS_A_TOKEN}", "x".repeat(pad));
-    let token = URL_SAFE_NO_PAD.encode(stored_zlib(&plan(&binding)));
-    assert!(
-        octocode_tools_shared::selection::plan::decode(&token).is_some(),
-        "the token opens as a selection plan"
-    );
-    token
 }
 
 /// The fresh-call gate refuses `value` as a caller's search term.
@@ -138,38 +80,6 @@ fn workspace(home: &std::path::Path) -> String {
     std::fs::create_dir_all(&root).expect("workspace");
     std::fs::write(root.join("a.txt"), "needle\n").expect("file");
     root.to_string_lossy().into_owned()
-}
-
-/// A selection token the runtime issued is its own state: a token whose
-/// encoding happens to spell a GitHub token runs from its cursor (here as
-/// a replay the source no longer matches), while the same text from a
-/// caller is refused.
-#[tokio::test]
-async fn an_issued_selection_token_that_spells_a_credential_runs_from_its_cursor() {
-    let token = selection_token_spelling_a_credential();
-    assert!(
-        refused_as_caller_text(&token),
-        "the token spells a credential"
-    );
-    let home = tempfile::tempdir().expect("home");
-    let runtime = super::super::construction_tests::runtime(
-        home.path(),
-        &[("OCTOCODE_CLASSIFICATION_API", "fixture-key")],
-    );
-    let root = workspace(home.path());
-    let cursor = issue(
-        &runtime,
-        ToolId::LocalSearch,
-        json!({"queries":[{"path": root, "matchString": ["needle"], "selection": token}]}),
-    );
-    let output = resume(&runtime, "localSearch", &cursor)
-        .await
-        .unwrap_or_else(|error| panic!("the resumed call was refused: {error:?}"));
-    assert!(
-        !output.to_string().contains("credential"),
-        "the resumed row was judged as a caller's text: {output}"
-    );
-    runtime.close().await;
 }
 
 /// The caller's own fields of a resumed row pass the gate every caller's

@@ -54,6 +54,10 @@ pub(crate) mod ast_search_query_symbols {
     pub(crate) fn exclude(query: &AstSearchQuerySymbols) -> Option<Vec<String>> {
         octocode_tools_shared::variant_field::non_empty(&query.exclude)
     }
+    /// The globs a directory outline keeps files by, relative to `path`.
+    pub(crate) fn include(query: &AstSearchQuerySymbols) -> Vec<String> {
+        query.include.iter().map(ToString::to_string).collect()
+    }
     /// Leading files (walk order) an earlier window outlined.
     pub(crate) fn scan_offset(query: &AstSearchQuerySymbols) -> u32 {
         query
@@ -80,6 +84,13 @@ pub(crate) mod ast_search_query_symbols {
             mode: filter.mode,
         })
     }
+}
+
+/// The path the row outlines: the one it names, else the workspace root.
+pub(super) fn walk_path(q: &AstSearchQuerySymbols) -> &str {
+    q.path
+        .as_ref()
+        .map_or(super::source::WALK_ROOT, |path| path.as_str())
 }
 
 /// One page of a symbols query, and where each of its rows was named
@@ -136,11 +147,10 @@ fn run_symbols(
             ),
         ));
     }
-    let p = paths
-        .validate(q.path.as_str())
-        .map_err(super::errors::policy_error)?;
-    let meta = std::fs::metadata(&p.canonical)
-        .map_err(|error| super::errors::io_error(q.path.as_str(), error))?;
+    let path = walk_path(q);
+    let p = paths.validate(path).map_err(super::errors::policy_error)?;
+    let meta =
+        std::fs::metadata(&p.canonical).map_err(|error| super::errors::io_error(path, error))?;
     check_language_scope(q, &p.canonical, meta.is_file())?;
     if meta.is_file() {
         return file_page(q, paths, &p.canonical, response_window, cancel)

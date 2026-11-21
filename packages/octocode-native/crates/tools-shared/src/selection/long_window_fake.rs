@@ -20,11 +20,10 @@ use wiremock::{Mock, MockServer, Request, ResponseTemplate, matchers::method};
 /// The input tokens each long-window answer bills.
 pub const BILLED: u64 = 4_321;
 
-/// The provider, its executor and the selection runtime judging through it.
+/// The provider and its executor.
 pub struct LongWindow {
     pub executor: tokio::runtime::Runtime,
     pub server: MockServer,
-    pub selection: crate::selection::Runtime,
 }
 
 impl LongWindow {
@@ -45,16 +44,7 @@ impl LongWindow {
                 .respond_with(respond)
                 .mount(&server),
         );
-        let selection = crate::test_support::selection_fake::runtime(
-            evaluator(&server),
-            executor.handle().clone(),
-            Duration::from_secs(20),
-        );
-        Self {
-            executor,
-            server,
-            selection,
-        }
+        Self { executor, server }
     }
 
     /// Requests the provider received in the long-context window.

@@ -231,3 +231,148 @@ async fn a_missing_or_outside_local_image_fails_with_the_shared_path_code() {
     assert!(requests(&server).await.is_empty());
     runtime.close().await;
 }
+
+/// The questions of an image judged as a source or resource: one says "the
+/// image", as questions about an image do.
+fn image_questions() -> Value {
+    json!({"visible":{"type":"noul","instructions":"The image shows visible content."},
+        "bounds":{"type":"box","instructions":"The object."}})
+}
+
+/// A PNG named as a text `source` is judged as an image in the same call:
+/// its bytes go as the one asset the state names, and a question that says
+/// "the image" does not name that asset, which would bill the image again.
+#[tokio::test]
+async fn an_image_source_is_judged_as_an_image_in_one_call() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    let bytes = png();
+    std::fs::write(workspace.workspace.join("one.png"), &bytes).unwrap();
+    let runtime = runtime(&workspace, &server, &[]);
+    let out = clasify(
+        &runtime,
+        vec![json!({"operation":"evaluate",
+            "source":{"tool":"localFetch","query":{"path":"one.png"}},
+            "questions":image_questions()})],
+    )
+    .await;
+    let result = &out["results"][0]["data"];
+    assert_eq!(result["answers"]["visible"]["noul"], 0.9, "{out}");
+    assert_eq!(result["answers"]["bounds"]["box"]["left"], 0.2, "{out}");
+    assert!(!out.to_string().contains(&STANDARD.encode(&bytes)));
+    let sent = requests(&server).await;
+    assert_eq!(sent.len(), 1, "{out}");
+    assert_eq!(
+        sent[0].headers.get("typesafe-danger-zone-images").unwrap(),
+        "true"
+    );
+    let body: Value = serde_json::from_slice(&sent[0].body).unwrap();
+    let assets = body["assets"].as_object().expect("the image as an asset");
+    assert_eq!(assets.len(), 1, "{body}");
+    let (key, asset) = assets.iter().next().unwrap();
+    assert_eq!(asset["data_base64"], STANDARD.encode(&bytes));
+    assert_eq!(body["state"], json!(key));
+    assert!(
+        !body["questions"].to_string().contains(key.as_str()),
+        "a question names the image key: {}",
+        body["questions"]
+    );
+    runtime.close().await;
+}
+
+/// One `resources` list holds text and images: each is judged alone, the
+/// image with its bytes and the text without any.
+#[tokio::test]
+async fn resources_judge_text_and_images_each_alone() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    std::fs::write(workspace.workspace.join("one.png"), png()).unwrap();
+    std::fs::write(
+        workspace.workspace.join("notes.md"),
+        "The service restarts.\n",
+    )
+    .unwrap();
+    let runtime = runtime(&workspace, &server, &[]);
+    let out = clasify(
+        &runtime,
+        vec![json!({"operation":"evaluate",
+            "resources":{
+                "shot":{"tool":"localFetch","query":{"path":"one.png"}},
+                "notes":{"tool":"localFetch","query":{"path":"notes.md"}}},
+            "questions":{"visible":{"type":"noul","instructions":"Shows visible content."}}})],
+    )
+    .await;
+    let resources = &out["results"][0]["data"]["resources"];
+    for key in ["shot", "notes"] {
+        assert_eq!(resources[key]["answers"]["visible"]["noul"], 0.9, "{out}");
+    }
+    let bodies = requests(&server)
+        .await
+        .iter()
+        .map(|request| serde_json::from_slice::<Value>(&request.body).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(bodies.len(), 2, "{out}");
+    assert_eq!(
+        bodies
+            .iter()
+            .filter(|body| body.get("assets").is_some())
+            .count(),
+        1,
+        "only the image is sent as an image"
+    );
+    runtime.close().await;
+}
+
+/// A box question over a text source is refused before any request: a box
+/// locates a region of an image.
+#[tokio::test]
+async fn a_box_question_over_text_sends_nothing() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    std::fs::write(
+        workspace.workspace.join("notes.md"),
+        "The service restarts.\n",
+    )
+    .unwrap();
+    let runtime = runtime(&workspace, &server, &[]);
+    let out = clasify(
+        &runtime,
+        vec![json!({"operation":"evaluate",
+            "source":{"tool":"localFetch","query":{"path":"notes.md"}},
+            "questions":image_questions()})],
+    )
+    .await;
+    assert_eq!(
+        out["results"][0]["data"]["errorCode"], "invalidClassificationContext",
+        "{out}"
+    );
+    assert!(requests(&server).await.is_empty(), "{out}");
+    runtime.close().await;
+}
+
+/// A binary source that is no PNG or JPEG keeps its reader's refusal, and
+/// nothing is sent.
+#[tokio::test]
+async fn a_binary_source_that_is_no_image_keeps_its_readers_refusal() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    std::fs::write(
+        workspace.workspace.join("blob.bin"),
+        b"\x00\x01\x02binary\x00",
+    )
+    .unwrap();
+    let runtime = runtime(&workspace, &server, &[]);
+    let out = clasify(
+        &runtime,
+        vec![json!({"operation":"evaluate",
+            "source":{"tool":"localFetch","query":{"path":"blob.bin"}},
+            "questions":{"visible":{"type":"noul","instructions":"Shows visible content."}}})],
+    )
+    .await;
+    assert_eq!(
+        out["results"][0]["data"]["errorCode"], "binaryFileUnsupported",
+        "{out}"
+    );
+    assert!(requests(&server).await.is_empty(), "{out}");
+    runtime.close().await;
+}

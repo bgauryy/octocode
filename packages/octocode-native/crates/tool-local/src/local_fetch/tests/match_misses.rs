@@ -3,17 +3,24 @@
 use super::*;
 use octocode_test_support::json_fixture;
 
-/// A matchString miss leads to a localSearch of the file's directory.
+/// A matchString miss in a file with no outline leads to a localSearch of
+/// the file's directory: its one call, beside its one hint.
 #[test]
 fn match_miss_leads_to_directory_search() {
     let t = Fixture::new();
-    let p = t.0.join("a.rs");
-    fs::write(&p, "fn a() {}\n").expect("fixture");
+    let p = t.0.join("a.txt");
+    fs::write(&p, "plain notes\n").expect("fixture");
     let result = fetch(
         &qj(&p, json_fixture(r#"{"matchString": ["nowhere_here"]}"#)),
         &Paths(t.0.clone()),
     );
+    assert_eq!(result.hints.len(), 1, "{result:?}");
     let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
+    assert_eq!(
+        octocode_runtime_base::test_support::billing::offered_calls(&next).len(),
+        1,
+        "{next}"
+    );
     let search = &next["findText"];
     assert_eq!(search["tool"], "localSearch", "{next}");
     assert_eq!(
@@ -21,13 +28,11 @@ fn match_miss_leads_to_directory_search() {
         json_fixture(r#"["nowhere_here"]"#),
         "{next}"
     );
-    assert_eq!(
-        search["input"]["queries"][0]["path"],
-        // The file is named as its row names it, relative to the root, so
-        // its directory is the root.
-        ".",
-        "{next}"
-    );
+    // The file is named as its row names it, relative to the root, so its
+    // directory is the root: the walk's default path, which a call states
+    // or leaves out.
+    let searched = &search["input"]["queries"][0]["path"];
+    assert!(searched.is_null() || searched == ".", "{next}");
 }
 
 /// A `ranges` match read that missed while the file has hits outside its
@@ -51,10 +56,11 @@ fn a_ranged_miss_with_hits_elsewhere_leads_to_the_unranged_read() {
         &Paths(t.0.clone()),
     );
     assert_eq!(result.selected_match_count, Some(0), "{result:?}");
-    assert_eq!(
-        result.warnings,
-        vec!["1 line matches outside the requested ranges.".to_owned()]
-    );
+    assert!(result.warnings.is_empty(), "{result:?}");
+    let [hint] = result.hints.as_slice() else {
+        panic!("one hint: {result:?}")
+    };
+    assert!(hint.contains("1 line matches outside"), "{hint}");
     let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
     let read = &next["read"];
     assert_eq!(read["tool"], "localFetch", "{next}");
@@ -76,8 +82,8 @@ fn a_ranged_miss_with_hits_elsewhere_leads_to_the_unranged_read() {
 #[test]
 fn a_match_miss_lead_keeps_the_reads_dialect_case_and_whole_word() {
     let t = Fixture::new();
-    let p = t.0.join("a.rs");
-    fs::write(&p, "fn a() {}\n").expect("fixture");
+    let p = t.0.join("a.txt");
+    fs::write(&p, "plain notes\n").expect("fixture");
     let result = fetch(
         &qj(
             &p,
@@ -109,8 +115,8 @@ fn a_match_miss_lead_keeps_the_reads_dialect_case_and_whole_word() {
 #[test]
 fn a_match_miss_lead_preserves_literal_patterns_and_smart_case() {
     let t = Fixture::new();
-    let p = t.0.join("a.rs");
-    fs::write(&p, "fn a() {}\n").expect("fixture");
+    let p = t.0.join("a.txt");
+    fs::write(&p, "plain notes\n").expect("fixture");
     let result = fetch(
         &qj(
             &p,
@@ -133,13 +139,13 @@ fn a_match_miss_lead_preserves_literal_patterns_and_smart_case() {
     assert_eq!(row["caseMode"], "smart", "{next}");
 }
 
-/// A file with a redaction keeps every miss lead: they count lines of the
-/// redacted text, so they hold for any guess. The redaction is a fact
-/// beside them.
+/// A file with a redaction keeps its miss recovery: one hint and one call,
+/// which count lines of the redacted text, so they hold for any guess. The
+/// redaction is a fact beside them.
 #[test]
 fn a_miss_in_a_redacted_file_keeps_its_leads() {
     let t = Fixture::new();
-    let p = t.0.join("mod.rs");
+    let p = t.0.join("mod.txt");
     fs::write(
         &p,
         "mod executor;\nconst K: &str = \"SECRET\";\nmod Other;\n",
@@ -149,7 +155,7 @@ fn a_miss_in_a_redacted_file_keeps_its_leads() {
     let read = |query| {
         let row = fetch(&qj(&p, query), &paths);
         assert_eq!(row.status, ReadStatus::Empty, "{row:?}");
-        assert!(row.hints.is_empty(), "{row:?}");
+        assert_eq!(row.hints.len(), 1, "{row:?}");
         serde_json::to_value(row.next.as_ref().expect("next")).expect("json")
     };
     let next = read(json_fixture(r#"{"matchString": ["executor|nothing"]}"#));
@@ -169,7 +175,7 @@ fn a_miss_in_a_redacted_file_keeps_its_leads() {
 #[test]
 fn literal_bars_preserve_the_exact_match_in_related_searches() {
     let root = Fixture::new();
-    let file = root.0.join("mod.rs");
+    let file = root.0.join("mod.txt");
     fs::write(&file, "mod executor;\nmod other;\n").expect("source");
     let paths = Paths(root.0.clone());
     for pattern in ["executor|nothing", "absent|gone"] {
@@ -216,7 +222,7 @@ fn an_insensitive_miss_runs_its_patterns_once() {
             &Safe,
             &NeverCancel,
             None,
-            None,
+            false,
         );
         assert_eq!(r.status, ReadStatus::Empty, "{r:?}");
         RUST_REGEX_RUNS.with(std::cell::Cell::get)
@@ -291,9 +297,10 @@ fn a_list_read_names_each_entry_that_matched_nothing() {
 /// declaration head the file declares otherwise (`pub fn apply(` where it
 /// says `pub(crate) fn apply`) reads its one declaration at once, as the
 /// read of that line, with a warning naming the swap. With two declarations
-/// of the name it is read by its name alone, a fact beside the lead; any
-/// other miss in a file with an outline leads to that outline. The folder
-/// search stays, after the file's own read.
+/// of the name it is read by its name alone, a fact the hint states; any
+/// other miss in a file with an outline leads to that outline. Each miss has
+/// one hint and one call: the folder search is the call only of a file with
+/// no read of its own to offer.
 #[test]
 fn a_miss_reads_the_file_again_before_searching_its_folder() {
     let t = Fixture::new();
@@ -350,24 +357,26 @@ fn a_miss_reads_the_file_again_before_searching_its_folder() {
             .keys()
             .cloned()
             .collect::<Vec<_>>();
-        (row.warnings, next, order)
+        assert!(row.warnings.is_empty(), "{row:?}");
+        (row.hints, next, order)
     };
-    let (warnings, next, order) = leads(&two, "pub fn apply(");
+    let (hints, next, order) = leads(&two, "pub fn apply(");
     let lead = &next["read"]["input"]["queries"][0];
     assert_eq!(next["read"]["tool"], "localFetch", "{next}");
     assert_eq!(lead["matchString"], serde_json::json!(["apply"]), "{next}");
     assert_eq!(lead["wholeWord"], true, "{next}");
     assert_eq!(lead["block"], true, "{next}");
-    assert_eq!(warnings, vec!["2 lines match `apply`.".to_owned()]);
-    assert_eq!(order, ["read", "findText"], "{next}");
+    assert_eq!(hints.len(), 1, "{hints:?}");
+    assert!(hints[0].contains("2 lines match `apply`"), "{hints:?}");
+    assert_eq!(order, ["read"], "{next}");
 
-    let (warnings, next, order) = leads(&one, "nowhere_here");
-    assert!(warnings.is_empty(), "{warnings:?}");
+    let (hints, next, order) = leads(&one, "nowhere_here");
+    assert_eq!(hints.len(), 1, "{hints:?}");
     assert_eq!(
         next["read"]["input"]["queries"][0]["view"], "symbols",
         "{next}"
     );
-    assert_eq!(order, ["read", "findText"], "{next}");
+    assert_eq!(order, ["read"], "{next}");
 }
 
 /// The one declaration is read only when its line's text selects it alone:

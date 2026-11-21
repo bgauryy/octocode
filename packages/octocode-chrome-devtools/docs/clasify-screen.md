@@ -29,20 +29,23 @@ Do not send raw credential-bearing HARs. Select the authorized fields/bodies bef
 
 ## Choose one classification stage
 
-**Need passages from a known capture:** use `localFetch` or `localSearch` with `classification`. Native Octocode captures candidate text internally and returns selected evidence plus coverage/recovery. This local fetch request selects evidence after a literal match:
+**Need passages from a known capture:** give `clasify` a `localSearch` over the capture as its `source`, with `predicates`. It runs the search and answers each hit (with its context lines) as `p1`, `p2`, … under the hit's file and line, with `coverage` and a `next.read` for the deciding lines. This `clasify` request judges the hits of a literal match:
 
 ```json
 {"queries":[{
-  "path":"/absolute/captures/response-bodies.txt",
-  "matchString":["session"],
-  "contextLines":{"before":4,"after":4},
-  "classification":{"predicates":["Does this response explicitly say the current upload session has expired and cannot accept more data?"]}
+  "operation":"evaluate",
+  "source":{"tool":"localSearch","query":{
+    "path":"/absolute/captures/response-bodies.txt",
+    "matchString":["session"],
+    "contextLines":{"before":4,"after":4}
+  }},
+  "predicates":["This response explicitly says the current upload session has expired and cannot accept more data."]
 }]}
 ```
 
-Choose observed terms and enough context for the predicate. Literal retrieval can miss synonyms; classification cannot recover excluded text. A selected passage may include adjacent records: verify each deciding record rather than treating the whole window as a positive answer. Inline windows are bounded, not whole documents; `longContext` does not join them.
+Choose observed terms and enough context for the predicate. Literal retrieval can miss synonyms; classification cannot recover text the search excluded. A hit's window may include adjacent records: verify each deciding record rather than treating the whole window as a positive answer. Windows are bounded, not whole documents.
 
-Inline classification keeps evidence judged to satisfy a predicate. A selected window can include adjacent counterevidence, so read the deciding record before answering. For a yes/no decision about a complete unread record, use standalone Noul on its source reference after structural narrowing. Small records may cost less to read directly. Inspect selection coverage: many disjoint match spans can exhaust the candidate budget even in a modest file. For an exhaustive task, unresolved candidates still require inspection; do not claim savings from hiding them.
+A high answer marks a hit to read, not a fact. A window can include adjacent counterevidence, so read the deciding record (`next.read`) before answering. For a yes/no decision about a complete unread record, ask a `noul` question on its source reference after structural narrowing. Small records may cost less to read directly. Inspect `coverage`: quiet, undecided and failed units stay unresolved (`next.quiet`, `next.retry`). For an exhaustive task, unresolved hits still require inspection; do not claim savings from hiding them.
 
 **Need to choose which unread resources to read:** batch native `clasify` rows with `source` references. Ask independent questions about the same source in one row. Use `npx -y octocode schema clasify --view query` to check the installed contract; run a saved request with `npx -y octocode clasify --input request.json`:
 
@@ -66,13 +69,15 @@ Group resources as separate rows, within live limits. Each question must stand a
 - **Score:** meaningful ordered evidence levels. It is not an assumed 1–10 correctness scale or calibrated confidence.
 - **Box:** pair localization with an independent presence question in the same row; check that answer before using coordinates. Coordinates alone do not prove that the object exists or permit an action.
 
-For images, reference admitted PNG/JPEG assets and a tested image-capable model. In one `operation:"evaluate"` row, `content:{"screen":"img"}` and `assets:{"img":{"source":{"tool":"localFetch","query":{"path":"/absolute/screenshot.png"}}}}` can support independent presence, state and location questions. To compare two images, name both asset keys explicitly; retain each capture time, viewport and page identity. A visible difference does not explain its cause. Page image URLs must be discovered explicitly; an HTML text source does not crawl its images.
+For one image, name the PNG or JPEG as the row's `source` (`{"tool":"localFetch","query":{"path":"/absolute/screenshot.png"}}`), or list several under `resources` for an answer set per image; use a tested image-capable model. One row supports independent presence, state and location questions. To compare two images in one judgment, put both under `assets` and name both asset keys in `content`; retain each capture time, viewport and page identity. A visible difference does not explain its cause. Page image URLs must be discovered explicitly; an HTML text source does not crawl its images.
+
+Judge a captured page from its saved text (`page-text.txt`) or its URL, not from its HTML: on one docs page the HTML cost 75,856 input tokens against 2,720 for the extracted text, with the same answers. A HAR that fits one window is cheapest judged whole with several questions; use `operation:"sections"` when every matching request is needed.
 
 Prefer putting each image reference once in a named content field and asking questions about that field. Repeating the raw asset reference repeats the image in provider context; use distinctive asset keys to avoid accidental matches. Questions comparing resources need their evidence in the same evaluation row; image references can also appear in instructions or criteria. Sibling rows do not share evidence. For related text records, save a bounded combined capture with each record's provenance before asking a joint question.
 
 ## Verify, recover and stop
 
-If selected evidence answers the scoped question, stop without classifying it again or fetching the same body. Follow selected-page continuations when more selected evidence is needed. Unknown/error is not irrelevant: recover the underlying source when it can change the answer or completeness is required. Use `next.unfiltered` only when it adds missing evidence; known candidate paths may permit a direct deciding read instead of replaying filename-only results. Otherwise state the unresolved scope.
+If the evidence read answers the scoped question, stop without classifying it again or fetching the same body. Follow `next.nextPage` when more judged rows are needed. Unknown/error is not irrelevant: recover the underlying source when it can change the answer or completeness is required. Run the same search exactly, without `clasify`, only when it adds missing evidence; known candidate paths may permit a direct deciding read instead. Otherwise state the unresolved scope.
 
 Classification availability depends on the configured provider and its successful ping; beta is not required. Keep ordinary retrieval available. Correct an input rejection before retrying; inspect the saved image/source when classification fails. Do not switch models silently or turn a low score into an absence claim.
 

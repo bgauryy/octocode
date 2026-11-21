@@ -57,6 +57,37 @@ pub(super) fn evaluate_row(
             if row.per_hit && super::units::rows_tool(source).is_none() {
                 return rejected(no_hits(source), None);
             }
+            if row.collapse {
+                // Each kind is keyed by its line in the file, which the
+                // caller reads next: a row source has no lines, a URL's text
+                // is a capture the units row does not lead to, and a ranges
+                // read numbers its lines within the ranges.
+                let whole_file = source.get("url").is_none()
+                    && super::units::rows_tool(source).is_none()
+                    && source["query"].get("ranges").is_none();
+                if !whole_file {
+                    return rejected(
+                        ClassificationError::new(
+                            ErrorCode::InvalidClassificationContext,
+                            "collapse judges the kinds of line of one whole local or GitHub file, keyed by file line; this source is a URL, a search or listing, or a ranges read, so nothing was read or sent.",
+                            "Name a whole file as the source, or drop collapse.",
+                        ),
+                        None,
+                    );
+                }
+                return match judged_state(target, dispatcher, context, can_resume) {
+                    Ok((state, _)) => super::units::judge_kinds(
+                        evaluator,
+                        evaluations,
+                        row,
+                        state["text"].as_str().unwrap_or_default(),
+                        dispatcher,
+                        context,
+                        gate,
+                    ),
+                    Err(error) => rejected(error, None),
+                };
+            }
             if let Some(tool) = super::units::rows_tool(source) {
                 return super::units::judge_source(
                     evaluator,
@@ -211,13 +242,21 @@ pub(super) fn prepare(
     context: &ExecutionContext,
     can_resume: bool,
 ) -> Result<Prepared, Box<RowOutcome>> {
-    let (state, captured) = judged_state(target, dispatcher, context, can_resume)
-        .map_err(|error| Box::new(rejected(error, None)))?;
-    let assets = match row
-        .assets
+    let (state, captured, image) = match judged_state(target, dispatcher, context, can_resume) {
+        Ok((state, captured)) => (state, captured, None),
+        // A source that is no text may be an image: it is judged as one.
+        Err(refusal) => match image_source(row, target, &refusal) {
+            Some((key, assets)) => (serde_json::json!(key), None, Some((assets, refusal))),
+            None => return Err(Box::new(rejected(refusal, None))),
+        },
+    };
+    let field = matches!(target, Target::Content(_)).then_some("content");
+    let named = image
         .as_ref()
+        .map(|(assets, _)| assets)
+        .or(row.assets.as_ref());
+    let assets = match named
         .map(|assets| {
-            let field = matches!(target, Target::Content(_)).then_some("content");
             source_capture::assets::capture(
                 assets,
                 &state,
@@ -230,8 +269,33 @@ pub(super) fn prepare(
         .transpose()
     {
         Ok(assets) => assets,
-        Err(error) => return Err(Box::new(rejected(error, captured))),
+        // Bytes that are no PNG or JPEG keep the text reader's refusal: the
+        // source is binary, and no image failed.
+        Err(error) => {
+            let error = match image {
+                Some((_, refusal)) if error.code == ErrorCode::InvalidClassificationContext => {
+                    refusal
+                }
+                _ => error,
+            };
+            return Err(Box::new(rejected(error, captured)));
+        }
     };
+    if assets.is_none()
+        && row
+            .questions
+            .iter()
+            .any(|question| question["type"] == "box")
+    {
+        return Err(Box::new(rejected(
+            ClassificationError::new(
+                ErrorCode::InvalidClassificationContext,
+                "A box question locates a region of an image, and this row judges text; nothing was sent.",
+                "Name a PNG or JPEG as the source or resource, or drop the box question.",
+            ),
+            captured,
+        )));
+    }
     // A text judged whole says where its answers sit
     // ([`super::locate`]); images point with their own boxes.
     let located = assets
@@ -255,6 +319,45 @@ pub(super) fn prepare(
         located,
         questions,
     })
+}
+
+/// The key a source judged as an image is named by in its state. The provider
+/// puts an image wherever a request string holds its key, so the key is no
+/// word a question would use: one that said "the image" under the key `image`
+/// was billed the image a second time (measured 2026-11-21: 4,444 input
+/// tokens against 2,304).
+const IMAGE_KEY: &str = "sourceImage";
+
+/// `target` as an image beside the row's own assets, when its text reader
+/// refused it as binary: the state's key and the assets that hold it. The
+/// asset reads the source's identity; line ranges select text and are left.
+fn image_source(
+    row: &Row,
+    target: &Target,
+    refusal: &ClassificationError,
+) -> Option<(String, serde_json::Value)> {
+    let Target::Source(source) = target else {
+        return None;
+    };
+    if refusal.code != ErrorCode::BinaryFileUnsupported {
+        return None;
+    }
+    let mut asset = source.clone();
+    if let Some(query) = asset
+        .get_mut("query")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        query.shift_remove("ranges");
+    }
+    let mut assets = row
+        .assets
+        .as_ref()
+        .and_then(serde_json::Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let key = source_capture::glob::free_key(IMAGE_KEY, |key| assets.contains_key(key));
+    assets.insert(key.clone(), serde_json::json!({ "source": asset }));
+    Some((key, serde_json::Value::Object(assets)))
 }
 
 /// Judge a prepared row: one evaluation, and for an uncapped text source
@@ -292,11 +395,15 @@ pub(super) fn judge_prepared(
         drop(sent);
         return rejected(known_too_large(), prepared.captured);
     }
-    // A source's sections are the row's own expansion: judged only within
-    // its `maxRequests`, whose cap still holds their first round; otherwise
-    // priced, and none is sent ([`sections_over`]).
+    // A source's sections are the source the row named, part by part: a row
+    // without `maxRequests` judges them all, as it would have billed the
+    // whole source in one window. Under `maxRequests` they are judged only
+    // while its cap still holds their first round; otherwise priced, and
+    // none is sent ([`sections_over`]).
     let admits =
-        |sections: u64| row.max_requests.is_some() && cap.is_some_and(|cap| sections <= cap.left());
+        |sections: u64| row.max_requests.is_none() || cap.is_some_and(|cap| sections <= cap.left());
+    // An uncapped row's own ceiling prices one request, not its parts.
+    let section_cap = cap.filter(|_| row.max_requests.is_some());
     let retries = evaluator.retry_room();
     // What asking the source whole sends at most, its long-window retry
     // included: a fresh run asks it again before its sections.
@@ -306,7 +413,15 @@ pub(super) fn judge_prepared(
         && refused
     {
         match super::combined::judge(
-            row, source, 0, cap, &admits, gate, dispatcher, context, can_resume,
+            row,
+            source,
+            0,
+            section_cap,
+            &admits,
+            gate,
+            dispatcher,
+            context,
+            can_resume,
         ) {
             Ok(combined) => return RowOutcome::Combined(Box::new(combined)),
             Err(failed) => match failed.unadmitted {
@@ -371,7 +486,7 @@ pub(super) fn judge_prepared(
             row,
             source,
             refusal.provider_calls,
-            cap,
+            section_cap,
             &admits,
             gate,
             dispatcher,

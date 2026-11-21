@@ -9,9 +9,11 @@ use std::sync::LazyLock;
 
 /// The closed vocabularies of the RFC's concept registry (core
 /// `conceptRegistry.ts`), which the generated contract does not carry yet.
-const ENVELOPE_KEYS: [&str; 6] = [
+const ENVELOPE_KEYS: [&str; 8] = [
     "results",
-    "responsePagination",
+    "next",
+    "expiresAt",
+    "replayed",
     "warnings",
     "oversized",
     "error",
@@ -19,8 +21,7 @@ const ENVELOPE_KEYS: [&str; 6] = [
 ];
 const ROW_KEYS: [&str; 4] = ["index", "data", "status", "rowPart"];
 const ROW_STATUSES: [&str; 3] = ["empty", "error", "outOfRange"];
-const PAGINATION_KEYS: [&str; 6] = ["unit", "offset", "length", "total", "countScope", "hasMore"];
-const RESPONSE_PAGINATION_KEYS: [&str; 3] = ["next", "expiresAt", "replayed"];
+const PAGINATION_KEYS: [&str; 4] = ["unit", "offset", "length", "total"];
 /// Fraction digits a ratio or score may carry.
 const FRACTION_DIGITS: usize = 3;
 /// Elements a collection needs before a shared value reads as stated once.
@@ -125,25 +126,21 @@ fn pagination_objects<'a>(key: &str, value: &'a Value) -> Vec<(String, &'a Map<S
     let Some(object) = value.as_object() else {
         return Vec::new();
     };
-    if object.contains_key("hasMore") {
+    // Every pagination object places its page (`offset`).
+    if object.contains_key("offset") {
         return vec![(key.to_owned(), object)];
     }
     object
         .values()
         .filter_map(Value::as_object)
-        .filter(|section| section.contains_key("hasMore"))
+        .filter(|section| section.contains_key("offset"))
         .map(|section| (format!("{key}.*"), section))
         .collect()
 }
 
-/// One pagination object's keys against `allowed`; `reachable` says whether
-/// a continuation stands behind its `hasMore`.
-fn page_facts(
-    report: &mut Report,
-    (owner, at): (&str, &str),
-    object: &Map<String, Value>,
-    (allowed, reachable): (&[&str], bool),
-) {
+/// One pagination object's keys against `allowed`: it states no `hasMore`
+/// and no `countScope` (whether more follows is the reply's `next` to say).
+fn page_facts(report: &mut Report, owner: &str, object: &Map<String, Value>, allowed: &[&str]) {
     for field in object.keys().filter(|key| !allowed.contains(&key.as_str())) {
         report.add("B2 pagination", format!("{owner}.{field}"));
     }
@@ -162,43 +159,22 @@ fn page_facts(
             format!("{owner} length without a text unit"),
         );
     }
-    if object.get("hasMore") == Some(&Value::Bool(true)) && !reachable {
-        report.add("B2 pagination", format!("hasMore without next: {at}"));
-    }
 }
 
-/// B2: one pagination vocabulary, and a continuation behind every `hasMore`:
-/// the row's own `next`, or the response's one walk handle.
+/// B2: one pagination vocabulary; the reply's `next` is its one page walk,
+/// so no row carries `next.nextPage`.
 pub(super) fn pagination(report: &mut Report, output: &Value) {
-    let walk = output.get("responsePagination").and_then(Value::as_object);
-    let walk_handle = walk.is_some_and(|walk| walk.contains_key("next"));
-    if let Some(walk) = walk {
-        let name = "responsePagination";
-        page_facts(
-            report,
-            (name, name),
-            walk,
-            (&RESPONSE_PAGINATION_KEYS, walk_handle),
-        );
-    }
     for row in rows(output) {
-        let row_next = row
-            .pointer("/data/next")
-            .and_then(Value::as_object)
-            .is_some_and(|calls| !calls.is_empty());
+        if row.pointer("/data/next/nextPage").is_some() {
+            report.add("B2 pagination", "a row carries next.nextPage");
+        }
         let mut path = vec!["results".to_owned(), "[]".to_owned()];
         each_node(row, &mut path, &mut |path, node| {
             let Some(key) = path.last().filter(|key| is_pagination_name(key)) else {
                 return;
             };
             for (owner, object) in pagination_objects(key, node) {
-                let reachable = walk_handle || row_next;
-                page_facts(
-                    report,
-                    (&owner, &place(path)),
-                    object,
-                    (&PAGINATION_KEYS, reachable),
-                );
+                page_facts(report, &owner, object, &PAGINATION_KEYS);
             }
         });
     }
@@ -207,7 +183,7 @@ pub(super) fn pagination(report: &mut Report, output: &Value) {
 /// B2: every continuation is `{cursor}` under `next`; every lead is under `related`.
 pub(super) fn call_places(report: &mut Report, output: &Value) {
     static NEXT: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"^(next\.[^.\[]+|responsePagination\.next)$").expect("regex"));
+        LazyLock::new(|| Regex::new(r"^(next\.[^.\[]+|next)$").expect("regex"));
     static RELATED: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"^related\[\]$").expect("regex"));
     let mut path = Vec::new();

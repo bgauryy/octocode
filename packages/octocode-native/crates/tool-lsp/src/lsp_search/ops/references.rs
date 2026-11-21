@@ -173,7 +173,7 @@ impl Operation<'_, '_> {
         )
         .await;
         if !later_window {
-            disclose_withheld(&mut row, withheld);
+            disclose_withheld(&mut row, &withheld, self.sources.policy());
         }
         self.check_code_uses().await?;
         if let Some(importers) = &importers {
@@ -356,16 +356,22 @@ fn keep_this_pages_answer(
 
 /// Flag an answer whose read policy withheld `withheld` of the server's
 /// locations: the count is coverage, and the row is partial, not smaller.
-fn disclose_withheld(row: &mut Value, withheld: usize) {
-    if withheld == 0 {
+fn disclose_withheld(
+    row: &mut Value,
+    withheld: &super::super::recovery::Withheld,
+    paths: &PathPolicy,
+) {
+    if withheld.is_empty() {
         return;
     }
-    row["coverage"]["withheldLocations"] = json!(withheld);
+    row["coverage"]["withheldLocations"] = json!(withheld.count());
     octocode_runtime_base::response::paging::mark_partial(
         row,
         octocode_runtime_base::response::paging::PartialReason::LocationsWithheld,
         &[format!(
-            "{withheld} reference(s) outside the allowed read roots were omitted; add the path to ALLOWED_PATHS to read them."
+            "{} reference(s) outside the allowed read roots were omitted{}; add the path to ALLOWED_PATHS to read them.",
+            withheld.count(),
+            withheld.listed(paths)
         )],
     );
 }

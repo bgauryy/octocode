@@ -55,7 +55,7 @@ fn state_of(output: &Value) -> String {
     if output.get("results").is_none() {
         return "rejected".to_owned();
     }
-    let mut more = output.pointer("/responsePagination/next").is_some();
+    let mut more = output.pointer("/next").is_some();
     let mut path = Vec::new();
     checks::each_node(output, &mut path, &mut |path, node| {
         more |= path.last().is_some_and(|key| key == "hasMore") && node == &Value::Bool(true);

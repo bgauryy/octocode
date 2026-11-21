@@ -117,7 +117,7 @@ pub(in crate::gh_search_code) async fn plan_lines(
     let reads = items
         .iter()
         .enumerate()
-        .filter(|(_, row)| !withheld_row(query, withholds, row))
+        .filter(|(_, row)| !withheld_row(withholds, row))
         .filter_map(|(index, row)| Some((index, row.get("path")?.as_str()?.to_owned(), None)))
         .collect::<Vec<_>>();
     let (owner, repo) = (
@@ -176,7 +176,7 @@ async fn indexed_lines(
     };
     let mut groups: Vec<(RepoCommit, Vec<Read>)> = Vec::new();
     for (index, row) in items.iter().enumerate() {
-        if withheld_row(query, withholds, row) {
+        if withheld_row(withholds, row) {
             continue;
         }
         let (owner, repo, path, commit, blob) = match located(row) {

@@ -46,7 +46,7 @@ fn fetch(dir: &Fixture, path: &str) -> Value {
         &ContentSecurity::new(),
         &NeverCancel,
         None,
-        None,
+        false,
     );
     serde_json::to_value(result).expect("json")
 }

@@ -57,6 +57,12 @@ pub struct PathFailure {
     ///
     /// [`close_name`]: crate::leads::find_file::close_name
     pub corrected: Option<String>,
+    /// The request was a whole listing entry (`<path> (<fields>)`,
+    /// [`entry_fields`]) whose own path is a readable file: `corrected` is
+    /// that path.
+    ///
+    /// [`entry_fields`]: octocode_runtime_base::response::groups::entry_fields
+    pub listing_entry: bool,
 }
 /// What a path names instead of a regular file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -116,6 +122,7 @@ impl PathAccess for octocode_runtime_base::policy::path::PathPolicy {
                 let ambiguous = not_found && self.names_several_entries(path);
                 let missing = not_found && !ambiguous;
                 let resolved = self.expand_and_resolve(path);
+                let listed = missing.then(|| listed_path(self, path)).flatten();
                 Box::new(PathFailure {
                     code: error.shared_code(),
                     message: error.message,
@@ -146,12 +153,30 @@ impl PathAccess for octocode_runtime_base::policy::path::PathPolicy {
                         })
                         .flatten()
                         .and_then(|mut next| next.get_mut("viewTree").map(serde_json::Value::take)),
-                    corrected: missing
-                        .then(|| corrected_path(self, path, &resolved))
-                        .flatten(),
+                    listing_entry: listed.is_some(),
+                    corrected: listed.or_else(|| {
+                        missing
+                            .then(|| corrected_path(self, path, &resolved))
+                            .flatten()
+                    }),
                 })
             })
     }
+}
+
+/// The readable file a missing path names as a whole listing entry: the
+/// path before the entry's ` (<fields>)`, as the listing grammar writes it
+/// ([`entry_fields`]). Only a path the policy admits reading is named.
+///
+/// [`entry_fields`]: octocode_runtime_base::response::groups::entry_fields
+fn listed_path(
+    policy: &octocode_runtime_base::policy::path::PathPolicy,
+    requested: &Path,
+) -> Option<String> {
+    let requested = requested.to_str()?;
+    let (bare, _) = octocode_runtime_base::response::groups::entry_fields(requested)?;
+    octocode_runtime_base::policy::path::PathPolicy::validate_read(policy, Path::new(bare)).ok()?;
+    Some(bare.to_owned())
 }
 
 /// The readable file a missing file's name was likely mistyped for: the

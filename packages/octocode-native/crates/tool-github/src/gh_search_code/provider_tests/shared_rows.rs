@@ -140,8 +140,9 @@ async fn the_largest_row_lists_a_run_and_reads_the_rest() {
 }
 
 /// A one-page search shown in parts states, on every part, how many files
-/// the search found: `pagination.total`, with `hasMore` false (no other
-/// search page), while the part itself continues as the response.
+/// the search found (`pagination.total`) and where it starts in the walk:
+/// `offset` counts the files the earlier parts showed, and `hasMore` holds
+/// while the page has files left (the part continues as the response).
 #[tokio::test]
 async fn every_part_of_a_page_states_the_files_found() {
     let files = [
@@ -179,7 +180,10 @@ async fn every_part_of_a_page_states_the_files_found() {
     assert!(first.diagnostics.continues_page, "{}", first.data);
     let pagination = &first.data["pagination"];
     assert_eq!(pagination["total"], files.len(), "{}", first.data);
-    assert_eq!(pagination["hasMore"], false, "{}", first.data);
+    assert_eq!(pagination["offset"], 0, "{}", first.data);
+    assert_eq!(pagination["hasMore"], true, "{}", first.data);
+    let shown = first.data["files"].as_array().map_or(0, Vec::len);
+    assert!(shown > 0 && shown < files.len(), "{}", first.data);
     let rest = next_page(&first);
     let second = super::super::run(
         &provider,
@@ -197,4 +201,9 @@ async fn every_part_of_a_page_states_the_files_found() {
         "{}",
         second.data
     );
+    let pagination = &second.data["pagination"];
+    assert_eq!(pagination["offset"], shown, "{}", second.data);
+    let left = shown + second.data["files"].as_array().map_or(0, Vec::len) < files.len();
+    assert_eq!(pagination["hasMore"], left, "{}", second.data);
+    assert_eq!(second.diagnostics.continues_page, left, "{}", second.data);
 }

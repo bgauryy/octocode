@@ -88,6 +88,16 @@ impl FragmentKind {
         }
     }
 
+    /// Whether this fragment is the first part of a row cut inside its
+    /// strings: it shows the row with the windowed strings emptied or begun.
+    pub(super) fn opens_text(&self) -> bool {
+        match self {
+            Self::Text { shown, .. } => shown.is_none(),
+            Self::Joined { inner, .. } | Self::Continues { inner, .. } => inner.opens_text(),
+            Self::Whole(_) | Self::Records { .. } | Self::Chunk { .. } => false,
+        }
+    }
+
     /// The `rowPart.text` pointer this fragment shows, if any.
     fn shown_mut(&mut self) -> Option<&mut String> {
         match self {

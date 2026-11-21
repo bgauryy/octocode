@@ -150,9 +150,9 @@ async fn a_search_never_matches_what_a_read_withholds() {
             "{view}: {served}"
         );
         assert!(
-            served
-                .to_string()
-                .contains("masked secrets are not searched"),
+            data["hints"].as_array().is_some_and(
+                |hints| hints.len() == 1 && hints[0].to_string().contains("maskedSpans")
+            ),
             "{view}: {served}"
         );
     }

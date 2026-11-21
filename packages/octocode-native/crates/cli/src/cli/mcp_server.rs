@@ -5,12 +5,14 @@
 mod handler;
 mod listing;
 mod progress;
+mod reply;
 pub(super) mod resources;
 mod warm;
 
 use handler::Handler;
 use octocode_native::runtime::{HostOptions, ToolRuntime};
 use octocode_runtime_base::config::RuntimeSurface;
+pub(super) use reply::reply;
 use rmcp::ServiceExt;
 use serde_json::{Value, json};
 use std::io::Write;
@@ -88,10 +90,22 @@ pub(super) async fn run() -> ! {
         }
     };
     let warm = Arc::new(Warm::resolve());
-    let handler = octocode_runtime_base::contracts::cli_presentation()
-        .map_err(str::to_owned)
-        .and_then(|presentation| listing::build(presentation, &runtime.catalog()))
-        .and_then(|listing| Handler::new(Arc::clone(&runtime), Arc::clone(&warm), listing));
+    let handler =
+        octocode_runtime_base::contracts::cli_presentation()
+            .map_err(str::to_owned)
+            .and_then(|presentation| {
+                let mut listing = listing::build(presentation, &runtime.catalog())?;
+                listing.instructions.push_str(
+                    &octocode_runtime_base::contracts::setting_instructions(presentation, |path| {
+                        let field = octocode_runtime_base::config::CONFIG_FIELDS
+                            .iter()
+                            .find(|field| field.path == path)?;
+                        octocode_runtime_base::config::setting_report(runtime.config(), field).value
+                    }),
+                );
+                Ok(listing)
+            })
+            .and_then(|listing| Handler::new(Arc::clone(&runtime), Arc::clone(&warm), listing));
     let handler = match handler {
         Ok(handler) => handler,
         Err(message) => fail_startup(&format!("Server initialization failed: {message}")).await,

@@ -192,6 +192,7 @@ impl Request<'_> {
             }
             Op::Definition | Op::TypeDefinition | Op::References | Op::Implementation => {
                 let files = self.spelling(site, &name).await?;
+                let searched = name.clone();
                 let (found, unread) = self
                     .blocking(move |stopped| match op {
                         Op::References => facts::occurrences(&files, &name, stopped),
@@ -202,13 +203,28 @@ impl Request<'_> {
                 let mut row = self.locations(op, found).await?;
                 if !unread.is_empty() {
                     let warnings = unread.iter().map(|path| format!(
-                        "Syntax scan unread source: {path}. Its code occurrences could not be established; use the related text search to inspect it."
+                        "Syntax scan unread source: {path}. Its code occurrences could not be established; the related text search reads it."
                     )).collect::<Vec<_>>();
                     octocode_runtime_base::response::paging::mark_partial(
                         &mut row,
                         octocode_runtime_base::response::paging::PartialReason::ServerUnanswered,
                         &warnings,
                     );
+                    // The scan read none of these files: the row needs
+                    // the text search that does.
+                    for files in unread.chunks(super::failure::LISTED_TEXT_FILES) {
+                        if let Some(lead) = super::failure::text_search_lead(
+                            &searched,
+                            &site.scope.root,
+                            &[],
+                            Some(files),
+                        ) {
+                            octocode_runtime_base::response::result::attach_related(
+                                &mut row,
+                                lead.required().build(),
+                            );
+                        }
+                    }
                 }
                 Ok(row)
             }

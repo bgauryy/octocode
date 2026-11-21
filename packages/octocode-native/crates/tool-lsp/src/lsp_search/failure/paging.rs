@@ -144,10 +144,19 @@ pub(in super::super) fn with_next(query: &LspSearchQuery, mut value: Value) -> V
             && lsp_search_query::op(query) != crate::lsp_search::Op::WorkspaceSymbol
             && !matches!(category, Some("noDiagnostics" | "diagnosticsNotPublished"))
         {
+            // Locations the read policy withheld lie outside every root a
+            // call can read: the reason names the fix, and no lead finds them.
+            if category == Some("locationsWithheld") {
+                return value;
+            }
             // Nothing found for a named symbol: its anchor file only uses it,
-            // so the lead searches the workspace root for its spelling.
+            // so the lead searches the workspace root for its spelling. A
+            // type answer is not about that spelling: the workspace spells
+            // the symbol, not its type, which the anchor file's own
+            // declaration of the symbol states.
             let search = lsp_search_query::symbol_name(query)
                 .filter(|name| !name.trim().is_empty())
+                .filter(|_| lsp_search_query::op(query) != crate::lsp_search::Op::TypeDefinition)
                 .zip(value.get("workspaceRoot").and_then(Value::as_str))
                 .and_then(|(name, root)| text_search_lead(name, root, &[], None));
             match search {

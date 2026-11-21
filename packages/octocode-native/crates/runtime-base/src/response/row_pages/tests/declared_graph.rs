@@ -87,8 +87,12 @@ fn every_graph_evidence_fragment_preserves_capabilities_and_validates() {
     for row in fragments(data, ToolId::GraphQuery, 1700) {
         let data = &row["data"];
         assert_part_contract(ToolId::GraphQuery, &row);
-        // Disclosures ride every fragment; the row's evidence arrives once, whole.
-        assert_eq!(data["sourceEvidence"], descriptors);
+        // Disclosures ride every fragment that holds rows; the row's
+        // evidence arrives once, whole.
+        let rows = data["rows"].as_array().map_or(0, Vec::len);
+        if rows > 0 {
+            assert_eq!(data["sourceEvidence"], descriptors);
+        }
         if data.get("argumentCoverage").is_some() {
             described.push(json!([
                 data["argumentCoverage"],
@@ -96,7 +100,7 @@ fn every_graph_evidence_fragment_preserves_capabilities_and_validates() {
                 data["scan"]
             ]));
         }
-        seen.extend(data["rows"].as_array().expect("results").iter().cloned());
+        seen.extend(data["rows"].as_array().into_iter().flatten().cloned());
     }
     assert_eq!(seen, results);
     let scan = json_fixture(r#"{"exclude": ["vendor", "generated"]}"#);

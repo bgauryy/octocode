@@ -58,13 +58,6 @@ async fn branch_hits_are_verified_at_the_ref_and_labeled() {
         routing.get("matches").is_none(),
         "default-branch text is not shown as the ref: {data}"
     );
-    assert_eq!(
-        octocode_runtime_base::test_support::checks::related_call(data, "ghGetFileContent", |_| {
-            true
-        })["input"]["queries"][0]["ref"],
-        TREE_SHA,
-        "the read is pinned to the commit the lines came from: {data}"
-    );
 }
 
 /// A search pinned to a non-default ref warns that its files come
@@ -186,7 +179,11 @@ async fn a_file_missing_at_the_requested_ref_offers_no_default_branch_read() {
         &octocode_runtime_base::test_support::checks::related_call(data, "ghStructure", |input| {
             input["queries"][0]["operation"] == "tree"
         })["input"]["queries"][0];
-    assert_eq!(listing["include"], json_fixture(r#"["app.rs"]"#), "{data}");
+    assert_eq!(
+        listing["include"],
+        json_fixture(r#"["**/app.rs"]"#),
+        "{data}"
+    );
     assert_eq!(listing["ref"], TREE_SHA, "{data}");
     assert!(listing.get("path").is_none(), "{data}");
 

@@ -1,6 +1,7 @@
 use octocode_contract_types::AstSearchQuery;
 use octocode_contract_types::AstSearchQueryMatch0;
 use octocode_contract_types::AstSearchQueryMatchView;
+use octocode_contract_types::AstSearchSort;
 use octocode_engine::num::saturating_u32;
 use octocode_tools_shared::variant_field::non_empty;
 use serde_json::Value;
@@ -117,8 +118,18 @@ fn to_rule_value(rule: &octocode_contract_types::AstSearchRule) -> Value {
 
 /// Form-independent views in the engine's units.
 impl<'a> MatchQuery<'a> {
-    pub fn path(self) -> String {
-        either_form!(self, path => path.to_string())
+    /// The file or directory the row searches: the one it names, else the
+    /// workspace root; none for inline `content`.
+    pub fn path(self) -> Option<String> {
+        either_form!(self, path => path.as_ref().map(ToString::to_string)).or_else(|| {
+            self.content()
+                .is_none()
+                .then(|| super::super::source::WALK_ROOT.to_owned())
+        })
+    }
+    /// Inline source the row searches in place of a path.
+    pub fn content(self) -> Option<&'a str> {
+        either_form!(self, content => content.as_ref().map(|content| content.as_str()))
     }
     pub fn scope(self) -> Option<&'a octocode_contract_types::AstMatchScope> {
         either_form!(self, scope => scope.as_ref())
@@ -157,7 +168,13 @@ impl<'a> MatchQuery<'a> {
         either_form!(self, include_ignored => *include_ignored)
     }
     pub fn reverse(self) -> Option<bool> {
-        either_form!(self, sort => Some(sort.order == octocode_contract_types::SortOrder::Desc))
+        // The typed sort always holds its order: the key's own when omitted.
+        either_form!(self, sort => Some(
+            match sort {
+                AstSearchSort::Ascending(named) => named.order,
+                AstSearchSort::Descending(measure) => measure.order,
+            } == octocode_contract_types::SortOrder::Desc
+        ))
     }
     pub fn capture_text(self) -> Option<bool> {
         match self {
@@ -187,10 +204,10 @@ impl<'a> MatchQuery<'a> {
         either_form!(self, parser_globs => parser_globs.as_ref().map(octocode_tools_shared::ast_rule::parser_globs))
     }
     pub fn sort(self) -> Option<&'static str> {
-        use octocode_contract_types::AstSearchSortBy;
-        either_form!(self, sort => Some(match sort.by {
-            AstSearchSortBy::MatchCount => "matchCount",
-            AstSearchSortBy::Path => "path",
+        // Each form holds one key: names ascend, the match count descends.
+        either_form!(self, sort => Some(match sort {
+            AstSearchSort::Ascending(_) => "path",
+            AstSearchSort::Descending(_) => "matchCount",
         }))
     }
     pub fn result_view(self) -> Option<String> {

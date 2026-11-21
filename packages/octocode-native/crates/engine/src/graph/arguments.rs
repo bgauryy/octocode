@@ -70,7 +70,9 @@ pub struct GraphArgumentSlot {
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum GraphArgumentGroupObservation {
-    Slots { slots: Vec<GraphArgumentSlot> },
+    Slots {
+        slots: Vec<GraphArgumentSlot>,
+    },
     Unsupported {
         construct: String,
         /// Every identifier written inside the group, sorted and unique:

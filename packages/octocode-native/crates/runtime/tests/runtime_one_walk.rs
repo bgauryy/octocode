@@ -35,28 +35,21 @@ fn row_walks(value: &Value, found: &mut Vec<Value>) {
     }
 }
 
-/// Every call a reader runs next: the response-level call when the response
-/// pager cut the page (it carries the walks of the rows it split), and each
-/// whole row's own `next.nextPage`. A saved page that ends a walk states no
-/// call; a fresh response never states a page 1 of 1.
+/// The call a reader runs next: the reply's one `next`, which continues every
+/// unfinished row. No row carries a page walk of its own, and a reply
+/// without `next` is the end of the walk.
 fn the_next_calls(output: &Value) -> Vec<Value> {
     let mut walks = Vec::new();
     row_walks(&output["results"], &mut walks);
-    let mut calls = Vec::new();
-    match output.pointer("/responsePagination/next") {
-        Some(call) => calls.push(call["input"].clone()),
-        None => assert!(
-            output.get("responsePagination").is_none()
-                || output["responsePagination"]["replayed"] == true,
-            "a fresh page states an end: {output}"
-        ),
-    }
     assert!(
-        output.pointer("/responsePagination/hasMore").is_none(),
-        "a page states no hasMore; the absent call ends the walk: {output}"
+        walks.is_empty(),
+        "a row carries its own page walk; the reply's next is the one walk: {output}"
     );
-    calls.extend(walks.iter().map(|call| call["input"].clone()));
-    calls
+    output
+        .get("next")
+        .map(|call| call["input"].clone())
+        .into_iter()
+        .collect()
 }
 
 /// `(index, line)` of every hit on one page, each read once.
@@ -93,6 +86,7 @@ async fn walk(
             .structured_content)
             .clone();
         octocode_runtime_base::contracts::validate_output(tool, &output).expect("output contract");
+        octocode_runtime_base::test_support::checks::assert_one_completion_rule(tool, &output);
         queue.extend(the_next_calls(&output));
         pages.push(output);
     }
@@ -103,6 +97,53 @@ fn numbered(file: usize, lines: usize) -> String {
     (1..=lines)
         .map(|line| format!("needle file {file} line {line} {}\n", "padding ".repeat(4)))
         .collect()
+}
+
+/// A file whose hits span pages states no `hasMore` of its own: the reply's
+/// `next` says more follows, and the walk reads every hit of every file
+/// exactly once, split or not.
+#[tokio::test]
+async fn a_file_spanning_pages_is_read_once_through_the_replys_next() {
+    let workspace = Workspace::new();
+    workspace.write("docs/long.txt", numbered(0, 13));
+    workspace.write("docs/short.txt", numbered(1, 3));
+    let runtime = workspace.runtime(&[]);
+    for response_chars in [1500, 20_000] {
+        let pages = walk(
+            &runtime,
+            "localSearch",
+            json!({"queries": [{"path": "docs", "matchString": ["needle"], "limit": 4}],
+                "responseChars": response_chars}),
+        )
+        .await;
+        assert!(pages.len() > 1, "the search pages: {pages:?}");
+        let mut read = std::collections::BTreeMap::<String, Vec<u64>>::new();
+        for page in &pages {
+            for file in page["results"][0]["data"]["files"]
+                .as_array()
+                .into_iter()
+                .flatten()
+            {
+                assert!(
+                    file.pointer("/pagination/hasMore").is_none(),
+                    "a file states no walk of its own: {file}"
+                );
+                let lines = read
+                    .entry(file["path"].as_str().expect("path").to_owned())
+                    .or_default();
+                lines.extend(
+                    file["matches"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|hit| hit["line"].as_u64()),
+                );
+            }
+        }
+        assert_eq!(read["docs/long.txt"], (1..=13).collect::<Vec<_>>());
+        assert_eq!(read["docs/short.txt"], (1..=3).collect::<Vec<_>>());
+    }
+    runtime.close().await;
 }
 
 #[tokio::test]
@@ -140,7 +181,7 @@ async fn the_final_part_of_a_split_row_carries_the_rows_next_page() {
         "a split row"
     );
     for page in &pages {
-        let block = &page["responsePagination"];
+        let block = &page;
         assert!(block.get("page").is_none() && block.get("totalPages").is_none());
     }
     runtime.close().await;
@@ -164,7 +205,7 @@ async fn a_whole_read_over_the_automatic_page_says_it_reads_on() {
     // The first page says it reads on: its row fits the window (X3), so the
     // row's own walk continues it, or a response page when one is cut.
     assert!(
-        pages[0]["responsePagination"]["next"].is_object()
+        pages[0]["next"].is_object()
             || pages[0]["results"][0]["data"]["pagination"]["hasMore"] == true,
         "{}",
         pages[0]
@@ -232,15 +273,19 @@ async fn a_batch_that_fits_states_one_call_and_no_page_counters() {
         .await
         .expect("batch")
         .structured_content;
-    assert!(
-        first.get("responsePagination").is_none(),
-        "no response page, no saved response: {first}"
-    );
+    // One call continues both rows; no row carries a walk or a page
+    // counter of its own, and no saved response is involved.
+    assert!(first["next"]["input"]["cursor"].is_string(), "{first}");
+    assert!(first.get("expiresAt").is_none(), "{first}");
     let mut walks = Vec::new();
     row_walks(&first["results"], &mut walks);
-    assert_eq!(walks.len(), 2, "each whole row keeps its own walk: {first}");
+    assert!(walks.is_empty(), "{first}");
     for row in first["results"].as_array().expect("rows") {
-        assert_eq!(row["data"]["pagination"]["hasMore"], true, "{row}");
+        assert!(
+            row["data"].pointer("/pagination/hasMore").is_none(),
+            "{row}"
+        );
+        assert!(row.get("rowPart").is_none(), "{row}");
     }
     runtime.close().await;
 }
@@ -261,8 +306,20 @@ async fn a_batch_where_one_row_has_more_keeps_that_rows_own_lead() {
         .await
         .expect("batch")
         .structured_content;
-    assert!(first.get("responsePagination").is_none(), "{first}");
-    assert!(first["results"][0]["data"]["next"]["nextPage"].is_object());
+    // The reply's next continues the one row that reads on.
+    assert!(first["next"]["input"]["cursor"].is_string(), "{first}");
+    let rest = runtime
+        .run(
+            "one-lead-2".into(),
+            "localSearch".into(),
+            first["next"]["input"].clone(),
+        )
+        .await
+        .expect("the rest")
+        .structured_content;
+    let rows = rest["results"].as_array().expect("rows");
+    assert_eq!(rows.len(), 1, "only the unfinished row continues: {rest}");
+    assert_eq!(rows[0]["index"], 0, "{rest}");
     runtime.close().await;
 }
 
@@ -281,18 +338,10 @@ async fn one_handle_is_the_same_handle_on_both_reads_of_one_answer() {
             .await
             .expect("batch")
             .structured_content;
-        let mut walks = Vec::new();
-        row_walks(&output["results"], &mut walks);
-        handles.push(
-            walks
-                .iter()
-                .map(|call| call["input"].clone())
-                .collect::<Vec<_>>(),
-        );
+        handles.push(output["next"]["input"].clone());
     }
     assert_eq!(handles[0], handles[1]);
-    assert_eq!(handles[0].len(), 2, "one walk per row");
-    assert!(handles[0].iter().all(|input| input["cursor"].is_string()));
+    assert!(handles[0]["cursor"].is_string(), "one handle for both rows");
     runtime.close().await;
 }
 
