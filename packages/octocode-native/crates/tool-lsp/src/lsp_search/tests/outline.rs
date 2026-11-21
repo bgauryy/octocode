@@ -132,7 +132,26 @@ fn document_symbols_are_compact_outline_rows() {
                     .is_none_or(|members| members.iter().all(serde_json::Value::is_object))),
         "{envelope}"
     );
-    assert_eq!(envelope["pagination"]["total"], 6, "{envelope}");
+    // The total counts the rows served, each member under its container
+    // included: what a walk of the outline delivers.
+    fn served(rows: &serde_json::Value) -> u64 {
+        rows.as_array()
+            .into_iter()
+            .flatten()
+            .map(|row| 1 + row.get("members").map_or(0, served))
+            .sum()
+    }
+    assert_eq!(served(&envelope["symbols"]), 9, "{envelope}");
+    assert_eq!(
+        envelope["pagination"]["total"],
+        served(&envelope["symbols"]),
+        "{envelope}"
+    );
+    assert_eq!(
+        envelope["pagination"]["length"],
+        served(&envelope["symbols"]),
+        "{envelope}"
+    );
 }
 
 #[test]
