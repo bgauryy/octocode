@@ -1,6 +1,6 @@
 ---
 name: octocode-engineer
-description: "Load this skill first when asked how software should be built (architecture, data structures, caching, concurrency, I/O, APIs, refactors): it compares options against workload and failure paths. Runtime failures: octocode-debugging."
+description: "Load this skill first when choosing software architecture or an implementation. Compare APIs, data structures, storage, concurrency and refactors against the workload and failure paths."
 ---
 
 # Octocode Engineer
@@ -24,9 +24,9 @@ For consequential choices, include crash, replay, overload or isolation failures
 | Lookup, index, sorting, joins or complexity | [Data structures](references/data-structures.md) |
 | Cache, storage, approximation, replication or data lifecycle | [Data systems](references/data-systems.md) |
 | Threads, async, locks or atomics | [Concurrency](references/concurrency.md) |
-| Sync vs async, blocking I/O, durability, streaming vs full results, fan-out limits, throttling or debounce | [I/O, streaming, async and throttling](references/io-throttling-async.md) |
-| HTTP, WebSocket, SSE, cookies, CORS, browser security headers, TLS, DNS or connection pools | [Network](references/network.md) |
-| Allocation, ownership, locality, memory safety or leaks in a long-lived process (profiling captures: `octocode-debugging`) | [Memory and performance](references/memory-and-performance.md), [leak hunting](references/memory-and-performance.md#leaks-in-long-lived-managed-runtimes) |
+| Blocking I/O, streaming, durability or throttling | [I/O and async](references/io-throttling-async.md) |
+| HTTP, browser security, transport or connection pools | [Network](references/network.md) |
+| Ownership, allocation, locality or memory lifetime | [Memory and performance](references/memory-and-performance.md). Use `octocode-debugging` for a running process. |
 | Overload, capacity, API evolution, security or delivery | [Systems and delivery](references/systems-and-delivery.md) |
 | Quality attributes, tenancy, governance or metrics | [Architecture](references/architecture.md) |
 | Ambiguous style, pattern, role or transport | [Concepts](references/concepts.md#contents) |
@@ -36,4 +36,4 @@ For consequential choices, include crash, replay, overload or isolation failures
 | Proof limits or Octocode calls | [Evidence](references/evidence.md), [MCP/CLI guide](references/octocode-usage.md) |
 | Decision record or saved report | [Output](output.md); run the [renderer](scripts/render-report.mjs) for accepted HTML |
 
-Use `octocode-research` for source facts, `octocode-clean-agentic-code` for behavior-preserving cleanup, `octocode-workflows` for actor coordination and its [verification](../octocode-workflows/references/verification.md), [whole-system traversal](../octocode-workflows/references/single-actor-traversal.md), [runtime surgery](../octocode-workflows/references/runtime-surgery.md) and [AST/LSP techniques](../octocode-workflows/references/ast-lsp-workflows.md), `octocode-agentic` for agent contracts and `octocode-rfc-generator` for a full proposal. These skills are optional; the local references cover this skill's review and verification route.
+Use `octocode-clean-agentic-code` for proven removals, `octocode-agentic` for agent contracts and `octocode-rfc-generator` when the deliverable is a proposal. For a standalone engineering review, the [analysis](references/analysis.md) and [verification checks](references/checks.md) cover consumers and failure paths.

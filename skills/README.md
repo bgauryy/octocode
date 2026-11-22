@@ -11,16 +11,16 @@ Choose a skill by the task you want your agent to complete. Run `npx -y octocode
 | [octocode-graph-view](octocode-graph-view/SKILL.md) | Explore a repository as an interactive dependency map or save a graph report. |
 | [octocode-brainstorming](octocode-brainstorming/SKILL.md) | Compare ideas or challenge a proposal using evidence from web sources. |
 | [octocode-engineer](octocode-engineer/SKILL.md) | Choose an implementation or architecture by comparing trade-offs against the workload. |
-| [octocode-rfc-generator](octocode-rfc-generator/SKILL.md) | Write or revise an RFC, design proposal, or migration plan. |
+| [octocode-rfc-generator](octocode-rfc-generator/SKILL.md) | Write, revise, or review an RFC, design proposal, migration plan, or implementation plan. |
 | [octocode-pr-review](octocode-pr-review/SKILL.md) | Review a GitHub pull request and trace each finding to the changed code. |
 | [octocode-roast](octocode-roast/SKILL.md) | Get an explicitly requested blunt critique of code or design, with concrete fixes. |
-| [octocode-test-plan](octocode-test-plan/SKILL.md) | Write runnable test cases with setup, expected results, and pass criteria. |
+| [octocode-test-plan](octocode-test-plan/SKILL.md) | Write a risk-ranked test plan with setup, expected results, and pass criteria for its executor. |
 | [octocode-clean-agentic-code](octocode-clean-agentic-code/SKILL.md) | Remove verified dead code, duplicate helpers, and debug leftovers while preserving behavior. |
 | [octocode-documentation](octocode-documentation/SKILL.md) | Write, shorten, or review technical docs and check their commands and links. |
 | [octocode-scraping](octocode-scraping/SKILL.md) | Extract text, tables, or links from public pages, or save a site for repeated searches. |
 | [octocode-chrome-devtools](../packages/octocode-chrome-devtools/skills/octocode-chrome-devtools/SKILL.md) | Operate a live Chrome page, inspect console or network activity, or capture a screenshot or trace. |
-| [octocode-agentic](octocode-agentic/SKILL.md) | Evaluate an AI agent’s prompts, tools, context, or behavior and diagnose where it goes wrong. |
-| [octocode-skills](octocode-skills/SKILL.md) | Find, create, improve, validate, or install an Agent Skill. |
+| [octocode-agentic](octocode-agentic/SKILL.md) | Design or debug an AI agent and evaluate its prompts, context, tool calls, and behavior. |
+| [octocode-skills](octocode-skills/SKILL.md) | Find, author, audit, install, or sync Agent Skills and check their standalone references. |
 | [octocode-workflows](octocode-workflows/SKILL.md) | Design or resume a multi-step process with handoffs, retries, and completion checks. |
 | [octocode-orchestrator](octocode-orchestrator/SKILL.md) | Coordinate several agents, track dependencies, and bring their results together. |
 | [octocode-messages-proxy](octocode-messages-proxy/SKILL.md) | Send a message to another agent and receive its reply. |

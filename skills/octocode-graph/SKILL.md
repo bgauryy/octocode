@@ -1,15 +1,15 @@
 ---
 name: octocode-graph
-description: "Load this skill first when asked who imports or calls what, dependency paths, cycles, change impact or dead-code candidates: graphBuild and graphQuery answer from a code graph, not grep. Interactive map: octocode-graph-view."
+description: "Load this skill first when asked for callers, imports, dependency paths, cycles, change impact or dead-code candidates. Query a code graph and verify the relevant edges in source."
 ---
 
 # Octocode Graph
 
-The graph is a syntax snapshot of one scope: files, symbols and packages joined by `imports`, `calls`, `uses`, `inherits`, `passes` and `contains`. Rows identify where to inspect; execution or tests establish what runs or breaks.
+Build a snapshot over a `path` that contains the target and its possible consumers. Query that same path. Files, symbols and packages are connected by `imports`, `calls`, `uses`, `inherits`, `passes` and `contains`. These are syntax relationships. Verify execution claims with tests or a trace.
 
-Call `graphBuild` and `graphQuery` over MCP when listed (`OCTOCODE_BETA=true`). The CLI always offers them. From the Octocode checkout, run `node packages/octocode/out/octocode.js schema graphQuery`. Elsewhere use `octocode`, `octocode-cli` in Octocode Code agent shells, or `npx -y octocode`. To graph a `ghCloneRepo` checkout, set `OCTOCODE_GRAPH_HOME` in the home environment first: without it graphBuild builds only scopes inside the workspace.
+Use `graphBuild` and `graphQuery` over MCP when listed (`OCTOCODE_BETA=true`), or use the CLI. For invocation, cloned checkouts and long builds, follow [create a snapshot](references/build-and-read.md#create).
 
-Build over a `path` that contains the target's possible consumers (often the repository root), and use the same `path` for every query. After edits, check `stale` and run its `reingest` call when not fresh. A reply with a top-level `next` is unfinished: run it unchanged until none is left, then the row's `next.*` branches. For an empty or surprising answer, query at `medium` and inspect `unresolved` before claiming absence. [Build and read](references/build-and-read.md) covers long builds, confidence, weights and gaps.
+After edits, check `stale` and run the supplied `reingest` call when needed. Finish each top-level `next` before following row evidence. For an empty or surprising answer, check `medium` confidence and `unresolved`. Use [row interpretation](references/build-and-read.md#read-the-rows) for weights, coverage and depth.
 
 ## Question → operation
 

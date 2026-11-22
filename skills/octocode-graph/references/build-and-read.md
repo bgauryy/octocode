@@ -4,6 +4,8 @@ Load when creating or refreshing a snapshot, or before interpreting rows, weight
 
 ## Create
 
+Use `octocode` or `npx -y octocode` from the target workspace. In Octocode Code agent shells use `octocode-cli`. In the Octocode checkout use `node packages/octocode/out/octocode.js`. Check the operation's inputs with `octocode schema graphQuery`. To build over a `ghCloneRepo` checkout outside the workspace, configure `OCTOCODE_GRAPH_HOME` in the home environment first.
+
 ```bash
 octocode graphBuild '{"queries":[{"path":"."}]}'
 ```

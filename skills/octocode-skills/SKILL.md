@@ -1,17 +1,17 @@
 ---
 name: octocode-skills
-description: "Load this skill first when asked to find, create, improve, validate or install an Agent Skill (SKILL.md): it gives the authoring structure and a checker for triggers, size and references. Measured activation tests: octocode-agentic."
+description: "Load this skill first when asked to find, create, audit, improve, install or sync Agent Skills (SKILL.md). Check triggers, instructions, reference routes and standalone bundles."
 ---
 
 # Octocode Skills
 
-Use this as the canonical skill-authoring structure; adapt it to the task and host. Identify inputs, authority and observable acceptance. Review without writes unless edits are requested; improve canonical sources. Discovery alone does not authorize installation.
+Identify the requested skill, target host and result. For discovery, start with the [search order](references/find-skills.md). For an edit, locate the canonical entry and the description the host actually serves. A review returns findings. Installation or provider changes require the user's authorization.
 
 ## Work loop
 
-1. Reuse the existing owner. Check intended, implicit, neighboring, no-skill and failure requests; preserve baseline results for comparisons.
-2. Keep the first action, deciding conditions, safeguards and completion inline. Defer independent branch detail; merge references always read together. Regenerate shared copies at their owner.
-3. Run the [checker](scripts/skill-review.mjs): `node <this-skill>/scripts/skill-review.mjs <target> --json` (`--collections <root>` for a collection). Inspect errors/warnings, exercise changed commands and verify standalone packaging. Structure alone proves no behavioral gain.
+1. Record real requests the skill should handle, a nearby request another skill owns, and a request needing no skill. For a collection, inventory each entry and its authored resources.
+2. Walk a common request and a conditional one from description → first action → reference → result. Fix misleading triggers, ambiguous choices and paths that fail when installed alone. Keep safeguards and completion inline.
+3. Run the [checker](scripts/skill-review.mjs) with Node: `node <this-skill>/scripts/skill-review.mjs <target> --json`, or `--collections <root> --json` for a collection. Resolve findings, exercise changed commands and recheck standalone routes. Use host trials for activation claims.
 
 ## Decide placement
 

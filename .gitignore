@@ -24,6 +24,16 @@ packages/octocode-benchmark/local/repos/*
 # ─── Rust packages ──────────────────────────────────────────────────────────
 # Cargo build artefacts
 target/
+# rustc incremental caches and compiler output written outside target/ (a stray
+# `-C incremental=<dir>` or rustc run in a package dir); d59f0412a committed 540 MB of them.
+s-*-*/
+s-*-*.lock
+dep-graph.bin
+query-cache.bin
+work-products.bin
+*.rmeta
+*.rlib
+*.rcgu.o
 packages/octocode-native/.cargo/config.local.toml
 .bsp/
 # Platform packages track only their manifest and README; binaries and any

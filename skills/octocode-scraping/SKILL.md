@@ -1,6 +1,6 @@
 ---
 name: octocode-scraping
-description: "Load this skill first when asked to extract text, tables, prices or links from public web pages, or crawl a site or docs into a saved corpus: it runs resumable fetch sessions. Interactive pages: octocode-chrome-devtools."
+description: "Load this skill first when extracting text, prices, tables or links from public pages or crawling a site. Fetch, resume and search a saved corpus, then cite the source rows."
 ---
 
 # Octocode Scraping
@@ -25,8 +25,9 @@ Inspect with [corpus-inspect.mjs](scripts/corpus-inspect.mjs) `--session-dir <d>
 
 | Need | Reader |
 |---|---|
-| Page source bytes or search matched text | [source-query.mjs](scripts/source-query.mjs), [corpus-run.mjs](scripts/corpus-run.mjs) |
-| Find a DOM element, asset or graph route | [dom-find.mjs](scripts/dom-find.mjs), [resource-list.mjs](scripts/resource-list.mjs), [graph-navigate.mjs](scripts/graph-navigate.mjs) |
-| Interpret session files, extract rows or triage unread text | [Corpus and extraction](references/corpus.md), [classifiers or clasify](references/corpus.md#find-evidence-in-unread-text-classifiers-clasify), [Octocode MCP/CLI guide](references/octocode-usage.md) |
+| Read source bytes or match a pattern across the corpus | [Source bytes](scripts/source-query.mjs) or [corpus text search](scripts/corpus-run.mjs) |
+| Locate an element, asset or route | [DOM search](scripts/dom-find.mjs), [resource inventory](scripts/resource-list.mjs) or [site graph](scripts/graph-navigate.mjs) |
+| Extract verifiable rows or interpret session files | [Corpus layout and extraction](references/corpus.md) |
+| Triage unread text by meaning | [Classifier choices](references/corpus.md#find-evidence-in-unread-text-classifiers-clasify) and [MCP/CLI usage](references/octocode-usage.md) |
 
 Finish when every requested fact has a verified source span or a reported gap; page counts alone do not establish coverage. Cite artifact paths and URLs. Use [output.md](output.md) for coverage and saved reports, [render-report.mjs](scripts/render-report.mjs) to render or list them, and `octocode-research` for code or package claims. The [network guard](scripts/lib/net-guard.mjs) checks outbound requests; the [JSON error helper](scripts/lib/fail.mjs) reports failures.

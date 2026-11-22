@@ -37,6 +37,16 @@ For the configured host, Octocode checks process tokens, project `.env`, home `.
 
 If the CLI and agent use different accounts, compare their process environments, Octocode homes, and hostnames. An environment token takes precedence over a new device login.
 
+## Choose a tool
+
+| Task | Start here |
+|---|---|
+| Read local code | Find paths with `structureSearch` or `localSearch` and read with `localFetch`. Use `astSearch` for syntax and `lspSearch` for callers or definitions. |
+| Read GitHub code or history | Locate the repository with `ghSearchRepo`, find files with `ghStructure` or `ghSearchCode`, then use `ghGetFileContent`. For history, use `ghSearchHistory` then `ghGetHistoryItem`. |
+| Check a dependency | Take the version from the lockfile, look it up with `artifactSearch` and check known advisories with `securityCheck`. |
+| Explore dependencies locally | `ghCloneRepo` creates a checkout. Use `graphBuild` then `graphQuery` for dependency paths, cycles and change impact within an available graph scope. |
+| Filter results by meaning | `clasify` can use local or GitHub reads, images, public pages and supported search results. A fresh evaluation sends evidence to the configured provider and can incur charges. |
+
 ## Optional tools
 
 | To enable | Command |

@@ -23,11 +23,11 @@ Before deleting either copy, verify the availability check that caused it.
 
 | Signal | Check / action |
 |---|---|
-| Edits in task-unrelated files | off the task's call graph. |
+| Edits in task-unrelated files | Identify ownership and leave unrelated work in place. Only reverse edits from your own cleanup batch. |
 | Whole-file reformat in a logic change | isolate it; re-read the logic diff alone. |
-| Defensive guard on an unreachable state | `lspSearch` callers prove it. |
-| Config key, flag, env var added with a feature | zero readers. |
-| Change narration (`// changed from X to Y`, `// this should work`), agent-directed instructions in shipped code | always (instructions move to the agent guide). |
+| Defensive guard on a supposedly unreachable state | Trace supported inputs, external callers and dynamic paths before treating the state as unreachable. |
+| Config key, flag or environment variable added with a feature | Check runtime, deployment and external consumers before concluding it has no reader. |
+| Change narration or agent-directed comments | Confirm no tool or documented workflow consumes the text. Keep instructions that still have an owner and purpose. |
 | Summary, plan, handoff markdown in a source directory | real docs supersede or duplicate it. |
 | Siblings `*-v2`, `*-final`, `*-new`, `*-fixed`, dated | base canonical; sibling adds no unique path. |
 | Debug prints (`console.log`, `print`, `dbg!`, `println!`) in non-CLI code | no diagnostic or observable-output contract needs them. |

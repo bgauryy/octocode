@@ -17,7 +17,7 @@ Record requests and expected skill/action/output/check: ordinary and implicit in
 | Result | Evidence and unchecked scope are clear; readiness or ratings have stated criteria. |
 | Standalone bundle | Required resources and imports ship without sibling skills or repository-only dependencies. |
 
-Classify each resource as required, conditional or unrouted. Read authored instructions and script contracts. Compare repeated decisions, diagrams and examples by purpose; a text match is only a lead. Walk a common task and a conditional branch; count prerequisite reads before the first useful action.
+Classify each resource as required, conditional or unrouted. Read authored instructions and script contracts. Compare repeated decisions and examples by purpose. Walk a common task and a conditional branch, including what the reader must open before acting. Check the same route from an isolated skill folder. A link can pass in a monorepo while failing for someone who installed just that skill.
 
 Apply the [placement rules](../SKILL.md#decide-placement). Merge repeated decisions and pages always needed together; keep distinct recipes conditional. Preserve permissions, identifiers, exact commands, exceptions, evidence, recovery and completion. Do not replace clear prose with a larger table or decorative diagram. Rewalk both tasks after changes. Moving text does not establish a size or efficiency improvement.
 

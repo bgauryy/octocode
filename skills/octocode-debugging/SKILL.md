@@ -1,11 +1,11 @@
 ---
 name: octocode-debugging
-description: "Load this skill first, before editing anything, when something fails or is slow at runtime (crash, hang, leak, wrong result, flaky test): it finds the first divergence or measured cost with debuggers and profilers."
+description: "Load this skill first when a program crashes, hangs, leaks, runs slowly or returns a wrong or flaky result. Inspect runtime state, profile costs and replay the fix. Repeated AI tool calls belong to octocode-agentic."
 ---
 
 # Octocode Debugging
 
-Inspect surviving evidence before restarting or reproducing: a live stall can disappear on restart. For wrong results, find **the first state divergence**; for performance, establish **what the measurement counts**. CPU samples show running code, wall time includes waits, and allocation churn differs from retention.
+Inspect surviving evidence before restarting a live process. For wrong results, find the first divergent state. For performance, identify what the measurement counts. CPU samples show running code, wall time includes waits, and allocation churn differs from retention. If the process is healthy and the assistant keeps choosing the same tool, use `octocode-agentic` to inspect the decision loop.
 
 ## Procedure
 
@@ -21,8 +21,11 @@ In commands, `skill` is this skill's absolute folder, `out` an existing capture 
 | What you’re investigating | Where to look |
 |---|---|
 | A wrong value, exception, hang or crash | [Debugger techniques, dumps and replay](references/debugger-techniques.md) · [Controlled experiments, reproductions and bisecting](references/experiments.md) |
-| CPU, memory, I/O, scheduling or latency | [Profiling loop, live targets and runtime gotchas](references/profiling.md) · [Memory: GC, heap, references, malloc/calloc, struct layout](references/memory-profiling.md) · [Who is using the machine](references/host-usage.md) · [Browser and GPU timelines](references/gpu.md) · [Full-stack requests](references/experiments.md#follow-a-full-stack-request) |
-| Runtime-specific commands | [Native debugging](references/native.md) · [Rust profiling](references/rust-profiling.md) · [Go](references/go.md) · [Node debugging](references/node.md) and [profiling](references/node-profiling.md) · [Python debugging](references/python.md) and [profiling](references/python-profiling.md) |
+| CPU, I/O, waits or latency | [Choose a measurement](references/profiling.md) or [trace a full-stack request](references/experiments.md#follow-a-full-stack-request). |
+| Growing memory or host load | [Distinguish allocation from retention](references/memory-profiling.md) or [identify the process using the machine](references/host-usage.md). |
+| Browser frames or GPU stalls | [Browser and GPU timelines](references/gpu.md) |
+| Native, Rust or Go target | [Native debugger](references/native.md), [Rust profiler](references/rust-profiling.md) or [Go tools](references/go.md) |
+| Node or Python target | Node [debugger](references/node.md) or [profiler](references/node-profiling.md). Python [debugger](references/python.md) or [profiler](references/python-profiling.md). |
 | A long log, test run or CI output | Save it under the workspace. Search known markers with `localSearch`; use `clasify` for a typed question when exact search cannot narrow the unread evidence. [Tool usage](references/octocode-usage.md) |
 | The code behind a frame, log line or symbol | Octocode local tools: `localSearch` for the text, `localFetch` at the line, `lspSearch` callers or references for who reaches it. [Tool usage](references/octocode-usage.md) |
 | Sharing a finding | [Output options](output.md) · [Optional HTML renderer](scripts/render-report.mjs) |

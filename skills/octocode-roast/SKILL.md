@@ -1,6 +1,6 @@
 ---
 name: octocode-roast
-description: "Load this skill first only when the user explicitly asks to roast, brutally tear down or harshly critique code or a design: it returns ranked, evidenced defects with repairs. Pull request review: octocode-pr-review."
+description: "Load this skill first when explicitly asked to roast or harshly critique code or a design. Rank verified defects by impact and give each a pointed critique, repair and proving check."
 ---
 
 # Octocode Roast
@@ -15,14 +15,10 @@ Think: **What does this promise, and what ordinary situation makes that promise 
 2. Trace input → guards → callers → outcome; check tests, fixtures and docs. Try the strongest innocent explanation before keeping a finding. Exploit, latency and outage claims need a trace/measurement; suspicious syntax stays a lead.
 3. Challenge impressive metrics and complexity against the real outcome and a simpler baseline. Rank demonstrated security, data loss, correctness and user-visible speed above style. Deduplicate by root cause; separate unresolved leads with their next check.
 
-Use the [question/tool catalog](references/hunt.md) only when the next probe is unclear. It supplies questions to investigate, not a checklist to print or make the user answer.
-
-Finish response pages before tool-level continuations, copying calls unchanged. Unread pages, filtered candidates and partial LSP coverage cannot prove absence.
+Use the [hunt catalog](references/hunt.md) when you need a probe for a particular promise or failure. Follow emitted pages and continuations before drawing a conclusion about absence. Disclose unread scope and partial LSP coverage.
 
 ## Rank, write, deliver
 
 Set severity by impact, reachability and affected scope. Build each bit as **setup → reversal → concrete consequence**, beside its evidence; use [rank and write](references/rank-and-write.md) for severity and delivery examples. Return ranked findings, each with source, trigger, impact, repair and a proving check, then the fix order as finding locations. Critique stays read-only unless repairs are requested. [Output](output.md) owns repair results and optional saved reports.
 
-**Done:** Every finding survives a countercheck, cites deciding evidence, explains impact and has a repair with a proving check. Report checked scope, unavailable evidence and unresolved leads. Tone is not a quality score; never claim completeness beyond the reviewed scope.
-
-Neighbors: `octocode-pr-review` owns merge verdicts; `octocode-research` verifies claims; `octocode-clean-agentic-code` removes proven dead code; `octocode-engineer` handles design choices; `octocode-workflows` designs workflows; `octocode-orchestrator` coordinates live agents.
+Finish when each finding survives a countercheck. Report checked scope and unresolved leads. If no defect holds up, say what you reviewed. Use `octocode-pr-review` for a requested merge verdict.

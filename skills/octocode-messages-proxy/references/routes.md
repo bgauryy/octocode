@@ -44,6 +44,8 @@ Match the final answer's `replyTo` to the receipt's `id`, then `comm complete '{
 
 ## Native, A2A and cloud
 
+For a launcher failure, inspect the helper for the route that failed: [host detection](../scripts/hosts.py), [managed request and reply](../scripts/ask.py), [Claude direct send](../scripts/claude_send.py) or [A2A delivery](../scripts/a2a_tools.py). Run the relay launcher for normal use.
+
 | Need | Run / check |
 |---|---|
 | Cross-vendor one-off send without a reply | `python3 "$RELAY" send --workspace "$REPO" --to codex:THREAD_UUID --session "$OPERATOR" --file message.txt` (optional `--reply-required --context ID --key KEY`). |

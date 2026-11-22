@@ -1,22 +1,20 @@
 ---
 name: octocode-workflows
-description: "Load this skill first, before scripting steps, when designing, running or resuming a multi-step process with stages, retries, checkpoints or rollback: it picks a catalog workflow with handoffs. Agent coordination: octocode-orchestrator."
+description: "Load this skill first when designing, running or resuming a multi-stage process. Choose a workflow, map dependencies and handoffs, and verify checkpoints, retries or rollback."
 metadata:
   excluded-hosts: "octocode-code"
 ---
 
 # Octocode Workflows
 
-Choose one primary workflow from the [catalog](references/catalog.md) by the needed outcome or proof. Ordinary tasks use their domain skill directly; a workflow selection needs no ledger or extra agent; executing or resuming one keeps the [ledger](references/verification.md).
+State the outcome and find its owner in the [workflow catalog](references/catalog.md). If the domain skill can complete the request directly, use it. For selection only, return the chosen path and why it fits. For execution or resume, reuse the existing [coverage ledger](references/verification.md#keep-one-compact-coverage-ledger).
 
-For ongoing agent assignments, result integration and replanning, use `octocode-orchestrator` when installed. Keep this workflow's acceptance and existing ledger; the coordinator does not create a second one.
+Use `octocode-orchestrator` when ongoing agent assignments, integration or replanning are needed. Keep the workflow’s acceptance criteria and ledger through the handoff.
 
-1. State the observable outcome, current state, constraints and acceptance check.
-2. Name participants and capabilities: agents, tools, services, processes, stores or artifacts. Give each shared state a writer and every passive object a reader/writer.
-3. Order dependencies and define handoff inputs, outputs, ownership and recovery. Parallelize separable authorized work; serialize conflicting writes. One agent may carry several duties; disclose when a check is not independent.
-4. Before execution, use [composition](references/composition.md) for assignments and one reusable ledger; [verification](references/verification.md) defines evidence states and recovery. A task contract names scope, authority, inputs, output and completion. Delegation requires a useful capability, evidence lane or independent check; the orchestrator owns integration and the final result.
-
-For consequential paths, test a failed assumption, harmful downstream effect and interruption. Prefer reversible actions; reconcile uncertain effects before replay. On resume, update from current state. Judge the intended outcome and containment separately from scores or worker completion. [Mental models](references/mental-models.md) offer additional deciding checks.
+1. Establish current state, constraints and the observable acceptance check.
+2. Identify participants, including tools, services, stores and artifacts. Give each shared state one writer and name the readers that depend on it.
+3. Order dependencies and specify each handoff’s inputs, outputs, owner and recovery. Parallelize separable authorized work and serialize conflicting writes. State whether an independent check was available.
+4. Before execution, use [composition](references/composition.md) for assignments. On interruption, use [verification and recovery](references/verification.md) to check effects before replay. For a consequential path, test a failed assumption and its downstream effects. Use [mental models](references/mental-models.md) when selecting that check.
 
 ## Conditional procedures
 

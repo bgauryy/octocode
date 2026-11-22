@@ -1,11 +1,11 @@
 ---
 name: octocode-rfc-generator
-description: "Load this skill first when asked to write, revise or review an RFC, design proposal, migration plan or implementation plan: it frames decisions with evidence, alternatives and tasks traced to checks and rollout."
+description: "Load this skill first when asked to write, revise or review an RFC, design proposal, migration or implementation plan. Trace decisions and alternatives to tasks, checks and rollout."
 ---
 
 # Octocode RFC Generator
 
-Pin the requested decision; when prior RFCs may own it, find them with `--manifest` ([commands](references/report-output.md#render-and-retrieve)). Review-only returns findings against current code. When the decision is already made and the user asks only for the plan, write one plan. Otherwise keep the decision and implementation plan in one RFC; extra deliverables require a request. Writing an RFC grants no implementation authority. Read [Output](output.md) before drafting.
+Identify the decision, its owner and the requested deliverable. For review, compare the existing RFC with current code and return findings. For a settled decision, write the requested implementation plan. For an open decision, keep the proposal and plan in one RFC. Read the [artifact structure](output.md) before drafting. Implementation requires its own authorization.
 
 ## Work loop
 
@@ -22,8 +22,6 @@ Pin the requested decision; when prior RFCs may own it, find them with `--manife
 | A flow, diagram, graph or chart | [Diagrams](references/diagrams.md) |
 | Evidence gathering, auditing an existing RFC, unresolved disagreement | [Workflow](references/workflow.md); optional `clasify` review only when source review and direct checks cannot settle a consequential disagreement |
 | Octocode invocation or recovery | [MCP/CLI guide](references/octocode-usage.md) |
-| Accepted HTML or catalog discovery | [render-report.mjs](scripts/render-report.mjs) |
+| Locate an existing RFC or render accepted HTML | Use the [report commands](references/report-output.md#render-and-retrieve) and [renderer](scripts/render-report.mjs). |
 
-Keep `status: Proposed` until the owner accepts; a Proposed RFC may list `Blocking:` questions and is ready for acceptance only when none remain. Save every authored RFC per the [saved report](output.md#saved-report) rules, lead with the proposal and effect, and report remaining risks, confidence and unchecked scope.
-
-Neighbors: `octocode-research` verifies current behavior; `octocode-engineer` evaluates design trade-offs; `octocode-brainstorming` expands options; `octocode-documentation` explains settled decisions; `octocode-agentic` designs measurements; `octocode-workflows` designs workflows; `octocode-orchestrator` coordinates live agents.
+Save an authored RFC using the [saved report rules](output.md#saved-report). Keep `status: Proposed` until the owner accepts. Identify any `Blocking:` questions, who can settle them and the next check. Return the decision, expected effect, risks and document path.

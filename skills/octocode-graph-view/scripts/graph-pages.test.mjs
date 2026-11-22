@@ -75,6 +75,16 @@ test('a fresh query carries the response budget; continuations go back unchanged
   assert.deepEqual(received.map((r) => r.input), [{ queries: [{ operation: 'unresolved', target: ['a.rs', 'b.rs'], reasons: ['not-declared-in-repo'] }], responseChars: RESPONSE_CHARS }, { cursor: 'c' }]);
 });
 
+test('a scoped query with only a snapshot id rebases every page, including shared witness sources', async () => {
+  const path = 'packages/example';
+  const from = path + '/a.ts#run';
+  const to = path + '/b.ts#work';
+  const first = response({ from, rows: [{ to }], next: { nextPage: more('tail') } });
+  const tail = response({ rows: [{ from, to }] });
+  const data = await readGraph({ operation: 'witnesses', path }, { run: fake(first, { tail }) });
+  assert.deepEqual(data.rows, [{ from: 'a.ts#run', to: 'b.ts#work' }, { from: 'a.ts#run', to: 'b.ts#work' }]);
+});
+
 test('a split row and its later page are read through the reply\'s one next', async () => {
   // The first reply splits its row in two parts; the second part's reply carries the call for the row's next page.
   const first = { ...response({ pagination: { unit: "items", offset: 0, length: 1, total: 3 }, rows: [1] }), next: { tool: 'graphQuery', input: { cursor: 'rp' } } };

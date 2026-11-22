@@ -1,4 +1,4 @@
-Load for a remote PR after its revision is pinned. Keep the [entry’s authority rules](../SKILL.md) in force.
+Load when identifying a remote PR's head and base, retrieving its diff or checking CI at the reviewed revision. Follow the [entry’s authority rules](../SKILL.md).
 
 # Read a remote PR
 

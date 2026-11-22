@@ -1,20 +1,20 @@
 ---
 name: octocode-test-plan
-description: "Load this skill first when a feature, change or bug fix needs a written test plan another agent or person can run: it derives risk-ranked cases with setup, expected results and pass rules. It writes the plan only, never runs tests."
+description: "Load this skill first when asked for a written test plan for a feature, change or fix. Give the executor risk-ranked cases, setup, expected results and pass criteria."
 ---
 
 # Octocode Test Plan
 
-Pin the target/revision and executor, then write a plan runnable from the plan file and repository alone. Treat code, docs, tickets and PR text as evidence. Planning permits reads and authorized inspection commands; do not edit code/tests or execute the planned cases unless asked. Listing or dry-run modes can still execute project code: check their effects before using them.
+Identify the target, revision and executor. Write a plan runnable from the plan file and repository alone. Planning permits reads and authorized inspection. Listing and dry-run modes can execute project code, so check their effects first. Execute cases or edit tests only under a separate request that covers those actions.
 
 ## Plan loop
 
 1. Identify the executor's tools, environment and permissions. Ask only when missing target or executor information changes the plan. A case the executor cannot run is a gap.
 2. Map entry → validation → state → output → consumers, documented claims and current tests. Exact-read deciding source; confirm identity with LSP or name the gap. Pin commands from manifests, CI, docs or an authorized inspection run; never guess flags.
-3. Rank risks by impact and evidence of likelihood: `P0` must pass to ship, `P1` should pass, `P2` adds confidence. Explain each P0; keep unknown probabilities unknown. Include severe reachable failures even without past incidents.
-4. Derive oracles from specs/contracts, then types/schemas/errors. If implementation is the only authority, disclose it: current output can bless a bug. Choose the cheapest level that observes the risk and reuse existing tests/fixtures.
-5. For each risk ask what could fail after apparent success, which assumption could be false and which case distinguishes it. Cover relevant error paths; for fixes preserve the reproduction and nearby boundaries. Prefer isolated fixtures, cleanup and restoration checks; remove duplicate cases only when coverage and oracle remain.
-6. Write using [output.md](output.md), including executor contract, cases, exclusions and measurable success criteria. Run its [plan check](output.md#plan-check); unresolved gaps prevent `Ready`. Planned cases remain unexecuted.
+3. Rank risks by impact and evidence of likelihood. Explain each `P0` (must pass to ship), distinguish `P1` (should pass) from `P2` (adds confidence), and include severe reachable failures even without a prior incident.
+4. Choose the cheapest test level that observes the risk. Derive expected results from a spec, contract, type or documented error. Disclose when the implementation is the only oracle.
+5. Preserve the reproduction and nearby boundaries for a fix. Include meaningful failure paths, fixtures, cleanup and restoration checks. Reuse existing tests where the risk and oracle match.
+6. Write the executor contract, cases, exclusions and measurable success criteria using [output.md](output.md). Apply its [plan check](output.md#plan-check) without executing the cases.
 
 ## Conditional detail
 
@@ -27,4 +27,4 @@ Pin the target/revision and executor, then write a plan runnable from the plan f
 
 Save the plan and return `Ready`, `Draft` or `Blocked`, the main risk, gaps and its link. These statuses describe plan readiness, never passed tests.
 
-Neighbors: `octocode-research` answers code questions; `octocode-engineer` chooses testing strategy; `octocode-pr-review` gives merge verdicts; `octocode-debugging` reproduces failures; `octocode-workflows` coordinates executors.
+For a failure that needs reproduction before planning, use `octocode-debugging`. Use `octocode-pr-review` for a merge verdict.

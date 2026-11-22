@@ -1,6 +1,6 @@
 ---
 name: octocode-graph-view
-description: "Load this skill first when the user wants a visual, interactive map of a repository (architecture or dependency graph) or a saved source-backed graph brief: it builds and serves the viewer. Textual structure answers: octocode-graph."
+description: "Load this skill first when asked for an interactive repository map or saved graph brief. Build, query, serve or replay dependency graphs and add source-backed architecture notes."
 ---
 
 # Octocode Graph View
@@ -21,7 +21,12 @@ The pipeline pages `structureSearch`, builds package chunks and stitches imports
 
 1. Read `brief.txt` for measured facts, then inspect the deciding rows in `data.json`. Nodes and edges carry `loc` with paths and lines. Check the file's `check.status` and `verification.staleCheck` before relying on a row. Rebuild for `stale`, `missing` or out-of-range `lines`. Disclose a failed freshness check.
 2. Imports are syntax evidence. Calls carry `via`: graph linkage (`graph`), LSP alone (`lsp`) or agreement (`both`). Viewer `stitched` edges use exact names across chunks (`resolution: ["stitched-import"]`), medium confidence. LSP probes hub functions and stitched sources. Check coverage before counts or absence; confirm consequential claims with exact source, symbol identity and LSP callers. Test defect hypotheses against the [evidence rules](references/evidence.md).
-3. When reusable wiki notes are requested, write source-backed notes for relevant pages with `wiki.mjs note` and check them with `wiki.mjs lint`; see [wiki operations](references/wiki.md). If the task needs layers, runtime edges or flows, add a [model overlay](references/modeling.md) matching the [schema](scheme/model.json) alongside `data.json`, then run `render.mjs` again.
-4. Deliver according to [output.md](output.md). The viewer pages rows with “Show more”; every raw graph page is under `chunks/<id>/tmp/evidence/` and events are in `events.jsonl`. Report unbuilt or split chunks, files outside chunks, unresolved cross-chunk imports, skipped LSP and partial results beside the claims they limit. Done when the question is answered from cited `data.json` rows or source lines, or the build state and blocker are reported.
+3. Report the deciding `data.json` rows or source lines. Put coverage gaps beside the claims they limit, including split or unbuilt chunks, files outside chunks, unresolved imports, stale checks and skipped LSP. If blocked, give the build state.
 
-Use [graph queries](references/query.md) for impacts, paths, cycles, callers and rankings, or [chat and refresh](references/chat.md) to answer through the viewer or update it after edits. Use `octocode-research` to settle code or symbol claims and `octocode-engineer` for layering or refactor decisions.
+| After the build | Read |
+|---|---|
+| Find paths, impact, cycles, callers or rankings | [Graph queries](references/query.md) |
+| Answer a viewer question or refresh after edits | [Chat and refresh](references/chat.md) |
+| Save reusable source notes | [Wiki operations](references/wiki.md). Write with `wiki.mjs note` and check with `wiki.mjs lint`. |
+| Add layers, runtime edges or flows | [Model overlay](references/modeling.md) and [schema](scheme/model.json). Save beside `data.json` and rerun `render.mjs`. |
+| Deliver the viewer, brief or raw evidence | [Output](output.md). Raw pages are under `chunks/<id>/tmp/evidence/` and events are in `events.jsonl`. |

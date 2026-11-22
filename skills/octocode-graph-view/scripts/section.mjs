@@ -171,7 +171,7 @@ export async function buildSection(section, { out, jobs = 8, exclude = [], emit 
       // One gzip member per page: concatenated members are one valid gzip stream of JSON lines.
       appendFileSync(file, gzipSync(`${JSON.stringify({ input, response })}\n`));
     };
-    return readGraph(row, { save, onPage: (page) => {
+    return readGraph(row, { save, snapshotRoot: snap.root, onPage: (page) => {
       if (stream && STREAMED[row.operation] && page.rows?.length) emit(stream, page.rows, { page: pages, total: totalOf(page) });
     } });
   };

@@ -1,6 +1,6 @@
 ---
 name: octocode-brainstorming
-description: "Load this skill first when the user wants ideas, options, alternatives or a challenged proposal checked against web sources: it tests answers against rivals with cited evidence. Codebase design trade-offs: octocode-engineer."
+description: "Load this skill first when asked for ideas, alternatives or a challenge to a proposal using web evidence. Compare options, verify sources and recommend the next test."
 ---
 
 # Octocode Brainstorming
@@ -12,7 +12,7 @@ Identify the open choice, constraints and evidence that could change the answer.
 3. **Challenge:** seek the strongest counterexample, downstream consequence and failure condition. Compare alternatives against the same criteria; prefer a reversible test when uncertainty remains.
 4. **Decide:** separate evidence from inference, explain confidence and name the next check. Continue while a named evidence gap could change the recommendation; otherwise deliver with the gap explicit.
 
-Use direct work by default. Add a ledger for automated quote checking, a checkpoint for recovery, or an independent actor for a consequential disputed claim; use the [phase procedure](references/phases.md) when needed. More searches, sources or agents do not themselves establish quality.
+Use the [phase procedure](references/phases.md) to resume research or coordinate independent checks. For a single decision, gather and challenge the evidence directly.
 
 ## Resources
 
@@ -22,8 +22,6 @@ Use direct work by default. Add a ledger for automated quote checking, a checkpo
 | Search providers, papers, products or trends | [Research surfaces](references/research.md); run [search.mjs](scripts/search.mjs) with `--help` |
 | Dispatch evidence gatherers or reviewers; create a ledger | [Worker briefs](references/briefs.md) |
 | Verify a ledger or use a deciding source file | [Verification and assets](references/verification.md); run [verify-claims.mjs](scripts/verify-claims.mjs) or [fetch-asset.mjs](scripts/fetch-asset.mjs) with `--help` |
-| Save, resume, render or retrieve a report | [Output](output.md); [render-report.mjs](scripts/render-report.mjs) |
+| Resume interrupted research or deliver a saved report | [Checkpoints and output](output.md). Run the [renderer](scripts/render-report.mjs) for HTML. |
 
-## Done
-
-Return the recommendation, evidence, strongest objection, confidence with its reason and the check that would change it. Cite verified sources; report unresolved hypotheses and unchecked scope. Use [output.md](output.md) for saved reports and checkpoints. Neighbors: `octocode-research` for code evidence, `octocode-scraping` for a corpus or failed fetch, `octocode-chrome-devtools` for rendered pages, `octocode-rfc-generator` for a decision document, `octocode-agentic` for measured experiments and `octocode-workflows` for coordination.
+Return the recommendation, verified sources, strongest objection, confidence and the check that would change it. Cite unresolved hypotheses as gaps. Use `octocode-engineer` for choices that turn on a codebase’s workload or contracts.

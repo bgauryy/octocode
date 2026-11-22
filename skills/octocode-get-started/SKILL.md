@@ -1,13 +1,13 @@
 ---
 name: octocode-get-started
-description: "Load this skill first when the user wants to install or configure the Octocode CLI, connect octocode-mcp to an agent, add skills, or sign in to GitHub. Verify setup with a real tool call."
+description: "Load this skill first when setting up Octocode. Install the CLI or bundled skills, connect an MCP client, configure GitHub access and verify the chosen interface with a real call."
 metadata:
   excluded-hosts: "octocode-code"
 ---
 
 # Get started with Octocode
 
-Use `octocode` for terminal commands, configuration, and GitHub sign-in. Use `octocode-mcp` when an editor or agent needs the tools over MCP. A skill teaches the agent a workflow. Check which client and project the user wants to set up and whether a plugin already provides the connection.
+Identify the client, project and requested setup. Check whether a plugin already supplies MCP. Use the CLI for terminal access and GitHub login. Use MCP for tools inside an editor or agent. Follow the branch the user needs.
 
 ## Try the CLI
 
@@ -37,18 +37,12 @@ npx -y octocode auth status --json
 
 Have the user open the displayed URL and enter the one-time code there. Check for `verification: "verified"`, the expected `hostname`, and the expected `username`. A selected device login reports `tokenSource: "octocode-storage"`. MCP can use that login when it shares the CLI’s Octocode home and GitHub host. Code search and private repositories require authentication. For CI tokens, existing GitHub CLI accounts, or Enterprise, see [GitHub credential selection](references/configure.md#github-credential-selection).
 
-## Choose tools and skills
+## Configure settings or add skills
 
-| Task | Start here |
+| Need | Action |
 |---|---|
-| Find and read local code | `structureSearch` or `localSearch` → `localFetch`. Use `astSearch` for syntax and `lspSearch` for callers or definitions. |
-| Read GitHub code or history | `ghSearchRepo` → `ghStructure` or `ghSearchCode` → `ghGetFileContent`. For a change, use `ghSearchHistory` → `ghGetHistoryItem`. |
-| Check a dependency | Resolve the lockfile version with `artifactSearch`. Use `securityCheck` for known advisories. |
-| Explore a repository locally | `ghCloneRepo` creates a checkout. `graphBuild` → `graphQuery` finds dependencies, cycles, and change impact. |
-| Filter results by meaning | `clasify` answers questions about local or GitHub reads, images, web pages, and supported search results. A fresh evaluation sends evidence to the configured provider and can incur charges. |
-
-MCP starts with 12 tools. The CLI starts with 16. Use `npx -y octocode schema` for the CLI catalog or the client’s tool list for MCP. [Enable optional tools](references/configure.md#optional-tools)
-
-Run `npx -y octocode skill list` to see the bundled workflows. For example, install code research in the current Codex project with `npx -y octocode skill install octocode-research --platform codex --project-dir .`. Use the user’s platform and requested scope. [Skill catalog](https://github.com/bgauryy/octocode/blob/main/skills/README.md)
+| Choose a tool after setup | Read [first tool calls](references/configure.md#choose-a-tool) or inspect the active catalog with `npx -y octocode schema` (CLI) or the client's tool list (MCP). |
+| Change settings, enable tools or add a provider key | Check [configuration precedence](references/configure.md#configuration-and-folders), [optional tools](references/configure.md#optional-tools) or [key setup](references/configure.md#add-and-configure-keys). |
+| Install a bundled skill | Run `npx -y octocode skill list`. For research in a Codex project, run `npx -y octocode skill install octocode-research --platform codex --project-dir .`. Substitute the requested skill, platform and scope. [Skill catalog](https://github.com/bgauryy/octocode/blob/main/skills/README.md) |
 
 Report the interface, project, and checks that succeeded. For a failed check, give the failing command or tool, the error, and which part of setup it affects. Keep tokens and device codes out of the report.

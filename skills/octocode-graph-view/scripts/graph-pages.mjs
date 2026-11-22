@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { posix } from 'node:path';
+import { posix, relative, resolve, sep } from 'node:path';
 import { cliCommand, octocode } from './lib.mjs';
 import { readResponse } from './tools.mjs';
 
@@ -72,8 +72,8 @@ export async function graphBuild(row, { run = graphCall, onProgress = () => {} }
 // (`next`, `related`) keep theirs.
 const REFERENCE_FIELDS = new Set(['id', 'subject', 'from', 'to', 'target', 'members', 'dirs', 'nodes', 'rows', 'files', 'reachedFrom', 'affectedEntrypoints', 'testsToRun']);
 const MENTION_FIELDS = new Set(['mentionedIn', 'textMentions']);
-export function scopePaths(data) {
-  const root = data?.graph?.root;
+export function scopePaths(data, queryRoot) {
+  const root = data?.graph?.root ?? queryRoot;
   if (!root || root === '.') return data;
   const underRoot = (text) => text === root || text.startsWith(`${root}/`);
   const reference = (item) => {
@@ -134,15 +134,17 @@ function listOf(name, first, rows, pageStart) {
 // checked by count: a list's rows, the ones already shown included, must end equal to its `total`. A repeated
 // input, a count mismatch or a missing continuation rejects: the result is complete or there is none. The result
 // is the first page's data with `rows` holding every row and no `pagination` or `next`.
-export async function readGraph(row, { run = graphCall, save = () => {}, onPage = () => {}, collectionPaths, collectionRefs } = {}) {
+export async function readGraph(row, { run = graphCall, save = () => {}, onPage = () => {}, snapshotRoot, collectionPaths, collectionRefs } = {}) {
   const seen = new Set();
+  const root = snapshotRoot ?? (row.path && relative(process.cwd(), resolve(row.path)).split(sep).join('/'));
+  const scoped = (reply) => scopePaths(structuredClone(dataOf('graphQuery', reply)), root);
   async function read(input) {
     const key = JSON.stringify(input);
     if (seen.has(key)) throw new Error('Repeated graph continuation; evidence is incomplete');
     seen.add(key);
-    const response = await readResponse('graphQuery', input, { run, collectionPaths, collectionRefs, onPage: (raw, call) => save(call.input, raw, scopePaths(structuredClone(dataOf('graphQuery', raw)))) });
+    const response = await readResponse('graphQuery', input, { run, collectionPaths, collectionRefs, onPage: (raw, call) => save(call.input, raw, scoped(raw)) });
     return response.results.map((result) => {
-      const data = scopePaths(structuredClone(dataOf('graphQuery', {results:[result]})));
+      const data = scoped({ results: [result] });
       // A page can state the common witness source once beside its rows.
       if (typeof data.from === 'string' && Array.isArray(data.rows)) {
         for (const edge of data.rows) edge.from ??= data.from;

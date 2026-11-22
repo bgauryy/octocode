@@ -1,6 +1,6 @@
 ---
 name: octocode-research
-description: "Load this skill first, before searching or reading files yourself, when asked how code works, who calls it, what a change affects or why it changed, locally, on GitHub or in registries: it cites source. Runtime failures: octocode-debugging."
+description: "Load this skill first when asked how code works or why it changed. Before searching, choose the local, GitHub or package source and trace behavior, callers and history to cited lines or commits."
 metadata:
   excluded-hosts: "octocode-code"
 ---
@@ -37,4 +37,4 @@ Frame the question, corpus/revision and evidence that would settle it. Read a kn
 
 Return the answer and confidence, claims beside source anchors, checks actually run and material gaps. Use `Confirmed`, `Likely`, `Refuted` or `Open`; stop when remaining uncertainty cannot change the decision or a named blocker prevents it.
 
-Neighbors: `octocode-pr-review` owns merge verdicts; `octocode-engineer` design choices; `octocode-graph-view` saved graph briefs and interactive views; `octocode-scraping` public pages; `octocode-chrome-devtools` live browser evidence; `octocode-workflows` workflow design; `octocode-orchestrator` live agent coordination.
+Use `octocode-graph` for dependency paths, cycles or graph-wide impact, `octocode-debugging` for a reproducible runtime failure and `octocode-pr-review` for a merge verdict.

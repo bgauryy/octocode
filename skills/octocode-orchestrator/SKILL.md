@@ -1,6 +1,6 @@
 ---
 name: octocode-orchestrator
-description: "Load this skill first when coordinating several agents through an ongoing task (assigning work, tracking dependencies, merging evidence, resuming stalled runs): it keeps one plan. Process design: octocode-workflows."
+description: "Load this skill first when coordinating agents on an ongoing task. Assign owners, track dependencies, verify their results and resume stalled work against one plan."
 metadata:
   excluded-hosts: "octocode-code"
 ---
@@ -13,13 +13,13 @@ Own the user-facing result and integration. Coordinate through the host's availa
 
 ## Coordinator loop
 
-1. **Observe.** Reconcile worker reports, artifacts and current source/runtime state. Track task ownership, dependencies, acceptance, evidence, unresolved questions and the next action in one existing tracker. Keep worker lifecycle separate from evidence: a completed worker can return failed, stale or unverified work. Persist only what a later decision or resume needs.
-2. **Choose.** Name the unmet acceptance condition and the observation or action that can advance it. For dependent work, map producer → consumer edges and resolve shared prerequisites first. Use the [execution and dependency graphs](references/loops.md#execution-graph) when decomposing work or diagnosing a blocked loop. Preserve the user's sequence and domain acceptance.
-3. **Assign or execute.** Give separable work one accountable owner and a [Task contract with a Definition of Done](references/protocol-catalog.md#delegate-and-coordinate). Pass the requirement, relevant source/artifact references, allowed tools and write scope; include expected checks and return evidence: per item a claim, its anchor, the check run and its status, without restating the assignment. Add workers only for a distinct capability, evidence lane or independent check. Keep coupled changes together and serialize conflicting writes, builds and shared generated outputs. Workers request scope changes through the coordinator.
-4. **Integrate.** Inspect returned artifacts and recheck the deciding anchors using the [evidence rules](references/evidence.md). Resolve disagreement with a distinguishing observation. Update the existing tracker, invalidate checks whose inputs changed, and release only dependencies whose required evidence is current. Process useful results as they arrive; unrelated work need not wait for the slowest worker.
-5. **Continue, recover or finish.** Continue while a reachable action can advance acceptance within authority and actual host/user limits. More messages, repeated summaries and repeated unchanged checks are not progress. Use [recovery and resume](references/recovery.md) for stalls, uncertain effects, cancellation or context loss. Finish only when the requested result and its required checks hold on the integrated state.
+1. **Observe.** Reconcile worker reports with current artifacts. Keep ownership, dependencies, acceptance, evidence and next actions in one tracker. Verify the work even if its worker has finished.
+2. **Choose.** Identify the unmet condition and the action that can advance it. Map producer and consumer dependencies before releasing work. Use [execution and dependency graphs](references/loops.md#execution-graph) for blocked or branching tasks.
+3. **Assign or execute.** Give each separable task one owner and a [task contract](references/protocol-catalog.md#delegate-and-coordinate) with scope, authority, inputs, expected result and checks. Ask for each claim, its source and its check status. Add workers for distinct capabilities or independent checks. Serialize conflicting writes and shared builds.
+4. **Integrate.** Recheck decisive anchors using the [evidence rules](references/evidence.md). Resolve disagreements with a distinguishing check. Invalidate stale checks and release ready dependencies as results arrive.
+5. **Recover or finish.** Use [recovery and resume](references/recovery.md) for stalled tasks, uncertain effects, cancellation or lost context. Continue while an authorized action advances acceptance. Finish when the integrated result passes its required checks or report the missing prerequisite.
 
-Use event notifications or supported waits for active work. Request status when a dependency, ownership conflict or missing result requires a decision; avoid repeated polling. Bound concurrency by host capacity and shared resources, without inventing fixed round, task or evidence quotas.
+Use host notifications or supported waits. Request status when a dependency, ownership conflict or missing result needs a decision. Set concurrency from actual capacity and shared resources.
 
 ## Connected skills and tools
 
