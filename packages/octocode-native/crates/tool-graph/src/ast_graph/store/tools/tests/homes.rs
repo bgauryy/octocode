@@ -238,18 +238,13 @@ fn repair_of(refused: &Value, dir: &str) -> Value {
     assert_eq!(refused["errorCode"], "invalidInput", "{refused}");
     let error = refused["error"].as_str().expect("error");
     assert!(
-        error.contains("not a file") && error.ends_with(&format!(" {dir}")),
+        error.contains("enclosing snapshot") && error.ends_with(&format!(" {dir}")),
         "{refused}"
     );
     refused["related"][0].clone()
 }
 
-/// Graphs scan directories: a file path is refused with a directory named
-/// and, as `related`, a call there that runs as written and answers: a
-/// build of the file's directory; a query of the pinned graph's own scope,
-/// else of the nearest enclosing scope with a snapshot, else a build of the
-/// file's directory. Each holds under the workspace's home and a configured
-/// one, and each repair runs alone.
+/// When a file snapshot is missing, its build and enclosing-query leads execute as written.
 #[test]
 fn a_file_path_offers_a_call_that_answers() {
     for configured in [false, true] {
@@ -267,21 +262,16 @@ fn a_file_path_offers_a_call_that_answers() {
         };
         let file = || json_fixture(r#"{"operation": "stats", "path": "ws/app/a.ts"}"#);
 
-        // No snapshot: both tools lead to a build of the file's directory.
-        let lead = repair_of(
-            &run(
-                ToolId::GraphBuild,
-                json_fixture(r#"{"path": "ws/app/a.ts"}"#),
-            ),
-            "ws/app",
-        );
-        assert_eq!(lead["tool"], "graphBuild", "{lead}");
-        assert_eq!(lead["input"]["queries"][0]["path"], "ws/app", "{lead}");
-        let lead = repair_of(&run(ToolId::GraphQuery, file()), "ws/app");
-        assert_eq!(lead["tool"], "graphBuild", "{lead}");
-        answers(&lead);
-
-        // A snapshot of the enclosing `ws/app`: the query moves there, unpinned.
+        // With no snapshot the lead builds the exact file.
+        let missing = run(ToolId::GraphQuery, file());
+        let lead = &missing["related"][0];
+        assert_eq!(lead["tool"], "graphBuild", "{missing}");
+        assert_eq!(lead["input"]["queries"][0]["path"], "ws/app/a.ts");
+        answers(lead);
+        // Another file has only the enclosing snapshot.
+        dir.write("ws/app/b.ts", "export const b = 2;\n");
+        let file = || json!({"operation":"stats","path":"ws/app/b.ts"});
+        run(ToolId::GraphBuild, json!({"path":"ws/app"}));
         let lead = repair_of(&run(ToolId::GraphQuery, file()), "ws/app");
         assert_eq!(lead["tool"], "graphQuery", "{lead}");
         answers(&lead);
@@ -289,7 +279,7 @@ fn a_file_path_offers_a_call_that_answers() {
         // A pinned graph of `ws` holds the file: its scope wins over the
         // nearer `ws/app`, and the pin stays.
         let whole = run(ToolId::GraphBuild, json_fixture(r#"{"path": "ws"}"#));
-        let pinned = json!({"operation":"stats","path":"ws/app/a.ts","graph":whole["graph"]});
+        let pinned = json!({"operation":"stats","path":"ws/app/b.ts","graph":whole["graph"]});
         let lead = repair_of(&run(ToolId::GraphQuery, pinned), "ws");
         assert_eq!(
             lead["input"]["queries"][0]["graph"], whole["graph"],
@@ -299,27 +289,20 @@ fn a_file_path_offers_a_call_that_answers() {
     }
 }
 
-/// A configured home inside the file's directory rules that directory out:
-/// the refusal names both, so the agent picks another directory.
+/// An exact file scan can store its snapshot beside the selected source.
 #[test]
-fn a_file_beside_the_configured_home_names_it() {
+fn a_file_beside_the_configured_home_builds_only_itself() {
     let dir = Fixture::new();
     dir.write("app/a.ts", "export const a = 1;\n");
     let root = dir.0.canonicalize().expect("root");
-    let home = root.join("app").join("graphs");
-    let refused = run_at(
+    let home = root.join("app/graphs");
+    let built = run_at(
         &root,
         Some(&home),
         ToolId::GraphBuild,
-        json_fixture(r#"{"path": "app/a.ts"}"#),
+        json!({"path":"app/a.ts"}),
     );
-    assert_eq!(refused["errorCode"], "invalidInput", "{refused}");
-    let error = refused["error"].as_str().expect("error");
-    assert!(
-        error.contains("app holds local.graphHome") && error.contains("graphs"),
-        "{refused}"
-    );
-    assert!(refused.get("related").is_none(), "{refused}");
+    assert_eq!(built["scan"]["filesScanned"], 1, "{built}");
 }
 
 /// A graph id used with another path is refused by naming the scope the
@@ -376,4 +359,48 @@ fn a_query_on_a_file_leads_to_the_scope_with_the_file_as_target() {
     );
     assert_eq!(lead["target"], "src/a.ts", "{refused}");
     assert_eq!(lead["operation"], "symbols", "{refused}");
+}
+
+#[test]
+fn single_file_graph_is_exact_fresh_and_distinct_from_parent() {
+    let dir = Fixture::new();
+    dir.write("app/a.ts", "export function a() { return 7; }\n");
+    dir.write("app/b.ts", "export const b = 2;\n");
+    let build = |path| call(&dir.0, ToolId::GraphBuild, json!({"path":path}));
+    let directory = build("app");
+    let file = build("app/a.ts");
+    assert_eq!(file["scan"]["filesScanned"], 1, "{file}");
+    let id = file["graph"].as_str().expect("file snapshot");
+    let bytes = std::fs::read(dir.0.join(".octocode/graph").join(id).join("manifest.json"))
+        .expect("manifest");
+    let manifest: Value = serde_json::from_slice(&bytes).expect("JSON manifest");
+    assert_eq!(
+        manifest["root"],
+        json!(dir.0.join("app/a.ts").canonicalize().expect("file path"))
+    );
+    assert_ne!(directory["graph"], file["graph"]);
+    let find = |path| {
+        call(
+            &dir.0,
+            ToolId::GraphQuery,
+            json!({"operation":"find","kind":"file","path":path}),
+        )
+    };
+    let list = find("app/a.ts");
+    assert_eq!(list["rows"].as_array().unwrap().len(), 1, "{list}");
+    assert!(
+        list["rows"][0]["id"].as_str().unwrap().ends_with("a.ts"),
+        "{list}"
+    );
+    assert_eq!(find("app")["rows"].as_array().unwrap().len(), 2);
+    dir.write("app/c.ts", "export const c = 1;\n");
+    assert_eq!(build("app/a.ts")["graph"], file["graph"]);
+    dir.write("app/a.ts", "export function a() { return 12345; }\n");
+    let stale = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json!({"operation":"stale","graph":file["graph"]}),
+    );
+    assert_eq!(stale["rows"].as_array().unwrap().len(), 1, "{stale}");
+    assert_ne!(build("app/a.ts")["graph"], file["graph"]);
 }

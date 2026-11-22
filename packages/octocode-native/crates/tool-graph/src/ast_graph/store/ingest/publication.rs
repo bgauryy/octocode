@@ -156,7 +156,10 @@ pub(super) fn finish_checkpoint(
                 "published build has no extraction job identity",
             )
         })?;
-    let job = checkpoint::job_path(&home.join(".facts"), &built.root);
+    let job = checkpoint::job_path(
+        &home.join(".facts"),
+        built.file_scope.as_deref().unwrap_or(&built.root),
+    );
     if let Err(error) = checkpoint::settle(&job, generation) {
         return Err(GraphOutput::error(
             error.code,

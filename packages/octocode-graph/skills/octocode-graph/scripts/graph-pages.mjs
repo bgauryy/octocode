@@ -48,9 +48,9 @@ export async function graphBuild(row, { run = graphCall, onProgress = () => {} }
 // Executable continuations and related calls keep their original arguments.
 const REFERENCE_FIELDS = new Set(['id', 'subject', 'from', 'to', 'target', 'members', 'dirs', 'nodes', 'rows', 'files', 'reachedFrom', 'affectedEntrypoints', 'testsToRun']);
 const MENTION_FIELDS = new Set(['mentionedIn', 'textMentions']);
-export function scopePaths(data, queryRoot) {
+export function scopePaths(data, queryRoot, workspaceRoot = process.cwd()) {
   const scopeRoot = data?.graph?.root ?? queryRoot;
-  const root = scopeRoot && relative(process.cwd(), resolve(scopeRoot)).split(sep).join('/');
+  const root = scopeRoot && relative(workspaceRoot, resolve(workspaceRoot, scopeRoot)).split(sep).join('/');
   if (!root || root === '.') return data;
   const underRoot = (text) => text === root || text.startsWith(`${root}/`);
   const reference = (item) => {
@@ -116,10 +116,10 @@ export async function readGraph(row, options) {
   return answer;
 }
 
-export async function readGraphs(queries, { run = graphCall, save, onPage = () => {}, snapshotRoot, collectionPaths, collectionRefs } = {}) {
+export async function readGraphs(queries, { run = graphCall, save, onPage = () => {}, snapshotRoot, workspaceRoot, collectionPaths, collectionRefs } = {}) {
   const seen = new Set();
   const snapshots = new Map();
-  const scoped = (data, index) => scopePaths(data, snapshotRoot ?? queries[index].path);
+  const scoped = (data, index) => scopePaths(data, (Array.isArray(snapshotRoot) ? snapshotRoot[index] : snapshotRoot) ?? queries[index].path, workspaceRoot);
   async function read(input, branch) {
     const key = JSON.stringify(input);
     if (seen.has(key)) throw new Error('Repeated graph continuation; evidence is incomplete');

@@ -1,7 +1,7 @@
-// WebGL code graph (3d-force-graph, global ForceGraph3D) that grows in place, in 2D or 3D. Drawn nodes and links
+// WebGL code graph (bundled 3d-force-graph) that grows in place, in 2D or 3D. Drawn nodes and links
 // are live-overview.js pool objects, never the store's, so positions persist across syncs; once metrics arrive the
 // overview folds files into communities. One graph per page: G holds its state, the functions below share it.
-/* global d3, ForceGraph3D */
+import { ForceGraph3D, color as parseColor, interpolateRgb, forceCollide } from './renderer.generated.js';
 import { REST, announceCommunity, anchors, buildView, drawnIds, labelBox, overlaps, tipOf } from './live-overview.js';
 
 const SLOTS = 7;
@@ -20,7 +20,7 @@ const faded = new Map();
 // WebGL has no dashes: link and node emphasis is carried by opacity, encoded in the color (rgba) per mark.
 function fade(color, alpha) {
   const k = `${color}|${alpha}`;
-  if (!faded.has(k)) { const c = d3.color(color); faded.set(k, c ? c.copy({ opacity: alpha }).formatRgb() : color); }
+  if (!faded.has(k)) { const c = parseColor(color); faded.set(k, c ? c.copy({ opacity: alpha }).formatRgb() : color); }
   return faded.get(k);
 }
 
@@ -49,7 +49,7 @@ function colorOf(kind, key) {
 }
 
 const ACTIVE = new Set(['ingesting', 'paging']);
-const STATUS = { stale: '--warning', missing: '--critical', lines: '--critical' };
+const STATUS = { unverified: '--warning', stale: '--warning', missing: '--critical', lines: '--critical' };
 const colorKey = (n) => (G.colorBy === 'chunk' ? n.chunk ?? n.planChunk ?? '-' : G.colorBy === 'language' ? n.language ?? '-' : n.group);
 // Community ids are ranked by size, so the seven largest take slots 1-7; depth is a one-hue sequential ramp.
 const communityColor = (id) => css(id != null && id < SLOTS ? `--s${id + 1}` : '--other');
@@ -57,7 +57,7 @@ function fillOf(n) {
   if (G.colorBy === 'community') return n.metrics ? communityColor(n.metrics.community) : css('--other');
   if (G.colorBy === 'depth') {
     const max = G.S.metrics?.stats.maxDepth || 1;
-    return n.metrics ? d3.interpolateRgb(css('--seq-lo'), css('--seq-hi'))(n.metrics.depth / max) : css('--other');
+    return n.metrics ? interpolateRgb(css('--seq-lo'), css('--seq-hi'))(n.metrics.depth / max) : css('--other');
   }
   return colorOf(G.colorBy, colorKey(n));
 }
@@ -271,7 +271,7 @@ function adopt(nodes) { G.simNodes = nodes; }
 placeForce.initialize = adopt;
 // Folded circles remain individually selectable even where many communities are connected.
 function configureSpacing() {
-  const collide = G.overview && G.dims === 2 ? d3.forceCollide(o => radius(o) + 4) : null;
+  const collide = G.overview && G.dims === 2 ? forceCollide(o => radius(o) + 4) : null;
   G.fg.d3Force('spacing', collide);
 }
 function forces(fg) {

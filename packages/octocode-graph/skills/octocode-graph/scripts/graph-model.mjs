@@ -1,26 +1,26 @@
-// The weighted file graph every metric reads: integer node ids and CSR adjacency (offsets + targets + weights).
-// One weight rule, documented here only:
-//   w(u→v) = [u imports v] + Σ call sites from u's symbols into v's symbols × evidence
-//   evidence = 1 when the language server resolved the call (`both`, `lsp`), else the graph confidence
-//              (high 1, medium 0.5, low 0.25; calls stitched between chunks are medium).
-// An import is a structural dependency (1); calls measure how much of it is used. An edge is `strong` when an import
-// or a call with full evidence (LSP-resolved or high confidence) backs it: reachability questions walk strong edges.
-// Test-only edges (every witness is test code) are kept for display and left out of the production graph.
+// Generated from packages/octocode-graph/src by scripts/build.mjs.
 const CONFIDENCE = { high: 1, medium: 0.5, low: 0.25 };
-const RESOLVED = new Set(['both', 'lsp']);
-const fileOf = (id) => String(id).split('#')[0];
-
-export const callEvidence = (c) => (RESOLVED.has(c.via) ? 1 : CONFIDENCE[c.confidence] ?? CONFIDENCE.medium);
-
-// Weighted file edges: { source, target, weight, imports, calls, test, strong } per file pair.
-export function fileEdges(D) {
-  const by = new Map();
+const RESOLVED = /* @__PURE__ */ new Set(["both", "lsp"]);
+const fileOf = (id) => id.split("#")[0];
+const callEvidence = (c) => RESOLVED.has(c.via ?? "") ? 1 : CONFIDENCE[c.confidence ?? "medium"] ?? CONFIDENCE.medium;
+function fileEdges(D, includeTests = true) {
+  const by = /* @__PURE__ */ new Map();
   const at = (u, v) => {
     const k = `${u}\0${v}`;
-    if (!by.has(k)) by.set(k, { source: u, target: v, weight: 0, imports: 0, calls: 0, test: true, strong: false });
+    if (!by.has(k))
+      by.set(k, {
+        source: u,
+        target: v,
+        weight: 0,
+        imports: 0,
+        calls: 0,
+        test: true,
+        strong: false
+      });
     return by.get(k);
   };
   for (const e of D.imports) {
+    if (!includeTests && e.test) continue;
     const x = at(e.source, e.target);
     x.imports = 1;
     x.strong = true;
@@ -28,6 +28,7 @@ export function fileEdges(D) {
     x.test &&= Boolean(e.test);
   }
   for (const c of D.calls) {
+    if (!includeTests && c.test) continue;
     const [u, v] = [fileOf(c.source), fileOf(c.target)];
     if (u === v) continue;
     const x = at(u, v);
@@ -39,9 +40,7 @@ export function fileEdges(D) {
   }
   return [...by.values()];
 }
-
-// CSR over the production edges of the nodes in `ids`: out and in adjacency with weights.
-export function csr(ids, edges) {
+function csr(ids, edges) {
   const index = new Map(ids.map((id, i) => [id, i]));
   const n = ids.length;
   const list = edges.filter((e) => !e.test && index.has(e.source) && index.has(e.target)).map((e) => [index.get(e.source), index.get(e.target), e.weight]);
@@ -60,15 +59,20 @@ export function csr(ids, edges) {
   };
   return { n, ids, index, m: list.length, out: build(0, 1), in: build(1, 0) };
 }
-
-// Undirected weighted view (w(u,v) + w(v,u)) as an adjacency map per node, for Louvain and k-core.
-export function undirected(G) {
-  const adj = Array.from({ length: G.n }, () => new Map());
-  for (let u = 0; u < G.n; u++) for (let k = G.out.offsets[u]; k < G.out.offsets[u + 1]; k++) {
-    const v = G.out.targets[k], w = G.out.weights[k];
-    if (u === v) continue;
-    adj[u].set(v, (adj[u].get(v) ?? 0) + w);
-    adj[v].set(u, (adj[v].get(u) ?? 0) + w);
-  }
+function undirected(G) {
+  const adj = Array.from({ length: G.n }, () => /* @__PURE__ */ new Map());
+  for (let u = 0; u < G.n; u++)
+    for (let k = G.out.offsets[u]; k < G.out.offsets[u + 1]; k++) {
+      const v = G.out.targets[k], w = G.out.weights[k];
+      if (u === v) continue;
+      adj[u].set(v, (adj[u].get(v) ?? 0) + w);
+      adj[v].set(u, (adj[v].get(u) ?? 0) + w);
+    }
   return adj;
 }
+export {
+  callEvidence,
+  csr,
+  fileEdges,
+  undirected
+};

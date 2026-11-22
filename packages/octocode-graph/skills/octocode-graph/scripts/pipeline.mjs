@@ -1,15 +1,16 @@
 // The whole run as one event stream: list files (structureSearch pages), plan chunks, ingest them in parallel
 // (graph pages stream as rows), stitch, cross-check calls with LSP, check files, compute graph metrics, write data.json.
 // The live server and the headless build consume the same events; data.json is their fold.
+import { checkRunHeaders } from './lib/run-output.mjs';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { join, relative, resolve } from 'node:path';
-import { withToolHook, prepareGraphRun } from './lib.mjs';
+import { withToolHook, prepareGraphRun, nativeWorkspaceRoot } from './lib.mjs';
 import { planChunks, refine, name } from './plan.mjs';
 import { buildSection } from './section.mjs';
-import { chunkOf, packageKey, stitch } from './stitch.mjs';
+import { chunkDeclarations, chunkOf, packageKey, stitch } from './stitch.mjs';
 import { computeMetrics } from './metrics.mjs';
 import { describeCall, pagedTool, responseShape, rowsOf } from './tools.mjs';
 import { writeBriefs } from './render.mjs';
@@ -38,12 +39,18 @@ export function reportTools(emit, task) {
 }
 
 // File skeleton from structureSearch, page by page; paths come back workspace-relative.
-export async function listFiles(root, emit) {
+export async function listFiles(root, emit, file) {
+  if (file) {
+    const files = statSync(join(root, file), { throwIfNoEntry: false })?.isFile() ? [file] : [];
+    emit({ type: 'skeleton', files, page: 1, total: files.length });
+    return files;
+  }
   const files = [];
   try {
+    const base = await nativeWorkspaceRoot();
     await pagedTool('structureSearch', { queries: [{ operation: 'files', path: root, entryType: 'file', view: 'paths' }] }, {
       onPage: (page, n) => {
-        const rows = rowsOf([page], 'files').flatMap((g) => (g.files ?? []).map((f) => relative(root, resolve(g.dir, f))));
+        const rows = rowsOf([page], 'files').flatMap((g) => (g.files ?? []).map((f) => relative(root, resolve(base, g.dir, f))));
         files.push(...rows);
         emit({ type: 'skeleton', files: rows, page: n, total: page.results?.[0]?.data?.pagination?.total });
       },
@@ -90,7 +97,7 @@ export async function buildChunk(c, ctx) {
   try {
     const others = ctx.chunks.filter((x) => x !== c);
     const crossPackages = others.length ? new Set(others.filter((x) => x.package).map((x) => packageKey(x.package))) : null;
-    const d = await buildSection(join(root, c.path), { out: join(out, 'chunks', c.id), ...ctx.contract, jobs: opts.jobs, exclude: [...opts.exclude, ...(c.exclude ?? [])], emit: onRows, crossPackages });
+    const d = await buildSection(join(root, opts.file ?? c.path), { out: join(out, 'chunks', c.id), ...ctx.contract, jobs: opts.jobs, exclude: [...opts.exclude, ...(c.exclude ?? [])], emit: onRows, crossPackages });
     ctx.datas.set(c.id, d);
     emit({ type: 'chunk', id: c.id, state: 'done', ms: Date.now() - t0, counts: d.coverage });
     return [];
@@ -162,6 +169,7 @@ export function stitchPhase(ctx) {
   const { root, chunks, datas, files, emit } = ctx;
   const s = stitch({ root, chunks, datas, files });
   const D = s.whole;
+  if (ctx.opts?.file) D.section = join(root, ctx.opts.file);
   // One chunk: keep its section-wide health, which stitching cannot merge across chunks.
   if (datas.size === 1) D.insights.health = [...datas.values()][0].insights.health;
   D.uncoveredFiles = files.filter((p) => !chunkOf(p, chunks));
@@ -206,7 +214,7 @@ export async function finishRun(D, ctx, phase, lsp) {
     } else {
       phase('lsp', 'start', lsp.start ? { note: lsp.start } : {});
       const unanswered = [];
-      D.callStats = await lspPhase(D, { root, signal, jobs: opts.jobs, batchSize: ctx.contract.lspBatch, emit(event) {
+      D.callStats = await lspPhase(D, { root, signal, declarations: chunkDeclarations(ctx.chunks, ctx.datas), jobs: opts.jobs, batchSize: ctx.contract.lspBatch, emit(event) {
         if (event.type === 'lsp') {
           unanswered.push(...event.unansweredAdded);
           D.callStats = { ...event.stats, unanswered };
@@ -227,8 +235,8 @@ export async function finishRun(D, ctx, phase, lsp) {
 async function finishVerified(D, ctx, phase) {
   const { root, out, opts, emit } = ctx;
   phase('verify', 'start', { total: D.files.length });
-  const checked = await verifyPhase(D, { root, chunks: ctx.chunks, datas: ctx.datas, emit, jobs: opts.jobs });
-  phase('verify', 'done', { note: `${checked.ok}/${checked.checked} match their files${checked.stale ? `, ${checked.stale} stale` : ''}${checked.missing ? `, ${checked.missing} missing` : ''}${checked.lines ? `, ${checked.lines} with lines outside the file` : ''}` });
+  const checked = await verifyPhase(D, { root, chunks: ctx.chunks, datas: ctx.datas, emit, jobs: opts.jobs, graphBatch: ctx.contract.graphBatch });
+  phase('verify', 'done', { note: `${checked.ok}/${checked.checked} match their files${checked.unverified ? `, ${checked.unverified} freshness unverified` : ''}${checked.stale ? `, ${checked.stale} stale` : ''}${checked.missing ? `, ${checked.missing} missing` : ''}${checked.lines ? `, ${checked.lines} with lines outside the file` : ''}` });
   phase('metrics', 'start');
   locate(D, root);
   computeMetrics(D);
@@ -259,15 +267,16 @@ async function buildPipeline({ root, out, opts, emit, signal, publish }) {
   const t0 = Date.now();
   const phase = (id, state, extra = {}) => emit({ type: 'phase', id, state, ms: Date.now() - t0, ...extra });
   mkdirSync(out, { recursive: true });
-  emit({ type: 'run', root, name: root.split('/').pop(), out, options: opts, startedAt: new Date().toISOString() });
+  emit({ type: 'run', root, name: opts.file ?? root.split('/').pop(), out, options: opts, startedAt: new Date().toISOString() });
   const contract = await prepareGraphRun();
   phase('list', 'start');
   // --exclude prunes directory names everywhere, as ingest does, so excluded trees are never planned.
   const excluded = new Set(opts.exclude);
-  const files = (await listFiles(root, emit)).filter((p) => !p.split('/').slice(0, -1).some((d) => excluded.has(d)));
+  const files = (await listFiles(root, emit, opts.file)).filter((p) => !p.split('/').slice(0, -1).some((d) => excluded.has(d)));
   phase('list', 'done', { files: files.length });
   phase('plan', 'start');
   const chunks = planChunks(files, { whole: opts.whole, extensions: contract.extensions });
+  if (opts.file && !chunks.length) throw new Error(`No graph source file found for ${join(root, opts.file)}. Check that the file exists and its extension has a graph grammar.`);
   for (const c of chunks) c.package = manifestName(root, c.path);
   emit({ type: 'plan', chunks: chunks.map(({ id, path, files: n, loose, package: pkg }) => ({ id, path, files: n, loose, package: pkg })), whole: opts.whole });
   phase('plan', 'done', { chunks: chunks.length });
@@ -309,8 +318,9 @@ export async function astOutline(root, file) {
 
 // On-demand LSP question about one symbol: callers, callees, references or definition, every page.
 export async function lspQuery(root, { file, symbolName, line, operation }) {
+  const base = await nativeWorkspaceRoot();
   const pages = await pagedTool('lspSearch', { queries: [{ operation, path: join(root, file), symbolName, line }] });
-  const rows = rowsOf(pages, 'files').flatMap((g) => (g.matches ?? []).map((m) => ({ path: relative(root, resolve(m.path ?? g.path)), symbolName: m.symbolName, kind: m.kind, line: m.line, endLine: m.endLine, sites: m.sites })));
+  const rows = rowsOf(pages, 'files').flatMap((g) => (g.matches ?? []).map((m) => ({ path: relative(root, resolve(base, m.path ?? g.path)), symbolName: m.symbolName, kind: m.kind, line: m.line, endLine: m.endLine, sites: m.sites })));
   const error = pages.flatMap((p) => p.results ?? []).find((r) => r?.data?.errorCode)?.data;
   return { rows, error: error ? `${error.errorCode}: ${error.error ?? ''}` : undefined };
 }
@@ -320,10 +330,6 @@ export function readEvents(dir) {
   const file = join(dir, 'events.jsonl');
   if (!existsSync(file)) throw new Error(`no events.jsonl in ${dir} (${readdirSync(dir).join(', ')})`);
   const events = readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
-  const root = events.find(e => e.type === 'run')?.root;
-  // A refresh can emit another header at the next sequence number for the same project.
-  if (events.some((e, i) => e.type === 'run' && (e.root !== root || (i > 0 && e.seq <= events[i - 1].seq)))) {
-    throw new Error(`The event log in ${dir} contains multiple runs. Rebuild into a new output directory.`);
-  }
+  events.forEach(checkRunHeaders(dir));
   return events;
 }

@@ -45,6 +45,10 @@ runtime owns execution. Octocode Code registers native tools with these names,
 reads the CLI schemas and invokes the installed binary with JSON on stdin. Its
 `request` wrapper and `reason` field belong to the host, not the Rust CLI input.
 
+Pass a source file as `path` to build a snapshot of that file alone. A file and
+its enclosing directory have separate snapshot histories. Use the directory for
+cross-file callers and imports. Evidence paths still identify the original source.
+
 `graphBuild` accepts one query per call; `graphQuery` accepts up to five. On the
 CLI, `graphQuery` runs on the warm `octocode serve` server like every read-only tool.
 Each query opens its selected snapshot and reads the tables and evidence it needs;
@@ -211,7 +215,9 @@ file id are; from `graph.root` when the snapshot lies outside the workspace) and
 answer's `related` holds that call.
 
 `find` ranks every node whose name or key matches, in three tiers. `exact`: the
-whole text equals a key or name, key first. `words`: the text and every name and
+whole text equals a key, name or qualified member, key first. Both
+`Owner.method` and `Owner::method` match the graph's qualified symbol. Omit the
+`@number` suffix to find all overloads of that member. `words`: the text and every name and
 key split into identifier words (case changes and any separator: space, `_`,
 `-`, `/`, `.`, `#`, `::`; letters and digits stay together), and each query word
 must start a word of the name or key (each whole alphanumeric run also counts,

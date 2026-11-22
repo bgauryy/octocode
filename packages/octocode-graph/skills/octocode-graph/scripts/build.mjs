@@ -6,15 +6,15 @@ import { runOptions } from './lib/run-options.mjs';
 import { beginRun } from './lib/run-output.mjs';
 import { runPipeline } from './pipeline.mjs';
 
-const USAGE = `usage: build.mjs <root> [--out <dir>] [--whole] [--lsp on|off] [--jobs N] [--ingest-jobs N] [--exclude a,b] [--progress]
-  Lists files, chunks <root> at package.json/Cargo.toml boundaries (--whole: one snapshot; a chunk the graph
+const USAGE = `usage: build.mjs <file-or-directory> [--out <dir>] [--whole] [--lsp on|off] [--jobs N] [--ingest-jobs N] [--exclude a,b] [--progress]
+  Lists the selected file or directory, chunks directories at package.json/Cargo.toml boundaries (--whole: one snapshot; a chunk the graph
   refuses as scopeTooBroad splits further), ingests chunks in parallel, stitches them, cross-checks calls with
   LSP, and writes <out>/data.json, events.jsonl, brief.txt and brief-full.txt. --progress prints phase lines.`;
 
 const argv = process.argv.slice(2);
 if (argv.includes('--help')) { console.log(USAGE); process.exit(0); }
 let options;
-try { options = runOptions(argv); } catch (error) { console.error(error.message, '\n' + USAGE); process.exit(2); }
+try { options = runOptions(argv); } catch (error) { console.error(error.message, `\n${USAGE}`); process.exit(2); }
 const { root, out, opts, progress } = options;
 try { beginRun(out); } catch (error) { console.error(error.message); process.exit(1); }
 

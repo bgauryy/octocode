@@ -88,3 +88,11 @@ test('communities that share a folder are named by their most important file', (
   assert.equal(new Set(labels).size, labels.length);
   assert.ok(labels.every((l) => l.startsWith('s · ')));
 });
+
+test('community labels use real directory prefixes and distinguish repeated lead filenames', () => {
+  const paths = ['crates/a/src/lib.rs', 'crates/b/src/mod.rs', 'crates/c/src/lib.rs', 'crates/d/src/mod.rs'];
+  const D = { files: paths.map(id => ({ id })), imports: [0,1,2,3].map(i => ({ source: paths[i], target: paths[i ^ 1] })), calls: [] };
+  const labels = computeMetrics(D).communities.map(c => c.label);
+  assert.ok(labels.every(label => label.startsWith('crates · ')));
+  assert.equal(new Set(labels).size, 2);
+});

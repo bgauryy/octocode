@@ -1,4 +1,5 @@
-import { resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
+import { realpathSync, statSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { defaults } from '../pipeline.mjs';
 import { freshOut } from './run-output.mjs';
@@ -6,6 +7,16 @@ import { freshOut } from './run-output.mjs';
 const string = { type: 'string' };
 const boolean = { type: 'boolean' };
 const common = { out: string, jobs: string, 'ingest-jobs': string, lsp: string, exclude: string, whole: boolean };
+
+// Evidence keys stay relative to a directory, including when only one file was requested.
+export function graphInput(path) {
+  const input = resolve(path);
+  const stat = statSync(input);
+  if (stat.isDirectory()) return { root: input };
+  if (!stat.isFile()) throw new Error('Expected a file or directory');
+  const file = realpathSync(input);
+  return { root: dirname(file), file: basename(file) };
+}
 
 export function runOptions(argv, viewer = false) {
   const options = viewer
@@ -34,8 +45,10 @@ export function runOptions(argv, viewer = false) {
   opts.whole = Boolean(values.whole);
   opts.lsp = values.lsp ?? opts.lsp;
   opts.exclude = (values.exclude ?? '').split(',').filter(Boolean);
-  const root = values.replay ? null : resolve(positionals[0]);
+  const input = values.replay ? null : resolve(positionals[0]);
+  const { root, file } = input ? graphInput(input) : { root: null };
+  if (file) opts.file = file;
   const out = values.replay || values.out;
-  return { root, out: out ? resolve(out) : freshOut(root), opts, replay: Boolean(values.replay), port,
+  return { root, out: out ? resolve(out) : freshOut(input), opts, replay: Boolean(values.replay), port,
     progress: Boolean(values.progress), open: !values['no-open'], exitWhenDone: Boolean(values['exit-when-done']) };
 }

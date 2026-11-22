@@ -249,3 +249,12 @@ test('a partial file inventory uses complete untargeted symbol and witness walks
   assert.equal(calls.length, 6);
   assert.ok(calls.every(row => !row.target));
 });
+
+test('absolute query roots and relative graph roots use the effective native workspace, including from another cwd', () => {
+  const base='/workspace', path=join(base,'projects','pkg');
+  for (const graph of [{id:'id'}, {id:'id',root:'projects/pkg'}, {id:'id',root:path}]) {
+    const answer = scopePaths({graph,rows:[{id:'projects/pkg/main.ts',path:'projects/pkg/main.ts'}]},path,base);
+    assert.equal(answer.rows[0].id,'main.ts');
+    assert.equal(answer.rows[0].path,'main.ts');
+  }
+});

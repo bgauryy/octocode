@@ -363,6 +363,7 @@ fn keep_file(
 pub(super) fn extract<'a>(
     scan: &GraphScan,
     root: &Path,
+    selected: Option<&Path>,
     paths: &'a PathPolicy,
     security: &'a ContentSecurity,
     turn: &super::turn::ExtractionTurn<'_>,
@@ -372,10 +373,12 @@ pub(super) fn extract<'a>(
     // turn, which may end extraction before the request does.
     let request = turn.request();
     let cancel: &dyn CancellationCheck = turn;
+    let in_scope = |path: &Path| selected.is_none_or(|file| path == root || path == file);
     let options = scan_options(scan, root, paths);
     let admission_of_walk = || super::super::walk_scope::build_admission(paths, root);
     let discovery = admission_of_walk();
-    let admit = |path: &Path, file_type| discovery.admit(path, file_type, |_| true);
+    let admit =
+        |path: &Path, file_type| in_scope(path) && discovery.admit(path, file_type, |_| true);
     let capture_error = std::sync::Mutex::new(None);
     // The build's memory, shared by the files in flight: each file first
     // fits what keeping its facts costs beside what is kept, then draws its
@@ -407,7 +410,9 @@ pub(super) fn extract<'a>(
     let markup_discovery = admission_of_walk();
     let markup = octocode_engine::fact_scan::walk_script_markup_files(
         &options,
-        &|path: &Path, file_type| markup_discovery.admit(path, file_type, |_| true),
+        &|path: &Path, file_type| {
+            in_scope(path) && markup_discovery.admit(path, file_type, |_| true)
+        },
         &walk_stop,
     )
     .map_err(walk_error)?
@@ -420,7 +425,14 @@ pub(super) fn extract<'a>(
         .map(octocode_engine::text::slash_path)
         .collect::<Vec<_>>();
     turn.record_walk(walk.entries.len());
-    let job = checkpoint::Job::open(scan, root, &walk.entries, paths, registry, request)?;
+    let job = checkpoint::Job::open(
+        scan,
+        selected.unwrap_or(root),
+        &walk.entries,
+        paths,
+        registry,
+        request,
+    )?;
     let parsing = crate::ast_graph::progress::Parsing::new(walk.entries.len());
     let admission = super::scope::Admission::new(scan, root, &walk.entries);
     let source_map = scan.limits.source_map();

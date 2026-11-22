@@ -27,6 +27,7 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./tool-types.schema.json": "./contract/tool-types.schema.json",
     "./schema": {
       "types": "./dist/contracts/schema.d.ts",
       "import": "./dist/contracts/schema.js"

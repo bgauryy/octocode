@@ -108,10 +108,15 @@ impl<'a> Job<'a> {
             .map(|entry| entry.relative_path.as_str())
             .collect::<Vec<_>>();
         names.sort_unstable();
+        let source_dir = if root.is_file() {
+            root.parent().unwrap_or(root)
+        } else {
+            root
+        };
         let configs = super::super::super::freshness::config_inputs(
             paths,
-            root,
-            &super::super::super::freshness::scope_dirs(root, names.iter().copied()),
+            source_dir,
+            &super::super::super::freshness::scope_dirs(source_dir, names.iter().copied()),
         );
         let inventory_digest = octocode_engine::digest::sha256(
             &serde_json::to_vec(&names).map_err(|error| failure(error.to_string()))?,

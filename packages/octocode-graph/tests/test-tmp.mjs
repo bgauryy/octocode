@@ -15,7 +15,11 @@ export function tempDir(prefix) {
 }
 
 // Source for the fake CLI scripts. They advertise themselves so tests exercise binary pinning as well.
-export const fakeCatalog = `const graphPackage = process.argv[2] === '__graph';
+export const fakeCatalog = `if (process.argv[2] === 'config') {
+  console.log(JSON.stringify({ key: 'WORKSPACE_ROOT', value: process.env.WORKSPACE_ROOT ?? null }));
+  process.exit(0);
+}
+const graphPackage = process.argv[2] === '__graph';
 if (graphPackage) process.argv.splice(2, 1);
 if (process.argv.includes('full')) {
   console.log(JSON.stringify({

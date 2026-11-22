@@ -32,7 +32,8 @@ function cycleSets(G, S, { rank, D }) {
 // A community's name: the deepest folder all its members share, else the folder of its most important member.
 function labelOf(ids) {
   const dirs = ids.map((id) => id.split('/').slice(0, -1));
-  const shared = dirs[0].filter((seg, i) => dirs.every((d) => d[i] === seg));
+  const mismatch = dirs[0].findIndex((seg, i) => dirs.some(d => d[i] !== seg));
+  const shared = mismatch < 0 ? dirs[0] : dirs[0].slice(0, mismatch);
   return shared.length ? shared.join('/') : dirs[0].join('/') || '(root)';
 }
 
@@ -70,9 +71,16 @@ function packageSets(G, D) {
 
 // Communities sharing a folder label are told apart by their most important file (members are PageRank-ordered).
 function distinctLabels(communities) {
-  const count = new Map();
-  for (const c of communities) count.set(c.label, (count.get(c.label) ?? 0) + 1);
-  for (const c of communities) if (count.get(c.label) > 1 && c.size > 1) c.label = `${c.label} · ${c.members[0].split('/').pop()}`;
+  for (const group of Map.groupBy(communities, c => c.label).values()) {
+    if (group.length < 2) continue;
+    const byName = Map.groupBy(group.filter(c => c.size > 1), c => c.members[0].split('/').pop());
+    for (const [name, matches] of byName) for (const c of matches) {
+      const lead = c.members[0];
+      const prefix = `${c.label}/`;
+      const relative = lead.startsWith(prefix) ? lead.slice(prefix.length) : lead;
+      c.label += ` · ${matches.length === 1 ? name : relative}`;
+    }
+  }
   return communities;
 }
 
@@ -85,7 +93,7 @@ function timed(timings, name, fn) {
 
 export function computeMetrics(D) {
   const timings = {};
-  const edges = timed(timings, 'edges', () => fileEdges(D));
+  const edges = timed(timings, 'edges', () => fileEdges(D, false));
   const G = timed(timings, 'csr', () => csr(D.files.map((f) => f.id), edges));
   const S = timed(timings, 'scc', () => scc(G));
   const depth = timed(timings, 'depth', () => depths(G, S));
@@ -100,14 +108,14 @@ export function computeMetrics(D) {
   D.files.forEach((f, i) => {
     f.metrics = { pagerank: round(rank[i], 8), betweenness: round(between[i]), inWeight: round(inW[i], 3), outWeight: round(outW[i], 3), depth: depth[i], core: core[i], community: membership[i], cycle: cycleOf.get(f.id) ?? null };
   });
-  D.fileEdges = edges.map((e) => ({ ...e, weight: round(e.weight, 3) }));
+  D.fileEdges = fileEdges(D).map((e) => ({ ...e, weight: round(e.weight, 3) }));
   const communities = distinctLabels(communitySets(G, D, { membership, rank, adj }));
   // Community ids in data are the ranked list positions.
   const renumber = new Map(communities.map((c) => [membership[G.index.get(c.members[0])], c.id]));
   for (const f of D.files) f.metrics.community = renumber.get(f.metrics.community);
   D.metrics = {
-    weightRule: 'w(u→v) = [u imports v] + Σ call sites × evidence (LSP-resolved 1; else confidence high 1, medium 0.5, low 0.25); test-only edges excluded',
-    stats: { nodes: G.n, edges: G.m, weight: round(edges.filter((e) => !e.test).reduce((a, e) => a + e.weight, 0), 3), modularity: round(modularity, 4), cycles: cycles.length, largestCycle: cycles[0]?.size ?? 0, maxDepth: Math.max(0, ...depth), maxCore: Math.max(0, ...core), communities: communities.filter((c) => c.size > 1).length, isolated: communities.filter((c) => c.size === 1).length, pagerankIterations: iterations },
+    weightRule: 'w(u→v) = [u imports v] + Σ call sites × evidence (LSP-resolved 1; else confidence high 1, medium 0.5, low 0.25); test witnesses excluded from production metrics',
+    stats: { nodes: G.n, edges: G.m, weight: round(edges.filter((e) => !e.test).reduce((a, e) => a + e.weight, 0), 3), modularity: round(modularity, 4), cycles: cycles.length, largestCycle: cycles[0]?.size ?? 0, maxDepth: depth.reduce((a, b) => Math.max(a, b), 0), maxCore: core.reduce((a, b) => Math.max(a, b), 0), communities: communities.filter((c) => c.size > 1).length, isolated: communities.filter((c) => c.size === 1).length, pagerankIterations: iterations },
     cycles, communities, packages: packageSets(G, D), timings,
   };
   return D.metrics;

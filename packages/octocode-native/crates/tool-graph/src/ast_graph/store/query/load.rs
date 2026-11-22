@@ -163,6 +163,7 @@ pub(super) fn load_with(
     let manifest = std::fs::read(dir.join(MANIFEST_FILE))
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .and_then(super::super::snapshots::evidence_manifest)
         .ok_or_else(|| {
             integrity_failure(
                 format!("{} has no readable manifest", dir.display()),
@@ -199,6 +200,15 @@ pub(super) fn load_with(
     let allowed = paths
         .validate_location(root)
         .map_err(|error| fail(error.shared_code(), error.message))?;
+    if let Some(file) = manifest.get("fileScope") {
+        let file = file.as_str().map(Path::new);
+        if file.and_then(Path::parent) != Some(Path::new(root)) {
+            return Err(integrity_failure(
+                "invalid single-file graph scope",
+                &manifest,
+            ));
+        }
+    }
     if allowed.canonical != Path::new(root) {
         return Err(integrity_failure(
             format!(

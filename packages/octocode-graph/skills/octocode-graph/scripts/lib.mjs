@@ -4,7 +4,7 @@ import { execFile, execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { freezeExecutable } from './lib/pin-cli.mjs';
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 
 // Directories a graph build never reads; the frozen copy skips the same ones.
 export const SKIPPED_DIRS = ['target', 'node_modules', '.git', 'dist', 'build', '.octocode'];
@@ -118,6 +118,17 @@ async function loadGraphContract() {
   };
   cli = pinned;
   return limits;
+}
+
+// The engine can root its answers in a configured ancestor of the CLI caller's cwd.
+// Read the effective setting from Octocode so .env, .octocoderc and defaults agree.
+let workspace;
+export function nativeWorkspaceRoot() {
+  workspace ??= octocode(['config', 'get', 'WORKSPACE_ROOT', '--json']).then(setting => {
+    if (setting.key !== 'WORKSPACE_ROOT') throw new Error('Octocode did not report its effective workspace root');
+    return resolve(setting.value ?? process.cwd());
+  }).catch(error => { workspace = undefined; throw error; });
+  return workspace;
 }
 
 // Ordinary local tools use the research interface of the same pinned engine.

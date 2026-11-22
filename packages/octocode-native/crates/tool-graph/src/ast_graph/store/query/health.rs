@@ -57,7 +57,11 @@ pub(super) fn unlinked_path_imports(g: &Graph, file: u32) -> Vec<Value> {
 /// directories, parser globs and walk scope (`scan.walk`).
 pub(super) fn reingest_call(manifest: &Value) -> Option<Value> {
     let scan = &manifest["scan"];
-    let root = manifest["root"].as_str().unwrap_or_default();
+    let root = manifest
+        .get("fileScope")
+        .unwrap_or(&manifest["root"])
+        .as_str()
+        .unwrap_or_default();
     let path = manifest["workspace"]
         .as_str()
         .and_then(|workspace| Path::new(root).strip_prefix(workspace).ok())

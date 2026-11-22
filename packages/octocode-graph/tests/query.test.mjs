@@ -195,3 +195,86 @@ test('a strong-edge answer states what --weak would add, so it never contradicts
   assert.doesNotMatch(runQuery(data, 'impact b.ts --imports').summary, /--weak adds/);
   assert.doesNotMatch(runQuery(data, 'impact c.ts').summary, /--weak adds/);
 });
+
+test('minimum hops and structural strength select different witnessed routes on the same projection', () => {
+  const data = fixture();
+  data.imports.push(imp('a/x.mjs', 'b/p.mjs', 47));
+  computeMetrics(data);
+  const query = 'path x.mjs p.mjs';
+  assert.deepEqual(runQuery(data, query).nodes, ['a/x.mjs', 'a/y.mjs', 'b/p.mjs']);
+  const hops = runQuery(data, `${query} --hops`);
+  assert.deepEqual(hops.nodes, ['a/x.mjs', 'b/p.mjs']);
+  assert.deepEqual(hops.rows[0].evidence.imports, [47]);
+  assert.equal(hops.stats.cost, 1);
+  assert.equal(hops.stats.objective, 'hops');
+  assert.equal(runQuery(data, 'path p.mjs x.mjs --hops').stats.direction, 'reverse');
+  assert.equal(runQuery(data, 'path p.mjs p.mjs --hops').stats.hops, 0);
+  assert.equal(runQuery(data, 'path x.test.mjs p.mjs --hops').found, false);
+  assert.equal(runQuery(data, 'path x.test.mjs p.mjs --tests --hops').stats.hops, 2);
+});
+
+test('order groups a cycle and lists its prerequisites first with the crossing witnesses', () => {
+  const r = runQuery(D, 'order a/x.mjs --imports');
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.nodes.toSorted(), ['a/x.mjs', 'a/y.mjs', 'a/z.mjs', 'b/p.mjs', 'b/q.mjs', 'b/util.mjs']);
+  const component = new Map(r.rows.map(row => [row.id, row.component]));
+  assert.equal(component.get('b/p.mjs'), component.get('b/q.mjs'));
+  for (const crossing of r.crossings) {
+    assert.ok(component.get(crossing.source) > component.get(crossing.target));
+    assert.ok(crossing.evidence.imports.length);
+  }
+  assert.equal(r.crossings.length, 5);
+});
+
+test('a test-only import cannot turn a production weak call into a strong production import', () => {
+  const data = { files: D.files, symbols: [], imports: [imp('a/x.mjs', 'b/p.mjs', 2, { test: true })],
+    calls: [call('a/x.mjs#main', 'b/p.mjs#start', { confidence: 'medium' })] };
+  computeMetrics(data);
+  assert.equal(runQuery(data, 'path x.mjs p.mjs --imports').found, false);
+  assert.equal(runQuery(data, 'path x.mjs p.mjs').found, false);
+  assert.equal(runQuery(data, 'path x.mjs p.mjs --weak').stats.weight, 0.5);
+  assert.equal(runQuery(data, 'path x.mjs p.mjs --imports --tests').stats.weight, 1.5);
+});
+
+test('trace follows typed transitions with zero-length matches and keeps alternate witnesses', () => {
+  const q = runQuery(D, 'trace a/x.mjs "DEFINES CALLS+"');
+  assert.equal(q.ok, true);
+  assert.deepEqual(q.rows.map(r => r.endpoint).sort(), ['a/y.mjs#run', 'b/p.mjs#start']);
+  assert.deepEqual(q.steps.filter(s => s.relation === 'CALLS').map(s => s.lines), [[11, 12], [21, 22]]);
+  const cycle = runQuery(D, 'trace b/p.mjs "(IMPORTS|DEFINES)*"');
+  assert.deepEqual(cycle.rows.map(r => r.endpoint).sort(), ['b/p.mjs', 'b/p.mjs#start', 'b/q.mjs', 'b/util.mjs']);
+  assert.equal(runQuery(D, 'trace a/x.mjs "IMPORTS!CALLS"').ok, false);
+  assert.equal(runQuery(D, 'trace a/x.mjs READS').ok, false);
+});
+
+test('bounded typed walks retain only witnesses on an accepting path within the hop budget', () => {
+  const files = ['a','b','c','d'].map(id=>({id}));
+  const imports = [['a','b'],['a','c'],['c','b'],['b','d'],['b','a']].map(([source,target])=>({source,target}));
+  const data = { files, imports, symbols:[{id:'d#f',file:'d',line:1}] };
+  const result = runQuery(data,'trace a IMPORTS+ DEFINES --depth 3');
+  assert.equal(result.ok,true,result.error);
+  assert.deepEqual(result.rows.map(r=>r.endpoint),['d#f']);
+  assert.deepEqual(result.steps.map(e=>`${e.source}>${e.target}`).sort(),['a>b','b>d','d>d#f']);
+  const zero = runQuery(data,'trace a IMPORTS* --depth 0');
+  assert.deepEqual(zero.rows.map(r=>r.endpoint),['a']);
+  assert.deepEqual(zero.steps,[]);
+  assert.equal(runQuery(data,'trace a IMPORTS --depth 1.5').ok,false);
+});
+
+test('symbol lookups and typed walks do not materialize a weighted file projection', () => {
+  const d = { files: [{id:'a.ts'},{id:'b.ts'}], calls: [{source:'a.ts#a',target:'b.ts#b',confidence:'high'}],
+    get fileEdges() { throw new Error('unrelated weighted projection'); } };
+  assert.equal(runQuery(d,'callers b.ts#b').rows.length,1);
+  assert.equal(runQuery(d,'trace a.ts#a CALLS').rows.length,1);
+});
+
+test('cycle weight and identity describe the selected component', () => {
+  const data = { files: ['a','b','c'].map(id => file(id,'root')), symbols: [],
+    imports: [imp('a','b',1), imp('b','a',2)],
+    calls: [call('b#f','c#g'), call('c#g','b#f')] };
+  computeMetrics(data);
+  const result = runQuery(data, 'cycle a --imports');
+  assert.equal(result.stats.size, 2);
+  assert.equal(result.stats.weight, 2);
+  assert.equal(result.stats.cycle, null);
+});

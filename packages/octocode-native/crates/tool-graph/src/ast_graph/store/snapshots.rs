@@ -176,7 +176,20 @@ fn read_snapshot<T: serde::de::DeserializeOwned>(dir: &Path) -> Option<T> {
 /// The complete manifest, for reuse and freshness consumers that need its
 /// evidence. Discovery reads only [`SnapshotMetadata`].
 pub(super) fn read_manifest(dir: &Path) -> Option<Value> {
-    read_snapshot::<Value>(dir).filter(|manifest| manifest["kind"] == MANIFEST_KIND)
+    let manifest = read_snapshot::<Value>(dir)?;
+    (manifest["kind"] == MANIFEST_KIND).then_some(())?;
+    evidence_manifest(manifest)
+}
+
+/// Stored roots identify snapshots. Analysis resolves file keys and locations from a directory.
+pub(super) fn evidence_manifest(mut manifest: Value) -> Option<Value> {
+    if manifest["singleFile"] == true {
+        let file = manifest["root"].take();
+        let parent = Path::new(file.as_str()?).parent()?;
+        manifest["root"] = json!(parent);
+        manifest["fileScope"] = file;
+    }
+    Some(manifest)
 }
 
 /// Discovery and retention need only these fields. Serde skips every other
@@ -186,6 +199,7 @@ pub(super) fn read_manifest(dir: &Path) -> Option<Value> {
 pub(super) struct SnapshotMetadata {
     kind: String,
     pub(super) root: Option<String>,
+    file_scope: Option<String>,
     pub(super) scope: Option<String>,
     pub(super) format_version: Option<u64>,
 }
@@ -208,7 +222,12 @@ pub(super) fn last_published(home: &Path, root: &Path) -> Option<std::time::Syst
 }
 
 pub(super) fn read_snapshot_metadata(dir: &Path) -> Option<SnapshotMetadata> {
-    read_snapshot::<SnapshotMetadata>(dir).filter(|manifest| manifest.kind == MANIFEST_KIND)
+    let mut metadata =
+        read_snapshot::<SnapshotMetadata>(dir).filter(|manifest| manifest.kind == MANIFEST_KIND)?;
+    if let Some(file) = metadata.file_scope.take() {
+        metadata.root = Some(file);
+    }
+    Some(metadata)
 }
 
 pub(super) fn is_snapshot(dir: &Path) -> bool {

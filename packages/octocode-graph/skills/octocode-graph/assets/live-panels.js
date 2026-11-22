@@ -37,9 +37,9 @@ function counters() {
   const S = P.S;
   const inGraph = [...S.nodes.values()].filter((n) => n.inGraph).length;
   const imports = [...S.edges.values()].filter((e) => e.kind === 'imports').length;
-  const fns = [...S.symbols.values()].reduce((a, l) => a + l.length, 0);
+  const declarations = [...S.symbols.values()].reduce((a, l) => a + l.length, 0);
   const v = S.verification;
-  return [[`${num(inGraph)}/${num(S.nodes.size)}`, 'files'], ...(v ? [[`${num(v.ok)}/${num(v.checked)}`, 'match disk']] : []), [num(imports), 'imports'], [num(S.calls.size), 'calls'], [num(fns), 'functions'], [num(S.tools.length), 'tool calls'], [secs(Math.round(serverNow())), S.done ? 'total' : 'elapsed']]
+  return [[`${num(inGraph)}/${num(S.nodes.size)}`, 'files'], ...(v ? [[`${num(v.ok)}/${num(v.checked)}`, 'match disk']] : []), [num(imports), 'imports'], [num(S.calls.size), 'calls'], [num(declarations), 'declarations'], [num(S.tools.length), 'tool calls'], [secs(Math.round(serverNow())), S.done ? 'total' : 'elapsed']]
     .map(([value, k]) => `<span class="counter"><b>${value}</b><span>${k}</span></span>`).join('');
 }
 
@@ -127,7 +127,7 @@ function verifyBlock(S) {
   if (!v) return '';
   const bad = [...S.nodes.values()].filter((n) => n.check && n.check.status !== 'ok');
   const t = Math.max(1, v.checked), w = (x) => (100 * x) / t;
-  const head = `<h2>Files on disk <span>${num(v.ok)}/${num(v.checked)} match</span></h2><div class="hbar" style="height:10px"><i style="width:${w(v.ok)}%;background:var(--ok)"></i><i style="width:${w(v.stale)}%;background:var(--warning)"></i><i style="width:${w(v.missing + v.lines)}%;background:var(--critical)"></i></div><div class="note">${v.stale} changed since snapshot · ${v.missing} missing · ${v.lines} with lines outside the file${v.staleCheck === 'ok' ? '' : ` · stale check ${esc(v.staleCheck)}`}</div>`;
+  const head = `<h2>Files on disk <span>${num(v.ok)}/${num(v.checked)} match</span></h2><div class="hbar" style="height:10px"><i style="width:${w(v.ok)}%;background:var(--ok)"></i><i style="width:${w(v.stale + (v.unverified ?? 0))}%;background:var(--warning)"></i><i style="width:${w(v.missing + v.lines)}%;background:var(--critical)"></i></div><div class="note">${v.stale} changed since snapshot${v.unverified ? ` · ${v.unverified} freshness unverified` : ''} · ${v.missing} missing · ${v.lines} with lines outside the file${v.staleCheck === 'ok' ? '' : ` · stale check ${esc(v.staleCheck)}`}</div>`;
   const row = (n) => `<tr><td><span class="badge ${n.check.status}">${n.check.status}</span>${nodeLink(n.id)}<div class="note">${esc(n.check.problems?.[0] ?? '')}</div></td></tr>`;
   return head + (bad.length ? `<table>${bad.slice(0, limit('checks')).map(row).join('')}</table>${more('checks', bad.length)}` : '');
 }
@@ -195,7 +195,7 @@ function symbolCounts(symbols) {
 function symbolRow(file, s, { out, inn }) {
   const reqs = ['callers', 'callees', 'references'].map((operation) => ({ file, symbolName: s.name, line: s.line, operation }));
   const span = s.endLine && s.endLine !== s.line ? `–${s.endLine}` : '';
-  return `<tr><td><b>${esc(s.name)}</b> <span class="badge">${esc(s.kind)}</span>${s.exported ? '<span class="badge">exported</span>' : ''}<div>${at(file, s.line ?? 1)}${span} · ${out} out · ${inn} in</div><div>${reqs.map((r) => `<button data-lsp="${attr(r)}">${r.operation}</button>`).join(' ')}</div>${reqs.map((r) => lspAnswer(P.S.lspResults.get(JSON.stringify(r)))).join('')}</td></tr>`;
+  return `<tr><td><b>${esc(s.name)}</b> <span class="badge">${esc(s.kind)}</span>${s.exported ? '<span class="badge">exported</span>' : ''}<div>${at(file, s.line ?? 1)}${span} · ${out} out · ${inn} in</div><div>${(P.S.offline ? [] : reqs).map((r) => `<button data-lsp="${attr(r)}">${r.operation}</button>`).join(' ')}</div>${reqs.map((r) => lspAnswer(P.S.lspResults.get(JSON.stringify(r)))).join('')}</td></tr>`;
 }
 
 function astTree(file, list, depth) {
@@ -203,6 +203,7 @@ function astTree(file, list, depth) {
 }
 function astBlock(id) {
   const a = P.S.ast.get(id);
+  if (!a && P.S.offline) return '<div class="note">Open a live viewer to request an AST outline.</div>';
   if (!a || a.state === 'start') return '<div class="note">reading the AST outline…</div>';
   if (a.error) return `<div class="bad note">${esc(a.error)}</div>`;
   return a.symbols?.length ? astTree(id, a.symbols, 0) : '<div class="note">no declarations</div>';
@@ -249,7 +250,7 @@ function nodeTab() {
     ${metricsLine(n)}${checkBlock(n)}
     ${edgeSection('Imports', by('imports', 'source'), 'target')}${edgeSection('Imported by', by('imports', 'target'), 'source')}
     ${edgeSection('Calls into other files', by('calls', 'source'), 'target')}${edgeSection('Called from', by('calls', 'target'), 'source')}
-    <h2>Functions <span>graph declarations · ${syms.length}</span></h2><table>${visibleSymbols.map((s) => symbolRow(id, s, counts.get(s.id))).join('')}</table>${more('functions', syms.length)}
+    <h2>Declarations <span>${syms.length}</span></h2><table>${visibleSymbols.map((s) => symbolRow(id, s, counts.get(s.id))).join('')}</table>${more('functions', syms.length)}
     <h2>AST outline <span>astSearch symbols</span></h2>${astBlock(id)}`;
 }
 

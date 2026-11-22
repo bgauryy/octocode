@@ -1,12 +1,12 @@
 // One section (a chunk or the whole root) -> data.json: every file, import, call and declaration of its
 // graph snapshot. Each graph page is handed to `emit` as it arrives, so a viewer grows while paging runs.
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { basename, dirname, join, resolve } from 'node:path';
 import { graphBuild, graphCall, readGraphs, totalOf } from './graph-pages.mjs';
-import { SKIPPED_DIRS, degrees, pool, prepareGraphRun, topGroup } from './lib.mjs';
+import { SKIPPED_DIRS, degrees, pool, prepareGraphRun, nativeWorkspaceRoot, topGroup } from './lib.mjs';
 import { packageKey } from './stitch.mjs';
 
 const RANK = { high: 3, medium: 2, low: 1 };
@@ -18,6 +18,10 @@ const group = topGroup;
 function freeze(dir, out) {
   mkdirSync(join(out, 'tmp'), { recursive: true });
   const dst = mkdtempSync(join(out, 'tmp', 'frozen-'));
+  if (statSync(dir).isFile()) {
+    execFileSync('rsync', ['-a', '--', resolve(dir), dst]);
+    return join(dst, basename(dir));
+  }
   execFileSync('rsync', ['-a', '--delete', ...SKIPPED_DIRS.flatMap((d) => ['--exclude', d]), `${resolve(dir)}/`, `${dst}/`]);
   return dst;
 }
@@ -64,7 +68,8 @@ function fileNodes(found, imports) {
 function externalsOf(importEdges) {
   const externals = new Map();
   for (const e of importEdges.filter((x) => x.target.startsWith('pkg:'))) {
-    const x = externals.get(e.target) ?? { id: e.target, count: 0, files: [] };
+    const x = externals.get(e.target) ?? { id: e.target, count: 0, files: [], testFiles: [] };
+    if (e.test) x.testFiles.push(e.source);
     x.count++;
     x.files.push(e.source);
     externals.set(e.target, x);
@@ -110,7 +115,7 @@ async function crossCallGaps(walk, { outsideRoot, externals, crossPackages, jobs
   const pages = await batchedWalk(queries, graphBatch, jobs, walk);
   return pages.flatMap((p) => p.rows)
     .filter((u) => u.targetName)
-    .map((u) => ({ from: u.from, file: u.path, targetName: u.targetName, line: u.line, reason: u.reason }));
+    .map((u) => ({ from: u.from, file: u.path, targetName: u.targetName, line: u.line, reason: u.reason, ...(u.test && { test: true }) }));
 }
 
 function insightsOf(files, imports, cyc, iss) {
@@ -170,6 +175,8 @@ export async function buildSection(section, { out, jobs = 8, exclude = [], emit 
   const t0 = Date.now();
   const { path, snap, frozen } = await ingest(section, out, exclude, (line) => emit('build', [], { line }));
   const ingestMs = Date.now() - t0;
+  const queryRoot = statSync(path).isFile() ? dirname(snap.root) : snap.root;
+  const workspaceRoot = await nativeWorkspaceRoot();
   // Evidence is kept whole and gzipped (lossless; read with `gzip -dc`): raw pages run to hundreds of MB.
   writeFileSync(join(evidence, 'ingest.json.gz'), gzipSync(JSON.stringify(snap)));
   // Every query repeats the build's path and pins its snapshot id.
@@ -183,7 +190,7 @@ export async function buildSection(section, { out, jobs = 8, exclude = [], emit 
       appendFileSync(file, gzipSync(`${JSON.stringify({ input, response })}\n`));
       return response;
     };
-    return readGraphs(queries, { run, snapshotRoot: snap.root, onPage: (page, index) => {
+    return readGraphs(queries, { run, workspaceRoot, snapshotRoot: queryRoot, onPage: (page, index) => {
       const stream = STREAMED[queries[index].operation];
       if (stream && page.rows?.length) emit(stream, page.rows, { page: pages, total: totalOf(page) });
     } });
@@ -196,13 +203,13 @@ export async function buildSection(section, { out, jobs = 8, exclude = [], emit 
   const imports = importEdges.filter((e) => fileIds.has(e.source) && fileIds.has(e.target));
   const files = fileNodes(found.rows, imports);
   const externals = externalsOf(importEdges);
-  const outsideRoot = outside.rows.filter((d) => d.code === 'unresolved-internal' || d.code === 'outside-root').map((d) => ({ file: d.path, line: d.line, specifier: d.message.match(/"(.*)"/)?.[1] ?? null, message: d.message }));
+  const outsideRoot = outside.rows.filter((d) => d.code === 'unresolved-internal' || d.code === 'outside-root').map((d) => ({ file: d.path, line: d.line, ...(d.test && { test: true }), specifier: d.message.match(/"(.*)"/)?.[1] ?? null, message: d.message }));
   const callEdges = foldEdges(rel.rows, 'calls');
   const calls = callEdges.filter((e) => fileIds.has(fileOf(e.source)) && fileIds.has(fileOf(e.target))).map((e) => ({ ...e, via: 'graph' }));
   const unresolvedCalls = await crossCallGaps(walk, { outsideRoot, externals, crossPackages, jobs, graphBatch, maxTargets });
   const { declarations, symbols } = symbolRows(sym.rows, fileIds, calls);
   const linked = new Set(imports.flatMap((e) => [e.source, e.target]));
-  const snapshot = { ...found.graph, id: snap.graph, root: resolve(path), queryRoot: snap.root, counts: snap.counts, linkage: snap.linkage?.ratio };
+  const snapshot = { ...found.graph, id: snap.graph, root: resolve(path), queryRoot, counts: snap.counts, linkage: snap.linkage?.ratio };
   const partialReasons = snapshot.partialReasons ?? [];
   snapshot.isPartial = snapshot.isPartial === true || partialReasons.length > 0;
   const data = {

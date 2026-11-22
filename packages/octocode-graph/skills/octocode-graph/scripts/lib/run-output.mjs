@@ -20,3 +20,20 @@ export function freshOut(root) {
   mkdirSync(parent, { recursive: true });
   return mkdtempSync(join(parent, `${new Date().toISOString().slice(0, 10)}-${basename(root)}-`));
 }
+
+// A refresh may append another header only for the same project, continuing the original sequence.
+export function checkRunHeaders(directory) {
+  let root, file, seenHeader = false, previous;
+  return event => {
+    if (event.type === 'run') {
+      if ((seenHeader && (event.root !== root || event.options?.file !== file)) || (previous !== undefined && event.seq <= previous)) {
+        throw new Error(`The event log in ${directory} contains multiple runs. Rebuild into a new output directory.`);
+      }
+      root = event.root;
+      file = event.options?.file;
+      seenHeader = true;
+    }
+    previous = event.seq;
+    return root;
+  };
+}

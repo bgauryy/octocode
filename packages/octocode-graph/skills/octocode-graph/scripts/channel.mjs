@@ -8,7 +8,6 @@ import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { defaults } from './pipeline.mjs';
 import { HINT, formatResult } from './query.mjs';
-import { freshOut } from './lib/run-output.mjs';
 import { openBrowser, startServer } from './serve.mjs';
 
 // Claude Code does not register a channel that negotiates MCP revision 2026-07-28 (it cannot carry channel
@@ -31,11 +30,11 @@ const INSTRUCTIONS = [
 const TOOLS = [
   {
     name: 'open_graph',
-    description: 'Build and show the live code graph of a repository directory in the browser viewer, or reopen a finished result. Reuses the viewer already open for that path. Returns the viewer URL.',
+    description: 'Build and show the live code graph of a source file or directory in the browser viewer, or reopen a finished result. Reuses the viewer already open for that path. Returns the viewer URL.',
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Repository directory to graph (absolute, or relative to the session working directory).' },
+        path: { type: 'string', description: 'Source file or directory to graph (absolute, or relative to the session working directory).' },
         whole: { type: 'boolean', description: 'Ingest one snapshot instead of chunking at package manifests (cross-package linkage over early feedback).' },
         lsp: { type: 'string', enum: ['on', 'off'], description: 'LSP call cross-check (default on).' },
         result: { type: 'string', description: 'An existing result directory to reopen without rebuilding (replay); path is then optional.' },
@@ -140,9 +139,9 @@ function directory(path, what) {
 }
 
 async function openGraph(args) {
-  if (!args.path && !args.result) throw new Error('open_graph needs path (a repository directory) or result (a result directory)');
+  if (!args.path && !args.result) throw new Error('open_graph needs path (a source file or directory) or result (a result directory)');
   const replay = Boolean(args.result);
-  const root = replay ? null : directory(args.path, 'path');
+  const root = replay ? null : resolve(args.path);
   const key = replay ? directory(args.result, 'result') : root;
   const open = process.env.GRAPH_VIEW_NO_OPEN !== '1';
   const known = viewers.get(key);
@@ -153,7 +152,7 @@ async function openGraph(args) {
   }
   const viewer = { n: nextViewer++, key, server: null };
   const opts = { ...defaults(), whole: Boolean(args.whole), lsp: args.lsp === 'off' ? 'off' : 'on' };
-  viewer.server = await startServer({ root, out: replay ? key : freshOut(root), opts, replay, open, transport: deliverer(viewer) });
+  viewer.server = await startServer({ root, out: replay ? key : undefined, opts, replay, open, transport: deliverer(viewer) });
   viewers.set(key, viewer);
   lastViewer = viewer;
   void viewer.server.finished.then((r) => log(`${key}: build ${r.ok ? 'done' : `failed: ${r.error}`}`));

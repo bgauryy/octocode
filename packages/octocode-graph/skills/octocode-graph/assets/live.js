@@ -11,6 +11,7 @@ const fileOf = (id) => String(id).split('#')[0];
 const VIA_RANK = { both: 4, lsp: 3, graph: 2, stitched: 1 };
 
 export const S = {
+  offline: Boolean(document.getElementById('saved-events')),
   run: null, root: '', phases: new Map(), chunks: new Map(), progress: new Map(),
   nodes: new Map(), edges: new Map(), calls: new Map(), symbols: new Map(),
   metrics: null, stitched: null, lspStats: null, done: null, error: null,
@@ -253,7 +254,16 @@ let socket, retry = 500;
 // Binary frames are gzipped batches; decoding is asynchronous, so one promise chain keeps them in arrival order.
 const decode = async (data) => (typeof data === 'string' ? data : new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('gzip'))).text());
 const receive = (text) => { const msg = JSON.parse(text); apply(msg.type === 'batch' ? msg.events : [msg], Boolean(msg.replay)); };
+let offlineQuery;
+export function openSavedGraph(onQuery) {
+  offlineQuery = onQuery;
+  return {
+    events: events => apply(events, true),
+    answer: result => query.add({ ...result, type: 'query', from: 'viewer' }),
+  };
+}
 export function send(op) {
+  if (S.offline && op.op === 'query') offlineQuery(op.text);
   if (socket?.readyState === 1) socket.send(JSON.stringify(op));
 }
 function connect() {
@@ -277,7 +287,7 @@ function connect() {
 
 // Requests answered over the socket; the answer arrives as an event and lands in the store.
 export const ask = {
-  ast: (file) => { if (!S.ast.has(file)) { S.ast.set(file, { state: 'start' }); send({ op: 'ast', file }); } },
+  ast: (file) => { if (!S.offline && !S.ast.has(file)) { S.ast.set(file, { state: 'start' }); send({ op: 'ast', file }); } },
   lsp: (req) => { const k = JSON.stringify(req); if (!S.lspResults.has(k)) { S.lspResults.set(k, { state: 'start', req }); send({ op: 'lsp', ...req }); } touch(false); },
 };
 
@@ -313,5 +323,8 @@ document.getElementById('theme').addEventListener('click', () => {
   panels.render();
 });
 document.getElementById('cancel').addEventListener('click', () => send({ op: 'cancel' }));
-connect();
+if (S.offline) {
+  document.getElementById('conn').title = 'Saved graph';
+  document.getElementById('cancel').hidden = true;
+} else connect();
 setInterval(() => { if (!S.done && !S.error) touch(false); }, 1000);

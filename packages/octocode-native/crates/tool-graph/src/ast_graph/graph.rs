@@ -81,6 +81,9 @@ pub(crate) fn build_graph_with_registry(
 ) -> Result<BuiltGraph, ToolError> {
     cancel.check().map_err(ToolError::cancelled)?;
     let validated = paths.validate(&scan.root).map_err(ToolError::policy)?;
+    let scope = validated.canonical;
+    let file_scope = scope.is_file().then_some(scope.as_path());
+    let source_root = file_scope.and_then(Path::parent).unwrap_or(&scope);
     let cancelled = ToolError::cancelled;
     let scan::Extracted {
         facts,
@@ -93,10 +96,18 @@ pub(crate) fn build_graph_with_registry(
         hidden_spans,
     } = {
         let turn = turn::ExtractionTurn::new(cancel, scan.checkpoint.is_some());
-        match scan::extract(scan, &validated.canonical, paths, security, &turn, registry) {
+        match scan::extract(
+            scan,
+            source_root,
+            file_scope,
+            paths,
+            security,
+            &turn,
+            registry,
+        ) {
             Ok(extracted) => extracted,
             Err(_) if turn.ended() => {
-                return Ok(paused(scan, validated.canonical, turn.walked()));
+                return Ok(paused(scan, scope, turn.walked()));
             }
             Err(error) => return Err(error),
         }
@@ -119,7 +130,8 @@ pub(crate) fn build_graph_with_registry(
             .unwrap_or_default(),
         reused_files,
         parsed_files: facts.parsed.saturating_sub(reused_files),
-        root: validated.canonical,
+        root: source_root.to_owned(),
+        file_scope: file_scope.map(Path::to_owned),
         files_skipped: facts.files_skipped,
         unreadable_dirs: denied_dirs,
         hidden_spans,

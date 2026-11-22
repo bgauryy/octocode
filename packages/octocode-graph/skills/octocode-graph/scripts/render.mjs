@@ -52,7 +52,7 @@ function partialLines(D) {
 function factLines(D, n) {
   const C = D.coverage, M = D.metrics, s = M.stats, v = D.verification, cs = D.callStats;
   return [
-    `SECTION ${D.section}: ${C.files} files, ${C.imports} imports, ${D.symbols.length} functions, ${C.calls} calls${C.chunks > 1 ? `, ${C.built}/${C.chunks} chunks (${C.crossChunkImports} imports and ${C.crossChunkCalls} calls between chunks)` : ''}. Paths are relative to the section.`,
+    `SECTION ${D.section}: ${C.files} files, ${C.imports} imports, ${D.symbols.length} symbols in the call graph, ${C.calls} calls${C.chunks > 1 ? `, ${C.built}/${C.chunks} chunks (${C.crossChunkImports} imports and ${C.crossChunkCalls} calls between chunks)` : ''}. Paths are relative to the section.`,
     ...partialLines(D),
     `GRAPH ${s.nodes} nodes, ${s.edges} weighted production edges, total weight ${s.weight}; depth 0-${s.maxDepth}; max k-core ${s.maxCore}; modularity ${s.modularity} over ${s.communities} communities (+${s.isolated} isolated files)`,
     `COMMUNITIES by summed PageRank: ${rankedCommunities(D).slice(0, n).map(communityLine).join('; ')}`,
@@ -61,7 +61,7 @@ function factLines(D, n) {
     `IN-WEIGHT (imports + evidence-weighted calls received): ${top(D, 'inWeight', n)}`,
     `CYCLES ${s.cycles} strongly connected sets; ${M.cycles.slice(0, n).map((c) => `${c.size} files [${c.languages.join(',')}] in ${c.chunks.join('+')}`).join('; ')}`,
     `PACKAGES (Ca in, Ce out, I = Ce/(Ca+Ce)): ${M.packages.slice(0, n).map((p) => `${p.chunk} Ca ${p.ca} Ce ${p.ce} I ${p.instability}`).join('; ')}`,
-    `FILES checked on disk: ${v ? `${v.ok}/${v.checked} match (${v.stale} stale, ${v.missing} missing, ${v.lines} with lines outside the file)` : 'not checked'}`,
+    `FILES checked on disk: ${v ? `${v.ok}/${v.checked} match (${v.stale} stale, ${v.missing} missing, ${v.lines} with lines outside the file${v.unverified ? `, ${v.unverified} freshness unverified` : ''})` : 'not checked'}`,
     `CALLS ${(cs?.lsp === 'ok' || cs?.lsp === 'partial') ? `cross-checked by LSP: ${cs.both} both, ${cs.graphOnly} graph only, ${cs.lspOnly} LSP only${unansweredNote(cs)}` : `graph only (${cs?.lsp ?? 'off'})`}`,
   ];
 }

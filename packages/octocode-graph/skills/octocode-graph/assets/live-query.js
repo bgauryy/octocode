@@ -2,7 +2,7 @@
 // by the server over the whole stitched weighted graph (scripts/query.mjs) and highlighted on the graph. Answers
 // are `query` events, so the agent's queries (query_graph, reply.mjs query) show here too and a replay keeps them.
 const PAGE = 60;
-const HINTS = ['impact pipeline.mjs', 'path a b', 'cycle x', 'top pagerank', 'callers name', 'community file', 'deps file depth 2', 'find text'];
+const HINTS = ['impact pipeline.mjs', 'path a b', 'cycle x', 'top pagerank', 'callers name', 'community file', 'deps file depth 2', 'find text', 'order file', 'trace file IMPORTS+'];
 const HTML = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => HTML[c]);
 const num = (x) => (typeof x === 'number' && !Number.isInteger(x) ? x.toPrecision(4) : String(x));
@@ -24,6 +24,7 @@ const TEMPLATE = `
 
 function tags(r) {
   const t = [];
+  if (r.component != null) t.push(`group ${r.component + 1}`);
   if (r.depth != null) t.push(`depth ${r.depth}`);
   if (r.order != null) t.push(`ring ${r.order + 1}`);
   if (r.rank != null) t.push(`#${r.rank}`);
@@ -38,11 +39,15 @@ function rowHtml(r, i) {
   const name = r.symbol ? `${r.name ?? r.symbol.split('#').pop()}` : r.label ?? r.id;
   const sub = r.through ? `via ${r.through.split('/').pop()}` : r.next ? `→ ${r.next.split('/').pop()}` : r.symbol ? r.label : '';
   const evidence = r.evidence ? `<span class="qb-ev mono">${esc([r.evidence.imports.length ? `imports line ${r.evidence.imports.join(', ')}` : '', ...r.evidence.calls.map((c) => `${c.source.split('#').pop()} → ${c.target.split('#').pop()} (${c.via}${c.lines.length ? ` :${c.lines.join(',')}` : ''})`)].filter(Boolean).join(' · '))}</span>` : '';
-  return `<button type="button" class="qb-row" data-i="${i}" title="select ${esc(r.id)}"><span class="qb-name">${esc(name)}${sub ? `<small>${esc(sub)}</small>` : ''}</span><span class="qb-tags">${tags(r)}</span><span class="qb-loc mono">${esc(r.loc?.path ?? r.id)}:${r.loc?.line ?? 1}</span>${evidence}</button>`;
+  const location = r.loc ? r.loc.path + (r.loc.line != null ? `:${r.loc.line}` : '') : '';
+  return `<button type="button" class="qb-row" data-i="${i}" title="select ${esc(r.id)}"><span class="qb-name">${esc(name)}${sub ? `<small>${esc(sub)}</small>` : ''}</span><span class="qb-tags">${tags(r)}</span><span class="qb-loc mono">${esc(location)}</span>${evidence}</button>`;
 }
 
 function extrasHtml(e) {
   const out = [];
+  if (e.ok && e.op === 'path' && e.stats?.objective === 'strength') {
+    out.push(`<button type="button" class="qb-cand" data-q="${esc(`${e.text} --hops`)}">Compare fewest hops</button>`);
+  }
   if (e.candidates?.length) out.push(`<div class="qb-sub">Did you mean</div>${e.candidates.map((c) => `<button type="button" class="qb-cand mono" data-q="${esc(c.query)}">${esc(c.id)}</button>`).join('')}`);
   if (e.links?.length) out.push(`<div class="qb-sub">Linked communities</div>${e.links.map((l) => `<button type="button" class="qb-cand" data-q="community ${l.community}"><b>${l.community}</b> ${esc(l.label ?? '')} <span class="qb-tag">w ${num(l.weight)}</span></button>`).join('')}`);
   return out.join('');
@@ -53,9 +58,14 @@ function renderList(K) {
   const rows = e.rows ?? [];
   const shown = rows.slice(0, K.Q.shown);
   const more = rows.length - shown.length;
+  const evidence = e.steps ?? e.crossings ?? [];
+  const visible = evidence.slice(0, K.Q.evidenceShown);
+  const remaining = evidence.length - visible.length;
   K.D.list.innerHTML = shown.map(rowHtml).join('')
     + (more > 0 ? `<button type="button" class="qb-more">Show ${Math.min(PAGE, more)} more (${more} left)</button>` : '')
-    + extrasHtml(e);
+    + extrasHtml(e)
+    + visible.map(witness => `<p class="qb-ev mono">${esc(JSON.stringify(witness))}</p>`).join('')
+    + (remaining ? `<button type="button" class="qb-evidence-more">Show ${Math.min(PAGE, remaining)} witnesses (${remaining} left)</button>` : '');
 }
 
 function render(K) {
@@ -65,7 +75,7 @@ function render(K) {
   K.D.op.textContent = e.pending ? 'Asking…' : e.op || 'query';
   K.D.q.textContent = e.text;
   K.D.from.textContent = e.from === 'agent' ? 'asked by the agent' : '';
-  K.D.summary.textContent = e.pending ? '' : [e.summary ?? e.error, e.lspStatus === 'pending' && 'LSP confirmation pending.'].filter(Boolean).join(' ');
+  K.D.summary.textContent = e.pending ? '' : [e.summary ?? e.error, e.scope?.isPartial && `Partial graph coverage. ${e.scope.partialReasons.join(', ')}`, e.revision && `Revision ${e.revision}.`, e.lspStatus === 'pending' && 'LSP confirmation pending.'].filter(Boolean).join(' ');
   K.D.summary.classList.toggle('bad', e.ok === false);
   K.D.show.hidden = !e.nodes?.length;
   renderList(K);
@@ -86,7 +96,8 @@ function ask(K, text) {
   K.D.input.value = q;
   K.Q.open = true;
   K.Q.shown = PAGE;
-  if (!document.getElementById('conn')?.classList.contains('live')) {
+  K.Q.evidenceShown = 0;
+  if (!K.S.offline && !document.getElementById('conn')?.classList.contains('live')) {
     K.Q.current = { text: q, ok: false, error: 'Not connected to the viewer server.', summary: 'Not connected to the viewer server.', rows: [] };
   } else {
     K.Q.current = { text: q, pending: true, rows: [] };
@@ -102,6 +113,7 @@ function add(K, e) {
   K.Q.at = K.Q.history.length;
   K.Q.current = e;
   K.Q.shown = PAGE;
+  K.Q.evidenceShown = 0;
   if (K.S.replaying) return;
   K.Q.open = true;
   K.highlight(e.ok ? e.nodes ?? [] : []);
@@ -126,6 +138,7 @@ function onListClick(K, ev) {
   const t = ev.target.closest('button');
   if (!t) return;
   if (t.classList.contains('qb-more')) { K.Q.shown += PAGE; renderList(K); return; }
+  if (t.classList.contains('qb-evidence-more')) { K.Q.evidenceShown += PAGE; renderList(K); return; }
   if (t.dataset.q) { ask(K, t.dataset.q); return; }
   const r = K.Q.current?.rows?.[Number(t.dataset.i)];
   if (r) K.select(r.id, { focus: true });
@@ -167,7 +180,7 @@ export function createQuery(S, { send, select, highlight }) {
   const root = document.getElementById('querybar');
   if (!root) return { add() {} };
   const history = savedHistory();
-  const K = { S, send, select, highlight, D: buildDom(root), Q: { history, at: history.length, current: null, open: false, shown: PAGE } };
+  const K = { S, send, select, highlight, D: buildDom(root), Q: { history, at: history.length, current: null, open: false, shown: PAGE, evidenceShown: 0 } };
   bind(K);
   return { add: (e) => add(K, e), ask: (text) => ask(K, text) };
 }

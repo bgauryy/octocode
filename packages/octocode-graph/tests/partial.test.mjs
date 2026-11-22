@@ -13,6 +13,7 @@ test('query partial metadata survives section projection, stitching and both bri
   writeFileSync(script, `
     if (process.argv[2] === '__graph') process.argv.splice(2, 1);
     const tool = process.argv[2];
+    if (tool === 'config') { console.log(JSON.stringify({ key:'WORKSPACE_ROOT', value:null })); process.exit(0); }
     if (tool === 'schema') {
       console.log(JSON.stringify({querySchema:{properties:{target:{type:'array',maxItems:100}}}}));
     } else {
@@ -58,6 +59,7 @@ test('query partial metadata survives section projection, stitching and both bri
   assert.ok(whole.coverage.partialReasons.includes('chunksNotBuilt'));
   assert.deepEqual(whole.coverage.partialChunks, [{ id: 'src', path: 'src', partialReasons: ['filesSkipped'] }]);
   writeBriefs(whole, folder);
+  assert.match(readFileSync(join(folder, 'brief.txt'), 'utf8'), /symbols in the call graph/);
   for (const name of ['brief.txt', 'brief-full.txt']) {
     const brief = readFileSync(join(folder, name), 'utf8');
     assert.match(brief, /COVERAGE PARTIAL/);

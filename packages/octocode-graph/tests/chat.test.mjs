@@ -346,8 +346,8 @@ test('a reconnect pages a sparse event log and continues live without overlap', 
   const f = fixture();
   t.after(() => rmSync(f.dir, {recursive:true,force:true}));
   const history = Array.from({length:180}, (_, i) => ({type:'note', seq:(i+1)*2, text:'page🙂'.repeat(400)}));
-  const file = join(f.out, 'events.jsonl');
-  writeFileSync(file, readFileSync(file, 'utf8') + history.map(e=>JSON.stringify(e)).join('\n') + '\n');
+  const eventsFile = join(f.out, 'events.jsonl');
+  writeFileSync(eventsFile, `${readFileSync(eventsFile, 'utf8')}${history.map(e=>JSON.stringify(e)).join('\n')}\n`);
   const viewer = await startServer({out:f.out,replay:true,open:false});
   t.after(() => viewer.close());
   const ws = await connect(viewer.url);
@@ -367,4 +367,22 @@ test('a reconnect pages a sparse event log and continues live without overlap', 
   resumed.send({op:'hello', since: live.seq + 1});
   await resumed.waitFor(e=>e.seq === next.seq);
   assert.deepEqual(resumed.events, [next]);
+});
+
+test('viewer serves its renderer locally and revalidates its cached copy', async t => {
+  const f = fixture();
+  const s = await startServer({out:f.out,replay:true,open:false});
+  t.after(async () => { await s.close(); rmSync(f.dir,{recursive:true,force:true}); });
+  const html = await (await fetch(s.url)).text();
+  assert.doesNotMatch(html, /(?:src|href)="https?:/);
+  const url = new URL('renderer.generated.js',s.url);
+  const asset = await fetch(url);
+  assert.equal(asset.status,200);
+  assert.match(asset.headers.get('content-type'),/javascript/);
+  const etag=asset.headers.get('etag');
+  await asset.arrayBuffer();
+  assert.ok(etag);
+  const cached=await fetch(url,{headers:{'If-None-Match':etag}});
+  assert.equal(cached.status,304);
+  assert.equal((await cached.arrayBuffer()).byteLength,0);
 });

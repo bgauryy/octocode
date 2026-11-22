@@ -4,19 +4,21 @@
 // chat with the agent over the same socket; those are events too, so a replay shows every tool call and message.
 // `startServer` is the module API (channel.mjs runs it in-process); the CLI below keeps the script's flags.
 import { createServer } from 'node:http';
+import { open as openFile } from 'node:fs/promises';
+import { pipeline } from 'node:stream/promises';
 import { appendFileSync, existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { eventStream } from './lib/event-stream.mjs';
-import { runOptions } from './lib/run-options.mjs';
-import { beginRun } from './lib/run-output.mjs';
+import { graphInput, runOptions } from './lib/run-options.mjs';
+import { beginRun, freshOut } from './lib/run-output.mjs';
 import { accept } from './ws.mjs';
 import { astOutline, defaults, lspQuery, readEvents, reportTools, runPipeline } from './pipeline.mjs';
 import { createAnswers } from './serve-answers.mjs';
 
-const USAGE = `usage: serve.mjs <root> [--out <dir>] [--whole] [--lsp on|off] [--jobs N] [--ingest-jobs N] [--exclude a,b]
+const USAGE = `usage: serve.mjs <file-or-directory> [--out <dir>] [--whole] [--lsp on|off] [--jobs N] [--ingest-jobs N] [--exclude a,b]
                  [--port N] [--no-open] [--exit-when-done]
        serve.mjs --replay <result-dir> [--port N] [--no-open]
   Builds <root> chunk by chunk and streams every graph, LSP and AST page to the viewer as it arrives.
@@ -26,8 +28,8 @@ const USAGE = `usage: serve.mjs <root> [--out <dir>] [--whole] [--lsp on|off] [-
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ASSETS = join(here, '..', 'assets');
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
-const STATIC = new Set(['live.html', 'live.js', 'live-connection.js', 'live-graph.js', 'live-panels.js', 'live-chat.js', 'live-overview.js', 'live-query.js', 'live-wiki.js', 'live.css', 'live-chat.css', 'live-query.css', 'live-wiki.css']);
+const TYPES = { '.txt': 'text/plain; charset=utf-8', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
+const STATIC = new Set(['renderer.generated.js', 'renderer.generated.LICENSE.txt', 'live.html', 'live.js', 'live-connection.js', 'live-graph.js', 'live-panels.js', 'live-chat.js', 'live-overview.js', 'live-query.js', 'live-wiki.js', 'live.css', 'live-chat.css', 'live-query.css', 'live-wiki.css']);
 // A request body larger than this is refused whole (never cut): replies are text, not files.
 const MAX_BODY = 4 * 1024 * 1024;
 
@@ -247,6 +249,28 @@ async function api(ctx, req, res, url) {
   }
 }
 
+async function asset(req, res, name) {
+  let file;
+  try {
+    file = await openFile(join(ASSETS, name));
+    const { size, mtimeNs } = await file.stat({ bigint: true });
+    const etag = `W/"${size}-${mtimeNs}"`;
+    const headers = { 'cache-control': 'private, no-cache', etag };
+    if (req.headers['if-none-match']?.split(',').some(value => [etag, '*'].includes(value.trim()))) {
+      res.writeHead(304, headers).end();
+      return;
+    }
+    res.writeHead(200, { ...headers, 'content-type': TYPES[extname(name)], 'content-length': String(size) });
+    if (req.method === 'HEAD') res.end();
+    else await pipeline(file.createReadStream(), res);
+  } catch (error) {
+    if (!res.headersSent && !res.destroyed) res.writeHead(error.code === 'ENOENT' ? 404 : 500).end();
+    else if (!res.destroyed) res.destroy();
+  } finally {
+    await file?.close();
+  }
+}
+
 function route(ctx, req, res) {
   const url = new URL(req.url, 'http://127.0.0.1');
   if (Object.hasOwn(API, url.pathname)) {
@@ -258,8 +282,7 @@ function route(ctx, req, res) {
     res.writeHead(404).end();
     return;
   }
-  res.writeHead(200, { 'content-type': TYPES[extname(name)], 'cache-control': 'no-store' });
-  res.end(readFileSync(join(ASSETS, name)));
+  void asset(req, res, name);
 }
 
 // The socket needs this run's token and a page served by this server (Origin), so other local pages cannot attach.
@@ -307,6 +330,12 @@ function closeServer(ctx, server) {
  * or a function receiving { id, text, context, at }. `refreshRun` replaces refresh.mjs's (embedding, tests).
  */
 export async function startServer({ root = null, out, opts = defaults(), replay = false, port = 0, open = true, transport = 'inbox', refreshRun = null } = {}) {
+  if (!replay) {
+    const scope = graphInput(root);
+    out ??= freshOut(root);
+    root = scope.root;
+    if (scope.file) opts = { ...opts, file: scope.file };
+  }
   const L = createLog({ out, persistAll: !replay });
   if (replay) L.load(readEvents(out));
   const ctx = { root, out, opts, token: randomBytes(16).toString('hex'), L, controller: new AbortController(), building: !replay, refreshing: null, queued: null, refreshAbort: null, refreshRun, port: 0 };

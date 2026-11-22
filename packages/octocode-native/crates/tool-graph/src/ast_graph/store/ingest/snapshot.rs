@@ -95,16 +95,17 @@ pub(super) fn publish_snapshot(
             );
         }
     };
-    let slug = scope_slug(&job.built.root, job.workspace);
+    let scope = job.built.file_scope.as_deref().unwrap_or(&job.built.root);
+    let slug = scope_slug(scope, job.workspace);
     let (stamp, created_at) = utc_now();
     // Roots whose names map to one slug (`a-b`, `a/b`) still get distinct ids.
-    let root_tag = root_tag(&job.built.root);
+    let root_tag = root_tag(scope);
     let id = match next_snapshot_id(job.home, &format!("{stamp}-{slug}-{root_tag}")) {
         Ok(id) => id,
         Err(error) => return publication::write_failed(error),
     };
     let unreadable_dirs = job.built.unreadable_dirs.clone();
-    let manifest = manifest(&ManifestInput {
+    let mut manifest = manifest(&ManifestInput {
         id: &id,
         scope: &slug,
         created_at: &created_at,
@@ -127,11 +128,16 @@ pub(super) fn publish_snapshot(
         build_identity: job.build_identity,
         unreadable_dirs: &unreadable_dirs,
     });
+    if let Some(file) = &job.built.file_scope {
+        // The persisted identity must also be exact for readers predating file scopes.
+        manifest["root"] = json!(file);
+        manifest["singleFile"] = json!(true);
+    }
     if let Err(error) = cancel.check() {
         return GraphOutput::error(ErrorCode::Cancelled, error);
     }
     // Select the predecessor under the same publication lock as the new head.
-    let baseline = unchanged::newest(job.home, &job.built.root.to_string_lossy())
+    let baseline = unchanged::newest(job.home, &scope.to_string_lossy())
         .filter(|(_, previous)| {
             previous["buildIdentity"] == manifest["buildIdentity"]
                 && previous["graph"]["sha256"] != manifest["graph"]["sha256"]
@@ -154,12 +160,12 @@ pub(super) fn publish_snapshot(
     ) {
         return error;
     }
-    let pruned = prune(job.home, &job.built.root, job.options.keep);
+    let pruned = prune(job.home, scope, job.options.keep);
     // Only this build's root: the home also holds other roots' jobs.
     let unfinished = super::super::super::graph::checkpoint::prune_jobs_of(
         &job.home.join(".facts"),
         &|root| super::super::snapshots::last_published(job.home, root),
-        Some(&job.built.root),
+        Some(scope),
     );
     progress::emit(|| format!("published {id} ({bytes} bytes)"));
     let mut receipt = receipt(&id, &dir, &manifest, started);
@@ -279,7 +285,7 @@ pub(super) fn receipt(id: &str, dir: &Path, manifest: &Value, started: Instant) 
     let mut receipt = json!({
         "graph": id,
         "dir": dir.to_string_lossy(),
-        "root": manifest["root"],
+        "root": manifest.get("fileScope").unwrap_or(&manifest["root"]),
         "bytes": manifest["graph"]["bytes"],
         "sha256": manifest["graph"]["sha256"],
         "counts": manifest["counts"],

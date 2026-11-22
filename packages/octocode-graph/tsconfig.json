@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ESNext",
+    "lib": ["ESNext"],
+    "allowJs": true,
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "skills/octocode-graph/scripts/**/*.mjs"]
+}

@@ -159,6 +159,7 @@ pub(super) fn ingest_with_registry(
                 paths,
                 &built.root,
                 &crate::ast_graph::build_scope::BuildScope::of_options(options),
+                built.file_scope.as_deref(),
                 &extensions,
                 dir,
             )
@@ -207,9 +208,9 @@ pub(super) fn ingest_with_registry(
             changed: (settled.changed > 0).then(|| snapshot::Changed {
                 files: settled.changed,
                 path: paths
-                    .workspace_relative(&built.root)
-                    .unwrap_or_else(|| built.root.display().to_string()),
-                rebuild: same_build(&built.root, options, paths),
+                    .workspace_relative(&options.path)
+                    .unwrap_or_else(|| options.path.display().to_string()),
+                rebuild: same_build(&options.path, options, paths),
             }),
             scope_proof: scope_proof.as_ref(),
             build_ms,

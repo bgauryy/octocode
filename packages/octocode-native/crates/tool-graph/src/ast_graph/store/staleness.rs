@@ -175,6 +175,7 @@ pub(super) fn scope_files(
     paths: &PathPolicy,
     root: &Path,
     scope: &crate::ast_graph::build_scope::BuildScope,
+    selected: Option<&Path>,
     extensions: &[String],
     dir: &mut dyn FnMut(&Path),
 ) -> BTreeSet<String> {
@@ -202,12 +203,19 @@ pub(super) fn scope_files(
     // The walk is depth first: a withheld directory's entries follow it.
     let mut withheld: Option<PathBuf> = None;
     let mut current = BTreeSet::new();
+    let selected = selected.map(Path::to_owned);
     for entry in octocode_tools_shared::pruned_walk_in(
         root,
         scope.walk.default_excludes,
         [],
         (scope.walk.ignore, paths.global_ignore()),
         move |entry| {
+            if selected
+                .as_deref()
+                .is_some_and(|file| entry.depth() != 0 && entry.path() != file)
+            {
+                return false;
+            }
             let is_dir = entry.file_type().is_some_and(|kind| kind.is_dir());
             !excluded
                 .as_ref()
@@ -423,6 +431,7 @@ fn scope_changes(
         paths,
         root,
         &crate::ast_graph::build_scope::BuildScope::of_manifest(&manifest["scan"]),
+        manifest["fileScope"].as_str().map(Path::new),
         &extensions,
         &mut |_| {},
     );

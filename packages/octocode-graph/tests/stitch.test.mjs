@@ -31,16 +31,19 @@ test('stitching joins chunks file to file and keeps unmatched imports as gaps', 
   const chunks = [{ id: 'lib', path: 'lib', package: '@x/lib' }, { id: 'tests', path: 'tests' }];
   const datas = new Map([
     ['lib', { files: [node('a.ts')], imports: [], symbols: [{ id: 'a.ts#f', file: 'a.ts', name: 'f' }], calls: [], fnFiles: ['a.ts'], externals: [], insights: { findings: { cycle: 1 }, issues: [{ detector: 'cycle', subject: 'a.ts' }], cycles: { all: [] } } }],
-    ['tests', { files: [node('t.ts'), node('u.ts')], imports: [], symbols: [], calls: [], externals: [{ id: 'pkg:@x/lib/sub', count: 1, files: ['u.ts'] }], outsideRoot: [{ file: 't.ts', line: 2, specifier: '../lib/a.js' }, { file: 't.ts', line: 3, specifier: '../lib/gone.js' }], insights: { findings: {}, issues: [], cycles: { all: [] } } }],
+    ['tests', { files: [{ ...node('t.ts'), roles: ['test'] }, node('u.ts')], imports: [], symbols: [], calls: [], externals: [{ id: 'pkg:@x/lib/sub', count: 1, files: ['u.ts'] }], outsideRoot: [{ file: 't.ts', line: 2, specifier: '../lib/a.js' }, { file: 't.ts', line: 3, specifier: '../lib/gone.js' }], insights: { findings: {}, issues: [], cycles: { all: [] } } }],
   ]);
   const { cross, unresolved, whole } = stitch({ root: '/r', chunks, datas, files: ['lib/a.ts', 'tests/t.ts', 'tests/u.ts'] });
   assert.deepEqual(cross.map((e) => `${e.source}>${e.target}:${e.via}`), ['tests/t.ts>lib/a.ts:relative', 'tests/u.ts>pkg:@x/lib:package']);
   assert.deepEqual(unresolved.map((u) => u.specifier), ['../lib/gone.js']);
   assert.deepEqual(whole.files.map((f) => f.id).toSorted(byText), ['lib/a.ts', 'pkg:@x/lib', 'tests/t.ts', 'tests/u.ts']);
   assert.equal(whole.imports.filter((e) => e.crossChunk).length, 2);
+  assert.equal(whole.imports.find(e => e.source === 'tests/t.ts').test, true);
+  assert.ok(!whole.imports.find(e => e.source === 'tests/u.ts').test);
+  assert.equal(whole.files.find(f => f.id === 'pkg:@x/lib').fanIn, 1);
   assert.equal(whole.symbols[0].id, 'lib/a.ts#f');
   assert.equal(whole.insights.issues[0].subject, 'lib/a.ts');
-  assert.equal(whole.files.find((f) => f.id === 'lib/a.ts').fanIn, 1);
+  assert.equal(whole.files.find((f) => f.id === 'lib/a.ts').fanIn, 0);
 });
 
 test('root-level files group under the section root', () => {
@@ -95,9 +98,10 @@ test('package calls bind only names the engine saw imported, never macros or mod
   const chunks = [{ id: 'lib', path: 'lib', package: 'lib' }, { id: 'app', path: 'app' }];
   const datas = new Map([
     ['lib', { files: [node('m.rs')], imports: [], symbols: [], calls: [], externals: [], declarations: [{ id: 'm.rs#json', file: 'm.rs', name: 'json', kind: 'module' }, { id: 'm.rs#run', file: 'm.rs', name: 'run', kind: 'function' }, { id: 'm.rs#format', file: 'm.rs', name: 'format', kind: 'function' }], insights: { findings: {}, issues: [], cycles: { all: [] } } }],
-    ['app', { files: [node('main.rs')], imports: [], symbols: [], calls: [], externals: [{ id: 'pkg:lib', count: 1, files: ['main.rs'] }], unresolvedCalls: [{ from: 'main.rs#main', file: 'main.rs', targetName: 'json', line: 3, reason: 'external-package' }, { from: 'main.rs#main', file: 'main.rs', targetName: 'format', line: 4, reason: 'not-declared-in-repo' }, { from: 'main.rs#main', file: 'main.rs', targetName: 'run', line: 5, reason: 'external-package' }, { from: 'main.rs#go', file: 'main.rs', targetName: 'lib::run', line: 6, reason: 'external-package' }, { from: 'main.rs#go', file: 'main.rs', targetName: 'other::run', line: 7, reason: 'external-package' }], insights: { findings: {}, issues: [], cycles: { all: [] } } }],
+    ['app', { files: [{ ...node('main.rs'), roles: ['test'] }], imports: [], symbols: [], calls: [], externals: [{ id: 'pkg:lib', count: 1, files: ['main.rs'] }], unresolvedCalls: [{ from: 'main.rs#main', file: 'main.rs', targetName: 'json', line: 3, reason: 'external-package' }, { from: 'main.rs#main', file: 'main.rs', targetName: 'format', line: 4, reason: 'not-declared-in-repo' }, { from: 'main.rs#main', file: 'main.rs', targetName: 'run', line: 5, reason: 'external-package' }, { from: 'main.rs#go', file: 'main.rs', targetName: 'lib::run', line: 6, reason: 'external-package' }, { from: 'main.rs#go', file: 'main.rs', targetName: 'other::run', line: 7, reason: 'external-package' }], insights: { findings: {}, issues: [], cycles: { all: [] } } }],
   ]);
   const { crossCalls } = stitch({ root: '/r', chunks, datas, files: ['lib/m.rs', 'app/main.rs'] });
+  assert.ok(crossCalls.every(c => c.test));
   assert.deepEqual(crossCalls.map((c) => [c.source, c.target]), [['app/main.rs#main', 'lib/m.rs#run'], ['app/main.rs#go', 'lib/m.rs#run']]);
 });
 
@@ -148,4 +152,29 @@ test('rust paths into another workspace crate resolve to its deepest module file
   assert.deepEqual(crossCalls.map((e) => [e.source, e.target, e.line]), [['crates/cli/src/run.rs#go', 'crates/rt/lib/config/edit.rs#apply', 5], ['crates/cli/src/run.rs#go', 'crates/io/src/memo.rs#fresh', 6]]);
   assert.equal(whole.coverage.crossChunkImports, 4);
   assert.equal(whole.coverage.crossChunkCalls, 2);
+});
+
+test('stitching preserves distinct import sites and a production witness on a mixed edge', () => {
+  const chunks = [{id:'app', path:'app'}, {id:'lib', path:'lib'}];
+  const sites = [4, 2].map(line => ({ file:'main.js', specifier:'../lib/api.js', line, test:line === 4 }));
+  const datas = new Map([['app',{files:[node('main.js')], outsideRoot:sites}], ['lib',{files:[node('api.js')]}]]);
+  const { whole } = stitch({root:'/r', chunks, datas, files:['app/main.js','lib/api.js']});
+  const [edge] = whole.imports;
+  assert.equal(whole.imports.length, 1);
+  assert.deepEqual([edge.test, edge.count, edge.line, edge.lines.toSorted((a,b) => a-b)], [false, 2, 2, [2,4]]);
+});
+
+test('test-only cross-chunk imports keep a boundary hub eligible for LSP without raising its production rank', () => {
+  const libraries = Array.from({ length: 12 }, (_, i) => `lib${i}.ts`);
+  const checks = libraries.map((_,i) => `check${i}.ts`);
+  const chunks = [{ id:'lib', path:'lib' }, { id:'app', path:'app' }];
+  const datas = new Map([
+    ['lib', { files:libraries.map(node), imports:libraries.slice(0,-1).map(target => ({ source:libraries[0], target })) }],
+    ['app', { files:checks.map(id => ({ ...node(id), roles:['test'] })), outsideRoot:checks.map(file => ({ file, specifier:`../lib/${libraries.at(-1)}`, line:1 })) }],
+  ]);
+  const files = [...libraries.map(f => `lib/${f}`), ...checks.map(f => `app/${f}`)];
+  const { whole } = stitch({ root:'/r', chunks, datas, files });
+  const target = `lib/${libraries.at(-1)}`;
+  assert.equal(whole.files.find(f => f.id === target).fanIn, 0);
+  assert.ok(whole.hubFiles.includes(target));
 });

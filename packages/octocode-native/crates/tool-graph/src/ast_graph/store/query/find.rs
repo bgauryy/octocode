@@ -1,6 +1,6 @@
 //! `find`: ranked node search over names and keys.
 //!
-//! Three tiers, strongest first: the whole text equals a key or name
+//! Three tiers, strongest first: the whole text equals a key, name or qualified member
 //! (`exact`); its identifier words start words of a name or key (`words`,
 //! stated `prefix` when the name also starts with the whole text); the whole
 //! text sits inside a name or key (`prefix`, `contains`, `path`). Text and names split into
@@ -132,6 +132,7 @@ pub(super) fn ranked(
     cancel: &dyn octocode_runtime_base::execution::cancel::CancellationCheck,
 ) -> Result<Vec<Hit>, GraphOutput> {
     let lower = text.to_lowercase();
+    let member = (lower.contains('.') || lower.contains("::")).then(|| lower.replace("::", "."));
     let mut words = identifier_words(text);
     let mut seen = std::collections::BTreeSet::new();
     words.retain(|word| seen.insert(word.clone()));
@@ -161,7 +162,21 @@ pub(super) fn ranked(
         } else {
             (0, 0)
         };
-        let whole = if name.starts_with(&lower) {
+        // A member's owner is stored in its symbol key. Keep the original word
+        // counts for quorum so promoting an exact member retains the other hits.
+        let exact_member = member.as_deref().is_some_and(|query| {
+            g.t.nodes[id as usize].kind == NodeKind::Symbol
+                && key.split_once('#').is_some_and(|(_, qualified)| {
+                    let base = qualified.rsplit_once('@').and_then(|(base, suffix)| {
+                        (!suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()))
+                            .then_some(base)
+                    });
+                    qualified == query || base == Some(query)
+                })
+        });
+        let whole = if exact_member {
+            Some(Tier::Exact)
+        } else if name.starts_with(&lower) {
             Some(Tier::Prefix)
         } else if name.contains(&lower) {
             Some(Tier::Contains)

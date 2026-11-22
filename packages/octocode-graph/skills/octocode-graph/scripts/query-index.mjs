@@ -2,13 +2,15 @@
 // tests), per-pair evidence (import lines, symbol calls) and the symbol table, built once per D and mode. Argument
 // resolution lives here too: a file is a root-relative path, a unique suffix or a node id; a symbol is file#name or
 // a bare name. Ambiguity is an error carrying every candidate, never a guess.
-import { csr, fileEdges } from './graph-model.mjs';
+import { RelationIndex } from './relations.mjs';
+import { callEvidence, csr, fileEdges } from './graph-model.mjs';
 import { scc } from './algorithms.mjs';
 const byText = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
 export const fileOf = (id) => String(id).split('#')[0];
 const pairKey = (u, v) => `${u}\0${v}`;
 const cache = new WeakMap();
+const production = new WeakMap();
 
 export class QueryError extends Error {
   constructor(message, { candidates = [], arg = null } = {}) {
@@ -27,6 +29,12 @@ function memo(fn) {
   };
 }
 
+function append(map, key, value) {
+  const items = map.get(key);
+  if (items) items.push(value);
+  else map.set(key, [value]);
+}
+
 const linesOf = (x) => x.lines ?? (x.line ? [x.line] : []);
 const callRow = (c) => ({ source: c.source, target: c.target, lines: linesOf(c), via: c.via ?? 'graph', confidence: c.confidence ?? 'medium', count: c.count ?? 1 });
 
@@ -34,7 +42,10 @@ const callRow = (c) => ({ source: c.source, target: c.target, lines: linesOf(c),
 function pairEvidence(D, tests) {
   const by = new Map();
   const at = (u, v) => by.get(pairKey(u, v)) ?? by.set(pairKey(u, v), { imports: [], calls: [] }).get(pairKey(u, v));
-  for (const e of D.imports ?? []) if (tests || !e.test) at(e.source, e.target).imports.push(...linesOf(e));
+  for (const e of D.imports ?? []) if (tests || !e.test) {
+    const imports = at(e.source, e.target).imports;
+    for (const line of linesOf(e)) imports.push(line);
+  }
   for (const c of D.calls ?? []) {
     const [u, v] = [fileOf(c.source), fileOf(c.target)];
     if (u !== v && (tests || !c.test)) at(u, v).calls.push(callRow(c));
@@ -53,9 +64,22 @@ function symbolTable(D) {
   const byName = new Map();
   for (const s of byId.values()) {
     const short = s.name.split('.').pop();
-    for (const k of new Set([s.name, short])) byName.set(k, [...(byName.get(k) ?? []), s.id]);
+    for (const k of new Set([s.name, short])) append(byName, k, s.id);
   }
   return { byId, byName };
+}
+
+function* relations(D, files, tests, weak) {
+  for (const edge of D.enrichment?.relations ?? []) if (tests || !edge.test) yield edge;
+  for (const s of D.symbols ?? []) {
+    if (files.has(s.file)) yield { relation: 'DEFINES', source: s.file, target: s.id, path: s.file, lines: linesOf(s) };
+  }
+  for (const [kind, rows] of [['IMPORTS', D.imports], ['CALLS', D.calls]]) for (const edge of rows ?? []) {
+    if ((!tests && edge.test) || (kind === 'CALLS' && !weak && callEvidence(edge) < 1)) continue;
+    const path = fileOf(edge.source);
+    if (!files.has(path) || !files.has(fileOf(edge.target))) continue;
+    yield { ...edge, relation: kind, path, lines: linesOf(edge) };
+  }
 }
 
 // Mode: tests adds test-only edges; imports keeps only file pairs with an import; weak adds edges backed only by
@@ -63,17 +87,36 @@ function symbolTable(D) {
 function buildIndex(D, { tests, imports, weak }) {
   const files = D.files ?? [];
   const ids = files.map((f) => f.id);
-  const all = D.fileEdges ?? fileEdges({ imports: D.imports ?? [], calls: D.calls ?? [] });
-  const edges = all.filter((e) => (imports ? e.imports : weak || e.strong !== false)).map((e) => (tests ? { ...e, test: false } : e));
-  const G = csr(ids, edges);
+  const file = new Map(files.map(f => [f.id,f]));
+  const edges = memo(() => {
+    let all = D.fileEdges;
+    if (!tests && (D.imports || D.calls)) {
+      if (!production.has(D)) production.set(D, fileEdges({ imports: D.imports ?? [], calls: D.calls ?? [] }, false));
+      all = production.get(D);
+    }
+    all ??= fileEdges({ imports: D.imports ?? [], calls: D.calls ?? [] });
+    return all.filter((e) => (imports ? e.imports : weak || e.strong !== false)).map((e) => (tests ? { ...e, test: false } : e));
+  });
+  const graph = memo(() => csr(ids,edges()));
+  const pairs = memo(() => new Map(edges().filter(e => !e.test).map(e => [pairKey(e.source, e.target), e])));
+  const calls = new Map();
   return {
-    D, tests, imports, weak, ids, G,
+    D, tests, imports, weak, ids, file,
+    get G() { return graph(); },
+    get edge() { return pairs(); },
     root: typeof D.section === 'string' ? D.section.replace(/\/+$/, '') : '',
-    file: new Map(files.map((f) => [f.id, f])),
-    edge: new Map(edges.filter((e) => !e.test).map((e) => [pairKey(e.source, e.target), e])),
+    relations: memo(() => new RelationIndex(['DEFINES', 'IMPORTS', 'CALLS', ...(D.enrichment?.kinds ?? [])], relations(D, file, tests, weak))),
+    callsBy(endpoint) {
+      if (!calls.has(endpoint)) {
+        const bySymbol = new Map();
+        for (const call of D.calls ?? []) if (tests || !call.test) append(bySymbol, call[endpoint], call);
+        calls.set(endpoint, bySymbol);
+      }
+      return calls.get(endpoint);
+    },
     evidence: memo(() => pairEvidence(D, tests)),
     symbols: memo(() => symbolTable(D)),
-    components: memo(() => scc(G)),
+    components: memo(() => scc(graph())),
   };
 }
 
@@ -92,8 +135,10 @@ export const evidenceOf = (I, u, v) => I.evidence().get(pairKey(u, v)) ?? { impo
 // The first evidence line of u→v in u (an import line, else the earliest call site), for a row's location.
 export function evidenceLine(I, u, v) {
   const ev = evidenceOf(I, u, v);
-  const lines = [...ev.imports, ...ev.calls.flatMap((c) => c.lines)].filter(Number.isInteger);
-  return lines.length ? Math.min(...lines) : 1;
+  let earliest = Infinity;
+  for (const line of ev.imports) if (Number.isInteger(line) && line < earliest) earliest = line;
+  for (const call of ev.calls) for (const line of call.lines) if (Number.isInteger(line) && line < earliest) earliest = line;
+  return earliest === Infinity ? 1 : earliest;
 }
 
 function normalizePath(I, raw) {

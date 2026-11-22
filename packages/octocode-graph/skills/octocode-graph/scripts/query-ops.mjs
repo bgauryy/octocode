@@ -2,6 +2,8 @@
 // depends on, the strongest path between two files, its cycle and community, symbol callers and callees, rankings
 // and text search. Every op returns complete rows; nothing is cut to a page size.
 import { QueryError, edgeOf, evidenceLine, evidenceOf, fileOf, indexOf, resolveFile, resolveSymbol } from './query-index.mjs';
+import { PatternError, traceRelations } from './relations.mjs';
+import { prerequisiteOrder } from './algorithms.mjs';
 const byText = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
 const round = (x, digits = 3) => Number(x.toFixed(digits));
@@ -142,9 +144,36 @@ function strongest(I, s, t) {
     }
   }
   if (dist[t] === Infinity) return null;
-  const route = [t];
-  while (route[0] !== s) route.unshift(prev[route[0]]);
-  return { path: route.map((i) => I.ids[i]), cost: dist[t] };
+  return { path: routeIds(I, prev, s, t), cost: dist[t] };
+}
+
+function routeIds(I, prev, start, end) {
+  const ids = [];
+  for (let v = end; ; v = prev[v]) {
+    ids.push(I.ids[v]);
+    if (v === start) return ids.reverse();
+  }
+}
+
+// Unit-cost BFS on the same filtered CSR that the weighted solver reads.
+function fewestHops(I, s, t) {
+  const { n, out } = I.G;
+  const prev = new Int32Array(n).fill(-1);
+  const queue = [s];
+  prev[s] = s;
+  for (let head = 0; head < queue.length && prev[t] < 0; head++) {
+    const u = queue[head];
+    for (let k = out.offsets[u]; k < out.offsets[u + 1]; k++) {
+      const v = out.targets[k];
+      if (prev[v] >= 0) continue;
+      prev[v] = u;
+      if (v === t) break;
+      queue.push(v);
+    }
+  }
+  if (prev[t] < 0) return null;
+  const route = routeIds(I, prev, s, t);
+  return { path: route, cost: route.length - 1 };
 }
 
 // One row per file on the path; each carries the hop to the next file: weight, import lines and symbol calls.
@@ -158,35 +187,37 @@ function pathRows(I, route, direction) {
   });
 }
 
-function pathResult(I, found, direction) {
+function pathResult(I, found, direction, objective) {
   const rows = pathRows(I, found.path, direction);
   const edges = found.path.slice(1).map((id, i) => [found.path[i], id]);
   const total = round(rows.reduce((a, r) => a + (r.weight ?? 0), 0));
-  return { rows, edges, nodes: found.path, stats: { hops: edges.length, weight: total, cost: round(found.cost, 6), direction } };
+  return { rows, edges, nodes: found.path, stats: { hops: edges.length, weight: total, cost: round(found.cost, 6), direction, objective } };
 }
 
-export function path(I, { args }) {
-  if (args.length < 2) throw new QueryError('path needs two files: path <from> <to>');
+export function path(I, { args, hops }) {
+  const solve = hops ? fewestHops : strongest;
+  const objective = hops ? 'hops' : 'strength';
+  if (args.length !== 2) throw new QueryError('path needs two files: path <from> <to>');
   const [a, b] = [resolveFile(I, args[0]), resolveFile(I, args[1])];
   const [s, t] = [I.G.index.get(a), I.G.index.get(b)];
-  const found = strongest(I, s, t);
+  const found = solve(I, s, t);
   if (found) {
-    const r = pathResult(I, found, 'forward');
-    return { ...r, found: true, summary: `${a} → ${b}: ${plural(r.stats.hops, 'hop')}, weight ${r.stats.weight} (strongest path, cost Σ 1/weight ${r.stats.cost})` };
+    const r = pathResult(I, found, 'forward', objective);
+    return { ...r, found: true, summary: `${a} → ${b}: ${plural(r.stats.hops, 'hop')}, weight ${r.stats.weight} (${hops ? 'fewest hops' : `strongest path, cost Σ 1/weight ${r.stats.cost}`})` };
   }
-  const back = strongest(I, t, s);
+  const back = solve(I, t, s);
   const W = weakView(I);
-  const weakPath = W ? strongest(W, s, t) : null;
+  const weakPath = W ? solve(W, s, t) : null;
   const weakText = weakPath ? `; --weak finds one of ${plural(weakPath.path.length - 1, 'hop')} through name-bound calls` : '';
-  if (!back) return { found: false, rows: [], edges: [], nodes: [a, b], stats: { hops: 0, weakHops: weakPath ? weakPath.path.length - 1 : null }, summary: `no path ${a} → ${b}, and none ${b} → ${a}${weakText}` };
-  const r = pathResult(I, back, 'reverse');
+  if (!back) return { found: false, rows: [], edges: [], nodes: [a, b], stats: { objective, hops: 0, weakHops: weakPath ? weakPath.path.length - 1 : null }, summary: `no path ${a} → ${b}, and none ${b} → ${a}${weakText}` };
+  const r = pathResult(I, back, 'reverse', objective);
   return { ...r, found: false, summary: `no path ${a} → ${b}; the reverse ${b} → ${a} exists: ${plural(r.stats.hops, 'hop')}, weight ${r.stats.weight}${weakText}` };
 }
 
 function ringTo(prev, s, u) {
   const order = [u];
-  while (order[0] !== s) order.unshift(prev.get(order[0]));
-  return order;
+  while (u !== s) { u = prev.get(u); order.push(u); }
+  return order.reverse();
 }
 
 // The shortest cycle through s inside its component: breadth-first from s until an edge returns to s.
@@ -212,12 +243,26 @@ function cycleOf(I, s) {
   return { members, order: cycleThrough(I, s, members) };
 }
 
+// Stored cycle IDs identify exact member sets from the snapshot projection.
+function matchingCycle(I, id, members) {
+  const candidate = I.D.metrics?.cycles?.find(c => c.members.includes(id));
+  return candidate?.size === members.size && candidate.members.every(u => members.has(I.G.index.get(u))) ? candidate : null;
+}
+
+function componentWeight({ out }, members) {
+  let weight = 0;
+  for (const u of members) for (let k = out.offsets[u]; k < out.offsets[u + 1]; k++) {
+    if (members.has(out.targets[k])) weight += out.weights[k];
+  }
+  return round(weight);
+}
+
 // No cycle over the walked edges: say whether `--weak` finds one, since metrics count those edges.
 function noCycle(I, id, s) {
   const W = weakView(I);
   const weak = W ? cycleOf(W, s) : null;
   const size = weak?.order ? weak.members.size : null;
-  const known = size ? (I.D.metrics?.cycles ?? []).find((c) => c.members.includes(id)) : null;
+  const known = size ? matchingCycle(W, id, weak.members) : null;
   const note = size ? `; --weak finds it in ${known ? `cycle ${known.id}` : 'a cycle'} of ${plural(size, 'file')} through name-bound calls` : '';
   return { rows: [], edges: [], nodes: [id], stats: { size: 1, weakSize: size }, summary: `${id} is in no dependency cycle${note}` };
 }
@@ -234,8 +279,8 @@ export function cycle(I, { args }) {
   const rest = [...members].map((i) => I.ids[i]).filter((u) => !inRing.has(u))
     .toSorted((a, b) => (metricOf(I, b, 'pagerank') ?? 0) - (metricOf(I, a, 'pagerank') ?? 0) || (a < b ? -1 : 1))
     .map((u) => fileRow(I, u, { order: null, pagerank: metricOf(I, u, 'pagerank') ?? null }));
-  const known = I.tests ? null : (I.D.metrics?.cycles ?? []).find((c) => c.members.includes(id));
-  const stats = { size: members.size, ring: ids.length, cycle: known?.id ?? null, weight: known?.weight ?? null, chunks: [...new Set([...members].map((i) => I.file.get(I.ids[i])?.chunk ?? '-'))].toSorted(byText) };
+  const known = matchingCycle(I, id, members);
+  const stats = { size: members.size, ring: ids.length, cycle: known?.id ?? null, weight: componentWeight(I.G, members), chunks: [...new Set([...members].map((i) => I.file.get(I.ids[i])?.chunk ?? '-'))].toSorted(byText) };
   const label = known ? `cycle ${known.id}` : 'a cycle';
   return { rows: [...rows, ...rest], edges: ring, nodes: [...members].map((i) => I.ids[i]), stats, summary: `${id} is in ${label} of ${plural(members.size, 'file')} across ${plural(stats.chunks.length, 'chunk')}; one ring through it has ${plural(ids.length, 'file')}` };
 }
@@ -284,7 +329,7 @@ function symbolCalls(I, { args }, dir) {
   const sym = resolveSymbol(I, args[0]);
   const { byId: symbols } = I.symbols();
   const [mine, other] = dir === 'callers' ? ['target', 'source'] : ['source', 'target'];
-  const calls = (I.D.calls ?? []).filter((c) => c[mine] === sym && (I.tests || !c.test));
+  const calls = I.callsBy(mine).get(sym) ?? [];
   const rows = calls.map((c) => {
     const s = symbols.get(c[other]);
     const lines = c.lines ?? (c.line ? [c.line] : []);
@@ -330,4 +375,45 @@ export function find(I, { args }) {
     .map((s) => fileRow(I, s.file, { line: s.line ?? undefined, kind: s.kind, symbol: s.id, name: s.name }));
   const nodes = [...new Set([...files, ...symbols].map((r) => r.id))];
   return { rows: [...files, ...symbols], edges: [], nodes, stats: { files: files.length, symbols: symbols.length }, summary: `${plural(files.length, 'file')} and ${plural(symbols.length, 'symbol')} match "${text}"` };
+}
+
+// Component numbers are local to this answer, increasing from prerequisites to dependents.
+export function dependencyOrder(I, { args }) {
+  if (args.length !== 1) throw new QueryError('order needs one file');
+  const file = resolveFile(I, args[0]);
+  const plan = prerequisiteOrder(I.G, I.components(), I.G.index.get(file));
+  const rows = plan.groups.flatMap((group, component) => group.map(v => fileRow(I, I.ids[v], { component })));
+  const edges = plan.crossings.map(([u, v]) => [I.ids[u], I.ids[v]]);
+  const crossings = edges.map(([source, target]) => ({ source, target, evidence: evidenceOf(I, source, target) }));
+  return { nodes: rows.map(r => r.id), rows, edges, crossings, stats: { groups: plan.groups.length },
+    summary: `${file}: ${plural(rows.length, 'file')} in ${plural(plan.groups.length, 'dependency group')}, prerequisites first. Files in the same group move together.` };
+}
+
+export function trace(I, { args, depth }) {
+  const [target, ...expression] = args;
+  if (!target || !expression.length) throw new QueryError('trace needs a file or file#symbol and a relation pattern');
+  if (I.imports) throw new QueryError('Choose IMPORTS in the trace pattern to restrict relation types');
+  const index = I.relations();
+  const seed = index.has(target) ? target : target.includes('#') ? resolveSymbol(I, target) : resolveFile(I, target);
+  let found;
+  try { found = traceRelations(index, seed, expression.join(' '), depth ?? Infinity); }
+  catch (error) { if (error instanceof PatternError) throw new QueryError(error.message); throw error; }
+  const sources = new Map();
+  for (const edge of found.steps) if (!sources.has(edge.target) || edge.relation === 'DEFINES') sources.set(edge.target, edge);
+  const rows = found.endpoints.map(endpoint => {
+    const symbol = I.symbols().byId.get(endpoint);
+    const origin = sources.get(endpoint);
+    const sourcePath = I.file.has(endpoint) ? endpoint : symbol?.file ?? origin?.path;
+    const line = symbol?.line ?? (origin?.path === sourcePath ? origin?.lines[0] : null);
+    return { id: sourcePath ?? endpoint, endpoint, label: endpoint, loc: sourcePath ? { path: sourcePath, line: line ?? null } : null };
+  });
+  const files = new Set([fileOf(seed)]);
+  const pairs = new Map();
+  for (const step of found.steps) {
+    const a = fileOf(step.source), b = fileOf(step.target);
+    files.add(a); files.add(b);
+    if (a !== b) pairs.set(JSON.stringify([a, b]), [a, b]);
+  }
+  return { rows, nodes: [...new Set([...files, ...rows.map(r => r.id)])].filter(id => I.file.has(id)), edges: [...pairs.values()].filter(([a,b]) => I.file.has(a) && I.file.has(b)), steps: found.steps, ...(I.D.enrichment && { revision: I.D.enrichment.revision, providers: I.D.enrichment.providers }), stats: { visitedStates: found.visited, maxHops: Number.isFinite(depth) ? depth : null },
+    summary: `${plural(rows.length, 'endpoint')} reachable from ${seed} by ${expression.join(' ')} with ${found.steps.length === 1 ? '1 witness' : `${found.steps.length} witnesses`}` };
 }

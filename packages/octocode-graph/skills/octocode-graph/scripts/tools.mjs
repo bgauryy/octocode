@@ -143,7 +143,7 @@ function fragmentJoiner(tool, schema) {
     delete joined.rowPart;
     if (!prior) rows.push(joined);
     parts.set(row.index, { row: joined, part: marker.part, of: marker.of });
-    if (marker.part === marker.of) return joined;
+    return marker.part === marker.of ? joined : undefined;
   }
   function finish() {
     if ([...parts.values()].some(({ part, of }) => part !== of)) throw new Error('Response fragment ends before its final part');

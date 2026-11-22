@@ -80,6 +80,18 @@ fn find_splits_case_separators_and_qualified_names() {
 }
 
 #[test]
+fn find_ranks_the_qualified_member_as_exact() {
+    let dir = words_fixture();
+    let expected = "app/src/snapshot.ts#SnapshotReader.read";
+    for target in ["SnapshotReader.read", "SnapshotReader::read"] {
+        let out = find(&dir, target);
+        let row = &out.value["rows"][0];
+        assert_eq!(row["id"], expected, "{target}: {row}");
+        assert_eq!(row["match"], "exact", "{target}: {row}");
+    }
+}
+
+#[test]
 fn find_without_a_full_match_returns_the_best_partial_coverage() {
     let dir = words_fixture();
     let out = find(&dir, "parse config yaml");

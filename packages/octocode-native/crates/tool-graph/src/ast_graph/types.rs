@@ -351,6 +351,8 @@ pub(crate) struct BuiltGraph {
     pub parsed_files: usize,
     pub reused_files: usize,
     pub root: std::path::PathBuf,
+    /// A file-selected snapshot keeps directory-relative evidence keys.
+    pub file_scope: Option<std::path::PathBuf>,
     pub facts: BTreeMap<String, FileFacts>,
     pub nodes: BTreeMap<String, FileGraphNode>,
     pub files_skipped: u32,

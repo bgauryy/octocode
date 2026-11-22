@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, readFileSync, readdirSync, realpathSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { dirname, join } from 'node:path';
@@ -483,4 +483,22 @@ test('a failed or closed socket cannot apply queued pages past the last good bat
   release(2);
   await pending;
   assert.deepEqual(applied,[1]);
+});
+
+test('a file input keeps its own graph scope and uses its directory for evidence paths', async () => {
+  const { runOptions } = await import('../skills/octocode-graph/scripts/lib/run-options.mjs');
+  const project = tempDir('file-graph-');
+  const file = join(project, 'main.ts');
+  writeFileSync(file, 'export const main = 1;\n');
+  writeFileSync(join(project, 'sibling.ts'), 'export const sibling = 2;\n');
+  const out = join(project, 'result');
+  const options = runOptions([file, '--out', out]);
+  assert.equal(options.root, realpathSync(project));
+  assert.equal(options.opts.file, 'main.ts');
+  const { listFiles } = await import('../skills/octocode-graph/scripts/pipeline.mjs');
+  const events = [];
+  assert.deepEqual(await listFiles(project, event => events.push(event), options.opts.file), ['main.ts']);
+  assert.deepEqual(events[0].files, ['main.ts']);
+  assert.throws(() => runOptions([join(project, 'absent.ts'), '--out', out]), /ENOENT|not found/);
+  assert.equal(existsSync(out), false);
 });

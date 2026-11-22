@@ -27,127 +27,76 @@ fn failure(message: impl Into<String>) -> GraphOutput {
     GraphOutput::error(ErrorCode::InvalidInput, message)
 }
 
-/// The repair of a graph call on a file, given the file and the snapshot
-/// home: the directory to scan or query in its place and the call there.
-type Repair<'a> = &'a dyn Fn(&Path, &Path) -> Option<(PathBuf, Value)>;
-
-/// A graph call on a file: graphs scan directories, so the refusal names the
-/// directory `repair` chose and `related` is the call there. A configured
-/// home inside the file's directory rules that directory out, and the
-/// refusal says so. Paths are canonical, as every graph root is: a symlinked
-/// file is named by its target's directory.
-fn file_scope(
+/// Suggest a query of a published enclosing graph when the selected file has no matching snapshot.
+fn enclosing_query(
     file: &Path,
     home: &Path,
-    configured: bool,
     paths: &PathPolicy,
-    repair: Repair<'_>,
-) -> GraphOutput {
-    let message = "path must be a directory, not a file";
-    if configured
-        && let Some(dir) = file.parent()
-        && home.starts_with(dir)
-    {
-        return failure(format!(
-            "{message}: its directory {} holds local.graphHome ({}), so a graph of it would scan its own snapshots. Use a directory that does not contain it",
-            paths.shown(dir),
-            home.display()
-        ));
-    }
-    let Some((dir, lead)) = repair(file, home) else {
-        return failure(message);
+    row: &Value,
+) -> Option<GraphOutput> {
+    let root_of = |id: &str| {
+        read_snapshot_metadata(&home.join(id))
+            .and_then(|manifest| manifest.root)
+            .map(PathBuf::from)
     };
+    let pinned = row["graph"]
+        .as_str()
+        .and_then(root_of)
+        .filter(|root| file.starts_with(root));
+    let scopes = list_snapshots(home)
+        .iter()
+        .filter_map(|id| root_of(id))
+        .collect::<std::collections::HashSet<_>>();
+    let enclosing = || {
+        file.ancestors()
+            .skip(1)
+            .find(|dir| scopes.contains(*dir))
+            .map(Path::to_path_buf)
+    };
+    let (dir, keep_pins) = match (pinned, enclosing()) {
+        (Some(root), _) => (root, true),
+        (None, Some(root)) => (root, false),
+        (None, None) => return None,
+    };
+    let mut row = row.clone();
+    row["path"] = json!(dir.to_str()?);
+    if !keep_pins && let Some(fields) = row.as_object_mut() {
+        fields.remove("graph");
+        fields.remove("baseline");
+    }
+    // The file the call named is what it asked about: the lead carries
+    // it as the scope-relative `target`, unless the call has one or the
+    // operation takes none.
+    if row.get("target").is_none()
+        && let Some(relative) = file.strip_prefix(&dir).ok().and_then(Path::to_str)
+    {
+        let mut targeted = row.clone();
+        targeted["target"] = json!(relative);
+        let built = json!({"queries": [targeted.clone()]});
+        if octocode_runtime_base::contracts::validate("graphQuery", built).is_ok() {
+            row = targeted;
+        }
+    }
+    // The typed query proves the row is one graphQuery accepts; the lead
+    // is built from the row itself, whose `operation` a typed variant of
+    // the generated query does not carry back.
+    super::query::typed_row::<GraphQueryQuery>(row.clone())?;
     let mut out = failure(format!(
-        "{message}: graphs scan a directory, such as {}",
+        "This query can use the enclosing snapshot at {}",
         paths.shown(&dir)
     ));
-    out.value["related"] = json!([lead]);
-    out
-}
-
-/// graphBuild's repair of a file path: the same build of the file's
-/// directory.
-fn build_repair(query: &GraphBuildQuery) -> impl Fn(&Path, &Path) -> Option<(PathBuf, Value)> {
-    move |file, _| {
-        let dir = file.parent()?;
-        let query = GraphBuildQuery {
-            path: dir.to_str()?.try_into().ok()?,
-            ..query.clone()
-        };
-        Some((
-            dir.to_path_buf(),
-            Continuation::related_query(query).build(),
-        ))
-    }
-}
-
-/// graphQuery's repair of a file path: the same query of a snapshot that
-/// holds the file — the pinned `graph`'s own scope, else the nearest
-/// enclosing scope with a snapshot (the newest of it, so the pins go) — and,
-/// with no such snapshot, a build of the file's directory.
-fn query_repair(row: &Value) -> impl Fn(&Path, &Path) -> Option<(PathBuf, Value)> {
-    move |file, home| {
-        let root_of = |id: &str| {
-            read_snapshot_metadata(&home.join(id))
-                .and_then(|manifest| manifest.root)
-                .map(PathBuf::from)
-        };
-        let pinned = row["graph"]
-            .as_str()
-            .and_then(root_of)
-            .filter(|root| file.starts_with(root));
-        let scopes = list_snapshots(home)
-            .iter()
-            .filter_map(|id| root_of(id))
-            .collect::<std::collections::HashSet<_>>();
-        let enclosing = || {
-            file.ancestors()
-                .skip(1)
-                .find(|dir| scopes.contains(*dir))
-                .map(Path::to_path_buf)
-        };
-        let (dir, keep_pins) = match (pinned, enclosing()) {
-            (Some(root), _) => (root, true),
-            (None, Some(root)) => (root, false),
-            (None, None) => return build_repair(&GraphBuildQuery::default())(file, home),
-        };
-        let mut row = row.clone();
-        row["path"] = json!(dir.to_str()?);
-        if !keep_pins && let Some(fields) = row.as_object_mut() {
-            fields.remove("graph");
-            fields.remove("baseline");
-        }
-        // The file the call named is what it asked about: the lead carries
-        // it as the scope-relative `target`, unless the call has one or the
-        // operation takes none.
-        if row.get("target").is_none()
-            && let Some(relative) = file.strip_prefix(&dir).ok().and_then(Path::to_str)
-        {
-            let mut targeted = row.clone();
-            targeted["target"] = json!(relative);
-            let built = json!({"queries": [targeted.clone()]});
-            if octocode_runtime_base::contracts::validate("graphQuery", built).is_ok() {
-                row = targeted;
-            }
-        }
-        // The typed query proves the row is one graphQuery accepts; the lead
-        // is built from the row itself, whose `operation` a typed variant of
-        // the generated query does not carry back.
-        super::query::typed_row::<GraphQueryQuery>(row.clone())?;
-        Some((dir, Continuation::related(ToolId::GraphQuery, row).build()))
-    }
+    out.value["related"] = json!([Continuation::related(ToolId::GraphQuery, row).build()]);
+    Some(out)
 }
 
 /// The workspace, scanned root and snapshot home of a graph call on `path`.
 /// The default home is the workspace's, so the root must lie inside the
 /// workspace; a configured home (`local.graphHome`) admits any allowed
-/// directory that does not contain it. `repair` is the call's repair of a
-/// file path ([`file_scope`]).
+/// file or directory that does not contain it.
 fn scope(
     path: &str,
     paths: &PathPolicy,
     configured: Option<&Path>,
-    repair: Repair<'_>,
 ) -> Result<(PathBuf, PathBuf, PathBuf), GraphOutput> {
     let policy = |e: octocode_runtime_base::policy::PolicyError| {
         GraphOutput::error(e.shared_code(), e.message)
@@ -176,14 +125,8 @@ fn scope(
     })?;
     let home = graph_home(Some(&workspace), configured).map_err(failure)?;
     let home = paths.validate_output(home).map_err(policy)?.canonical;
-    if !root.is_dir() && (configured.is_some() || root.starts_with(&workspace)) {
-        return Err(file_scope(
-            &root,
-            &home,
-            configured.is_some(),
-            paths,
-            repair,
-        ));
+    if !root.is_dir() && !root.is_file() {
+        return Err(failure("path must be a regular file or directory"));
     }
     if configured.is_some() {
         if home.starts_with(&root) {
@@ -392,7 +335,7 @@ fn options(
         _ => row,
     };
     let path = row["path"].as_str().unwrap_or(".");
-    let (workspace, root, home) = scope(path, paths, configured, &query_repair(row))?;
+    let (workspace, root, home) = scope(path, paths, configured)?;
     let id = match row["graph"].as_str() {
         Some(id) => id.to_owned(),
         None => list_snapshots(&home)
@@ -403,6 +346,11 @@ fn options(
                     .is_some_and(|m| m.root.as_deref() == Some(root.to_string_lossy().as_ref()))
             })
             .ok_or_else(|| {
+                if root.is_file()
+                    && let Some(lead) = enclosing_query(&root, &home, paths, row)
+                {
+                    return lead;
+                }
                 let (error, lead) = if default_path && row.get("graph").is_none() {
                     (
                         "no snapshot for the workspace root (no path sent)",
@@ -427,6 +375,14 @@ fn options(
         let built_for = read_snapshot_metadata(Path::new(snapshot)).and_then(|m| m.root);
         if built_for.as_deref() == Some(root.to_string_lossy().as_ref()) {
             return Ok(());
+        }
+        if root.is_file()
+            && built_for
+                .as_deref()
+                .is_some_and(|parent| root.starts_with(parent))
+            && let Some(lead) = enclosing_query(&root, &home, paths, row)
+        {
+            return Err(lead);
         }
         Err(failure(match built_for {
             Some(original) => {
@@ -514,7 +470,7 @@ fn build(
     cargo: Option<&str>,
     store: &Store<'_>,
 ) -> GraphOutput {
-    let (workspace, root, _) = match scope(&query.path, paths, store.home, &build_repair(query)) {
+    let (workspace, root, _) = match scope(&query.path, paths, store.home) {
         Ok(scope) => scope,
         Err(error) => return error,
     };

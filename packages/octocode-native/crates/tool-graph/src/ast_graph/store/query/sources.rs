@@ -240,7 +240,11 @@ impl Graph {
                         .components()
                         .all(|part| matches!(part, std::path::Component::Normal(_)))
             });
-            if !in_scope {
+            if !in_scope
+                || self.manifest["fileScope"]
+                    .as_str()
+                    .is_some_and(|file| candidate != Path::new(file))
+            {
                 return Err(GraphOutput::error(
                     ErrorCode::Policy,
                     "Snapshot source evidence lies outside its scanned root.",

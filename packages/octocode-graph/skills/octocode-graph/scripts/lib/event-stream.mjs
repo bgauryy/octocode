@@ -22,7 +22,7 @@ function batch(log, start, end, replay, byteTarget) {
   }
   const header = replay ? '{"type":"batch","replay":true,"events":[' : '{"type":"batch","events":[';
   // On the loopback connection compression speed matters more than the last few bytes.
-  return { next, payload: gzipSync(header + parts.join(',') + ']}', { level: constants.Z_BEST_SPEED }) };
+  return { next, payload: gzipSync(`${header}${parts.join(',')}]}`, { level: constants.Z_BEST_SPEED }) };
 }
 
 export function eventStream(log) {

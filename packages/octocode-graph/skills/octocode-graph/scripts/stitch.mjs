@@ -160,9 +160,13 @@ export function stitch({ root, chunks, datas, files }) {
     for (const o of datas.get(c.id).outsideRoot ?? []) stitchRelative(ctx, c, o, { cross, unresolved });
     for (const x of datas.get(c.id).externals ?? []) stitchPackage(ctx, c, x, cross);
   }
+  const testSources = new Set(chunks.flatMap(c => (datas.get(c.id)?.files ?? [])
+    .filter(f => f.roles?.includes('test')).map(f => prefixOf(c) + f.id)));
+  for (const e of cross) if (testSources.has(e.source)) e.test = true;
   const has = (p) => ctx.has.has(p);
   const crateItem = (path) => (ctx.crates.has(rustHead(path)) ? rustModule(null, path, has, { crates: ctx.crates }) : null);
   const crossCalls = bindCalls({ chunks, datas, cross, crateItem });
+  for (const e of crossCalls) if (testSources.has(fileOf(e.source))) e.test = true;
   return { cross, unresolved, crossCalls, whole: whole({ root, chunks, datas, cross, crossCalls }) };
 }
 
@@ -177,7 +181,7 @@ function stitchRelative({ chunks, datas, has, cratePrefix, crates }, c, o, { cro
   const via = crate ? { via: 'crate-path', crate } : { via: 'relative' };
   // Inside its own chunk the engine already decided; an import it left unlinked stays unlinked.
   if (owner === c) gap('unlinked inside its own chunk');
-  else if (owner) cross.push({ source, target, line: o.line, ...via, sourceChunk: c.id, targetChunk: owner.id, targetBuilt: datas.has(owner.id) });
+  else if (owner) cross.push({ source, target, line: o.line, ...(o.test && { test: true }), ...via, sourceChunk: c.id, targetChunk: owner.id, targetBuilt: datas.has(owner.id) });
   else if (target) gap('target file is in no chunk');
   else if (crate && !crates.get(crate)) gap('crate name is shared by several workspace crates');
   else gap(leavesRoot(source, o.specifier, cratePrefix) ? 'outside the stitched root' : unknownCrate(source, o.specifier) ? 'names no workspace crate' : 'no file matches the specifier');
@@ -193,7 +197,8 @@ function stitchPackage({ datas, byPackage }, c, x, cross) {
   const row = { target: `pkg:${owner.package}`, package: x.id, via: 'package', sourceChunk: c.id, targetChunk: owner.id, targetBuilt: datas.has(owner.id) };
   // Data from older builds counts importers without naming them: keep the chunk-level weight.
   if (!x.files) cross.push({ ...row, source: null, count: x.count });
-  for (const file of x.files ?? []) cross.push({ ...row, source: prefixOf(c) + file });
+  const testFiles = new Set(x.testFiles);
+  for (const file of x.files ?? []) cross.push({ ...row, source: prefixOf(c) + file, ...(testFiles.has(file) && { test: true }) });
 }
 
 // A call site a chunk left unbound (`not-declared-in-repo`) binds through its file's imports of other
@@ -203,7 +208,7 @@ function stitchPackage({ datas, byPackage }, c, x, cross) {
 // Everything else stays unbound and remains in the chunk's evidence: a repository-wide unique-name
 // fallback measured mostly wrong on Rust, and a last-segment match bound unrelated members.
 export function bindCalls({ chunks, datas, cross, crateItem = () => null }) {
-  const declared = declarationsByFile(chunks, datas);
+  const declared = Map.groupBy(chunkDeclarations(chunks, datas), d => d.file);
   const reach = importTargets(cross, declared, chunks);
   const index = new NameIndex(declared);
   const by = new Map();
@@ -211,8 +216,10 @@ export function bindCalls({ chunks, datas, cross, crateItem = () => null }) {
     const exact = crateCall(u, crateItem, index) ?? candidates(u, reach.get(prefixOf(c) + u.file), index);
     if (exact.length !== 1 || chunkOf(exact[0].file, chunks) === c) continue;
     const source = prefixOf(c) + u.from, k = `${source}>${exact[0].id}`;
-    const e = by.get(k) ?? { source, target: exact[0].id, line: u.line, count: 0, confidence: 'medium', resolution: ['stitched-import'], via: 'graph', crossChunk: true };
+    const e = by.get(k) ?? { source, target: exact[0].id, line: u.line, lines: [], test: true, count: 0, confidence: 'medium', resolution: ['stitched-import'], via: 'graph', crossChunk: true };
     e.count++;
+    e.test &&= Boolean(u.test);
+    if (Number.isInteger(u.line) && !e.lines.includes(u.line)) e.lines.push(u.line);
     by.set(k, e);
   }
   return [...by.values()];
@@ -258,14 +265,10 @@ class NameIndex {
 const NOT_CALLABLE = new Set(['module', 'namespace', 'type', 'interface', 'trait', 'impl', 'enum', 'label', 'property']);
 const topLevel = (d) => !NOT_CALLABLE.has(d.kind) && !d.id.split('#')[1]?.replace(/@\d+$/, '').includes('.');
 
-function declarationsByFile(chunks, datas) {
-  const declared = new Map();
+export function* chunkDeclarations(chunks, datas) {
   for (const c of chunks) for (const d of datas.get(c.id)?.declarations ?? []) {
-    const file = prefixOf(c) + d.file;
-    if (!declared.has(file)) declared.set(file, []);
-    declared.get(file).push({ ...d, id: prefixOf(c) + d.id, file });
+    yield { ...d, id: prefixOf(c) + d.id, file: prefixOf(c) + d.file };
   }
-  return declared;
 }
 
 // What each importing file reaches in other chunks: files of relative imports, and the imported workspace packages
@@ -312,6 +315,7 @@ function addChunk(m, c, D) {
 
 // Imports between chunks join the merged rows; an imported workspace package becomes a package node.
 function addCrossImports(m, cross, chunks) {
+  const byPair = new Map(m.imports.map(e => [JSON.stringify([e.source, e.target]), e]));
   const fileIds = new Set(m.files.map((f) => f.id));
   for (const e of cross.filter((x) => fileIds.has(x.source))) {
     if (!fileIds.has(e.target)) {
@@ -320,9 +324,18 @@ function addCrossImports(m, cross, chunks) {
       m.files.push({ id: e.target, label: owner.package, group: owner.path.split('/')[0], kind: 'package', chunk: owner.id, fanIn: 0, fanOut: 0 });
       fileIds.add(e.target);
     }
-    m.imports.push({ source: e.source, target: e.target, line: e.line ?? null, count: 1, confidence: 'high', resolution: [e.via], crossChunk: true });
+    const key = JSON.stringify([e.source, e.target]);
+    const edge = byPair.get(key) ?? { source: e.source, target: e.target, line: null, lines: [], count: 0, confidence: 'high', resolution: [], crossChunk: true, test: true };
+    edge.test = Boolean(edge.test && e.test);
+    edge.count += 1;
+    if (!edge.resolution.includes(e.via)) edge.resolution.push(e.via);
+    if (Number.isInteger(e.line) && !edge.lines.includes(e.line)) {
+      edge.lines.push(e.line);
+      edge.line = Math.min(edge.line ?? e.line, e.line);
+    }
+    byPair.set(key, edge);
   }
-  m.imports = [...new Map(m.imports.map((e) => [`${e.source}>${e.target}`, e])).values()];
+  m.imports = [...byPair.values()];
   return fileIds;
 }
 
@@ -331,7 +344,7 @@ const fileOf = (id) => id.split('#')[0];
 // Calls bound across chunks join the graph with their declarations as function nodes.
 function addCrossCalls(m, { crossCalls, fileIds, built, datas }) {
   const symbols = new Map(m.symbols.map((x) => [x.id, x]));
-  const declared = new Map(built.flatMap((c) => (datas.get(c.id).declarations ?? []).map((d) => [prefixOf(c) + d.id, { ...d, id: prefixOf(c) + d.id, file: prefixOf(c) + d.file }])));
+  const declared = new Map(Array.from(chunkDeclarations(built, datas), d => [d.id, d]));
   for (const e of crossCalls.filter((x) => fileIds.has(fileOf(x.source)) && fileIds.has(fileOf(x.target)))) {
     m.calls.push(e);
     for (const id of [e.source, e.target].filter((x) => x.includes('#') && !symbols.has(x))) {
@@ -355,6 +368,16 @@ function shape(m) {
     if (k.split('>')[0] !== k.split('>')[1]) crossings.set(k, (crossings.get(k) ?? 0) + 1);
   }
   return [...crossings].map(([k, count]) => ({ from: k.split('>')[0], to: k.split('>')[1], count }));
+}
+
+// Verify production hubs and files heavily used across chunk boundaries, including by tests.
+// Keeping boundary witnesses in probe selection makes confirmation independent of production reporting.
+function probeHubs(files, imports) {
+  const budget = 8;
+  const incoming = new Map();
+  for (const e of imports) if (!e.test || e.crossChunk) incoming.set(e.target, (incoming.get(e.target) ?? 0) + 1);
+  const boundaries = files.filter(f => incoming.has(f.id)).toSorted((a, b) => incoming.get(b.id) - incoming.get(a.id));
+  return [...new Set([...files.slice(0, budget), ...boundaries.slice(0, budget)].map(f => f.id))];
 }
 
 // One section-shaped data.json over every built chunk, ids relative to the root.
@@ -391,7 +414,7 @@ function whole({ root, chunks, datas, cross, crossCalls }) {
       groups,
       mutualGroups: groups.filter((g) => g.from < g.to && groups.some((d) => d.from === g.to && d.to === g.from)).map((g) => [g.from, g.to]),
     },
-    hubFiles: sources.slice(0, 8).map((f) => f.id),
+    hubFiles: probeHubs(sources, m.imports),
     externals: [...m.externals.values()].filter((x) => !chunks.some((c) => c.package && packageKey(c.package) === packageKey(x.id))).toSorted((a, b) => b.count - a.count),
     callStats: { mode: 'graph', lsp: 'off' },
     tokens: { sourceBytes: 0, sourceFiles: m.files.length },

@@ -44,7 +44,6 @@ if (isMainModule(import.meta.url)) {
   else {
     for (const [k, v] of Object.entries(r)) console.log(`${v.startsWith('ok') ? 'ok     ' : 'MISSING'} ${k.padEnd(16)} ${v}`);
     if (todo.length) console.log(`\nTo enable:\n${todo.map((t) => `- ${t.layer}: ${t.enable}`).join('\n')}`);
-    console.log('\nThe viewer loads d3 7.9.0 from cdnjs: it needs network access for that file.');
   }
   process.exit(r.cli === 'ok' && r.graph === 'ok' ? 0 : 1);
 }

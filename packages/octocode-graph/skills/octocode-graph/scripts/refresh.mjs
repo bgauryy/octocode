@@ -7,7 +7,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { planChunks } from './plan.mjs';
-import { readGraph } from './graph-pages.mjs';
+import { chunkFreshness } from './verify.mjs';
 import { pool, prepareGraphRun } from './lib.mjs';
 import { buildChunk, defaults, finishRun, listFiles, manifestName, readEvents, reportTools, runPipeline, stitchPhase, writeGraph } from './pipeline.mjs';
 import { chunkOf } from './stitch.mjs';
@@ -56,34 +56,20 @@ function loadResult(out, opts) {
   return { D, chunks, datas, options, keep, files: previousListing(out, events, keep) };
 }
 
-// Root-relative files one chunk's snapshot reports changed, added or missing; `reasons` says why a chunk is
-// rebuilt without a file list (an older analysis, a frozen copy, or a failed query).
-async function staleOf(c, data) {
-  const { id, root, queryRoot } = data.snapshot;
-  if (data.frozen) return { files: [], reason: 'built from a frozen copy, whose snapshot cannot see later edits' };
-  try {
-    const r = await readGraph({ operation: 'stale', path: root, graph: id, limit: 1000 }, { snapshotRoot: queryRoot });
-    const rows = r.rows.filter((row) => typeof row.path === 'string');
-    const files = rows.map((row) => ({ file: prefixOf(c.path) + row.path, status: row.status ?? 'changed' }));
-    return { files, reason: r.freshness?.analysisCurrent === false ? 'the graph analysis changed since the snapshot' : '' };
-  } catch (error) {
-    return { files: [], reason: `stale check failed: ${String(error.message).split('\n')[0]}` };
-  }
-}
-
 // Which chunks hold a change: their snapshot's stale files, plus listed files added or removed inside them.
-async function detect(state, { root, emit, jobs }) {
+async function detect(state, { root, emit, jobs, graphBatch }) {
   // The listing's own pages stay out of the stream; a fallback note still reaches the viewer.
-  const files = (await listFiles(root, (e) => { if (e.type !== 'skeleton') emit(e); })).filter(state.keep);
+  const files = (await listFiles(root, (e) => { if (e.type !== 'skeleton') emit(e); }, state.options.file)).filter(state.keep);
   const before = new Set(state.files), now = new Set(files);
   const added = files.filter((p) => !before.has(p)), removed = state.files.filter((p) => !now.has(p));
   const built = state.chunks.filter((c) => state.datas.has(c.id));
-  const stale = await pool(built, jobs, (c) => staleOf(c, state.datas.get(c.id)));
+  const stale = await chunkFreshness(built, state.datas, { jobs, graphBatch });
   const changed = new Map();
   const mark = (c, file) => { if (c) changed.set(c.id, [...(changed.get(c.id) ?? []), ...(file ? [file] : [])]); };
-  built.forEach((c, i) => {
-    for (const s of stale[i].files) mark(c, s.file);
-    if (stale[i].reason) { mark(c); emit({ type: 'note', level: 'warn', text: `refresh: ${c.path} is rebuilt: ${stale[i].reason}` }); }
+  built.forEach(c => {
+    const { files: staleFiles, reason } = stale.get(c.id);
+    for (const s of staleFiles) mark(c, s.file);
+    if (reason) { mark(c); emit({ type: 'note', level: 'warn', text: `refresh: ${c.path} is rebuilt: ${reason}` }); }
   });
   for (const p of [...added, ...removed]) mark(chunkOf(p, state.chunks), p);
   const changes = [...added, ...removed];
@@ -176,7 +162,7 @@ async function refreshResult({ root, out, opts = {}, emit, signal, publish }) {
   const state = loadResult(out, opts);
   state.extensions = contract.extensions;
   const options = state.options;
-  const found = await detect(state, { root, emit, jobs: options.jobs });
+  const found = await detect(state, { root, emit, jobs: options.jobs, graphBatch: contract.graphBatch });
   const summary = { changed: found.editedFiles, added: found.added, removed: found.removed };
   if (found.plan.length) {
     const D = await rerun(state, { root, out, opts: options, emit, signal, publish });

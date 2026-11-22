@@ -233,7 +233,12 @@ fn unchanged_receipt(
         Ok(tables)
     })
     .ok()?;
-    if !snapshot_changes(paths, root, &tables, manifest, true)
+    let source_root = if manifest["fileScope"].is_string() {
+        root.parent()?
+    } else {
+        root
+    };
+    if !snapshot_changes(paths, source_root, &tables, manifest, true)
         .changes
         .is_empty()
     {
