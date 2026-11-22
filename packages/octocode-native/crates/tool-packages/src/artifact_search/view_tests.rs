@@ -43,6 +43,7 @@ fn page() -> ArtifactProviderPage {
         total: None,
         terminal_limit: None,
         registry: None,
+        any_keyword_total: None,
     }
 }
 

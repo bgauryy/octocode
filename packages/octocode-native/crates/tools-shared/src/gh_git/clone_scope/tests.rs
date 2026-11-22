@@ -139,3 +139,27 @@ fn the_reclone_adds_the_missing_path_at_the_same_commit() {
         assert!(note.contains("src"), "{note}");
     }
 }
+
+/// The coverage note's verb agrees with what it lists: one path alone is
+/// singular; several paths, or a path beside the root's files, are plural.
+#[test]
+fn the_coverage_warning_agrees_in_number_with_the_scope() {
+    let temp = tempfile::tempdir().expect("temp");
+    let note = |paths: &[&str], root_files: bool| {
+        let root = temp.path().join(format!("c{}{root_files}", paths.len()));
+        checkout(
+            &root,
+            &temp.path().join(format!("a{}{root_files}", paths.len())),
+            Some(&record(Some(paths), root_files)),
+        );
+        clone_scope(&root).expect("scope").coverage_warning()
+    };
+    let one = note(&["lib/response.js"], false);
+    assert!(one.contains("lib/response.js is on disk"), "{one}");
+    for plural in [
+        note(&["lib", "src"], false),
+        note(&["lib/response.js"], true),
+    ] {
+        assert!(plural.contains(" are on disk"), "{plural}");
+    }
+}

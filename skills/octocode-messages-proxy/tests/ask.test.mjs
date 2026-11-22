@@ -20,7 +20,7 @@ function ask(t, args, comm = {}) {
   fakeProcesses(dir, { selfParent: 9001, rows: [[9001, 1, 'node', 'octocode-main-abcd1234']] });
   const state = fakeComm(dir, { peers: [worker], ...comm });
   const result = spawnSync('python3', [relay, 'ask', '--workspace', dir, '--to', 'build-worker', '--text', text,
-    '--timeout', '20', ...args], {
+    '--timeout', '20', '--ready-timeout', '300', ...args], {
     cwd: dir, encoding: 'utf8',
     env: { ...process.env, PATH: dir + path.delimiter + process.env.PATH, PYTHONDONTWRITEBYTECODE: '1' },
   });
@@ -85,7 +85,16 @@ test('a proxy vendor error fails before sending and names the cause', t => {
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /usageLimitExceeded/);
   assert.deepEqual(state.sent, []);
+  assert.deepEqual(state.left, ['operator-1'], `stderr: ${result.stderr}\ncalls: ${JSON.stringify(state.calls)}`);
+});
+
+test('a proxy that never reports ready fails after --ready-timeout, sends nothing and stops it', t => {
+  const { result, state } = ask(t, ['--ready-timeout', '1'], { proxy: 'silent' });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Proxy not ready within 1.0s/);
+  assert.deepEqual(state.sent, []);
   assert.deepEqual(state.left, ['operator-1']);
+  assert.equal(alive(state.proxyPid), false);
 });
 
 test('no reply within --timeout fails, leaves the message pending and stops the proxy', t => {

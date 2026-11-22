@@ -238,6 +238,7 @@ pub struct Region {
     ptr: *mut u8,
     #[cfg(not(unix))]
     heap: Vec<u8>,
+    #[cfg(unix)]
     len: usize,
 }
 
@@ -281,10 +282,7 @@ impl Region {
         }
         #[cfg(not(unix))]
         {
-            Ok(Self {
-                heap: vec![0; len],
-                len,
-            })
+            Ok(Self { heap: vec![0; len] })
         }
     }
 

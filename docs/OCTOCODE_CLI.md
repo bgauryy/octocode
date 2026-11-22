@@ -30,15 +30,9 @@ The CLI lists 16 tools by default, including graph, clone and security tools. A 
 
 ## Output
 
-| Stream or format | What to read |
-|---|---|
-| Text on stdout | Hits and source lines with their paths. When a row's paths share a directory, it prints once as `# root: <dir>` and the paths after it are relative to it: join the root, `/` and a printed path to get the path another call takes (a lone path, or paths with no common directory, print whole). A line number refers to the source file. Each batch row starts with `## results[N]`, where N is the query's position. Lines starting with `#` give status, coverage, warnings, hints and the command for the next page. |
-| Notes on stderr | One counter line per row, related leads and runtime notices. |
-| `--json` on stdout | A result envelope with one indexed row per query, or a structured error. Keep the request beside the response when you save JSON. |
+The default text view shows paths, hits and source lines. When paths share a directory, `# root` names it. Progress notes go to stderr. Use `--json` for exact values in a script.
 
-Text output rounds fractions to four significant digits. Values of 10,000 or more round to an integer. For example, `0.20158` prints as `0.2016`. Use `--json` when exact values matter.
-
-When output includes a continuation command, run it unchanged. A reply that ends with a `# next:` command is unfinished: run it until none is printed. A row's `next.*` entries cover specific branches, such as an exact read. [Tool data contract](TOOL_DATA_CONTRACT.md#executable-continuations)
+If the output ends with a `# next:` command, run it to read the next page. [Read tool results](TOOL_DATA_CONTRACT.md#executable-continuations)
 
 ### Exit codes
 
@@ -53,7 +47,7 @@ When output includes a continuation command, run it unchanged. A reply that ends
 | 7 | `transient`: a timeout, outage or rate limit. Retry when the row says `retryable: true`. |
 | 130 | Interrupted. |
 
-Exit 3 is never used. Every error row states its `errorClass`. A batch exits with the strictest row's code, in this order: 2, 4, 6, 5, then 7. A mix of successful and empty rows exits 0, so read each row.
+For a batch, check each row's status. A mix of successful and empty rows exits 0.
 
 ## Install the MCP server
 
@@ -90,7 +84,7 @@ octocode lsp-server list
 octocode lsp-server install rust-analyzer
 ```
 
-Managed installs cover `rust-analyzer` and `clangd`. `lsp-server status --live` also starts the configured servers and completes their `initialize` step. [Other languages and custom servers](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md)
+For a custom server, configure `lsp-servers.json` in your Octocode home. Use `lsp-server status --live` to check that the server starts. [Language server configuration](CONFIGURATION.md#set-a-value)
 
 ## `skill` — agent skills
 

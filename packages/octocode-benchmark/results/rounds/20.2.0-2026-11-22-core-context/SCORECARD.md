@@ -1,10 +1,20 @@
 # Public tool results and context ratings
 
-All 17 tools were exercised directly. Two previous connected-service failures cleared. Search results now preserve evidence for the requested Git ref, and the compact advisory answer keeps its vector associated with the right record. The live repository search still withholds active repositories when the caller explicitly selects `archived`.
+All 17 tools were exercised directly. Two previous connected-service failures cleared. Search results now preserve evidence for the requested Git ref, and the compact advisory answer keeps its vector associated with the right record. The original round also found an archive-field defect in repository search. The live recheck below confirmed its correction.
 
 The [context inventory](CONTEXT.md) contains each exact description and schema size, the full shared instructions, instruction ratings, and the distinction between what a client loads at connection and what it can fetch later.
 
+## Latest live recheck, 22 November 2026
+
+**Octocode rates 8.7/10 provisionally.** The equal-weight mean of 17 tool grades rose from 8.4 to 8.7 after a fresh live check raised `ghSearchRepo` from 4.0 to 8.8. The other 16 tool grades carry forward from the table below.
+
+The connected MCP returned explicit `false` for both active repositories and `true` for the archived control. The four-page repository search returned four unique repositories with the archive status of each independently confirmed against GitHub. The owner listing returned 24 active and 8 archived rows. Both default branches led to a concrete commit, and a missing owner produced an executable correction.
+
+The revised repository grade uses correctness 9, schema 8, output 9, paging 9 and workflow 9, covering 80% of the rubric. The connected build identity was unavailable. The verified native build still returned a transient transport error for a fresh public clone. Large-source scout coverage, release-performance comparisons and the full native release gate remain open.
+
 ## Ratings
+
+The table records the original build and live observations. The later archive recheck above supersedes its repository grade.
 
 Ratings are provisional and scoped to the observations in the last column. Description is a separate editorial grade. The result score uses the benchmark weights for correctness (30), schema/input (15), output (15), pagination (10), workflow (10), efficiency (15), and freshness (5). The full efficiency comparison was unmeasured for every tool. A dash marks a dimension omitted from this round’s denominator. The live lost-evidence rule caps repository search at 4.0. Confidence is medium except for clone, where the positive path was unavailable. A score of 9 reflects strong evidence in the sample, and 10 requires broader coverage.
 

@@ -273,6 +273,17 @@ impl Selectors {
         self.naming.iter().any(|named| named == field)
     }
 
+    /// Whether some form pins `field` to a set holding `value`.
+    pub(super) fn value_known(&self, field: &str, value: &Value) -> bool {
+        self.literal_sets
+            .iter()
+            .filter(|(name, _)| name == field)
+            .any(|(_, sets)| {
+                sets.iter()
+                    .any(|set| set.iter().any(|literal| equivalent(value, literal)))
+            })
+    }
+
     /// Whether `value`, sent for `field`, is the one literal a single form
     /// pins the field to (`operation: "stats"` beside forms sharing other
     /// operations): the row is of that form by that value alone, so a

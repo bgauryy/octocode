@@ -58,8 +58,8 @@ export async function graphBuild(row, { run = graphCall, onProgress = () => {} }
     const response = await readResponse('graphBuild', input, { run: (tool, args) => run(tool, args, { onStderr }) });
     const data = dataOf('graphBuild', {results:response.results.slice(-1)});
     const next = data.next?.expandScan;
-    if (next?.kind === 'continue' && next.input) { input = next.input; continue; }
-    if (!data.id) throw new Error('graphBuild returned no published snapshot or resume continuation');
+    if (next?.tool === 'graphBuild' && next.input) { input = next.input; continue; }
+    if (!data.graph) throw new Error('graphBuild returned no published snapshot or resume continuation');
     return data;
   }
 }
@@ -115,6 +115,11 @@ function listOf(name, first, rows, pageStart) {
     delete member.nodesTruncated;
     return member.nodes;
   }
+  // An impact page gives the count; the branch carries the actual entries.
+  if (Number.isInteger(first.summary?.[name])) {
+    first.summary[name] = [];
+    return first.summary[name];
+  }
   const [section, field, extra] = name.split('.');
   const list = first[section]?.[field];
   if (!['summary', 'baseline'].includes(section) || extra || !Array.isArray(list)) throw new Error(`Unknown graph evidence list: ${name}`);
@@ -138,16 +143,23 @@ export async function readGraph(row, { run = graphCall, save = () => {}, onPage 
     const response = await readResponse('graphQuery', input, { run, collectionPaths, collectionRefs, onPage: (raw, call) => save(call.input, raw, scopePaths(structuredClone(dataOf('graphQuery', raw)))) });
     return response.results.map((result) => {
       const data = scopePaths(structuredClone(dataOf('graphQuery', {results:[result]})));
+      // A page can state the common witness source once beside its rows.
+      if (typeof data.from === 'string' && Array.isArray(data.rows)) {
+        for (const edge of data.rows) edge.from ??= data.from;
+      }
       onPage(data);
       return data;
     });
   }
   async function extras(data, first, rows, pageStart) {
     for (const [name, call] of Object.entries(data.next ?? {})) {
-      if (call?.kind !== 'continue') continue;
+      if (name === 'retry' || name === 'restart') continue;
+      if (call?.tool !== 'graphQuery' || !call.input) throw new Error(`Missing graph continuation for ${name}`);
+      const count = first.summary?.[name];
       const list = listOf(name, first, rows, pageStart);
       const tail = await collect(call.input, list.length);
       list.push(...tail.rows);
+      if (Number.isInteger(count) && list.length !== count) throw new Error(`Incomplete graph evidence list: ${name}`);
     }
   }
   // `shown`: rows of this list an earlier page already carried (a summary list or a cycle's first members).

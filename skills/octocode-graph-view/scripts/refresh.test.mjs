@@ -40,7 +40,7 @@ else if (a[0] === 'graphBuild') {
   const h = hashes(row.path), id = 'snap-' + createHash('sha1').update(row.path + JSON.stringify(h)).digest('hex').slice(0, 12);
   appendFileSync(stateFile, relative(root, row.path) + '\n');
   writeFileSync(snapFile(id), JSON.stringify(h));
-  out({ id, root: row.path, counts: { nodes: 1, edges: 1 } });
+  out({ graph: id, root: row.path, counts: { nodes: 1, edges: 1 } });
 } else if (row.operation === 'stale') {
   const before = existsSync(snapFile(row.graph)) ? JSON.parse(readFileSync(snapFile(row.graph), 'utf8')) : {}, now = hashes(row.path);
   const rows = [...Object.keys(before).filter((p) => now[p] !== before[p]).map((p) => ({ path: p, status: now[p] ? 'changed' : 'missing' })), ...Object.keys(now).filter((p) => !before[p]).map((p) => ({ path: p, status: 'added' }))];

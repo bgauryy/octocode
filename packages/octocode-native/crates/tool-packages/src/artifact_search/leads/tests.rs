@@ -12,6 +12,18 @@ fn item(artifact_type: ArtifactType, repository: &str) -> ArtifactItem {
     item
 }
 
+#[test]
+fn a_non_github_warning_preserves_the_registrys_release_ref() {
+    let mut row = item(ArtifactType::Go, "https://go.googlesource.com/text");
+    row.source_ref = Some("6c97a165".into());
+    for repository in [row.repository.clone(), None] {
+        row.repository = repository;
+        let warning = super::unknown_source_warning(&row).expect("no GitHub handoff");
+        assert!(!warning.contains("no release ref"), "{warning}");
+        assert!(warning.contains("GitHub"), "{warning}");
+    }
+}
+
 /// A versioned row whose source resolves to the default branch (a
 /// monorepo package without a release ref) warns that the branch may
 /// hold another version; a row at a release ref, or a discovery row,

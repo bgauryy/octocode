@@ -227,7 +227,18 @@ fn other_homes(home: &Path, root: &Path, paths: &PathPolicy) -> Vec<PathBuf> {
         .collect()
 }
 
-fn missing_snapshot(message: &str, root: &Path, home: &Path, paths: &PathPolicy) -> GraphOutput {
+const BUILD_LEAD: &str =
+    "Use an existing snapshot ID, or run graphBuild for this path and use its returned ID.";
+/// For a query that sent neither `graph` nor `path`: what selects a snapshot.
+const UNSCOPED_LEAD: &str = "The query sent neither `graph` nor `path`: pass `graph` (an existing snapshot id, e.g. from .octocode/graph) or `path` (the scope a snapshot was built for), or build one.";
+
+fn missing_snapshot(
+    message: &str,
+    lead: &str,
+    root: &Path,
+    home: &Path,
+    paths: &PathPolicy,
+) -> GraphOutput {
     // Named as a row path is: from the workspace root, else absolute (a
     // configured home, or another workspace's).
     let mut out = GraphOutput::error(
@@ -235,9 +246,7 @@ fn missing_snapshot(message: &str, root: &Path, home: &Path, paths: &PathPolicy)
         format!("{message} (searched {})", paths.shown(home)),
     );
     let others = other_homes(home, root, paths);
-    let mut hints = vec![String::from(
-        "Use an existing snapshot ID, or run graphBuild for this path and use its returned ID.",
-    )];
+    let mut hints = vec![String::from(lead)];
     if !others.is_empty() {
         let others = others
             .iter()
@@ -338,6 +347,7 @@ impl Snapshots<'_> {
                 || {
                     missing_snapshot(
                         "snapshot ID does not exist in this workspace",
+                        BUILD_LEAD,
                         self.root,
                         self.home,
                         self.paths,
@@ -393,7 +403,15 @@ fn options(
                     .is_some_and(|m| m.root.as_deref() == Some(root.to_string_lossy().as_ref()))
             })
             .ok_or_else(|| {
-                missing_snapshot("no snapshot for this exact path", &root, &home, paths)
+                let (error, lead) = if default_path && row.get("graph").is_none() {
+                    (
+                        "no snapshot for the workspace root (no path sent)",
+                        UNSCOPED_LEAD,
+                    )
+                } else {
+                    ("no snapshot for this exact path", BUILD_LEAD)
+                };
+                missing_snapshot(error, lead, &root, &home, paths)
             })?,
     };
     let snapshots = Snapshots {

@@ -193,6 +193,7 @@ pub(crate) async fn packagist(
         total: total(data.get("total")),
         terminal_limit: None,
         registry: None,
+        any_keyword_total: None,
     })
 }
 

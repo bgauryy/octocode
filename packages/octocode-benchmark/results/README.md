@@ -14,7 +14,8 @@ previous version and the stored baselines.
 
 | Version | Date | Build | Round (scorecard or stored folder) | Headline |
 |---|---|---|---|---|
-| 20.2.0 | 2026-11-22 | dev build `9599f78a…eed12` | [Results and ratings](rounds/20.2.0-2026-11-22-core-context/SCORECARD.md) · [Core context inventory](rounds/20.2.0-2026-11-22-core-context/CONTEXT.md) · [Workflow receipts](rounds/20.2.0-2026-11-22-core-context/EFFICIENCY.md) | Fresh results and measured descriptions, schemas and instructions for all 17 tools. Two prior live failures cleared. An explicit archived field still withholds active repository rows. |
+| 20.2.0 | 2026-11-22 | staged host `881395dd…15813` | [Staged tool and core audit](rounds/20.2.0-2026-11-22-staged-audit/SCORECARD.md) | All 17 tools exercised. The public clone workflow and three older connected regressions passed. A contradictory Go release warning caps artifactSearch at 4.0. Provisional mean 8.6/10. |
+| 20.2.0 | 2026-11-22 | dev build `9599f78a…eed12` | [Results and ratings](rounds/20.2.0-2026-11-22-core-context/SCORECARD.md) · [Core context inventory](rounds/20.2.0-2026-11-22-core-context/CONTEXT.md) · [Workflow receipts](rounds/20.2.0-2026-11-22-core-context/EFFICIENCY.md) | Fresh results and measured descriptions, schemas and instructions for all 17 tools. The follow-up live archive check passed. The provisional 17-tool mean is 8.7/10. |
 | 20.2.0 | 2026-11-22 | dev build `62f112ed…8949a7` | [Public tool recheck](rounds/20.2.0-2026-11-22-tool-recheck/SCORECARD.md) | All 17 tools rated across local, GitHub, package, security and classifier workflows. Provider-backed verification on the rebuilt host was limited. |
 | 20.2.0 | 2026-11-21 | dev build `e246ff42…a405f` (`20.2.0+56f67471`, after fix round 5) | [Rating round 4](rounds/20.2.0-2026-11-21-ratings-round-4/SCORECARD.md) | Not ready: rater average 8.6 (round 3 8.2), gated 8.1 (7.6), correct 9.5; 34 round-3 issues fixed, 12 partly; lspSearch uncapped; astSearch and graphQuery still capped at 4 (R4-K1 silent miss after an unterminated key block, R4-G1 symbol impact wrong both ways); R4-C1 search `classification` bills without a cap; 42 findings in FINDINGS.md |
 | 20.2.0 | 2026-11-20 | dev build `cb4b7786…a422` (`20.2.0+4476eb38`, after fix round 4) | [Rating round 3](rounds/20.2.0-2026-11-20-ratings-round-3/SCORECARD.md) | Not ready: rater average 8.2 (round 2 8.0), correct 9.4; every re-tested round-2 issue fixed or partly fixed; astSearch, lspSearch and graphQuery capped at 4 by new silent misses or a wrong count (R3-K1, R3-K2, R3-G1); 48 findings in FINDINGS.md |
@@ -47,6 +48,8 @@ report, `per_question_summary.json`, the visual `index.html`) are also tracked o
 `git show main:packages/octocode-benchmark/results/<file>`.
 
 ## Rounds (tracked)
+
+The 22 November 2026 core-context round includes the [blocker inventory and ratings for all 25 skills](rounds/20.2.0-2026-11-22-core-context/BLOCKERS-AND-SKILLS.md).
 
 Every folder under `rounds/` is listed here; add a line when a round lands. Keep the newest scorecards; fold older ones into a timeline row.
 

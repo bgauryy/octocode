@@ -3,8 +3,9 @@
 //! name leaves out the calls that qualify it (`redact_lines($$$A)` against
 //! `octocode_runtime_base::security::scan::redact_lines(x)`), and a name inside a larger
 //! pattern leaves out its qualified spelling (`impl ToolOutput for $T {}`
-//! against `impl crate::x::ToolOutput for B {}`). A first page counts those
-//! longer spellings in the files its scan evaluated and leads to the rule
+//! against `impl crate::x::ToolOutput for B {}`). A page counts those
+//! longer spellings in the files its scan evaluated (a paged walk reads its
+//! scope window by window: each window discloses what its own files hold) and leads to the rule
 //! that lists them all. A call on a bare name also leaves out the calls on a
 //! receiver (`sanitize_text($$$A)` against `self.sanitize_text(x)`): in a
 //! grammar with `::` paths those are a second longer spelling, counted and
@@ -51,6 +52,10 @@ pub(super) struct QualifiedMiss {
     /// The summary `view` the call asked for, which the lead keeps
     /// ([`asked_view`]).
     view: Option<Value>,
+    /// The page is a later window of a paged walk: the count is of the
+    /// files that window read, as each window discloses what its own files
+    /// hold.
+    later: bool,
 }
 
 /// A pattern of the rule: the JSON pointer of the rule object that holds it,
@@ -90,7 +95,7 @@ pub(super) fn qualified_miss(
     (paths, row_paths): (&PathPolicy, RowPaths<'_>),
     cancel: &dyn CancellationCheck,
 ) -> Option<QualifiedMiss> {
-    if q.page() != 1 || q.scan_offset() != 0 || (scan.truncated && !scan.filled) {
+    if q.page() > 1 || (scan.truncated && !scan.filled) {
         return None;
     }
     let rule = q.rule()?;
@@ -159,6 +164,7 @@ pub(super) fn qualified_miss(
         unprobed,
         queries,
         view: asked_view(q),
+        later: q.scan_offset() > 0,
     })
 }
 
@@ -573,6 +579,7 @@ impl QualifiedMiss {
             unprobed,
             queries,
             view,
+            later,
         } = self;
         let unprobed = unprobed
             .map(|(files, first)| {
@@ -585,9 +592,10 @@ impl QualifiedMiss {
             .collect::<Vec<_>>()
             .join(" or ");
         let more = if floor { "at least " } else { "" };
+        let window = if later { " this page's scan read" } else { "" };
         let message = match first {
             Some(first) => format!(
-                "The pattern matches the path as written: {more}{count} more match(es) in {files} file(s) spell a path or receiver before {names} (first: {first}).{unprobed}"
+                "The pattern matches the path as written: {more}{count} more match(es) in {files} file(s){window} spell a path or receiver before {names} (first: {first}).{unprobed}"
             ),
             None => format!("The pattern matches the path as written.{unprobed}"),
         };

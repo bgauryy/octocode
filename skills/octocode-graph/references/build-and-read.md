@@ -1,14 +1,14 @@
 # Build a graph and read its rows
 
-Load when creating or refreshing a snapshot, or before interpreting rows, weights, confidence or gaps. `$OCTO` is the CLI named in the lobby.
+Load when creating or refreshing a snapshot, or before interpreting rows, weights, confidence or gaps.
 
 ## Create
 
 ```bash
-$OCTO graphBuild '{"queries":[{"path":"."}]}'
+octocode graphBuild '{"queries":[{"path":"."}]}'
 ```
 
-- Use the **same `path`** for build and every query; omit `graph` to read the newest snapshot of exactly that path, or pin the returned `id`.
+- Use the **same `path`** for build and every query; omit `graph` to read the newest snapshot of exactly that path, or pass the build row’s `data.graph` as `graph` to pin the snapshot.
 - An unchanged scope returns its snapshot at once. After edits, `graphQuery` `stale` reports `fresh:false` with a `reingest` call: run it.
 - A long build pauses with progress: run `next.expandScan`, or repeat the call to resume. `scopeTooBroad` names narrower scopes: split there, never at a guessed size.
 - Check `linkage` and `diagnostics` in the receipt before trusting call answers: linkage counts syntax call sites the engine linked, not semantic recall.

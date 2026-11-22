@@ -11,7 +11,7 @@ use super::util::str_at;
 use crate::gh_get_history_item::gh_get_history_item_query;
 use octocode_contract_types::GhGetHistoryItemQuery;
 use octocode_runtime_base::response::pages::SpanFacts;
-use octocode_runtime_base::response::paging::push_warnings;
+use octocode_runtime_base::response::paging::{push_notice, push_warnings};
 use octocode_runtime_base::response::result::Continuation;
 use octocode_runtime_base::response::result::wire_query;
 use octocode_tools_shared::gh_shared::ensure_calls;
@@ -98,6 +98,9 @@ pub(super) fn shape_file_page(
     if let Some(window) = patch_window {
         out["sectionPagination"][Axis::Patches.key()] = window.to_value();
     }
+    if patches {
+        notice_patch_total_scope(out, &page, query);
+    }
     super::window::lift_page_limits(out, &mut page);
     out["sectionPagination"][Axis::Files.key()] = page;
     let mut without_match = None;
@@ -136,6 +139,31 @@ pub(super) fn shape_file_page(
         side_reads,
         without_match,
     }
+}
+
+/// A patch total counts the chars of one file page's patch stream, not of the
+/// whole change: when more files lie before or after the page, say so once,
+/// on the page's first patch window.
+pub(super) fn notice_patch_total_scope(row: &mut Value, page: &Value, query: &HistoryItemRequest) {
+    if gh_get_history_item_query::char_offset(query).is_some_and(|offset| offset > 0) {
+        return;
+    }
+    let count = |key: &str| page.get(key).and_then(Value::as_u64);
+    let (Some(offset), Some(length)) = (count("offset"), count("length")) else {
+        return;
+    };
+    let more = page.get("hasMore").and_then(Value::as_bool) == Some(true);
+    if length == 0 || (offset == 0 && !more) {
+        return;
+    }
+    push_notice(
+        row,
+        format!(
+            "patches counts the chars of files {}-{} only; each file page has its own patch stream.",
+            offset + 1,
+            offset + length
+        ),
+    );
 }
 
 /// The rows of a filtered file page and their complete patch-stream facts:

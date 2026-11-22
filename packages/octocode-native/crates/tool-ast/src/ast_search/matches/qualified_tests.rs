@@ -337,6 +337,7 @@ fn the_note_states_unprobed_files_and_keeps_its_count() {
         unprobed: Some((3, "b.rs".to_owned())),
         queries,
         view: None,
+        later: false,
     };
     let explained = json_fixture(r#"{"kind": "related", "tool": "astSearch"}"#);
     let mut out = json!({"calls": {"broadenSearch": explained}});
@@ -764,4 +765,32 @@ fn a_file_that_spells_no_name_after_a_separator_is_not_scanned_again() {
     assert_eq!(notes.len(), 1, "{out}");
     let message = notes[0]["message"].as_str().expect("message");
     assert!(message.contains("1 more match(es)"), "{message}");
+}
+
+/// A paged walk reads its scope window by window: the window whose files
+/// spell a path before the name discloses it, wherever it lies in the walk,
+/// and the windows whose files spell none say nothing.
+#[test]
+fn a_paged_walk_discloses_qualified_spellings_where_a_window_reads_them() {
+    let root = Fixture::new();
+    for file in 0..30 {
+        let call = if file == 25 { "m::hit(1)" } else { "hit(1)" };
+        root.write(
+            &format!("f{file:02}.rs"),
+            format!("fn f() {{\n    {call};\n}}\n"),
+        );
+    }
+    let query = json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"hit($A)"},"limit":2});
+    let pages = crate::ast_search::test_rows::ast_chain(&root.0, query);
+    assert!(pages.len() > 3, "{}", pages.len());
+    let noted = pages
+        .iter()
+        .filter(|page| !qualified_notes(page).is_empty())
+        .count();
+    assert_eq!(noted, 1, "one window reads the qualified file");
+    let page = pages
+        .iter()
+        .find(|page| !qualified_notes(page).is_empty())
+        .expect("a page");
+    assert_eq!(lead_rows(page).len(), 1, "{page}");
 }

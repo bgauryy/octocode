@@ -114,7 +114,6 @@ def proxy_failure(events, log_path):
 def ask(args, comm, operator, plan_proxy, proxy_command):
     """Relay one message to a worker through a fresh proxy; return the process exit code."""
     preflight(comm)
-    deadline = time.monotonic() + args.timeout
     suffix = uuid4().hex[:8]
     joined = not args.session
     if joined:
@@ -152,16 +151,18 @@ def ask(args, comm, operator, plan_proxy, proxy_command):
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                                    cwd=comm.workspace, start_new_session=True)
         events = watch(process, log)
+        ready_deadline = time.monotonic() + args.ready_timeout
         while True:
             try:
-                kind, value = events.get(timeout=max(0.0, deadline - time.monotonic()))
+                kind, value = events.get(timeout=max(0.0, ready_deadline - time.monotonic()))
             except queue.Empty:
-                fail(f"Proxy not ready within {args.timeout}s; log: {log.name}")
+                fail(f"Proxy not ready within {args.ready_timeout}s; log: {log.name}")
             if kind == "ready":
                 proxy_id = value
                 break
             fail(f"Proxy {'failed: ' + value if kind == 'error' else f'exited {value}'} before it was ready; log: {log.name}")
         plan["proxy"]["id"] = proxy_id
+        deadline = time.monotonic() + args.timeout
         context = args.context or f"ask-{suffix}"
         receipt = comm.call(["send_message"], {
             "to": proxy_id, "parts": [{"data": {"to": worker["id"], "parts": [{"text": args.text}]}}],

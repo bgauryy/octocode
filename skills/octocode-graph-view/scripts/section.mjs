@@ -162,7 +162,7 @@ export async function buildSection(section, { out, jobs = 8, exclude = [], emit 
   writeFileSync(join(evidence, 'ingest.json.gz'), gzipSync(JSON.stringify(snap)));
   // Every query repeats the build's path and pins its snapshot id.
   const q = (stream, fields) => {
-    const row = { ...fields, path, graph: snap.id };
+    const row = { ...fields, path, graph: snap.graph };
     const file = join(evidence, `${createHash('sha256').update(JSON.stringify(row)).digest('hex')}.jsonl.gz`);
     // The call count of this walk: a page states where it starts (`pagination.offset`), not its number.
     let pages = 0;
@@ -175,7 +175,7 @@ export async function buildSection(section, { out, jobs = 8, exclude = [], emit 
       if (stream && STREAMED[row.operation] && page.rows?.length) emit(stream, page.rows, { page: pages, total: totalOf(page) });
     } });
   };
-  emit('snapshot', [], { id: snap.id, ingestMs, frozen, counts: snap.counts, linkage: snap.linkage?.ratio });
+  emit('snapshot', [], { id: snap.graph, ingestMs, frozen, counts: snap.counts, linkage: snap.linkage?.ratio });
   // Walks that need nothing else start at once, so their cursor chains overlap the witness groups.
   const outsideWalk = q(null, { operation: 'diagnostics', limit: 1000 });
   const independent = Promise.all([
@@ -187,8 +187,8 @@ export async function buildSection(section, { out, jobs = 8, exclude = [], emit 
   const found = await q('files', { operation: 'find', kind: 'file', limit: 1000 });
   // Every confidence: each edge keeps its strongest, so a reader filters instead of losing medium and low links.
   const fileList = found.rows.map((n) => n.id);
-  const witnessFields = { operation: 'witnesses', path, graph: snap.id, edges: ['imports', 'calls'], confidence: 'low', limit: 1000 };
-  const symbolWalk = groupWalk(q, 'symbols', fileList, { jobs, fields: { operation: 'symbols', path, graph: snap.id, limit: 1000 } });
+  const witnessFields = { operation: 'witnesses', path, graph: snap.graph, edges: ['imports', 'calls'], confidence: 'low', limit: 1000 };
+  const symbolWalk = groupWalk(q, 'symbols', fileList, { jobs, fields: { operation: 'symbols', path, graph: snap.graph, limit: 1000 } });
   symbolWalk.catch(() => {});
   const rel = await groupWalk(q, 'witnesses', fileList, { jobs, fields: witnessFields });
   const outside = await outsideWalk;
@@ -203,7 +203,7 @@ export async function buildSection(section, { out, jobs = 8, exclude = [], emit 
   const [[cyc, iss], sym, unresolvedCalls] = await Promise.all([independent, symbolWalk, crossCallGaps(q, { outsideRoot, externals, crossPackages, jobs })]);
   const { declarations, symbols } = symbolRows(sym.rows, fileIds, calls);
   const linked = new Set(imports.flatMap((e) => [e.source, e.target]));
-  const snapshot = { ...found.graph, id: snap.id, root: resolve(snap.root), counts: snap.counts, linkage: snap.linkage?.ratio };
+  const snapshot = { ...found.graph, id: snap.graph, root: resolve(snap.root), counts: snap.counts, linkage: snap.linkage?.ratio };
   const partialReasons = snapshot.partialReasons ?? [];
   snapshot.isPartial = snapshot.isPartial === true || partialReasons.length > 0;
   const data = {

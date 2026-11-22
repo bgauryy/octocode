@@ -9,7 +9,8 @@ pub(super) fn only_missing(issues: &[ValidationIssue], depth: usize) -> Option<V
         .map(|item| {
             (item.rule_id == "schema.required"
                 && item.path.len() == depth + 1
-                && !missing_literal(item, depth))
+                && !missing_literal(item, depth)
+                && !missing_state(item))
             .then(|| item.path.last().cloned())
             .flatten()
         })
@@ -69,6 +70,18 @@ pub(super) fn required_alternatives(branches: &[Value]) -> Option<Vec<&str>> {
         .filter(|fields| fields.len() > 1)
 }
 
+/// A missing required field only a next call supplies (`x-cursor`): the
+/// caller cannot author it, so a repair never names it and the branch that
+/// requires it is not the form the caller meant.
+pub(super) fn missing_state(issue: &ValidationIssue) -> bool {
+    issue.rule_id == "schema.required"
+        && issue
+            .schema
+            .as_ref()
+            .and_then(|schema| schema.get("x-cursor"))
+            == Some(&Value::Bool(true))
+}
+
 /// A missing required field that the schema pins to literals
 /// (`operation:"models"`): core Zod reports it as `invalid_value`, a selector
 /// rejection, not a missing value.
@@ -98,13 +111,22 @@ fn selector_mismatch(item: &ValidationIssue, depth: usize, selectors: &[String])
 pub(super) fn selected_failures<'a>(
     failures: &'a [Vec<ValidationIssue>],
     path: &[String],
-    selectors: &[String],
+    selectors: &super::branches::Selectors,
 ) -> Vec<&'a [ValidationIssue]> {
+    // A mismatch selects against a branch only when the sent value is one
+    // some form pins the selector to: a value no form takes (`view: "bogus"`
+    // beside `operation: "stats"`) is the chosen form's own error.
     let matched = failures
         .iter()
         .filter(|issues| {
             !issues.iter().any(|item| {
-                item.path.starts_with(path) && selector_mismatch(item, path.len(), selectors)
+                item.path.starts_with(path)
+                    && selector_mismatch(item, path.len(), selectors)
+                    && item
+                        .received
+                        .as_ref()
+                        .zip(item.path.last())
+                        .is_none_or(|(sent, field)| selectors.value_known(field, sent))
             })
         })
         .map(Vec::as_slice)
@@ -281,14 +303,25 @@ pub(super) fn score(
     depth: usize,
     selectors: &super::branches::Selectors,
     undeclared: usize,
-) -> [usize; 8] {
+) -> [usize; 9] {
     let at_field = |issue: &&ValidationIssue| issue.path.len() == depth + 1;
+    // A selector mismatch counts against a branch only when the sent value is
+    // one some form pins the selector to: a value no form takes is the
+    // branch's own enum error, not a sign the value is of another form.
+    let selects = |issue: &&ValidationIssue| {
+        selector_mismatch(issue, depth, selectors)
+            && issue
+                .received
+                .as_ref()
+                .zip(issue.path.last())
+                .is_none_or(|(sent, field)| selectors.value_known(field, sent))
+    };
     [
         // A selector whose value names one form decides first: the value
         // is of that form, whatever another selector it fails there.
         issues
             .iter()
-            .filter(|issue| selector_mismatch(issue, depth, selectors))
+            .filter(selects)
             .filter(|issue| {
                 issue.path.last().is_some_and(|field| {
                     selectors.names_one(field)
@@ -299,10 +332,7 @@ pub(super) fn score(
                 })
             })
             .count(),
-        issues
-            .iter()
-            .filter(|issue| selector_mismatch(issue, depth, selectors))
-            .count(),
+        issues.iter().filter(selects).count(),
         issues
             .iter()
             .filter(at_field)
@@ -318,6 +348,7 @@ pub(super) fn score(
             .filter(|issue| issue.rule_id == "schema.not")
             .count(),
         undeclared,
+        issues.iter().filter(|issue| missing_state(issue)).count(),
         // A branch of another JSON type says only that: one of the value's own
         // type says what is wrong with it.
         issues

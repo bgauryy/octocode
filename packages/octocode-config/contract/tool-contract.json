@@ -28607,7 +28607,7 @@
     "restart": "branch",
     "retry": "branch"
   },
-  "fingerprint": "4e45f3034dc541f44dc22c7bd7e247f3fc36de34db8b57c60167121babad2ab8",
+  "fingerprint": "04e4fd9e5db09870be9703519a8afb01d628764f19fa60369e2b3105d0d83cbe",
   "limits": {
     "defaultReadContextLines": 0,
     "defaultResponseChars": 20000,
@@ -34781,8 +34781,7 @@
         "batch": {
           "disclosure": [
             "/data/partialReasons",
-            "/data/coverage",
-            "/data/skippedPaths"
+            "/data/coverage"
           ],
           "hints": true,
           "identity": [
@@ -35147,8 +35146,7 @@
         "batch": {
           "disclosure": [
             "/data/partialReasons",
-            "/data/coverage",
-            "/data/skippedPaths"
+            "/data/coverage"
           ],
           "hints": true,
           "identity": [
@@ -35468,8 +35466,7 @@
         "batch": {
           "disclosure": [
             "/data/partialReasons",
-            "/data/coverage",
-            "/data/skippedPaths"
+            "/data/coverage"
           ],
           "hints": true,
           "identity": [

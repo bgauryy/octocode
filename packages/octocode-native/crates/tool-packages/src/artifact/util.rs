@@ -305,6 +305,7 @@ pub(crate) fn paged(
         total,
         terminal_limit,
         registry: None,
+        any_keyword_total: None,
     })
 }
 

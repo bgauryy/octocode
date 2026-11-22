@@ -30,7 +30,7 @@ python3 "$RELAY" ask --workspace "$REPO" --to WORKER --text "Which check is stil
 python3 "$RELAY" ask --workspace "$REPO" --to WORKER --text "Which check is still running?"
 ```
 
-`--dry-run` resolves operator, worker and proxy without starting a model. Proxy choice: your CLI if it can host one, then the worker's, then Claude `haiku`, then Codex's smallest listed model; each must be installed and signed in. `--vendor claude|codex --model ID` overrides; a name does not prove price. Long tasks: raise `--timeout` (seconds, default 600). Shared store elsewhere: `--database PATH`.
+`--dry-run` resolves operator, worker and proxy without starting a model. Proxy choice: your CLI if it can host one, then the worker's, then Claude `haiku`, then Codex's smallest listed model; each must be installed and signed in. `--vendor claude|codex --model ID` overrides; a name does not prove price. Long tasks: raise `--timeout` (seconds, default 600; it starts when the proxy is ready). A slow proxy start has its own `--ready-timeout` (default 120). Shared store elsewhere: `--database PATH`.
 
 4. **Check.** Output holds `reply` (worker parts, verbatim), `outcome`, the three identities and `sent`/`answer` IDs; exit 0 only for `completed`. Failures name the cause and keep the proxy log:
 

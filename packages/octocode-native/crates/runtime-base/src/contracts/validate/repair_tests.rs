@@ -293,6 +293,21 @@ fn every_misuse_shape_gets_a_one_line_repair() {
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
+/// `filters.owner` is not the query's `owner`, which some operations
+/// require: no operation admits it inside filters, so the refusal names no
+/// operation switch.
+#[test]
+fn a_nested_field_named_like_a_query_field_is_not_blamed_on_the_operation() {
+    let line = first_line(
+        "ghSearchRepo",
+        json_fixture(
+            r#"{"queries": [{"operation": "search", "keywords": ["tokio"], "filters": {"owner": "tokio-rs"}}]}"#,
+        ),
+    );
+    assert!(line.contains("owner"), "{line}");
+    assert!(!line.contains("requires operation"), "{line}");
+}
+
 #[test]
 fn a_far_unknown_field_lists_the_allowed_fields_instead_of_guessing() {
     let line = first_line(

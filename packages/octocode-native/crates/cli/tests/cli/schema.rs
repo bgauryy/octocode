@@ -196,3 +196,29 @@ fn schema_views_and_help_examples_are_usable_without_node() {
         "{result}"
     );
 }
+
+/// `full` and `flow` are catalog views: a tool asked for either is refused
+/// with the call that reads it, not just the views a tool has.
+#[test]
+fn a_catalog_view_asked_of_a_tool_is_refused_with_the_catalog_call() {
+    let workspace = Workspace::new();
+    for view in ["full", "flow"] {
+        let output = workspace
+            .cli()
+            .args(["schema", "ghSearchCode", "--view", view])
+            .output()
+            .expect("schema");
+        assert_eq!(exit_code(&output), Some(2), "{view}");
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            text.contains("query (default), variants or output")
+                && text.contains("octocode schema --view full|flow")
+                && text.contains("without a tool"),
+            "{view}: {text}"
+        );
+    }
+}

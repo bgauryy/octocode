@@ -112,6 +112,34 @@ fn todays_plans_keep_every_value_of_every_tool() {
     }
 }
 
+/// `shared.data` is not paged, so no tool's batch states an evidence
+/// collection there, nor an object holding one: two queries over one scope
+/// keep their listed evidence (skippedPaths entries) on their rows.
+#[test]
+fn no_batch_shares_an_evidence_collection() {
+    for tool in ToolId::ALL {
+        let contract = crate::contracts::tool_contract(tool).expect("embedded contract");
+        let collections = ["collectionPaths", "optionalCollectionPaths"]
+            .iter()
+            .flat_map(|field| contract[*field].as_array().into_iter().flatten())
+            .filter_map(|path| path.as_str()?.strip_prefix("/data"))
+            .collect::<Vec<_>>();
+        for pattern in &plan::of(tool).batch.shared {
+            let shared = crate::json_pointer::of(pattern.tokens());
+            for collection in &collections {
+                let holds = *collection == shared
+                    || collection
+                        .strip_prefix(shared.as_str())
+                        .is_some_and(|rest| rest.starts_with('/'));
+                assert!(
+                    !holds,
+                    "{tool:?} batches {shared}, which is or holds the collection {collection}"
+                );
+            }
+        }
+    }
+}
+
 /// Paged at a budget that holds its widest row whole, every page of a
 /// hoisted batch states the envelope's `shared` and `hints`, so each row
 /// reads back whole from its own page; the warnings and the merged related

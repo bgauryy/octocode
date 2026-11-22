@@ -1,7 +1,8 @@
 use super::evidence::{Catalog, DependencyError, DependencySet};
 use super::{
     Open, Slicer, collection_pointer, continues_chars, empty_declared_siblings, enclosing_element,
-    lean_declared_skeleton, lean_later_context, put_walks, take_enclosing_walks,
+    lean_declared_skeleton, lean_later_context, put_walks, restore_declared, take_enclosing_walks,
+    trailing_siblings_split,
 };
 use octocode_io::cancellation::Cancellation;
 use serde_json::Value;
@@ -271,6 +272,37 @@ impl FragmentArena {
         let declared = outgrows
             .then(|| collection_pointer(&row, self.collection_routes))
             .flatten();
+        if let Some(pointer) = &declared
+            && let Some((head_row, mut tail_row)) =
+                self.trailing_split(&row, window, pointer, catalog)?
+        {
+            self.plan_in(
+                head_row,
+                catalog,
+                Window {
+                    terminal_budget: None,
+                    tail: 0,
+                    ..window
+                },
+                out,
+            )?;
+            let later = collection_pointer(&tail_row, self.collection_routes)
+                .unwrap_or_else(|| pointer.clone());
+            let source = tail_row.clone();
+            lean_later_context(
+                &mut tail_row,
+                &later,
+                self.page_context,
+                self.collection_routes,
+            );
+            restore_declared(&mut tail_row, &source, self.collection_routes);
+            return self.plan_in(
+                tail_row,
+                catalog,
+                window.with_head(window.later_limit(0)),
+                out,
+            );
+        }
         // The walks of the elements the split runs through ride its last part.
         let walks = declared
             .as_deref()
@@ -451,6 +483,20 @@ impl FragmentArena {
 
     pub(super) fn empty_secondary_lists(&self, row: &mut Value, pointer: &str) {
         empty_declared_siblings(row, pointer, self.collection_routes);
+    }
+
+    fn trailing_split(
+        &self,
+        row: &Value,
+        window: Window<'_>,
+        pointer: &str,
+        catalog: Option<usize>,
+    ) -> Result<Option<(Value, Value)>, DependencyError> {
+        let price = |value: &Value| {
+            Ok(size(value)?
+                + self.evidence_chars(&self.dependencies(catalog, value, window.cancelled)?)?)
+        };
+        trailing_siblings_split(row, window.budget, pointer, self.collection_routes, &price)
     }
 
     fn lean_skeleton(

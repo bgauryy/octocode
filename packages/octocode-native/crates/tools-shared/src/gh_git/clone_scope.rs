@@ -178,8 +178,13 @@ impl CloneScope {
         } else {
             ""
         };
+        let verb = if self.paths.len() == 1 && root.is_empty() {
+            "is"
+        } else {
+            "are"
+        };
         format!(
-            "This checkout is sparse: only {}{root} are on disk; a miss here says nothing of other paths.",
+            "This checkout is sparse: only {}{root} {verb} on disk; a miss here says nothing of other paths.",
             self.listed()
         )
     }

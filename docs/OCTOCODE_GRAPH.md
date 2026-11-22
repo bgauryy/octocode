@@ -1,14 +1,10 @@
 # Code graph
 
-`graphBuild` turns one directory into a syntax snapshot of file, symbol and package nodes joined by typed edges. `graphQuery` answers structural questions from it: importers, callers, paths, cycles, hubs, dead-code hypotheses, change impact, drift and Git co-change.
-
-Answers are syntax candidates that show **where to inspect**. They do not prove what runs or breaks. Confirm a row before you cite it ([Prove](#prove)).
+Use `graphBuild` and `graphQuery` to find importers, trace dependencies or see which files a change might affect.
 
 ## Turn it on
 
-The CLI always has both tools. In MCP they are beta: set `local.beta` to `true` (`OCTOCODE_BETA`, [settings](CONFIGURATION.md#all-settings-and-defaults)).
-
-Snapshots go to `<workspace>/.octocode/graph`. `local.graphHome` (`OCTOCODE_GRAPH_HOME`) moves them. It is home-only, so a repository cannot set it; with it, a build can scan any allowed directory, such as a `ghCloneRepo` clone.
+The CLI includes both tools. For MCP, enable `local.beta` or set `OCTOCODE_BETA=true`, then restart the server. Snapshots go to `.octocode/graph` in the workspace. Set `local.graphHome` in your home configuration to store them elsewhere. [Configuration](CONFIGURATION.md#all-settings-and-defaults)
 
 ## Build
 
@@ -16,24 +12,7 @@ Snapshots go to `<workspace>/.octocode/graph`. `local.graphHome` (`OCTOCODE_GRAP
 octocode graphBuild '{"queries":[{"path":"src"}]}'
 ```
 
-Build the smallest directory that holds every file your question spans. The host's permission prompt approves each build.
-
-| Option | Default | Effect |
-|---|---|---|
-| `path` | `.` | Scope to build. Use the same `path` for the queries. |
-| `exclude` | none | Extra globs to skip, relative to `path` (up to 100). |
-| `defaultExcludes` | `true` | `false` also walks build, dependency and cache directories. |
-| `parserGlobs` | none | Parse other file names with a language (`typescript`, `python`, and so on). |
-| `includeIgnored`, `includeHidden` | `false` | Include Git-ignored or hidden files. |
-| `keep` | `3` | Snapshots kept per scope. Raise it to compare builds. |
-| `refresh` | `false` | Rebuild an unchanged scope. Discards checkpoints of an interrupted build. |
-
-| Situation | What happens |
-|---|---|
-| Scope unchanged | The existing snapshot returns at once. |
-| Files edited since | `graphQuery` `stale` reports `fresh: false` and gives a `reingest` call. |
-| Long build | It pauses with progress. Run `next.expandScan`, or repeat the call. |
-| Scope too large | `scopeTooBroad` (`correctInput`) names narrower scopes to build. |
+Choose a directory that contains the files you want to connect. An unchanged directory reuses its snapshot. If a build pauses, follow `next.expandScan`.
 
 ## Query
 
@@ -42,53 +21,19 @@ octocode graphQuery '{"queries":[{"operation":"hubs","path":"src","kind":"file",
 octocode graphQuery '{"queries":[{"operation":"impact","path":"src","target":"src/config.ts"}]}'
 ```
 
-Set `path` to the build's scope. Omit `graph` to read the newest snapshot of that exact path, or pass the build receipt's `graph` value. `octocode schema graphQuery --view query --select operation=<value>` lists the fields one operation takes.
+Use the same `path` as the build. In the second example, replace `src/config.ts` with a file in your project. To pin a query to one snapshot, set `graph` to the build receipt's `graph` value.
 
-| Question | `operation` | Required fields |
-|---|---|---|
-| Size, coverage, unlinked calls | `stats`, `unresolved`, `diagnostics`, `stale` | none |
-| Find a node | `find`, `candidates`, `node`, `symbols` | `target` (except `find`, `symbols`) |
-| Imports and export consumers | `deps`, `dependents` | `target` |
-| Callers and callees | `callers`, `callees`, `walk` | `target` |
-| How A reaches B | `path` | `target`, `to` |
-| Most depended on | `hubs` | none. `rankBy`: `degree` (default) or `pageRank` |
-| Import loops | `cycles` | none |
-| Dead code, choke points, layering | `issues` | none. Optional `baseline` marks findings `new` or `existing` |
-| What depends on a change | `impact` | one of `target`, `changed`, `since` |
-| Structural change between snapshots | `drift` | `baseline` |
-| Files changed together in Git | `cochange` | `target` |
-| Every occurrence behind an edge | `witnesses` | none |
+| Question | Operation |
+|---|---|
+| Which files depend on this file? | `dependents` |
+| Which files does this file import? | `deps` |
+| Which files are most connected? | `hubs` |
+| Where are the import cycles? | `cycles` |
+| Which files or tests could this change affect? | `impact` |
+| Has the source changed since the build? | `stale` |
 
-Narrowing: `kind` (`file`, `symbol` or `package`), `confidence` (see [Read the answer](#read-the-answer)), `edges` (`contains`, `imports`, `uses`, `calls`, `inherits`, `passes`), `direction` and `depth` for traversal, and `limit` (rows per page, default 50; `responseChars` can end a page first).
-
-The default inward `dependents` walk for a file includes imports and uses of its exports through re-exporting modules. Node rows identify these uses with `edge: "uses"` and `via: "reexport"`. The `files` and `modules` views count both kinds and offer an import-only call in `related`. Pass `edges: ["imports"]` to follow only imports.
+A file's dependents can include code that uses its exports through another module. Set `edges: ["imports"]` to follow imports only. Run `octocode schema graphQuery --view variants` for more operations and examples.
 
 ## Read the answer
 
-**Weights.** Each signal has one meaning. None is a probability or a runtime frequency.
-
-| Signal | Field | Meaning |
-|---|---|---|
-| Binding confidence | `confidence` | `high` (default): strong syntax binding. `medium`: adds scoped or ambiguous candidates. `low`: adds a bare call's only declaration of its name. Ask for `medium` before you read an empty answer as absence. |
-| Connection strength | `sites` | Source occurrences behind an edge. On `hubs`, summed over the counted edges. |
-| Structural importance | `pageRank` | With `rankBy: "pageRank"`: rank over the admitted edges, each weighted by `sites`. All nodes sum to 1. |
-| Change coupling | `commits`, `share`, `linked` | `cochange`: commits that changed both files, divided by the target's commits. `linked: false` means coupling with no graph edge. |
-| Runtime frequency | none | Not modeled. It needs profiling data. |
-
-**Impact.** Rows are dependents, not breakage. `risk` gives the distance from the change: `changed` (0), `direct` (1, inspect first), `likely` (2), `transitive` (3 or more), and `candidate` (an import-only importer that no linked reference proves affected). `summary.testsToRun` counts every test file the change reaches, even past `depth`, and `next.testsToRun` lists each with the test functions reached in it. `next.affectedEntrypoints` lists the entrypoints to look at. Only tests or execution prove a break. Dynamic dispatch, reflection and string loading are not modeled.
-
-**Issues.** Findings are ranked hypotheses, each with `evidence` and the `controls` applied:
-
-```
-score = severity × confidence × (0.5 + 0.5 × rank)      ×1.1 (at most 1) per other detector on the same subject
-```
-
-`rank` is the highest PageRank percentile among the subject's files. `critical-file` lists every production file with five or more transitive runtime dependents, so paging reaches all of them.
-
-**Edges.** `calls` come from call sites. A named function passed as an argument gives a `passes` edge: an argument slot, not proof that it runs. Other value uses (assignment, return) give no edge. A bare call of a parameter, local variable or closure links to no same-named declaration and stays unresolved with reason `local-binding`. `unresolved` lists the unlinked sites and their reasons.
-
-**Pages.** A reply with a top-level `next` is unfinished: run it until none is left. A stated `total` is exact. See [continuations](TOOL_DATA_CONTRACT.md#executable-continuations).
-
-## Prove
-
-Before you cite callers, an absence or dead code, run `lspSearch` `references` at the row's `path`, `symbolName` and `line`, then read the source. The [graph skill](../skills/octocode-graph/SKILL.md) follows the same routine. To see a whole repository, use [Graph View](../skills/octocode-graph-view/).
+`sites` counts source occurrences behind a connection. `unresolved` lists sites the graph could not link. Impact results can lead you to tests and entrypoints worth checking. For a caller or unused-code finding, open the source location and check symbol references with `lspSearch`. [Local code tools](OCTOCODE_TOOLS.md#local-code-tools-reference)

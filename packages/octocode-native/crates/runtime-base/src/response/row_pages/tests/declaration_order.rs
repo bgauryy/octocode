@@ -80,3 +80,33 @@ fn collection_order_follows_document_members_independent_of_routes() {
         }
     }
 }
+
+/// A listing states its entries before the paths it skipped: when the skipped
+/// paths alone outgrow a part, the entries still arrive on part one and the
+/// skipped paths follow, and the parts join back to the row.
+#[test]
+fn entries_arrive_before_a_larger_sibling_the_row_lists_after_them() {
+    use super::required_text::{assert_joins_to, walk_and_join};
+    let tool = crate::id::ToolId::StructureSearch;
+    let files = (0..3)
+        .map(|n| format!("packages/recent/file_{n}.rs"))
+        .collect::<Vec<_>>();
+    let skipped = (0..40)
+        .map(|n| {
+            json!({"cause": "ignored", "count": n + 2,
+                "path": format!("packages/benchmark/local/repos/project_{n}/deep/path")})
+        })
+        .collect::<Vec<_>>();
+    let data = json!({"path": ".", "files": files, "skippedPaths": {"entries": skipped}});
+    for budget in [500, 800] {
+        let (parts, joined) = walk_and_join(tool, &data, budget);
+        assert_joins_to(&joined, &data, &format!("budget {budget}"));
+        assert!(parts.len() > 1, "budget {budget}: the row must split");
+        assert_eq!(
+            parts[0]["data"]["files"].as_array().map(Vec::len),
+            Some(files.len()),
+            "budget {budget}: the entries ride part one: {}",
+            parts[0]
+        );
+    }
+}

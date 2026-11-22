@@ -150,9 +150,7 @@ fn tag_absence(artifact: &ArtifactItem) -> Option<String> {
     })
 }
 
-/// The warning of an exact row whose source is not a GitHub repository: the
-/// registry (and, for Maven, the POM's parent chain) names none, or names one
-/// elsewhere, so the row has no release ref and no GitHub lead.
+/// A registry can supply a release ref even when there is no GitHub handoff.
 pub(super) fn unknown_source_warning(artifact: &ArtifactItem) -> Option<String> {
     if artifact
         .repository
@@ -162,17 +160,16 @@ pub(super) fn unknown_source_warning(artifact: &ArtifactItem) -> Option<String> 
     {
         return None;
     }
-    let package = match artifact.version.as_deref() {
-        Some(version) => format!("{} {version}", artifact.package_name),
-        None => artifact.package_name.clone(),
+    let package = package_label(artifact);
+    let handoff = match artifact.source_ref {
+        Some(_) => "the release ref is given without a GitHub lead",
+        None => "no release ref or GitHub lead is given",
     };
     Some(match artifact.repository.as_deref() {
-        Some(repository) => format!(
-            "{package}: its source repository {repository} is not on GitHub, so no release ref or GitHub lead is given."
-        ),
-        None => format!(
-            "{package}: the registry names no source repository, so no release ref or GitHub lead is given."
-        ),
+        Some(repository) => {
+            format!("{package}: its source repository {repository} is not on GitHub, so {handoff}.")
+        }
+        None => format!("{package}: the registry names no source repository, so {handoff}."),
     })
 }
 

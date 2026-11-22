@@ -265,7 +265,7 @@ pub(super) fn tool_view(
     let view = view.unwrap_or("query");
     if configured["views"].get(view).is_none() {
         return Err(usage(
-            "A tool's views: query (default), variants or output.",
+            "A tool's views: query (default), variants or output; full and flow: `octocode schema --view full|flow` without a tool.",
         ));
     }
     let mut value = match select {

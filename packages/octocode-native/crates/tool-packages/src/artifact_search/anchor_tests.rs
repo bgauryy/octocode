@@ -80,6 +80,7 @@ fn a_github_homepage_is_a_discovery_rows_repository() {
             total: None,
             terminal_limit: None,
             registry: None,
+            any_keyword_total: None,
         },
     )
     .expect("rows");

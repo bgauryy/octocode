@@ -18,6 +18,7 @@ pub(super) fn discovery_page(
     data: &mut Value,
     next_state: Option<&ArtifactProviderState>,
     total: Option<u64>,
+    any_keyword_total: Option<u64>,
 ) {
     let current = artifact_search_query::page(query);
     let more = next_state.is_some();
@@ -62,6 +63,24 @@ pub(super) fn discovery_page(
         });
         paging::terminal_limit(data, limit.reason, &[warning]);
         return;
+    }
+    if current == 1
+        && let Some(matched) = any_keyword_total.filter(|matched| *matched > reach)
+    {
+        // The registry's rows hold any keyword and this search keeps those
+        // holding every one, read from the registry's reachable rows only: no
+        // total of its own and no page to name.
+        paging::mark_partial(
+            data,
+            octocode_runtime_base::response::paging::PartialReason::ProviderResultCap,
+            &[],
+        );
+        paging::push_notice(
+            data,
+            format!(
+                "{artifact_type} matched {matched} rows holding any keyword; this search keeps rows holding every one, read from {artifact_type}'s first {reach} rows only."
+            ),
+        );
     }
     if !more {
         return;

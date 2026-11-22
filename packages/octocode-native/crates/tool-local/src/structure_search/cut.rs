@@ -183,7 +183,7 @@ impl Cut {
         {
             warnings.push(match self.time_window {
                 TimeWindow::Paused => format!(
-                    "the walk paused at its time budget before `{at}`: a sorted listing ranks its whole scope, so it lists its rows once the walk ends; `next` resumes the walk there."
+                    "the walk paused at its time budget before `{at}`: the listing's order (`path` unless `sort` says otherwise) ranks its whole scope, so it lists its rows once the walk ends; `next` resumes the walk there."
                 ),
                 TimeWindow::EndedAtRows => format!(
                     "the walk stopped at its time budget before `{at}` and found more rows than its {}-entry walk window: this window lists the first rows in walk order (name-sorted, depth-first), and entries after the last listed one are not yet listed: `next` resumes the walk there.",

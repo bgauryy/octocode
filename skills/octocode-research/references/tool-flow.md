@@ -11,13 +11,13 @@ The routes the server instructions serve, generated from core (`node skills/comm
 | definition, identity, every caller or use → lspSearch at a search hit's line | `lspSearch` |
 | known file → localFetch | `localFetch` |
 | keep only hits meaning X (cause, kind, intent) → clasify source:{tool, query} predicates | `clasify` |
-| offload reading: too many hits, paths, commits or thread entries; huge file, log, command output, many files or docs, images → clasify → next.read | `clasify` |
+| offload reading: too many hits, unread files, threads, logs or PNG/JPEG images → clasify → next.read | `clasify` |
 | web page or URL → clasify source.url → next.read | `clasify` |
-| command output, git state → shell | always |
+| quick exact lookups (a known spelling, a line range, a count), running commands, git state → shell: rg, sed -n, wc, git; a write, or one small GitHub item you need whole → gh | always |
 | repo or library not in this checkout → ghSearchRepo → ghStructure (tree, refs) or ghSearchCode → ghGetFileContent | `ghSearchRepo`, `ghStructure`, `ghSearchCode`, `ghGetFileContent` |
 | why, when, who → ghSearchHistory → ghGetHistoryItem | `ghSearchHistory`, `ghGetHistoryItem` |
-| first release with a change → its commit or PR, ghStructure refs, ghGetHistoryItem compare | `ghSearchHistory`, `ghStructure`, `ghGetHistoryItem` |
-| package version → artifactSearch → ghStructure → ghGetFileContent at its repo and ref | `artifactSearch`, `ghStructure`, `ghGetFileContent` |
+| first release with a change → commit or PR, ghStructure refs, ghGetHistoryItem compare | `ghSearchHistory`, `ghStructure`, `ghGetHistoryItem` |
+| GitHub package version → artifactSearch → ghStructure → ghGetFileContent at its release ref; other hosts: use the source URL and ref | `artifactSearch`, `ghStructure`, `ghGetFileContent` |
 | known vulnerabilities, or a package before fetching or trusting it → securityCheck | `securityCheck` |
 | importers, cycles, impact, dead code → graphBuild → graphQuery | `graphBuild`, `graphQuery` |
 | many searches over a few paths of another repo → ghStructure tree materialize:true → local tools | `ghStructure`, `localSearch` |

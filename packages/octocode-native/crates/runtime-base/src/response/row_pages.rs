@@ -13,7 +13,7 @@ use arena::{Fragment, FragmentArena, Planned, mark_continuations};
 use collections::{
     collection_pointer, delivered_collections, drop_delivered_elsewhere,
     drop_empty_declared_siblings, drop_filled_elsewhere, empty_declared_siblings,
-    filled_collections, lean_declared_skeleton,
+    filled_collections, lean_declared_skeleton, restore_declared, trailing_siblings_split,
 };
 use octocode_engine::digest::JsonFingerprint;
 use octocode_io::cancellation::Cancellation;

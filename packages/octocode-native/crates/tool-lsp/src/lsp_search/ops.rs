@@ -41,6 +41,7 @@ mod gaps;
 mod hierarchy;
 mod index_answer;
 mod lookups;
+mod reexport;
 mod references;
 use diagnostics::anchor_diagnostics;
 pub(super) use diagnostics::{dedupe_diagnostics, diagnostic_items};

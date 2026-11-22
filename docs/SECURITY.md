@@ -16,15 +16,11 @@ Octocode runs on your machine. The CLI and MCP server share one set of path, cre
 
 Relative paths resolve against `local.workspaceRoot`; `local.allowedPaths` adds roots. Sensitive directories stay restricted.
 
-`security.credentialFiles` defaults to `withhold`, which skips dotenv files (`.env`, `.env.*`, `.envrc`), keys and keystores (`id_rsa*`, `*.pem`, `*.key`, `*.p12`, `*.jks`), named stores (`.netrc`, `.npmrc`, `.pypirc`, `.pgpass`, `.git-credentials`, `credentials.json`, `kubeconfig`, `terraform.tfstate`, `terraform.tfvars`), their backups (`.bak`, `.old`, `~`), and whole directories (`.ssh`, `.aws`, `.azure`, `.kube`, `.docker`, `.gnupg`, `.password-store`). Other files, such as `~/.zshrc`, stay readable. Allow with `security.credentialFiles: allow` or `OCTOCODE_CREDENTIAL_FILES=allow` in a trusted setting. Graphs and classification always withhold them, and allowed reads keep saved local results in memory. [All settings](CONFIGURATION.md#all-settings-and-defaults)
+Octocode withholds credential files such as `.env`, private keys and npm credentials by default. You can change `security.credentialFiles` for trusted local reads. Graph and classification tools always withhold these files. [Configuration](CONFIGURATION.md#all-settings-and-defaults)
 
 ## Secrets in results
 
-Known secret formats become `[REDACTED-<PATTERN>]`: only the matched secret is replaced, and line numbers do not change. Formats include provider tokens (GitHub, GitLab, AWS, Google, Slack, Stripe, OpenAI, Anthropic, npm and others), private-key armor, JSON Web Tokens, connection strings with a password, known credential keys with a fixed shape (`aws_secret_access_key`), and crates.io and Terraform Cloud tokens.
-
-A key named `password`, `passwd`, `pwd`, `secret`, `client_secret`, `secret_key`, `private_key`, `token`, `api_key` or `apikey` loses a literal value in source, JSON, YAML, `.ini` or `.properties`; a bare value is redacted only in config files. A URL query value is redacted only behind a secret key such as `access_token`; paging tokens (`page_token`, `next_token`) read as written. Any dotenv file has every value replaced. Placeholders (`${X}`, `changeme`, `<x>`), booleans, values under four characters and paths are not secrets. Redaction is pattern-based, so an unlisted format can still appear.
-
-`output.redactEmails` (commit-author emails in GitHub results) and `output.redactUuid` (every UUID) are both `false`. Enable them with `config set` or `OCTOCODE_REDACT_EMAILS` and `OCTOCODE_REDACT_UUID`.
+Recognized secrets are replaced with a redaction marker in text results. Line numbers stay the same. Pattern matching can miss unfamiliar formats. Enable `output.redactEmails` or `output.redactUuid` if you also want those values masked.
 
 ## Trust for project code
 
@@ -52,8 +48,6 @@ Listing catalog tools sends nothing. A `clasify` call sends questions, context (
 
 ## GitHub credentials
 
-Tool queries take identifiers, never tokens. A token comes from a supported environment variable, an Octocode sign-in or the GitHub CLI, in that order, and the configured API host decides where it is sent. [Token resolution](AUTHENTICATION.md#github-token-resolution)
+Tool queries take identifiers, never tokens. The configured GitHub host determines which credential Octocode selects and where it sends it. [Token resolution](AUTHENTICATION.md#github-token-resolution)
 
-`credentials.json` and its `.key` in the Octocode home hold your sign-in, AES-256-GCM encrypted (owner-only on Unix; both files together decrypt it). `.env` in the home or workspace `.octocode/` holds `config set` keys in plain text.
-
-Remove the sign-in with `octocode auth logout`. `ghCloneRepo` runs system Git with host-scoped credentials through an askpass helper. Language servers download only after their pinned digest matches.
+Octocode stores your GitHub sign-in encrypted in its home. Protect `credentials.json` and its companion key together. `octocode auth logout` removes the saved sign-in. Credentials supplied with `config set` are written to the home `.env` in plain text.

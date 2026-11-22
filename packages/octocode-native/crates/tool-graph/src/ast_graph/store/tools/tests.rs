@@ -207,6 +207,23 @@ fn missing_snapshots_offer_build_recovery_for_the_requested_scope() {
     }
 }
 
+/// A query that named neither `graph` nor `path` is told what selects a
+/// snapshot, not only to build one; the build lead stays.
+#[test]
+fn a_query_without_graph_or_path_says_what_selects_a_snapshot() {
+    let dir = Fixture::new();
+    dir.write("a.ts", "export const a = 1;\n");
+    let row = json!({"operation": "dependents", "target": "a.ts"});
+    let output = call(&dir.0, ToolId::GraphQuery, row);
+    assert_eq!(output["errorCode"], "notFound", "{output}");
+    let hint = output["hints"][0].as_str().expect("hint");
+    assert!(
+        hint.contains("`graph`") && hint.contains("`path`"),
+        "{output}"
+    );
+    assert_eq!(output["related"][0]["tool"], "graphBuild", "{output}");
+}
+
 #[test]
 fn related_queries_preserve_scope_without_carrying_node_kind_filters() {
     let dir = Fixture::new();

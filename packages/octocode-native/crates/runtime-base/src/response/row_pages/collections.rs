@@ -280,7 +280,94 @@ fn remove_slot(part: &mut Value, pointer: &str) {
     }
 }
 
-/// Large sibling evidence gets its own fragments; small siblings ride the first.
+/// The non-empty declared collections disjoint from `pointer` that `row`
+/// lists after it, with their pointers.
+fn siblings_listed_after(row: &Value, pointer: &str, routes: &CollectionRoutes) -> Vec<String> {
+    let positions = found_collections(row, routes, true);
+    let Some((_, split)) = positions.get(pointer) else {
+        return Vec::new();
+    };
+    positions
+        .iter()
+        .filter(|(path, (value, here))| {
+            disjoint(path, pointer) && here > split && !emptied(Some(value))
+        })
+        .map(|(path, _)| path.clone())
+        .collect()
+}
+
+/// A row whose declared sibling the row lists after its split collection,
+/// and which outgrows the budget alone, splits in two: the row without that
+/// sibling (the split collection's parts, first) and the sibling with the
+/// lean context a later part carries (after them). The row's own order then
+/// holds: its entries arrive before the paths it lists after them.
+pub(super) fn trailing_siblings_split(
+    row: &Value,
+    budget: usize,
+    pointer: &str,
+    routes: &CollectionRoutes,
+    price: &dyn Fn(&Value) -> Result<usize, DependencyError>,
+) -> Result<Option<(Value, Value)>, DependencyError> {
+    let mut large = Vec::new();
+    for path in siblings_listed_after(row, pointer, routes) {
+        if let Some(value) = row.pointer(&path)
+            && price(value)?.saturating_mul(4) > budget
+        {
+            large.push(path);
+        }
+    }
+    if large.is_empty() {
+        return Ok(None);
+    }
+    let clear = |row: &mut Value, path: &str| match row.pointer_mut(path) {
+        Some(Value::Array(items)) => items.clear(),
+        Some(Value::Object(items)) => items.clear(),
+        _ => {}
+    };
+    let mut head = row.clone();
+    for path in &large {
+        clear(&mut head, path);
+    }
+    let mut tail = row.clone();
+    for (path, _) in collections(row, routes, false) {
+        if !large.contains(&path) {
+            clear(&mut tail, &path);
+        }
+    }
+    Ok(Some((head, tail)))
+}
+
+/// Put back into `lean`, a row's context thinned for a later part, each
+/// non-empty declared collection `source` held that the thinning dropped
+/// with the context around it: evidence is never context.
+pub(super) fn restore_declared(lean: &mut Value, source: &Value, routes: &CollectionRoutes) {
+    for (path, value) in collections(source, routes, false) {
+        if emptied(Some(value)) || lean.pointer(&path).is_some() {
+            continue;
+        }
+        let mut node = &mut *lean;
+        for segment in path.trim_start_matches('/').split('/') {
+            let key = crate::json_pointer::unescape(segment);
+            if !node.is_object() {
+                break;
+            }
+            let slot = node.as_object_mut().map(|map| {
+                map.entry(key)
+                    .or_insert_with(|| Value::Object(Default::default()))
+            });
+            match slot {
+                Some(next) => node = next,
+                None => break,
+            }
+        }
+        if let Some(slot) = lean.pointer_mut(&path) {
+            *slot = value.clone();
+        }
+    }
+}
+
+/// Large sibling evidence the row lists before the split collection gets its
+/// own fragments first; small siblings ride the first part.
 pub(super) fn lean_declared_skeleton(
     row: &mut Value,
     budget: usize,
@@ -288,8 +375,10 @@ pub(super) fn lean_declared_skeleton(
     routes: &CollectionRoutes,
     price: &dyn Fn(&Value) -> Result<usize, DependencyError>,
 ) -> Result<Option<Value>, DependencyError> {
+    let after = siblings_listed_after(row, pointer, routes);
     for (path, value) in collections(row, routes, false) {
         if disjoint(&path, pointer)
+            && !after.contains(&path)
             && !matches!(value, Value::Array(items) if items.is_empty())
             && !matches!(value, Value::Object(items) if items.is_empty())
             && price(value)?.saturating_mul(4) > budget

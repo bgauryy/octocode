@@ -332,6 +332,10 @@ pub struct ArtifactProviderPage {
     pub total: Option<u64>,
     pub terminal_limit: Option<TerminalLimit>,
     pub registry: Option<String>,
+    /// How many rows the registry matched holding any one keyword, set only
+    /// when the search keeps rows holding every keyword (an ANDed npm
+    /// search): not this search's count, so it is no `total`.
+    pub any_keyword_total: Option<u64>,
 }
 
 impl ArtifactProviderPage {
@@ -342,6 +346,7 @@ impl ArtifactProviderPage {
             total,
             terminal_limit: None,
             registry: None,
+            any_keyword_total: None,
         }
     }
 
@@ -353,6 +358,7 @@ impl ArtifactProviderPage {
             total: Some(1),
             terminal_limit: None,
             registry: None,
+            any_keyword_total: None,
         }
     }
 }

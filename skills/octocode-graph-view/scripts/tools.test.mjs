@@ -52,7 +52,7 @@ test('graph response fragments join one cycle before walking its member continua
   const calls = [];
   const pages = {
     first: response([row({ graph: { id: 'snapshot' }, rows: [{ id: 'cycle', nodes: ['a'], detail: 'first' }], pagination: { total: 1 } }, { part: 1, of: 2 })], 'fragment', 'graphQuery'),
-    fragment: response([row({ graph: { id: 'snapshot' }, rows: [{ id: 'cycle', nodes: [], detail: ' tail' }], next: { cycle0: next('members', 'graphQuery') } }, { part: 2, of: 2, text: '/data/rows/0/detail' })]),
+    fragment: response([row({ graph: { id: 'snapshot' }, rows: [{ id: 'cycle', nodes: [], detail: ' tail' }], next: { cycle0: { tool: 'graphQuery', input: { cursor: 'members' } } } }, { part: 2, of: 2, text: '/data/rows/0/detail' })]),
     members: response([row({ graph: { id: 'snapshot' }, rows: ['b'], pagination: { total: 2 } })]),
   };
   const result = await readGraph({ operation: 'cycles' }, { run: fake(pages, calls), collectionPaths });
@@ -64,10 +64,10 @@ test('a paused graph build follows the exact resume query until its snapshot is 
   const resume = { queries: [{path:'src'}] }, calls = [];
   const run = async (_tool, input) => {
     calls.push(input);
-    return response([row(calls.length < 3 ? {isPartial:true,progress:{committedFiles:calls.length},next:{expandScan:{kind:'continue',tool:'graphBuild',input:resume}}} : {id:'finished',root:'src'})]);
+    return response([row(calls.length < 3 ? {isPartial:true,progress:{committedFiles:calls.length},next:{expandScan:{tool:'graphBuild',input:resume}}} : {graph:'finished',root:'src'})]);
   };
   const result = await graphBuild({path:'src',refresh:true}, {run});
-  assert.equal(result.id, 'finished');
+  assert.equal(result.graph, 'finished');
   assert.deepEqual(calls.slice(1), [resume,resume], 'resumable builds can repeat a query while making progress');
 });
 
@@ -84,6 +84,29 @@ test('nested fragments use joined indexes and escaped JSON pointer keys without 
   };
   const [page] = await pagedTool('lspSearch', {}, {run:fake(pages,[]), collectionPaths});
   assert.deepEqual(page.results[0].data.files, [{path:'a.ts',matches:[{symbolName:'a'}]},{path:'b.ts',matches:[{symbolName:'b'},{symbolName:'c','detail/~':'שלום🙂',sites:[{line:1},{line:2}]},{symbolName:'d'}]}]);
+});
+
+test('an impact summary count leads to its full list', async () => {
+  const pages = {
+    first: response([row({ rows: [], summary: { testsToRun: 2 }, next: { testsToRun: { tool: 'graphQuery', input: { cursor: 'tests' } } } })]),
+    tests: response([row({ rows: ['a.test.ts', 'b.test.ts'] })]),
+  };
+  const result = await readGraph({ operation: 'impact' }, { run: fake(pages, []), collectionPaths });
+  assert.deepEqual(result.summary.testsToRun, ['a.test.ts', 'b.test.ts']);
+});
+
+test('each witness page supplies the shared source before its rows stream', async () => {
+  const pages = {
+    first: response([row({ from: 'a.ts', rows: [{ to: 'b.ts' }] })], 'more', 'graphQuery'),
+    more: response([row({ from: 'b.ts', rows: [{ to: 'c.ts' }] })]),
+  };
+  const streamed = [];
+  const result = await readGraph({ operation: 'witnesses' }, {
+    run: fake(pages, []), collectionPaths,
+    onPage: data => streamed.push(...data.rows.map(edge => edge.from)),
+  });
+  assert.deepEqual(streamed, ['a.ts', 'b.ts']);
+  assert.deepEqual(result.rows, [{ from: 'a.ts', to: 'b.ts' }, { from: 'b.ts', to: 'c.ts' }]);
 });
 
 test('a hoisted response walk retains every complete graph slice of one query', async () => {
@@ -137,8 +160,8 @@ test('successive fragmented tool pages may restart part numbers at the same quer
 });
 
 test('a hoisted build response selects its published receipt after progress slices', async () => {
-  const pages = {first:response([row({isPartial:true,progress:{committedFiles:1}})],'finished','graphBuild'),finished:response([row({id:'snapshot',root:'src'})])};
-  assert.equal((await graphBuild({path:'src'},{run:fake(pages,[])})).id,'snapshot');
+  const pages = {first:response([row({isPartial:true,progress:{committedFiles:1}})],'finished','graphBuild'),finished:response([row({graph:'snapshot',root:'src'})])};
+  assert.equal((await graphBuild({path:'src'},{run:fake(pages,[])})).graph,'snapshot');
 });
 
 test('a failed continuation cannot mix old rows with a restarted snapshot', async () => {

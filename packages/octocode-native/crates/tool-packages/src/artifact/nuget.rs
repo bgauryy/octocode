@@ -87,6 +87,7 @@ pub(crate) async fn nuget(
         total: count,
         terminal_limit: limit,
         registry: None,
+        any_keyword_total: None,
     })
 }
 

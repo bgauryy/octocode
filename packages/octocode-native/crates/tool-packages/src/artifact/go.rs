@@ -423,6 +423,7 @@ pub(crate) async fn go(
         total: total(data.get("total")).filter(|&total| total < GO_SEARCH_CAP),
         terminal_limit: None,
         registry: None,
+        any_keyword_total: None,
     })
 }
 

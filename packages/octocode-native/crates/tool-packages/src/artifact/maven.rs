@@ -114,6 +114,7 @@ pub(crate) async fn maven(
         artifacts,
         total: count,
         registry: None,
+        any_keyword_total: None,
     })
 }
 

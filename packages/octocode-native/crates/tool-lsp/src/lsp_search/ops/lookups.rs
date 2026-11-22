@@ -268,6 +268,16 @@ impl Operation<'_, '_> {
             .iter()
             .any(|symbol| symbol.get("symbolName").and_then(Value::as_str) == Some(name.as_str()));
         let mut row = items_payload(query, "symbols", json!(symbols), self.budget);
+        let shown = row
+            .get("matches")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let imports = super::reexport::import_rows(self.sources, &shown).await;
+        octocode_runtime_base::response::paging::push_warnings(
+            &mut row,
+            super::reexport::warning(&imports),
+        );
         if capped_at.is_some() && !exact {
             super::super::server_coverage::capped_without_exact(&mut row, query, &name, self.scope);
         }

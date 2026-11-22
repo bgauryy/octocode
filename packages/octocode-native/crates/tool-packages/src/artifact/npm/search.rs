@@ -73,6 +73,7 @@ pub(super) async fn search(
                     total: (!anded).then_some(total_found),
                     terminal_limit: Some(unreachable_rows(offset, total_found)),
                     registry: Some(trim_registry(&registry.base)),
+                    any_keyword_total: anded.then_some(total_found),
                 });
             }
         }
@@ -151,6 +152,7 @@ pub(super) async fn search(
             total: (!anded).then_some(total_found),
             terminal_limit,
             registry: Some(trim_registry(&registry.base)),
+            any_keyword_total: anded.then_some(total_found),
         });
     }
 }

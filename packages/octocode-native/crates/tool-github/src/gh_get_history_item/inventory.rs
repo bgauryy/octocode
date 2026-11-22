@@ -331,6 +331,7 @@ pub(super) fn shape_pr_files(
     if windowed {
         pagination.insert(Axis::Patches.key().into(), patches.stream.to_value());
     }
+    super::file_page::notice_patch_total_scope(row, &page, query);
     pagination.insert(Axis::Files.key().into(), page);
     ShapedFiles {
         review,

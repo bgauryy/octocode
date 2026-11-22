@@ -402,6 +402,37 @@ async fn npm_keywords_are_anded_and_a_window_without_a_match_is_read_past() {
     );
 }
 
+/// npm's total counts rows holding any keyword, so an ANDed search states no
+/// total; npm still serves only its reach of those rows, so page 1 marks the
+/// cap and says what npm matched, without a page count.
+#[tokio::test]
+async fn an_anded_npm_search_past_npms_reach_marks_the_cap_on_page_one() {
+    let total = 100_000;
+    let server = npm_terms(total, &[3]).await;
+    let first = npm_terms_page(&server, 1).await;
+    assert!(first["pagination"].get("total").is_none(), "{first}");
+    assert!(
+        first["partialReasons"]
+            .as_array()
+            .is_some_and(|reasons| reasons.iter().any(|r| r == "providerResultCap")),
+        "{first}"
+    );
+    let text = first.to_string();
+    assert!(
+        text.contains(&format!("npm matched {total} rows holding any keyword")),
+        "{first}"
+    );
+    assert!(!text.contains("through page"), "{first}");
+}
+
+/// An ANDed search npm's rows end inside its reach has no cap to state.
+#[tokio::test]
+async fn an_anded_npm_search_within_npms_reach_states_no_cap() {
+    let server = npm_terms(600, &[3]).await;
+    let first = npm_terms_page(&server, 1).await;
+    assert!(first.get("partialReasons").is_none(), "{first}");
+}
+
 /// A search whose matches end before npm's rows do ends on a page with no
 /// row and no next page: the walk is finite however many windows hold none.
 #[tokio::test]

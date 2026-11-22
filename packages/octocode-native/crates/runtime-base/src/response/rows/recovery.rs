@@ -25,7 +25,7 @@ pub const CANCELLED_HINT: &str = "Retry only if the result is still needed and w
 
 /// The recovery of a source too large to read or analyse whole: valid only
 /// where localSearch and localFetch ranges still serve it.
-pub const LARGE_SOURCE_HINT: &str = "Locate a bounded region with localSearch, then read exact ranges with localFetch. Full-file structural analysis may remain unavailable.";
+pub const LARGE_SOURCE_HINT: &str = "Locate a bounded region with localSearch, then read it with localFetch: ranges for many lines, matchString with a rare literal for a few huge (minified) lines. Full-file structural analysis may remain unavailable.";
 
 /// The recovery of a `fileAccessFailed` whose failing operation was a write
 /// under the home (a graph snapshot, a clone, a materialized tree): the

@@ -32,6 +32,7 @@ fn a_discovery_without_a_registry_total_omits_total_items() {
             total: None,
             terminal_limit: None,
             registry: None,
+            any_keyword_total: None,
         },
     )
     .expect("rows");
@@ -76,6 +77,7 @@ fn a_next_page_carries_the_provider_cursor() {
         total: Some(9),
         terminal_limit: None,
         registry: None,
+        any_keyword_total: None,
     };
     let data = respond(&query, page(Some("page-three"))).expect("rows");
     let next = &data["next"]["nextPage"]["input"]["queries"][0];
@@ -129,6 +131,7 @@ fn maven_discovery_pages_through_its_one_window() {
                 total: Some(total),
                 terminal_limit: None,
                 registry: None,
+                any_keyword_total: None,
             },
         )
         .expect("rows");
@@ -216,6 +219,7 @@ fn bounded_discovery_ends_at_its_reach() {
                     total: Some(50_000),
                     terminal_limit: None,
                     registry: None,
+                    any_keyword_total: None,
                 },
             )
             .expect("rows");

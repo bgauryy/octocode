@@ -4,7 +4,7 @@ import path from 'node:path';
 /**
  * Installs a stateful fake octocode-agents-communication CLI in dir. `run` prints a ready event and stays alive as
  * the proxy; `send_message` queues the proxy's answer "PONG: <inner text>" in the operator inbox. Modes:
- * schema 'body' (an old package), proxy 'error' (a vendor error before ready), reply 'none' (the worker never answers).
+ * schema 'body' (an old package), proxy 'error' (a vendor error before ready) or 'silent' (never ready), reply 'none' (the worker never answers).
  * Returns a reader for the recorded state: calls, joins, leaves, sent messages, completions and the proxy pid.
  */
 export function fakeComm(dir, { peers = [], schema = 'parts', proxy = 'ready', reply = 'answer' } = {}) {
@@ -45,6 +45,8 @@ elif command == 'run':
     if options['proxy'] == 'error':
         print("Vendor error: {'codexErrorInfo': 'usageLimitExceeded'}", flush=True)
         sys.exit(1)
+    if options['proxy'] == 'silent':
+        time.sleep(120)
     print(json.dumps({'type': 'ready', 'session': 'proxy-1', 'vendor': 'claude'}), flush=True)
     time.sleep(120)
 elif command == 'send_message':

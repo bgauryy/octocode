@@ -150,7 +150,7 @@ const row = tool === 'schema' ? {} : JSON.parse(json ?? '{}').queries?.[0] ?? {}
 if(tool==='schema') console.log(JSON.stringify({querySchema:{properties:{target:{anyOf:[{type:'string'},{type:'array',maxItems:100}]}}}}));
 else if(tool==='graphBuild') {
   if(row.path === ${JSON.stringify(folder)}) { out({errorCode:'executionFailed',error:'the tree changed during graph analysis'}); process.exit(5); }
-  out({id:'frozen',root:row.path,counts:{nodes:0,edges:0,nodesByKind:{file:1}}});
+  out({graph:'frozen',root:row.path,counts:{nodes:0,edges:0,nodesByKind:{file:1}}});
 } else if(tool==='structureSearch') out({files:[{dir:${JSON.stringify(folder)},files:['large.ts']}]});
 else out({graph:{id:'frozen'},rows:[],summary:{health:{},byDetector:{}}});`);
   const out = join(folder, '.octocode', 'result');

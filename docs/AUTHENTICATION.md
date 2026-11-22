@@ -13,30 +13,15 @@ Look for `verification: "verified"`, the expected `username` and `hostname`, and
 
 ## GitHub token resolution
 
-For each tool call, Octocode selects a credential for the configured GitHub host. Rows within the call share the selection. New calls pick up changes to stored logins.
+If the wrong account appears, check `tokenSource` and `hostname` in `octocode auth status --json`.
 
-```mermaid
-flowchart LR
-    accTitle: GitHub credential precedence for the selected host
-    E["Token variable"] -->|Absent| H["Octocode login"]
-    H -->|Absent| P["OS credential store"]
-    P -->|Absent| G["GitHub CLI"]
-    G -->|Absent| U["Anonymous"]
-```
-
-| `tokenSource` in `auth status` | Where the credential comes from |
+| Source | Credential |
 |---|---|
-| `env` | Octocode checks the process (including MCP client `env`), then the workspace `.octocode/.env`, then the home `.env`. At the first source with a nonblank token, `GH_TOKEN` wins over `GITHUB_TOKEN`. GitHub tokens have no `.octocoderc` setting. |
-| `octocode-storage` | `auth login` saves one encrypted entry per host in `<OCTOCODE_HOME>/credentials.json`. Protect that file and its sibling `.key` together. [Credential storage](SECURITY.md#github-credentials) |
-| `platform` | An existing login in the OS credential store when Octocode has no readable home login for the host. |
-| `gh-cli` | `gh auth token --hostname <host>` reads the host's GitHub CLI login. Octocode clears token variables for this subprocess. |
-| `none` | No credential selected. Public endpoints that allow anonymous reads have lower rate limits. Private repositories and code search require authentication. [GitHub search requirements](https://docs.github.com/en/rest/search/search#rate-limit) |
-
-For example, a shell `GITHUB_TOKEN` wins over a workspace `GH_TOKEN`. If GitHub rejects the explicit environment token, fix or remove it to switch accounts. If GitHub rejects a stored or `gh` token, later calls skip that credential, and later rows of the same call select again.
-
-### Refresh
-
-Octocode refreshes a stored expiring access token when a request falls within five minutes of its expiry. To refresh manually, run `npx -y octocode auth login --refresh`. If the refresh token expired, start a new device login. Octocode treats environment tokens as supplied.
+| `env` | First matching token in the process, workspace `.octocode/.env`, or home `.env`, in that order. At the same source, `GH_TOKEN` wins over `GITHUB_TOKEN`. |
+| `octocode-storage` | The login saved by `octocode auth login` for this host. |
+| `platform` | An existing login in the OS credential store. |
+| `gh-cli` | Your GitHub CLI login for this host. |
+| `none` | Public endpoints may allow anonymous access. Private repositories and code search require sign-in. |
 
 ### Status and logout
 
@@ -45,8 +30,6 @@ Octocode refreshes a stored expiring access token when a request falls within fi
 | Verify the active credential | `npx -y octocode auth status --json` | Reports host, account, source and verification. Available quota buckets include remaining requests and reset times. |
 | Switch stored accounts | `npx -y octocode auth login --force` | Replaces the saved login after successful approval. An environment token still takes priority. |
 | Remove the host's saved login | `npx -y octocode auth logout` | Clears the Octocode and OS entries for the configured host. Manage environment tokens and `gh` logins at their source. |
-
-`verification` is `verified` if GitHub accepts the token, `invalid` for a 401, `unverified` when GitHub could not confirm it, or `none` without a token. Both `verified` and `unverified` have `authenticated: true`. Check `verification` when testing that a login works.
 
 ## GitHub Enterprise
 
@@ -84,7 +67,7 @@ For `artifactSearch`, select `ecosystem: "npm"` and set `registryUrl` for a cust
 //registry.example.com/npm/:_authToken=${NPM_TOKEN}
 ```
 
-Set `NPM_TOKEN` in the environment for this example; if a referenced variable is unset, that entry is ignored. The longest matching host, port and path prefix wins. `:_authToken` supplies Bearer auth and `:_auth` supplies Basic auth. Octocode sends credentials over HTTPS or loopback HTTP. A private, loopback or link-local registry also needs `network.allowPrivateRegistry: true` in trusted configuration. [Configuration](CONFIGURATION.md#all-settings-and-defaults)
+Set `NPM_TOKEN` in the environment for this example. The npmrc entry's host and path must match your registry. A private or loopback registry also needs `network.allowPrivateRegistry: true` in trusted configuration. [Configuration](CONFIGURATION.md#all-settings-and-defaults)
 
 ## Troubleshooting
 

@@ -298,7 +298,7 @@ fn reference(
     };
     widen_literal_issues(&mut selected, &allowed);
     name_missing_alternatives(&mut selected, &missing_sets, path.len());
-    annotate_sibling_branch_fields(&mut selected, root, branches, value);
+    annotate_sibling_branch_fields(&mut selected, root, branches, value, path);
     annotate_allowed_fields(&mut selected, root, branches, value, path);
     annotate_sibling_selectors(&mut selected, root, branches, value, path);
     annotate_forbidden_fields(&mut selected, root, branches, value, path);

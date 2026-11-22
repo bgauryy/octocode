@@ -15,17 +15,20 @@ pub(super) fn branch_object<'a>(root: &'a Value, branch: &'a Value) -> &'a Value
 /// default value says what omitting it says, so the fix is the same switch
 /// (`operation:"tree"` → `"files"`); when the query's own
 /// selector picks another branch, the field is that mode's
-/// (`siblingConflict`).
+/// (`siblingConflict`). Only a field directly in the union's value: a nested
+/// one that shares a branch field's name (`filters.owner`) is not that field.
 pub(super) fn annotate_sibling_branch_fields(
     issues: &mut [ValidationIssue],
     root: &Value,
     branches: &[Value],
     value: &Value,
+    path: &[String],
 ) {
-    for item in issues
-        .iter_mut()
-        .filter(|item| item.rule_id == "schema.unknown-field")
-    {
+    for item in issues.iter_mut().filter(|item| {
+        item.rule_id == "schema.unknown-field"
+            && item.path.len() == path.len() + 1
+            && item.path.starts_with(path)
+    }) {
         let Some(field) = item.path.last() else {
             continue;
         };

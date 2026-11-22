@@ -12,21 +12,9 @@ On an interactive terminal, `npx -y octocode config` opens the settings page. [A
 
 ## Where every value comes from
 
-```mermaid
-flowchart LR
-    accTitle: Sources of a setting, in priority order
-    E["Environment<br/>Process → workspace .env → home .env"]
-    R["Settings files<br/>Workspace → home .octocoderc"]
-    D["Built-in default"]
-    E -->|Unset or invalid| R
-    R -->|No valid setting| D
-```
+For most settings, Octocode checks the process environment, workspace `.env`, home `.env`, workspace `.octocoderc`, home `.octocoderc`, then the built-in default. The workspace files live under `.octocode/` in the launch directory. Run `octocode config home` to locate your home files.
 
-Workspace files live in `<working-directory>/.octocode/`. Octocode looks in that directory only. Home files live in `~/.octocode/` by default. Set `OCTOCODE_HOME` in the process environment to move them, or run `npx -y octocode config home` to print the path.
-
-For each variable, a nonblank process value wins, followed by an allowed workspace `.env` value, then the home `.env`. A nonblank invalid value masks lower `.env` entries for that variable. For a setting, Octocode then tries the `.octocoderc` files and the default. A blank **process** `OCTOCODE_CLASSIFICATION_API` explicitly turns classification off.
-
-Workspace files can change only the values in the **Workspace may set** column below. Some switches allow a workspace to narrow access, such as `local.enabled: false`. Restart the MCP server after changing configuration. A new CLI invocation reads the current configuration.
+The settings table shows which values a workspace may set. Restart MCP after changing its configuration. Run `octocode config get <setting> --json` in the same directory to see the effective value and source.
 
 ## Set a value
 
@@ -47,7 +35,8 @@ npx -y octocode config unset local.beta
 
 Supply a key through standard input to keep it out of command history. `config check` exits 0 for an explicit value and 1 when unset. Keep `.env` files containing credentials out of version control.
 
-Use `KEY=VALUE` lines in `.env`. Environment booleans accept `true`, `false`, `1` or `0`. Lists use commas. In `.octocoderc`, use JSON booleans and arrays. Comments and trailing commas are accepted. Each field resolves independently and the winning array replaces the whole list. Path settings accept absolute or home-relative paths.
+
+Use `KEY=VALUE` in `.env` and JSON values in `.octocoderc`. For example:
 
 ```jsonc
 // ~/.octocode/.octocoderc
@@ -61,12 +50,6 @@ Use `KEY=VALUE` lines in `.env`. Environment booleans accept `true`, `false`, `1
 
 ```json
 {"languageServers":{".ts":{"command":"tsgo","args":["--lsp","-stdio"],"languageId":"typescript"}}}
-```
-
-Any extension can be routed this way. For a language whose project files Octocode does not know, `rootMarkers` names the files or directories that mark the project root:
-
-```json
-{"languageServers":{".swift":{"command":"sourcekit-lsp","languageId":"swift","rootMarkers":["Package.swift"]}}}
 ```
 
 ### Change the classification host
@@ -98,7 +81,8 @@ The CLI has 16 tools by default. MCP starts with 12. The table shows what change
 
 ## All settings and defaults
 
-Use the dotted name in `.octocoderc`, or the variable name in a permitted environment source. A dash marks an environment-only option. **Sensitive** means configuration output hides the value. For timeouts, page sizes and storage lifetimes, see [storage and limits](STORAGE_AND_LIMITS.md).
+Use a dotted name in `.octocoderc` or the corresponding environment variable. Sensitive values are hidden in configuration output.
+
 
 <!-- settings-table:start (generated from the config contract; do not edit) -->
 
@@ -150,8 +134,6 @@ Use the dotted name in `.octocoderc`, or the variable name in a permitted enviro
 ## Proxies and certificates
 
 Set proxy and certificate variables in the shell, CI or the MCP client's `env` block. `SSL_CERT_FILE` and `SSL_CERT_DIR` add PEM certificates to the OS trust store. Clone git also accepts `GIT_SSL_CAINFO`, `GIT_SSL_CAPATH` and `CURL_CA_BUNDLE`. These have no Octocode override by default.
-
-Bootstrap variables such as `PATH`, `HOME`, `SHELL`, `USER`, `LOGNAME`, `PWD`, `TMPDIR`, `NODE_OPTIONS` and `PYTHON` come from the process. For Rust dependency-graph analysis, `OCTOCODE_CARGO` selects a Cargo executable in the process or home environment. The default is `cargo` on `PATH`.
 
 ## Troubleshooting
 

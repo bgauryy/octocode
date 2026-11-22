@@ -157,3 +157,53 @@ fn commit_and_compare_patch_windows_keep_complete_stream_facts() {
         assert!(windows > 1, "fixture exercises multiple windows");
     }
 }
+
+/// A patch total counts one file page's stream: with more files before or
+/// after the page, its first patch window says so once; a lone file page
+/// and later windows of a page say nothing.
+#[test]
+fn patch_total_scope_is_noticed_only_when_file_pages_split() {
+    let input = json_fixture(
+        r#"{"operation": "compare", "owner": "o", "repo": "r", "baseRef": "a",
+            "headRef": "b", "sections": ["patches"]}"#,
+    );
+    let query = HistoryItemRequest::from_row(input).expect("query");
+    let notices = |query: &HistoryItemRequest, start: usize, total: usize| {
+        let files = source_files();
+        let count = files.len();
+        let filtered = FilteredPage {
+            files,
+            page: octocode_runtime_base::response::pages::PageFacts::counted(start, count, total)
+                .to_value(),
+            kept: count,
+            unsearched: vec![],
+            dropped: 0,
+            in_scope: count,
+            loaded: count,
+        };
+        let mut out = json!({});
+        shape_file_page(
+            &mut out,
+            filtered,
+            query,
+            DiffSides {
+                new: None,
+                old: None,
+            },
+            || json!({}),
+        );
+        out["notices"].as_array().cloned().unwrap_or_default()
+    };
+    let first = notices(&query, 0, 270);
+    assert_eq!(first.len(), 1, "{first:?}");
+    let text = first[0].as_str().expect("text");
+    assert!(text.contains("1-2") && text.contains("patches"), "{text}");
+    assert_eq!(notices(&query, 4, 6).len(), 1, "last file page");
+    assert!(notices(&query, 0, 2).is_empty(), "one file page holds all");
+    let later = HistoryItemRequest::from_row(json_fixture(
+        r#"{"operation": "compare", "owner": "o", "repo": "r", "baseRef": "a",
+            "headRef": "b", "sections": ["patches"], "offset": 5}"#,
+    ))
+    .expect("query");
+    assert!(notices(&later, 0, 270).is_empty(), "later window");
+}

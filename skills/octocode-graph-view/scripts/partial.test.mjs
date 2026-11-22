@@ -17,7 +17,7 @@ test('query partial metadata survives section projection, stitching and both bri
     } else {
       const query = JSON.parse(process.argv.at(-1)).queries[0];
       const data = tool === 'graphBuild'
-        ? {id:'snapshot',root:query.path,counts:{nodes:1,edges:0},linkage:{ratio:null}}
+        ? {graph:'snapshot',root:query.path,counts:{nodes:1,edges:0},linkage:{ratio:null}}
         : {graph:{id:'snapshot',root:query.path,isPartial:true,partialReasons:['filesSkipped']},rows:query.operation === 'find' ? [{id:'a.ts',kind:'file',language:'typescript'}] : []};
       console.log(JSON.stringify({results:[{index:0,data}]}));
     }

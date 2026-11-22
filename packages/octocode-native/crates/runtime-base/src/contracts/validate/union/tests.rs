@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use std::sync::atomic::{AtomicUsize, Ordering};
 mod absorption;
 mod allowed_fields;
+mod branch_truth;
 mod enums;
 mod equivalence;
 mod messages;

@@ -184,6 +184,7 @@ fn respond(
         next_state,
         total,
         terminal_limit,
+        any_keyword_total,
         ..
     } = page;
     if artifacts.is_empty()
@@ -216,7 +217,13 @@ fn respond(
     // An exact lookup's row states its repository, directory, ref and
     // version: the tree read and the advisory check take them as fields.
     if artifact_search_query::package_name(query).is_none() {
-        discovery_page(query, &mut data, next_state.as_ref(), total);
+        discovery_page(
+            query,
+            &mut data,
+            next_state.as_ref(),
+            total,
+            any_keyword_total,
+        );
     }
     paging::push_warnings(
         &mut data,
