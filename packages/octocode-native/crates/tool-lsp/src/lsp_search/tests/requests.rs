@@ -72,7 +72,8 @@ fn document_wide_operations_do_not_require_a_position_anchor() {
                 line: 0,
                 character: 0,
                 resolved_symbol: None,
-                warning: None
+                warning: None,
+                related: Vec::new()
             })
         );
     }

@@ -12,7 +12,7 @@ mod anchors;
 pub mod leads;
 mod paging;
 mod rows;
-pub(super) use anchors::{anchor_recovery, attach_recovery_next, path_failure};
+pub(super) use anchors::{anchor_recovery, attach_recovery_next, line_finders, path_failure};
 use leads::symbol_search_lead;
 pub use leads::{
     FILE_LEVEL_REASONS, LISTED_TEXT_FILES, flag_answer_gaps, flag_partial, flagged_with,

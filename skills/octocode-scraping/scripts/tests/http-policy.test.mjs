@@ -1,5 +1,6 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { discoverSitemap, fetchDirect, fetchRobotsPolicy } from '../lib/client.mjs';
 import { spawn } from 'node:child_process';
@@ -13,6 +14,18 @@ process.env.OCTOCODE_NET_GUARD_TEST_LOOPBACK = '1';
 let server;
 let origin;
 let retryRequests = 0;
+
+async function listen(fixture) {
+  const listening = once(fixture, 'listening');
+  fixture.listen(0, '127.0.0.1');
+  await listening;
+}
+
+async function close(fixture) {
+  if (fixture?.listening) {
+    await new Promise((resolve, reject) => fixture.close((error) => error ? reject(error) : resolve()));
+  }
+}
 
 before(async () => {
   server = createServer((req, res) => {
@@ -45,13 +58,11 @@ before(async () => {
     res.writeHead(200, { 'content-type': 'text/html' });
     res.end('<h1>ok</h1>');
   });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await listen(server);
   origin = `http://127.0.0.1:${server.address().port}`;
 });
 
-after(async () => {
-  await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-});
+after(() => close(server));
 
 test('robots uses longest matching rule and allow wins the more specific path', async () => {
   const policy = await fetchRobotsPolicy(`${origin}/docs`);
@@ -86,27 +97,24 @@ test('a sitemap index is followed to its child sitemaps', async () => {
     else if (req.url === '/sm1.xml') res.end(`<urlset><url><loc>${base}/a</loc></url><url><loc>${base}/b</loc></url></urlset>`);
     else { res.statusCode = 404; res.end(); }
   });
-  await new Promise((r) => indexServer.listen(0, '127.0.0.1', r));
   try {
+    await listen(indexServer);
     const base = `http://127.0.0.1:${indexServer.address().port}`;
     const { discovered, error } = await discoverSitemap({ targetUrl: `${base}/`, maxPages: 5 });
     assert.equal(error, null);
     assert.deepEqual(discovered, [`${base}/a`, `${base}/b`]);
-  } finally { indexServer.close(); }
+  } finally { await close(indexServer); }
 });
 
 test('a crawl refuses private hosts it is linked to or redirected to, and the start URL needs --allow-private-host', async () => withDir(async (dir) => {
   const internal = createServer((req, res) => { res.setHeader('content-type', 'text/html'); res.end('<h1>internal secret</h1>'); });
-  await new Promise((r) => internal.listen(0, '127.0.0.1', r));
-  const internalPort = internal.address().port;
   const site = createServer((req, res) => {
+    const internalPort = internal.address().port;
     if (req.url === '/robots.txt') { res.statusCode = 404; return res.end(); }
     if (req.url === '/hop') { res.statusCode = 302; res.setHeader('location', `http://localhost:${internalPort}/via-redirect`); return res.end(); }
     res.setHeader('content-type', 'text/html');
     return res.end(`<a href="http://localhost:${internalPort}/internal">a</a> <a href="http://169.254.169.254/latest/meta-data/">b</a> <a href="/hop">c</a>`);
   });
-  await new Promise((r) => site.listen(0, '127.0.0.1', r));
-  const start = `http://127.0.0.1:${site.address().port}/`;
   // The fixture servers live in this process, so the child must run without blocking the event loop.
   const nodeAsync = (args) => new Promise((resolve) => {
     const child = spawn(process.execPath, [join(scripts, 'fetch.mjs'), ...args], { cwd: dir, env: { PATH: process.env.PATH } });
@@ -115,6 +123,10 @@ test('a crawl refuses private hosts it is linked to or redirected to, and the st
     child.on('close', (status) => resolve({ status, stdout }));
   });
   try {
+    await listen(internal);
+    await listen(site);
+    const internalPort = internal.address().port;
+    const start = `http://127.0.0.1:${site.address().port}/`;
     const denied = await nodeAsync(['--url', start, '--provider', 'direct']);
     assert.equal(denied.status, 2, denied.stdout);
     assert.equal(JSON.parse(denied.stdout).error.code, 'refusedHost');
@@ -128,5 +140,5 @@ test('a crawl refuses private hosts it is linked to or redirected to, and the st
     assert.ok(!corpus.includes('internal secret'), 'an internal page reached the corpus');
     const sources = readFileSync(join(out.sessionDir, 'sources.jsonl'), 'utf8');
     assert.match(sources, /redirect target refused/, sources);
-  } finally { site.close(); internal.close(); }
+  } finally { await Promise.all([close(site), close(internal)]); }
 }));

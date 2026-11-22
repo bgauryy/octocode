@@ -379,7 +379,7 @@ fn unparsed_entries_page_once_on_every_tool_that_lists_them() {
         ),
         (
             ToolId::GraphBuild,
-            json!({"id":"g","skippedPaths":{"entries":entries,"sampled":true}}),
+            json!({"graph":"g","skippedPaths":{"entries":entries,"sampled":true}}),
         ),
     ] {
         let mut seen = Vec::new();

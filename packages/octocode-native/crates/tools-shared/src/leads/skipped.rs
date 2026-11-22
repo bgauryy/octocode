@@ -139,32 +139,23 @@ pub fn unsearched_ledger(
     unsearched(&skipped_causes(skipped))
 }
 
-/// What the path policy withheld from a walk of `root`: each policy
-/// directory name with its count at the walked scope, and every other
-/// withheld entry as the directory that holds it (never its own name), with
-/// the rule that withheld it and how many it holds there.
+/// What the path policy withheld from a walk of `root`: every withheld
+/// entry, a policy directory too, as the directory that holds it (never its
+/// own name), with the rule that withheld it (a policy directory's: its
+/// policy name) and how many it holds there.
 fn withheld(
     root: &str,
     withheld: &octocode_runtime_base::policy::discovery::Withheld,
 ) -> Vec<SkippedEntry> {
-    let dirs = withheld.dirs.iter().map(|(name, count)| SkippedEntry {
-        path: root.to_owned(),
-        cause: SkippedPathCause::Withheld,
-        reason: Some(format!(
-            "security-policy dir {}/",
-            name.trim_end_matches('/')
-        )),
-        count: *count,
-    });
-    let entries = withheld
+    withheld
         .holders()
         .map(|(kind, holder, count)| SkippedEntry {
             path: held_in(root, holder),
             cause: SkippedPathCause::Withheld,
-            reason: Some(kind.reason().to_owned()),
+            reason: Some(kind.reason().into_owned()),
             count,
-        });
-    dirs.chain(entries).collect()
+        })
+        .collect()
 }
 
 /// The directory `holder` as every skipped path is recorded
@@ -173,6 +164,9 @@ fn withheld(
 /// its root is joined to `root`.
 fn held_in(root: &str, holder: &str) -> String {
     let holder = std::path::Path::new(holder);
+    if holder.as_os_str().is_empty() {
+        return root.to_owned();
+    }
     if holder.is_absolute() {
         return holder.to_string_lossy().into_owned();
     }
@@ -278,15 +272,22 @@ pub fn skipped_paths(
     let entries = both_causes(skips)
         .into_iter()
         .map(|skip| {
+            let count = stated_count(&skip);
             Ok(SkippedPath {
                 path: skip.path.try_into().map_err(skipped_path_error)?,
                 cause: skip.cause,
-                count: (skip.count > 1).then(|| saturating_i64(skip.count)),
+                count,
                 reason: skip.reason,
             })
         })
         .collect::<Result<Vec<_>, ToolError>>()?;
     Ok(grouped(entries, every_path, incomplete))
+}
+
+/// The count an entry states: only when it counts several paths (the
+/// contract's `count` starts at 2).
+fn stated_count(skip: &SkippedEntry) -> Option<i64> {
+    (skip.count > 1).then(|| saturating_i64(skip.count))
 }
 
 /// `skips` with each path skipped both as ignored and as default-excluded
@@ -332,7 +333,8 @@ fn both_causes(skips: impl IntoIterator<Item = SkippedEntry>) -> Vec<SkippedEntr
 }
 
 /// `entries` first seen first, one per cause and rule, or with `every_path`
-/// each path on its own. A group of several paths is the deepest directory
+/// each path on its own (a withheld entry always is: one per holding
+/// directory). A group of several paths is the deepest directory
 /// holding them all, with their summed count, which marks the collapse:
 /// whatever its cause, the entry's path names where every path it counts
 /// sits. `sampled` only when the walk did not finish (`incomplete`): its
@@ -345,11 +347,15 @@ pub fn grouped(
 ) -> Option<SkippedPaths> {
     let mut groups: Vec<SkippedPath> = Vec::new();
     for entry in entries {
-        match groups
-            .iter_mut()
-            .find(|group| group.cause == entry.cause && group.reason == entry.reason)
-        {
-            Some(group) if !every_path || group.path == entry.path => {
+        // A withheld entry already is the directory holding what the policy
+        // left out: another directory's is its own entry.
+        let collapses = !every_path && entry.cause != SkippedPathCause::Withheld;
+        match groups.iter_mut().find(|group| {
+            group.cause == entry.cause
+                && group.reason == entry.reason
+                && (collapses || group.path == entry.path)
+        }) {
+            Some(group) => {
                 if group.path != entry.path {
                     let shared = shared_dir(&group.path, &entry.path);
                     if let Ok(shared) = shared.try_into() {
@@ -520,10 +526,11 @@ pub fn scoped_paths(
     let mut shown = entries
         .into_iter()
         .map(|skip| {
+            let count = stated_count(&skip);
             Ok(SkippedPath {
                 path: skip.path.try_into().map_err(skipped_path_error)?,
                 cause: skip.cause,
-                count: (skip.count > 1).then(|| saturating_i64(skip.count)),
+                count,
                 reason: skip.reason,
             })
         })

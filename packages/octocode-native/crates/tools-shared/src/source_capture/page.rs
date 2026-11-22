@@ -134,10 +134,9 @@ pub const RERUN_HINT: &str = "Run the same read directly to inspect it.";
 
 /// The reader's error row as the capture's failure: its code (when
 /// declared), its message, and its own recovery. The reader's retry is a
-/// fresh source check shown in `related`; other leads are kept by name. A missing path,
-/// a refusal or an invalid input fails the same way on a re-run, so its own
-/// hints say what to do (else the code's shared recovery); any other failure
-/// also offers the re-run.
+/// fresh source check shown in `related`. Other leads keep their names. A
+/// missing path, a refusal or an invalid input keeps the reader's hints or
+/// the code's shared recovery. A transient or restart failure offers a re-run hint.
 pub fn reader_failure(
     reader: &dyn octocode_runtime_base::response::output::ToolOutput,
     data: &Value,

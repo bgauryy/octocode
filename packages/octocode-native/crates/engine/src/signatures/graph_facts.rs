@@ -107,6 +107,8 @@ struct GraphAccumulator {
     modules: Vec<GraphFactRustModule>,
     /// Rust qualified paths outside call and `use` position.
     paths: Vec<crate::graph::GraphFactPath>,
+    /// First line of each bare Rust type name written in type position.
+    type_names: std::collections::BTreeMap<String, u32>,
     /// Line spans of items compiled only under test, outermost only.
     test_lines: Vec<[u32; 2]>,
     /// Start bytes of name tokens that are not value references: declaration
@@ -183,6 +185,7 @@ impl GraphAccumulator {
             edges: Vec::new(),
             modules: Vec::new(),
             paths: Vec::new(),
+            type_names: std::collections::BTreeMap::new(),
             test_lines: Vec::new(),
             non_reference_tokens: std::collections::HashSet::new(),
             public_namespace_scopes: std::collections::HashSet::new(),

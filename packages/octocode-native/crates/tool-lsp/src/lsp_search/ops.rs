@@ -354,10 +354,15 @@ impl Operation<'_, '_> {
                         self.sources.policy(),
                     ));
                 }
-                let resolved = if found.is_empty() {
+                let empty = if found.is_empty() {
                     self.empty_type_resolution().await?
                 } else {
-                    None
+                    Default::default()
+                };
+                let (resolved, found) = if empty.declaration.is_empty() {
+                    (empty.resolved, found)
+                } else {
+                    (None, empty.declaration)
                 };
                 let scope = self.scope;
                 let mut row = self

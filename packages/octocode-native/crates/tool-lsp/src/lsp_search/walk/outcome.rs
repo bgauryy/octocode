@@ -330,7 +330,7 @@ fn note_omitted(row: &mut Value, walks: &[(Expansion, &HierarchyWalk)]) {
             row,
             octocode_runtime_base::response::paging::PartialReason::LocationsWithheld,
             &[format!(
-                "{out_of_policy} hierarchy item(s) outside the read policy omitted{named}."
+                "{out_of_policy} hierarchy item(s) in files the read policy does not allow (outside the allowed roots, such as the standard library and dependencies, or withheld) omitted{named}."
             )],
         );
     }

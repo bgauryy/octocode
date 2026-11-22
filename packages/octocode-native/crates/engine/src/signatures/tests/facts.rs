@@ -110,6 +110,9 @@ fn declaration_facts_equal_the_graph_facts_without_call_or_argument_observations
         expected["calls"] = serde_json::json!([]);
         expected["argumentSites"] = serde_json::json!([]);
         expected.as_object_mut().map(|facts| facts.remove("paths"));
+        expected
+            .as_object_mut()
+            .map(|facts| facts.remove("typeNames"));
         if let Some(edges) = expected["edges"].as_array_mut() {
             edges.retain(|edge| edge["relation"] != "calls");
         }

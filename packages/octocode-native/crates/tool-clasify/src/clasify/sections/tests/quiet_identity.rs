@@ -162,6 +162,8 @@ fn next_quiet_confirms_the_plans_github_identity_before_it_serves() {
         per_item: false,
         source_progress: None,
         max_requests: None,
+        walk_requests: 0,
+        saved_page: None,
         per_hit: false,
         collapse: false,
         retry_units: None,

@@ -741,6 +741,16 @@ fn an_empty_type_the_server_resolved_is_not_blamed_on_an_outside_include() {
     assert!(related_search_paths(&row).is_empty(), "{row}");
 }
 
+/// `typeDefinition` on a type's own declaration: the server gives it no type
+/// location, but it is not a primitive. The row answers with the declaration.
+#[test]
+fn an_empty_type_on_its_own_declaration_answers_with_that_declaration() {
+    let row = empty_type_case("```rust\np\n```\n\n```rust\npub struct value\n```", false);
+    assert_ne!(row["category"], "noLocations", "{row}");
+    assert!(!row.to_string().contains("primitive"), "{row}");
+    assert!(row.to_string().contains("p/src/lib.rs"), "{row}");
+}
+
 /// A type the server could not resolve, on a name it places in the
 /// package's own source: the package's outside include may hold the type
 /// (partial), and it does not declare the name asked about (no include lead).

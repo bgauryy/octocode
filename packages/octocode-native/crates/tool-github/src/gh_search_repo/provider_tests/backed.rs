@@ -50,6 +50,45 @@ async fn picked_rows_keep_the_repository_id() {
     assert!(out.data.get("related").is_none(), "{}", out.data);
 }
 
+/// A `fields` pick of `archived` states `false` on an active repository,
+/// and the published row passes the output contract (it is not withheld).
+#[tokio::test]
+async fn an_archived_pick_on_an_active_repository_passes_the_output_contract() {
+    let server = MockServer::builder().start().await;
+    mount_json(
+        &server,
+        "/api/v3/search/repositories",
+        200,
+        json!({
+            "total_count":2,"incomplete_results":false,
+            "items":[repo_item("active", false), repo_item("old", true)]
+        }),
+    )
+    .await;
+    let out = run(
+        &server,
+        json_fixture(
+            r#"{
+                "operation": "search",
+                "keywords": ["x"],
+                "filters": {"archive": "include"},
+                "fields": ["archived", "defaultBranch"]
+            }"#,
+        ),
+    )
+    .await
+    .expect("search");
+    let archived = out.data["repositories"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .map(|row| row["archived"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(archived, [json!(false), json!(true)], "{}", out.data);
+    let served = json!({"results": [{"index": 0, "data": out.data}]});
+    octocode_runtime_base::test_support::checks::assert_output_contract("ghSearchRepo", &served);
+}
+
 /// ghSearchRepo rows carry decision facts only, topics
 /// favor the query, and pagination does not restate next.nextPage.
 #[tokio::test]

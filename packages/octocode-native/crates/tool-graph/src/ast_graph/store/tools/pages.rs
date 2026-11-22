@@ -93,10 +93,15 @@ pub(super) fn convert(out: &mut GraphOutput, row: &Value) {
 /// name.
 fn suggested_calls(data: &mut Map<String, Value>, row: &Value) {
     let mut calls = Vec::new();
+    // The reference field that failed to resolve; `target` unless named.
+    let field = match data.remove("suggestFor") {
+        Some(Value::String(field)) => field,
+        _ => "target".to_owned(),
+    };
     if let Some(Value::Array(suggestions)) = data.remove("suggestions") {
         calls.extend(suggestions.iter().filter_map(Value::as_str).map(|target| {
             let mut request = row.clone();
-            request["target"] = json!(target);
+            request[field.as_str()] = json!(target);
             Continuation::related(ToolId::GraphQuery, request).build()
         }));
     }

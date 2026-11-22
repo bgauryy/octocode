@@ -1,7 +1,7 @@
 //! A read syntax-tree page as its row: one compact line per node, the
 //! walk's diagnostics and partial reasons, pagination and the next page.
-use super::{TreePage, ast_search_query_syntax_tree};
-use octocode_contract_types::{AstSearchQuerySyntaxTree, ErrorCode};
+use super::{SyntaxQuery, TreePage};
+use octocode_contract_types::ErrorCode;
 use octocode_engine::num::saturating_usize;
 use octocode_runtime_base::id::ToolId;
 use serde_json::json;
@@ -9,12 +9,12 @@ use serde_json::json;
 /// The row of one read page: its nodes and diagnostics, pagination and the
 /// next page; a failed inspection is an error row.
 pub(super) fn render_tree_page(
-    q: &AstSearchQuerySyntaxTree,
+    q: SyntaxQuery<'_>,
     display_path: Option<&str>,
     TreePage { r, more, facts }: &TreePage,
     snapshot: &str,
 ) -> serde_json::Value {
-    let provenance = ast_search_query_syntax_tree::provenance(q);
+    let provenance = q.provenance();
     let nodes = r
         .nodes
         .iter()
@@ -28,7 +28,8 @@ pub(super) fn render_tree_page(
         .collect::<Vec<_>>();
     // A walk's notes do not change between its pages: page 1 states them, and
     // a walk cut is stated where the listing stops (an error row keeps all).
-    let first_page = ast_search_query_syntax_tree::page(q) == 1;
+    let page = q.page();
+    let first_page = page == 1;
     let stated = |code: &str| {
         if is_walk_cut(code) {
             !*more
@@ -67,16 +68,12 @@ pub(super) fn render_tree_page(
             json!({"operation":"syntaxTree","status":"error","errorCode":code,"error":message});
         state_path(&mut out, display_path);
         if code == ErrorCode::LanguageUnsupported
-            && let Some(read) = q
-                .path
-                .as_ref()
-                .and_then(|path| super::super::output::unsupported_read(path.as_str()))
+            && let Some(read) = q.path().and_then(super::super::output::unsupported_read)
         {
             octocode_runtime_base::response::result::attach_related(&mut out, read);
         }
         return out;
     }
-    let page = ast_search_query_syntax_tree::page(q);
     let pagination = facts.to_value();
     // The snapshot pins the next page through its cursor only.
     let mut out = json!({"operation":"syntaxTree","nodes":nodes,"pagination":pagination});
@@ -98,7 +95,7 @@ pub(super) fn render_tree_page(
     if *more
         && let Some(lead) = octocode_runtime_base::response::collection::continued_page(
             ToolId::AstSearch,
-            octocode_runtime_base::response::result::query_row(q, &[]),
+            q.row(&[]),
             "page",
             saturating_usize(page) + 1,
             &[("snapshot", json!(snapshot))],

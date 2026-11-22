@@ -4,7 +4,7 @@ use super::query::Move;
 use super::rows::continuation_with;
 use super::types::{ScanCut, Scope};
 use octocode_contract_types::{
-    AstSearchChannel, AstSearchQuerySyntaxTree, AstSearchQuerySyntaxTreeOperation, ErrorCode,
+    AstSearchChannel, AstSearchQuerySyntaxTreePath, ErrorCode, SyntaxTreeOperation,
 };
 use octocode_runtime_base::id::ToolId;
 use octocode_runtime_base::response::result::ToolError;
@@ -177,19 +177,18 @@ pub(super) fn tree_lead(
     }
     // One bounded page: the nodes at `line` (the statement that spells the
     // query's anchor), else the file's first nodes, with the rest a page on.
-    let tree = AstSearchQuerySyntaxTree {
+    let tree = AstSearchQuerySyntaxTreePath {
         include_provenance: None,
         line: line.and_then(std::num::NonZeroU64::new),
         main_goal: None,
         named_only: true,
-        operation: AstSearchQuerySyntaxTreeOperation::SyntaxTree,
+        operation: SyntaxTreeOperation::SyntaxTree,
         page: std::num::NonZeroU64::MIN,
         parser: match q.language().filter(|_| scope.is_file) {
             Some(language) => Some(language.parse().ok()?),
             None => None,
         },
-        path: Some(file.to_string_lossy().as_ref().try_into().ok()?),
-        content: None,
+        path: file.to_string_lossy().as_ref().try_into().ok()?,
         reasoning: None,
         snapshot: None,
     };

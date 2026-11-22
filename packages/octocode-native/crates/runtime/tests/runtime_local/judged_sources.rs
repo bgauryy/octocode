@@ -898,7 +898,7 @@ async fn stale_graph_snapshot_of_another_analysis_version_serves_no_fact() {
     let unresolved = || query_path(&root, json_fixture(r#"{"operation": "unresolved"}"#));
 
     let built = run("graphBuild", query_path(&root, json!({}))).await;
-    let id = stale_graph_data(&built)["id"]
+    let id = stale_graph_data(&built)["graph"]
         .as_str()
         .unwrap_or_else(|| panic!("{built}"))
         .to_owned();
@@ -972,7 +972,10 @@ async fn stale_graph_snapshot_of_another_analysis_version_serves_no_fact() {
     // Its lead builds a snapshot of the current analysis, which answers.
     let lead = refusals[0]["related"][0]["input"].clone();
     let rebuilt = run("graphBuild", lead).await;
-    assert_ne!(stale_graph_data(&rebuilt)["id"], json!(id), "{rebuilt}");
+    let rebuilt_graph = stale_graph_data(&rebuilt)["graph"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{rebuilt}"));
+    assert_ne!(rebuilt_graph, id, "{rebuilt}");
     let answered = run("graphQuery", unresolved()).await;
     assert!(
         stale_graph_data(&answered).get("errorCode").is_none(),

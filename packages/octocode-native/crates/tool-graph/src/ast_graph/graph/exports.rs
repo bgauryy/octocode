@@ -70,7 +70,10 @@ impl FileLink<'_, '_> {
         self.facts.reexports.extend(forwarded);
     }
 
-    pub(super) fn call(&mut self, c: octocode_engine::graph::GraphFactCall) {
+    pub(super) fn call(&mut self, mut c: octocode_engine::graph::GraphFactCall) {
+        if self.lang == Linker::Rust {
+            c.callee = rust_without_generic_arguments(&c.callee);
+        }
         if c.kind == "dynamic-import" {
             let target = self.resolve(&c.callee, None, "*");
             self.record(c.line, &c.callee, &target, false);
@@ -97,6 +100,7 @@ impl FileLink<'_, '_> {
         // as a `use` does.
         if let Some(t) = target.as_ref().filter(|t| **t != self.file) {
             self.edge(t, super::super::edges::RUST_PATH, c.line);
+            self.rust_path_use(t, &c.callee, c.line, true);
         }
         if self.lang == Linker::Rust && target.is_none() {
             self.note_unbound_path(&c.callee, c.line);
@@ -124,7 +128,8 @@ impl FileLink<'_, '_> {
     /// module as a call does. One that names the current crate but does not
     /// resolve is an internal gap, never silently complete coverage, unless
     /// it names code above the snapshot root, as an import would.
-    pub(super) fn path(&mut self, p: octocode_engine::graph::GraphFactPath) {
+    pub(super) fn path(&mut self, mut p: octocode_engine::graph::GraphFactPath) {
+        p.path = rust_without_generic_arguments(&p.path);
         let target = match rust_inline_path(&p.path, p.inline_depth) {
             None => Some(self.file.clone()),
             Some(path) => rust_call_target(
@@ -142,11 +147,7 @@ impl FileLink<'_, '_> {
         match &target {
             Some(t) if *t != self.file => {
                 self.edge(t, super::super::edges::RUST_PATH, p.line);
-                if let Some(item) = rust_path_item(&p.path) {
-                    self.facts
-                        .rust_path_uses
-                        .push((t.clone(), item.to_owned(), p.line));
-                }
+                self.rust_path_use(t, &p.path, p.line, false);
             }
             Some(_) => {}
             None if rust_internal_specifier(&p.path) => {
@@ -183,19 +184,55 @@ impl FileLink<'_, '_> {
         }
     }
 
+    /// A qualified Rust path or call names an item of the module `target`
+    /// (`m::f()`, `m::T::new()`): the item it uses, so one a module
+    /// re-exports is reached through its re-export. A path headed by a type
+    /// (`T::new()`) names no module item: its `use` is the use.
+    fn rust_path_use(&mut self, target: &str, path: &str, line: u32, reexport_only: bool) {
+        let typed_head = path.starts_with(|c: char| c.is_uppercase());
+        if let Some(item) = rust_path_item(path).filter(|_| !typed_head) {
+            self.facts.rust_path_uses.push(RustPathUse {
+                module: target.to_owned(),
+                item: item.to_owned(),
+                line,
+                reexport_only,
+            });
+        }
+    }
+
     /// Records the module path of a Rust call or value path (`m::f` names
     /// `f` in `m`) that resolved nowhere, when the file glob-imports an
     /// ancestor module and no `use` of its own binds the path's first
     /// segment: that glob may bind it ([`inherit_parent_globs`]).
     fn note_unbound_path(&mut self, path: &str, line: u32) {
-        let Some((prefix, _)) = path.rsplit_once("::") else {
-            return;
-        };
+        if let Some((prefix, _)) = path.rsplit_once("::") {
+            let typed_head = path.starts_with(|c: char| c.is_uppercase());
+            let item = rust_path_item(path)
+                .filter(|_| !typed_head)
+                .map(str::to_owned);
+            self.note_unbound_head(prefix, item, line);
+        }
+    }
+
+    /// A bare Rust type name written in type or struct-literal position
+    /// (`fn f(_: &Saved)`, `Saved { .. }`) that nothing in the file binds or
+    /// declares: a `use super::*` may bind it ([`inherit_parent_globs`]).
+    pub(super) fn type_name(&mut self, t: octocode_engine::graph::GraphFactTypeName) {
+        if !self.facts.declarations.iter().any(|d| d.name == t.name) {
+            self.note_unbound_head(&t.name, None, t.line);
+        }
+    }
+
+    /// Records `prefix`, a module path or a bare name, as unbound when the
+    /// file glob-imports a module of its own crate (an ancestor's
+    /// `use super::*` or a `use child::*`) and no `use` of its own binds its
+    /// first segment.
+    fn note_unbound_head(&mut self, prefix: &str, item: Option<String>, line: u32) {
         if !self
             .facts
             .imports
             .iter()
-            .any(|import| import.imported_name == "*" && ancestor_glob(&import.specifier))
+            .any(|import| import.imported_name == "*" && !import.inline && !import.external)
         {
             return;
         }
@@ -213,7 +250,7 @@ impl FileLink<'_, '_> {
         if plain && !bound {
             self.facts
                 .rust_unbound_paths
-                .push((prefix.to_owned(), line));
+                .push((prefix.to_owned(), item, line));
         }
     }
 

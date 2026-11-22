@@ -346,6 +346,43 @@ pub(super) fn workspace_symbols(
     }
 }
 
+/// A first page the server's cap filled without a symbol named exactly
+/// `name`: the cap may have cut it, so the row says so and leads to the
+/// declarations of that name across the scope (astSearch symbols).
+pub(super) fn capped_without_exact(
+    row: &mut Value,
+    query: &LspSearchQuery,
+    name: &str,
+    scope: &Scope,
+) {
+    if continues_a_page(query) || row.get("status").and_then(Value::as_str) == Some("error") {
+        return;
+    }
+    octocode_runtime_base::response::paging::push_warnings(
+        row,
+        Some(format!(
+            "No listed symbol is named `{name}` exactly; the cap may have cut it: the related astSearch lists the declarations of that name."
+        )),
+    );
+    let mut lead = serde_json::json!({
+        "operation": "symbols",
+        "path": scope.root,
+        "symbolFilter": {"terms": [name]}
+    });
+    if !scope.include.is_empty() {
+        lead["include"] = serde_json::json!(scope.include);
+    }
+    octocode_runtime_base::response::result::attach_related(
+        row,
+        octocode_runtime_base::response::result::Continuation::related(
+            octocode_runtime_base::id::ToolId::AstSearch,
+            lead,
+        )
+        .required()
+        .build(),
+    );
+}
+
 /// A Python row's misses by cause: files that import the name name an
 /// unresolved import, the rest (or misses no text scan listed) the dynamic
 /// dispatch the server cannot type. Each code is the whole statement: what

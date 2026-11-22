@@ -23,7 +23,7 @@ fn within(summary: &Value, details: &Value) -> bool {
 
 fn summary_of(details: &Value) -> Value {
     let mut summary = details.clone();
-    summarize(&mut summary, false);
+    summarize(&mut summary, false, false);
     // The one thing a summary adds is the warning that names what it
     // left out; everything else it states is a leaf of the details.
     let mut stated = summary.clone();
@@ -65,7 +65,7 @@ fn a_predicate_summary_preserves_every_assessed_score_through_paging() {
         "files":{"src/fixture.ts":hits}, "units":units,
         "coverage":{"totalUnits":quiet,"answered":quiet,"quiet":quiet}, "usage":usage,
     });
-    summarize(&mut row, true);
+    summarize(&mut row, true, false);
     assert_eq!(row["coverage"]["quiet"], quiet);
     assert_eq!(row["usage"], usage);
     assert!(row.get("warnings").is_none());

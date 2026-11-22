@@ -228,6 +228,36 @@ pub(super) fn rust_call_target(
     }
 }
 
+/// A Rust path without its generic arguments: `a::f::<T>` is `a::f` and
+/// `Vec::<u8>::new` is `Vec::new`, so the name and the module prefix are the
+/// path's own segments.
+pub(super) fn rust_without_generic_arguments(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    let mut rest = path;
+    while let Some((head, arguments)) = rest.split_once("::<") {
+        out.push_str(head);
+        // An unclosed argument list drops the rest of the path.
+        let mut depth = 1usize;
+        let mut after = "";
+        for (offset, c) in arguments.char_indices() {
+            match c {
+                '<' => depth += 1,
+                '>' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        after = arguments.get(offset + 1..).unwrap_or_default();
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        rest = after;
+    }
+    out.push_str(rest);
+    out
+}
+
 pub(super) fn resolve_rust(
     spec: &str,
     importer: &str,
@@ -310,7 +340,89 @@ pub(super) fn ancestor_glob(specifier: &str) -> bool {
     })
 }
 
-/// The name a Rust `use` binds in its module.
+/// What a glob walk found for a name: the module that binds it and the
+/// `use` that does. A name the module declares, or a name a glob-imported
+/// child declares, has no `use` of its own; `declared`
+/// marks the import made up for it, which names the declaring file.
+struct GlobBinding<'b> {
+    module: &'b str,
+    import: Import,
+    declared: bool,
+}
+
+/// The `use` binding `head` that a glob of `module` brings in (`private`:
+/// a `use super::*`, which passes on the ancestor's private names), and the
+/// module that writes it: `module`'s own `use`, else, unless an ancestor
+/// `module` declares `head` itself, the one a glob of it brings in.
+/// A glob of an ancestor module passes on that module's private names too;
+/// any other glob of a repo module (`use child::*`) passes on its
+/// declarations and the names its `use`s bind (a path that compiles is the
+/// proof the binding is visible, as the export resolver reads a `use`: the
+/// facts call only a bare `pub` exported, while `pub(super)` and
+/// `pub(crate)` reach the parent too), and
+/// so the names its own globs bring in. Nearest first; `from` and every module visited in a
+/// mode are never revisited.
+fn glob_binding<'b>(
+    b: &'b BuiltGraph,
+    from: &'b str,
+    module: &'b str,
+    head: &str,
+    private: bool,
+) -> Option<GlobBinding<'b>> {
+    let mut seen =
+        std::collections::BTreeSet::from([(from, true), (from, false), (module, private)]);
+    let mut pending = std::collections::VecDeque::from([(module, private)]);
+    while let Some((current, private)) = pending.pop_front() {
+        let Some(facts) = b.facts.get(current) else {
+            continue;
+        };
+        let uses = || facts.imports.iter().filter(|import| !import.inline);
+        if let Some(bound) =
+            uses().find(|import| import.imported_name != "*" && bound_name(import) == head)
+        {
+            return Some(GlobBinding {
+                module: current,
+                import: bound.clone(),
+                declared: false,
+            });
+        }
+        let declares = facts
+            .declarations
+            .iter()
+            .any(|decl| decl.parent.is_none() && decl.name == head);
+        if declares {
+            if private {
+                continue;
+            }
+            return Some(GlobBinding {
+                module: current,
+                import: Import {
+                    id: String::new(),
+                    imported_name: head.to_owned(),
+                    local_name: None,
+                    specifier: String::new(),
+                    line: 0,
+                    target: Some(current.to_owned()),
+                    external: false,
+                    scope_id: None,
+                    inline: false,
+                },
+                declared: true,
+            });
+        }
+        for glob in uses().filter(|import| import.imported_name == "*") {
+            let Some(target) = glob.target.as_deref() else {
+                continue;
+            };
+            let passes_private = private && ancestor_glob(&glob.specifier);
+            if seen.insert((target, passes_private)) {
+                pending.push_back((target, passes_private));
+            }
+        }
+    }
+    None
+}
+
 fn bound_name(import: &Import) -> &str {
     import
         .local_name
@@ -324,51 +436,65 @@ fn bound_name(import: &Import) -> &str {
 /// binds through the parent's `use`: that binding becomes an import of the
 /// file at the glob's line, so calls resolve through it, and a path through
 /// it depends on its module as a `use` does. Repeats until no file gains a
-/// binding, so a parent's own inherited bindings reach its children.
+/// binding, so a parent's own inherited bindings reach its children. A
+/// parent that binds the segment only through its own `use super::*` passes
+/// on its ancestor's `use` ([`glob_binding`]). A file's own `use child::*`
+/// binds such a segment the same way, through the names the child passes on.
 pub(super) fn inherit_parent_globs(b: &mut BuiltGraph, inputs: &LinkInputs) {
     loop {
-        let mut gained = Vec::<(String, Vec<Import>, Vec<(String, u32)>)>::new();
+        let mut gained = Vec::<(String, Vec<Import>, Vec<(String, u32)>, Vec<RustPathUse>)>::new();
         for (file, facts) in &b.facts {
             if facts.rust_unbound_paths.is_empty() {
                 continue;
             }
             let mut imports = Vec::<Import>::new();
             let mut edges = Vec::new();
-            let globs = facts.imports.iter().filter(|import| {
-                !import.inline && import.imported_name == "*" && ancestor_glob(&import.specifier)
-            });
+            let mut uses = Vec::new();
+            let globs = facts
+                .imports
+                .iter()
+                .filter(|import| !import.inline && import.imported_name == "*");
             for glob in globs {
-                let Some((parent, parent_facts)) = glob
-                    .target
-                    .as_deref()
-                    .filter(|parent| *parent != file)
-                    .and_then(|parent| Some((parent, b.facts.get(parent)?)))
-                else {
+                let private = ancestor_glob(&glob.specifier);
+                let Some(parent) = glob.target.as_deref().filter(|parent| *parent != file) else {
                     continue;
                 };
-                for (path, line) in &facts.rust_unbound_paths {
+                for (path, item, line) in &facts.rust_unbound_paths {
                     let head = path.split("::").next().unwrap_or_default();
                     let held = |import: &Import| bound_name(import) == head;
                     if facts.imports.iter().any(held) {
                         continue;
                     }
-                    let Some(bound) = parent_facts.imports.iter().find(|import| {
-                        !import.inline && import.imported_name != "*" && held(import)
-                    }) else {
+                    let Some(GlobBinding {
+                        module: parent,
+                        import: bound,
+                        declared,
+                    }) = glob_binding(b, file, parent, head, private)
+                    else {
                         continue;
                     };
                     let rest = path.strip_prefix(head).unwrap_or_default();
                     let target = match &bound.target {
-                        Some(target) if rest.is_empty() => Some(target.clone()),
-                        Some(_) => inputs.rust_modules.resolve(
+                        Some(target) if rest.is_empty() || declared => Some(target.clone()),
+                        Some(_) if !declared => inputs.rust_modules.resolve(
                             &format!("{}{rest}", bound.specifier),
                             parent,
                             inputs.known,
                             inputs.cargo_crates,
                         ),
-                        None => None,
+                        _ => None,
                     };
                     if let Some(target) = target.filter(|target| target != file) {
+                        // The item the path names in that module: a
+                        // re-export of it makes this file its user.
+                        if let Some(item) = item.as_ref().filter(|_| !declared) {
+                            uses.push(RustPathUse {
+                                module: target.clone(),
+                                item: item.clone(),
+                                line: *line,
+                                reexport_only: true,
+                            });
+                        }
                         edges.push((target, *line));
                     }
                     if !imports.iter().any(held) {
@@ -376,19 +502,19 @@ pub(super) fn inherit_parent_globs(b: &mut BuiltGraph, inputs: &LinkInputs) {
                             id: format!("{}:{head}", glob.id),
                             line: glob.line,
                             scope_id: None,
-                            ..bound.clone()
+                            ..bound
                         });
                     }
                 }
             }
             if !imports.is_empty() {
-                gained.push((file.clone(), imports, edges));
+                gained.push((file.clone(), imports, edges, uses));
             }
         }
         if gained.is_empty() {
             return;
         }
-        for (file, imports, edges) in gained {
+        for (file, imports, edges, uses) in gained {
             let Some(mut node) = b.nodes.remove(&file) else {
                 continue;
             };
@@ -421,6 +547,7 @@ pub(super) fn inherit_parent_globs(b: &mut BuiltGraph, inputs: &LinkInputs) {
             b.nodes.insert(file.clone(), node);
             if let Some(facts) = b.facts.get_mut(&file) {
                 facts.imports.extend(imports);
+                facts.rust_path_uses.extend(uses);
             }
         }
     }

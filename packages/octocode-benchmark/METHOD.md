@@ -83,6 +83,23 @@ Setting up the agents, tool allowlists, Octocode home, clones and cleanup is in 
 | **Time** | wall clock per question; Octocode first and repeat call separately; warm (session server running) and cold | compare only arms timed in the same round on the same machine |
 | **Provider tokens and cost** | host-reported, when available | report beside characters; unknown stays unknown, never zero |
 
+### Workflow receipts
+
+Record one row per [workflow](CHECKS.md#workflows-each-must-finish-in-the-same-number-of-calls-as-last-round),
+including blocked rows. Give the fixed scope, surface and build, attempted and failed calls, input and output
+UTF-8 bytes, elapsed time, provider requests where applicable, and the source or invariant that verifies
+completion. Count required continuations and retries as calls. Keep preflight, independent verification
+and optional exploration outside the workflow totals. Name every required step that could not run.
+
+Use compact JSON arguments for input bytes. Count both CLI output streams or the MCP result payloads,
+and state which was measured. Label summed call times separately from end-to-end wall time. For a repeat
+sample, run identical inputs consecutively on the same surface and compare the deciding evidence. State
+what was reset, what persisted, whether startup is timed, and which workflows had no repeat. A shared
+service with uncontrolled caches yields first-observed and repeat timings. A controlled cold session
+requires a fresh process and declared cache state. Compare latency and call-count parity only with
+matched cases, release builds for timings, and comparable measurement boundaries. Store the compact table
+as `EFFICIENCY.md` alongside the round scorecard.
+
 ## Judge
 
 The [judge brief](briefs/judge.md) is the whole procedure. In short:

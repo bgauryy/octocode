@@ -318,6 +318,45 @@ fn a_missing_reference_offers_its_near_names_as_ready_calls() {
     octocode_runtime_base::test_support::assert_row_contract(ToolId::GraphQuery, &result.data);
 }
 
+/// A `path` whose destination is missing repairs `to`, keeps the good
+/// `target`, and its find lead names the missing destination.
+#[test]
+fn a_missing_path_destination_is_repaired_at_to_and_keeps_the_target() {
+    let dir = Fixture::new();
+    dir.write("app/a.ts", "export function shared_target(){}\n");
+    dir.write("app/b.ts", "export function nothing_here(){}\n");
+    call(
+        &dir.0,
+        ToolId::GraphBuild,
+        json_fixture(r#"{"path": "app"}"#),
+    );
+    let row = json_fixture(
+        r#"{
+            "operation": "path",
+            "path": "app",
+            "target": "app/a.ts#shared_target",
+            "to": "app/b.ts#nothing"
+        }"#,
+    );
+    let row =
+        octocode_runtime_base::contracts::validate_built_query(ToolId::GraphQuery.as_str(), row)
+            .expect("input contract");
+    let result = execute(ToolId::GraphQuery, &row, &dir.0, &context()).expect("execute");
+    assert_eq!(result.data["errorCode"], "notFound", "{}", result.data);
+    let related = result.data["related"].as_array().expect("related calls");
+    assert!(!related.is_empty(), "{}", result.data);
+    for call in related {
+        let query = &call["input"]["queries"][0];
+        if query["operation"] == "path" {
+            assert_eq!(query["target"], "app/a.ts#shared_target", "{call}");
+            assert_ne!(query["to"], "app/b.ts#nothing", "{call}");
+        } else {
+            assert_eq!(query["operation"], "find", "{call}");
+            assert_eq!(query["target"], "nothing", "{call}");
+        }
+    }
+}
+
 /// A missing file path names a file: no same-word symbols from its directory
 /// (`Children.None` for `zz_none`), a `find` lead for its name, and a hint
 /// about the snapshot rather than a registry.

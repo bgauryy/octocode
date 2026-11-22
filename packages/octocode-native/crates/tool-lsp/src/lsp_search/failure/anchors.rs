@@ -135,7 +135,7 @@ pub(in super::super) fn attach_recovery_next(value: &mut Value, query: &LspSearc
 }
 
 /// The recovery of an anchor that resolves to nothing.
-pub(crate) const ANCHOR_HINT: &str = "Symbol anchor not found: locate the exact name and line with the related calls, then retry; do not guess another identity.";
+pub(crate) const ANCHOR_HINT: &str = "Symbol anchor not found: find the exact name and line with localSearch (where it is spelled) or astSearch (where it is declared), as the related calls do, then retry; do not guess another identity.";
 
 pub(in super::super) fn anchor_recovery(
     value: &mut Value,
@@ -153,6 +153,9 @@ pub(in super::super) fn anchor_recovery(
         keep_reads_that_find(value, query, name, source);
     }
     // A named symbol is anchored, so the request has a path.
+    if let Some(path) = lsp_search_query::path(query).map(uri_to_path) {
+        attach_line_finders(value, name, &path);
+    }
     let Some(search) = lsp_search_query::path(query)
         .and_then(|path| lsp_search_query::workspace_symbol_lead(name, path, Some(query)))
     else {
@@ -162,6 +165,27 @@ pub(in super::super) fn anchor_recovery(
         value,
         octocode_runtime_base::response::result::Continuation::related_query(search).build(),
     );
+}
+
+/// The two calls that find an anchor's line in `path`: a whole-word
+/// localSearch of the spelling and an astSearch of the file's declarations
+/// named `name`.
+fn attach_line_finders(value: &mut Value, name: &str, path: &str) {
+    for lead in line_finders(name, path) {
+        octocode_runtime_base::response::result::attach_related(value, lead);
+    }
+}
+
+/// The calls [`attach_line_finders`] attaches, built.
+pub(in super::super) fn line_finders(name: &str, path: &str) -> Vec<Value> {
+    let text = text_search_lead(name, path, &[], None)
+        .map(octocode_runtime_base::response::result::Continuation::build);
+    let declarations = octocode_runtime_base::response::result::Continuation::related(
+        ToolId::AstSearch,
+        json!({"operation": "symbols", "path": path, "symbolFilter": {"terms": [name]}}),
+    )
+    .build();
+    text.into_iter().chain([declarations]).collect()
 }
 
 /// The anchor's `localFetch` read stays only when it finds `name`

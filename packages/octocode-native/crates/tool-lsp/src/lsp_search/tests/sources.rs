@@ -284,15 +284,26 @@ fn symbol_anchors_resolve_on_the_synchronized_text_not_the_disk() {
             "line": 1
         }"#,
     ));
-    let moved = resolve_anchor(
+    let moved_anchor = resolve_anchor(
         &off,
         "/nonexistent/lib.rs",
         "file:///nonexistent/lib.rs",
         Some(source),
     )
-    .expect("anchor near the hint")
-    .resolved_symbol
-    .expect("receipt");
+    .expect("anchor near the hint");
+    // A moved anchor leads to the calls that find the line meant.
+    let tools = moved_anchor
+        .related
+        .iter()
+        .filter_map(|lead| lead["tool"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        tools,
+        ["localSearch", "astSearch"],
+        "{:?}",
+        moved_anchor.related
+    );
+    let moved = moved_anchor.resolved_symbol.expect("receipt");
     assert_eq!(moved["foundAtLine"], 2, "{moved}");
     assert_eq!(moved["lineDeviation"], 1, "{moved}");
     assert!(resolve_anchor(&q, "/nonexistent/lib.rs", "file:///x", None).is_err());

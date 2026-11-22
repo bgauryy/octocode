@@ -135,9 +135,9 @@ Each response returns answers and a `next` object. Run each returned call unchan
 |---|---|---|
 | The reply's top-level `next` | More remains: the rest of this response, or the next batch of sections or units. Run it unchanged until no `next` is left. | The rest of a saved response replays with no request (`replayed: true`); a new batch judges newly reached units and bills them (see `usage`) |
 | `next.read` | Verify the lines of answers that said yes. A resource's own `read` opens its captured source. | Reads evidence, no request |
-| `next.confirm` | A row was refused as over budget (see [Budget](#budget-maxrequests)). It reruns the same row with `maxRequests` raised to the ceiling. | Billed |
+| `next.confirm` | A row was refused as over budget (see [Budget](#budget-maxrequests)). It retries the refused page with a higher allowance. | Billed |
 | `next.quiet` | Inspect sections held back because every answer was a `noul` below 0.3 | Replays saved answers |
-| `next.details` | Inspect the detailed view of a saved sections page | Replays saved answers |
+| `next.details` | Inspect the detailed view of a saved sections or source page when offered | Replays saved answers |
 
 A low answer is not absence. Before you claim that nothing matches, run an exact search over the same scope.
 
@@ -262,24 +262,25 @@ Rules:
 
 ### Budget (`maxRequests`)
 
-Set `maxRequests` (an integer of at least 1) on an `evaluate` row or a fresh `sections` row to cap the provider requests it may send in one response page. Re-asks, splits and transient retries count.
+Set `maxRequests` (an integer of at least 1) on an `evaluate` row or a fresh `sections` row to cap provider requests. For a search or listing `source` followed through issued cursors, the cap covers the source walk. Other evaluations and `sections` plans apply it to each page. Re-asks, splits and transient retries within a page count.
 
 Without `maxRequests`, a row sends at most one first-round request per source, resource or `content` item it names. A plan whose own expansion needs more is refused before anything is sent: a search or listing `source` over several files, `perHit` over several hits, a glob that matches more files than its resource keys, or a `sections` plan of more sections than resources. One exception: a single named `source` or resource over the provider window is judged in its parts without `maxRequests`, because the row bills the file it named either way.
 
 | Field | Meaning |
 |---|---|
-| `maxRequests` | Cap on provider requests for the row, per response page |
+| `maxRequests` | Cap for one saved search or listing walk, or per page for other rows |
 | `usage.requestsPlanned` | Requests the row expects to send |
-| `usage.requestsCeiling` | Most requests the row or `sections` page can send: the first round, every re-ask and split, and the 3 transient retries the row shares, never more than `maxRequests` |
-| `usage.calls` | Requests actually sent |
+| `usage.requestsCeiling` | Upper bound for this page, including its first round, re-asks, splits and transient retries |
+| `usage.calls` | Requests attributed to this page. The first matching row in the batch carries the spend for a shared request |
+| `usage.walkCalls` | Requests the source walk actually sent through the current page. The cursor uses this total for the remaining allowance |
 | `usage.refused` | Requests the provider refused |
 | `usage.inputTokensAtMost` | On a refused row: input tokens its first round costs at most. It counts one token per byte sent plus the provider's own prompt, so it runs well above the tokens billed. Absent until the provider has answered a request in this process |
 | `usage.remainingInputTokensEstimate` | On a `sections` page with work left: input tokens of the rest, priced at this page's rate |
 
 Behavior:
 
-- A row runs when its first round (`requestsPlanned`) fits `maxRequests`. Re-asks, splits and transient retries use only what the first round leaves, so `requestsCeiling` never passes the cap.
-- A first round above `maxRequests`, or above what an uncapped row names, is refused before anything is sent. The error is `classificationOverBudget`, with `usage.calls: 0`, the planned and ceiling counts, and `next.confirm`. `next.confirm` reruns the same row with `maxRequests` raised to the ceiling. That rerun is billed.
+- A row runs when its first round (`requestsPlanned`) fits its remaining allowance. Re-asks, splits and transient retries use only what the first round leaves.
+- A first round above the remaining allowance, or above what an uncapped row names, is refused before the page sends a request. The error is `classificationOverBudget`, with `usage.calls: 0`, the planned and ceiling counts, and a confirmation call. On a saved source walk, `next.confirm` raises `maxRequests` to cover the earlier requests plus the refused page's ceiling. Confirming bills the new work.
 - A source over the provider window is judged in its parts. With `maxRequests` set, they run only when the cap still holds them. Otherwise the refusal names how many parts it would send, its `usage.calls` counts the whole-source request already sent, and `next.confirm` allows them.
 - A `sections` page with `maxRequests` takes the sections whose first round fits the cap; the reply's `next` takes the rest.
 - If the cap runs out during a run, the next send is not made: the unit, section or question it left is an `error` cell with `classificationOverBudget`.
@@ -289,18 +290,18 @@ Behavior:
 
 #### Budget across a scout workflow
 
-To set an optional total for a scouting workflow, track the request allowance in the caller. `maxRequests` applies to one row's response page. Set it explicitly on each fresh row so the sum of the caps in the batch fits the remaining allowance.
+For a single search or listing, set `maxRequests` on the starting row and follow the issued cursors unchanged. Each new source page uses the allowance the earlier pages left. If its first round cannot fit, it returns `classificationOverBudget` before judging that page. Inspect `usage.walkCalls` for the running total and follow `next.confirm` only to raise the allowance.
 
-After each billed page, subtract `usage.calls` once. For an `evaluate` result with per-resource usage, add the `usage.calls` of its resource results. A replay marked `replayed: true` reports historical usage and consumes none of the allowance.
+For an allowance shared across several rows or fresh calls, track it in the caller. Set explicit caps so their sum fits the remaining allowance. The cap starts anew on a fresh `related` call when saved work is unavailable. A separate `next.retry` may bill again, so check its ceiling before following it.
 
-Before following a billed `next`, check that the original `maxRequests` still fits the remaining allowance. The previous page's `usage.requestsCeiling` describes that page. For `next.confirm` or `next.retry`, use the ceiling stated for that call. If the next call's bound is unknown or too high, narrow the source in a fresh call or read the remaining evidence with exact tools.
+For a shared allowance, subtract each billed page's `usage.calls` once. For an `evaluate` result with per-resource usage, add the `usage.calls` of its resource results. For an individual saved walk, subtract `usage.walkCalls` from its `maxRequests` instead. If two rows share a request, `usage.calls` may attribute it to a different row than the walk that sent it. The page discloses the difference when it happens. A replay marked `replayed: true` reports historical usage and consumes none of the allowance. Predicate summaries keep the P(yes) scores for quiet hits alongside the other scores, so reading them takes no new judgment.
 
 ```json
 {"queries": [{
   "operation": "evaluate",
   "source": {"tool": "localSearch", "query": {"path": "src", "matchString": ["retry"]}},
   "maxRequests": 20,
-  "questions": {"retry": {"type": "noul", "instructions": "Does this hit implement a retry loop?"}}
+  "predicates": ["Does this hit implement a retry loop?"]
 }]}
 ```
 
@@ -310,7 +311,7 @@ Before following a billed `next`, check that the original `maxRequests` still fi
 |---|---|
 | `missingConfiguration` or missing discovery fields | Set the key in trusted configuration, check for a blank process override, and restart the MCP server. |
 | `invalidInput` | Check `octocode schema clasify --view query`. An evaluation takes exactly one of `source`, `resources` or `content`. `evaluate` and `sections` both need `questions`. |
-| `classificationOverBudget` | Read `usage.requestsCeiling`. Run `next.confirm` to allow it, or narrow the source. |
+| `classificationOverBudget` | Read `usage.requestsCeiling` for the refused page and `usage.walkCalls` for earlier requests, when present. Run `next.confirm` to raise the allowance, or narrow the source. |
 | `classificationContextEmpty`, refused source or expired plan | Check the source with its reader. Start a fresh request after expiry. |
 | `classificationContextTooLarge` or `classificationStateTooLarge` | Use narrower line ranges or a `sections` call, if offered. Literal `content` and image rows can receive a size refusal. |
 | `outsideAllowedRoots` | Save the output under the workspace and pass that path as `source`. |

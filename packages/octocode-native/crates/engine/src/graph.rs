@@ -24,8 +24,8 @@ pub use model::{
     COMMONJS_WHOLE_EXPORT, GraphCallBinding, GraphCallBoundary, GraphDeclaredType, GraphFactCall,
     GraphFactCommonJs, GraphFactCommonJsBinding, GraphFactDeclaration, GraphFactDeclaredType,
     GraphFactEdge, GraphFactExport, GraphFactImport, GraphFactPath, GraphFactRustModule,
-    GraphFactsDocument, GraphFactsTypedEntry, GraphPosition, GraphRange, GraphReceiverCall,
-    GraphReferenceCount, GraphTypeMember, GraphTypeStep, UNKNOWN_LOAD,
+    GraphFactTypeName, GraphFactsDocument, GraphFactsTypedEntry, GraphPosition, GraphRange,
+    GraphReceiverCall, GraphReferenceCount, GraphTypeMember, GraphTypeStep, UNKNOWN_LOAD,
 };
 
 pub use crate::text::analysis::{ByteRange, ObservedSpan};

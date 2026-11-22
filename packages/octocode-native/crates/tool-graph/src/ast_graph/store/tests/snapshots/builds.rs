@@ -24,7 +24,11 @@ fn a_build_of_unchanged_inputs_answers_with_the_current_snapshot() {
     assert!(first.value.get("reused").is_none(), "{}", first.value);
     let second = ingest_fixture(&dir.0, None);
     assert_fresh_build(&second);
-    assert_eq!(first.value["graph"], second.value["graph"], "{}", second.value);
+    assert_eq!(
+        first.value["graph"], second.value["graph"],
+        "{}",
+        second.value
+    );
     assert_eq!(second.value["reused"], true, "{}", second.value);
     assert_eq!(graph_content(&first), graph_content(&second));
     assert!(first.value["counts"]["nodes"].as_u64().unwrap_or(0) > 0);
@@ -37,12 +41,20 @@ fn changed_sources_and_checkpoint_refresh_preserve_fresh_builds() {
     assert_eq!(first.class, ExitClass::Success);
     let second = ingest_fixture(dir.0.as_path(), None);
     assert_fresh_build(&second);
-    assert_eq!(second.value["graph"], first.value["graph"], "{}", second.value);
+    assert_eq!(
+        second.value["graph"], first.value["graph"],
+        "{}",
+        second.value
+    );
     assert_eq!(graph_content(&second), graph_content(&first));
     dir.write("app/src/a.ts", "export const a = 5;\n");
     let third = ingest_fixture(dir.0.as_path(), None);
     assert_fresh_build(&third);
-    assert_ne!(third.value["graph"], second.value["graph"], "{}", third.value);
+    assert_ne!(
+        third.value["graph"], second.value["graph"],
+        "{}",
+        third.value
+    );
     assert!(third.value.get("reused").is_none(), "{}", third.value);
     let forced = ingest(
         &IngestOptions {
@@ -57,7 +69,11 @@ fn changed_sources_and_checkpoint_refresh_preserve_fresh_builds() {
         None,
     );
     assert_fresh_build(&forced);
-    assert_ne!(forced.value["graph"], third.value["graph"], "{}", forced.value);
+    assert_ne!(
+        forced.value["graph"], third.value["graph"],
+        "{}",
+        forced.value
+    );
     assert!(forced.value.get("reused").is_none(), "{}", forced.value);
     assert_eq!(graph_content(&forced), graph_content(&third));
 }

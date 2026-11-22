@@ -75,6 +75,13 @@ struct Row {
     /// `maxRequests`: the provider requests the row may send, its ceiling
     /// included ([`reply::OverBudget`]).
     max_requests: Option<u64>,
+    /// `walkRequests`: the requests the earlier pages of this source's walk
+    /// sent, which `maxRequests` bounds together with this page's. Only an
+    /// issued cursor carries it.
+    walk_requests: u64,
+    /// `savedPage`: the judged page `next.details` replays without a request.
+    /// Only an issued cursor carries it.
+    saved_page: Option<Value>,
     /// Each search hit in its own request instead of its file's shared one
     /// ([`rows::PER_HIT`]).
     per_hit: bool,
@@ -131,6 +138,11 @@ pub fn call(
                         admission::unretainable_source(row, section_runtime.can_resume)
                     {
                         return refused;
+                    }
+                    if let Some(saved) = &row.saved_page {
+                        return RowOutcome::Combined(Box::new(combined::Combined {
+                            output: units::saved_details(saved),
+                        }));
                     }
                     match &row.input {
                         Input::Sections(input) => RowOutcome::Sections(sections::run(
@@ -207,7 +219,12 @@ pub fn call(
             let keep_quiet = row.query["predicates"]
                 .as_array()
                 .is_some_and(|predicates| !predicates.is_empty());
-            view::summarize(data, keep_quiet);
+            let full = data.clone();
+            let details_saved = can_resume && units::offers_saved_details(row, &full);
+            view::summarize(data, keep_quiet, details_saved);
+            if details_saved {
+                units::offer_saved_details(row, data, full);
+            }
         }
     }
     Ok(receipts(output, kinds))

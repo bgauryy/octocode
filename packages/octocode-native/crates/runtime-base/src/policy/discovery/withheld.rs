@@ -22,6 +22,8 @@ pub struct Withheld {
 /// Which count a withheld entry is in, and the reason it is disclosed with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum WithheldKind {
+    /// A security-policy directory, by its policy name (`.ssh`, `.config/gh`).
+    PolicyDir(&'static str),
     CredentialFile,
     GitFile,
     Symlink,
@@ -30,14 +32,32 @@ pub enum WithheldKind {
 
 impl WithheldKind {
     /// The rule that withheld it, as `skippedPaths` names it.
-    pub fn reason(self) -> &'static str {
+    pub fn reason(self) -> std::borrow::Cow<'static, str> {
         match self {
-            Self::CredentialFile => "credential file",
-            Self::GitFile => "`.git` file (a submodule or worktree pointer)",
-            Self::Symlink => "symlink not followed",
-            Self::Other => "outside the allowed roots or unresolvable",
+            Self::PolicyDir(name) => {
+                format!("security-policy dir {}/", name.trim_end_matches('/')).into()
+            }
+            Self::CredentialFile => "credential file".into(),
+            Self::GitFile => "`.git` file (a submodule or worktree pointer)".into(),
+            Self::Symlink => "symlink not followed".into(),
+            Self::Other => "outside the allowed roots or unresolvable".into(),
         }
     }
+}
+
+/// The directory a walk meets a policy directory in: the parent of the
+/// shortest ancestor of `path` the policy withholds (`a` for `a/.ssh/key`,
+/// `a/.config` for `a/.config/gh`).
+fn policy_dir_holder(path: &Path) -> String {
+    let ancestors = path.ancestors().collect::<Vec<_>>();
+    ancestors
+        .iter()
+        .rev()
+        .find(|at| sensitive_directory(&octocode_engine::text::slash_path(at)).is_some())
+        .and_then(|at| at.parent())
+        .unwrap_or(path)
+        .to_string_lossy()
+        .into_owned()
 }
 
 impl Withheld {
@@ -65,6 +85,11 @@ impl Withheld {
                 }
                 Some(dir) if is_dir || own != dir => {
                     *self.dirs.entry(dir).or_default() += 1;
+                    let holder = policy_dir_holder(path);
+                    *self
+                        .holders
+                        .entry((WithheldKind::PolicyDir(dir), holder))
+                        .or_default() += 1;
                     return;
                 }
                 _ => {
@@ -77,9 +102,9 @@ impl Withheld {
         *self.holders.entry((named, holder)).or_default() += 1;
     }
 
-    /// The directories that directly hold withheld entries that are no policy
-    /// directory: each with the kind and how many it holds. The held entries
-    /// are never named.
+    /// The directories that directly hold withheld entries, policy
+    /// directories included: each with the kind and how many it holds. The
+    /// held entries are never named.
     pub fn holders(&self) -> impl Iterator<Item = (WithheldKind, &str, usize)> {
         self.holders
             .iter()

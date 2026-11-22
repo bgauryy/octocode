@@ -29,6 +29,10 @@ node packages/octocode/out/octocode.js schema localFetch --view query
 
 ## Shared acceptance requirements
 
+For context measurements, save the enabled tool names and reply mode. Count the UTF-8 bytes of the compact `tools/list` array and count `initialize.instructions` once. Measure fetched output references and any instruction copies a client appends separately. Report the tokenizer when giving token counts.
+
+When shortening field descriptions, compare the published schemas with only their description strings removed. Verify the affected defaults, exceptions and follow-up calls on the rebuilt CLI and a fresh MCP connection.
+
 ### Schema and description accuracy
 
 - Through public validation, exercise each operation's required fields, defaults, selectors and rejected cross-operation fields; compare `schema` with the input schema.

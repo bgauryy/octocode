@@ -66,8 +66,10 @@ pub(super) fn carry_details(row: &mut Value) {
     }
 }
 
-/// Cut `row` to its summary, in place.
-pub(super) fn summarize(row: &mut Value, keep_quiet: bool) {
+/// Cut `row` to its summary, in place. `details_saved`: the page offers its
+/// saved details (`next.details`), so the warning naming what was left out
+/// points there instead of a billed repeat.
+pub(super) fn summarize(row: &mut Value, keep_quiet: bool, details_saved: bool) {
     let Some(fields) = row.as_object_mut() else {
         return;
     };
@@ -79,7 +81,7 @@ pub(super) fn summarize(row: &mut Value, keep_quiet: bool) {
     }
     fields.shift_remove("model");
     if fields.contains_key("units") || fields.contains_key("files") {
-        units(fields, keep_quiet);
+        units(fields, keep_quiet, details_saved);
     } else if fields.contains_key("answers") {
         evaluation(fields);
     } else if let Some(Value::Object(resources)) = fields.get_mut("resources") {
@@ -284,7 +286,7 @@ const PLAN_USAGE: [&str; 8] = [
 ];
 
 /// A units row: cells unwrap, and a row without predicates hides quiet units.
-fn units(fields: &mut Map<String, Value>, keep_quiet: bool) {
+fn units(fields: &mut Map<String, Value>, keep_quiet: bool, details_saved: bool) {
     let mut left_out = Vec::new();
     if let Some(Value::Object(files)) = fields.get_mut("files") {
         for (path, lines) in files.iter_mut() {
@@ -306,10 +308,15 @@ fn units(fields: &mut Map<String, Value>, keep_quiet: bool) {
         octocode_runtime_base::response::paging::push_warnings(
             fields,
             [format!(
-                "{} quiet {} left out of this summary (every answer below the quiet threshold): {}; view:\"details\" repeats the call, billed again, and lists them.",
+                "{} quiet {} left out of this summary (every answer below the quiet threshold): {}; {}.",
                 left_out.len(),
                 if left_out.len() == 1 { "unit" } else { "units" },
                 named(&left_out),
+                if details_saved {
+                    "next.details lists them, unbilled"
+                } else {
+                    "view:\"details\" repeats the call, billed again, and lists them"
+                },
             )],
         );
     }

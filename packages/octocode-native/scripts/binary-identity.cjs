@@ -13,9 +13,7 @@ const { readFileSync, statSync } = require('fs');
 const path = require('path');
 const { PLATFORMS, executableName, platformPackageName } = require('../bin/platform.cjs');
 const { GLIBC_FLOOR } = require('./build-native.cjs');
-
-const REPO = path.join(__dirname, '..', '..', '..');
-const PROVENANCE = path.join(REPO, 'packages', 'octocode-config', 'contract', 'provenance.json');
+const { expectedFingerprint } = require('./stage-binary.cjs');
 
 const FORMAT_BY_OS = { darwin: 'mach-o', linux: 'elf', win32: 'pe' };
 const MACHO_CPU = { 0x0100000c: 'arm64', 0x01000007: 'x64' };
@@ -23,11 +21,6 @@ const ELF_MACHINE = { 183: 'arm64', 62: 'x64' };
 const PE_MACHINE = { 0xaa64: 'arm64', 0x8664: 'x64' };
 const PT_INTERP = 3;
 const SHT_GNU_VERNEED = 0x6ffffffe;
-
-/** The contract fingerprint the binary must embed: the generated provenance. */
-function expectedFingerprint() {
-  return JSON.parse(readFileSync(PROVENANCE, 'utf8')).contractFingerprint;
-}
 
 const cString = (bytes, offset) => bytes.toString('latin1', offset, bytes.indexOf(0, offset));
 

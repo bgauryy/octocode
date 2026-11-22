@@ -237,6 +237,41 @@ impl Query<'_> {
                 related.extend(lead);
             }
         }
+        // A file's dependents through calls no edge links (a method on a
+        // receiver whose type the syntax does not state) are missing rows.
+        if reexports && how.direction == Direction::In {
+            // Only a name no other node declares points its site here.
+            let declared = roots
+                .iter()
+                .flat_map(|root| descendants(g, *root))
+                .collect::<Vec<_>>();
+            let mut spelled = std::collections::HashMap::<u32, usize>::new();
+            for id in &declared {
+                spelled.insert(g.t.nodes[*id as usize].name, 0);
+            }
+            for node in &g.t.nodes {
+                if let Some(count) = spelled.get_mut(&node.name) {
+                    *count += 1;
+                }
+            }
+            let declared = declared
+                .into_iter()
+                .filter(|id| spelled[&g.t.nodes[*id as usize].name] == 1)
+                .collect::<Vec<_>>();
+            let (named, lead) = self.unresolved_callers(&declared)?;
+            if named > 0 {
+                let (sites, verb) = call_sites(named);
+                let reach = if lead.is_some() {
+                    "related lists them"
+                } else {
+                    "callers of each declaration lists its sites"
+                };
+                unresolved = Some(format!(
+                    "{sites} {verb} a declaration only the target spells but link to none, so files calling it may be missing; {reach}"
+                ));
+                related.extend(lead);
+            }
+        }
         if op == "callees" && how.direction == Direction::Out {
             let unlinked = seeds
                 .iter()
@@ -301,20 +336,25 @@ impl Query<'_> {
             let name = g.text(g.t.nodes[*seed as usize].name, self.cancel)?;
             names.insert(super::super::manifest::spelled_name(&name).to_owned());
         }
-        let count = names
+        let counted = names
             .iter()
-            .map(|name| {
-                g.manifest["unresolvedCallNames"][name]
-                    .as_u64()
-                    .unwrap_or(0)
+            .filter_map(|name| {
+                let sites = g.manifest["unresolvedCallNames"][name].as_u64()?;
+                (sites > 0).then_some((name, sites))
             })
-            .sum::<u64>();
-        let lead = (count > 0 && names.len() == 1).then(|| {
+            .collect::<Vec<_>>();
+        let count = counted.iter().map(|(_, sites)| sites).sum::<u64>();
+        // One name with sites: the `unresolved` call by that name lists them.
+        let lead = match counted.as_slice() {
+            [(name, _)] => Some(*name),
+            _ => None,
+        }
+        .map(|name| {
             // The sites are scoped by what they call, not by who calls.
             let mut row = serde_json::Map::new();
             super::paging::pin(&mut row, self.options, &g.id);
             row.insert("operation".into(), json!("unresolved"));
-            row.insert("symbolName".into(), json!(names.iter().next()));
+            row.insert("symbolName".into(), json!(name));
             octocode_runtime_base::response::result::Continuation::related(
                 octocode_runtime_base::id::ToolId::GraphQuery,
                 Value::Object(row),
@@ -383,6 +423,54 @@ impl Query<'_> {
                 break;
             }
         }
+        // A type's users reach it by `uses`, never `calls`: the reference
+        // edge kinds the filter left out, when they list what it does not.
+        let mut kinds = how.filter.kinds.clone();
+        kinds.extend(
+            [
+                EdgeKind::Imports,
+                EdgeKind::Uses,
+                EdgeKind::Calls,
+                EdgeKind::Inherits,
+            ]
+            .into_iter()
+            .filter(|kind| !how.filter.kinds.contains(kind)),
+        );
+        if kinds.len() > how.filter.kinds.len() {
+            let filter = EdgeFilter {
+                kinds,
+                weakest: how.filter.weakest,
+                tests: how.filter.tests,
+            };
+            let listed = count(&filter, how.kind)?;
+            if listed > 0 {
+                let names = filter
+                    .kinds
+                    .iter()
+                    .map(|kind| kind.as_str())
+                    .collect::<Vec<_>>();
+                let given = how
+                    .filter
+                    .kinds
+                    .iter()
+                    .map(|kind| kind.as_str())
+                    .collect::<Vec<_>>();
+                hints.push(format!(
+                    "edges {} reach nothing here; edges {} list {listed} nodes",
+                    given.join(", "),
+                    names.join(", ")
+                ));
+                let mut row = query_row(self.options, &self.g.id);
+                row.insert("edges".into(), json!(names));
+                related.push(
+                    octocode_runtime_base::response::result::Continuation::related(
+                        octocode_runtime_base::id::ToolId::GraphQuery,
+                        Value::Object(row),
+                    )
+                    .build(),
+                );
+            }
+        }
         Ok((hints, related))
     }
 
@@ -395,7 +483,13 @@ impl Query<'_> {
                 "`path` needs a target: path <from> <to>",
             )
         })?;
-        let to = self.resolve_preferring(reference, self.flags.kind)?;
+        let to = self
+            .resolve_preferring(reference, self.flags.kind)
+            .map_err(|mut failure| {
+                // The suggestions replace the field that failed, not `target`.
+                failure.value["suggestFor"] = json!("to");
+                failure
+            })?;
         let both_symbols = g.t.nodes[from as usize].kind == NodeKind::Symbol
             && g.t.nodes[to as usize].kind == NodeKind::Symbol;
         let default = if both_symbols {

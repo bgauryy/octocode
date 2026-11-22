@@ -229,7 +229,7 @@ fn graph_build_pruning_pages_do_not_split_capability_metadata() {
     let mut actual = Vec::new();
     let mut counts = Vec::new();
     for row in fragments(
-        json!({"id":"new","pruned":pruned,"counts":expected}),
+        json!({"graph":"new","pruned":pruned,"counts":expected}),
         ToolId::GraphBuild,
         900,
     ) {

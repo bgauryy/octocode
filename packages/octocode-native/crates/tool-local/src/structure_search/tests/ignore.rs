@@ -46,9 +46,10 @@ fn tree_follows_gitignore_and_reports_withheld_sensitive_entries() {
         [".gitignore", "Cargo.lock", "main.rs"],
         "{all}"
     );
-    // Without `hidden`, dot entries are out of view and not counted.
+    // Without `hidden`, dot entries are out of view; the policy withholds
+    // the credential files all the same, so they are counted the same.
     let plain = run(&root.0, json!({"operation":"tree","path":root.0})).expect("tree");
-    octocode_runtime_base::test_support::checks::assert_absent(&plain, "withheld");
+    assert_eq!(skipped_reasons(&plain, "withheld"), reasons, "{plain}");
 }
 
 /// `files` leaves out `.gitignore`d entries like the tree and localSearch, and
@@ -378,5 +379,64 @@ fn gitignored_credential_file_is_counted_withheld_not_named_ignored() {
             "{operation}: {out}"
         );
         octocode_runtime_base::test_support::checks::assert_absent(&out["skippedPaths"], ".env");
+    }
+}
+
+/// Each withheld credential file is disclosed by the directory holding it,
+/// with the count of credential files held there, in both listings and
+/// whether or not dot entries are listed.
+#[test]
+fn withheld_credential_files_are_counted_per_holding_directory() {
+    let root = Fixture::new();
+    for dir in ["d/sub", "d/sub2"] {
+        std::fs::create_dir_all(root.0.join(dir)).expect("dir");
+    }
+    for name in [
+        "d/.env",
+        "d/sub/.env",
+        "d/sub/.env.local",
+        "d/sub2/.env",
+        "d/sub/a.txt",
+    ] {
+        std::fs::write(root.0.join(name), "x\n").expect("file");
+    }
+    let held = |out: &Value| {
+        let mut held = out["skippedPaths"]["entries"]
+            .as_array()
+            .expect("entries")
+            .iter()
+            .filter(|entry| entry["cause"] == "withheld")
+            .map(|entry| {
+                (
+                    entry["path"].as_str().expect("path").to_owned(),
+                    entry["count"].as_i64().unwrap_or(1),
+                )
+            })
+            .collect::<Vec<_>>();
+        held.sort();
+        held
+    };
+    let dir = root.0.join("d");
+    let real = dir.canonicalize().expect("canonical");
+    let expected = |dir: &std::path::Path| {
+        let mut held = [(dir, 1), (&dir.join("sub"), 2), (&dir.join("sub2"), 1)]
+            .map(|(path, count)| (path.to_string_lossy().into_owned(), count))
+            .to_vec();
+        held.sort();
+        held
+    };
+    for operation in ["tree", "files"] {
+        for hidden in [true, false] {
+            let out = run(
+                &root.0,
+                json!({"operation":operation,"path":dir,"includeHidden":hidden,"maxDepth":3}),
+            )
+            .expect("listing");
+            assert_eq!(
+                held(&out),
+                expected(&real),
+                "{operation} hidden={hidden}: {out}"
+            );
+        }
     }
 }

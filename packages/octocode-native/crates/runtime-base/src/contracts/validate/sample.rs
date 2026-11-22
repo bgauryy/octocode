@@ -344,6 +344,23 @@ pub(super) fn sampled(tool_name: &str, own: &Value, faults: &[&[String]]) -> Vec
     };
     let schema = resolve_ref(&tool["querySchema"], &Value::Null);
     let defs = &schema["$defs"];
+    let (settled, left) = settle_named_siblings(schema, defs, own, faults);
+    let mut candidates = shown_faults(schema, defs, &settled, &left);
+    // A sibling found without the row's form (its `operation` is not in
+    // `own`) may belong to another form: the faults as sent follow, each
+    // shown by its own schema.
+    if left.len() < faults.len() {
+        for candidate in shown_faults(schema, defs, own, faults) {
+            if !candidates.contains(&candidate) {
+                candidates.push(candidate);
+            }
+        }
+    }
+    candidates
+}
+
+/// `own` with each of `faults` shown ([`sampled`]).
+fn shown_faults(schema: &Value, defs: &Value, own: &Value, faults: &[&[String]]) -> Vec<Value> {
     let samples = faults
         .iter()
         .map(|fault| {
@@ -360,8 +377,12 @@ pub(super) fn sampled(tool_name: &str, own: &Value, faults: &[&[String]]) -> Vec
                 .filter_map(|schema| {
                     // The value sent, in the type its field takes (the fix
                     // its error names: `"5"`, not `5`), before a sample.
-                    sent.and_then(|sent| super::repair::repaired_value(schema, defs, sent))
-                        .or_else(|| sample(schema, defs, name))
+                    sent.and_then(|sent| {
+                        super::repair::repaired_value(schema, defs, sent)
+                            .or_else(|| text_within_pattern(schema, defs, sent))
+                            .or_else(|| nearest_member(schema, defs, sent))
+                    })
+                    .or_else(|| sample(schema, defs, name))
                 })
                 .collect::<Vec<_>>()
         })
@@ -376,11 +397,138 @@ pub(super) fn sampled(tool_name: &str, own: &Value, faults: &[&[String]]) -> Vec
                 break;
             }
         }
+        for fault in faults {
+            if schemas_of_own(schema, defs, fault, own).is_empty() {
+                fill_emptied_parent(schema, defs, &mut value, fault);
+            }
+        }
         if !candidates.contains(&value) {
             candidates.push(value);
         }
     }
     candidates
+}
+
+/// The member of the enum `schema` declares that `sent` is nearest to by
+/// edit distance, in any case (the first of equals): the valid value a
+/// refused text most likely meant, so a field at fault keeps a valid value
+/// in the example rather than none (`merged` for `open`/`closed` shows
+/// `closed`). `None` for a schema without text members or a value that is
+/// not text.
+fn nearest_member(schema: &Value, defs: &Value, sent: &Value) -> Option<Value> {
+    let sent = sent.as_str()?.to_lowercase();
+    resolve_ref(schema, defs)["enum"]
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_str)
+        .min_by_key(|member| super::levenshtein(&member.to_lowercase(), &sent))
+        .map(|member| Value::String(member.to_owned()))
+}
+
+/// The text `sent` reduced to the characters its schema's `pattern`
+/// accepts one by one (`.js` → `js` for an extension that may hold no `.`),
+/// when that text satisfies the pattern whole and differs from `sent`:
+/// the fix the constraint itself states, from the caller's own value.
+fn text_within_pattern(schema: &Value, defs: &Value, sent: &Value) -> Option<Value> {
+    let shape = resolve_ref(schema, defs);
+    let pattern = shape["pattern"].as_str()?;
+    let sent = sent.as_str()?;
+    let kept = sent
+        .chars()
+        .filter(|character| super::schema::pattern_matches(pattern, &character.to_string()))
+        .collect::<String>();
+    (kept != sent && !kept.is_empty() && super::schema::pattern_matches(pattern, &kept))
+        .then_some(Value::String(kept))
+}
+
+/// `own` with each fault that is a text outside an enum naming a boolean
+/// sibling of its object (`state: "merged"` beside `isMerged`) replaced by
+/// that sibling set true and the refused key removed; the faults left. The
+/// sibling is the declared boolean property whose name, after `is`, starts
+/// the text or is started by it, in any case or separator style.
+fn settle_named_siblings<'a>(
+    schema: &Value,
+    defs: &Value,
+    own: &Value,
+    faults: &[&'a [String]],
+) -> (Value, Vec<&'a [String]>) {
+    let fold = |text: &str| {
+        text.chars()
+            .filter(|character| character.is_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect::<String>()
+    };
+    let mut settled = own.clone();
+    let mut left = Vec::new();
+    for fault in faults {
+        let named = (|| {
+            let (leaf, parent) = fault.split_last()?;
+            if fault.len() < 2 {
+                return None;
+            }
+            let sent = fold(
+                own.pointer(&crate::json_pointer::of(&fault[1..]))?
+                    .as_str()?,
+            );
+            let outside_enum = schemas_of_own(schema, defs, fault, own)
+                .into_iter()
+                .any(|shape| resolve_ref(shape, defs)["enum"].is_array());
+            if sent.len() < 3 || !outside_enum {
+                return None;
+            }
+            schemas_of_own(schema, defs, parent, own)
+                .into_iter()
+                .find_map(|holder| {
+                    let holder = resolve_ref(holder, defs);
+                    property_order(holder, defs).into_iter().find(|name| {
+                        let folded = fold(name);
+                        let Some(rest) = folded.strip_prefix("is") else {
+                            return false;
+                        };
+                        name != leaf
+                            && (rest.starts_with(&sent) || sent.starts_with(rest))
+                            && child_schemas(holder, defs, name)
+                                .into_iter()
+                                .any(|child| resolve_ref(child, defs)["type"] == "boolean")
+                    })
+                })
+                .map(str::to_owned)
+        })();
+        let holder = named.as_ref().and_then(|_| {
+            settled.pointer_mut(&crate::json_pointer::of(&fault[1..fault.len() - 1]))
+        });
+        match (named, holder.and_then(Value::as_object_mut)) {
+            (Some(sibling), Some(holder)) => {
+                holder.shift_remove(fault[fault.len() - 1].as_str());
+                holder.insert(sibling, Value::Bool(true));
+            }
+            _ => left.push(*fault),
+        }
+    }
+    (settled, left)
+}
+
+/// A key the schema does not declare, removed from an object that then
+/// holds nothing, leaves the object a sample of its schema (a time range
+/// shows its first bound), so the field stays in the example.
+fn fill_emptied_parent(schema: &Value, defs: &Value, value: &mut Value, fault: &[String]) {
+    let Some((_, parent)) = fault.split_last() else {
+        return;
+    };
+    let path = crate::json_pointer::of(&parent[1.min(parent.len())..]);
+    let Some(held) = value.pointer_mut(&path) else {
+        return;
+    };
+    if parent.is_empty() || !held.as_object().is_some_and(serde_json::Map::is_empty) {
+        return;
+    }
+    let name = parent.last().map_or("", String::as_str);
+    if let Some(filled) = schemas_at(schema, defs, parent)
+        .into_iter()
+        .find_map(|shape| sample(shape, defs, name))
+    {
+        *held = filled;
+    }
 }
 
 /// Sets `sample` at `path` under `value`, or removes what is there when

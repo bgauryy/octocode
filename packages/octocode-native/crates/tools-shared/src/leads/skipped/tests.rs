@@ -144,11 +144,12 @@ fn a_disclosure_quotes_the_walks_text_as_judged() {
     }
 }
 
-/// Withheld entries are counted by rule at the deepest directory holding
-/// them all, one entry per rule, never one per holding directory; with every
-/// path kept, each directory stays its own entry. Every count is kept.
+/// A withheld entry is the directory holding what the policy left out, with
+/// its count: entries of other directories are never merged
+/// into a shared ancestor, with or without every path kept. Every count is
+/// kept.
 #[test]
-fn withheld_entries_are_one_counted_entry_per_rule() {
+fn withheld_entries_stay_one_counted_entry_per_holding_directory() {
     let withheld = |path: &str, reason: &str, count: usize| SkippedEntry {
         path: path.to_owned(),
         cause: SkippedPathCause::Withheld,
@@ -160,6 +161,8 @@ fn withheld_entries_are_one_counted_entry_per_rule() {
         withheld("/w/ext/b/c", "credential file", 2),
         withheld("/w/ext/d", "symlink not followed", 1),
         withheld("/w/ext/a/e", "credential file", 1),
+        // A holding directory reported again after another one joins its own.
+        withheld("/w/ext/b/c", "credential file", 1),
     ];
     let total = |paths: &SkippedPaths, reason: &str| {
         paths
@@ -177,8 +180,20 @@ fn withheld_entries_are_one_counted_entry_per_rule() {
         .iter()
         .filter(|entry| entry.reason.as_deref() == Some("credential file"))
         .collect::<Vec<_>>();
-    assert_eq!(credentials.len(), 1, "{grouped:?}");
-    assert_eq!(credentials[0].path.as_str(), "/w/ext", "{grouped:?}");
+    let mut held = credentials
+        .iter()
+        .map(|entry| (entry.path.as_str().to_owned(), entry.count))
+        .collect::<Vec<_>>();
+    held.sort();
+    assert_eq!(
+        held,
+        [
+            ("/w/ext/a".to_owned(), None),
+            ("/w/ext/a/e".to_owned(), None),
+            ("/w/ext/b/c".to_owned(), Some(3)),
+        ],
+        "{grouped:?}"
+    );
     assert!(
         grouped.sampled != Some(true),
         "count marks a collapse; a finished walk is no sample: {grouped:?}"
@@ -186,7 +201,11 @@ fn withheld_entries_are_one_counted_entry_per_rule() {
     let every = skipped_paths(entries.clone(), true, false)
         .expect("valid")
         .expect("entries");
-    assert_eq!(every.entries.len(), entries.len(), "{every:?}");
+    let distinct = entries
+        .iter()
+        .map(|entry| (&entry.path, &entry.reason))
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(every.entries.len(), distinct.len(), "{every:?}");
     for reason in ["credential file", "symlink not followed"] {
         let written = entries
             .iter()

@@ -176,33 +176,94 @@ async fn maxrequests_bounds_the_whole_walk_and_each_page_states_the_walks_reques
     assert_eq!(provider_calls(&server).await as u64, walked, "{page:#}");
     assert_eq!(data["usage"]["walkCalls"], walked, "{page:#}");
     let confirm = data["next"]["confirm"]["input"].clone();
-    let raised = confirm["queries"][0]["maxRequests"].as_u64().unwrap();
-    assert!(raised > budget, "the confirm raises the walk's budget: {page:#}");
+    assert!(
+        confirm["cursor"].is_string(),
+        "the confirmation publishes an executable cursor: {page:#}"
+    );
     // The confirm's budget covers the requests already sent: it bills the last page.
     let page = follow(&runtime, "budget-confirm", confirm).await;
     let data = &page["results"][0]["data"];
     assert!(data.get("errorCode").is_none(), "{page:#}");
-    assert_eq!(data["usage"]["walkCalls"].as_u64().unwrap(), walked + data["usage"]["calls"].as_u64().unwrap());
-    assert_eq!(provider_calls(&server).await as u64, walked + data["usage"]["calls"].as_u64().unwrap());
+    let calls = data["usage"]["calls"].as_u64().unwrap();
+    assert!(
+        walked + calls > budget,
+        "the confirmation raises the walk's budget: {page:#}"
+    );
+    assert_eq!(data["usage"]["walkCalls"].as_u64().unwrap(), walked + calls);
+    assert_eq!(provider_calls(&server).await as u64, walked + calls);
     runtime.close().await;
+}
+
+/// A provider whose every answer is a score with probabilities, which a summary cuts.
+async fn scoring_provider() -> MockServer {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(|request: &wiremock::Request| {
+            let body: Value = serde_json::from_slice(&request.body).expect("provider body");
+            let answers = body["questions"]
+                .as_object()
+                .expect("questions")
+                .iter()
+                .map(|(id, question)| {
+                    let legend = question["criteria"]
+                        .as_array()
+                        .expect("criteria")
+                        .iter()
+                        .enumerate()
+                        .map(|(index, level)| (index.to_string(), level.clone()))
+                        .collect::<serde_json::Map<_, _>>();
+                    (
+                        id.clone(),
+                        json!({"type":"score","score":0,"confidence":1,"legend":legend,
+                            "probabilities":{"0":1,"1":0}}),
+                    )
+                })
+                .collect::<serde_json::Map<_, _>>();
+            ResponseTemplate::new(200).set_body_json(json!({
+                "model":"jev-1.13.0","answers":answers,
+                "usage":{"input_tokens":10,"output_tokens":2}
+            }))
+        })
+        .mount(&server)
+        .await;
+    server
 }
 
 #[tokio::test]
 async fn a_summary_page_offers_its_saved_details_unbilled() {
-    let server = provider().await;
+    let server = scoring_provider().await;
     let github = github_serving_pages().await;
     let workspace = Workspace::new();
     let runtime = clasify_runtime(&workspace, &server, &support::github_api(&github));
-    let page = clasify(&runtime, vec![walk_row(None)]).await;
+    let mut row = walk_row(None);
+    row["questions"] = json!({"q":{"type":"score","criteria":["not at all","clearly"],"instructions":"How restart-like is the entry?"}});
+    row["view"] = json!("summary");
+    let page = clasify(&runtime, vec![row]).await;
     let billed = provider_calls(&server).await;
     let details = page["results"][0]["data"]["next"]["details"]["input"].clone();
-    assert!(details.is_object(), "the summary offers its details: {page:#}");
+    assert!(
+        details.is_object(),
+        "the summary offers its details: {page:#}"
+    );
     let again = follow(&runtime, "details", details).await;
     let data = &again["results"][0]["data"];
-    assert_eq!(provider_calls(&server).await, billed, "reading details bills nothing: {again:#}");
-    assert_eq!(data["replayed"], true, "{again:#}");
+    assert_eq!(
+        provider_calls(&server).await,
+        billed,
+        "reading details bills nothing: {again:#}"
+    );
+    assert_eq!(
+        data["usage"]["calls"], 0,
+        "the replay states it sent nothing: {again:#}"
+    );
+    let answer = |data: &Value| data["units"]["o/alpha"]["q"].clone();
     assert!(
-        data.to_string().len() > page["results"][0]["data"].to_string().len(),
+        answer(&page["results"][0]["data"])["probabilities"].is_null(),
+        "the summary cuts the probabilities: {page:#}"
+    );
+    assert!(
+        answer(data)["probabilities"].is_object(),
         "details hold what the summary left out: {again:#}"
     );
     runtime.close().await;

@@ -24,6 +24,8 @@ fn source_row() -> Row {
         per_item: false,
         source_progress: None,
         max_requests: None,
+        walk_requests: 0,
+        saved_page: None,
         per_hit: false,
         collapse: false,
         retry_units: None,

@@ -7,6 +7,7 @@
 //! - a value where a list of such values is declared: that one-item list;
 //! - a text holding JSON of the declared type: that JSON value;
 //! - an enum literal in another letter case or separator style;
+//! - an integral float (`3.0`) where only an integer is declared: the integer;
 //! - a member an object lacks, from the default its schema states;
 //! - a page size beside a cursor: the cursor alone.
 //!
@@ -22,6 +23,7 @@ use super::validate::{ValidationIssue, validate_batch};
 use crate::id::ToolId;
 
 mod beside_cursor;
+mod integers;
 mod notes;
 pub use beside_cursor::{BesideCursor, read_beside_cursor};
 
@@ -47,12 +49,27 @@ pub fn normalized_input(tool_name: &str, input: Value) -> (Value, Vec<String>) {
     if bills(id) {
         return (input, Vec::new());
     }
-    let request = if request.get("queries").is_some_and(Value::is_array) {
+    let mut request = if request.get("queries").is_some_and(Value::is_array) {
         read_values(tool_name, id, request, &mut notes)
     } else {
         request
     };
+    read_integral_floats(id, &mut request, &mut notes);
     (request, notes::per_call(notes))
+}
+
+/// Each row's integral floats where an integer is declared
+/// ([`integers::read_integral_floats`]).
+fn read_integral_floats(id: ToolId, request: &mut Value, notes: &mut Vec<Note>) {
+    let Ok(tool) = super::tool_contract(id) else {
+        return;
+    };
+    let Some(rows) = request.get_mut("queries").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for (index, row) in rows.iter_mut().enumerate() {
+        integers::read_integral_floats(&tool["querySchema"], index, row, notes);
+    }
 }
 
 /// Whether running a request bills a classification provider: only a

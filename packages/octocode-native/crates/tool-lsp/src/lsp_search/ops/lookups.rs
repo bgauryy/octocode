@@ -264,7 +264,13 @@ impl Operation<'_, '_> {
             .map(public_workspace_symbol)
             .collect::<Vec<_>>();
         rank_workspace_symbols(&mut symbols, &name);
+        let exact = symbols
+            .iter()
+            .any(|symbol| symbol.get("symbolName").and_then(Value::as_str) == Some(name.as_str()));
         let mut row = items_payload(query, "symbols", json!(symbols), self.budget);
+        if capped_at.is_some() && !exact {
+            super::super::server_coverage::capped_without_exact(&mut row, query, &name, self.scope);
+        }
         if self.root_only {
             self.state_directory_route(&mut row, &name);
         }

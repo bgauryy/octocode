@@ -78,7 +78,7 @@ fn payload_text(result: &Result<super::admission::AdmittedRows, super::RuntimeEr
 }
 
 #[test]
-fn a_credential_in_a_query_never_runs_and_is_never_echoed_for_any_tool() {
+fn a_credential_is_refused_or_redacted_by_the_tools_input_policy() {
     let home = tempfile::tempdir().expect("home");
     let runtime = runtime(home.path(), &[]);
     for tool in ToolId::ALL {
@@ -102,23 +102,34 @@ fn a_credential_in_a_query_never_runs_and_is_never_echoed_for_any_tool() {
             !shown.contains(TOKEN),
             "{tool:?}.{field}: credential echoed: {shown}"
         );
-        if !tool.is_clasify() {
+        // The gate itself, with the tool's own policy.
+        let input_policy = policy(tool);
+        let checked = ContentSecurity::new().check_input(row, input_policy);
+        let redacted_evidence = field == "content"
+            && matches!(
+                input_policy,
+                InputPolicy::ClasifyEvidence { .. } | InputPolicy::LocalSnippet { .. }
+            );
+        if redacted_evidence {
+            let checked = checked.expect("the gate redacts evidence in place");
+            let admitted = admitted.expect("redacted evidence reaches the tool");
+            let [query] = admitted.queries.as_slice() else {
+                panic!("{tool:?}: the evidence row is admitted once");
+            };
+            assert!(
+                checked[&field]
+                    .as_str()
+                    .is_some_and(|content| !content.contains(TOKEN)),
+                "{tool:?}.{field}: the gate must retain redacted text"
+            );
+            assert_eq!(query[&field], checked[&field], "{tool:?}.{field}");
+        } else {
             assert!(
                 admitted
                     .as_ref()
                     .map_or(true, |rows| rows.queries.is_empty()),
                 "{tool:?}.{field}: a credential-shaped query was admitted"
             );
-        }
-        // The gate itself, with the tool's own policy.
-        let checked = ContentSecurity::new().check_input(row.clone(), policy(tool));
-        if let Ok(checked) = &checked {
-            assert!(
-                !checked.to_string().contains(TOKEN),
-                "{tool:?}: {checked:?}"
-            );
-        }
-        if !tool.is_clasify() {
             let issues = checked.expect_err("a credential is refused, not rewritten");
             assert!(
                 issues
@@ -265,6 +276,16 @@ async fn a_credential_in_evidence_is_redacted_on_both_channels() {
             "localSearch",
             json!({"queries":[{"path": path, "matchString": ["token"]}]}),
         ),
+        (
+            "astSearch",
+            json!({"queries":[{
+                "operation":"match",
+                "content": format!("const token = \"{TOKEN}\";\n"),
+                "parser":"typescript",
+                "rule":{"pattern":"const token = $VALUE"},
+                "includeCaptures":true
+            }]}),
+        ),
     ];
     for (tool, input) in calls {
         for channel in [super::Channel::Cli, super::Channel::Mcp] {
@@ -279,6 +300,16 @@ async fn a_credential_in_evidence_is_redacted_on_both_channels() {
                 "{tool}: the evidence is read: {shown}"
             );
             assert!(!shown.contains(TOKEN), "{tool} {channel:?}: {shown}");
+            if tool == "astSearch" {
+                let evidence = &outcome.structured_content["results"][0]["data"]["files"][0]["matches"]
+                    [0]["value"];
+                assert!(
+                    evidence.as_str().is_some_and(|text| {
+                        text.starts_with("const token = ") && text.contains("[REDACTED")
+                    }),
+                    "the tree matched the redacted declaration: {shown}"
+                );
+            }
             let mcp = super::super::error::mcp_result(tool, Ok(outcome)).expect("mcp");
             assert!(
                 !mcp.text.contains(TOKEN),

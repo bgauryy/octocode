@@ -133,6 +133,11 @@ pub(super) fn facts_from_tree(
             paths.dedup();
             paths
         },
+        type_names: acc
+            .type_names
+            .into_iter()
+            .map(|(name, line)| crate::graph::GraphFactTypeName { name, line })
+            .collect(),
         rust_root_unsupported,
         test_lines: acc.test_lines,
         go_package: go_header.package,

@@ -110,6 +110,9 @@ pub(super) type PendingEdge = (u32, u32, EdgeKind, Confidence, String, u32);
 #[derive(Default)]
 pub(super) struct CallOutput {
     pub edges: Vec<LinkedCall>,
+    /// `(file, declaration, line)` of a call bound through a glob of a
+    /// module that re-exports the declaration: its file uses the re-export.
+    pub reexport_uses: Vec<(u32, u32, u32)>,
     pub unresolved: Vec<UnlinkedCall>,
 }
 
@@ -217,6 +220,14 @@ pub(super) fn link_calls(
             "" | "calls" | "call" => resolution.to_owned(),
             kind => format!("{kind}:{resolution}"),
         };
+        if resolution == "import-glob" {
+            let name = split_callee(&call.callee).1;
+            for &dst in &targets {
+                if linker.glob_hops(&unit.bindings, name, dst) {
+                    out.reexport_uses.push((unit.file_id, dst, call.line));
+                }
+            }
+        }
         for dst in targets {
             out.edges.push(LinkedCall {
                 edge: (

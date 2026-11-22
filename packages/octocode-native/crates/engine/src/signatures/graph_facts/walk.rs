@@ -3,7 +3,8 @@
 use super::collect::collect_node_facts;
 use super::positions::{NodePositions, leading_annotation_starts};
 use super::rust::{
-    RustContext, collect_rust_paths, rust_child_contexts, rust_inner_unsupported_among,
+    RustContext, collect_rust_paths, collect_rust_type_name, rust_child_contexts,
+    rust_inner_unsupported_among,
 };
 use super::{GraphAccumulator, NameToken, note, receiver};
 use crate::signatures::node_kinds::kind_of;
@@ -220,6 +221,7 @@ pub(super) fn visit_node(
                 declarations.last().map(|(id, _)| id.as_str()),
                 module_scope.len(),
             );
+            collect_rust_type_name(node, &path, content, line_index, acc);
         }
         path.push(node);
         #[cfg(feature = "tree-sitter-scala")]

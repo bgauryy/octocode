@@ -85,7 +85,9 @@ pub(crate) mod receiver_fields;
 /// path reference, so it links no import of that module.
 /// v35: an unextracted argument group (a macro invocation's token tree) lists
 /// the identifiers written inside it (`names`).
-pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 35;
+/// v36: a Rust file lists the bare type names it writes in type and
+/// struct-literal position (`typeNames`).
+pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 36;
 
 /// The declaration kinds an `extends`/`implements` clause can name or
 /// declare: the nodes of a type hierarchy. One list for the graph's linking

@@ -15,6 +15,13 @@ use tokio::task::AbortHandle;
 use tokio::time::{Duration, Instant};
 
 /// How often the drain task looks for a busy server whose request ended.
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::disallowed_methods,
+        reason = "the activity counter has no completion event, so this cadence rechecks overflow eviction without imposing a request or lease deadline"
+    )
+)]
 const DRAIN_POLL: Duration = Duration::from_secs(1);
 
 impl<C: PoolClient> GenericPool<C> {

@@ -169,10 +169,11 @@ impl<'a> WalkLeft<'a> {
     /// whether the walk may enter or list `path`, counting what it leaves
     /// out. The root itself stays admitted: a probe out of time lists
     /// nothing under it, never fails. Dot entries out of view (no
-    /// `includeHidden`) are neither listed nor counted as withheld; the ones
-    /// `includeHidden:true` would walk (permitted, not ignored, not a pruned
-    /// directory) are counted as hidden, and the walk's own dot rule skips
-    /// them. Only an entry the filters could list makes a withheld one worth
+    /// `includeHidden`) are never listed; a withheld one is counted whether or
+    /// not dot entries are listed (the policy withholds it either way), and
+    /// the ones `includeHidden:true` would walk (permitted, not ignored, not
+    /// a pruned directory) are counted as hidden, the walk's own dot rule
+    /// skipping them. Only an entry the filters could list makes a withheld one worth
     /// naming, and a replayed entry was counted by the window this one
     /// resumes.
     pub(super) fn admit(
@@ -194,7 +195,6 @@ impl<'a> WalkLeft<'a> {
         };
         if let Some(position) = fresh
             && unseen
-            && (policy.show_hidden || !dot)
             && reports_withheld(path)
         {
             self.record_withheld(position, path);

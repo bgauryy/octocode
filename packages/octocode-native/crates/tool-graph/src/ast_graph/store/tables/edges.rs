@@ -1,6 +1,7 @@
 //! The edge families the projector adds between nodes: contains, imports,
 //! uses and calls.
 use super::*;
+use crate::ast_graph::types::RustPathUse;
 
 impl<'a> Projector<'a> {
     /// contains: file → top-level symbol, symbol → member.
@@ -160,12 +161,28 @@ impl<'a> Projector<'a> {
                 }
             }
             // A Rust value path (`.map(m::f)`, a path in a `macro_rules!`
-            // body) uses the item it names, as a call of it would.
-            for (target, name, line) in &facts.rust_path_uses {
-                let found = resolver.exported_or_declared(target, name);
+            // body) uses the item it names, as a call of it would; one that
+            // reaches it through a re-export uses the re-export, as a `use`
+            // of it would.
+            for RustPathUse {
+                module: target,
+                item: name,
+                line,
+                reexport_only,
+            } in &facts.rust_path_uses
+            {
+                let (exported, hopped) = resolver.exported(target, name);
+                if *reexport_only && !hopped {
+                    continue;
+                }
+                let (found, detail) = if exported.is_empty() {
+                    (resolver.exported_or_declared(target, name), "path")
+                } else {
+                    (exported, if hopped { "reexport" } else { "path" })
+                };
                 let confidence = confidence_for(&found, Confidence::High);
                 for dst in found {
-                    self.push(src, dst, EdgeKind::Uses, confidence, "path", *line);
+                    self.push(src, dst, EdgeKind::Uses, confidence, detail, *line);
                 }
             }
             self.reexported_name_edges(resolver, src, facts);
@@ -418,6 +435,9 @@ impl<'a> Projector<'a> {
         }
         for (src, dst, kind, confidence, detail, line) in linked {
             self.push(src, dst, kind, confidence, &detail, line);
+        }
+        for &(src, dst, line) in &call_output.reexport_uses {
+            self.push(src, dst, EdgeKind::Uses, Confidence::High, "reexport", line);
         }
         self.push_calls(symbols, call_output);
         self.push_arguments(arguments);

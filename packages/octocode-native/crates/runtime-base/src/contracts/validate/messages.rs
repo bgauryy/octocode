@@ -323,6 +323,19 @@ fn call_reference(tool_name: &str, rejected: Option<&Rejected<'_>>) -> Vec<Strin
             in_row_terms(tool_name, form, rejected)
         }
     };
+    // A required value the row never sent is shown only as a visible
+    // placeholder ([`placeholder`]) or a literal its schema names. A number
+    // has no placeholder: any number reads as a real one (issue `1`), so
+    // such a refusal shows no example and names the field.
+    if rejected.is_some_and(|rejected| {
+        rejected.missing.iter().any(|field| {
+            example
+                .get(field)
+                .is_some_and(|shown| shown.is_number() && !rejected.row.contains_key(field))
+        })
+    }) {
+        return Vec::new();
+    }
     // An example applies the fix its causes state. Where a cause states
     // the form to send and the example does not hold the value sent (a
     // number for an object of several members: which one?), only the cause
@@ -597,7 +610,9 @@ fn in_row_terms(tool_name: &str, example: &Value, rejected: Option<&Rejected<'_>
                 // A value at fault as a whole shows a placeholder before
                 // core's example value, which beside the row's own values
                 // could name something that does not exist (core's owner
-                // with the row's repository).
+                // with the row's repository). Where the field takes no
+                // placeholder (an object), the value sent in the shape the
+                // field takes stands in.
                 let mut candidates = if inside.iter().any(|fault| fault.len() == 1) {
                     Vec::new()
                 } else {
@@ -606,6 +621,9 @@ fn in_row_terms(tool_name: &str, example: &Value, rejected: Option<&Rejected<'_>
                 candidates.extend(without_faults(own, &inside));
                 if candidates.is_empty() {
                     candidates.extend(placeholder(field, value));
+                }
+                if candidates.is_empty() {
+                    candidates.extend(sampled(tool_name, own, &inside));
                 }
                 candidates
             }
@@ -1532,11 +1550,13 @@ fn issues_error(mut details: Vec<String>, reference: Vec<String>) -> Value {
     tool_error(&first, details)
 }
 
-/// Core-authored guidance for a missing required field: the field's
-/// contract `x-requiredMessage`, rendered after `Missing required field:
-/// <name>` as MCP renders the core message.
+/// Core-authored guidance for a required field the request gets wrong: the
+/// field's contract `x-requiredMessage`, rendered after `Missing required
+/// field: <name>` as MCP renders the core message, and after a value outside
+/// the field's range (`Number is outside the allowed range`), where the
+/// writer needs the same help finding the value.
 fn required_guidance(issue: &ValidationIssue) -> Option<&str> {
-    if issue.rule_id != "schema.required" {
+    if !matches!(issue.rule_id.as_str(), "schema.required" | "schema.range") {
         return None;
     }
     issue.schema.as_ref()?.get("x-requiredMessage")?.as_str()

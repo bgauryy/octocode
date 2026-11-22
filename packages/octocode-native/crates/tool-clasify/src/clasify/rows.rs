@@ -72,6 +72,11 @@ fn parse(row: &Value) -> Row {
         per_item: row["perItem"] == true,
         source_progress: row["sourceProgress"].as_object().cloned(),
         max_requests: row["maxRequests"].as_u64(),
+        walk_requests: row["walkRequests"].as_u64().unwrap_or(0),
+        saved_page: row
+            .get("savedPage")
+            .filter(|page| page.is_object())
+            .cloned(),
         per_hit: row[PER_HIT] == true,
         collapse: row["collapse"] == true,
         retry_units: row[RETRY_UNITS].as_array().map(|keys| {
@@ -146,3 +151,12 @@ pub(super) fn scoped(state: std::borrow::Cow<'_, Value>) -> Value {
 
 #[cfg(test)]
 mod tests;
+
+impl Row {
+    /// The requests this page may send: `maxRequests` less what the earlier
+    /// pages of its walk sent.
+    pub(super) fn budget(&self) -> Option<u64> {
+        self.max_requests
+            .map(|max| max.saturating_sub(self.walk_requests))
+    }
+}

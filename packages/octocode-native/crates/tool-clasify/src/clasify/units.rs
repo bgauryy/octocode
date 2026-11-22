@@ -22,7 +22,7 @@
 //! repository, a package). A search row's unit is each hit, however the tool
 //! joined their windows ([`hits`]).
 use super::{Row, RowOutcome, reply};
-use octocode_contract_types::ErrorCode;
+use octocode_contract_types::{ClasifyChannel, ErrorCode};
 use octocode_runtime_base::execution::ExecutionContext;
 use octocode_runtime_base::id::ToolId;
 use octocode_runtime_base::providers::classification::gate::GateLease;
@@ -372,7 +372,13 @@ pub(super) fn judge_source(
     }
     repository(&mut judged.output, tool, query, &data);
     judged.offer_retry(row, can_resume);
-    let calls = page_calls(&judged);
+    let spend = walk_spend(&judged, row.walk_requests);
+    let walking =
+        data["next"]["nextPage"]["input"]["queries"][0].is_object() && row.retry_units.is_none();
+    // A walk states its cumulative requests on every page.
+    if walking || row.walk_requests > 0 || row.max_requests.is_some() {
+        judged.walk_spend = Some(spend);
+    }
     let output = &mut judged.output;
     // The tool's own next page, as the same row over it; a retry re-asks
     // units of a page whose next page its first call offered.
@@ -381,11 +387,11 @@ pub(super) fn judge_source(
         .as_object()
         .filter(|_| row.retry_units.is_none());
     match next_query {
-        Some(query) => match next_page(row, tool, query, can_resume) {
+        Some(query) => match next_page(row, tool, query, spend.total, can_resume) {
             Some(NextPage::Call(call)) => {
                 // The next page is judged like this one: it bills, and the
                 // reply's continuation is otherwise read as a free page.
-                let note = billed_next_note(name, calls, page_rows, &data, can_resume);
+                let note = billed_next_note(name, spend.page, page_rows, &data, can_resume);
                 octocode_runtime_base::response::paging::push_warnings(output, [note]);
                 if can_resume {
                     octocode_runtime_base::response::collection::insert_walk(
@@ -428,14 +434,17 @@ pub(super) fn judge_source(
     RowOutcome::Units(Ok(judged))
 }
 
-/// The judge requests this page sent, summed from what each request spent:
-/// the row's `usage` is stated only when it finishes. 0 when the page asked
-/// none (every row quiet or answered from saved work).
-fn page_calls(judged: &UnitsOutcome) -> u64 {
-    judged
+/// Capture the sender's spend before shared-call attribution moves it between
+/// sibling rows. The response and the continuation use this same total.
+fn walk_spend(judged: &UnitsOutcome, before: u64) -> WalkSpend {
+    let page = judged
         .spends
         .iter()
-        .fold(0_u64, |sum, spend| sum.saturating_add(spend.calls))
+        .fold(0_u64, |sum, spend| sum.saturating_add(spend.calls));
+    WalkSpend {
+        page,
+        total: before.saturating_add(page),
+    }
 }
 
 /// What running the reply's `next` costs, on a page of `tool`'s rows that
@@ -599,6 +608,7 @@ fn next_page(
     row: &Row,
     tool: ToolId,
     query: &Map<String, Value>,
+    walked: u64,
     can_resume: bool,
 ) -> Option<NextPage> {
     let private = octocode_runtime_base::contracts::state_fields(tool);
@@ -609,17 +619,17 @@ fn next_page(
     if !can_resume && !progress.is_empty() {
         return Some(NextPage::Unsaved);
     }
-    let questions = row
-        .keys
-        .iter()
-        .cloned()
-        .zip(row.questions.iter().cloned())
-        .collect::<Map<_, _>>();
     let mut call = json!({
         "operation":"evaluate",
         "source":{"tool":tool.as_str(),"query":public},
-        "questions":questions,
     });
+    // Keep predicates as predicates so a summary of the next page keeps
+    // their scores and derives the same question keys.
+    for field in ["questions", "predicates"] {
+        if let Some(value) = row.query.get(field) {
+            call[field] = value.clone();
+        }
+    }
     if !progress.is_empty() {
         call["sourceProgress"] = Value::Object(progress);
     }
@@ -636,6 +646,9 @@ fn next_page(
     if let Some(max) = row.max_requests {
         call["maxRequests"] = json!(max);
     }
+    // `maxRequests` bounds the whole walk: the next page spends what this
+    // and the earlier pages left.
+    call["walkRequests"] = json!(walked);
     octocode_runtime_base::contracts::validate_built_query(ToolId::Clasify.as_str(), call.clone())
         .ok()?;
     let continuation = if can_resume {
@@ -792,7 +805,7 @@ fn judge(
         units: sent.iter().flatten().count(),
         tokens: plan.input_tokens_at_most,
     };
-    let admitted = super::admission::admit(row.max_requests, planned, named, allowed)?;
+    let admitted = super::admission::admit(row.budget(), planned, named, allowed)?;
     let price = admitted.price;
     // Every units row is bounded: its plan states each request it can send.
     let cap = admitted
@@ -847,7 +860,7 @@ fn judge(
                 tokens: plan.input_tokens_at_most,
             };
             let ceiling =
-                match super::admission::admit(row.max_requests, retried, retried.first, allowed) {
+                match super::admission::admit(row.budget(), retried, retried.first, allowed) {
                     Ok(admitted) => admitted.price.ceiling,
                     Err(over) => over.price.ceiling,
                 };
@@ -943,6 +956,13 @@ pub struct UnitsOutcome {
     /// The units left unanswered, which `next.retry` (then `next.retry2`,
     /// …, [`RETRY_KEYS`] units each) asks again.
     pub retries: Vec<Retry>,
+    walk_spend: Option<WalkSpend>,
+}
+
+#[derive(Clone, Copy)]
+struct WalkSpend {
+    page: u64,
+    total: u64,
 }
 
 impl UnitsOutcome {
@@ -1057,7 +1077,21 @@ impl UnitsOutcome {
             calls,
             self.refused.min(calls),
         );
-        reply::priced(&mut output, Some(self.price));
+        let sent = self.walk_spend.map_or(calls, |spend| spend.page);
+        reply::priced_with_sends(&mut output, Some(self.price), sent);
+        if let Some(spend) = self.walk_spend {
+            output["usage"]["walkCalls"] = json!(spend.total);
+            if spend.page != calls {
+                let sent = octocode_engine::text::counted(spend.page, "request", "requests");
+                let attributed = octocode_engine::text::counted(calls, "request", "requests");
+                octocode_runtime_base::response::paging::push_warnings(
+                    &mut output,
+                    [format!(
+                        "This source walk sent {sent} on this page. After sharing requests across the batch, usage.calls attributes {attributed} to this row."
+                    )],
+                );
+            }
+        }
         output
     }
 }
@@ -1193,6 +1227,7 @@ fn shape(row: &Row, units: Vec<Unit>, judged: UnitAnswers) -> UnitsOutcome {
             tokens: Some(0),
         },
         retries: Vec::new(),
+        walk_spend: None,
     }
 }
 
@@ -1314,3 +1349,61 @@ fn reads(
 
 #[cfg(test)]
 mod tests;
+
+/// Offers `next.details` on a tool-rows page whose summary left something
+/// out of `full`: the page as judged rides the cursor and is replayed
+/// without a request, so reading the quiet scores' details again bills
+/// nothing.
+pub(super) fn offer_saved_details(row: &Row, data: &mut Value, full: Value) {
+    if !offers_saved_details(row, &full) || *data == full {
+        return;
+    }
+    let Some(mut query) = row.query.as_object().cloned() else {
+        return;
+    };
+    let mut page = full;
+    if let Some(next) = page.as_object_mut().and_then(|page| page.remove("next")) {
+        // Its walk's own next page stays: the replay pages on as details.
+        if let Some(walk) = next.as_object().filter(|next| !next.is_empty()) {
+            let mut kept = walk.clone();
+            kept.remove(ClasifyChannel::Details.key());
+            if !kept.is_empty() {
+                page["next"] = Value::Object(kept);
+            }
+        }
+    }
+    query.insert("view".into(), json!("details"));
+    query.insert("savedPage".into(), page);
+    let call = octocode_runtime_base::response::result::Continuation::continued(
+        ToolId::Clasify,
+        Value::Object(query),
+    );
+    octocode_runtime_base::response::result::insert_next(
+        &mut data["next"],
+        ClasifyChannel::Details,
+        call,
+    );
+}
+
+/// Whether a tool-rows page judged for `row` can ride a details cursor: a
+/// source walk's first reading of a page that holds units and no error.
+pub(super) fn offers_saved_details(row: &Row, full: &Value) -> bool {
+    row.saved_page.is_none()
+        && row.query.get("source").is_some()
+        && (full.get("units").is_some() || full.get("files").is_some())
+        && full.get("errorCode").is_none()
+}
+
+/// The page `savedPage` carries, replayed: the judged page as it was, its own
+/// details offer dropped; it sends nothing, so its `usage.calls` is 0 (the
+/// walk's total stays in `walkCalls`).
+pub(super) fn saved_details(saved: &Value) -> Value {
+    let mut page = saved.clone();
+    if let Some(page) = page.as_object_mut() {
+        page.shift_remove("hints");
+        if let Some(Value::Object(usage)) = page.get_mut("usage") {
+            usage.insert("calls".into(), json!(0));
+        }
+    }
+    page
+}

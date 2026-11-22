@@ -50,6 +50,7 @@ use octocode_contract_types::{AstSearchQuery, ErrorCode};
 use serde_json::Value;
 
 use matches::MatchQuery;
+use syntax::{SyntaxQuery, execute_syntax};
 
 use octocode_runtime_base::response::result::ToolError;
 
@@ -120,23 +121,21 @@ pub fn execute_ast(
         AstSearchQuery::Symbols(query) => query.path.as_ref().map(|path| path.as_str()),
         AstSearchQuery::Match0(query) => query.path.as_ref().map(|path| path.as_str()),
         AstSearchQuery::MatchView(query) => query.path.as_ref().map(|path| path.as_str()),
-        AstSearchQuery::SyntaxTree(query) => query.path.as_ref().map(|path| path.as_str()),
+        AstSearchQuery::SyntaxTreePath(query) => Some(query.path.as_str()),
+        AstSearchQuery::SyntaxTreeContent(_) => None,
     };
     // Inline source in place of a file: its rows are cut from the snippet
     // judged whole, as a file's are from the file.
     let inline = match query {
-        AstSearchQuery::Symbols(_) => None,
+        AstSearchQuery::Symbols(_) | AstSearchQuery::SyntaxTreePath(_) => None,
         AstSearchQuery::Match0(query) => query.content.as_ref(),
         AstSearchQuery::MatchView(query) => query.content.as_ref(),
-        AstSearchQuery::SyntaxTree(query) => query.content.as_ref(),
+        AstSearchQuery::SyntaxTreeContent(query) => Some(&query.content),
     }
     .map(|content| content.as_str());
     // A walk that names no path walks the workspace root, as the contract
     // states its default.
-    let requested = requested.or_else(|| {
-        (inline.is_none() && !matches!(query, AstSearchQuery::SyntaxTree(_)))
-            .then_some(source::WALK_ROOT)
-    });
+    let requested = requested.or_else(|| inline.is_none().then_some(source::WALK_ROOT));
     let page = match query {
         // Identical rows asked at once share one page ([`shared_rows`]).
         AstSearchQuery::Symbols(query) => {
@@ -235,16 +234,26 @@ fn run_ast(
             response_window,
         )
         .map(unplaced),
-        AstSearchQuery::SyntaxTree(query) => {
-            execute_syntax(query, paths, cancellation, response_window).map(unplaced)
-        }
+        AstSearchQuery::SyntaxTreePath(query) => execute_syntax(
+            SyntaxQuery::File(query),
+            paths,
+            cancellation,
+            response_window,
+        )
+        .map(unplaced),
+        AstSearchQuery::SyntaxTreeContent(query) => execute_syntax(
+            SyntaxQuery::Snippet(query),
+            paths,
+            cancellation,
+            response_window,
+        )
+        .map(unplaced),
     }
 }
 
 pub use matches::execute_match;
 pub use output::Output;
 pub(crate) use symbols::execute_symbols;
-pub use syntax::execute_syntax;
 
 /// A dot-named entry (`.git`, `.env`): out of view of a walk without
 /// `hidden`.

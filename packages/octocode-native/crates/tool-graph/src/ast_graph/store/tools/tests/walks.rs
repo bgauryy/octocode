@@ -16,11 +16,9 @@ fn grouped_dependents_lead_to_the_same_view_with_only_import_edges() {
     );
     let built = call(&dir.0, ToolId::GraphBuild, json!({"path": "app"}));
     for view in ["files", "modules"] {
-        let out = call(
-            &dir.0,
-            ToolId::GraphQuery,
-            json!({"operation":"dependents","path":"app","graph":built["graph"],"target":"core.ts","view":view}),
-        );
+        // A nondefault confidence must survive continuation compaction.
+        let request = json!({"operation":"dependents","path":"app","graph":built["graph"],"target":"core.ts","view":view, "depth":1, "confidence":"medium"});
+        let out = call(&dir.0, ToolId::GraphQuery, request.clone());
         let edge_count = |answer: &Value| {
             answer["rows"]
                 .as_array()
@@ -38,11 +36,21 @@ fn grouped_dependents_lead_to_the_same_view_with_only_import_edges() {
             .unwrap_or_else(|| panic!("an import-only lead: {out}"));
         assert_eq!(lead["tool"], "graphQuery");
         let row = &lead["input"]["queries"][0];
-        assert_eq!(row["path"], "app");
-        assert_eq!(row["graph"], built["graph"]);
-        assert_eq!(row["view"], view);
+        let mut expected = request;
+        expected["edges"] = json!(["imports"]);
+        assert_eq!(row, &expected);
+        octocode_runtime_base::contracts::validate_built_query("graphQuery", row.clone())
+            .expect("the import-only lead is accepted");
         let imports = call(&dir.0, ToolId::GraphQuery, row.clone());
         assert_eq!(edge_count(&imports), 1, "{imports}");
+        assert!(
+            imports["related"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .all(|lead| lead["input"]["queries"][0]["edges"] != json!(["imports"])),
+            "an explicit edge selection gets no default-edge lead: {imports}"
+        );
     }
 }
 

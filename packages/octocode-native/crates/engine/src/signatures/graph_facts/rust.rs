@@ -421,3 +421,44 @@ pub(super) fn collect_rust_paths(
         _ => {}
     }
 }
+
+/// Records a bare Rust type name `node` writes in type or struct-literal
+/// position (`&Saved`, `Option<Saved>`, `Saved { .. }`, `impl Saved`), at
+/// its first line. A qualified type, a declaration's own name, a generic
+/// parameter's declaration, an associated-type binding's name, `Self` and a
+/// `use` item's names are no such use.
+pub(super) fn collect_rust_type_name(
+    node: Node<'_>,
+    ancestors: &[Node<'_>],
+    content: &str,
+    index: &NodePositions<'_>,
+    acc: &mut GraphAccumulator,
+) {
+    if kind_of(node) != "type_identifier" {
+        return;
+    }
+    let Some(parent) = ancestors.last() else {
+        return;
+    };
+    let declares = match kind_of(parent) {
+        "scoped_type_identifier" => true,
+        "struct_item" | "enum_item" | "union_item" | "trait_item" | "type_item"
+        | "associated_type" | "type_parameter" | "type_binding" => {
+            parent.child_by_field_name("name") == Some(node)
+        }
+        _ => false,
+    };
+    if declares
+        || ancestors
+            .iter()
+            .any(|ancestor| kind_of(ancestor) == "use_declaration")
+    {
+        return;
+    }
+    let Some(name) = node_text(node, content).filter(|name| *name != "Self") else {
+        return;
+    };
+    acc.type_names
+        .entry(name.to_owned())
+        .or_insert(index.range(node).start.line + 1);
+}

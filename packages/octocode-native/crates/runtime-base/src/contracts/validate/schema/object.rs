@@ -86,11 +86,9 @@ pub(super) fn object_shape(root: &Value, schema: &Value, depth: usize) -> Option
     Some(format!("{{{}}}", shown.join(", ")))
 }
 
-/// For an object sent a scalar that several of its fields would take (a
-/// rule sent as the text of its pattern, kind or regex): the scalar is one
-/// field's value and nothing says which, so the repair names the fields,
-/// those of every one of the object's `forms`. `None` when no field takes
-/// it.
+/// For an object sent a scalar: name the fields that take it across every
+/// form. A single field is an exact repair only if its object validates;
+/// several fields leave the choice to the caller. `None` when none takes it.
 fn one_field_value(
     root: &Value,
     forms: &[&Value],
@@ -128,10 +126,26 @@ fn one_field_value(
     if fields.is_empty() {
         return Ok(None);
     }
-    let received = super::super::repair::shown(received);
     if let [field] = fields.as_slice() {
-        return Ok(Some(format!("send {{\"{field}\":{received}}}")));
+        let candidate = serde_json::json!({ (*field): received });
+        for form in forms {
+            if super::probe(validate_with_mode(
+                root,
+                form,
+                &mut candidate.clone(),
+                &mut Vec::new(),
+                ValidationMode::ReadOnly,
+            ))? {
+                return Ok(Some(format!("send {candidate}")));
+            }
+        }
+        return Ok(Some(format!(
+            "{} is the value of field {}, but that field alone does not satisfy the object",
+            super::super::repair::shown(received),
+            serde_json::json!(field)
+        )));
     }
+    let received = super::super::repair::shown(received);
     Ok(Some(format!(
         "{received} is the value of one field: send {{\"<field>\":{received}}} with <field> one of {}",
         fields.join(", ")

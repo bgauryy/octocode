@@ -2,6 +2,8 @@
 mod canonical_tests;
 #[cfg(test)]
 mod doc_examples_tests;
+#[cfg(test)]
+mod example_tests;
 mod issues;
 mod literals;
 mod messages;

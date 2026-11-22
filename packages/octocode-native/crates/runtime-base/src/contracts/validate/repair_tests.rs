@@ -706,9 +706,23 @@ fn a_field_of_a_named_tool_says_which_tool_takes_it() {
     }
 }
 
+/// A valid operation whose allowed `view` values differ from the sent one
+/// is not the field at fault: the error names `view`, never the operation.
+#[test]
+fn a_view_the_operation_does_not_take_is_blamed_not_the_operation() {
+    let (_, lines) = answered(
+        "graphQuery",
+        &json!({"queries": [{"operation": "stats", "path": ".", "view": "modules"}]}),
+    );
+    let text = lines.join("\n");
+    assert!(!text.contains("operation: Value"), "{text}");
+    assert!(!text.contains("target"), "{text}");
+    assert!(text.contains("view"), "{text}");
+}
+
 /// The envelope `tool` answers `sent` with, read as the runtime reads it
 /// (repaired, then validated), and its error and detail lines.
-fn answered(tool: &str, sent: &Value) -> (Value, Vec<String>) {
+pub(super) fn answered(tool: &str, sent: &Value) -> (Value, Vec<String>) {
     let sent = &crate::contracts::normalized_input(tool, sent.clone()).0;
     let error = match prepare_rows(tool, sent.clone()) {
         Err(error) => error,
@@ -728,24 +742,38 @@ fn answered(tool: &str, sent: &Value) -> (Value, Vec<String>) {
 
 #[test]
 fn a_missing_lsp_anchor_points_to_search_without_guessing_a_line() {
-    let sent = json!({
-        "queries": [{
-            "operation": "definition",
-            "path": "src/runner.ts",
-            "symbolName": "run"
-        }]
-    });
-    let (_, lines) = answered("lspSearch", &sent);
-    let [line] = lines.as_slice() else {
-        panic!("expected only the anchor guidance, got {lines:?}");
-    };
-    assert!(line.contains("queries.0.line"), "{line}");
-    assert!(line.contains("localSearch or astSearch"), "{line}");
+    for operation in [
+        "definition",
+        "typeDefinition",
+        "implementation",
+        "references",
+        "callers",
+        "callees",
+        "supertypes",
+        "subtypes",
+        "hover",
+    ] {
+        let sent = json!({
+            "queries": [
+                {"operation": "documentSymbols", "path": "src/runner.ts"},
+                {"operation": operation, "path": "src/runner.ts", "symbolName": "run"}
+            ]
+        });
+        let (_, lines) = answered("lspSearch", &sent);
+        let [line] = lines.as_slice() else {
+            panic!("{operation}: expected only the anchor guidance, got {lines:?}");
+        };
+        assert!(line.contains("queries.1.line"), "{operation}: {line}");
+        assert!(
+            line.contains("localSearch or astSearch"),
+            "{operation}: {line}"
+        );
+    }
 }
 
 /// The row of the example `tool` shows beside the rejected `row`, checked to
 /// be a request the tool accepts.
-fn shown_example(tool: &str, row: Value) -> Value {
+pub(super) fn shown_example(tool: &str, row: Value) -> Value {
     let sent = json!({"queries": [row]});
     let (_, lines) = answered(tool, &sent);
     let shown = lines
@@ -760,14 +788,37 @@ fn shown_example(tool: &str, row: Value) -> Value {
 
 #[test]
 fn history_repairs_keep_the_requested_filter_intent() {
-    let row = json!({"operation":"pullRequest","owner":"cli","repo":"cli", "filters":{"state":"open", "isMerged":true}});
-    let repaired = shown_example("ghSearchHistory", row);
-    assert_eq!(repaired["filters"], json!({"isMerged":true}));
+    let row = json!({"operation":"pullRequest","owner":"cli","repo":"cli", "keywords":["fix"], "filters":{"state":"open", "isMerged":true, "author":"octocat", "baseRef":"main"}, "limit":7});
+    let repaired = shown_example("ghSearchHistory", row.clone());
+    let mut expected = row;
+    expected["filters"]
+        .as_object_mut()
+        .unwrap()
+        .shift_remove("state");
+    assert_eq!(repaired, expected);
 
     let sent = json!({"queries":[{"operation":"issue","owner":"cli","repo":"cli", "filters":{"createdAt":{"to":"2025-01-01"}}}]});
     let (_, guidance) = answered("ghSearchHistory", &sent);
     assert!(guidance.iter().any(|line| line.contains("createdAt.to")));
     assert!(!guidance.iter().any(|line| line.starts_with("Example:")));
+}
+
+#[test]
+fn a_merged_state_repair_with_another_invalid_field_offers_no_example() {
+    let sent = json!({"queries":[{
+        "operation":"pullRequest", "owner":"cli", "repo":"cli",
+        "filters":{"state":"open", "isMerged":true}, "limit":-1
+    }]});
+    let (_, lines) = answered("ghSearchHistory", &sent);
+    assert!(
+        lines.iter().any(|line| line.contains("isMerged:true")),
+        "{lines:?}"
+    );
+    assert!(lines.iter().any(|line| line.contains("limit")), "{lines:?}");
+    assert!(
+        !lines.iter().any(|line| line.starts_with("Example:")),
+        "{lines:?}"
+    );
 }
 
 /// The example beside a rejected row keeps the row's own value of each
@@ -1401,8 +1452,8 @@ fn a_one_field_scalar_repair_is_valid_json_and_preserves_the_value() {
             .expect_err("a scalar is not an object");
         let message = &error.issues[0].message;
         let repair = message.split_once("; send ").expect("one exact repair").1;
-        let mut repaired: Value = serde_json::from_str(repair)
-            .unwrap_or_else(|error| panic!("{message}: {error}"));
+        let mut repaired: Value =
+            serde_json::from_str(repair).unwrap_or_else(|error| panic!("{message}: {error}"));
         assert_eq!(repaired, json!({(field): received}));
         super::schema::validate_schema(&schema, &schema, &mut repaired, &mut vec![])
             .expect("the offered object is accepted");
@@ -1420,7 +1471,10 @@ fn a_one_field_scalar_repair_does_not_offer_an_incomplete_object() {
             "properties": {"name": {"type": "string"}, "count": {"type": "integer"}},
             "additionalProperties": false
         });
-        schema.as_object_mut().unwrap().extend(constraint.as_object().unwrap().clone());
+        schema
+            .as_object_mut()
+            .unwrap()
+            .extend(constraint.as_object().unwrap().clone());
         let mut received = json!("chosen");
         let error = super::schema::validate_schema(&schema, &schema, &mut received, &mut vec![])
             .expect_err("a scalar is not an object");
@@ -1468,4 +1522,48 @@ fn a_value_the_example_cannot_place_gets_no_example() {
             "{tool}: {lines:?}"
         );
     }
+}
+
+/// A text the row sent that its field refuses is shown repaired when the
+/// constraint itself says how (a leading `.` is not part of an extension),
+/// not replaced by the field's capitalised name.
+#[test]
+fn a_refused_text_is_shown_repaired_by_its_own_constraint() {
+    let shown = shown_example(
+        "ghSearchCode",
+        json!({"keywords": ["a"], "extensions": [".js", "*.ts"]}),
+    );
+    assert_eq!(shown["extensions"], json!(["js", "ts"]), "{shown}");
+}
+
+/// A value outside an enum that names a boolean sibling of the same object
+/// (`state: "merged"` and `isMerged`) is shown as that sibling, true, with
+/// the refused field left out.
+#[test]
+fn an_enum_value_naming_a_boolean_sibling_is_shown_as_that_sibling() {
+    for state in ["merged", "merge", "Merged"] {
+        let shown = shown_example(
+            "ghSearchHistory",
+            json!({"operation": "pullRequest", "owner": "cli", "repo": "cli",
+                "filters": {"state": state}}),
+        );
+        assert_eq!(
+            shown["filters"],
+            json!({"isMerged": true}),
+            "{state}: {shown}"
+        );
+    }
+}
+
+/// An unknown key inside an object that must hold one of its declared keys
+/// leaves the object in the example with a declared key, not dropped.
+#[test]
+fn an_unknown_key_in_a_required_range_keeps_the_field_with_a_declared_key() {
+    let shown = shown_example(
+        "structureSearch",
+        json!({"operation": "files", "path": ".", "modifiedAt": {"after": "yesterday"}}),
+    );
+    let range = shown["modifiedAt"].as_object().expect("modifiedAt kept");
+    assert!(range.contains_key("from"), "{shown}");
+    assert!(!range.contains_key("after"), "{shown}");
 }

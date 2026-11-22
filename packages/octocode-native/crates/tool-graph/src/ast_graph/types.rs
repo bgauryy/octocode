@@ -154,6 +154,17 @@ impl ArgumentCounts {
     }
 }
 
+/// An item of a module that a Rust path names, with the line of the path.
+/// With `reexport_only` (a call, which is a `calls` edge already) the path adds
+/// a `uses` edge only when it passes a re-export.
+#[derive(Clone, Debug)]
+pub(crate) struct RustPathUse {
+    pub module: String,
+    pub item: String,
+    pub line: u32,
+    pub reexport_only: bool,
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct FileFacts {
     pub source: super::graph::capture::CapturedSource,
@@ -171,11 +182,10 @@ pub(crate) struct FileFacts {
     /// first segment nothing this file binds names, with their lines: a
     /// `use super::*` may bind it from the parent module (see the graph's
     /// `inherit_parent_globs`).
-    pub rust_unbound_paths: Vec<(String, u32)>,
-    /// Rust qualified paths outside call and `use` position (`.map(m::f)`,
-    /// a path in a `macro_rules!` body) that resolved to another file: that
-    /// file, the item the path names in it, and the line.
-    pub rust_path_uses: Vec<(String, String, u32)>,
+    pub rust_unbound_paths: Vec<(String, Option<String>, u32)>,
+    /// Rust qualified paths and calls (`.map(m::f)`, `m::T::new()`, a path in
+    /// a `macro_rules!` body) that resolved to another file.
+    pub rust_path_uses: Vec<RustPathUse>,
     /// The sites projection reads: only reference and unsupported slots and
     /// unsupported groups ([`Self::argument_counts`] has the whole scan).
     pub argument_sites: Vec<octocode_engine::graph::GraphFactArgumentSite>,

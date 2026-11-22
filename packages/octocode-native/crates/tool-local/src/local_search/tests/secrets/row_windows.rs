@@ -58,9 +58,16 @@ fn a_hit_in_a_line_too_long_for_a_row_is_a_window_placed_by_its_column() {
     assert_eq!(rows[0]["column"], hit + 1, "the hit's 1-based column");
     assert_eq!(value, &line[hit - MARGIN..hit + "needle".len() + MARGIN]);
     assert!(found.get("rowPart").is_none() && found.get("pagination").is_none());
-    // The row is evidence: its line and column place the read, and it
-    // states no hint and offers no call.
-    assert_evidence_row_guides_nothing(&found);
+    assert!(found.get("hints").is_none(), "{found}");
+    let reads = related_calls(&found);
+    let [read] = reads.as_slice() else {
+        panic!("one read of the full line: {found}");
+    };
+    assert_eq!(read.tool, "localFetch");
+    assert_eq!(
+        read.query["queries"][0]["ranges"],
+        serde_json::json!([{"startLine":2,"endLine":2}])
+    );
     assert!(
         found.to_string().len() < 1_000,
         "{}",

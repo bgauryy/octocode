@@ -114,6 +114,7 @@ pub(super) fn evaluation_usage(
         requests_planned: None,
         requests_ceiling: None,
         input_tokens_at_most: None,
+        walk_calls: None,
     })
     .unwrap_or(Value::Null)
 }
@@ -169,6 +170,7 @@ fn price_fields(price: Price, tokens: Option<u64>) -> Map<String, Value> {
         requests_planned: Some(count(price.planned)),
         requests_ceiling: price.ceiling.map(count),
         input_tokens_at_most: tokens.map(count),
+        walk_calls: None,
     };
     match serde_json::to_value(typed) {
         Ok(Value::Object(fields)) => fields
@@ -182,16 +184,22 @@ fn price_fields(price: Price, tokens: Option<u64>) -> Map<String, Value> {
 /// States `price` in the row's `usage`, when the row sent a request, and
 /// says so when it sent more than its ceiling ([`past_ceiling`]).
 pub(super) fn priced(row: &mut Value, price: Option<Price>) {
+    let calls = row["usage"]["calls"].as_u64().unwrap_or(0);
+    priced_with_sends(row, price, calls);
+}
+
+/// Checks a row's ceiling against its own sends when shared-call accounting
+/// attributes another count to its usage.
+pub(super) fn priced_with_sends(row: &mut Value, price: Option<Price>, sent: u64) {
     let (Some(price), Some(usage)) = (price, row.get_mut("usage").and_then(Value::as_object_mut))
     else {
         return;
     };
     // A row that ran states its real tokens; the bound is for a price not yet paid.
     usage.extend(price_fields(price, None));
-    let calls = usage.get("calls").and_then(Value::as_u64).unwrap_or(0);
     if let Some(notice) = price
         .ceiling
-        .and_then(|ceiling| past_ceiling(calls, ceiling))
+        .and_then(|ceiling| past_ceiling(sent, ceiling))
     {
         octocode_runtime_base::response::paging::push_warnings(row, [notice]);
     }
@@ -226,6 +234,10 @@ pub(super) fn over_budget(row: &Row, over: &OverBudget, can_resume: bool) -> Val
         room => format!(" and the {room} transient retries it shares"),
     };
     let bound = match over.limit {
+        Limit::Max(max) if row.walk_requests > 0 => format!(
+            "maxRequests leaves {max} after the {} this walk's earlier pages sent",
+            row.walk_requests
+        ),
         Limit::Max(max) => format!("maxRequests is {max}"),
         Limit::Named(named) => format!(
             "without maxRequests a row sends at most one request per source, resource or item it names ({named})"
@@ -255,6 +267,12 @@ pub(super) fn over_budget(row: &Row, over: &OverBudget, can_resume: bool) -> Val
     });
     let mut usage = Map::new();
     usage.insert("calls".into(), json!(over.spent));
+    if row.walk_requests > 0 {
+        usage.insert(
+            "walkCalls".into(),
+            json!(row.walk_requests.saturating_add(over.spent)),
+        );
+    }
     usage.extend(price_fields(over.price, over.price.tokens));
     failure["usage"] = Value::Object(usage);
     octocode_runtime_base::response::result::add_hints(
@@ -264,7 +282,11 @@ pub(super) fn over_budget(row: &Row, over: &OverBudget, can_resume: bool) -> Val
         )],
     );
     if let Some(mut query) = row.query.as_object().cloned() {
-        query.insert("maxRequests".into(), json!(ceiling));
+        // The walk's requests already sent count against `maxRequests`.
+        query.insert(
+            "maxRequests".into(),
+            json!(ceiling.saturating_add(row.walk_requests)),
+        );
         let query = Value::Object(query);
         let call = if can_resume {
             octocode_runtime_base::response::result::Continuation::continued(ToolId::Clasify, query)
@@ -531,6 +553,8 @@ fn view(row: &Row, target: Target) -> Row {
         // A resource is a file read: no tool walk has progress here.
         source_progress: None,
         max_requests: row.max_requests,
+        walk_requests: row.walk_requests,
+        saved_page: None,
         per_hit: row.per_hit,
         collapse: row.collapse,
         retry_units: None,

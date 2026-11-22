@@ -27,6 +27,28 @@ fn graph_discloses_withheld_subtrees_without_guessing_their_file_count() {
     );
 }
 
+/// A dot credential file is withheld whether or not dot entries are walked:
+/// the policy withholds it either way, as structureSearch counts it.
+#[test]
+fn a_dot_credential_file_counts_as_withheld_in_the_default_walk() {
+    let root = octocode_runtime_base::test_support::Fixture::new();
+    root.write("src/main.ts", "export const visible = 1;\n");
+    root.write(".env", "A=1\n");
+    root.write("id_rsa", "k\n");
+    let built = fixture_graph(&root.0, &[]);
+    let diagnostic = built
+        .diagnostics
+        .iter()
+        .find(|diag| diag.code.as_str() == "path-policy-withheld")
+        .expect("withheld files are a disclosed coverage gap");
+    assert!(
+        diagnostic.message.contains("2 credential files"),
+        "{diagnostic:?}"
+    );
+    assert!(!diagnostic.message.contains(".env"), "{diagnostic:?}");
+    assert_eq!(built.facts.len(), 1, "{:?}", built.facts.keys());
+}
+
 #[test]
 fn credential_named_source_directories_are_scanned_and_linked() {
     for name in ["credentials", "source.pem", "source.key", "id_rsa.old"] {

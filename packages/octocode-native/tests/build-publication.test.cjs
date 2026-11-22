@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync, rmSync } = require('node:fs');
+const { mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync, rmSync } = require('node:fs');
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
 
@@ -173,6 +173,66 @@ test('stageFile keeps unchanged bytes on their existing inode', t => {
   assert.notEqual(statSync(destination).ino, first.ino);
   assert.deepEqual(readFileSync(destination), changed);
   assert.deepEqual(readdirSync(root).sort(), ['destination', 'source']);
+});
+
+test('host staging rejects a stale contract before replacing the destination', { skip: process.platform === 'win32' }, t => {
+  const { stageBinary } = require('../scripts/build-native.cjs');
+  const { executableName, getPlatformSuffix } = require('../bin/platform.cjs');
+  const { contractFingerprint } = json(join(__dirname, '..', '..', 'octocode-config', 'contract', 'provenance.json'));
+  const platform = getPlatformSuffix();
+  const root = mkdtempSync(join(tmpdir(), 'octocode-contract-stage-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const target = join(root, 'target');
+  const packageDir = join(root, 'package');
+  const file = executableName('octocode', process.platform);
+  const candidate = join(target, 'debug', file);
+  const destination = join(packageDir, file);
+  mkdirSync(join(target, 'debug'), { recursive: true });
+  mkdirSync(packageDir);
+  const version = '1.2.3';
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({ version }));
+  writeFileSync(destination, 'previous binary');
+  const first = statSync(destination);
+  const fingerprint = contractFingerprint.slice(0, 8);
+  const stale = (fingerprint[0] === '0' ? '1' : '0') + fingerprint.slice(1);
+  const report = suffix => writeFileSync(candidate,
+    `#!/usr/bin/env node\nif (process.argv[2] === '--version') console.log(${JSON.stringify(`octocode ${version}${suffix}`)});\n`,
+    { mode: 0o755 });
+
+  for (const suffix of [`+${stale}`, '']) {
+    report(suffix);
+    assert.throws(() => stageBinary(platform, false, false, target, packageDir), error => {
+      assert.match(error.message, /contract fingerprint mismatch/i);
+      assert.ok(error.message.includes(`octocode ${version}${suffix}`));
+      assert.ok(error.message.includes(`octocode ${version}+${fingerprint}`));
+      return true;
+    });
+    assert.equal(readFileSync(destination, 'utf8'), 'previous binary');
+    assert.equal(statSync(destination).ino, first.ino);
+    assert.deepEqual(readdirSync(packageDir).sort(), [file, 'package.json'].sort());
+  }
+
+  report(`+${fingerprint}`);
+  assert.deepEqual(stageBinary(platform, false, false, target, packageDir), [destination]);
+  assert.deepEqual(readFileSync(destination), readFileSync(candidate));
+});
+
+test('foreign staging copies the target artifact without trying to run it', t => {
+  const { stageBinary } = require('../scripts/build-native.cjs');
+  const { PLATFORMS, executableName, getPlatformSuffix } = require('../bin/platform.cjs');
+  const platform = Object.keys(PLATFORMS).find(name => name !== getPlatformSuffix());
+  const { triple, os } = PLATFORMS[platform];
+  const root = mkdtempSync(join(tmpdir(), 'octocode-foreign-stage-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const built = join(root, triple, 'release');
+  const packageDir = join(root, 'package');
+  const file = executableName('octocode', os);
+  mkdirSync(built, { recursive: true });
+  writeFileSync(join(built, file), 'foreign binary fixture');
+
+  const destination = join(packageDir, file);
+  assert.deepEqual(stageBinary(platform, true, true, root, packageDir), [destination]);
+  assert.equal(readFileSync(destination, 'utf8'), 'foreign binary fixture');
 });
 
 test('verifyBinaryRuns requires the staged binary to report the package version', { skip: process.platform === 'win32' }, t => {

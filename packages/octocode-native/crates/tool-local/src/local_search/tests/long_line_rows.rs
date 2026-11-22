@@ -45,7 +45,7 @@ fn a_hit_in_a_line_past_a_whole_read_is_a_window_with_its_column() {
 fn window_rows_offer_one_read_per_file_with_one_range_per_clipped_line() {
     let root = tempfile::tempdir().expect("fixture");
     fs::create_dir_all(root.path().join("src")).expect("dir");
-    let filler = "z".repeat(LONG_LINE_BYTES);
+    let filler = "z".repeat(octocode_tools_shared::source_view::pagination::MIN_BYTE_PAGE);
     let line = format!("{filler} NEEDLE {filler} NEEDLE {filler}");
     fs::write(
         root.path().join("src/one.txt"),

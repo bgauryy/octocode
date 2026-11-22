@@ -127,6 +127,43 @@ fn a_later_workspace_symbol_page_repeats_no_note_or_lead() {
     assert!(first.get("related").is_some(), "{first}");
 }
 
+/// A first page the server's cap filled without the exact name says the
+/// cap may have cut it and leads to the declarations of that name; a later
+/// page repeats neither.
+#[test]
+fn a_capped_list_without_the_exact_name_leads_to_its_declarations() {
+    let scope = Scope::new("/w".into(), vec!["*.rs".into()]);
+    let mut first = json_fixture(r#"{"kind": "symbols"}"#);
+    capped_without_exact(&mut first, &first_page("settle"), "settle", &scope);
+    let declarations = &octocode_runtime_base::test_support::checks::related_call(
+        &first,
+        "astSearch",
+        |_| true,
+    )["input"]["queries"][0];
+    assert_eq!(declarations["operation"], "symbols", "{first}");
+    assert_eq!(declarations["path"], "/w", "{first}");
+    assert_eq!(
+        declarations["symbolFilter"]["terms"],
+        json!(["settle"]),
+        "{first}"
+    );
+    assert!(
+        first["warnings"].to_string().contains("`settle`"),
+        "{first}"
+    );
+    let later: LspSearchQuery = serde_json::from_value(json!({
+        "operation": "workspaceSymbol", "symbolFuzzy": "settle", "workspaceRoot": "/w",
+        "page": 2, "snapshot": "lsp-v3:abc"
+    }))
+    .expect("query");
+    let mut row = json_fixture(r#"{"kind": "symbols"}"#);
+    capped_without_exact(&mut row, &later, "settle", &scope);
+    assert!(
+        row.get("related").is_none() && row.get("warnings").is_none(),
+        "{row}"
+    );
+}
+
 /// `scope` after its text scan of `name`, as a request runs it before
 /// coverage annotations.
 fn scanned(scope: Scope, name: &str) -> Scope {

@@ -168,6 +168,9 @@ pub(super) fn link_file(
     for path in p.paths {
         linker.path(path);
     }
+    for type_name in p.type_names {
+        linker.type_name(type_name);
+    }
     let FileLink {
         b,
         file,

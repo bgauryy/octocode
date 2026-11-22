@@ -52,7 +52,7 @@ fn restored_gate(row: Value) -> Result<(), String> {
 #[test]
 fn a_classified_walk_past_625_files_pages_on() {
     let Some(NextPage::Call(call)) =
-        next_page(&walk_row(), ToolId::GhSearchCode, &page_two(), true)
+        next_page(&walk_row(), ToolId::GhSearchCode, &page_two(), 0, true)
     else {
         panic!("a resumable runtime continues the walk");
     };
@@ -78,7 +78,7 @@ fn a_classified_walk_past_625_files_pages_on() {
 #[test]
 fn a_runtime_without_saved_work_offers_no_page_it_cannot_resume() {
     assert!(matches!(
-        next_page(&walk_row(), ToolId::GhSearchCode, &page_two(), false),
+        next_page(&walk_row(), ToolId::GhSearchCode, &page_two(), 0, false),
         Some(NextPage::Unsaved)
     ));
 }
@@ -91,6 +91,154 @@ fn private_progress_in_a_callers_source_query_is_named() {
     assert_eq!(private_field(ToolId::GhSearchCode, &query), Some("page"));
     let public = json!({"keywords":["x"],"owner":"o","repo":"r"});
     assert_eq!(private_field(ToolId::GhSearchCode, &public), None);
+}
+
+#[test]
+fn a_classified_walk_preserves_predicates_and_their_question_keys() {
+    use super::super::super::rows::parse_rows;
+
+    let mut query = walk_row().query;
+    query["questions"] = json!({"p1":{"type":"noul","instructions":"Is a hook called?"}});
+    query["predicates"] = json!(["Is the hook conditional?", "Is the hook in test code?"]);
+    let row = parse_rows(&[query.clone()]).pop().expect("predicate row");
+    let Some(NextPage::Call(call)) = next_page(&row, ToolId::GhSearchCode, &page_two(), 5, true)
+    else {
+        panic!("the predicate walk continues");
+    };
+    let next = call.build()["input"]["queries"][0].clone();
+    assert_eq!(next["questions"], query["questions"]);
+    assert_eq!(next["predicates"], query["predicates"]);
+    restored_gate(next.clone()).expect("the saved predicate request passes the input gate");
+    let resumed = parse_rows(&[next]).pop().expect("continued row");
+    assert_eq!(resumed.keys, row.keys);
+    assert_eq!(resumed.questions, row.questions);
+}
+
+#[test]
+fn an_all_quiet_search_page_offers_the_saved_file_scores() {
+    let full = json!({
+        "files":{"src/hooks.ts":{"4":{"hook":{"noul":0.125}}}},
+        "coverage":{"totalUnits":1,"answered":1,"quiet":1}, "usage":{"calls":1},
+    });
+    let mut summary = full.clone();
+    assert!(super::super::offers_saved_details(&walk_row(), &full));
+    super::super::super::view::summarize(&mut summary, false, true);
+    assert!(summary.get("files").is_none());
+    // The warning naming the left-out unit points at the unbilled replay.
+    let warning = summary["warnings"][0].as_str().expect("a left-out warning");
+    assert!(warning.contains("next.details"), "{warning}");
+    assert!(!warning.contains("billed again"), "{warning}");
+    offer_saved_details(&walk_row(), &mut summary, full.clone());
+    let details = &summary["next"]["details"]["input"];
+    let replay = &details["queries"][0];
+    assert_eq!(replay["view"], "details");
+    assert_eq!(replay["savedPage"], full);
+    assert_eq!(summary["usage"], full["usage"]);
+    restored_gate(replay.clone()).expect("a saved details row passes the input gate");
+    octocode_runtime_base::contracts::prepare_saved_rows(ToolId::Clasify.as_str(), details.clone())
+        .expect("the contract admits the saved details row");
+}
+
+#[test]
+fn a_saved_source_page_admits_only_what_the_walk_has_left() {
+    use super::super::super::{admission, rows::parse_rows};
+
+    let (max, spent, needed) = (5, 4, 2);
+    let mut query = walk_row().query;
+    query["maxRequests"] = json!(max);
+    let row = parse_rows(&[query]).pop().expect("bounded source row");
+    let Some(NextPage::Call(call)) =
+        next_page(&row, ToolId::GhSearchCode, &page_two(), spent, true)
+    else {
+        panic!("the bounded walk continues");
+    };
+    let next = call.build()["input"]["queries"][0].clone();
+    restored_gate(next.clone()).expect("the saved budget passes the input gate");
+    let resumed = parse_rows(&[next]).pop().expect("resumed row");
+    assert_eq!(resumed.budget(), Some(max - spent));
+    let first_round = admission::Plan {
+        first: needed,
+        at_most: needed,
+        bounded: true,
+        units: 2,
+        tokens: 0,
+    };
+    let Err(over) = admission::admit(resumed.budget(), first_round, 1, 0) else {
+        panic!("the page cannot fit the remaining request allowance");
+    };
+    let refusal = reply::over_budget(&resumed, &over, true);
+    assert_eq!(
+        refusal["errorCode"],
+        json!(ErrorCode::ClassificationOverBudget)
+    );
+    assert_eq!(refusal["usage"]["calls"], 0);
+    assert_eq!(refusal["usage"]["walkCalls"], spent);
+    let confirmed = refusal["next"]["confirm"]["input"]["queries"][0].clone();
+    restored_gate(confirmed.clone()).expect("the confirmation preserves the cursor's state");
+    let row = parse_rows(&[confirmed]).pop().expect("confirmed row");
+    assert_eq!(row.max_requests, Some(spent + needed));
+    assert_eq!(row.budget(), Some(needed));
+    assert!(admission::admit(row.budget(), first_round, 1, 0).is_ok());
+}
+
+#[test]
+fn a_walk_reports_the_same_requests_its_cursor_carries_after_a_twin_transfer() {
+    use super::super::super::settle_shared_spend;
+
+    let before: u64 = 1;
+    let row = walk_row();
+    let mut carried = Vec::new();
+    let mut outcomes = [0, 2].map(|calls| {
+        let mut judged = shape(
+            &row,
+            Vec::new(),
+            UnitAnswers {
+                answers: Vec::new(),
+                spends: Vec::new(),
+                refused: 0,
+                model: None,
+            },
+        );
+        judged.spends.push(UnitSpend {
+            identity: Some([1; 32]),
+            input_tokens: 0,
+            output_tokens: 0,
+            calls,
+        });
+        judged.price.ceiling = Some(calls.max(1));
+        let spend = walk_spend(&judged, before);
+        judged.walk_spend = Some(spend);
+        let Some(NextPage::Call(next)) =
+            next_page(&row, ToolId::GhSearchCode, &page_two(), spend.total, true)
+        else {
+            panic!("the twin walk continues");
+        };
+        carried.push(next.build()["input"]["queries"][0]["walkRequests"].clone());
+        RowOutcome::Units(Ok(judged))
+    });
+
+    // The second input sent the request. Billing still belongs to the first input.
+    settle_shared_spend(&mut outcomes);
+    for ((outcome, carried), billed) in outcomes.into_iter().zip(carried).zip([2, 0]) {
+        let RowOutcome::Units(Ok(judged)) = outcome else {
+            panic!("an assessed page");
+        };
+        let output = judged.finish();
+        assert_eq!(output["usage"]["calls"], billed);
+        assert_eq!(output["usage"]["walkCalls"], carried);
+        let warnings = output["warnings"]
+            .as_array()
+            .expect("the transfer is disclosed");
+        let warnings = || warnings.iter().filter_map(Value::as_str);
+        assert!(
+            warnings().any(|warning| warning.contains("usage.calls")),
+            "{output}"
+        );
+        assert!(
+            !warnings().any(|warning| warning.contains("past requestsCeiling")),
+            "{output}"
+        );
+    }
 }
 
 /// A page of a tool's rows that has a next page says what the reply's `next`

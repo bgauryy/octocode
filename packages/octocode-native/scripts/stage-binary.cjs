@@ -3,10 +3,18 @@
 const { spawnSync } = require('child_process');
 const { reportsVersion } = require('../bin/fetch-binary.cjs');
 const { randomUUID } = require('crypto');
-const { chmodSync, closeSync, copyFileSync, openSync, readSync, renameSync, rmSync, statSync } = require('fs');
+const { chmodSync, closeSync, copyFileSync, openSync, readFileSync, readSync, renameSync, rmSync, statSync } = require('fs');
+const { join } = require('path');
 
 // Cold Darwin Mach-O validation can run for tens of seconds before user code.
 const SMOKE_TIMEOUT_MS = process.platform === 'darwin' ? 60_000 : 20_000;
+const PROVENANCE = join(__dirname, '..', '..', 'octocode-config', 'contract', 'provenance.json');
+
+/** The contract fingerprint the binary must embed, from generated provenance. */
+function expectedFingerprint() {
+  const { contractFingerprint } = JSON.parse(readFileSync(PROVENANCE, 'utf8'));
+  return contractFingerprint;
+}
 
 function sameFileBytes(left, right, size) {
   const leftFd = openSync(left, 'r');
@@ -36,8 +44,9 @@ function sameFileBytes(left, right, size) {
  * CLI, or a live `octocode mcp` server) can crash that process or leave a
  * stale kernel code-signature cache that SIGKILLs later launches.
  */
-function stageFile(source, destination, { executable = false } = {}) {
-  const staged = `${destination}.${randomUUID()}.tmp`;
+function stageFile(source, destination, { executable = false, verify } = {}) {
+  // Give a temporary Windows smoke candidate an executable name.
+  const staged = `${destination}.${randomUUID()}.tmp${verify && process.platform === 'win32' ? '.exe' : ''}`;
   try {
     copyFileSync(source, staged);
     if (executable && process.platform !== 'win32') chmodSync(staged, 0o755);
@@ -47,7 +56,11 @@ function stageFile(source, destination, { executable = false } = {}) {
     if (existing?.isFile()
         && existing.size === statSync(staged).size
         && (!executable || process.platform === 'win32' || (existing.mode & 0o777) === 0o755)
-        && sameFileBytes(staged, destination, existing.size)) return;
+        && sameFileBytes(staged, destination, existing.size)) {
+      verify?.(destination);
+      return;
+    }
+    verify?.(staged);
     renameSync(staged, destination);
   } finally {
     rmSync(staged, { force: true });
@@ -69,6 +82,7 @@ function verifyBinaryRuns(binaryPath, version, run = args => spawnSync(binaryPat
   if (!reportsVersion(reported, version)) {
     throw new Error(`Binary ${binaryPath} reports '${reported}', expected 'octocode ${version}': it was built before the version bump`);
   }
+  return reported;
 }
 
-module.exports = { SMOKE_TIMEOUT_MS, stageFile, verifyBinaryRuns };
+module.exports = { SMOKE_TIMEOUT_MS, expectedFingerprint, stageFile, verifyBinaryRuns };

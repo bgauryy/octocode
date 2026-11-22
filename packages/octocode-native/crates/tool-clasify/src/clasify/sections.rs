@@ -349,7 +349,7 @@ pub(super) fn run(
 /// Its usage is the page's own, original spend, marked `replayed`: this read
 /// billed nothing, and the tokens the page cost are reported once more here,
 /// where a `details` reader looks for them.
-fn replayed(saved: &Value) -> Value {
+pub(super) fn replayed(saved: &Value) -> Value {
     let mut output = saved.clone();
     if let Some(usage) = output.get_mut("usage").and_then(Value::as_object_mut) {
         usage.insert("replayed".into(), json!(true));

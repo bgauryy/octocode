@@ -15,9 +15,27 @@ pub(super) struct Anchor {
     pub(super) line: u32,
     pub(super) character: u32,
     pub(super) resolved_symbol: Option<Value>,
-    /// Why the request's `line` named no line of the file (past its end),
-    /// for the row's warnings.
+    /// Why the answer is anchored off the request's `line`, for the row's
+    /// warnings.
     pub(super) warning: Option<String>,
+    /// With a warning: the calls that find the line the name is spelled or
+    /// declared on, for the row's `related`.
+    pub(super) related: Vec<Value>,
+}
+
+impl Anchor {
+    /// States on `row` why the answer is anchored off the request's line
+    /// (`warning`), with the calls that find the line meant (`related`):
+    /// evidence the answer may lack, so they are required leads.
+    pub(super) fn disclose(row: &mut Value, warning: Option<String>, related: Vec<Value>) {
+        octocode_runtime_base::response::paging::push_warnings(row, warning);
+        for lead in related {
+            octocode_runtime_base::response::result::attach_related(
+                row,
+                octocode_runtime_base::response::result::required_call(lead),
+            );
+        }
+    }
 }
 
 /// A zero-based LSP position in `path`: where a request, or one of its
@@ -54,6 +72,7 @@ pub(super) fn resolve_anchor(
             line: 0,
             character: 0,
             resolved_symbol: None,
+            related: Vec::new(),
             warning: None,
         });
     }
@@ -100,11 +119,18 @@ pub(super) fn resolve_anchor(
         let warning = lsp_search_query::anchor_line(query)
             .filter(|_| resolved.line_offset != 0)
             .map(|asked| moved_anchor(name, asked, source, &resolved, &symbol));
+        let related = match (&warning, lsp_search_query::path(query)) {
+            (Some(_), Some(asked)) => {
+                super::failure::line_finders(name, &super::render::uri_to_path(asked))
+            }
+            _ => Vec::new(),
+        };
         return Ok(Anchor {
             line: resolved.position.line,
             character: resolved.position.character,
             resolved_symbol: Some(symbol),
             warning,
+            related,
         });
     }
     Err("lspSearch requires symbolName and line".to_owned())
@@ -217,7 +243,7 @@ fn moved_anchor(
         String::new()
     } else {
         format!(
-            "; it is also spelled on line(s) {} (the nearest in resolvedSymbol.alternatives), so this answer may be for another identity: send the line of the one meant",
+            "; it is also spelled on line(s) {}, so this answer may be for another identity: send the line of the one meant",
             listed_lines(&others)
         )
     };

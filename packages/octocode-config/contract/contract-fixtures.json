@@ -4971,8 +4971,8 @@
         {
           "page": 1,
           "operation": "syntaxTree",
-          "path": "src/cache.ts",
-          "namedOnly": false
+          "namedOnly": false,
+          "path": "src/cache.ts"
         }
       ]
     }

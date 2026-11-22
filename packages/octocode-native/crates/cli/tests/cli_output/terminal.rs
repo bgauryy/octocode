@@ -191,7 +191,7 @@ fn graph_build_reports_progress_on_a_terminal_stderr_and_the_result_on_stdout() 
     compact_line(stdout(&piped));
     let (receipt, lines) = build(r#"{"queries":[{"path":"app","refresh":true}]}"#);
     let id = receipt
-        .pointer("/results/0/data/id")
+        .pointer("/results/0/data/graph")
         .and_then(Value::as_str)
         .unwrap_or_else(|| panic!("snapshot id: {receipt}"));
     assert!(
@@ -228,7 +228,7 @@ fn graph_build_reports_progress_on_a_terminal_stderr_and_the_result_on_stdout() 
     // its progress naming the reuse, the result still on stdout.
     let (again_result, again_lines) = build(BUILD_APP);
     let again_id = again_result
-        .pointer("/results/0/data/id")
+        .pointer("/results/0/data/graph")
         .and_then(Value::as_str)
         .unwrap_or_else(|| panic!("snapshot id: {again_result}"));
     assert_eq!(again_id, id, "{again_result}");
@@ -248,7 +248,7 @@ fn graph_build_reports_progress_on_a_terminal_stderr_and_the_result_on_stdout() 
     let (refreshed_result, refreshed_lines) =
         build(r#"{"queries":[{"path":"app","refresh":true}]}"#);
     let refreshed_id = refreshed_result
-        .pointer("/results/0/data/id")
+        .pointer("/results/0/data/graph")
         .and_then(Value::as_str)
         .unwrap_or_else(|| panic!("snapshot id: {refreshed_result}"));
     assert_ne!(refreshed_id, id, "{refreshed_result}");

@@ -129,6 +129,16 @@ pub struct GraphFactPath {
     pub inline_depth: u32,
 }
 
+/// A bare Rust type name a file writes in type or struct-literal position
+/// (`fn f(_: &Saved)`, `Saved { .. }`, `impl Saved`), at its first line. A
+/// module that glob-imports an ancestor may bind it there.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
+#[serde(default, rename_all = "camelCase")]
+pub struct GraphFactTypeName {
+    pub name: String,
+    pub line: u32,
+}
+
 fn is_zero(value: &u32) -> bool {
     *value == 0
 }
@@ -395,6 +405,10 @@ pub struct GraphFactsDocument {
     /// Rust qualified paths outside call and `use` position.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub paths: Vec<GraphFactPath>,
+    /// The distinct bare Rust type names written in type or struct-literal
+    /// position, by first line, in name order.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub type_names: Vec<GraphFactTypeName>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rust_root_unsupported: Option<bool>,
     /// A Go file's package clause: the name a plain import of it binds.

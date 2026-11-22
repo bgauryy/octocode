@@ -290,10 +290,13 @@ pub(super) fn score(
             .iter()
             .filter(|issue| selector_mismatch(issue, depth, selectors))
             .filter(|issue| {
-                issue
-                    .path
-                    .last()
-                    .is_some_and(|field| selectors.names_one(field))
+                issue.path.last().is_some_and(|field| {
+                    selectors.names_one(field)
+                        || issue
+                            .received
+                            .as_ref()
+                            .is_some_and(|sent| selectors.value_names_one(field, sent))
+                })
             })
             .count(),
         issues

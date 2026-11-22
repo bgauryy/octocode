@@ -149,6 +149,75 @@ fn fill<'a>(
     takes.then(|| received.clone())
 }
 
+/// A text sent for an object that requires nothing, set as the first
+/// declared field whose declarations all take a value of its type: the object's
+/// first reading of it, which the caller validates against the whole form.
+/// Several fields may take it (`rule: "identifier"` fits `pattern` and
+/// `kind`); the error line lists them all, and the example shows the first.
+fn in_first_taking_field(schema: &Value, defs: &Value, received: &Value) -> Option<Value> {
+    if !received.is_string() {
+        return None;
+    }
+    super::super::property_order(schema, defs)
+        .into_iter()
+        .find(|name| {
+            // Every part of a composed schema that declares the field must
+            // take the value (a part may forbid the field: `{"not": {}}`).
+            super::super::child_schemas(schema, defs, name)
+                .into_iter()
+                .all(|property| takes_scalar(property, defs, received, 0))
+        })
+        .map(|name| serde_json::json!({ name: received }))
+}
+
+/// Whether `schema`, through references and unions, takes the scalar
+/// `received` by its type or enum.
+fn takes_scalar(schema: &Value, defs: &Value, received: &Value, depth: usize) -> bool {
+    let schema = super::super::resolve_ref(schema, defs);
+    if depth > 4 {
+        return false;
+    }
+    // A schema that states nothing (`additionalProperties: {}`) takes any value.
+    if schema
+        .as_object()
+        .is_some_and(|keywords| keywords.keys().all(|keyword| keyword == "description"))
+    {
+        return true;
+    }
+    if let Some(members) = schema.get("enum").and_then(Value::as_array) {
+        return members.contains(received);
+    }
+    // A text must meet the constraints the schema states on its form.
+    if let Some(text) = received.as_str() {
+        if schema.get("format").is_some() {
+            return false;
+        }
+        if schema["pattern"]
+            .as_str()
+            .is_some_and(|pattern| !super::schema::pattern_matches(pattern, text))
+        {
+            return false;
+        }
+    }
+    let by_type = match schema.get("type").and_then(Value::as_str) {
+        Some("string") => received.is_string(),
+        Some("integer") => received
+            .as_f64()
+            .is_some_and(|number| number.fract() == 0.0),
+        Some("number") => received.is_number(),
+        Some("boolean") => received.is_boolean(),
+        _ => false,
+    };
+    by_type
+        || ["anyOf", "oneOf"].iter().any(|union| {
+            schema[union]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|branch| takes_scalar(branch, defs, received, depth + 1))
+        })
+}
+
 /// The repair for a scalar sent for an object: every object it completes
 /// into a valid value ([`filled`], validated by the caller).
 pub(super) fn send_instead(candidates: &[Value], received: &Value) -> Option<String> {
@@ -217,7 +286,12 @@ pub(super) fn repaired_value(schema: &Value, defs: &Value, received: &Value) -> 
         return Some(read);
     }
     let schema = super::super::resolve_ref(schema, defs);
-    match schema.get("type").and_then(Value::as_str)? {
+    // A schema composed of object parts (`allOf`) has no `type` of its own.
+    let kind = schema
+        .get("type")
+        .and_then(Value::as_str)
+        .or_else(|| (!super::super::property_order(schema, defs).is_empty()).then_some("object"))?;
+    match kind {
         "object" => {
             if selection_overflow(schema, defs, received).is_some() {
                 return None;
@@ -230,7 +304,7 @@ pub(super) fn repaired_value(schema: &Value, defs: &Value, received: &Value) -> 
                 };
                 return Some(serde_json::json!({"include": values}));
             }
-            filled(schema, defs, received)
+            filled(schema, defs, received).or_else(|| in_first_taking_field(schema, defs, received))
         }
         "string" => match received {
             Value::Number(_) | Value::Bool(_) => Some(Value::String(received.to_string())),

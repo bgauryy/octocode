@@ -231,6 +231,15 @@ impl Linker<'_> {
         None
     }
 
+    /// Whether a name bound through the file's glob imports reaches `dst`
+    /// through a re-export of a glob's module.
+    pub(crate) fn glob_hops(&self, bindings: &FileBindings, name: &str, dst: u32) -> bool {
+        bindings.wildcards.iter().any(|glob| {
+            let (found, hopped) = self.resolver.exported(glob, name);
+            hopped && found.contains(&dst)
+        })
+    }
+
     fn imported(&self, site: &Site) -> Option<Linked> {
         let mut targets = Vec::new();
         let mut uncertain = false;

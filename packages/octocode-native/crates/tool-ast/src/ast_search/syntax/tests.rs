@@ -135,7 +135,7 @@ fn recovered_trees_continue_beyond_the_materialized_chunk_without_repricing_old_
     let mut previous = 0;
     let before = pricing::priced_nodes();
     loop {
-        let query: AstSearchQuerySyntaxTree = serde_json::from_value(json!({
+        let query: AstSearchQuerySyntaxTreePath = serde_json::from_value(json!({
             "operation":"syntaxTree", "path":path, "page":page, "includeProvenance":true,
         }))
         .expect("query");
@@ -143,8 +143,15 @@ fn recovered_trees_continue_beyond_the_materialized_chunk_without_repricing_old_
             &octocode_runtime_base::execution::cancel::NeverCancel,
             &stop,
         );
-        read_page(&query, &source, budget, &snapshot, &mut maps, &NeverCancel)
-            .expect("continued tree");
+        read_page(
+            SyntaxQuery::File(&query),
+            &source,
+            budget,
+            &snapshot,
+            &mut maps,
+            &NeverCancel,
+        )
+        .expect("continued tree");
         let walked = WALKS
             .get(&snapshot, &budget.to_string(), std::sync::Arc::clone)
             .expect("bounded walk memo");
@@ -178,7 +185,7 @@ fn recovered_trees_continue_beyond_the_materialized_chunk_without_repricing_old_
                 .collect::<Vec<_>>();
             let expected_windows = walked.windows.clone();
             let total = walked.r.total_nodes;
-            let late: AstSearchQuerySyntaxTree = serde_json::from_value(json!({
+            let late: AstSearchQuerySyntaxTreePath = serde_json::from_value(json!({
                 "operation":"syntaxTree", "path":path, "page":expected_windows.len(), "includeProvenance":true,
             }))
             .expect("late query");
@@ -188,8 +195,15 @@ fn recovered_trees_continue_beyond_the_materialized_chunk_without_repricing_old_
                 &octocode_runtime_base::execution::cancel::NeverCancel,
                 &stop,
             );
-            let cold = read_page(&late, &source, budget, &snapshot, &mut maps, &NeverCancel)
-                .expect("cold late page");
+            let cold = read_page(
+                SyntaxQuery::File(&late),
+                &source,
+                budget,
+                &snapshot,
+                &mut maps,
+                &NeverCancel,
+            )
+            .expect("cold late page");
             assert_eq!(
                 cold.r
                     .nodes
@@ -231,15 +245,16 @@ fn rendered_pages(text: &str, budget: usize) -> Vec<Value> {
     let snapshot = path.to_string_lossy().into_owned();
     let mut pages = Vec::new();
     loop {
-        let query: AstSearchQuerySyntaxTree = serde_json::from_value(json!({
+        let query: AstSearchQuerySyntaxTreePath = serde_json::from_value(json!({
             "operation":"syntaxTree", "path":path, "page":pages.len() + 1,
         }))
         .expect("query");
         let mut maps = super::super::source::mapping_budget(&NeverCancel, &stop);
+        let query = SyntaxQuery::File(&query);
         let page =
-            read_page(&query, &source, budget, &snapshot, &mut maps, &NeverCancel).expect("page");
+            read_page(query, &source, budget, &snapshot, &mut maps, &NeverCancel).expect("page");
         let more = page.more;
-        pages.push(render_tree_page(&query, Some("tree.py"), &page, &snapshot));
+        pages.push(render_tree_page(query, Some("tree.py"), &page, &snapshot));
         if !more {
             return pages;
         }
@@ -349,14 +364,15 @@ fn a_walk_cut_by_its_deadline_stays_a_terminal_limit_with_its_recovery() {
         node_chunk: TEST_CHUNK,
     };
     let snapshot = format!("{}#deadline", path.to_string_lossy());
-    let query: AstSearchQuerySyntaxTree =
+    let query: AstSearchQuerySyntaxTreePath =
         serde_json::from_value(json!({"operation":"syntaxTree", "path":path})).expect("query");
+    let query = SyntaxQuery::File(&query);
     let mut page =
-        read_page(&query, &source, 131_072, &snapshot, &mut maps, &NeverCancel).expect("page");
+        read_page(query, &source, 131_072, &snapshot, &mut maps, &NeverCancel).expect("page");
     for diagnostic in &mut page.r.diagnostics {
         diagnostic.code = "syntaxTree.budget.deadline".into();
     }
-    let row = render_tree_page(&query, Some("tree.py"), &page, &snapshot);
+    let row = render_tree_page(query, Some("tree.py"), &page, &snapshot);
     assert_eq!(
         row["partialReasons"],
         json_fixture(r#"["deadline"]"#),

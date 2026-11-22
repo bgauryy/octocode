@@ -297,6 +297,7 @@ fn unanswered_units_past_the_array_bound_take_more_retries() {
         spends: Vec::new(),
         refused: 0,
         deciding: Vec::new(),
+        walk_spend: None,
         price: reply::Price {
             planned: 3,
             ceiling: Some(6),

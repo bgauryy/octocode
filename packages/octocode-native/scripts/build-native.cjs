@@ -28,7 +28,7 @@ const { parseArgs } = require('util');
 const { join, relative } = require('path');
 const { PLATFORMS, executableName, getPlatformSuffix } = require('../bin/platform.cjs');
 const { slotCount, withSlot } = require('./build-slot.cjs');
-const { stageFile, verifyBinaryRuns } = require('./stage-binary.cjs');
+const { expectedFingerprint, stageFile, verifyBinaryRuns } = require('./stage-binary.cjs');
 const { finishCargoRun, isCargoProgress, parseCargoLine } = require('./target-hygiene.cjs');
 
 const ROOT = join(__dirname, '..');
@@ -208,21 +208,26 @@ function hostsCommand(platform, { release = false, check = false }, dir) {
   return { command, args, env };
 }
 
-function stageBinary(platform, explicitTarget, release, dir) {
+function stageBinary(platform, explicitTarget, release, dir, packageDir = join(ROOT, 'npm', platform)) {
   const profile = release ? 'release' : 'debug';
   const built = explicitTarget ? join(dir, PLATFORMS[platform].triple, profile) : join(dir, profile);
-  const packageDir = join(ROOT, 'npm', platform);
   mkdirSync(packageDir, { recursive: true });
   const file = executableName('octocode', PLATFORMS[platform].os);
+  const source = join(built, file);
   const destination = join(packageDir, file);
-  stageFile(join(built, file), destination, { executable: true });
+  let verify;
+  if (platform === hostPlatform) {
+    const { version } = require(join(packageDir, 'package.json'));
+    const expected = `octocode ${version}+${expectedFingerprint().slice(0, 8)}`;
+    verify = candidate => {
+      const reported = verifyBinaryRuns(candidate, version);
+      if (reported !== expected) {
+        throw new Error(`Binary contract fingerprint mismatch for ${source}: reports '${reported}', expected '${expected}' from generated provenance. Rebuild the native host against the current contract.`);
+      }
+    };
+  }
+  stageFile(source, destination, { executable: true, verify });
   return [destination];
-}
-
-function verifyStaged(platform, staged) {
-  if (platform !== hostPlatform) return;
-  const { version } = require(join(ROOT, 'npm', platform, 'package.json'));
-  for (const artifact of staged) verifyBinaryRuns(artifact, version);
 }
 
 /**
@@ -256,7 +261,6 @@ async function buildPlatform(platform, explicitTarget, options) {
   if (options.check) return;
 
   const staged = stageBinary(platform, explicitTarget, options.release, dir);
-  verifyStaged(platform, staged);
   for (const artifact of staged) console.log(`[${label}] staged ${relative(ROOT, artifact)}`);
   const drop = buildDirToDrop(platform, explicitTarget, options);
   if (drop) {
@@ -311,4 +315,4 @@ async function main() {
 }
 
 if (require.main === module) main();
-else module.exports = { GLIBC_FLOOR, MACOS_FLOOR, buildDirToDrop, hostsCommand, targetDir };
+else module.exports = { GLIBC_FLOOR, MACOS_FLOOR, buildDirToDrop, hostsCommand, stageBinary, targetDir };

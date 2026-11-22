@@ -175,6 +175,8 @@ Browses a tree, lists refs, or reports languages.
 
 Reads part of a file at a known path. Pass `ref` as the commit SHA from earlier results to cite a fixed revision. Views match [`localFetch`](#localfetch).
 
+When you know the declaration, use `matchString` with `block:true` to read its enclosing source directly. Use `view:"symbols"` to discover declarations in the file. For a complete outline, use the default [response window](TOOL_DATA_CONTRACT.md#pages-and-size) unless your client needs smaller pages. A smaller target can require more calls to read the same entries. Follow any returned `next` until the selection is complete.
+
 ### `ghSearchHistory`
 
 Finds pull requests, issues or commits, for why, when or who questions.

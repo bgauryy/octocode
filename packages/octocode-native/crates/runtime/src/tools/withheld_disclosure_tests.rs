@@ -36,7 +36,7 @@ fn a_directory_holding_withheld_files_is_not_disclosed_as_the_file() {
         assert_eq!(at[0].count, 1);
         assert_eq!(
             at[0].reason.as_deref(),
-            Some(WithheldKind::CredentialFile.reason())
+            Some(WithheldKind::CredentialFile.reason().as_ref())
         );
         assert!(
             entries.iter().all(|entry| !entry.path.ends_with(held)),
@@ -47,18 +47,20 @@ fn a_directory_holding_withheld_files_is_not_disclosed_as_the_file() {
         entries.iter().map(|entry| entry.count).sum::<usize>(),
         withheld.total()
     );
-    // The default view groups the two holders at their common directory,
-    // preserving the count and saying that individual paths were grouped.
+    // The default view keeps each holder its own entry too: a withheld entry
+    // names where its files sit, never a common ancestor of two holders.
     let shown = octocode_tools_shared::leads::skipped::skipped_paths(entries, false, false)
         .expect("skipped paths")
         .expect("some skipped");
-    assert_eq!(
-        serde_json::to_value(&shown).expect("shown paths"),
-        serde_json::json!({
-            "entries": [{"cause": "withheld", "count": withheld.total(),
-                "path": walked, "reason": WithheldKind::CredentialFile.reason()}]
-        })
-    );
+    let mut paths = shown
+        .entries
+        .iter()
+        .map(|entry| (entry.path.as_str().to_owned(), entry.count))
+        .collect::<Vec<_>>();
+    paths.sort();
+    let mut expected_paths = vec![(walked.clone(), None), (held_at.clone(), None)];
+    expected_paths.sort();
+    assert_eq!(paths, expected_paths, "{shown:?}");
     // The detailed view still exposes both holder directories exactly once,
     // never the withheld files themselves, with the same total count.
     let detailed = octocode_tools_shared::leads::skipped::skipped_paths(

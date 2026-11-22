@@ -291,7 +291,10 @@ fn a_file_path_offers_a_call_that_answers() {
         let whole = run(ToolId::GraphBuild, json_fixture(r#"{"path": "ws"}"#));
         let pinned = json!({"operation":"stats","path":"ws/app/a.ts","graph":whole["graph"]});
         let lead = repair_of(&run(ToolId::GraphQuery, pinned), "ws");
-        assert_eq!(lead["input"]["queries"][0]["graph"], whole["graph"], "{lead}");
+        assert_eq!(
+            lead["input"]["queries"][0]["graph"], whole["graph"],
+            "{lead}"
+        );
         answers(&lead);
     }
 }

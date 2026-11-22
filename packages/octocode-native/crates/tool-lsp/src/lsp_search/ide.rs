@@ -166,7 +166,7 @@ impl Request<'_> {
             &bridge,
             anchor.resolved_symbol,
         );
-        octocode_runtime_base::response::paging::push_warnings(&mut row, anchor.warning);
+        super::anchor::Anchor::disclose(&mut row, anchor.warning, anchor.related);
         let mut row = super::with_next(query, row);
         if lsp_search_query::snapshot(query).is_none()
             && super::continuations::declares_continuation(&mut row)?

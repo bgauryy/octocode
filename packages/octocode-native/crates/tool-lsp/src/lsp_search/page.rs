@@ -386,7 +386,7 @@ pub(super) async fn run_target(
         anchor.resolved_symbol,
         &|| cancel.check().is_err(),
     );
-    octocode_runtime_base::response::paging::push_warnings(&mut result, anchor.warning);
+    super::anchor::Anchor::disclose(&mut result, anchor.warning, anchor.related);
     if answers_sites {
         failure::flag_answer_gaps(&mut result, query, &scope, paths);
     }

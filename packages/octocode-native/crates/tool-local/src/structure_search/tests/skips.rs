@@ -181,6 +181,37 @@ fn files_empty_withheld_not_duplicated() {
     );
 }
 
+/// A withheld policy directory is disclosed under the directory holding
+/// it, like a withheld file, never under the walked root.
+#[test]
+fn a_withheld_policy_directory_is_disclosed_under_its_holder() {
+    let root = Fixture::new();
+    std::fs::create_dir_all(root.0.join("a/.ssh")).expect("ssh");
+    std::fs::write(root.0.join("a/.ssh/id_rsa"), "k\n").expect("key");
+    std::fs::create_dir_all(root.0.join("c/d/.aws")).expect("aws");
+    std::fs::write(root.0.join("c/d/.aws/credentials"), "k\n").expect("aws key");
+    std::fs::write(root.0.join("b.rs"), "x\n").expect("other");
+    let out = run(
+        &root.0,
+        json!({"operation":"files","path":root.0,"includeHidden":true}),
+    )
+    .expect("files");
+    let mut held = skipped_reasons(&out, "withheld")
+        .into_iter()
+        .map(|(reason, _)| reason)
+        .zip(skipped_names(&out, "withheld"))
+        .collect::<Vec<_>>();
+    held.sort();
+    assert_eq!(
+        held,
+        [
+            ("security-policy dir .aws/".to_owned(), "d".to_owned()),
+            ("security-policy dir .ssh/".to_owned(), "a".to_owned()),
+        ],
+        "{out}"
+    );
+}
+
 /// A paged tree states the walk's withheld entries once, on its first page,
 /// like its summary; later pages carry only their own warnings.
 #[test]

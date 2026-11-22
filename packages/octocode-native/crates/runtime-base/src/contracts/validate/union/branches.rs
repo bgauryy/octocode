@@ -243,6 +243,13 @@ pub(super) fn selector_fields(root: &Value, branches: &[Value]) -> Selectors {
             selectors.naming.push(field.to_owned());
         }
         selectors.fields.push(field.to_owned());
+        selectors.literal_sets.push((
+            field.to_owned(),
+            distinct
+                .iter()
+                .map(|set| set.iter().map(|literal| (*literal).clone()).collect())
+                .collect(),
+        ));
     }
     selectors
 }
@@ -253,6 +260,8 @@ pub(super) fn selector_fields(root: &Value, branches: &[Value]) -> Selectors {
 pub(super) struct Selectors {
     fields: Vec<String>,
     naming: Vec<String>,
+    /// Per selector, the literal set each distinct form pins it to.
+    literal_sets: Vec<(String, Vec<Vec<Value>>)>,
 }
 
 impl Selectors {
@@ -262,6 +271,27 @@ impl Selectors {
     /// as `asc` alone) may be the value's error within its own form.
     pub(super) fn names_one(&self, field: &str) -> bool {
         self.naming.iter().any(|named| named == field)
+    }
+
+    /// Whether `value`, sent for `field`, is the one literal a single form
+    /// pins the field to (`operation: "stats"` beside forms sharing other
+    /// operations): the row is of that form by that value alone, so a
+    /// mismatch on it weighs like one on a field that names a form by
+    /// itself. A value merely inside a form's larger set (`order: "desc"`
+    /// beside `asc` alone) is that form's own value, not its name.
+    pub(super) fn value_names_one(&self, field: &str, value: &Value) -> bool {
+        self.literal_sets
+            .iter()
+            .filter(|(name, _)| name == field)
+            .any(|(_, sets)| {
+                let mut holding = sets
+                    .iter()
+                    .filter(|set| set.iter().any(|literal| equivalent(value, literal)));
+                matches!(
+                    (holding.next(), holding.next()),
+                    (Some(set), None) if set.len() == 1
+                )
+            })
     }
 }
 

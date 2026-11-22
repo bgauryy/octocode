@@ -33,6 +33,44 @@ fn rust_paths_outside_calls_and_uses_are_facts() {
     );
 }
 
+/// A bare type name written in type or struct-literal position is a fact,
+/// by first line; declarations, generic parameters, `Self` and scoped types
+/// are not.
+#[test]
+fn rust_bare_type_names_in_type_position_are_facts() {
+    let source = "struct Holder<T> {\n    field: FieldTy,\n    param: T,\n}\nenum Kind {\n    A(VariantTy),\n}\ntrait Tr<U: Bound> {\n    type Out;\n    fn go(&self) -> Self;\n}\nimpl Holder<GenericArg> {\n    fn f(_: &ParamTy) -> RetTy {\n        let _ = LitTy { a: 1 };\n        let _: a::Scoped = todo!();\n        todo!()\n    }\n}\nimpl Tr<()> for ImplTy {}\nfn g<W>(_: Option<Arc<Nested>>, _: W) -> impl Iterator<Item = ItemTy> {}\n";
+    let facts = extract_graph_facts_with_metadata(source, "src/lib.rs")
+        .expect("graph facts")
+        .facts;
+    let names = facts
+        .type_names
+        .iter()
+        .map(|t| (t.name.as_str(), t.line))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        [
+            ("Arc", 20),
+            ("Bound", 8),
+            ("FieldTy", 2),
+            ("GenericArg", 12),
+            ("Holder", 12),
+            ("ImplTy", 19),
+            ("ItemTy", 20),
+            ("Iterator", 20),
+            ("LitTy", 14),
+            ("Nested", 20),
+            ("Option", 20),
+            ("ParamTy", 13),
+            ("RetTy", 13),
+            ("T", 3),
+            ("Tr", 19),
+            ("VariantTy", 6),
+            ("W", 20),
+        ]
+    );
+}
+
 /// A restricted visibility names where an item is visible, not a use of
 /// that module: `pub(in crate::local_search)` records no path.
 #[test]

@@ -86,7 +86,24 @@ use octocode_tools_shared::import_resolution::{aliases, js_paths, paths};
 /// 44: each such file lists the declared names its unextracted groups write
 /// (`null`: any name), so symbol impact keeps the importer only when one
 /// names an affected symbol.
-const ANALYSIS_VERSION: u32 = 44;
+/// 45: a Rust path whose first segment a `use super::*` binds through a
+/// parent that itself only globs its own parent binds through that
+/// ancestor's `use`, so the file links to what the path names; a bare Rust
+/// type name in type or struct-literal position binds through such globs too.
+/// A Rust path that reaches its item through a re-export is a `uses` edge
+/// with detail `reexport`, so its file is a dependent of the item's file.
+/// 46: the glob walk also follows a parent's `use child::*` to the child's
+/// declarations and bound names. A Rust call or path drops its turbofish
+/// (`m::f::<T>()` is `m::f`) and, headed by a module, uses the item it names
+/// (`format::Reader::open()` uses `Reader`), so a call through a re-export
+/// makes its file a dependent of the declaring file. The same holds for a
+/// path whose module a `use super::*` chain binds (`format::Reader::open()`
+/// two globs below the `mod format;`), and for a bare call a glob import binds
+/// to a declaration its module re-exports: the file uses the re-export. A
+/// child's `pub(super)` or `pub(crate)` item passes through the glob as a
+/// `pub` one does, and a file's own `use child::*` binds the names the
+/// child passes on as a `use super::*` binds its parent's.
+const ANALYSIS_VERSION: u32 = 46;
 
 /// graphBuild's and graphQuery's recovery for the shared response stages.
 pub struct Output;
